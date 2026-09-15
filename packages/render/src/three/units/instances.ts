@@ -428,7 +428,7 @@ export interface UnitInstanceBuffers {
   /**
    * Silhouette colour slot (`silhouette.ts`'s `silhouetteSideIndex`), one
    * per instance. OPTIONAL, on the same "only one consumer populates it"
-   * precedent `MeshData.litColors`/`sway` already set in `terrain/types.ts`:
+   * precedent `MeshData.normals`/`sway` already set in `terrain/types.ts`:
    * the body material never declares an `aSide` attribute, so a caller with
    * no silhouette mesh -- every existing test fixture included -- correctly
    * passes nothing and writes nothing.

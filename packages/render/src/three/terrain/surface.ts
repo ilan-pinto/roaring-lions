@@ -207,9 +207,11 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *
  * **What is NOT exempt, and is still asserted directly:**
  *
- *  1. Every vertex colour `buildGround` emits is still a palette entry, and
- *     so is every `litColors` entry. `ground.test.ts` and
- *     `terrain-parity.test.ts` both still walk them, unchanged. The tone
+ *  1. Every vertex colour `buildGround` emits is still a palette entry.
+ *     `ground.test.ts` and `terrain-parity.test.ts` both still walk them,
+ *     unchanged. (A parallel `litColors` array was asserted here too until
+ *     2026-09-15; nothing had read it since the ramp-shift muzzle flash
+ *     became a `PointLight`, and it is deleted.) The tone
  *     pipeline (`tones.ts`) was not touched by this work at all -- and that
  *     includes cover, which `groundTone` still does not branch on. Making a
  *     cover tier read as a tier is done with texture CONTRAST, not with a
@@ -278,7 +280,7 @@ export const SURFACE_SHADING_EXEMPTION = {
   what: "the drawn ground's six sampled albedos, applied as a ratio to each image's own mean, at the fragment stage only -- open ground (desert_sand_tile on arid, green_basin_tile on green), a ^ ridge (rock_ground_tile), an r road (road_track_tile), a 1/2/3 cover tile (rough_scrub_tile), an o grove floor (orchard_floor_tile) and an n rocky knoll (knoll_scree_tile)",
   why: 'material and relief are legible; since 2026-09-14 the ground is lit and shadowed by the scene sun like every other object, so the shade term is no longer an exemption from anything',
   notExempt: [
-    'every vertex colour and litColor emitted by buildGround (still asserted palette-only), cover tiers included -- groundTone still does not branch on cover',
+    'every vertex colour emitted by buildGround (still asserted palette-only), cover tiers included -- groundTone still does not branch on cover',
     'building footprints (no albedo, so groundTone underBuilding wash still owns that ground)',
     "a knoll's four stone blobs and their highlights (scatter marks, still quantised onto the palette -- the scree tile is the bed they sit on)",
   ],

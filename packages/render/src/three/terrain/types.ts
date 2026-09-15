@@ -16,25 +16,6 @@ export interface MeshData {
   colors: Float32Array;
   indices: Uint32Array;
   /**
-   * rgb triples in 0..1, one per vertex, same length and vertex order as
-   * `colors` -- each vertex's own tone shifted toward its ramp's lightest
-   * step (`tones.ts`'s `rampNeighbor`), for the muzzle-flash effect
-   * (`../flash-light.ts`'s own top comment).
-   * OPTIONAL: only `ground.ts`'s `buildGround` computes this today (see its
-   * own doc comment for why scatter/grove/residual/building-decor meshes
-   * do not).
-   *
-   * **Nothing consumes it any more, and the aliasing this comment used to
-   * describe is gone.** `toGeometry` (`mesh.ts`) uploaded a `litColor` GPU
-   * attribute, aliased to `colors` when this was absent, for the ramp-shift
-   * muzzle flash. Since 2026-09-14 a flash is a pooled `PointLight`
-   * (`units/flash-light.ts`) and no terrain material declares the attribute.
-   * The field is still built and still asserted on-palette by
-   * `ground.test.ts`; retiring it is a separate change from the one that
-   * stopped reading it.
-   */
-  litColors?: Float32Array;
-  /**
    * xyz triples, one per vertex, same length and vertex order as `colors` --
    * the world-space surface normal the scene sun shades this surface by.
    *
@@ -175,8 +156,8 @@ export interface MeshData {
    * every other terrain sub-mesh draws through) and `GroundMaterial` never
    * declare a `sway` attribute, so leaving this absent is a correct no-op
    * for ground/scatter/residual/building-decor meshes, the same "OPTIONAL,
-   * only one builder populates it" shape `litColors` above already
-   * establishes. OPTIONAL: only `grove.ts`'s `buildGroves` computes this
+   * only one builder populates it" shape `normals` and the albedo masks
+   * above already establish. OPTIONAL: only `grove.ts`'s `buildGroves` computes this
    * today, on tree trunk/crown vertices only -- a grove tile's own flat
    * ground shadow mark leaves it at the implicit zero-fill, so wind never
    * moves a shadow off the ground it is cast on.

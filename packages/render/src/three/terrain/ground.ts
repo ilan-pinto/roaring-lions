@@ -19,8 +19,9 @@
  * the authority; this file's job is to keep to it). Concretely, and this
  * file is where it is kept:
  *
- *  - **Every vertex colour this builder emits is still a palette entry**,
- *    and so is every `litColors` entry. `tones.ts` was not touched. Colour
+ *  - **Every vertex colour this builder emits is still a palette entry.**
+ *    `tones.ts` was not touched (beyond `rampNeighbor`'s deletion on
+ *    2026-09-15, which served only the retired `litColors` array). Colour
  *    is still decided ONCE PER TILE and written identically to every vertex
  *    of that tile, which is also why vertices are still not shared BETWEEN
  *    tiles: a shared vertex would interpolate a road tone into the open
@@ -44,7 +45,7 @@
  * `open-ground` and `vehicle` golden scenarios are expected to hold their
  * noise floor across this change while `relief` moves wholesale.
  */
-import { composite, quantise, groundTone, rampNeighbor, PALETTE_HEXES } from './tones';
+import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import {
   DECOR_GROVE,
   DECOR_KNOLL,
@@ -68,21 +69,6 @@ import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
 export type { MeshData, TerrainInput };
-
-/** How many ramp steps `buildGround`'s `litColors` output shifts a tone
- *  toward its lightest step -- see this file's own `buildGround` doc
- *  comment. One step is deliberately modest: terrain's own "ramp" per tile
- *  has no fixed length to reason about -- a tone can be one step from its
- *  ramp's own lightest entry already, and `rampNeighbor` clamps rather than
- *  wrapping, so asking for more than 1 buys nothing on a short ramp while
- *  still costing the same lookup on a long one.
- *
- *  Stale since 2026-09-14 in one respect worth stating: this used to be
- *  contrasted with a hull's `toonRampMaterial` shifting up to
- *  `MAX_SHIFT_STEPS` bands, and both that material and the ramp-shift flash
- *  are deleted -- a muzzle flash is a pooled `PointLight` now. Nothing reads
- *  `litColors`; see `types.ts`'s own field comment. */
-const GROUND_LIT_STEPS = 1;
 
 /** Alphas Pixi composites the two visible side faces at (`renderer.ts:1421`,
  *  `:1432`) -- different on purpose, so a ridge reads as mass rather than a
@@ -334,50 +320,33 @@ function pushAlbedo(into: AlbedoArrays, a: Albedo, times: number): void {
 }
 
 /**
- * Builds the ground mesh's `positions`/`colors`/`normals`/`indices`, its two
- * albedo masks, plus `litColors` (same length and vertex order as `colors`)
- * -- each vertex's tone recomputed through the IDENTICAL
- * `groundTone`/`composite`/`quantise` pipeline, fed a "lit" `tones`/
- * `background` (every source tone this module reads -- `open`, `road`,
- * `rock`, `underBuilding`, plus `background` itself -- shifted
- * `GROUND_LIT_STEPS` toward its own ramp's lightest entry via `rampNeighbor`,
- * computed ONCE here, not per vertex). Reusing `groundTone` unchanged for the
- * lit pass (rather than a second, hand-written variant) is what keeps the two
- * outputs from silently drifting apart -- whatever `groundTone`'s own
- * branching does for the normal tones, it does identically for the lit ones,
- * by construction. `litColors` is still always a `quantise`d, on-palette
- * entry: `rampNeighbor` only ever returns another member of a named ramp (or
- * its input unchanged), and `quantise` runs on the composite the same way it
- * always did.
+ * Builds the ground mesh's `positions`/`colors`/`normals`/`indices` and its
+ * albedo masks.
+ *
+ * It used to build a parallel `litColors` array as well -- every vertex's
+ * tone recomputed through this same pipeline against a ramp-shifted "lit"
+ * tone set, for the toon era's ramp-shift muzzle flash. That flash has been
+ * a pooled `THREE.PointLight` since 2026-09-14 (`../flash-light.ts`),
+ * `toGeometry` stopped uploading the attribute in the same change, and the
+ * array was deleted on 2026-09-15 along with `tones.ts`'s `rampNeighbor`,
+ * which nothing else called. Every vertex colour emitted here is still a
+ * `quantise`d palette entry, and `surface.ts`'s `SURFACE_SHADING_EXEMPTION`
+ * still says so.
  */
 export function buildGround(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
   const { width, height } = input;
   const surface = buildTerrainSurface(input);
   const positions: number[] = [];
   const colors: number[] = [];
-  const litColors: number[] = [];
   const normals: number[] = [];
   const albedo: AlbedoArrays = { sand: [], rock: [], road: [], roadAxis: [], scrub: [], grove: [], knoll: [] };
   const groundUv: number[] = [];
   const indices: number[] = [];
 
-  const litTones: TerrainTones = {
-    ...tones,
-    open: rampNeighbor(tones.open, GROUND_LIT_STEPS),
-    road: rampNeighbor(tones.road, GROUND_LIT_STEPS),
-    rock: rampNeighbor(tones.rock, GROUND_LIT_STEPS),
-    underBuilding: rampNeighbor(tones.underBuilding, GROUND_LIT_STEPS),
-  };
-  const litBackground = rampNeighbor(background, GROUND_LIT_STEPS);
-
   const faceEastHex = quantise(composite(background, tones.rock, FACE_ALPHA_EAST), PALETTE_HEXES);
   const faceSouthHex = quantise(composite(background, tones.rock, FACE_ALPHA_SOUTH), PALETTE_HEXES);
   const faceEastColor = hexToUnit(faceEastHex);
   const faceSouthColor = hexToUnit(faceSouthHex);
-  const litFaceEastHex = quantise(composite(litBackground, litTones.rock, FACE_ALPHA_EAST), PALETTE_HEXES);
-  const litFaceSouthHex = quantise(composite(litBackground, litTones.rock, FACE_ALPHA_SOUTH), PALETTE_HEXES);
-  const litFaceEastColor = hexToUnit(litFaceEastHex);
-  const litFaceSouthColor = hexToUnit(litFaceSouthHex);
 
   /** Is the tile at `(x, y)` a `^` rock ridge? A wall between a ridge and
    *  anything lower IS the cliff face, so it takes the rock albedo. A
@@ -405,7 +374,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     p2: [number, number, number],
     p3: [number, number, number],
     color: [number, number, number],
-    litColor: [number, number, number],
     flip: boolean,
     tileAlbedo: Albedo
   ): void => {
@@ -414,14 +382,13 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     // coordinates are its own world (x, z).
     for (const p of [p0, p1, p2, p3]) groundUv.push(p[0], p[2]);
     // `pushPolygon` already pushed 4 fresh vertices into `positions`/`colors`
-    // and their triangles into `indices` -- `litColors`, `normals` and the
-    // albedo channels need no positions or indices of their own, only 4 more
-    // entries in the same vertex order, so appending them directly (rather
-    // than calling `pushPolygon` a second time, which would duplicate
+    // and their triangles into `indices` -- `normals` and the albedo channels
+    // need no positions or indices of their own, only 4 more entries in the
+    // same vertex order, so appending them directly (rather than calling
+    // `pushPolygon` a second time, which would duplicate
     // `positions`/`indices`) keeps every array's vertex count in lockstep
     // with `colors`.
     for (let i = 0; i < 4; i++) {
-      litColors.push(litColor[0], litColor[1], litColor[2]);
       normals.push(UP_NORMAL[0], UP_NORMAL[1], UP_NORMAL[2]);
     }
     pushAlbedo(albedo, tileAlbedo, 4);
@@ -438,8 +405,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
 
       const toneHex = groundTone(input, tones, ti, PALETTE_HEXES, background);
       const toneColor = hexToUnit(toneHex);
-      const litToneHex = groundTone(input, litTones, ti, PALETTE_HEXES, litBackground);
-      const litToneColor = hexToUnit(litToneHex);
 
       if (surface.flat || isTerrace(surface, x, y)) {
         // Tile top: a flat quad at its own height, four fresh vertices, no
@@ -472,7 +437,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
           [x + 1, topY, y + 1],
           [x, topY, y + 1],
           toneColor,
-          litToneColor,
           false,
           tileAlbedo
         );
@@ -480,7 +444,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
         pushSmoothTile(
           positions,
           colors,
-          litColors,
           normals,
           albedo,
           groundUv,
@@ -489,7 +452,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
           x,
           y,
           toneColor,
-          litToneColor,
           tileAlbedo
         );
       }
@@ -512,7 +474,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
         pushWall(
           positions,
           colors,
-          litColors,
           normals,
           albedo,
           groundUv,
@@ -522,7 +483,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
           y,
           0,
           faceEastColor,
-          litFaceEastColor,
           ridgeAt(x, y) || ridgeAt(x + 1, y) ? 1 : 0
         );
       }
@@ -530,7 +490,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
         pushWall(
           positions,
           colors,
-          litColors,
           normals,
           albedo,
           groundUv,
@@ -540,7 +499,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
           y,
           1,
           faceSouthColor,
-          litFaceSouthColor,
           ridgeAt(x, y) || ridgeAt(x, y + 1) ? 1 : 0
         );
       }
@@ -550,7 +508,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
   return {
     positions: Float32Array.from(positions),
     colors: Float32Array.from(colors),
-    litColors: Float32Array.from(litColors),
     normals: Float32Array.from(normals),
     sandMask: Float32Array.from(albedo.sand),
     rockMask: Float32Array.from(albedo.rock),
@@ -584,7 +541,6 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
 function pushSmoothTile(
   positions: number[],
   colors: number[],
-  litColors: number[],
   normals: number[],
   albedo: AlbedoArrays,
   groundUv: number[],
@@ -593,7 +549,6 @@ function pushSmoothTile(
   x: number,
   y: number,
   color: readonly [number, number, number],
-  litColor: readonly [number, number, number],
   tileAlbedo: Albedo
 ): void {
   const n = SURFACE_SUBDIVISIONS;
@@ -604,7 +559,6 @@ function pushSmoothTile(
       const px = x + i / n;
       positions.push(px, smoothLevel(surface, px, pz) * WORLD_PER_LEVEL, pz);
       colors.push(color[0], color[1], color[2]);
-      litColors.push(litColor[0], litColor[1], litColor[2]);
       const nrm = smoothNormal(surface, px, pz);
       normals.push(nrm[0], nrm[1], nrm[2]);
       // The tile's own albedo, verbatim -- never ROCK in practice, since
@@ -659,7 +613,6 @@ function pushSmoothTile(
 function pushWall(
   positions: number[],
   colors: number[],
-  litColors: number[],
   normals: number[],
   albedo: AlbedoArrays,
   groundUv: number[],
@@ -669,7 +622,6 @@ function pushWall(
   y: number,
   axis: 0 | 1,
   color: readonly [number, number, number],
-  litColor: readonly [number, number, number],
   rock: number
 ): void {
   const nx = axis === 0 ? x + 1 : x;
@@ -744,7 +696,6 @@ function pushWall(
     }
     for (let i = 0; i < 4; i++) {
       colors.push(color[0], color[1], color[2]);
-      litColors.push(litColor[0], litColor[1], litColor[2]);
       normals.push(UP_NORMAL[0], UP_NORMAL[1], UP_NORMAL[2]);
     }
     // A wall is bedrock or it is nothing. Not sand, not a road, not scrub,
