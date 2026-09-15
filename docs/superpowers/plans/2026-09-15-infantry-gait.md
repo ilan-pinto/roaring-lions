@@ -101,7 +101,7 @@ describe('mesh unit facing', () => {
 
 - [ ] **Step 2: Run it and watch it fail**
 
-Run: `pnpm --filter @lions/tools exec vitest run src/mesh_gait.test.ts`
+Run: `pnpm exec vitest run tools/src/mesh_gait.test.ts`
 Expected: FAIL — `measureFacing is not exported` / not defined.
 
 - [ ] **Step 3: Implement `measureFacing`**
@@ -110,12 +110,16 @@ Export `FigureFacing` and `measureFacing` from `tools/src/mesh_gait.ts`. Sample 
 
 - [ ] **Step 4: Run the tests**
 
-Run: `pnpm --filter @lions/tools exec vitest run src/mesh_gait.test.ts`
+Run: `pnpm exec vitest run tools/src/mesh_gait.test.ts`
 Expected: PASS, all six tests (the three existing gait ones plus the three new ones).
 
 - [ ] **Step 5: Prove the numbers against the live game**
 
-Run: `pnpm --filter @lions/tools exec tsx -e "import('./src/mesh_gait').then(m=>console.log(m.measureFacing(new URL('../art/meshes/meshy_soldier.glb', import.meta.url).pathname,'fire')))"`
+Run, from the repo root:
+
+```bash
+pnpm exec tsx -e "import('./tools/src/mesh_gait').then(m=>console.log(m.measureFacing('art/meshes/meshy_soldier.glb','fire')))"
+```
 
 Compare against the spec's §2.1 table, which was measured independently in the browser: `inf_squad` `fire` should read near **−156**, `move` near **−5**. Agreement within a few degrees is the point — two independent instruments, one answer. Record both numbers in your report. A disagreement of more than ~10° means one of the two is wrong and must be resolved before any art is touched.
 
@@ -196,7 +200,7 @@ This is slow — six 18.6 MB source GLBs imported into one session. Expect sever
 - [ ] **Step 7: Verify with Task 1's instrument**
 
 ```bash
-pnpm --filter @lions/tools exec vitest run src/mesh_gait.test.ts
+pnpm exec vitest run tools/src/mesh_gait.test.ts
 ```
 
 Then flip the Task 1 characterisation test: `fire` must now read **inside** ±20°, like `move` already does, and `down` likewise. Rewrite that test to assert the fixed state and update its comment to say what it used to read (`−156`) and that Task 2 fixed it.
@@ -383,7 +387,7 @@ it('declares what the instrument independently measures', () => {
 
 - [ ] **Step 2: Run it and watch it fail**
 
-Run: `pnpm --filter @lions/tools exec vitest run src/meshes/gait-pass.test.ts`
+Run: `pnpm exec vitest run tools/src/meshes/gait-pass.test.ts`
 Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement the pass**
@@ -475,7 +479,7 @@ describe('gaitTimeScale', () => {
 
 - [ ] **Step 2: Run them and watch them fail**
 
-Run: `pnpm --filter @lions/render exec vitest run src/three/units/mesh-anim.test.ts`
+Run: `pnpm exec vitest run packages/render/src/three/units/mesh-anim.test.ts`
 Expected: FAIL — `gaitTimeScale` not defined.
 
 - [ ] **Step 3: Implement `gaitTimeScale` in `mesh-anim.ts`**
