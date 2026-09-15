@@ -340,6 +340,124 @@ export function measureRoleTravel(path: string, role: string, clip: string): Gai
   };
 }
 
+export interface RoleFootprint {
+  /** Peak-to-peak travel of the worst vertex, split per axis: glTF
+   *  `[x, y, z]` with **y up** and `+x` the contract's forward. */
+  readonly axisTravelM: readonly [number, number, number];
+  /** The highest the LOWEST *moving* vertex of the role ever gets, over the
+   *  clip.
+   *
+   *  On a `boot` role this is the gait's FLOAT: a walker whose swing is
+   *  longer than its hips can reach for has both feet off the ground at
+   *  mid-stride, because a straight leg swung `theta` off vertical
+   *  shortens its own reach to `L * cos(theta)` and nothing in this rig
+   *  drops the hips to compensate. It is the one bound on stride growth
+   *  that is a measurement rather than a matter of taste, which is why it
+   *  is reported separately from `maxTravelM` rather than folded into it.
+   *
+   *  **"Moving" is load-bearing and was measured, not assumed.** Every rig
+   *  in this tree that has a `down`/`wreck` clip carries a SECOND, prone
+   *  copy of its boots in the same `boot` mesh, hidden during `move` by
+   *  keying its own root's scale to zero (`rig.py`'s `death_root`,
+   *  `import_meshy_mortar_team.py`'s two postures). Collapsed geometry is
+   *  not absent geometry: it lands on its bone's own head, which on
+   *  `rig.py`'s rigs is exactly z=0 and on the Meshy mortar team is
+   *  -0.3875. Taken over ALL vertices this field therefore reads that
+   *  collapsed point on every file and measures nothing at all. */
+  readonly floatM: number;
+  /** The lowest any moving vertex ever gets -- below 0 the role is under
+   *  the ground plane. Same `activeFraction` filter as `floatM`. */
+  readonly sinkM: number;
+  /** How many of the role's vertices cleared the travel filter. */
+  readonly activeVertexCount: number;
+  readonly clipSeconds: number;
+}
+
+/** A vertex counts as part of the gait when its own peak-to-peak travel is
+ *  at least this fraction of the worst vertex's. Hidden collapsed geometry
+ *  travels exactly zero, so any positive threshold excludes it; half is
+ *  chosen so that the planted sole -- which travels the full stride in the
+ *  model frame and is the vertex the float question is actually about --
+ *  cannot fall out of the set. */
+export const ACTIVE_TRAVEL_FRACTION = 0.5;
+
+/**
+ * The same skinning pass `measureRoleTravel` makes, reported as geometry
+ * rather than as one distance: where the role's travel actually goes (a
+ * long step and a high heel kick are the same number to `maxTravelM`, and
+ * they do not look the same), and how far off the ground it floats.
+ *
+ * Deliberately a second REPORT over the one skinning implementation, never
+ * a second implementation -- see `skinPoint`'s own note.
+ */
+export function measureRoleFootprint(path: string, role: string, clip: string): RoleFootprint {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const nodeIndex = nodes.findIndex((n) => n.mesh !== undefined && (n.name === role || meshes[n.mesh]?.name === role));
+  if (nodeIndex < 0) throw new Error(`${path}: no mesh node named "${role}"`);
+  const node = nodes[nodeIndex];
+  const prim = meshes[node.mesh as number].primitives[0];
+  const pos = readAccessor(glb, prim.attributes.POSITION);
+  const joints = readAccessor(glb, prim.attributes.JOINTS_0);
+  const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
+  const skin = glb.json.skins?.[node.skin as number];
+  if (!skin) throw new Error(`${path}: mesh "${role}" is not skinned`);
+  const ibmAcc = skin.inverseBindMatrices;
+  const ibm = ibmAcc === undefined ? null : readAccessor(glb, ibmAcc);
+
+  const { tracks, start, end } = readClip(glb, clip);
+  const n = pos.count;
+  const lo = new Float64Array(n * 3).fill(Infinity);
+  const hi = new Float64Array(n * 3).fill(-Infinity);
+  const sampleAt = (s: number) => {
+    const t = start + ((end - start) * s) / SAMPLES;
+    return computeSkinMats(skin, nodeWorlds(glb, tracks, t), ibm);
+  };
+
+  for (let s = 0; s < SAMPLES; s++) {
+    const skinMats = sampleAt(s);
+    for (let v = 0; v < n; v++) {
+      const o = skinPoint(pos, joints, weights, v, skinMats);
+      for (let a = 0; a < 3; a++) {
+        if (o[a] < lo[v * 3 + a]) lo[v * 3 + a] = o[a];
+        if (o[a] > hi[v * 3 + a]) hi[v * 3 + a] = o[a];
+      }
+    }
+  }
+
+  const travel = new Float64Array(n);
+  let best = 0;
+  for (let v = 0; v < n; v++) {
+    travel[v] = Math.hypot(hi[v * 3] - lo[v * 3], hi[v * 3 + 1] - lo[v * 3 + 1], hi[v * 3 + 2] - lo[v * 3 + 2]);
+    if (travel[v] > travel[best]) best = v;
+  }
+  const gate = travel[best] * ACTIVE_TRAVEL_FRACTION;
+  const active: number[] = [];
+  for (let v = 0; v < n; v++) if (travel[v] >= gate) active.push(v);
+
+  let floatM = -Infinity;
+  let sinkM = Infinity;
+  for (let s = 0; s < SAMPLES; s++) {
+    const skinMats = sampleAt(s);
+    let lowestNow = Infinity;
+    for (const v of active) {
+      const y = skinPoint(pos, joints, weights, v, skinMats)[1];
+      if (y < lowestNow) lowestNow = y;
+    }
+    if (lowestNow > floatM) floatM = lowestNow;
+    if (lowestNow < sinkM) sinkM = lowestNow;
+  }
+
+  return {
+    axisTravelM: [hi[best * 3] - lo[best * 3], hi[best * 3 + 1] - lo[best * 3 + 1], hi[best * 3 + 2] - lo[best * 3 + 2]],
+    floatM,
+    sinkM,
+    activeVertexCount: active.length,
+    clipSeconds: end - start,
+  };
+}
+
 export interface FigureFacing {
   /** The head joint's own node name, e.g. `mil0_head` or `f0_Head`. */
   readonly joint: string;
@@ -351,6 +469,26 @@ export interface FigureFacing {
   /** The sample with the largest signed deviation from `meanDeg`, by the
    *  same convention as `minDeg`. */
   readonly maxDeg: number;
+  /** This joint's own world scale is zero for the WHOLE clip, so nothing it
+   *  drives is on screen and `meanDeg` is a bearing of geometry the player
+   *  never sees.
+   *
+   *  **Not a corner case -- it is how every two-posture rig in this tree
+   *  works.** `rig.py` hides a figure's prone `death_root` during
+   *  `idle`/`move`/`fire` and its living `root` during `down`/`wreck` by
+   *  keying the other one's scale to 0, and
+   *  `import_meshy_mortar_team.py` hides a whole kneeling tableau during
+   *  `move` the same way. Collapsed is not absent: the joint still has a
+   *  position, its vertices still skin to it, and this function still
+   *  returns a confident-looking angle for it.
+   *
+   *  That is exactly what happened to `meshy_mortar_team.glb`. Its `move`
+   *  posture is a SEPARATE standing rig whose bones are `f<N>_st_*` and
+   *  which has no head bone at all (`STAND_CHAIN` is root/pelvis/chest plus
+   *  the leg columns), so `HEAD_JOINT_RE` matches only the hidden KNEELING
+   *  heads and the +84 degrees the gait design recorded for that clip is a
+   *  reading of a rig scaled to nothing. Pinned by `mesh_gait.test.ts`. */
+  readonly hiddenInClip: boolean;
 }
 
 /** `kit.py` rigs suffix a head bone `_head`; the Meshy TEAM rigs suffix
@@ -367,6 +505,20 @@ export interface FigureFacing {
  *  guard in `measureFacing` as well -- the regex fix alone would have left the
  *  next unprefixed rig failing the same silent way. */
 const HEAD_JOINT_RE = /(?:^|_)(head|Head)$/;
+
+/** Largest mean axis scale a joint may carry and still count as hidden. The
+ *  two-posture rigs in this tree key the inactive side's root scale to a
+ *  literal 0, so anything above a rounding error is live. */
+const HIDDEN_SCALE = 1e-6;
+
+/** Mean length of a world matrix's three basis vectors -- the joint's own
+ *  scale, whatever rotation it carries. */
+function jointScale(m: Mat4): number {
+  const sx = Math.hypot(m[0], m[1], m[2]);
+  const sy = Math.hypot(m[4], m[5], m[6]);
+  const sz = Math.hypot(m[8], m[9], m[10]);
+  return (sx + sy + sz) / 3;
+}
 
 /** `deg` wrapped into `(-180, 180]`. Assumes `|deg| < 360`, which every
  *  caller here satisfies (a difference of two already-wrapped bearings). */
@@ -457,14 +609,25 @@ export function circularMeanDeg(bearingsDeg: readonly number[]): {
  * re-derive that negative result -- it is recorded here so the next reader
  * does not pay for it twice.
  *
- * Throws when `path` has no `face` mesh, no clip named `clip`, or no head
- * joint `HEAD_JOINT_RE` recognises -- a rig missing the role, the clip or the
+ * ## `jointPattern`, and the rig this instrument could not read
+ *
+ * The default is `HEAD_JOINT_RE`, which is what every caller wants and what
+ * every rig in this tree but one carries. `meshy_mortar_team.glb` is the
+ * exception: its `move` posture is a SECOND, standing rig whose bones are
+ * `f<N>_st_*` and which has no head bone at all, so the default matches only
+ * that file's hidden KNEELING heads and returns a bearing of geometry the
+ * player never sees. Pass `/_st_chest$/` to read the rig that is actually on
+ * screen. `hiddenInClip` is what makes the difference visible rather than
+ * having to be known.
+ *
+ * Throws when `path` has no `face` mesh, no clip named `clip`, or no joint
+ * `jointPattern` recognises -- a rig missing the role, the clip or the
  * joint this instrument reads is a contract failure, not a facing of zero.
  * The third of those was added 2026-09-16: an unrecognised head joint used to
  * return `[]`, which every caller in this tree spells as a `for` loop over the
  * result and therefore reads as "measured, and fine".
  */
-export function measureFacing(path: string, clip: string): FigureFacing[] {
+export function measureFacing(path: string, clip: string, jointPattern: RegExp = HEAD_JOINT_RE): FigureFacing[] {
   const glb = readGlb(path);
   const nodes = glb.json.nodes ?? [];
   const meshes = glb.json.meshes ?? [];
@@ -491,10 +654,10 @@ export function measureFacing(path: string, clip: string): FigureFacing[] {
 
   const headJoints = skin.joints
     .map((jointNode, skinIndex) => ({ jointNode, skinIndex, name: nodes[jointNode]?.name ?? '' }))
-    .filter((j) => HEAD_JOINT_RE.test(j.name));
+    .filter((j) => jointPattern.test(j.name));
   if (headJoints.length === 0) {
     throw new Error(
-      `${path}: no joint matching ${HEAD_JOINT_RE} in the skin that drives "${role}" -- ` +
+      `${path}: no joint matching ${jointPattern} in the skin that drives "${role}" -- ` +
         `measureFacing needs one per figure (have ${skin.joints.length} joints)`
     );
   }
@@ -530,6 +693,7 @@ export function measureFacing(path: string, clip: string): FigureFacing[] {
     const verts = vertsForSkinIndex.get(skinIndex) ?? [];
     if (verts.length === 0) continue;
     const bearings: number[] = [];
+    let hiddenInClip = true;
     for (let s = 0; s < SAMPLES; s++) {
       const t = start + ((end - start) * s) / SAMPLES;
       const worlds = nodeWorlds(glb, tracks, t);
@@ -545,8 +709,9 @@ export function measureFacing(path: string, clip: string): FigureFacing[] {
       const dx = cx - headWorld[12];
       const dz = cz - headWorld[14];
       bearings.push((Math.atan2(dz, dx) * 180) / Math.PI);
+      if (hiddenInClip && jointScale(headWorld) > HIDDEN_SCALE) hiddenInClip = false;
     }
-    results.push({ joint: name, ...circularMeanDeg(bearings) });
+    results.push({ joint: name, hiddenInClip, ...circularMeanDeg(bearings) });
   }
   return results;
 }
