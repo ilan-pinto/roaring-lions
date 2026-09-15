@@ -98,9 +98,10 @@
  * >`gunmetal.3`, the smoke that drifts and cools). All three are still
  * doing work particles are good at -- inherently soft, translucent, and
  * randomly drifting (`alpha_over_life` fading toward 0), exactly the case
- * `units/fx.ts`'s own particle doc comment argues for. `light` (the
- * ramp-shift "muzzle light") and `screen_shake` are unrelated to either
- * particles or this mesh and are untouched.
+ * `units/fx.ts`'s own particle doc comment argues for. `light` (the pooled
+ * `THREE.PointLight` `flash-light.ts` spawns for the same shot) and
+ * `screen_shake` are unrelated to either particles or this mesh and are
+ * untouched.
  *
  * ## Orientation, capacity, animation -- see this file's own exported
  * symbols for the numbers and their citations: `MUZZLE_FLASH_CAPACITY`,
@@ -181,10 +182,13 @@ export function muzzleFlashPowerScale(power: number): number {
  * `spawn()` at the boundary) still gets a sane 0, not `sin` of something
  * past PI. `sin(progress * PI)`: 0 at spawn, peaks at exactly the flash's
  * own midlife, back to 0 at death -- the identical curve
- * `FlashLightManager.step` already uses for the ramp-shift "light" this
- * mesh is spawned alongside (`flash-light.ts`'s own `step` doc comment,
- * "grow fast, shrink out" -- restated verbatim there), reused rather than
- * a second curve invented for the mesh side of the same event.
+ * `FlashLightManager.step` already drives the INTENSITY of the pooled
+ * `THREE.PointLight` this mesh is spawned alongside with (`flash-light.ts`'s
+ * own `step` doc comment: "rise fast, peak at midlife, fall"), reused
+ * rather than a second curve invented for the mesh side of the same event.
+ * The mesh's `durationMs` is that light's own `decay_ms` wherever the
+ * emitter declares a `light` (`ThreeRenderer.onFire`), so the shape and
+ * the glow it casts peak together.
  */
 export function muzzleFlashEnvelope(progress: number): number {
   const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
@@ -340,10 +344,17 @@ const createMuzzleFlashMaterial = createVfxMeshMaterial;
  * first, the meshes simply start out coloured black (`createMuzzleFlashMaterial`'s
  * own default) until `setColors` corrects them in place, same object,
  * same uniform, no rebuild. The same shape `FlashLightManager` keeps one level
- * up: a fixed pool, allocated once, mutated in place. (It used to be phrased
- * as mirroring that class's `posArray`, a uniform array shared by reference
- * into every material -- gone since the flash became a pool of real
- * `PointLight`s.)
+ * up: `FLASH_CAPACITY` `THREE.PointLight`s built in its constructor, added
+ * to the scene once and never re-created, each re-positioned, re-coloured
+ * and re-intensified in place by `step` and parked at intensity 0 while
+ * idle. Its reason is its own (three.js compiles the light COUNT into every
+ * shader, so adding or removing a light mid-fight would recompile every
+ * material -- `flash-light.ts`'s own top comment), but the discipline is
+ * the same: allocate once, mutate in place. An earlier version of this
+ * paragraph drew the analogy from that class's shader-uniform arrays,
+ * shared by reference into every material; those went with the ramp-shift
+ * design when the flash became a real light, and nothing here ever
+ * depended on them.
  */
 export class MuzzleFlashManager {
   private readonly capacity: number;
@@ -366,7 +377,8 @@ export class MuzzleFlashManager {
 
   /** True once `load()` has resolved -- `ThreeRenderer.onFire` reads this to
    *  decide whether a `mesh_flash`-marked particle layer is superseded yet
-   *  (`&mesh` off, or the GLB still loading, both fall back to the
+   *  (`&nomesh`, under which `main.ts` never calls `load()` at all, or the
+   *  GLB still loading on the default mesh path, both fall back to the
    *  authored particle exactly as before this feature existed). */
   get ready(): boolean {
     return this.meshes !== null;
@@ -385,16 +397,20 @@ export class MuzzleFlashManager {
    * `THREE.ShaderMaterial` (`createVfxMeshMaterial`, `./vfx-mesh-material.ts`)
    * whose fragment shader writes `gl_FragColor = vec4(uColor, 1.0)` with no
    * `<colorspace_fragment>` chunk, so `renderer.outputColorSpace` does
-   * nothing to it -- `uColor` reaches the framebuffer exactly as written,
+   * nothing to it -- `uColor` reaches the render target exactly as written,
    * unlike a `MeshStandardMaterial`, which three.js's own built-in chunk
-   * would re-encode. Linear is still the right value to write: spec §1
+   * would re-encode. Linear is the right value to write because the encode
+   * happens once, for the whole frame, at the very end: spec §1
    * (`terrain/shared.ts`'s own `srgbToLinear` doc comment) commits every
-   * shader uniform to LINEAR now, on the promise that Task 9's composer
-   * `OutputPass` encodes the WHOLE frame to sRGB once, at the very end.
-   * Until that pass lands, this effect draws visibly DARKER than its
-   * authored hex -- the same accepted, temporary state
-   * `FlashLightManager`'s own top comment records for the muzzle-flash
-   * ramp-shift pool, not a bug this task introduces.
+   * shader uniform to LINEAR, and `post-chain.ts`'s `OutputPass` (Task 9,
+   * landed) tone-maps and sRGB-encodes the composer's linear HalfFloat
+   * target in one place, this material's fragments included. A raw sRGB
+   * hex written here would be encoded twice and land brighter than
+   * authored. Only the composer-less path (`init` not yet called: the
+   * tests, the spikes) lacks that pass, and there a chunk-less material
+   * reaches the screen un-encoded -- the interim "draws DARKER than its
+   * hex" state this paragraph used to record for the shipping frame too,
+   * before Task 9 existed.
    */
   setColors(resolve: (key: string) => string): void {
     for (const role of MUZZLE_FLASH_ROLES) {
