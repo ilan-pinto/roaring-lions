@@ -209,6 +209,37 @@ describe('buildVehicleMeshTemplate, with a death root', () => {
     expect(live.color.getHex()).toBe(0xffffff);
   });
 
+  it('lands both charring paths on the same TONE, and neither of them on black', () => {
+    // The two constants are one decision made twice -- the project lead's
+    // 2026-09-15 "a sooty dark grey that keeps the bakes' detail visible" --
+    // and nothing else in the tree couples them. A retune of one without the
+    // other would ship a burnt Lavi and a burnt Eitan that read as different
+    // events, and no other test here can see it: each path asserts only that
+    // it applied its OWN constant.
+    const ramp = new THREE.Color(liftTone(CHARRED_RAMP));
+    const tint = new THREE.Color(CHARRED_TINT_HEX);
+    const lum = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+    // Measured on the shipped pair: ramp `#5C625F` 0.1345, tint `0x6a5f55`
+    // 0.1335 -- 0.001 apart, because they were picked against each other. The
+    // band is 0.06, wide enough that either may be nudged a palette step
+    // without a false red and far under the 0.1345-vs-0.0044 gap the retired
+    // `shadow.1` ramp opened against this tint.
+    expect(Math.abs(lum(ramp) - lum(tint))).toBeLessThan(0.06);
+
+    // And a floor, because the failure this pair exists to fix was not "the
+    // two disagreed", it was "both were so dark that the sun, the shadow map
+    // and AO had nothing left to model". `shadow.1` (`#14150F`) is 0.0044 and
+    // `0x2a2620` is 0.0225; the shipped pair is ~0.134.
+    expect(lum(ramp)).toBeGreaterThan(0.05);
+    expect(lum(tint)).toBeGreaterThan(0.05);
+
+    // Still a CHAR, not a repaint: comfortably darker than the sand it lies
+    // on and than any live vehicle's own lit face.
+    expect(lum(ramp)).toBeLessThan(0.35);
+    expect(lum(tint)).toBeLessThan(0.35);
+  });
+
   it('puts every charred material in `materials` and every SHARED geometry in `geometries` exactly once', async () => {
     const template = await buildTemplate();
     const meshes = meshesOf(template.root);

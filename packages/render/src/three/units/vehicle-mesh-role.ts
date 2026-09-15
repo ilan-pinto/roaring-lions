@@ -100,21 +100,38 @@ function sliceFrom(band: string, index: number, width: number): readonly string[
 }
 
 /**
- * The charred slice every wreck part takes on a palette vehicle: the darkest
- * band's lit face. One constant, not a role -- the role vocabulary
- * (`VEHICLE_MESH_ROLES`) stays closed, and a burnt-out hull is not a new kind
- * of surface, it is every surface after a fire.
+ * The charred slice every wreck part takes on a palette vehicle. One constant,
+ * not a role -- the role vocabulary (`VEHICLE_MESH_ROLES`) stays closed, and a
+ * burnt-out hull is not a new kind of surface, it is every surface after a
+ * fire. Deliberately NOT a per-vehicle table either: charring is what the fire
+ * did, not what the factory painted, so `mbt_lavi`'s olive and `technical`'s
+ * limestone char to the same tone.
  *
- * `shadow` in full (all three steps, `#23241F`/`#14150F`/`#0A0A08`), so
- * `liftTone` takes `shadow.1` the same way it takes index 1 of any ramp three
- * steps or longer -- the palette's own darkest usable tone, which is what
- * `rubber` already draws through, so a wreck reads as the tyre-black end of
- * the ramp rather than as an unlit version of its own paint. Deliberately
- * NOT a per-vehicle table: charring is what the fire did, not what the
- * factory painted, so `mbt_lavi`'s olive and `technical`'s limestone char to
- * the same tone.
+ * **`gunmetal` from index 1, chosen by the project lead on 2026-09-15: "a
+ * sooty dark grey that keeps the bakes' detail visible".** The slice is
+ * `#8E9491`/`#5C625F`/`#363B39`, so `liftTone` takes **`gunmetal.2`,
+ * `#5C625F`** -- index 1 of any ramp three steps or longer, the same rule
+ * every other ramp here goes through. `gunmetal` is this palette's only
+ * neutral band that is not near-black (saturation 5-6 across all four steps
+ * against `shadow`'s own 4-5 at a tenth the luminance), and `#5C625F` is the
+ * closest colour in the whole palette to the grey the lead asked for.
+ *
+ * It was `sliceFrom('shadow', 0, 3)` -- `liftTone` giving `shadow.1`,
+ * `#14150F` -- until then, on the reasoning that a wreck should read as the
+ * tyre-black end of the ramp. The screenshot sheet said otherwise: measured
+ * inside `apc_eitan`'s own hull at zoom 2.2, **75.9%** of the body's pixels
+ * were crushed below luminance 8 and the whole hull held 458 distinct colours,
+ * so the sun, the shadow map and AO had nothing left to model and the wreck
+ * photographed as a silhouette. At `gunmetal.2` it is **19.8%** and 1481.
+ *
+ * Kept in step with `CHARRED_TINT_HEX` (`../world-materials.ts`), which is the
+ * same decision on the textured path. The two must land on the same TONE or a
+ * burnt Lavi and a burnt Eitan read as different events;
+ * `mesh-vehicle-death.test.ts` pins that they do, within a band wide enough
+ * for the hue difference this palette forces (`gunmetal` leans green,
+ * `CHARRED_TINT_HEX` leans warm, and there is no warm neutral band to pick).
  */
-export const CHARRED_RAMP: readonly string[] = sliceFrom('shadow', 0, 3);
+export const CHARRED_RAMP: readonly string[] = sliceFrom('gunmetal', 1, 3);
 
 /** One vehicle type's role -> ramp-slice table -- only the roles that
  *  vehicle's own sprite-rig script (or, for `mbt_lavi`, the closest real
