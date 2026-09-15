@@ -1106,3 +1106,44 @@ Expected: all green.
 ```
 
 The two angle-bracket lines are the ONLY values this plan cannot know: fill them from the harness output of Steps 1 and 2 before committing.
+
+---
+
+### Task 5: Restore the two mission contracts that enemy formations moved (added by the controller after Task 3)
+
+**Files:**
+- Modify (content only, the smallest change that restores each contract): `data/missions/beit_sahwan_breach.json` (the `families_ne` placement, or the fence `structures[]` run nearest the enemy's new firing line, or the wave that fires on that corner) and/or `data/maps/marj_perimeter.json`; `data/missions/qarn_hadid_3_clearance.json` and/or `data/maps/qarn_hadid.json` (`clinic_yard` marker at (44,10) on the `clinic` zone `[42, 6, 5, 5]`'s boundary row; the `civilians` placements at (29,3) and (22,5); the 330 s wave `to: clinic_yard`).
+- Modify only if a fence run moves: `tools/src/first_light_fence.test.ts` (its coordinates; the passive-control assertion stays `'defeat'`).
+- Test: `pnpm playtest`, `pnpm exec vitest run tools/src/first_light_fence.test.ts`, `pnpm validate:data`.
+
+**Interfaces:**
+- Consumes: the harness (`tools/src/backtest/playtest.ts`, `pnpm playtest`), `tools/src/walk_mission.ts` / `walk_world.ts` for printing a run's world, the ladder the `playtest` agent runs (passive / naive / sensible / optimal).
+- Produces: `pnpm playtest` fully green at its pre-branch verdicts; the two changed files with the reason in their own comment fields where the schema has one, otherwise in the commit body.
+
+Why this task exists (Task 3's report, "Fix round 1"): scripted enemy groups (`commit` / `reinforce` / `withdraw_to`) now form up like everyone else, so the enemy's fire geometry moved. Measured on seed 424242 against 75461bc: in First Light's passive run one civilian ever fled before; now the `families_ne` pair crosses `CIV_FLEE_AT` at ticks 377 and 885 and walks itself into the compound by tick 1496, so `evac_settlements` completes with no player order and the passive control VICTORYs where it must DEFEAT. `qarn_hadid_3_clearance`'s gate-open variant (one extra fielded unit) DEFEATs on `get_the_families_clear` while its ungated twin passes. Nothing in the engine is wrong; two authored contracts were tuned against the old geometry. **Never touch `packages/sim`, `tuning.ts`, or `formation.ts` in this task.**
+
+- [ ] **Step 1: Reproduce and print the world**
+
+Run `pnpm playtest` and `pnpm exec vitest run tools/src/first_light_fence.test.ts`; paste the two red lines. For First Light, use `walk_mission.ts`'s pattern to print the passive run at ticks 300, 377, 885 and 1496: where every enemy unit stands (the formed-up groups), the `families_ne` civilians' tiles and suppression, and the fence runs. Say in one paragraph which enemy group's new position puts fire on that corner.
+
+- [ ] **Step 2: First Light — the smallest content change that makes passivity lose again**
+
+Candidates in order of preference: (a) move the `families_ne` placement one or two tiles away from the new firing line so its suppression stays under `CIV_FLEE_AT` on the passive run; (b) shift the enemy wave's `to` marker or staging marker that now lands on that corner by one tile; (c) as a last resort, re-site the fence run (then update `first_light_fence.test.ts`'s coordinates — its header documents that a wider stand-off flips this same verdict, so read it first). Try (a) first. After each candidate, run the passive control AND the optimal plan through the harness: the passive run must DEFEAT on `evac_settlements` failing with no player orders, the plan must VICTORY inside its budget, and the plan's ROE and roster lines should move as little as possible from the 75461bc table (paste before/after).
+
+- [ ] **Step 3: Qarn Hadid III — the smallest content change that makes the gate-open run win again**
+
+Task 3's implementer measured that moving `clinic_yard` to the zone centre (44,8) fixed the ungated run's ROE and time but not the gate-open verdict. Print the gate-open run's world at the moment `get_the_families_clear` fails (300 s) — where the three families are, where the extra Shachaf stands, which family is short. Candidates: (a) `clinic_yard` to the zone's centre so no refuge slot falls on the boundary; (b) widen the `clinic` zone by one row on the marker's side; (c) move the `civilians` placement at (22,5) or (29,3) a tile closer; (d) the 330 s wave's timing or marker. Measure the ungated AND gate-open variants after each change; both must VICTORY with all three unlock gates open at their baseline star counts (12 / 31 / 45).
+
+- [ ] **Step 4: The whole chain and the data gate**
+
+Run: `pnpm playtest && pnpm exec vitest run tools/src/first_light_fence.test.ts && pnpm validate:data && pnpm test`
+Expected: every mission at its expected verdict, every unlock gate at its baseline stars, the fence test green with its passive assertion still `'defeat'`, data gate green, full test suite green.
+
+- [ ] **Step 5: Commit**
+
+```bash
+/usr/bin/git add <the content files you changed, by explicit path>
+/usr/bin/git commit -m "content: First Light and Qarn Hadid III hold their contracts now that the enemy forms up" -m "<which file moved by how much and why, with the before/after harness lines for the passive control, the plan, and the two Qarn Hadid variants>" -m "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+The angle-bracket text is the one value this task cannot know in advance; fill it from Steps 2–3.
