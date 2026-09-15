@@ -2875,9 +2875,10 @@ export class ThreeRenderer implements Renderer {
         // it so Pixi (which never reads this field) and a three.js session
         // with no mesh loaded both still get the exact particle this
         // replaces, unchanged. `emitter.light?.decay_ms` doubles as the
-        // mesh's own lifetime -- the same duration the ramp-shift "light"
-        // this shot already spawned (above) decays over, so the two read as
-        // one event rather than two independently-timed effects. See
+        // mesh's own lifetime -- the same duration the pooled `PointLight`
+        // this shot already spawned (`flashLights.spawn`, above) decays
+        // over, so the two read as one event rather than two
+        // independently-timed effects. See
         // `units/muzzle-flash.ts`'s own top comment for the full account.
         if (layer.mesh_flash && this.muzzleFlashes.ready) {
           this.muzzleFlashes.spawn(
