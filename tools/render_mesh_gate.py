@@ -153,6 +153,15 @@ STRUCTURES_PATH = os.path.join(REPO, "data", "structures.json")
 SIZE = 256
 SAMPLES = 64
 
+# The wreck contract's death-root node name -- `DEATH_ROOT` in
+# `tools/src/meshes/wreck-pass.ts`, and `DEATH_ROOT_NODE` in
+# `tools/validate_mesh_assets.py`, which checks the contract from the bytes.
+# Restated rather than imported for the same reason every table in this file
+# is: this module runs inside Blender and can import neither. See
+# `hide_death_root` below for what it is used for and why hiding is not
+# enough on its own.
+DEATH_ROOT_NAME = "death_root"
+
 # unit id -> rl_role -> palette key, for the vehicle kit's closed role
 # vocabulary (tools/vehicles/kit.py's ROLES). Hand-copied from each vehicle's
 # own render_*.py ROLE_PALETTE rather than imported -- see this file's module
@@ -372,6 +381,51 @@ def apply_idle_pose():
         bpy.context.view_layer.update()
 
 
+def hide_death_root(objs):
+    """Take `death_root` and everything under it out of the LIVE render --
+    the vehicle analogue of `apply_idle_pose` above, which is a no-op for a
+    model with no armature and so never did anything for a vehicle at all.
+
+    Every `art/meshes/vehicles/*.glb` carries a wreck since 2026-09-15
+    (`pnpm wreck:meshes`; spec 4.1): a `death_root` node whose `WRECK_*`
+    children reference the SAME meshes as the live parts, displaced into a
+    slumped pose. In the game it is invisible because the `idle` clip scales
+    it to zero at frame 0 -- but the node itself is authored at scale **1**,
+    because a node whose children must survive a clone cannot be authored at
+    zero. Blender's glTF importer does not evaluate that clip unless asked,
+    so a bare `import_scene.gltf` puts the wreck ON SCREEN, overlapping its
+    own live vehicle, and every palette/framing/silhouette check below would
+    then be judging a double exposure.
+
+    `hide_render` alone is NOT enough and that is the non-obvious half:
+    `render_rig.world_bounds()` walks `bpy.context.scene.objects` and reads
+    `obj.bound_box` with no visibility test at all, so a merely-hidden wreck
+    still inflates the framed bounds -- the live vehicle would render smaller
+    in the same square, moving its fill fraction and its silhouette IoU
+    against every other unit without ever appearing in a pixel. So the
+    subtree is UNLINKED from every collection as well. Unlinked, not
+    deleted: the objects stay in `bpy.data`, so a future wreck-only render
+    (spec 4.4's second half) can re-link them rather than re-import the file.
+
+    `objs` is the scene's mesh objects, passed in only so the caller's own
+    `mesh_objs` list can be filtered in step -- the death root itself is an
+    EMPTY and is not in it, but its children are, and leaving them in that
+    list would send `apply_vehicle_materials` at geometry that is no longer
+    in the scene. Returns (kept_objs, hidden_names).
+    """
+    roots = [o for o in bpy.context.scene.objects if o.name == DEATH_ROOT_NAME]
+    hidden = []
+    for root in roots:
+        for obj in [root] + list(root.children_recursive):
+            obj.hide_render = True
+            obj.hide_viewport = True
+            for coll in list(obj.users_collection):
+                coll.objects.unlink(obj)
+            hidden.append(obj.name)
+    live = [o for o in objs if o.name not in set(hidden)]
+    return live, hidden
+
+
 def _material_cache_shader(cache, key):
     if key not in cache:
         cache[key] = render_team._shader(  # noqa: SLF001 -- intentional reuse, see module docstring.
@@ -489,6 +543,17 @@ def render_one(glb_path, out_root):
         render_team.apply_materials(mesh_objs, faction, casualty=False)
         apply_idle_pose()
     elif kind == "vehicle":
+        # BEFORE materials and before framing, both of which would otherwise
+        # take the wreck into account -- see `hide_death_root`'s own docstring
+        # for why `hide_render` alone does not do it.
+        mesh_objs, hidden = hide_death_root(mesh_objs)
+        if hidden:
+            print(f"MESH_GATE_WARN: {unit_id}: hid {len(hidden)} death-root "
+                  f"object(s) for the live render: {hidden}")
+        if not mesh_objs:
+            raise SystemExit(
+                f"{unit_id}: every mesh object is under {DEATH_ROOT_NAME!r} -- "
+                f"nothing live left to render")
         apply_vehicle_materials(mesh_objs, unit_id)
     else:
         apply_building_materials(mesh_objs, unit_id)

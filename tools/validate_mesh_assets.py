@@ -88,6 +88,36 @@ when three of them started shipping a photographed facade. See that
 module's docstring for what it measures, what it deliberately does not, and
 why the shipped `warehouse` is allowed to have no front.
 
+## Vehicles are checked a FIFTH way, also against the raw bytes
+
+Every `art/meshes/vehicles/*.glb` carries a WRECK -- a `death_root` node of
+static `WRECK_*` children sharing their live twins' meshes, plus the two
+clips `idle` and `wreck` that scale one half to zero and the other to one
+(`docs/superpowers/specs/2026-09-14-vehicle-wreck-design.md` §4.1, written
+by `pnpm wreck:meshes`). `check_vehicle_wrecks` below reads that contract
+straight out of the glTF JSON, for the same reason the decor and facing
+checks read bytes: the render this gate makes cannot see it. The live render
+deliberately HIDES the death root (`render_mesh_gate.py`'s
+`hide_death_root`, so the palette/framing/silhouette checks keep judging the
+live vehicle), so a file that lost its wreck would render identically and
+pass every pixel check here while a destroyed vehicle drew nothing in the
+game.
+
+The failure this exists to catch is quiet in both directions. A re-export
+that skips the pass produces a GLB that LOADS fine -- `buildVehicleMeshTemplate`
+is happy with zero animations, `instantiateVehicleMesh` allocates no mixer,
+and the only symptom is a vehicle that vanishes at t=0, which is exactly the
+bug the wreck was built to fix. And a half-applied pass (a death root whose
+children reference their own COPIES of the geometry rather than the live
+meshes) costs 1.6-3.4 MiB per file with nothing on screen to show for it.
+Both are invisible to a picture; both are one `!=` away in the JSON.
+
+Charring is NOT checked here and cannot be: it is a runtime treatment of
+anything marked `rl_wreck` (spec §4.3), applied by the renderer's material
+path, and this gate repaints every vehicle from the palette tables before
+rendering. The passing path says so out loud, the way the `NOT
+palette-checked` lines do for textured buildings.
+
 `art/meshes/decor/*.glb` (scattered terrain props -- `docs/superpowers/plans/
 2026-09-01-terrain-c-mesh-decor.md`, Task 4) skips `render_mesh_gate.py`
 entirely: that script's own `render_one` returns early for `mesh_kind() ==
@@ -634,6 +664,189 @@ def check_campaign_meshes(campaign_root, world_path):
     return failures, textured_names
 
 
+# The wreck contract's own names, restated from `tools/src/meshes/wreck-pass.ts`
+# (`DEATH_ROOT`, `WRECK_PREFIX`) and `mesh-anim.ts`'s clip vocabulary rather
+# than imported -- this is a plain-`python3` process and the TypeScript side
+# is not reachable from it. Written down on three sides now (the pass, this
+# gate, `mesh-vehicle-shipped.test.ts`), which is what makes a rename on any
+# one of them a red gate rather than a silent miss.
+DEATH_ROOT_NODE = "death_root"
+WRECK_NODE_PREFIX = "WRECK_"
+WRECK_CLIP_NAMES = ("idle", "wreck")
+
+
+def _wreck_subtree(nodes, root_index):
+    """Every node index under `root_index`, the root itself excluded. A flat
+    list today -- the pass writes one child per live mesh node and no deeper
+    -- but walked rather than assumed, because the spec's later structural
+    pass "replaces a vehicle's `WRECK_` children with real damaged geometry"
+    and that geometry may well arrive nested."""
+    out = []
+    stack = list(nodes[root_index].get("children", []))
+    while stack:
+        i = stack.pop()
+        out.append(i)
+        stack.extend(nodes[i].get("children", []))
+    return out
+
+
+def check_vehicle_wrecks(vehicles_root):
+    """Every `art/meshes/vehicles/*.glb` against the wreck contract, read
+    straight out of the raw GLB bytes -- see this module's docstring,
+    "Vehicles are checked a FIFTH way", for why no render can see this.
+
+    Five clauses, each of which has a silent failure mode behind it:
+
+      1. A node named `death_root` among the scene's ROOT nodes. Not merely
+         somewhere in the file: it is a SIBLING of the live geometry, and one
+         that had drifted under a hull would inherit that hull's transform
+         twice while still being "present".
+      2. Every node under it is named `WRECK_*` and carries
+         `extras.rl_wreck = true`. The flag is what the runtime's charring
+         reads (spec §4.3); the name is what a human reads in Blender.
+      3. Every wreck node's `mesh` index is one a LIVE node also references
+         -- the sharing that keeps this whole feature a couple of KB per
+         file instead of a second copy of a 3.4 MiB buffer.
+      4. Exactly the two animations `idle` and `wreck`, each keying `scale`
+         on exactly the set {every top-level live node} + {death_root}. A
+         clip that missed one live node leaves that part of the vehicle
+         standing inside its own wreck.
+      5. Every sampler is `STEP` with two keyframes, and its output is all
+         ones or all zeros the right way round: `idle` shows the live half
+         and hides the wreck, `wreck` is the reverse. `death_root` is
+         authored at scale 1 in the file, so clause 5 on `idle` is the ONLY
+         thing standing between the shipped bytes and a wreck drawn inside
+         its own live vehicle.
+
+    `bf.read_glb` and `bf._accessor` are reused, not reimplemented -- the
+    same "read, never reimplemented" the module docstring argues for the
+    palette and IoU maths. This is the second reader of a GLB's BIN chunk in
+    this process and there is no reason for it to be a second parse.
+
+    Returns (failures, n_checked) so the caller can name the count on the
+    PASSING path. An empty directory is zero iterations, not a failure.
+    """
+    failures = []
+    n_checked = 0
+    for path in sorted(glob.glob(os.path.join(vehicles_root, "*.glb"))):
+        name = os.path.basename(path)
+        gltf, binary = bf.read_glb(path)
+        nodes = gltf.get("nodes", [])
+        scene = (gltf.get("scenes") or [{}])[gltf.get("scene", 0)]
+        roots = list(scene.get("nodes", []))
+
+        death = [i for i in roots if nodes[i].get("name") == DEATH_ROOT_NODE]
+        if len(death) != 1:
+            failures.append(
+                f"{name}: {len(death)} root node(s) named {DEATH_ROOT_NODE!r}, expected exactly "
+                f"one -- run `pnpm wreck:meshes`. A re-export that skipped the pass LOADS fine "
+                f"and simply has no death state: the vehicle vanishes the frame it dies, which "
+                f"is the bug the wreck exists to fix"
+            )
+            continue
+        death = death[0]
+        n_checked += 1
+        live_roots = [i for i in roots if i != death]
+
+        wreck_nodes = _wreck_subtree(nodes, death)
+        if not wreck_nodes:
+            failures.append(
+                f"{name}: {DEATH_ROOT_NODE!r} has no children -- an empty death root passes "
+                f"every clip check below and draws nothing at all when the vehicle dies"
+            )
+        wreck_set = set(wreck_nodes)
+        live_meshes = {
+            node["mesh"] for i, node in enumerate(nodes)
+            if "mesh" in node and i not in wreck_set
+        }
+        for i in wreck_nodes:
+            node = nodes[i]
+            node_name = node.get("name") or f"<node {i}>"
+            if not node_name.startswith(WRECK_NODE_PREFIX):
+                failures.append(
+                    f"{name}: node {node_name!r} under {DEATH_ROOT_NODE!r} is not named "
+                    f"{WRECK_NODE_PREFIX}*"
+                )
+            if (node.get("extras") or {}).get("rl_wreck") is not True:
+                failures.append(
+                    f"{name}: node {node_name!r} under {DEATH_ROOT_NODE!r} does not carry "
+                    f"extras.rl_wreck = true -- the runtime's charring reads that flag, so this "
+                    f"part would draw in its LIVING colours on a burnt-out hull"
+                )
+            if "mesh" not in node:
+                continue  # a grouping empty is legitimate; it just draws nothing
+            if node["mesh"] not in live_meshes:
+                failures.append(
+                    f"{name}: node {node_name!r} references mesh {node['mesh']}, which no live "
+                    f"node references -- the wreck must SHARE its twin's mesh, not carry a copy "
+                    f"(this file's buffer is {len(binary or b''):,} bytes; duplicating it is the "
+                    f"cost the contract exists to avoid)"
+                )
+
+        animations = gltf.get("animations", [])
+        got_clips = sorted(a.get("name") for a in animations)
+        if got_clips != sorted(WRECK_CLIP_NAMES):
+            failures.append(
+                f"{name}: animations are {got_clips}, expected exactly {sorted(WRECK_CLIP_NAMES)}"
+            )
+        want_targets = set(live_roots) | {death}
+        for anim in animations:
+            clip = anim.get("name")
+            if clip not in WRECK_CLIP_NAMES:
+                continue  # already reported by the set comparison above
+            samplers = anim.get("samplers", [])
+            got_targets = []
+            for channel in anim.get("channels", []):
+                target = channel.get("target") or {}
+                node_i = target.get("node")
+                got_targets.append(node_i)
+                node_name = nodes[node_i].get("name") if node_i is not None else "<none>"
+                if target.get("path") != "scale":
+                    failures.append(
+                        f"{name}: clip {clip!r} keys {target.get('path')!r} on {node_name!r} -- "
+                        f"the contract is scale, and only scale"
+                    )
+                    continue
+                sampler = samplers[channel["sampler"]]
+                if sampler.get("interpolation") != "STEP":
+                    failures.append(
+                        f"{name}: clip {clip!r}'s sampler for {node_name!r} interpolates "
+                        f"{sampler.get('interpolation')!r}, not STEP -- a LINEAR ramp between "
+                        f"1 and 0 makes the swap a half-second dissolve instead of a swap"
+                    )
+                times = bf._accessor(gltf, binary, sampler["input"])  # noqa: SLF001 -- see the docstring.
+                values = bf._accessor(gltf, binary, sampler["output"])  # noqa: SLF001
+                if len(times) != 2 or values.shape != (2, 3):
+                    failures.append(
+                        f"{name}: clip {clip!r}'s sampler for {node_name!r} has {len(times)} "
+                        f"keyframe(s) of {values.shape[1] if values.ndim > 1 else '?'} "
+                        f"component(s), expected 2 x VEC3"
+                    )
+                    continue
+                # `idle` shows the live half, `wreck` shows the death root.
+                shown = (node_i != death) == (clip == "idle")
+                want = 1.0 if shown else 0.0
+                if not (values == want).all():
+                    failures.append(
+                        f"{name}: clip {clip!r} scales {node_name!r} to "
+                        f"{values.tolist()}, expected every component {want} -- "
+                        f"{DEATH_ROOT_NODE!r} is authored at scale 1 in the file, so `idle`'s "
+                        f"zero is the only thing that keeps the wreck out of the live frame"
+                    )
+            if set(got_targets) != want_targets or len(got_targets) != len(want_targets):
+                missing = sorted(nodes[i].get("name") for i in want_targets - set(got_targets))
+                extra = sorted(
+                    (nodes[i].get("name") if i is not None else "<none>")
+                    for i in set(got_targets) - want_targets
+                )
+                failures.append(
+                    f"{name}: clip {clip!r} keys {len(got_targets)} channel(s) over "
+                    f"{len(set(got_targets))} node(s); missing {missing}, unexpected {extra} -- "
+                    f"every top-level live node plus {DEATH_ROOT_NODE!r}, exactly once each"
+                )
+    return failures, n_checked
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--palette", default=os.path.join(REPO, "data", "palette.json"))
@@ -692,6 +905,15 @@ def main():
         facing_failures, facing_notes = bf.check_building_facing(buildings_root)
         failures.extend(facing_failures)
 
+        # A FIFTH way, raw bytes again, and the one whose defect is INVISIBLE
+        # to every render above by construction: `render_mesh_gate.py` hides
+        # `death_root` for the live pose, so a vehicle that lost its wreck
+        # photographs identically to one that has it. See this module's
+        # docstring, "Vehicles are checked a FIFTH way".
+        vehicles_root = os.path.join(REPO, "art", "meshes", "vehicles")
+        wreck_failures, n_vehicle_wrecks = check_vehicle_wrecks(vehicles_root)
+        failures.extend(wreck_failures)
+
         if failures:
             print(f"\nMESH GATE FAILED -- {len(failures)} issue(s):\n")
             for f in failures:
@@ -738,6 +960,17 @@ def main():
                   "rendered by this gate, so no silhouette IoU applies either; its region "
                   "and town nodes ARE checked against data/campaign/world.json. See "
                   "TEXTURED_CAMPAIGN_EXEMPT)")
+        if n_vehicle_wrecks:
+            # On the PASSING path, and the second clause is the point: a
+            # green tick here must not read as "the wreck looks right".
+            # Charring is a runtime treatment of anything marked `rl_wreck`
+            # (spec 4.3), and this gate repaints every vehicle from the
+            # palette tables before rendering -- so it is measuring a
+            # stand-in, exactly as `render_mesh_gate.py` does for a textured
+            # building. The SHAPE of the wreck is judged by the screenshot
+            # sheet, not by anything here.
+            print(f"  vehicle wrecks: {n_vehicle_wrecks} GLB(s) carry the death_root contract; "
+                  f"charring is a runtime treatment and is NOT gate-checked")
         if facing_notes:
             # Deliberately loud, and deliberately on the PASSING path, for the
             # same reason as the line above: a green tick must not read as
