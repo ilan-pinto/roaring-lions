@@ -707,6 +707,79 @@ Both arms of that A/B were taken on the pre-shadow-fix build, so the rows
 read ~0.8 ms high against the AFTER table — the *difference* between them,
 which is the only thing the A/B is for, is unaffected.
 
+### The 300-unit acceptance, measured (2026-09-15)
+
+**Spec §11's acceptance holds, and the number is 6.50–6.70 ms p95 against a
+16.7 ms budget.** It had never actually been run: everything above this
+subsection measures one fixed sandbox roster, and the caveat below used to say
+so and stop there. This is the unit-COUNT curve, on the real `ThreeRenderer`
+with the whole lit chain in it.
+
+**Instrument:** `tools/src/perf/backend-curve-gate.ts` — the Playwright driver
+for `three-units.ts`'s `measureThreeMesh`, which builds its own `Sim` and its
+own `ThreeRenderer`, calls `renderer.init(host)` (so the composer, the sun's
+shadow pass, GTAO's normal pre-pass, fog and SMAA are all live), loads the real
+shipped mesh GLBs for the five roster types that have one, and times
+`renderer.frame()` over 180 frames with the sim held still at each checkpoint.
+Two things were added to that driver for this measurement and are now
+permanent: it prints the unmasked GL renderer string on every run (the
+capture-conditions section calls the GPU backend the largest confound in this
+whole document, and until now the launch args had to be taken on trust), and
+`--only=` selects one measurement function so a ladder rung can be re-read
+without re-running all four.
+
+```bash
+pnpm --filter @lions/app exec vite --port 5178 --strictPort --host 127.0.0.1   # terminal 1
+npx tsx tools/src/perf/backend-curve-gate.ts --port=5178 --host=127.0.0.1 \
+  --only=three-mesh --out=/tmp/perf.json                                       # terminal 2
+```
+
+**Capture conditions.** Apple M3 Pro, macOS 26.6.2, Node v25.9.0. GPU string
+printed by the run: `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro,
+Unspecified Version)` — the real hardware backend. Playwright viewport
+1280×720 at `deviceScaleFactor` 1, which is the harness's own fixed host size
+and **5.6× fewer pixels than the frame-cost sections above** (1440×900 at dSF
+2); the two are not comparable to each other and neither is quoted against the
+other. Dev server started by hand on this worktree and stopped afterwards. Two
+runs of every configuration, both quoted, as this document's own standard asks.
+
+**AFTER — this branch (`3dd6151`), the whole lit chain, real shipped meshes**
+
+| target | living | tick p95 | render avg | render p95 (run1 / run2) | render max |
+|---|---|---|---|---|---|
+| 65  | 65  | 0.30–0.40 | 3.36–3.45 | 3.20 / 3.10 | 126–131 |
+| 150 | 143 | 1.00 | 3.55–3.65 | 5.90 / 5.40 | 8.1–9.0 |
+| **300** | **266** | 1.80–2.00 | 4.92–4.95 | **6.70 / 6.50** | 8.7–9.0 |
+| 400 | 320 | 2.70–2.90 | 5.98–6.00 | **7.80 / 7.80** | 9.2–20.3 |
+
+**BEFORE** is the pre-lit `measureThreeMesh` table in "Backend curve" above
+(2026-08-30, same machine, same harness, same checkpoints): 1.90–2.00 p95 at
+the 300 checkpoint and 2.10–2.20 at 400. So the lit renderer costs **3.4× at
+300 living-266 and 3.6× at 400 living-320** on this curve — the shadow map's
+re-submission of every caster plus GTAO's normal pre-pass plus four composer
+passes, which is exactly the tripling the review predicted — and it still
+clears the budget by **2.5×** at the GDD target. **No ladder rung was taken.**
+Shadow map stays 4096², infantry still cast, AO stays at half resolution.
+
+Two readings of the table worth stating rather than leaving to be inferred.
+The `render max` of 126–131 ms at the FIRST checkpoint is shader compilation,
+not frame cost: it is one frame in 180, it appears at the first checkpoint
+only, and it is gone by the second — the same first-draw stall the billboard
+curve shows at 87–105 ms. And the curve is close to linear from 143 units up
+(0.0107 ms per living unit between the 150 and 400 checkpoints), which puts the
+budget crossing near **~1,150 living units** if it stays linear — worth
+recording as an extrapolation and nothing more, since nothing was measured
+above 320.
+
+**One instrument was NOT re-run, deliberately.** `measureSkinnedInfantry` —
+the source of the ~1,150-figure ceiling in "Unit ceiling" above — builds its
+own bare `THREE.WebGLRenderer`, its own scene and its own inline skinned
+material. It never constructs a `ThreeRenderer`, so it has no sun, no shadow
+map, no composer and no AO pass, and this branch cannot have moved it. Re-running
+it would have produced the pre-lit numbers again and proved nothing. The
+instrument that answers "what does the lit chain cost per unit" is the one
+above, and it is the one that was run.
+
 ### What this section does not measure
 
 - **One machine, one GPU, one OS.** Same gap the sections above name. No
@@ -726,9 +799,13 @@ which is the only thing the A/B is for, is unaffected.
   *is* measured is that removing a whole shadow pass from it saved 0.7–0.9 ms
   and quartering its fill saved ~4 ms, so both halves are real.
 - **The sandbox roster is not a mission roster.** `&sur&civ` on
-  `beit_sahwan_outskirts` is a fixed, modest force; nothing here says what
-  the GDD's 300-unit target costs with this renderer, and `three-units.ts`
-  above remains the instrument for that question.
+  `beit_sahwan_outskirts` is a fixed, modest force, so the frame-cost tables
+  above say nothing about unit count on their own. That gap is closed by "The
+  300-unit acceptance, measured" — but note the two halves were captured at
+  different viewports (1440×900 dSF 2 versus the curve harness's 1280×720 dSF
+  1, 5.6× the pixels) and cannot be read against each other. Neither has been
+  taken on a real mission's roster at scale; the largest authored mission is
+  65 units.
 - **Frame-level `shadowMap.autoUpdate = false` was not tried**, deliberately:
   units move every frame and their shadows have to follow. The fix recorded
   above is the opposite scope — the flag is cleared and restored around

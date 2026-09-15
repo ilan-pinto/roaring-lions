@@ -47,14 +47,36 @@
 // its own fresh `page.goto('/')`, so every run starts from a clean tab with
 // nothing else resident.
 //
+// ============================================================================
+// Why the GPU string is printed, and why `--only` exists
+// ============================================================================
+//
+// `docs/PERFORMANCE.md`'s own capture-conditions section names the GPU
+// backend as "the single largest confound found while producing this doc":
+// Playwright's default headless Chromium renders WebGL through SwiftShader,
+// and under it this curve's own numbers were dominated by 1,000-13,000 ms
+// single-frame stalls. The launch args below switch that to real hardware --
+// but nothing PROVED it per run until 2026-09-15, so a reader of a recorded
+// number had to take the args on trust. Every run now prints
+// `WEBGL_debug_renderer_info`'s `UNMASKED_RENDERER_WEBGL` before it measures
+// anything, and says loudly when it reads SwiftShader; the same thing
+// `render-frame-cost.ts` already does.
+//
+// `--only` exists because the four measurement functions answer different
+// questions and a ladder step (spec 2026-09-14 section 11) re-measures ONE of
+// them repeatedly. Running all four to re-read one rung wastes ~4 minutes
+// per rung, most of it in `measurePixi`, which no lighting change can move.
+//
 // Usage: npx tsx tools/src/perf/backend-curve-gate.ts [--port=5190]
-//   [--out=path.json] [--skip-skinned]
+//   [--host=localhost] [--out=path.json] [--skip-skinned]
+//   [--only=pixi,three,three-mesh,skinned]
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page, type Browser } from 'playwright';
+import type { BackendReport } from './three-units';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -64,10 +86,17 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 // skinned-infantry spike GLB.
 const MODULE_PATH = `/@fs${REPO_ROOT}/tools/src/perf/three-units.ts`;
 
+/** The measurement functions `--only` can select, in run order. `all` is the
+ *  default and is what every recorded curve in `docs/PERFORMANCE.md` was
+ *  taken with. */
+const MEASUREMENTS = ['pixi', 'three', 'three-mesh', 'skinned'] as const;
+type Measurement = (typeof MEASUREMENTS)[number];
+
 interface Args {
   port: number;
+  host: string;
   outFile: string;
-  skipSkinned: boolean;
+  only: ReadonlySet<Measurement>;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -79,38 +108,55 @@ function parseArgs(argv: readonly string[]): Args {
         return [k, v ?? 'true'] as const;
       })
   );
+  const onlyRaw = flags.get('only');
+  const only = new Set<Measurement>(MEASUREMENTS);
+  if (onlyRaw !== undefined && onlyRaw !== 'true') {
+    only.clear();
+    for (const name of onlyRaw.split(',').map((s) => s.trim()).filter(Boolean)) {
+      if (!(MEASUREMENTS as readonly string[]).includes(name)) {
+        throw new Error(`backend-curve-gate: unknown --only "${name}" (known: ${MEASUREMENTS.join(', ')})`);
+      }
+      only.add(name as Measurement);
+    }
+  }
+  if (flags.has('skip-skinned')) only.delete('skinned');
   return {
     port: Number(flags.get('port') ?? 5190),
+    // `localhost` by default (what every recorded run used); overridable
+    // because a dev server started with `--host 127.0.0.1` is NOT reachable
+    // over `localhost`'s IPv6 answer on this platform, and the failure reads
+    // as a dead server rather than as a wrong hostname.
+    host: flags.get('host') ?? 'localhost',
     outFile: flags.get('out') ?? path.join(REPO_ROOT, '.superpowers', 'perf-evidence-raw.json'),
-    skipSkinned: flags.has('skip-skinned'),
+    only,
   };
 }
 
-async function isServerUp(port: number): Promise<boolean> {
+async function isServerUp(origin: string): Promise<boolean> {
   try {
-    const res = await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(1000) });
+    const res = await fetch(`${origin}/`, { signal: AbortSignal.timeout(1000) });
     return res.status < 500;
   } catch {
     return false;
   }
 }
 
-async function waitForServer(port: number, timeoutMs: number): Promise<void> {
+async function waitForServer(origin: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (await isServerUp(port)) return;
+    if (await isServerUp(origin)) return;
     await new Promise((r) => setTimeout(r, 300));
   }
-  throw new Error(`backend-curve-gate: dev server on port ${port} did not come up within ${timeoutMs}ms`);
+  throw new Error(`backend-curve-gate: dev server at ${origin} did not come up within ${timeoutMs}ms`);
 }
 
 /** Same "never kill a server this process did not start" rule
  *  `golden-diff-gate.ts` follows -- reused verbatim rather than re-derived,
  *  because getting this wrong is the one mistake CLAUDE.md explicitly warns
  *  a subagent has made repeatedly (killing a shared `pnpm dev`). */
-async function ensureDevServer(port: number): Promise<ChildProcess | null> {
-  if (await isServerUp(port)) {
-    console.log(`[backend-curve-gate] reusing dev server already listening on :${port} (not managed, will not be killed)`);
+async function ensureDevServer(origin: string, port: number): Promise<ChildProcess | null> {
+  if (await isServerUp(origin)) {
+    console.log(`[backend-curve-gate] reusing dev server already listening at ${origin} (not managed, will not be killed)`);
     return null;
   }
   console.log(`[backend-curve-gate] starting a dev server on :${port}...`);
@@ -123,7 +169,7 @@ async function ensureDevServer(port: number): Promise<ChildProcess | null> {
   child.stdout?.on('data', (d: Buffer) => (out += d.toString()));
   child.stderr?.on('data', (d: Buffer) => (out += d.toString()));
   try {
-    await waitForServer(port, 30_000);
+    await waitForServer(origin, 30_000);
   } catch (err) {
     console.error(`[backend-curve-gate] dev server output so far:\n${out}`);
     child.kill('SIGTERM');
@@ -132,14 +178,45 @@ async function ensureDevServer(port: number): Promise<ChildProcess | null> {
   return child;
 }
 
-async function freshPage(browser: Browser, port: number): Promise<Page> {
+async function freshPage(browser: Browser, origin: string): Promise<Page> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.on('pageerror', (err) => console.error('[pageerror]', err.message));
   page.on('console', (msg) => {
     if (msg.type() === 'log' || msg.type() === 'info') console.log(msg.text());
   });
-  await page.goto(`http://localhost:${port}/`, { waitUntil: 'load', timeout: 30_000 });
+  await page.goto(`${origin}/`, { waitUntil: 'load', timeout: 30_000 });
   return page;
+}
+
+/** The unmasked GL renderer string this run's numbers were taken on, read
+ *  from a throwaway canvas in the page. Printed rather than asserted: a
+ *  SwiftShader run is not comparable to a hardware one and this is how a
+ *  reader of a recorded number finds out which they are holding. */
+async function readGpuString(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2');
+    if (!gl) return 'no webgl2 context';
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    if (!ext) return 'WEBGL_debug_renderer_info unavailable';
+    return String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL));
+  });
+}
+
+/** One line per checkpoint, p95 first, so the curve is in the transcript and
+ *  not only in the `--out` JSON. `render p95` is the figure the 16.7 ms
+ *  budget is read against (spec 2026-09-14 section 11). */
+function printCurve(label: string, report: BackendReport): void {
+  console.log(`\n[backend-curve-gate] ${label} curve (ms):`);
+  console.log('  target | living | tick avg | tick p95 | render avg | render p95 | render max');
+  for (const c of report.checkpoints) {
+    console.log(
+      `  ${String(c.target).padStart(6)} | ${String(c.livingAtMeasure).padStart(6)} | ` +
+        `${c.tick.avgMs.toFixed(2).padStart(8)} | ${c.tick.p95Ms.toFixed(2).padStart(8)} | ` +
+        `${c.render.avgMs.toFixed(2).padStart(10)} | ${c.render.p95Ms.toFixed(2).padStart(10)} | ` +
+        `${c.render.maxMs.toFixed(2).padStart(10)}`
+    );
+  }
 }
 
 /** Runs one exported measurement function (`measurePixi`, `measureThree`,
@@ -167,8 +244,9 @@ async function runInPage<T>(page: Page, exportName: string): Promise<T> {
 }
 
 async function main(): Promise<void> {
-  const { port, outFile, skipSkinned } = parseArgs(process.argv.slice(2));
-  const devServer = await ensureDevServer(port);
+  const { port, host, outFile, only } = parseArgs(process.argv.slice(2));
+  const origin = `http://${host}:${port}`;
+  const devServer = await ensureDevServer(origin, port);
   // Playwright's default headless Chromium renders WebGL through SwiftShader
   // (software) -- confirmed live via `WEBGL_debug_renderer_info` before this
   // flag set was added: `unmaskedRenderer` read "ANGLE (Google, Vulkan 1.3.0
@@ -186,26 +264,51 @@ async function main(): Promise<void> {
   const report: Record<string, unknown> = {
     capturedAt: new Date().toISOString(),
     port,
+    only: [...only],
   };
   try {
-    console.log('\n[backend-curve-gate] === measurePixi ===');
-    let page = await freshPage(browser, port);
-    report.pixi = await runInPage(page, 'measurePixi');
-    await page.close();
+    const probe = await freshPage(browser, origin);
+    const gpu = await readGpuString(probe);
+    await probe.close();
+    report.gpu = gpu;
+    console.log(`[backend-curve-gate] GPU: ${gpu}`);
+    if (/swiftshader|software/i.test(gpu)) {
+      console.warn(
+        '[backend-curve-gate] WARNING: this is the SOFTWARE rasteriser. Every number below is ' +
+          'incomparable to a hardware run -- see docs/PERFORMANCE.md capture conditions.'
+      );
+    }
 
-    console.log('\n[backend-curve-gate] === measureThree (billboard) ===');
-    page = await freshPage(browser, port);
-    report.three = await runInPage(page, 'measureThree');
-    await page.close();
+    if (only.has('pixi')) {
+      console.log('\n[backend-curve-gate] === measurePixi ===');
+      const page = await freshPage(browser, origin);
+      const r = await runInPage<BackendReport>(page, 'measurePixi');
+      report.pixi = r;
+      printCurve('pixi', r);
+      await page.close();
+    }
 
-    console.log('\n[backend-curve-gate] === measureThreeMesh (real mesh units) ===');
-    page = await freshPage(browser, port);
-    report.threeMesh = await runInPage(page, 'measureThreeMesh');
-    await page.close();
+    if (only.has('three')) {
+      console.log('\n[backend-curve-gate] === measureThree (billboard) ===');
+      const page = await freshPage(browser, origin);
+      const r = await runInPage<BackendReport>(page, 'measureThree');
+      report.three = r;
+      printCurve('three (billboards)', r);
+      await page.close();
+    }
 
-    if (!skipSkinned) {
+    if (only.has('three-mesh')) {
+      console.log('\n[backend-curve-gate] === measureThreeMesh (real mesh units) ===');
+      const page = await freshPage(browser, origin);
+      const r = await runInPage<BackendReport>(page, 'measureThreeMesh');
+      report.threeMesh = r;
+      printCurve('three (real shipped meshes)', r);
+      await page.close();
+    }
+
+    if (only.has('skinned')) {
       console.log('\n[backend-curve-gate] === measureSkinnedInfantry (R0 spike ceiling stand-in) ===');
-      page = await freshPage(browser, port);
+      const page = await freshPage(browser, origin);
       report.skinnedInfantry = await runInPage(page, 'measureSkinnedInfantry');
       await page.close();
     }
