@@ -148,11 +148,22 @@ export interface LayerCheckSpec {
  *
  * So the ratio flat/textured is "what fraction of this layer's marks are a
  * real tone difference rather than a hole in the texture", and it is 1.0 for a
- * healthy layer by construction. Measured: 0.9306 / 0.9544 / 0.9377 clean on
- * quiet / open-ground / relief, against 0.5927 / 0.6938 / 0.6359 with the
- * defect re-injected. Nothing falls between 0.70 and 0.93, so a threshold in
- * that gap sits in a gap rather than on a fitted line -- the same standard
- * `tools/building_facing.py`'s FRONT_MARGIN is held to.
+ * healthy layer by construction. Measured PRE-LIT: 0.9306 / 0.9544 / 0.9377
+ * clean on quiet / open-ground / relief, against 0.5927 / 0.6938 / 0.6359 with
+ * the defect re-injected -- nothing between 0.70 and 0.93, so 0.8 sat in a gap
+ * rather than on a fitted line, the same standard `tools/building_facing.py`'s
+ * FRONT_MARGIN is held to.
+ *
+ * RE-MEASURED ON THE LIT RENDERER, 2026-09-15, and the answer is not uniform.
+ * Clean 0.9301 / 0.9260 / 0.9935, defective 0.6692 / 0.7109 / **0.9186**. The
+ * sun pushes the DEFECTIVE ratio up everywhere, because a lit mark differs
+ * from lit ground by its own micro-relief shading even when its colour has
+ * collapsed into the ground's -- and on `relief`, where every mark sits on a
+ * shaded hillside, it pushes it clean past the floor. So two of the three
+ * scenarios still discriminate this defect and `relief` does not; its floor is
+ * deliberately NOT lowered into the 0.075 that would separate them, and its
+ * own entry carries the account. Read each scenario's `toneCheck.rationale`
+ * for its own pair rather than treating the three as one number.
  *
  * IT DEPENDS ON THE GROUND ACTUALLY BEING TEXTURED, and that is not a hidden
  * assumption: the same scenario's `ground-albedo` layer check proves the
@@ -316,12 +327,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             '(it was 53427 / 49830 = 0.9326 under the front-lit sun, and 8938 / 8318 = 0.9306 ' +
             'before the lights at all; the footprints grew when the scene gained a sun, because a ' +
             'lit mark differs from lit ground over its whole area, not only where the tone ' +
-            'stepped). THE ' +
-            '0.8 FLOOR IS UNCHANGED AND STILL RESTS ON THE PRE-LIT DEFECT MEASUREMENT: with the ' +
-            'scatter no-op re-injected (671acdb) this read 8794 / 5212 = 0.5927, and that has NOT ' +
-            'been re-taken on the lit renderer, front-lit or side-lit. The clean ratio has moved ' +
-            'by 0.005 in total across both suns, so the gap between 0.70 and 0.93 is undisturbed, ' +
-            'but say so rather than imply a fresh measurement.',
+            'stepped). THE DEFECT WAS RE-MEASURED ON THIS RENDERER on 2026-09-15 and the 0.8 ' +
+            'floor still separates: with the scatter no-op re-injected (the 671acdb composite, ' +
+            'd9fd1c7 reverted by hand) this reads 50651 / 33898 = 0.6692, against a pre-lit ' +
+            '8794 / 5212 = 0.5927. The sun moved the defective ratio UP by 0.077 -- exactly the ' +
+            'direction predicted (a lit mark differs from lit ground by its own micro-relief ' +
+            'shading even when its colour has collapsed into the ground tone) -- and the gap is ' +
+            'now 0.67 to 0.93 rather than 0.59 to 0.93. Still a gap, not a fitted line.',
         },
         rationale:
           PRE_LIT +
@@ -427,12 +439,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             'the grain mesh covers 10170 px of this crop over textured ground and 9417 px over ' +
             'the flat palette tone -- ratio 0.9260, identical on the 5 side-light runs (10254 / ' +
             '9487 = 0.9252 under the front-lit sun; 8967 / 8558 = 0.9544 before the lights). THE ' +
-            '0.8 FLOOR IS UNCHANGED AND STILL RESTS ' +
-            'ON THE PRE-LIT DEFECT MEASUREMENT of 8912 / 6183 = 0.6938, which has NOT been ' +
-            're-taken on the lit renderer under either sun. This remains the closest any ' +
-            'measurement comes to the floor from the clean side, and it moved 0.03 CLOSER when ' +
-            'the lights landed, so it is the entry to re-measure ' +
-            'first if the defect is ever re-injected again.',
+            'DEFECT WAS RE-MEASURED ON THIS RENDERER on 2026-09-15 and the 0.8 floor still ' +
+            'separates, but this is the TIGHTEST pair in the gate from BOTH sides: re-injected ' +
+            '(the 671acdb composite) it reads 9948 / 7072 = 0.7109, against a pre-lit 8912 / ' +
+            '6183 = 0.6938. The clean ratio fell 0.03 toward the floor when the lights landed ' +
+            'and the defective one rose 0.02 toward it, leaving 0.71 to 0.93 -- 0.09 of headroom ' +
+            'below and 0.13 above. Re-measure this entry first if anything about the ground ' +
+            'texture, the sun or the scatter composites changes again.',
         },
         rationale:
           PRE_LIT +
@@ -440,7 +453,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'px / 1.6858 -- the one signal in the gate that went DOWN, and only on the pixel count: ' +
           'this crop is bare ground at zoom 3, so the marks had nothing but ground to differ from ' +
           'already and the sun shades mark and ground together. The side light moved it by one ' +
-          'part in ten thousand (3615 / 1.6071 front-lit, the same 3615 pixels), because this ' +
+          'part in a thousand (3615 / 1.6071 front-lit, the same 3615 pixels), because this ' +
           'crop holds no vertical face for an azimuth to change. Still the strongest scatter ' +
           'witness on magnitude, which is what the crop was chosen for.',
       },
@@ -561,7 +574,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // pre-lit runs, and 0.0001-0.0004 in the older sample this entry already
     // carried -- neither the relight nor the sun's azimuth moved it.
     // 0.00036 is the largest reading plus 20%, and ~2700x BELOW this
-    // scenario's own `units` floor of 0.89, so the control still proves the
+    // scenario's own `units` floor of 0.98, so the control still proves the
     // toggle is the toggle by a wide margin. It is TIGHTER than the 0.001 this
     // entry used to carry (3.3x the maximum), which is the direction a control
     // should move. One caveat worth knowing before reacting to a red here: the
@@ -656,10 +669,22 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             'the flat palette tone -- ratio 0.9935, identical on the 5 side-light runs (93062 / ' +
             '92076 = 0.9894 under the front-lit sun; 23915 / 22426 = 0.9377 before the lights, the ' +
             'footprint quadrupling because a shaded ' +
-            'mark differs from shaded ground over its whole area). THE 0.8 FLOOR IS UNCHANGED AND ' +
-            'STILL RESTS ON THE PRE-LIT DEFECT MEASUREMENT of 23731 / 15090 = 0.6359, which has ' +
-            'NOT been re-taken on the lit renderer under either sun. This is still the framing ' +
-            'where the defect moves the most pixels in absolute terms.',
+            'mark differs from shaded ground over its whole area). **THIS TONE CHECK NO LONGER ' +
+            'DISCRIMINATES THE DEFECT AND THE FLOOR IS DELIBERATELY NOT LOWERED TO MAKE IT.** ' +
+            'Re-injected on the lit side-light renderer (2026-09-15, the 671acdb composite) it ' +
+            'reads 91272 / 83839 = 0.9186 and PASSES 0.8, where pre-lit it read 23731 / 15090 = ' +
+            '0.6359 and failed. The cause is the same relief that makes this the only scatter ' +
+            'witness with slopes: a mark on a lit hillside differs from the ground under it by ' +
+            'its own micro-relief SHADING whatever colour it is, so hiding it moves nearly as ' +
+            'many pixels over the flat palette tone as over the texture, defect or no defect. A ' +
+            'floor inside 0.9186-0.9935 would be a golden number in disguise -- 0.075 of gap, ' +
+            'against 0.26 on quiet and 0.22 on open-ground -- so 0.8 stays and this entry is the ' +
+            'record that the check is a TEXTURE witness here, not a defect witness. The defect ' +
+            'is still caught on this map, twice: the baseline comparison reads 28 px / 0.1536 ' +
+            'against a 0.004 budget, and the two other scenarios\' tone checks both fail. What ' +
+            'is lost is reference-free coverage of THIS defect on THIS map -- which matters only ' +
+            'on a runner with no blessed baseline. Closing it properly needs a witness that is ' +
+            'not a footprint ratio; see docs/superpowers/specs/2026-09-14-lit-renderer-design.md.',
         },
         rationale:
           PRE_LIT +

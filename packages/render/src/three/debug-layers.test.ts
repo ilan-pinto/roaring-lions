@@ -67,12 +67,16 @@ function makeRenderer(): ThreeRenderer {
  *  until 2026-09-14; fog of war is a depth-reading post pass over a
  *  `ShroudTexture` now, not a mesh.) */
 function internals(r: ThreeRenderer): {
-  scatterMesh: THREE.Object3D | null;
+  scatterMesh: THREE.Mesh | null;
+  terrainMesh: THREE.Mesh | null;
+  groveMesh: THREE.Mesh | null;
+  residualMesh: THREE.Mesh | null;
   decorGroup: THREE.Object3D | null;
   texturedDecorGroup: THREE.Object3D | null;
-  structureBoxes: Map<number, THREE.Object3D>;
+  structureBoxes: Map<number, THREE.Mesh>;
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
   groundMat: GroundMaterial;
+  rebuildTerrain(): void;
 } {
   return r as unknown as ReturnType<typeof internals>;
 }
@@ -157,6 +161,40 @@ describe('DEBUG_LAYERS', () => {
     r.setDebugLayerVisible('ground-albedo', true);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0.7);
     expect(i.groundMat.uniforms.uRockStrength.value).toBe(0.4);
+    r.dispose();
+  });
+
+  it('sets the terrain layers\' shadow flags the way rebuildTerrain claims', () => {
+    // The asymmetry is deliberate and is argued in `rebuildTerrain`'s own
+    // comment -- receiving is universal (every terrain layer is ground or
+    // lies on it and must darken under a building or a tank), casting is
+    // not. Nothing pinned it, so a stray `castShadow = true` on the ground
+    // heightfield (acne along every slope) or a lost `false` on the grove
+    // canopy (a flat card edge-on to the sun casting a sliver) would only
+    // show up as a re-blessed golden baseline.
+    const sim = new Sim({ seed: 1, width: 4, height: 4, capacity: 1 });
+    const hut = sim.addStructureType({ id: 'hut', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
+    sim.addStructure(hut, [5]);
+    const r = new ThreeRenderer(sim, makeOpts());
+    const i = internals(r);
+    i.rebuildTerrain();
+
+    for (const [name, mesh] of [
+      ['ground', i.terrainMesh],
+      ['scatter', i.scatterMesh],
+      ['residual', i.residualMesh],
+      ['grove', i.groveMesh],
+    ] as const) {
+      expect(mesh, `${name} mesh was not built`).not.toBeNull();
+      expect(mesh!.receiveShadow, `${name} must receive`).toBe(true);
+      expect(mesh!.castShadow, `${name} must not cast`).toBe(false);
+    }
+
+    // The one terrain layer with real height, and the only one that casts.
+    expect(i.structureBoxes.size).toBe(1);
+    const box = [...i.structureBoxes.values()][0];
+    expect(box.castShadow).toBe(true);
+    expect(box.receiveShadow).toBe(true);
     r.dispose();
   });
 

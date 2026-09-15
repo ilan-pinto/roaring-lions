@@ -51,8 +51,9 @@
  * (`../world-materials.ts`) included -- already carries a built-in
  * `opacity` number and a `transparent` flag, so nothing here has to declare
  * its own notion of partial opacity the way the toon shader this module
- * originally faded had to (`mesh-material.ts`'s now-unused `uOpacity`
- * uniform). RGB is never touched, only `opacity`, and only ever on a
+ * originally faded had to (`mesh-material.ts`'s `uOpacity` uniform -- that
+ * whole file went with the toon ramp on 2026-09-14 and there is nothing left
+ * to point at). RGB is never touched, only `opacity`, and only ever on a
  * per-entity CLONE this module makes for the fade window
  * (`beginMeshDeathFade` below) -- the shared TEMPLATE material every other
  * living clone of the same type/role still draws through

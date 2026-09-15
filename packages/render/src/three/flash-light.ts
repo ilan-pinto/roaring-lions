@@ -65,14 +65,24 @@ export class FlashLightManager {
   spawn(x: number, z: number, groundY: number, spec: FlashLightSpec, colorHex: string): void {
     const decayMs = spec.decay_ms ?? 0;
     if (decayMs <= 0) return;
-    const rounded = Math.round(spec.intensity ?? 0);
-    if (rounded <= 0) return;
+    // `intensity <= 0`, NOT `Math.round(intensity) <= 0`. The rounding was a
+    // ramp-era guard -- under the toon pipeline a flash was an integer number
+    // of ramp STEPS, so a spec that rounded to zero steps genuinely did
+    // nothing. A `PointLight` has no such quantum: 0.3 candela over 420 ms is
+    // a cigarette ember, and dropping it is dropping the effect. No shipped
+    // `data/vfx/` emitter actually fell through the old guard at the one call
+    // site that reaches this (`ThreeRenderer`'s `fireEmitterFor`, whose
+    // lowest intensity is `fire_hmg`'s 0.6 -- which rounds to 1, not 0), so
+    // this changes no pixel today; what it removes is a floor at 0.5 that a
+    // future sub-candela emitter would have hit silently.
+    const intensity = spec.intensity ?? 0;
+    if (intensity <= 0) return;
     if (this.active.length >= this.lights.length) this.active.shift();
     this.active.push({
       x,
       y: groundY + FLASH_HEIGHT,
       z,
-      peak: (spec.intensity ?? 0) * FLASH_INTENSITY_SCALE,
+      peak: intensity * FLASH_INTENSITY_SCALE,
       radius: Math.max(0.01, spec.radius_tiles ?? 0),
       decayMs,
       ageMs: 0,

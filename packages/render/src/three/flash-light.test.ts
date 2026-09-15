@@ -18,11 +18,22 @@ describe('FlashLightManager (point-light pool)', () => {
     }
   });
 
-  it('spawns nothing without decay_ms or with a rounded intensity of 0', () => {
+  it('spawns nothing without decay_ms or at intensity 0, but a FRACTIONAL intensity is a light', () => {
+    // The rule changed on 2026-09-15: the guard was `Math.round(intensity) <=
+    // 0`, a leftover from the toon era's integer ramp STEPS, and it silently
+    // discarded `cigarette_ember`'s 0.3 -- an emitter that declares a light
+    // and got none. A `PointLight` is continuous, so the only meaningless
+    // intensity is a non-positive one.
     const m = new FlashLightManager();
-    m.spawn(1, 2, 0, { intensity: 3 }, '#FFB43C');
-    m.spawn(1, 2, 0, { intensity: 0.3, radius_tiles: 0.5, decay_ms: 420 }, '#FFB43C');
+    m.spawn(1, 2, 0, { intensity: 3 }, '#FFB43C'); // no decay_ms
+    m.spawn(1, 2, 0, { intensity: 0, radius_tiles: 0.5, decay_ms: 420 }, '#FFB43C');
+    m.spawn(1, 2, 0, { intensity: -1, radius_tiles: 0.5, decay_ms: 420 }, '#FFB43C');
     expect(m.liveCount).toBe(0);
+    // `cigarette_ember`'s own shipped numbers.
+    m.spawn(1, 2, 0, { intensity: 0.3, radius_tiles: 0.5, decay_ms: 420 }, '#FFB43C');
+    expect(m.liveCount).toBe(1);
+    m.step(210);
+    expect(m.lights[0].intensity).toBeCloseTo(0.3 * FLASH_INTENSITY_SCALE, 6);
   });
 
   it('a live flash drives one light: position above ground, colour, distance, peak at midlife, gone after decay', () => {

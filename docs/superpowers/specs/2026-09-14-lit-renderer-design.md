@@ -105,9 +105,15 @@ work with or without those maps so it never blocks Phase 0.
 - Authored colours (`paletteColor(...)` in `app`, `rampForRole` outputs, VFX
   keys, overlay keys) are converted with three's default
   `Color.setStyle(hex)` → linear, i.e. `paletteColorNoConvert` is replaced by
-  the ordinary constructor. A palette hex therefore lands on screen as that hex
-  under neutral light, which is the property the old pipeline was protecting
-  and the new one gets from the standard transform.
+  the ordinary constructor. ~~A palette hex therefore lands on screen as that
+  hex under neutral light, which is the property the old pipeline was
+  protecting and the new one gets from the standard transform.~~ **That is
+  false and deviation 7 measured it false.** A palette hex is the INPUT to
+  lighting: decoded to linear, lit, ACES-compressed, then sRGB-encoded. ACES
+  at exposure 1.0 is not the identity — `#14150F` photographs as `#050503`,
+  15/255 from what `main` drew — so the authored hex is what a surface *is*,
+  never what the pixel reads. Nothing in the shipped pipeline preserves the
+  old equality, and no part of this design needs it to.
 - The clear colour is `opts.background` (`shadow.1`) through the same standard
   path.
 
@@ -117,7 +123,8 @@ Two lights in `ThreeRenderer`'s scene, created once in the constructor and
 never per frame:
 
 - **Sun**: `THREE.DirectionalLight`, intensity 2.6 (ACES needs headroom; tune
-  by eye against the neutral-light property above), positioned along
+  by eye — the neutral-light property this originally said to tune against
+  does not exist, see §1), positioned along
   `SUN_DIRECTION` from the scene origin with its target at the origin.
   `SUN_DIRECTION` is the render rig's own sun — `tools/dimetric.py`
   (`SUN_AZIMUTH` 135°, `SUN_ALTITUDE` 55°) — transformed into three's world
@@ -456,8 +463,37 @@ through ANGLE/Metal at 1440×900, pixel ratio 2 — against a 16.7 ms frame
 budget. That is a 6× frame cost for the whole feature and it clears the budget
 with 27% to spare on this machine; it does not have the margin the unlit
 renderer had, and a slower GPU is the case to measure before Phase 1 adds
-anything to the frame. §11's acceptance (the render budget is not crossed
-before 300 living figures) holds.
+anything to the frame.
+
+~~§11's acceptance (the render budget is not crossed before 300 living
+figures) holds.~~ **That was asserted, not measured — this entry claimed a
+result from an instrument nobody had run. It has been run now (2026-09-15) and
+the acceptance does hold: 6.50 / 6.70 ms render p95 at the 300-unit checkpoint
+(266 living after attrition), two runs, against 16.7 ms — 2.5× of margin.**
+The instrument is `measureThreeMesh` driven by
+`tools/src/perf/backend-curve-gate.ts`: a real `ThreeRenderer` with
+`init()` called, so the composer, the sun's shadow pass, GTAO's normal
+pre-pass, fog and SMAA are all live, with the real shipped mesh GLBs loaded;
+real hardware GPU, `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro)`, now
+printed by the run rather than assumed from the launch args. The pre-lit figure
+on the same harness and the same checkpoints was 1.90–2.00 ms, so the lit chain
+costs **3.4× per frame here** — one extra submission per caster for the shadow
+map and another for the AO normal pass, exactly the tripling the review
+predicted — and still clears the budget at 400/320-living (7.80 ms, both runs).
+**No ladder rung was taken**: the shadow map stays 4096², infantry still cast,
+AO stays at half resolution. Full table, and the linear extrapolation to a
+crossing near ~1,150 living units, in `docs/PERFORMANCE.md`, "The 300-unit
+acceptance, measured".
+
+Two caveats travel with that number. It is captured at 1280×720 at pixel ratio
+1 — the curve harness's own fixed host size, **5.6× fewer pixels** than the
+12.2 ms figure in the paragraph above — so the two are measurements of
+different things and must not be read against each other. And
+`measureSkinnedInfantry`, the source of the ~1,150-figure ceiling already in
+`docs/PERFORMANCE.md`, was deliberately NOT re-run: it builds its own bare
+`THREE.WebGLRenderer` with no sun, no shadow map, no composer and no AO pass,
+so nothing on this branch can have moved it and a re-run would have reproduced
+the pre-lit numbers while appearing to confirm something.
 
 **6. Never-seen fog stays at 85% dim (§6).** Kept as the lead approved it,
 with one thing worth recording because it is the argument someone will make
@@ -498,6 +534,46 @@ commit minutes earlier — 25–35× the ceilings, on scenarios whose pre-lit no
 was a literal zero. `post-chain.ts` seeds it (`AO_NOISE_SEED`), and the same
 three scenarios went back to **0 px / 0.0000** over five runs. No threshold
 was widened.
+
+## Phase 4 note: the overlay tier is tone-mapped and the HUD is not
+
+Not a deviation — nothing here shipped differently from the design. It is a
+consequence of §1 that the design never states, found in review on 2026-09-15,
+and it is a decision rather than a defect.
+
+Everything drawn in the world goes through `OutputPass`: ACES, then the sRGB
+encode. That includes the whole **overlay tier** — HP bars, selection rings,
+badge numerals, chevrons, zone outlines, the occlusion silhouette, tracer and
+smoke colour, and every billboard sprite — because they are scene geometry,
+whatever band they sit in. The **DOM HUD** does not: a Vite plugin publishes
+`data/palette.json` as `--rl-*` custom properties, `theme.css` maps them to
+semantic tokens, and the browser paints those bytes. `pnpm validate:ui` polices
+that side and cannot see this one.
+
+So a HUD swatch and an in-world overlay authored from the same palette key no
+longer agree. The size of the mismatch is the size of ACES's own compression at
+that value — 15/255 at the low end (deviation 7's `#14150F` → `#050503`), less
+in the midtones, and larger for a saturated key than a desaturated one, which
+matters most for the two RESERVED bands (`vfx`, `team`), the only saturated
+colour the game uses and the one the contrast rule rests on.
+
+Two options, and this is a Phase 4 decision, not a Phase 0 one:
+
+1. **Accept it.** An overlay is a lit object in a lit world and looks wrong if
+   it is the one thing that does not respond to the scene; the HUD is a
+   different surface at a different brightness and nobody compares them
+   side by side. Costs nothing, and is what ships today.
+2. **Draw the overlay tier after `OutputPass`.** A second render of bands 4–6
+   into the already-encoded frame, with tone mapping off, so an overlay's
+   authored hex reaches the screen exactly. Costs one more pass and a second
+   depth story (an overlay that must still be occluded by terrain needs the
+   depth buffer the composer has already resolved), and it re-opens the
+   question for every effect that is deliberately *of* the world — a tracer,
+   a muzzle flash — which would then have to be split out of the tier.
+
+Whichever is chosen, the reason must be recorded here: the thing that must not
+happen is someone "fixing" the mismatch by restoring a pass-through pipeline,
+which is exactly what §7 of the acceptance exists to prevent.
 
 ## Acceptance: what was and was not met
 
@@ -620,6 +696,26 @@ longer hidden behind an argument about which way three should point.
 The before/after/side-light capture sets are in
 `.superpowers/art-captures/{before,after,sun-after}/` (gitignored — regenerate
 with `tools/src/perf/art-captures.ts`).
+
+**The `relief` scatter tone check stopped discriminating the defect it was
+built for, and the floor was deliberately not moved.** §7's reference-free
+half asks a ratio: what fraction of a layer's footprint over textured ground
+also shows over the flat palette tone. Re-injecting the stone-grain no-op on
+this branch (2026-09-15, `d9fd1c7` reverted by hand) measured **0.6692 on
+`quiet` and 0.7109 on `open-ground`**, both still failing the 0.8 floor — but
+**0.9186 on `relief`**, which PASSES. The clean reading there is 0.9935, so
+the whole gap is 0.075 and any floor inside it would be a fitted number rather
+than a measured one. The cause is the same relief that makes `relief` the only
+scatter witness with slopes: a mark on a lit hillside differs from the ground
+under it by its own micro-relief shading whatever colour it is, so the flat-tone
+footprint stays nearly as large as the textured one with the defect present.
+The defect is still caught on that map twice over — the baseline comparison
+reads 28 px / 0.1536 against a 0.004 budget, and the other two scenarios' tone
+checks fail — so what is lost is reference-free coverage of THIS defect on THIS
+map, which bites only on a runner with no blessed baseline (exit 3). Closing it
+needs a witness that is not a footprint ratio; nobody has designed one. Recorded
+in `tools/src/golden-diff/baseline.ts`'s `relief` entry so the number travels
+with the check.
 
 ## Numbers the lead approved with the recommendation
 

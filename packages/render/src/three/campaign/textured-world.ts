@@ -38,15 +38,22 @@
  *
  * ## Colour space, which is where this fails silently if it fails at all
  *
- * Identical to the buildings' and the ditch's problem, and solved by the
- * same call: `GLTFLoader` stamps `SRGBColorSpace` on a baseColorTexture,
- * this renderer's output is pass-through, so an sRGB internal format decodes
- * on every sample with nothing to re-encode it. Whatever draws this asset
- * must run its map through `prepareTexturedMap`
- * (`../units/textured-building.ts`), which forces `NoColorSpace`. Measured
- * elsewhere in this tree, getting it wrong drops a lit wall from rgb 67 to
- * 51 and the result still looks like a building -- which is exactly why it
- * is called out here rather than left to be rediscovered.
+ * The same hazard the buildings and the ditch have, and the OPPOSITE answer
+ * since 2026-09-14. `GLTFLoader` stamps `SRGBColorSpace` on a
+ * baseColorTexture, and whether that is right depends entirely on what
+ * re-encodes it. The battlefield renderer's output is standard sRGB now, so
+ * `world-materials.ts`'s `prepareTexturedMap` FORCES `SRGBColorSpace` and
+ * the loader's tag is simply confirmed. **This screen is the named exemption
+ * from that migration** (`world-view.ts`'s own top comment): it sets
+ * `outputColorSpace` directly and leaves it pass-through
+ * `LinearSRGBColorSpace`, so an sRGB internal format here would decode on
+ * every sample with nothing to re-encode it. Whatever draws this asset must
+ * therefore run its map through this screen's OWN `prepareCampaignMap`
+ * (`./world-material.ts`), which forces `NoColorSpace` -- never through the
+ * battlefield's. Measured elsewhere in this tree, getting the pairing wrong
+ * drops a lit wall from rgb 67 to 51 and the result still looks like a
+ * building -- which is exactly why it is called out here rather than left to
+ * be rediscovered.
  */
 
 /**

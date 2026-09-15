@@ -6,6 +6,8 @@ import {
   SUN_INTENSITY,
   HEMISPHERE_INTENSITY,
   SHADOW_MAP_SIZE,
+  SHADOW_BOX_TOP,
+  SHADOW_BOX_BOTTOM,
   createSceneLights,
   shadowBoxRadius,
 } from './lighting';
@@ -60,9 +62,14 @@ describe('lighting', () => {
     [48, 48],
     [64, 64],
     [48, 96],
-  ])('shadow box contains every tile corner of a %dx%d map from -1 to +6 world units up', (w, h) => {
+  ])('shadow box contains every tile corner of a %dx%d map over its whole declared height', (w, h) => {
+    // Sampled from the CONSTANTS, not from the -1/+6 literals this used to
+    // carry: `SHADOW_BOX_TOP` is 8, so the old top sample sat two world units
+    // BELOW the box's own declared roof and a regression that shortened the
+    // box to 6 would have passed. The constants are the claim; the test has
+    // to read them.
     const { lights } = scene(w, h);
-    for (const y of [-1, 0, 3, 6]) {
+    for (const y of [SHADOW_BOX_BOTTOM, 0, SHADOW_BOX_TOP / 2, SHADOW_BOX_TOP]) {
       for (const [x, z] of [
         [0, 0],
         [w, 0],

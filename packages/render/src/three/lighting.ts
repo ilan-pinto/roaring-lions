@@ -58,8 +58,12 @@ import * as THREE from 'three';
 
 export const SUN_DIRECTION = new THREE.Vector3(-0.406, 0.819, 0.406).normalize();
 /** ACES needs headroom: 2.6 lands a `limestone.0` wall facing the sun at
- *  roughly its authored brightness after tone mapping. Tune by eye only
- *  against that property (spec §1). */
+ *  roughly its authored brightness after tone mapping. That is a judgement
+ *  about ONE surface at ONE orientation, and it is the only sense in which
+ *  an authored hex survives to the screen -- the spec's original "a palette
+ *  hex lands on screen as that hex under neutral light" was measured false
+ *  (deviation 7: `#14150F` photographs as `#050503`) and is retired. Tune by
+ *  eye, against the lit frame, not against a swatch. */
 export const SUN_INTENSITY = 2.6;
 export const HEMISPHERE_INTENSITY = 0.9;
 /** Palette keys, resolved by the caller: `limestone.0` sun, `water.0` sky,
