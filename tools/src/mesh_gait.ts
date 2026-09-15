@@ -343,14 +343,75 @@ export function measureRoleTravel(path: string, role: string, clip: string): Gai
 export interface FigureFacing {
   /** The head joint's own node name, e.g. `mil0_head` or `f0_Head`. */
   readonly joint: string;
+  /** Circular mean of the sampled bearings -- see `circularMeanDeg`. */
   readonly meanDeg: number;
+  /** The sample with the smallest signed deviation from `meanDeg` (wrapped
+   *  to (-180, 180], then added back), NOT the smallest raw bearing. */
   readonly minDeg: number;
+  /** The sample with the largest signed deviation from `meanDeg`, by the
+   *  same convention as `minDeg`. */
   readonly maxDeg: number;
 }
 
 /** `kit.py` rigs suffix a head bone `_head`; the Meshy rigs suffix `_Head`.
  *  Both pipelines are in this tree and this instrument must read both. */
 const HEAD_JOINT_RE = /_(head|Head)$/;
+
+/** `deg` wrapped into `(-180, 180]`. Assumes `|deg| < 360`, which every
+ *  caller here satisfies (a difference of two already-wrapped bearings). */
+function wrapDeg(deg: number): number {
+  if (deg > 180) return deg - 360;
+  if (deg <= -180) return deg + 360;
+  return deg;
+}
+
+/**
+ * Circular mean of a list of bearings in degrees, plus a min/max that stays
+ * meaningful across the +/-180 wrap.
+ *
+ * A plain arithmetic mean of angles is wrong at exactly the place this
+ * instrument most needs to be right: two samples at +179 deg and -179 deg
+ * -- two degrees apart on the circle -- average to 0 deg, which reads as
+ * "facing forward" for a figure that is actually facing backward. The
+ * defects `measureFacing` exists to catch (KDF rifleman firing at -156 deg,
+ * a suppressed figure going to ground at -163 deg) cluster at exactly this
+ * discontinuity, so a silent collapse to ~0 deg would be the one failure
+ * mode that lets a broken clip through the very gate built to catch it.
+ *
+ * The fix is the standard one: treat each bearing as a unit vector
+ * `(cos, sin)`, average the vectors, and `atan2` the result back to an
+ * angle. `minDeg`/`maxDeg` cannot be a plain min/max of the wrapped degrees
+ * either -- e.g. the pair above has a naive "min" of -179 and "max" of +179,
+ * a reported 358 deg spread for two samples that are 2 deg apart. Instead
+ * each sample is expressed as its signed deviation from the circular mean
+ * (wrapped to `(-180, 180]` via `wrapDeg`), and `minDeg`/`maxDeg` are the
+ * mean plus the smallest/largest of those deviations -- so the reported
+ * range is always the true, compact window around the mean, and may read
+ * outside `(-180, 180]` itself (e.g. a mean of 170 deg with a deviation of
+ * +15 deg reports as 185 deg) rather than wrap a second time and hide the
+ * spread again.
+ */
+export function circularMeanDeg(bearingsDeg: readonly number[]): {
+  readonly meanDeg: number;
+  readonly minDeg: number;
+  readonly maxDeg: number;
+} {
+  if (bearingsDeg.length === 0) throw new Error('circularMeanDeg: no bearings');
+  let sx = 0, sy = 0;
+  for (const deg of bearingsDeg) {
+    const rad = (deg * Math.PI) / 180;
+    sx += Math.cos(rad);
+    sy += Math.sin(rad);
+  }
+  const meanDeg = (Math.atan2(sy, sx) * 180) / Math.PI;
+  let minDev = Infinity, maxDev = -Infinity;
+  for (const deg of bearingsDeg) {
+    const dev = wrapDeg(deg - meanDeg);
+    if (dev < minDev) minDev = dev;
+    if (dev > maxDev) maxDev = dev;
+  }
+  return { meanDeg, minDeg: meanDeg + minDev, maxDeg: meanDeg + maxDev };
+}
 
 /**
  * Which way does each figure in `path` face during `clip`, in degrees of
@@ -368,9 +429,10 @@ const HEAD_JOINT_RE = /_(head|Head)$/;
  * of (centroid − the head joint's own world position), read in the GLB's own
  * frame where the mesh-unit contract's forward is `+X` -- so `0` means
  * "facing forward" and positive is the figure's LEFT. `meanDeg`/`minDeg`/
- * `maxDeg` are that bearing's mean/min/max across the sampled instants, so a
- * clip that sweeps (an `idle` turning in place) is visible as a wide
- * min-max spread and not just averaged away.
+ * `maxDeg` are `circularMeanDeg` of those sampled bearings (see its own doc
+ * comment for why a plain arithmetic mean is wrong here), so a clip that
+ * sweeps (an `idle` turning in place) is visible as a wide min-max spread
+ * and not just averaged away.
  *
  * ## Why this is a per-figure head-joint reading and not a whole-mesh one
  *
@@ -447,12 +509,7 @@ export function measureFacing(path: string, clip: string): FigureFacing[] {
       const dz = cz - headWorld[14];
       bearings.push((Math.atan2(dz, dx) * 180) / Math.PI);
     }
-    results.push({
-      joint: name,
-      meanDeg: bearings.reduce((a, b) => a + b, 0) / bearings.length,
-      minDeg: Math.min(...bearings),
-      maxDeg: Math.max(...bearings),
-    });
+    results.push({ joint: name, ...circularMeanDeg(bearings) });
   }
   return results;
 }

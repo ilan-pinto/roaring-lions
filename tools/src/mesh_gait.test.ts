@@ -19,7 +19,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { groundPerCycleM, measureFacing, measureRoleTravel } from './mesh_gait';
+import { circularMeanDeg, groundPerCycleM, measureFacing, measureRoleTravel } from './mesh_gait';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
@@ -113,5 +113,30 @@ describe('mesh unit facing', () => {
   it('reads the same rifleman walking CORRECTLY, so the reading is of the clip', () => {
     const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'move');
     for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(20);
+  });
+});
+
+// Fix round 1: meanDeg was an arithmetic mean of degrees, which is wrong at
+// exactly the place this instrument most needs to be right -- two bearings
+// two degrees apart across the +/-180 wrap (e.g. +179, -179) arithmetic-
+// average to 0, "facing forward", for what is actually a figure facing
+// backward. A pure unit test of the averaging, no GLB involved: construct
+// bearings straddling the wrap point directly.
+describe('circularMeanDeg', () => {
+  it('averages bearings across the +/-180 wrap instead of collapsing to 0', () => {
+    // An arithmetic mean of [179, -179] is 0. The circular mean is +/-180 --
+    // the two samples are 2 degrees apart on the circle, not 358.
+    const { meanDeg, minDeg, maxDeg } = circularMeanDeg([179, -179]);
+    expect(Math.abs(meanDeg)).toBeCloseTo(180, 5);
+    expect(maxDeg - minDeg).toBeCloseTo(2, 5);
+  });
+
+  it('agrees with the arithmetic mean when nothing wraps', () => {
+    // Nowhere near the discontinuity: circular and arithmetic must agree,
+    // which is what the Step 5 report re-verified for every shipped file.
+    const { meanDeg, minDeg, maxDeg } = circularMeanDeg([-5, -4, -6]);
+    expect(meanDeg).toBeCloseTo(-5, 1);
+    expect(minDeg).toBeCloseTo(-6, 1);
+    expect(maxDeg).toBeCloseTo(-4, 1);
   });
 });
