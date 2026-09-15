@@ -59,7 +59,9 @@ Four mechanisms replace it, and every one computes its numbers per build
 rather than carrying a typed constant. `measure_clip_bearings` reads TWO
 ground-plane bearings per frame in the exported file's own convention: where
 the FACE points (`Head` -> `headfront`) and where the WEAPON points
-(`RightHand`'s own bone direction -- this asset ships no weapon mesh).
+(`RightHand`'s own bone direction -- the rifle IS modelled, but it carries no
+`weapon` rl_role of its own, so it cannot be isolated and measured directly;
+see `_weapon_bearing_deg`).
 `find_hold_window` finds where the turn begins and where a loop can close.
 `build_idle_src` binds that window with one root yaw so the held stance's
 face points along `+X`. And `solve_fire_aim` brings the WEAPON onto the same
@@ -445,10 +447,14 @@ CLIP_SEMANTICS = {
         # `Running` measures mean -0.15, spread 6.13. A head bobs and counter-
         # rotates through a stride, so the spread bound is looser than idle's.
         "heading": {"mean_deg": 20.0, "spread_deg": 30.0},
-        # EXEMPT, and measured rather than waved through: `Running` is a
-        # free-swinging run mocap with no rifle in it at all, so `RightHand`
-        # tracks a pumping arm. Its weapon spread measures 154.51 deg over the
-        # cycle. There is no weapon here to gate.
+        # EXEMPT, and measured rather than waved through. NOT because there
+        # is no rifle -- there is, in every clip, since this is ONE skinned
+        # mesh: 3,248 of `uniform`'s vertices are dominantly weighted to
+        # `f0_RightHand` and span 0.692 m in bind pose, which is a rifle and
+        # not a hand. The reason is that `Running` swings that arm freely
+        # through the stride, so the weapon bearing measures a spread of
+        # 154.51 deg over the cycle. There is no single heading here for a
+        # ceiling to mean anything against.
         "weapon": None,
     },
     "fire": {
@@ -458,8 +464,12 @@ CLIP_SEMANTICS = {
         # bound hold, so ~0 by construction; `_FIRE_AIM_BONES` deliberately
         # touches no bone above the shoulder, so the aim does not move it
         # either (that is why `Spine02` is not in that table -- see its own
-        # comment).
-        "heading": {"mean_deg": 20.0, "spread_deg": 20.0},
+        # comment). The spread ceiling was briefly 20 during the round that
+        # added the aim, widened defensively for the `Spine02` variant that
+        # was then rejected; it is back at 15, where the measurement puts it,
+        # because a ceiling with no measurement beside it is exactly what
+        # this table exists to stop.
+        "heading": {"mean_deg": 20.0, "spread_deg": 15.0},
         # The tight one, and the whole point of this half of the table.
         # `solve_fire_aim` drives the weapon onto the facing axis and
         # re-measures; the clip then measures mean +1.14 with spread 2.48,
@@ -1314,10 +1324,51 @@ _FIRE_AIM_BONES = (
 )
 
 #: How close the solved aim must bring the weapon to the facing axis before
-#: this script will ship the clip. Not a tuning knob -- the solve below
-#: drives the residual to well under a degree and this is the guard that says
-#: so out loud if a re-supplied source ever makes the chain unable to reach.
+#: this script will ship the clip. This checks CONVERGENCE and nothing else,
+#: and it is worth being precise about that because an earlier version of
+#: this comment claimed it guarded against "the chain being unable to reach
+#: the axis". It does not and cannot: the three bones move the weapon about
+#: 2.4 deg of bearing per degree of magnitude, with no bound of their own, so
+#: the chain can reach ANY bearing and this residual is effectively
+#: unreachable. What bounds the solve is `_FIRE_AIM_MAX_HAND_SEPARATION_M`
+#: below.
 _FIRE_AIM_RESIDUAL_DEG = 1.0
+
+#: The real bound on the aim, and the reason it needs one: a solve with no
+#: cap will always hit its target. Because the chain can reach any bearing, a
+#: re-supplied source with a much larger carry offset would simply solve to a
+#: much larger magnitude and ship an implausibly posed arm with every gate
+#: green -- the weapon bearing would be correct BY CONSTRUCTION, and
+#: `pnpm validate:meshes` photographs only `idle`, so nothing downstream ever
+#: looks at the firing pose. "It converged" is not "it is a pose".
+#:
+#: The cap is on the physical consequence rather than on the angle, because
+#: the angle alone does not say whether the result is a person: what makes an
+#: over-solved arm read as broken is the two hands coming off the same
+#: weapon. It is DERIVED from the figure, not picked -- the hands may not end
+#: up further apart than the weapon-side arm is long (`RightArm` joint to
+#: `RightHand` joint, measured on the rig at build time), because two hands
+#: further apart than one arm's reach are not holding one rifle between them.
+#: It therefore scales with a differently-proportioned re-supplied figure
+#: instead of going stale.
+#:
+#: Measured on this source (`fire_aim_hand_separation_limit_m`, no export
+#: needed): the aim takes the hands from 0.166 m to 0.315 m against an arm
+#: reach of 0.4685 m, so the shipped input clears the cap by 0.154 m and
+#: adding this guard changed no output -- verified by re-running the solve
+#: against the identical base pose and reading the identical 14.72 deg.
+#: Swept across magnitude, the separation goes 0.166 / 0.268 / 0.315 / 0.365 /
+#: 0.448 / 0.481 m at 0 / 10 / 14.72 / 20 / 30 / 35 deg, so the cap bites at
+#: about 33 deg -- roughly 2.2x what this source needs.
+#:
+#: Falsified through the real `solve_fire_aim` path by moving the target axis
+#: away from the weapon, which is exactly "a re-supplied source with a bigger
+#: carry offset". A carry 30 deg worse than this one solves to 26.69 deg with
+#: the hands 0.423 m apart and PASSES -- deliberately: that is a wide but
+#: physically possible two-handed grip, and this cap bounds the implausible
+#: rather than rejecting everything unfamiliar. 60 deg worse (magnitude 44.79)
+#: and 90 deg worse (magnitude 158.84, each joint wrapped most of the way
+#: round) both raise.
 
 #: Iterations for the secant solve. The bone-to-weapon gains above are close
 #: to linear over the range involved, so this converges in three or four; ten
@@ -1353,6 +1404,51 @@ def _aim_deltas(magnitude_deg):
     return {name: (axis_idx, share * magnitude_deg) for name, axis_idx, share in _FIRE_AIM_BONES}
 
 
+def fire_aim_hand_separation_limit_m(scratch_arm):
+    """How far apart `solve_fire_aim` may leave the two hands: the weapon-side
+    arm's own full reach, upper arm plus forearm.
+
+    Summed SEGMENT by segment (shoulder joint -> elbow joint -> hand joint),
+    not taken as the straight-line `RightArm`-to-`RightHand` distance, and
+    that distinction is the point of the function rather than a detail. The
+    straight line is the arm's CHORD, which grows as the elbow straightens --
+    on this rig it reads 0.396 m at rest and 0.411 m in the solved aim -- so a
+    cap built on it LOOSENS in exactly the direction the failure it guards
+    against pushes, since an over-solved arm is a straighter one. The two
+    segment lengths are fixed by the skeleton (each joint's head sits at a
+    fixed offset in its parent's frame), so this is pose-invariant and can be
+    called from any pose.
+
+    NOT `data.bones[...].length`, which would be the obvious way to get a
+    rest-pose number and is useless on this asset: its auto-rigged bone TAILS
+    do not sit at the child joint, and summing the two reads 46.9 m on a
+    1.67 m figure. `_CROUCH_BENDS`' own docstring already records the same
+    trap from the other side (`LeftUpLeg.tail` swinging through several metres
+    for a 30-degree test) -- caught the same way both times, by comparing the
+    number against the figure's own height before trusting it.
+
+    Derived from the figure rather than picked, so a differently-proportioned
+    re-supplied character scales with it instead of inheriting a number fitted
+    to this one. See `solve_fire_aim`'s own docstring for why the cap is on
+    the hands rather than on the solved angle."""
+    return (
+        _joint_distance_m(scratch_arm, "RightArm", "RightForeArm")
+        + _joint_distance_m(scratch_arm, "RightForeArm", "RightHand")
+    )
+
+
+def _joint_distance_m(scratch_arm, a, b):
+    """World-space distance between two pose bones' own heads, in metres.
+    `matrix_world` carries this rig's 0.01 import scale, so going through it
+    is what makes the result metres rather than raw units -- the same reason
+    `_hips_world_z_travel` composes through it."""
+    world = scratch_arm.matrix_world
+    return (
+        (world @ scratch_arm.pose.bones[a].matrix.translation)
+        - (world @ scratch_arm.pose.bones[b].matrix.translation)
+    ).length
+
+
 def solve_fire_aim(scratch_arm, base):
     """Solve `_FIRE_AIM_BONES`' single magnitude so the WEAPON bearing lands
     on the facing axis, and return it.
@@ -1362,13 +1458,43 @@ def solve_fire_aim(scratch_arm, base):
     rotation does not compose linearly into a ground-plane bearing (only a
     rotation about the vertical does, and none of these bones' local axes is
     vertical), so a single division by a gain would land close and not on.
-    Raises if the chain cannot reach the axis, rather than shipping a clip
-    whose rifle still points somewhere else.
 
     Deliberately NOT a hand-entered angle. A re-supplied `Gun_Hold_Left_Turn`
     with a different carry angle re-solves to a different magnitude on the
     next build, which is the same reason `find_hold_window` computes its
-    window instead of remembering one."""
+    window instead of remembering one.
+
+    ## Two guards, and they check different things
+
+    `_FIRE_AIM_RESIDUAL_DEG` checks CONVERGENCE. It is NOT, as an earlier
+    version of this docstring claimed, a check that "the chain can reach the
+    axis" -- the chain moves the weapon about 2.4 deg of bearing per degree of
+    magnitude and has no bound of its own, so it can reach any bearing at all
+    and that residual is effectively unreachable. It fires only if the secant
+    iteration itself fails (a degenerate gain, a source whose weapon bearing
+    does not respond to these bones).
+
+    `fire_aim_hand_separation_limit_m` is the guard that can actually bite,
+    and the reason a solve like this needs one: **an uncapped solve always
+    hits its target**. A re-supplied source with a much larger carry offset
+    would solve to a much larger magnitude and ship an implausibly posed arm
+    with every gate green, because the weapon bearing would then be correct
+    BY CONSTRUCTION and `pnpm validate:meshes` photographs `idle` only -- so
+    nothing downstream ever looks at the firing pose. The cap is on the
+    physical consequence rather than the angle, and derived from the figure
+    rather than picked: the hands may not go further apart than the
+    weapon-side arm is long, because two hands further apart than one arm's
+    reach are not holding one rifle.
+
+    It is checked along the WHOLE path from 0 to the solved magnitude rather
+    than at the endpoint, because separation is not monotonic in magnitude and
+    an endpoint test is therefore not a bound at all -- falsified, not
+    reasoned: a source needing 90 deg more correction than this one solves to
+    158.84 deg, wrapping each of three joints most of the way round, and its
+    endpoint separation comes back INSIDE the cap at 0.368 m because the hand
+    has swung past the far side. See that function, and the note beside
+    `_FIRE_AIM_RESIDUAL_DEG`, for the measured numbers and for how much
+    headroom this source has."""
     target = _face_bearing_deg(scratch_arm)  # the axis the tracer flies down
 
     def residual(magnitude_deg):
@@ -1385,17 +1511,51 @@ def solve_fire_aim(scratch_arm, base):
         r1 = residual(x1)
     if abs(r1) > _FIRE_AIM_RESIDUAL_DEG:
         raise RuntimeError(
-            f"fire aim: solved magnitude {x1:.3f} deg still leaves the weapon "
-            f"{r1:+.2f} deg off the facing axis (limit +-{_FIRE_AIM_RESIDUAL_DEG:.1f}) -- "
-            f"_FIRE_AIM_BONES cannot reach the axis from this source's carry pose"
+            f"fire aim: the solve did not converge -- magnitude {x1:.3f} deg still "
+            f"leaves the weapon {r1:+.2f} deg off the facing axis "
+            f"(limit +-{_FIRE_AIM_RESIDUAL_DEG:.1f}). This source's weapon bearing "
+            f"does not respond to _FIRE_AIM_BONES the way the table's gains assume."
         )
+
+    # The cap. Swept along the WHOLE path from 0 to the solved magnitude, not
+    # tested at the endpoint alone, because hand separation is NOT monotonic
+    # in magnitude and an endpoint test is therefore not a bound. Falsified:
+    # a source needing +90 deg more correction than this one solves to 158.84
+    # deg -- each of three joints wrapped most of the way round -- and its
+    # ENDPOINT separation comes back down to 0.368 m, inside the 0.469 m
+    # reach, because the hand has swung past the far side. Sweeping catches it
+    # where it crosses, at about 35 deg. The criterion is the same one either
+    # way: the arm has to reach the aim along a path a body could take.
+    reach = fire_aim_hand_separation_limit_m(scratch_arm)
+    _apply_pose(scratch_arm, base, {})
+    rest_separation = _joint_distance_m(scratch_arm, "LeftHand", "RightHand")
+    steps = max(2, int(abs(x1)))  # at least one sample per degree
+    worst, worst_at = rest_separation, 0.0
+    for i in range(steps + 1):
+        magnitude = x1 * i / steps
+        _apply_pose(scratch_arm, base, _aim_deltas(magnitude))
+        separation = _joint_distance_m(scratch_arm, "LeftHand", "RightHand")
+        if separation > worst:
+            worst, worst_at = separation, magnitude
+        if separation > reach:
+            _apply_pose(scratch_arm, base, {})
+            raise RuntimeError(
+                f"fire aim: reaching the solved magnitude {x1:.2f} deg takes the hands "
+                f"{separation:.3f} m apart at {magnitude:.2f} deg, past this figure's own "
+                f"arm reach of {reach:.3f} m -- two hands further apart than one arm is "
+                f"long are not holding one rifle. The weapon bearing lands on the axis "
+                f"({r1:+.2f} deg residual) and the pose is still wrong, which is exactly "
+                f"what an uncapped solve buys. Re-check this source's carry offset "
+                f"({base_weapon:+.2f} deg) before widening anything."
+            )
+    _apply_pose(scratch_arm, base, {})
     print(
         f"fire aim: the carry holds the weapon at {base_weapon:+.2f} deg against a face at "
         f"{target:+.2f}; solved magnitude {x1:.2f} deg over {len(_FIRE_AIM_BONES)} bones "
         f"({', '.join(f'{n} {s * x1:+.1f}' for n, _a, s in _FIRE_AIM_BONES)}), "
-        f"re-measured residual {r1:+.2f} deg"
+        f"re-measured residual {r1:+.2f} deg; hands {rest_separation:.3f} -> "
+        f"{worst:.3f} m worst (at {worst_at:.2f} deg) against an arm reach of {reach:.3f} m"
     )
-    _apply_pose(scratch_arm, base, {})
     return x1
 
 
