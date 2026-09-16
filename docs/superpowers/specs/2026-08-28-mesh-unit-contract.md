@@ -44,9 +44,13 @@ prefixed by figure index — `f0_pelvis`, `f1_pelvis` — so a three-man team is
 one skin and one set of draw calls rather than three.
 
 **Clips**, named EXACTLY as `packages/render/src/sheet.ts`'s `ClipName` union:
-`idle`, `move`, `fire`, `down`, `wreck`, `work`. A clip absent from the file is
-legal (the runtime falls back the way `resolveClip` already does for sheets);
-a clip present under any other name is a failure.
+`idle`, `move`, `fire`, `down`, `wreck`, `work`, `moveFire`, `wreckAlt`. A clip
+absent from the file is legal (the runtime falls back the way `resolveClip`
+already does for sheets); a clip present under any other name is a failure.
+`moveFire` is reached only through `fire` and only while the unit is actually
+moving, so a file that ships one and a file that does not both behave — the
+one without it plays `fire` and slides, which is what every rig did until
+2026-09-16.
 
 **Zero materials.** The exporter writes no material of any kind. Every colour
 is applied on the runtime side from `data/palette.json`, so the palette
@@ -192,6 +196,83 @@ a recipe of fractions of each vehicle's own measured bounds
 supplied `.blend`/Meshy sources are never opened. A later per-vehicle art pass
 that ships real damaged geometry replaces a vehicle's `WRECK_` children and
 changes nothing else here.
+
+---
+
+# v3 — `rl_gait`, the first SCENE-level extra
+
+**Pinned 2026-09-16.** Design:
+`docs/superpowers/specs/2026-09-15-infantry-gait-design.md` §3.4. Everything
+above this line is unchanged by it. This adds one optional key, in a place the
+contract had never used before, and **a file without it behaves exactly as it
+did before this section existed.**
+
+## What it is
+
+One extra on the glTF **scene**, not on a node:
+
+```
+scene.extras.rl_gait = {
+  "move":      { "strideM": 1.0948, "cycleS": 0.6250 },
+  "moveFire"?: { "strideM": 1.5534, "cycleS": 0.6667 }
+}
+```
+
+- **`strideM`** — the FORWARD ground component of the leading `boot` vertex's
+  peak-to-peak travel over the clip, in metres. Deliberately **not** the 3-D
+  diagonal: a hypotenuse folds in foot lift and lateral swing and overstates
+  the ground covered by 1.5–17.7% depending on the rig, and the bias is
+  rig-dependent, so no constant downstream can correct for it. That was a real
+  defect, measured and fixed before this shipped.
+- **`cycleS`** — the clip's own length in seconds. It NAMES a cycle and
+  MEASURES a clip, which is a precondition rather than a definition: a future
+  re-export baking two strides into one `move` would halve the true
+  per-cycle ground speed while every check stayed green, because both sides of
+  the declared-versus-measured comparison would still agree with each other.
+  The pass checks that assumption (`countTracePeaks`) rather than trusting it,
+  and warns by name where a clip does not read as exactly one cycle.
+- **Only the two locomotion clips may appear.** `idle`, `fire`, `down`,
+  `work`, `wreck`, `wreckAlt` are never rate-scaled and a key naming one of
+  them is rejected with a warning, not silently kept.
+
+## Who writes it
+
+**Nobody in Blender.** `pnpm gait:meshes` (`tools/src/meshes/gait-pass.ts`) is
+a post-export `@gltf-transform` pass, the exact sibling of `pnpm wreck:meshes`:
+idempotent, re-runnable, scoped to `mesh-catalogue.ts`'s own
+`RIGGED_UNIT_MESHES` rather than to a blind walk of `art/meshes/**`. The order
+is fixed and the ordering is load-bearing:
+
+```
+re-export (Blender)  ->  pnpm gait:meshes  ->  pnpm encode:meshes
+```
+
+Running it out of order leaves the shipped `assets/meshes/` copy declaring a
+stale stride. Draco does not touch it — extras live in the glTF JSON chunk and
+only accessor payloads are compressed — and that was verified on the shipped
+bytes rather than assumed, because this is the first SCENE-level extra to go
+through the encoder.
+
+A file the pass **skips** carries no `rl_gait` at all, by design: four do
+today (`atgm_cell`, `mortar_crew`, `digger_crew`, whose crew-served figures
+key no leg in `move`, and `moto_rpg`, a motorcycle), and the discriminator is
+a measured-travel floor rather than a name list, so a fifth crew-served team
+skips itself.
+
+## What the runtime guarantees in return
+
+- It reads the extra through `gltf.scene.userData`, **validates** it rather
+  than casting, and drops any malformed entry with a warning naming the file.
+- It applies the result as an `AnimationAction.timeScale` on `move`/`moveFire`
+  only: `timeScale = (entitySpeed / (strideM / (cycleS × 3))) × cadence`,
+  clamped to a band that is a backstop and not the mechanism.
+- **A GLB with no `rl_gait` gets `timeScale = 1`** — every clip at its
+  authored rate, which is exactly what every mesh unit did before this
+  existed. Cadence is not applied in that case either: 1.6× of a clip with no
+  legs in it is 1.6× of nothing, and "keeps `timeScale = 1`" is meant
+  literally. A hand-authored fixture, an un-passed re-export and the four
+  skipped files are therefore never made worse by this section.
+- It never writes to the file.
 
 ## Unchanged from v1, for every class
 

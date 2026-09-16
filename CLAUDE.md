@@ -75,6 +75,58 @@ pnpm balance          # headless battle sim, prints win rates
 - Content is JSON validated against `data/schemas/`. Adding a unit means adding JSON, never engine code. If a new unit requires an engine change, that is a signal the data model is missing a concept — extend the schema.
 - Tests colocate as `*.test.ts`. Combat maths requires tests; rendering does not.
 
+### Every check gets an input that makes it fail — constructed, and run
+
+Not "can I imagine one". Write the failing input, run it, watch the check go
+red, then put it back. This is the single most expensive habit this repository
+has learned, and it is not a hypothetical: one eight-task branch
+(`feat/infantry-gait`, 2026-09-15/16) found **nine separate checks unable to
+fail**, spread across Python build gates, vitest specs and a shipped
+measurement instrument. The shapes repeat, which is why the instances are
+listed rather than summarised:
+
+- **It normalised by the very thing it measured.** `build_idle_src` yawed the
+  pose by the circular mean of exactly the bearings `check_clip_semantics`
+  then tested. The gate read zero for every possible input — arithmetically,
+  not usually.
+- **`x * 1.0 == x`.** Four of `_check_gait_identity_at_reference`'s five
+  assertions. The fifth recomputed its own right-hand side.
+- **It gated a residual that later code forces to 1.** The gait check was
+  specified as "the post-rate-match residual sits near 1.0" — but the renderer
+  computes `timeScale = entitySpeed / clipGroundSpeed`, so that residual is
+  1.0 for any stride whatsoever, including none at all. It gates the
+  MULTIPLIER now, which nothing normalises.
+- **The "independent" oracle imported its arguments from the code under
+  test.** Pointing the gait pass at the torso instead of the boot left BOTH
+  declared-vs-measured tests green, because both sides shifted together. The
+  oracle takes literals now.
+- **It returned an empty array, and every caller looped over it.**
+  `measureFacing`'s head-joint pattern matched nothing on any single-figure
+  rig, so all four civilian meshes passed every assertion vacuously, in zero
+  milliseconds. Not a wrong answer — an absent one, which is worse, because
+  nothing looks wrong.
+- **It measured one file.** `mesh_gait.test.ts` gated `mortar_team` alone, the
+  file the bug was raised against, while fourteen sliding rigs shipped green
+  beside it.
+- **It measured one plane.** The facing gate read the ground-plane bearing
+  only, so a rifle pointed 43° at the sky read as correct.
+- **It measured a team and not its members.** A per-FILE gait check cannot see
+  one figure of three going still while the other two walk.
+- **It was a comment.** `export_meshy_sniper.py` stated that its declared
+  standing height and its measured one "are asserted to agree at build time".
+  No such assertion had ever been written — and behind it the exporter was
+  anchoring on its own previous output, a fixed 1.02489 gain per export:
+  1.670 m → 1.753 → 1.796, a sniper pair 7.5% taller than every other
+  infantryman in the game, on a passing gate.
+
+Two corollaries. **A green gate is evidence about the gate, not about the
+thing it guards, until someone has watched it go red** — so a new gate arrives
+with its falsification in the commit message or it does not arrive. And **the
+cheapest falsification is a one-line mutation of the implementation, not a
+synthetic fixture**: 31 mutations across three files, 30 red, is what "this
+gate works" looked like in practice here, and the one survivor was disclosed
+rather than papered over.
+
 ---
 
 ## Adding content
@@ -231,6 +283,22 @@ The combat model is the product. Everything else is scaffolding around it.
   — `COVER_HIT` goes 1 / .375 / .1375 / .09, so the big rung is 0→1, and over
   ten seeds a squad on cover 3 loses 40 hp where the same tile at cover 0 loses
   386 and dies in nine runs of ten.
+- **Two ways to look at a POSE, because the browser draws a soldier at about
+  25 px and canvas readback is black by design.** `tools/render_clip_pose.py`
+  renders one named clip of one GLB at one frame at 1400 px through
+  `render_rig.py`'s own dimetric camera — the instrument for "is 33° of barrel
+  offset actually visible", which it settled twice.
+  `tools/src/perf/gait-captures.ts` is the other half: the LIVE renderer,
+  driven against the running dev server, every affected type walking and
+  firing, at the camera's own default zoom and at the top of the 0.35–2.5
+  clamp. It photographs BEFORE art by intercepting the `/meshes/*.glb` fetches
+  and answering them from `git show <rev>:assets/meshes/…`, so no file in the
+  tree is touched and the server never restarts — and it refuses to finish if
+  not one intercepted file differed from what is on disk, because a route
+  glob that stops matching produces a "before" sheet that is a second copy of
+  "after" and looks exactly right. Use the live one whenever the question is
+  about runtime behaviour (playback rate, ramps, the sun, the occlusion
+  outline) and the Blender one when it is about the authored pose alone.
 - `pnpm balance` runs the §5.7 backtest; `tools/src/backtest/urban-only.ts` is the fast urban-ratio calibration loop.
 - The determinism golden hash lives in `packages/sim/src/determinism.test.ts`. It changes only when sim code or tuning changes deliberately — update it in the same commit and say why.
 - Combat tuning lives in `packages/sim/src/tuning.ts`. §5.7 targets outrank §5 formula text.
@@ -736,7 +804,12 @@ it is ~170 requests and the GLBs are what remain. That document ranks what
 is left (wreck meshes after the first frame, Draco, a service worker for
 Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geometry)
 → `tools/units/rig.py` (armature + clips, authored as Python tables) →
-`tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → `three/units/mesh-*.ts`.
+`tools/export_mesh_team.py` → `art/meshes/<team_id>.glb` → **`pnpm gait:meshes`**
+→ **`pnpm encode:meshes`** → `assets/meshes/` → `three/units/mesh-*.ts`.
+**Both post-export passes are mandatory and their order is load-bearing** — the
+gait pass writes into `art/meshes/`, the encoder mirrors it into `assets/meshes/`,
+and running them the other way round ships a stale stride. Same shape, and the
+same rule, as `pnpm wreck:meshes` for vehicles.
 
 - **`kit.py`'s "No armature." rule is now partly overturned.** Of its three
   reasons, only "blocky is enough at 25 px" fell — beaten by the project lead
@@ -745,6 +818,72 @@ Pages' `max-age=600`, the first-frame gap). Pipeline: `tools/units/kit.py` (geom
   binding is rigid one-part-to-one-bone with **no weight painting**.
 - Adding a part to `kit.py` makes `rig.py`'s `PART_BONE` stale. It **raises
   loudly** rather than leaving gear in bind pose. Extend it; never silence it.
+- **A rigged GLB declares the stride its own legs describe, and the renderer
+  matches playback to the ground** (2026-09-16, design
+  `docs/superpowers/specs/2026-09-15-infantry-gait-design.md`, contract v3 in
+  `2026-08-28-mesh-unit-contract.md`). `pnpm gait:meshes`
+  (`tools/src/meshes/gait-pass.ts`) measures each locomotion clip and writes
+  `rl_gait: { move: { strideM, cycleS }, moveFire?: … }` onto the SCENE's
+  `extras`; `gaitTimeScale` (`three/units/mesh-anim.ts`) divides the unit's
+  MEASURED ground speed by what the clip's legs cover and hands the result to
+  the mixer as a `timeScale`. **A mesh with no `rl_gait` gets exactly 1**,
+  which is precisely the old behaviour, so the four crew-served/motorcycle
+  files and any un-passed re-export are never made worse.
+  Six things about it are worth knowing and every one was measured.
+  **The old behaviour was a third to two-thirds of a stride.** Before this,
+  fourteen rigs played a 0.67 s march whatever they were doing: boot travel
+  against ground covered read **0.315** for `inf_squad`, **0.321** for
+  `charge_squad` (which sprints at 1.9 tiles/s) and 0.295 for a civilian
+  child. That is the whole of "they walk nonchalantly" — the legs describe a
+  fraction of the ground the body crosses, so the figure glides.
+  **Nothing needed to move faster.** One tile is 3 m, so 0.9 tiles/s is
+  2.7 m/s: every rifleman in this game was already running and the animation
+  simply would not admit it. That is also the answer to GH-152, which was
+  blocked on a "fleeing signal" the sim does not have — `move` IS the run, and
+  six rigs were shipping an unbound `Running` clip beside the walk they
+  played. Closed 2026-09-16 with no sim change at all.
+  **`cadenceScale` was NOT unread by three.js, and the claim that it was is
+  false.** `three/units/frame-state.ts` has always composed
+  `walkFps(anim.speed, n) * cadenceScale(anim)` for every BILLBOARD unit, and
+  `walkFps` is itself a rate match — so a billboard's legs have followed its
+  ground speed since long before this. What had never been rate-matched is the
+  MESH path. This is why the mesh side MULTIPLIES by cadence rather than
+  replacing it: a routed mesh rifleman and a routed billboard standing beside
+  him would otherwise disagree about how fast a broken man's legs move, in the
+  same frame, invisibly to every test.
+  **The clamp is a backstop and a clamp doing real work is a defect to
+  report.** Reachable range on shipped art is **0.914x–2.645x**
+  (`sniper_team` lowest, `yahalom_squad` highest), bounded from the sim rather
+  than from observation: `stepMovement` never moves a unit past
+  `type.stepPerTick` and the direction vectors are unit vectors, so a diagonal
+  is not faster. `GAIT_TIME_SCALE_MAX` is 4. **The design's own example of 2.5
+  was wrong** and would have clipped the unit with the largest correction to
+  make, putting its slide back with every test green.
+  **A passenger's `entitySpeed` is its CARRIER's**, because `stepTransport`
+  overwrites a carried unit's position every tick — measured live, a
+  `sniper_team` in a `jeep_shoded` computes **13.53x** and clamps. Carried
+  units are excluded outright rather than clamped, which restores exactly
+  their pre-change behaviour and is what makes "a clamp means that mesh's gait
+  is wrong" true.
+  **The stride is the FORWARD component, not the 3-D travel.** Declaring the
+  hypotenuse folds foot lift and lateral swing into a number the renderer
+  divides by time and treats as a ground speed; the forward fraction ranges
+  0.823–0.985 across the seventeen declarations and is rig-dependent, so no
+  constant downstream could have corrected it. Fixing it moved every
+  declaration down by 1.47%–17.70%.
+- **`tools/src/mesh_gait.test.ts` is the gait and facing gate, and it is
+  tree-wide.** It measured `mortar_team` ALONE until 2026-09-16 — the one file
+  GH-145 was raised against — which is how fourteen sliding rigs shipped
+  green beside it. It now sweeps `RIGGED_UNIT_MESHES` and gates, per file and
+  per FIGURE: the playback multiplier (not the residual — see "Every check
+  gets an input that makes it fail"), step cadence, per-figure ground
+  coverage, head-to-face bearing, a marker instrument for rigs with no `face`
+  role, a weapon-axis PCA with its own elevation and two-instrument agreement
+  checks, and the declared `rl_gait` against a FRESH measurement of the same
+  bytes, so a re-export that skipped `pnpm gait:meshes` fails loudly instead
+  of rate-matching to a stale stride. Named outliers carry their own numbers
+  and a DEMOTION assertion: an exemption that is no longer needed fails and
+  tells you to delete it, which it has already done once by itself.
 - **A GLB carries zero materials — except three buildings, by the lead's
   explicit override.** Colour is applied at runtime from the role ramp. Since
   Phase 0 (2026-09-14) that is ONE flat albedo per part — `liftTone(ramp)`,

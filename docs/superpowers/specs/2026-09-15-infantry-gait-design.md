@@ -421,3 +421,325 @@ So the deliverable includes a capture sheet: each affected type, walking and
 firing, before and after, at gameplay zoom **and** at 2.5×, in one image per
 type — the same shape `tools/src/perf/wreck-captures.ts` produced for the
 vehicle wrecks.
+
+---
+
+## 7. Deviations — where the implementation departed from this document
+
+Written 2026-09-16, at the end of the eight-task plan. Everything above is the
+design as approved, with §2.1a, §2.3 and §4a already corrected in place where
+the work falsified them. This section is the complete list of divergences,
+those corrections included, so a reader who has only the spec knows what
+shipped. Each entry is what the spec said, what shipped, and the measurement
+that decided it.
+
+### D-1. §2.1's `mortar_team` defect was +84°, and the +84 did not exist
+
+**Shipped:** the defect was **180°** — the limbered crew marched backward,
+because `classify_standing` had painted the skin ramp on the backs of three
+heads.
+
+**Why:** the +84 was a bearing read off a rig keyed to scale `(0,0,0)`. In
+`move` that file keys `f0_head`/`f0_chest`/`f0_abdomen`/`f0_root` and their
+`f1`/`f2` twins to zero scale at all 17 keyframes, and the standing chain that
+IS drawn carries no head bone at all, so the head pattern could only match
+invisible joints. On the bytes it reads +87.7 / −139.5 / −101.2, not an
+identical +84, and no route reproduces the number first recorded. §3.6's
+explanation — "`move` keys no crew-served figure at all, so what `move` shows
+is the rest pose" — was false in both halves: `move` is fully keyed and walks,
+at ratio 0.996. Proved non-circularly against the `boot` role, which is
+classified by HEIGHT rather than by a Y half-space and therefore shares no
+assumption with the `face` role the first reading depended on. `measureFacing`
+gained a `hiddenInClip` flag so a reading taken off an invisible figure is
+visible as such rather than silently authoritative. Recorded in place as §2.1a.
+
+### D-2. §2.3's "no three.js code reads `cadenceScale`" was false
+
+**Shipped:** the multiply, for the reason the spec gave — but the premise was
+wrong. `three/units/frame-state.ts` has always composed
+`walkFps(anim.speed, n) * cadenceScale(anim)` for every BILLBOARD unit on
+three.js, and `walkFps` is itself a rate match. Billboard legs have followed
+their ground speed since long before this milestone; what had never been
+rate-matched is the MESH path.
+
+**Why it matters beyond bookkeeping:** it is what makes §3.4's multiply right
+rather than merely specified. Not multiplying would put a routed mesh rifleman
+and a routed billboard in the same frame disagreeing about how fast a broken
+man's legs move, invisibly to every test. Corrected in place as §2.3.
+
+### D-3. §2.1's "+3…+11 contrapposto band" is not the shipped band
+
+**Shipped:** the facing gate's tolerances come from a sweep of the shipped
+bytes, not from this document. On the bytes the `kit.py` teams' `move` means
+span **−2.0 … +8.6**, and a band set from §2.1's quoted range would have redded
+the shipped tree on day one.
+
+### D-4. §3.1 asked for a trim; `fire` also got a root yaw and a real aim solve
+
+**Shipped:** the hold-window trim, plus a build-time-computed **+22.90° yaw on
+`Hips`**, plus an arm-chain aim solve on `fire` alone.
+
+**Why:** trimming alone left `fire`/`down`/`idle` near +21°, because the
+supplied hold stance is **48° bladed** and no trim can touch that. The yaw is a
+rigid rotation of the whole figure, so it cannot create a face-to-weapon
+misalignment — it only decides which end of a pre-existing one reads zero. The
+gap was already there at the fork point (face −156.0, weapon +163.4) and both
+ends were backwards, so nobody could see it. The three options were exactly
+determined: trim only gives face +22.3 / weapon −10.4; yaw from the head gives
+face −0.6 / weapon −33.3; yaw from the weapon gives face +33 / weapon ≈0. What
+shipped is the head yaw **and** a 14.72° three-bone solve bringing the weapon
+onto the aim axis in `fire`, taking that clip to face +0.3 / weapon +1.2, gap
+0.4°. Independently confirmed on the geometry by PCA over the 3,248 `uniform`
+vertices dominantly weighted to the firing hand: **−34.66° → +8.75°**, with
+nothing else in the file moving by more than a tenth of a degree.
+
+**`idle` and `down` keep the carry offset deliberately.** A soldier at ease or
+gone to ground carries his rifle across his body, and neither clip draws a
+tracer that contradicts it. `wreck` stays exempt for a second, stronger reason
+than §3.1 gives: on a prone body the forward vector is nearly vertical, so its
+ground projection is noise — the build-time probe and `measureFacing` disagree
+by **40°** on that one pose against 1–3° everywhere else.
+
+**One residual circularity is stated rather than hidden:** the bone proxy is
+both the solve's objective and the gate's metric, and it is offset from the
+geometry by 4.1° on `idle`, 4.2° on `moveFire` and **7.6° on `fire`**. The
+shipped barrel sits near **+8.8°**, not the +1.2° the proxy reports. That is a
+correct-looking aim and a 43° improvement; it is also the measured price of
+gating a proxy.
+
+### D-5. `LOOP_SEAM_DEG = 2.0` — a tolerance this document never named
+
+**Shipped:** a second tolerance in `import_meshy_soldier.py` alongside the
+hold-window one. `idle` LOOPS, and a 10° window puts a 7.1° head snap on the
+seam every 1.4 s — a visible defect the design did not anticipate. Both numbers
+are computed and printed on every build rather than hand-entered.
+
+### D-6. §3.3 reasoned a 0.70 rad thigh cap; 0.85 shipped
+
+**Shipped:** `THIGH_CAP = 0.85`.
+
+**Why:** §3.3's argument is sine saturation — but `sin(0.85)/sin(0.70) = 1.17`,
+so 17% of step is still available at 0.70, which means saturation is not what
+binds. What binds is a **squat**: a four-point build-and-render sweep found the
+figure sinking rather than shortening its step, and the renders are what
+settled it. `charge_squad` stopping at gait ratio 0.430 IS the geometric
+ceiling and not an unpushed cap: 1.00 rad reaches only 0.465, at a visible
+crouch, and hip-to-ankle is 0.770 m against 3.80 m of ground per cycle. The
+rest is cadence, which is what §3.4 supplies.
+
+### D-7. §3.3 says "all fourteen kit teams". `sniper_team` is not one of them
+
+**Shipped:** thirteen teams rebuilt through `rig.py`, plus a
+`mesh_owner`/`MESH_KIT_OWNED` ownership table that makes a bulk export refuse
+to write a file it does not own.
+
+**Why:** `art/meshes/sniper_team.glb` comes from `tools/export_meshy_sniper.py`
+and carries two photogrammetry figures. A bulk `export_mesh_team.py -- all`
+would have replaced them with composed primitives, silently, with every gate
+green afterwards. It was caught only because the implementer exported to a
+scratch directory and diffed first. **The same trap was live in three more
+places and one was worse:** `dozer_d9.glb` carries a `death_root`, five
+`WRECK_` children, `idle`/`wreck` clips and a Meshy copyright, and the kit path
+both deletes `WRECK_` objects before merge and exports with
+`export_animations=False`. Closed inside this branch rather than queued, with
+`tools/mesh_ownership.py` as the single place the idea is written down and pin
+tests against the real exporters' own output paths. **A pipeline that names a
+team is not proof it owns that team's file**, and a bulk export must never
+write straight into `art/meshes/`.
+
+### D-8. `strideM` is the forward component, not the 3-D travel
+
+**Shipped:** `measureRoleFootprint(...).axisTravelM[0]`.
+
+**Why:** the plan specified `maxTravelM`, the worst boot vertex's 3-D
+peak-to-peak travel. §3.4 divides a declared `strideM` by `cycleS` and treats
+the result as a GROUND speed, and a hypotenuse folds in vertical lift and
+lateral swing. Measured forward fraction across the seventeen declarations:
+0.985 down to **0.823** (`meshy_soldier`/`move`), rig-dependent, so no constant
+downstream could correct it — `inf_squad` would have played at 1.268× where the
+ground demands 1.541×, still under-running by 21%. Fixing it moved **every**
+declaration down, by 1.47% to 17.70%, exactly the predicted band. The forward
+axis was confirmed empirically on rigs from both pipelines rather than assumed,
+because these rigs go through a post-export forward fix and a wrong axis would
+mis-declare every file rather than fail loudly.
+
+### D-9. `cycleS` names a cycle and measures a clip, and that is now checked
+
+**Shipped:** the same number, plus `countTracePeaks` — a phase-aligned
+periodicity check calibrated to read exactly 1 on all seventeen real
+declarations and 2 or 3 on synthetic doubled and tripled traces, so it has a
+positive control and not only a negative one. A clip that does not read as one
+cycle WARNS by name rather than failing the pass, because a fresh heuristic
+whose false positive silently blocked every future re-export would be worse
+than a number a human has to look at once.
+
+**Why:** peak-to-peak travel is invariant to cycle count and clip length is
+not, so a future re-export baking two strides into one `move` would halve the
+implied ground speed while every check stayed green — both sides of the
+declared-versus-measured equality would still agree with each other, just not
+with the ground.
+
+### D-10. The skip rule is a measured floor, not "no `move` clip and no `boot`"
+
+**Shipped:** `MIN_GAIT_TRAVEL_M = 0.1`.
+
+**Why:** all four exempt files HAVE both a `move` clip and a `boot` role, so
+the condition the brief gave would have skipped nothing. Headroom is wide:
+`sniper_team` moves at 0.45 tiles/s and measures 0.7355 m against the floor,
+and `moto_rpg` is the narrowest skip at 0.0547.
+
+### D-11. §3.4's example clamp of 2.5 is wrong
+
+**Shipped:** `GAIT_TIME_SCALE_MAX = 4`, `GAIT_TIME_SCALE_MIN = 0.05`, both
+derived from the shipped declarations rather than chosen.
+
+**Why:** 2.5 clips `yahalom_squad` at 2.645 — the unit with the single largest
+correction to make — silently putting its slide back with every test green. The
+reachable range for a unit whose legs are on the ground is **0.914×…2.645×**,
+bounded from the sim rather than from observation (`stepMovement` never moves a
+unit further than `type.stepPerTick` in a tick and the direction vectors are
+unit vectors, so a diagonal is not faster). The floor is deliberately far below
+anything either the art or the sim produces, because a LOW time scale is the
+feature: a floor that bound during ordinary slow movement would re-introduce
+the slide on exactly the units this milestone helps. The brief's example floor
+of 0.5 would have done that — a live capture caught an `inf_squad` on its short
+final step at 0.0585 tiles/s playing at **0.1002**, twice the shipped floor and
+closing.
+
+### D-12. A carried unit is excluded from rate-matching, which the spec did not anticipate
+
+**Shipped:** `applyGaitRate` skips any unit with `carriedBy >= 0`.
+
+**Why:** `Sim.stepTransport` overwrites a passenger's position with its
+carrier's every tick, so a passenger's `entitySpeed` IS the vehicle's speed.
+Measured live: a `sniper_team` in a `jeep_shoded` computes **13.53×**,
+`yahalom_squad` 9.03, `inf_squad` 4.97, `sarim_rifles` in a `technical` 4.29 —
+all clamped. Visually harmless (the figures are inside a hull) and
+semantically fatal, because it made the invariant the gate rests on — "a clamp
+doing real work means that mesh's gait is wrong" — false. Skipping is strictly
+less change than clamping: it restores exactly the pre-milestone behaviour.
+`garrisonedIn` and `tunnelIn` were deliberately NOT added; neither produces a
+fictional speed, because a garrisoned or buried unit does not move and reads
+`idle`.
+
+### D-13. §3.5's gait check as specified could not fail
+
+**Shipped:** the gate measures the playback MULTIPLIER, plus a cadence axis in
+steps per second that this document never asked for.
+
+**Why:** the spec asked for the post-rate-match residual to sit near 1.0. §3.4
+computes `timeScale = entitySpeed / clipGroundSpeed`, so that residual is 1.0
+by construction for any stride whatsoever, including none. The multiplier is
+what nothing normalises. The cadence axis was added because **the multiplier is
+not cadence**: `yahalom_squad` carries the larger multiplier (2.6454) at a
+perfectly human 5.08 steps/s while `charge_squad` is at 7.45, and it is cadence
+the eye reads. `cycleS` cancels out of it entirely
+(`cadence = 6·speed/strideM`), making it a pure step-length check orthogonal to
+the multiplier.
+
+### D-14. §3.5's facing check grew instruments it did not name
+
+**Shipped, beyond the per-figure head-joint bearing:** a `Head`→`headfront`
+MARKER instrument for rigs that carry one, a weapon-axis PCA over the real
+vertex cloud, a per-file two-instrument agreement check against a pinned
+offset, a weapon-ELEVATION check, a per-FIGURE ground-coverage check, a
+still-figure pin, and a swing-direction signature.
+
+**Why, in order.** The marker cannot replace the centroid: it exists on 7
+infantry GLBs and is **absent from 15**, and `rig.py` builds the kit head bone
+as a VERTICAL segment, so those fifteen have no fallback ground-plane axis at
+all — taking that recommendation at face value would have dropped coverage of
+every `kit.py` team, the majority of the roster and the family the
+`mortar_team` defect came from. The weapon axis exists because the head gate is
+**self-satisfying** for `idle`/`fire`/`down` (the pose is yawed by the circular
+mean of exactly the bearings the gate then tests) while the yaw does not
+normalise the weapon axis at all; 7 of 7 injected defects raise and two are
+catchable only by the weapon half. The elevation check exists because a
+ground-plane bearing is blind to a rifle pointed 43° at the sky. The per-figure
+check exists because a per-FILE check cannot see one figure of three going
+still. And `move`'s weapon axis is deliberately NOT gated tightly: a running
+soldier carrying a rifle one-handed at his side has a correct spread of 154.5°.
+
+### D-15. §4 put `sarim_rifles`'s `moveFire` out of scope; this milestone put it back
+
+Recorded in place as §4a. In short: rebinding that unit's `move` to the
+supplied run left `moveFire` on the walk, so the same fighter ran when moving
+and **crept at 0.2 m/s** when moving and firing — a **13.27×** playback
+multiplier against a next-worst of 2.60, a 3.25 s clip finishing in 245 ms.
+Widening the clamp to absorb it would have disabled rate-matching for every
+other unit in the game. `moveFire` is now synthesised from the run and needs
+1.244×. Two things learned bind §3.5: **nothing in this tree could see a
+mismatch BETWEEN two clips of one file**, because every check judges one clip
+at a time against its unit's speed; and the KDF arm-chain aim solve **does not
+transfer** to this rig, because the offset lives in the torso — applied
+directly it diverges on 4 of 16 frames and drives the hands past the figure's
+own arm reach.
+
+### D-16. Scope added at the project lead's request, after the eight tasks
+
+`at_team` shipped a 1.357 m launcher and **no `fire` clip**, so an anti-tank
+team stood motionless while a Spike left the tube. The cause is a reasoning
+error rather than an oversight: `build_fire_clip` excludes figures whose weapon
+is a free-standing ground mount, which is right — but this team's tube rides
+`at_fire`'s forearm exactly like a rifle, so the objection does not apply.
+`sniper_team` had three symptoms from one cause (`MOVE_FRAMES = 24` against
+`rig.py`'s 16, a hardcoded swing that never read `speed_tiles_s`, and a
+reversed swing signature — its foot is lowest at the BACK of the stride,
+−0.180, where sixteen other clips read +0.113…+0.470), all closed by
+reconciling `export_meshy_sniper.py` with `rig.py`.
+
+**And the defect found while reviewing that work is the most transferable thing
+on the branch.** `export_meshy_sniper.py` anchored metres-per-unit on **its own
+previous output**, dividing two measurements that are not like-for-like — a
+fixed multiplicative gain of 1.02489, not a fixed point. The sniper pair had
+grown 1.670 m → 1.753 → 1.796 across three exports, 7.5% taller than every
+other infantryman, and two more exports would have put them past 1.9 m. The
+file's own comment said the declared and measured heights "are asserted to
+agree at build time". **No such assertion existed.** Re-anchored to `kit.py`'s
+own 1.67 m.
+
+### D-17. §6's capture sheet: one image per CELL, and "before" is served live
+
+**Shipped:** `tools/src/perf/gait-captures.ts` — 12 subjects × {`move`, `fire`,
+`moveFire`} × {gameplay zoom, top of the zoom band} × {before, after}.
+
+**Why not one composite image per type:** `wreck-captures.ts`, which §6 names
+as the shape to follow, produces one PNG per cell (11 × 2 × 2 = 44), and this
+tree has no compositing step. Following the precedent literally was preferred
+to inventing one.
+
+**Why the LIVE renderer rather than `tools/render_clip_pose.py`:** that script
+frames the camera to the figure's own bounds, so "gameplay zoom" has no meaning
+in it; it renders through the SPRITE rig rather than the lit three.js scene;
+and it has no playback rate in it at all, so it cannot show §3.4. The
+before-art reaches the running dev server by intercepting the `/meshes/*.glb`
+fetches and answering them from `git show <fork>:assets/meshes/…`, which
+touches no file in the tree — and the run refuses to finish unless at least one
+intercepted file differed in length from the working tree, because a route glob
+that stops matching yields a "before" sheet that is a second copy of "after"
+and looks entirely correct.
+
+**Two limitations, stated.** For the six rigs §3.2 rebound, `move` is a
+different SOURCE CLIP before and after, so the shared phase fraction is a
+convention rather than a correspondence; for the ten `kit.py` teams §3.3
+rescaled it is a real correspondence — same authored sinusoid, same cycle,
+larger amplitude. And **a still cannot show cadence at all**: the sheet shows
+stride, lean, knee drive and where a figure points, and the playback rate is
+carried as a number beside each cell rather than in the picture.
+
+### D-18. Still open, deliberately
+
+Recorded, not fixed, each with a measurement behind it: `charge_squad` needs
+7.45 steps/s and wants a longer authored cycle for that team alone;
+`office_worker`'s `face` role sits 13.3° off its own head axis;
+`charge_squad`'s face-role centroid sits 0.57 m from its own head joint;
+`yahalom_engineer` puts 8 vertices spanning 0.076 m on `RightHand` under the
+`weapon` role, so that unit has no gateable weapon axis — and it ships no
+`fire` clip either, which the capture sheet names on its passing path;
+`atgm_cell` and `mortar_crew` mount their launcher and tube on `prop`, weighted
+to no arm bone, with the same consequence; `rpg_fire` is the only STANDING
+`animates=False` figure in the tree, so a man's boots never move while his
+team-mate walks beside him; the elevation gate cannot see an off-level REST
+pose; `import_meshy_soldier.py` is not byte-reproducible, so every re-export
+produces a diff with no measurable change in it; and §4's `moto_rpg` wheel-spin
+rate-match is still out of scope.
