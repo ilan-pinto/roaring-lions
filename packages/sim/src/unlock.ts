@@ -6,6 +6,10 @@ export interface UnlockGate {
   roeMin?: number;
   starsMin?: number;
   afterMission?: string;
+  /** Credits that open this unit without the earned gates (spec 2026-09-15 §4.4). Authored. */
+  price?: number;
+  /** True when the brigade account lists this unit as bought. Resolved by the app; never authored. */
+  bought?: boolean;
 }
 
 /** Earned stars: the integer sum of each mission's best grade. No division. */
@@ -32,6 +36,22 @@ export function starsEarned(ledger: LedgerData | undefined): number {
  */
 export function unlockReason(unlock: UnlockGate | undefined, ledger: LedgerData | undefined): string | null {
   if (!unlock) return null;
+  // A purchase opens the unit outright (spec 2026-09-15 §4.4). Resolved by the app from
+  // the brigade account; nothing in data can author it.
+  if (unlock.bought === true) return null;
+  const earned = earnedReason(unlock, ledger);
+  if (earned === null) {
+    // No earned field failed. A gate with no earned field at all is bought-only
+    // (D1: the special forces shape): closed until bought.
+    const hasEarnedField = unlock.roeMin !== undefined || unlock.starsMin !== undefined || unlock.afterMission !== undefined;
+    if (!hasEarnedField && unlock.price !== undefined) return `buy for ${unlock.price} credits`;
+    return null;
+  }
+  return unlock.price !== undefined ? `${earned}, or buy for ${unlock.price} credits` : earned;
+}
+
+/** The earned checks exactly as before, in the same order (Conduct, stars, mission). */
+function earnedReason(unlock: UnlockGate, ledger: LedgerData | undefined): string | null {
   if (unlock.roeMin !== undefined && !conductAtLeast(ledger, unlock.roeMin)) {
     // Three cases, because two of them are not the same sentence: rated and short,
     // never rated, and an old save whose only record is a single number. Telling a

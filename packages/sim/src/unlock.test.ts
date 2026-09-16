@@ -87,6 +87,26 @@ describe('unlockReason', () => {
     const why2 = unlockReason({ starsMin: 9, afterMission: 'x' }, {});
     expect(why2).toBe('requires 9 stars (currently 0)');
   });
+
+  it('opens a bought unit whatever its earned gates say', () => {
+    expect(unlockReason({ roeMin: 90, starsMin: 44, afterMission: 'x', price: 900, bought: true }, {})).toBe(null);
+  });
+
+  it('offers the price after an earned sentence', () => {
+    expect(unlockReason({ starsMin: 12, price: 600 }, {})).toBe('requires 12 stars (currently 0), or buy for 600 credits');
+    expect(unlockReason({ roeMin: 55, price: 400 }, { 'roe.mission_ratings': { a: 20 } })).toBe(
+      'requires campaign Conduct 55, or buy for 400 credits'
+    );
+  });
+
+  it('names only the price for a bought-only unit', () => {
+    expect(unlockReason({ price: 1200 }, {})).toBe('buy for 1200 credits');
+    expect(unlockReason({ price: 1200, bought: true }, {})).toBe(null);
+  });
+
+  it('adds no clause when there is no price', () => {
+    expect(unlockReason({ starsMin: 12 }, {})).toBe('requires 12 stars (currently 0)');
+  });
 });
 
 describe('resolveUpgrades', () => {
