@@ -159,9 +159,17 @@ movement already is.
 - `ThreeRenderer.updateMeshUnits` calls `entity.mixer.update(dtSeconds)` and
   **sets no `timeScale` anywhere**. Every clip plays at its authored rate
   regardless of how fast the unit is actually moving.
-- `cadenceScale` (`packages/render/src/clip.ts`, `ROUT_CADENCE = 1.6`) exists
+- ~~`cadenceScale` (`packages/render/src/clip.ts`, `ROUT_CADENCE = 1.6`) exists
   and **no three.js code reads it**. A routed unit on the default backend runs
-  at exactly the same cadence as a calm one.
+  at exactly the same cadence as a calm one.~~ **FALSE, and corrected after
+  Task 6 measured it.** `three/units/frame-state.ts` already composes
+  `walkFps(anim.speed, n) * cadenceScale(anim)` for every BILLBOARD unit on
+  three.js — and `walkFps` is itself a rate match, so a billboard's legs have
+  always followed its ground speed. What had never been rate-matched, and what
+  this milestone is actually about, is the **MESH** path. The correction
+  matters beyond bookkeeping: it is the reason §3.4's multiply is right rather
+  than merely specified, because a routed mesh rifleman and a routed billboard
+  standing beside him would otherwise disagree in the same frame.
 - `resolveClip` already outranks `move` with `fire`, and `firingTimer` latches
   for the fire clip's full duration (0.5 s for these rigs) against a rifle
   firing every 0.19 s — so a squad in contact holds `fire` continuously. On

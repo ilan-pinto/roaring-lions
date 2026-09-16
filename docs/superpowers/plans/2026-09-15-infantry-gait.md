@@ -604,6 +604,26 @@ Measured on the bytes, the kit teams' `move` means span **−2.0 … +8.6**
 move any of them — every mean matches to 0.1° before and after. Take the band
 from a fresh measurement, not from that quote.
 
+**Compute the multiplier THROUGH `gaitTimeScale`, not alongside it.** Task 6
+chose `GAIT_TIME_SCALE_MAX = 4` against a worst shipped multiplier of 2.6454
+(`yahalom_squad`), and there is no committed test that reads the shipped bytes
+and proves the clamp never binds — the clean home for one would invert a
+dependency, since `render` must not import `app`'s mesh catalogue. This gate is
+that test. Route the computation through `gaitTimeScale` so a clamp silently
+starting to bind on a shipped mesh shows up here as a number that stopped
+tracking its input. A gate that recomputes the formula by hand cannot see a
+clamp at all.
+
+**Two numbers to look at rather than merely pass.** `charge_squad` now needs
+3.73 gait cycles a second, about 7.5 steps a second, which is beyond human — by
+design, since its stride is at the geometric ceiling and the remainder has to be
+cadence, but it deserves a person's eye rather than a green tick. And
+`sniper_team`'s `move` is a 1.0 s clip where every other kit rig is 0.6667 s,
+with the shortest stride in the tree, so the game's SLOWEST unit needs the
+third-largest correction. That file comes from `tools/export_meshy_sniper.py`, a
+third pipeline this plan never touched, so Task 4's stride work never reached
+it.
+
 - [ ] **Step 2: Declared-vs-measured consistency**
 
 Every file's declared `rl_gait` must equal a fresh `measureRoleTravel` of the same file and clip. This is what catches a re-export that skipped `pnpm gait:meshes` — otherwise the renderer rate-matches to a stale stride and nothing notices.
