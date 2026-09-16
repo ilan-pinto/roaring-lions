@@ -176,6 +176,17 @@ const structureSymbols = new Map(
           `hull.transport_slots — the player cannot load anyone into it`
       );
     }
+    // Per-unit unlock checks: bought flag and price faction restriction.
+    if (u && 'bought' in (u.unlock ?? {})) {
+      failures.push(
+        `${u.id}: unlock.bought is resolved from the brigade account and cannot be authored`
+      );
+    }
+    if (u && u.unlock?.price !== undefined && u.faction !== 'kdf') {
+      failures.push(
+        `${u.id}: unlock.price is only valid on faction 'kdf' units`
+      );
+    }
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
     const mi = loadJson(file);
@@ -979,17 +990,6 @@ const structureSymbols = new Map(
       if (!u) continue;
       if (u.id) kdfIds.add(u.id);
       if (u.role) kdfRoles.add(u.role);
-      // Per-unit unlock checks
-      if (u.unlock?.bought === true) {
-        failures.push(
-          `${u.id}: unlock.bought is resolved from the brigade account and cannot be authored`
-        );
-      }
-      if (u.unlock?.price !== undefined && u.faction !== 'kdf') {
-        failures.push(
-          `${u.id}: unlock.price is only valid on faction 'kdf' units`
-        );
-      }
     }
     for (const role of namesDoc.kinds.task_roles ?? []) {
       if (!kdfRoles.has(role)) {
