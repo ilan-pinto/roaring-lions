@@ -240,8 +240,29 @@ CLOSE_DELTA_M = 0.025
 STANDING_GAP_M = 0.05
 
 # --- clips ---------------------------------------------------------------
+#
+# **The gait is `tools/units/rig.py`'s, not this file's.** `MOVE_FRAMES = 24`
+# and a hardcoded `swing = 0.40 * math.sin(a)` used to live here, and being a
+# second copy is what was wrong with them rather than what they were set to:
+#
+#  * 24 frames gave a 1.0 s cycle where every `rig.py` team is 16 at 0.6667 s.
+#  * The swing never read `mobility.speed_tiles_s`, so `rig.py`'s
+#    stride-from-speed pass (design D3) simply did not reach this unit. It
+#    took a 0.321 m step at 1.35 m/s -- half a walking step at twice the
+#    cadence -- and needed a 2.0999x playback correction, the third largest in
+#    the game, on the game's SLOWEST unit.
+#  * Its knee bent the wrong way: `mesh_gait.ts`'s `swingLiftFraction` read
+#    -0.180 here against +0.113..+0.470 for every other rig in the tree.
+#
+# `rig.gait_pose` is the shared definition now; `rig.MOVE_FRAMES`,
+# `rig.move_seconds` and `rig.gait_for_team` are the cycle and the
+# amplitudes. What stays local is the RIGGING -- this file's fourteen joints
+# are a subset of `rig.py`'s bone set and it keys the five it has.
+#
+# `FPS` is Blender's factory default, which both files rely on and neither
+# sets; it is asserted against the live scene in `build_clips` rather than
+# trusted, because `rig.move_seconds()` divides by it.
 FPS = 24
-MOVE_FRAMES = 24          # one full two-step cycle
 STATIC_FRAMES = (0, 1)    # see rig.py's `_key_scale`: never a single key
 
 CLIPS = ("idle", "move", "fire", "down", "wreck")
@@ -255,6 +276,31 @@ FIG_PREFIX = ("snp_a", "snp_b")
 # ==========================================================================
 def log(msg):
     print(f"SNIPER: {msg}", flush=True)
+
+
+def _rig():
+    """`tools/units/rig.py`, imported LAZILY.
+
+    That module imports `bpy` (and `kit`/`teams`, which do too) at its top
+    level, so importing it here at module scope would break the `--verify`
+    path, which this file's own header promises runs "without Blender -- a
+    verifier that can only run inside the process that produced the file is
+    checking its author's intent, not its output". Same reason `bpy` itself is
+    deferred into `main()`.
+
+    Why import it at all: `rig.py` owns the gait (`gait_for_team`,
+    `gait_pose`, `MOVE_FRAMES`, `gait_phase`). This file used to carry its own
+    and the two disagreed about the cycle length, the stride and which way a
+    knee bends -- see the "clips" section. It does NOT import `rig.py`'s
+    GEOMETRY: `tools/mesh_ownership.py` records that `art/meshes/
+    sniper_team.glb` is this file's, and `rig.build_and_export` raises if
+    anyone asks it to write that path, because doing so would replace two
+    photogrammetry sculpts with primitives.
+    """
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    sys.path.insert(0, os.path.join(REPO, "tools", "units"))
+    import rig  # noqa: PLC0415
+    return rig
 
 
 def reset_scene():
@@ -815,39 +861,70 @@ def build_clips(arm, figs):
         log(f"clip {name}: prone visible, close={close:.3f} m")
 
     # ---- move: the standing pair, walking -------------------------------
+    #
+    # Driven entirely by `rig.gait_pose` -- see this module's "clips" section
+    # for what was here before and why being a second copy was the defect.
+    rig = _rig()
+    scene_fps = float(bpy.context.scene.render.fps)
+    if scene_fps != float(FPS):
+        raise SystemExit(
+            f"scene fps is {scene_fps}, this file declares FPS={FPS}, and "
+            f"rig.move_seconds() divides by the SCENE's value. One of the "
+            f"three is wrong and the clip length would silently disagree "
+            f"with every rig.py team's."
+        )
+    gait = rig.gait_for_team("sniper_team")
+    log(f"gait: speed={gait['speed']} tiles/s ground={gait['ground_m']:.3f} m/cycle "
+        f"want={gait['want']:.3f} scale={gait['scale']:.3f} "
+        f"thigh={gait['thigh']:.3f} rad shin={gait['shin']:.3f} rad "
+        f"(rig.py's own, via gait_for_team)")
+
     _new_action(arm, "move")
-    n = MOVE_FRAMES
+    n = rig.MOVE_FRAMES
+    bones = arm.data.bones
     for i, p in enumerate(FIG_PREFIX):
         # HARD-WON FACT 6: never ship byte-identical keyframes across
-        # figures. Half a cycle apart, so the pair does not march in
-        # lockstep the way squads used to.
-        phase = 0.5 * i
+        # figures. `rig.gait_phase` is the shared offset table now (a third
+        # of a cycle per figure) rather than this file's own half-cycle --
+        # same property, one definition.
+        offset = rig.gait_phase(i)
+        # Hip joint to ankle joint, read off the bones this file just built
+        # rather than restated from the fractions `build_armature` used --
+        # `rig.LEG_REACH_M` does exactly this against `_BASE_BONES`. These
+        # sculpted men are not 1.67 m each, so `_stance_drop` needs THEIR
+        # lever, not the kit rig's.
+        leg_reach = (bones[f"{p}_thigh_L"].head_local.z
+                     - bones[f"{p}_shin_L"].tail_local.z)
         d = pb[f"{p}_death_root"]
         d.scale = (0.0, 0.0, 0.0)
         d.location = (0.0, 0.0, 0.0)
         root = pb[f"{p}_root"]
         root.scale = (1.0, 1.0, 1.0)
         for fr in range(n + 1):
-            u = (fr / n + phase) % 1.0
-            a = 2.0 * math.pi * u
-            for fr2, b in ((fr, d),):
-                b.scale = (0.0, 0.0, 0.0)
-                _key(b, fr2)
-            # pelvis bob: two dips per cycle, one per footfall
-            bob = -0.018 * abs(math.sin(a))
-            _world_loc(root, (0.0, 0.0, bob))
+            phase = 2.0 * math.pi * fr / n + offset
+            pose = rig.gait_pose(gait, phase, leg_reach)
+            d.scale = (0.0, 0.0, 0.0)
+            _key(d, fr)
+            _world_loc(root, (0.0, 0.0, pose["bob"]))
             root.scale = (1.0, 1.0, 1.0)
             _key(root, fr)
-            _world_rot(pb[f"{p}_pelvis"], Vector((1, 0, 0)), 0.05 * math.sin(2 * a))
+            # The one term that is NOT rig.py's: a lateral pelvic roll, twice
+            # per cycle. `rig.py` has no counterpart -- its `pelvis` carries
+            # only the belt line and its own twist is a YAW, counter-rotated
+            # by a `spine` and a `head` bone this rig does not have. On this
+            # rig `pelvis` carries the whole torso, the head and a metre of
+            # rifle, so importing that yaw would sweep the weapon with
+            # nothing to cancel it. Left at its authored amplitude: it is a
+            # roll rather than a stride term, so it does not scale with one.
+            _world_rot(pb[f"{p}_pelvis"], Vector((1, 0, 0)), 0.05 * math.sin(2 * phase))
             _key(pb[f"{p}_pelvis"], fr)
-            for side, sgn in (("L", 1.0), ("R", -1.0)):
-                swing = 0.40 * math.sin(a + (0.0 if sgn > 0 else math.pi))
-                _world_rot(pb[f"{p}_thigh_{side}"], Vector((0, 1, 0)), swing)
+            for side, key in (("L", "l"), ("R", "r")):
+                _world_rot(pb[f"{p}_thigh_{side}"], Vector((0, 1, 0)), pose[f"thigh_{key}"])
                 _key(pb[f"{p}_thigh_{side}"], fr)
-                bend = -0.55 * max(0.0, math.sin(a + (0.0 if sgn > 0 else math.pi) + 1.4))
-                _world_rot(pb[f"{p}_shin_{side}"], Vector((0, 1, 0)), bend)
+                _world_rot(pb[f"{p}_shin_{side}"], Vector((0, 1, 0)), pose[f"shin_{key}"])
                 _key(pb[f"{p}_shin_{side}"], fr)
-    log(f"clip move: standing visible, {n} frames, per-figure phase offset 0.5")
+    log(f"clip move: standing visible, {n} frames at {FPS} fps "
+        f"({rig.move_seconds():.4f} s), per-figure phase from rig.gait_phase")
 
 
 # ==========================================================================

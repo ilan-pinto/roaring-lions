@@ -733,9 +733,22 @@ export function countTracePeaks(
  * this quantity is **exactly negated** -- it cannot be fooled by phase.
  *
  * Measured 2026-09-16 on all seventeen: +0.113 (`meshy_mortar_team`) to
- * +0.470 (`civilian_woman`) -- and `sniper_team` at **-0.180**, the one file
+ * +0.470 (`civilian_woman`) -- and `sniper_team` at **-0.065**, the one file
  * in the tree whose boot is higher while it travels backward. See
  * `mesh_gait.test.ts` for the exemption and the diagnosis.
+ *
+ * **It is not a PURE chirality signal and the exemption is where that was
+ * measured.** The tracked vertex is a toe, and on both rig families the boot
+ * is bound rigidly to the shin with no foot bone, so it pivots at the KNEE:
+ * a toe `d` metres forward of the bone's tail gains height on the FORWARD
+ * swing in proportion to `d`, against the heel lift the knee bend gives at
+ * the back. At a small stride scale that term wins. Modelled over both rigs'
+ * leg proportions, the reading crosses zero somewhere around a 0.2 m toe at
+ * scale 0.78, and `sniper_team` -- the slowest unit in the game, with
+ * photogrammetry boots -- is the only shipped rig in that corner. A clip
+ * exported backwards is still exactly the negation of its forward self, so
+ * the check does what it was built for; it is the small POSITIVE readings
+ * that should not be over-read.
  *
  * Returns `NaN` when the trace never moves in one of the two directions, or
  * has no height span at all -- a crew-served rig, where the question is
@@ -1153,6 +1166,28 @@ export interface WeaponAxis {
    *  component, in metres -- the "is this a rifle?" number. A shipped
    *  assault rifle reads ~0.6 m; a bare forearm reads ~0.25. */
   readonly extentM: number;
+  /**
+   * How far ABOVE the ground plane the same oriented axis points, degrees,
+   * `+` = muzzle up. Mean, then the two extremes, over the same samples.
+   *
+   * ## Why the bearing alone was not enough, measured rather than argued
+   *
+   * `meanDeg` is `atan2(dz, dx)` -- it PROJECTS the axis onto the ground and
+   * throws this component away. So a weapon can point at the sky and read a
+   * perfect `0.0` bearing, and that is not hypothetical: every `kit.py`
+   * rifleman's `fire` clip levered its rifle **43-44 degrees up** out of the
+   * level carry `kit.py` builds, held it there for the whole clip, and
+   * passed all 291 assertions in `mesh_gait.test.ts` at a bearing of
+   * `-0.0` with a spread of `0.0`. It was found by putting `idle` and
+   * `fire` side by side as pictures.
+   *
+   * A plain arithmetic mean, not a circular one: elevation lives on
+   * [-90, +90] and cannot wrap, so the wrap-around handling `circularMeanDeg`
+   * exists for would be answering a question that is not asked here.
+   */
+  readonly elevationDeg: number;
+  readonly elevationMinDeg: number;
+  readonly elevationMaxDeg: number;
 }
 
 /**
@@ -1178,7 +1213,9 @@ export interface WeaponAxis {
  * sampled instant: their covariance's first principal component (power
  * iteration, seeded from the covariance's own largest column so the seed
  * cannot be orthogonal to the answer), projected onto the ground plane and
- * read as `atan2(dz, dx)`.
+ * read as `atan2(dz, dx)` -- and, since the projection throws away the one
+ * dimension in which a rifle can be aimed at the sky while reading a perfect
+ * bearing, `asin(dy)` beside it. See `WeaponAxis.elevationDeg`.
  *
  * **A principal component has no sign**, and the sign is chosen from the
  * cloud rather than from the bone: the axis is oriented toward whichever of
@@ -1254,6 +1291,7 @@ export function measureWeaponAxis(
     const verts = vertsForSkinIndex.get(skinIndex) ?? [];
     if (verts.length === 0) continue;
     const bearings: number[] = [];
+    const elevations: number[] = [];
     let extentSum = 0;
     let hiddenInClip = true;
     for (let s = 0; s < SAMPLES; s++) {
@@ -1265,6 +1303,13 @@ export function measureWeaponAxis(
       const jointWorld = worlds[jointNode];
       const oriented = orientAwayFromJoint(axis, pts, [jointWorld[12], jointWorld[13], jointWorld[14]]);
       bearings.push((Math.atan2(oriented.dir[2], oriented.dir[0]) * 180) / Math.PI);
+      // The component the bearing throws away. `oriented.dir` is unit length
+      // by construction (`principalAxis` normalises and `orientAwayFromJoint`
+      // only flips the sign), so this is the elevation directly; the clamp is
+      // against float drift past +/-1 rather than against a real value.
+      elevations.push(
+        (Math.asin(Math.max(-1, Math.min(1, oriented.dir[1]))) * 180) / Math.PI
+      );
       extentSum += oriented.extentM;
       if (hiddenInClip && jointScale(jointWorld) > HIDDEN_SCALE) hiddenInClip = false;
     }
@@ -1273,6 +1318,9 @@ export function measureWeaponAxis(
       hiddenInClip,
       vertexCount: verts.length,
       extentM: extentSum / SAMPLES,
+      elevationDeg: elevations.reduce((a, b) => a + b, 0) / elevations.length,
+      elevationMinDeg: Math.min(...elevations),
+      elevationMaxDeg: Math.max(...elevations),
       ...circularMeanDeg(bearings),
     });
   }

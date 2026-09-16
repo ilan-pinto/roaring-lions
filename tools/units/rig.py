@@ -104,10 +104,14 @@ repositions these either (`kit.mortar`/`kit.atgm_tripod`'s call site in
 shoulder-fired launcher (Spike, RPG) is different: `teams.py` describes it as
 "held", so it binds to the firer's own `forearm_R` instead, the same
 convention `_weapon_parts` already uses for a rifle -- and unlike the ground
-mounts, this makes the `fire` clip's raise/recoil apply correctly should a
-future pass want it (not authored here, since neither launcher's own
-position varies with `clip` in `teams.py` either -- see the report's
-"what fire clip means per team" table for the exact reasoning per team).
+mounts, that makes the `fire` clip apply correctly, which **this pass takes
+up**: `at_fire` and `rpg_fire` declare `weapon="launcher"` and get a brace
+impulse of their own (`LAUNCH_SPINE`), not the rifle's raise-and-recoil. The
+earlier decision not to author one rested on "neither launcher's position
+varies with `clip` in `teams.py`", which is a fact about the SPRITE sheet and
+was never a fact about this rig; the cost of it was that `at_team` -- whose
+only other figure is a spotter with binoculars -- had no `fire` clip in its
+GLB at all, so an anti-tank team stood still while a Spike launched.
 """
 import glob
 import json
@@ -433,13 +437,109 @@ A_ARM_WEAPON = 0.20
 ELBOW_FREE_AMP = 0.30
 ELBOW_PHASE_SIGN = 1.0
 
+# --- a rifleman's `fire`, and the aim it must not lever the weapon off -------
+#
+# **The rifle is bound to `forearm_R`, whose world rotation is the SUM of
+# `spine`, `upperarm_R` and `forearm_R`.** So the barrel's pitch is that sum,
+# and any static pair whose sum is non-zero points the weapon somewhere the
+# rest pose did not. `FIRE_SHOULDER + FIRE_ELBOW` was `-0.45 + 0.35 = -0.10`,
+# ten times smaller than either term and easy to read as "about zero" -- and
+# the recoil then piled another `-0.26` on top of it in the same direction.
+#
+# Measured on the shipped bytes with `measureWeaponAxis(...).elevationDeg`
+# (`tools/src/mesh_gait.ts`), every kit rifleman's barrel:
+#
+#     idle  +2.47 deg  [+0.47, +4.46]      the level carry kit.rifle builds
+#     fire  +17.0 deg  [+8.20, +25.64]     BEFORE this pass
+#     fire   +4.2 deg  [ +2.47, +5.90]     after
+#
+# Found by putting `idle` and `fire` side by side as pictures, not by any
+# gate: `measureWeaponAxis` projects onto the ground plane, so all three of
+# those read a bearing of -0.0 with a spread of 0.0 and passed 291
+# assertions. `WeaponAxis.elevationDeg` is the instrument that exists now.
+#
+# **`kit.rifle`'s own docstring is the authority on what `fire` means here,
+# and it does not mean an arm raise:** *"`aim` ... deliberately changes
+# nothing about the figure's height ... Pushing the weapon forward and LEVEL
+# is free of that"*. The sprite pipeline's firing pose is a translation of
+# +0.16 m forward and +0.06 m up with the barrel horizontal. So:
+#
+#  * `FIRE_ELBOW` is `-FIRE_SHOULDER`, exactly, which makes the static pair
+#    pitch-NEUTRAL: the arm still swings the weapon forward and up out of the
+#    carry (measured: +0.083 m forward, +0.047 m up at the hand, the closest
+#    this two-bone arm gets to the sprite's own +0.16 / +0.06), and the
+#    barrel comes out of it level. Written as a negation rather than as a
+#    second literal so the two cannot drift apart.
+#  * `RECOIL_ELBOW` is now POSITIVE and nearly cancels the shoulder and the
+#    spine. That is what absorbing recoil looks like -- the shoulder and
+#    torso take the impulse while the wrist holds the sight on the target --
+#    and it keeps a fully visible jolt (the hand still moves 3.4 cm on the
+#    shoulder's own kick) while the barrel climbs only `0.16 - 0.15 + 0.05`
+#    = 0.06 rad / 3.4 deg and returns. It was `-0.10`, which ADDED to the
+#    other two for a 17.8 deg muzzle flip per shot.
+#
+# `FIRE_SHOULDER`, `RECOIL_SHOULDER` and `RECOIL_SPINE` are R0's own values,
+# untouched.
 FIRE_SHOULDER = -0.45
-FIRE_ELBOW = 0.35
+FIRE_ELBOW = -FIRE_SHOULDER
 RECOIL_SHOULDER = -0.16
-RECOIL_ELBOW = -0.10
+RECOIL_ELBOW = 0.15
 RECOIL_SPINE = -0.05
 FIRE_RISE = 0.16
 FIRE_FRAMES = 6
+
+#: The static pair must not pitch the barrel at all -- asserted rather than
+#: left to whoever edits the two literals next. This is the whole of the
+#: defect the elevation instrument was built for.
+assert FIRE_SHOULDER + FIRE_ELBOW == 0.0, (FIRE_SHOULDER, FIRE_ELBOW)
+
+# --- a shoulder-fired launcher's own `fire` ---------------------------------
+#
+# `at_team` shipped no `fire` clip at all until this pass: no figure on it
+# carried a rifle, so `build_fire_clip` had no shooter and never ran, and
+# `meshClipOrFallback` degraded the runtime's request to `idle` -- an
+# anti-tank team standing motionless while a Spike left the tube. The reason
+# recorded for it (this function's own docstring, and the module docstring's
+# closing paragraph) was that raising a gunner's arms without a
+# correspondingly-moving weapon reads as wrong. That is right for a GROUND
+# MOUNT and wrong here: `_at_extras`/`_rpg_extras` bind both launchers to
+# their firer's `forearm_R`, exactly as `_weapon_parts` binds a rifle, so the
+# tube moves with the arm by construction. Nothing had to change for it to.
+#
+# Three differences from the rifle's `fire`, all deliberate, so this does not
+# read as a rifleman's recoil transplanted onto a kneeling missile gunner:
+#
+#  * **No static raise.** `FIRE_SHOULDER`/`FIRE_ELBOW` bring a rifle UP to
+#    the aim and hold it there for the whole clip; a launcher is already on
+#    the shoulder and already on the axis (measured: `at_team`'s tube reads
+#    -0.02 deg through `measureWeaponAxis` on `idle`). Every term here is an
+#    impulse on `_recoil_curve`, zero at both ends, so the aim the rest pose
+#    establishes is the aim the clip keeps.
+#  * **An order of magnitude smaller.** The largest is 3.2 deg against the
+#    rifle's 26 deg raise.
+#  * **Pitch only, never yaw.** All three are keyed about `AXIS_Y`, which
+#    tips the tube in elevation and leaves its GROUND BEARING alone -- the
+#    quantity `mesh_gait.test.ts` gates at 20 deg of mean and 15 of spread.
+#
+# Signs follow the rifle's own: negative about `AXIS_Y` rocks a spine BACK
+# and lifts an arm, so the gunner is rocked back while the muzzle climbs and
+# settles -- a brace, not a kick. Split between the two arm joints because
+# the tube rides forward of the elbow: the shoulder swings the whole assembly
+# and the elbow tips it, and using either alone either slides the tube
+# bodily or hinges it around a point it does not pivot on.
+#
+# **The three ADD UP on the tube, and that is not obvious from the values.**
+# `spine` is `upperarm_R`'s parent and `upperarm_R` is `forearm_R`'s, so the
+# launcher -- bound to `forearm_R` -- tips by the SUM, 0.115 rad / 6.6 deg at
+# the peak, not by any one of them. Measured on the exported bytes rather
+# than predicted: `measureRoleTravel(at_team.glb, 'weapon', 'fire')` reads a
+# 10.18 cm peak-to-peak muzzle excursion, against 21.66 cm for a rifle's
+# `fire` on the same instrument, and against 10.11 cm that the same tube
+# already travels in `idle` from breathing alone. Anyone raising one of these
+# is raising the tube by more than they typed.
+LAUNCH_SPINE = -0.045
+LAUNCH_SHOULDER = -0.025
+LAUNCH_ELBOW = -0.045
 
 MOVE_FRAMES = 16
 IDLE_FRAMES = 32
@@ -679,10 +779,10 @@ def gait_for_team(team_id):
     return gait
 
 
-def _stance_drop(thigh_angle, base_angle):
+def _stance_drop(thigh_angle, base_angle, leg_reach_m=None):
     """How far the root must sink so a longer swing does not lift both feet.
 
-    A straight leg swung `theta` off vertical reaches `LEG_REACH_M *
+    A straight leg swung `theta` off vertical reaches `leg_reach_m *
     cos(theta)` toward the ground, so lengthening the swing raises the whole
     figure off it. This returns the DIFFERENCE against the unscaled gait's
     own reach at the same phase, so it is identically zero at scale 1.0 and
@@ -695,8 +795,16 @@ def _stance_drop(thigh_angle, base_angle):
     gait, at 2.6 cm. That is R0's authored look and this pass does not
     relitigate it; this term is a separate, derived quantity that happens to
     share the same bone.
+
+    `leg_reach_m` defaults to THIS rig's own hip-to-ankle (`LEG_REACH_M`, read
+    off `_BASE_BONES`). It is a parameter because `gait_pose` is shared with
+    `tools/export_meshy_sniper.py`, whose sculpted figures have their own leg
+    length -- the correction is a property of the LEG, not of the gait, and
+    applying this rig's lever to another rig's leg would under- or
+    over-compensate by exactly their ratio.
     """
-    return LEG_REACH_M * (math.cos(thigh_angle) - math.cos(base_angle))
+    reach = LEG_REACH_M if leg_reach_m is None else leg_reach_m
+    return reach * (math.cos(thigh_angle) - math.cos(base_angle))
 
 
 #: Every key `build_move_clip` reads out of a gait dict. `gait_amplitudes` must
@@ -705,6 +813,74 @@ def _stance_drop(thigh_angle, base_angle):
 GAIT_KEYS = frozenset(
     [key for key, _ in _LINEAR_TERMS] + ["thigh", "lean", "want", "scale", "capped"]
 )
+
+#: Every joint angle `gait_pose` returns. Same discipline as `GAIT_KEYS` and
+#: for the same reason: a term added to the gait without being asserted at the
+#: reference cannot slip through `_check_gait_identity_at_reference`.
+def _settle_bump(phase, heel_phase, width, amp):
+    """The heel-strike weight transfer, hoisted above `gait_pose` (it used to
+    sit beside `build_move_clip`) so the import-time identity check can call
+    the real `gait_pose` rather than a version with a hole in it."""
+    d = (phase - heel_phase) % (2.0 * math.pi)
+    if d > width:
+        return 0.0
+    return amp * 0.5 * (1.0 - math.cos(2.0 * math.pi * d / width))
+
+
+GAIT_POSE_KEYS = frozenset([
+    "thigh_l", "thigh_r", "shin_l", "shin_r", "hip_l", "hip_r",
+    "arm_l", "arm_r", "elbow_l", "hip_twist", "shoulder_twist",
+    "head_counter", "lean", "bob",
+])
+
+
+def gait_pose(gait, phase, leg_reach_m=None):
+    """Every joint angle R0's gait asks for at one phase of the cycle, as a
+    plain dict of radians (plus `bob`, which is metres along world `+Z`).
+
+    Pure: no `bpy`, no bones, no keyframes. Split out of `build_move_clip` --
+    which still keys exactly what this returns, one bone per entry -- so that
+    a rig with a DIFFERENT bone set can drive the same gait instead of
+    authoring a second one. `tools/export_meshy_sniper.py` is the second
+    caller and reads six of the fourteen entries, because its two
+    photogrammetry figures carry fourteen joints in total (root, pelvis,
+    thigh and shin, per figure) and have no spine, arm or head bone to key.
+    That file previously carried `swing = 0.40 * math.sin(a)` over a 24-frame
+    cycle of its own: a stride that never read `mobility.speed_tiles_s`, and
+    a knee that bent the wrong way (`mesh_gait.ts`'s `swingLiftFraction` read
+    it at -0.180 against +0.113..+0.470 for every other rig in the tree).
+    Both halves came from being a second copy; this is the shared one.
+
+    `phase` is radians around one full cycle, `gait_phase`'s per-figure
+    offset already added by the caller. `gait` is `gait_for_team`'s dict.
+    """
+    thigh_l = gait["thigh"] * math.sin(phase)
+    thigh_r = -gait["thigh"] * math.sin(phase)
+    shin_l = gait["shin"] * max(0.0, math.sin(phase - SHIN_SWING_SHIFT))
+    shin_r = gait["shin"] * max(0.0, math.sin(phase + math.pi - SHIN_SWING_SHIFT))
+    shin_l += _settle_bump(phase, HEEL_L, SETTLE_WIDTH, gait["settle"])
+    shin_r += _settle_bump(phase, HEEL_R, SETTLE_WIDTH, gait["settle"])
+    shoulder_twist = -gait["shoulder_twist"] * math.sin(phase)
+    bob = -gait["bob"] * math.cos(2.0 * phase)
+    # Both feet reach `leg_reach_m * cos(thigh)` toward the ground, so a
+    # longer swing lifts the figure off it. Zero at scale 1.0.
+    bob += _stance_drop(thigh_l, A_THIGH * math.sin(phase), leg_reach_m)
+    return {
+        "thigh_l": thigh_l,
+        "thigh_r": thigh_r,
+        "shin_l": shin_l,
+        "shin_r": shin_r,
+        "hip_l": thigh_l * 0.5,
+        "hip_r": thigh_r * 0.5,
+        "arm_l": -gait["arm_free"] * math.sin(phase),
+        "arm_r": gait["arm_weapon"] * math.sin(phase),
+        "elbow_l": gait["elbow"] * max(0.0, ELBOW_PHASE_SIGN * math.sin(phase)),
+        "hip_twist": gait["hip_twist"] * math.sin(phase),
+        "shoulder_twist": shoulder_twist,
+        "head_counter": -HEAD_COUNTER_FRAC * shoulder_twist,
+        "lean": gait["lean"],
+        "bob": bob,
+    }
 
 
 def _check_gait_identity_at_reference():
@@ -742,8 +918,48 @@ def _check_gait_identity_at_reference():
     assert leaned + rest <= MOVE_LEAN_TOTAL_MAX + 1e-12, leaned + rest
     for a in (0.0, 0.3, A_THIGH):
         assert abs(_stance_drop(a, a)) < 1e-12, a
+        assert abs(_stance_drop(a, a, 0.5)) < 1e-12, a
     assert abs(STRIDE_CAP - math.sin(THIGH_CAP) / math.sin(A_THIGH)) < 1e-12
     assert abs(LEG_REACH_M - 0.770) < 1e-9, LEG_REACH_M
+    # `gait_pose` is now the single definition of the gait's per-phase shape
+    # and it has a SECOND caller (`tools/export_meshy_sniper.py`), so the same
+    # discipline the amplitudes get applies to the pose: call it for real, at
+    # the reference, and require every entry to BE its own R0 formula. A term
+    # added there without a line here fails the key-set assertion rather than
+    # slipping out to the sniper unnoticed.
+    for phase in (0.0, 0.7, math.pi / 2.0, 2.4, math.pi, 5.1):
+        p = gait_pose(g, phase)
+        assert set(p) == GAIT_POSE_KEYS, sorted(set(p) ^ GAIT_POSE_KEYS)
+        s = math.sin(phase)
+        assert abs(p["thigh_l"] - A_THIGH * s) < 1e-12, (phase, p["thigh_l"])
+        assert abs(p["thigh_r"] + A_THIGH * s) < 1e-12, (phase, p["thigh_r"])
+        assert abs(p["hip_l"] - p["thigh_l"] * 0.5) < 1e-12, phase
+        assert abs(p["hip_r"] - p["thigh_r"] * 0.5) < 1e-12, phase
+        assert abs(p["shin_l"] - (B_SHIN * max(0.0, math.sin(phase - SHIN_SWING_SHIFT))
+                                  + _settle_bump(phase, HEEL_L, SETTLE_WIDTH, SETTLE_AMP))) < 1e-12, phase
+        assert abs(p["shin_r"] - (B_SHIN * max(0.0, math.sin(phase + math.pi - SHIN_SWING_SHIFT))
+                                  + _settle_bump(phase, HEEL_R, SETTLE_WIDTH, SETTLE_AMP))) < 1e-12, phase
+        assert abs(p["arm_l"] + A_ARM_FREE * s) < 1e-12, phase
+        assert abs(p["arm_r"] - A_ARM_WEAPON * s) < 1e-12, phase
+        assert abs(p["elbow_l"] - ELBOW_FREE_AMP * max(0.0, ELBOW_PHASE_SIGN * s)) < 1e-12, phase
+        assert abs(p["hip_twist"] - HIP_TWIST_AMP * s) < 1e-12, phase
+        assert abs(p["shoulder_twist"] + SHOULDER_TWIST_AMP * s) < 1e-12, phase
+        assert abs(p["head_counter"] + HEAD_COUNTER_FRAC * p["shoulder_twist"]) < 1e-12, phase
+        assert p["lean"] == MOVE_LEAN, phase
+        # At the reference the stance drop is identically zero, so the bob is
+        # R0's own inverted cosine and nothing else -- which is the property
+        # that makes this a shared gait rather than a second one.
+        assert abs(p["bob"] + BOB_AMP * math.cos(2.0 * phase)) < 1e-12, (phase, p["bob"])
+    # A shorter leg takes a proportionally smaller stance correction -- the one
+    # thing `leg_reach_m` has to get right, and the one thing a
+    # default-argument slip would silently break. Checked away from the
+    # reference, where the term is non-zero and can therefore disagree.
+    g14 = gait_amplitudes(1.4)
+    full = gait_pose(g14, 1.0)
+    short = gait_pose(g14, 1.0, LEG_REACH_M / 2.0)
+    drop = _stance_drop(full["thigh_l"], A_THIGH * math.sin(1.0))
+    assert abs(drop) > 1e-6, drop
+    assert abs((full["bob"] - short["bob"]) - drop / 2.0) < 1e-12, (full["bob"], short["bob"])
 
 
 _check_gait_identity_at_reference()
@@ -800,8 +1016,24 @@ def _weapon_parts(prefix, at, yaw=0.0, posture="standing", aim=False):
 # leader flag, mirror, whether it walks in `move` ("animates" -- False for a
 # crew-served figure that stays kneeling and static through every clip, and
 # for `rpg_fire`, which teams.py pins to `stride=0.0` even during move), and
-# which handheld weapon (if any) `_add_figure` should attach via
-# `_weapon_parts`.
+# which handheld weapon (if any) this figure carries.
+#
+# `weapon` is one of three values and they are NOT parallel, which is worth
+# reading once:
+#
+#   None         carries nothing a clip animates -- a spotter's binoculars, a
+#                demolition charge, a mast. No `fire` pose.
+#   "rifle"      `_add_figure` BUILDS the weapon here, via `_weapon_parts`,
+#                and force-binds it to this figure's `forearm_R`.
+#   "launcher"   the weapon is built by `TEAM_EXTRAS` instead (a launcher is
+#                one assembly per team, not one per figure) and force-bound to
+#                the SAME `forearm_R`. `_add_figure` builds nothing for it.
+#
+# So `weapon` declares what a figure holds, and the two armed values differ
+# only in WHO builds it. `build_fire_clip` reads both and gives each its own
+# impulse; `_check_team_figures_against_teams` checks that a figure declaring
+# `"launcher"` really has launcher geometry on its `forearm_R`, so the
+# declaration cannot drift away from `TEAM_EXTRAS`.
 #
 # Every (x, y) below is copied verbatim from `teams.py`'s own source, not
 # re-derived -- REST_FIGURES's own discipline, carried forward.
@@ -844,7 +1076,8 @@ TEAM_FIGURES = {
         _f("chg1", -0.46, 0.10, headgear="keffiyeh", loadout="irregular", mirror=True),
     ],
     "rpg_team": [
-        _f("rpg_fire", 0.18, -0.26, headgear="keffiyeh", loadout="irregular", animates=False),
+        _f("rpg_fire", 0.18, -0.26, headgear="keffiyeh", loadout="irregular",
+           animates=False, weapon="launcher"),
         _f("rpg_load", -0.30, 0.30, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
     ],
     "demo_squad": [
@@ -852,7 +1085,13 @@ TEAM_FIGURES = {
         _f("demo_b", -0.36, 0.28, leader=True, weapon="rifle"),
     ],
     "at_team": [
-        _f("at_fire", 0.24, -0.30, posture="kneeling", animates=False),
+        _f("at_fire", 0.24, -0.30, posture="kneeling", animates=False, weapon="launcher"),
+        # `at_spot` carries binoculars and deliberately gets NO `fire` pose.
+        # He is not shooting anything: the Spike is `at_fire`'s, and a spotter
+        # with glasses at his eyes who jerks every time his gunner launches is
+        # motion invented for a man who is not firing. `weapon=None` is the
+        # declaration of that, and it is the same answer `demo_a`'s charge and
+        # `yah_a`'s mast already get.
         _f("at_spot", -0.32, 0.34, leader=True),
     ],
     "mortar_team": [
@@ -943,6 +1182,7 @@ def _check_team_figures_against_teams():
         )
         for spec in figures:
             assert spec["posture"] in ("standing", "kneeling"), spec
+            assert spec["weapon"] in (None, "rifle", "launcher"), spec
     assert set(SUPPORTED_TEAMS) == set(TEAM_FIGURES), "SUPPORTED_TEAMS/TEAM_FIGURES drifted apart"
 
 
@@ -1436,7 +1676,38 @@ def build_team_rest(team_id):
     finally:
         teams._lean_forward = real_lean_forward
     _check_observed_rest_lean(team_id, observed_deg)
+    _check_launchers_are_bound(team_id, forced_bone)
     return parts, bone_table, forced_bone
+
+
+def _check_launchers_are_bound(team_id, forced_bone):
+    """A figure declaring `weapon="launcher"` must really have geometry
+    force-bound to its own `forearm_R`.
+
+    `TEAM_FIGURES` declares who holds a launcher and `TEAM_EXTRAS` builds it;
+    those are two files' worth of apart, and `build_fire_clip` now keys an
+    impulse off the declaration alone. Without this, a launcher moved to a
+    `prop` bone (or an extras function that stopped running) would leave a
+    gunner miming a launch beside a tube that stayed put -- the exact failure
+    the retired docstring was worried about, arriving through the other door.
+
+    Checked here rather than asserted in a comment, in the same spirit as
+    `_check_observed_rest_lean`: this reads what `TEAM_EXTRAS` actually did.
+    """
+    want = {f"{spec['prefix']}_forearm_R"
+            for spec in TEAM_FIGURES[team_id] if spec["weapon"] == "launcher"}
+    if not want:
+        return
+    bound = set(forced_bone.values())
+    missing = sorted(want - bound)
+    if missing:
+        raise RuntimeError(
+            f"{team_id}: TEAM_FIGURES declares weapon='launcher' for "
+            f"{missing}, but TEAM_EXTRAS force-bound nothing to those bones "
+            f"(it bound {sorted(bound)}). `build_fire_clip` would key an arm "
+            f"impulse with no weapon riding it. Fix the declaration or the "
+            f"extras -- do not delete this check."
+        )
 
 
 def _build_team_rest_inner(team_id):
@@ -1663,7 +1934,7 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0):
 #: team has more than three walkers in `move`, or breathes with more than
 #: three figures in `idle`): index 0 stays unshifted, index 1 leads by a
 #: third of the cycle, index 2 by two thirds, and the mod-3 wrap in
-#: `_gait_phase` below covers any team that ever grows a fourth. Applied to
+#: `gait_phase` below covers any team that ever grows a fourth. Applied to
 #: `idle` (breathing) and `move` (the gait) -- both are cycles a constant
 #: phase shift is well-defined for. Deliberately NOT applied to `fire` (a
 #: single recoil impulse, not a cycle) or `down`/`wreck` (a held static
@@ -1671,7 +1942,7 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0):
 GAIT_PHASE_FRACTIONS = (0.0, 1.0 / 3.0, 2.0 / 3.0)
 
 
-def _gait_phase(index):
+def gait_phase(index):
     """The phase offset, in radians, for the figure at this 0-based index
     within whichever figure list a cyclic clip (`idle`, `move`) is
     animating over."""
@@ -1681,7 +1952,7 @@ def _gait_phase(index):
 def build_idle_clip(arm_obj, figures):
     """Breath + weight shift, every figure regardless of posture -- a
     kneeling gunner still breathes. Formula from R0, unchanged; the one
-    addition is `_gait_phase` below, so a multi-figure team no longer
+    addition is `gait_phase` below, so a multi-figure team no longer
     breathes in lockstep -- see that constant's own docstring for why."""
     _new_action(arm_obj, "idle")
     bones = arm_obj.data.bones
@@ -1692,18 +1963,11 @@ def build_idle_clip(arm_obj, figures):
         base_ph = 2.0 * math.pi * t
         for i, spec in enumerate(figures):
             prefix = spec["prefix"]
-            ph = base_ph + _gait_phase(i)
+            ph = base_ph + gait_phase(i)
             breathe = BREATH_AMP * math.sin(ph)
             sway = SWAY_AMP * math.sin(ph + 1.1)
             key(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"], AXIS_Y, breathe, f)
             key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_X, sway, f)
-
-
-def _settle_bump(phase, heel_phase, width, amp):
-    d = (phase - heel_phase) % (2.0 * math.pi)
-    if d > width:
-        return 0.0
-    return amp * 0.5 * (1.0 - math.cos(2.0 * math.pi * d / width))
 
 
 def build_move_clip(arm_obj, figures, gait):
@@ -1716,7 +1980,7 @@ def build_move_clip(arm_obj, figures, gait):
     move" (teams.py's own module docstring) means the whole figure stays
     put, not just its weapon.
 
-    Each walker's gait is offset by `_gait_phase`, keyed by its index among
+    Each walker's gait is offset by `gait_phase`, keyed by its index among
     `walkers` (not among `figures` -- a figure that never animates does not
     take a slot in the marching order), so a multi-walker team no longer
     steps in lockstep. `MOVE_FRAMES` still closes the same loop it always
@@ -1726,13 +1990,19 @@ def build_move_clip(arm_obj, figures, gait):
     changes which pose lands on which frame, never the frame count or the
     loop seam.
 
-    `gait` is `gait_for_team`'s dict -- every amplitude below comes from it
-    rather than from the module constant it is named after, so a team's
-    stride is sized from its own `mobility.speed_tiles_s`. At scale 1.0 the
-    two are the same number (see `_check_gait_identity_at_reference`), which
-    is what makes this a scaling of R0's gait rather than a second one. The
-    printed line is a PREDICTION, not a verdict: what the ratio actually
-    comes out at is `measureRoleTravel` on the exported bytes.
+    `gait` is `gait_for_team`'s dict -- every amplitude comes from it rather
+    than from the module constant it is named after, so a team's stride is
+    sized from its own `mobility.speed_tiles_s`. At scale 1.0 the two are the
+    same number (see `_check_gait_identity_at_reference`), which is what
+    makes this a scaling of R0's gait rather than a second one. The printed
+    line is a PREDICTION, not a verdict: what the ratio actually comes out at
+    is `measureRoleTravel` on the exported bytes.
+
+    The per-phase arithmetic itself is `gait_pose`, which this function no
+    longer owns: `tools/export_meshy_sniper.py` drives its own 14-joint rig
+    from the same dict rather than from a second copy. What is left here is
+    the RIGGING -- one bone per entry -- which is the half that really is
+    specific to `_BASE_BONES`.
     """
     _new_action(arm_obj, "move")
     bones = arm_obj.data.bones
@@ -1758,38 +2028,23 @@ def build_move_clip(arm_obj, figures, gait):
         base_phase = 2.0 * math.pi * f / MOVE_FRAMES
         for i, spec in enumerate(walkers):
             prefix = spec["prefix"]
-            phase = base_phase + _gait_phase(i)
-            thigh_l = gait["thigh"] * math.sin(phase)
-            thigh_r = -gait["thigh"] * math.sin(phase)
-            shin_l = gait["shin"] * max(0.0, math.sin(phase - SHIN_SWING_SHIFT))
-            shin_r = gait["shin"] * max(0.0, math.sin(phase + math.pi - SHIN_SWING_SHIFT))
-            shin_l += _settle_bump(phase, HEEL_L, SETTLE_WIDTH, gait["settle"])
-            shin_r += _settle_bump(phase, HEEL_R, SETTLE_WIDTH, gait["settle"])
-            arm_l = -gait["arm_free"] * math.sin(phase)
-            arm_r = gait["arm_weapon"] * math.sin(phase)
-            elbow_l = gait["elbow"] * max(0.0, ELBOW_PHASE_SIGN * math.sin(phase))
-            hip_twist = gait["hip_twist"] * math.sin(phase)
-            shoulder_twist = -gait["shoulder_twist"] * math.sin(phase)
-            head_counter = -HEAD_COUNTER_FRAC * shoulder_twist
-            bob = -gait["bob"] * math.cos(2.0 * phase)
-            # Both feet reach `LEG_REACH_M * cos(thigh)` toward the ground, so
-            # a longer swing lifts the figure off it. Zero at scale 1.0.
-            bob += _stance_drop(thigh_l, A_THIGH * math.sin(phase))
-            key(pbones[f"{prefix}_thigh_L"], bones[f"{prefix}_thigh_L"], AXIS_Y, thigh_l, f)
-            key(pbones[f"{prefix}_thigh_R"], bones[f"{prefix}_thigh_R"], AXIS_Y, thigh_r, f)
-            key(pbones[f"{prefix}_shin_L"], bones[f"{prefix}_shin_L"], AXIS_Y, shin_l, f)
-            key(pbones[f"{prefix}_shin_R"], bones[f"{prefix}_shin_R"], AXIS_Y, shin_r, f)
-            key(pbones[f"{prefix}_upperarm_L"], bones[f"{prefix}_upperarm_L"], AXIS_Y, arm_l, f)
-            key(pbones[f"{prefix}_upperarm_R"], bones[f"{prefix}_upperarm_R"], AXIS_Y, arm_r, f)
-            key(pbones[f"{prefix}_forearm_L"], bones[f"{prefix}_forearm_L"], AXIS_Y, elbow_l, f)
-            key(pbones[f"{prefix}_hip_L"], bones[f"{prefix}_hip_L"], AXIS_Y, thigh_l * 0.5, f)
-            key(pbones[f"{prefix}_hip_R"], bones[f"{prefix}_hip_R"], AXIS_Y, thigh_r * 0.5, f)
+            phase = base_phase + gait_phase(i)
+            p = gait_pose(gait, phase)
+            key(pbones[f"{prefix}_thigh_L"], bones[f"{prefix}_thigh_L"], AXIS_Y, p["thigh_l"], f)
+            key(pbones[f"{prefix}_thigh_R"], bones[f"{prefix}_thigh_R"], AXIS_Y, p["thigh_r"], f)
+            key(pbones[f"{prefix}_shin_L"], bones[f"{prefix}_shin_L"], AXIS_Y, p["shin_l"], f)
+            key(pbones[f"{prefix}_shin_R"], bones[f"{prefix}_shin_R"], AXIS_Y, p["shin_r"], f)
+            key(pbones[f"{prefix}_upperarm_L"], bones[f"{prefix}_upperarm_L"], AXIS_Y, p["arm_l"], f)
+            key(pbones[f"{prefix}_upperarm_R"], bones[f"{prefix}_upperarm_R"], AXIS_Y, p["arm_r"], f)
+            key(pbones[f"{prefix}_forearm_L"], bones[f"{prefix}_forearm_L"], AXIS_Y, p["elbow_l"], f)
+            key(pbones[f"{prefix}_hip_L"], bones[f"{prefix}_hip_L"], AXIS_Y, p["hip_l"], f)
+            key(pbones[f"{prefix}_hip_R"], bones[f"{prefix}_hip_R"], AXIS_Y, p["hip_r"], f)
             key_axes(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"],
-                     [(AXIS_Y, gait["lean"]), (AXIS_Z, shoulder_twist)], f)
-            key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_Z, hip_twist, f)
-            key(pbones[f"{prefix}_head"], bones[f"{prefix}_head"], AXIS_Z, head_counter, f)
+                     [(AXIS_Y, p["lean"]), (AXIS_Z, p["shoulder_twist"])], f)
+            key(pbones[f"{prefix}_pelvis"], bones[f"{prefix}_pelvis"], AXIS_Z, p["hip_twist"], f)
+            key(pbones[f"{prefix}_head"], bones[f"{prefix}_head"], AXIS_Z, p["head_counter"], f)
             pb_root = pbones[f"{prefix}_root"]
-            pb_root.location = root_bob_dir * bob
+            pb_root.location = root_bob_dir * p["bob"]
             pb_root.keyframe_insert(data_path="location", frame=f)
 
 
@@ -1802,21 +2057,31 @@ def _recoil_curve(p):
 
 
 def build_fire_clip(arm_obj, figures, extra_root_lean=None):
-    """Raise + recoil, for every figure carrying a hand-bound rifle. Plus,
-    if `extra_root_lean` names any prefixes (charge_squad only), a flat
-    extra forward lean on `root` for those prefixes -- see FIRE_ROOT_LEAN's
-    own comment for why this is a constant, not an impulse.
+    """One shot, for every figure carrying a hand-bound weapon -- raise and
+    recoil for a rifle, a brace and a settle for a launcher. Plus, if
+    `extra_root_lean` names any prefixes (charge_squad only), a flat extra
+    forward lean on `root` for those prefixes -- see FIRE_ROOT_LEAN's own
+    comment for why this is a constant, not an impulse.
 
-    Deliberately NOT applied to a figure whose weapon is a free-standing
-    ground mount (mortar, ATGM tripod) or whose held launcher's own position
-    teams.py never varies by clip (at_fire, rpg_fire) -- raising their arms
-    without a correspondingly-moving weapon would read as wrong, and the
-    source of truth (teams.py's own call sites) says nothing moves there
-    either. See the module docstring's closing paragraph.
+    Still deliberately NOT applied to a figure whose weapon is a FREE-STANDING
+    GROUND MOUNT (mortar, ATGM tripod, demolition charge): those bind to the
+    team's static `prop` bone, so an arm that moved would leave the weapon
+    behind. That half of the original reasoning stands.
+
+    The other half did not. Until this pass this function also skipped
+    `at_fire` and `rpg_fire`, on the stated grounds that "teams.py never
+    varies their launcher's position by clip" -- but `_at_extras`/
+    `_rpg_extras` bind both tubes to their firer's own `forearm_R`, exactly
+    as `_weapon_parts` binds a rifle, so a launcher DOES move with the arm
+    and the objection was about the sprite pipeline rather than about this
+    one. `at_team` was the visible cost: no rifle on the team meant no
+    shooter, no `fire` clip in the GLB at all, and an anti-tank team standing
+    motionless while a Spike left the tube. See `LAUNCH_SPINE`'s own comment
+    for what a launcher's impulse is and why it is not the rifle's.
 
     Not phase-offset the way `build_idle_clip`/`build_move_clip` are:
     `_recoil_curve` is one rise-and-settle impulse per shot, not a cycle, so
-    there is no phase for `_gait_phase` to mean here -- every shooter fires
+    there is no phase for `gait_phase` to mean here -- every shooter fires
     on the same beat, which is correct (nothing about muzzle timing should
     be desynchronised the way a gait or a breath is).
     """
@@ -1825,6 +2090,7 @@ def build_fire_clip(arm_obj, figures, extra_root_lean=None):
     pbones = arm_obj.pose.bones
     _key_death_visibility(pbones, figures, "prop" in pbones, alive=True)
     shooters = [s for s in figures if s["weapon"] == "rifle"]
+    launchers = [s for s in figures if s["weapon"] == "launcher"]
     leaners = extra_root_lean or {}
     for f in range(0, FIRE_FRAMES + 1):
         p = f / FIRE_FRAMES
@@ -1837,6 +2103,14 @@ def build_fire_clip(arm_obj, figures, extra_root_lean=None):
                 FIRE_ELBOW + RECOIL_ELBOW * kick, f)
             key(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"], AXIS_Y,
                 RECOIL_SPINE * kick, f)
+        for spec in launchers:
+            prefix = spec["prefix"]
+            key(pbones[f"{prefix}_upperarm_R"], bones[f"{prefix}_upperarm_R"], AXIS_Y,
+                LAUNCH_SHOULDER * kick, f)
+            key(pbones[f"{prefix}_forearm_R"], bones[f"{prefix}_forearm_R"], AXIS_Y,
+                LAUNCH_ELBOW * kick, f)
+            key(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"], AXIS_Y,
+                LAUNCH_SPINE * kick, f)
         for prefix, extra in leaners.items():
             key(pbones[f"{prefix}_root"], bones[f"{prefix}_root"], AXIS_Y, extra, f)
 
@@ -1863,7 +2137,7 @@ def build_death_clip(arm_obj, team_id, clip_name):
     animation" -- this is that trade-off, made for a verified reason.
 
     Not phase-offset either, for the simplest possible reason: nothing here
-    moves at all, so there is no cycle for `_gait_phase` to shift.
+    moves at all, so there is no cycle for `gait_phase` to shift.
     """
     _new_action(arm_obj, clip_name)
     pbones = arm_obj.pose.bones
@@ -2024,9 +2298,12 @@ def build_clips(arm_obj, team_id):
     figures = TEAM_FIGURES[team_id]
     build_idle_clip(arm_obj, figures)
     build_move_clip(arm_obj, figures, gait_for_team(team_id))
-    shooters = [s for s in figures if s["weapon"] == "rifle"]
+    # Any hand-bound weapon, rifle or launcher -- see `build_fire_clip`. This
+    # condition read `== "rifle"` until this pass, which is why `at_team`
+    # shipped four clips where every other team ships five.
+    armed = [s for s in figures if s["weapon"]]
     leaners = FIRE_ROOT_LEAN.get(team_id)
-    if shooters or leaners:
+    if armed or leaners:
         build_fire_clip(arm_obj, figures, leaners)
     build_death_clip(arm_obj, team_id, "down")
     build_death_clip(arm_obj, team_id, "wreck")

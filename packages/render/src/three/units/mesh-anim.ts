@@ -144,14 +144,19 @@ export function clipGroundSpeedTiles(gait: GaitMetrics): number {
  * mesh's multiplier at its own `mobility.speed_tiles_s`, measured
  * 2026-09-16 off `art/meshes/**`'s own `rl_gait` extras:
  *
- *     yahalom_squad   2.645   charge_squad    2.484   sniper_team     2.100
- *     civilian_child  1.612   inf_squad move  1.541   sarim_rifles    1.486
- *     civilian_woman  1.315   militia_cell    1.295   breach_team     1.295
- *     rpg_team        1.227   farm_worker     1.186   inf_squad mF    1.159
- *     demo_squad      1.159   office_worker   1.119   at_team         1.073
- *     mortar_team     1.019
+ *     yahalom_squad   2.645   charge_squad    2.484   civilian_child  1.612
+ *     inf_squad move  1.541   sarim_rifles    1.486   civilian_woman  1.315
+ *     militia_cell    1.295   breach_team     1.295   rpg_team        1.227
+ *     farm_worker     1.186   inf_squad mF    1.159   demo_squad      1.159
+ *     office_worker   1.119   at_team         1.073   mortar_team     1.019
+ *     sniper_team     0.871
  *
- * 4 is 1.51x the worst of those. `mesh-anim.test.ts` restates
+ * 4 is 1.51x the worst of those. `sniper_team` was **2.100** in this table
+ * until its exporter was reconciled with `rig.py`'s gait (2026-09-16); it is
+ * now the one entry BELOW 1.0, meaning the clip plays slower than authored
+ * because its sculpted legs over-stride slightly. See
+ * `mesh_gait.test.ts`'s `GAIT_MULTIPLIER_FLOOR` for why that is the right
+ * outcome and not a second thing to correct. `mesh-anim.test.ts` restates
  * `yahalom_engineer.glb`'s own two numbers and asserts the result lands
  * strictly under this constant, so lowering it below the shipped worst case
  * goes red rather than quietly clipping a unit.
@@ -168,7 +173,7 @@ export function clipGroundSpeedTiles(gait: GaitMetrics): number {
  * make -- and would have put its slide back while every test still passed.
  *
  * **The reachable range, for a unit whose own legs are on the ground, is
- * 1.019x to 2.645x** -- the table above is the whole of it, because
+ * 0.871x to 2.645x** -- the table above is the whole of it, because
  * `Sim.stepMovement` never moves a unit further than `type.stepPerTick` in a
  * tick and `DIR_VX`/`DIR_VY` are unit vectors, so a diagonal is not faster.
  * Rout goes the other way (half speed times `ROUT_CADENCE` is 0.8x of a
