@@ -240,6 +240,17 @@ BOOT_ZFRAC = 0.075
 # At 52b0c57 the pair stood 7.5% taller than every other infantryman in the
 # game, and two more exports would have put them past 1.9 m.
 #
+# **Every other exporter in this tree already guards against this, and three
+# of them say so in as many words** -- audited 2026-09-16 after the fact.
+# `export_meshy_house.py`'s `REAL_METRES_HOUSE`, `export_meshy_apartment.py`'s
+# and `export_meshy_warehouse.py`'s: all three freeze the anchor as a constant
+# and keep `_measure_existing_extent` in the file for provenance while
+# explicitly NOT calling it from `export()`, because *"this script overwrites
+# that same path, so a second run would measure its own prior output rather
+# than the kit-built ground truth"*. `export_meshy_apache.py` reads a SPRITE
+# manifest -- a file it does not write. This file copied the PATTERN from
+# those and not the LESSON, and it was the only live self-reference left.
+#
 # 1.670 m is not a guess and is not this file's own number. Measured on the
 # shipped roster with the same formula used below (99.5th percentile of a
 # figure's own non-weapon body vertices, minus its own min), 2026-09-16:
