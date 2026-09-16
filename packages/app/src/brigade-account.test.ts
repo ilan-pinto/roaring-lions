@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACCOUNT_KEY,
+  buyUnlock,
   emptyAccount,
   loadAccount,
   migrateAccount,
@@ -119,5 +120,32 @@ describe('brigade account', () => {
     saveAccount(s, payMission(emptyAccount(), 'm1', 160, 1000).account);
     expect(resetAccount(s)).toEqual(emptyAccount());
     expect(s.box.has(ACCOUNT_KEY)).toBe(false);
+  });
+
+  it('buys an unlock: deducts the price and records the id, without a grant', () => {
+    const funded = payMission(emptyAccount(), 'm1', 1000, 1).account;
+    const { account, ok } = buyUnlock(funded, 'mbt_lavi', 600);
+    expect(ok).toBe(true);
+    expect(account.balance).toBe(400);
+    expect(account.unlocks).toEqual(['mbt_lavi']);
+    expect(account.earned_total).toBe(1000);
+    expect(account.grants).toHaveLength(1);
+    expect(funded.balance).toBe(1000); // input untouched
+  });
+
+  it('refuses when the balance is short, the id is already bought, or the price is not an integer', () => {
+    const funded = payMission(emptyAccount(), 'm1', 500, 1).account;
+    expect(buyUnlock(funded, 'mbt_lavi', 600)).toEqual({ account: funded, ok: false });
+    const bought = buyUnlock(funded, 'mbt_lavi', 500).account;
+    expect(buyUnlock(bought, 'mbt_lavi', 0)).toEqual({ account: bought, ok: false });
+    expect(buyUnlock(funded, 'x', 2.5)).toEqual({ account: funded, ok: false });
+    expect(buyUnlock(funded, 'x', -1)).toEqual({ account: funded, ok: false });
+  });
+
+  it('round-trips a bought unlock through storage', () => {
+    const s = store();
+    saveAccount(s, buyUnlock(payMission(emptyAccount(), 'm1', 700, 1).account, 'ifv_namer', 700).account);
+    expect(loadAccount(s).unlocks).toEqual(['ifv_namer']);
+    expect(loadAccount(s).balance).toBe(0);
   });
 });
