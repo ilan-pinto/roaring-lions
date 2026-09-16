@@ -39,8 +39,13 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   },
   {
     name: 'nomesh',
+    // No `&`-prefixed flag name in this string: SANDBOX_FLAGS's blurbs are
+    // rendered as visible DOM text on the Free play screen (`showSandbox`),
+    // unlike KNOWN_PARAMS's (console-only, via `sandboxHelp`) -- so naming
+    // the RETIRED opt-in flag this replaced has to be done without spelling
+    // out its URL syntax.
     blurb:
-      'draw billboards instead of meshes — the diagnostic half of what &mesh used to gate',
+      'draw billboards instead of meshes — the diagnostic half of the old mesh-opt-in switch',
   },
 ];
 
