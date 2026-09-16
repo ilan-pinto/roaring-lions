@@ -37,7 +37,13 @@ import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { rampMaterial } from '../world-materials';
 import { isMeshRole, rampForRole, type MeshFaction } from './mesh-role';
-import { isMeshClipName, MESH_SCALE } from './mesh-anim';
+import {
+  isMeshClipName,
+  MESH_SCALE,
+  parseGaitExtras,
+  type GaitMetrics,
+  type LocomotionClip,
+} from './mesh-anim';
 import type { ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER } from './render-order';
 
@@ -57,6 +63,23 @@ export interface MeshUnitTemplate {
   readonly clips: ReadonlyMap<ClipName, THREE.AnimationClip>;
   readonly materials: readonly THREE.Material[];
   readonly geometries: readonly THREE.BufferGeometry[];
+  /**
+   * What this GLB's own legs describe, per locomotion clip -- the `rl_gait`
+   * scene extra `pnpm gait:meshes` writes (design sec 3.4), read once here
+   * rather than per frame.
+   *
+   * `undefined` for a GLB that declares none, which is the legitimate state
+   * of `atgm_cell`, `mortar_crew`, `digger_crew` (crew-served: `teams.py`
+   * gives their figures `animates: False`, so `move` keys no leg at all) and
+   * `moto_rpg` (a motorcycle). Those keep `timeScale = 1`, exactly today's
+   * behaviour.
+   *
+   * Keyed by `LocomotionClip`, not by `ClipName`, and that is load-bearing
+   * rather than tidy: it is what makes "non-locomotion clips are never
+   * rate-scaled" a compile error instead of a convention the draw loop has
+   * to remember. See `mesh-anim.ts`'s `LOCOMOTION_CLIPS`.
+   */
+  readonly gait?: ReadonlyMap<LocomotionClip, GaitMetrics>;
 }
 
 /**
@@ -83,7 +106,15 @@ export interface MeshUnitTemplate {
  */
 export function buildMeshUnitTemplate(
   gltf: Pick<GLTF, 'scene' | 'animations'>,
-  faction: MeshFaction
+  faction: MeshFaction,
+  /**
+   * The GLB's URL, used ONLY to name the file in a warning. Defaulted rather
+   * than required so every existing caller (six test files, and
+   * `loadMeshUnitTemplate`, which does pass it) compiles unchanged -- the
+   * parameter buys a better message, and making it mandatory would have been
+   * a churn cost paid by callers that never warn.
+   */
+  label = '(unnamed glb)'
 ): MeshUnitTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
@@ -124,7 +155,17 @@ export function buildMeshUnitTemplate(
     clips.set(clip.name, clip);
   }
 
-  return { root, clips, materials, geometries };
+  // Scene-level glTF `extras`, which `GLTFLoader` surfaces as
+  // `scene.userData`. VALIDATED rather than cast: this number crosses a
+  // process boundary from a post-export build step, and the realistic
+  // failure is a file one `pnpm gait:meshes` behind, not a hostile one. A
+  // malformed entry is dropped with the file named (`parseGaitExtras`), not
+  // thrown -- unlike an unrecognised role or clip name above, a missing gait
+  // costs the unit its rate-match and nothing else, where refusing the GLB
+  // would cost the player the unit.
+  const gait = parseGaitExtras((root.userData as { rl_gait?: unknown }).rl_gait, label);
+
+  return { root, clips, materials, geometries, ...(gait !== undefined ? { gait } : {}) };
 }
 
 /**
@@ -138,7 +179,7 @@ export async function loadMeshUnitTemplate(
   faction: MeshFaction
 ): Promise<MeshUnitTemplate> {
   const gltf = await gltfLoader().loadAsync(glbUrl);
-  return buildMeshUnitTemplate(gltf, faction);
+  return buildMeshUnitTemplate(gltf, faction, glbUrl);
 }
 
 /** One living entity's mesh instance: an independent clone (own skeleton,

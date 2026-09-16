@@ -125,6 +125,18 @@ export function buildFixtureGlb(opts: {
    * differ in length, and 1 s was the only length expressible.
    */
   clipSeconds?: number;
+  /**
+   * SCENE-level glTF `extras`, which `GLTFLoader` surfaces as
+   * `gltf.scene.userData` -- the channel `pnpm gait:meshes` writes `rl_gait`
+   * down (design sec 3.4). Omitted by default, so every caller that does not
+   * pass it produces byte-identical output to before this existed.
+   *
+   * Deliberately typed as an arbitrary object rather than as
+   * `{ rl_gait?: ... }`: the tests this exists for include the MALFORMED
+   * cases, and a fixture that could only express a well-formed declaration
+   * could not exercise the validation that is the point of reading it.
+   */
+  sceneExtras?: Record<string, unknown>;
 }): ArrayBuffer {
   const extrasRole = opts.extrasRole === undefined ? opts.roleName : opts.extrasRole;
   const nameRole = opts.nameRole === undefined ? opts.roleName : opts.nameRole;
@@ -200,7 +212,9 @@ export function buildFixtureGlb(opts: {
         ...(Object.keys(nodeExtras).length > 0 ? { extras: nodeExtras } : {}),
       },
     ],
-    scenes: [{ nodes: [0, 2] }],
+    scenes: [
+      { nodes: [0, 2], ...(opts.sceneExtras !== undefined ? { extras: opts.sceneExtras } : {}) },
+    ],
     scene: 0,
     animations: clipNames.map((name) => ({
       name,

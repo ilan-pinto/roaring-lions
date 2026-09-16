@@ -110,7 +110,7 @@ import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project'
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
-import { resolveClip, type UnitAnimInput } from '../clip';
+import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
 import { updateDimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { createSceneLights, type SceneLights } from './lighting';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
@@ -225,6 +225,8 @@ import {
   MESH_UNITS_PER_TILE,
   MESH_SCALE,
   resolveMeshMotionClip,
+  gaitTimeScale,
+  isLocomotionClip,
 } from './units/mesh-anim';
 import { gltfLoader, setDracoDecoderPath, disposeGltfLoader } from './units/gltf-loader';
 import { stepTurretFacing } from './units/frame-state';
@@ -4484,6 +4486,7 @@ export class ThreeRenderer implements Renderer {
         entity.actions.has('moveFire')
       );
       applyMeshClip(entity, desiredClip);
+      this.applyGaitRate(entity, template, this.entitySpeed[i], anim);
       entity.mixer.update(dtSeconds);
     }
 
@@ -4540,6 +4543,104 @@ export class ThreeRenderer implements Renderer {
     }
     this.stepMeshDeaths(dtSeconds);
     this.stepMeshEvacs(dtSeconds);
+  }
+
+  /**
+   * Sets the playing action's `timeScale` so a figure's legs cover the ground
+   * its body is actually crossing -- design sec 3.4 (D4), the runtime half of
+   * the gait milestone.
+   *
+   * Called every frame, immediately after `applyMeshClip` and before
+   * `mixer.update`, and it reads `entity.currentClip` rather than the clip
+   * that was ASKED for: `applyMeshClip` degrades a clip the GLB never
+   * authored to `idle`, and rate-scaling that would be scaling a stance.
+   *
+   * ## Why the assignment is unconditional
+   *
+   * `timeScale` lives on the `AnimationAction`, which is pooled per clip per
+   * entity and outlives any one clip switch. Writing it only on the
+   * locomotion branch would leave a stale rate on an action that later plays
+   * something else; writing `1` on every other branch is what makes the
+   * non-locomotion rule self-healing rather than order-dependent. Cost is one
+   * float store per living mesh unit per frame.
+   *
+   * ## Why non-locomotion clips cannot be reached here even by mistake
+   *
+   * `template.gait` is keyed by `LocomotionClip`, so `gait.get(clip)` does not
+   * compile for a `ClipName` without narrowing, and `isLocomotionClip` below
+   * is that narrowing. **It is a type guard and not a second runtime check,
+   * and pretending otherwise would be the "check that passes by construction"
+   * this branch has already been bitten by five times.** Measured: forcing
+   * this ternary to take its locomotion branch unconditionally changes NO
+   * observable behaviour and no test goes red, because a map keyed by
+   * `LocomotionClip` returns `undefined` for `idle` and `gaitTimeScale`
+   * answers 1 to that anyway.
+   *
+   * The rule "`idle`, `fire`, `down`, `work` and the two wreck poses are never
+   * rate-scaled" is therefore enforced in exactly ONE place that can fail:
+   * `parseGaitExtras` refusing a non-locomotion key at load (falsifiable --
+   * weakening it to `isMeshClipName` turns `mesh-anim.test.ts`'s "drops a
+   * NON-LOCOMOTION clip" red, and stops compiling besides).
+   *
+   * ## Rout: `ROUT_CADENCE` MULTIPLIES the rate match, and that was a real
+   * decision rather than the spec being followed
+   *
+   * The tension is genuine and the design doc did not see it. Rate-matching
+   * exists to make feet match ground; `ROUT_CADENCE` (1.6, `../clip.ts`)
+   * exists to make a broken unit READ as broken, which means deliberately
+   * breaking that match. And the sim already slows a routed unit by half
+   * (`ROUT_SPEED_SHIFT = 1`, `tuning.ts`), so rate-matching alone halves its
+   * cadence and 1.6x on top lands at **0.8x of a calm walk** -- in absolute
+   * terms, a panicking man whose legs move slower than a strolling one's.
+   *
+   * It still multiplies, for three reasons, in order of weight:
+   *
+   * 1. **The billboard path has always done exactly this**, on BOTH backends
+   *    -- `units/frame-state.ts`'s `walkFps(anim.speed, nFrames) *
+   *    cadenceScale(anim)`, where `walkFps` is itself a rate match (a sprite
+   *    walk cycle covers `STRIDE_TILES`, `anim.ts`). So this is not a new
+   *    composition of two ideas; it is the composition this renderer already
+   *    ships for every unit type without a GLB. Not multiplying would make a
+   *    routed mesh rifleman and the routed `manpad_team` beside it disagree,
+   *    in the same frame, on the same backend. (The brief for this task said
+   *    "no three.js code reads `cadenceScale`" -- that is true of the MESH
+   *    path only; `frame-state.ts` has read it since B3.)
+   * 2. **Relative to the ground, which is what rate-matching made legible,
+   *    1.6x IS short quick steps.** A routed figure completes 1.6 gait cycles
+   *    over the ground a calm one covers in 1, so each cycle carries him less
+   *    far and there are more of them per metre. That is the read
+   *    `ROUT_CADENCE`'s own doc comment asks for, and a time scale can
+   *    express it after all -- against the ground, not against the clock.
+   * 3. **It is strictly closer to the truth than what ships today.** A routed
+   *    mesh unit currently plays `move` at 1.0x while travelling at half
+   *    speed: its feet over-run the ground by 2x. This takes that to 1.6x.
+   *    Dropping the cadence would take it to 1.0x -- a perfect match and no
+   *    panic at all -- which is a legibility regression traded for a
+   *    correctness gain nobody asked for.
+   *
+   * Measured on the running game, `?sandbox=beit_sahwan_outskirts&sur`, three
+   * broken `inf_squad`s read off their own live `AnimationAction`:
+   * `entitySpeed` 0.4496 (exactly half of 0.9), `timeScale` 1.2321 against
+   * the same squad's calm 1.5413. On `meshy_soldier.glb`'s 0.625 s `move`
+   * that is **1.97 gait cycles/s while broken against 2.47 while calm**,
+   * over half the ground -- so the figure travels visibly slower than its
+   * calm neighbours while taking 1.6 strides for every stride's worth of
+   * ground it covers. Captures in
+   * `.superpowers/sdd/2026-09-15-infantry-gait/gait-live-routed.png`.
+   */
+  private applyGaitRate(
+    entity: MeshUnitEntity,
+    template: MeshUnitTemplate,
+    entitySpeedTiles: number,
+    anim: UnitAnimInput
+  ): void {
+    const playing = entity.currentClip;
+    if (playing === null) return;
+    const action = entity.actions.get(playing);
+    if (!action) return;
+    action.timeScale = isLocomotionClip(playing)
+      ? gaitTimeScale(template.gait?.get(playing), entitySpeedTiles, cadenceScale(anim))
+      : 1;
   }
 
   /**
