@@ -188,6 +188,24 @@ export function objectiveGlyph(status: string): string {
   return status === 'complete' ? '☑' : status === 'failed' ? '☒' : '☐';
 }
 
+/**
+ * The class for a tone read as TEXT — the strip, a notice, a chip's status
+ * line, every one of them sitting on `--panel-bg` (`.rl-strip`, `.rl-notice`
+ * via `.rl-plate`, `.rl-chip`). `--bad`'s fill token reads 4.01:1 there;
+ * `--bad-text` is the same red lightened to clear WCAG AA
+ * (tools/src/bad-text-contrast.test.ts). Every call site that builds a tone
+ * class for TEXT should route through here rather than interpolating
+ * `` `rl-${tone}` `` by hand, so a new one cannot reintroduce the defect —
+ * `.rl-bad` itself stays reserved for a FILL (the ROE gauge, the debrief
+ * list), which this function is never used for.
+ *
+ * `tone` may be falsy (an unset hold/deadline tone renders no class at all).
+ */
+export function textToneClass(tone: string): string {
+  if (!tone) return '';
+  return tone === 'bad' ? 'rl-bad-text' : `rl-${tone}`;
+}
+
 /** Structural, so this needs no sim import and a test can hand it four plain
  *  arrays instead of building a battle. */
 export interface SuppressionSource {

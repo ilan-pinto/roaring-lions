@@ -133,6 +133,16 @@ describe('top strip', () => {
     expect(r.strip()).toContain(big.textContent!.replace(/\s+/g, ' '));
   });
 
+  it('gives the CONTESTED hold clock the readable red in both places it is drawn', () => {
+    const r = rig(mission());
+    const big = r.host.querySelector<HTMLElement>('.rl-clock')!;
+    expect(big.className.split(/\s+/)).toContain('rl-plate');
+    const inline = r.host.querySelector<HTMLElement>('[data-obj="hold_west"] b')!;
+    const classes = inline.className.split(/\s+/);
+    expect(classes).toContain('rl-bad-text');
+    expect(classes).not.toContain('rl-bad');
+  });
+
   it('does not stamp a clock that belongs to a different objective', () => {
     // The strip shows the active PRIMARY; the only timed objective here is a
     // secondary. Its deadline is the big clock's, never the primary's.
@@ -500,6 +510,15 @@ describe('event feed', () => {
     expect(line.className).toContain('rl-plate');
     expect(line.className).not.toContain('rl-panel');
   });
+
+  it('gives a bad-tone notice the readable red -- it sits on the same rl-plate the fill-only red measures 4.01:1 on', () => {
+    const r = rig(mission());
+    r.hud.note('contact', 'bad');
+    const line = r.host.querySelector('.rl-feed')!.firstElementChild!;
+    const classes = line.className.split(/\s+/);
+    expect(classes).toContain('rl-bad-text');
+    expect(classes).not.toContain('rl-bad');
+  });
 });
 
 // ======================================================================
@@ -608,6 +627,18 @@ describe('multi-select chips', () => {
     const fill = r.chips()[0].querySelector<HTMLElement>('.rl-track > i')!;
     expect(fill.style.width).toBe('75%');
     expect(fill.className).toBe('rl-fill-good');
+  });
+
+  it('gives a BROKEN chip status the readable red -- this chip sits on the same rl-plate background as the notice/strip', () => {
+    const world = makeForce();
+    const r = clusterRig(() => world.squads, {}, world);
+    world.sim.state.routed[world.squads[0]] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    const status = r.chips()[0].querySelector<HTMLElement>('.rl-chip__status')!;
+    expect(status.textContent).toContain('BROKEN');
+    const classes = status.className.split(/\s+/);
+    expect(classes).toContain('rl-bad-text');
+    expect(classes).not.toContain('rl-bad');
   });
 
   it('frames one chip and moves the frame on Tab, wrapping', () => {

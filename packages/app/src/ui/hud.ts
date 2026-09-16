@@ -41,6 +41,7 @@ import {
   speakerPortrait,
   stepBeat,
   stripObjectives,
+  textToneClass,
   worstPenalties,
   type MissionView,
   type Tone,
@@ -563,7 +564,9 @@ export class Hud {
   /** Mission-level narration — objectives, triggers, waves, refusals. */
   note(html: string, tone: Tone = 'live'): void {
     const el = document.createElement('div');
-    el.className = `rl-notice rl-enter rl-plate rl-${tone}`;
+    // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
+    // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
+    el.className = `rl-notice rl-enter rl-plate ${textToneClass(tone)}`;
     el.innerHTML = html;
     this.feed.prepend(el);
     while (this.feed.childElementCount > FEED_LINES) {
@@ -707,7 +710,7 @@ export class Hud {
         // otherwise read as the primary's own timer.
         const inline =
           hold && hold.id === primary.id
-            ? ` <b class="${hold.tone ? `rl-${hold.tone}` : ''}">${hold.text}</b>`
+            ? ` <b class="${textToneClass(hold.tone)}">${hold.text}</b>`
             : '';
         const tone =
           primary.status === 'complete' ? 'rl-good' : primary.status === 'failed' ? 'rl-bad-text' : '';
@@ -726,7 +729,7 @@ export class Hud {
           // two long objectives it was the clock that vanished.
           `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeAttr(deadline.objective.id)}">` +
             `${objectiveGlyph(deadline.objective.status)} ` +
-            `<b class="${deadline.tone ? `rl-${deadline.tone}` : ''}">${deadline.text}</b> ` +
+            `<b class="${textToneClass(deadline.tone)}">${deadline.text}</b> ` +
             `${deadline.objective.text}</span>`
         );
       }
@@ -1023,7 +1026,7 @@ export class Hud {
 
     this.cluster.innerHTML = chips
       .map((c, i) => {
-        const tone = c.statusTone === null ? 'rl-dim' : `rl-${c.statusTone}`;
+        const tone = c.statusTone === null ? 'rl-dim' : textToneClass(c.statusTone);
         return (
           `<div class="rl-chip" data-type="${escapeAttr(c.typeId)}" ` +
           `data-focus="${i === this.chipFocus ? '1' : '0'}" ` +

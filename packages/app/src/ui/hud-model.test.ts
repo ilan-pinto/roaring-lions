@@ -16,6 +16,7 @@ import {
   roeTone,
   stepBeat,
   stripObjectives,
+  textToneClass,
   worstPenalties,
   type MissionView,
   type ObjectiveView,
@@ -192,6 +193,23 @@ describe('objectiveGlyph', () => {
     expect(objectiveGlyph('complete')).toBe('☑');
     expect(objectiveGlyph('failed')).toBe('☒');
     expect(objectiveGlyph('active')).toBe('☐');
+  });
+});
+
+describe('textToneClass', () => {
+  it('routes bad to the readable red, not the fill-only one', () => {
+    expect(textToneClass('bad')).toBe('rl-bad-text');
+    expect(textToneClass('bad')).not.toBe('rl-bad');
+  });
+
+  it('leaves every other tone as the plain rl- class', () => {
+    expect(textToneClass('warn')).toBe('rl-warn');
+    expect(textToneClass('good')).toBe('rl-good');
+    expect(textToneClass('live')).toBe('rl-live');
+  });
+
+  it('is empty for an unset tone, matching the old hold/deadline ternaries', () => {
+    expect(textToneClass('')).toBe('');
   });
 });
 

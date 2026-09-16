@@ -138,8 +138,17 @@
   /* --bad is a FILL colour (the ROE gauge, the debrief list) and reads 4.01:1
      as text over the panel ground -- under WCAG AA's 4.5:1 floor for body
      text (tools/src/bad-text-contrast.test.ts). --bad-text is the same red,
-     lightened until it clears that floor, for the five places a bad-tone
-     string is read rather than filled. */
+     lightened until it clears that floor, for every place a bad-tone STRING
+     is read rather than filled: the five `hud.ts` spans wired to
+     `.rl-bad-text` directly (the strip's failed-primary tone, the "N broken"
+     info field, "cannot penetrate", and the unit panel's BROKEN/guns-out
+     flags), the hold clock's own `.rl-clock[data-tone='bad']` rule below,
+     and every site that builds a tone class from a VARIABLE rather than a
+     literal -- `note()`'s mission narration, the strip's inline hold and
+     deadline clocks, and a selection chip's status line -- which all route
+     through `textToneClass` (hud-model.ts) instead of interpolating
+     `rl-${tone}` by hand, so a bad-tone string cannot land back on the
+     unreadable fill token by accident. */
   --bad-text: var(--rl-team-hostile-text);
   --info: var(--rl-water-0);
   --live: var(--rl-vfx-tracer);
@@ -856,8 +865,12 @@ body {
 
 /* --- hold clock ------------------------------------------------------- */
 
-/* No box any more: the number IS the object. In a timed hold this is read
-   more often than the map, and a frame around it only added weight. */
+/* No FRAME any more: the number IS the object, not a panel with a number in
+   it -- a frame around it only added weight. It does sit on a `.rl-plate`
+   now (task 4), the same dark ground every other string drawn over the map
+   sits on; the shape it drew here previously was carrying two different
+   claims and only one of them still holds. In a timed hold this is read more
+   often than the map. */
 .rl-clock {
   position: absolute;
   top: calc(var(--hud-strip-h) + 0.5rem);
@@ -876,8 +889,12 @@ body {
 .rl-clock[data-tone='warn'] {
   color: var(--warn);
 }
+/* --bad-text, not --bad -- this clock sits on `.rl-plate` (`--panel-bg`)
+   now, and 'bad' is CONTESTED, the hold's most urgent state
+   (`holdClock`, hud-model.ts) -- exactly where the unreadable fill red
+   must not land. */
 .rl-clock[data-tone='bad'] {
-  color: var(--bad);
+  color: var(--bad-text);
 }
 
 /* --- commander -------------------------------------------------------- */
