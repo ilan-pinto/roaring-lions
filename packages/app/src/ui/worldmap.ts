@@ -70,7 +70,12 @@ const FLAG_W = 66;
 const FLAG_H = 44;
 
 export function worldMap(opts: WorldMapOptions): HTMLElement {
-  const wrap = el('div', 'rl-world');
+  // `rl-world__scroll`: the stable hook `.rl-menu:has(.rl-world)` (theme.css)
+  // scrolls -- this element is the campaign screen's ONLY scrolling region,
+  // with the back nav pinned outside it as a real footer row rather than an
+  // overlay (fix round 1). `showCampaign` (menu.ts) nests the wordmark and
+  // theatre label inside this same element for that reason, not in here.
+  const wrap = el('div', 'rl-world rl-world__scroll');
 
   // --- the map itself ------------------------------------------------------
   const board = el('div', 'rl-world__board');

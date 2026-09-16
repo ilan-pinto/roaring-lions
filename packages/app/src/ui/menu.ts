@@ -212,14 +212,15 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
 
-  const lockup = document.createElement('div');
-  lockup.innerHTML = wordmark('');
-  wrap.appendChild(lockup.firstElementChild as HTMLElement);
+  const wordmarkEl = (() => {
+    const lockup = document.createElement('div');
+    lockup.innerHTML = wordmark('');
+    return lockup.firstElementChild as HTMLElement;
+  })();
 
   const theatre = document.createElement('div');
   theatre.className = 'rl-menu__theatre';
   theatre.textContent = opts.world.name;
-  wrap.appendChild(theatre);
 
   // Which board: the Sahar Basin diorama on three, the flat PNG on Pixi.
   // `worldmap3d.ts`'s own header has the argument for not forcing three here
@@ -263,31 +264,35 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
       console.warn(`campaign board: ${opts.world.id} has no usable world mesh`, err);
     }
   }
-  if (boardUrl === null || campaignBoard(decision.choice) === 'flat') {
-    wrap.appendChild(flat());
-  } else {
-    wrap.appendChild(
-      worldMap3d({
-        world: opts.world,
-        ledger: opts.ledger,
-        href,
-        meshUrl: boardUrl,
-        // This screen constructs no `ThreeRenderer`, so nothing else can
-        // hand it the decoder every shipped GLB now needs.
-        dracoDecoderPath: dracoDecoderPath(),
-        fallback: flat,
-        commander: opts.commander,
-        missionOf: opts.missionOf,
-        portraitUrl: opts.portraitUrl,
-      }).el
-    );
-  }
+  const boardEl: HTMLElement =
+    boardUrl === null || campaignBoard(decision.choice) === 'flat'
+      ? flat()
+      : worldMap3d({
+          world: opts.world,
+          ledger: opts.ledger,
+          href,
+          meshUrl: boardUrl,
+          // This screen constructs no `ThreeRenderer`, so nothing else can
+          // hand it the decoder every shipped GLB now needs.
+          dracoDecoderPath: dracoDecoderPath(),
+          fallback: flat,
+          commander: opts.commander,
+          missionOf: opts.missionOf,
+          portraitUrl: opts.portraitUrl,
+        }).el;
+  // The wordmark and theatre scroll away with the board rather than sitting
+  // beside it: `.rl-menu:has(.rl-world)` (theme.css) is a two-row grid --
+  // scrolling content, then a footer nav -- and `boardEl`, carrying
+  // `rl-world__scroll` (worldmap3d.ts/worldmap.ts), has to be `.rl-menu`'s
+  // ONLY other direct child for that grid to place the nav correctly, so
+  // anything meant to scroll away with the board lives inside it. Nesting
+  // them here keeps `worldMap`/`worldMap3d` themselves unaware of this
+  // screen's layout.
+  boardEl.prepend(wordmarkEl, theatre);
+  wrap.appendChild(boardEl);
 
   const nav = document.createElement('nav');
-  // Sticky: the board pushes this below the fold at 1400x900 inside
-  // `.rl-menu`'s own scroll frame, and the way back is the one thing on this
-  // screen that must never need scrolling to find.
-  nav.className = 'rl-menu__nav rl-menu__nav--sticky';
+  nav.className = 'rl-menu__nav';
   const back = document.createElement('a');
   back.textContent = '← main menu';
   back.href = '?';

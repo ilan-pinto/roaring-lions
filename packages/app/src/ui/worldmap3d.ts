@@ -204,7 +204,12 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // the same catalogue lookup the flat board's `worldMap` uses.
   const missionName = (id: string): string | undefined => opts.missionOf?.(id)?.name;
 
-  const wrap = el('div', 'rl-world rl-world--3d');
+  // `rl-world__scroll`: the stable hook `.rl-menu:has(.rl-world)` (theme.css)
+  // scrolls -- this element is the campaign screen's ONLY scrolling region,
+  // with the back nav pinned outside it as a real footer row rather than an
+  // overlay (fix round 1). `showCampaign` (menu.ts) nests the wordmark and
+  // theatre label inside this same element for that reason, not in here.
+  const wrap = el('div', 'rl-world rl-world--3d rl-world__scroll');
   const stage = el('div', 'rl-world__stage');
   const host = el('div', 'rl-world__canvas');
   const pins = el('div', 'rl-world__pins');

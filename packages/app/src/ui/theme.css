@@ -1957,9 +1957,44 @@ body {
    authored viewBox width. The vw term subtracts the menu's own horizontal
    padding and border so the *box*, not just its content, stays inside the
    viewport at narrow widths -- the plain vw budget above does not account
-   for that and was never exercised at a width where it mattered. */
+   for that and was never exercised at a width where it mattered.
+
+   Also a two-row GRID here, not the plain scrolling block every other menu
+   screen is (fix round 1: a `position: sticky` nav used to pin over this
+   frame's bottom edge from scroll position zero, which is a real footer only
+   when nothing else occupies that band -- here the region cards did, and the
+   middle one's portrait and flavour text sat permanently behind the nav's
+   own box, unscrollable, on every capture). `minmax(0, 1fr)` is the
+   scrolling content row -- `.rl-world__scroll` below is its one and only
+   child, `min-height: 0` and all, so the browser is free to shrink it rather
+   than let its content's own height win the space fight, which a plain
+   `auto`/`1fr` pairing without that `minmax` floor would lose. `auto` is the
+   nav: sized to its own content, never pushed off-screen, and — because it
+   is a document-flow grid ROW rather than a `position: sticky` overlay — it
+   can never be UNDER anything either. `overflow: hidden` on the grid
+   container itself is what makes `max-height: 96vh` (the base `.rl-menu`
+   rule, kept) bind: without it the grid's rows can grow the box past that
+   cap instead of being clipped to it, and the inner scroll region would
+   never engage. */
 .rl-menu:has(.rl-world) {
   width: min(112.5rem, calc(98vw - 2 * var(--s6) - 2px));
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+/* The campaign screen's one scrolling region -- everything that isn't the
+   footer nav (`showCampaign`, menu.ts, nests the wordmark and theatre label
+   inside this same element for exactly that reason). `min-height: 0`
+   overrides grid's default `min-height: auto` on a grid item, which would
+   otherwise refuse to shrink below this element's own natural (tall)
+   content height and defeat the `minmax(0, 1fr)` row above. */
+.rl-world__scroll { overflow-y: auto; min-height: 0; }
+/* The footer row itself. Direct-child-scoped so a plain menu screen's nav
+   (no `.rl-world` sibling, not a grid row at all) is untouched. */
+.rl-menu:has(.rl-world) > .rl-menu__nav {
+  grid-row: 2;
+  background: var(--panel-bg);
+  padding-block: var(--s2);
 }
 /* The banner, wordmark and nav were laid out for the narrow column; letting
    them stretch to the map's width would blow the banner image up and turn
@@ -2019,17 +2054,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--s1);
-}
-/* The campaign screen's way back: `.rl-menu` itself scrolls (`max-height:
-   96vh; overflow-y: auto`), and the campaign board is tall enough at
-   1400x900 to push this nav below the fold with nothing on screen to say
-   there is a way back at all. Sticky keeps it pinned to the bottom of the
-   scrolling frame instead. */
-.rl-menu__nav--sticky {
-  position: sticky;
-  bottom: 0;
-  background: var(--panel-bg);
-  padding-block: var(--s2);
 }
 .rl-menu__item {
   display: block;
