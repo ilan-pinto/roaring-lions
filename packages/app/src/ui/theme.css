@@ -54,6 +54,11 @@
 }
 
 :root {
+  /* UI scale (spec 2026-09-16 §5): every dimension below is rem, so this one
+     number sizes the whole shell. Viewport defaults; Phase 1's settings
+     override it on the root element's style. */
+  --ui-scale: 1;
+
   /* --- surfaces ------------------------------------------------------- */
   /* color-mix rather than rgba(): translucency without a numeric literal,
      which is what lets the palette gate run with an empty allowlist. */
@@ -72,7 +77,7 @@
   --type-shadow: var(--rl-shadow-0);
   /* The fill behind a dock tile's sprite. Its own token, one step off --well,
      because the two are different jobs and the spec draws them a step apart: a
-     --well is a recess INSIDE a panel (the unit card's 72px frame), while a
+     --well is a recess INSIDE a panel (the unit card's 4.5rem frame), while a
      tile is a lit surface standing on the battlefield with no panel under it.
      Given --well here, sixteen tiles read as sixteen holes. */
   --tile-bg: var(--rl-shadow-0);
@@ -139,7 +144,7 @@
 
   /* --- the mark ------------------------------------------------------- */
   /* Three chevrons sweeping darker: depth at menu size, one readable shape at
-     15px. The steps are every second entry because limestone and dust were
+     0.9375rem. The steps are every second entry because limestone and dust were
      widened with interpolated midpoints (39-colour palette) — adjacent indices
      are now half-steps, and three of them in a row read as a flat blob. */
   --mark-1: var(--rl-dust-0);
@@ -147,39 +152,39 @@
   --mark-3: var(--rl-dust-4);
 
   /* --- space ---------------------------------------------------------- */
-  --s1: 4px;
-  --s2: 8px;
-  --s3: 12px;
-  --s4: 16px;
-  --s5: 24px;
-  --s6: 32px;
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.5rem;
+  --s6: 2rem;
 
   /* The bottom edge is shared by three things: production on the left, the
      unit card on the right, and the notice stack in whatever is left. Naming
      the two rails means the stack can be told where the gap is instead of
      being centred and hoping — and it gives #46 one place to change when the
      rails become drawers on a small screen. */
-  --rail-left: min(430px, 46vw);
-  --rail-right: min(340px, 38vw);
+  --rail-left: min(26.875rem, 46vw);
+  --rail-right: min(21.25rem, 38vw);
 
   /* --- the floating HUD (GH-153) --------------------------------------- */
   /* The map-first layout is edge-anchored rather than railed: everything sits
-     8px (--s2) off the frame and the middle of the screen stays map. These
+     0.5rem (--s2) off the frame and the middle of the screen stays map. These
      five are the measurements the whole layout is built from, so a later slice
      (chips, dock tiles, minimap) sizes itself from the same numbers this one
      reserves rather than inventing a second set. */
-  --hud-strip-h: 42px; /* was 30: the lead found the strip's text and icons almost invisible */
-  --tile: 60px;
-  --chip-w: 150px;
-  --card-w: 460px;
-  --minimap: 210px;
+  --hud-strip-h: 2.625rem; /* was 30: the lead found the strip's text and icons almost invisible */
+  --tile: 3.75rem;
+  --chip-w: 9.375rem;
+  --card-w: 28.75rem;
+  --minimap: 13.125rem;
   /* The feed, the controls hint and the order row all share one x: centred on
      the map, pushed clear of the reinforcements dock on the left. The offset
      is its own token because anything centred on --hud-centre and bounded by
      the viewport has to subtract it TWICE -- the shift eats the same room off
      the right edge that it gains on the left, so the widest a centred child
      can be is the viewport less two offsets. */
-  --hud-centre-offset: 70px;
+  --hud-centre-offset: 4.375rem;
   --hud-centre: calc(50% + var(--hud-centre-offset));
 
   /* --- type ----------------------------------------------------------- */
@@ -194,20 +199,20 @@
      words. --font-mono stays declared and stays in use by the debug overlay,
      where columns of numbers ARE the point. */
   --font-body: 'Barlow', system-ui, -apple-system, sans-serif;
-  --t-xs: 10px;
-  --t-s: 11px;
-  --t-body: 12px;
-  --t-m: 13px;
-  --t-band: 15px; /* strip and band titles */
-  --cmd-face: 96px; /* the commander's portrait frame; was the 60px --tile shared with the dock */
-  --t-strip: 17px; /* the top strip's readouts, chips and icons */
-  --t-strip-name: 19px; /* the mission name in the strip */
-  --t-read: 20px; /* the lines the player reads -- the commander's beats and lines, the feed, the objective in hand (the lead: 12px was too small), and since GH-162 the deploy screen's briefing beats, before the mission even starts */
-  --t-card: 19px; /* the single-unit card's name */
-  --t-l: 20px;
-  --t-xl: 28px;
-  --t-clock: 34px; /* the hold clock, which is read across the room */
-  --t-hero: clamp(34px, 7vw, 52px);
+  --t-xs: 0.625rem;
+  --t-s: 0.6875rem;
+  --t-body: 0.75rem;
+  --t-m: 0.8125rem;
+  --t-band: 0.9375rem; /* strip and band titles */
+  --cmd-face: 6rem; /* the commander's portrait frame; was the 3.75rem --tile shared with the dock */
+  --t-strip: 1.0625rem; /* the top strip's readouts, chips and icons */
+  --t-strip-name: 1.1875rem; /* the mission name in the strip */
+  --t-read: 1.25rem; /* the lines the player reads -- the commander's beats and lines, the feed, the objective in hand (the lead: 0.75rem was too small), and since GH-162 the deploy screen's briefing beats, before the mission even starts */
+  --t-card: 1.1875rem; /* the single-unit card's name */
+  --t-l: 1.25rem;
+  --t-xl: 1.75rem;
+  --t-clock: 2.125rem; /* the hold clock, which is read across the room */
+  --t-hero: clamp(2.125rem, 7vw, 3.25rem);
   --lh-body: 1.5;
   --track-label: 0.18em; /* small caps need air to stay readable */
   --track-title: 0.06em;
@@ -218,6 +223,13 @@
   --dur-slow: 250ms;
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
+
+/* Breakpoint widths stay in raw viewport px, not rem: they SET --ui-scale
+   (and therefore the root font-size rem resolves against), so expressing
+   them in rem would be circular. */
+@media (min-width: 1900px) { :root { --ui-scale: 1.15; } } /* px-ok */
+@media (min-width: 2400px) { :root { --ui-scale: 1.4; } } /* px-ok */
+html { font-size: calc(16px * var(--ui-scale)); /* px-ok */ }
 
 /* The document's own type. index.html paints the ground colour before this
    sheet parses; this is the first place the FACE can be stated, and stating it
@@ -298,7 +310,7 @@ body {
 
 */
 .rl-world { display: grid; gap: var(--s3); }
-.rl-world__board { position: relative; width: 100%; max-width: 1140px; margin-inline: auto; }
+.rl-world__board { position: relative; width: 100%; max-width: 71.25rem; margin-inline: auto; }
 .rl-world__board svg { display: block; width: 100%; height: auto; }
 
 .rl-world__town { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; }
@@ -334,8 +346,8 @@ body {
   position: relative;
   width: 100%;
   margin-inline: auto;
-  height: min(54vh, 660px);
-  min-height: 300px;
+  height: min(54vh, 41.25rem);
+  min-height: 18.75rem;
 }
 .rl-world__canvas { position: absolute; inset: 0; }
 /* The pins layer takes no clicks: a drag that started on a label would
@@ -348,7 +360,7 @@ body {
      the town because the PNG has no marker of its own; here the ring below IS
      the marker and sits on the projected position, so the label steps aside
      rather than covering the ground it is naming. */
-  transform: translate(14px, -50%);
+  transform: translate(0.875rem, -50%);
   /* A pin with no projected position yet is not drawn at all -- one parked in
      the top-left corner reads as a bug rather than as "still loading". */
   opacity: 0;
@@ -356,18 +368,18 @@ body {
 }
 .rl-world--3d .rl-world__town[data-placed='1'] { opacity: 1; }
 .rl-world--3d .rl-world__town:has(.rl-world__townlink):hover {
-  transform: translate(14px, -50%) scale(1.08);
+  transform: translate(0.875rem, -50%) scale(1.08);
 }
 .rl-world--3d .rl-world__town::before {
   /* The pin itself: a small ring on the marker's exact point, with the label
      beside it. Without this the text floats with nothing tying it to ground. */
   content: '';
   position: absolute;
-  left: -13px;
+  left: -0.8125rem;
   top: 50%;
-  width: 7px;
-  height: 7px;
-  margin-top: -4px;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  margin-top: -0.25rem;
   border: 1px solid var(--ink);
   border-radius: 50%;
   background: color-mix(in srgb, var(--ink) 35%, transparent);
@@ -406,7 +418,7 @@ body {
   padding: var(--s1) var(--s2);
   cursor: pointer;
 }
-.rl-world__spinbtn { font-size: 14px; line-height: 1; padding: var(--s1) var(--s2); }
+.rl-world__spinbtn { font-size: 0.875rem; line-height: 1; padding: var(--s1) var(--s2); }
 .rl-world__spinbtn:hover,
 .rl-world__bearing:hover { border-color: var(--map-live); color: var(--map-live); }
 .rl-world__bearing { font-variant-numeric: tabular-nums; min-width: 4.5em; }
@@ -427,10 +439,10 @@ body {
    longer explanation rather than being left with one sentence. */
 .rl-world__card[data-said='1'] { outline: 1px solid var(--map-live); }
 
-.rl-world__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--s2); }
+.rl-world__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13.75rem, 1fr)); gap: var(--s2); }
 .rl-world__card {
   border: 1px solid var(--panel-frame);
-  border-left: 4px solid var(--map-spent);
+  border-left: 0.25rem solid var(--map-spent);
   padding: var(--s2);
 }
 .rl-world__card[data-status='live'] { border-left-color: var(--map-live); }
@@ -439,18 +451,18 @@ body {
 
 .rl-world__stars { color: var(--commend); }
 .rl-world__villain {
-  margin-top: 6px;
+  margin-top: 0.375rem;
   display: grid;
-  grid-template-columns: 40px 1fr;
-  gap: 8px;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.5rem;
   align-items: start;
 }
-.rl-world__villain-face { width: 40px; height: 52px; object-fit: cover; background: var(--panel-frame); }
+.rl-world__villain-face { width: 2.5rem; height: 3.25rem; object-fit: cover; background: var(--panel-frame); }
 .rl-world__villain-name { color: var(--ink); }
 .rl-world__villain[data-state='captured'] .rl-world__villain-name,
 .rl-world__villain[data-state='killed'] .rl-world__villain-name { text-decoration: line-through; color: var(--ink-mute); }
 .rl-world__villain-line { color: var(--ink-mute); font-style: italic; }
-.rl-world__taken { margin-top: 8px; color: var(--ink); }
+.rl-world__taken { margin-top: 0.5rem; color: var(--ink); }
 
 /* ====================================================================== */
 /* Panel — the stamped header                                             */
@@ -477,7 +489,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: var(--s2);
-  padding: 5px var(--s3) 4px;
+  padding: 0.3125rem var(--s3) 0.25rem;
   background: var(--band-inspect);
   font-family: var(--font-display);
   text-transform: uppercase;
@@ -545,7 +557,7 @@ body {
 
 /* Progress track — production queue, unit health. */
 .rl-track {
-  height: 5px;
+  height: 0.3125rem;
   background: var(--well);
   border-radius: 2px;
   overflow: hidden;
@@ -567,7 +579,7 @@ body {
   color: var(--ink);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
-  padding: 5px 10px;
+  padding: 0.3125rem 0.625rem;
   cursor: pointer;
   pointer-events: auto;
   text-decoration: none;
@@ -644,12 +656,12 @@ body {
    its own line rather than under the checkbox. */
 .rl-obj {
   display: flex;
-  gap: 7px;
+  gap: 0.4375rem;
   border-radius: 2px;
 }
 .rl-obj__g {
   flex: none;
-  width: 11px;
+  width: 0.6875rem;
 }
 
 /* ROE, given the size the thing deserves — it gates campaign progression. */
@@ -661,7 +673,7 @@ body {
 }
 .rl-score__n {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 1.625rem;
   font-weight: 800;
   line-height: 1;
 }
@@ -685,8 +697,8 @@ body {
 }
 .rl-card__icon {
   flex: none;
-  width: 42px;
-  height: 42px;
+  width: 2.625rem;
+  height: 2.625rem;
   border: 1px solid var(--panel-frame);
   background: var(--well);
   display: flex;
@@ -713,9 +725,7 @@ body {
    lifts the glyph off whatever is behind it, the tight pass keeps the stem
    edges from dissolving into it. */
 .rl-onmap {
-  text-shadow:
-    0 1px 12px var(--type-shadow),
-    0 1px 2px var(--type-shadow);
+  text-shadow: 0 1px 12px var(--type-shadow), 0 1px 2px var(--type-shadow);
 }
 
 /* --- top strip -------------------------------------------------------- */
@@ -776,8 +786,8 @@ body {
   align-self: center;
 }
 .rl-strip__mark svg {
-  width: 21px;
-  height: 17px;
+  width: 1.3125rem;
+  height: 1.0625rem;
 }
 /* Pushes the right-hand instruments away from the mission's own fields. The
    two halves report different things -- what the mission wants on the left,
@@ -800,7 +810,7 @@ body {
   border: 1px solid var(--panel-frame);
   color: var(--ink-dim);
   background: none;
-  padding: 0 8px;
+  padding: 0 0.5rem;
   font: inherit;
   cursor: pointer;
   line-height: 1.4;
@@ -828,7 +838,7 @@ body {
    more often than the map, and a frame around it only added weight. */
 .rl-clock {
   position: absolute;
-  top: calc(var(--hud-strip-h) + 8px);
+  top: calc(var(--hud-strip-h) + 0.5rem);
   left: 50%;
   transform: translateX(-50%);
   font-family: var(--font-display);
@@ -839,9 +849,7 @@ body {
   color: var(--ink);
   pointer-events: none;
   white-space: pre;
-  text-shadow:
-    0 2px 18px var(--type-shadow),
-    0 1px 3px var(--type-shadow);
+  text-shadow: 0 2px 18px var(--type-shadow), 0 1px 3px var(--type-shadow);
 }
 .rl-clock[data-tone='warn'] {
   color: var(--warn);
@@ -855,11 +863,11 @@ body {
 .rl-cmd {
   position: absolute;
   left: var(--s2);
-  top: calc(var(--hud-strip-h) + 10px);
+  top: calc(var(--hud-strip-h) + 0.625rem);
   display: flex;
   gap: var(--s2);
   align-items: flex-start;
-  width: 520px;
+  width: 32.5rem;
   pointer-events: none;
 }
 .rl-cmd button {
@@ -882,9 +890,9 @@ body {
   background: repeating-linear-gradient(
     -45deg,
     var(--type-shadow) 0,
-    var(--type-shadow) 4px,
-    var(--panel-frame) 4px,
-    var(--panel-frame) 6px
+    var(--type-shadow) 0.25rem,
+    var(--panel-frame) 0.25rem,
+    var(--panel-frame) 0.375rem
   );
   display: flex;
   align-items: flex-end;
@@ -962,7 +970,7 @@ body {
   min-width: 0;
   background: var(--panel-bg);
   border-left: 2px solid var(--band-mission);
-  padding: 6px 10px;
+  padding: 0.375rem 0.625rem;
   pointer-events: auto;
 }
 .rl-cmd[data-open='0'] .rl-cmd__bar {
@@ -1010,7 +1018,7 @@ body {
 .rl-cmd__track {
   height: 2px;
   background: var(--well);
-  margin-top: 6px;
+  margin-top: 0.375rem;
 }
 .rl-cmd__track > i {
   display: block;
@@ -1027,9 +1035,9 @@ body {
 .rl-feed {
   position: absolute;
   left: var(--hud-centre);
-  bottom: 150px;
+  bottom: 9.375rem;
   transform: translateX(-50%);
-  width: 560px;
+  width: 35rem;
   display: flex;
   flex-direction: column-reverse;
   gap: 2px;
@@ -1110,8 +1118,8 @@ body {
    child they are equivalent — but this cluster is as wide as the selection
    makes it, and an absolutely-positioned box with only a `left` gets exactly
    `container - left` of room to lay out in. Measured at 1440 with ten unit
-   types: the anchored version had 650px to work with and wrapped ten chips
-   into three rows, while 1284px was free. Padding the left edge by two offsets
+   types: the anchored version had 40.625rem to work with and wrapped ten chips
+   into three rows, while 80.25rem was free. Padding the left edge by two offsets
    puts the centre of the remaining box back on --hud-centre exactly. */
 .rl-sel {
   position: absolute;
@@ -1124,7 +1132,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   pointer-events: none;
 }
 
@@ -1133,8 +1141,8 @@ body {
    bottom-right corner. Derived, not guessed: the content is centred on
    --hud-centre, so the widest it can be while its right edge clears a
    --minimap inset by --s2 is 100vw - 2*minimap - 4*s2 - 2*offset. At 1440 that
-   is 848px (five chips a row); measured without it, ten unit types drew a
-   1284px row whose last chip sat under the minimap. */
+   is 53rem (five chips a row); measured without it, ten unit types drew a
+   80.25rem row whose last chip sat under the minimap. */
 .rl-orders,
 .rl-cluster {
   max-width: calc(
@@ -1152,14 +1160,14 @@ body {
    type gives up. */
 .rl-order {
   font-size: var(--t-s);
-  padding: var(--s1) 10px;
+  padding: var(--s1) 0.625rem;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
   white-space: nowrap;
 }
 .rl-order__glyph {
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1;
 }
 /* Capable, but it would issue no command right now — an empty transport asked
@@ -1192,7 +1200,7 @@ body {
   width: var(--chip-w);
   display: flex;
   gap: var(--s2);
-  padding: 6px var(--s2);
+  padding: 0.375rem var(--s2);
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   pointer-events: auto;
@@ -1207,15 +1215,15 @@ body {
   border-color: var(--live);
 }
 /* `.rl-brigade__art` (ui/brigade.ts) shares this rule by declaration rather
-   than borrowing `.rl-chip__art` by name -- same 40px chip-art frame, same
+   than borrowing `.rl-chip__art` by name -- same 2.5rem chip-art frame, same
    rules, one place to change either. */
 .rl-chip__art,
 .rl-brigade__art {
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
+  width: 2.5rem;
+  height: 2.5rem;
   object-fit: contain;
-  /* The sheets are 256px and this is 40. Nearest-neighbour is the spec's own
+  /* The sheets are 16rem and this is 40. Nearest-neighbour is the spec's own
      call and it is the right one here: the art is quantized onto the palette,
      and a smooth downscale invents colours that are not in it. */
   image-rendering: pixelated;
@@ -1236,7 +1244,7 @@ body {
   min-width: 0;
 }
 /* The ellipsis lives on the inner span, because text-overflow does nothing to
-   a flex container's own text — 150px is narrower than several unit names. */
+   a flex container's own text — 9.375rem is narrower than several unit names. */
 .rl-chip__name > span {
   min-width: 0;
   overflow: hidden;
@@ -1263,7 +1271,7 @@ body {
 /* Art the pipeline has not produced. The commander portrait's hatch, so
    "reserved" reads the same way everywhere in this HUD, with the role mark on
    top so the frame still says what the unit IS. Never an empty box: a blank
-   40px hole reads as a broken image, and this reads as a deliberate gap.
+   2.5rem hole reads as a broken image, and this reads as a deliberate gap.
    `.rl-brigade__art[data-nosprite='1']` (ui/brigade.ts, the mesh-only
    breach_team/scout_shachaf/apc_kipod rows) shares this by declaration --
    see the shared sizing rule above. */
@@ -1277,9 +1285,9 @@ body {
   background: repeating-linear-gradient(
     -45deg,
     var(--type-shadow) 0,
-    var(--type-shadow) 4px,
-    var(--panel-frame) 4px,
-    var(--panel-frame) 6px
+    var(--type-shadow) 0.25rem,
+    var(--panel-frame) 0.25rem,
+    var(--panel-frame) 0.375rem
   );
 }
 
@@ -1290,8 +1298,8 @@ body {
   width: var(--card-w);
   max-width: 92vw;
   display: flex;
-  gap: 10px;
-  padding: var(--s2) 10px;
+  gap: 0.625rem;
+  padding: var(--s2) 0.625rem;
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   pointer-events: auto;
@@ -1300,8 +1308,8 @@ body {
   position: relative;
   flex: 0 0 auto;
   box-sizing: border-box;
-  width: 72px;
-  height: 72px;
+  width: 4.5rem;
+  height: 4.5rem;
   border: 1px solid var(--panel-frame);
   background: var(--well);
   display: flex;
@@ -1309,8 +1317,8 @@ body {
   justify-content: center;
 }
 .rl-card__art {
-  width: 68px;
-  height: 68px;
+  width: 4.25rem;
+  height: 4.25rem;
   object-fit: contain;
   image-rendering: pixelated;
 }
@@ -1354,7 +1362,7 @@ body {
    the second is below the fold of a glance. */
 .rl-card__cols {
   display: flex;
-  gap: 14px;
+  gap: 0.875rem;
   margin-top: var(--s1);
 }
 .rl-card__cols > div {
@@ -1386,16 +1394,16 @@ body {
   /* Bounded, now that a victory can carry a full sentence of `aftermath`
      (GDD §11) under the headline — unbounded, a long line would run the
      banner past a short viewport's edges. */
-  width: min(90vw, 640px);
+  width: min(90vw, 40rem);
   text-align: center;
-  padding: var(--s3) 42px;
+  padding: var(--s3) 2.625rem;
   background: var(--panel-bg);
   border: 2px solid var(--panel-frame);
   pointer-events: none;
 }
 .rl-bigbanner__head {
   font-family: var(--font-display);
-  font-size: clamp(30px, 6vw, 44px);
+  font-size: clamp(1.875rem, 6vw, 2.75rem);
   font-weight: 800;
   letter-spacing: var(--track-title);
   text-transform: uppercase;
@@ -1426,7 +1434,7 @@ body {
   transform: translate(-50%, -50%);
   /* "Beit Sahwan III — Clearance" is wider than a phone at hero size. Bound it
      and let it wrap rather than run off both edges of the screen. */
-  width: min(90vw, 900px);
+  width: min(90vw, 56.25rem);
   text-align: center;
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease);
@@ -1473,7 +1481,7 @@ body {
    unit TYPE, and it is drawn on that type's own tile now.
 
    A flex column rather than the spec's two absolutely-positioned boxes. The
-   mock puts its label at a literal `bottom:136px`, which is 4px above a grid
+   mock puts its label at a literal `bottom:8.5rem`, which is 0.25rem above a grid
    of exactly two rows; the shipped KDF catalogue is fourteen types plus two
    support calls, so the grid is four rows and a hard-coded label would sit
    inside it. Stacking gives the same picture at two rows and the right one at
@@ -1544,10 +1552,10 @@ body {
 .rl-tile__art {
   position: absolute;
   inset: 2px;
-  width: 56px;
-  height: 56px;
+  width: 3.5rem;
+  height: 3.5rem;
   object-fit: contain;
-  /* The sheets are 256px and this is 56. Nearest-neighbour for the same reason
+  /* The sheets are 16rem and this is 56. Nearest-neighbour for the same reason
      the chips use it: the art is quantized onto the palette and a smooth
      downscale invents colours that are not in it. */
   image-rendering: pixelated;
@@ -1563,9 +1571,9 @@ body {
   background: repeating-linear-gradient(
     -45deg,
     var(--type-shadow) 0,
-    var(--type-shadow) 4px,
-    var(--panel-frame) 4px,
-    var(--panel-frame) 6px
+    var(--type-shadow) 0.25rem,
+    var(--panel-frame) 0.25rem,
+    var(--panel-frame) 0.375rem
   );
 }
 
@@ -1581,7 +1589,7 @@ body {
 }
 /* Lifted clear of the progress bar while one is running. */
 .rl-tile[data-queued='1'] .rl-tile__cost {
-  bottom: 4px;
+  bottom: 0.25rem;
 }
 
 .rl-tile__left {
@@ -1623,7 +1631,7 @@ body {
   text-align: center;
   font-size: var(--t-xs);
   color: var(--ink-dim);
-  /* "Conduct ≥55" is eleven characters on a 60px tile: it may overflow the edge
+  /* "Conduct ≥55" is eleven characters on a 3.75rem tile: it may overflow the edge
      by a pixel or two, but it must never wrap onto the art. */
   white-space: nowrap;
 }
@@ -1655,7 +1663,7 @@ body {
   border-color: var(--info);
 }
 .rl-tile__glyph {
-  font-size: 18px;
+  font-size: 1.125rem;
   line-height: 1;
 }
 /* Not affordable: it stops reading as a live call at all. */
@@ -1695,8 +1703,8 @@ body {
   bottom: 100%;
   margin-bottom: var(--s1);
   box-sizing: border-box;
-  width: 230px;
-  padding: 6px 10px;
+  width: 14.375rem;
+  padding: 0.375rem 0.625rem;
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   font-size: var(--t-body);
@@ -1752,12 +1760,12 @@ body {
 /* ====================================================================== */
 
 .rl-menu {
-  /* The button-list column width. 460px reads well as text and stays inside
+  /* The button-list column width. 28.75rem reads well as text and stays inside
      thumb's reach on mobile -- everything in the menu was designed against
      this measure until the world map arrived and needed real width. Named
      so the exception below and the narrow children can both refer to the
      same figure instead of repeating it. */
-  --menu-col: min(460px, 92vw);
+  --menu-col: min(28.75rem, 92vw);
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1774,14 +1782,14 @@ body {
 }
 /* The one documented exception to the column: a menu holding the campaign
    map needs real width, or the map is squeezed to a fraction of its
-   1140px design and its town labels collide. :has() scopes the wider frame
+   71.25rem design and its town labels collide. :has() scopes the wider frame
    to exactly that case rather than widening every menu screen. The vw term
    subtracts the menu's own horizontal padding and border so the *box*,
    not just its content, stays inside the viewport at narrow widths -- the
    plain vw budget above does not account for that and was never exercised
    at a width where it mattered. */
 .rl-menu:has(.rl-world) {
-  width: min(1200px, calc(98vw - 2 * var(--s6) - 2px));
+  width: min(75rem, calc(98vw - 2 * var(--s6) - 2px));
 }
 /* The banner, wordmark and nav were laid out for the narrow column; letting
    them stretch to the map's width would blow the banner image up and turn
@@ -1934,7 +1942,7 @@ button.rl-menu__item[data-kind='aside'] {
    on a win, `.defeat` on a loss (`showEndScreen`'s own `EndScreenOptions`
    doc comment). Face and plate above the quote, centred like the rest of
    this panel (`panel()`'s own inline `text-align: center`) rather than the
-   commander bar's side-by-side row -- this panel is narrow (420px) and
+   commander bar's side-by-side row -- this panel is narrow (26.25rem) and
    already centred, and a row would fight that. */
 .rl-enddebrief__head {
   margin: 0 0 var(--s2);
@@ -1956,9 +1964,9 @@ button.rl-menu__item[data-kind='aside'] {
   background: repeating-linear-gradient(
     -45deg,
     var(--type-shadow) 0,
-    var(--type-shadow) 4px,
-    var(--panel-frame) 4px,
-    var(--panel-frame) 6px
+    var(--type-shadow) 0.25rem,
+    var(--panel-frame) 0.25rem,
+    var(--panel-frame) 0.375rem
   );
 }
 .rl-enddebrief__face-img {
@@ -2005,29 +2013,29 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* The debrief screen (`ui/debrief.ts`, Task 9) -- the full card that would not
-   fit in the 420px end panel above. `--t-lg` does not exist in this file;
+   fit in the 26.25rem end panel above. `--t-lg` does not exist in this file;
    `.rl-debrief__tier` uses `--t-card`, the same token `.rl-panel__title` is
    set in, so the tier name reads at the same size as a panel's own title. */
-.rl-debrief__head { display: flex; align-items: baseline; gap: 12px; }
+.rl-debrief__head { display: flex; align-items: baseline; gap: 0.75rem; }
 .rl-debrief__tier { font-size: var(--t-card); color: var(--ink); }
 .rl-debrief__stars { color: var(--commend); letter-spacing: 2px; }
-.rl-debrief__line { margin: 8px 0; color: var(--ink); font-style: italic; }
+.rl-debrief__line { margin: 0.5rem 0; color: var(--ink); font-style: italic; }
 .rl-debrief__who { display: block; margin-top: 2px; font-style: normal; color: var(--ink-dim); }
-.rl-debrief__grid { display: grid; grid-template-columns: 6em 1fr; gap: 2px 12px; margin: 10px 0; }
+.rl-debrief__grid { display: grid; grid-template-columns: 6em 1fr; gap: 2px 0.75rem; margin: 0.625rem 0; }
 .rl-debrief__grid dt { color: var(--ink-dim); }
 .rl-debrief__credits { color: var(--commend); }
 /* The account of the taken, the same ink the board's own line takes. */
-.rl-debrief__taken { margin: 0 0 8px; color: var(--ink); }
-.rl-debrief__deductions, .rl-debrief__secondaries { margin: 4px 0 8px 1.2em; padding: 0; }
+.rl-debrief__taken { margin: 0 0 0.5rem; color: var(--ink); }
+.rl-debrief__deductions, .rl-debrief__secondaries { margin: 0.25rem 0 0.5rem 1.2em; padding: 0; }
 .rl-debrief__deductions li { color: var(--bad); }
 .rl-debrief__secondary[data-carries='1'] { color: var(--commend); }
 /* `__unlocked` is a `ul` -- one line per unlock, since each carries its own
    reason -- so it needs the same list reset the two lists above take, or the
-   browser's own 40px indent and block margins land it well off their column. */
-.rl-debrief__unlocked { margin: 8px 0 0 1.2em; padding: 0; }
+   browser's own 2.5rem indent and block margins land it well off their column. */
+.rl-debrief__unlocked { margin: 0.5rem 0 0 1.2em; padding: 0; }
 .rl-debrief__unlocked, .rl-debrief__promotion { color: var(--good); }
-.rl-debrief__promotion { margin-top: 8px; }
-.rl-debrief__villain { margin-top: 8px; color: var(--ink-mute); font-style: italic; }
+.rl-debrief__promotion { margin-top: 0.5rem; }
+.rl-debrief__villain { margin-top: 0.5rem; color: var(--ink-mute); font-style: italic; }
 
 /* ====================================================================== */
 /* Motion — short, interruptible, and only where it carries meaning        */
@@ -2042,7 +2050,7 @@ button.rl-menu__item[data-kind='aside'] {
 @keyframes rl-enter {
   from {
     opacity: 0;
-    translate: 0 6px;
+    translate: 0 0.375rem;
   }
   to {
     opacity: 1;
@@ -2143,11 +2151,11 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* Tutorial step panel — the lesson is the thing a first-time player has to
-   read, so it wears the display face at reading size rather than the 11px
+   read, so it wears the display face at reading size rather than the 0.6875rem
    mono every other panel body uses. The nudge is the same copy escalated, so
    it reads as emphasis rather than a second instruction. */
 .rl-tutorial .rl-panel__title {
-  font-size: 24px;
+  font-size: 1.5rem;
 }
 .rl-tutorial .rl-panel__body {
   font-family: var(--font-display);
@@ -2192,7 +2200,7 @@ button.rl-menu__item[data-kind='aside'] {
   overflow: auto;
 }
 .rl-loading__box {
-  width: min(420px, 82vw);
+  width: min(26.25rem, 82vw);
   text-align: center;
 }
 .rl-loading__label {
@@ -2232,7 +2240,7 @@ button.rl-menu__item[data-kind='aside'] {
    the briefing: wider, and left-aligned so the eye has one margin to return to
    rather than a ragged centre. */
 .rl-loading__box--brief {
-  width: min(680px, 88vw);
+  width: min(42.5rem, 88vw);
   text-align: left;
 }
 /* The rank/plate line and, beside it, the same photo `.rl-cmd__face` shows
@@ -2253,8 +2261,8 @@ button.rl-menu__item[data-kind='aside'] {
    portrait URL -- authored or not, on disk or not, reads identically as
    "reserved" rather than a broken box. */
 .rl-loading__face {
-  width: 200px;
-  height: 250px;
+  width: 12.5rem;
+  height: 15.625rem;
   flex: none;
   position: relative;
   overflow: hidden;
@@ -2263,9 +2271,9 @@ button.rl-menu__item[data-kind='aside'] {
   background: repeating-linear-gradient(
     -45deg,
     var(--type-shadow) 0,
-    var(--type-shadow) 4px,
-    var(--panel-frame) 4px,
-    var(--panel-frame) 6px
+    var(--type-shadow) 0.25rem,
+    var(--panel-frame) 0.25rem,
+    var(--panel-frame) 0.375rem
   );
 }
 .rl-loading__face-img {
@@ -2296,32 +2304,32 @@ button.rl-menu__item[data-kind='aside'] {
    the identical prose mid-mission: Barlow (`--font-body`, GH-153 retired
    mono from body copy for exactly this reason -- nothing here is a column of
    figures) at `--t-read`, the size this file already reserves for "the lines
-   the player reads" rather than `--t-m`'s 13px plate-label size. `max-width`
-   caps the measure so a line does not run the full 680px box -- a column
+   the player reads" rather than `--t-m`'s 0.8125rem plate-label size. `max-width`
+   caps the measure so a line does not run the full 42.5rem box -- a column
    this wide unclamped reads as a wall regardless of font size. */
 /* The mission's cinematic, above the beats (2026-09-06, Tel Marum II first).
-   Height-capped so Deploy stays on a 720px-tall screen with the brief's own
+   Height-capped so Deploy stays on a 45rem-tall screen with the brief's own
    cap below it; the brief gives up a third of its height when a video sits
    above it rather than pushing the button off. */
 .rl-loading__video {
   display: block;
   width: 100%;
-  max-height: min(24vh, 260px);
+  max-height: min(24vh, 16.25rem);
   object-fit: contain;
   background: var(--panel-bg);
   border: 1px solid var(--panel-frame);
   margin: var(--s3) 0 var(--s2);
 }
 .rl-loading__box--video .rl-loading__brief {
-  max-height: min(22vh, 240px);
+  max-height: min(22vh, 15rem);
 }
 /* With a cinematic above, the commander's photo is the third picture on the
    screen; it steps down so the whole column -- video, head, beats, Deploy --
-   fits a 720px-tall window with Deploy still on it (measured: 900px tall put
+   fits a 45rem-tall window with Deploy still on it (measured: 56.25rem tall put
    Deploy 0.4px below the fold at the first cut). */
 .rl-loading__box--video .rl-loading__face {
-  width: 72px;
-  height: 90px;
+  width: 4.5rem;
+  height: 5.625rem;
 }
 .rl-loading__box--video .rl-loading__video {
   margin-top: var(--s2);
@@ -2340,7 +2348,7 @@ button.rl-menu__item[data-kind='aside'] {
      moves no matter how long the orders are. This still holds now that the
      block holds several `<p>` beats instead of one: the container is the
      thing that scrolls, not any beat inside it. */
-  max-height: min(42vh, 440px); /* the vh half is the binding one on a 720px-tall screen (48vh measured Deploy 29px below the fold there); the px half lets a tall screen show more of the eight 20px beats than the old 340 did. */
+  max-height: min(42vh, 27.5rem); /* the vh half is the binding one on a 45rem-tall screen (48vh measured Deploy 1.8125rem below the fold there); the px half lets a tall screen show more of the eight 1.25rem beats than the old 340 did. */
   overflow-y: auto;
   /* Scrolled text needs a margin to breathe against the scrollbar. */
   padding-right: var(--s2);
@@ -2359,7 +2367,7 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-loading__beat {
   margin: 0 0 var(--s3) 0;
   opacity: 0;
-  transform: translateY(6px);
+  transform: translateY(0.375rem);
   animation: rl-beat-in 320ms var(--ease) both;
   animation-delay: calc(var(--i, 0) * 140ms);
 }
@@ -2370,17 +2378,17 @@ button.rl-menu__item[data-kind='aside'] {
    Deploy -- never a beat itself. The left rule borrows `--commend`, the same
    token the world-map star line uses, so a carry-over reads as an earned
    thing rather than as another paragraph of prose. */
-.rl-loading__brought { margin: 10px 0 0; padding: 8px 10px; border-left: 2px solid var(--commend); color: var(--ink); }
+.rl-loading__brought { margin: 0.625rem 0 0; padding: 0.5rem 0.625rem; border-left: 2px solid var(--commend); color: var(--ink); }
 .rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 1px; }
-.rl-loading__brought ul { margin: 4px 0; padding-left: 1.1em; }
-.rl-loading__brought-line { margin: 4px 0 0; color: var(--ink-mute); }
+.rl-loading__brought ul { margin: 0.25rem 0; padding-left: 1.1em; }
+.rl-loading__brought-line { margin: 0.25rem 0 0; color: var(--ink-mute); }
 /* Survivors this mission does not field -- a count, under the roster, in the
    same muted ink the panel's own prose uses rather than the roster's. */
 .rl-loading__reserve { color: var(--ink-mute); }
 @keyframes rl-beat-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(0.375rem);
   }
   to {
     opacity: 1;
@@ -2426,7 +2434,7 @@ button.rl-menu__item[data-kind='aside'] {
 
 /* The brigade screen (ui/brigade.ts). Capped and centred to the same width
    range debrief's own panel uses (debrief.ts's `place:` inline style reads
-   `top:6%;left:50%;transform:translateX(-50%);width:min(720px,94vw);
+   `top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);
    max-height:88vh;overflow:auto`) -- expressed here as a class rule instead
    of a second inline style, since `panel()`'s own `place` option is
    documented "never colour" but every rl-brigade__* rule already lives in
@@ -2437,7 +2445,7 @@ button.rl-menu__item[data-kind='aside'] {
   top: 6%;
   left: 50%;
   transform: translateX(-50%);
-  width: min(720px, 94vw);
+  width: min(45rem, 94vw);
   max-height: 88vh;
   overflow: auto;
 }
@@ -2457,7 +2465,7 @@ button.rl-menu__item[data-kind='aside'] {
   align-items: center;
   gap: var(--s2);
 }
-/* Name-over-role: the one column between the art (a fixed 40px leading
+/* Name-over-role: the one column between the art (a fixed 2.5rem leading
    frame, `.rl-chip__art`'s own size) and the reason text that is itself two
    rows tall, so `.rl-brigade__row`'s single flex row does not have to know
    that. */
