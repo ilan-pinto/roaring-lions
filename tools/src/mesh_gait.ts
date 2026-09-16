@@ -371,6 +371,24 @@ export interface RoleFootprint {
   /** How many of the role's vertices cleared the travel filter. */
   readonly activeVertexCount: number;
   readonly clipSeconds: number;
+  /**
+   * The single tracked vertex's own forward (`+x`) and height (`y`)
+   * position at each of the `SAMPLES` sampled instants, in clip order.
+   * Free -- the same skinning pass already visits this vertex once per
+   * sample to build `axisTravelM`; this just keeps what it saw instead of
+   * only the running min/max. Exists for a periodicity check: peak-to-peak
+   * travel over a whole clip cannot tell a clip that bakes ONE gait cycle
+   * from one that bakes two, and `gait-pass.ts`'s declared `cycleS` assumes
+   * one. Not reported per-figure or per-vertex beyond the one already
+   * selected as `axisTravelM`'s own vertex, which is deliberate: it is the
+   * vertex with the most to say about the gait, and adding every vertex's
+   * trace here would multiply this return value by the mesh's vertex count
+   * for a check that needs exactly one representative signal.
+   */
+  readonly bestVertexTrace: {
+    readonly forwardM: readonly number[];
+    readonly heightM: readonly number[];
+  };
 }
 
 /** A vertex counts as part of the gait when its own peak-to-peak travel is
@@ -438,6 +456,12 @@ export function measureRoleFootprint(path: string, role: string, clip: string): 
 
   let floatM = -Infinity;
   let sinkM = Infinity;
+  // `bestForwardM`/`bestHeightM`: the same `best` vertex `axisTravelM` is
+  // built from, sampled at every instant rather than reduced to a min/max --
+  // free here, since `skinMats` for this instant is already in hand for the
+  // float/sink pass above.
+  const bestForwardM: number[] = [];
+  const bestHeightM: number[] = [];
   for (let s = 0; s < SAMPLES; s++) {
     const skinMats = sampleAt(s);
     let lowestNow = Infinity;
@@ -447,6 +471,10 @@ export function measureRoleFootprint(path: string, role: string, clip: string): 
     }
     if (lowestNow > floatM) floatM = lowestNow;
     if (lowestNow < sinkM) sinkM = lowestNow;
+
+    const o = skinPoint(pos, joints, weights, best, skinMats);
+    bestForwardM.push(o[0]);
+    bestHeightM.push(o[1]);
   }
 
   return {
@@ -455,7 +483,82 @@ export function measureRoleFootprint(path: string, role: string, clip: string): 
     sinkM,
     activeVertexCount: active.length,
     clipSeconds: end - start,
+    bestVertexTrace: { forwardM: bestForwardM, heightM: bestHeightM },
   };
+}
+
+/** The fraction of a trace's own peak-to-trough span a sample must fall to
+ *  or below before `countTracePeaks` is willing to count a later rise as a
+ *  NEW peak, and the fraction it must rise to or above to BE counted.
+ *  Deliberately two thresholds rather than one -- noise sitting near a
+ *  single threshold would otherwise cross it back and forth and inflate the
+ *  count; a peak has to clear the high band and a trough has to clear the
+ *  low band before either counts. 0.3/0.7 is not a fitted number: it is the
+ *  midpoint of a comfortable working range, found by widening from a
+ *  tighter band until the false positives below stopped appearing and
+ *  stopping well short of a band so wide it would miss a real second
+ *  cycle. */
+export const CYCLE_PEAK_LOW_FRACTION = 0.3;
+export const CYCLE_PEAK_HIGH_FRACTION = 0.7;
+
+/**
+ * How many times a sampled trace rises from near its minimum to near its
+ * maximum -- built to answer exactly one question: does a `move`/`moveFire`
+ * clip bake ONE gait cycle or more than one? Peak-to-peak travel
+ * (`axisTravelM`, `measureRoleTravel`'s `maxTravelM`) cannot answer this --
+ * it is invariant to how many cycles the sampled window contains, while the
+ * ground distance a stride like that implies is not: two cycles baked into
+ * one clip halve the true per-cycle distance without moving that number at
+ * all.
+ *
+ * **Phase-aligned before counting, and that is not optional.** A looping
+ * clip's sample window can start at any point in its own cycle -- mid-swing
+ * as often as at a trough -- so a naive left-to-right scan either splits one
+ * real peak across the array boundary (undercounting) or treats an
+ * already-elevated starting sample as a free peak (overcounting). Rotating
+ * the trace to start at its own global minimum before scanning removes both
+ * failure modes, because a genuine single cycle then starts exactly where a
+ * linear scan needs it to.
+ *
+ * **Calibrated against every rigged locomotion clip in this tree
+ * (2026-09-16), on the `forward` axis of `RoleFootprint.bestVertexTrace`:
+ * reads exactly 1 for all seventeen clips this branch's own gait-pass
+ * declares a gait for**, and a synthetic concatenation of one of those
+ * traces with itself reads exactly 2 (three copies, 3) -- the positive
+ * control that proves this is measuring periodicity and not just returning
+ * 1 by construction. The `height` axis was tried first and rejected: it
+ * double-counts a genuine single cycle on two of the seventeen
+ * (`at_team`, `meshy_mortar_team`) from a secondary bounce the forward
+ * sweep does not have, which is why `gait-pass.ts` reads this off
+ * `bestVertexTrace.forwardM` and not `.heightM`.
+ */
+export function countTracePeaks(
+  trace: readonly number[],
+  lowFraction: number = CYCLE_PEAK_LOW_FRACTION,
+  highFraction: number = CYCLE_PEAK_HIGH_FRACTION
+): number {
+  if (trace.length === 0) return 0;
+  const min = Math.min(...trace);
+  const max = Math.max(...trace);
+  const span = max - min;
+  if (span <= 0) return 0;
+  const lowT = min + span * lowFraction;
+  const highT = min + span * highFraction;
+
+  let minIdx = 0;
+  for (let i = 1; i < trace.length; i++) if (trace[i] < trace[minIdx]) minIdx = i;
+  const rotated = [...trace.slice(minIdx), ...trace.slice(0, minIdx)];
+
+  let peaks = 0;
+  let armed = false;
+  for (const v of rotated) {
+    if (!armed && v <= lowT) armed = true;
+    else if (armed && v >= highT) {
+      peaks++;
+      armed = false;
+    }
+  }
+  return peaks;
 }
 
 export interface FigureFacing {

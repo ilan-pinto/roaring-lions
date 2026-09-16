@@ -22,6 +22,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTIVE_TRAVEL_FRACTION,
   circularMeanDeg,
+  countTracePeaks,
   groundPerCycleM,
   measureFacing,
   measureRoleFootprint,
@@ -531,5 +532,67 @@ describe('measureRoleFootprint', () => {
       measureRoleTravel(`${MESHES}at_team.glb`, 'boot', 'move').vertexCount
     );
     expect(ACTIVE_TRAVEL_FRACTION).toBeGreaterThan(0);
+  });
+});
+
+// gait-pass's Fix round 1: `cycleS` names a cycle and measures a clip, and
+// peak-to-peak travel cannot tell one gait cycle baked into a clip from two.
+// `countTracePeaks` is the periodicity instrument gait-pass.ts warns from.
+// Calibrated here against every clip the pass currently declares a gait
+// for -- the seventeen declarations across fifteen files, read off the
+// FORWARD axis of `bestVertexTrace`.
+describe('countTracePeaks', () => {
+  const SEVENTEEN: readonly [string, string][] = [
+    ['demo_squad.glb', 'move'],
+    ['at_team.glb', 'move'],
+    ['sniper_team.glb', 'move'],
+    ['militia_cell.glb', 'move'],
+    ['rpg_team.glb', 'move'],
+    ['charge_squad.glb', 'move'],
+    ['meshy_soldier.glb', 'move'],
+    ['meshy_soldier.glb', 'moveFire'],
+    ['sarim_rifles.glb', 'move'],
+    ['sarim_rifles.glb', 'moveFire'],
+    ['meshy_mortar_team.glb', 'move'],
+    ['yahalom_engineer.glb', 'move'],
+    ['breach_team.glb', 'move'],
+    ['civilians/civilian_woman.glb', 'move'],
+    ['civilians/office_worker.glb', 'move'],
+    ['civilians/farm_worker.glb', 'move'],
+    ['civilians/civilian_child.glb', 'move'],
+  ];
+
+  it.each(SEVENTEEN)('%s %s reads as exactly one cycle on the forward axis', (file, clip) => {
+    const fp = measureRoleFootprint(`${MESHES}${file}`, 'boot', clip);
+    expect(countTracePeaks(fp.bestVertexTrace.forwardM)).toBe(1);
+  });
+
+  // The positive control: proves this counts periods rather than returning 1
+  // by construction. A real one-cycle trace, mechanically concatenated with
+  // itself, must read as two full cycles, and three copies as three.
+  it('reads a synthetically doubled/tripled trace as 2/3 cycles', () => {
+    const fp = measureRoleFootprint(`${MESHES}demo_squad.glb`, 'boot', 'move');
+    const once = fp.bestVertexTrace.forwardM;
+    expect(countTracePeaks(once)).toBe(1);
+    expect(countTracePeaks([...once, ...once])).toBe(2);
+    expect(countTracePeaks([...once, ...once, ...once])).toBe(3);
+  });
+
+  // Why the forward axis and not height, pinned rather than merely claimed
+  // in the doc comment: the height trace double-counts a genuine single
+  // cycle on two of the seventeen from a secondary bounce the forward sweep
+  // does not have.
+  it.each(['at_team.glb', 'meshy_mortar_team.glb'])(
+    '%s: the height axis over-counts a real single cycle -- this is why forward is used',
+    (file) => {
+      const fp = measureRoleFootprint(`${MESHES}${file}`, 'boot', 'move');
+      expect(countTracePeaks(fp.bestVertexTrace.forwardM)).toBe(1);
+      expect(countTracePeaks(fp.bestVertexTrace.heightM)).toBe(2);
+    }
+  );
+
+  it('returns 0 for a flat (no-travel) trace rather than dividing by a zero span', () => {
+    expect(countTracePeaks([0.5, 0.5, 0.5, 0.5])).toBe(0);
+    expect(countTracePeaks([])).toBe(0);
   });
 });
