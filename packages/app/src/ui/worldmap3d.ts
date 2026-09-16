@@ -362,7 +362,11 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       speak(`${region.name} — cleared`, 'good');
       return;
     }
-    speak(`${region.name} — opening ${next}`, 'good');
+    // Names the mission, never its id -- the same rule as the locked-region
+    // sentence just above. A catalogue with no title for `next` still says
+    // something real (the region alone) rather than falling through to the id.
+    const nextName = missionName(next);
+    speak(nextName ? `${region.name} — opening ${nextName}` : region.name, 'good');
     navigate(opts.href(next));
   };
 

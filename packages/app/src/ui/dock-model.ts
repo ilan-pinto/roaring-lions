@@ -10,7 +10,8 @@
 // one frame of a live mission is invisible; the same wrongness in a pure
 // function is one assertion.
 
-import { TICKS_PER_SECOND } from '@lions/sim';
+import { TICKS_PER_SECOND, conductAtLeast, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
+import { gateSentence } from '../gate-sentence';
 import type { RoleBucket } from './role';
 
 /** A type the player may build, as the dock needs it. Assembled in `main.ts`,
@@ -36,6 +37,12 @@ export interface DockUnit {
   tags: readonly string[];
   /** The one-line description, from the unit JSON's optional `blurb`. */
   blurb?: string;
+  /** The campaign gate, structured -- the same `kdfUnlockGate(u)` `main.ts` already
+   *  hands `MissionRuntime`'s own `unitInfo`. `lockLabel`/`tileState` read this
+   *  directly through `gateSentence` rather than parsing the runtime's own
+   *  `buildBlockedReason` sentence, so the tile can never show the sim's own
+   *  bare wording -- a floor with a parenthetical, or an id verbatim. */
+  unlock?: UnlockGate;
 }
 
 /** The live numbers a tile is judged against. A narrow view of
@@ -66,7 +73,9 @@ export interface TileState {
    *  player is saving towards reads as dim, not as refused. */
   affordable: boolean;
   /** A campaign gate refusing this type, or null. `short` is what fits in the
-   *  tile; `full` is the runtime's own sentence, kept for the `title`. */
+   *  tile; `full` goes on the `title` -- `gateSentence`'s human sentence when a
+   *  structured gate is what is blocking, the runtime's own (already plain
+   *  English) text for a non-gate block such as a destroyed field camp. */
   lock: { short: string; full: string } | null;
   queue: QueueState | null;
 }
@@ -74,23 +83,28 @@ export interface TileState {
 /**
  * What a lock says inside a 60px tile.
  *
- * `buildBlockedReason` answers in a full sentence — "requires campaign Conduct 55
- * (no missions rated yet)", "field camp destroyed — no production" — because
- * its other caller is the campaign menu, which has a paragraph to spend. A
- * tile has about eleven characters, so the Conduct gate becomes its number and
- * everything else becomes the word `locked`. The sentence is not thrown away:
- * it goes on the tile's `title`, and the click's own note repeats it in the
- * feed.
+ * Reads the unit's own STRUCTURED gate through `conductAtLeast`/`starsEarned`
+ * -- the same predicates `gateSentence` and the brigade's `bindingGate` use --
+ * rather than parsing `buildBlockedReason`'s sentence with a regex. A tile has
+ * about eleven characters, so the Conduct gate becomes its number and
+ * everything else becomes the word `locked`; the full sentence is not thrown
+ * away, it goes on the tile's `title` via `tileState`, and the click's own
+ * note repeats it in the feed.
  *
  * Deliberately a match on the gates that have a NUMBER worth showing rather
- * than a table of every reason. A reason this does not recognise degrades to
- * `locked`, which is honest; a table would degrade to a missing case.
+ * than a table of every reason: a unit with no `unlock` at all, an
+ * `afterMission`-only gate (no number to show), or a gate that is not
+ * actually what is blocking right now (the runtime may still report a
+ * non-gate reason, e.g. a destroyed field camp) all degrade to `locked`,
+ * which is honest; a table would degrade to a missing case.
  */
-export function lockLabel(reason: string): string {
-  const roe = /^requires campaign Conduct (\d+)/.exec(reason);
-  if (roe !== null) return `Conduct ≥${roe[1]}`;
-  const stars = /^requires (\d+) stars? \(/.exec(reason);
-  if (stars !== null) return `★ ≥${stars[1]}`;
+export function lockLabel(unlock: UnlockGate | undefined, ledger: LedgerData | undefined): string {
+  if (unlock?.roeMin !== undefined && !conductAtLeast(ledger, unlock.roeMin)) {
+    return `Conduct ≥${unlock.roeMin}`;
+  }
+  if (unlock?.starsMin !== undefined && starsEarned(ledger) < unlock.starsMin) {
+    return `★ ≥${unlock.starsMin}`;
+  }
   return 'locked';
 }
 
@@ -167,12 +181,34 @@ export function queueFor(view: DockView, unitId: string): QueueState | null {
   };
 }
 
-/** Every state one unit tile is in, this frame. */
-export function tileState(unit: DockUnit, view: DockView): TileState {
+/**
+ * Every state one unit tile is in, this frame.
+ *
+ * `view.buildBlockedReason` is still asked FIRST, and still decides whether the
+ * tile is locked at all -- it is the only thing that knows about a destroyed
+ * field camp, and invariant 4 forbids recomputing sim state on this side. But
+ * the SENTENCE a locked tile shows never comes from that string: when the
+ * unit's own `unlock` gate is what is closed, `gateSentence` (the same
+ * app-side helper the campaign map and brigade use) recomputes it from the
+ * gate and the ledger, independently of the sim's wording. Only a reason with
+ * no gate behind it at all -- "field camp destroyed", "no field camp", "not
+ * available in the field" -- falls back to the runtime's own text, and none of
+ * those three are ever the sim's `requires ...` phrasing.
+ */
+export function tileState(
+  unit: DockUnit,
+  view: DockView,
+  ledger?: LedgerData,
+  missionName: (id: string) => string | undefined = () => undefined
+): TileState {
   const reason = view.buildBlockedReason(unit.id);
+  if (reason === null) {
+    return { affordable: view.logistics >= unit.logistics, lock: null, queue: queueFor(view, unit.id) };
+  }
+  const sentence = unit.unlock ? gateSentence(unit.unlock, ledger, missionName) : null;
   return {
     affordable: view.logistics >= unit.logistics,
-    lock: reason === null ? null : { short: lockLabel(reason), full: reason },
+    lock: { short: lockLabel(unit.unlock, ledger), full: sentence ?? reason },
     queue: queueFor(view, unit.id),
   };
 }

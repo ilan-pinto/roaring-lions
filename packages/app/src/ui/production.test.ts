@@ -193,26 +193,31 @@ describe('tile states', () => {
     );
   });
 
-  it('shortens the lock to what fits, and keeps the whole sentence on the title', () => {
+  // The fake runtime still answers `buildBlockedReason` with the sim's raw
+  // wording -- proving the dock recomputes the sentence from the unit's own
+  // `unlock` (via `gateSentence`) rather than merely being able to.
+  it('shortens the lock to what fits, and puts the human sentence -- never the sim’s raw wording -- on the title', () => {
     const rt = fakeRuntime({
       blocked: { inf_squad: 'requires campaign Conduct 55 (no missions rated yet)' },
     });
-    const r = rig([dockUnit()], rt);
+    const r = rig([dockUnit({ unlock: { roeMin: 55 } })], rt);
     const t = r.tile('inf_squad');
     expect(t.dataset.locked).toBe('1');
     expect(t.querySelector('.rl-tile__lock')?.textContent).toBe('Conduct ≥55');
-    expect(t.title).toContain('requires campaign Conduct 55 (no missions rated yet)');
+    expect(t.title).toContain('Needs a campaign Conduct of 55 or better');
+    expect(t.title).not.toContain('requires campaign Conduct');
   });
 
-  it('shortens a stars lock to a star count, and keeps the whole sentence on the title', () => {
+  it('shortens a stars lock to a star count, and puts the human sentence on the title', () => {
     const rt = fakeRuntime({
       blocked: { inf_squad: 'requires 12 stars (currently 4)' },
     });
-    const r = rig([dockUnit()], rt);
+    const r = rig([dockUnit({ unlock: { starsMin: 12 } })], rt);
     const t = r.tile('inf_squad');
     expect(t.dataset.locked).toBe('1');
     expect(t.querySelector('.rl-tile__lock')?.textContent).toBe('★ ≥12');
-    expect(t.title).toContain('requires 12 stars (currently 4)');
+    expect(t.title).toContain('Needs 12 stars');
+    expect(t.title).not.toContain('requires 12 stars');
   });
 
   // A type the campaign has not opened is not "expensive". Saying both at once
@@ -458,10 +463,13 @@ describe('invariant 4: the dock never touches the sim', () => {
     );
     runtime.start();
     const r = rig(
-      [dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT', logistics: 906 })],
+      [dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT', logistics: 906, unlock: { roeMin: 55 } })],
       runtime as unknown as FakeRuntime
     );
     expect(r.tile('mbt_lavi').dataset.locked).toBe('1');
     expect(r.tile('mbt_lavi').querySelector('.rl-tile__lock')?.textContent).toBe('Conduct ≥55');
+    // The tile's own recompute, not the real runtime's raw `unlockReason` text.
+    expect(r.tile('mbt_lavi').title).toContain('Needs a campaign Conduct of 55 or better');
+    expect(r.tile('mbt_lavi').title).not.toContain('requires campaign Conduct');
   });
 });

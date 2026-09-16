@@ -15,6 +15,7 @@
 // action is a callback `main.ts` supplied — see the note on `onArm` for why
 // that indirection is load-bearing and not ceremony.
 
+import type { LedgerData } from '@lions/sim';
 import { roleBadgeSvg } from './role';
 import { tileState, type DockUnit, type DockView } from './dock-model';
 import type { Tone } from './hud';
@@ -41,6 +42,13 @@ export interface ProductionOptions {
   note(html: string, tone?: Tone): void;
   /** Arming is owned by the input layer — it decides what the next click means. */
   onArm(kind: SupportKind | null): void;
+  /** The campaign ledger, for `tileState`'s `gateSentence` recompute. Absent
+   *  reads as an empty ledger -- every gate still closed, none open early. */
+  ledger?: LedgerData;
+  /** Resolves a mission id to its player-facing title, for an `afterMission`
+   *  gate's sentence -- the same catalogue lookup the campaign map and
+   *  brigade already take. */
+  missionName?: (id: string) => string | undefined;
 }
 
 /** The two fire-support calls, as the dock draws them. */
@@ -298,7 +306,7 @@ export class ReinforcementDock {
   refresh(): void {
     const rt = this.opts.runtime;
     for (const tile of this.unitTiles) {
-      const state = tileState(tile.unit, rt);
+      const state = tileState(tile.unit, rt, this.opts.ledger, this.opts.missionName);
       tile.el.dataset.locked = state.lock === null ? '0' : '1';
       // A lock outranks the price: a type the campaign has not opened is not
       // "expensive", and dimming it twice would say two things at once.

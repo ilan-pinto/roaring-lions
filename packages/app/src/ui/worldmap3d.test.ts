@@ -187,6 +187,28 @@ describe('clicking the ground', () => {
     expect(s.went).toEqual(['?mission=beit_sahwan_breach']);
   });
 
+  it('says the region alone, never the mission id, when it has no mission catalogue', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    s.view().pick('marj');
+    expect(say(s.el)).toBe('The Marj Strip');
+    expect(say(s.el)).not.toContain('beit_sahwan_breach');
+  });
+
+  it('names the mission it is opening, once it has a catalogue to ask', async () => {
+    const s = mountScreen(
+      {},
+      {
+        missionOf: (id) =>
+          id === 'beit_sahwan_breach' ? { objectives: [], name: 'Beit Sahwan — First Light' } : undefined,
+      }
+    );
+    await s.ready;
+    s.view().pick('marj');
+    expect(say(s.el)).toBe('The Marj Strip — opening Beit Sahwan — First Light');
+    expect(say(s.el)).not.toContain('beit_sahwan_breach');
+  });
+
   it('launches the next UNFINISHED mission, not the first', async () => {
     const s = mountScreen({
       'campaign.completed_missions': ['beit_sahwan_breach', 'beit_sahwan_1_recon'],

@@ -6,7 +6,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
-import { unlockReason } from '@lions/sim';
 import {
   MAX_TAGS,
   doctrineTags,
@@ -40,30 +39,29 @@ function view(over: Partial<DockView> = {}): DockView {
 }
 
 describe('lockLabel', () => {
+  // Reads the STRUCTURED gate through `conductAtLeast`/`starsEarned` now --
+  // the same predicates `gateSentence` and the brigade's own `bindingGate`
+  // use -- rather than a regex over `unlockReason`'s sentence. That sentence
+  // never reaches this function at all any more.
   it('keeps the Conduct gate’s number, which is the one thing a tile can act on', () => {
-    expect(lockLabel('requires campaign Conduct 55 (no missions rated yet)')).toBe('Conduct ≥55');
-    expect(lockLabel('requires campaign Conduct 90 (currently 71)')).toBe('Conduct ≥90');
+    expect(lockLabel({ roeMin: 55 }, {})).toBe('Conduct ≥55');
+    expect(lockLabel({ roeMin: 90 }, { 'roe.mission_ratings': { a: 71 } })).toBe('Conduct ≥90');
   });
 
-  it('falls back to one word for a reason with no number in it', () => {
-    expect(lockLabel('field camp destroyed — no production')).toBe('locked');
-    expect(lockLabel('no field camp — production needs one standing')).toBe('locked');
-    expect(lockLabel('not available in the field')).toBe('locked');
-    expect(lockLabel('requires clearing beit_sahwan_1_recon')).toBe('locked');
+  it('falls back to one word for a gate with no number to show, or none at all', () => {
+    expect(lockLabel(undefined, {})).toBe('locked');
+    expect(lockLabel({ afterMission: 'beit_sahwan_1_recon' }, {})).toBe('locked');
   });
 
-  // The point of this one: `lockLabel` PARSES a sentence another package
-  // writes. Hand-written inputs above would keep passing forever if
-  // `unlockReason` reworded itself, and the tile would silently degrade to
-  // `locked` for every gated unit at once. This feeds it the real thing.
-  it('reads the sentence @lions/sim actually produces, not a copy of it', () => {
-    const why = unlockReason({ roeMin: 55 }, { 'roe.mission_ratings': { a: 20 } });
-    expect(why).not.toBe(null);
-    expect(lockLabel(why ?? '')).toBe('Conduct ≥55');
+  it('does not name a gate the ledger has already cleared', () => {
+    // A unit can decline `roeMin` while still failing `starsMin` (or vice
+    // versa); the label must name whichever one is ACTUALLY binding, the same
+    // precedence `gateSentence` checks in.
+    expect(lockLabel({ roeMin: 40, starsMin: 12 }, { 'roe.mission_ratings': { a: 90 } })).toBe('★ ≥12');
   });
 
   it('renders the stars gate as a star count', () => {
-    expect(lockLabel('requires 12 stars (currently 4)')).toBe('★ ≥12');
+    expect(lockLabel({ starsMin: 12 }, {})).toBe('★ ≥12');
   });
 });
 
@@ -184,15 +182,30 @@ describe('tileState', () => {
     expect(tileState(unit({ logistics: 292 }), view({ logistics: 291 })).affordable).toBe(false);
   });
 
-  it('carries both the short lock and the runtime’s own sentence', () => {
+  // The runtime's own sentence (`buildBlockedReason`) is what decides THAT a
+  // tile is locked, but never what it SAYS: when the unit carries its own
+  // structured `unlock`, both the short label and the full sentence come from
+  // `gateSentence`, recomputed from the gate and the ledger -- the sim's raw
+  // wording is never shown, even though the fake runtime here still returns it
+  // (proving the recompute path is actually taken, not merely available).
+  it('recomputes the lock sentence from the unit’s own gate, never the runtime’s raw wording', () => {
     const state = tileState(
-      unit(),
-      view({ buildBlockedReason: () => 'requires campaign Conduct 60 (currently 41)' })
+      unit({ unlock: { roeMin: 60 } }),
+      view({ buildBlockedReason: () => 'requires campaign Conduct 60 (currently 41)' }),
+      { 'roe.mission_ratings': { a: 41 } }
     );
     expect(state.lock).toEqual({
       short: 'Conduct ≥60',
-      full: 'requires campaign Conduct 60 (currently 41)',
+      full: 'Needs a campaign Conduct of 60 or better',
     });
+  });
+
+  // A unit with no structured gate at all can still be blocked -- a destroyed
+  // field camp, say -- and that text is plain English already, never the
+  // sim's `requires ...` gate phrasing, so it is shown as-is.
+  it('falls back to the runtime’s own text for a block with no gate behind it', () => {
+    const state = tileState(unit(), view({ buildBlockedReason: () => 'field camp destroyed — no production' }));
+    expect(state.lock).toEqual({ short: 'locked', full: 'field camp destroyed — no production' });
   });
 
   it('reports no lock when the runtime has none', () => {

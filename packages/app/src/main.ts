@@ -1622,9 +1622,15 @@ async function main(): Promise<void> {
             sprite: portraits[u.id] ?? null,
             tags: doctrineTags(bucket, abilities),
             blurb: 'blurb' in u ? (u.blurb as string) : undefined,
+            // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's
+            // lock sentence (`gateSentence`, via `dock-model.ts`'s `tileState`) can
+            // never disagree with what the runtime is actually enforcing.
+            unlock: kdfUnlockGate(u),
           };
         }),
       runtime,
+      ledger,
+      missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
       note: (html, tone) => hud.note(html, tone),
       onArm: (kind) => {
         armedSupport = kind;
