@@ -979,6 +979,17 @@ const structureSymbols = new Map(
       if (!u) continue;
       if (u.id) kdfIds.add(u.id);
       if (u.role) kdfRoles.add(u.role);
+      // Per-unit unlock checks
+      if (u.unlock?.bought === true) {
+        failures.push(
+          `${u.id}: unlock.bought is resolved from the brigade account and cannot be authored`
+        );
+      }
+      if (u.unlock?.price !== undefined && u.faction !== 'kdf') {
+        failures.push(
+          `${u.id}: unlock.price is only valid on faction 'kdf' units`
+        );
+      }
     }
     for (const role of namesDoc.kinds.task_roles ?? []) {
       if (!kdfRoles.has(role)) {
