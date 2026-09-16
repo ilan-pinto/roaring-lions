@@ -619,6 +619,57 @@ body {
 }
 
 /* ====================================================================== */
+/* Focus ring — one designed ring for every focusable control (task 6)    */
+/* ====================================================================== */
+
+/* Most controls here had no ring of their own and fell through to the
+   browser's default blue -- inconsistent with everything else this sheet
+   styles, and the only place `--accent` was not the answer. `.rl-tile` and
+   `.country-hit` already draw their own (a border-color change on
+   `:focus-visible`) and turn this off locally rather than layering a second
+   ring under theirs; everything else gets it from here once. */
+:focus-visible {
+  outline: 2px solid var(--accent); /* px-ok */
+  outline-offset: 2px;
+}
+
+/* ====================================================================== */
+/* Confirm — the one dialog for anything that destroys player state       */
+/* ====================================================================== */
+
+.rl-confirm {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--scrim) 60%, transparent);
+  z-index: 50;
+}
+/* `.rl-panel` is absolutely positioned and pointer-events:none by default --
+   right for a HUD panel pinned over the map, wrong for a modal this grid is
+   meant to centre and that the player has to be able to click anywhere on.
+   Both are overridden here; equal specificity to `.rl-panel`'s own rule, so
+   this wins purely by coming later in the cascade. */
+.rl-confirm__panel {
+  position: relative;
+  pointer-events: auto;
+  width: min(26rem, 92vw);
+}
+.rl-confirm__body {
+  margin: 0;
+}
+.rl-confirm__row {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.rl-confirm__yes[data-danger='1'] {
+  border-color: var(--bad);
+  color: var(--bad-text);
+}
+
+/* ====================================================================== */
 /* Semantic ink — the only way UI code names a colour                     */
 /* ====================================================================== */
 
@@ -855,9 +906,18 @@ body {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* A `<button>` now (task 6: it used to be a plain `<a href="?campaign">`),
+   so it needs the button-chrome reset the anchor never did -- without this
+   it would draw with the browser's default button face instead of reading as
+   the same inline link it always has. */
 .rl-strip__link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
   color: var(--ink);
   text-decoration: none;
+  cursor: pointer;
 }
 .rl-strip__link:hover {
   color: var(--accent);
@@ -2452,21 +2512,33 @@ button.rl-menu__item[data-kind='aside'] {
     transform: translateY(0);
   }
 }
+/* The display face, not a quiet outline (task 6): a filled stamp the same
+   olive band the mission-rank panel uses, sized off the same type scale the
+   mission's own name is set in (`--t-xl`). This is the one control on the
+   screen that starts the mission. */
 .rl-loading__deploy {
   margin-top: var(--s5);
-  padding: var(--s2) var(--s5);
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  letter-spacing: var(--track-label);
+  padding: var(--s2) var(--s6);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  background: var(--band-mission);
   color: var(--ink);
-  background: transparent;
-  border: 1px solid var(--band-mission);
+  border: 0;
   cursor: pointer;
 }
 .rl-loading__deploy:hover,
 .rl-loading__deploy:focus-visible {
-  background: color-mix(in srgb, var(--band-mission) 22%, transparent);
+  background: color-mix(in srgb, var(--band-mission) 80%, var(--ink));
+}
+/* The back edge Escape now uses (`loading.ts`'s `onBack`) -- a plain `.rl-btn`
+   beneath Deploy, sized to its own text rather than stretching the block
+   width a bare `display: block` would default to. */
+.rl-loading__back {
+  display: block;
+  width: fit-content;
+  margin: var(--s3) auto 0 0;
 }
 
 /* A player who has asked for less motion still gets the fill, just without

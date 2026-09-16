@@ -28,6 +28,7 @@
 
 import { fx, type LedgerRosterEntry, type Sim } from '@lions/sim';
 import type { ResolvedCommander } from '../campaign';
+import { confirmDialog } from './confirm';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { roleBadgeSvg, roleBucket } from './role';
@@ -155,6 +156,12 @@ export interface HudDeps {
   /** Audio state, mirrored by the `m` key. Returns the new muted state. */
   isMuted?: () => boolean;
   toggleMute?: () => void;
+  /** The navigation behind "leave the mission", confirmed first -- the Hud
+   *  reads no `window.location` of its own (`ui/confirm.ts`'s own header:
+   *  this used to be a plain `<a href="?campaign">` with no confirm at all).
+   *  `main.ts` passes `() => window.location.assign('?campaign')`; absent in
+   *  tests that do not exercise the click. */
+  leave?: () => void;
 }
 
 export class Hud {
@@ -276,13 +283,29 @@ export class Hud {
       chips.appendChild(b);
     }
 
-    // The map page is always one click away, mid-mission included. A plain
-    // navigation, so leaving a fight costs the attempt -- deliberately.
-    const campaign = document.createElement('a');
-    campaign.className = 'rl-strip__link';
-    campaign.href = '?campaign';
-    campaign.textContent = '⌂';
-    campaign.title = 'campaign map';
+    // The map page is always one click away, mid-mission included -- but
+    // leaving a fight costs the attempt, so it is confirmed first rather than
+    // a plain navigation (task 6: this used to be a bare `<a href="?campaign">`,
+    // and there was no way to change your mind once the click landed). Moved
+    // to the strip's far left, ahead of the mission's own fields, and out of
+    // this right-hand instrument cluster -- it is not a speed or mute toggle,
+    // it is the one control here that ends the attempt.
+    const leaveBtn = document.createElement('button');
+    leaveBtn.type = 'button';
+    leaveBtn.className = 'rl-strip__link';
+    leaveBtn.textContent = '⌂ leave';
+    leaveBtn.title = 'leave the mission';
+    leaveBtn.addEventListener('click', () => {
+      void confirmDialog(document.body, {
+        title: 'Leave the mission?',
+        body: 'This attempt is lost. The campaign keeps everything from before it.',
+        confirm: 'Leave',
+        danger: true,
+      }).then((ok) => {
+        if (ok) deps.leave?.();
+      });
+    });
+    this.strip.prepend(leaveBtn);
 
     this.muteChip = document.createElement('button');
     this.muteChip.type = 'button';
@@ -293,7 +316,7 @@ export class Hud {
       this.muteChip.blur();
     });
 
-    right.append(chips, campaign, this.muteChip);
+    right.append(chips, this.muteChip);
     this.paintSpeed();
     this.paintMute();
 

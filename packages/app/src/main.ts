@@ -599,6 +599,7 @@ async function main(): Promise<void> {
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
         done: tutorialDone,
       },
+      reset: () => window.location.assign('?fresh=1'),
     });
     return;
   }
@@ -1185,7 +1186,10 @@ async function main(): Promise<void> {
     mission?.briefing,
     { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait },
     mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined,
-    resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined
+    resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined,
+    // A sandbox has no briefing to go back to -- only a real mission gets an
+    // Escape/back edge (task 6).
+    mission ? () => window.location.assign('?campaign') : undefined
   );
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
@@ -1514,6 +1518,7 @@ async function main(): Promise<void> {
     toggleMute: () => {
       audioMuted = audio.toggle();
     },
+    leave: () => window.location.assign('?campaign'),
   });
   // The minimap (GH-153). Mounted here rather than inside the Hud because it
   // needs three things the Hud deliberately does not carry -- the parsed map,

@@ -123,6 +123,28 @@ try {
     await settle(page, 6000);
     await shot(page, dir, '05-briefing');
 
+    // Task 6: Escape on the briefing goes back to the campaign map, and no
+    // longer deploys. A console line, not a gate -- driven on a separate
+    // throwaway page/context so it cannot disturb the main `page`, which
+    // keeps driving this SAME mission through deploy, selection and combat
+    // below.
+    {
+      const backCtx = await browser.newContext({
+        viewport: { width: res.width, height: res.height },
+        deviceScaleFactor: 1,
+      });
+      const backPage = await backCtx.newPage();
+      backPage.setDefaultTimeout(30000);
+      await backPage.goto(`${BASE}/?mission=${MISSION}`, { waitUntil: 'load' });
+      await settle(backPage, 6000);
+      await backPage.keyboard.press('Escape');
+      await backPage.waitForTimeout(300);
+      const url = backPage.url();
+      const ok = url === `${BASE}/?campaign`;
+      console.log(`  escape-from-briefing -> ${url} (${ok ? 'OK' : 'UNEXPECTED'})`);
+      await backCtx.close();
+    }
+
     try {
       await dismissDeployGate(page, TAG);
     } catch (err) {

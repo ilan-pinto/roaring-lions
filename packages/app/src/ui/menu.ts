@@ -11,6 +11,7 @@ import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, sandboxUrl, type SandboxFlagName } from '../sandbox-help';
+import { confirmDialog } from './confirm';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { markSvg, wordmark } from './mark';
@@ -30,6 +31,10 @@ export interface MenuOptions {
    * it reads as a bug; the same toggle is `m` in a mission.
    */
   audio?: { isMuted(): boolean; toggle(): boolean };
+  /** The navigation behind "reset campaign ledger", confirmed first -- see
+   *  `ui/confirm.ts`. Absent in tests that do not exercise the click; a real
+   *  caller wants `() => window.location.assign('?fresh=1')`. */
+  reset?: () => void;
 }
 
 export interface CampaignOptions {
@@ -113,7 +118,32 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   // and none of the four flags were reachable by anyone who used the menu.
   // Same defect as `&mesh`, which no menu link ever appended either.
   addAside('free play — any map', '?sandboxes');
-  addAside('reset campaign ledger', '?fresh=1');
+  // A button, not a link: this one destroys the campaign, so it is confirmed
+  // first rather than a plain navigation (task 6 -- `?fresh=1` used to be one
+  // click away with nothing standing in front of it). Same `rl-btn
+  // rl-menu__item[data-kind='aside']` look the audio toggle below already
+  // wears as the list's one <button>.
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button';
+  resetBtn.className = 'rl-btn rl-menu__item';
+  resetBtn.dataset.kind = 'aside';
+  resetBtn.textContent = 'reset campaign ledger';
+  resetBtn.addEventListener('click', () => {
+    void confirmDialog(stage, {
+      title: 'Start the campaign over?',
+      // Not "brigade account and tutorial completion are erased" -- the
+      // account deliberately SURVIVES `?fresh=1` (main.ts, spec 2026-09-15
+      // §4.1: "a second campaign starts with the brigade you built"). A
+      // confirm that names the wrong casualty is worse than one that names
+      // none.
+      body: 'Your campaign progress and tutorial completion are erased. Your brigade account is not affected.',
+      confirm: 'Erase and restart',
+      danger: true,
+    }).then((ok) => {
+      if (ok) opts.reset?.();
+    });
+  });
+  aside.appendChild(resetBtn);
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
   wrap.appendChild(aside);
 

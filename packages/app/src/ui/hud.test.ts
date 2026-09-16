@@ -271,9 +271,25 @@ describe('top strip: the persistent controls', () => {
     expect(chip.dataset.on).toBe('1');
   });
 
-  it('offers the campaign map at all times, mid-mission included', () => {
-    const a = rig(mission()).host.querySelector<HTMLAnchorElement>('.rl-strip__link')!;
-    expect(a.getAttribute('href')).toBe('?campaign');
+  it('offers to leave the mission at all times, mid-mission included -- confirmed, not a plain navigation', async () => {
+    let left = false;
+    const r = rig(mission(), { leave: () => { left = true; } });
+    const btn = r.host.querySelector<HTMLButtonElement>('.rl-strip__link')!;
+    expect(btn.tagName).toBe('BUTTON');
+    expect(btn.textContent).toContain('leave');
+    btn.click();
+    // Confirmed first: clicking the strip control alone must not navigate.
+    expect(left).toBe(false);
+    const dialog = document.body.querySelector<HTMLElement>('.rl-confirm')!;
+    expect(dialog).not.toBeNull();
+    dialog.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+    await Promise.resolve();
+    expect(left).toBe(true);
+  });
+
+  it('sits leftmost in the strip -- the one control here that ends the attempt, not one of the instruments', () => {
+    const r = rig(mission());
+    expect(r.host.querySelector('.rl-strip')!.firstElementChild?.classList.contains('rl-strip__link')).toBe(true);
   });
 });
 

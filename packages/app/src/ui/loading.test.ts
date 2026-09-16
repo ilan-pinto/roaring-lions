@@ -171,13 +171,67 @@ describe('reading a long briefing', () => {
     expect(el.querySelector('.rl-loading')).not.toBeNull();
   });
 
-  it('still deploys on Escape, for a player who wants out of the text', async () => {
+  it('a click on the briefing text does not deploy', async () => {
     const el = document.createElement('div');
     const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
-    const done = screen.done();
+    let handed = false;
+    void screen.done().then(() => {
+      handed = true;
+    });
+    el.querySelector('.rl-loading__brief')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await Promise.resolve();
+    expect(handed).toBe(false);
+    expect(el.querySelector('.rl-loading')).not.toBeNull();
+  });
+
+  it('goes back on Escape when the briefing has somewhere to go back to, and never deploys', async () => {
+    const el = document.createElement('div');
+    let backCalls = 0;
+    const screen = showLoading(
+      el,
+      'Break the Depot',
+      'Seven structures.',
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        backCalls++;
+      }
+    );
+    let handed = false;
+    void screen.done().then(() => {
+      handed = true;
+    });
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await done;
+    // A macrotask, not just a microtask: this proves the promise is not merely
+    // slow to settle, it is never going to -- the mission did not start.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(backCalls).toBe(1);
+    expect(handed).toBe(false);
     expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('does nothing on Escape when there is nowhere to go back to (a sandbox)', async () => {
+    const el = document.createElement('div');
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    let handed = false;
+    void screen.done().then(() => {
+      handed = true;
+    });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(handed).toBe(false);
+    expect(el.querySelector('.rl-loading')).not.toBeNull();
+  });
+
+  it('renders a back link under Deploy only when onBack is supplied', () => {
+    const withBack = document.createElement('div');
+    showLoading(withBack, 'Break the Depot', 'Seven structures.', undefined, undefined, undefined, () => undefined);
+    expect(withBack.querySelector('.rl-loading__back')).not.toBeNull();
+
+    const withoutBack = document.createElement('div');
+    showLoading(withoutBack, 'Break the Depot', 'Seven structures.');
+    expect(withoutBack.querySelector('.rl-loading__back')).toBeNull();
   });
 });
 
