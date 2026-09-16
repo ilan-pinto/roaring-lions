@@ -66,7 +66,7 @@ import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
-import { loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
+import { buyUnlock, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
@@ -191,13 +191,22 @@ function unitFor(typeId: string): { id: string; role: string } {
 }
 
 /** A KDF unit JSON entry's `unlock` gate, mapped from the authored
- *  `roe_rating_min`/`stars_min`/`after_mission` field names to `UnlockGate` --
- *  the one mapping `unitInfo`, `kdfUnits` and `resolveUpgrades`'s lookup all share. */
-function kdfUnlockGate(u: (typeof units)[keyof typeof units]): UnlockGate | undefined {
-  const unlock = 'unlock' in u ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string }) : undefined;
-  return unlock
-    ? { roeMin: unlock.roe_rating_min, starsMin: unlock.stars_min, afterMission: unlock.after_mission }
+ *  `roe_rating_min`/`stars_min`/`after_mission`/`price` field names to `UnlockGate` --
+ *  the one mapping `unitInfo`, `kdfUnits` and `resolveUpgrades`'s lookup all share.
+ *  `bought` is resolved here and nowhere else (spec §4.4) -- a purchase opens the
+ *  unit on every surface that reads this gate by construction. */
+function kdfUnlockGate(u: (typeof units)[keyof typeof units], bought: ReadonlySet<string>): UnlockGate | undefined {
+  const unlock = 'unlock' in u
+    ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number })
     : undefined;
+  if (!unlock) return undefined;
+  return {
+    roeMin: unlock.roe_rating_min,
+    starsMin: unlock.stars_min,
+    afterMission: unlock.after_mission,
+    price: unlock.price,
+    bought: bought.has(u.id),
+  };
 }
 
 /** What `roleBucket` needs to pick a role mark for the brigade screen's
@@ -506,6 +515,13 @@ async function main(): Promise<void> {
     }
   };
 
+  // --- brigade account: bought units -----------------------------------------
+  // Resolved once, here, for every surface that reads a KDF unit's unlock gate
+  // through `kdfUnlockGate` -- the dock's `unitInfo`, the brigade route,
+  // `resolveUpgrades`'s lookup and the debrief's `kdfUnits`.
+  const storage = safeStorage();
+  const boughtUnits = new Set(storage ? loadAccount(storage).unlocks : []);
+
   // --- mode selection ------------------------------------------------------
   const params = new URLSearchParams(window.location.search);
   if (params.get('fresh') !== null && params.get('mission') === null) {
@@ -547,7 +563,7 @@ async function main(): Promise<void> {
       // deliberately off the map, so it is never in this sum at all).
       const kdfUnits = Object.values(units)
         .filter((u) => u.faction === 'kdf')
-        .map((u) => ({ id: u.id, name: u.name, role: u.role, unlock: kdfUnlockGate(u), ...kdfBrigadeTraits(u) }));
+        .map((u) => ({ id: u.id, name: u.name, role: u.role, unlock: kdfUnlockGate(u, boughtUnits), ...kdfBrigadeTraits(u) }));
       const portraits: Record<string, string> = {};
       await Promise.all(
         kdfUnits.map(async ({ id }) => {
@@ -555,7 +571,6 @@ async function main(): Promise<void> {
           if (url !== null) portraits[id] = url;
         })
       );
-      const storage = safeStorage();
       showBrigade(stage, {
         units: kdfUnits,
         ledger: loadLedger(),
@@ -565,6 +580,13 @@ async function main(): Promise<void> {
         onReset: storage
           ? () => {
               resetAccount(storage);
+              window.location.reload();
+            }
+          : undefined,
+        onBuy: storage
+          ? (unitId, price) => {
+              const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
+              if (ok) saveAccount(storage, account);
               window.location.reload();
             }
           : undefined,
@@ -807,7 +829,7 @@ async function main(): Promise<void> {
   if (mission) {
     resolvedMission = resolveUpgrades(mission, ledger, (id) => {
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
-      return u ? kdfUnlockGate(u) : undefined;
+      return u ? kdfUnlockGate(u, boughtUnits) : undefined;
     });
     runtime = new MissionRuntime(sim, resolvedMission, {
       typeIdOf: (id) => {
@@ -825,7 +847,7 @@ async function main(): Promise<void> {
         return {
           logistics: u.cost.logistics,
           buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
-          unlock: kdfUnlockGate(u),
+          unlock: kdfUnlockGate(u, boughtUnits),
         };
       },
     });
@@ -2109,7 +2131,7 @@ async function main(): Promise<void> {
               .map((u) => ({
                 id: u.id,
                 name: u.name ?? u.id,
-                unlock: kdfUnlockGate(u),
+                unlock: kdfUnlockGate(u, boughtUnits),
               }));
             const tier = TIER_LINES[runtime.stars];
             const promotion = me.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
