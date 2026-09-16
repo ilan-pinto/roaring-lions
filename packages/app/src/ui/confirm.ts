@@ -28,10 +28,16 @@ export interface ConfirmOptions {
  * Cancel takes focus on mount, so an Enter that was meant for the game
  * underneath does not confirm. Escape cancels, and so does a click on the
  * scrim outside the panel. Either answer removes the dialog from the DOM
- * before resolving, so a caller never has to clean up after it.
+ * before resolving, so a caller never has to clean up after it -- and, since
+ * this presents itself as a `role="dialog"` modal (the WAI-ARIA APG's own
+ * expectation for the pattern, fix round 1), focus returns to whatever
+ * opened it, captured here before `no.focus()` steals it. Removing the
+ * focused element from the document would otherwise drop focus to `<body>`,
+ * losing a keyboard player's position entirely.
  */
 export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const scrim = document.createElement('div');
     scrim.className = 'rl-confirm';
     scrim.setAttribute('role', 'dialog');
@@ -62,6 +68,7 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<
     const done = (v: boolean): void => {
       window.removeEventListener('keydown', onKey);
       scrim.remove();
+      opener?.focus();
       resolve(v);
     };
     const onKey = (e: KeyboardEvent): void => {

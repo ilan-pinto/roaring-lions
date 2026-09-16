@@ -624,10 +624,20 @@ body {
 
 /* Most controls here had no ring of their own and fell through to the
    browser's default blue -- inconsistent with everything else this sheet
-   styles, and the only place `--accent` was not the answer. `.rl-tile` and
-   `.country-hit` already draw their own (a border-color change on
-   `:focus-visible`) and turn this off locally rather than layering a second
-   ring under theirs; everything else gets it from here once. */
+   styles, and the only place `--accent` was not the answer. `.rl-tile`
+   already draws its own (a border-color change on `:focus-visible`,
+   theme.css ~1648) and turns this off locally rather than layering a second
+   ring under its own; everything else gets it from here once.
+   `.country-hit` (theme.css ~272) is NOT the same case, whatever an earlier
+   version of this comment said (fix round 1) -- its `outline: none` is flat
+   and unconditional, with no `:focus-visible` scoping and no border-color
+   swap of its own anywhere. It is left alone anyway: that rule and this one
+   are equal specificity, this one comes later in the file, so THIS rule
+   still wins during an actual `:focus-visible` state and a focused country
+   link gets the ring regardless. That is cascade order doing the work, not
+   a ring `.country-hit` draws itself -- reorder either rule, or give
+   `.country-hit` a more specific selector later, and the ring silently
+   disappears with nothing here to explain why it used to be safe. */
 :focus-visible {
   outline: 2px solid var(--accent); /* px-ok */
   outline-offset: 2px;

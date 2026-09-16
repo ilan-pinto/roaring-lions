@@ -396,14 +396,19 @@ export function showLoading(
 
   // The back edge Escape now uses (see `onBack`'s own doc comment above).
   // Rendered only when there is somewhere to go back to -- a sandbox has no
-  // briefing to return from, and no `onBack` to call.
+  // briefing to return from, and no `onBack` to call. Its click listener is
+  // NOT wired here -- `done()` below wires it, through the same `cleanup()`
+  // Escape uses (fix round 1: this used to call `onBack()` directly, which
+  // skipped `cleanup()` and left the window keydown listener, `wrap` and the
+  // pending promise all dangling -- invisible only because every `onBack`
+  // this app wires up is a hard page navigation that tears the whole JS
+  // realm down anyway).
   let back: HTMLButtonElement | null = null;
   if (onBack) {
     back = document.createElement('button');
     back.type = 'button';
     back.className = 'rl-btn rl-loading__back';
     back.textContent = '← campaign map';
-    back.addEventListener('click', () => onBack());
   }
 
   box.append(label, name, track, count);
@@ -496,16 +501,22 @@ export function showLoading(
           window.removeEventListener('keydown', onKey);
           wrap.remove();
         };
+        // The one path out that does NOT start the mission -- shared by
+        // Escape and the back link (fix round 1), so both tear the screen
+        // down the same way rather than the link bypassing `cleanup()`.
+        const goBack = (): void => {
+          if (!onBack) return;
+          cleanup();
+          onBack();
+        };
         const onKey = (e: KeyboardEvent): void => {
-          if (e.key === 'Escape' && onBack) {
-            cleanup();
-            onBack();
-          }
+          if (e.key === 'Escape') goBack();
         };
         deploy.addEventListener('click', () => {
           cleanup();
           resolve();
         });
+        back?.addEventListener('click', goBack);
         window.addEventListener('keydown', onKey);
         deploy.focus();
       });

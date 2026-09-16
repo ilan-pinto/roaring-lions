@@ -233,6 +233,37 @@ describe('reading a long briefing', () => {
     showLoading(withoutBack, 'Break the Depot', 'Seven structures.');
     expect(withoutBack.querySelector('.rl-loading__back')).toBeNull();
   });
+
+  // fix round 1: the back link used to call `onBack()` directly, skipping the
+  // `cleanup()` Escape routes through -- the keydown listener, `wrap` and the
+  // pending promise were all left dangling. Same shape as the Escape test
+  // above: clicking back must tear the screen down the same way.
+  it('clicking the back link goes through the same cleanup as Escape -- calls onBack, removes the wrap, and leaves the deploy promise pending', async () => {
+    const el = document.createElement('div');
+    let backCalls = 0;
+    const screen = showLoading(
+      el,
+      'Break the Depot',
+      'Seven structures.',
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        backCalls++;
+      }
+    );
+    let handed = false;
+    void screen.done().then(() => {
+      handed = true;
+    });
+    el.querySelector<HTMLButtonElement>('.rl-loading__back')!.click();
+    // A macrotask, not just a microtask -- proves the promise is not merely
+    // slow to settle, it is never going to.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(backCalls).toBe(1);
+    expect(handed).toBe(false);
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
 });
 
 // A brief is delivered a beat at a time, so the prose has to come apart into

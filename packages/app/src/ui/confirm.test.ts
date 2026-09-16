@@ -61,4 +61,25 @@ describe('confirmDialog', () => {
     const yes = host.querySelector<HTMLButtonElement>('.rl-confirm__yes')!;
     expect(yes.dataset.danger).toBeUndefined();
   });
+
+  // fix round 1: removing the focused Cancel button from the document used to
+  // drop focus to <body> with nothing restoring it -- a keyboard player who
+  // opened the dialog lost their tab position entirely. `role="dialog"` +
+  // `aria-modal` is a claim of the WAI-ARIA modal pattern, and returning
+  // focus to the opener on close is that pattern's own expectation.
+  it('returns focus to the element that opened it, once the dialog closes on Escape', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    expect(document.activeElement).toBe(opener);
+
+    const p = confirmDialog(host, { title: 't', body: 'b', confirm: 'c' });
+    expect(document.activeElement?.classList.contains('rl-confirm__no')).toBe(true);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await p;
+    expect(document.activeElement).toBe(opener);
+  });
 });
