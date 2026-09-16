@@ -36,9 +36,11 @@ import {
   measureMarkerFacing,
   measureRoleFootprint,
   measureRoleTravel,
+  measureRoleTravelByFigure,
   measureWeaponAxis,
   MESH_UNITS_PER_TILE,
   readGlb,
+  swingLiftFraction,
 } from './mesh_gait';
 import { MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
@@ -640,6 +642,16 @@ describe('countTracePeaks', () => {
 //  1. **An empty result is a silent pass.** Every sweep asserts its own
 //     population size before it iterates. `for (const f of [])` passes any
 //     assertion ever written, in 0 ms.
+//  1a. **What each sweep is per.** Facing and the weapon axis are per FIGURE,
+//     because their instruments read a named joint per figure. Gait's
+//     headline numbers -- `rl_gait`, the multiplier, the cadence -- are per
+//     FILE, because `rl_gait` is one declaration per file and that is what
+//     the renderer rate-matches against. A per-file gait number alone is
+//     blind to one figure of a team going still, which is GH-145's own
+//     defect: measured, stripping one of `militia_cell`'s two riflemen of
+//     its leg channels leaves the pooled stride IDENTICAL at 1.4673.
+//     `measureRoleTravelByFigure` is what closes that, and it is a separate
+//     sweep below rather than a change to the declared numbers.
 //  2. **Route a computed quantity through the production code that computes
 //     it.** The playback multiplier goes through `gaitTimeScale`; the
 //     declaration goes through `parseGaitExtras`. A gate with its own copy of
@@ -712,7 +724,14 @@ function riggedFiles(): RiggedFile[] {
     const doc = JSON.parse(readFileSync(hits[0], 'utf8')) as {
       mobility?: { speed_tiles_s?: number };
     };
-    const speed = doc.mobility?.speed_tiles_s;
+    // Type FIRST. `expect(undefined).toBeGreaterThan(0)` throws out of
+    // vitest's own matcher before the label is attached, so a unit JSON with
+    // the key deleted used to fail naming a line number and not the unit.
+    const declaredSpeed = doc.mobility?.speed_tiles_s;
+    expect(typeof declaredSpeed, `${typeId}: ${hits[0]} has no numeric mobility.speed_tiles_s`).toBe(
+      'number'
+    );
+    const speed = typeof declaredSpeed === 'number' ? declaredSpeed : NaN;
     expect(speed, `${typeId}: mobility.speed_tiles_s`).toBeGreaterThan(0);
     for (const file of entry.files) {
       const path = `${MESHES}${file}`;
@@ -722,7 +741,7 @@ function riggedFiles(): RiggedFile[] {
         typeId,
         file,
         path,
-        speedTilesPerSecond: speed as number,
+        speedTilesPerSecond: speed,
         clips: (glb.json.animations ?? []).map((a) => a.name ?? ''),
         declared: parseGaitExtras(scene?.extras?.rl_gait, file),
       });
@@ -754,10 +773,23 @@ const RIGS = riggedFiles();
  * which is 1.0 by construction for any stride whatsoever, including none.
  * This quantity is the one nothing downstream normalises.
  */
-function multiplierFor(rig: RiggedFile, clip: LocomotionClip): number {
-  const gait = rig.declared?.get(clip);
-  expect(gait, `${rig.file}: rl_gait.${clip}`).toBeDefined();
-  return gaitTimeScale(gait, rig.speedTilesPerSecond, 1);
+function multiplierFor(gait: GaitMetrics, speedTilesPerSecond: number): number {
+  // No `expect(gait).toBeDefined()` here, and its absence is deliberate:
+  // every caller takes `gait` from the same map's own `entries()`, so it is
+  // defined by construction and the guard could never fire. That is the exact
+  // class of assertion section 4.3 of this task's report says it removed, and
+  // it survived one round.
+  return gaitTimeScale(gait, speedTilesPerSecond, 1);
+}
+
+/** Every `(type, file, clip, gait)` a locomotion clip is declared for -- one
+ *  narrowed list, so no sweep below needs a `toBeDefined()` to type itself. */
+function declaredLocomotion(): (readonly [string, string, LocomotionClip, RiggedFile, GaitMetrics])[] {
+  return RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT)).flatMap((r) =>
+    [...(r.declared?.entries() ?? [])].map(
+      ([clip, gait]) => [r.typeId, r.file, clip, r, gait] as const
+    )
+  );
 }
 
 /**
@@ -789,9 +821,16 @@ const GAIT_MULTIPLIER_TYPICAL = 1.7;
 /**
  * Nothing shipped is below 1.0 (the minimum is `mortar_team` at 1.0187), and
  * a multiplier under 1 is a real defect in the other direction: legs that
- * cover MORE ground than the unit does, which without the rate match is a
- * moonwalk. 0.8 is clear of every shipped reading and nowhere near
- * `GAIT_TIME_SCALE_MIN`.
+ * cover MORE ground than the unit does. 0.8 is clear of every shipped
+ * reading and nowhere near `GAIT_TIME_SCALE_MIN`.
+ *
+ * **Which "moonwalk" this refuses, since there are two and it only sees
+ * one.** This one is a figure whose legs OVERRUN the ground -- correct
+ * direction, wrong rate, feet scrubbing forward under a body that is not
+ * keeping up. It is not the other moonwalk, a clip exported BACKWARDS, which
+ * every number in this band is blind to by construction: `hi - lo` per axis
+ * is invariant under time reversal. `SWING_LIFT_FLOOR` is the check for that
+ * one.
  */
 const GAIT_MULTIPLIER_FLOOR = 0.8;
 
@@ -884,31 +923,47 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     }
   });
 
-  it.each(
-    RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT)).flatMap((r) =>
-      [...(r.declared?.keys() ?? [])].map((clip) => [r.typeId, r.file, clip, r] as const)
-    )
-  )('%s %s %s needs a playback multiplier inside the measured band', (typeId, file, clip, rig) => {
-    const mult = multiplierFor(rig, clip);
-    expect(mult, `${file} ${clip}`).toBeGreaterThan(GAIT_MULTIPLIER_FLOOR);
-    expect(mult, `${file} ${clip}`).toBeLessThan(GAIT_MULTIPLIER_CEILING);
-    const outlier = GAIT_MULTIPLIER_OUTLIERS[typeId];
-    if (outlier === undefined) {
-      expect(mult, `${file} ${clip} is not a named outlier`).toBeLessThan(GAIT_MULTIPLIER_TYPICAL);
-    } else {
-      expect(mult, `${file} ${clip} outlier`).toBeLessThan(outlier + OUTLIER_SLACK);
+  it.each(declaredLocomotion())(
+    '%s %s %s needs a playback multiplier inside the measured band',
+    (typeId, file, clip, rig, gait) => {
+      const mult = multiplierFor(gait, rig.speedTilesPerSecond);
+      expect(mult, `${file} ${clip}`).toBeGreaterThan(GAIT_MULTIPLIER_FLOOR);
+      expect(mult, `${file} ${clip}`).toBeLessThan(GAIT_MULTIPLIER_CEILING);
+      const outlier = GAIT_MULTIPLIER_OUTLIERS[typeId];
+      if (outlier === undefined) {
+        expect(mult, `${file} ${clip} is not a named outlier`).toBeLessThan(GAIT_MULTIPLIER_TYPICAL);
+      } else {
+        expect(mult, `${file} ${clip} outlier`).toBeLessThan(outlier + OUTLIER_SLACK);
+        // And DEMOTION. Without this an outlier that gets fixed stays exempt
+        // for ever: the recommended follow-up for `charge_squad` is a longer
+        // authored cycle, and once that lands this file would sit quietly
+        // inside the general band with its own exemption still standing and
+        // a later regression back to 2.48 invisible. `GAIT_EXEMPT` is
+        // asserted in both directions; so is this now.
+        expect(
+          mult,
+          `${file} ${clip}: named outlier no longer needs its exemption -- delete the entry`
+        ).toBeGreaterThan(GAIT_MULTIPLIER_TYPICAL);
+      }
     }
-  });
+  );
 
-  it.each(
-    RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT)).flatMap((r) =>
-      [...(r.declared?.entries() ?? [])].map(([clip, gait]) => [r.typeId, r.file, clip, r, gait] as const)
-    )
-  )('%s %s %s asks for a cadence a body could take', (typeId, file, clip, rig, gait) => {
-    const steps = (2 * multiplierFor(rig, clip)) / gait.cycleS;
-    const ceiling = CADENCE_OUTLIERS[typeId] ?? CADENCE_STEPS_PER_S_CEILING;
-    expect(steps, `${file} ${clip}: steps/s`).toBeLessThan(ceiling);
-  });
+  it.each(declaredLocomotion())(
+    '%s %s %s asks for a cadence a body could take',
+    (typeId, file, clip, rig, gait) => {
+      const steps = (2 * multiplierFor(gait, rig.speedTilesPerSecond)) / gait.cycleS;
+      const outlier = CADENCE_OUTLIERS[typeId];
+      expect(steps, `${file} ${clip}: steps/s`).toBeLessThan(
+        outlier ?? CADENCE_STEPS_PER_S_CEILING
+      );
+      if (outlier !== undefined) {
+        expect(
+          steps,
+          `${file} ${clip}: named cadence outlier no longer needs its exemption -- delete the entry`
+        ).toBeGreaterThan(CADENCE_STEPS_PER_S_CEILING);
+      }
+    }
+  );
 
   /**
    * The factor the clamp probe below doubles-and-checks at.
@@ -921,6 +976,15 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
    * anything -- a carried unit is excluded from the rate match entirely
    * (`applyGaitRate`), so twice a unit's own speed is a probe and not a
    * scenario.
+   *
+   * **This check cannot be fired by any change to the ART, only by lowering
+   * a production constant, and that is exactly its purpose.** For a data
+   * change the ceiling always fires first: the probe needs `mult > 4/1.4 =
+   * 2.857` and the ceiling fires at 2.8. Its genuinely independent window is
+   * over `GAIT_TIME_SCALE_MAX` itself -- for any value in **(2.8, 3.70)**
+   * this fires while the coupling assertion above does not, since the
+   * coupling fires at 2.8 and the worst shipped multiplier reaches the clamp
+   * at `1.4 x 2.6454 = 3.70`.
    */
   const CLAMP_HEADROOM_PROBE = 1.4;
 
@@ -972,6 +1036,214 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     // Twelve types over fifteen files, two of which declare `moveFire` too.
     expect(checked).toBe(17);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Step 1b -- PER FIGURE, because a team file pools two or three into one
+// `boot` mesh and the declared stride is the pooled maximum.
+// ---------------------------------------------------------------------------
+
+/**
+ * How far behind its file's best-travelling figure any other figure may be.
+ *
+ * `rl_gait`'s `strideM` is `axisTravelM[0]` -- the single worst vertex of the
+ * POOLED `boot` role -- so a file where one of two riflemen stops moving his
+ * legs declares exactly the same stride as one where nobody does. Measured:
+ * stripping `mil1`'s hip, thigh, shin and pelvis channels out of
+ * `militia_cell.glb`'s `move` leaves `axisTravelM[0]` identical at **1.4673**
+ * and the whole gate green. That is GH-145's own defect, scoped to one figure
+ * of a team, and thirteen of the fifteen gaited files carry more than one
+ * figure.
+ *
+ * Measured 2026-09-16 across every file whose figures all walk, the worst
+ * figure's forward travel as a fraction of the best figure's is **0.957**
+ * (`sniper_team`) and every other file is 0.987-1.000. A figure that has
+ * stopped reads 0.0; one animating at half amplitude reads about 0.5. 0.75
+ * sits between those with margin on both sides.
+ */
+const FIGURE_STRIDE_RATIO_FLOOR = 0.75;
+
+/**
+ * Figures that are deliberately motionless inside a team that DOES walk,
+ * with the authority for each.
+ *
+ * These are `rig.py`'s `animates=False` figures, and `build_move_clip`'s own
+ * docstring is explicit that this means the whole figure: *"a crew-served
+ * figure gets NO keys here at all and so stays at `move`'s own frame-0
+ * identity pose for the whole clip -- correctly: 'crew-served weapons stay
+ * deployed through move' means the whole figure stays put, not just its
+ * weapon."*
+ *
+ * Three whole TEAMS carry that flag on every figure and are in `GAIT_EXEMPT`
+ * instead. These three are the mixed case -- one still figure beside one
+ * walker -- and it is worth being clear-eyed about what it looks like: on
+ * these files one man is carried across the ground with his boots frozen
+ * while the man beside him walks. That is the GH-145 complaint applied to
+ * half a team, and it is AUTHORED (`rig.py` lines 847/851/855). Recorded
+ * here, not fixed here; a gate does not change art.
+ *
+ * Asserted in BOTH directions below, like `GAIT_EXEMPT`: each of these must
+ * really measure still, so a figure that starts walking reds this line.
+ */
+export const STILL_FIGURES: Readonly<Record<string, string>> = {
+  'demo_squad.glb move demo_a_root':
+    'rig.py: _f("demo_a", posture="kneeling", animates=False) -- the charge layer, deployed',
+  'at_team.glb move at_fire_root':
+    'rig.py: _f("at_fire", posture="kneeling", animates=False) -- the launcher gunner, deployed',
+  'rpg_team.glb move rpg_fire_root':
+    'rig.py: _f("rpg_fire", animates=False) -- the only STANDING animates=False figure in ' +
+    'the tree, and teams.py pins its stride to 0.0 even in `move`',
+};
+
+/** A figure in `STILL_FIGURES` must measure this still, in metres of forward
+ *  travel. The three read a literal 0.0000; a walker reads 0.66-1.55. */
+const STILL_FIGURE_TRAVEL_M = 0.01;
+
+/**
+ * The number of `boot` vertices that actually take part in the gait, per
+ * file. Pinned because it is the number that WOULD have caught the defect
+ * above and did not have to: `measureRoleFootprint` already returns it, and
+ * the `militia_cell` mutation halves it 1152 -> 576.
+ *
+ * It is not redundant with `FIGURE_STRIDE_RATIO_FLOOR` -- that one pins
+ * MOTION, this one pins the boot mesh's own weighting and topology, and a
+ * re-export can move either without the other.
+ */
+const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
+  'demo_squad.glb move': 576,
+  'at_team.glb move': 576,
+  'sniper_team.glb move': 176,
+  'militia_cell.glb move': 1152,
+  'rpg_team.glb move': 576,
+  'charge_squad.glb move': 1152,
+  'meshy_soldier.glb move': 989,
+  'meshy_soldier.glb moveFire': 989,
+  'sarim_rifles.glb move': 4101,
+  'sarim_rifles.glb moveFire': 4101,
+  'meshy_mortar_team.glb move': 3268,
+  'yahalom_engineer.glb move': 1632,
+  'breach_team.glb move': 1152,
+  'civilians/civilian_woman.glb move': 328,
+  'civilians/office_worker.glb move': 346,
+  'civilians/farm_worker.glb move': 279,
+  'civilians/civilian_child.glb move': 284,
+};
+
+/**
+ * Minimum swing-lift chirality -- see `swingLiftFraction`, which is the only
+ * quantity in this file that is not invariant under time reversal.
+ *
+ * Measured 2026-09-16: +0.113 (`meshy_mortar_team`) to +0.470
+ * (`civilian_woman`) across sixteen of the seventeen locomotion clips, and
+ * exactly negated when the trace is reversed. 0.05 sits between the smallest
+ * shipped positive and zero, and a reversed clip lands at -0.113 or lower.
+ */
+const SWING_LIFT_FLOOR = 0.05;
+
+/**
+ * `sniper_team` is the one file whose boot is HIGHER while it travels
+ * backward than while it travels forward: **-0.180**, where every other rig
+ * in the tree -- both hand-authored families and every Meshy import -- is
+ * positive. Reading its own trace, the foot is at its lowest (-0.07) at the
+ * BACK of the stride and its highest (+0.27) at the FRONT, so it does not
+ * plant where a foot plants.
+ *
+ * Same root cause as its 2.0999 multiplier, and the third finding to come out
+ * of it: `tools/export_meshy_sniper.py` is a third exporter that was never
+ * reconciled with `rig.py`, and it authors a hardcoded `swing = 0.40 * sin(a)`
+ * that drives the thigh alone. Named here with its number rather than
+ * absorbed by a floor that admits it, because a floor low enough to pass
+ * -0.180 would pass a reversed clip too -- which is the whole defect class.
+ */
+const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = { 'sniper_team.glb move': -0.18 };
+
+describe('mesh unit gait -- per figure, not per file', () => {
+  const rows = declaredLocomotion().map(([, file, clip, rig]) => {
+    const figures = measureRoleTravelByFigure(rig.path, 'boot', clip);
+    return { file, clip, rig, figures, live: figures.filter((f) => !f.hiddenInClip) };
+  });
+
+  it('reads a known number of figures, and every still one is named', () => {
+    expect(rows).toHaveLength(17);
+    const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
+    // 35 visible figures over 17 clips: two each on the six `kit.py` teams
+    // and `yahalom_engineer`, three each on `meshy_soldier` (x2 clips),
+    // `sarim_rifles` (x2) and `meshy_mortar_team`, and one per civilian.
+    // The hidden `death_root` twins and `meshy_mortar_team`'s three kneeling
+    // roots are not in it.
+    expect(live).toHaveLength(35);
+    // Both directions, the way GAIT_EXEMPT is: every named still figure must
+    // be a figure that really exists and really is still, and every figure
+    // that is still must be named.
+    const measuredStill = rows.flatMap((r) =>
+      r.live
+        .filter((f) => f.forwardTravelM < STILL_FIGURE_TRAVEL_M)
+        .map((f) => `${r.file} ${r.clip} ${f.root}`)
+    );
+    expect(measuredStill.sort()).toEqual(Object.keys(STILL_FIGURES).sort());
+    console.log(
+      `mesh gait per figure: ${live.length} visible figures across ${rows.length} clips.\n` +
+        `deliberately still --\n` +
+        Object.entries(STILL_FIGURES)
+          .map(([k, why]) => `  ${k}: ${why}`)
+          .join('\n')
+    );
+  });
+
+  it.each(rows.map((r) => [`${r.file} ${r.clip}`, r] as const))(
+    '%s: every walking figure covers the ground the declared stride claims',
+    (label, row) => {
+      expect(row.live.length, `${label}: visible figures`).toBeGreaterThan(0);
+      const best = Math.max(...row.live.map((f) => f.forwardTravelM));
+      expect(best, `${label}: best figure`).toBeGreaterThan(0.1);
+      for (const f of row.live) {
+        const key = `${row.file} ${row.clip} ${f.root}`;
+        if (key in STILL_FIGURES) {
+          expect(f.forwardTravelM, `${key}: named still, but it moved`).toBeLessThan(
+            STILL_FIGURE_TRAVEL_M
+          );
+          continue;
+        }
+        expect(
+          f.forwardTravelM / best,
+          `${key}: ${f.forwardTravelM.toFixed(4)} m against the file's best ${best.toFixed(4)} m ` +
+            `(joints ${f.joints.join(', ')})`
+        ).toBeGreaterThan(FIGURE_STRIDE_RATIO_FLOOR);
+      }
+    }
+  );
+
+  it.each(rows.map((r) => [`${r.file} ${r.clip}`, r] as const))(
+    '%s: the boot vertices taking part in the gait are the ones that always have',
+    (label, row) => {
+      const fp = measureRoleFootprint(row.rig.path, 'boot', row.clip);
+      expect(fp.activeVertexCount, `${label}: active boot vertices`).toBe(
+        ACTIVE_BOOT_VERTICES[label]
+      );
+    }
+  );
+
+  it.each(rows.map((r) => [`${r.file} ${r.clip}`, r] as const))(
+    '%s: walks forwards, and would read as reversed if it did not',
+    (label, row) => {
+      // The ONE check here that a time-reversed export cannot pass. Every
+      // other number in this file -- stride, cycle, multiplier, cadence,
+      // peak count, every bearing -- is invariant under reversal.
+      const fp = measureRoleFootprint(row.rig.path, 'boot', row.clip);
+      const lift = swingLiftFraction(fp.bestVertexTrace.forwardM, fp.bestVertexTrace.heightM);
+      const outlier = SWING_LIFT_OUTLIERS[label];
+      if (outlier === undefined) {
+        expect(lift, `${label}: swing lift`).toBeGreaterThan(SWING_LIFT_FLOOR);
+      } else {
+        // Named, pinned, and demoted the moment it is fixed.
+        expect(lift, `${label}: named swing-lift outlier`).toBeLessThan(outlier + 0.05);
+        expect(
+          lift,
+          `${label}: no longer inverted -- delete the SWING_LIFT_OUTLIERS entry`
+        ).toBeLessThan(SWING_LIFT_FLOOR);
+      }
+    }
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -1187,7 +1459,14 @@ function facingSweep(): {
   const shortLever: string[] = [];
   for (const rig of RIGS) {
     for (const clip of rig.clips) {
-      if (CORPSE_CLIPS.has(clip)) continue;
+      // Corpses go through `exempted` rather than a bare `continue`, so that
+      // the one exemption class the passing path never printed now prints
+      // like every other one. A reader of the log should not have to know
+      // that `wreck` was skipped somewhere above the table.
+      if (CORPSE_CLIPS.has(clip)) {
+        exempted.push(`${rig.file} ${clip} (corpse)`);
+        continue;
+      }
       if (FACING_EXEMPT[rig.file] || FACING_EXEMPT[`${rig.file} ${clip}`]) {
         exempted.push(`${rig.file} ${clip}`);
         continue;
@@ -1521,9 +1800,15 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
  * Measured 2026-09-16, `face` minus `marker` on `idle` (and `fire` where the
  * file has one, which agrees to 0.2 deg everywhere it exists):
  *
- *   meshy_soldier  +0.7 / +0.5     civilian_child  +0.0
- *   farm_worker    +1.3            office_worker   +13.3
- *   sarim_rifles   +12.2 / +12.3
+ *   meshy_soldier  -0.66 / -0.48   civilian_child  -0.04
+ *   farm_worker    +1.33           office_worker   +13.30
+ *   sarim_rifles   +12.24 / +12.27
+ *
+ * Note the SIGN on `meshy_soldier`: this pinned -0.6 and not +0.6. The wrong
+ * sign opened no hole -- a Task-2-style spine roll still reds -- but it cost
+ * that file 1.26 deg of a 5 deg budget by centring its window at the wrong
+ * place, and a pin whose own number is wrong is the one thing a pin must not
+ * be.
  *
  * The two large ones are properties of the ASSET and both are recorded rather
  * than averaged away: `sarim_rifles`'s `face` role is the 221-of-16557-vertex
@@ -1533,7 +1818,7 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
  * not mean to.
  */
 const FACE_MARKER_OFFSET_DEG: Readonly<Record<string, number>> = {
-  'meshy_soldier.glb': 0.6,
+  'meshy_soldier.glb': -0.6,
   'sarim_rifles.glb': 12.3,
   'civilians/office_worker.glb': 13.3,
   'civilians/farm_worker.glb': 1.3,
@@ -1578,17 +1863,37 @@ describe('mesh unit facing -- two instruments, gated against each other', () => 
     const marker = measureMarkerFacing(rig.path, clip);
     expect(face.length, `${label}: face figures`).toBe(marker.length);
     expect(face.length).toBeGreaterThan(0);
+
+    // Paired by JOINT NAME, not by array index. The two instruments build
+    // their lists differently -- `measureFacing` walks the skin's own joint
+    // order, `measureMarkerFacing` walks node order -- and they agree today
+    // only because those orders happen to coincide. Every figure on these
+    // files reads within 0.1 deg of every other, so a mispairing would be
+    // undetectable by its result, which is precisely why it has to be
+    // excluded by construction in a check whose entire value is a 5 deg
+    // tolerance. `MarkerFacing.joint` is the marker's PARENT, which is the
+    // same bone `FigureFacing.joint` names.
+    const byJoint = new Map(marker.map((m) => [m.joint, m]));
+    expect(
+      [...byJoint.keys()].sort(),
+      `${label}: the two instruments must name the same figures`
+    ).toEqual(face.map((f) => f.joint).sort());
+    expect(byJoint.size, `${label}: marker joints are distinct`).toBe(marker.length);
+
     const expected = FACE_MARKER_OFFSET_DEG[rig.file];
-    for (let i = 0; i < face.length; i++) {
+    for (const f of face) {
+      const m = byJoint.get(f.joint);
+      expect(m, `${label}: no marker for ${f.joint}`).toBeDefined();
+      if (!m) continue;
       // Wrapped: both readings are bearings, so their difference has to be
       // taken on the circle. Unwrapped it can only ever over-report (never
       // hide a failure), but it prints nonsense -- a face at -166 against a
       // marker at +154 is 40 degrees apart, not 320.
-      const raw = face[i].meanDeg - marker[i].meanDeg;
+      const raw = f.meanDeg - m.meanDeg;
       const delta = ((((raw % 360) + 540) % 360) - 180);
       expect(
         Math.abs(delta - expected),
-        `${label} ${face[i].joint}: face-minus-marker ${delta.toFixed(1)} against ${expected}`
+        `${label} ${f.joint}: face-minus-marker ${delta.toFixed(2)} against ${expected}`
       ).toBeLessThan(FACE_MARKER_TOLERANCE_DEG);
     }
   });

@@ -444,6 +444,129 @@ export const ACTIVE_TRAVEL_FRACTION = 0.5;
  * Deliberately a second REPORT over the one skinning implementation, never
  * a second implementation -- see `skinPoint`'s own note.
  */
+export interface FigureTravel {
+  /** The figure's own root joint -- the top-most ancestor of its bones that
+   *  is itself a joint of this skin. `mil0_root`, `f1_Hips`, `Hips`. */
+  readonly root: string;
+  /** The joints under that root which dominantly own any of the role's
+   *  vertices, sorted, for a message that names what was read. */
+  readonly joints: readonly string[];
+  readonly vertexCount: number;
+  /** Peak-to-peak FORWARD (`+x`) travel of this figure's own worst vertex, in
+   *  metres -- the quantity `RoleFootprint.axisTravelM[0]` reports for the
+   *  pooled role, scoped to one figure. */
+  readonly forwardTravelM: number;
+  /** Every joint under this root stays collapsed for the whole clip, so this
+   *  figure is not on screen. Each `rig.py` team hides a second, prone copy
+   *  of its boots under a `death_root` during `move`, and
+   *  `meshy_mortar_team` hides a whole kneeling tableau; without this flag
+   *  the minimum over figures would be a permanent zero on thirteen files. */
+  readonly hiddenInClip: boolean;
+}
+
+/**
+ * The same skinning pass as `measureRoleFootprint`, reported PER FIGURE
+ * instead of pooled -- a third report over the one skinning implementation,
+ * never a second implementation (see `skinPoint`'s own note).
+ *
+ * ## Why this exists, and it is the defect GH-145 was raised about
+ *
+ * `measureRoleFootprint` takes `axisTravelM` from the single WORST vertex of
+ * the whole `boot` role, and a team file pools two or three figures into that
+ * one mesh. So a file where ONE rifleman's legs stop moving -- exactly the
+ * legless-rig defect this module was written for -- reports the same number
+ * as a file where nobody's do. Measured: stripping one of `militia_cell`'s
+ * two figures of its hip, thigh, shin and pelvis channels leaves
+ * `axisTravelM[0]` **identical at 1.4673**, and the whole gate green.
+ * Thirteen of the fifteen gaited files carry more than one figure.
+ *
+ * ## Figures are found from the SKELETON, not from the names
+ *
+ * A vertex belongs to whichever joint dominantly influences it
+ * (`WEIGHTS_0 > 0.5`); that joint belongs to whichever figure root it hangs
+ * under, found by walking node parents while the parent is still a joint of
+ * this skin. No name parsing, which matters because the three rig families
+ * prefix their bones `demo_a_`, `mil0_` and `f0_` and the civilians not at
+ * all, and because `meshy_mortar_team` carries TWO skeletons per figure
+ * (`f0_root` kneeling and `f0_st_root` standing) that a prefix rule would
+ * merge and that this correctly keeps apart.
+ */
+export function measureRoleTravelByFigure(
+  path: string,
+  role: string,
+  clip: string
+): FigureTravel[] {
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, role);
+  const nodes = glb.json.nodes ?? [];
+  const { tracks, start, end } = readClip(glb, clip);
+
+  // node index -> skin joint index, so "is my parent also a joint?" is O(1).
+  const skinIndexOfNode = new Map<number, number>();
+  skin.joints.forEach((nodeIndex, skinIndex) => skinIndexOfNode.set(nodeIndex, skinIndex));
+  const parent = new Int32Array(nodes.length).fill(-1);
+  nodes.forEach((n, i) => { for (const c of n.children ?? []) parent[c] = i; });
+  const rootOf = skin.joints.map((nodeIndex) => {
+    let cur = nodeIndex;
+    for (;;) {
+      const p = parent[cur];
+      if (p < 0 || !skinIndexOfNode.has(p)) return cur;
+      cur = p;
+    }
+  });
+
+  const owner = new Int32Array(pos.count).fill(-1);
+  for (let v = 0; v < pos.count; v++) {
+    for (let k = 0; k < 4; k++) {
+      if (weights.data[v * 4 + k] > 0.5) {
+        owner[v] = joints.data[v * 4 + k];
+        break;
+      }
+    }
+  }
+
+  const lo = new Float64Array(pos.count).fill(Infinity);
+  const hi = new Float64Array(pos.count).fill(-Infinity);
+  const live = new Uint8Array(skin.joints.length);
+  for (let s = 0; s < SAMPLES; s++) {
+    const t = start + ((end - start) * s) / SAMPLES;
+    const worlds = nodeWorlds(glb, tracks, t);
+    const skinMats = computeSkinMats(skin, worlds, ibm);
+    for (let j = 0; j < skin.joints.length; j++) {
+      if (jointScale(worlds[skin.joints[j]]) > HIDDEN_SCALE) live[j] = 1;
+    }
+    for (let v = 0; v < pos.count; v++) {
+      if (owner[v] < 0) continue;
+      const x = skinPoint(pos, joints, weights, v, skinMats)[0];
+      if (x < lo[v]) lo[v] = x;
+      if (x > hi[v]) hi[v] = x;
+    }
+  }
+
+  const byRoot = new Map<number, { joints: Set<string>; count: number; worst: number; live: boolean }>();
+  for (let v = 0; v < pos.count; v++) {
+    const j = owner[v];
+    if (j < 0) continue;
+    const root = rootOf[j];
+    const entry = byRoot.get(root) ?? { joints: new Set<string>(), count: 0, worst: 0, live: false };
+    entry.joints.add(nodes[skin.joints[j]]?.name ?? `joint${j}`);
+    entry.count++;
+    const span = hi[v] - lo[v];
+    if (span > entry.worst) entry.worst = span;
+    if (live[j] === 1) entry.live = true;
+    byRoot.set(root, entry);
+  }
+
+  return [...byRoot.entries()]
+    .map(([root, e]) => ({
+      root: nodes[root]?.name ?? `node${root}`,
+      joints: [...e.joints].sort(),
+      vertexCount: e.count,
+      forwardTravelM: e.worst,
+      hiddenInClip: !e.live,
+    }))
+    .sort((a, b) => a.root.localeCompare(b.root));
+}
+
 export function measureRoleFootprint(path: string, role: string, clip: string): RoleFootprint {
   const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, role);
 
@@ -582,6 +705,56 @@ export function countTracePeaks(
     }
   }
   return peaks;
+}
+
+/**
+ * Which way round is this gait? Mean height of the tracked boot vertex while
+ * it is travelling FORWARD, minus its mean height while travelling BACK, as a
+ * fraction of its own height span.
+ *
+ * ## Why a direction check needs this and not the obvious things
+ *
+ * Every other number this module reports is **invariant under time
+ * reversal**: `axisTravelM` is `hi - lo` per axis, `countTracePeaks` scans a
+ * rotated trace for peaks, and a bearing is a pose. So a `move` clip exported
+ * backwards -- a figure moonwalking -- clears the multiplier band, the
+ * cadence ceiling, declared-versus-measured, the cycle count and the entire
+ * facing sweep, with nothing anywhere going red.
+ *
+ * The duty factor does not help either, and that was measured rather than
+ * assumed: the fraction of samples spent travelling backward is **0.46-0.51
+ * on sixteen of the seventeen shipped locomotion clips**, because `rig.py`
+ * authors its swing as a pure sinusoid and a reversed sine is a phase-shifted
+ * sine. There is no asymmetry there to read.
+ *
+ * What IS chiral is the relationship between the two axes: a foot lifts to
+ * swing forward and plants to drag back, so it is higher while moving forward
+ * than while moving back. Reversing the clip swaps which half is which, so
+ * this quantity is **exactly negated** -- it cannot be fooled by phase.
+ *
+ * Measured 2026-09-16 on all seventeen: +0.113 (`meshy_mortar_team`) to
+ * +0.470 (`civilian_woman`) -- and `sniper_team` at **-0.180**, the one file
+ * in the tree whose boot is higher while it travels backward. See
+ * `mesh_gait.test.ts` for the exemption and the diagnosis.
+ *
+ * Returns `NaN` when the trace never moves in one of the two directions, or
+ * has no height span at all -- a crew-served rig, where the question is
+ * meaningless rather than answered zero.
+ */
+export function swingLiftFraction(
+  forwardM: readonly number[],
+  heightM: readonly number[]
+): number {
+  let up = 0, upCount = 0, down = 0, downCount = 0;
+  for (let i = 1; i < forwardM.length && i < heightM.length; i++) {
+    const d = forwardM[i] - forwardM[i - 1];
+    const y = (heightM[i] + heightM[i - 1]) / 2;
+    if (d > 0) { up += y; upCount++; } else if (d < 0) { down += y; downCount++; }
+  }
+  if (upCount === 0 || downCount === 0) return NaN;
+  const span = Math.max(...heightM) - Math.min(...heightM);
+  if (!(span > 0)) return NaN;
+  return (up / upCount - down / downCount) / span;
 }
 
 export interface FigureFacing {
