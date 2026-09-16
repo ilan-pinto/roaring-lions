@@ -250,6 +250,15 @@ The combat model is the product. Everything else is scaffolding around it.
   is a permanent hang rather than a miss. `civilians` is the one unit type with
   no `SPRITE_MAP` entry, so `&civ` under `&nomesh` or on Pixi spawns a crowd
   that draws nothing — it warns by name rather than refusing.
+- **The brigade account is a second save, not a ledger key.** `lions.brigade.account`
+  (`packages/app/src/brigade-account.ts`, the only reader and writer) holds credits and
+  what they bought, and it SURVIVES `?fresh` on purpose (spec 2026-09-15 §4.1): a second
+  campaign starts with the brigade you built. Reset it from the brigade screen, twice.
+  A victory pays `creditsFor` (`packages/sim/src/credits.ts`, integer-only, never called
+  by the sim) only for improvement over what that mission paid before; `pnpm playtest`
+  pins the optimal ladder's total (`LADDER_CREDITS`) beside the star gates. The tutorial
+  pays nothing: it produces no ledger keys, so `main.ts` gates the payout on
+  `mission.ledger.produces` rather than a name list.
 - Two ROE facts a visual check needs: **three maps carry `m` civic-hall tiles (`hall`, the O10 replacement; the type was `mosque` until 2026-09-06) — `beit_sahwan_outskirts` (9),
   `marj_perimeter` (4) and `wadi_halam_basin` (9), counted 2026-09-03 from the
   map rows; this line said "only `wadi_halam_basin`" until then** — so the

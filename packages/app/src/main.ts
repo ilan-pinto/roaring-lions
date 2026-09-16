@@ -17,6 +17,8 @@ import {
   starRoeFloor,
   starsEarned,
   zoneContains,
+  creditsFor,
+  creditInputFrom,
   type LedgerData,
   type MissionEvent,
   type MissionJson,
@@ -64,6 +66,7 @@ import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
+import { loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
@@ -165,6 +168,18 @@ function loadLedger(): LedgerData {
 
 function saveLedger(ledger: LedgerData): void {
   window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger));
+}
+
+/** `window.localStorage` can throw on the PROPERTY ACCESS itself (private mode, site
+ *  data blocked) rather than on a method call. The brigade account route and the
+ *  victory payout both read/write it through here instead of the global directly, so
+ *  a blocked store means no credits line and no payout -- never a thrown error. */
+function safeStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
 }
 
 /** `{ id, role }` for `nameKind` (spec §4.7), from the same `units` catalogue every
@@ -500,6 +515,8 @@ async function main(): Promise<void> {
     // replays with no step panel at all, which reads as the tutorial being
     // broken rather than already learned.
     window.localStorage.removeItem(TUTORIAL_DONE_KEY);
+    // The brigade account (`brigade-account.ts`) deliberately survives this: spec
+    // 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
   }
   if (params.get('mission') === null && params.get('sandbox') === null) {
     const worldData = parseWorld(world);
@@ -538,11 +555,19 @@ async function main(): Promise<void> {
           if (url !== null) portraits[id] = url;
         })
       );
+      const storage = safeStorage();
       showBrigade(stage, {
         units: kdfUnits,
         ledger: loadLedger(),
         portrait: (typeId) => portraits[typeId] ?? null,
         possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
+        credits: storage ? loadAccount(storage).balance : undefined,
+        onReset: storage
+          ? () => {
+              resetAccount(storage);
+              window.location.reload();
+            }
+          : undefined,
       });
       return;
     }
@@ -2026,6 +2051,7 @@ async function main(): Promise<void> {
           tutPanel = null;
           renderer.clearTutorialFocus();
           const updatedLedger = { ...ledger, ...me.ledger };
+          let payout: ReturnType<typeof payMission> | null = null;
           if (me.result === 'victory') {
             // Names are issued here, on the victory path only -- a defeat writes
             // nothing to the ledger at all (see the comment above LEDGER_KEY), so
@@ -2048,6 +2074,21 @@ async function main(): Promise<void> {
               updatedLedger['campaign.names_issued'] = named.issued;
             }
             saveLedger(updatedLedger);
+            // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
+            // only for improvement over what this mission has paid before. Read from the
+            // runtime's own counters -- the same numbers the debrief prints -- and the
+            // wall clock is taken here, never in the sim.
+            // R5: a mission that produces no ledger key pays nothing -- the tutorial
+            // (`beit_sahwan_0_tutorial`) is the only one, sits outside `world.json`
+            // and therefore outside the pinned ladder, and CLAUDE.md already says it
+            // is not a campaign mission. Gate on the mission's own contract rather
+            // than a name list, the same test `validate_data.mjs` already applies.
+            const storage = safeStorage();
+            if (mission.ledger.produces.length > 0 && storage) {
+              const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
+              payout = missionId ? payMission(loadAccount(storage), missionId, runValue, Date.now()) : null;
+              if (payout) saveAccount(storage, payout.account);
+            }
             hud.note('<b>campaign ledger updated</b> — survivors and Conduct carried forward', 'info');
           }
           if (missionId) {
@@ -2106,6 +2147,7 @@ async function main(): Promise<void> {
                 .map((o) => ({ text: o.text, complete: o.status === 'complete', carries: o.carries })),
               marked: runtime.markedCount,
               promoted: runtime.promotedCount,
+              credits: payout ? { paid: payout.paid, balance: payout.account.balance } : undefined,
               // The account of the taken (spec §4.4). The board prints only the
               // standing total, because the board does not know which mission was
               // just played -- so "N came back at <place>", the half that needs a

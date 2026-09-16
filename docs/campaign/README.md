@@ -48,6 +48,8 @@ in step with it.
   missions and earned stars, not by tiers.
 - **The player force is placed, not built.** `starting_force` plus ledger
   survivors (`from_ledger`), plus authored `reinforce` triggers and waves.
+  Credits (the brigade account) are not a ledger key: a mission never reads or
+  produces them, and nothing in mission JSON can reference the balance.
 - **The enemy is stances, one-shot triggers and waves.** One stance per placement
   (`hold_position | ambush(tiles) | patrol | garrison`), four trigger conditions ×
   five actions, waves on a clock or on an objective completing. That is the whole

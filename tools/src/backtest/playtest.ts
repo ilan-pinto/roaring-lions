@@ -9,6 +9,8 @@ import {
   resolveUpgrades,
   unlockReason,
   starsEarned,
+  creditsFor,
+  creditInputFrom,
   type MissionJson,
   type LedgerData,
   type TunnelRouteJson,
@@ -34,6 +36,10 @@ type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t:
  * playthrough would write one mission at a time.
  */
 const missionStars = new Map<string, Stars>();
+
+/** Each mission's own winning-plan credit value (spec 2026-09-15 §4.2), recorded under
+ *  the same `label === id` guard as `missionStars`, so probes and controls never count. */
+const missionCredits = new Map<string, number>();
 
 /** A unit JSON entry's `unlock` gate, mapped from the authored
  *  `roe_rating_min`/`stars_min`/`after_mission` field names to `UnlockGate` -- the one
@@ -168,6 +174,8 @@ function run(
       `roster out ${(produced['roster.surviving_units'] ?? []).length}` +
       (fielded !== undefined ? `, fielded ${fielded}=${fieldedOk}` : '')
   );
+  const credits = creditsFor(creditInputFrom(rt, rt.roeScore, mission.roe?.fail_below));
+  console.log(`${label}: credits ${credits}`);
   if (rt.result !== expect) {
     console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${rt.result.toUpperCase()}`);
     process.exitCode = 1;
@@ -180,7 +188,10 @@ function run(
   // only the winning plan (never a control, which passes its own distinct
   // label) and only a real victory, so a passive-control defeat can never
   // contribute a false star.
-  if (expect === 'victory' && label === id) missionStars.set(id, rt.stars);
+  if (expect === 'victory' && label === id) {
+    missionStars.set(id, rt.stars);
+    missionCredits.set(id, credits);
+  }
   return produced;
 }
 
@@ -2139,4 +2150,27 @@ for (const gate of GATES) {
     );
     process.exitCode = 1;
   }
+}
+
+// --- Brigade economy step 1: the optimal ladder's credit total ---------------
+//
+// The sum of every winning plan's value in `world.json` order. Pinned here the way
+// the star gates are, so a content or weight change that moves what the campaign
+// pays is a red line with a number, not a silent drift. Re-pin deliberately, in the
+// same commit as the change that moved it, and say why. The balance analyst fits
+// prices (steps 2-3) against this figure.
+let ladderCredits = 0;
+// `?? 0` for the same reason the star ladder's walk above needs one: a mission
+// with no recorded winning plan contributes nothing, and it was already named
+// in that log line rather than silently dropped here too.
+for (const missionId of missionOrder) ladderCredits += missionCredits.get(missionId) ?? 0;
+// Measured 2026-09-15 under weights win 100 / secondary 40 / home 10 / conduct 1.
+// Re-pinned 2026-09-15, same day: "home" now counts only the starting force
+// (ruling R4) -- production units no longer inflate the payout, which moved
+// the total 5644 -> 5544.
+const LADDER_CREDITS = 5544;
+console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
+if (ladderCredits !== LADDER_CREDITS) {
+  console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
+  process.exitCode = 1;
 }

@@ -17,6 +17,9 @@ export interface DebriefOptions {
   secondaries: { text: string; complete: boolean; carries: boolean }[];
   marked: number;
   promoted: number;
+  /** What this run paid into the brigade account (spec 2026-09-15 §4.2). Absent on a
+   *  defeat, which pays nothing and shows nothing. */
+  credits?: { paid: number; balance: number };
   /** The account of the taken (spec §4.4), already built by `hostagesLine` --
    *  "Fifteen still out. Four came back at the shaft head." The second sentence
    *  only exists here: the campaign board prints the standing total but does not
@@ -74,6 +77,10 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
   row('Lost', o.lost.length === 0 ? 'nobody' : o.lost.map((l) => `${l.type} ×${l.count}`).join(', '), 'rl-debrief__lost');
   row('Marked', String(o.marked), 'rl-debrief__marked');
   row('Promoted', String(o.promoted), 'rl-debrief__promoted');
+  if (o.credits) {
+    const paidText = o.credits.paid > 0 ? `+${o.credits.paid} credits` : 'no improvement over your best, nothing paid';
+    row('Credits', `${paidText} · ${o.credits.balance} on hand`, 'rl-debrief__credits');
+  }
   b.appendChild(grid);
 
   if (o.taken) b.appendChild(el('div', 'rl-debrief__taken', o.taken));

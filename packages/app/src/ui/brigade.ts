@@ -36,6 +36,12 @@ export interface BrigadeOptions {
   portrait?: (typeId: string) => string | null;
   /** Every campaign mission grades to 3 stars; the tutorial carries none. */
   possibleStars: number;
+  /** The brigade account's balance, for the header. Absent when the caller has no account
+   *  (tests, or a boot where storage is blocked): the header then prints no credits line. */
+  credits?: number;
+  /** Called after the second click on the reset control. The caller resets the account and
+   *  re-renders; this screen only asks twice. */
+  onReset?: () => void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -99,6 +105,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
   head.appendChild(el('div', 'rl-brigade__stars', `${starsEarned(opts.ledger)} of ${opts.possibleStars} stars`));
   const roe = campaignRoe(opts.ledger);
   head.appendChild(el('div', 'rl-brigade__conduct', roe !== null ? `Conduct ${roe.mean}` : 'no missions rated yet'));
+  if (opts.credits !== undefined) {
+    head.appendChild(el('div', 'rl-brigade__credits', `${opts.credits} credits`));
+  }
   b.appendChild(head);
 
   // Available first; ties keep their given order (no gate to sort by).
@@ -169,6 +178,27 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
   };
   link('campaign map', '?campaign');
   link('menu', '?');
+  if (opts.credits !== undefined && opts.onReset) {
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'rl-btn rl-brigade__reset';
+    reset.textContent = 'reset brigade account';
+    let armed = false;
+    reset.addEventListener('click', () => {
+      if (!armed) {
+        armed = true;
+        reset.textContent = 'click again to reset — this cannot be undone';
+        return;
+      }
+      // Disabled BEFORE the handler runs, so the second click is provably the
+      // last one this control can fire: the caller re-renders, but nothing
+      // here relies on that, and a control that says "cannot be undone" must
+      // not be able to fire twice.
+      reset.disabled = true;
+      opts.onReset?.();
+    });
+    nav.appendChild(reset);
+  }
   b.appendChild(nav);
 
   host.appendChild(p.el);
