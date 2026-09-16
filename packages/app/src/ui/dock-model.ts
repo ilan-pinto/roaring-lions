@@ -91,6 +91,8 @@ export function lockLabel(reason: string): string {
   if (roe !== null) return `Conduct ≥${roe[1]}`;
   const stars = /^requires (\d+) stars? \(/.exec(reason);
   if (stars !== null) return `★ ≥${stars[1]}`;
+  const price = /^buy for (\d+) credits/.exec(reason);
+  if (price !== null) return `${price[1]} cr`;
   return 'locked';
 }
 

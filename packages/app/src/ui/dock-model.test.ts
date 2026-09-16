@@ -65,6 +65,14 @@ describe('lockLabel', () => {
   it('renders the stars gate as a star count', () => {
     expect(lockLabel('requires 12 stars (currently 4)')).toBe('★ ≥12');
   });
+
+  it('labels a bought-only lock by its price, and an earned lock by its earned number even with a buy clause', () => {
+    expect(lockLabel('buy for 600 credits')).toBe('600 cr');
+    expect(lockLabel('requires 12 stars (currently 0), or buy for 600 credits')).toBe('★ ≥12');
+    expect(lockLabel('requires campaign Conduct 55, or buy for 400 credits')).toBe('Conduct ≥55');
+    const why = unlockReason({ price: 1200 }, {});
+    expect(lockLabel(why ?? '')).toBe('1200 cr');
+  });
 });
 
 describe('doctrineTags', () => {

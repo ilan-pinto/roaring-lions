@@ -2508,3 +2508,6 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-brigade__credits {
   color: var(--commend);
 }
+.rl-brigade__buy {
+  color: var(--commend);
+}

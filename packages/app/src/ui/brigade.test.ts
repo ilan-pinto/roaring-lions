@@ -123,4 +123,35 @@ describe('showBrigade', () => {
     expect(host.querySelector('.rl-brigade__credits')).toBeNull();
     expect(host.querySelector('.rl-brigade__reset')).toBeNull();
   });
+
+  // The brief's own version of this test names `mbt_lavi` for the price-only row; this
+  // fixture has no such id, so `ifv_namer` (otherwise unused here beyond its `roeMin`
+  // gate) stands in for it. Assertions are otherwise identical to the brief.
+  it('offers a Buy control on a priced locked row, disabled when the balance is short', () => {
+    const host = document.createElement('div');
+    const priced = units.map((u) =>
+      u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 600 } } : u.id === 'ifv_namer' ? { ...u, unlock: { price: 1200 } } : u
+    );
+    const bought: [string, number][] = [];
+    showBrigade(host, { units: priced, ledger: {}, possibleStars: 78, credits: 700, onBuy: (id, p) => bought.push([id, p]) });
+    const breach = host.querySelector<HTMLButtonElement>('[data-unit="breach_team"] .rl-brigade__buy');
+    expect(breach?.textContent).toBe('buy for 600');
+    expect(breach?.disabled).toBe(false);
+    breach?.click();
+    expect(bought).toEqual([['breach_team', 600]]);
+    const lavi = host.querySelector<HTMLButtonElement>('[data-unit="ifv_namer"] .rl-brigade__buy');
+    expect(lavi?.textContent).toBe('buy for 1200');
+    expect(lavi?.disabled).toBe(true);
+    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__why')?.textContent).toBe('buy for 1200 credits');
+  });
+
+  it('shows no Buy control without an account, and none on an unpriced or open row', () => {
+    const host = document.createElement('div');
+    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    expect(host.querySelector('.rl-brigade__buy')).toBeNull();
+    const host2 = document.createElement('div');
+    showBrigade(host2, { units: units.map((u) => ({ ...u, unlock: { price: 5, bought: true } })), ledger: {}, possibleStars: 78, credits: 0, onBuy: () => {} });
+    expect(host2.querySelector('.rl-brigade__buy')).toBeNull();
+    expect(host2.querySelector('.rl-brigade__why')?.textContent).toBe('available');
+  });
 });

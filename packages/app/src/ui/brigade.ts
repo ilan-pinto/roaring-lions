@@ -42,6 +42,9 @@ export interface BrigadeOptions {
   /** Called after the second click on the reset control. The caller resets the account and
    *  re-renders; this screen only asks twice. */
   onReset?: () => void;
+  /** Called when the player clicks a priced locked row's Buy control. The caller buys,
+   *  saves and re-renders; this screen only asks — it never mutates the account itself. */
+  onBuy?: (unitId: string, price: number) => void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -93,7 +96,12 @@ function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: nu
   if (unlock.starsMin !== undefined) {
     if (starsEarned(ledger) < unlock.starsMin) return [1, unlock.starsMin];
   }
-  return [2, 0]; // the mission gate — "last", and no threshold to sort within
+  // No earned field failed above, and none of Conduct/stars/mission is declared at all: a
+  // bought-only gate (D1, the special forces shape). Sorts after every earned-gated row,
+  // by price.
+  const hasEarnedField = unlock.roeMin !== undefined || unlock.starsMin !== undefined || unlock.afterMission !== undefined;
+  if (!hasEarnedField && unlock.price !== undefined) return [3, unlock.price];
+  return [2, 0]; // the mission gate — "last" among earned gates, and no threshold to sort within
 }
 
 export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
@@ -161,6 +169,21 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
     rowEl.appendChild(info);
 
     rowEl.appendChild(el('div', 'rl-brigade__why', row.locked ? row.reason : 'available'));
+    if (row.locked && row.unlock.price !== undefined && opts.credits !== undefined && opts.onBuy) {
+      const price = row.unlock.price;
+      const buy = document.createElement('button');
+      buy.type = 'button';
+      buy.className = 'rl-btn rl-brigade__buy';
+      buy.textContent = `buy for ${price}`;
+      // Short balance: the control stays visible so the price is legible, and disabled so
+      // a click cannot reach `buyUnlock`'s refusal path from here.
+      buy.disabled = opts.credits < price;
+      buy.addEventListener('click', () => {
+        buy.disabled = true; // one purchase per render; the caller re-renders
+        opts.onBuy?.(u.id, price);
+      });
+      rowEl.appendChild(buy);
+    }
     if (u.unlock?.starsMin !== undefined) {
       rowEl.appendChild(el('div', 'rl-brigade__gate', `★ ${u.unlock.starsMin}`));
     }
