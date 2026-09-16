@@ -105,8 +105,8 @@ export function isLocomotionClip(name: string): name is LocomotionClip {
  * `strideM` is the FORWARD ground component of the leading boot's
  * peak-to-peak travel over one cycle, in METRES -- deliberately not the 3-D
  * hypotenuse, which folds in vertical lift and lateral swing and overstates
- * the ground covered by 1.5-21% depending on the rig (that was a real defect,
- * caught and fixed in Task 5's review; the bias is rig-dependent so no
+ * the ground covered by 1.47–17.70% depending on the rig (that was a real
+ * defect, caught and fixed in Task 5's review; the bias is rig-dependent so no
  * constant downstream could have corrected for it).
  *
  * `cycleS` is the clip's own length in seconds, and the pass checks its own

@@ -209,6 +209,19 @@ function playingRate(priv: ThreeRendererPrivates, id: number): { clip: ClipName;
   return { clip, timeScale: action.timeScale };
 }
 
+/** `priv.meshUnitTemplates.get(id)`'s first template, or a thrown error --
+ *  the same `if (!x) throw` shape `playingRate` above already uses, in place
+ *  of the plan's forbidden non-null assertion (`.get(id)![0]`). The map is
+ *  populated by this file's own `setUp`, so this can only fire on a real
+ *  wiring mistake, not a fixture gap. */
+function templateFor(priv: ThreeRendererPrivates, id: string): MeshUnitTemplate {
+  const templates = priv.meshUnitTemplates.get(id);
+  if (!templates || templates.length === 0) {
+    throw new Error(`no mesh template installed for ${id} -- setUp() never populated one`);
+  }
+  return templates[0];
+}
+
 describe('gait rate-matching, driven through updateMeshUnits', () => {
   it('a unit crossing exactly the ground its own legs describe plays at 1x', async () => {
     // **This one cannot fail on WIRING and says so rather than pretending
@@ -330,13 +343,13 @@ describe('gait rate-matching, driven through updateMeshUnits', () => {
       speed: priv.entitySpeed[fastId], firing: true, working: false,
     };
     entity.currentClip = 'moveFire';
-    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(FAST_INF.id)![0], moving, false);
+    priv.applyGaitRate(entity, templateFor(priv, FAST_INF.id), moving, false);
     expect(entity.actions.get('moveFire')?.timeScale).toBeCloseTo(2, 2);
 
     // `fire` is the by-construction half (see the `idle` case above for the
     // full account); it is here so the pair reads together, not as a guard.
     entity.currentClip = 'fire';
-    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(FAST_INF.id)![0], moving, false);
+    priv.applyGaitRate(entity, templateFor(priv, FAST_INF.id), moving, false);
     expect(entity.actions.get('fire')?.timeScale).toBe(1);
   });
 });
@@ -429,7 +442,7 @@ describe('rout cadence finally reaches the mesh path', () => {
     marchEast(sim, renderer, priv, [nominalId], 20.5, 6);
     const entity = priv.meshUnitEntities.get(nominalId);
     if (!entity) throw new Error('no mesh entity');
-    const template = priv.meshUnitTemplates.get(NOMINAL_INF.id)![0];
+    const template = templateFor(priv, NOMINAL_INF.id);
     entity.currentClip = 'move';
 
     // The sim halves a routed unit's own step (`ROUT_SPEED_SHIFT`), so both
@@ -455,7 +468,7 @@ describe('rout cadence finally reaches the mesh path', () => {
     const entity = priv.meshUnitEntities.get(nominalId);
     if (!entity) throw new Error('no mesh entity');
     entity.currentClip = 'move';
-    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(NOMINAL_INF.id)![0], routed, false);
+    priv.applyGaitRate(entity, templateFor(priv, NOMINAL_INF.id), routed, false);
 
     const rate = entity.actions.get('move')?.timeScale ?? Number.NaN;
     const legGroundPerSecond = rate * FIXTURE_CLIP_GROUND;

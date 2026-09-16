@@ -488,9 +488,12 @@ RECOIL_SPINE = -0.05
 FIRE_RISE = 0.16
 FIRE_FRAMES = 6
 
-#: The static pair must not pitch the barrel at all -- asserted rather than
-#: left to whoever edits the two literals next. This is the whole of the
-#: defect the elevation instrument was built for.
+#: Tautological as written -- `FIRE_ELBOW = -FIRE_SHOULDER` two lines above
+#: makes this `x * 1.0 == x` under another name, the shape CLAUDE.md's "every
+#: check gets an input that makes it fail" now calls out. Kept anyway: it
+#: guards the EDIT, not the value -- it can only fire if a future change
+#: re-types one of the two literals instead of negating the other, which is
+#: exactly the mistake two edits six months apart make.
 assert FIRE_SHOULDER + FIRE_ELBOW == 0.0, (FIRE_SHOULDER, FIRE_ELBOW)
 
 # --- a shoulder-fired launcher's own `fire` ---------------------------------

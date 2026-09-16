@@ -4477,9 +4477,11 @@ export class ThreeRenderer implements Renderer {
         working: this.sim.tunnelChargeProgress(i) > 0,
       };
       // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
-      // entity is actually moving AND its GLB carries the clip (today, only
-      // `sarim_rifles`) -- every other infantry mesh gets `resolveClip`'s
-      // own answer back unchanged. See that function's own doc comment.
+      // entity is actually moving AND its GLB carries the clip -- today
+      // `meshy_soldier.glb` (since Task 2's `import_meshy_soldier.py`
+      // `CLIP_ORDER`) and `sarim_rifles.glb` -- every other infantry mesh
+      // gets `resolveClip`'s own answer back unchanged. See that function's
+      // own doc comment.
       const desiredClip = resolveMeshMotionClip(
         resolveClip(anim),
         anim.speed > 0,

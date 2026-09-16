@@ -64,6 +64,18 @@ import {
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const MESHES = `${REPO}art/meshes/`;
 
+// M-7: the comment above justifies reaching into `mesh-anim.ts` by relative
+// path on the claim that the module "pulls in no three.js". Pinned on the
+// file's own bytes rather than trusted, so the day someone adds a
+// `from 'three'` import there, this is what says so before this node-only
+// tools gate starts loading three.js by accident.
+describe('the reach into mesh-anim.ts stays safe for node', () => {
+  it('mesh-anim.ts has no `from \'three\'` import', () => {
+    const src = readFileSync(`${REPO}packages/render/src/three/units/mesh-anim.ts`, 'utf8');
+    expect(src).not.toMatch(/from ['"]three['"]/);
+  });
+});
+
 /** `data/units/kdf/mortar_team.json`'s own `mobility.speed_tiles_s`. */
 function mortarSpeedTilesPerSecond(): number {
   const json = JSON.parse(readFileSync(`${REPO}data/units/kdf/mortar_team.json`, 'utf8')) as {
@@ -1033,6 +1045,22 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     }
   );
 
+  it('exactly the rigs named in GAIT_MULTIPLIER_UNDER_ONE read a multiplier below 1.0', () => {
+    // M-2: `GAIT_MULTIPLIER_UNDER_ONE` had a demotion (line ~1012, above) but
+    // no MEMBERSHIP half -- every other table here is asserted in both
+    // directions. Without this, deleting the `sniper_team` entry left every
+    // assertion above green (0.9144 clears `> FLOOR` and `< TYPICAL`), and a
+    // second rig drifting under 1.0 would sit ungated and unnamed.
+    const underOne = [
+      ...new Set(
+        declaredLocomotion()
+          .filter(([, , , rig, gait]) => multiplierFor(gait, rig.speedTilesPerSecond) < 1.0)
+          .map(([typeId]) => typeId)
+      ),
+    ];
+    expect(underOne.sort()).toEqual(Object.keys(GAIT_MULTIPLIER_UNDER_ONE).sort());
+  });
+
   it.each(declaredLocomotion())(
     '%s %s %s asks for a cadence a body could take',
     (typeId, file, clip, rig, gait) => {
@@ -1370,8 +1398,17 @@ describe('mesh unit gait -- per figure, not per file', () => {
       if (outlier === undefined) {
         expect(lift, `${label}: swing lift`).toBeGreaterThan(SWING_LIFT_FLOOR);
       } else {
-        // Named, pinned, and demoted the moment it is fixed.
-        expect(lift, `${label}: named swing-lift outlier`).toBeLessThan(outlier + 0.05);
+        // Named, pinned, and demoted the moment it is fixed. TWO-SIDED, the
+        // same shape `GAIT_MULTIPLIER_UNDER_ONE`'s own below-the-pack pin
+        // uses (`(low)`/`(high)`, 1006-1007 above): `< outlier + 0.05` alone
+        // is a one-way gate that a MORE reversed reading also clears, and a
+        // genuinely time-reversed export reads -0.11..-0.47 by this file's
+        // own numbers -- well past this bound, and the one this file names as
+        // the check "a time-reversed export cannot pass". Falsified
+        // 2026-09-16 by negating the sniper trace's forward component; see
+        // the commit message for the reading that produced.
+        expect(lift, `${label}: named swing-lift outlier (low)`).toBeGreaterThan(outlier - 0.05);
+        expect(lift, `${label}: named swing-lift outlier (high)`).toBeLessThan(outlier + 0.05);
         expect(
           lift,
           `${label}: no longer inverted -- delete the SWING_LIFT_OUTLIERS entry`
@@ -1398,7 +1435,7 @@ describe('mesh unit gait -- declared rl_gait against a fresh measurement', () =>
     // Measured exactly the way `gait-pass.ts` measures it -- the FORWARD
     // component of the boot's peak-to-peak travel, not the 3-D hypotenuse,
     // which folds in lift and lateral swing and overstates the ground by
-    // 1.5-21% depending on the rig.
+    // 1.47–17.70% depending on the rig.
     const fp = measureRoleFootprint(rig.path, 'boot', clip);
     expect(fp.axisTravelM[0], `${file} ${clip}: strideM`).toBeCloseTo(gait.strideM, 6);
     expect(fp.clipSeconds, `${file} ${clip}: cycleS`).toBeCloseTo(gait.cycleS, 6);
@@ -2250,6 +2287,64 @@ describe('mesh unit facing -- two instruments, gated against each other', () => 
         Math.abs(delta - expected),
         `${label} ${f.joint}: face-minus-marker ${delta.toFixed(2)} against ${expected}`
       ).toBeLessThan(FACE_MARKER_TOLERANCE_DEG);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M-3 -- table hygiene: every exemption/outlier key names something real.
+// ---------------------------------------------------------------------------
+//
+// Every table above is read with a plain `T[key]` or `key in T`, which
+// answers "what does this rig read" and never "does this key mean anything at
+// all". A mistyped or stale entry -- a renamed file, a typo'd typeId, a key
+// left behind after the rig it named dropped out of the roster -- sits there
+// dead and silent, because nothing anywhere iterates `Object.keys(T)` for its
+// own sake. `GAIT_EXEMPT`, `STILL_FIGURES`, `WEAPON_EXEMPT` and
+// `WEAPON_ELEVATION_EXEMPT` are already asserted both ways for exactly this
+// reason (each has its `Object.keys(...).sort()).toEqual(...)` or its
+// per-key `.toContain` above); these five tables were not.
+describe('mesh gait tables -- every key names something real', () => {
+  it('GAIT_MULTIPLIER_OUTLIERS and CADENCE_OUTLIERS key on a real, gaited rig type', () => {
+    const known = new Set(RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT)).map((r) => r.typeId));
+    for (const k of Object.keys(GAIT_MULTIPLIER_OUTLIERS)) {
+      expect(known.has(k), `GAIT_MULTIPLIER_OUTLIERS key "${k}": not a gaited rig type`).toBe(true);
+    }
+    for (const k of Object.keys(CADENCE_OUTLIERS)) {
+      expect(known.has(k), `CADENCE_OUTLIERS key "${k}": not a gaited rig type`).toBe(true);
+    }
+  });
+
+  it('SWING_LIFT_OUTLIERS keys on a real "file clip" this sweep actually rows', () => {
+    const known = new Set(declaredLocomotion().map(([, file, clip]) => `${file} ${clip}`));
+    for (const k of Object.keys(SWING_LIFT_OUTLIERS)) {
+      expect(known.has(k), `SWING_LIFT_OUTLIERS key "${k}": not a declared-locomotion row`).toBe(true);
+    }
+  });
+
+  it('FACING_EXEMPT keys on a real file, or a real non-corpse file/clip pair', () => {
+    const knownFiles = new Set(RIGS.map((r) => r.file));
+    const knownFileClips = new Set(
+      RIGS.flatMap((r) => r.clips.filter((c) => !CORPSE_CLIPS.has(c)).map((c) => `${r.file} ${c}`))
+    );
+    for (const k of Object.keys(FACING_EXEMPT)) {
+      expect(
+        knownFiles.has(k) || knownFileClips.has(k),
+        `FACING_EXEMPT key "${k}": names no real file, and no real non-corpse file/clip pair`
+      ).toBe(true);
+    }
+  });
+
+  it("WEAPON_IDLE_ELEVATION_DEG keys on a real gated figure's joint", () => {
+    const known = new Set(
+      WEAPON_RIGS.filter((w) => !(w.file in WEAPON_ELEVATION_EXEMPT)).flatMap((w) =>
+        measureWeaponAxis(`${MESHES}${w.file}`, w.role, 'idle', w.joint).map(
+          (a) => `${w.file} ${a.joint}`
+        )
+      )
+    );
+    for (const k of Object.keys(WEAPON_IDLE_ELEVATION_DEG)) {
+      expect(known.has(k), `WEAPON_IDLE_ELEVATION_DEG key "${k}": not a real gated figure`).toBe(true);
     }
   });
 });

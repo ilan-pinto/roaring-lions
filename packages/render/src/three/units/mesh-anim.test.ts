@@ -186,14 +186,17 @@ describe('pickDeathClip', () => {
 // `art/meshes/**` by `pnpm gait:meshes`'s own instrument (Task 5) and
 // restated here so a reader can check the arithmetic by hand.
 //
-// **They are LITERALS and nothing checks them against the bytes.** An earlier
-// version of this header claimed a `mesh-gait-shipped.test.ts` did; no such
-// file exists, and a reader auditing exactly the risk it named -- someone
-// re-exporting `yahalom_engineer.glb` with a longer stride and leaving this
-// file alone -- would have been told a guard existed and stopped looking.
-// Design sec 3.5 assigns the shipped-bytes sweep to Task 7's gate. Until it
-// lands, re-running `pnpm gait:meshes` means re-reading these numbers and the
-// table in `GAIT_TIME_SCALE_MAX`'s doc comment by hand.
+// **They are LITERALS here, but something DOES check them against the
+// bytes -- just not this file.** Design sec 3.5's shipped-bytes sweep landed
+// in Task 7's gate: `tools/src/mesh_gait.test.ts`'s "declared rl_gait against
+// a fresh measurement" describe block (mesh_gait.test.ts:1425-1442) reads
+// every declaration off the shipped `art/meshes/**` bytes and reds on a
+// re-export that skipped `pnpm gait:meshes` -- the exact risk an earlier
+// version of this header said was still open ("someone re-exporting
+// `yahalom_engineer.glb` with a longer stride and leaving this file alone").
+// Re-running `pnpm gait:meshes` still means re-reading THESE literals and the
+// table in `GAIT_TIME_SCALE_MAX`'s doc comment by hand, if it is this file's
+// own numbers you want brought current.
 
 describe('LOCOMOTION_CLIPS / isLocomotionClip', () => {
   it('names exactly the two clips that describe ground travel', () => {
