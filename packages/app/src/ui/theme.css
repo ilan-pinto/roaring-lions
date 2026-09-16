@@ -291,7 +291,7 @@ body {
    attribute, so it cannot drift from whether there is really a link to click:
    `worldmap.ts` emits `.rl-world__townlink` in exactly that case. */
 .rl-world__town:has(.rl-world__townlink):hover {
-  transform: translate(-50%, -50%) scale(1.08);
+  transform: translate(-50%, calc(-50% + var(--dy, 0px))) scale(1.08);
 }
 /* complete/locked are told apart from live by texture and saturation, never by
    fading the whole group toward the page ground. opacity composites the region
@@ -325,10 +325,39 @@ body {
 
 */
 .rl-world { display: grid; gap: var(--s3); }
-.rl-world__board { position: relative; width: 100%; max-width: 71.25rem; margin-inline: auto; }
+/* The 3D board fits its frustum once for the worst yaw (CLAUDE.md, "The
+   campaign board"): a bigger frame draws a bigger board, not a different
+   one. This used to cap the flat board at 71.25rem too, so a wide display
+   shrank it to a fraction of the screen instead of growing it. */
+.rl-world__board { position: relative; width: 100%; max-width: none; margin-inline: auto; }
 .rl-world__board svg { display: block; width: 100%; height: auto; }
 
-.rl-world__town { position: absolute; transform: translate(-50%, -50%); white-space: nowrap; }
+.rl-world__town {
+  position: absolute;
+  /* `--dy`/`--leader` are set from JS (`nudgeLabels`, label-layout.ts) once
+     after the pins are placed here and every frame on the 3D board -- see
+     that file's own comment. Declared here so the whole element defaults to
+     the same "nothing collided" state the CSS `var(..., 0px)` fallbacks
+     already assume, before any script has run a single frame. */
+  --dy: 0px;
+  --leader: 0px;
+  transform: translate(-50%, calc(-50% + var(--dy, 0px)));
+  white-space: nowrap;
+}
+/* The leader: a hairline from the town's true anchor up to a label nudged
+   down to clear another one. `--leader` is `max(0, dy - 4)`, set alongside
+   `--dy` -- zero-height and invisible on a label that never moved. `left`
+   is the horizontal anchor for a label CENTRED on its pin; the 3D board
+   overrides it below, since there the label sits beside the pin instead. */
+.rl-world__town::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: 1px; /* px-ok */
+  height: var(--leader, 0px);
+  background: var(--ink-dim);
+}
 .rl-world__townlink { color: var(--ink); font-weight: 600; }
 /* Struck through only once a town is actually finished. An 'empty' town (no
    missions authored) or a mid-progress 'live' one is quiet, plain text --
@@ -374,8 +403,12 @@ body {
   /* Beside the point, not centred on it. The flat board centres its label on
      the town because the PNG has no marker of its own; here the ring below IS
      the marker and sits on the projected position, so the label steps aside
-     rather than covering the ground it is naming. */
-  transform: translate(0.875rem, -50%);
+     rather than covering the ground it is naming. `--dy` is `nudgeLabels`'
+     per-town offset, recomputed every frame in `onFrame` (worldmap3d.ts) as
+     the board turns -- the pin's own screen position (`pin.style.left/top`,
+     set from the projection every frame) never moves; only this transform,
+     and with it the rendered ring and label together, does. */
+  transform: translate(0.875rem, calc(-50% + var(--dy, 0px)));
   /* A pin with no projected position yet is not drawn at all -- one parked in
      the top-left corner reads as a bug rather than as "still loading". */
   opacity: 0;
@@ -383,11 +416,17 @@ body {
 }
 .rl-world--3d .rl-world__town[data-placed='1'] { opacity: 1; }
 .rl-world--3d .rl-world__town:has(.rl-world__townlink):hover {
-  transform: translate(0.875rem, -50%) scale(1.08);
+  transform: translate(0.875rem, calc(-50% + var(--dy, 0px))) scale(1.08);
 }
-.rl-world--3d .rl-world__town::before {
+/* The leader's horizontal anchor for THIS board -- beside the pin, not
+   centred on it, so the generic rule's 50% is wrong here. Every other leader
+   property comes from the generic `.rl-world__town::before` rule above. */
+.rl-world--3d .rl-world__town::before { left: 0.4375rem; }
+.rl-world--3d .rl-world__town::after {
   /* The pin itself: a small ring on the marker's exact point, with the label
-     beside it. Without this the text floats with nothing tying it to ground. */
+     beside it. Without this the text floats with nothing tying it to ground.
+     `::after`, not `::before` -- the leader line above already claims that
+     slot on this element, and the two never need to be the same one. */
   content: '';
   position: absolute;
   left: -0.8125rem;
@@ -399,10 +438,10 @@ body {
   border-radius: 50%;
   background: color-mix(in srgb, var(--ink) 35%, transparent);
 }
-.rl-world--3d .rl-world__town[data-status='live']::before { border-color: var(--map-live); }
-.rl-world--3d .rl-world__town[data-status='done']::before { border-color: var(--map-spent); }
-.rl-world--3d .rl-world__town[data-status='locked']::before,
-.rl-world--3d .rl-world__town[data-status='empty']::before { border-color: var(--map-locked-line); }
+.rl-world--3d .rl-world__town[data-status='live']::after { border-color: var(--map-live); }
+.rl-world--3d .rl-world__town[data-status='done']::after { border-color: var(--map-spent); }
+.rl-world--3d .rl-world__town[data-status='locked']::after,
+.rl-world--3d .rl-world__town[data-status='empty']::after { border-color: var(--map-locked-line); }
 .rl-world--3d .rl-world__townlink,
 .rl-world--3d .rl-world__townname {
   pointer-events: auto;
@@ -1908,15 +1947,19 @@ body {
   text-align: center;
 }
 /* The one documented exception to the column: a menu holding the campaign
-   map needs real width, or the map is squeezed to a fraction of its
-   71.25rem design and its town labels collide. :has() scopes the wider frame
-   to exactly that case rather than widening every menu screen. The vw term
-   subtracts the menu's own horizontal padding and border so the *box*,
-   not just its content, stays inside the viewport at narrow widths -- the
-   plain vw budget above does not account for that and was never exercised
-   at a width where it mattered. */
+   map needs real width, or the map is squeezed to a fraction of the screen
+   instead of growing with it. `.rl-world__board` no longer caps its own
+   width (it fits the 3D board's frustum once, for the worst yaw -- CLAUDE.md,
+   "The campaign board" -- so a bigger frame is a bigger board), and this is
+   the frame. :has() scopes the wider one to exactly this case rather than
+   widening every menu screen. 112.5rem is 1800 px at scale 1 -- wide enough
+   that a 2560-wide display still grows the board past 1140, the flat board's
+   authored viewBox width. The vw term subtracts the menu's own horizontal
+   padding and border so the *box*, not just its content, stays inside the
+   viewport at narrow widths -- the plain vw budget above does not account
+   for that and was never exercised at a width where it mattered. */
 .rl-menu:has(.rl-world) {
-  width: min(75rem, calc(98vw - 2 * var(--s6) - 2px));
+  width: min(112.5rem, calc(98vw - 2 * var(--s6) - 2px));
 }
 /* The banner, wordmark and nav were laid out for the narrow column; letting
    them stretch to the map's width would blow the banner image up and turn
@@ -1976,6 +2019,17 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--s1);
+}
+/* The campaign screen's way back: `.rl-menu` itself scrolls (`max-height:
+   96vh; overflow-y: auto`), and the campaign board is tall enough at
+   1400x900 to push this nav below the fold with nothing on screen to say
+   there is a way back at all. Sticky keeps it pinned to the bottom of the
+   scrolling frame instead. */
+.rl-menu__nav--sticky {
+  position: sticky;
+  bottom: 0;
+  background: var(--panel-bg);
+  padding-block: var(--s2);
 }
 .rl-menu__item {
   display: block;

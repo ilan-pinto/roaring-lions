@@ -284,7 +284,10 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
   }
 
   const nav = document.createElement('nav');
-  nav.className = 'rl-menu__nav';
+  // Sticky: the board pushes this below the fold at 1400x900 inside
+  // `.rl-menu`'s own scroll frame, and the way back is the one thing on this
+  // screen that must never need scrolling to find.
+  nav.className = 'rl-menu__nav rl-menu__nav--sticky';
   const back = document.createElement('a');
   back.textContent = '← main menu';
   back.href = '?';

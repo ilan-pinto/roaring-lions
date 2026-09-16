@@ -65,6 +65,7 @@ import {
   type RegionStatus,
   type WorldRegion,
 } from '../campaign';
+import { nudgeLabels, type LabelBox } from './label-layout';
 import type { RendererChoice } from '../renderer-choice';
 import { ledgerLine, regionCard } from './worldmap';
 
@@ -370,13 +371,37 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     navigate(opts.href(next));
   };
 
+  // A label's rendered size never changes frame to frame (the text and the
+  // star count are fixed once the pin is built), so it is measured once --
+  // the moment a pin first gets a real position -- rather than every frame.
+  // `offsetWidth`/`offsetHeight` are the placed-and-visible size regardless
+  // of `opacity`, which is all this pin ever animates.
+  const labelSize = new Map<string, { w: number; h: number }>();
   const onFrame = (towns: readonly TownPin[], bearingDegrees: number): void => {
+    const boxes: LabelBox[] = [];
     for (const t of towns) {
       const pin = pinFor.get(t.id);
       if (!pin) continue;
       pin.style.left = `${t.x.toFixed(1)}px`;
       pin.style.top = `${t.y.toFixed(1)}px`;
-      pin.dataset.placed = '1';
+      if (pin.dataset.placed !== '1') {
+        labelSize.set(t.id, { w: pin.offsetWidth, h: pin.offsetHeight });
+        pin.dataset.placed = '1';
+      }
+      const size = labelSize.get(t.id) ?? { w: 0, h: 0 };
+      boxes.push({ id: t.id, x: t.x, y: t.y, w: size.w, h: size.h });
+    }
+    // Collision avoidance over the PROJECTED positions, recomputed every
+    // frame as the board turns -- cheap at a dozen towns (label-layout.ts).
+    // The pin itself (`pin.style.left/top`, set above) never moves; only the
+    // label's rendered offset does, via `--dy` on the CSS transform.
+    const dy = nudgeLabels(boxes, 4);
+    for (const box of boxes) {
+      const pin = pinFor.get(box.id);
+      if (!pin) continue;
+      const d = dy.get(box.id) ?? 0;
+      pin.style.setProperty('--dy', `${d}px`);
+      pin.style.setProperty('--leader', `${Math.max(0, d - 4)}px`);
     }
     bearing.textContent = `${Math.round(bearingDegrees).toString().padStart(3, '0')}°`;
   };

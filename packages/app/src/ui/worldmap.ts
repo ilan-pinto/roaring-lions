@@ -27,6 +27,7 @@ import {
   type WorldCountry,
   type WorldRegion,
 } from '../campaign';
+import { nudgeLabels, type LabelBox } from './label-layout';
 
 export interface WorldMapOptions {
   base: string;
@@ -153,6 +154,10 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   }
   board.appendChild(svg);
 
+  // Every town marker built below, so the collision pass after the loop can
+  // measure and nudge them without a second DOM walk.
+  const townMarkers: { id: string; el: HTMLElement }[] = [];
+
   for (const region of opts.world.regions) {
     const p = regionProgress(region, opts.ledger, missionName);
     const g = board.querySelector(`#region-${region.id}`);
@@ -199,9 +204,37 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
         marker.appendChild(el('span', 'rl-world__stars', ` ${stars.earned}/${stars.possible}★`));
       }
       board.appendChild(marker);
+      townMarkers.push({ id: town.id, el: marker });
     }
   }
   wrap.appendChild(board);
+
+  // The pins are placed once, not animated, so the collision pass runs once
+  // too -- but only after this whole subtree is actually connected to the
+  // document: `worldMap` returns a detached tree that the caller appends
+  // (`showCampaign`), so measuring `offsetWidth`/`offsetHeight` synchronously
+  // here would read zero regardless of browser. One `requestAnimationFrame`
+  // is enough grace for that synchronous append to have happened -- the same
+  // reasoning as `worldmap3d.ts`'s per-frame pass, run a single time. Guarded
+  // for an environment with no rAF at all, which just runs it immediately
+  // (zero-size boxes, a harmless no-op) rather than throwing.
+  const runNudgePass = (): void => {
+    const boxes: LabelBox[] = townMarkers.map(({ id, el: marker }) => ({
+      id,
+      x: marker.offsetLeft,
+      y: marker.offsetTop,
+      w: marker.offsetWidth,
+      h: marker.offsetHeight,
+    }));
+    const dy = nudgeLabels(boxes, 4);
+    for (const { id, el: marker } of townMarkers) {
+      const d = dy.get(id) ?? 0;
+      marker.style.setProperty('--dy', `${d}px`);
+      marker.style.setProperty('--leader', `${Math.max(0, d - 4)}px`);
+    }
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(runNudgePass);
+  else runNudgePass();
 
   // --- the status panel ----------------------------------------------------
   const cards = el('div', 'rl-world__cards');
