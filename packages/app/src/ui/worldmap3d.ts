@@ -130,7 +130,7 @@ export interface World3dOptions {
    *  player parsing an SVG overlay they will not see. */
   fallback: () => HTMLElement;
   commander?: CommanderData;
-  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
   /** Resolves a villain's bare portrait file name to a URL, same as the flat
    *  board's `WorldMapOptions.portraitUrl` -- both boards get it from
    *  `main.ts`, never build a `portraits/...` path themselves. */
@@ -199,6 +199,9 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   const { world, ledger } = opts;
   const navigate = opts.navigate ?? ((href: string) => window.location.assign(href));
   const hasWebgl = opts.webgl ?? webglAvailable;
+  // A gate's `afterMission` sentence names the mission rather than its id --
+  // the same catalogue lookup the flat board's `worldMap` uses.
+  const missionName = (id: string): string | undefined => opts.missionOf?.(id)?.name;
 
   const wrap = el('div', 'rl-world rl-world--3d');
   const stage = el('div', 'rl-world__stage');
@@ -221,7 +224,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     return null;
   };
   for (const region of world.regions) {
-    const p = regionProgress(region, ledger);
+    const p = regionProgress(region, ledger, missionName);
     statuses[region.id] = p.status;
     if (p.status === 'live' && nextOf(region) !== null) clickable.add(region.id);
   }
@@ -229,7 +232,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // --- the town pins ------------------------------------------------------
   const pinFor = new Map<string, HTMLElement>();
   for (const region of world.regions) {
-    const p = regionProgress(region, ledger);
+    const p = regionProgress(region, ledger, missionName);
     for (const town of region.towns) {
       const next = nextMissionOf(town, ledger);
       const { done, total } = townProgress(town, ledger);
@@ -345,7 +348,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       return;
     }
     point(region.id);
-    const p = regionProgress(region, ledger);
+    const p = regionProgress(region, ledger, missionName);
     if (p.status === 'locked') {
       speak(`${region.name} — ${p.lockedBecause ?? 'locked'}`, 'bad');
       return;

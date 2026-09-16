@@ -1,8 +1,9 @@
 // The brigade: every KDF unit the campaign knows about, whether it is in reach
 // yet, and — for the ones that are not — exactly what would open it. Pure DOM,
 // no sim, the same shape as `debrief.ts` beside it.
-import { conductAtLeast, starsEarned, unlockReason, type LedgerData, type UnlockGate } from '@lions/sim';
+import { conductAtLeast, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
+import { gateSentence } from '../gate-sentence';
 import { panel } from './panel';
 import { roleBadgeSvg, roleBucket, roleLabel } from './role';
 
@@ -29,6 +30,11 @@ export interface BrigadeUnit {
 export interface BrigadeOptions {
   units: BrigadeUnit[];
   ledger: LedgerData;
+  /** Resolves a mission id to its player-facing title, for an `afterMission` gate's
+   *  sentence -- the same catalogue lookup `showCampaign` hands the world map. A row
+   *  gated on a mission this cannot name still reads as a sentence (`gateSentence`'s
+   *  neutral fallback), never as the raw id. */
+  missionName: (id: string) => string | undefined;
   /** Resolves a unit type to its selection-chip frame, the same lookup the
    *  HUD's own card uses (`ui/hud.ts`'s `portrait` dependency). `null` — for
    *  a type with no sheet, or when the caller has no resolver at all — draws
@@ -63,27 +69,27 @@ const ART_MARK = 18;
  *  UnlockGate` twice instead of typing this). */
 type Row = { u: BrigadeUnit; locked: false } | { u: BrigadeUnit; locked: true; unlock: UnlockGate; reason: string };
 
-function classifyRow(u: BrigadeUnit, ledger: LedgerData): Row {
+function classifyRow(u: BrigadeUnit, ledger: LedgerData, missionName: (id: string) => string | undefined): Row {
   if (u.unlock === undefined) return { u, locked: false };
-  const reason = unlockReason(u.unlock, ledger);
+  const reason = gateSentence(u.unlock, ledger, missionName);
   if (reason === null) return { u, locked: false };
   return { u, locked: true, unlock: u.unlock, reason };
 }
 
 /**
- * Which of `unlockReason`'s three checks is the one actually holding a unit
- * back, and the number that check reads by. Needed only to ORDER locked rows
- * "by the gate that opens soonest" — the reason sentence itself still comes
- * from `unlockReason`, unparsed. Mirrors that function's own precedence
- * (Conduct, then stars, then a named mission) so a row that is locked by its
- * stars gate is never mistaken for one locked by Conduct just because it also
+ * Which of `gateSentence`'s three checks (the sim's `unlockReason`, spoken as a
+ * sentence) is the one actually holding a unit back, and the number that check reads
+ * by. Needed only to ORDER locked rows "by the gate that opens soonest" — the reason
+ * sentence itself still comes from `gateSentence`, unparsed. Mirrors that function's
+ * own precedence (Conduct, then stars, then a named mission) so a row that is locked
+ * by its stars gate is never mistaken for one locked by Conduct just because it also
  * declares a `roeMin` it has already cleared.
  *
  * The Conduct check uses `conductAtLeast` -- the exact `sum >= floor * count`
- * predicate `unlockReason` itself checks -- and not `campaignRoe`'s rounded
- * mean: two ratings of 39 and 40 against a floor of 40 round to a mean of 40
- * (reads as cleared) while the exact sum, 79, is short of 80 (still locked).
- * Sorting off the rounded figure could disagree with `unlockReason`'s own
+ * predicate `gateSentence` (and the sim's `unlockReason`) itself checks -- and not
+ * `campaignRoe`'s rounded mean: two ratings of 39 and 40 against a floor of 40 round
+ * to a mean of 40 (reads as cleared) while the exact sum, 79, is short of 80 (still
+ * locked). Sorting off the rounded figure could disagree with `gateSentence`'s own
  * verdict about which gate is binding.
  */
 function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: number, value: number] {
@@ -113,7 +119,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
   // Available first; ties keep their given order (no gate to sort by).
   // Locked rows follow, ordered by the gate that opens soonest — a Conduct
   // floor, then a star count, then a named mission last — ties broken by name.
-  const rows = opts.units.map((u) => classifyRow(u, opts.ledger));
+  const rows = opts.units.map((u) => classifyRow(u, opts.ledger, opts.missionName));
   rows.sort((a, b2) => {
     if (a.locked !== b2.locked) return a.locked ? 1 : -1;
     if (!a.locked || !b2.locked) return 0; // both available: stable, preserves input order

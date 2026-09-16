@@ -46,6 +46,12 @@ const toggle = (stage: HTMLElement, flag: string): void => {
   box.dispatchEvent(new Event('change'));
 };
 
+describe('the heading', () => {
+  it('reads "Free play", not the internal "sandbox" name', () => {
+    expect(render().querySelector('.rl-menu__theatre')?.textContent).toBe('Free play');
+  });
+});
+
 describe('the map list', () => {
   it('offers every map @lions/data enumerates', () => {
     // The guard against a hand-written list. It cannot fail while the screen
@@ -80,11 +86,14 @@ describe('the map list', () => {
     expect(mapLinks(render()).map((a) => a.dataset.map).sort()).toEqual(onDisk.sort());
   });
 
-  it('shows each map by name as well as by id, since the id is what the URL takes', () => {
+  it('shows each map by its human name, never its id -- the id is what the URL takes, not what the player reads', () => {
     const stage = render();
     const tel = stage.querySelector('a[data-map="tel_marum"]');
-    expect(tel?.textContent).toContain(maps.tel_marum.name);
-    expect(tel?.textContent).toContain('tel_marum');
+    expect(tel?.textContent).toBe(maps.tel_marum.name);
+    expect(tel?.textContent).not.toContain('tel_marum');
+    // No shipped map name carries an underscore -- the tell of an id
+    // standing in for a name -- so this also catches a name regressing to one.
+    expect(tel?.textContent).not.toContain('_');
   });
 });
 
@@ -144,12 +153,21 @@ describe('the launch URL', () => {
     expect(unknownParams(params)).toEqual([]);
   });
 
-  it('shows the query it will navigate with', () => {
+  // The URL used to be spelled out on screen (`?sandbox=MAP_ID&tunnel`) as a
+  // dev readout. It is gone: a player reading this screen should see maps and
+  // extras, never the query string those clicks build -- the same defect
+  // class as a raw gate expression or a raw mission id reaching the DOM.
+  it('never prints the URL it will navigate with, on the page or in a flag label', () => {
     const stage = render();
     toggle(stage, 'tunnel');
-    expect(stage.querySelector('.rl-sandbox__url')?.textContent).toBe(
-      '?sandbox=MAP_ID&tunnel'
-    );
+    expect(stage.querySelector('.rl-sandbox__url')).toBeNull();
+    const text = stage.textContent ?? '';
+    expect(text).not.toContain('?sandbox=');
+    expect(text).not.toContain('MAP_ID');
+    // The flag's own name moved to the label's `title` (hover text, not
+    // rendered text), so `&roe` and friends must not appear in the visible
+    // text content either.
+    for (const f of SANDBOX_FLAGS) expect(text).not.toContain(`&${f.name}`);
   });
 });
 

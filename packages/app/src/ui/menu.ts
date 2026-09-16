@@ -39,7 +39,7 @@ export interface CampaignOptions {
   countries: readonly WorldCountry[];
   ledger: LedgerData;
   commander?: CommanderData;
-  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
   /** Resolves a villain's bare portrait file name to a URL, threaded to both
    *  boards -- neither builds a `portraits/...` path itself. */
   portraitUrl?: (file: string) => string | undefined;
@@ -112,7 +112,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   // map" and fell back to beit_sahwan_outskirts, so one of five shipped maps
   // and none of the four flags were reachable by anyone who used the menu.
   // Same defect as `&mesh`, which no menu link ever appended either.
-  addAside('sandbox — pick a map', '?sandboxes');
+  addAside('free play — any map', '?sandboxes');
   addAside('reset campaign ledger', '?fresh=1');
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
   wrap.appendChild(aside);
@@ -283,8 +283,12 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
  *
  *  The map entries stay real anchors with real hrefs, rewritten as the flag
  *  boxes change, so middle-click, copy-link and the browser's own history all
- *  behave. The URL is also shown: the picker is a dev instrument, and a dev
- *  who can see the URL it built can type the next one themselves. */
+ *  behave. Titled "Free play" for a player: it is the same picker the dev
+ *  banner and this file's own history call the sandbox, but nothing on the
+ *  card should read like an internal name -- a map is shown by its human
+ *  name alone, an opt-in extra by its blurb alone, and neither the map id
+ *  nor the `?sandbox=` URL it builds prints anywhere on the screen (the flag
+ *  name is still on the label's `title`, for the curious who hover it). */
 export function showSandbox(stage: HTMLElement): void {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
@@ -295,7 +299,7 @@ export function showSandbox(stage: HTMLElement): void {
 
   const theatre = document.createElement('div');
   theatre.className = 'rl-menu__theatre';
-  theatre.textContent = 'Sandbox — no mission';
+  theatre.textContent = 'Free play';
   wrap.appendChild(theatre);
 
   // --- the extras ---------------------------------------------------------
@@ -305,25 +309,23 @@ export function showSandbox(stage: HTMLElement): void {
   for (const f of SANDBOX_FLAGS) {
     const label = document.createElement('label');
     label.className = 'rl-sandbox__flag';
+    // The flag's own name, e.g. "&roe" -- not read aloud on the card, but on
+    // the label's title for whoever hovers it and wants the URL syntax.
+    label.title = `&${f.name}`;
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.dataset.flag = f.name;
-    const name = document.createElement('b');
-    name.textContent = `&${f.name}`;
     // The table's own blurb, not new prose: one description of a flag, in the
-    // banner and on this screen alike.
+    // banner and on this screen alike -- and, since the flag's own name moved
+    // to the label's title, the only text a player reads here at all.
     const blurb = document.createElement('span');
     blurb.className = 'rl-sandbox__blurb';
     blurb.textContent = f.blurb;
-    label.append(input, name, blurb);
+    label.append(input, blurb);
     flagBox.appendChild(label);
     boxes.push({ name: f.name, input });
   }
   wrap.appendChild(flagBox);
-
-  const readout = document.createElement('div');
-  readout.className = 'rl-sandbox__url';
-  wrap.appendChild(readout);
 
   // --- the maps -----------------------------------------------------------
   const nav = document.createElement('nav');
@@ -335,15 +337,10 @@ export function showSandbox(stage: HTMLElement): void {
     a.className = 'rl-btn rl-menu__item';
     a.dataset.kind = 'sandbox';
     a.dataset.map = id;
-    const title = document.createElement('span');
-    title.textContent = catalogue[id].name;
-    // The id as well as the name: it is what `?sandbox=` takes and what the
-    // boot banner lists, so seeing the two together is how the URL stops
-    // being a thing you have to look up.
-    const slug = document.createElement('span');
-    slug.className = 'rl-sandbox__mapid';
-    slug.textContent = id;
-    a.append(title, slug);
+    // The name alone -- no id alongside it. `?sandbox=` takes the id and the
+    // boot banner still lists it for a dev reading the console, but a player
+    // clicking this card has no use for it and it read as leaked plumbing.
+    a.textContent = catalogue[id].name;
     nav.appendChild(a);
     links.push({ id, a });
   }
@@ -353,11 +350,6 @@ export function showSandbox(stage: HTMLElement): void {
     const on: Partial<Record<SandboxFlagName, boolean>> = {};
     for (const b of boxes) on[b.name] = b.input.checked;
     for (const l of links) l.a.href = sandboxUrl(l.id, on);
-    // MAP_ID rather than <map>: the readout is built by the same `sandboxUrl`
-    // the links are, so whatever stands in for the id is percent-encoded like
-    // a real one -- and `<map>` comes back as `%3Cmap%3E`. Underscores and
-    // capitals are unreserved and pass through as themselves.
-    readout.textContent = sandboxUrl('MAP_ID', on);
   };
   for (const b of boxes) b.input.addEventListener('change', refresh);
   refresh();

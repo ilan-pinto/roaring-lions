@@ -561,6 +561,7 @@ async function main(): Promise<void> {
       showBrigade(stage, {
         units: kdfUnits,
         ledger: loadLedger(),
+        missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
         portrait: (typeId) => portraits[typeId] ?? null,
         possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
         credits: storage ? loadAccount(storage).balance : undefined,

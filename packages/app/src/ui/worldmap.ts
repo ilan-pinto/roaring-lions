@@ -36,7 +36,7 @@ export interface WorldMapOptions {
   ledger: LedgerData;
   href: (missionId: string) => string;
   commander?: CommanderData;
-  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
   /** Resolves a villain's bare portrait file name to a URL an `<img>` can
    *  load -- the same `portrait-catalogue.ts` function the commander bar
    *  uses, handed in from `main.ts` because this module has no browser-side
@@ -86,6 +86,9 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
       height: String(VIEW_H),
     })
   );
+  // A gate's `afterMission` sentence names the mission rather than its id --
+  // `opts.missionOf` is the same catalogue lookup the villain state already uses.
+  const missionName = (id: string): string | undefined => opts.missionOf?.(id)?.name;
   // The first town, in authored order, still asking for a mission: what a click
   // on the country's ground should start.
   const nextMissionOfRegion = (region: WorldRegion): string | null => {
@@ -103,7 +106,7 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
     const region = regionById.get(c.id);
     // A country with no region in world.json has no campaign authored at all:
     // locked, permanently, until data exists for it.
-    const p = region ? regionProgress(region, opts.ledger) : null;
+    const p = region ? regionProgress(region, opts.ledger, missionName) : null;
     const points = c.outline.map(([x, y]) => `${x},${y}`).join(' ');
     const g = svgEl('g', { id: `region-${c.id}` });
     g.setAttribute('data-status', p?.status ?? 'locked');
@@ -151,7 +154,7 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   board.appendChild(svg);
 
   for (const region of opts.world.regions) {
-    const p = regionProgress(region, opts.ledger);
+    const p = regionProgress(region, opts.ledger, missionName);
     const g = board.querySelector(`#region-${region.id}`);
 
     for (const town of region.towns) {
@@ -217,11 +220,11 @@ export function regionCard(
   opts: {
     ledger: LedgerData;
     commander?: CommanderData;
-    missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+    missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
     portraitUrl?: (file: string) => string | undefined;
   }
 ): HTMLElement {
-  const p = regionProgress(region, opts.ledger);
+  const p = regionProgress(region, opts.ledger, (id) => opts.missionOf?.(id)?.name);
   const card = el('div', 'rl-world__card');
   card.dataset.regionCard = region.id;
   card.dataset.status = p.status;
@@ -276,8 +279,8 @@ export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement
   }
 
   // The mean lives in campaignRoe, not in the ledger: the sim stores per-mission bests and
-  // does not divide. This is also the figure a locked region's "requires campaign Conduct 45"
-  // is asking you to raise, so the two read together.
+  // does not divide. This is also the figure a locked region's "Needs a campaign Conduct of
+  // 45 or better" (gateSentence) is asking you to raise, so the two read together.
   const roe = campaignRoe(ledger);
   if (roe !== null) {
     parts.push(`Conduct ${roe.mean}`);

@@ -76,7 +76,12 @@ interface Screen {
 
 const mountScreen = (
   ledger: LedgerData,
-  over: { webgl?: () => boolean; mount?: MountWorldView; world?: typeof world } = {}
+  over: {
+    webgl?: () => boolean;
+    mount?: MountWorldView;
+    world?: typeof world;
+    missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
+  } = {}
 ): Screen => {
   const fake = fakeMount();
   const went: string[] = [];
@@ -94,6 +99,7 @@ const mountScreen = (
     mount: over.mount ?? fake.mount,
     webgl: over.webgl ?? (() => true),
     navigate: (href) => went.push(href),
+    missionOf: over.missionOf,
   });
   document.body.appendChild(el);
   return { el, ready, view: fake.view, went };
@@ -196,13 +202,28 @@ describe('clicking the ground', () => {
    * indistinguishable from a broken screen. It has to say why, and it must
    * not launch anything.
    */
-  it('refuses a locked region and says which mission opens it', async () => {
+  it('refuses a locked region and says a neutral sentence when it has no mission catalogue', async () => {
     const s = mountScreen({});
     await s.ready;
     s.view().pick('sur');
     expect(s.went).toEqual([]);
-    expect(say(s.el)).toBe('Sur — requires clearing deir_amun_3_subterranean');
+    expect(say(s.el)).toBe('Sur — Clear an earlier mission first');
     expect(tone(s.el)).toBe('bad');
+  });
+
+  it('names the gating mission rather than its id, once it has a catalogue to ask', async () => {
+    const s = mountScreen(
+      {},
+      {
+        missionOf: (id) =>
+          id === 'deir_amun_3_subterranean' ? { objectives: [], name: 'Deir Amun III — All Four' } : undefined,
+      }
+    );
+    await s.ready;
+    s.view().pick('sur');
+    expect(s.went).toEqual([]);
+    expect(say(s.el)).toBe('Sur — Clear Deir Amun III — All Four first');
+    expect(say(s.el)).not.toContain('deir_amun_3_subterranean');
   });
 
   it('points at the locked region’s own card, so the eye follows the sentence', async () => {

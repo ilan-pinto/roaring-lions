@@ -12,6 +12,7 @@
  * disagree with what was actually played and there is no second save file to migrate.
  */
 import { unlockReason, type LedgerData, type MissionJson, type MissionResult, type UnlockGate } from '@lions/sim';
+import { gateSentence } from './gate-sentence';
 
 export interface WorldTown {
   id: string;
@@ -168,7 +169,16 @@ export function townProgress(town: WorldTown, ledger: LedgerData | undefined): {
   return { done: town.missions.filter((m) => done.has(m)).length, total: town.missions.length };
 }
 
-export function regionProgress(region: WorldRegion, ledger: LedgerData | undefined): RegionProgress {
+export function regionProgress(
+  region: WorldRegion,
+  ledger: LedgerData | undefined,
+  /** Resolves a mission id to its player-facing title, for the `afterMission` gate's
+   *  sentence. Optional and defaulting to "no name known" (the sentence then falls
+   *  back to a neutral "Clear an earlier mission first") -- callers that only need
+   *  `.status`, like `nextMissionAfter` below, have no catalogue to hand in and should
+   *  not be made to build one just to satisfy this signature. */
+  missionName: (id: string) => string | undefined = () => undefined
+): RegionProgress {
   let done = 0;
   let total = 0;
   for (const town of region.towns) {
@@ -176,7 +186,7 @@ export function regionProgress(region: WorldRegion, ledger: LedgerData | undefin
     done += p.done;
     total += p.total;
   }
-  const lockedBecause = unlockReason(region.unlock, ledger);
+  const lockedBecause = gateSentence(region.unlock, ledger, missionName);
   // A region with nothing authored yet is not "finished". Treating total 0 as complete
   // would grey out every region piece 2 has not written, which reads as a bug.
   const status: RegionStatus =
