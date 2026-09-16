@@ -609,6 +609,13 @@ export function circularMeanDeg(bearingsDeg: readonly number[]): {
  * re-derive that negative result -- it is recorded here so the next reader
  * does not pay for it twice.
  *
+ * Both of those numbers are of the clips as they stood when the comparison
+ * was made, and re-measuring today will not reproduce the second one:
+ * `sarim_rifles`'s `moveFire` was rebuilt on 2026-09-16 (it bound a 0.2 m/s
+ * walk-and-shoot and is now the run's legs under the same firing upper body)
+ * and its face reads **+15.5**. The negative result is about the METHOD and
+ * stands regardless; the pair of numbers is a snapshot.
+ *
  * ## `jointPattern`, and the rig this instrument could not read
  *
  * The default is `HEAD_JOINT_RE`, which is what every caller wants and what

@@ -26,6 +26,7 @@ import {
   measureFacing,
   measureRoleFootprint,
   measureRoleTravel,
+  MESH_UNITS_PER_TILE,
 } from './mesh_gait';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 
@@ -309,6 +310,34 @@ describe('mesh unit gait -- the run clips', () => {
     // And it really is an improvement on what shipped, not merely above a
     // floor a walk could also clear on a slower unit.
     expect(ratio).toBeGreaterThan(before);
+  });
+
+  // Fix round 1. Binding `move` to `Running` above left `sarim_rifles`'s
+  // `moveFire` bound to `Walk_Forward_While_Shooting`, which was consistent
+  // while `move` was a walk and stopped being so the moment it was not. That
+  // clip is ONE gait cycle of a 0.2 m/s creeping advance -- 0.6614 m of stride
+  // over 3.25 s -- on a unit the sim moves at 2.7 m/s, so the D4 rate-match
+  // would have had to play it at 13.27x and finish it in 245 ms. Nothing in
+  // the tree could see that: `move` was fine, the facing gates were fine, and
+  // `moveFire` has no `WALK_FLOOR` test of its own because its ratio is
+  // measured against a different clip length.
+  //
+  // This is the guard, and it is expressed as the MULTIPLIER rather than as a
+  // ratio because that is the quantity that actually breaks: a clip whose
+  // implied ground speed is far from the unit's own cannot be rate-matched
+  // without either a flicker or a clamp wide enough to disable rate-matching
+  // for everything else. 2.6 is the worst multiplier anything else in the tree
+  // needs; measured here, `meshy_soldier` 1.125 and `sarim_rifles` 1.244.
+  const MAX_RATE_MATCH = 2.6;
+
+  it.each([
+    ['inf_squad', 'meshy_soldier.glb', 0.9],
+    ['sarim_rifles', 'sarim_rifles.glb', 0.9],
+  ])('%s fires on the move at a speed its own legs could reach', (_label, file, speed) => {
+    const m = measureRoleTravel(`${MESHES}${file}`, 'boot', 'moveFire');
+    const implied = m.maxTravelM / m.clipSeconds;
+    const wanted = speed * MESH_UNITS_PER_TILE;
+    expect(wanted / implied).toBeLessThan(MAX_RATE_MATCH);
   });
 });
 
