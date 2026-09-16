@@ -96,6 +96,20 @@ const FAST_INF: UnitTypeJson = {
   mobility: { speed_tiles_s: 2 * FIXTURE_CLIP_GROUND },
 };
 
+/**
+ * A transport, for the carried-passenger case. Its speed is deliberately
+ * 2.6x the fixture clip's own ground speed, so a passenger rate-matched to
+ * this hull would read a number nothing about its legs could justify -- which
+ * is exactly what shipped until fix round 1.
+ */
+const CARRIER: UnitTypeJson = {
+  id: 'gait_carrier',
+  role: 'apc',
+  hull: { hp: 900, armor: { front: 30, side: 20, rear: 15 }, transport_slots: 2 },
+  mobility: { speed_tiles_s: 2.6 * FIXTURE_CLIP_GROUND },
+  sensors: { optics: 1, sight_tiles: 10, signature: 0.9 },
+};
+
 interface ThreeRendererPrivates {
   entitySpeed: Float64Array;
   meshUnitTemplates: Map<string, readonly MeshUnitTemplate[]>;
@@ -104,8 +118,8 @@ interface ThreeRendererPrivates {
   applyGaitRate(
     entity: MeshUnitEntity,
     template: MeshUnitTemplate,
-    entitySpeedTiles: number,
-    anim: UnitAnimInput
+    anim: UnitAnimInput,
+    carried: boolean
   ): void;
 }
 
@@ -123,8 +137,16 @@ async function setUp(opts: SetUpOpts = {}) {
   const sim = new Sim({ seed: 1, width: 32, height: 32, capacity: 8 });
   const nominalIdx = sim.addUnitType(NOMINAL_INF);
   const fastIdx = sim.addUnitType(FAST_INF);
+  const carrierIdx = sim.addUnitType(CARRIER);
   const nominalId = sim.spawn(nominalIdx, 0, fx.from(4.5), fx.from(6.5));
   const fastId = sim.spawn(fastIdx, 0, fx.from(4.5), fx.from(9.5));
+  // Beside the FAST rifle squad, so one `load` order boards in a few ticks.
+  // The fast one on purpose: its own rate-match is 2x, so "carried" (1x) and
+  // "dismounted and marching" (2x) are different numbers and the dismount
+  // assertion below cannot pass by construction. It draws as a billboard (no
+  // mesh template installed for it), which is irrelevant here and is also
+  // what a `&nomesh` player sees.
+  const carrierId = sim.spawn(carrierIdx, 0, fx.from(5.2), fx.from(9.5));
 
   const renderer = new ThreeRenderer(sim, makeOpts());
   const priv = renderer as unknown as ThreeRendererPrivates;
@@ -147,7 +169,7 @@ async function setUp(opts: SetUpOpts = {}) {
   renderer.snapshot();
   renderer.snapshot();
 
-  return { sim, renderer, priv, nominalId, fastId };
+  return { sim, renderer, priv, nominalId, fastId, carrierId };
 }
 
 /** Orders `ids` due east and runs `ticks` sim ticks, snapshotting each one
@@ -308,14 +330,83 @@ describe('gait rate-matching, driven through updateMeshUnits', () => {
       speed: priv.entitySpeed[fastId], firing: true, working: false,
     };
     entity.currentClip = 'moveFire';
-    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(FAST_INF.id)![0], priv.entitySpeed[fastId], moving);
+    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(FAST_INF.id)![0], moving, false);
     expect(entity.actions.get('moveFire')?.timeScale).toBeCloseTo(2, 2);
 
     // `fire` is the by-construction half (see the `idle` case above for the
     // full account); it is here so the pair reads together, not as a guard.
     entity.currentClip = 'fire';
-    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(FAST_INF.id)![0], priv.entitySpeed[fastId], moving);
+    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(FAST_INF.id)![0], moving, false);
     expect(entity.actions.get('fire')?.timeScale).toBe(1);
+  });
+});
+
+describe('a CARRIED unit is not rate-matched (fix round 1)', () => {
+  /**
+   * `Sim.stepTransport` overwrites a passenger's `posX`/`posY` with its
+   * carrier's every tick, so `ThreeRenderer.entitySpeed` -- a raw per-tick
+   * position delta -- reports the VEHICLE's speed for a man sitting inside
+   * it. `updateMeshUnits` does not skip carried entities, so before the fix
+   * a passenger's legs were rate-matched to a hull.
+   *
+   * Everything below is the sim's own doing: a real `load` command, a real
+   * carrier move, and the renderer's own snapshot cadence. Nothing about the
+   * passenger's speed is injected.
+   */
+  async function ride() {
+    const { sim, renderer, priv, fastId, carrierId } = await setUp({ gait: FIXTURE_GAIT });
+    sim.queueCommand({ kind: 'load', ids: [fastId], carrier: carrierId });
+    for (let t = 0; t < 40 && sim.state.carriedBy[fastId] < 0; t++) {
+      sim.tick();
+      renderer.snapshot();
+    }
+    if (sim.state.carriedBy[fastId] < 0) {
+      throw new Error('the squad never boarded -- fixture assumption broken');
+    }
+    marchEast(sim, renderer, priv, [carrierId], 24.5, 8);
+    return { sim, renderer, priv, fastId, carrierId };
+  }
+
+  it("reports the CARRIER's speed for the passenger -- the fiction this guards against", async () => {
+    // Stated first and separately, because if this ever stops being true the
+    // guard below becomes a check that passes by construction. A passenger
+    // moving at its own 1.0 would make the next test unfalsifiable.
+    const { priv, fastId, carrierId } = await ride();
+    expect(priv.entitySpeed[fastId]).toBeCloseTo(priv.entitySpeed[carrierId], 6);
+    // Strictly faster than the passenger's OWN 2.0, so "carried at 1x" and
+    // "rate-matched at 2x" and "rate-matched to the hull at 2.6x" are three
+    // distinguishable numbers.
+    expect(priv.entitySpeed[fastId]).toBeGreaterThan(2.4 * FIXTURE_CLIP_GROUND);
+  });
+
+  it('leaves a passenger at 1x, which is exactly what it had before this task', async () => {
+    // Break: drop the `carried` argument from `applyGaitRate`'s condition and
+    // this reads ~2.6 -- a man sitting inside an APC running his legs at 2.6x
+    // because the hull is fast. Every foot role has `canEmbark`, so the worst
+    // shipped pairing is a `sniper_team` in a `jeep_shoded`: 13.53, which
+    // CLAMPS, and a clamp binding on an ordinary shipped configuration is
+    // precisely the thing Task 7's gate is told cannot happen.
+    const { sim, priv, fastId } = await ride();
+    expect(sim.state.carriedBy[fastId]).toBeGreaterThanOrEqual(0);
+    const { clip, timeScale } = playingRate(priv, fastId);
+    expect(clip).toBe('move');
+    expect(timeScale).toBe(1);
+  });
+
+  it('gets its rate-match back once it dismounts -- nothing here is latched', async () => {
+    const { sim, renderer, priv, fastId, carrierId } = await ride();
+    sim.queueCommand({ kind: 'unload', ids: [carrierId] });
+    for (let t = 0; t < 10 && sim.state.carriedBy[fastId] >= 0; t++) {
+      sim.tick();
+      renderer.snapshot();
+    }
+    expect(sim.state.carriedBy[fastId]).toBe(-1);
+
+    marchEast(sim, renderer, priv, [fastId], 24.5, 6);
+    expect(priv.entitySpeed[fastId]).toBeCloseTo(2 * FIXTURE_CLIP_GROUND, 2);
+    // 2, not 1 -- so this cannot be satisfied by the carried exclusion still
+    // being in force.
+    expect(playingRate(priv, fastId).timeScale).toBeCloseTo(2, 2);
   });
 });
 
@@ -344,9 +435,9 @@ describe('rout cadence finally reaches the mesh path', () => {
     // The sim halves a routed unit's own step (`ROUT_SPEED_SHIFT`), so both
     // calls take the SAME already-halved speed -- what is being measured is
     // the cadence multiplier alone, not the speed change beneath it.
-    priv.applyGaitRate(entity, template, 0.5, calm);
+    priv.applyGaitRate(entity, template, calm, false);
     const calmRate = entity.actions.get('move')?.timeScale ?? Number.NaN;
-    priv.applyGaitRate(entity, template, 0.5, routed);
+    priv.applyGaitRate(entity, template, routed, false);
     const routedRate = entity.actions.get('move')?.timeScale ?? Number.NaN;
 
     expect(calmRate).toBeCloseTo(0.5, 6);
@@ -364,7 +455,7 @@ describe('rout cadence finally reaches the mesh path', () => {
     const entity = priv.meshUnitEntities.get(nominalId);
     if (!entity) throw new Error('no mesh entity');
     entity.currentClip = 'move';
-    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(NOMINAL_INF.id)![0], 0.5, routed);
+    priv.applyGaitRate(entity, priv.meshUnitTemplates.get(NOMINAL_INF.id)![0], routed, false);
 
     const rate = entity.actions.get('move')?.timeScale ?? Number.NaN;
     const legGroundPerSecond = rate * FIXTURE_CLIP_GROUND;

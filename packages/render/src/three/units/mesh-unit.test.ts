@@ -39,16 +39,28 @@ import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import {
   buildMeshUnitTemplate,
+  loadMeshUnitTemplate,
   instantiateMeshUnit,
   disposeMeshUnitEntity,
   disposeMeshUnitTemplate,
 } from './mesh-unit';
+import { gltfLoader } from './gltf-loader';
 import { applyMeshClip } from './mesh-clip';
 import { MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 import { parseFixture } from './mesh-fixture';
 import { liftTone } from '../world-materials';
 import { rampForRole } from './mesh-role';
+
+// `loadMeshUnitTemplate` is the only thing in this file that fetches, and the
+// only thing that gives a gait warning its file name. Mocked at module scope
+// so the label assertion can drive the REAL function rather than a
+// re-implementation of it; nothing else here touches the loader.
+vi.mock('./gltf-loader', () => ({
+  gltfLoader: vi.fn(),
+  setDracoDecoderPath: vi.fn(),
+  disposeGltfLoader: vi.fn(),
+}));
 
 // --- tests --------------------------------------------------------------
 
@@ -432,6 +444,35 @@ describe('buildMeshUnitTemplate: rl_gait', () => {
     expect(template.gait?.get('move')).toBeUndefined();
     expect(warn).toHaveBeenCalled();
     expect(String(warn.mock.calls[0]?.[0])).toContain('half-written.glb');
+    warn.mockRestore();
+  });
+
+  it('loadMeshUnitTemplate passes the URL through, so a warning names a real file', async () => {
+    // The ONE production path that gives the warning its file name, and it
+    // had no test: dropping `glbUrl` from `loadMeshUnitTemplate`'s call was
+    // the only implementation mutation of 31 that survived green in fix
+    // round 1's review. Every gait warning would then read "(unnamed glb)"
+    // and the brief's "a warning naming the file" requirement would stop
+    // holding silently.
+    //
+    // `gltfLoader` is mocked rather than the parameter being made required:
+    // making it required is a seven-file churn that proves nothing about
+    // whether THIS call site passes it, which is the thing that broke.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const gltf = await parseFixture({
+      roleName: 'uniform',
+      clipName: ['idle', 'move'],
+      sceneExtras: { rl_gait: { move: { strideM: 'not a number', cycleS: 0.625 } } },
+    });
+    vi.mocked(gltfLoader).mockReturnValue({
+      loadAsync: async () => gltf,
+    } as unknown as ReturnType<typeof gltfLoader>);
+
+    await loadMeshUnitTemplate('/art/meshes/yahalom_engineer.glb', 'kdf');
+
+    expect(warn).toHaveBeenCalled();
+    expect(String(warn.mock.calls[0]?.[0])).toContain('/art/meshes/yahalom_engineer.glb');
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain('unnamed');
     warn.mockRestore();
   });
 

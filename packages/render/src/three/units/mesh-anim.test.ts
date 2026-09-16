@@ -184,10 +184,16 @@ describe('pickDeathClip', () => {
 //
 // The numbers used below are the SHIPPED declarations, read off
 // `art/meshes/**` by `pnpm gait:meshes`'s own instrument (Task 5) and
-// restated here so a reader can check the arithmetic by hand. What keeps
-// them from going stale is `mesh-gait-shipped.test.ts`, which reads the real
-// bytes rather than these literals: this file is the arithmetic, that one is
-// the asset.
+// restated here so a reader can check the arithmetic by hand.
+//
+// **They are LITERALS and nothing checks them against the bytes.** An earlier
+// version of this header claimed a `mesh-gait-shipped.test.ts` did; no such
+// file exists, and a reader auditing exactly the risk it named -- someone
+// re-exporting `yahalom_engineer.glb` with a longer stride and leaving this
+// file alone -- would have been told a guard existed and stopped looking.
+// Design sec 3.5 assigns the shipped-bytes sweep to Task 7's gate. Until it
+// lands, re-running `pnpm gait:meshes` means re-reading these numbers and the
+// table in `GAIT_TIME_SCALE_MAX`'s doc comment by hand.
 
 describe('LOCOMOTION_CLIPS / isLocomotionClip', () => {
   it('names exactly the two clips that describe ground travel', () => {

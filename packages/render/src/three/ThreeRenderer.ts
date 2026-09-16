@@ -4486,7 +4486,10 @@ export class ThreeRenderer implements Renderer {
         entity.actions.has('moveFire')
       );
       applyMeshClip(entity, desiredClip);
-      this.applyGaitRate(entity, template, this.entitySpeed[i], anim);
+      // `carriedBy >= 0` is a passenger. Its `entitySpeed` is its CARRIER's
+      // -- see `applyGaitRate`'s own doc comment -- so its legs are not
+      // rate-matched at all.
+      this.applyGaitRate(entity, template, anim, st.carriedBy[i] >= 0);
       entity.mixer.update(dtSeconds);
     }
 
@@ -4562,8 +4565,38 @@ export class ThreeRenderer implements Renderer {
    * locomotion branch would leave a stale rate on an action that later plays
    * something else; writing `1` on every other branch is what makes the
    * non-locomotion rule self-healing rather than order-dependent. Cost is one
-   * float store per living mesh unit per frame.
+   * float store per living mesh unit per frame. The `carried` exclusion is
+   * part of that: a unit that dismounts must get its rate-match back on the
+   * very next frame, and it does, because nothing here is latched.
    *
+   * ## A CARRIED unit is never rate-matched, and this is a real bug it fixes
+   *
+   * `Sim.stepTransport` overwrites a passenger's `posX`/`posY` with its
+   * carrier's every tick, so `entitySpeed` -- a raw per-tick position delta
+   * -- reports the VEHICLE's speed for a man sitting inside it. This loop
+   * does not skip carried entities (deliberately: their clones still need
+   * position and fog), so without this flag a passenger's legs were
+   * rate-matched to a hull.
+   *
+   * Measured live on `?sandbox=beit_sahwan_outskirts&sur` with a real load
+   * order: `inf_squad` id 5, `carriedBy` 2, clip `move`, `entitySpeed`
+   * 1.3000, `timeScale` **2.2265**. Every foot role has `canEmbark`, so the
+   * reachable set is worse -- a `sniper_team` in a `jeep_shoded` at 2.9
+   * tiles/s computes **13.53** and clamps, `yahalom_squad` 9.03,
+   * `inf_squad` 4.97, `sarim_rifles` in a `technical` 4.29.
+   *
+   * So the clamp was binding on ordinary shipped configurations, which would
+   * have made Task 7's whole invariant ("a clamp doing real work on a
+   * shipped mesh means that mesh's gait is wrong") false on arrival.
+   *
+   * The fix is to not compute the number rather than to clamp it: a man
+   * inside a hull has his legs off the ground and no ground speed of his
+   * own, so rate-matching him is meaningless in BOTH directions -- speeding
+   * his legs up for a fast APC and slowing them for a slow one are equally
+   * fictional. `timeScale = 1` is also exactly what a carried unit had
+   * before this task, so this is strictly less change than clamping.
+   *
+
    * ## Why non-locomotion clips cannot be reached here even by mistake
    *
    * `template.gait` is keyed by `LocomotionClip`, so `gait.get(clip)` does not
@@ -4631,16 +4664,25 @@ export class ThreeRenderer implements Renderer {
   private applyGaitRate(
     entity: MeshUnitEntity,
     template: MeshUnitTemplate,
-    entitySpeedTiles: number,
-    anim: UnitAnimInput
+    /**
+     * The SINGLE source of this unit's measured ground speed: `anim.speed` is
+     * `this.entitySpeed[i]`, the same array `resolveClip` read to decide
+     * `move` in the first place. It used to be passed a second time as its
+     * own argument alongside this object -- two channels for one number,
+     * which a future caller could hand an inconsistent pair and get the rate
+     * from one and the cadence from the other, with nothing able to see it.
+     */
+    anim: UnitAnimInput,
+    carried: boolean
   ): void {
     const playing = entity.currentClip;
     if (playing === null) return;
     const action = entity.actions.get(playing);
     if (!action) return;
-    action.timeScale = isLocomotionClip(playing)
-      ? gaitTimeScale(template.gait?.get(playing), entitySpeedTiles, cadenceScale(anim))
-      : 1;
+    action.timeScale =
+      isLocomotionClip(playing) && !carried
+        ? gaitTimeScale(template.gait?.get(playing), anim.speed, cadenceScale(anim))
+        : 1;
   }
 
   /**

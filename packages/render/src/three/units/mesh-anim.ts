@@ -167,10 +167,31 @@ export function clipGroundSpeedTiles(gait: GaitMetrics): number {
  * clips `yahalom_squad` -- the unit with the single largest correction to
  * make -- and would have put its slide back while every test still passed.
  *
- * What the guard is actually for is a TELEPORT, which is a sim event and not
- * an art property: `entitySpeed` is `hypot(dx, dy) * SIM_HZ` over one tick's
- * raw position delta, so a unit surfacing from a tunnel, dismounting a
- * transport, or arriving as a reinforcement (its `prevX`/`prevY` still at
+ * **The reachable range, for a unit whose own legs are on the ground, is
+ * 1.019x to 2.645x** -- the table above is the whole of it, because
+ * `Sim.stepMovement` never moves a unit further than `type.stepPerTick` in a
+ * tick and `DIR_VX`/`DIR_VY` are unit vectors, so a diagonal is not faster.
+ * Rout goes the other way (half speed times `ROUT_CADENCE` is 0.8x of a
+ * type's own figure) and a short final step onto a goal goes further down
+ * still. So this constant is a genuine backstop: nothing in normal play
+ * approaches it, and a shipped mesh that DOES reach it has a gait fault,
+ * which is the invariant Task 7's gate is built on.
+ *
+ * That last sentence is only true because `ThreeRenderer.applyGaitRate`
+ * excludes a CARRIED unit, and this comment claimed otherwise until fix
+ * round 1. `Sim.stepTransport` overwrites a passenger's `posX`/`posY` with
+ * its carrier's every tick, so a passenger's `entitySpeed` is the VEHICLE's
+ * speed: measured live, an `inf_squad` riding an `ifv_namer` read 1.3000
+ * tiles/s and 2.2265x, and the worst reachable pairing -- every foot role has
+ * `canEmbark` -- is a `sniper_team` in a `jeep_shoded` at 2.9 tiles/s, which
+ * computes 13.53 and clamps hard. A man inside a hull has his legs off the
+ * ground and no ground speed of his own, so that number is a fiction in both
+ * directions and the fix is to not compute it at all.
+ *
+ * What the guard is left covering is a TELEPORT, which is a sim event and
+ * not an art property: `entitySpeed` is `hypot(dx, dy) * SIM_HZ` over one
+ * tick's raw position delta, so a unit surfacing from a tunnel, dismounting
+ * a transport, or arriving as a reinforcement (its `prevX`/`prevY` still at
  * the array's zero-fill) reads as tens or hundreds of tiles per second for
  * exactly one tick. Unclamped, that is a clip playing some hundreds of times
  * over in 50 ms.
@@ -192,9 +213,17 @@ export const GAIT_TIME_SCALE_MAX = 4;
  * `move` is a free-axis slide along a wall (`Sim.stepMovement` zeroes one
  * axis of a diagonal step), which is 0.707 of nominal -- 0.72x on the
  * lowest-multiplier shipped mesh. A unit actually halted reads `speed === 0`
- * and `resolveClip` gives it `idle`, not a frozen `move`. So 0.05 is an
- * order of magnitude below anything reachable, and exists only so a
- * degenerate input can never hand three.js a negative or zero rate.
+ * and `resolveClip` gives it `idle`, not a frozen `move`.
+ *
+ * **The measured margin is 2x, not the order of magnitude this comment
+ * claimed until fix round 1.** The TRANSIENT low is the short final step onto
+ * a goal, `min(step, distance)` in `stepMovement`, and a live capture caught
+ * an `inf_squad` at 0.0585 tiles/s playing at **0.1002** -- twice this floor
+ * and closing. So the floor is close to being reached, deliberately: it is
+ * set to be passed by ordinary slow movement rather than to bound it, and it
+ * exists only so a degenerate input can never hand three.js a negative or
+ * zero rate. If a future change makes it BIND on a unit that is genuinely
+ * creeping, lower it rather than accepting the slide.
  */
 export const GAIT_TIME_SCALE_MIN = 0.05;
 
