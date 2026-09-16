@@ -25,7 +25,8 @@
     "golden-diff:compare": "pnpm --filter @lions/tools golden-diff:compare",
     "gen:luts": "node tools/gen_luts.mjs",
     "encode:meshes": "pnpm --filter @lions/tools encode:meshes",
-    "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes"
+    "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
+    "gait:meshes": "pnpm --filter @lions/tools gait:meshes"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
