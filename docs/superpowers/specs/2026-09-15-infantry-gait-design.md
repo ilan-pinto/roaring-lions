@@ -135,7 +135,7 @@ ground. Everything below is that ratio, measured off the shipped GLBs.
 | `charge_squad` | `charge_squad.glb` | 1.90 | 0.67 s | 3.80 m | 1.22 m | **0.321** |
 | `inf_squad` | `meshy_soldier.glb` | 0.90 | 1.04 s | 2.81 m | 0.89 m | **0.315** |
 | `civilians` | `civilian_child.glb` | 0.80 | 1.03 s | 2.48 m | 0.73 m | 0.295 |
-| `sarim_rifles` `moveFire` | — | 0.90 | 3.25 s | 8.78 m | 0.66 m | **0.075** |
+| `sarim_rifles` `moveFire` | — | 0.90 | 3.25 s | 8.78 m | 0.66 m | **0.075** — see §4a |
 
 Three files are legitimately near zero and are **not** defects: `atgm_cell`,
 `mortar_crew` and `digger_crew` ship a degenerate 0.04 s `move` with no leg
@@ -347,8 +347,38 @@ splaying them around the tube, which is correct for a deployed weapon.
   exists.
 - **Texturing infantry.** Still the lead's call; the Sarim entry in the task
   queue keeps it.
-- **`sarim_rifles`'s `moveFire` blade.** Measured +42° — a genuine supplied
-  walk-and-shoot mocap, bladed but not broken. Recorded, not changed.
+### 4a Correction — `sarim_rifles`'s `moveFire` came back into scope
+
+**Written after Task 5, and it retires the out-of-scope entry below.** §4
+declared the militia's walk-and-shoot out of scope as "bladed but not broken".
+That was right when it was written and wrong the moment Task 3 landed: rebinding
+that unit's `move` to the supplied run left `moveFire` on the walk, so the same
+fighter ran when moving and **crept at 0.2 m/s** when moving and firing. This
+milestone caused that, so this milestone fixed it.
+
+The number that forced it: the declared gait implied a **13.27× playback
+multiplier** against a next-worst of 2.60 anywhere in the tree — a 3.25 s clip
+finishing in 245 ms. Widening the runtime clamp far enough to absorb that would
+have disabled rate-matching for every other unit in the game.
+
+`moveFire` is now synthesized from the run, so it declares the same stride and
+cycle as `move` — the same legs — and needs **1.244×**. The weapon axis is
+inherited whole from the supplied firing pose and did not move (−1.92°, on the
+axis a tracer flies down). The face came square with the run rather than blading
+with the walk: **+41.8° → +15.5°**, against `move`'s own +14.8°, which is the
+smallest face-to-weapon gap of any firing clip in the tree (−1.82°).
+
+Two things learned that bind §3.5's gate. **Nothing in this tree could see a
+mismatch BETWEEN two clips of one file** — every check judges one clip at a
+time, against its unit's speed, so `move` and `moveFire` disagreeing by a factor
+of ten was invisible. And the KDF rifleman's arm-chain aim solve **does not
+transfer** to this rig, because the offset here lives in the torso: applied
+directly it diverges on 4 of 16 frames and drives the hands past the figure's
+own arm reach.
+
+- ~~**`sarim_rifles`'s `moveFire` blade.** Measured +42° — a genuine supplied
+  walk-and-shoot mocap, bladed but not broken. Recorded, not changed.~~
+  **Retired — see §4a. It came back into scope because this milestone broke it.**
 - **`moto_rpg` wheel-spin rate-matching.** Its wheels should arguably scale with
   speed the way legs now do. Recorded as follow-up.
 - **Vehicle and turret animation.** Untouched.

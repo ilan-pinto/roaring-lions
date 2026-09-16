@@ -704,6 +704,21 @@ have caught it: this test file gates `fire`'s face at 20 and that build read
 agree to 1–3°. Assert that agreement, on the standing clips, with a bound near
 5°. Both numbers already exist, so this is cheap.
 
+- [ ] **Step 3c: Gate a file's locomotion clips against EACH OTHER**
+
+Every check in this tree judges one clip at a time, against its unit's own
+speed. That is why `sarim_rifles` could ship a `move` that runs and a `moveFire`
+that creeps — a factor of ten apart, in one file, invisible to everything.
+Assert that a file's locomotion clips imply ground speeds within a small factor
+of each other. They are the same legs on the same unit; a real difference
+between them is a content bug, not a style.
+
+**And know that one half of the militia's weapon gate is now zero by
+construction.** Re-seating that rig's torso to a fixed orientation makes
+`moveFire`'s weapon SPREAD identically 0, so only the mean half of that check
+can fail. It is the same hole as the face gate, from the other direction, and it
+is recorded in the table itself. Do not read a passing spread there as evidence.
+
 - [ ] **Step 4: Falsify the gate**
 
 A gate that has never gone red is a gate of its own threshold. Temporarily re-point one assertion at a pre-fix copy of `meshy_soldier.glb` (or reconstruct the defect), confirm the facing check fails and names the clip, then revert. Record the failure output in your report. Do the same for the gait check.
