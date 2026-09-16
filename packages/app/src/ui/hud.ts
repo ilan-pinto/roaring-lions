@@ -299,13 +299,17 @@ export class Hud {
 
     // --- the selection cluster --------------------------------------------
     //
-    // Bottom centre, on the same x as the controls hint, because it replaces
-    // the hint the moment anything is selected: one place at the bottom of
-    // the screen that answers "what am I holding and what can it do". The
-    // feed (below) is prepended into this same column so the two stack
-    // instead of overlapping -- it used to be its own absolutely-positioned
-    // block at a fixed `bottom`, which drew over the order row the moment
-    // both were on screen at once.
+    // Bottom centre: one column (`.rl-sel`) holding, in order, the feed, the
+    // order row, the card/chips, and the controls hint -- the bottom-centre
+    // STACK, never hidden as a whole. `renderCard` shows or hides only the
+    // order row and the card/chips body; `renderHint` shows or hides only the
+    // hint, the moment anything is selected. Splitting it this way (fix
+    // round 1) is what keeps a live notice on screen with nothing selected --
+    // the default state, and true for most of a mission -- where hiding the
+    // whole column used to take the feed down with it. Before that it was
+    // three separate absolutely-positioned blocks at fixed `bottom` offsets,
+    // which drew over each other the moment more than one was on screen at
+    // once.
     //
     // The order buttons are built ONCE and only repainted, while the chips and
     // the card are innerHTML'd wholesale four times a second. That split is not
@@ -313,12 +317,20 @@ export class Hud {
     // single innerHTML over both would drop every button's listener 4 Hz, and
     // the symptom is an order button that fires only if you click it fast
     // enough.
+    // .rl-sel is never hidden as a whole -- it is the bottom-centre STACK
+    // (feed, order row, card/chips, hint), and hiding the whole thing
+    // whenever nothing was selected took the feed and the hint down with it
+    // (task-5 review, fix round 1: the feed is invisible in the default
+    // no-selection state, true for most of a mission). `renderCard` hides
+    // only `orderBar` and `cluster`; `renderHint` hides only `hint`.
     this.sel = document.createElement('div');
     this.sel.className = 'rl-sel';
-    this.sel.style.display = 'none';
 
     this.orderBar = document.createElement('div');
     this.orderBar.className = 'rl-orders';
+    // Nothing is selected at construction, same as the order row and card
+    // used to start hidden via the parent's own display:none.
+    this.orderBar.style.display = 'none';
     for (const spec of ORDERS) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -339,6 +351,7 @@ export class Hud {
 
     this.cluster = document.createElement('div');
     this.cluster.className = 'rl-cluster';
+    this.cluster.style.display = 'none';
     // Delegated, because the chips themselves are replaced 4 Hz. Clicking a
     // chip narrows the selection to that sub-group, which is what makes the
     // focus frame worth having: Tab picks, the click commits.
@@ -372,6 +385,11 @@ export class Hud {
     // sand for this line. The halo stays available through .rl-onmap for
     // glyph-only marks; the hint no longer uses it.
     this.hint.className = 'rl-hint rl-plate';
+    // Last child of .rl-sel, the same stack the feed is the first child of
+    // (fix round 1): with nothing selected the column reads feed-over-hint;
+    // with a selection it reads feed-over-orders-over-card, and `renderHint`
+    // still hides this element the moment something is selected.
+    this.sel.append(this.hint);
 
     this.fire = document.createElement('div');
     this.fire.className = 'rl-fire';
@@ -459,7 +477,6 @@ export class Hud {
       this.cmd,
       this.clock,
       this.sel,
-      this.hint,
       this.fire,
       this.banner
     );
@@ -901,12 +918,19 @@ export class Hud {
   // one wide card.
   //
   // One entry point rather than two, because the two states share the order
-  // row above them and share the decision of whether the whole cluster is on
-  // screen at all. `sel.length` picks the body: one unit gets the 460px card
-  // with its armament and capabilities, more than one gets 150px chips
-  // grouped by type. A player is asking a different question in each case —
-  // "what is this thing" versus "what have I got" — and answering both with
-  // the same widget is what the old bottom-right panel did.
+  // row above them and share the decision of whether the order row and the
+  // card/chips body are on screen at all. `sel.length` picks the body: one
+  // unit gets the 460px card with its armament and capabilities, more than
+  // one gets 150px chips grouped by type. A player is asking a different
+  // question in each case — "what is this thing" versus "what have I got" —
+  // and answering both with the same widget is what the old bottom-right
+  // panel did.
+  //
+  // `.rl-sel` itself is NEVER hidden here (fix round 1) — only `orderBar` and
+  // `cluster` are, the two elements this method owns. Hiding the shared
+  // column used to take the feed and the hint down with the order row and
+  // the card, which is the wrong scope: a live notice or the controls hint
+  // must survive an empty selection exactly as well as a full one.
   // ------------------------------------------------------------------
 
   private renderCard(): void {
@@ -915,12 +939,14 @@ export class Hud {
     // reporting a corpse's health reads as a bug in the health bar.
     const sel = this.deps.getSelection().filter((i) => sim.state.alive[i] === 1);
     if (sel.length === 0) {
-      this.sel.style.display = 'none';
+      this.orderBar.style.display = 'none';
+      this.cluster.style.display = 'none';
       this.chipTypes = [];
       return;
     }
-    const wasHidden = this.sel.style.display === 'none';
-    this.sel.style.display = '';
+    const wasHidden = this.cluster.style.display === 'none';
+    this.orderBar.style.display = '';
+    this.cluster.style.display = '';
 
     this.renderOrders(sel);
     if (sel.length === 1) {
@@ -929,13 +955,18 @@ export class Hud {
     } else {
       this.renderChips(sel);
     }
-    // The cluster arrives from below the frame edge the first time it is
-    // needed, and then holds still: re-running the entrance on every rebuild
-    // would make it twitch four times a second.
+    // The order row and the card/chips body arrive from below the frame edge
+    // the first time they are needed, and then hold still: re-running the
+    // entrance on every rebuild would make them twitch four times a second.
+    // Restarted on both elements individually now, since `.rl-sel` itself no
+    // longer transitions between hidden and shown.
     if (wasHidden) {
-      this.sel.classList.remove('rl-enter');
-      void this.sel.offsetWidth; // restart the animation rather than resume it
-      this.sel.classList.add('rl-enter');
+      this.orderBar.classList.remove('rl-enter');
+      this.cluster.classList.remove('rl-enter');
+      void this.orderBar.offsetWidth; // restart the animation rather than resume it
+      void this.cluster.offsetWidth;
+      this.orderBar.classList.add('rl-enter');
+      this.cluster.classList.add('rl-enter');
     }
   }
 

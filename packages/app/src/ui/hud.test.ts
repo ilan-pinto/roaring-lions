@@ -482,6 +482,12 @@ describe('bottom-centre controls hint', () => {
     for (let i = 0; i < 5; i++) r.tick(); // the rebuild is 4 Hz, not every tick
     expect(hint.style.display).toBe('none');
   });
+
+  it('the hint stacks under the feed inside the cluster', () => {
+    const r = rig(mission());
+    const sel = r.host.querySelector<HTMLElement>('.rl-sel')!;
+    expect(sel.lastElementChild?.classList.contains('rl-hint')).toBe(true);
+  });
 });
 
 describe('event feed', () => {
@@ -525,6 +531,22 @@ describe('event feed', () => {
     const feed = r.host.querySelector('.rl-feed');
     expect(feed?.parentElement?.classList.contains('rl-sel')).toBe(true);
     expect(feed?.parentElement?.firstElementChild).toBe(feed);
+  });
+
+  it('a notice stays visible with nothing selected', () => {
+    // review finding (task-5 fix round 1): .rl-sel used to be hidden
+    // wholesale whenever nothing was selected -- the default state, and true
+    // for most of a mission -- which took the feed down with it. .rl-sel
+    // itself must never be display:none; only the order row and the card
+    // hide.
+    const r = rig(mission()); // default getSelection: () => []
+    r.hud.note('contact', 'live');
+    r.tick();
+    const sel = r.host.querySelector<HTMLElement>('.rl-sel')!;
+    expect(sel.style.display).not.toBe('none');
+    const notice = sel.querySelector('.rl-notice');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toBe('contact');
   });
 });
 
@@ -736,14 +758,20 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-warn')).toBeNull();
   });
 
-  it('hides the whole cluster when nothing is selected', () => {
+  it('hides the order row and the card, never the whole .rl-sel stack, when nothing is selected', () => {
+    // .rl-sel is the bottom-centre stack that also holds the feed and the
+    // hint -- hiding it wholesale (the old behaviour) took the feed down
+    // with it any time nothing was selected, which is most of a mission.
+    // Only the order row and the card/chips body go away now.
     const world = makeForce();
     let sel: number[] = [world.namer];
     const r = clusterRig(() => sel, {}, world);
-    expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).toBe('');
+    expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).not.toBe('none');
     sel = [];
     for (let i = 0; i < 5; i++) r.tick();
-    expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).toBe('none');
+    expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).not.toBe('none');
+    expect(r.host.querySelector<HTMLElement>('.rl-orders')!.style.display).toBe('none');
+    expect(r.host.querySelector<HTMLElement>('.rl-cluster')!.style.display).toBe('none');
   });
 
   it('names a unit drawn from the roster and shows its service record on the card', () => {

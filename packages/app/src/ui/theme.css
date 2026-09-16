@@ -1094,11 +1094,12 @@ body {
 
 /* --- bottom-centre controls hint -------------------------------------- */
 
+/* The last child of .rl-sel now (hud.ts, fix round 1), not its own
+   absolutely-positioned block -- the column's own `align-items: center`
+   centres it the same way it centres the feed and the card, so `left` /
+   `bottom` / `transform` are gone. `renderHint` still hides this element
+   alone, the moment something is selected. */
 .rl-hint {
-  position: absolute;
-  left: var(--hud-centre);
-  bottom: var(--s2);
-  transform: translateX(-50%);
   text-align: center;
   color: var(--ink-dim);
   pointer-events: none;
