@@ -2686,9 +2686,7 @@ main().catch((err: unknown) => {
   console.error('boot failed:', err);
   const stage = document.getElementById('stage');
   if (stage) {
-    const pre = document.createElement('pre');
-    pre.className = 'rl-boot-error';
-    pre.textContent = `boot failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
-    stage.appendChild(pre);
+    const body = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    bootError(stage, 'Boot failed', body);
   }
 });
