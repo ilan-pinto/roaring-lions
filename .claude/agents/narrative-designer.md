@@ -56,8 +56,11 @@ Two voices carry the HUD, and a briefing is a two-hander that alternates them:
 Live today, and their code limits: `name`; `briefing`, split by `briefingBeats`
 (`packages/app/src/ui/loading.ts`) into beats of **at most two sentences and 240
 characters** — write in beats; `objectives[].text`, which doubles as the toast
-`OBJECTIVE COMPLETE — <text>`; and the trigger `id`, shown verbatim as
-`enemy reacts (<id>)` — so name every trigger as the player should read it.
+`OBJECTIVE COMPLETE — <text>`; and the trigger `label` (≤ 48 characters, no full
+stop) — what the player reads in the feed when it fires. An unlabelled trigger
+shows nothing, `remove` triggers are silent, and `validate:data` refuses a
+shipped non-`remove` trigger without one — so name every trigger as the player
+should read it.
 Specced and unbuilt: `dispatch`, `aftermath`, the commander as data. Approved
 targets, unbuilt: `radio` transmissions, `eva` announcements, voice audio for all
 of it, `bark`s. Write for them, and **mark every line's status**; a sheet of
