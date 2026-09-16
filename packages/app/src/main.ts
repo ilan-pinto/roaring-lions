@@ -586,7 +586,8 @@ async function main(): Promise<void> {
         onBuy: storage
           ? (unitId, price) => {
               const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
-              if (ok) saveAccount(storage, account);
+              if (!ok) return;
+              saveAccount(storage, account);
               window.location.reload();
             }
           : undefined,
@@ -2105,7 +2106,6 @@ async function main(): Promise<void> {
             // and therefore outside the pinned ladder, and CLAUDE.md already says it
             // is not a campaign mission. Gate on the mission's own contract rather
             // than a name list, the same test `validate_data.mjs` already applies.
-            const storage = safeStorage();
             if (mission.ledger.produces.length > 0 && storage) {
               const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
               payout = missionId ? payMission(loadAccount(storage), missionId, runValue, Date.now()) : null;

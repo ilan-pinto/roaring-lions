@@ -154,4 +154,44 @@ describe('showBrigade', () => {
     expect(host2.querySelector('.rl-brigade__buy')).toBeNull();
     expect(host2.querySelector('.rl-brigade__why')?.textContent).toBe('available');
   });
+
+  // The test above's first case ("without an account") is vacuous for an unpriced row:
+  // it lacks credits AND onBuy, so a Buy control could never render regardless of price.
+  // This closes that gap -- `ifv_namer` is locked (roeMin: 40, unmet by an empty ledger)
+  // and declares no price, WITH an account present, proving the missing control is
+  // because there is no price rather than because there is no account.
+  it('renders no Buy control on an unpriced locked row even with an account present', () => {
+    const host = document.createElement('div');
+    showBrigade(host, { units, ledger: {}, possibleStars: 78, credits: 999, onBuy: () => {} });
+    expect(host.querySelector('[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('1');
+    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__buy')).toBeNull();
+    expect(host.querySelector('.rl-brigade__buy')).toBeNull();
+  });
+
+  it('sorts a price-only (bought-only) locked row after a mission-gated row', () => {
+    const host = document.createElement('div');
+    const fixture = [
+      {
+        id: 'mission_gated',
+        name: 'Mission Gated',
+        role: 'infantry',
+        unlock: { afterMission: 'x' },
+        isKamikaze: false,
+        transportSlots: 0,
+        isSoft: true,
+      },
+      {
+        id: 'price_only',
+        name: 'Price Only',
+        role: 'infantry',
+        unlock: { price: 50 },
+        isKamikaze: false,
+        transportSlots: 0,
+        isSoft: true,
+      },
+    ];
+    showBrigade(host, { units: fixture, ledger: {}, possibleStars: 78 });
+    const rows = [...host.querySelectorAll('.rl-brigade__list [data-unit]')].map((r) => r.getAttribute('data-unit'));
+    expect(rows).toEqual(['mission_gated', 'price_only']);
+  });
 });

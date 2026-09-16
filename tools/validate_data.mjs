@@ -179,12 +179,12 @@ const structureSymbols = new Map(
     // Per-unit unlock checks: bought flag and price faction restriction.
     if (u && 'bought' in (u.unlock ?? {})) {
       failures.push(
-        `${u.id}: unlock.bought is resolved from the brigade account and cannot be authored`
+        `${rel(file)}: unlock.bought is resolved from the brigade account and cannot be authored`
       );
     }
     if (u && u.unlock?.price !== undefined && u.faction !== 'kdf') {
       failures.push(
-        `${u.id}: unlock.price is only valid on faction 'kdf' units`
+        `${rel(file)}: unlock.price is only valid on faction 'kdf' units`
       );
     }
   }

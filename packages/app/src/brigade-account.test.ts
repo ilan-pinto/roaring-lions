@@ -140,6 +140,7 @@ describe('brigade account', () => {
     expect(buyUnlock(bought, 'mbt_lavi', 0)).toEqual({ account: bought, ok: false });
     expect(buyUnlock(funded, 'x', 2.5)).toEqual({ account: funded, ok: false });
     expect(buyUnlock(funded, 'x', -1)).toEqual({ account: funded, ok: false });
+    expect(buyUnlock(funded, 'x', 0).ok).toBe(false); // schema minimum is 1; price 0 authors nothing
   });
 
   it('round-trips a bought unlock through storage', () => {

@@ -1,7 +1,7 @@
 // The brigade: every KDF unit the campaign knows about, whether it is in reach
 // yet, and — for the ones that are not — exactly what would open it. Pure DOM,
 // no sim, the same shape as `debrief.ts` beside it.
-import { conductAtLeast, starsEarned, unlockReason, type LedgerData, type UnlockGate } from '@lions/sim';
+import { conductAtLeast, isBoughtOnly, starsEarned, unlockReason, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { panel } from './panel';
 import { roleBadgeSvg, roleBucket, roleLabel } from './role';
@@ -99,8 +99,7 @@ function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: nu
   // No earned field failed above, and none of Conduct/stars/mission is declared at all: a
   // bought-only gate (D1, the special forces shape). Sorts after every earned-gated row,
   // by price.
-  const hasEarnedField = unlock.roeMin !== undefined || unlock.starsMin !== undefined || unlock.afterMission !== undefined;
-  if (!hasEarnedField && unlock.price !== undefined) return [3, unlock.price];
+  if (isBoughtOnly(unlock) && unlock.price !== undefined) return [3, unlock.price];
   return [2, 0]; // the mission gate — "last" among earned gates, and no threshold to sort within
 }
 
@@ -120,7 +119,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
 
   // Available first; ties keep their given order (no gate to sort by).
   // Locked rows follow, ordered by the gate that opens soonest — a Conduct
-  // floor, then a star count, then a named mission last — ties broken by name.
+  // floor, then a star count, then a named mission, then a bought-only gate
+  // (D1, sorted by price) last — ties broken by name.
   const rows = opts.units.map((u) => classifyRow(u, opts.ledger));
   rows.sort((a, b2) => {
     if (a.locked !== b2.locked) return a.locked ? 1 : -1;
@@ -175,6 +175,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
       buy.type = 'button';
       buy.className = 'rl-btn rl-brigade__buy';
       buy.textContent = `buy for ${price}`;
+      buy.setAttribute('aria-label', `buy ${u.name} for ${price} credits`);
       // Short balance: the control stays visible so the price is legible, and disabled so
       // a click cannot reach `buyUnlock`'s refusal path from here.
       buy.disabled = opts.credits < price;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveUpgrades, starsEarned, unlockReason, type UnlockGate } from './unlock';
+import { isBoughtOnly, resolveUpgrades, starsEarned, unlockReason, type UnlockGate } from './unlock';
 import type { LedgerData, MissionJson, PlacementJson } from './mission';
 
 describe('unlockReason', () => {
@@ -106,6 +106,14 @@ describe('unlockReason', () => {
 
   it('adds no clause when there is no price', () => {
     expect(unlockReason({ starsMin: 12 }, {})).toBe('requires 12 stars (currently 0)');
+  });
+});
+
+describe('isBoughtOnly', () => {
+  it('is true only for a gate with a price and no earned field', () => {
+    expect(isBoughtOnly({ price: 5 })).toBe(true);
+    expect(isBoughtOnly({ starsMin: 1, price: 5 })).toBe(false);
+    expect(isBoughtOnly({})).toBe(false);
   });
 });
 

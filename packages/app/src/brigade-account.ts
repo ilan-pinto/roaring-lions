@@ -162,15 +162,16 @@ export function payMission(
 }
 
 /** Buying an unlock (spec §4.4): one step, no refunds. Refuses — returning the same account
- *  by identity — when the price is not a non-negative integer, the balance is short, or the
- *  unit is already bought. Spending writes no grant: `grants` is the earned history, and
- *  `earned_total` never moves on a purchase. */
+ *  by identity — when the price is not a positive integer (the schema's own minimum is 1;
+ *  `unlock.price` authors nothing at 0), the balance is short, or the unit is already
+ *  bought. Spending writes no grant: `grants` is the earned history, and `earned_total`
+ *  never moves on a purchase. */
 export function buyUnlock(
   account: BrigadeAccount,
   unitId: string,
   price: number
 ): { account: BrigadeAccount; ok: boolean } {
-  if (!isNonNegInt(price)) return { account, ok: false };
+  if (!isNonNegInt(price) || price < 1) return { account, ok: false };
   if (account.unlocks.includes(unitId)) return { account, ok: false };
   if (account.balance < price) return { account, ok: false };
   return {

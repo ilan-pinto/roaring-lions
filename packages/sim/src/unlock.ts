@@ -1,7 +1,9 @@
 import type { LedgerData, MissionJson, PlacementJson } from './mission';
 
 /** A campaign progression gate, as parsed from `unlock` in unit or world data.
- *  Authoring spells these `roe_rating_min`, `stars_min` and `after_mission`; the app maps them. */
+ *  Authoring spells the earned fields `roe_rating_min`, `stars_min` and `after_mission`,
+ *  plus `price` (spec 2026-09-15 §4.4), authored the same way; the app maps them.
+ *  `bought` is resolved by the app from the brigade account and is never authored. */
 export interface UnlockGate {
   roeMin?: number;
   starsMin?: number;
@@ -10,6 +12,15 @@ export interface UnlockGate {
   price?: number;
   /** True when the brigade account lists this unit as bought. Resolved by the app; never authored. */
   bought?: boolean;
+}
+
+/** True when `unlock` declares no earned field at all and a `price` (D1: the special
+ *  forces shape) -- closed until bought, with nothing a player can earn to open it.
+ *  Shared by `unlockReason` and the brigade screen's `bindingGate`, which used to
+ *  each spell out "no earned field" as their own copy of the same expression. */
+export function isBoughtOnly(gate: UnlockGate): boolean {
+  const hasEarnedField = gate.roeMin !== undefined || gate.starsMin !== undefined || gate.afterMission !== undefined;
+  return !hasEarnedField && gate.price !== undefined;
 }
 
 /** Earned stars: the integer sum of each mission's best grade. No division. */
@@ -43,8 +54,7 @@ export function unlockReason(unlock: UnlockGate | undefined, ledger: LedgerData 
   if (earned === null) {
     // No earned field failed. A gate with no earned field at all is bought-only
     // (D1: the special forces shape): closed until bought.
-    const hasEarnedField = unlock.roeMin !== undefined || unlock.starsMin !== undefined || unlock.afterMission !== undefined;
-    if (!hasEarnedField && unlock.price !== undefined) return `buy for ${unlock.price} credits`;
+    if (isBoughtOnly(unlock) && unlock.price !== undefined) return `buy for ${unlock.price} credits`;
     return null;
   }
   return unlock.price !== undefined ? `${earned}, or buy for ${unlock.price} credits` : earned;
