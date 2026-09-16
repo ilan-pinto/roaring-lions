@@ -51,6 +51,13 @@ type Gltf = {
   accessors?: { bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string }[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
   materials?: unknown[];
+  /** `pnpm gait:meshes` writes `rl_gait` onto the scene's own extras, and
+   *  the renderer reads it from there (`parseGaitExtras`). Declared here so
+   *  a node-side gate can read the SHIPPED declaration rather than a
+   *  re-measurement of it -- the whole point of the declared-vs-measured
+   *  check being that those two can disagree. */
+  scene?: number;
+  scenes?: { extras?: Record<string, unknown> }[];
 };
 
 export interface GlbFile {
@@ -277,6 +284,48 @@ function skinPoint(pos: Accessor, joints: Accessor, weights: Accessor, v: number
   return [ox, oy, oz];
 }
 
+/**
+ * One role mesh's skinning inputs, resolved once.
+ *
+ * Extracted because there are now FOUR readers of the same eleven lines
+ * (`measureRoleTravel`, `measureRoleFootprint`, `measureFacing`,
+ * `measureWeaponAxis`) and a fourth hand copy is how the role-lookup rule
+ * -- match the NODE name or the MESH name, whichever the exporter wrote --
+ * drifts between them. `need` is appended to the two error messages so each
+ * caller still says what it wanted the role for.
+ */
+interface SkinnedRole {
+  readonly glb: GlbFile;
+  readonly pos: Accessor;
+  readonly joints: Accessor;
+  readonly weights: Accessor;
+  readonly skin: { joints: number[]; inverseBindMatrices?: number };
+  readonly ibm: Accessor | null;
+}
+
+function loadSkinnedRole(path: string, role: string, need = ''): SkinnedRole {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const nodeIndex = nodes.findIndex(
+    (n) => n.mesh !== undefined && (n.name === role || meshes[n.mesh]?.name === role)
+  );
+  if (nodeIndex < 0) throw new Error(`${path}: no mesh node named "${role}"${need}`);
+  const node = nodes[nodeIndex];
+  const prim = meshes[node.mesh as number].primitives[0];
+  const skin = glb.json.skins?.[node.skin as number];
+  if (!skin) throw new Error(`${path}: mesh "${role}" is not skinned`);
+  const ibmAcc = skin.inverseBindMatrices;
+  return {
+    glb,
+    pos: readAccessor(glb, prim.attributes.POSITION),
+    joints: readAccessor(glb, prim.attributes.JOINTS_0),
+    weights: readAccessor(glb, prim.attributes.WEIGHTS_0),
+    skin,
+    ibm: ibmAcc === undefined ? null : readAccessor(glb, ibmAcc),
+  };
+}
+
 export interface GaitMeasurement {
   /** Metres the mesh's own boots travel, peak to peak, worst vertex. */
   readonly maxTravelM: number;
@@ -294,20 +343,7 @@ export interface GaitMeasurement {
  * measurement of zero.
  */
 export function measureRoleTravel(path: string, role: string, clip: string): GaitMeasurement {
-  const glb = readGlb(path);
-  const nodes = glb.json.nodes ?? [];
-  const meshes = glb.json.meshes ?? [];
-  const nodeIndex = nodes.findIndex((n) => n.mesh !== undefined && (n.name === role || meshes[n.mesh]?.name === role));
-  if (nodeIndex < 0) throw new Error(`${path}: no mesh node named "${role}"`);
-  const node = nodes[nodeIndex];
-  const prim = meshes[node.mesh as number].primitives[0];
-  const pos = readAccessor(glb, prim.attributes.POSITION);
-  const joints = readAccessor(glb, prim.attributes.JOINTS_0);
-  const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
-  const skin = glb.json.skins?.[node.skin as number];
-  if (!skin) throw new Error(`${path}: mesh "${role}" is not skinned`);
-  const ibmAcc = skin.inverseBindMatrices;
-  const ibm = ibmAcc === undefined ? null : readAccessor(glb, ibmAcc);
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, role);
 
   const { tracks, start, end } = readClip(glb, clip);
   const n = pos.count;
@@ -409,20 +445,7 @@ export const ACTIVE_TRAVEL_FRACTION = 0.5;
  * a second implementation -- see `skinPoint`'s own note.
  */
 export function measureRoleFootprint(path: string, role: string, clip: string): RoleFootprint {
-  const glb = readGlb(path);
-  const nodes = glb.json.nodes ?? [];
-  const meshes = glb.json.meshes ?? [];
-  const nodeIndex = nodes.findIndex((n) => n.mesh !== undefined && (n.name === role || meshes[n.mesh]?.name === role));
-  if (nodeIndex < 0) throw new Error(`${path}: no mesh node named "${role}"`);
-  const node = nodes[nodeIndex];
-  const prim = meshes[node.mesh as number].primitives[0];
-  const pos = readAccessor(glb, prim.attributes.POSITION);
-  const joints = readAccessor(glb, prim.attributes.JOINTS_0);
-  const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
-  const skin = glb.json.skins?.[node.skin as number];
-  if (!skin) throw new Error(`${path}: mesh "${role}" is not skinned`);
-  const ibmAcc = skin.inverseBindMatrices;
-  const ibm = ibmAcc === undefined ? null : readAccessor(glb, ibmAcc);
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, role);
 
   const { tracks, start, end } = readClip(glb, clip);
   const n = pos.count;
@@ -592,6 +615,28 @@ export interface FigureFacing {
    *  heads and the +84 degrees the gait design recorded for that clip is a
    *  reading of a rig scaled to nothing. Pinned by `mesh_gait.test.ts`. */
   readonly hiddenInClip: boolean;
+  /**
+   * Mean length, in metres, of the ground-plane lever this bearing is taken
+   * over: `|head joint -> its own face centroid|` projected onto the ground,
+   * averaged across the sampled instants.
+   *
+   * **This is the instrument's own error bar and it varies TENFOLD across
+   * the roster**, which is why it is reported rather than assumed. The
+   * bearing is an `atan2` of a difference, so the angular noise a fixed
+   * amount of skinning wobble produces goes as `1 / leverM`. Measured in
+   * bind pose when Task 3 took its baseline: `sarim_rifles` 0.0813,
+   * `office_worker` 0.0692, `farm_worker` 0.0639, `meshy_soldier` 0.0582,
+   * `civilian_child` 0.0505 -- and `civilian_woman` **0.0160**, whose
+   * `face` vertices sit almost symmetrically around her own head joint. At
+   * 16 mm she reads a 78.7 deg spread on a STANDING `idle` where the same
+   * rig's own `Head`->`headfront` marker reads 5.83.
+   *
+   * A gate can therefore ask whether this reading is worth believing before
+   * believing it, instead of widening a band until the shortest lever in
+   * the tree fits inside it -- which would take the band past the defects
+   * it exists to catch. `mesh_gait.test.ts` does exactly that.
+   */
+  readonly leverM: number;
 }
 
 /** `kit.py` rigs suffix a head bone `_head`; the Meshy TEAM rigs suffix
@@ -738,21 +783,13 @@ export function circularMeanDeg(bearingsDeg: readonly number[]): {
  * result and therefore reads as "measured, and fine".
  */
 export function measureFacing(path: string, clip: string, jointPattern: RegExp = HEAD_JOINT_RE): FigureFacing[] {
-  const glb = readGlb(path);
-  const nodes = glb.json.nodes ?? [];
-  const meshes = glb.json.meshes ?? [];
   const role = 'face';
-  const nodeIndex = nodes.findIndex((n) => n.mesh !== undefined && (n.name === role || meshes[n.mesh]?.name === role));
-  if (nodeIndex < 0) throw new Error(`${path}: no mesh node named "${role}" -- measureFacing needs it`);
-  const node = nodes[nodeIndex];
-  const prim = meshes[node.mesh as number].primitives[0];
-  const pos = readAccessor(glb, prim.attributes.POSITION);
-  const joints = readAccessor(glb, prim.attributes.JOINTS_0);
-  const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
-  const skin = glb.json.skins?.[node.skin as number];
-  if (!skin) throw new Error(`${path}: mesh "${role}" is not skinned`);
-  const ibmAcc = skin.inverseBindMatrices;
-  const ibm = ibmAcc === undefined ? null : readAccessor(glb, ibmAcc);
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(
+    path,
+    role,
+    ' -- measureFacing needs it'
+  );
+  const nodes = glb.json.nodes ?? [];
 
   let clipData: { tracks: Map<string, Track>; start: number; end: number };
   try {
@@ -804,6 +841,7 @@ export function measureFacing(path: string, clip: string, jointPattern: RegExp =
     if (verts.length === 0) continue;
     const bearings: number[] = [];
     let hiddenInClip = true;
+    let leverSum = 0;
     for (let s = 0; s < SAMPLES; s++) {
       const t = start + ((end - start) * s) / SAMPLES;
       const worlds = nodeWorlds(glb, tracks, t);
@@ -819,11 +857,309 @@ export function measureFacing(path: string, clip: string, jointPattern: RegExp =
       const dx = cx - headWorld[12];
       const dz = cz - headWorld[14];
       bearings.push((Math.atan2(dz, dx) * 180) / Math.PI);
+      leverSum += Math.hypot(dx, dz);
       if (hiddenInClip && jointScale(headWorld) > HIDDEN_SCALE) hiddenInClip = false;
     }
-    results.push({ joint: name, hiddenInClip, ...circularMeanDeg(bearings) });
+    results.push({
+      joint: name,
+      hiddenInClip,
+      leverM: leverSum / SAMPLES,
+      ...circularMeanDeg(bearings),
+    });
   }
   return results;
+}
+
+/** The Meshy-derived rigs carry a `headfront` marker bone hanging off each
+ *  `Head`. It exists so the import scripts can read a heading without a mesh,
+ *  and it is the SECOND, independent facing instrument this tree has. */
+const HEAD_MARKER_RE = /(?:^|_)headfront$/;
+
+export interface MarkerFacing {
+  /** The marker bone read, e.g. `f0_headfront`. */
+  readonly marker: string;
+  /** Its parent -- the head joint the bearing is taken from. */
+  readonly joint: string;
+  readonly meanDeg: number;
+  readonly minDeg: number;
+  readonly maxDeg: number;
+  readonly hiddenInClip: boolean;
+}
+
+/**
+ * The same question `measureFacing` answers, asked of the RIG instead of the
+ * MESH: the ground-plane bearing from a head joint to its own `headfront`
+ * marker bone, sampled across the clip.
+ *
+ * **It exists to be disagreed with.** Task 2 built a pose that passed every
+ * build-time check and was still wrong -- an aim distributed through
+ * `Spine02` solved cleanly and put the weapon on the axis, while the exported
+ * face read +15.2 against the arms-only +0.3. A spine roll tilts the head
+ * rather than yawing it, and the head-forward vector carries a vertical
+ * component (measured 0.0859 forward, 0.0311 up), so a roll rotates part of
+ * that into a lateral component and swings the MESH bearing while the MARKER,
+ * which lies along the head's own forward axis, barely moves. Neither
+ * instrument can see that alone; the disagreement between them is the signal.
+ * Nothing automated caught it at the time -- a by-hand comparison did.
+ *
+ * Not a replacement for `measureFacing` and must never become one: **`rig.py`
+ * builds its head bone as a VERTICAL segment and ships no marker at all**, so
+ * this reads nothing on the fifteen `kit.py` files -- the majority of the
+ * roster, and the family that produced the `mortar_team` defect. It raises
+ * there rather than returning an empty array.
+ *
+ * The head joint is the marker's own PARENT in the node hierarchy rather than
+ * a name match, so a rig that renames its head bone still pairs correctly.
+ */
+export function measureMarkerFacing(
+  path: string,
+  clip: string,
+  markerPattern: RegExp = HEAD_MARKER_RE
+): MarkerFacing[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const parent = new Int32Array(nodes.length).fill(-1);
+  nodes.forEach((n, i) => { for (const c of n.children ?? []) parent[c] = i; });
+
+  const markers = nodes
+    .map((n, i) => ({ index: i, name: n.name ?? '' }))
+    .filter((n) => markerPattern.test(n.name) && parent[n.index] >= 0);
+  if (markers.length === 0) {
+    throw new Error(
+      `${path}: no node matching ${markerPattern} with a parent -- measureMarkerFacing needs one ` +
+        `per figure (this rig family may not carry a head marker at all)`
+    );
+  }
+
+  let clipData: { tracks: Map<string, Track>; start: number; end: number };
+  try {
+    clipData = readClip(glb, clip);
+  } catch {
+    throw new Error(`${path}: no clip "${clip}" -- measureMarkerFacing needs it`);
+  }
+  const { tracks, start, end } = clipData;
+
+  return markers.map(({ index, name }) => {
+    const head = parent[index];
+    const bearings: number[] = [];
+    let hiddenInClip = true;
+    for (let s = 0; s < SAMPLES; s++) {
+      const t = start + ((end - start) * s) / SAMPLES;
+      const worlds = nodeWorlds(glb, tracks, t);
+      const dx = worlds[index][12] - worlds[head][12];
+      const dz = worlds[index][14] - worlds[head][14];
+      bearings.push((Math.atan2(dz, dx) * 180) / Math.PI);
+      if (hiddenInClip && jointScale(worlds[head]) > HIDDEN_SCALE) hiddenInClip = false;
+    }
+    return {
+      marker: name,
+      joint: nodes[head].name ?? '',
+      hiddenInClip,
+      ...circularMeanDeg(bearings),
+    };
+  });
+}
+
+export interface WeaponAxis {
+  /** The firing-hand joint whose dominant vertices were read. */
+  readonly joint: string;
+  /** Circular mean of the sampled ground-plane bearings of the weapon's own
+   *  long axis, degrees, `+X` = 0 and positive to the figure's left -- the
+   *  same convention `measureFacing` reports in. */
+  readonly meanDeg: number;
+  readonly minDeg: number;
+  readonly maxDeg: number;
+  /** As `FigureFacing.hiddenInClip` -- this joint is scaled out of the clip,
+   *  so the axis is of geometry the player never sees. */
+  readonly hiddenInClip: boolean;
+  /** How many vertices of the role the joint dominantly owns. A gate must
+   *  assert this before believing the axis: a handful of cuff vertices has a
+   *  principal direction too, and it is not a barrel. */
+  readonly vertexCount: number;
+  /** Mean peak-to-peak length of that cloud along its own first principal
+   *  component, in metres -- the "is this a rifle?" number. A shipped
+   *  assault rifle reads ~0.6 m; a bare forearm reads ~0.25. */
+  readonly extentM: number;
+}
+
+/**
+ * Which way does each figure's WEAPON point during `clip`?
+ *
+ * ## Why this is geometry and not a bone direction
+ *
+ * Task 2 gated `fire`'s aim with the firing hand's own bone direction,
+ * head -> tail, as a proxy for the barrel -- the best thing available at the
+ * time, and honest about being a proxy. Measured against the rifle itself it
+ * is systematically off: **4.1 deg on `idle`, 4.2 deg on `moveFire`, 7.6 deg
+ * on `fire`** for `meshy_soldier.glb`, so the shipped barrel sits near +8.8
+ * where the proxy reports +1.2. A proxy that is wrong by a rig-dependent
+ * amount cannot be shared across rigs, and -- the part that matters -- it
+ * cannot catch a weapon bound to the WRONG BONE, because it never looks at
+ * the weapon at all.
+ *
+ * ## Method
+ *
+ * The vertices of `role` whose dominant skin influence (`WEIGHTS_0 > 0.5`)
+ * is the matched joint, skinned through the live clip by the same
+ * `computeSkinMats`/`skinPoint` blend every other reader here uses. Per
+ * sampled instant: their covariance's first principal component (power
+ * iteration, seeded from the covariance's own largest column so the seed
+ * cannot be orthogonal to the answer), projected onto the ground plane and
+ * read as `atan2(dz, dx)`.
+ *
+ * **A principal component has no sign**, and the sign is chosen from the
+ * cloud rather than from the bone: the axis is oriented toward whichever of
+ * its two extreme points lies FURTHER from the hand joint. A rifle is
+ * gripped behind its balance point, so that end is the muzzle. Orienting it
+ * by the bone instead would put the proxy back into the answer through the
+ * side door.
+ *
+ * ## Which role, and which joint
+ *
+ * Both are the caller's, because the two rig families in this tree disagree
+ * and neither is wrong. On the Meshy bipeds the rifle is modelled but has no
+ * `weapon` role -- `classify_vertex_roles` splits by base-colour texture and
+ * the rifle is the same olive as the uniform (Task 2's report, F2) -- so the
+ * cloud is `uniform` vertices on `*_RightHand`. On a `kit.py` team the rifle
+ * IS its own `weapon` role and the rig has no hand bone at all, so it is
+ * `weapon` on `*_forearm_R`. `vertexCount` and `extentM` are reported so a
+ * caller can refuse a cloud that is not a weapon rather than take its
+ * bearing on trust.
+ *
+ * Throws on a missing role, a missing clip or an unmatched joint, for the
+ * reason `measureFacing` does: an empty result is a silent pass.
+ */
+export function measureWeaponAxis(
+  path: string,
+  role: string,
+  clip: string,
+  jointPattern: RegExp
+): WeaponAxis[] {
+  const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(
+    path,
+    role,
+    ' -- measureWeaponAxis needs it'
+  );
+  const nodes = glb.json.nodes ?? [];
+
+  let clipData: { tracks: Map<string, Track>; start: number; end: number };
+  try {
+    clipData = readClip(glb, clip);
+  } catch {
+    throw new Error(`${path}: no clip "${clip}" -- measureWeaponAxis needs it`);
+  }
+  const { tracks, start, end } = clipData;
+
+  const handJoints = skin.joints
+    .map((jointNode, skinIndex) => ({ jointNode, skinIndex, name: nodes[jointNode]?.name ?? '' }))
+    .filter((j) => jointPattern.test(j.name));
+  if (handJoints.length === 0) {
+    throw new Error(
+      `${path}: no joint matching ${jointPattern} in the skin that drives "${role}" -- ` +
+        `measureWeaponAxis needs one per figure (have ${skin.joints.length} joints)`
+    );
+  }
+
+  const vertsForSkinIndex = new Map<number, number[]>();
+  for (const { skinIndex } of handJoints) vertsForSkinIndex.set(skinIndex, []);
+  for (let v = 0; v < pos.count; v++) {
+    for (let k = 0; k < 4; k++) {
+      if (weights.data[v * 4 + k] <= 0.5) continue;
+      vertsForSkinIndex.get(joints.data[v * 4 + k])?.push(v);
+    }
+  }
+  const empty = handJoints.filter((j) => (vertsForSkinIndex.get(j.skinIndex) ?? []).length === 0);
+  if (empty.length === handJoints.length) {
+    throw new Error(
+      `${path}: every joint matching ${jointPattern} (${empty.map((j) => j.name).join(', ')}) owns ` +
+        `no "${role}" vertex weighted above 0.5 -- measureWeaponAxis cannot read an axis without one`
+    );
+  }
+
+  const results: WeaponAxis[] = [];
+  for (const { jointNode, skinIndex, name } of handJoints) {
+    const verts = vertsForSkinIndex.get(skinIndex) ?? [];
+    if (verts.length === 0) continue;
+    const bearings: number[] = [];
+    let extentSum = 0;
+    let hiddenInClip = true;
+    for (let s = 0; s < SAMPLES; s++) {
+      const t = start + ((end - start) * s) / SAMPLES;
+      const worlds = nodeWorlds(glb, tracks, t);
+      const skinMats = computeSkinMats(skin, worlds, ibm);
+      const pts = verts.map((v) => skinPoint(pos, joints, weights, v, skinMats));
+      const axis = principalAxis(pts);
+      const jointWorld = worlds[jointNode];
+      const oriented = orientAwayFromJoint(axis, pts, [jointWorld[12], jointWorld[13], jointWorld[14]]);
+      bearings.push((Math.atan2(oriented.dir[2], oriented.dir[0]) * 180) / Math.PI);
+      extentSum += oriented.extentM;
+      if (hiddenInClip && jointScale(jointWorld) > HIDDEN_SCALE) hiddenInClip = false;
+    }
+    results.push({
+      joint: name,
+      hiddenInClip,
+      vertexCount: verts.length,
+      extentM: extentSum / SAMPLES,
+      ...circularMeanDeg(bearings),
+    });
+  }
+  return results;
+}
+
+/** First principal component of a point cloud, by power iteration on its own
+ *  covariance. Unit length, arbitrary sign -- see `orientAwayFromJoint`.
+ *  Deterministic: the seed is the covariance's largest column, which cannot
+ *  be orthogonal to the dominant eigenvector unless the covariance is zero. */
+function principalAxis(pts: readonly (readonly [number, number, number])[]): [number, number, number] {
+  const n = pts.length;
+  let mx = 0, my = 0, mz = 0;
+  for (const p of pts) { mx += p[0]; my += p[1]; mz += p[2]; }
+  mx /= n; my /= n; mz /= n;
+  const c = new Float64Array(9);
+  for (const p of pts) {
+    const dx = p[0] - mx, dy = p[1] - my, dz = p[2] - mz;
+    c[0] += dx * dx; c[1] += dx * dy; c[2] += dx * dz;
+    c[4] += dy * dy; c[5] += dy * dz;
+    c[8] += dz * dz;
+  }
+  c[3] = c[1]; c[6] = c[2]; c[7] = c[5];
+  let best = 0;
+  for (let col = 1; col < 3; col++) {
+    const norm = Math.hypot(c[col], c[3 + col], c[6 + col]);
+    if (norm > Math.hypot(c[best], c[3 + best], c[6 + best])) best = col;
+  }
+  let vx = c[best], vy = c[3 + best], vz = c[6 + best];
+  let len = Math.hypot(vx, vy, vz);
+  if (len === 0) return [1, 0, 0];
+  vx /= len; vy /= len; vz /= len;
+  for (let i = 0; i < 64; i++) {
+    const nx = c[0] * vx + c[1] * vy + c[2] * vz;
+    const ny = c[3] * vx + c[4] * vy + c[5] * vz;
+    const nz = c[6] * vx + c[7] * vy + c[8] * vz;
+    len = Math.hypot(nx, ny, nz);
+    if (len === 0) break;
+    vx = nx / len; vy = ny / len; vz = nz / len;
+  }
+  return [vx, vy, vz];
+}
+
+/** Picks the sign of `axis` that points at whichever extreme of the cloud is
+ *  further from `joint`, and returns the cloud's span along it. */
+function orientAwayFromJoint(
+  axis: readonly [number, number, number],
+  pts: readonly (readonly [number, number, number])[],
+  joint: readonly [number, number, number]
+): { dir: [number, number, number]; extentM: number } {
+  let lo = pts[0], hi = pts[0], sLo = Infinity, sHi = -Infinity;
+  for (const p of pts) {
+    const s = p[0] * axis[0] + p[1] * axis[1] + p[2] * axis[2];
+    if (s < sLo) { sLo = s; lo = p; }
+    if (s > sHi) { sHi = s; hi = p; }
+  }
+  const dHi = Math.hypot(hi[0] - joint[0], hi[1] - joint[1], hi[2] - joint[2]);
+  const dLo = Math.hypot(lo[0] - joint[0], lo[1] - joint[1], lo[2] - joint[2]);
+  const sign = dHi >= dLo ? 1 : -1;
+  return { dir: [axis[0] * sign, axis[1] * sign, axis[2] * sign], extentM: sHi - sLo };
 }
 
 /**

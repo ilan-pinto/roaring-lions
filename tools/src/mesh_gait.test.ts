@@ -16,6 +16,14 @@
 // threshold test with no known-good file is a test of its own threshold: if the
 // skinning maths in `mesh_gait.ts` were wrong it would report a slide for
 // everything, and the assertion below would pass for the wrong reason.
+//
+// **Everything above "Task 7 -- the SWEEP" measures a file somebody named, and
+// that is the whole reason fourteen sliding rigs shipped green.** GH-145 was
+// raised against `mortar_team`, so this gate measured `mortar_team`. The
+// sections below that line iterate `RIGGED_UNIT_MESHES` and name nothing but
+// an exemption; the named tests above them are kept because each is a control,
+// a characterisation, or a pin on a number the design argues from, and a sweep
+// cannot say which file it was built to catch.
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -25,11 +33,31 @@ import {
   countTracePeaks,
   groundPerCycleM,
   measureFacing,
+  measureMarkerFacing,
   measureRoleFootprint,
   measureRoleTravel,
+  measureWeaponAxis,
   MESH_UNITS_PER_TILE,
+  readGlb,
 } from './mesh_gait';
+import { MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
+// Task 7, and the brief spells this out: `@lions/tools` deliberately does not
+// depend on `@lions/render`, but `mesh-anim.ts` imports only a TYPE from
+// `../../sheet` and pulls in no three.js, so a relative import is safe here --
+// and it is the whole point. The alternative is a second copy of the
+// rate-match formula living in the gate, which is exactly the duplication
+// that makes a gate blind to the clamp it is supposed to be watching. This
+// file already reaches across a package boundary for `mesh-catalogue.ts`.
+import {
+  clipGroundSpeedTiles,
+  GAIT_TIME_SCALE_MAX,
+  GAIT_TIME_SCALE_MIN,
+  gaitTimeScale,
+  parseGaitExtras,
+  type GaitMetrics,
+  type LocomotionClip,
+} from '../../packages/render/src/three/units/mesh-anim';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const MESHES = `${REPO}art/meshes/`;
@@ -594,5 +622,974 @@ describe('countTracePeaks', () => {
   it('returns 0 for a flat (no-travel) trace rather than dividing by a zero span', () => {
     expect(countTracePeaks([0.5, 0.5, 0.5, 0.5])).toBe(0);
     expect(countTracePeaks([])).toBe(0);
+  });
+});
+
+// ===========================================================================
+// Task 7 -- the SWEEP.
+//
+// Everything above this line measures a file somebody named. That is how
+// fourteen sliding rigs shipped green: GH-145 was raised against
+// `mortar_team`, so the gate measured `mortar_team`. Below this line nothing
+// is named except an exemption, and every exemption carries the measurement
+// that earned it.
+//
+// Four rules this section is built on, each of which was paid for on this
+// branch:
+//
+//  1. **An empty result is a silent pass.** Every sweep asserts its own
+//     population size before it iterates. `for (const f of [])` passes any
+//     assertion ever written, in 0 ms.
+//  2. **Route a computed quantity through the production code that computes
+//     it.** The playback multiplier goes through `gaitTimeScale`; the
+//     declaration goes through `parseGaitExtras`. A gate with its own copy of
+//     the formula cannot see a clamp, and a clamp that quietly starts binding
+//     on a shipped mesh is exactly the regression that would put the slide
+//     back with every test still green.
+//  3. **Bands come from a fresh measurement of the shipped bytes**, recorded
+//     beside the constant with the date, and are placed in the GAP between
+//     what the art achieves and what the defect reads -- never fitted to the
+//     worst file.
+//  4. **An instrument states when it cannot read a file** rather than
+//     returning a confident number off geometry the player never sees.
+//     `hiddenInClip` and `FigureFacing.leverM` are both that.
+// ===========================================================================
+
+/** One rigged GLB, with everything the sweeps need read off disk once. */
+interface RiggedFile {
+  readonly typeId: string;
+  /** Path relative to `art/meshes/`, exactly as the catalogue spells it. */
+  readonly file: string;
+  readonly path: string;
+  /** The unit type's own `mobility.speed_tiles_s`. */
+  readonly speedTilesPerSecond: number;
+  readonly clips: readonly string[];
+  /** The file's own `rl_gait`, read through the RENDERER's parser -- so a
+   *  declaration the renderer would drop reads as absent here too. */
+  readonly declared: ReadonlyMap<LocomotionClip, GaitMetrics> | undefined;
+}
+
+/**
+ * Types whose `move` is deliberately not a gait, with the reason beside each.
+ *
+ * One table, exported, printed on the passing path -- rather than a `continue`
+ * scattered through six assertions, which is how an exemption outlives the
+ * reason for it. Membership is ASSERTED against the shipped bytes below
+ * (`the gait exemptions are exactly the files that declare no gait`), so a
+ * type added here without the art to justify it fails, and so does a rig that
+ * silently stops declaring a gait.
+ */
+export const GAIT_EXEMPT: Readonly<Record<string, string>> = {
+  atgm_cell:
+    'crew-served: teams.py gives every figure `animates: False` ("crew-served weapons stay ' +
+    'deployed through move") and the rig ships a degenerate 0.0417 s `move` with no leg keys',
+  mortar_crew: 'crew-served, as atgm_cell',
+  digger_crew: 'crew-served, as atgm_cell',
+  moto_rpg: 'a motorcycle -- its wheels turn, its riders’ boots do not',
+};
+
+/** Clips that are corpses. A body thrown round by the round that killed it
+ *  lies where the blast put it; `meshy_soldier`’s −166° is recorded in the
+ *  design as deliberate and pinned above. */
+const CORPSE_CLIPS: ReadonlySet<string> = new Set(['wreck', 'wreckAlt']);
+
+/**
+ * Every rigged mesh the app loads, with its own speed and its own
+ * declaration. The catalogue is plain data with no `import.meta.url` in it
+ * precisely so a node-side reader can ask it directly.
+ *
+ * The two count assertions are the guard rule 1 above is about: if
+ * `RIGGED_UNIT_MESHES` were ever emptied, renamed or narrowed, every sweep
+ * below would iterate nothing and pass.
+ */
+function riggedFiles(): RiggedFile[] {
+  const out: RiggedFile[] = [];
+  for (const [typeId, entry] of Object.entries(RIGGED_UNIT_MESHES)) {
+    const hits = ['kdf/', 'enemy/', '']
+      .map((dir) => `${REPO}data/units/${dir}${typeId}.json`)
+      .filter((p) => existsSync(p));
+    expect(hits, `${typeId}: exactly one unit JSON`).toHaveLength(1);
+    const doc = JSON.parse(readFileSync(hits[0], 'utf8')) as {
+      mobility?: { speed_tiles_s?: number };
+    };
+    const speed = doc.mobility?.speed_tiles_s;
+    expect(speed, `${typeId}: mobility.speed_tiles_s`).toBeGreaterThan(0);
+    for (const file of entry.files) {
+      const path = `${MESHES}${file}`;
+      const glb = readGlb(path);
+      const scene = glb.json.scenes?.[glb.json.scene ?? 0];
+      out.push({
+        typeId,
+        file,
+        path,
+        speedTilesPerSecond: speed as number,
+        clips: (glb.json.animations ?? []).map((a) => a.name ?? ''),
+        declared: parseGaitExtras(scene?.extras?.rl_gait, file),
+      });
+    }
+  }
+  // 16 unit types, 19 files -- `civilians` is four variants of one type.
+  // Numbers, not `> 0`: a catalogue that lost half its entries would still
+  // clear a positive count.
+  expect(Object.keys(RIGGED_UNIT_MESHES)).toHaveLength(16);
+  expect(out).toHaveLength(19);
+  return out;
+}
+
+const RIGS = riggedFiles();
+
+// ---------------------------------------------------------------------------
+// Step 1 -- the playback multiplier, across every rigged type.
+// ---------------------------------------------------------------------------
+
+/**
+ * How hard the rate-match has to work, per locomotion clip: the unit's own
+ * `speed_tiles_s` divided by the ground speed the clip's own legs describe.
+ *
+ * **Computed THROUGH `gaitTimeScale`, never beside it**, at `cadence = 1`
+ * (`cadenceScale` is 1 for anything but a routed unit, and rout is a sim
+ * state rather than an art property). The brief for this task originally
+ * asked for the residual AFTER the rate match, and that is a gate that
+ * cannot fail: the residual is `entitySpeed / clipGroundSpeed / timeScale`,
+ * which is 1.0 by construction for any stride whatsoever, including none.
+ * This quantity is the one nothing downstream normalises.
+ */
+function multiplierFor(rig: RiggedFile, clip: LocomotionClip): number {
+  const gait = rig.declared?.get(clip);
+  expect(gait, `${rig.file}: rl_gait.${clip}`).toBeDefined();
+  return gaitTimeScale(gait, rig.speedTilesPerSecond, 1);
+}
+
+/**
+ * Nothing shipped may need more than this. Measured 2026-09-16 off
+ * `art/meshes/**`'s own `rl_gait`: the worst is `yahalom_squad` at 2.6454,
+ * then `charge_squad` 2.4842 and `sniper_team` 2.0999. The defect class this
+ * refuses is the pre-Task-4 tree, where the legs described a third of the
+ * ground (design §2.2's ratio table bottoms out at 0.295, a multiplier of
+ * 3.39 on the same metric, and `sarim_rifles`'s `moveFire` was 13.3).
+ *
+ * So 2.8 sits in the gap between 2.6454 and 3.39 -- it is not fitted to the
+ * worst file, and it is not derived from `GAIT_TIME_SCALE_MAX` either, which
+ * would make the whole check circular.
+ */
+const GAIT_MULTIPLIER_CEILING = 2.8;
+
+/**
+ * And this is the band the roster actually lives in once the three named
+ * outliers are set aside: the worst of the other thirteen declarations is
+ * `civilian_child` at 1.6123 and the lowest outlier is `sniper_team` at
+ * 2.0999, so 1.7 sits in a 0.49-wide gap with nothing in it.
+ *
+ * Without this, `GAIT_MULTIPLIER_CEILING` alone would let `mortar_team`
+ * regress from 1.02 to 2.7 unseen -- a ceiling set by the worst file is a
+ * gate for the worst file.
+ */
+const GAIT_MULTIPLIER_TYPICAL = 1.7;
+
+/**
+ * Nothing shipped is below 1.0 (the minimum is `mortar_team` at 1.0187), and
+ * a multiplier under 1 is a real defect in the other direction: legs that
+ * cover MORE ground than the unit does, which without the rate match is a
+ * moonwalk. 0.8 is clear of every shipped reading and nowhere near
+ * `GAIT_TIME_SCALE_MIN`.
+ */
+const GAIT_MULTIPLIER_FLOOR = 0.8;
+
+/**
+ * The three rigs outside `GAIT_MULTIPLIER_TYPICAL`, each pinned to its own
+ * measured value so it can improve but not drift. `toBeLessThan(recorded +
+ * slack)` rather than an equality: a re-export that fixes one of these must
+ * not have to come back here to be allowed to pass.
+ *
+ * `yahalom_squad` 2.6454 -- a Meshy biped Task 4's stride work never touched
+ *   (that pass rewrote `rig.py`, and this file is not built by it).
+ * `charge_squad` 2.4842 -- the geometric ceiling. 1.9 tiles/s is 3.80 m of
+ *   ground per 0.6667 s cycle and a 1.67 m figure cannot stride it: pushing
+ *   `rig.py`'s thigh cap to 1.00 reaches only 0.465 of it and buys a visible
+ *   crouch. A documented limit, not a threshold to widen for -- and see
+ *   `CADENCE_STEPS_PER_S_CEILING`, which is where its real cost shows.
+ * `sniper_team` 2.0999 -- the game's SLOWEST unit needs the third-largest
+ *   correction, because `tools/export_meshy_sniper.py` is a THIRD exporter
+ *   that was never reconciled with `rig.py`: it carries its own
+ *   `MOVE_FRAMES = 24` (1.0 s against rig.py's 16 at 0.6667 s) and authors a
+ *   hardcoded `swing = 0.40 * sin(a)` that never reads `speed_tiles_s` at
+ *   all. Both halves of the 2.10 come from there.
+ */
+const GAIT_MULTIPLIER_OUTLIERS: Readonly<Record<string, number>> = {
+  yahalom_squad: 2.6454,
+  charge_squad: 2.4842,
+  sniper_team: 2.0999,
+};
+
+/** Slack on an outlier's own recorded number -- enough that float noise and a
+ *  cosmetic re-export do not red the gate, far too little to hide a drift. */
+const OUTLIER_SLACK = 0.05;
+
+/**
+ * Steps per second the legs are asked to take once the rate match is applied:
+ * `2 * timeScale / cycleS`, two footfalls per gait cycle.
+ *
+ * **This is the quantity the eye reads, and it is NOT the multiplier.**
+ * `yahalom_squad` has the largest multiplier in the tree (2.6454) and a
+ * perfectly human 5.08 steps/s, because its authored cycle is 1.0417 s;
+ * `charge_squad`'s smaller 2.4842 lands at **7.45**, because its cycle is
+ * 0.6667 s. A multiplier band alone cannot tell those apart. Equivalently
+ * this is a STEP LENGTH check -- after the rate match a figure covers exactly
+ * `strideM` per cycle by construction, so cadence and step length are the
+ * same fact stated twice.
+ *
+ * Measured 2026-09-16, steps/s: `civilian_child` 5.09, `yahalom_squad` 5.08,
+ * `inf_squad` 4.93, `sarim_rifles` 4.76, `sniper_team` 4.20, `civilian_woman`
+ * 4.15, `militia_cell`/`breach_team` 3.88, `farm_worker` 3.75, `rpg_team`
+ * 3.68, `office_worker` 3.53, `demo_squad` 3.48, `at_team` 3.22,
+ * `mortar_team` 3.06 -- and `charge_squad` **7.45**, alone above 5.1. A
+ * sprinting human tops out near 5 steps/s, so everything but that last row is
+ * physically reachable.
+ */
+const CADENCE_STEPS_PER_S_CEILING = 6.0;
+
+/** `charge_squad`'s own measured cadence, named rather than admitted by a
+ *  wider ceiling -- see `GAIT_MULTIPLIER_OUTLIERS` for why its stride cannot
+ *  grow. */
+const CADENCE_OUTLIERS: Readonly<Record<string, number>> = { charge_squad: 7.46 };
+
+describe('mesh unit gait -- the sweep over every rigged type', () => {
+  const gaited = RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT));
+
+  it('every rigged type is either gaited or exempt with a stated reason', () => {
+    // The exemption table, proved against the bytes rather than trusted.
+    // Both directions: a type listed here must really declare no gait, and a
+    // type that declares none must really be listed.
+    const declaring = RIGS.filter((r) => r.declared !== undefined).map((r) => r.typeId);
+    const silent = RIGS.filter((r) => r.declared === undefined).map((r) => r.typeId);
+    expect([...new Set(silent)].sort()).toEqual(Object.keys(GAIT_EXEMPT).sort());
+    expect(new Set(declaring).size).toBe(12);
+    for (const [type, why] of Object.entries(GAIT_EXEMPT)) {
+      expect(why.length, `${type}: a reason, not a name`).toBeGreaterThan(20);
+    }
+    // Printed on the PASSING path, the way `validate:meshes` prints its
+    // `NOT palette-checked` line.
+    console.log(
+      `mesh gait: ${gaited.length} of ${RIGS.length} rigged GLBs gated; exempt --\n` +
+        Object.entries(GAIT_EXEMPT)
+          .map(([t, why]) => `  ${t}: ${why}`)
+          .join('\n')
+    );
+  });
+
+  it('every gaited file declares a `move` gait, so none can be skipped by absence', () => {
+    expect(gaited).toHaveLength(15);
+    for (const rig of gaited) {
+      expect(rig.declared?.has('move'), `${rig.file}: rl_gait.move`).toBe(true);
+    }
+  });
+
+  it.each(
+    RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT)).flatMap((r) =>
+      [...(r.declared?.keys() ?? [])].map((clip) => [r.typeId, r.file, clip, r] as const)
+    )
+  )('%s %s %s needs a playback multiplier inside the measured band', (typeId, file, clip, rig) => {
+    const mult = multiplierFor(rig, clip);
+    expect(mult, `${file} ${clip}`).toBeGreaterThan(GAIT_MULTIPLIER_FLOOR);
+    expect(mult, `${file} ${clip}`).toBeLessThan(GAIT_MULTIPLIER_CEILING);
+    const outlier = GAIT_MULTIPLIER_OUTLIERS[typeId];
+    if (outlier === undefined) {
+      expect(mult, `${file} ${clip} is not a named outlier`).toBeLessThan(GAIT_MULTIPLIER_TYPICAL);
+    } else {
+      expect(mult, `${file} ${clip} outlier`).toBeLessThan(outlier + OUTLIER_SLACK);
+    }
+  });
+
+  it.each(
+    RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT)).flatMap((r) =>
+      [...(r.declared?.entries() ?? [])].map(([clip, gait]) => [r.typeId, r.file, clip, r, gait] as const)
+    )
+  )('%s %s %s asks for a cadence a body could take', (typeId, file, clip, rig, gait) => {
+    const steps = (2 * multiplierFor(rig, clip)) / gait.cycleS;
+    const ceiling = CADENCE_OUTLIERS[typeId] ?? CADENCE_STEPS_PER_S_CEILING;
+    expect(steps, `${file} ${clip}: steps/s`).toBeLessThan(ceiling);
+  });
+
+  /**
+   * The factor the clamp probe below doubles-and-checks at.
+   *
+   * **Measured, not chosen as a round number.** The true minimum headroom in
+   * the tree is `GAIT_TIME_SCALE_MAX / 2.6454 = 1.512` on `yahalom_squad`, so
+   * 1.4 sits just inside it. A probe at 2x was written first and is FALSE:
+   * `sniper_team` at twice its own speed computes 4.1998 and clamps, which is
+   * a fact about the clamp's margin worth knowing and not a reason to widen
+   * anything -- a carried unit is excluded from the rate match entirely
+   * (`applyGaitRate`), so twice a unit's own speed is a probe and not a
+   * scenario.
+   */
+  const CLAMP_HEADROOM_PROBE = 1.4;
+
+  it('this gate’s own band sits strictly inside the runtime clamp', () => {
+    // A coupling, stated where both numbers are visible. If
+    // `GAIT_TIME_SCALE_MAX` were ever lowered below `GAIT_MULTIPLIER_CEILING`
+    // the band above would stop being able to see anything in between: every
+    // such value arrives here already clamped to the constant and therefore
+    // already inside the band. The probe below would still catch it -- this
+    // fails earlier and says why.
+    expect(GAIT_MULTIPLIER_CEILING).toBeLessThan(GAIT_TIME_SCALE_MAX);
+    expect(GAIT_MULTIPLIER_FLOOR).toBeGreaterThan(GAIT_TIME_SCALE_MIN);
+  });
+
+  it('the rate-match clamp is a backstop, not a participant, on every shipped rig', () => {
+    // The point of routing through `gaitTimeScale` rather than recomputing
+    // the ratio. A ceiling alone cannot see a clamp: if `GAIT_TIME_SCALE_MAX`
+    // were lowered to 2.5, `yahalom_squad` would clamp to 2.5 and sail
+    // through a band of 2.8 while the renderer quietly put its slide back.
+    //
+    // `gaitTimeScale` is linear in `entitySpeedTiles` between its two clamps,
+    // so scaling the input scales the output -- and does NOT, the moment
+    // either end binds. Asserting that identity is a clamp probe that
+    // restates none of the formula, and it fails for a value that is clamped
+    // at the shipped speed OR within `CLAMP_HEADROOM_PROBE` of it.
+    let checked = 0;
+    for (const rig of RIGS) {
+      for (const [clip, gait] of rig.declared?.entries() ?? []) {
+        const one = gaitTimeScale(gait, rig.speedTilesPerSecond, 1);
+        const probed = gaitTimeScale(
+          gait,
+          rig.speedTilesPerSecond * CLAMP_HEADROOM_PROBE,
+          1
+        );
+        expect(probed, `${rig.file} ${clip}: clamp binds within ${CLAMP_HEADROOM_PROBE}x`).toBeCloseTo(
+          one * CLAMP_HEADROOM_PROBE,
+          6
+        );
+        // There is deliberately NO `expect(one).toBeLessThan(
+        // GAIT_TIME_SCALE_MAX)` here, and its absence is the point. It
+        // cannot fail: if `one` were clamped at either bound the identity
+        // above would already have failed, because a clamped value does not
+        // move when its input does. Two assertions where one can only fire
+        // after the other is one assertion and a decoration, and this branch
+        // has shipped seven of those.
+        checked++;
+      }
+    }
+    // Twelve types over fifteen files, two of which declare `moveFire` too.
+    expect(checked).toBe(17);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 2 -- the declaration against the bytes it claims to describe.
+// ---------------------------------------------------------------------------
+
+describe('mesh unit gait -- declared rl_gait against a fresh measurement', () => {
+  it.each(
+    RIGS.filter((r) => r.declared !== undefined).flatMap((r) =>
+      [...(r.declared?.entries() ?? [])].map(([clip, gait]) => [r.file, clip, gait, r] as const)
+    )
+  )('%s %s declares the stride its own bytes measure', (file, clip, gait, rig) => {
+    // What this catches is a re-export that skipped `pnpm gait:meshes`: the
+    // GLB's legs change, the declaration does not, and the renderer
+    // rate-matches to a stale stride with nothing anywhere going red.
+    //
+    // Measured exactly the way `gait-pass.ts` measures it -- the FORWARD
+    // component of the boot's peak-to-peak travel, not the 3-D hypotenuse,
+    // which folds in lift and lateral swing and overstates the ground by
+    // 1.5-21% depending on the rig.
+    const fp = measureRoleFootprint(rig.path, 'boot', clip);
+    expect(fp.axisTravelM[0], `${file} ${clip}: strideM`).toBeCloseTo(gait.strideM, 6);
+    expect(fp.clipSeconds, `${file} ${clip}: cycleS`).toBeCloseTo(gait.cycleS, 6);
+  });
+
+  it('and a file that declares nothing really has no measurable gait', () => {
+    // The other half. Without this the exemption list could hide a rig whose
+    // `move` genuinely walks and whose declaration was simply never written.
+    const exempt = RIGS.filter((r) => r.declared === undefined);
+    expect(exempt).toHaveLength(4);
+    for (const rig of exempt) {
+      const fp = measureRoleFootprint(rig.path, 'boot', 'move');
+      expect(fp.axisTravelM[0], `${rig.file}: forward stride`).toBeLessThan(MIN_GAIT_TRAVEL_M);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 3c -- a file's locomotion clips against EACH OTHER.
+// ---------------------------------------------------------------------------
+
+/**
+ * `move` and `moveFire` are the same legs on the same unit, so the ground
+ * speeds they describe may differ by style but not by order of magnitude.
+ *
+ * Every other check in this tree judges one clip against its unit's speed,
+ * which is why `sarim_rifles` could ship a `move` that ran and a `moveFire`
+ * that crept: 0.6056 tiles/s against 0.0678, a factor of **8.9**, invisible
+ * to everything because each was individually inside its own band.
+ *
+ * Measured 2026-09-16 on the two files that carry both clips: `inf_squad`
+ * 1.330 and `sarim_rifles` 1.000. 2.0 sits between that and the 8.9.
+ */
+const LOCOMOTION_SPEED_SPREAD_MAX = 2.0;
+
+describe('mesh unit gait -- one file’s locomotion clips against each other', () => {
+  // Narrowed by construction rather than by a pair of `toBeDefined()` guards
+  // that could never fire on a list already filtered for both keys.
+  const both = RIGS.flatMap((r) => {
+    const move = r.declared?.get('move');
+    const moveFire = r.declared?.get('moveFire');
+    return move && moveFire ? [[r.file, move, moveFire] as const] : [];
+  });
+
+  it('two files carry both locomotion clips', () => {
+    expect(both.map(([file]) => file)).toEqual(['meshy_soldier.glb', 'sarim_rifles.glb']);
+  });
+
+  it.each(both)('%s walks and walks-firing at speeds within a small factor', (file, move, moveFire) => {
+    const a = clipGroundSpeedTiles(move);
+    const b = clipGroundSpeedTiles(moveFire);
+    expect(Math.max(a, b) / Math.min(a, b), `${file}: move vs moveFire`).toBeLessThan(
+      LOCOMOTION_SPEED_SPREAD_MAX
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 3 -- facing, across every rigged type and every clip.
+// ---------------------------------------------------------------------------
+
+/**
+ * Standing and walking clips: how far a figure's head may be off the
+ * contract's `+X`.
+ *
+ * **Not the `+3..+11` contrapposto band the design §2.1 quotes** -- that
+ * number was taken before Task 4 and setting a gate from it would red the
+ * shipped tree. Re-measured 2026-09-16 on the bytes, the widest reading in
+ * the gated set is `sarim_rifles`'s `move` at **+14.9** (its `idle`/`fire`
+ * sit at +11), then `office_worker`'s `move` at +14.1 and the kit teams'
+ * +8.6. 25 is 1.7x the worst of those and nowhere near the two defects this
+ * exists to catch: the KDF rifleman's −156° fire and the mortar crew's 180°
+ * backward march.
+ */
+const FACE_MEAN_DEG = 25;
+
+/**
+ * `moveFire` gets its own, wider bound because a walk-and-shoot is BLADED by
+ * design -- the body angles to the target while the legs run up the axis of
+ * travel. Measured: `inf_squad` +17.9, `sarim_rifles` +15.6; the design's
+ * §4a records this asset's own `moveFire` at +42 historically and calls it
+ * "bladed but not broken". 30 admits the blade and still refuses a reversal.
+ */
+const FACE_MEAN_MOVEFIRE_DEG = 30;
+
+/**
+ * `down` is the loosest, and the reason is measured rather than conceded. A
+ * figure going to ground curls, and the ground-plane projection of a pitched
+ * head swings hard: the four civilians read −30.5, −56.4, −59.3 and
+ * −63.7, and their rigs' own `headfront` markers AGREE (−81.6 to −98.0),
+ * so this is the pose and not the instrument. The soldiers land at −8.6 and
+ * +9.7. The defect class here is a body going to ground facing BACKWARD --
+ * −163° on the pre-fix `meshy_soldier` -- and 90 separates −63.7 from that
+ * with 26° below it and 73° above.
+ */
+const FACE_MEAN_DOWN_DEG = 90;
+
+/**
+ * And the SPREAD, which is a separate defect and needs its own bound.
+ * `meanDeg` is a circular mean, so a clip whose bearing sweeps most of a
+ * circle averages to something numerically unstable and nearly meaningless --
+ * `meshy_soldier`'s broken `idle` swept +23 to −159, a spread of ~182, and
+ * its mean moved 7.8° purely from switching to the circular mean while every
+ * non-sweeping clip moved under 0.002°. A mean-only gate can pass a figure
+ * spinning on the spot. Widest shipped reading in the gated set:
+ * `farm_worker`'s `idle` at 14.5, then `inf_squad`'s `move` at 10.0.
+ */
+const FACE_SPREAD_DEG = 25;
+
+/**
+ * Below this lever the bearing is noise and is not asserted -- see
+ * `FigureFacing.leverM`.
+ *
+ * This excludes exactly one figure in the tree and it excludes her BY NUMBER:
+ * `civilian_woman` reads 0.0089 m on `idle` and 0.0073 on `move`, where the
+ * next shortest gated reading is `civilian_child`'s 0.0461 and the rest of
+ * the roster sits at 0.05-0.58. At 16 mm in bind pose her face vertices sit
+ * almost symmetrically around her own head joint, and she measures a **78.7°
+ * spread on a STANDING idle** against the child's 10.8 on the same instrument
+ * and the same kind of clip -- while her rig's own marker reads that idle at
+ * −3.8 with a spread of 5.8.
+ *
+ * The alternative -- widening `FACE_SPREAD_DEG` to 80 so she fits -- would
+ * take the band past every defect it exists to catch. The other alternative,
+ * switching this whole gate to the `headfront` marker, silently drops all
+ * fifteen `kit.py` files, which carry no such marker and whose head bone is a
+ * VERTICAL segment with no ground bearing at all.
+ *
+ * 0.03 sits in the 0.0089-to-0.0461 gap: 3.4x above her worst and 1.5x below
+ * everything else.
+ */
+const FACE_LEVER_FLOOR_M = 0.03;
+
+/**
+ * Files and clips where the head is not meant to be on the axis at all, with
+ * the measurement behind each. Same rule as `GAIT_EXEMPT`: named, reasoned,
+ * printed, and asserted against the bytes rather than trusted.
+ */
+export const FACING_EXEMPT: Readonly<Record<string, string>> = {
+  'sniper_team.glb':
+    'no `face` mesh and no head, neck or arm bone of any kind -- 14 joints, all root, ' +
+    'pelvis and legs. There is no facing to read on this rig by any instrument.',
+  'moto_rpg.glb':
+    'a pillion rig: its `face` role binds entirely to `rid_seat`, `pas_seat` and two death ' +
+    'roots, so it carries no head joint. Correct as built; `measureFacing` raises on it.',
+  'yahalom_engineer.glb':
+    'no `face` mesh -- gated through its `headfront` MARKER instead, below, so this is a ' +
+    'change of instrument rather than a hole.',
+  'meshy_mortar_team.glb idle':
+    'the kneeling tableau: a crew spread around its own tube is not a facing defect ' +
+    '(−7.5 / +83.9 / −67.3, pinned exactly above).',
+  'meshy_mortar_team.glb fire':
+    'the same deployed crew, serving the tube (−10.8 / +45.8 / −73.3).',
+  'meshy_mortar_team.glb move':
+    'every head joint in this clip is keyed to zero scale -- the standing posture is a ' +
+    'SECOND rig with no head bone. Read through `/_st_chest$/` above; `hiddenInClip` ' +
+    'catches it here.',
+};
+
+interface FacingRow {
+  readonly file: string;
+  readonly clip: string;
+  readonly joint: string;
+  readonly meanDeg: number;
+  readonly spreadDeg: number;
+  readonly leverM: number;
+}
+
+/**
+ * Every figure of every non-corpse clip that is actually readable, plus the
+ * three reasons a figure-clip is not. Built once.
+ *
+ * The three skip lists are kept APART rather than pooled, and that is not
+ * tidiness. **`hiddenInClip` and the lever floor overlap completely on
+ * today's art**: a joint keyed to zero scale skins its own vertices onto a
+ * point, so its lever is a literal 0.0000 and the floor would catch every
+ * hidden figure even if the flag did not exist -- measured, by deleting the
+ * flag's own branch and re-running, which changed nothing at all. Two checks
+ * that agree by arithmetic are one check, and the way to keep the second one
+ * load-bearing is to PIN what it classifies rather than to trust that it
+ * classifies anything. `hidden` and `shortLever` are therefore asserted
+ * member by member below.
+ */
+function facingSweep(): {
+  rows: FacingRow[];
+  exempted: string[];
+  hidden: string[];
+  shortLever: string[];
+} {
+  const rows: FacingRow[] = [];
+  const exempted: string[] = [];
+  const hidden: string[] = [];
+  const shortLever: string[] = [];
+  for (const rig of RIGS) {
+    for (const clip of rig.clips) {
+      if (CORPSE_CLIPS.has(clip)) continue;
+      if (FACING_EXEMPT[rig.file] || FACING_EXEMPT[`${rig.file} ${clip}`]) {
+        exempted.push(`${rig.file} ${clip}`);
+        continue;
+      }
+      const figs = measureFacing(rig.path, clip);
+      expect(figs.length, `${rig.file} ${clip}: figures`).toBeGreaterThan(0);
+      for (const f of figs) {
+        if (f.hiddenInClip) {
+          hidden.push(`${rig.file} ${clip} ${f.joint}`);
+          continue;
+        }
+        if (f.leverM < FACE_LEVER_FLOOR_M) {
+          shortLever.push(`${rig.file} ${clip} ${f.joint} ${f.leverM.toFixed(4)}`);
+          continue;
+        }
+        rows.push({
+          file: rig.file,
+          clip,
+          joint: f.joint,
+          meanDeg: f.meanDeg,
+          spreadDeg: f.maxDeg - f.minDeg,
+          leverM: f.leverM,
+        });
+      }
+    }
+  }
+  return { rows, exempted, hidden, shortLever };
+}
+
+describe('mesh unit facing -- the sweep over every rigged type and clip', () => {
+  const { rows, exempted, hidden, shortLever } = facingSweep();
+
+  it('reads a known population, and says what it did not read', () => {
+    // 87 readable figure-clips, counted 2026-09-16: six each from
+    // `demo_squad`, `militia_cell`, `rpg_team`, `charge_squad` and
+    // `breach_team`, four each from `at_team`, `atgm_cell` and `mortar_crew`,
+    // two from `digger_crew`, fifteen each from `meshy_soldier` and
+    // `sarim_rifles`, three from `meshy_mortar_team`'s `down`, and ten across
+    // the civilians. A literal, because "more than zero" is what let
+    // `measureFacing` return `[]` for all four civilians through two tasks
+    // and a review while every caller's `for` loop passed in 0 ms.
+    expect(rows).toHaveLength(87);
+    // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
+    // could never fail: an un-exempted `sniper_team` makes `measureFacing`
+    // THROW rather than produce a row, so the absence it asserts is
+    // guaranteed by something other than the thing being tested.
+    const files = new Set(rows.map((r) => r.file));
+    expect([...files].sort()).toEqual([
+      'at_team.glb',
+      'atgm_cell.glb',
+      'breach_team.glb',
+      'charge_squad.glb',
+      'civilians/civilian_child.glb',
+      'civilians/civilian_woman.glb',
+      'civilians/farm_worker.glb',
+      'civilians/office_worker.glb',
+      'demo_squad.glb',
+      'digger_crew.glb',
+      'meshy_mortar_team.glb',
+      'meshy_soldier.glb',
+      'militia_cell.glb',
+      'mortar_crew.glb',
+      'rpg_team.glb',
+      'sarim_rifles.glb',
+    ]);
+    console.log(
+      `mesh facing: ${rows.length} figure-clips gated across ${files.size} GLBs.\n` +
+        `not read -- named exemption (${exempted.length}): ${exempted.join(', ')}\n` +
+        `not read -- scaled out of the clip (${hidden.length}): ${hidden.join(', ')}\n` +
+        `not read -- lever under ${FACE_LEVER_FLOOR_M} m (${shortLever.length}): ` +
+        `${shortLever.join(', ')}\n` +
+        `named exemptions --\n` +
+        Object.entries(FACING_EXEMPT)
+          .map(([k, why]) => `  ${k}: ${why}`)
+          .join('\n')
+    );
+  });
+
+  it('the figures scaled out of their clip are exactly the ones that should be', () => {
+    // `hiddenInClip` is a CLASSIFICATION, and this is what keeps it
+    // load-bearing -- see `facingSweep`'s own note on why deleting the flag
+    // changes nothing on today's art. Every `rig.py` team hides its living
+    // root during `down` (the prone `death_root` takes over), and
+    // `meshy_mortar_team` hides its whole kneeling tableau during `move`.
+    // A figure that STOPS being hidden, or starts, is a change to how a rig
+    // switches posture and must be looked at rather than absorbed.
+    expect(hidden.map((h) => h.replace(/ \w+$/, '')).sort()).toEqual([
+      'at_team.glb down',
+      'at_team.glb down',
+      'atgm_cell.glb down',
+      'atgm_cell.glb down',
+      'breach_team.glb down',
+      'breach_team.glb down',
+      'charge_squad.glb down',
+      'charge_squad.glb down',
+      'demo_squad.glb down',
+      'demo_squad.glb down',
+      'digger_crew.glb down',
+      'militia_cell.glb down',
+      'militia_cell.glb down',
+      'mortar_crew.glb down',
+      'mortar_crew.glb down',
+      'rpg_team.glb down',
+      'rpg_team.glb down',
+    ]);
+  });
+
+  it('the readings thrown away for a short lever are exactly civilian_woman’s two', () => {
+    // The `civilian_woman` exclusion, asserted rather than commented. If any
+    // other figure ever falls under the floor the gate says so by name; if
+    // HER lever is ever fixed (the marker-bone route, or a `face` role that
+    // is not symmetric about the joint) these two rows come back and this
+    // line goes red, which is the reminder to gate her.
+    expect(shortLever).toEqual([
+      'civilians/civilian_woman.glb idle Head 0.0089',
+      'civilians/civilian_woman.glb move Head 0.0073',
+    ]);
+  });
+
+  it.each(rows.map((r) => [`${r.file} ${r.clip} ${r.joint}`, r] as const))(
+    '%s faces the way it travels',
+    (_label, row) => {
+      const ceiling =
+        row.clip === 'down'
+          ? FACE_MEAN_DOWN_DEG
+          : row.clip === 'moveFire'
+            ? FACE_MEAN_MOVEFIRE_DEG
+            : FACE_MEAN_DEG;
+      expect(Math.abs(row.meanDeg), `${_label}: mean`).toBeLessThan(ceiling);
+      expect(row.spreadDeg, `${_label}: spread`).toBeLessThan(FACE_SPREAD_DEG);
+    }
+  );
+
+  it('gates yahalom_engineer through its marker, since it ships no face mesh', () => {
+    // The one file `measureFacing` cannot read that another instrument can.
+    // Without this, `yahalom_squad` -- a shipped KDF unit with four clips --
+    // has no facing coverage of any kind.
+    for (const clip of ['idle', 'move', 'down', 'work']) {
+      const figs = measureMarkerFacing(`${MESHES}yahalom_engineer.glb`, clip);
+      expect(figs, `yahalom ${clip}`).toHaveLength(2);
+      for (const f of figs) {
+        expect(f.hiddenInClip, `${clip} ${f.marker}`).toBe(false);
+        expect(Math.abs(f.meanDeg), `${clip} ${f.marker}`).toBeLessThan(FACE_MEAN_DEG);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 3b -- the WEAPON axis, from geometry, and the two facing instruments
+// against each other.
+// ---------------------------------------------------------------------------
+
+/**
+ * Where each rig family's weapon geometry lives, and which joint carries it.
+ *
+ * Both halves have to be per-family and neither is a mistake in the art. On a
+ * `kit.py` team the rifle is its own `weapon` role and the rig has no hand
+ * bone at all, so the cloud hangs off `*_forearm_R`. On the Meshy bipeds the
+ * rifle is MODELLED but has no `weapon` role -- `classify_vertex_roles` splits
+ * by base-colour texture and the rifle is the same olive as the uniform -- so
+ * the cloud is `uniform` vertices on `*_RightHand`.
+ *
+ * `figures` is asserted, not discovered: `at_team` has one armed figure and a
+ * spotter, `demo_squad` one rifleman and one charge-carrier.
+ */
+const WEAPON_RIGS: readonly {
+  readonly file: string;
+  readonly role: string;
+  readonly joint: RegExp;
+  readonly figures: number;
+  readonly clips: readonly string[];
+}[] = [
+  { file: 'demo_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  { file: 'militia_cell.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire'] },
+  { file: 'rpg_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire'] },
+  { file: 'breach_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire'] },
+  {
+    file: 'meshy_soldier.glb',
+    role: 'uniform',
+    joint: /_RightHand$/,
+    figures: 3,
+    clips: ['fire', 'moveFire'],
+  },
+  {
+    file: 'sarim_rifles.glb',
+    role: 'uniform',
+    joint: /_RightHand$/,
+    figures: 3,
+    clips: ['fire', 'moveFire'],
+  },
+];
+
+/**
+ * Rigs with no gateable weapon axis, each with the measurement that says so.
+ * `at_team` is here for a reason worth reading: it HAS a weapon cloud and a
+ * good one (96 vertices, 1.357 m), but no `fire` clip at all, so there is no
+ * clip on which an aim is claimed.
+ */
+export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
+  'at_team.glb': 'ships no `fire` clip -- nothing claims an aim, so there is nothing to gate',
+  'atgm_cell.glb': 'its launcher is `prop`, weighted to no arm bone; and no `fire` clip',
+  'mortar_crew.glb': 'as atgm_cell -- the tube is `prop`',
+  'charge_squad.glb': 'carries a `charge`, not a weapon; no `weapon` role on the rig at all',
+  'digger_crew.glb': 'a digger: `wood`, no `weapon` role, no `fire` clip',
+  'sniper_team.glb': 'no arm bones -- 14 joints, all root, pelvis and legs',
+  'moto_rpg.glb': 'no arm bones; the launcher rides `m_launcher` off the machine',
+  'meshy_mortar_team.glb': 'no arm bones on either posture -- root/abdomen/chest/head only',
+  'yahalom_engineer.glb':
+    'its `weapon` role puts EIGHT vertices spanning 0.076 m on `RightHand` -- a fitting, ' +
+    'not a barrel, and far under WEAPON_MIN_EXTENT_M. Recorded as a gap, not gated.',
+  'civilians/civilian_woman.glb': 'a civilian: `FORBIDDEN_ROLES` bans `weapon` outright',
+  'civilians/office_worker.glb': 'a civilian',
+  'civilians/farm_worker.glb': 'a civilian',
+  'civilians/civilian_child.glb': 'a civilian',
+};
+
+/**
+ * The "is this actually a weapon?" floors, and they are ASSERTED on the gated
+ * set rather than used to filter it -- a cloud that silently stops being a
+ * rifle must red the gate, not drop out of it.
+ *
+ * Measured 2026-09-16. Gated clouds: `kit.py` `weapon` roles 96-204 vertices
+ * spanning 0.932-1.407 m; Meshy `uniform`-on-`RightHand` 1223-3248 vertices
+ * spanning 0.625-0.913 m. Rejected by these floors: the same rigs' own
+ * `uniform` forearms (54 vertices, 0.227 m) and `yahalom_engineer`'s 8-vertex
+ * 0.076 m fitting. 0.5 m sits in the 0.227-to-0.625 gap.
+ */
+const WEAPON_MIN_VERTICES = 50;
+const WEAPON_MIN_EXTENT_M = 0.5;
+
+/**
+ * How far a weapon's own long axis may sit off the contract's `+X` on a clip
+ * that AIMS, and how much it may wander over that clip.
+ *
+ * **Measured from geometry, never from a bone.** Task 2 gated this with the
+ * firing hand's own bone direction as a proxy for the barrel, which was the
+ * best thing available then and is systematically off: measured against the
+ * first principal component of the real rifle cloud, 4.1° on `idle`, 4.2° on
+ * `moveFire` and **7.6° on `fire`** -- so the shipped barrel sits at +8.7
+ * where the proxy reports +1.14. A proxy wrong by a rig-dependent amount
+ * cannot be shared across rigs, and it cannot catch a weapon bound to the
+ * WRONG BONE, because it never looks at the weapon.
+ *
+ * These bounds are LITERAL and deliberately not derived from
+ * `import_meshy_soldier.py`'s `CLIP_SEMANTICS`, which the tests above do read
+ * out of that file. Those ceilings are for the PROXY and are numerically
+ * different quantities; sharing them would be wrong in both directions.
+ *
+ * Measured on `fire`: the four kit teams −0.0° (mean spread 0.0-0.1),
+ * `inf_squad` +8.7 / 4.8, `sarim_rifles` +13.0 / 7.8. On `moveFire`:
+ * `inf_squad` +4.5 / 1.7, `sarim_rifles` +1.1 / 0.2. 20/15 is real margin
+ * over +13.0 and squarely inside the defect class Task 2 falsified against --
+ * an aim removed reads −36.65 and a clip bound backwards reads +143.
+ */
+const WEAPON_MEAN_DEG = 20;
+const WEAPON_SPREAD_DEG = 15;
+
+describe('mesh unit weapons -- the axis measured from the weapon, not from a bone', () => {
+  it('every rigged GLB either has a gated weapon axis or a stated reason', () => {
+    const gated = new Set(WEAPON_RIGS.map((w) => w.file));
+    const files = RIGS.map((r) => r.file);
+    for (const f of files) {
+      expect(
+        gated.has(f) || f in WEAPON_EXEMPT,
+        `${f}: gated for a weapon axis, or exempt with a reason`
+      ).toBe(true);
+    }
+    expect(gated.size + Object.keys(WEAPON_EXEMPT).length).toBe(files.length);
+    console.log(
+      `mesh weapon: ${gated.size} of ${files.length} rigged GLBs gated; exempt --\n` +
+        Object.entries(WEAPON_EXEMPT)
+          .map(([k, why]) => `  ${k}: ${why}`)
+          .join('\n')
+    );
+  });
+
+  it.each(WEAPON_RIGS.flatMap((w) => w.clips.map((clip) => [w.file, clip, w] as const)))(
+    '%s %s points its weapon where the unit is facing',
+    (file, clip, spec) => {
+      const axes = measureWeaponAxis(`${MESHES}${file}`, spec.role, clip, spec.joint);
+      expect(axes, `${file} ${clip}: figures`).toHaveLength(spec.figures);
+      for (const a of axes) {
+        expect(a.hiddenInClip, `${file} ${clip} ${a.joint}`).toBe(false);
+        // Asserted, not used as a filter: a cloud that stops being a rifle
+        // must go red rather than quietly leave the gated set.
+        expect(a.vertexCount, `${file} ${clip} ${a.joint}: cloud size`).toBeGreaterThan(
+          WEAPON_MIN_VERTICES
+        );
+        expect(a.extentM, `${file} ${clip} ${a.joint}: cloud length`).toBeGreaterThan(
+          WEAPON_MIN_EXTENT_M
+        );
+        expect(Math.abs(a.meanDeg), `${file} ${clip} ${a.joint}: mean`).toBeLessThan(
+          WEAPON_MEAN_DEG
+        );
+        expect(a.maxDeg - a.minDeg, `${file} ${clip} ${a.joint}: spread`).toBeLessThan(
+          WEAPON_SPREAD_DEG
+        );
+      }
+    }
+  );
+
+  it('does NOT gate `move`, because a one-handed run carry really does swing', () => {
+    // Recorded so nobody tightens it later. On the Meshy rigs `Running`
+    // carries the rifle one-handed at the side, so the barrel's bearing
+    // sweeps: measured 101-109 deg of spread on `meshy_soldier` and 192 on
+    // `sarim_rifles`. There is no single heading here for a ceiling to mean
+    // anything against, and a tight bound would fail correct art.
+    const axes = measureWeaponAxis(`${MESHES}meshy_soldier.glb`, 'uniform', 'move', /_RightHand$/);
+    expect(axes).toHaveLength(3);
+    for (const a of axes) expect(a.maxDeg - a.minDeg).toBeGreaterThan(60);
+  });
+});
+
+/**
+ * The offset between the two facing instruments, per file, measured on the
+ * standing clips.
+ *
+ * **This is a pin on the offset, not a claim that it is zero**, and that is
+ * the whole design. Task 2 built a pose that passed every build-time check
+ * and was still wrong: an aim distributed through `Spine02` solved cleanly
+ * and put the weapon on the axis, while the exported face read +15.2 against
+ * the arms-only +0.3. A spine roll tilts the head rather than yawing it, and
+ * the head-forward vector carries a vertical component (0.0859 forward,
+ * 0.0311 up), so the roll swings the MESH bearing while the MARKER, which
+ * lies along the head's own forward axis, barely moves. Nothing automated
+ * caught it -- this file gated `fire`'s face at 20 and that build read 15.2.
+ * What caught it was a by-hand comparison of two instruments that normally
+ * agree to 1-3 degrees.
+ *
+ * Measured 2026-09-16, `face` minus `marker` on `idle` (and `fire` where the
+ * file has one, which agrees to 0.2 deg everywhere it exists):
+ *
+ *   meshy_soldier  +0.7 / +0.5     civilian_child  +0.0
+ *   farm_worker    +1.3            office_worker   +13.3
+ *   sarim_rifles   +12.2 / +12.3
+ *
+ * The two large ones are properties of the ASSET and both are recorded rather
+ * than averaged away: `sarim_rifles`'s `face` role is the 221-of-16557-vertex
+ * skin sliver visible at a keffiyeh's eye gap, so its centroid sits off the
+ * skull's axis; `office_worker`'s is the same shape, milder. If either
+ * changes by more than the tolerance below, something moved the head that did
+ * not mean to.
+ */
+const FACE_MARKER_OFFSET_DEG: Readonly<Record<string, number>> = {
+  'meshy_soldier.glb': 0.6,
+  'sarim_rifles.glb': 12.3,
+  'civilians/office_worker.glb': 13.3,
+  'civilians/farm_worker.glb': 1.3,
+  'civilians/civilian_child.glb': 0.0,
+};
+
+/** "Normally agree to 1-3 degrees", so 5 is the tolerance on a recorded
+ *  offset -- tight enough that the 15-degree swing Task 2 shipped by hand
+ *  would have gone red here, loose enough that no shipped file is near it. */
+const FACE_MARKER_TOLERANCE_DEG = 5;
+
+describe('mesh unit facing -- two instruments, gated against each other', () => {
+  const pairs = RIGS.filter((r) => r.file in FACE_MARKER_OFFSET_DEG).flatMap((r) =>
+    r.clips
+      .filter((c) => c === 'idle' || c === 'fire')
+      .map((clip) => [`${r.file} ${clip}`, r, clip] as const)
+  )
+    // Sorted so the pin below is on MEMBERSHIP -- which files carry both
+    // instruments, on which standing clips -- rather than on the order a
+    // GLB happens to list its animations in.
+    .sort((a, b) => a[0].localeCompare(b[0]));
+
+  it('covers every file that carries both instruments', () => {
+    // `civilian_woman` is the sixth file with both and is deliberately absent
+    // from the offset table: her 8.9 mm lever makes the MESH instrument noise
+    // (a 78.7 deg spread on a standing idle), so an offset against it would
+    // be pinning the noise. Everything else with a `headfront` marker AND a
+    // `face` role is here.
+    expect(pairs.map(([label]) => label)).toEqual([
+      'civilians/civilian_child.glb idle',
+      'civilians/farm_worker.glb idle',
+      'civilians/office_worker.glb idle',
+      'meshy_soldier.glb fire',
+      'meshy_soldier.glb idle',
+      'sarim_rifles.glb fire',
+      'sarim_rifles.glb idle',
+    ]);
+  });
+
+  it.each(pairs)('%s: the mesh and the rig still tell the same story', (label, rig, clip) => {
+    const face = measureFacing(rig.path, clip);
+    const marker = measureMarkerFacing(rig.path, clip);
+    expect(face.length, `${label}: face figures`).toBe(marker.length);
+    expect(face.length).toBeGreaterThan(0);
+    const expected = FACE_MARKER_OFFSET_DEG[rig.file];
+    for (let i = 0; i < face.length; i++) {
+      // Wrapped: both readings are bearings, so their difference has to be
+      // taken on the circle. Unwrapped it can only ever over-report (never
+      // hide a failure), but it prints nonsense -- a face at -166 against a
+      // marker at +154 is 40 degrees apart, not 320.
+      const raw = face[i].meanDeg - marker[i].meanDeg;
+      const delta = ((((raw % 360) + 540) % 360) - 180);
+      expect(
+        Math.abs(delta - expected),
+        `${label} ${face[i].joint}: face-minus-marker ${delta.toFixed(1)} against ${expected}`
+      ).toBeLessThan(FACE_MARKER_TOLERANCE_DEG);
+    }
   });
 });
