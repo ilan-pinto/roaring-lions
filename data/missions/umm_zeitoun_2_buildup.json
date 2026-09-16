@@ -173,6 +173,7 @@
   "triggers": [
     {
       "id": "the_tube_moves_north",
+      "label": "Battery displaces north",
       "on": { "kind": "casualties_pct", "value": 30 },
       "do": { "kind": "withdraw_to", "group": "battery", "to": "battery_north" },
       "say": {

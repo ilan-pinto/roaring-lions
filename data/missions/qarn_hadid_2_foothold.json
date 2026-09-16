@@ -86,10 +86,12 @@
   },
   "triggers": [
     { "id": "the_shoulder_garrison_walks_to_the_notch",
+      "label": "Shoulder garrison shifts to the notch",
       "on": { "kind": "zone_entered", "zone": "the_gates" },
       "do": { "kind": "commit", "group": "gate", "to": "saddle_gate" },
       "say": { "speaker": "idit", "text": "The section in the revetment has left it and gone east to the notch. You are five minutes into opening a gate they have stopped defending." } },
     { "id": "he_takes_the_tube_into_the_village",
+      "label": "Battery displaces onto the square",
       "on": { "kind": "casualties_pct", "value": 40 },
       "do": { "kind": "withdraw_to", "group": "tube", "to": "village_square" },
       "say": { "speaker": "net", "text": "Battery is displacing onto the village square. It will not be where the drone last had it and it still reaches both gates." } }

@@ -7,3 +7,4 @@
 export function removeTriggerFailures(mission: object, label: string): string[];
 export function narrativeTextFailures(mission: object, label: string): string[];
 export function commanderRankFailures(commander: object, world: object, label: string): string[];
+export function triggerLabelFailures(file: string, mission: object): string[];

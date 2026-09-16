@@ -221,6 +221,7 @@
   "triggers": [
     {
       "id": "he_brings_the_tube_south",
+      "label": "Battery displaces south",
       "on": { "kind": "casualties_pct", "value": 35 },
       "do": { "kind": "withdraw_to", "group": "battery", "to": "battery_south" },
       "say": {
@@ -230,6 +231,7 @@
     },
     {
       "id": "the_house_was_the_section",
+      "label": "Garrison moves into the street",
       "on": { "kind": "zone_entered", "zone": "hamlet" },
       "do": { "kind": "commit", "group": "hamlet_garrison", "to": "hamlet_square" },
       "say": {

@@ -74,14 +74,17 @@
   },
   "triggers": [
     { "id": "the_souk_empties_into_its_own_alleys",
+      "label": "Souk garrison forms in the alleys",
       "on": { "kind": "zone_entered", "zone": "souk" },
       "do": { "kind": "commit", "group": "souk", "to": "souk_alley" },
       "say": { "speaker": "net", "text": "The garrison is out of the blocks and forming in the alleys." } },
     { "id": "he_walks_out_of_the_hall",
+      "label": "Hall party withdraws into the souk",
       "on": { "kind": "casualties_pct", "value": 45 },
       "do": { "kind": "withdraw_to", "group": "hall_party", "to": "souk_alley" },
       "say": { "speaker": "idit", "text": "He is out of the hall and moving into the souk. He was not going to leave for us; he left because there was nobody left in the block for him to hold it with." } },
     { "id": "a_rocket_team_moves_into_the_east_lane",
+      "label": "RPG team moves into the east lane",
       "on": { "kind": "first_contact" },
       "do": { "kind": "spawn", "units": [{ "unit": "rpg_team", "count": 1, "marker": "east_lane" }] },
       "say": { "speaker": "shai", "text": "Rocket team into the east lane, on the road we came up. Nothing goes back down it on wheels until somebody clears that." } }

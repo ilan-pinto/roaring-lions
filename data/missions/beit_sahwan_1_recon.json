@@ -302,6 +302,7 @@
   "triggers": [
     {
       "id": "hunt_the_scouts",
+      "label": "Enemy scouts hunt the drone",
       "on": {
         "kind": "first_contact"
       },

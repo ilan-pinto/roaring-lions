@@ -70,7 +70,7 @@ import { loadAccount, payMission, resetAccount, saveAccount } from './brigade-ac
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
-import { evacuatedNotice, removedNotice, sayNotice } from './ui/mission-notice';
+import { escapeHtml, evacuatedNotice, removedNotice, sayNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -334,8 +334,10 @@ function describeMissionEvent(
         ? [`<b>OBJECTIVE COMPLETE</b> — ${label}`, 'good']
         : [`<b>OBJECTIVE ${e.status.toUpperCase()}</b> — ${label}`, 'bad'];
     }
-    case 'trigger':
-      return [`<b>enemy reacts</b> (${e.id})`, 'warn'];
+    case 'trigger': {
+      const label = triggerLabel(mission, e.id);
+      return label === null ? null : [escapeHtml(label), 'warn'];
+    }
     case 'wave':
       return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, 'bad'];
     case 'roe': {

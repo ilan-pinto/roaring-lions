@@ -150,6 +150,7 @@
   "triggers": [
     {
       "id": "riders_out_of_the_north",
+      "label": "Technicals raid from the north",
       "on": {
         "kind": "timer_s",
         "value": 60
@@ -181,6 +182,7 @@
     },
     {
       "id": "riders_out_of_the_south",
+      "label": "Riders raid from the south",
       "on": {
         "kind": "timer_s",
         "value": 150
@@ -231,6 +233,7 @@
     },
     {
       "id": "technicals_off_the_east_track",
+      "label": "Technicals raid from the east",
       "on": {
         "kind": "timer_s",
         "value": 240
@@ -263,6 +266,7 @@
     },
     {
       "id": "the_last_of_the_motorcycles",
+      "label": "Motorcycles raid from the south",
       "on": {
         "kind": "timer_s",
         "value": 330
@@ -294,6 +298,7 @@
     },
     {
       "id": "the_raiders_break_off_east",
+      "label": "Raiders break off to the east",
       "on": {
         "kind": "casualties_pct",
         "value": 60

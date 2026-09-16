@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evacuatedNotice, removedNotice, sayNotice } from './mission-notice';
+import { escapeHtml, evacuatedNotice, removedNotice, sayNotice, triggerLabel } from './mission-notice';
 
 describe('sayNotice', () => {
   it('names Shai in full caps, with an em dash before the line', () => {
@@ -66,5 +66,19 @@ describe('evacuatedNotice', () => {
     // tick's worth of civilians, so the count is always (1).
     expect(evacuatedNotice()[0]).toContain('(1)');
     expect(evacuatedNotice()[0]).toBe(evacuatedNotice()[0]);
+  });
+});
+
+describe('triggerLabel', () => {
+  const mission = { triggers: [{ id: 'hunt', label: 'Enemy scouts hunt the drone' }, { label: 'Reserves commit' }, { id: 'silent' }] };
+  it('reads the authored label by id', () => expect(triggerLabel(mission, 'hunt')).toBe('Enemy scouts hunt the drone'));
+  it('reads the label of an id-less trigger through the runtime index fallback', () => expect(triggerLabel(mission, 'trigger_1')).toBe('Reserves commit'));
+  it('is null for a trigger with no label, so nothing is shown', () => expect(triggerLabel(mission, 'silent')).toBeNull());
+  it('is null for an unknown id', () => expect(triggerLabel(mission, 'nope')).toBeNull());
+});
+
+describe('escapeHtml', () => {
+  it('escapes all five reserved characters', () => {
+    expect(escapeHtml(`<b>&"'`)).toBe('&lt;b&gt;&amp;&quot;&#39;');
   });
 });

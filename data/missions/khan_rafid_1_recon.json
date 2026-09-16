@@ -69,10 +69,12 @@
   },
   "triggers": [
     { "id": "the_compound_was_never_empty",
+      "label": "Militia enters through the north gate",
       "on": { "kind": "zone_entered", "zone": "ward" },
       "do": { "kind": "spawn", "units": [{ "unit": "militia_cell", "count": 1, "marker": "ward_north_gate" }] },
       "say": { "speaker": "idit", "text": "There is a section coming in through the north gate. The compound was never empty — he has been walking men through it since before we crossed the perimeter." } },
     { "id": "he_gives_up_the_crossing",
+      "label": "Ward party falls back to the souk",
       "on": { "kind": "casualties_pct", "value": 35 },
       "do": { "kind": "withdraw_to", "group": "ward_party", "to": "souk_alley" },
       "say": { "speaker": "net", "text": "The party forward of the ward is falling back into the souk. The crossing is open." } },

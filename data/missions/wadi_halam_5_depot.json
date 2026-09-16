@@ -304,6 +304,7 @@
   "triggers": [
     {
       "id": "the_motorcycles_come_down_on_the_column",
+      "label": "Motorcycles harass the column",
       "on": {
         "kind": "first_contact"
       },

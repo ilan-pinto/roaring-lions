@@ -239,6 +239,7 @@
   "triggers": [
     {
       "id": "the_technicals_at_the_south_hide_run_for_the_village",
+      "label": "Technicals run for the village",
       "on": {
         "kind": "first_contact"
       },

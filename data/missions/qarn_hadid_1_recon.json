@@ -92,10 +92,12 @@
   },
   "triggers": [
     { "id": "something_is_living_in_the_scree",
+      "label": "Riflemen rise from the scree",
       "on": { "kind": "zone_entered", "zone": "scree" },
       "do": { "kind": "spawn", "units": [ { "unit": "sarim_rifles", "count": 1, "marker": "scree_north" } ] },
       "say": { "speaker": "idit", "text": "There is a section in the boulders and it did not walk in behind you. That pocket has been held since before anybody came up this road." } },
     { "id": "he_will_not_leave_the_tube",
+      "label": "Mortar tube falls back to the square",
       "on": { "kind": "casualties_pct", "value": 40 },
       "do": { "kind": "withdraw_to", "group": "tube", "to": "village_square" },
       "say": { "speaker": "idit", "text": "The tube is out of the hollow and driving for the high gate. He does not leave one standing on a floor he can be walked onto." } },

@@ -65,14 +65,17 @@
   },
   "triggers": [
     { "id": "the_village_comes_out_of_its_houses",
+      "label": "Village empties into the lanes",
       "on": { "kind": "zone_entered", "zone": "hamlet" },
       "do": { "kind": "commit", "group": "hamlet", "to": "hamlet_lane" },
       "say": { "speaker": "net", "text": "They are out of the houses and into the lanes between the mouths." } },
     { "id": "he_falls_back_onto_his_own_spoil",
+      "label": "Chief falls back onto the spoil",
       "on": { "kind": "casualties_pct", "value": 50 },
       "do": { "kind": "withdraw_to", "group": "chief", "to": "spoil_field_centre" },
       "say": { "speaker": "idit", "text": "He has gone back onto the spoil field. It is the only high ground on this map and his own crews built it out of the routes you are here to bring down." } },
     { "id": "a_charge_squad_comes_for_the_engineers",
+      "label": "Charge squad targets the engineers",
       "on": { "kind": "timer_s", "value": 210 },
       "do": { "kind": "spawn", "units": [{ "unit": "charge_squad", "count": 1, "marker": "hamlet_north" }] },
       "say": { "speaker": "shai", "text": "Charge squad in the lanes, and your engineers are the only thing on this map that has to stand still. Cover them or move them." } }

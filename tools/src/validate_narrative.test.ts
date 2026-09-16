@@ -11,6 +11,7 @@ import {
   commanderRankFailures,
   narrativeTextFailures,
   removeTriggerFailures,
+  triggerLabelFailures,
 } from '../validate_narrative.mjs';
 
 describe('remove trigger guards', () => {
@@ -242,5 +243,30 @@ describe('commander.json rank ordering', () => {
     expect(out).toHaveLength(1);
     expect(out[0]).toContain('Captain');
     expect(out[0]).toContain('only the final');
+  });
+});
+
+describe('triggerLabelFailures', () => {
+  it('names every non-remove trigger without a label', () => {
+    const mission = {
+      triggers: [
+        { id: 'a', on: { kind: 'timer_s', value: 5 }, do: { kind: 'commit', group: 'g' } },
+        { id: 'b', on: { kind: 'timer_s', value: 5 }, do: { kind: 'remove', group: 'g' } },
+        { id: 'c', on: { kind: 'timer_s', value: 5 }, do: { kind: 'spawn', units: [] }, label: 'Enemy reinforcements arrive' },
+      ],
+    };
+    expect(triggerLabelFailures('m.json', mission)).toEqual(['m.json: trigger "a" (commit) has no label']);
+  });
+  it('rejects a label over 48 characters or with a trailing full stop', () => {
+    const mission = {
+      triggers: [
+        { id: 'a', on: { kind: 'timer_s', value: 5 }, do: { kind: 'commit', group: 'g' }, label: 'x'.repeat(49) },
+        { id: 'b', on: { kind: 'timer_s', value: 5 }, do: { kind: 'commit', group: 'g' }, label: 'Enemy commits.' },
+      ],
+    };
+    expect(triggerLabelFailures('m.json', mission)).toEqual([
+      'm.json: trigger "a" label is 49 characters (max 48)',
+      'm.json: trigger "b" label ends in a full stop',
+    ]);
   });
 });

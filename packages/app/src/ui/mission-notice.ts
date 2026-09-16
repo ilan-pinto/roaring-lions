@@ -77,3 +77,34 @@ export function removedNotice(side: number, unit: string): [string, Tone] {
 export function evacuatedNotice(): [string, Tone] {
   return ['<b>clear</b> (1)', 'good'];
 }
+
+/** The label a mission authored for the trigger that just fired, or null when
+ *  it authored none -- and then the player sees NOTHING, never an id. `id` is
+ *  what the runtime emitted: the trigger's own id, or `trigger_<index>` when it
+ *  has none (mission.ts's fallback). */
+export function triggerLabel(
+  mission: { triggers?: readonly { id?: string; label?: string }[] } | undefined,
+  id: string
+): string | null {
+  const triggers = mission?.triggers ?? [];
+  const byId = triggers.find((t) => t.id === id);
+  if (byId) return byId.label ?? null;
+  const m = /^trigger_(\d+)$/.exec(id);
+  if (!m) return null;
+  return triggers[Number(m[1])]?.label ?? null;
+}
+
+/** `describeMissionEvent` builds `innerHTML`, so any authored string landing
+ *  as TEXT CONTENT between tags -- a trigger's `label` included -- must be
+ *  escaped first. The same five-entity replace as the HTML spec's own
+ *  minimal set, kept local to this module: `hud.ts` has its own escapers for
+ *  its own two contexts (an attribute value, a callsign as text content) and
+ *  neither is exported for a second module to share. */
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

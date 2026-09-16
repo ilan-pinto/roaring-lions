@@ -64,14 +64,17 @@
   },
   "triggers": [
     { "id": "the_village_comes_down_to_the_yard",
+      "label": "Village comes down to the yard",
       "on": { "kind": "zone_entered", "zone": "pump_yard" },
       "do": { "kind": "commit", "group": "hamlet", "to": "pump_gate" },
       "say": { "speaker": "idit", "text": "The village is coming down the lane at the yard. There are nine houses up there and not one person in them; every body on that street is a fighter." } },
     { "id": "the_yard_party_falls_back_up_the_lane",
+      "label": "Yard party falls back up the lane",
       "on": { "kind": "casualties_pct", "value": 40 },
       "do": { "kind": "withdraw_to", "group": "yard", "to": "hamlet_north" },
       "say": { "speaker": "net", "text": "The yard party is out of the pump house and going north up the lane." } },
     { "id": "a_charge_squad_comes_down_the_lane",
+      "label": "Charge squad comes down the lane",
       "on": { "kind": "timer_s", "value": 180 },
       "do": { "kind": "spawn", "units": [{ "unit": "charge_squad", "count": 1, "marker": "hamlet_lane" }] },
       "say": { "speaker": "shai", "text": "Charge squad down the lane. Get the engineers off the mouth or get something between him and them." } }

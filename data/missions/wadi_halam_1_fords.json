@@ -276,6 +276,7 @@
   "triggers": [
     {
       "id": "the_bank_patrol_turns_for_the_ford",
+      "label": "Bank patrols turn for the ford",
       "on": {
         "kind": "zone_entered",
         "zone": "ford_watch"

@@ -319,6 +319,7 @@
   "triggers": [
     {
       "id": "reserve_counterattack",
+      "label": "Southern reserve commits to town centre",
       "on": {
         "kind": "casualties_pct",
         "value": 50

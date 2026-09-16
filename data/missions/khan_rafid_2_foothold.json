@@ -72,14 +72,17 @@
   },
   "triggers": [
     { "id": "they_walk_into_the_ward",
+      "label": "Enemy pushes into the ward",
       "on": { "kind": "zone_entered", "zone": "ward" },
       "do": { "kind": "commit", "group": "ward_push", "to": "civ_refuge" },
       "say": { "speaker": "idit", "text": "They are walking into the ward. Not round it and not at the gates — into it, because it is the one piece of ground on this map where your guns are the ones that cost you." } },
     { "id": "the_block_pulls_back_into_the_souk",
+      "label": "Block pulls back into the souk",
       "on": { "kind": "casualties_pct", "value": 40 },
       "do": { "kind": "withdraw_to", "group": "ward_party", "to": "souk_alley" },
       "say": { "speaker": "net", "text": "The party forward of the compound has gone back into the souk. They are not finished; they are shortening." } },
     { "id": "a_charge_squad_comes_for_the_gate",
+      "label": "Charge squad comes for the gate",
       "on": { "kind": "timer_s", "value": 200 },
       "do": { "kind": "spawn", "units": [{ "unit": "charge_squad", "count": 1, "marker": "souk_alley" }] },
       "say": { "speaker": "shai", "text": "One charge squad, out of the souk, coming at the gate. That is the only thing on this map that can kill a family inside the wall, and it does not care which side of it he dies on." } }

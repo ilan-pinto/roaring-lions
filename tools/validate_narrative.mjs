@@ -77,6 +77,23 @@ export function removeTriggerFailures(mission, label) {
   return out;
 }
 
+/** Every trigger a player can see fire carries a human label (spec §5: no id
+ *  reaches the DOM). `remove` is silent housekeeping and is exempt. */
+export function triggerLabelFailures(file, mission) {
+  const out = [];
+  for (const [i, t] of (mission.triggers ?? []).entries()) {
+    const name = t.id ?? `trigger_${i}`;
+    if (t.do?.kind === 'remove') continue;
+    if (typeof t.label !== 'string' || t.label.length === 0) {
+      out.push(`${file}: trigger "${name}" (${t.do?.kind}) has no label`);
+      continue;
+    }
+    if (t.label.length > 48) out.push(`${file}: trigger "${name}" label is ${t.label.length} characters (max 48)`);
+    if (t.label.endsWith('.')) out.push(`${file}: trigger "${name}" label ends in a full stop`);
+  }
+  return out;
+}
+
 /**
  * The story voice's 240-character ceiling, plus (G11) the `$defs/say`
  * speaker vocabulary for `debrief`'s two variants. mission.schema.json's own
