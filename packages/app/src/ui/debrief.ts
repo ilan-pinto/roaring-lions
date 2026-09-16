@@ -135,6 +135,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
   };
   back(won ? 'replay' : 'try again', `?mission=${o.missionId}`);
   back('campaign map', '?campaign');
+  back('menu', '?');
   b.appendChild(nav);
 
   host.appendChild(p.el);

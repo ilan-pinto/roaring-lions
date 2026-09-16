@@ -370,6 +370,26 @@ function describeMissionEvent(
   }
 }
 
+function bootError(stage: HTMLElement, title: string, body: string, home = '?'): void {
+  const div = document.createElement('div');
+  div.className = 'rl-boot-error';
+
+  const h = document.createElement('h2');
+  h.textContent = title;
+  div.appendChild(h);
+
+  const p = document.createElement('p');
+  p.textContent = body;
+  div.appendChild(p);
+
+  const a = document.createElement('a');
+  a.href = home;
+  a.textContent = '← main menu';
+  div.appendChild(a);
+
+  stage.appendChild(div);
+}
+
 async function main(): Promise<void> {
   const stage = document.getElementById('stage');
   if (!stage) throw new Error('no #stage');
@@ -608,7 +628,8 @@ async function main(): Promise<void> {
   if (missionId !== null) {
     mission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!mission) {
-      console.warn(`unknown mission "${missionId}" — available: ${Object.keys(missions).join(', ')}`);
+      bootError(stage, `Unknown mission "${missionId}"`, 'This link points at a mission that does not exist in this build.');
+      return;
     }
   }
   const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();

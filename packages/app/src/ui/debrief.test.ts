@@ -129,4 +129,10 @@ describe('showDebrief', () => {
     showDebrief(host, base({ result: 'defeat', stars: 0 }));
     expect(host.querySelector('.rl-debrief__credits')).toBeNull();
   });
+
+  it('offers the main menu, like the end panel does', () => {
+    const host = document.createElement('div');
+    showDebrief(host, base());
+    expect([...host.querySelectorAll('.rl-endnav a')].some((a) => a.textContent === 'menu' && a.getAttribute('href') === '?')).toBe(true);
+  });
 });
