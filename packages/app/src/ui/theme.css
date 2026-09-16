@@ -1069,19 +1069,22 @@ body {
 /* --- event feed ------------------------------------------------------- */
 
 /* No panel at all. A notice is punctuation over the map, and boxing it made
-   four of them look like a fifth panel. Bottom-anchored so a new line pushes
-   the stack up out of the dock's way rather than down into it. */
+   four of them look like a fifth panel. It used to be its own
+   absolutely-positioned block anchored at a fixed `bottom`, which drew over
+   the order row the moment both were on screen -- it is the first child of
+   `.rl-sel` now (hud.ts), so the flex column there stacks it above the order
+   row and the card instead. `column-reverse` still keeps the newest line
+   nearest the buttons, and the column's own `gap` already separates it from
+   the row below; `margin-bottom` adds a bit more air on top of that. */
 .rl-feed {
-  position: absolute;
-  left: var(--hud-centre);
-  bottom: 9.375rem;
-  transform: translateX(-50%);
   width: 35rem;
   display: flex;
   flex-direction: column-reverse;
   gap: 2px;
   text-align: center;
   pointer-events: none;
+  align-self: center;
+  margin-bottom: 0.375rem;
 }
 .rl-notice {
   font-size: var(--t-read);
@@ -1336,6 +1339,11 @@ body {
   box-sizing: border-box;
   width: var(--card-w);
   max-width: 92vw;
+  /* At 1400x900 with the feed and the order row now stacked above it (Task
+     5), the card's natural height can run past the bottom of the viewport --
+     it scrolls internally rather than clipping. */
+  max-height: calc(100vh - 12rem);
+  overflow-y: auto;
   display: flex;
   gap: 0.625rem;
   padding: var(--s2) 0.625rem;

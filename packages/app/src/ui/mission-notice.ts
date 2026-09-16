@@ -1,6 +1,7 @@
 /**
- * How the two new narrative `MissionEvent` kinds (GDD §11 -- `say`,
- * `removed`) are worded for the HUD notice feed.
+ * How the narrative `MissionEvent` kinds (GDD §11 -- `removed`, `evacuated`)
+ * are worded for the HUD notice feed, plus the two small string utilities
+ * `describeMissionEvent` shares with them (`triggerLabel`, `escapeHtml`).
  *
  * Split out of `describeMissionEvent` for the same reason `roe-notice.ts`
  * is (that file's own top comment): the interesting part is a wording
@@ -9,25 +10,16 @@
  * without importing `main.ts` at all, which would run its own top-level
  * `main().catch(...)` boot sequence the instant the module loaded.
  *
+ * `say` used to be worded here too (`sayNotice`), echoing every commander
+ * line into the feed a second time with its own attribution and its own 9s
+ * clock, independent of the bar's beat-dwell timer. Task 5 (shell upgrade
+ * Phase 0) made the commander bar the one surface for it --
+ * `describeMissionEvent`'s `case 'say'` in `main.ts` now returns null, and
+ * `sayNotice` is gone rather than left unreachable.
+ *
  * No DOM, no Pixi, no sim state.
  */
 import type { Tone } from './hud';
-
-/**
- * `say`: a radio line. Attributed by initials in the feed -- the bar shows
- * the fuller plate instead (`hud-model.ts`'s `speakerPlate`), which is the
- * one place a lookup into `commander.json` happens at all. `shai`/`idit`/
- * `net` are named literally, uppercased, straight off the event's own
- * `speaker` field: a `<b>SHAI</b>` in a fast-scrolling feed is exactly as
- * legible as a full name and needs no data this function does not already
- * have. `enemy` gets no name at all -- an intercepted transmission from an
- * unidentified source reads as more unsettling than a label would, and it is
- * the one case that reads as a warning rather than plain narration.
- */
-export function sayNotice(speaker: string, text: string): [string, Tone] {
-  if (speaker === 'enemy') return [`<b>—</b> ${text}`, 'warn'];
-  return [`<b>${speaker.toUpperCase()}</b> — ${text}`, 'info'];
-}
 
 /**
  * `removed`: a mission `remove` trigger took this entity off the board --

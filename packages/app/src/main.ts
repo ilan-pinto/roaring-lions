@@ -70,7 +70,7 @@ import { loadAccount, payMission, resetAccount, saveAccount } from './brigade-ac
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
-import { escapeHtml, evacuatedNotice, removedNotice, sayNotice, triggerLabel } from './ui/mission-notice';
+import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -348,7 +348,12 @@ function describeMissionEvent(
     case 'built':
       return [`<b>reinforcement deployed</b> — ${e.unit}`, 'info'];
     case 'say':
-      return sayNotice(e.speaker, e.text);
+      // The commander bar is the one surface for a story line now -- `hud.say`
+      // already runs for every `say` event (see the mission-loop handler
+      // below), and echoing it into the feed too meant one sentence with two
+      // attributions on two unlinked timers: the bar's own dwell clock and
+      // the feed's 9s note() timeout.
+      return null;
     case 'removed':
       return removedNotice(e.side, e.unit);
     case 'evacuated':
@@ -2046,9 +2051,10 @@ async function main(): Promise<void> {
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
         const described = describeMissionEvent(me, mission, narratedRoeReasons);
         if (described) hud.note(described[0], described[1]);
-        // The story voice (GDD §11): the feed gets the note above, the
-        // commander bar gets the fuller, plated version -- see `Hud.say`'s
-        // own doc comment for why this is independent of `brief()`.
+        // The story voice (GDD §11): the commander bar is the one surface for
+        // it now -- `describeMissionEvent`'s own `case 'say'` returns null,
+        // so this is the only place a `say` event lands. See `Hud.say`'s own
+        // doc comment for why this call is independent of `brief()`.
         if (me.kind === 'say') hud.say(me.speaker, me.text);
         if (me.kind === 'missionEnd') {
           // The end screen must not land over a live step panel — an early

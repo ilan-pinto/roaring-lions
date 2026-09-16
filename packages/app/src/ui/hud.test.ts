@@ -519,6 +519,13 @@ describe('event feed', () => {
     expect(classes).toContain('rl-bad-text');
     expect(classes).not.toContain('rl-bad');
   });
+
+  it('stacks the feed above the selection cluster instead of over it', () => {
+    const r = rig(mission());
+    const feed = r.host.querySelector('.rl-feed');
+    expect(feed?.parentElement?.classList.contains('rl-sel')).toBe(true);
+    expect(feed?.parentElement?.firstElementChild).toBe(feed);
+  });
 });
 
 // ======================================================================

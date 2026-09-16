@@ -299,9 +299,13 @@ export class Hud {
 
     // --- the selection cluster --------------------------------------------
     //
-    // Bottom centre, on the same x as the feed and the controls hint, because
-    // it replaces the hint the moment anything is selected: one place at the
-    // bottom of the screen that answers "what am I holding and what can it do".
+    // Bottom centre, on the same x as the controls hint, because it replaces
+    // the hint the moment anything is selected: one place at the bottom of
+    // the screen that answers "what am I holding and what can it do". The
+    // feed (below) is prepended into this same column so the two stack
+    // instead of overlapping -- it used to be its own absolutely-positioned
+    // block at a fixed `bottom`, which drew over the order row the moment
+    // both were on screen at once.
     //
     // The order buttons are built ONCE and only repainted, while the chips and
     // the card are innerHTML'd wholesale four times a second. That split is not
@@ -358,6 +362,10 @@ export class Hud {
 
     this.feed = document.createElement('div');
     this.feed.className = 'rl-feed';
+    // First child of .rl-sel: with that container's `flex-direction: column`
+    // the feed sits above the order row and the card, separated by the
+    // column's own gap, rather than floating over either at a fixed offset.
+    this.sel.prepend(this.feed);
 
     this.hint = document.createElement('div');
     // A plate, not the shadow halo -- .rl-onmap alone measured ~1.3:1 over
@@ -451,7 +459,6 @@ export class Hud {
       this.cmd,
       this.clock,
       this.sel,
-      this.feed,
       this.hint,
       this.fire,
       this.banner
