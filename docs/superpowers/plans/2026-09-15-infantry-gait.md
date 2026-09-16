@@ -622,7 +622,20 @@ cadence, but it deserves a person's eye rather than a green tick. And
 with the shortest stride in the tree, so the game's SLOWEST unit needs the
 third-largest correction. That file comes from `tools/export_meshy_sniper.py`, a
 third pipeline this plan never touched, so Task 4's stride work never reached
-it.
+it. Diagnosed: that exporter carries its OWN `MOVE_FRAMES = 24` (1.0 s against
+`rig.py`'s 16 at 0.6667 s) and authors a **hardcoded** `swing = 0.40 * sin(a)`
+that never reads `speed_tiles_s` at all. Both halves of its 2.10× come from
+that exporter never having been reconciled with `rig.py`. The rate match
+corrects it and it is inside the clamp, so this is a note, not a blocker.
+
+**And Task 7 may import `units/mesh-anim.ts` by relative path.** `@lions/tools`
+deliberately does not depend on `@lions/render`, but that module imports only a
+type from `../../sheet` and pulls in no three.js, so a relative import is safe.
+Spelling this out because the alternative — recomputing the formula in the gate
+— is exactly the duplication the "compute it through `gaitTimeScale`"
+requirement exists to prevent. Note also that
+`tools/src/mesh_gait.test.ts` already imports from `packages/app/src/`, so
+reaching across a package boundary in a test is established practice here.
 
 - [ ] **Step 2: Declared-vs-measured consistency**
 
