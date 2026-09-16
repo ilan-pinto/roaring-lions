@@ -238,7 +238,8 @@ Three steps, each its own plan and its own branch, in the order the motivation l
    ladder total 5544 (re-pinned same day from 5644 once "brought home" was scoped to
    the starting force only, ruling R4).
 2. **Buy** — `unlock.price`; bought-only units; `unlockReason` with the account; the shop's
-   locked rows; the dock sentence; the harness's bought-gate probe.
+   locked rows; the dock sentence; the harness's bought-gate probe — landed 2026-09-16,
+   prices in docs/campaign/economy/prices.md.
 3. **Upgrade** — the `upgrades` schema and whitelist; `applyUpgrades`; the balance passes;
    the tracks and prices for the seventeen types; the tier pips; the maximum-tier harness
    run.

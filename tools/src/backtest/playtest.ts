@@ -74,7 +74,12 @@ function run(
    *  type at spawn, not merely that the mission still wins fielding its un-upgraded
    *  fallback. Checked before the plan issues a single order or a tick runs; named in
    *  the printed line either way so a reader never has to re-derive it. */
-  fielded?: string
+  fielded?: string,
+  /** Unit type ids the brigade account has bought (spec 2026-09-15 §4.4). Mapped into
+   *  `unlockOf`'s `UnlockGate.bought`, exactly as `main.ts`'s `kdfUnlockGate` resolves it
+   *  from the account -- so a probe can prove a purchase opens an `upgrades_to` slot with
+   *  no stars or Conduct at all, the same lookup the real gate uses. */
+  bought: ReadonlySet<string> = new Set()
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -115,7 +120,8 @@ function run(
     const d = (units as Record<string, { unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string } } | undefined>)[
       unitId
     ];
-    return d ? kdfUnlockGate(d) : undefined;
+    const gate = d ? kdfUnlockGate(d) : undefined;
+    return gate ? { ...gate, bought: bought.has(unitId) } : undefined;
   };
   const resolvedMission = resolveUpgrades(mission, ledger, unlockOf);
   const rt = new MissionRuntime(sim, resolvedMission, {
@@ -1151,6 +1157,22 @@ run(
   'khan_rafid_3_clearance (gate open)',
   2,
   'breach_team'
+);
+
+// Bought-gate probe (brigade economy step 2, spec 2026-09-15 §4.4): the same plan
+// on a bare `{}` ledger -- no stars, no Conduct -- but with breach_team recorded as
+// bought. `unlockOf`'s bought flag short-circuits `unlockReason` before either earned
+// check runs, so `resolveUpgrades` fields breach_team here exactly as the gate-open
+// probe above does with 6 stars. `label === id` keeps this out of both ladders.
+run(
+  'khan_rafid_3_clearance',
+  khanRafid3Plan,
+  {},
+  'victory',
+  'khan_rafid_3_clearance (bought)',
+  2,
+  'breach_team',
+  new Set(['breach_team'])
 );
 
 // --- Marj: Deir Amun -------------------------------------------------------------
