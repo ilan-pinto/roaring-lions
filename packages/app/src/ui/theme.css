@@ -135,6 +135,12 @@
      borrows the caution colour (the stripe stars used --warn until 2026-09-11). */
   --commend: var(--rl-dust-0);
   --bad: var(--rl-team-hostile);
+  /* --bad is a FILL colour (the ROE gauge, the debrief list) and reads 4.01:1
+     as text over the panel ground -- under WCAG AA's 4.5:1 floor for body
+     text (tools/src/bad-text-contrast.test.ts). --bad-text is the same red,
+     lightened until it clears that floor, for the five places a bad-tone
+     string is read rather than filled. */
+  --bad-text: var(--rl-team-hostile-text);
   --info: var(--rl-water-0);
   --live: var(--rl-vfx-tracer);
   --hot: var(--rl-vfx-fire);
@@ -621,6 +627,11 @@ body {
 .rl-bad {
   color: var(--bad);
 }
+/* The reading twin of .rl-bad -- see --bad-text above. Fills (the ROE gauge,
+   the debrief list) stay on .rl-bad; a bad-tone STRING moves here. */
+.rl-bad-text {
+  color: var(--bad-text);
+}
 .rl-info {
   color: var(--info);
 }
@@ -726,6 +737,17 @@ body {
    edges from dissolving into it. */
 .rl-onmap {
   text-shadow: 0 1px 12px var(--type-shadow), 0 1px 2px var(--type-shadow);
+}
+
+/* The other strategy for type over bare map: a dark ground under the glyphs
+   rather than a halo around them. The hint line, a notice, a title-card line
+   and the hold clock all measured close to 1.3:1 over sand with the halo
+   alone -- this is the fix. `--panel-bg` rather than a flat colour so the
+   plate reads as the same material as every panel in the HUD. */
+.rl-plate {
+  background: var(--panel-bg);
+  padding: 0.125rem 0.5rem;
+  border-radius: 2px; /* px-ok */
 }
 
 /* --- top strip -------------------------------------------------------- */
@@ -1349,7 +1371,7 @@ body {
   text-transform: uppercase;
 }
 .rl-card__callsign { color: var(--commend); font-weight: 600; }
-.rl-card__record { font-size: var(--t-xs); }
+.rl-card__record { font-size: var(--t-s); }
 .rl-card__hp {
   margin-left: auto;
   white-space: nowrap;
@@ -1438,10 +1460,19 @@ body {
   text-align: center;
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease);
+  /* Each line (title, dispatch, subtitle) carries its own .rl-plate now, so
+     the card is a stack of independently-sized plates rather than one panel
+     -- a grid lets each row size to its own content instead of stretching to
+     the widest line. */
+  display: grid;
+  gap: 0.25rem;
+  justify-items: center;
 }
-/* The title card has no panel behind it — it sits on whatever ground the
-   camera happens to be over, and sun-bleached limestone is close enough to
-   limestone ink to swallow it. The scrim is what keeps it readable there. */
+/* The title card had no panel behind it, and sun-bleached limestone read
+   close enough to limestone ink over open ground to swallow it -- the scrim
+   was what kept it readable there. Each line now also sits on its own
+   .rl-plate; the scrim stays as a second line of defence, since the plate is
+   translucent (`--panel-bg`). */
 .rl-titlecard__title {
   font-family: var(--font-display);
   font-size: var(--t-hero);
@@ -1581,7 +1612,7 @@ body {
   position: absolute;
   right: 3px;
   bottom: 1px;
-  font-size: var(--t-xs);
+  font-size: var(--t-s);
   font-weight: 600;
   color: var(--accent);
   /* The badge sits on the sprite, not on the tile's own fill. */
@@ -1596,7 +1627,7 @@ body {
   position: absolute;
   left: 3px;
   top: 1px;
-  font-size: var(--t-xs);
+  font-size: var(--t-s);
   color: var(--live);
   text-shadow: 0 0 3px var(--well);
 }
@@ -1629,7 +1660,7 @@ body {
   right: 0;
   bottom: 2px;
   text-align: center;
-  font-size: var(--t-xs);
+  font-size: var(--t-s);
   color: var(--ink-dim);
   /* "Conduct ≥55" is eleven characters on a 3.75rem tile: it may overflow the edge
      by a pixel or two, but it must never wrap onto the art. */
@@ -2204,7 +2235,7 @@ button.rl-menu__item[data-kind='aside'] {
   text-align: center;
 }
 .rl-loading__label {
-  font-size: var(--t-xs);
+  font-size: var(--t-s);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -2231,7 +2262,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-loading__count {
   margin-top: var(--s2);
-  font-size: var(--t-xs);
+  font-size: var(--t-s);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
@@ -2290,7 +2321,7 @@ button.rl-menu__item[data-kind='aside'] {
    `.rl-loading__box--brief` at all). */
 .rl-loading__commander {
   font-family: var(--font-display);
-  font-size: var(--t-xs);
+  font-size: var(--t-s);
   font-weight: 600;
   letter-spacing: var(--track-label);
   text-transform: uppercase;
@@ -2379,7 +2410,7 @@ button.rl-menu__item[data-kind='aside'] {
    token the world-map star line uses, so a carry-over reads as an earned
    thing rather than as another paragraph of prose. */
 .rl-loading__brought { margin: 0.625rem 0 0; padding: 0.5rem 0.625rem; border-left: 2px solid var(--commend); color: var(--ink); }
-.rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 1px; }
+.rl-loading__brought-head { color: var(--ink-dim); font-size: var(--t-s); text-transform: uppercase; letter-spacing: 1px; }
 .rl-loading__brought ul { margin: 0.25rem 0; padding-left: 1.1em; }
 .rl-loading__brought-line { margin: 0.25rem 0 0; color: var(--ink-mute); }
 /* Survivors this mission does not field -- a count, under the roster, in the
@@ -2493,7 +2524,7 @@ button.rl-menu__item[data-kind='aside'] {
   flex: 1 1 auto;
   min-width: 0;
   color: var(--ink-dim);
-  font-size: var(--t-xs);
+  font-size: var(--t-s);
 }
 .rl-brigade__credits {
   color: var(--commend);

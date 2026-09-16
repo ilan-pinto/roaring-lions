@@ -155,6 +155,16 @@ describe('top strip', () => {
     expect(r.host.querySelector('.rl-clock')!.textContent).toBe('1:30');
   });
 
+  it('marks a failed primary with the readable red, not the fill-only one', () => {
+    const r = rig(
+      mission({
+        objectives: [{ id: 'hold_west', text: 'Hold the west', primary: true, status: 'failed' }],
+      })
+    );
+    const obj = r.host.querySelector<HTMLElement>('[data-obj="hold_west"]')!;
+    expect(obj.className).toContain('rl-bad-text');
+  });
+
   it('tone-colours ROE by the campaign gate it is heading for', () => {
     const roeClass = (n: number): string =>
       rig(mission({ roe: n })).host.querySelector('[data-roe]')!.className;
@@ -456,6 +466,7 @@ describe('bottom-centre controls hint', () => {
     const r = rig(mission(), { getSelection: () => sel });
     const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
     expect(hint.style.display).toBe('');
+    expect(hint.className).toContain('rl-plate');
     expect(hint.textContent).toContain('click/drag select');
     sel = [0];
     for (let i = 0; i < 5; i++) r.tick(); // the rebuild is 4 Hz, not every tick
@@ -486,7 +497,7 @@ describe('event feed', () => {
     const r = rig(mission());
     r.hud.note('contact', 'bad');
     const line = r.host.querySelector('.rl-feed')!.firstElementChild!;
-    expect(line.className).toContain('rl-onmap');
+    expect(line.className).toContain('rl-plate');
     expect(line.className).not.toContain('rl-panel');
   });
 });

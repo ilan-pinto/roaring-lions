@@ -116,6 +116,7 @@
       "colors": {
         "kedem": "#2F6FD9",
         "hostile": "#D93A2B",
+        "hostile_text": "#F26A55",
         "neutral": "#E8C33A"
       }
     },

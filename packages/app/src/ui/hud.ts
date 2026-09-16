@@ -350,14 +350,19 @@ export class Hud {
     this.sel.append(this.orderBar, this.cluster);
 
     this.clock = document.createElement('div');
-    this.clock.className = 'rl-clock';
+    // A number over the world too -- the plate through the same class rather
+    // than a second copy of the background rule (task-4 brief resolution).
+    this.clock.className = 'rl-clock rl-plate';
     this.clock.style.display = 'none';
 
     this.feed = document.createElement('div');
     this.feed.className = 'rl-feed';
 
     this.hint = document.createElement('div');
-    this.hint.className = 'rl-hint rl-onmap';
+    // A plate, not the shadow halo -- .rl-onmap alone measured ~1.3:1 over
+    // sand for this line. The halo stays available through .rl-onmap for
+    // glyph-only marks; the hint no longer uses it.
+    this.hint.className = 'rl-hint rl-plate';
 
     this.fire = document.createElement('div');
     this.fire.className = 'rl-fire';
@@ -558,7 +563,7 @@ export class Hud {
   /** Mission-level narration — objectives, triggers, waves, refusals. */
   note(html: string, tone: Tone = 'live'): void {
     const el = document.createElement('div');
-    el.className = `rl-notice rl-enter rl-onmap rl-${tone}`;
+    el.className = `rl-notice rl-enter rl-plate rl-${tone}`;
     el.innerHTML = html;
     this.feed.prepend(el);
     while (this.feed.childElementCount > FEED_LINES) {
@@ -705,7 +710,7 @@ export class Hud {
             ? ` <b class="${hold.tone ? `rl-${hold.tone}` : ''}">${hold.text}</b>`
             : '';
         const tone =
-          primary.status === 'complete' ? 'rl-good' : primary.status === 'failed' ? 'rl-bad' : '';
+          primary.status === 'complete' ? 'rl-good' : primary.status === 'failed' ? 'rl-bad-text' : '';
         rows.push(
           `<span class="rl-strip__obj ${tone}" data-obj="${escapeAttr(primary.id)}">` +
             `${objectiveGlyph(primary.status)} ${primary.text}${inline}</span>`
@@ -750,7 +755,7 @@ export class Hud {
     // the kind of field a player learns to stop reading.
     const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
     if (pinned > 0) info.push(`<span class="rl-hot"><b>▼ ${pinned} pinned</b></span>`);
-    if (broken > 0) info.push(`<span class="rl-bad"><b>⚑ ${broken} broken</b></span>`);
+    if (broken > 0) info.push(`<span class="rl-bad-text"><b>⚑ ${broken} broken</b></span>`);
 
     this.stripBody.innerHTML = rows.join('');
     this.stripInfo.innerHTML = info.join('');
@@ -853,7 +858,7 @@ export class Hud {
         ['suppressed', fx.toNumber(p.factors.suppressionMod)],
       ]);
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
-      const bounce = p.hurts ? '' : ' · <span class="rl-bad">cannot penetrate</span>';
+      const bounce = p.hurts ? '' : ' · <span class="rl-bad-text">cannot penetrate</span>';
       rows.push(
         `<div>${name} <b>${chance}%</b> <span class="rl-dim">${p.weaponId}${why}</span>${bounce}</div>`
       );
@@ -1097,11 +1102,11 @@ export class Hud {
     // this replaces — the list is the product of a dozen play sessions and the
     // layout around it is what GH-153 is changing, not the facts in it.
     const flags: string[] = [];
-    if (st.routed[id] === 1) flags.push('<span class="rl-bad">BROKEN</span>');
+    if (st.routed[id] === 1) flags.push('<span class="rl-bad-text">BROKEN</span>');
     else if (st.pinned[id] === 1) flags.push('<span class="rl-hot">PINNED</span>');
     if (st.garrisonedIn[id] >= 0) flags.push('<span class="rl-live">in a building</span>');
     if (st.mobilityKilled[id] === 1) flags.push('<span class="rl-dim">immobilised</span>');
-    if (st.firepowerKilled[id] === 1) flags.push('<span class="rl-bad">guns out</span>');
+    if (st.firepowerKilled[id] === 1) flags.push('<span class="rl-bad-text">guns out</span>');
     if (st.moving[id] === 1) flags.push('moving');
     const supp = fx.toNumber(st.suppression[id]);
     if (supp > 0.05) flags.push(`suppression ${(supp * 100).toFixed(0)}%`);
