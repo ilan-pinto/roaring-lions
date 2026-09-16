@@ -63,14 +63,23 @@ const HEX = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g;
 const RGB = /\brgba?\(\s*\d/g;
 const VAR = /var\(\s*(--[\w-]+)/g;
 
-const SHADOW_PROPS = /\b(text-shadow|box-shadow|filter|drop-shadow)\b/;
+// Strips shadow/filter DECLARATIONS (not whole lines) before the px scan --
+// `drop-shadow(...)` is always a function nested inside a `filter:` value
+// (never its own `prop:` declaration), so stripping `filter:` already covers
+// it. A whole-line skip on any of these keywords appearing ANYWHERE on the
+// line let a layout px sharing that line escape detection (fix round 1,
+// 2026-09-16): `margin: 8px; text-shadow: 0 1px 2px red;` on one line
+// previously passed with zero failures, because the old line-wide keyword
+// test bailed out before the 8px was ever scanned.
+const SHADOW_DECL = /(text-shadow|box-shadow|filter)\s*:[^;]*;?/g;
 /** Layout must scale with --ui-scale (spec §5: UI scale is one number), so a
  *  px value of 4 or more in UI CSS is a defect unless the line says why. */
 export function pxFailures(file, css) {
   const out = [];
   css.split('\n').forEach((line, i) => {
-    if (line.includes('/* px-ok */') || SHADOW_PROPS.test(line)) return;
-    for (const m of line.matchAll(/(\d+(?:\.\d+)?)px\b/g)) {
+    if (line.includes('/* px-ok */')) return;
+    const scanned = line.replace(SHADOW_DECL, '');
+    for (const m of scanned.matchAll(/(\d+(?:\.\d+)?)px\b/g)) {
       if (Number(m[1]) >= 4) out.push(`${file}:${i + 1}: ${m[0]} -- use rem (or tag the line /* px-ok */ for a hairline)`);
     }
   });

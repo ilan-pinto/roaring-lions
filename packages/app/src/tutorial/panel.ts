@@ -24,13 +24,14 @@ export function tutorialPanel(host: HTMLElement, opts: { onSkip: () => void }): 
     tag: '',
     // Under the clock rather than along the bottom edge, where 11px of mono
     // went unread. Centred on the clock, so the width is capped at whatever
-    // clears the briefing on the left — 648px is twice the briefing's right
-    // edge (8 + 300) plus a gutter. A floor here would be a floor on how far
-    // it may cover the objectives list, so there is none: on a narrow window
-    // the lesson gets thin rather than covering what it is teaching about.
+    // clears the briefing on the left — 40.5rem (648px at scale 1) is twice
+    // the briefing's right edge (8 + 300) plus a gutter. A floor here would be
+    // a floor on how far it may cover the objectives list, so there is none:
+    // on a narrow window the lesson gets thin rather than covering what it is
+    // teaching about.
     place:
-      'top:100px;left:50%;transform:translateX(-50%);' +
-      'width:min(620px,calc(100vw - 648px))',
+      'top:6.25rem;left:50%;transform:translateX(-50%);' +
+      'width:min(38.75rem,calc(100vw - 40.5rem))',
   });
   p.el.classList.add('rl-tutorial');
 

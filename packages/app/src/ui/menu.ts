@@ -414,7 +414,7 @@ export interface EndScreenOptions {
    *  standing in for missing text: no paragraph at all. */
   debrief?: EndScreenDebrief;
   /** Opens the full debrief screen (Task 9's `ui/debrief.ts`) in place of this
-   *  panel. Optional: a caller with nothing to show beyond this 420px card
+   *  panel. Optional: a caller with nothing to show beyond this 26.25rem card
    *  (no wiring yet, or a context with no ledger to report on) simply omits
    *  it, and no button appears. */
   onDebrief?: () => void;
@@ -426,7 +426,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
     rank: 'alert',
     title: won ? 'Town is quiet' : 'Withdraw and regroup',
     tag: won ? 'Victory' : 'Defeat',
-    place: 'top:62%;left:50%;transform:translateX(-50%);width:min(420px,90vw);text-align:center',
+    place: 'top:62%;left:50%;transform:translateX(-50%);width:min(26.25rem,90vw);text-align:center',
   });
   p.el.classList.add('rl-enter');
 

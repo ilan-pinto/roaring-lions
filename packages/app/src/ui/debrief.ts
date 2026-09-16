@@ -1,5 +1,5 @@
 // The debrief: a full screen after a mission (storyline O7, spec §4.2). The end panel keeps
-// its portrait and quote; this is the card that would not fit in 420px. Pure DOM, no sim.
+// its portrait and quote; this is the card that would not fit in 26.25rem. Pure DOM, no sim.
 import type { Stars } from '@lions/sim';
 import { panel } from './panel';
 import { TIER_NAMES } from './grade-copy';
@@ -51,7 +51,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
     title: won ? TIER_NAMES[o.stars] || 'Entered in the log' : 'Withdraw and regroup',
     tag: won ? 'Debrief' : 'Defeat',
     mark: true,
-    place: 'top:6%;left:50%;transform:translateX(-50%);width:min(720px,94vw);max-height:88vh;overflow:auto',
+    place: 'top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);max-height:88vh;overflow:auto',
   });
   p.el.classList.add('rl-debrief', 'rl-enter');
   const b = p.body;
