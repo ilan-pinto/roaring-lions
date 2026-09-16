@@ -20,11 +20,11 @@
 // output directory must be OUTSIDE the watched tree (a PNG written inside
 // packages/app or assets/ triggers vite-plugin-asset-watch and reloads the
 // page being photographed) -- .superpowers/ is git-ignored and unwatched.
-import { chromium, type Page } from 'playwright';
+import { chromium, type Browser, type Page } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
+import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -85,31 +85,14 @@ async function settle(page: Page, ms: number): Promise<void> {
   await page.waitForTimeout(ms);
 }
 
-async function passDeployGate(page: Page): Promise<boolean> {
-  // main.ts holds `await loading.done()` until the deploy button is clicked,
-  // and the click listener is attached inside done() itself -- so click every
-  // 250 ms until __lions exists (the golden-diff harness learned this the hard way).
-  for (let i = 0; i < 120; i++) {
-    const ready = await page.evaluate(() => !!(window as LionsWindow).__lions?.renderer);
-    if (ready) return true;
-    const btn = page.getByRole('button', { name: /deploy/i }).first();
-    try {
-      await btn.click({ timeout: 200 });
-    } catch {
-      /* not attached yet */
-    }
-    await page.waitForTimeout(250);
-  }
-  return false;
-}
-
 const BASE = `http://localhost:${PORT}`;
 const devServer = await ensureDevServer(PORT, REPO_ROOT, TAG);
-const browser = await chromium.launch({
-  headless: true,
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-});
+let browser: Browser | null = null;
 try {
+  browser = await chromium.launch({
+    headless: true,
+    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+  });
   for (const res of RESOLUTIONS) {
     const dirName = `${res.width}x${res.height}`;
     const dir = path.join(OUT, dirName);
@@ -140,9 +123,10 @@ try {
     await settle(page, 6000);
     await shot(page, dir, '05-briefing');
 
-    const deployed = await passDeployGate(page);
-    if (!deployed) {
-      console.log('  !! deploy gate never cleared');
+    try {
+      await dismissDeployGate(page, TAG);
+    } catch (err) {
+      console.log(`  !! ${(err as Error).message}`);
       await ctx.close();
       continue;
     }
@@ -215,7 +199,7 @@ try {
     await ctx.close();
   }
 } finally {
-  await browser.close();
+  if (browser) await browser.close();
   stopDevServer(devServer, TAG);
 }
 console.log(`\ndone -> ${OUT}`);
