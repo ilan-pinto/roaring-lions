@@ -149,7 +149,7 @@ export function clipGroundSpeedTiles(gait: GaitMetrics): number {
  *     militia_cell    1.295   breach_team     1.295   rpg_team        1.227
  *     farm_worker     1.186   inf_squad mF    1.159   demo_squad      1.159
  *     office_worker   1.119   at_team         1.073   mortar_team     1.019
- *     sniper_team     0.871
+ *     sniper_team     0.914
  *
  * 4 is 1.51x the worst of those. `sniper_team` was **2.100** in this table
  * until its exporter was reconciled with `rig.py`'s gait (2026-09-16); it is
@@ -173,7 +173,7 @@ export function clipGroundSpeedTiles(gait: GaitMetrics): number {
  * make -- and would have put its slide back while every test still passed.
  *
  * **The reachable range, for a unit whose own legs are on the ground, is
- * 0.871x to 2.645x** -- the table above is the whole of it, because
+ * 0.914x to 2.645x** -- the table above is the whole of it, because
  * `Sim.stepMovement` never moves a unit further than `type.stepPerTick` in a
  * tick and `DIR_VX`/`DIR_VY` are unit vectors, so a diagonal is not faster.
  * Rout goes the other way (half speed times `ROUT_CADENCE` is 0.8x of a

@@ -813,7 +813,7 @@ const GAIT_MULTIPLIER_CEILING = 2.8;
  * `civilian_child` at 1.6123 and the lowest outlier is `charge_squad` at
  * 2.4842, so 1.7 sits in a 0.87-wide gap with nothing in it. (It used to be
  * a 0.49-wide gap, bounded below by `sniper_team`'s 2.0999, which this pass
- * took to 0.8711 and out of the table.)
+ * took to 0.9144 and out of the table.)
  *
  * Without this, `GAIT_MULTIPLIER_CEILING` alone would let `mortar_team`
  * regress from 1.02 to 2.7 unseen -- a ceiling set by the worst file is a
@@ -825,21 +825,41 @@ const GAIT_MULTIPLIER_TYPICAL = 1.7;
  * A multiplier under 1 means legs that cover MORE ground than the unit does,
  * which the renderer takes up by playing the clip SLOWER than authored.
  *
- * **One file is under 1.0 now and it is not a defect**: `sniper_team` at
- * **0.8711**, after this pass put its gait on `rig.py`'s. `rig.py` sizes a
- * stride through `BASE_BOOT_TRAVEL_M = 1.154 m`, which is a measurement of
- * the KIT rig's own boot travel at scale 1.0; the sniper's sculpted legs
- * deliver **1.325 m** at the same amplitudes, because its foot mass sits
- * further forward of the ankle, so a scale chosen against the kit's number
- * over-strides by 15% on this rig. The 0.8711 is that 15%, and the resulting
- * slowdown is an IMPROVEMENT rather than something to correct: it takes the
- * effective cycle to 0.765 s, **2.61 steps/s** and a **0.517 m** step at
- * 1.35 m/s, where re-calibrating the constant per rig to force a nominal
- * 1.000 would give 3.0 steps/s and a 0.45 m step -- further from a human
- * walk, not closer. Measured, recorded, deliberately not done. The next
- * lowest is `mortar_team` at 1.0187.
+ * **One file is under 1.0 and it is not a defect**: `sniper_team` at
+ * **0.9144**. `rig.py` sizes a stride through `BASE_BOOT_TRAVEL_M = 1.154 m`,
+ * a measurement of the KIT rig's own boot travel at scale 1.0, and these
+ * sculpted legs deliver about 9% more at the same joint angles because the
+ * foot mass sits further forward of the ankle. The resulting slowdown is an
+ * improvement rather than something to correct: effective cycle 0.729 s,
+ * **2.74 steps/s**, **0.492 m** step at 1.35 m/s, where re-calibrating the
+ * constant per rig to force a nominal 1.000 would give 3.0 steps/s and a
+ * 0.450 m step -- further from a human walk, not closer. The next lowest is
+ * `mortar_team` at 1.0187, and 0.9144 is pinned both ways by
+ * `GAIT_MULTIPLIER_UNDER_ONE`.
  *
- * 0.8 sits between 0.8711 and the 0.579 a shortened-cycle re-export reads
+ * **Why the floor is NOT what stands between this rig and a human walk, which
+ * is worth setting out because it looks as though it is.** A human at
+ * 1.35 m/s takes about 1.9 steps/s with a 0.71 m step, which needs a
+ * multiplier of 0.633 -- under this floor. But cadence and step length are
+ * locked inverses at a unit's own ground speed (`cadence * step =
+ * mult * strideM / cycleS = speed * MESH_UNITS_PER_TILE`, by construction of
+ * the rate match), so 1.9 steps/s is reachable ONLY with a 0.71 m step, which
+ * means an authored `strideM` of 1.42 m -- and at that stride the multiplier
+ * comes back to **1.0**, comfortably above this floor. Lowering the floor
+ * buys nothing; it would only permit an UNDER-strided clip to be slowed
+ * further, which is the defect the floor exists for.
+ *
+ * What actually pins cadence is `rig.MOVE_FRAMES`: a fixed 16-frame cycle at
+ * 24 fps means **every** kit team lands at `3.0 * mult` steps/s, so a team
+ * whose feet keep up (mult 1) takes 3.0 steps/s whatever its speed --
+ * `militia_cell` 3.88, `demo_squad` 3.48, `at_team` 3.22, `mortar_team` 3.06.
+ * `yahalom_engineer`'s 1.0417 s cycle reads `1.92 * mult` and lands at 5.08
+ * on a far larger multiplier, which is the same fact from the other side. The
+ * lever is a PER-TEAM cycle length in `rig.py` -- the identical follow-up
+ * `CADENCE_STEPS_PER_S_CEILING` already recommends for `charge_squad` at the
+ * fast end. That is a design call, not a gate parameter.
+ *
+ * 0.8 sits between 0.9144 and the 0.579 a shortened-cycle re-export reads
  * (the F4 falsification), and nowhere near `GAIT_TIME_SCALE_MIN`.
  *
  * **Which "moonwalk" this refuses, since there are two and it only sees
@@ -872,7 +892,7 @@ const GAIT_MULTIPLIER_FLOOR = 0.8;
  * own `MOVE_FRAMES = 24` (a 1.0 s cycle against `rig.py`'s 16 frames at
  * 0.6667 s) and a hardcoded `swing = 0.40 * sin(a)` that never read
  * `speed_tiles_s`. It now drives `rig.gait_pose` off `rig.gait_for_team`, and
- * reads **0.8711** -- inside the typical band, on the other side of 1.0. Its
+ * reads **0.9144** -- inside the typical band, on the other side of 1.0. Its
  * `SWING_LIFT_OUTLIERS` entry survives and its diagnosis there is different;
  * a stale entry here would have been exactly the exemption the demotion
  * assertions were added to catch.
@@ -881,6 +901,25 @@ const GAIT_MULTIPLIER_OUTLIERS: Readonly<Record<string, number>> = {
   yahalom_squad: 2.6454,
   charge_squad: 2.4842,
 };
+
+/**
+ * The one rig BELOW 1.0, pinned on BOTH sides.
+ *
+ * `GAIT_MULTIPLIER_OUTLIERS` is a one-sided mechanism ("named, and must stay
+ * above TYPICAL"), which is right for a file whose multiplier is too large
+ * and wrong for one whose multiplier is small. `sniper_team` at 0.9144 is the
+ * only file on that side of the pack and `> 0.8` / `< 1.7` would let a
+ * re-export drift it to 0.82 or 1.6 with nothing going red -- exactly the
+ * hole the outlier table exists to close, left open by removing its old
+ * entry without adding this one.
+ *
+ * 0.9144, measured 2026-09-16 after the figure was re-anchored to the
+ * roster's own 1.670 m. It reads under 1.0 because `rig.py` sizes a stride
+ * through `BASE_BOOT_TRAVEL_M`, a measurement of the KIT rig, and these
+ * sculpted legs deliver slightly more travel at the same joint angles. See
+ * `GAIT_MULTIPLIER_FLOOR`.
+ */
+const GAIT_MULTIPLIER_UNDER_ONE: Readonly<Record<string, number>> = { sniper_team: 0.9144 };
 
 /** Slack on an outlier's own recorded number -- enough that float noise and a
  *  cosmetic re-export do not red the gate, far too little to hide a drift. */
@@ -903,7 +942,7 @@ const OUTLIER_SLACK = 0.05;
  * `inf_squad` 4.93, `sarim_rifles` 4.76, `civilian_woman` 4.15,
  * `militia_cell`/`breach_team` 3.88, `farm_worker` 3.75, `rpg_team` 3.68,
  * `office_worker` 3.53, `demo_squad` 3.48, `at_team` 3.22, `mortar_team`
- * 3.06, **`sniper_team` 2.61** -- and `charge_squad` **7.45**, alone above
+ * 3.06, **`sniper_team` 2.74** -- and `charge_squad` **7.45**, alone above
  * 5.1. A sprinting human tops out near 5 steps/s, so everything but that last
  * row is physically reachable.
  *
@@ -958,6 +997,23 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
       const mult = multiplierFor(gait, rig.speedTilesPerSecond);
       expect(mult, `${file} ${clip}`).toBeGreaterThan(GAIT_MULTIPLIER_FLOOR);
       expect(mult, `${file} ${clip}`).toBeLessThan(GAIT_MULTIPLIER_CEILING);
+      const under = GAIT_MULTIPLIER_UNDER_ONE[typeId];
+      if (under !== undefined) {
+        // TWO-SIDED, unlike the high outliers: this file is the only one on
+        // its side of the pack, so `> FLOOR` and `< TYPICAL` leave it free to
+        // drift anywhere in 0.8..1.7 with nothing red. The band is what the
+        // outlier table is for and it was missing here.
+        expect(mult, `${file} ${clip} under-one pin (low)`).toBeGreaterThan(under - OUTLIER_SLACK);
+        expect(mult, `${file} ${clip} under-one pin (high)`).toBeLessThan(under + OUTLIER_SLACK);
+        // And DEMOTION, the same shape as the high outliers': the recommended
+        // follow-up is a longer authored cycle for this team, after which it
+        // comes back over 1.0 and this entry must go rather than sit here
+        // pinning a number that no longer describes anything.
+        expect(
+          mult,
+          `${file} ${clip}: no longer under 1.0 -- delete the GAIT_MULTIPLIER_UNDER_ONE entry`
+        ).toBeLessThan(1.0);
+      }
       const outlier = GAIT_MULTIPLIER_OUTLIERS[typeId];
       if (outlier === undefined) {
         expect(mult, `${file} ${clip} is not a named outlier`).toBeLessThan(GAIT_MULTIPLIER_TYPICAL);
@@ -1000,11 +1056,13 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
    * **Measured, not chosen as a round number.** The true minimum headroom in
    * the tree is `GAIT_TIME_SCALE_MAX / 2.6454 = 1.512` on `yahalom_squad`, so
    * 1.4 sits just inside it. A probe at 2x was written first and is FALSE:
-   * `sniper_team` at twice its own speed computes 4.1998 and clamps, which is
-   * a fact about the clamp's margin worth knowing and not a reason to widen
-   * anything -- a carried unit is excluded from the rate match entirely
-   * (`applyGaitRate`), so twice a unit's own speed is a probe and not a
-   * scenario.
+   * `yahalom_squad` at twice its own speed computes 5.291 and clamps, and
+   * `charge_squad` 4.968. (The example this comment carried was
+   * `sniper_team` at 4.1998, which was 2 x its own then-2.0999 multiplier;
+   * that file reads 0.9144 now and no longer clamps at 2x. The conclusion is
+   * unchanged and its evidence had to be.) A carried unit is excluded from
+   * the rate match entirely (`applyGaitRate`), so twice a unit's own speed is
+   * a probe and not a scenario.
    *
    * **This check cannot be fired by any change to the ART, only by lowering
    * a production constant, and that is exactly its purpose.** For a data
@@ -1086,11 +1144,12 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
  *
  * Measured 2026-09-16 across every file whose figures all walk, the worst
  * figure's forward travel as a fraction of the best figure's is **0.889**
- * (`sniper_team`, whose two sculpted men are different sizes and whose phase
- * offsets moved from half a cycle to `rig.gait_phase`'s third when its gait
- * was reconciled; it read 0.957 before) and every other file is 0.987-1.000.
- * A figure that has stopped reads 0.0; one animating at half amplitude reads
- * about 0.5. 0.75 sits between those with margin on both sides.
+ * (`sniper_team`, whose two sculpted men are genuinely different sizes --
+ * 1.478 and 1.416 source units -- and whose phase offsets moved from half a
+ * cycle to `rig.gait_phase`'s third when its gait was reconciled; it read
+ * 0.957 before that) and every other file is 0.987-1.000. A figure that has
+ * stopped reads 0.0; one animating at half amplitude reads about 0.5. 0.75
+ * sits between those with margin on both sides.
  */
 const FIGURE_STRIDE_RATIO_FLOOR = 0.75;
 
@@ -1184,27 +1243,43 @@ const SWING_LIFT_FLOOR = 0.05;
  * from, at the same amplitudes and the same phases -- and the reading is
  * still negative. So the swing was only 2.8x of it.
  *
- * What the rest is, modelled and then confirmed against the bytes:
- * **`swingLiftFraction` carries a GEOMETRIC term as well as a chirality one,
- * and the geometric term goes negative for a slow unit with a long foot.**
- * The tracked vertex is the boot's furthest-travelling one -- a toe -- and it
- * rotates about the KNEE, not about an ankle (neither rig family has a foot
- * bone; the boot is bound rigidly to the shin). A toe `d` metres forward of
- * the bone's tail therefore gains height on the FORWARD swing in proportion
- * to `d`, competing with the heel lift the knee bend gives at the BACK.
- * Sweeping a 2-D model of both rigs' leg proportions over toe offset and
- * stride scale (the transcript is in this task's report):
+ * **The leading hypothesis for the rest, stated as a hypothesis.**
+ * `swingLiftFraction` plausibly carries a GEOMETRIC term as well as a
+ * chirality one. The tracked vertex is the boot's furthest-travelling one --
+ * a toe -- and it rotates about the KNEE, because neither rig family has a
+ * foot bone and the boot is bound rigidly to the shin. That part is
+ * confirmed: there is no foot bone in either rig. A toe `d` metres forward of
+ * the bone's tail would then gain height on the FORWARD swing in proportion
+ * to `d`, competing with the heel lift the knee bend gives at the BACK. A 2-D
+ * model of both rigs' leg proportions over toe offset and stride scale:
  *
  *            toe 0.00   toe 0.10   toe 0.20   toe 0.25
  *   scale 0.78  +0.06      +0.03      -0.00      -0.01
  *   scale 1.00  +0.10      +0.07      +0.03      +0.01
  *   scale 1.29  +0.21      +0.14      +0.09      +0.07
  *
- * `sniper_team` is the only rig in the tree at a stride scale under 1.0
- * (0.78, from `speed_tiles_s` 0.45 -- it is the slowest unit in the game) and
- * its boots are a photogrammetry sculpt rather than `kit.py` blocks. Both
- * halves push the same way. The remaining -0.065 is that, not a reversed
- * clip.
+ * **What that model does and does not establish**, because it was written up
+ * once as confirmation and is not:
+ *
+ *  - The sign and direction of both effects are right, and `sniper_team` is
+ *    the only rig in the tree at a stride scale under 1.0 (0.78, from
+ *    `speed_tiles_s` 0.45 -- the slowest unit in the game) with
+ *    photogrammetry boots rather than `kit.py` blocks. Both push the same
+ *    way.
+ *  - But four of the seven shipped rigs sit AT `rig.THIGH_CAP`, so their
+ *    scales carry no information about this at all, leaving one uncapped
+ *    comparison point. The measured kit values line up with the model's
+ *    `toe = 0.00` column, which is not what a `kit.py` block foot should
+ *    read. And reaching -0.065 by extrapolation wants a toe lever near
+ *    0.45 m, which is longer than these boots plausibly are.
+ *  - Unexamined: this rig's own lateral pelvic roll (the one term
+ *    deliberately NOT shared with `rig.py` -- see `export_meshy_sniper.py`)
+ *    is a second-harmonic VERTICAL term of a size comparable to the boot's
+ *    whole height span, and it has not been isolated.
+ *
+ * So: the reading is not a reversed clip, the mechanism is real, and the
+ * quantitative account is incomplete. Treat the number as pinned, not as
+ * explained.
  *
  * **Left as a named outlier rather than absorbed**, because a floor low
  * enough to admit -0.065 is uncomfortably close to nothing, and a genuinely
@@ -1858,6 +1933,43 @@ const WEAPON_ELEVATION_DRIFT_DEG = 12;
  * re-classifying a supplied Meshy bake by something other than base colour.
  * Recorded as a gap, not gated on a proxy that would be measuring a forearm.
  */
+/**
+ * What each gated figure's weapon sits at in `idle`, in degrees of elevation,
+ * pinned per figure.
+ *
+ * **`WEAPON_ELEVATION_DRIFT_DEG` is a DELTA and therefore cannot see a rest
+ * pose that is itself off-level.** Falsified rather than reasoned: pre-rotate
+ * `militia_cell`'s spine by the same 25 deg in BOTH `idle` and `fire` and the
+ * drift reads 3.364 and passes, on a rig carrying its rifle 22.5 deg at the
+ * ground in every clip it has. The delta is still the right PRIMARY check --
+ * needing no exception for `rpg_team`'s deliberately 38-deg launcher is the
+ * tell -- and it needs this second, absolute half beside it.
+ *
+ * Per FIGURE rather than per file, because `rpg_team` carries one of each and
+ * a file-level number could only be a range wide enough to admit both.
+ * Measured 2026-09-16 on the shipped bytes; the `[min, max]` beside each is
+ * the same figure's own breathing sweep, which is what sets the tolerance.
+ */
+const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
+  'demo_squad.glb demo_b_forearm_R': 2.47, //    [0.47, 4.46]  the level carry
+  'militia_cell.glb mil0_forearm_R': 2.47, //    [0.46, 4.47]
+  'militia_cell.glb mil1_forearm_R': 2.47, //    [0.47, 4.46]
+  'breach_team.glb brc_cover_forearm_R': 2.47, // [0.47, 4.46]
+  'breach_team.glb brc_point_forearm_R': 2.47, // [0.46, 4.47]
+  'rpg_team.glb rpg_load_forearm_R': 2.47, //    [0.47, 4.46]  the loader's rifle
+  'rpg_team.glb rpg_fire_forearm_R': 34.04, //  [32.05, 36.06] the RPG, at rig._rpg_extras' 38 deg
+  'at_team.glb at_fire_forearm_R': 0.0, //      [-2.00, 2.00]  the Spike, at pitch 0
+};
+
+/**
+ * Tolerance on the pin above. 3 degrees is wider than any figure's own idle
+ * sweep (the widest is 4.01 peak-to-peak, so +/-2.0 about its mean) and far
+ * narrower than the 22.5 deg the falsification injects. Not a band the art
+ * may wander in: every entry is the number its own bytes read today, so any
+ * movement at all is a re-export to look at.
+ */
+const WEAPON_IDLE_ELEVATION_TOL_DEG = 3;
+
 export const WEAPON_ELEVATION_EXEMPT: Readonly<Record<string, string>> = {
   'meshy_soldier.glb':
     'the cloud is `uniform`-on-`RightHand`, not a `weapon` role: sleeve and hand dominate its ' +
@@ -1922,6 +2034,26 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
         WEAPON_RIGS.map((w) => w.file),
         `${file}: exempt from the elevation half, so it must be gated on the bearing half`
       ).toContain(file);
+      // DEMOTION, the same guard `GAIT_EXEMPT` and `GAIT_MULTIPLIER_OUTLIERS`
+      // carry -- and it is not a formality: this branch's own sniper
+      // demotion went red from the parent commit's version of this idea
+      // before anyone touched the table. The exemption's stated reason is
+      // that these two assets have no `weapon` ROLE, so the cloud being
+      // measured is a sleeve. The named follow-up is to give them one, after
+      // which this entry would sit here for ever and two of the three
+      // most-seen rigs in the game would stay ungated in the dimension the
+      // whole instrument was built for. So: the reason must still be true.
+      const spec = WEAPON_RIGS.find((w) => w.file === file);
+      expect(
+        spec?.role,
+        `${file}: exempt because its cloud is not a \`weapon\` role -- it now IS one, so the ` +
+          `reason has expired. Delete the WEAPON_ELEVATION_EXEMPT entry and pin its idle ` +
+          `elevation instead of widening anything.`
+      ).not.toBe('weapon');
+      expect(
+        WEAPON_ELEVATION_EXEMPT[file].length,
+        `${file}: a reason, not a name`
+      ).toBeGreaterThan(20);
     }
     expect(gated.map((w) => w.file).sort()).toEqual([
       'at_team.glb',
@@ -1960,6 +2092,21 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
         const rest = byJoint.get(a.joint);
         expect(rest, `${file} ${clip} ${a.joint}: no idle reading`).toBeDefined();
         if (!rest) continue;
+        // The ABSOLUTE half. Without it a rig whose carry is itself off-level
+        // passes the delta trivially, in every clip it has -- falsified, see
+        // `WEAPON_IDLE_ELEVATION_DEG`. Every gated figure must be pinned, so
+        // a new one cannot join the sweep without a number.
+        const pinned = WEAPON_IDLE_ELEVATION_DEG[`${file} ${a.joint}`];
+        expect(
+          pinned,
+          `${file} ${a.joint}: no WEAPON_IDLE_ELEVATION_DEG entry -- the delta check ` +
+            `alone cannot tell a level carry from a rest pose aimed at the sky`
+        ).toBeDefined();
+        expect(
+          Math.abs(rest.elevationDeg - (pinned ?? NaN)),
+          `${file} idle ${a.joint}: carry elevation ${rest.elevationDeg.toFixed(2)} against its ` +
+            `own pinned ${pinned}`
+        ).toBeLessThan(WEAPON_IDLE_ELEVATION_TOL_DEG);
         // The whole sampled RANGE against idle's mean, not mean against mean:
         // the defect was a static offset, but a recoil that peaked 20 deg up
         // and averaged back to level would be just as wrong on screen and a

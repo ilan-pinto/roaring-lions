@@ -737,18 +737,19 @@ export function countTracePeaks(
  * in the tree whose boot is higher while it travels backward. See
  * `mesh_gait.test.ts` for the exemption and the diagnosis.
  *
- * **It is not a PURE chirality signal and the exemption is where that was
- * measured.** The tracked vertex is a toe, and on both rig families the boot
- * is bound rigidly to the shin with no foot bone, so it pivots at the KNEE:
- * a toe `d` metres forward of the bone's tail gains height on the FORWARD
- * swing in proportion to `d`, against the heel lift the knee bend gives at
- * the back. At a small stride scale that term wins. Modelled over both rigs'
- * leg proportions, the reading crosses zero somewhere around a 0.2 m toe at
- * scale 0.78, and `sniper_team` -- the slowest unit in the game, with
- * photogrammetry boots -- is the only shipped rig in that corner. A clip
- * exported backwards is still exactly the negation of its forward self, so
- * the check does what it was built for; it is the small POSITIVE readings
- * that should not be over-read.
+ * **It is probably not a PURE chirality signal, and the exemption is where
+ * that is argued.** The tracked vertex is a toe, and on both rig families the
+ * boot is bound rigidly to the shin with NO foot bone (confirmed), so it
+ * pivots at the KNEE: a toe `d` metres forward of the bone's tail would gain
+ * height on the FORWARD swing in proportion to `d`, against the heel lift the
+ * knee bend gives at the back. A 2-D model says that term wins at a small
+ * stride scale, and `sniper_team` -- the slowest unit in the game, with
+ * photogrammetry boots -- is the only shipped rig in that corner. The model
+ * is a hypothesis with gaps, spelled out at `SWING_LIFT_OUTLIERS` in
+ * `mesh_gait.test.ts`; do not quote it as settled. A clip exported backwards
+ * is still exactly the negation of its forward self, so the check does what
+ * it was built for; it is the small readings either side of zero that should
+ * not be over-read.
  *
  * Returns `NaN` when the trace never moves in one of the two directions, or
  * has no height span at all -- a crew-served rig, where the question is
@@ -1175,11 +1176,18 @@ export interface WeaponAxis {
    * `meanDeg` is `atan2(dz, dx)` -- it PROJECTS the axis onto the ground and
    * throws this component away. So a weapon can point at the sky and read a
    * perfect `0.0` bearing, and that is not hypothetical: every `kit.py`
-   * rifleman's `fire` clip levered its rifle **43-44 degrees up** out of the
-   * level carry `kit.py` builds, held it there for the whole clip, and
-   * passed all 291 assertions in `mesh_gait.test.ts` at a bearing of
-   * `-0.0` with a spread of `0.0`. It was found by putting `idle` and
-   * `fire` side by side as pictures.
+   * rifleman's `fire` clip levered its rifle out of the level carry `kit.py`
+   * builds -- from **+2.47 deg** to a mean of **+17.0** with a peak of
+   * **+25.6** -- held it there for the whole clip, and passed all 291
+   * assertions in `mesh_gait.test.ts` at a bearing of `-0.0` with a spread of
+   * `0.0`. It was found by putting `idle` and `fire` side by side as
+   * pictures.
+   *
+   * Those are WORLD angles, off this function. The same defect photographs at
+   * roughly 28 deg of screen slope in `idle` and 40 in `fire` through
+   * `render_clip_pose.py`'s dimetric camera, which is where the "about 45
+   * degrees" it was first reported as comes from: that camera roughly doubles
+   * a small elevation. Quote the instrument, not the render, for a number.
    *
    * A plain arithmetic mean, not a circular one: elevation lives on
    * [-90, +90] and cannot wrap, so the wrap-around handling `circularMeanDeg`

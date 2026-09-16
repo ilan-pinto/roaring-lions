@@ -107,13 +107,20 @@ heights 1.485 and 1.417). Length-based measures disagree by 13%, but only
 because a prone shooter's outstretched arms make him longer than he is tall;
 that is anatomy, not a scale error.
 
-So one factor, anchored on the shipped asset the way
-`export_meshy_house.py` derives `REAL_METRES_HOUSE` rather than hand-typing
-it: `_measure_shipped_standing_height()` splits the shipped GLB's vertices
-by which bone dominates them and reports the standing rig's own height,
-1.670 m. Independent cross-check: that factor puts this team's prone forward
-footprint at 2.19 m against the shipped prone's 2.235 m -- 2%, from a number
-derived only from the standing pose.
+So one factor, from the `STANDING_HEIGHT_M` anchor -- **and NOT, any more,
+from this file's own previous output.** It used to follow
+`export_meshy_house.py`'s "derive the anchor from the asset that already
+ships" move, which is right when the shipped asset is somebody else's and is
+a feedback loop when it is your own: `SHIPPED_REF = OUT_PATH`, and the two
+sides of the division were not the same measurement, so each export
+multiplied the team by ~1.0249. It ran three times, taking the pair from
+1.670 m to 1.796 m -- 7.5% taller than every other infantryman in the game.
+See `STANDING_HEIGHT_M` for the history, the like-for-like fix and the
+assertion (`check_standing_height`) that now runs on the exported bytes.
+
+Independent cross-check on the 1.670 factor, unchanged: it puts this team's
+prone forward footprint at 2.19 m against the shipped prone's 2.235 m -- 2%,
+from a number derived only from the standing pose.
 """
 import argparse
 import json
@@ -216,10 +223,51 @@ WEAPON_LUM_MAX = 0.36
 BOOT_ZFRAC = 0.075
 
 # --- scale ---------------------------------------------------------------
-# Measured off the shipped GLB by `_measure_shipped_standing_height()`; this
-# literal is the fallback if that file is ever missing, and the two are
-# asserted to agree at build time.
-SHIPPED_STANDING_HEIGHT_M = 1.670
+#
+# **THE ANCHOR IS THIS CONSTANT, AND IT USED TO BE THIS FILE'S OWN PREVIOUS
+# OUTPUT.** That was a ratchet, and it ran: `SHIPPED_REF = OUT_PATH`, so every
+# export measured the file the last export wrote. The two sides of the
+# division were not like-for-like -- the shipped side took the **99.8th**
+# percentile of the `uniform` mesh alone, the source side the **99.5th** of
+# every non-weapon body mesh minus its own min -- and the ratio between them
+# is a fixed multiplicative GAIN of about 1.0249 rather than a fixed point.
+# Every re-export multiplied the team's height by it:
+#
+#     233f683   1.67000 m    the design anchor
+#     05b52e7   1.75299 m    +4.97%
+#     52b0c57   1.79601 m    +2.45%
+#
+# At 52b0c57 the pair stood 7.5% taller than every other infantryman in the
+# game, and two more exports would have put them past 1.9 m.
+#
+# 1.670 m is not a guess and is not this file's own number. Measured on the
+# shipped roster with the same formula used below (99.5th percentile of a
+# figure's own non-weapon body vertices, minus its own min), 2026-09-16:
+#
+#     breach_team  1.6700     inf_squad  1.6555 / 1.6700 / 1.6555
+#     militia_cell 1.6500 / 1.6382       meshy_soldier  1.6389 (x3)
+#
+# A sniper is a man, and the men beside him are 1.64-1.67 m.
+#
+# `_check_standing_height` measures the file this run just WROTE and raises
+# if it disagrees -- the assertion the comment here used to claim existed
+# ("the two are asserted to agree at build time") and did not. That sentence
+# is why nothing caught the ratchet: a guard documented rather than
+# implemented reads exactly like a guard.
+STANDING_HEIGHT_M = 1.670
+
+#: The percentile the height is read at, on BOTH sides. A percentile rather
+#: than a max because a ghillie tuft or a decimation spike would otherwise set
+#: the scale of the whole team; 99.5 is the source probe's own long-standing
+#: value and the shipped side now matches it instead of using 99.8.
+STANDING_HEIGHT_PCTL = 99.5
+
+#: How far the exported file may sit from the anchor. The measurement is a
+#: fixed point by construction -- nothing between the scale and the export
+#: moves a body vertex except a per-figure translation, which cancels in
+#: `percentile - min` -- so this bounds float and quantisation noise, not a
+#: design allowance. Observed residual on the re-anchored export: under 0.1%.
+STANDING_HEIGHT_TOL = 0.01
 
 # --- composition ---------------------------------------------------------
 # `teams.sniper_team` puts the pair at `close` 0.24 for idle/move and 0.12
@@ -536,22 +584,38 @@ def split_by_role(ob, face_code, tag):
 # ==========================================================================
 # phase 4 -- orientation, scale, placement
 # ==========================================================================
-def _measure_shipped_standing_height(path):
-    """Standing-rig height, in metres, read out of the shipped GLB.
+def body_height(values):
+    """One figure's standing height from its own body vertices along the up
+    axis: the `STANDING_HEIGHT_PCTL` percentile minus that figure's own min.
 
-    The file carries BOTH rigs in one skin, so a plain bounding box would
-    mix them. Vertices are split by which joint dominates their skin
-    weights: anything whose heaviest joint is a `*_death_root` belongs to
-    the prone rig, everything else to the standing one. glTF is Y-up, so the
-    standing set's Y extent is the figure's height.
+    **The single definition, called from both sides of the scale division.**
+    The ratchet this file carried until 2026-09-16 was not a wrong number, it
+    was two measurements that looked equivalent and were not (99.8th
+    percentile of one mesh on the shipped side, 99.5th of every body mesh
+    minus its min on the source side). Their ratio is a constant gain, so the
+    anchor was a fixed point only by coincidence and in fact was not one.
+    Subtracting the figure's own min is what makes this invariant to the
+    per-figure ground-seating translation applied later.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    return float(np.percentile(v, STANDING_HEIGHT_PCTL) - v.min())
 
-    This is `export_meshy_house.py`'s `_measure_existing_extent` move --
-    derive the anchor from the asset that already ships and already passes
-    the gates, rather than typing a number.
+
+def measure_standing_height(path):
+    """Mean standing body height, in metres, of the two figures in a GLB.
+
+    Exactly `body_height` again, on the EXPORTED bytes: every non-weapon
+    body mesh, split per FIGURE by which joint dominates each vertex's skin
+    weights, prone (`*_death_root`) vertices excluded, glTF Y as the up axis.
+    Returns `None` when the file is absent.
+
+    Used as a CHECK on the file this run just wrote, never as an input to the
+    scale -- see `STANDING_HEIGHT_M`. A build that measures its own previous
+    output is a feedback loop with a gain, and this one ran for three
+    exports.
     """
     if not os.path.exists(path):
-        log(f"scale: {path} absent -- falling back to {SHIPPED_STANDING_HEIGHT_M}")
-        return SHIPPED_STANDING_HEIGHT_M
+        return None
     with open(path, "rb") as fh:
         data = fh.read()
     jlen = struct.unpack("<I", data[12:16])[0]
@@ -582,17 +646,24 @@ def _measure_shipped_standing_height(path):
 
     nodes = gltf["nodes"]
     joints = gltf["skins"][0]["joints"]
-    dead = {i for i, j in enumerate(joints) if "death_root" in nodes[j].get("name", "")}
-    tops = []
+    # Which skin index belongs to which FIGURE, from this module's own prefix
+    # table rather than by string-splitting a bone name.
+    owner = {}
+    for i, j in enumerate(joints):
+        name = nodes[j].get("name", "")
+        if "death_root" in name:
+            continue        # the prone rig, which is not what is being scaled
+        for p in FIG_PREFIX:
+            if name.startswith(p + "_"):
+                owner[i] = p
+    per_fig = {}
     for nd in nodes:
         if "mesh" not in nd:
             continue
-        # BODY height only. The shipped file's `metal` mesh tops out at
-        # 1.684 m because it includes the rifle held above the head, and
-        # anchoring on that would make every figure 0.8% short. `uniform`
-        # is the like-for-like counterpart of what is measured on this
-        # asset's own side (body vertices, weapon excluded).
-        if gltf["meshes"][nd["mesh"]].get("name") != "uniform":
+        # BODY only, so the same vertex set as the source-side probe (which
+        # takes every role except `ROLE_WEAPON`). Anchoring on `weapon` would
+        # read the rifle held above the head.
+        if gltf["meshes"][nd["mesh"]].get("name") == ROLE_WEAPON:
             continue
         for prim in gltf["meshes"][nd["mesh"]]["primitives"]:
             pos, _ = read(prim["attributes"]["POSITION"])
@@ -603,12 +674,42 @@ def _measure_shipped_standing_height(path):
             elif ct == 5121:
                 wt = wt / 255.0
             dom = jt[np.arange(len(jt)), wt.argmax(1)].astype(int)
-            stand = pos[~np.isin(dom, list(dead))]
-            if len(stand):
-                tops.append(np.percentile(stand[:, 1], 99.8))
-    h = float(max(tops))
-    log(f"scale: shipped standing rig height = {h:.4f} m (measured from {os.path.basename(path)})")
-    return h
+            for i, p in owner.items():
+                sel = pos[dom == i]
+                if len(sel):
+                    per_fig.setdefault(p, []).append(sel[:, 1])
+    if not per_fig:
+        return None
+    heights = [body_height(np.concatenate(cols)) for cols in per_fig.values()]
+    return float(np.mean(heights))
+
+
+def check_standing_height(path, where):
+    """Raise unless `path`'s figures stand at `STANDING_HEIGHT_M`.
+
+    **This is the assertion `STANDING_HEIGHT_M`'s comment used to claim
+    already existed.** It did not, and its absence is the whole of why the
+    team grew 2.45% in one commit and 7.5% over three with every gate green.
+    Called on the bytes this run just WROTE -- verify the export, not the
+    script -- because the failure mode it guards is a scale that is correct in
+    the source frame and wrong by the time it lands.
+    """
+    got = measure_standing_height(path)
+    if got is None:
+        raise SystemExit(f"{where}: {path} has no readable standing body -- cannot check height")
+    drift = abs(got - STANDING_HEIGHT_M) / STANDING_HEIGHT_M
+    log(f"height: {where} standing body = {got:.4f} m against the {STANDING_HEIGHT_M:.3f} m "
+        f"anchor ({drift * 100:+.2f}%)")
+    if drift > STANDING_HEIGHT_TOL:
+        raise SystemExit(
+            f"HEIGHT CHECK FAILED: {os.path.basename(path)} stands {got:.4f} m, "
+            f"{drift * 100:.2f}% off the {STANDING_HEIGHT_M:.3f} m anchor (tolerance "
+            f"{STANDING_HEIGHT_TOL * 100:.1f}%). Every other infantryman in the game is "
+            f"1.64-1.67 m. Do NOT widen the tolerance: this is the guard that would have "
+            f"caught this file measuring its own previous output and multiplying the team "
+            f"by 1.0249 per export."
+        )
+    return got
 
 
 def orient_and_scale(role_obs, metres_per_unit):
@@ -1273,6 +1374,19 @@ def verify(path):
              f"ground at Y={gmin[1]:+.4f}")
         if abs(gmin[1]) > 0.02:
             bad(f"figures do not stand on Y=0 (lowest body vertex {gmin[1]:+.4f})")
+        # HEIGHT, bounded rather than printed. This block reported a 1.836 m
+        # body extent on its PASSING path while the team was 7.5% taller than
+        # every other infantryman, which is a number no reader is given any
+        # reason to be alarmed by. `measure_standing_height` is the same
+        # per-figure measurement the build now asserts on.
+        h = measure_standing_height(path)
+        if h is None:
+            bad("cannot read a standing body height at all")
+        else:
+            drift = abs(h - STANDING_HEIGHT_M) / STANDING_HEIGHT_M
+            msg = (f"standing body height {h:.4f} m against the {STANDING_HEIGHT_M:.3f} m "
+                   f"anchor ({drift * 100:+.2f}%; every other infantryman is 1.64-1.67 m)")
+            (good if drift <= STANDING_HEIGHT_TOL else bad)(msg)
 
     print("VERIFY: PASS" if ok else "VERIFY: FAIL")
     return ok
@@ -1299,7 +1413,14 @@ def main():
     from mathutils import Quaternion as _Q, Vector as _V
     bpy, Quaternion, Vector = _bpy, _Q, _V
 
-    height_m = _measure_shipped_standing_height(SHIPPED_REF)
+    # The anchor is the CONSTANT, never the previous output -- see
+    # `STANDING_HEIGHT_M`. What the shipped file measures is logged beside it
+    # so a reader can see any drift that is about to be corrected, and is
+    # deliberately not fed into anything.
+    height_m = STANDING_HEIGHT_M
+    was = measure_standing_height(SHIPPED_REF)
+    log(f"scale: anchor {height_m:.4f} m; the file currently shipped measures "
+        f"{'n/a' if was is None else f'{was:.4f} m'}")
 
     reset_scene()
 
@@ -1343,7 +1464,10 @@ def main():
     for roles in per_pose["standing"]:
         body = [o for r, o in roles.items() if r != ROLE_WEAPON]
         co = np.concatenate([mesh_arrays(o) for o in body])
-        scale_probe.append(np.percentile(co[:, 2], 99.5) - co[:, 2].min())
+        # `body_height` is the ONE definition, shared with the check on the
+        # exported bytes -- this line used to be a second, subtly different
+        # copy of it and that was the ratchet.
+        scale_probe.append(body_height(co[:, 2]))
     unit_h = float(np.mean(scale_probe))
     metres_per_unit = height_m / unit_h
     log(f"scale: standing figures measure {[round(v, 4) for v in scale_probe]} units "
@@ -1410,6 +1534,10 @@ def main():
     log(f"TOTAL {total_v} verts, {total_t} tris across {len(merged)} role meshes")
 
     export_glb(arm, args.out)
+    # On the BYTES, not on the scene: the scale is applied to raw source
+    # coordinates a long way upstream of here, and the thing that matters is
+    # what landed.
+    check_standing_height(args.out, "exported")
     if args.preview:
         preview(args.preview, merged, arm)
 
