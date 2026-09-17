@@ -30,6 +30,12 @@ jobs:
       - run: pnpm test
       - run: pnpm validate:data
       - run: pnpm validate:assets
+      # Same claim as tools/src/unit_icons.test.ts (every unit icon is pinned,
+      # by content hash, to the sprite frame it was cropped from), run here
+      # from Python rather than trusted to vitest alone: a sheet re-rendered
+      # without a matching `pnpm icons:units` afterward changes no TypeScript
+      # at all, so a gate that only ran on the node side would stay green.
+      - run: python3 tools/crop_unit_icons.py --check
       # Level load time, step 4: `art/meshes/` is the uncompressed source of
       # record and `assets/meshes/` is the Draco-compressed copy that SHIPS.
       # Every other mesh gate reads the source, so a shipped file that is
