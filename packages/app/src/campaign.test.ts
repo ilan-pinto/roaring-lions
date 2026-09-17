@@ -7,6 +7,7 @@ import {
   campaignRoe,
   campaignSummary,
   commanderForMission,
+  continueTarget,
   hostagesAccount,
   hostagesLine,
   newlyUnlocked,
@@ -509,5 +510,26 @@ describe('the account of the taken', () => {
       'Seventeen still out. Two came back at the shaft head.'
     );
     expect(hostagesLine({ taken: 19, recovered: 19 })).toBe('Nobody still out.');
+  });
+});
+
+describe('continueTarget', () => {
+  const tutorial = { id: 'beit_sahwan_0_tutorial', done: false };
+  it('names the tutorial first on an empty ledger', () => {
+    expect(continueTarget(world, {}, tutorial)).toEqual({ missionId: 'beit_sahwan_0_tutorial', kind: 'tutorial' });
+  });
+  it('names the first open mission of the live region once the tutorial is done', () => {
+    // ALL_BS[0], not a literal: `nextMissionOf`'s own tests above already pin
+    // ALL_BS[0] as Beit Sahwan's first authored mission on an empty ledger --
+    // this is the same lookup, so the fixture decides which id that is.
+    expect(continueTarget(world, {}, { ...tutorial, done: true })).toEqual({ missionId: ALL_BS[0], kind: 'next' });
+  });
+  it('follows the ledger through a town', () => {
+    const ledger = { 'campaign.completed_missions': [ALL_BS[0]!, ALL_BS[1]!] };
+    expect(continueTarget(world, ledger, { ...tutorial, done: true })?.missionId).toBe(ALL_BS[2]);
+  });
+  it('returns null when every mission is complete', () => {
+    const all = world.regions.flatMap((r) => r.towns).flatMap((t) => t.missions);
+    expect(continueTarget(world, { 'campaign.completed_missions': all }, { ...tutorial, done: true })).toBeNull();
   });
 });

@@ -33,12 +33,23 @@ export interface MenuOptions {
    * it reads as a bug; the same toggle is `m` in a mission.
    */
   audio?: { isMuted(): boolean; toggle(): boolean };
-  /** What "reset campaign ledger" does, confirmed first -- see
-   *  `ui/confirm.ts`. Absent in tests that do not exercise the click; the
-   *  shell purges the campaign and re-mounts this screen. It used to be a
-   *  navigation to `?fresh=1` -- a whole page load whose only job was to run
-   *  that purge. */
-  reset?: () => void;
+  /**
+   * Where the campaign is right now (Task 7, `continueTarget` in
+   * `campaign.ts`), already resolved by the shell -- this screen has no
+   * ledger of its own to compute it from. `kind: 'tutorial'` means nothing
+   * has been played yet; `kind: 'next'` names the first open mission of
+   * wherever the map is live. Absent once every authored mission is done,
+   * which is when the first nav item reverts to a plain "Campaign" link.
+   */
+  continue?: { missionId: string; name: string; kind: 'tutorial' | 'next' };
+  /** What "New campaign" does, confirmed first -- see `ui/confirm.ts`.
+   *  Absent in tests that do not exercise the click; the shell purges the
+   *  campaign ledger and the tutorial-done flag (the brigade account
+   *  survives, on purpose) and re-mounts this screen. Replaces `reset`
+   *  (Task 7) -- same button, new name and new confirm copy, since "reset
+   *  campaign ledger" read like plumbing and said nothing about what it
+   *  spared. */
+  newCampaign?: () => void;
 }
 
 export interface CampaignOptions {
@@ -109,12 +120,25 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
     if (kind) a.dataset.kind = kind;
     nav.appendChild(a);
   };
-  // Listed first until it is done, then demoted to the aside below rather than
-  // removed. Taking it off the menu entirely made the tutorial unreachable for
-  // good: the flag that hides it also suppresses the step panel, so the only
-  // way back in was ?fresh=1, which pays for a replay with the whole campaign
-  // ledger.
-  if (!opts.tutorial.done) add(opts.tutorial.name, routes.mission(opts.tutorial.id), 'tutorial');
+  // The FIRST thing a commander's eye lands on (Task 7): where the campaign
+  // is right now, resolved by the shell's `continueTarget`. "Start" while
+  // nothing has been played, "Continue" once something has; absent once
+  // every mission is done, and the old plain "Campaign" link (added below
+  // regardless) is what a finished player sees first instead.
+  if (opts.continue) {
+    const label = opts.continue.kind === 'tutorial' ? `Start — ${opts.continue.name}` : `Continue — ${opts.continue.name}`;
+    add(label, routes.mission(opts.continue.missionId), 'primary');
+  }
+  // Listed second until it is done, then demoted to the aside below rather
+  // than removed. Taking it off the menu entirely made the tutorial
+  // unreachable for good: the flag that hides it also suppresses the step
+  // panel, so the only way back in was ?fresh=1, which pays for a replay with
+  // the whole campaign ledger. Dropped here specifically when the item above
+  // already names the tutorial ("Start — ...") -- otherwise the same mission
+  // would sit in this list twice.
+  if (!opts.tutorial.done && opts.continue?.kind !== 'tutorial') {
+    add(opts.tutorial.name, routes.mission(opts.tutorial.id), 'tutorial');
+  }
   // The war itself lives on its own page: the menu stays a landing, the map a
   // destination you can always come back to.
   add('Campaign', routes.campaign(), 'campaign');
@@ -143,33 +167,36 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   // and none of the four flags were reachable by anyone who used the menu.
   // Same defect as `&mesh`, which no menu link ever appended either.
   addAside('free play — any map', routes.freePlay());
+  addAside('Saves', routes.saves());
   addAside('Settings', routes.settings());
   // A button, not a link: this one destroys the campaign, so it is confirmed
   // first rather than a plain navigation (task 6 -- `?fresh=1` used to be one
   // click away with nothing standing in front of it). Same `rl-btn
   // rl-menu__item[data-kind='aside']` look the audio toggle below already
-  // wears as the list's one <button>.
-  const resetBtn = document.createElement('button');
-  resetBtn.type = 'button';
-  resetBtn.className = 'rl-btn rl-menu__item';
-  resetBtn.dataset.kind = 'aside';
-  resetBtn.textContent = 'reset campaign ledger';
-  resetBtn.addEventListener('click', () => {
+  // wears as the list's one <button>. Renamed from "reset campaign ledger"
+  // (Task 7): a save slot is now the real answer to "I want to keep this
+  // run", so the button's only honest job left is starting a new one -- and
+  // its label should say what happens, not what storage key it touches.
+  const newCampaignBtn = document.createElement('button');
+  newCampaignBtn.type = 'button';
+  newCampaignBtn.className = 'rl-btn rl-menu__item';
+  newCampaignBtn.dataset.kind = 'aside';
+  newCampaignBtn.textContent = 'New campaign';
+  newCampaignBtn.addEventListener('click', () => {
     void confirmDialog(stage, {
       title: 'Start the campaign over?',
       // Not "brigade account and tutorial completion are erased" -- the
-      // account deliberately SURVIVES `?fresh=1` (main.ts, spec 2026-09-15
-      // §4.1: "a second campaign starts with the brigade you built"). A
-      // confirm that names the wrong casualty is worse than one that names
-      // none.
-      body: 'Your campaign progress and tutorial completion are erased. Your brigade account is not affected.',
-      confirm: 'Erase and restart',
+      // account deliberately SURVIVES this (main.ts, spec 2026-09-15 §4.1:
+      // "a second campaign starts with the brigade you built"). A confirm
+      // that names the wrong casualty is worse than one that names none.
+      body: 'Your campaign progress and tutorial completion start over. Your brigade — its credits, unlocks and upgrades — stays.',
+      confirm: 'Start over',
       danger: true,
     }).then((ok) => {
-      if (ok) opts.reset?.();
+      if (ok) opts.newCampaign?.();
     });
   });
-  aside.appendChild(resetBtn);
+  aside.appendChild(newCampaignBtn);
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
   wrap.appendChild(aside);
 

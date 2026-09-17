@@ -48,24 +48,67 @@ describe('showMenu audio toggle', () => {
   });
 });
 
-describe('showMenu reset ledger', () => {
+describe('showMenu new campaign', () => {
   it('is a button, confirmed before it navigates -- not a plain link', async () => {
     const stage = document.createElement('div');
     document.body.appendChild(stage);
     let reset = 0;
-    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, reset: () => reset++ });
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, newCampaign: () => reset++ });
     const btn = [...stage.querySelectorAll<HTMLButtonElement>('button.rl-menu__item')].find(
-      (b) => b.textContent === 'reset campaign ledger'
+      (b) => b.textContent === 'New campaign'
     )!;
     expect(btn).toBeDefined();
     btn.click();
     expect(reset).toBe(0);
     const dialog = document.querySelector<HTMLElement>('.rl-confirm')!;
     expect(dialog).not.toBeNull();
-    expect(dialog.textContent).toContain('brigade account is not affected');
+    // Names what survives ("stays"), not what is erased -- the brigade
+    // account deliberately outlives a new campaign (spec 2026-09-15 §4.1).
+    expect(dialog.textContent).toContain('Your brigade — its credits, unlocks and upgrades — stays.');
     dialog.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
     await Promise.resolve();
     expect(reset).toBe(1);
+  });
+});
+
+describe('showMenu continue/start', () => {
+  it('names "Start" and the tutorial mission when nothing has been played, and drops the plain tutorial item', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, {
+      base: '/',
+      version: '0.0.0',
+      world,
+      tutorial: { ...tutorial, done: false },
+      continue: { missionId: 'beit_sahwan_0_tutorial', name: 'Working Up', kind: 'tutorial' },
+    });
+    const items = [...stage.querySelectorAll<HTMLAnchorElement>('a.rl-menu__item')];
+    expect(items[0]!.textContent).toBe('Start — Working Up');
+    expect(items[0]!.getAttribute('href')).toBe('/mission/beit_sahwan_0_tutorial');
+    expect(items[0]!.dataset.kind).toBe('primary');
+    // Not a second, plain "Tutorial" item beside it -- the item above already
+    // names the same mission.
+    expect(items.filter((a) => a.dataset.kind === 'tutorial')).toHaveLength(0);
+  });
+
+  it('names "Continue" and the next mission once the tutorial is done', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, {
+      base: '/',
+      version: '0.0.0',
+      world,
+      tutorial,
+      continue: { missionId: 'beit_sahwan_1_recon', name: 'First Contact', kind: 'next' },
+    });
+    const first = stage.querySelector<HTMLAnchorElement>('a.rl-menu__item')!;
+    expect(first.textContent).toBe('Continue — First Contact');
+    expect(first.getAttribute('href')).toBe('/mission/beit_sahwan_1_recon');
+  });
+
+  it('leads with "Campaign" when the whole campaign is complete and nothing to continue', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial });
+    const first = stage.querySelector<HTMLAnchorElement>('a.rl-menu__item')!;
+    expect(first.textContent).toBe('Campaign');
   });
 });
 

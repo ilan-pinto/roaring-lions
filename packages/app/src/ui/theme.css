@@ -3044,3 +3044,92 @@ button.rl-menu__item[data-kind='aside'] {
   width: fit-content;
   margin: var(--s3) auto 0 0;
 }
+
+/* ---------------------------------------------------------------------- */
+/* Saves (ui/saves.ts)                                                    */
+/* ---------------------------------------------------------------------- */
+
+/* A `.rl-menu` column like the sandbox picker and the campaign screen --
+   not a floating `.rl-panel` like Settings -- so the panel's own `Saves`
+   band sits inside the same centred frame every other menu screen does.
+   Left-aligned rather than `.rl-menu`'s own centred text: a row of name,
+   date and three buttons reads as a list, not a headline. */
+.rl-menu--saves .rl-panel {
+  text-align: left;
+}
+.rl-saves__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+.rl-saves__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding-block: var(--s2);
+  border-block-end: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); /* px-ok */
+}
+.rl-saves__row:last-child {
+  border-block-end: 0;
+}
+.rl-saves__name {
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+}
+.rl-saves__sub {
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-saves__actions {
+  display: flex;
+  gap: var(--s1);
+  flex: none;
+}
+.rl-saves__actions .rl-btn {
+  padding: var(--s1) var(--s2);
+  font-size: var(--t-s);
+}
+/* The save-current-campaign form: a name field and the submit button on one
+   row, the same `.rl-settings__control select` frame-and-mono-face every
+   other small text control in this sheet wears. */
+.rl-saves__form {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  margin: var(--s3) 0;
+}
+.rl-saves__form input[type='text'] {
+  flex: 1;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+.rl-saves__import {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--s2);
+}
+/* The refusal line for a bad import -- an `aria-live` region, so it reads
+   even when nothing else on screen moves, and empty (no reserved height)
+   until there is something to say. `--bad-text`, not `--bad`: this is a
+   rendered string over the panel ground, and `--bad` alone reads 4.01:1
+   there, under WCAG AA's 4.5:1 floor (I2, tools/src/bad-text-contrast.test.ts). */
+.rl-saves__msg {
+  min-height: 1.2em;
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--bad-text);
+}
+.rl-saves__back {
+  display: block;
+  width: fit-content;
+  margin: var(--s3) auto 0 0;
+}

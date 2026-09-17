@@ -148,6 +148,7 @@ import {
   campaignRoe,
   campaignSummary,
   commanderForMission,
+  continueTarget,
   hostagesAccount,
   hostagesLine,
   nextMissionAfter,
@@ -159,33 +160,14 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
+import { LEDGER_KEY, TUTORIAL_DONE_KEY, loadLedger, saveLedger } from './main-keys';
+import { showSaves, type SavesDeps } from './ui/saves';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
 const BASE = import.meta.env.BASE_URL;
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
-
-// Campaign persistence: victories merge their produced ledger keys here;
-// defeats write nothing — replaying a mission for a better ledger is free.
-const LEDGER_KEY = 'lions.campaign.ledger';
-
-/** Whether this human has been through the tutorial — a fact about the person,
- *  not the campaign, so it survives a ledger reset. Clearing your ledger should
- *  not re-teach you right-click. */
-const TUTORIAL_DONE_KEY = 'lions.tutorial.done';
-
-function loadLedger(): LedgerData {
-  try {
-    return JSON.parse(window.localStorage.getItem(LEDGER_KEY) ?? '{}') as LedgerData;
-  } catch {
-    return {};
-  }
-}
-
-function saveLedger(ledger: LedgerData): void {
-  window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger));
-}
 
 /** `window.localStorage` can throw on the PROPERTY ACCESS itself (private mode, site
  *  data blocked) rather than on a method call. The brigade account route and the
@@ -414,6 +396,39 @@ function bootError(stage: HTMLElement, title: string, body: string, home = route
   div.appendChild(a);
 
   stage.appendChild(div);
+}
+
+/** `ui/saves.ts`'s `download`: a Blob URL and a click on an `<a download>`
+ *  nobody sees, revoked right after -- the ordinary way a page hands the
+ *  player a file with no server round trip. */
+function downloadFile(name: string, json: string): void {
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** `ui/saves.ts`'s `pickFile`: an `<input type=file>` nobody sees, opened by a
+ *  synthetic click and read through `File.text()`. Resolves to null on a
+ *  cancelled picker (a `change` with no file chosen), never rejects. */
+function pickJsonFile(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      void file.text().then(resolve);
+    });
+    input.click();
+  });
 }
 
 /**
@@ -721,26 +736,71 @@ async function main(): Promise<void> {
 
   /** The landing. The one screen that defines no `window.__lions`. */
   function mountMenu(host: HTMLElement): Disposer {
+    const worldData = parseWorld(world);
     const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
+    // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
+    // been played, else the first open mission of wherever the map is live.
+    // Null once every authored mission is done, which is `continue: undefined`
+    // below -- the first nav item reverts to the plain "Campaign" link.
+    const target = continueTarget(worldData, loadLedger(safeStorage()), {
+      id: 'beit_sahwan_0_tutorial',
+      done: tutorialDone,
+    });
     return showMenu(host, {
       base: BASE,
       version: __GAME_VERSION__,
-      world: parseWorld(world),
+      world: worldData,
       audio: { isMuted: () => audio.isMuted(), toggle: () => audio.toggle() },
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
         done: tutorialDone,
       },
+      continue: target
+        ? {
+            missionId: target.missionId,
+            name: (missions as Record<string, MissionJson | undefined>)[target.missionId]?.name ?? target.missionId,
+            kind: target.kind,
+          }
+        : undefined,
       // Was `window.location.assign('?fresh=1')`: a whole page load whose only
       // jobs were to run the purge and redraw this screen. Both are explicit
       // now, and `force: true` is what redraws a menu the router already
-      // considers mounted.
-      reset: () => {
+      // considers mounted. Renamed from `reset` (Task 7): the brigade account
+      // survives this, on purpose, and "New campaign" says so where "reset
+      // campaign ledger" did not.
+      newCampaign: () => {
         purgeCampaign();
         void router.navigate(routes.menu(), { replace: true, force: true });
       },
     });
+  }
+
+  /** The saves screen (Task 7): every slot under `lions.saves`, over the SAME
+   *  two stores the active campaign already reads and writes -- see
+   *  `profile.ts`'s own header. No storage means no screen: a save slot with
+   *  nowhere durable to live is worse than an error card naming why. */
+  function mountSaves(host: HTMLElement): Disposer {
+    const storage = safeStorage();
+    if (!storage) {
+      bootError(host, 'Saves unavailable', 'This browser has no local storage this game can reach.', routes.menu());
+      return () => host.replaceChildren();
+    }
+    const deps: SavesDeps = {
+      store: storage,
+      build: __APP_BUILD__,
+      now: () => Date.now(),
+      back: routes.menu(),
+      download: downloadFile,
+      pickFile: pickJsonFile,
+      // Nothing to re-read here today: the menu computes `continueTarget`
+      // fresh off the ledger every time IT mounts (see `mountMenu` above), so
+      // a slot mutation needs no signal beyond the router navigation away
+      // from this screen. Kept as a real hook rather than removed from
+      // `SavesDeps` -- see that interface's own doc comment.
+      onChanged: () => {},
+    };
+    return showSaves(host, deps);
   }
 
   /** The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
@@ -751,7 +811,7 @@ async function main(): Promise<void> {
       base: BASE,
       world: parseWorld(world),
       countries: parseCountries(countries),
-      ledger: loadLedger(),
+      ledger: loadLedger(safeStorage()),
       commander: parseCommander(commander),
       missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
       portraitUrl: commanderPortraitUrl,
@@ -804,7 +864,7 @@ async function main(): Promise<void> {
     };
     return showBrigade(host, {
       units: kdfUnits,
-      ledger: loadLedger(),
+      ledger: loadLedger(storage),
       missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
       portrait: (typeId) => portraits[typeId] ?? null,
       iconIds: portraitIcons,
@@ -905,6 +965,7 @@ async function main(): Promise<void> {
         pattern: '/settings',
         mount: (host) => showSettings(host, { ...settingsDeps, back: routes.menu() }),
       },
+      { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
       // Reserved for Phase 1's briefing screen. Until that exists the path is
       // a redirect rather than a 404, so a link written against it today lands
       // the player in the mission rather than on an error card.
@@ -1098,7 +1159,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       return teardown;
     }
   }
-  const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
+  const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger(storage);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -2856,7 +2917,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               updatedLedger['roster.surviving_units'] = named.roster;
               updatedLedger['campaign.names_issued'] = named.issued;
             }
-            saveLedger(updatedLedger);
+            saveLedger(storage, updatedLedger);
             // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
             // only for improvement over what this mission has paid before. Read from the
             // runtime's own counters -- the same numbers the debrief prints -- and the

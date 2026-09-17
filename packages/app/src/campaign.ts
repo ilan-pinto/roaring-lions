@@ -603,6 +603,32 @@ const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eig
 const asWords = (n: number): string => (n >= 0 && n < WORDS.length ? WORDS[n] : String(n));
 const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
+/**
+ * The menu's Continue/Start target (Task 7): the tutorial while it is still
+ * unplayed and nothing else has been, else the first open mission of the
+ * first LIVE region's first town with one -- the same "where is the
+ * campaign right now" walk `nextMissionAfter`'s off-the-map fallback already
+ * does, run from the top rather than from a mission that just ended. Null
+ * once every authored mission is done, which is when the menu's first item
+ * reverts to a plain "Campaign" link instead of naming one.
+ */
+export function continueTarget(
+  world: ParsedWorld,
+  ledger: LedgerData,
+  tutorial: { id: string; done: boolean }
+): { missionId: string; kind: 'tutorial' | 'next' } | null {
+  const done = new Set(ledger['campaign.completed_missions'] ?? []);
+  if (!tutorial.done && done.size === 0) return { missionId: tutorial.id, kind: 'tutorial' };
+  for (const region of world.regions) {
+    if (regionProgress(region, ledger).status !== 'live') continue;
+    for (const town of region.towns) {
+      const next = nextMissionOf(town, ledger);
+      if (next !== null) return { missionId: next, kind: 'next' };
+    }
+  }
+  return null;
+}
+
 /** Idit's line under the region cards: who is still out there, and who just came home. */
 export function hostagesLine(
   account: { taken: number; recovered: number },
