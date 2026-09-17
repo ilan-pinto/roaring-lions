@@ -8,6 +8,16 @@
  * never-seen over one tile -- see `FOG_OFFMAP_FADE_TILES`, which exists
  * because `terrain/skirt.ts` put geometry out there for the first time.
  *
+ * `uRevealAll` (C2, shell-upgrade Phase 0 final fix wave): a debug-only
+ * uniform that forces every ON-map sample to read as fully seen while
+ * leaving the pass itself enabled, so the off-map fade above still runs.
+ * `tools/src/perf/plate-capture.ts` used to reach for
+ * `setDebugLayerVisible('fog', false)`, which skipped this whole pass --
+ * and with it, `FOG_OFFMAP_FADE_TILES`, the very fade this comment
+ * describes -- so the skirt read back as an unshrouded, ClampToEdge-flooded
+ * wedge instead of fading to never-seen. `uRevealAll` lets the debug layer
+ * remove the FOG-OF-WAR boundary without removing the OFF-MAP one.
+ *
  * Sits directly after RenderPass in `post-chain.ts`, so `readBuffer` is the
  * target the scene was just drawn into and `readBuffer.depthTexture` is that
  * scene's depth. That only works because each composer target carries its
@@ -124,6 +134,7 @@ uniform vec3 uTint;
 uniform float uNeverSeen;
 uniform float uExplored;
 uniform float uTintGain;
+uniform float uRevealAll;
 varying vec2 vUv;
 void main() {
   vec4 color = texture2D(tDiffuse, vUv);
@@ -134,6 +145,14 @@ void main() {
   vec4 world = uCameraWorld * view;
   vec2 tex = vec2(world.x / uMapSize.x, world.z / uMapSize.y);
   float v = texture2D(uShroud, tex).r;
+  // uRevealAll is 0 in every shipped frame -- mix(v, 1.0, 0.0) is exactly
+  // v, so this is a no-op on the on-map maths unless the debug layer sets
+  // it. When it is 1 (the plate capture's fog layer hidden), every ON-map
+  // sample reads as fully seen -- but this runs BEFORE the off-map fade
+  // below, so ground past the map edge still fades from that reveal toward
+  // never-seen over FOG_OFFMAP_FADE_TILES, exactly as it does when the pass
+  // is left alone.
+  v = mix(v, 1.0, uRevealAll);
   vec2 outUv = max(vec2(0.0), max(-tex, tex - vec2(1.0)));
   v *= 1.0 - clamp(length(outUv * uMapSize) / ${FOG_OFFMAP_FADE_TILES.toFixed(1)}, 0.0, 1.0);
   float dim = v < 0.5 ? mix(uNeverSeen, uExplored, v * 2.0) : mix(uExplored, 0.0, (v - 0.5) * 2.0);
@@ -155,6 +174,7 @@ export class FogOfWarPass extends Pass {
     uNeverSeen: THREE.IUniform<number>;
     uExplored: THREE.IUniform<number>;
     uTintGain: THREE.IUniform<number>;
+    uRevealAll: THREE.IUniform<number>;
   };
   readonly material: THREE.ShaderMaterial;
   private readonly quad: FullScreenQuad;
@@ -177,6 +197,7 @@ export class FogOfWarPass extends Pass {
       uNeverSeen: { value: FOG_NEVER_SEEN },
       uExplored: { value: FOG_EXPLORED },
       uTintGain: { value: FOG_TINT_GAIN },
+      uRevealAll: { value: 0 },
     };
     this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,

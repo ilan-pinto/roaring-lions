@@ -21,22 +21,35 @@
  * capture rather than a fast one (`golden-diff/browser.ts`'s
  * `launchCaptureBrowser` makes the same choice for the same reason).
  *
- * ## History: two follow-ups, both from looking at the actual plate
+ * ## History: three follow-ups, all from looking at the actual plate
  *
  * v1 framed the sandbox force where it SPAWNS, near `kdf_assembly` (world
  * (4, 23), four tiles from the map's west edge) -- and fighting the map's
  * edges from there, at whatever camera position, kept costing something:
  * either a visible skirt wedge, or the force pushed to a corner of frame, or
  * (once zoom 1.3 was required) a width narrower than the old banner's. v2
- * hid the unit/structure overlays and the occlusion silhouette. v3 (this
- * version) stopped fighting the spawn position and MOVED the force instead:
- * ordered to open ground between the assembly area and the town, the same
- * way `golden-diff/baseline.ts`'s `RELIEF_SCENARIO` moves its recon drone
- * with a `queueCommand` -- see "Order and arrival" below. This also fixed a
- * defect the coordinator caught that no earlier version of this file even
- * knew to look for: the large dark diagonal every capture carried was not a
- * shadow, it was the fog-of-war boundary, and moving the camera around never
- * could have fixed that -- only hiding the fog pass could.
+ * hid the unit/structure overlays and the occlusion silhouette. v3 stopped
+ * fighting the spawn position and MOVED the force instead: ordered to open
+ * ground between the assembly area and the town, the same way
+ * `golden-diff/baseline.ts`'s `RELIEF_SCENARIO` moves its recon drone with a
+ * `queueCommand` -- see "Order and arrival" below. This also fixed a defect
+ * the coordinator caught that no earlier version of this file even knew to
+ * look for: the large dark diagonal every capture carried was not a shadow,
+ * it was the fog-of-war boundary, and moving the camera around never could
+ * have fixed that -- only hiding the fog pass could, which v3 did by
+ * disabling it outright.
+ *
+ * v4 (this version, C2 of the shell-upgrade Phase 0 final review) undid
+ * that last part. Disabling the WHOLE fog pass to remove the fog-of-war
+ * boundary also disabled `FOG_OFFMAP_FADE_TILES`, the off-map fade the SAME
+ * pass carries -- so the shipped plate's off-map ground read back
+ * unshrouded, a pale, texture-poor wedge with a dead-straight diagonal edge
+ * at the map border, the exact defect class this whole file exists to
+ * abolish, just relocated. `setDebugLayerVisible('fog', false)` now leaves
+ * the pass enabled and reveals every ON-map sample instead (`uRevealAll`,
+ * `fog-pass.ts`), so the fog-of-war boundary still disappears and the
+ * off-map fade still darkens the skirt toward never-seen, exactly as it
+ * does in a real mission.
  *
  * ## Order and arrival
  *
@@ -80,17 +93,22 @@
  * a capture near the map's civic-hall structure showed a thin red outline
  * poking through its wall, which turned out to be a HOSTILE unit standing
  * behind it, revealed by the sandbox force's own recon drone, not a HUD
- * element. `setDebugLayerVisible('fog', false)` hides the SECOND thing the
+ * element. `setDebugLayerVisible('fog', false)` removes the SECOND thing the
  * coordinator caught: the fog-of-war post pass (`FogOfWarPass`, band-dimming
  * never-seen ground to 85% shroud and explored ground to 40%), which a
  * camera anywhere near the edge of what the force can see paints as a hard
  * diagonal that reads as a shadow until you look for what casts it and find
- * nothing. Both calls run AFTER the arrival step-loop's last `step()` and
+ * nothing. As of v4 this no longer disables the pass -- it reveals every
+ * ON-map sample instead (`uRevealAll`, `fog-pass.ts`) so the pass's own
+ * off-map fade keeps running; see this file's own History section for why
+ * disabling the pass outright shipped a different first-minute defect in
+ * its place. Both calls run AFTER the arrival step-loop's last `step()` and
  * BEFORE the freeze + single repaint, per the coordinator's own ordering --
  * both are one-time flag flips (a batch's `endFrame()` never touches
- * `.visible`; neither `Pass`'s `enabled` is ever reasserted per frame, see
- * `debug-layers.ts`'s own comments for the greps that confirm it), so there
- * is nothing to race by running them before the freeze rather than after.
+ * `.visible`; neither `Pass`'s `enabled` nor `FogOfWarPass`'s `uRevealAll`
+ * uniform is ever reasserted per frame, see `debug-layers.ts`'s own comments
+ * for the greps that confirm it), so there is nothing to race by running
+ * them before the freeze rather than after.
  *
  * ## Camera and clip
  *

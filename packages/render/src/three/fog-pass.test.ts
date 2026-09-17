@@ -27,6 +27,9 @@ describe('FogOfWarPass', () => {
     expect(pass.uniforms.uNeverSeen.value).toBe(FOG_NEVER_SEEN);
     expect(pass.uniforms.uExplored.value).toBe(FOG_EXPLORED);
     expect(pass.uniforms.uMapSize.value.toArray()).toEqual([48, 48]);
+    // C2: defaults to 0 -- every shipped frame is a no-op on the on-map
+    // maths, per the shader's own `mix(v, 1.0, uRevealAll)`.
+    expect(pass.uniforms.uRevealAll.value).toBe(0);
     const [r] = hexToLinear(FOG_TINT_HEX);
     expect((pass.uniforms.uTint.value as THREE.Vector3).x).toBeCloseTo(r, 6);
     expect(pass.needsSwap).toBe(true);
@@ -75,6 +78,74 @@ describe('FogOfWarPass', () => {
     // exactly on the border is bit-identical to what it was before this
     // existed -- the whole reason nothing inside the map moved.
     expect(frag).toContain('float v = texture2D(uShroud, tex).r;');
+  });
+});
+
+describe('uRevealAll (C2: reveal every on-map tile without disabling the pass)', () => {
+  it('runs BEFORE the off-map fade, so ground past the border still fades rather than snapping to seen', () => {
+    // `plate-capture.ts` used to hide the fog-of-war boundary by disabling
+    // this whole pass (`setDebugLayerVisible('fog', false)`), which also
+    // disabled `FOG_OFFMAP_FADE_TILES` and shipped a pale, unshrouded wedge
+    // beyond the map edge in the key art. The fix leaves the pass enabled
+    // and forces the SAMPLED value toward 1.0 instead -- ordering matters:
+    // if this line ran AFTER the off-map multiply, a revealed off-map pixel
+    // would read as seen no matter how far outside the map it was.
+    const pass = new FogOfWarPass(new THREE.Texture(), 8, 8);
+    const frag = pass.material.fragmentShader;
+    expect(frag).toContain('uniform float uRevealAll;');
+    expect(frag).toContain('v = mix(v, 1.0, uRevealAll);');
+    const revealIdx = frag.indexOf('v = mix(v, 1.0, uRevealAll);');
+    const offMapIdx = frag.indexOf('v *= 1.0 - clamp(length(outUv * uMapSize)');
+    expect(revealIdx).toBeGreaterThan(-1);
+    expect(offMapIdx).toBeGreaterThan(-1);
+    expect(revealIdx).toBeLessThan(offMapIdx);
+  });
+});
+
+/**
+ * The shader's reveal-plus-off-map maths, in JS, combining the two GLSL
+ * lines pinned above so the numeric CLAIM (on-map always reads as seen; the
+ * off-map fade is untouched) is checked rather than merely the source text.
+ * `shroud` is the sampled shroud value before either term runs, matching
+ * the shader's own `v`.
+ */
+function dimWithReveal(shroud: number, revealAll: number, tilesOutside: number): number {
+  const revealed = shroud * (1 - revealAll) + 1.0 * revealAll; // mix(v, 1.0, uRevealAll)
+  const fade = 1 - Math.min(1, Math.max(0, tilesOutside / FOG_OFFMAP_FADE_TILES));
+  const v = revealed * fade;
+  return v < 0.5
+    ? FOG_NEVER_SEEN * (1 - v * 2) + FOG_EXPLORED * (v * 2)
+    : FOG_EXPLORED * (1 - (v - 0.5) * 2);
+}
+
+describe('reveal-all combined with the off-map fade', () => {
+  it('reads as fully seen (dim 0) anywhere ON the map, whatever the real shroud value', () => {
+    for (const shroud of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(dimWithReveal(shroud, 1, 0)).toBeCloseTo(0, 6);
+    }
+  });
+
+  it('leaves the off-map fade doing exactly what it does with reveal-all off', () => {
+    // A tile beyond the border reads never-seen with reveal-all on OR off --
+    // the fade has already driven v to 0 before dim is computed, so
+    // uRevealAll's forced 1.0 never survives the multiply.
+    expect(dimWithReveal(1, 1, FOG_OFFMAP_FADE_TILES)).toBeCloseTo(FOG_NEVER_SEEN, 6);
+    expect(dimWithReveal(0, 0, FOG_OFFMAP_FADE_TILES)).toBeCloseTo(FOG_NEVER_SEEN, 6);
+    // Halfway out, reveal-all's forced 1.0 fades linearly toward the border
+    // exactly as a genuinely fully-seen shroud sample would.
+    expect(dimWithReveal(1, 1, FOG_OFFMAP_FADE_TILES / 2)).toBeCloseTo(FOG_EXPLORED, 6);
+  });
+
+  it('is algebraically a no-op when uRevealAll is 0 -- the default, and every shipped frame', () => {
+    for (const shroud of [0, 0.3, 0.6, 1]) {
+      for (const tilesOutside of [0, 0.5, 2]) {
+        const fade = 1 - Math.min(1, Math.max(0, tilesOutside / FOG_OFFMAP_FADE_TILES));
+        const v = shroud * fade;
+        const expected =
+          v < 0.5 ? FOG_NEVER_SEEN * (1 - v * 2) + FOG_EXPLORED * (v * 2) : FOG_EXPLORED * (1 - (v - 0.5) * 2);
+        expect(dimWithReveal(shroud, 0, tilesOutside)).toBeCloseTo(expected, 6);
+      }
+    }
   });
 });
 

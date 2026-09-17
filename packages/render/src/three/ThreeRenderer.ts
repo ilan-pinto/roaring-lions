@@ -2404,18 +2404,26 @@ export class ThreeRenderer implements Renderer {
         return batchCount + this.silhouetteMeshMaterials.length;
       }
       case 'fog':
-        // Exactly `vignette`'s own shape -- a `Pass.enabled`, not an
-        // `Object3D.visible`, and nothing in `frame()` re-asserts it: the
-        // chain is rebuilt only by the three `set*Pass` calls, all of which
-        // run in `init()`/`dispose()`. See `debug-layers.ts`'s own comment
-        // for the grep that confirmed no other writer of `fogPass.enabled`
-        // exists. Returns 1 when it actually changed something, which is
-        // what makes a missing pass (`init()` never ran) read as 0 objects
-        // rather than as a silent pass.
+        // C2 (shell-upgrade Phase 0 final fix wave): this used to be
+        // `Pass.enabled`, exactly `vignette`'s shape -- but skipping the
+        // whole pass to remove the fog-of-war boundary also skipped
+        // `FOG_OFFMAP_FADE_TILES`, the off-map fade the SAME pass carries,
+        // and `tools/src/perf/plate-capture.ts` shipped a pale, unshrouded
+        // wedge beyond the map edge as a result. The pass now stays enabled
+        // always; hiding this layer instead drives `uRevealAll` on the
+        // pass's own uniforms (`fog-pass.ts`), which forces every ON-map
+        // sample to read as fully seen while leaving the off-map fade's
+        // maths untouched -- see that file's own comment on the uniform.
+        // Nothing in `frame()` re-asserts a uniform value any more than it
+        // reasserted `enabled`, so the plain toggle still holds across the
+        // gate's repaint. Returns 1 when it actually changed something,
+        // which is what makes a missing pass (`init()` never ran) read as 0
+        // objects rather than as a silent pass.
         {
-          const was = this.fogPass?.enabled ?? false;
-          if (this.fogPass) this.fogPass.enabled = visible;
-          return this.fogPass === null || was === visible ? 0 : 1;
+          const was = (this.fogPass?.uniforms.uRevealAll.value ?? 0) === 1;
+          const reveal = !visible;
+          if (this.fogPass) this.fogPass.uniforms.uRevealAll.value = reveal ? 1 : 0;
+          return this.fogPass === null || was === reveal ? 0 : 1;
         }
     }
   }

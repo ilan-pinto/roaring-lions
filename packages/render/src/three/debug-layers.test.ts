@@ -78,7 +78,7 @@ function internals(r: ThreeRenderer): {
   groundMat: GroundMaterial;
   skirtMesh: THREE.Mesh;
   vignettePass: { enabled: boolean } | null;
-  fogPass: { enabled: boolean } | null;
+  fogPass: { enabled: boolean; uniforms: { uRevealAll: { value: number } } } | null;
   overlayBatch: { mesh: THREE.Mesh };
   numeralBatch: { mesh: THREE.Mesh };
   chevronBatch: { mesh: THREE.Mesh };
@@ -178,23 +178,30 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
-  it('the fog toggle reports 0 when the pass does not exist, and flips it when it does -- exactly vignette\'s own shape', () => {
+  it('the fog toggle reports 0 when the pass does not exist, and otherwise drives uRevealAll rather than enabled (C2)', () => {
     // task-10 follow-up 2: the plate's large dark diagonal, first read as a
     // shadow, was the fog-of-war boundary (`FogOfWarPass`) -- never-seen
-    // ground pulled to 85% shroud beside explored ground at 40%. Same
-    // reasoning as `vignette` above: a post pass built once in `init()`,
-    // which these fakes never reach, so 0 rather than 1 is the honest
-    // reading with no pass in place.
+    // ground pulled to 85% shroud beside explored ground at 40%. With no
+    // pass in place these fakes never reach `init()`, so 0 rather than 1 is
+    // the honest reading.
     const r = makeRenderer();
     const i = internals(r);
     expect(i.fogPass).toBeNull();
     expect(r.setDebugLayerVisible('fog', false)).toBe(0);
 
-    i.fogPass = { enabled: true };
+    // C2: disabling the WHOLE pass also disabled its off-map fade, which
+    // reinstated the pale wedge the fade exists to remove -- so this layer
+    // now leaves `enabled` alone and drives `uRevealAll` on the pass's own
+    // uniforms instead. visible=false reveals every on-map sample
+    // (uRevealAll=1); visible=true restores real fog-of-war (uRevealAll=0).
+    // `enabled` never moves.
+    i.fogPass = { enabled: true, uniforms: { uRevealAll: { value: 0 } } };
     expect(r.setDebugLayerVisible('fog', false)).toBe(1);
-    expect(i.fogPass.enabled).toBe(false);
+    expect(i.fogPass.uniforms.uRevealAll.value).toBe(1);
+    expect(i.fogPass.enabled).toBe(true);
     expect(r.setDebugLayerVisible('fog', false)).toBe(0);
     expect(r.setDebugLayerVisible('fog', true)).toBe(1);
+    expect(i.fogPass.uniforms.uRevealAll.value).toBe(0);
     expect(i.fogPass.enabled).toBe(true);
     i.fogPass = null;
     r.dispose();

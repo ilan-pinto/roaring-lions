@@ -143,14 +143,27 @@
  * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
  * pulling never-seen ground toward 85% shroud and explored ground toward
  * 40%, which a camera parked near the edge of what the sandbox force can
- * see paints as a hard line. Exactly `vignette`'s own shape, confirmed by
- * reading rather than assumed: `ThreeRenderer.fogPass` is a `Pass | null`
- * set once in `init()` (`this.fogPass = new FogOfWarPass(...)`) and handed
- * to the chain through `PostChain.setFogPass`, which only stores it
- * (`post-chain.ts`) -- grepping the whole file for `fogPass.enabled` finds
- * no writer at all, so nothing per-frame re-asserts it and a plain toggle on
- * the pass's own `enabled` holds across the repaint the way `vignette`'s
- * does and `units`' plain `visible` write could not.
+ * see paints as a hard line.
+ *
+ * C2 (shell-upgrade Phase 0 final fix wave) CHANGED WHAT THIS DOES. It used
+ * to be a `Pass.enabled` flip, exactly `vignette`'s shape -- but that
+ * skipped the WHOLE pass, including `FOG_OFFMAP_FADE_TILES`, the off-map
+ * fade the same pass carries so ground beyond the map edge reads as
+ * never-seen distance rather than a raw, `ClampToEdgeWrapping`-flooded
+ * wedge. Disabling the pass to remove the fog-of-war boundary reinstated
+ * exactly that wedge in the shipped key art. Hiding this layer now sets
+ * `uRevealAll` on the pass's OWN uniforms (`fog-pass.ts`) instead, which
+ * forces every ON-map sample to read as fully seen while the off-map fade's
+ * maths runs unchanged -- so the fog-of-war boundary disappears and the
+ * off-map skirt still darkens toward never-seen. The pass itself is never
+ * disabled by this layer any more. Confirmed by reading rather than
+ * assumed: `ThreeRenderer.fogPass` is a `Pass | null` set once in `init()`
+ * (`this.fogPass = new FogOfWarPass(...)`) and handed to the chain through
+ * `PostChain.setFogPass`, which only stores it (`post-chain.ts`) --
+ * grepping the whole file for `fogPass.uniforms.uRevealAll` finds no writer
+ * outside this one case, so nothing per-frame re-asserts it and a plain
+ * uniform write holds across the repaint the way `vignette`'s `enabled`
+ * flip does and `units`' plain `visible` write could not.
  */
 export const DEBUG_LAYERS = [
   'scatter',
