@@ -276,6 +276,26 @@ describe('what a click does', () => {
     expect(r.notes[0].html).toContain('is locked');
   });
 
+  // I1: the fake runtime still answers `buildBlockedReason` with the sim's
+  // raw "requires ..." wording -- proving the click note recomputes the
+  // human sentence from the unit's own `unlock` gate (via `tileState` /
+  // `gateSentence`, the SAME call `refresh()`'s `title` already makes)
+  // rather than piping that raw string into the feed. Before this fix the
+  // note contained `requires campaign Conduct 55 (no missions rated yet)`
+  // verbatim.
+  it('never puts the sim\'s raw "requires" wording in the locked-tile note', () => {
+    const r = rig(
+      [dockUnit({ unlock: { roeMin: 55 } })],
+      fakeRuntime({ blocked: { inf_squad: 'requires campaign Conduct 55 (no missions rated yet)' } })
+    );
+    r.tile('inf_squad').click();
+    expect(r.rt.builds).toEqual([]);
+    expect(r.notes[0].tone).toBe('warn');
+    expect(r.notes[0].html).toContain('is locked');
+    expect(r.notes[0].html).toContain('Needs a campaign Conduct of 55 or better');
+    expect(r.notes[0].html).not.toContain('requires');
+  });
+
   it('explains a refused build rather than doing nothing', () => {
     const r = rig([dockUnit()], fakeRuntime({ buildOk: false }));
     r.tile('inf_squad').click();

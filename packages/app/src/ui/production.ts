@@ -180,9 +180,16 @@ export class ReinforcementDock {
     el.append(cost, left, bar, lock);
 
     el.addEventListener('click', () => {
-      const why = this.opts.runtime.buildBlockedReason(unit.id);
-      if (why !== null) {
-        this.opts.note(`<b>${unit.name}</b> is locked — ${why}`, 'warn');
+      // I1: route through `tileState`, the same app-side sentence the
+      // tile's own `title`/`aria-label` already show (`refresh()` above),
+      // rather than the sim's raw `buildBlockedReason` string -- that
+      // string is `requires campaign Conduct 55 (no missions rated yet)` or
+      // `requires clearing <missionId>` verbatim, exactly the "bare wording
+      // — a floor with a parenthetical, or an id verbatim" `dock-model.ts`'s
+      // own comment says a tile can never show.
+      const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
+      if (state.lock !== null) {
+        this.opts.note(`<b>${unit.name}</b> is locked — ${state.lock.full}`, 'warn');
         return;
       }
       if (this.opts.runtime.requestBuild(unit.id)) {
