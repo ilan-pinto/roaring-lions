@@ -56,6 +56,35 @@ export interface AudioManifest {
   sets?: Record<string, AudioSet>;
 }
 
+/** The three user-facing levels the settings screen drives, each 0..1. */
+export interface AudioGains {
+  master: number;
+  music: number;
+  sfx: number;
+}
+
+const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+
+/**
+ * An `<audio>` element's volume: the manifest's own master level times the
+ * track's own gain times the user's master and music sliders. Pure so the
+ * settings screen (Task 4) and this module's tests can compute it without an
+ * AudioContext.
+ */
+export function musicVolume(manifestMaster: number, trackGain: number, g: AudioGains): number {
+  return clamp01(manifestMaster * trackGain * g.master * g.music);
+}
+
+/**
+ * The two WebAudio bus gains: the master carries the manifest's own level
+ * times the user's master slider, and the sfx bus carries the user's sfx
+ * slider alone (it sits under the master, so master attenuation already
+ * applies once there).
+ */
+export function busGain(manifestMaster: number, g: AudioGains): { master: number; sfx: number } {
+  return { master: clamp01(manifestMaster * g.master), sfx: clamp01(g.sfx) };
+}
+
 interface LoadedSet {
   gain: number;
   jitter: number;
@@ -145,7 +174,11 @@ export class BattleAudio {
   private ctx: AudioContext | null = null;
   private muted = readStore('localStorage', MUTE_KEY) === '1';
   private master: GainNode | null = null;
+  /** SFX bus, under the master: every synth/recorded source connects here, never to `master` directly. */
+  private sfx: GainNode | null = null;
   private masterGain = 0.9;
+  /** The user's own master/music/sfx sliders, from the settings screen (Task 4). */
+  private user: AudioGains = { master: 1, music: 1, sfx: 1 };
 
   /** set name → decoded clips. Empty/missing means "use the synth". */
   private readonly sets = new Map<string, LoadedSet>();
@@ -175,8 +208,12 @@ export class BattleAudio {
       if (!this.ctx) {
         this.ctx = new AudioContext();
         this.master = this.ctx.createGain();
-        this.master.gain.value = this.masterGain;
         this.master.connect(this.ctx.destination);
+        this.sfx = this.ctx.createGain();
+        this.sfx.connect(this.master);
+        const bus = busGain(this.masterGain, this.user);
+        this.master.gain.value = bus.master;
+        this.sfx.gain.value = bus.sfx;
         void this.decodeAll();
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -200,6 +237,10 @@ export class BattleAudio {
     this.manifest = manifest;
     this.baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     this.masterGain = manifest.master_gain ?? 0.9;
+    // Re-apply the user's own sliders now that the manifest's level is known,
+    // so the two compose whichever order they arrive in (a manifest can load
+    // after the settings screen has already set gains, or before).
+    this.setGains(this.user);
     for (const [name, spec] of Object.entries(manifest.sets ?? {})) {
       if (spec.event === 'fire') {
         for (const cls of spec.weapon_classes ?? []) {
@@ -210,6 +251,25 @@ export class BattleAudio {
         this.byEvent.set(spec.event, name);
       }
     }
+  }
+
+  /**
+   * Set the user's master/music/sfx sliders and apply them immediately to
+   * whatever is live: the two WebAudio buses (if `attach()` has run) and the
+   * music element's volume (if it exists). Safe to call before either does —
+   * the values are simply stored and applied when they show up (`attach()`'s
+   * `start`, `startMusic()`).
+   */
+  setGains(g: AudioGains): void {
+    this.user = { master: clamp01(g.master), music: clamp01(g.music), sfx: clamp01(g.sfx) };
+    const bus = busGain(this.masterGain, this.user);
+    if (this.master) this.master.gain.value = bus.master;
+    if (this.sfx) this.sfx.gain.value = bus.sfx;
+    if (this.music) this.music.volume = musicVolume(this.masterGain, this.manifest?.music?.gain ?? 1, this.user);
+  }
+
+  gains(): AudioGains {
+    return { ...this.user };
   }
 
   private async decodeAll(): Promise<void> {
@@ -285,7 +345,7 @@ export class BattleAudio {
     if (tracks.length === 0) return;
     const el = new Audio();
     el.preload = 'auto';
-    el.volume = Math.max(0, Math.min(1, (spec?.gain ?? 1) * this.masterGain));
+    el.volume = musicVolume(this.masterGain, spec?.gain ?? 1, this.user);
     el.loop = tracks.length === 1;
 
     // Where the previous document left off, if this tab has one.
@@ -392,8 +452,8 @@ export class BattleAudio {
    */
   private playSet(setName: string | undefined, wx: number, wy: number): boolean {
     const ctx = this.ctx;
-    const master = this.master;
-    if (!ctx || !master || !setName) return false;
+    const sfx = this.sfx;
+    if (!ctx || !sfx || !setName) return false;
     const set = this.sets.get(setName);
     if (!set || set.buffers.length === 0) return false;
 
@@ -419,7 +479,7 @@ export class BattleAudio {
     const g = ctx.createGain();
     g.gain.value = set.gain * atten * atten;
 
-    src.connect(lp).connect(pan).connect(g).connect(master);
+    src.connect(lp).connect(pan).connect(g).connect(sfx);
     src.start();
     return true;
   }
@@ -440,7 +500,7 @@ export class BattleAudio {
   }
 
   private out(): AudioNode | null {
-    return this.master;
+    return this.sfx;
   }
 
   private tone(freq: number, dur: number, type: OscillatorType, gain: number): void {

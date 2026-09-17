@@ -42,7 +42,7 @@ export { DebugOverlay } from './overlay';
 // `packages/app` would be x-ray vision the first time the two drifted. So the
 // app calls the same function rather than agreeing with it.
 export { unitIsObserved } from './three/units/observed';
-export { BattleAudio, type AudioManifest, type AudioSet, type AudioVariant } from './audio';
+export { BattleAudio, type AudioGains, type AudioManifest, type AudioSet, type AudioVariant } from './audio';
 export { type EmitterSpec } from './vfx';
 export type { Renderer } from './api';
 
