@@ -1,7 +1,9 @@
 # Shell and HUD upgrade — design
 
-Date: 2026-09-16. Status: approved on the review's defaults by the project lead ("proceed with
-your defaults"). Source: the four-lens review of the menu screen and HUD
+Date: 2026-09-16. Status: **Phase 0 landed on `main` 2026-09-17** (`03fad18`, visual baseline
+re-blessed at `495c1a4`); Phase 1 has no plan yet. Approved on the review's defaults by the
+project lead ("proceed with your defaults"). §10 carries the programme's status, what has landed
+beside it from other sessions, and the file boundary that lets them run in parallel. Source: the four-lens review of the menu screen and HUD
 (`.superpowers/ui-review-2026-09-16/`, synthesis and four reports; artifact
 https://claude.ai/artifact/LBdY8bdd9qAawgW61b3Bf2).
 
@@ -189,6 +191,12 @@ gate green with one bless.
   mission. A `profile.ts` layer wraps the ledger with named slots in the same `LedgerData`
   shape; a file-backed export/import through the browser's file APIs now and the packaged
   shell's filesystem API later. Steam Cloud and co-op both depend on this shape.
+  **There are two stores, not one, since the brigade economy landed** (2026-09-16/17): the
+  campaign ledger and the brigade account (`lions.brigade.account`, `brigade-account.ts`,
+  the only reader and writer), and the account SURVIVES `?fresh` by that spec's §4.1 — a second
+  campaign starts with the brigade you built. A profile slot therefore wraps both stores or it
+  is not a save; export/import carries both; and "new campaign" becomes a named affordance
+  that says what it keeps (the brigade) and what it resets (the ledger), instead of a URL flag.
 - **Credits.** Contributors, library licences, the three OFL texts, the game's licence, the
   art-pipeline disclosure (`CONTRIBUTING.md`'s policy, stated for the player). A build id in
   pause and settings.
@@ -216,9 +224,12 @@ the pseudo-localised capture pass shows no clipped chrome string.
 - **Discoverability.** The key on every order button; an F1 overlay listing every binding from
   the same table settings rebinds; the hint line no longer hidden by a selection; a shared
   tooltip component and the first ten tooltips, Conduct first.
-- **Per-squad chips**; **range rings** redrawn as a desaturated low-alpha fill of the team hue
-  with a designed arc (renderer overlay work, band 4); **projected fire and the dock** made
-  discoverable; the tutorial gains a hover step and a first economy step.
+- **Per-squad chips** — their art is `unitIcon(basePath)` from `ui/portrait.ts` (landed
+  2026-09-17 with the unit-icon crop, `pnpm icons:units`, `assets/ui/icons/units/`), consumed
+  unchanged, never a second crop; **range rings** redrawn as a desaturated low-alpha fill of
+  the team hue with a designed arc (renderer overlay work, band 4 — the one Phase 2 item outside
+  `packages/app`, see §10); **projected fire and the dock** made discoverable; the tutorial
+  gains a hover step and a first economy step.
 
 Acceptance: a scripted mission in which a unit dies produces an alert line, a sound and a
 minimap flash within one frame of the event; all objectives of a five-objective mission are
@@ -239,7 +250,11 @@ readable in-mission; the capture pass at zoom 2.5 shows no saturated ring fill.
   SVG sprite: seven roles and five verbs, tested at 10 px over lit sand; used by dock, cursor
   badge, order row and minimap.
 - **Brigade as an armoury**: engine turntable renders (the plate harness, one per unit), stats,
-  veterancy, one human gate line, grouped by role.
+  veterancy, one human gate line, grouped by role. This re-skins the brigade screen the economy
+  work built (per-unit Buy, tier pips and per-track upgrade Buy, `.rl-brigade__tracks`,
+  `ownedTiers`) and does not re-implement its controls; the turntable renders replace the PNGs
+  under `assets/ui/icons/units/` and the crop is re-run, so `unitIcon`'s callers see the new
+  art with no code change.
 - **Deploy as a decision** (Decision 4): the briefing as a two-column spread — portrait and
   orders left, the roster's force and a map preview right — with the force chosen, not merely
   shown.
@@ -272,6 +287,18 @@ keyboard path).
   (`1px`, `2px` borders); every `show*` returns a disposer.
 - **Screens check** (`tools/src/golden-diff/screens-check.ts`) gains the menu route: the scene
   host must report `data-host=live` on a WebGL2 runner.
+- **What the review could not see, and the instrument each phase adds for it.** The review
+  was four lenses over STILLS, from one model, with no shipped-game benchmark and no player;
+  its scores are one considered opinion plus one measured lens, not a panel. Three of its blind
+  spots are closable by instruments and are owed by the next plans: (a) `pnpm ui:shots` gains a
+  scripted run to `missionEnd` — victory, defeat, debrief — and the pause state, in Phase 1's
+  plan, because none of those screens was reachable in the capture pass; (b) a motion capture
+  (a frame series over the menu entrance and the first thirty seconds of a mission) before
+  Phase 3's acceptance, because every judgement of "feel" so far is a guess from a still; (c)
+  one observed, unassisted first-player session before Phase 3's art spend, because half the
+  Tier 0 findings are predictions about a new player and none has been checked against one.
+  The fourth blind spot — no side-by-side against shipped RTS shells — is a reading task, not
+  an instrument, and belongs to whoever writes Phase 3's plan.
 
 ## 8. Out of scope
 
@@ -283,9 +310,75 @@ mission content beyond the tutorial's text and optional trigger labels; anything
 
 ## 9. Open questions
 
-None blocking. Two to settle inside their phases: whether the vignette needs the optional
-distance fade (Phase 0, decided by the capture); which sim events the alert layer is missing
-(Phase 2's plan audits `MissionEvent` and lists them before any HUD work starts).
+None blocking. The first of the two this section carried is settled: the vignette DID need the
+off-map fade, for a reason the capture found rather than the one predicted (D-1). Still open,
+inside its phase: which sim events the alert layer is missing (Phase 2's plan audits
+`MissionEvent` and lists them before any HUD work starts). Newly open, outside any phase: the
+`vehicle` scenario's repaint-control self-check reads 0.0004 against its 0.00036 per-scenario
+budget since the vignette and skirt landed (CI run 35183889329) — the drift CLAUDE.md records
+as "still unknown", now ~11% over its budget on Linux. The budget is not widened; the visual
+job stays red on `main` for that one self-check until someone finds what drifts.
+
+## 10. Status, and the boundary with the sessions beside this one
+
+**Phase 0 — landed.** `feat/shell-upgrade` merged to `main` at `03fad18` (2026-09-17), eleven
+tasks each reviewed, final whole-branch review 2 Critical / 7 Important all fixed in one wave,
+full gate green locally and on CI. All four gated visual scenarios moved, as §5 said they
+would, and every layer check passed; one bless (`495c1a4`), dispatched from the CI numbers
+with the captures artifact looked at. `menu_banner.jpg` is gone, `assets/ui/menu_plate.jpg`
+comes from `pnpm plate:capture`, and the string `enemy reacts (` is out of the bundle. Two
+acceptance items are NOT met and are recorded rather than restated: the menu column at 2560
+(D-8) and, in the picture only, the plate's top-left corner (D-3's floor).
+
+**Twelve minors deferred by the task reviews**, carried here because the plan's SDD workspace
+is deleted: `triggerLabelFailures(file, mission)` reverses its siblings' argument order;
+`escapeHtml` exists twice (`mission-notice.ts`, `hud.ts`); two labels paraphrase their own
+`say` line (`qarn_hadid_2_foothold` / `he_takes_the_tube_into_the_village`,
+`umm_zeitoun_2_buildup` / `the_tube_moves_north`); no test pins the flag spelling on the
+checkbox `title` (D-4); "which gate binds" is implemented three times (`gateSentence`,
+`bindingGate`, `lockLabel`) with nothing holding them in lockstep; the px validator sweeps
+`.css` only, so inline `px` in TS style strings is unguarded; one review report mislabels
+`.rl-clock` as `.rl-strip`; the `nudgeLabels` falsification never isolated the `sharesX`
+branch, and the flat board's rAF pass can fire after unmount (traced harmless); one non-null
+assertion in `skirt.test.ts:47`; the plate's pale top-left corner (Phase 3 reframes);
+billboard-path (`&nomesh`) silhouettes are outside the `overlays` debug layer;
+`docs/superpowers/plans/2026-08-11-campaign-world-and-shell.md:1841` still names
+`menu_banner.jpg`. None blocks Phase 1; the gate-order triplication is the one worth a task.
+
+**What landed beside Phase 0, from the economy and art session, and what it changes here.**
+Brigade economy step 2 "Buy" (`39ad72b`, merged mid-branch — D-7), step 3 "Upgrade"
+(`ad4e65f`, v0.67.0: tier pips, per-track Buy, `applyUpgrades` in `@lions/data`, the sim never
+sees a tier), and the unit-icon crop (`c88440d`, v0.68.0: `unitIcon` in `ui/portrait.ts`,
+`data-icon="1"`, a CI `--check`). Consequences are written into §6 where they bind: Phase 1's
+profile slots wrap two stores; Phase 2's chips consume `unitIcon`; Phase 3's armoury re-skins
+the economy's screen; Decision 4 (deploy as a decision) now sits on the roster the economy
+computes, which is exactly the boundary §8 draws. That session's next work is art Phase 1,
+sub-project 1 "infantry animation" (`docs/superpowers/specs/2026-09-17-infantry-animation-
+design.md`, on `worktree-art-phase1-infantry`).
+
+**Running in parallel — the file boundary, agreed with that session on 2026-09-17.** The
+shell programme owns `packages/app/**` (including `ui/theme.css` and `main.ts`),
+`tools/src/ui-review/**`, `tools/validate_ui_palette.mjs`, `data/palette.json`'s UI entries,
+and this spec's plans. The art session owns `packages/render/src/three/units/mesh-*.ts`,
+`packages/render/src/three/ThreeRenderer.ts`, `packages/render/src/sheet.ts`,
+`tools/src/mesh_gait*`, `tools/units/rig.py`, the four Meshy importers, `art/meshes/**`,
+`assets/meshes/**`, and CLAUDE.md's "Mesh units" section, until it lands. The rules that make
+this safe: **Phase 1 stays entirely inside `packages/app`** — it needs nothing from the
+renderer; **Phase 2's range rings (band 4) and Phase 3's scene host (`three/front/`) are the
+two items that touch `ThreeRenderer.ts`**, and they wait for the art landing or arrive through
+a merge from `main`, never both in flight on that file; every branch merges `origin/main`
+before landing; the visual bless is serialised — one per landing, dispatched from CI numbers,
+and a bless dispatched while `main` is moving retries its push three times and its bot commit
+triggers no `ci.yml` run, so two landings close together must bless in turn, not at once;
+CLAUDE.md is edited per section and never wholesale. Each session has its own worktree; this
+programme's is `/Users/ilpinto/dev/roaring-lions-shell`.
+
+**On the review's time estimates.** The synthesis priced Phase 0 at "about two weeks" and
+Phases 1–3 at two to five weeks each, for a human team. Phase 0 ran in one session under
+subagent-driven execution (haiku for mechanical fix rounds and scoped re-reviews, sonnet for
+implementers and task reviews, opus for the renderer task and the final review). The
+estimates are not carried into this spec; a phase's cost here is its plan's task count and
+review rounds, and Phase 0's were eleven and ten.
 
 ## Deviations
 
@@ -361,3 +454,24 @@ session's own spec (`docs/superpowers/specs/2026-09-15-brigade-economy-design.md
 "or buy" clause: the app already puts the price on the Buy button itself, so the binding sentence
 is the earned gate alone and the button carries the price — restated in text it would only
 duplicate the button. §4.4's own wording was updated in the final fix wave to match what ships.
+
+**D-8 — the UI scale steps are 1 / 1.15 / 1.4, and the menu column at 2560 reads 25%, not the
+acceptance's 28% (Task 3).** §6 specified `--ui-scale` "1 at ≤1600 wide, 1.25 at 2560" and
+`--menu-col: min(28.75rem, 92vw)`; the acceptance demanded a column "≥ 28% of a 2560 frame".
+Those two numbers never agreed: 28.75 rem at scale 1.25 is 575 px, 22.5% of 2560. What shipped
+is three steps — 1, 1.15 from 1900 px, 1.4 from 2400 px, the breakpoints in raw px because
+they SET the rem — so 1920×1080, the common case, gets a step instead of staying at 1; at 1.4
+the column is 644 px, 25.2% of 2560. The formula stands; the 28% figure is retired from Phase 0 rather than
+met by widening the column blind, because how wide the column should be at 2560 is decided by
+what sits behind it, and that is Phase 3's composed layout with the diorama host. Phase 3's
+acceptance owns the number.
+
+**D-9 — `confirmDialog` takes a host and an options object, not `(text, danger)` (Task 6).**
+Shipped as `confirmDialog(host, { title, body, confirm, danger? })` in `ui/confirm.ts`: the
+dialog restores focus to its opener on close and guards keys at the capture phase so a modal
+cannot leak Escape to the screen beneath it — both needed a host element, and a title that
+asks the question with a confirm label that answers it ("Leave the mission?" / "Leave";
+"Start the campaign over?"), which the two-argument shape in §6 could not carry. The second
+one's body deliberately does NOT say the brigade is erased, because it is not (§6 Phase 1).
+Every later confirm in the programme (pause menu's restart and quit, profile delete) uses this
+signature.
