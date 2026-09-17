@@ -138,6 +138,32 @@ describe('Router', () => {
     expect(router.href('/', new URLSearchParams('renderer=pixi'))).toBe('/roaring-lions/?renderer=pixi');
   });
 
+  // The sandbox flags carry no value, and every other place in this repo that
+  // writes one spells it bare: `routes.sandbox()`, the picker's own anchor
+  // hrefs, `sandboxHelp()`'s console text and CLAUDE.md's examples. Before
+  // this, clicking a link whose href read `?tunnel&sur` left `?tunnel=&sur=`
+  // in the address bar -- `URLSearchParams.toString()` renders an empty value
+  // as `key=` -- so a router-driven navigation and the link it came from
+  // disagreed about the spelling of the same URL.
+  it('renders a value-less query key bare, the way routes.sandbox() writes it', async () => {
+    const { router } = makeRouter({ start: '/' });
+    await router.start();
+    expect(router.href('/free-play/tel_marum', new URLSearchParams('tunnel&sur'))).toBe(
+      '/free-play/tel_marum?tunnel&sur'
+    );
+    // Mixed: a valued key keeps its `=`, and the two forms coexist.
+    expect(router.href('/free-play/tel_marum', new URLSearchParams('tunnel&renderer=pixi'))).toBe(
+      '/free-play/tel_marum?tunnel&renderer=pixi'
+    );
+    // And the bare spelling round-trips: the flag is still `has`-able, which
+    // is the only question `readFlags` asks of it.
+    const back = new URLSearchParams(
+      new URL(router.href('/free-play/tel_marum', new URLSearchParams('tunnel&sur')), 'http://x').search
+    );
+    expect(back.has('tunnel')).toBe(true);
+    expect(back.has('sur')).toBe(true);
+  });
+
   it('navigate() disposes the current screen before mounting the next, and pushes history', async () => {
     const { router, log, disposed, stage } = makeRouter({ start: '/' });
     await router.start();

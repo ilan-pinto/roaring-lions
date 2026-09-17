@@ -995,3 +995,47 @@ describe('victory banner', () => {
     expect(banner.querySelector('.rl-bigbanner__aftermath')).toBeNull();
   });
 });
+
+/** The HUD mounts on `document.body` in the real app, not on the stage the
+ *  router clears -- so leaving a mission softly means the HUD has to take
+ *  itself off. These two mount on the body deliberately, rather than through
+ *  `rig()`'s scratch host, because "the body is back where it started" is the
+ *  actual claim. */
+describe('destroy', () => {
+  const bodyHud = (): Hud =>
+    new Hud(document.body, {
+      sim: makeSim().sim,
+      getSelection: () => [],
+      getMission: () => null,
+      hoverStructure: () => -1,
+      hoverEntity: () => -1,
+      gameVersion: '0.1',
+      commander: TEST_COMMANDER,
+    });
+
+  it('removes everything it put on the body, and can be called twice', () => {
+    const before = document.body.children.length;
+    const hud = bodyHud();
+    expect(document.body.children.length).toBeGreaterThan(before);
+    hud.destroy();
+    expect(document.body.children.length).toBe(before);
+    // Idempotent: a stale battlefield mount resolving onto an already-aborted
+    // route runs its disposer after the teardown that aborted it.
+    hud.destroy();
+    expect(document.body.children.length).toBe(before);
+  });
+
+  // `announce` mounts a title card that holds for up to five seconds and
+  // registers two window listeners and a timer to dismiss itself. Leaving a
+  // mission inside that window stranded all three on the document, because
+  // `announce` discarded the dismisser `titleCard` hands back.
+  it('takes a mid-hold title card down with it', () => {
+    const before = document.body.children.length;
+    const hud = bodyHud();
+    hud.announce('Beit Sahwan II', '2 primary objective(s)', 'Move out.');
+    expect(document.body.querySelector('.rl-titlecard')).not.toBeNull();
+    hud.destroy();
+    expect(document.body.querySelector('.rl-titlecard')).toBeNull();
+    expect(document.body.children.length).toBe(before);
+  });
+});

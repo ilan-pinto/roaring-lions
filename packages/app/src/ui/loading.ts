@@ -175,6 +175,20 @@ export interface LoadingScreen {
    * given are not swept off screen the instant the last sheet lands.
    */
   done(): Promise<void>;
+  /**
+   * Take the screen down without starting the mission, from outside.
+   *
+   * The battlefield's disposer owns this. `done()` parks on the player's click
+   * for as long as they care to read, so a router navigation that supersedes a
+   * half-booted mission would otherwise wait forever on a screen nobody is
+   * looking at any more -- and the mount it is blocking never resolves, so its
+   * own teardown never runs either. Disposing REJECTS a pending `done()` with
+   * an `AbortError`, which is the shape `bootBattlefield` rethrows and the
+   * router swallows for a stale mount.
+   *
+   * Idempotent, and safe before `done()` has ever been called.
+   */
+  dispose(): void;
 }
 
 export function showLoading(
@@ -210,8 +224,12 @@ export function showLoading(
    * back link renders under Deploy calling the same function; with nothing
    * supplied (a sandbox, which has no briefing to return from) Escape does
    * nothing and no link renders, same as any other key a long briefing is
-   * scrolled with. `main.ts` passes `() => window.location.assign('?campaign')`
-   * for a mission and omits this for a sandbox.
+   * scrolled with. `main.ts` passes `() => req.navigate(routes.campaign())`
+   * for a mission and omits this for a sandbox -- a ROUTER navigation since
+   * the battlefield gained a real disposer, not the full page load
+   * (`window.location.assign('?campaign')`) this used to name. The screen is
+   * torn down here without settling `done()`; the abort that follows the
+   * navigation is what unparks whoever is awaiting it (`dispose()` above).
    */
   onBack?: () => void
 ): LoadingScreen {
@@ -461,6 +479,17 @@ export function showLoading(
   };
   paint();
 
+  /** Whether `dispose()` has already run. `done()` after that point is a
+   *  mount still walking its own boot after being superseded, so it rejects
+   *  rather than putting a torn-down screen back on the player's expectations. */
+  let disposed = false;
+  /** The live `done()` promise's teardown and its rejection handle, lifted out
+   *  of that promise's closure so `dispose()` can reach both. Null whenever no
+   *  `done()` is outstanding -- before the first call, and after the deploy
+   *  button has resolved it. */
+  let pendingCleanup: (() => void) | null = null;
+  let pendingReject: ((err: unknown) => void) | null = null;
+
   return {
     total(n: number): void {
       expected = n;
@@ -471,7 +500,26 @@ export function showLoading(
       loaded += 1;
       paint();
     },
+    dispose(): void {
+      if (disposed) return;
+      disposed = true;
+      const reject = pendingReject;
+      // Takes the keydown listener off and removes `wrap`; a no-op if the
+      // player already deployed.
+      pendingCleanup?.();
+      pendingCleanup = null;
+      pendingReject = null;
+      // Also covers the case where `done()` was never called at all -- the
+      // mission was superseded while its sheets were still loading, so the
+      // screen is up but no promise is outstanding. `remove()` on an
+      // already-detached node is a no-op.
+      wrap.remove();
+      reject?.(new DOMException('loading screen disposed', 'AbortError'));
+    },
     done(): Promise<void> {
+      if (disposed) {
+        return Promise.reject(new DOMException('loading screen disposed', 'AbortError'));
+      }
       if (!holds) {
         wrap.remove();
         return Promise.resolve();
@@ -493,7 +541,7 @@ export function showLoading(
       // because the mission never starts and the page is about to navigate
       // away under it. With nowhere to go back to, Escape does nothing, same
       // as any other key a long briefing is scrolled with.
-      return new Promise<void>((resolve) => {
+      return new Promise<void>((resolve, reject) => {
         let gone = false;
         const cleanup = (): void => {
           if (gone) return;
@@ -501,6 +549,11 @@ export function showLoading(
           window.removeEventListener('keydown', onKey);
           wrap.remove();
         };
+        // Published so `dispose()` can tear this down from outside and unpark
+        // whoever is awaiting it. Cleared on every path that settles the
+        // promise, so a later `dispose()` cannot reject a resolved one.
+        pendingCleanup = cleanup;
+        pendingReject = reject;
         // The one path out that does NOT start the mission -- shared by
         // Escape and the back link (fix round 1), so both tear the screen
         // down the same way rather than the link bypassing `cleanup()`.
@@ -514,8 +567,18 @@ export function showLoading(
         };
         deploy.addEventListener('click', () => {
           cleanup();
+          // Settled: a later `dispose()` (the ordinary battlefield teardown,
+          // minutes into the mission) must not reject a promise the player
+          // already answered. Rejecting a settled promise is a no-op in JS, so
+          // this is for the reader rather than the runtime.
+          pendingCleanup = null;
+          pendingReject = null;
           resolve();
         });
+        // `goBack` deliberately does NOT clear these: it tears the screen down
+        // without settling the promise, so whoever is awaiting `done()` is
+        // still parked, and the abort that follows the navigation is what
+        // unparks them.
         back?.addEventListener('click', goBack);
         window.addEventListener('keydown', onKey);
         deploy.focus();

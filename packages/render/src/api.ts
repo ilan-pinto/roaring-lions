@@ -239,6 +239,28 @@ export interface Renderer {
    */
   onMissionEvents?(events: readonly MissionEvent[]): void;
 
+  /**
+   * Release everything this backend holds: the GPU context, the geometries and
+   * materials it allocated, and any observer it registered on the canvas.
+   *
+   * Called by `bootBattlefield`'s disposer when a mission is LEFT rather than
+   * when the document goes away -- which is a thing the shell can do since the
+   * router landed, and could not before. Without it, walking in and out of
+   * three missions strands three WebGL contexts, and a browser hands out a
+   * bounded number of them.
+   *
+   * OPTIONAL for the same reason `onMissionEvents` is, and the precedent is
+   * deliberate: `ThreeRenderer` implements it, and PixiRenderer's file is
+   * under a freeze (CLAUDE.md, "renderer.ts must stay byte-identical to
+   * main"), so declaring it as required would either break the build or force
+   * an edit this task has no mandate for. `main.ts` calls it as `?.()`, so the
+   * compiler rather than a grep keeps the app honest -- and a Pixi battlefield
+   * therefore still leaks its context on a soft leave. Recorded rather than
+   * hidden; closing it means unfreezing that file, which is someone's
+   * deliberate call to make.
+   */
+  dispose?(): void;
+
   // --- the surface itself
   /** The element to attach input listeners to. Callers must not ask which
    *  graphics library made it. */

@@ -28,6 +28,7 @@
     "encode:meshes": "pnpm --filter @lions/tools encode:meshes",
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
+    "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "plate:capture": "pnpm --filter @lions/tools plate:capture",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes"
   },

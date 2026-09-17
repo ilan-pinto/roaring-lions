@@ -808,6 +808,7 @@ async function main(): Promise<void> {
             sandboxMap: req.params.map,
             query: req.query,
             signal: req.signal,
+            navigate: (href, opts) => void router.navigate(href, opts),
           }),
       },
       {
@@ -819,6 +820,7 @@ async function main(): Promise<void> {
             sandboxMap: null,
             query: req.query,
             signal: req.signal,
+            navigate: (href, opts) => void router.navigate(href, opts),
           }),
       },
       // Reserved for Phase 1's briefing screen. Until that exists the path is
@@ -850,13 +852,19 @@ async function main(): Promise<void> {
 }
 
 /** What `bootBattlefield` needs off the URL, already resolved by the router:
- *  a mission id or a sandbox map (never both), the residual query, and the
- *  signal that goes off when a later navigation wins the race. */
+ *  a mission id or a sandbox map (never both), the residual query, the signal
+ *  that goes off when a later navigation wins the race, and the one way out. */
 export interface BattlefieldRequest {
   missionId: string | null;
   sandboxMap: string | null;
   query: URLSearchParams;
   signal: AbortSignal;
+  /** Leave the battlefield. A ROUTER navigation, not `window.location.assign`:
+   *  the exits below go through this so the shell keeps one JS realm across a
+   *  mission boundary, which is the whole point of the disposer beneath it.
+   *  Passed in rather than closed over so `bootBattlefield` stays a function of
+   *  its request and the router stays `main()`'s business. */
+  navigate: (href: string, opts?: { replace?: boolean; force?: boolean }) => void;
 }
 
 /**
@@ -865,11 +873,19 @@ export interface BattlefieldRequest {
  * the boundary is what lets the shell mount a battlefield as one screen among
  * several rather than as the end of boot.
  *
- * The returned disposer is a NO-OP for now, and in-mission exits are still
- * full navigations (`window.location.assign(routes.campaign())`). The real
- * teardown -- the frame loop, the HUD and minimap on `document.body`, the
- * listeners -- is the next task's, and until it lands nothing may navigate
- * softly out of here.
+ * The returned disposer really tears the battlefield down: the frame loop, the
+ * renderer's GPU context, every window listener and timer below, and the HUD,
+ * minimap, overlay, marquee, tutorial panel, end screen and debrief that mount
+ * on `document.body` rather than on the stage the router clears. Exits are
+ * router navigations now, so leaving a mission and entering another one is one
+ * JS realm and no page load -- which `pnpm ui:routes` is the standing proof of.
+ *
+ * Two rules for anything added in here. Register its teardown with
+ * `onDispose(...)` at the point it is CREATED, not in a list at the bottom that
+ * drifts. And make the teardown idempotent and self-scoped -- a superseded
+ * mount's disposer can run after the next battlefield has started booting, so
+ * a teardown that reaches for something by name rather than by identity can
+ * take the wrong one down (see the `__lions` registration).
  */
 async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Promise<Disposer> {
   const params = req.query;
@@ -877,9 +893,85 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const { storage, boughtUnits, ownedTiers } = accountState();
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
-   *  has to. Collected here for the teardown Task 2 adds -- nothing reads them
-   *  yet, because nothing leaves a battlefield except a full navigation. */
+   *  has to. Collected here and drained by `teardown` below. */
   const screenDisposers: Disposer[] = [];
+
+  /** Every teardown this boot has registered, in creation order. Drained in
+   *  REVERSE by `teardown()`, so a thing is released before whatever it was
+   *  built on top of. */
+  const cleanup: Disposer[] = [];
+  const onDispose = (f: Disposer): void => {
+    cleanup.push(f);
+  };
+  /**
+   * Run every registered teardown, once.
+   *
+   * `splice(0)` empties the list as it takes it, so a second call -- and both
+   * happen, since an aborted boot tears down here and the router may still
+   * call the disposer it eventually gets back -- finds nothing to do. Each
+   * teardown is isolated: one that throws must not strand the rest, and a
+   * half-torn-down battlefield is what leaks a WebGL context.
+   */
+  const teardown = (): void => {
+    for (const f of cleanup.splice(0).reverse()) {
+      try {
+        f();
+      } catch (err) {
+        console.error('battlefield teardown:', err);
+      }
+    }
+  };
+  /** Bail out of a boot that has been superseded. The `AbortError` shape is
+   *  what `Router.mountLocation` swallows for a stale mount; anything else
+   *  would print a boot failure for a mission the player deliberately left. */
+  const abandon = (why: string): never => {
+    teardown();
+    throw new DOMException(why, 'AbortError');
+  };
+  onDispose(() => {
+    for (const d of screenDisposers.splice(0)) d();
+  });
+  /**
+   * `window.addEventListener`, with the removal registered in the same
+   * statement.
+   *
+   * Every listener this function puts on `window` outlives the battlefield
+   * unless something takes it off -- `window` is not the stage, and the router
+   * cannot clear it. Writing the add and the remove apart is how one of them
+   * goes missing, so they are one call here and the listener's own identity is
+   * captured rather than re-derived from a name.
+   *
+   * Listeners on `canvas` are deliberately NOT routed through this: the canvas
+   * is the renderer's, it is a child of the stage the router replaces, and it
+   * is unreachable and collectable the moment `renderer.dispose()` and that
+   * replacement have run.
+   */
+  const onWindow = <K extends keyof WindowEventMap>(
+    type: K,
+    fn: (ev: WindowEventMap[K]) => void,
+    opts?: AddEventListenerOptions
+  ): void => {
+    window.addEventListener(type, fn, opts);
+    onDispose(() => window.removeEventListener(type, fn, opts));
+  };
+  /** The same shape for `req.signal`. Used for the one teardown that has to
+   *  happen BEFORE this function returns its disposer -- see the loading
+   *  screen below, which is the only thing that can park the boot
+   *  indefinitely. `once` so it is a single shot; also removed by the ordinary
+   *  teardown, so a mission played to its end leaves nothing on the signal.
+   *
+   *  An ALREADY-aborted signal never fires `abort` again, so it is answered
+   *  inline instead. Reachable: several awaits sit between this function's
+   *  first line and the registration below, and a navigation during any of
+   *  them aborts the signal before this listener exists. */
+  const onAbort = (signal: AbortSignal, fn: () => void): void => {
+    if (signal.aborted) {
+      fn();
+      return;
+    }
+    signal.addEventListener('abort', fn, { once: true });
+    onDispose(() => signal.removeEventListener('abort', fn));
+  };
 
   const missionId = req.missionId;
   let mission: MissionJson | undefined;
@@ -887,7 +979,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!mission) {
       bootError(stage, `Unknown mission "${missionId}"`, 'This link points at a mission that does not exist in this build.');
-      return () => {};
+      // `teardown`, not a fresh no-op: nothing has been registered yet, so it
+      // does nothing today -- but an early return that opts OUT of the teardown
+      // is how the next registration added above this line goes unreleased.
+      return teardown;
     }
   }
   const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
@@ -1473,10 +1568,34 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined,
     resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined,
     // A sandbox has no briefing to go back to -- only a real mission gets an
-    // Escape/back edge (task 6).
-    mission ? () => window.location.assign(routes.campaign()) : undefined
+    // Escape/back edge (task 6). A router navigation now, not a page load:
+    // this is the earliest soft exit from a battlefield, and it fires while
+    // this very function is still parked on `loading.done()` below.
+    mission ? () => req.navigate(routes.campaign()) : undefined
   );
+  onDispose(() => loading.dispose());
+  // The one teardown that cannot wait for this function to return.
+  //
+  // `loading.done()` parks on the player's click for as long as they care to
+  // read. A navigation that supersedes this boot aborts `req.signal` (the
+  // router's `unmount()` aborts an in-flight mount, not just a mounted one) --
+  // but the disposer it would run is the value this function has not returned
+  // yet, so nothing would unpark the await and the mount would hang forever
+  // holding a renderer. Disposing the screen from the signal rejects that
+  // parked promise with an `AbortError`; the `catch` below does the rest.
+  //
+  // Registered with `once` so it is a single shot, and removed by the ordinary
+  // teardown so a mission played to its end leaves nothing on the signal.
+  onAbort(req.signal, () => loading.dispose());
   await renderer.init(stage);
+  // `ThreeRenderer` holds a WebGL context, a 4096 shadow map, every geometry
+  // and material for the map, and a ResizeObserver on the canvas. A browser
+  // hands out a bounded number of contexts, so walking in and out of missions
+  // without this is a session that stops drawing after a handful of them.
+  // Optional on the seam (`api.ts`): PixiRenderer's file is frozen and
+  // implements nothing, so a Pixi battlefield still leaks here.
+  onDispose(() => renderer.dispose?.());
+  if (req.signal.aborted) abandon('left while the renderer was starting');
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
   // Load sprite sheets for unit types that have rendered art (non-blocking).
@@ -1641,7 +1760,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // Waits for the player when there are orders to read; resolves at once when
   // there are none, which is every sandbox and the tutorial.
-  await loading.done();
+  //
+  // The one await in this function that can park indefinitely, so it is the
+  // one with a catch: the signal listener above disposes the screen when this
+  // boot is superseded, which rejects this promise with an `AbortError` rather
+  // than leaving the mount hanging. Anything else that comes out of here is a
+  // genuine boot failure and is rethrown untouched -- after the teardown, so a
+  // failed boot does not strand a renderer either.
+  try {
+    await loading.done();
+  } catch (err) {
+    teardown();
+    throw err;
+  }
+  if (req.signal.aborted) abandon('left before deploy');
 
   // The art the game may still need but nobody is waiting for -- a mesh
   // vehicle's wreck sprite, a deferred buildable's billboard fallback, and
@@ -1817,8 +1949,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     toggleMute: () => {
       audioMuted = audio.toggle();
     },
-    leave: () => window.location.assign(routes.campaign()),
+    // The in-mission exit, behind the strip's confirm dialog. A router
+    // navigation since this task: the campaign screen mounts into the same
+    // document, and the disposer registered below is what makes that safe --
+    // before it, a soft leave left the HUD, the minimap and the frame loop
+    // running over whatever screen came next.
+    leave: () => req.navigate(routes.campaign()),
   });
+  // Six panes on `document.body`, plus a title card that may still be holding.
+  onDispose(() => hud.destroy());
   // The minimap (GH-153). Mounted here rather than inside the Hud because it
   // needs three things the Hud deliberately does not carry -- the parsed map,
   // the renderer, and this map's terrain tones -- and threading all three
@@ -1839,6 +1978,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
   });
+  // Also on the body, and it carries its own pointer listeners and canvas.
+  onDispose(() => minimap.destroy());
   // Loud, not a console.warn behind a completed loading bar: `failedArt`
   // (collected above, before the HUD existed to report through) names every
   // structure or unit type whose art never loaded. One notice for the whole
@@ -1865,6 +2006,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   };
   // The instrument, off by default now that the HUD is not built on top of it.
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, __GAME_VERSION__);
+  // Two panes on the body -- the status pane and the roll feed -- whether or
+  // not the instrument was ever opened.
+  onDispose(() => overlay.destroy());
   // DebugOverlay does not expose its own visibility, so the intent that
   // reports it is tracked here, kept in lockstep with every `toggle()` call.
   let overlayOn = false;
@@ -1957,7 +2101,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Left drag = box select; a short click = single select.
   const dragBox = document.createElement('div');
   dragBox.className = 'rl-marquee';
+  // On the BODY, not the stage -- it is positioned in client coordinates
+  // against the canvas's bounding rect -- so the router cannot clear it and
+  // this has to.
   document.body.appendChild(dragBox);
+  onDispose(() => dragBox.remove());
   let dragStart: { x: number; y: number } | null = null;
   /** Last cursor position over the map, for keyboard-issued orders. */
   const lastCursor = { x: 0, y: 0 };
@@ -1998,6 +2146,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     animName = null;
   };
+  // A `setInterval` outlives the document's attention span, not just the
+  // frame loop: left running it writes `data-cursor-frame` to a detached
+  // canvas several times a second for the rest of the session.
+  onDispose(stopCursorAnim);
   const ensureCursorAnim = (name: CursorName): void => {
     const anim = ANIMATED_CURSORS[name];
     if (!anim) {
@@ -2055,6 +2207,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         renderer.clearTutorialFocus();
       },
     });
+    // Also on the body. `destroy()` is idempotent-by-nulling here: whichever
+    // of Skip and the teardown runs first leaves the other with nothing.
+    onDispose(() => {
+      tutPanel?.destroy();
+      tutPanel = null;
+    });
     intentListeners.push((intent) => {
       if (!tut) return;
       tut = advance(tut, { kind: 'intent', intent }, performance.now());
@@ -2064,7 +2222,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   canvas.addEventListener('pointerdown', (ev) => {
     if (ev.button === 0) dragStart = canvasXY(ev);
   });
-  window.addEventListener('pointermove', (ev) => {
+  onWindow('pointermove', (ev) => {
     // Position and modifier state only. The hover work this used to do
     // inline — screenToWorld, structureAt, the garrison check, and the O(N)
     // entity scan — moved to the ticker (below), which runs it once per
@@ -2084,7 +2242,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     dragBox.style.width = `${Math.abs(p.x - dragStart.x)}px`;
     dragBox.style.height = `${Math.abs(p.y - dragStart.y)}px`;
   });
-  window.addEventListener('pointerup', (ev) => {
+  onWindow('pointerup', (ev) => {
     if (ev.button !== 0 || !dragStart) return;
     const p = canvasXY(ev);
     const moved = Math.hypot(p.x - dragStart.x, p.y - dragStart.y);
@@ -2231,8 +2389,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const groups = new Map<number, number[]>();
   let lastGroupKey = -1;
   let lastGroupAt = 0;
-  window.addEventListener('blur', () => keys.clear());
-  window.addEventListener('keydown', (ev) => {
+  onWindow('blur', () => keys.clear());
+  onWindow('keydown', (ev) => {
     // macOS swallows keyups released under Cmd — never track modified keys,
     // or Cmd+A leaves 'a' stuck and the camera pans forever.
     if (!ev.metaKey && !ev.ctrlKey) keys.add(ev.key.toLowerCase());
@@ -2325,7 +2483,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
     }
   });
-  window.addEventListener('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
+  onWindow('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const z = renderer.camera.zoom * (ev.deltaY > 0 ? 0.9 : 1.1);
@@ -2773,6 +2931,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
     },
   });
+  /**
+   * Take the dev hook off on the way out -- `window` is not the stage, so
+   * nothing else would, and a `__lions` pointing at a disposed renderer and a
+   * frozen sim is worse than none: `__lions.step()` on it draws into a lost
+   * context. `pnpm ui:routes` asserts its absence after a leave, which is the
+   * cheapest single question that distinguishes "the battlefield went away"
+   * from "the battlefield is still running behind the screen you can see".
+   *
+   * Deleted BY IDENTITY, not by name. A superseded mount's disposer can run
+   * after the next battlefield has already installed its own hook, and a bare
+   * `delete window.__lions` would take that one down instead -- leaving a live
+   * mission with no console API and no error to say why.
+   */
+  const lionsHandle = (window as unknown as Record<string, unknown>).__lions;
+  onDispose(() => {
+    const w = window as unknown as Record<string, unknown>;
+    if (w.__lions === lionsHandle) delete w.__lions;
+  });
 
   /** The hover read: pointer position -> resolver -> cursor name -> DOM.
    *
@@ -2956,18 +3132,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     updateHover();
   };
   rafId = requestAnimationFrame(loop);
-  // Nothing reads `rafId` yet: this function's disposer is still a no-op, so
-  // the loop stops only when the document does. It exists so the loop's
-  // self-re-request has somewhere to land, and is voided so lint does not
-  // report a variable that is only ever written. Task 2's teardown is what
-  // finally cancels it -- it is a local of THIS function now rather than of
-  // `main()`, which is most of what that task needed.
-  void rafId;
+  // The load-bearing line of this whole teardown, and the one the route walk
+  // is calibrated against: without it the loop re-requests itself forever,
+  // ticking the sim and drawing into a disposed renderer from behind whatever
+  // screen the player went to. `pnpm ui:routes` was run with exactly this line
+  // commented out and fails on the console errors that produces, which is what
+  // makes its green run evidence rather than an assumption.
+  //
+  // `requestAnimationFrame` above is deliberately left as the bare global so
+  // `capture-protocol.ts`'s `FREEZE_FRAME_LOOP_STATEMENTS` can still stop the
+  // loop by replacing `window.requestAnimationFrame` -- the golden gate's
+  // whole settle depends on that, and a captured local would be invisible to
+  // it. `cancelAnimationFrame` is the global for the same reason.
+  onDispose(() => cancelAnimationFrame(rafId));
 
-  // Task 2 replaces this with the real teardown. Until then a battlefield is
-  // only ever left by a full navigation, so there is nothing for the router to
-  // take down that the page load does not.
-  return () => {};
+  return teardown;
 }
 
 main().catch((err: unknown) => {

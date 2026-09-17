@@ -16,6 +16,7 @@
     "encode:meshes": "tsx src/meshes/encode-meshes.ts",
     "wreck:meshes": "tsx src/meshes/wreck-pass.ts",
     "ui:shots": "tsx src/ui-review/shoot.ts",
+    "ui:routes": "tsx src/ui-review/routes-check.ts",
     "plate:capture": "tsx src/perf/plate-capture.ts",
     "gait:meshes": "tsx src/meshes/gait-pass.ts"
   },

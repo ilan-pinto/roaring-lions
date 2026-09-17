@@ -229,6 +229,19 @@ export class Hud {
   private lastStatus = new Map<string, string>();
   private lastRoe: number | null = null;
 
+  /** Everything this HUD put directly on `host`, in append order, so
+   *  `destroy()` has one list to walk rather than a hand-kept set of field
+   *  names that goes stale the next time a pane is added. Filled at the single
+   *  `host.append(...)` in the constructor. */
+  private readonly roots: HTMLElement[] = [];
+
+  /** The live title card's own dismisser (`titleCard` in `motion.ts`), held
+   *  rather than discarded: the card registers two window listeners and a
+   *  timer to take itself down, and holds for up to five seconds with
+   *  `dispatch`. Leaving a mission inside that window has to cancel all
+   *  three. Null whenever no card is up. */
+  private dismissTitle: (() => void) | null = null;
+
   constructor(
     private readonly host: HTMLElement,
     private readonly deps: HudDeps
@@ -301,7 +314,12 @@ export class Hud {
     // it is the one control here that ends the attempt.
     const leaveBtn = document.createElement('button');
     leaveBtn.type = 'button';
-    leaveBtn.className = 'rl-strip__link';
+    // `rl-strip__link` styles it; `rl-hud__leave` names it. The second class
+    // carries no CSS at all and exists so an instrument can find the one
+    // control that ends the attempt -- `tools/src/ui-review/routes-check.ts`
+    // clicks it to walk a mission's exit. Styling it by the same hook the
+    // walk selects on would make a restyle silently break the walk.
+    leaveBtn.className = 'rl-strip__link rl-hud__leave';
     leaveBtn.textContent = '⌂ leave';
     leaveBtn.title = 'leave the mission';
     leaveBtn.addEventListener('click', () => {
@@ -504,14 +522,39 @@ export class Hud {
     this.banner.className = 'rl-bigbanner';
     this.banner.style.display = 'none';
 
-    host.append(
-      this.strip,
-      this.cmd,
-      this.clock,
-      this.sel,
-      this.fire,
-      this.banner
-    );
+    // The six panes this HUD owns on the host. Recorded as they are appended
+    // -- `destroy()` walks `roots`, so a seventh pane added here is torn down
+    // by construction rather than by remembering to name it twice.
+    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.banner);
+    host.append(...this.roots);
+  }
+
+  /**
+   * Take the HUD off the host.
+   *
+   * The HUD mounts on `document.body` in `main.ts`, not on the stage the
+   * router clears between screens, so leaving a mission softly strands all six
+   * panes unless the battlefield's own disposer says otherwise -- which is
+   * exactly what was measured before this: the strip and the minimap survived
+   * a Back out of a battlefield and sat over the screen underneath.
+   *
+   * Idempotent. `Element.remove()` on an already-detached node is a no-op, and
+   * a stale battlefield mount resolving onto an aborted route runs its
+   * disposer after the teardown that aborted it.
+   *
+   * The button listeners go with their buttons: nothing here is registered on
+   * `window` or `document` except through `titleCard`, which is why that one
+   * is dismissed explicitly.
+   */
+  destroy(): void {
+    this.dismissTitle?.();
+    this.dismissTitle = null;
+    // `titleCard`'s dismisser fades over 250 ms before removing the node, so
+    // the card is still on the host when this returns. Teardown has to be
+    // synchronous -- the router mounts the next screen immediately -- so the
+    // element is taken off here rather than waited for.
+    for (const card of this.host.querySelectorAll('.rl-titlecard')) card.remove();
+    for (const root of this.roots) root.remove();
   }
 
   /**
@@ -540,7 +583,10 @@ export class Hud {
    *  present, it holds the card for a full read (`titleCard`'s own
    *  default); absent, the card behaves exactly as it always has. */
   announce(name: string, subtitle: string, dispatch?: string): void {
-    titleCard(this.host, name, subtitle, dispatch);
+    // Any previous card goes first, so its window listeners and timer are
+    // released rather than left running against a node about to be covered.
+    this.dismissTitle?.();
+    this.dismissTitle = titleCard(this.host, name, subtitle, dispatch);
   }
 
   /**

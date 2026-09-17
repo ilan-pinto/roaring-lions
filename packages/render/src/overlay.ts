@@ -79,6 +79,26 @@ export class DebugOverlay {
     this.right.style.display = this.visible ? 'block' : 'none';
   }
 
+  /**
+   * Take both panes off the host.
+   *
+   * The overlay mounts on `document.body` in `main.ts`, not on the stage the
+   * router clears between screens, so leaving a mission softly leaves these
+   * behind unless the battlefield's own disposer says otherwise. TWO roots,
+   * not one: the status pane on the left and the roll feed on the right are
+   * separate elements with separate `host.appendChild` calls above.
+   *
+   * Idempotent — `Element.remove()` on an already-detached node is a no-op,
+   * and the battlefield disposer can run after a teardown that already
+   * happened (a stale mount resolving onto an aborted route). Nothing else is
+   * released because nothing else is held: the overlay registers no listeners
+   * and no timers, and `grind` dies with the instance.
+   */
+  destroy(): void {
+    this.left.remove();
+    this.right.remove();
+  }
+
   onTick(events: SimEvent[]): void {
     if (!this.visible) return;
     for (const e of events) this.pushEvent(e);

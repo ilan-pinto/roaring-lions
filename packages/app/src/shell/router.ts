@@ -116,6 +116,31 @@ export function legacyRedirect(search: string): { path: string; query: URLSearch
   return null;
 }
 
+/**
+ * `URLSearchParams.toString()`, except that a value-less key renders BARE.
+ *
+ * `toString()` spells an empty value as `tunnel=`, and the sandbox flags are
+ * value-less by design: `routes.sandbox()` writes `?tunnel&sur`, `sandboxHelp()`
+ * prints `&sur`, CLAUDE.md's examples say `&sur`, and `readFlags` asks `has`.
+ * Without this, clicking a picker link whose own `href` says `?tunnel&sur`
+ * left `?tunnel=&sur=` in the address bar -- the same URL, in a second
+ * spelling, which is exactly the drift `shell/links.ts` exists to prevent.
+ *
+ * Built per pair through `URLSearchParams` rather than `encodeURIComponent`
+ * so a key or value with a `&`, `=` or space is escaped by the same rules
+ * `toString()` would have used; only the trailing `=` of an empty value is
+ * dropped. Both spellings parse back identically, so this changes what the
+ * player SEES and nothing about what the app reads.
+ */
+function queryString(query: URLSearchParams): string {
+  return [...query]
+    .map(([k, v]) => {
+      const pair = new URLSearchParams([[k, v]]).toString();
+      return v === '' ? pair.slice(0, -1) : pair;
+    })
+    .join('&');
+}
+
 interface Mounted {
   req: RouteRequest;
   dispose: Disposer;
@@ -158,7 +183,7 @@ export class Router {
 
   href(path: string, query?: URLSearchParams): string {
     const p = path.startsWith('/') ? path.slice(1) : path;
-    const qs = query && [...query.keys()].length > 0 ? `?${query.toString()}` : '';
+    const qs = query && [...query.keys()].length > 0 ? `?${queryString(query)}` : '';
     return `${this.base}${p}${qs}`;
   }
 
