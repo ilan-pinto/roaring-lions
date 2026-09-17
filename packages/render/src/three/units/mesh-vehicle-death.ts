@@ -205,7 +205,19 @@ export function stepVehicleDeath(
     const action = d.wreckAction;
     advanceMeshClipFades(d.entity, dtSeconds);
     if (mixer) mixer.update(dtSeconds);
-    if (!action || !action.paused) return 'fading';
+    // Ruling 10 (C1, mirrored for symmetry with `mesh-death.ts`'s settling
+    // branch): also require every in-flight crossfade to have finished
+    // before handing back a `MeshWreck`. Inert today -- a vehicle's death
+    // always CUTS onto `wreck` (`stepVehicleDeath`'s own `applyMeshClip(...,
+    // { once: true })` call below carries no `cut` option, but a fresh
+    // entity's `currentClip` is always non-null by the time this runs, and
+    // `mesh-anim.ts`'s exporters give every vehicle GLB an `idle` -> `wreck`
+    // scale-signature change, which `transitionIsCut` already treats as a
+    // cut, so `player.fades` is always empty here) -- but a future recipe
+    // that blends a vehicle onto its wreck would hit the identical freeze
+    // `mesh-death.ts` had, and this guard is the same one line cheaper than
+    // re-discovering it.
+    if (!action || !action.paused || d.entity.fades.size > 0) return 'fading';
 
     // The clip has clamped: every live node is at scale 0 and the death root
     // at 1. Hiding the live nodes is what actually removes them from the

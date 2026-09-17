@@ -182,9 +182,23 @@ export function applyMeshClip(
     }
     player.fades.set(name, { from: w, to: 0, t: 0 });
   }
-  const resuming = next.isRunning();
+  // M1: `isRunning()`, not `isScheduled()` -- a paused-but-still-scheduled
+  // once-action (a finished `down`/`wreck` still holding its last frame,
+  // `isRunning() === false` per `AnimationAction.js`) re-selected mid-fade-out
+  // would otherwise be treated as "not resuming", reset to t=0 and started
+  // from weight 0 -- dropping the summed weight below 1 for a few frames
+  // (blending a Meshy biped toward its own T-pose) rather than resuming from
+  // whatever weight the fade-out loop above just gave it. `isScheduled()`
+  // (`mixer._isActiveAction(this)`) is true for both the running and the
+  // paused-and-held case, matching the identical reasoning this function's
+  // own top comment already applies to the OTHER actions in the fade-out
+  // loop. Not reachable by any shipped clip today (every once-clip that could
+  // be re-selected mid-fade is also a cut by `transitionIsCut`'s scale-change
+  // rule) -- closed anyway, since a future blend-eligible once-clip would hit
+  // it silently.
+  const resuming = next.isScheduled();
   const startWeight = resuming ? next.getEffectiveWeight() : 0;
-  if (!resuming) next.reset();
+  if (!resuming || next.paused) next.reset();
   next.setEffectiveWeight(startWeight);
   next.play();
   player.fades.set(resolved, { from: startWeight, to: 1, t: 0 });

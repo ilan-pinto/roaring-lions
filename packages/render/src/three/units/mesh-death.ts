@@ -43,7 +43,9 @@
  * A body with no authored fall and no already-down match does not simply
  * play a static `down` pose and fade (the pre-D5 behaviour) -- each
  * currently-live figure root (`liveFigureRoots`: a parentless bone at scale
- * 1, the kit/Meshy convention the scale-swap already relies on) pitches 90
+ * 1 WITH a bone of its own riding on it -- Ruling 11, see that function's own
+ * doc comment -- the kit/Meshy convention the scale-swap already relies on)
+ * pitches 90
  * degrees over `TOPPLE_SECONDS`, about the horizontal line through the
  * ground point beneath ITS OWN origin -- never the entity root -- so a
  * figure's feet never move while its body falls. Multiple figures (a mortar
@@ -341,17 +343,42 @@ export function toppleDirection(entity: MeshUnitEntity, killer: KillerRef | null
   return new THREE.Vector3(1, 0, 0).applyAxisAngle(UP, entity.root.rotation.y).negate();
 }
 
-/** Every parentless bone currently at scale 1: a kit `{prefix}_root`, a
- *  Meshy `Hips`, `m_root` on the motorcycle. Sorted by name for a stable
- *  stagger order. Structural, not by name -- the contract forbids the
- *  runtime depending on bone names. */
+/** Every parentless bone currently at scale 1 WITH AT LEAST ONE BONE CHILD:
+ *  a kit `{prefix}_root`, a Meshy `Hips`, `m_root` on the motorcycle. Sorted
+ *  by name for a stable stagger order. Structural, not by name -- the
+ *  contract forbids the runtime depending on bone names.
+ *
+ *  Ruling 11 (I1): "every parentless bone at scale 1" also matched things
+ *  that are not figures at all -- `rig.py`'s `_prop_bone` (a deployed
+ *  weapon/tripod/spoil-heap mount, parentless, scale 1 in every LIVING clip),
+ *  `_digger_extras`' `ground` bone, and the Blender exporter's own
+ *  auto-inserted `neutral_bone` (parentless, scale 1, keyed by no clip at
+ *  all). Measured toppling every one of those on five shipped rigs
+ *  (`demo_squad`, `at_team`, `atgm_cell`, `mortar_crew`, `digger_crew`): a
+ *  spoil heap tipping 90 degrees and snapping back at the wreck swap, a
+ *  deployed tube/tripod/charge falling with its crew then vanishing, and a
+ *  `neutral_bone` never restored at all (half the corpse's vertices left
+ *  pitched 90 degrees permanently). The fix is structural rather than a name
+ *  denylist, matching the contract's own "never depend on bone names" rule:
+ *  every one of those mounts is a LEAF (no bone rides on it), while every
+ *  figure root the kit/Meshy convention builds has a spine -- at least one
+ *  Bone child -- riding on it. Contract v4 states the rule this function
+ *  implements.
+ *
+ *  Break check (verified by hand, then reverted): drop the `hasBoneChild`
+ *  term. `mesh-team-death-shipped.test.ts`'s shipped-bytes sweep then finds
+ *  `prop`/`ground`/`neutral_bone` among the returned names on the five files
+ *  above and goes red. */
 export function liveFigureRoots(root: THREE.Object3D): THREE.Bone[] {
   const out: THREE.Bone[] = [];
   root.traverse((o) => {
     const b = o as THREE.Bone;
     if (!b.isBone) return;
     if ((b.parent as THREE.Bone | null)?.isBone) return;
-    if (b.scale.x > LIVE_SCALE) out.push(b);
+    if (b.scale.x <= LIVE_SCALE) return;
+    const hasBoneChild = b.children.some((c) => (c as THREE.Bone).isBone);
+    if (!hasBoneChild) return;
+    out.push(b);
   });
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -495,8 +522,15 @@ export function beginMeshDeath(entity: MeshUnitEntity, entityId: number = 0, kil
   // "Already down": the living clip shows the corpse geometry (equal scale
   // signatures -- the sniper on overwatch). Nothing to topple; straight to
   // the wreck, blending or cutting by D2.
+  //
+  // M4: guard on `available.has(pick.wreck)`, not the literal `'wreck'` --
+  // `startWreck` plays whichever of `wreck`/`wreckAlt` `pickDeathClips`
+  // picked, so a file whose picked variant is `wreckAlt` (and which has no
+  // plain `wreck` at all -- none shipped, but not excluded by the contract)
+  // would otherwise read `available.has('wreck')` as false and fall through
+  // to the topple for a body already lying in `wreckAlt`'s own pose.
   if (
-    available.has('wreck') &&
+    available.has(pick.wreck) &&
     entity.currentClip !== null &&
     entity.clipScale.get(entity.currentClip) === entity.clipScale.get(pick.wreck)
   ) {
@@ -638,7 +672,33 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
     advanceMeshClipFades(d.entity, dtSeconds);
     d.entity.mixer.update(dtSeconds);
     if (d.topple) yawCorpseRoots(d.entity, d.topple);
-    if (!action || !action.paused) return 'fading';
+    // Ruling 10 (C1): `action.paused` alone flips true on the THIRD frame of
+    // a blend-in, not at its end -- three.js's own `LoopOnce` +
+    // `clampWhenFinished` clamps `.paused` off the wreck CLIP's own duration,
+    // which for every kit-convention `wreck` (a two-frame hold, 0.0417 s)
+    // elapses long before the 150 ms `MESH_CLIP_FADE_SECONDS` weight ramp
+    // this same `startWreck(d, false)` call started (D2's blend-or-cut
+    // choice for the wreck handoff). Returning the `MeshWreck` at that point
+    // freezes the crossfade one third of the way through, permanently: the
+    // `DyingMeshUnit` is dropped here and nothing ever calls
+    // `advanceMeshClipFades`/`mixer.update` on this entity again, so the
+    // wreck's own effective weight (and whatever it was fading in FROM,
+    // still holding weight too) never reaches its intended value. Requiring
+    // `d.entity.fades.size === 0` too keeps the blend (or cut, when D2 chose
+    // one) running to genuine completion before the corpse is handed off --
+    // a mortar team's 150 ms kneel-to-prone slump plays out in full instead
+    // of freezing at idle=0.667/wreck=0.333 forever. Cut transitions never
+    // populate `fades` at all (`applyMeshClip`'s `cut` branch calls
+    // `player.fades.clear()`), so this is a no-op there and only ever delays
+    // the already-topple-forced-cut settle path when some OTHER fade is
+    // still live for an unrelated reason.
+    //
+    // Break check (verified by hand, then reverted): drop the
+    // `|| d.entity.fades.size > 0` term. `mesh-death.test.ts`'s "the wreck
+    // handoff blend completes before the MeshWreck is built" test then goes
+    // red: the returned `MeshWreck` root's wreck action reads an
+    // intermediate effective weight (~0.333) instead of exactly 1.
+    if (!action || !action.paused || d.entity.fades.size > 0) return 'fading';
 
     // No `disposeMeshUnitEntity` here -- see this function's own doc
     // comment for why calling it would corrupt the very pose this branch
