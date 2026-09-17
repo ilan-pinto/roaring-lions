@@ -52,6 +52,7 @@ import {
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
+  applyUpgrades,
   DECOR,
   paletteColor,
   audioManifest,
@@ -521,6 +522,13 @@ async function main(): Promise<void> {
   // `resolveUpgrades`'s lookup and the debrief's `kdfUnits`.
   const storage = safeStorage();
   const boughtUnits = new Set(storage ? loadAccount(storage).unlocks : []);
+  // Per-unit, per-track tier bought, if any -- the pre-pass below patches
+  // each KDF unit type through `applyUpgrades` with exactly this before the
+  // sim ever registers it (spec 2026-09-15 §4.3, D5: the sim never learns a
+  // tier exists). No storage or an empty account is `{}`, and `applyUpgrades`
+  // treats an absent track as the identity, so that case registers the raw
+  // JSON unchanged -- today's behaviour.
+  const ownedTiers = storage ? loadAccount(storage).upgrades : {};
 
   // --- mode selection ------------------------------------------------------
   const params = new URLSearchParams(window.location.search);
@@ -799,7 +807,13 @@ async function main(): Promise<void> {
   }
 
   const typeOf = new Map<string, number>();
-  for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
+  for (const u of Object.values(units)) {
+    // Enemy units never go through the pre-pass -- only a KDF unit can carry
+    // a bought tier, and `unitInfo` (cost/gate lookup) below still reads the
+    // raw JSON, never this patched copy, because cost is not patchable.
+    const registered = u.faction === 'kdf' ? applyUpgrades(u, ownedTiers[u.id] ?? {}) : u;
+    typeOf.set(u.id, sim.addUnitType(registered));
+  }
 
   // Which ROE reasons have already been narrated, so the advice attached to a
   // protected-zone violation is offered once rather than on every cooldown
