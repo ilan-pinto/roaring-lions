@@ -220,7 +220,7 @@ import {
   type MeshUnitTemplate,
   type MeshUnitEntity,
 } from './units/mesh-unit';
-import { applyMeshClip } from './units/mesh-clip';
+import { advanceMeshClipFades, applyMeshClip } from './units/mesh-clip';
 import { pickMeshVariant } from './units/mesh-variant';
 import {
   meshYawFromFacing,
@@ -4623,6 +4623,7 @@ export class ThreeRenderer implements Renderer {
       // -- see `applyGaitRate`'s own doc comment -- so its legs are not
       // rate-matched at all.
       this.applyGaitRate(entity, template, anim, st.carriedBy[i] >= 0);
+      advanceMeshClipFades(entity, dtSeconds);
       entity.mixer.update(dtSeconds);
     }
 
@@ -5071,6 +5072,7 @@ export class ThreeRenderer implements Renderer {
         // Frame time, never sim time (invariant 1) -- `dtSeconds` is
         // `frameDtSeconds(dtMs)`, the same clamped real-time delta
         // `updateMeshUnits` advances infantry's mixer by.
+        advanceMeshClipFades(entity, dtSeconds);
         entity.mixer.update(dtSeconds);
       }
     }

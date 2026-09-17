@@ -137,6 +137,23 @@ export function buildFixtureGlb(opts: {
    * could not exercise the validation that is the point of reading it.
    */
   sceneExtras?: Record<string, unknown>;
+  /**
+   * Per clip, a constant scale to key on the root joint and on a third,
+   * PARENTLESS `death_root` joint -- the bone-scale swap every kit rig,
+   * the sniper, the Meshy mortar team and every vehicle use to switch
+   * geometry sets. Any clip named here gets two STEP scale channels; the
+   * `death_root` node and its third inverse-bind matrix exist only when
+   * this is non-empty, so every caller that omits it is byte-identical to
+   * before. Added for `mesh-clip.test.ts` (D2) and the topple tests.
+   */
+  scaleClips?: Record<string, { root: number; deathRoot: number }>;
+  /**
+   * Where the root joint (and `death_root`) stand, in metres -- default the
+   * origin. A topple pivots each figure about ITS OWN feet, and a fixture
+   * whose only figure stands on the entity origin cannot tell that apart
+   * from pivoting on the entity root. The inverse-bind matrices follow it.
+   */
+  rootOffset?: [number, number, number];
 }): ArrayBuffer {
   const extrasRole = opts.extrasRole === undefined ? opts.roleName : opts.extrasRole;
   const nameRole = opts.nameRole === undefined ? opts.roleName : opts.nameRole;
@@ -148,15 +165,33 @@ export function buildFixtureGlb(opts: {
   const joints = u16([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
   const weights = f32([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
   const indices = u16([0, 1, 2]);
-  // Column-major mat4 x2: bone0 (root) identity, bone1 translate(0,-1,0).
+  const off = opts.rootOffset ?? [0, 0, 0];
+  const scaleClips = opts.scaleClips ?? {};
+  const hasDeathRoot = Object.keys(scaleClips).length > 0;
+  // Column-major translate(x, y, z).
+  const tr = (x: number, y: number, z: number): number[] => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
+  // bone0 (root) at `off`; bone1 at `off + (0,1,0)`; death_root at `off`.
   const inverseBind = f32([
-    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
-    1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1,
+    ...tr(-off[0], -off[1], -off[2]),
+    ...tr(-off[0], -off[1] - 1, -off[2]),
+    ...(hasDeathRoot ? tr(-off[0], -off[1], -off[2]) : []),
   ]);
   const animInput = f32([0, clipSeconds]);
   // Quaternion (x,y,z,w): identity, then 90 deg about X.
   const HALF = Math.SQRT1_2;
   const animOutput = f32([0, 0, 0, 1, HALF, 0, 0, HALF]);
+  // One VEC3 pair (same value at both keys) per (clip, joint) scale channel.
+  const scaleParts: Uint8Array[] = [];
+  const scaleAccessorOf = new Map<string, number>();
+  for (const [clip, s] of Object.entries(scaleClips)) {
+    for (const [which, v] of [
+      ['root', s.root],
+      ['deathRoot', s.deathRoot],
+    ] as const) {
+      scaleAccessorOf.set(`${clip}:${which}`, 8 + scaleParts.length);
+      scaleParts.push(f32([v, v, v, v, v, v]));
+    }
+  }
 
   const { bytes, views } = packBufferViews([
     position,
@@ -167,6 +202,7 @@ export function buildFixtureGlb(opts: {
     inverseBind,
     animInput,
     animOutput,
+    ...scaleParts,
   ]);
 
   const bufferViews = views.map((v) => ({ buffer: 0, byteOffset: v.byteOffset, byteLength: v.byteLength }));
@@ -177,13 +213,16 @@ export function buildFixtureGlb(opts: {
     { bufferView: 2, componentType: 5123, count: 3, type: 'VEC4' }, // 2 JOINTS_0
     { bufferView: 3, componentType: 5126, count: 3, type: 'VEC4' }, // 3 WEIGHTS_0
     { bufferView: 4, componentType: 5123, count: 3, type: 'SCALAR' }, // 4 indices
-    { bufferView: 5, componentType: 5126, count: 2, type: 'MAT4' }, // 5 inverseBindMatrices
+    { bufferView: 5, componentType: 5126, count: hasDeathRoot ? 3 : 2, type: 'MAT4' }, // 5 inverseBindMatrices
     { bufferView: 6, componentType: 5126, count: 2, type: 'SCALAR' }, // 6 anim input
     { bufferView: 7, componentType: 5126, count: 2, type: 'VEC4' }, // 7 anim output
+    ...scaleParts.map((_, i) => ({ bufferView: 8 + i, componentType: 5126, count: 2, type: 'VEC3' })),
   ];
 
   const nodeExtras: Record<string, unknown> = {};
   if (extrasRole !== null) nodeExtras.rl_role = extrasRole;
+  const rootNode: Record<string, unknown> = { name: 'root_joint', children: [1] };
+  if (opts.rootOffset) rootNode.translation = off;
 
   const json = {
     asset: { version: '2.0' },
@@ -201,9 +240,9 @@ export function buildFixtureGlb(opts: {
         ],
       },
     ],
-    skins: [{ joints: [0, 1], inverseBindMatrices: 5 }],
+    skins: [{ joints: hasDeathRoot ? [0, 1, 3] : [0, 1], inverseBindMatrices: 5 }],
     nodes: [
-      { name: 'root_joint', children: [1] },
+      rootNode,
       { name: 'bone1', translation: [0, 1, 0] },
       {
         name: nameRole ?? '',
@@ -211,16 +250,31 @@ export function buildFixtureGlb(opts: {
         skin: 0,
         ...(Object.keys(nodeExtras).length > 0 ? { extras: nodeExtras } : {}),
       },
+      ...(hasDeathRoot ? [{ name: 'death_root', translation: off }] : []),
     ],
     scenes: [
-      { nodes: [0, 2], ...(opts.sceneExtras !== undefined ? { extras: opts.sceneExtras } : {}) },
+      {
+        nodes: hasDeathRoot ? [0, 2, 3] : [0, 2],
+        ...(opts.sceneExtras !== undefined ? { extras: opts.sceneExtras } : {}),
+      },
     ],
     scene: 0,
-    animations: clipNames.map((name) => ({
-      name,
-      channels: [{ sampler: 0, target: { node: 1, path: 'rotation' } }],
-      samplers: [{ input: 6, output: 7, interpolation: 'LINEAR' }],
-    })),
+    animations: clipNames.map((name) => {
+      const s = scaleClips[name];
+      const channels: { sampler: number; target: { node: number; path: string } }[] = [
+        { sampler: 0, target: { node: 1, path: 'rotation' } },
+      ];
+      const samplers: { input: number; output: number; interpolation: string }[] = [
+        { input: 6, output: 7, interpolation: 'LINEAR' },
+      ];
+      if (s) {
+        samplers.push({ input: 6, output: scaleAccessorOf.get(`${name}:root`) as number, interpolation: 'STEP' });
+        channels.push({ sampler: 1, target: { node: 0, path: 'scale' } });
+        samplers.push({ input: 6, output: scaleAccessorOf.get(`${name}:deathRoot`) as number, interpolation: 'STEP' });
+        channels.push({ sampler: 2, target: { node: 3, path: 'scale' } });
+      }
+      return { name, channels, samplers };
+    }),
   };
 
   return packGlb(json, bytes);

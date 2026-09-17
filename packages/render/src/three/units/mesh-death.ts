@@ -104,7 +104,7 @@
 import * as THREE from 'three';
 import { groundWorldY, type ElevationSource } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { applyMeshClip } from './mesh-clip';
+import { advanceMeshClipFades, applyMeshClip } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
 import { pickDeathClip } from './mesh-anim';
 
@@ -383,6 +383,7 @@ export interface MeshDeathEnv {
 export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeathEnv): 'fading' | 'removed' | MeshWreck {
   if (d.settling) {
     const action = d.wreckAction;
+    advanceMeshClipFades(d.entity, dtSeconds);
     d.entity.mixer.update(dtSeconds);
     if (!action || !action.paused) return 'fading';
 
@@ -403,6 +404,7 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
   d.t += dtSeconds;
   setMeshDeathOpacity(d.swaps, meshDeathOpacity(d.t));
   d.entity.root.position.y = d.baseWorldY - meshDeathSinkPx(d.t) * WORLD_Y_PER_LIFT_PIXEL;
+  advanceMeshClipFades(d.entity, dtSeconds);
   d.entity.mixer.update(dtSeconds);
 
   if (d.t < MESH_DEATH_SECONDS) return 'fading';
