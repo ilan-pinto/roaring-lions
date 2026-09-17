@@ -69,11 +69,11 @@ function parsePath(path: string): PathSegment[] {
 
 /** Applies one numeric delta at `path` onto a shallow-cloned-along-the-path
  *  copy of `root`, mutating only the fresh copies this call itself created.
- *  `root` must already be a top-level shallow copy owned by the caller. */
-function addDeltaAlongPath(root: Record<string, unknown>, path: string, delta: number): void {
+ *  `root` must already be a top-level shallow copy owned by the caller.
+ *  `unitId` is only used to name the unit in a thrown message. */
+function addDeltaAlongPath(root: Record<string, unknown>, path: string, delta: number, unitId: string): void {
   const segments = parsePath(path);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let container: any = root;
+  let container: Record<string, unknown> = root;
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     const isLast = i === segments.length - 1;
@@ -82,10 +82,18 @@ function addDeltaAlongPath(root: Record<string, unknown>, path: string, delta: n
       // Array-indexed segment: copy the array itself, then the element at
       // `index` (unpatched siblings stay shared by reference).
       const arr = container[seg.key];
-      const arrCopy = Array.isArray(arr) ? arr.slice() : [];
+      const arrCopy = Array.isArray(arr) ? (arr as unknown[]).slice() : [];
       container[seg.key] = arrCopy;
-      const item = arrCopy[seg.index] ?? {};
-      const itemCopy = { ...item };
+      const item = arrCopy[seg.index];
+      if (item === undefined) {
+        // The validator refuses a unit whose weapons array is shorter than
+        // a whitelisted patch index, so reaching this is a programming
+        // error (a unit edited after its upgrades were authored, or a bad
+        // fixture) -- same class as an off-whitelist path, not data to
+        // paper over with a synthesised {}.
+        throw new Error(`applyUpgrades: ${unitId} has no ${seg.key}[${seg.index}]`);
+      }
+      const itemCopy: Record<string, unknown> = { ...(item as Record<string, unknown>) };
       arrCopy[seg.index] = itemCopy;
       if (isLast) {
         throw new Error(`applyUpgrades: malformed whitelisted path "${path}"`);
@@ -101,7 +109,8 @@ function addDeltaAlongPath(root: Record<string, unknown>, path: string, delta: n
     }
 
     const next = container[seg.key];
-    const nextCopy = next && typeof next === 'object' ? { ...(next as Record<string, unknown>) } : {};
+    const nextCopy: Record<string, unknown> =
+      next && typeof next === 'object' ? { ...(next as Record<string, unknown>) } : {};
     container[seg.key] = nextCopy;
     container = nextCopy;
   }
@@ -143,30 +152,37 @@ export function applyUpgrades<T extends UpgradableUnit>(unit: T, tiers: Readonly
 
   const tracks = unit.upgrades;
 
-  // Resolve to ONE delta per whitelisted path before touching `out`. A
-  // tier's patch is the cumulative delta over BASE, not over the previous
-  // tier, so within a track the highest achieved tier's value for a given
-  // path supersedes an earlier tier's value for that same path rather than
+  // Resolve to one delta per whitelisted path in two stages. WITHIN a
+  // track, a tier's patch is the cumulative delta over BASE, not over the
+  // previous tier, so the highest achieved tier's value for a given path
+  // supersedes an earlier tier's value for that same path rather than
   // adding to it -- walking tiers 0..tierIndex-1 in order and letting a
-  // later write win produces exactly that.
-  const resolved: Record<string, number> = {};
+  // later write win produces exactly that. ACROSS tracks, each track is an
+  // independent improvement over the same base, so two tracks that happen
+  // to patch the same path (e.g. an armour track and a survivability track
+  // both raising hull.hp) both contribute and their resolved deltas SUM.
+  const merged: Record<string, number> = {};
   for (const [trackName, requestedTier] of Object.entries(tiers)) {
     const track = tracks?.[trackName];
     if (!track) continue; // unknown track: ignored
 
     const tierIndex = Math.min(Math.max(requestedTier, 0), track.tiers.length); // clamp to max
+    const perTrack: Record<string, number> = {};
     for (let i = 0; i < tierIndex; i++) {
       for (const [path, delta] of Object.entries(track.tiers[i].patch)) {
         if (!isWhitelisted(path)) {
           throw new Error(`applyUpgrades: patch path "${path}" is outside the UPGRADE_PATHS whitelist`);
         }
-        resolved[path] = delta;
+        perTrack[path] = delta; // last tier within this track wins
       }
+    }
+    for (const [path, delta] of Object.entries(perTrack)) {
+      merged[path] = (merged[path] ?? 0) + delta; // sum across tracks
     }
   }
 
-  for (const [path, delta] of Object.entries(resolved)) {
-    addDeltaAlongPath(out, path, delta);
+  for (const [path, delta] of Object.entries(merged)) {
+    addDeltaAlongPath(out, path, delta, unit.id);
   }
 
   return out as T;

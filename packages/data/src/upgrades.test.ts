@@ -89,6 +89,34 @@ describe('applyUpgrades', () => {
     };
     expect(() => applyUpgrades(u, { mobility: 1 })).toThrow(/mobility\.speed_tiles_s/);
   });
+
+  it('sums same-path deltas from two different tracks rather than dropping one', () => {
+    const u: UpgradableUnit = {
+      id: 'cross_track_unit',
+      hull: { hp: 400 },
+      upgrades: {
+        armour: { tiers: [{ price: 300, patch: { 'hull.hp': 50 } }] },
+        survivability: { tiers: [{ price: 300, patch: { 'hull.hp': 30 } }] },
+      },
+    };
+    const out = applyUpgrades(u, { armour: 1, survivability: 1 });
+    expect(out.hull?.hp).toBe(480); // 400 + 50 + 30, not last-write-wins' 430
+  });
+
+  it('throws when a whitelisted weapons index is past the unit\'s own array', () => {
+    const u = fixture(); // two weapons, indices 0 and 1
+    const withOverreach: UpgradableUnit = {
+      ...u,
+      upgrades: {
+        overreach: {
+          tiers: [{ price: 100, patch: { 'weapons[5].accuracy': 0.1 } }],
+        },
+      },
+    };
+    expect(() => applyUpgrades(withOverreach, { overreach: 1 })).toThrow(
+      /fixture_unit has no weapons\[5\]/,
+    );
+  });
 });
 
 describe('maxTiers', () => {
