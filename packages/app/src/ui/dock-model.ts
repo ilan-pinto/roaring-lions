@@ -12,6 +12,7 @@
 
 import { TICKS_PER_SECOND, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { gateSentence } from '../gate-sentence';
+import { t } from '../i18n/t';
 import type { RoleBucket } from './role';
 
 /** A type the player may build, as the dock needs it. Assembled in `main.ts`,
@@ -107,17 +108,17 @@ export interface TileState {
  */
 export function lockLabel(unlock: UnlockGate | undefined, ledger: LedgerData | undefined): string {
   if (unlock?.roeMin !== undefined && !conductAtLeast(ledger, unlock.roeMin)) {
-    return `Conduct ≥${unlock.roeMin}`;
+    return t('dock.lock.conduct', { n: unlock.roeMin });
   }
   if (unlock?.starsMin !== undefined && starsEarned(ledger) < unlock.starsMin) {
-    return `★ ≥${unlock.starsMin}`;
+    return t('dock.lock.stars', { n: unlock.starsMin });
   }
   // No earned field failed above. A gate with no earned field at all is bought-only
   // (D1, the special forces shape): the tile's number is the price, same as `bindingGate`.
   if (unlock !== undefined && isBoughtOnly(unlock) && unlock.price !== undefined) {
-    return `${unlock.price} cr`;
+    return t('dock.lock.price', { n: unlock.price });
   }
-  return 'locked';
+  return t('dock.lock.locked');
 }
 
 /**
@@ -132,17 +133,38 @@ export function lockLabel(unlock: UnlockGate | undefined, ledger: LedgerData | u
  *
  * `kamikaze` is deliberately absent: `roleBucket` already returns that word, so
  * an entry here would make `attack_drone` read `kamikaze · one-way`.
+ *
+ * Values are catalogue KEYS, not English text — `doctrineTags` below calls
+ * `t()` on each one it selects. This table is module-level (lesson from
+ * `selection-model.ts`'s `ORDERS` and `input/keymap.ts`'s `ACTIONS`): if the
+ * VALUES here were resolved text instead of keys, they would have to be
+ * either frozen at import time (wrong locale under `?pseudo=1`, the bug
+ * `role.ts`'s `ROLE_LABEL` fix round 1 closed) or translated a second time
+ * by every caller. Keeping them as keys and translating once, inside
+ * `doctrineTags`, avoids both.
  */
 const ABILITY_TAGS: readonly (readonly [string, string])[] = [
-  ['demolish', 'demolition'],
-  ['tunnel_charge', 'demolition'],
-  ['breach', 'breach'],
-  ['garrison', 'garrisons'],
-  ['hidden_setup', 'sets up hidden'],
-  ['mark_tunnel', 'finds tunnels'],
-  ['mark_target', 'spots'],
-  ['smoke', 'smoke'],
+  ['demolish', 'dock.tag.demolition'],
+  ['tunnel_charge', 'dock.tag.demolition'],
+  ['breach', 'dock.tag.breach'],
+  ['garrison', 'dock.tag.garrisons'],
+  ['hidden_setup', 'dock.tag.hiddenSetup'],
+  ['mark_tunnel', 'dock.tag.findsTunnels'],
+  ['mark_target', 'dock.tag.spots'],
+  ['smoke', 'dock.tag.smoke'],
 ];
+
+/** `RoleBucket` id -> catalogue key, the same table shape `role.ts`'s
+ *  `ROLE_KEYS` uses for the unit `role` field. */
+const BUCKET_KEYS: Readonly<Record<RoleBucket, string>> = {
+  kamikaze: 'dock.bucket.kamikaze',
+  drone: 'dock.bucket.drone',
+  gunship: 'dock.bucket.gunship',
+  sniper: 'dock.bucket.sniper',
+  transport: 'dock.bucket.transport',
+  soft: 'dock.bucket.soft',
+  armour: 'dock.bucket.armour',
+};
 
 /** Three fits the tooltip's line at 230px. The bucket is always one of them, so
  *  a unit contributes at most two abilities. */
@@ -157,14 +179,18 @@ export const MAX_TAGS = 3;
  * and `mark_target` are held by most of the infantry.
  */
 export function doctrineTags(bucket: RoleBucket, abilities: readonly string[]): string[] {
-  const out: string[] = [bucket];
+  // Collected as KEYS first, deduplicated by key, and translated only at the
+  // very end -- so two abilities that map to the same catalogue entry
+  // dedupe correctly regardless of locale, rather than comparing already-
+  // translated text (which two different keys could coincidentally share).
+  const keys: string[] = [BUCKET_KEYS[bucket]];
   const have = new Set(abilities);
-  for (const [ability, tag] of ABILITY_TAGS) {
-    if (out.length >= MAX_TAGS) break;
+  for (const [ability, tagKey] of ABILITY_TAGS) {
+    if (keys.length >= MAX_TAGS) break;
     // Two abilities map to `demolition`; a unit holding both earns it once.
-    if (have.has(ability) && !out.includes(tag)) out.push(tag);
+    if (have.has(ability) && !keys.includes(tagKey)) keys.push(tagKey);
   }
-  return out;
+  return keys.map((key) => t(key));
 }
 
 /**

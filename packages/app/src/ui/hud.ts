@@ -28,12 +28,14 @@
 
 import { fx, type LedgerRosterEntry, type Sim } from '@lions/sim';
 import type { ResolvedCommander } from '../campaign';
+import { t } from '../i18n/t';
 import { confirmDialog } from './confirm';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { roleBadgeSvg, roleBucket } from './role';
 import {
   beatDwellMs,
+  conductDefinition,
   countSuppressed,
   holdClock,
   objectiveGlyph,
@@ -46,7 +48,6 @@ import {
   worstPenalties,
   type MissionView,
   type Tone,
-  CONDUCT_DEFINITION,
 } from './hud-model';
 import {
   ORDERS,
@@ -291,7 +292,7 @@ export class Hud {
     const mark = document.createElement('span');
     mark.className = 'rl-strip__mark';
     mark.innerHTML = markSvg(15, 12);
-    mark.title = `Roaring Lions${deps.gameVersion ? ` v${deps.gameVersion}` : ''}`;
+    mark.title = `Roaring Lions${deps.gameVersion ? ` v${deps.gameVersion}` : ''}`; /* i18n-ok: proper noun */
 
     const right = document.createElement('div');
     right.className = 'rl-strip__right rl-strip__gap';
@@ -305,15 +306,15 @@ export class Hud {
     chips.className = 'rl-strip__chips';
     this.speedCluster = chips;
     for (const spec of [
-      { speed: 0, label: '▮▮', title: 'pause' },
-      { speed: 1, label: '1×', title: 'normal speed' },
-      { speed: 2, label: '2×', title: 'double speed' },
+      { speed: 0, label: '▮▮', title: 'hud.speed.pause' },
+      { speed: 1, label: '1×', title: 'hud.speed.normal' },
+      { speed: 2, label: '2×', title: 'hud.speed.double' },
     ]) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'rl-strip__chip';
       b.textContent = spec.label;
-      b.title = spec.title;
+      b.title = t(spec.title);
       b.addEventListener('click', () => {
         deps.setSpeed?.(spec.speed);
         // Repainted here and not on the next tick, deliberately: at speed 0 no
@@ -340,13 +341,13 @@ export class Hud {
     // clicks it to walk a mission's exit. Styling it by the same hook the
     // walk selects on would make a restyle silently break the walk.
     leaveBtn.className = 'rl-strip__link rl-hud__leave';
-    leaveBtn.textContent = '⌂ leave';
-    leaveBtn.title = 'leave the mission';
+    leaveBtn.textContent = t('hud.leave.link');
+    leaveBtn.title = t('hud.leave.title');
     leaveBtn.addEventListener('click', () => {
       void confirmDialog(document.body, {
-        title: 'Leave the mission?',
-        body: 'This attempt is lost. The campaign keeps everything from before it.',
-        confirm: 'Leave',
+        title: t('hud.leave.confirm.title'),
+        body: t('hud.leave.confirm.body'),
+        confirm: t('hud.leave.confirm.action'),
         danger: true,
       }).then((ok) => {
         if (ok) deps.leave?.();
@@ -519,11 +520,11 @@ export class Hud {
     this.cmdPrev = document.createElement('button');
     this.cmdPrev.type = 'button';
     this.cmdPrev.textContent = '◂';
-    this.cmdPrev.title = 'previous';
+    this.cmdPrev.title = t('hud.commander.previous');
     this.cmdNext = document.createElement('button');
     this.cmdNext.type = 'button';
     this.cmdNext.textContent = '▸';
-    this.cmdNext.title = 'next';
+    this.cmdNext.title = t('hud.commander.next');
     this.cmdPrev.addEventListener('click', () => this.pageCommander(-1));
     this.cmdNext.addEventListener('click', () => this.pageCommander(1));
     paging.append(this.cmdPrev, this.cmdNext);
@@ -676,7 +677,7 @@ export class Hud {
   paintMute(): void {
     const muted = this.deps.isMuted?.() ?? false;
     this.muteChip.textContent = muted ? '🔇' : '🔊';
-    this.muteChip.title = muted ? 'audio muted' : 'audio on';
+    this.muteChip.title = muted ? t('hud.mute.muted') : t('hud.mute.unmuted');
     this.muteChip.dataset.on = muted ? '0' : '1';
   }
 
@@ -711,7 +712,7 @@ export class Hud {
     this.bannerShown = true;
     this.banner.innerHTML = '<div class="rl-bigbanner__head"></div>';
     (this.banner.firstChild as HTMLElement).textContent =
-      m.result === 'victory' ? 'Mission accomplished' : 'Mission failed';
+      m.result === 'victory' ? t('hud.banner.victory') : t('hud.banner.defeat');
     // The story voice's closing line (GDD §11) -- victory only, matching
     // `mission.ts`'s own doc comment on `aftermath`: "Shown on the victory
     // banner." A defeat gets no second line; the retry prompt speaks for
@@ -827,7 +828,7 @@ export class Hud {
       );
       if (m.roe !== undefined) {
         rows.push(
-          `<span title="${escapeAttr(CONDUCT_DEFINITION)}"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">Conduct</span></span>`
+          `<span title="${escapeAttr(conductDefinition())}"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">${t('hud.strip.conduct')}</span></span>`
         );
       }
       const { primary, deadline, primaryOpen, secondaryOpen } = stripObjectives(m);
@@ -862,12 +863,13 @@ export class Hud {
         );
       }
       if (primaryOpen > 0) {
-        rows.push(`<span class="rl-dim">+${primaryOpen} primary</span>`);
+        rows.push(`<span class="rl-dim">${t('hud.strip.primaryOpen', { n: primaryOpen })}</span>`);
       }
       if (secondaryOpen > 0) {
-        rows.push(`<span class="rl-dim">+${secondaryOpen} secondary</span>`);
+        rows.push(`<span class="rl-dim">${t('hud.strip.secondaryOpen', { n: secondaryOpen })}</span>`);
       }
     } else {
+      /* i18n-ok: proper noun */
       rows.push('<span class="rl-strip__name">Roaring Lions</span>');
     }
 
@@ -875,18 +877,20 @@ export class Hud {
     if (m?.logistics !== undefined) {
       const rate =
         m.logisticsRate !== undefined && m.logisticsRate > 0
-          ? ` <span class="rl-dim">+${m.logisticsRate}/min</span>`
+          ? ` <span class="rl-dim">${t('hud.strip.rate', { n: m.logisticsRate })}</span>`
           : '';
-      info.push(`<span class="rl-info" title="logistics">▣ <b>${m.logistics}</b>${rate}</span>`);
+      info.push(
+        `<span class="rl-info" title="${t('hud.strip.logistics')}">▣ <b>${m.logistics}</b>${rate}</span>`
+      );
     }
     if (m?.intel !== undefined) {
-      info.push(`<span class="rl-info" title="intel">◎ <b>${m.intel}</b></span>`);
+      info.push(`<span class="rl-info" title="${t('hud.strip.intel')}">◎ <b>${m.intel}</b></span>`);
     }
     // Suppression: shown only when there is some. A permanent "0 pinned" is
     // the kind of field a player learns to stop reading.
     const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
-    if (pinned > 0) info.push(`<span class="rl-hot"><b>▼ ${pinned} pinned</b></span>`);
-    if (broken > 0) info.push(`<span class="rl-bad-text"><b>⚑ ${broken} broken</b></span>`);
+    if (pinned > 0) info.push(`<span class="rl-hot"><b>${t('hud.strip.pinned', { n: pinned })}</b></span>`);
+    if (broken > 0) info.push(`<span class="rl-bad-text"><b>${t('hud.strip.broken', { n: broken })}</b></span>`);
 
     this.stripBody.innerHTML = rows.join('');
     this.stripInfo.innerHTML = info.join('');
@@ -927,9 +931,7 @@ export class Hud {
     // sitting on the battlefield. The verb keys (h/f/g/u) are deliberately not
     // here: the order row a later slice puts in this same place names them as
     // buttons, and the unit card's Capabilities section already does.
-    this.hint.textContent =
-      'click/drag select · right-click attack-move · shift adds a waypoint · ' +
-      'ctrl+1–9 group · 1–9 recall';
+    this.hint.textContent = t('hud.controlHint');
   }
 
   // ------------------------------------------------------------------
@@ -952,8 +954,10 @@ export class Hud {
 
   private projectedFireHtml(): string {
     const sim = this.deps.sim;
-    const t = this.deps.hoverEntity();
-    if (t < 0 || sim.state.alive[t] === 0) return '';
+    // Not named `t`: this class is the one place in the file that would
+    // shadow the catalogue's own `t()` import with a local of the same name.
+    const hoverId = this.deps.hoverEntity();
+    if (hoverId < 0 || sim.state.alive[hoverId] === 0) return '';
     const sel = this.deps.getSelection().filter((i) => sim.state.alive[i] === 1);
     if (sel.length === 0) return '';
 
@@ -963,7 +967,7 @@ export class Hud {
     let unidentified = 0;
     let holdingFire = 0;
     for (const s of sel) {
-      const p = sim.projectHit(s, t);
+      const p = sim.projectHit(s, hoverId);
       if (p.kind === 'unidentified') {
         unidentified++;
         continue;
@@ -982,37 +986,37 @@ export class Hud {
       // Name only the factors actually degrading the shot, worst first.
       // accuracy is the weapon's baseline, not a penalty the player can act on.
       const worst = worstPenalties([
-        ['range', fx.toNumber(p.factors.rangeFalloff)],
-        ['cover', fx.toNumber(p.factors.coverMod)],
-        ['target moving', fx.toNumber(p.factors.motionMod)],
-        ['firing on the move', fx.toNumber(p.factors.stanceMod)],
-        ['suppressed', fx.toNumber(p.factors.suppressionMod)],
+        [t('hud.fire.factor.range'), fx.toNumber(p.factors.rangeFalloff)],
+        [t('hud.fire.factor.cover'), fx.toNumber(p.factors.coverMod)],
+        [t('hud.fire.factor.targetMoving'), fx.toNumber(p.factors.motionMod)],
+        [t('hud.fire.factor.firingOnTheMove'), fx.toNumber(p.factors.stanceMod)],
+        [t('hud.fire.factor.suppressed'), fx.toNumber(p.factors.suppressionMod)],
       ]);
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
-      const bounce = p.hurts ? '' : ' · <span class="rl-bad-text">cannot penetrate</span>';
+      const bounce = p.hurts ? '' : ` · <span class="rl-bad-text">${t('hud.fire.cannotPenetrate')}</span>`;
       rows.push(
         `<div>${name} <b>${chance}%</b> <span class="rl-dim">${p.weaponId}${why}</span>${bounce}</div>`
       );
     }
 
-    const target = sim.unitTypes[sim.state.typeIdx[t]].name;
-    const head = `<div class="rl-label">Projected fire · ${target}</div>`;
+    const target = sim.unitTypes[sim.state.typeIdx[hoverId]].name;
+    const head = `<div class="rl-label">${t('hud.fire.heading', { target })}</div>`;
     if (rows.length === 0 && unidentified > 0 && cannot === 0 && holdingFire === 0) {
-      return head + '<div class="rl-dim">contact not identified — no firing solution</div>';
+      return head + `<div class="rl-dim">${t('hud.fire.unidentifiedOnly')}</div>`;
     }
     // Pinned or lying in ambush is a different fact from "cannot reach" —
     // the shot exists, the unit is choosing (or forced) not to take it.
     if (rows.length === 0 && holdingFire > 0 && cannot === 0 && unidentified === 0) {
-      return head + '<div class="rl-dim">pinned — holding fire</div>';
+      return head + `<div class="rl-dim">${t('hud.fire.holdingFireOnly')}</div>`;
     }
-    if (rows.length === 0) return head + '<div class="rl-dim">no unit can engage</div>';
+    if (rows.length === 0) return head + `<div class="rl-dim">${t('hud.fire.noneCanEngage')}</div>`;
 
     const extra = sel.length - rows.length - cannot - unidentified - holdingFire;
     const tail: string[] = [];
-    if (extra > 0) tail.push(`and ${extra} more`);
-    if (cannot > 0) tail.push(`${cannot} cannot reach`);
-    if (holdingFire > 0) tail.push(`${holdingFire} holding fire`);
-    if (unidentified > 0) tail.push(`${unidentified} unidentified`);
+    if (extra > 0) tail.push(t('hud.fire.andMore', { n: extra }));
+    if (cannot > 0) tail.push(t('hud.fire.cannotReach', { n: cannot }));
+    if (holdingFire > 0) tail.push(t('hud.fire.holdingFire', { n: holdingFire }));
+    if (unidentified > 0) tail.push(t('hud.fire.unidentified', { n: unidentified }));
     const foot = tail.length > 0 ? `<div class="rl-dim">${tail.join(' · ')}</div>` : '';
     return head + rows.join('') + foot;
   }
@@ -1127,12 +1131,13 @@ export class Hud {
       btn.dataset.inert = row.inert ? '1' : '0';
       const cap =
         row.capacity !== undefined ? ` <b class="rl-dim">${row.capacity}</b>` : '';
+      // `row.label` is a catalogue key (`selection-model.ts`'s `ORDERS[].label`
+      // own doc comment), not text -- resolved here, at render time.
+      const label = t(row.label);
       btn.innerHTML =
-        `<span class="rl-order__glyph">${row.glyph}</span>${row.label}` +
+        `<span class="rl-order__glyph">${row.glyph}</span>${label}` +
         `${cap} <b class="rl-dim">${this.deps.keyFor?.(row.key) ?? row.key}</b>`;
-      btn.title = row.inert
-        ? `${row.label} — nothing in the selection would act on it right now`
-        : row.label;
+      btn.title = row.inert ? t('hud.order.inertTitle', { label }) : label;
     }
   }
 
@@ -1172,7 +1177,7 @@ export class Hud {
         return (
           `<div class="rl-chip" data-type="${escapeAttr(c.typeId)}" ` +
           `data-focus="${i === this.chipFocus ? '1' : '0'}" ` +
-          `title="${escapeAttr(c.name)} — click to select only these">` +
+          `title="${escapeAttr(t('hud.chip.selectOnly', { name: c.name }))}">` +
           this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
@@ -1212,8 +1217,11 @@ export class Hud {
   ): string {
     const src = this.deps.portrait?.(typeId) ?? null;
     if (src === null) {
+      // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`
+      // -- `{id} — no sprite sheet`, `en.json`): one sentence for "this type
+      // has no picture", wherever it is drawn.
       return (
-        `<div class="${cls}" data-nosprite="1" title="${escapeAttr(typeId)} — no sprite sheet">` +
+        `<div class="${cls}" data-nosprite="1" title="${escapeAttr(t('brigade.art.noSprite', { id: typeId }))}">` +
         `${roleBadgeSvg(bucket, markSize)}</div>`
       );
     }
@@ -1243,24 +1251,24 @@ export class Hud {
     const callsign = entry?.name ? `<span class="rl-card__callsign">${escapeHtml(entry.name)}</span> ` : '';
     const record =
       entry && (entry.missions !== undefined || entry.kills !== undefined)
-        ? `<div class="rl-card__record rl-dim">${entry.missions ?? 0} mission${(entry.missions ?? 0) === 1 ? '' : 's'} · ${entry.kills ?? 0} kill${(entry.kills ?? 0) === 1 ? '' : 's'}</div>`
+        ? `<div class="rl-card__record rl-dim">${t('hud.card.record', { missions: entry.missions ?? 0, kills: entry.kills ?? 0 })}</div>`
         : '';
 
     // Condition: only what is actually true right now. Unchanged from the panel
     // this replaces — the list is the product of a dozen play sessions and the
     // layout around it is what GH-153 is changing, not the facts in it.
     const flags: string[] = [];
-    if (st.routed[id] === 1) flags.push('<span class="rl-bad-text">BROKEN</span>');
-    else if (st.pinned[id] === 1) flags.push('<span class="rl-hot">PINNED</span>');
-    if (st.garrisonedIn[id] >= 0) flags.push('<span class="rl-live">in a building</span>');
-    if (st.mobilityKilled[id] === 1) flags.push('<span class="rl-dim">immobilised</span>');
-    if (st.firepowerKilled[id] === 1) flags.push('<span class="rl-bad-text">guns out</span>');
-    if (st.moving[id] === 1) flags.push('moving');
+    if (st.routed[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.broken')}</span>`);
+    else if (st.pinned[id] === 1) flags.push(`<span class="rl-hot">${t('hud.card.pinned')}</span>`);
+    if (st.garrisonedIn[id] >= 0) flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
+    if (st.mobilityKilled[id] === 1) flags.push(`<span class="rl-dim">${t('hud.card.immobilised')}</span>`);
+    if (st.firepowerKilled[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.gunsOut')}</span>`);
+    if (st.moving[id] === 1) flags.push(t('hud.card.moving'));
     const supp = fx.toNumber(st.suppression[id]);
-    if (supp > 0.05) flags.push(`suppression ${(supp * 100).toFixed(0)}%`);
-    if (type.hasAps) flags.push(`<span class="rl-info">APS ${st.apsAmmo[id]}/${type.apsMagazine}</span>`);
+    if (supp > 0.05) flags.push(t('hud.card.suppression', { pct: (supp * 100).toFixed(0) }));
+    if (type.hasAps) flags.push(`<span class="rl-info">${t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine })}</span>`);
     const wp = sim.waypointCount(id);
-    if (wp > 0) flags.push(`${wp} waypoint${wp === 1 ? '' : 's'}`);
+    if (wp > 0) flags.push(t('hud.card.waypoints', { n: wp }));
 
     // Armament, so the player can tell what this unit is for.
     const arms: string[] = [];
@@ -1268,34 +1276,30 @@ export class Hud {
       for (const w of type.weapons) {
         const pen = fx.toNumber(w.penetration);
         arms.push(
-          `<div>${w.id} — ${fx.toNumber(w.effectiveRange).toFixed(1)}/${fx.toNumber(w.range).toFixed(0)} tiles` +
-            (pen > 0 ? ` · ${pen.toFixed(0)}mm pen` : '') +
-            (fx.toNumber(w.collateralRisk) >= 0.5 ? ' <span class="rl-warn">⚠ heavy</span>' : '') +
+          `<div>${t('hud.card.weapon', { id: w.id, effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
+            (pen > 0 ? ` · ${t('hud.card.weaponPen', { n: pen.toFixed(0) })}` : '') +
+            (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${t('hud.card.weaponHeavy')}</span>` : '') +
             `</div>`
         );
       }
     } else {
-      arms.push('<div class="rl-dim">unarmed</div>');
+      arms.push(`<div class="rl-dim">${t('hud.card.unarmed')}</div>`);
     }
 
     // Special controls: what this unit can do beyond move and shoot.
     const caps: string[] = [];
-    if (type.canSmoke) caps.push('<b>f</b> smoke screen');
-    if (st.carriedBy[id] >= 0) caps.push('<b>aboard a transport</b> — <b>u</b> to dismount');
-    if (type.canGarrison) caps.push('right-click a building to garrison');
+    if (type.canSmoke) caps.push(t('hud.card.cap.smoke'));
+    if (st.carriedBy[id] >= 0) caps.push(t('hud.card.cap.aboard'));
+    if (type.canGarrison) caps.push(t('hud.card.cap.garrison'));
     // Two sentences because there are now two rules: charges go in wherever the
     // unit halts, except at a protected site, which takes an order by name.
     // Saying only the first left the player with a dozer that silently refused
     // to touch a mosque and no hint that right-clicking it would work.
-    if (type.canDemolish) caps.push('hold beside a building to demolish it · right-click a protected site to order it');
-    if (type.isKamikaze) {
-      caps.push('<span class="rl-hot">one-use: dives on what your side has identified</span>');
-    }
-    if (type.transportSlots > 0) {
-      caps.push(`carries ${type.transportSlots} — <b>g</b> load · <b>u</b> unload`);
-    }
-    if (type.canMarkTarget) caps.push('earns intel while stationary');
-    if (caps.length === 0) caps.push('<span class="rl-dim">none</span>');
+    if (type.canDemolish) caps.push(t('hud.card.cap.demolish'));
+    if (type.isKamikaze) caps.push(t('hud.card.cap.kamikaze'));
+    if (type.transportSlots > 0) caps.push(t('hud.card.cap.transport', { n: type.transportSlots }));
+    if (type.canMarkTarget) caps.push(t('hud.card.cap.markTarget'));
+    if (caps.length === 0) caps.push(t('hud.card.cap.none'));
 
     return (
       `<div class="rl-card" data-type="${escapeAttr(type.id)}">` +
@@ -1313,15 +1317,15 @@ export class Hud {
       callsign +
       `<span class="rl-card__name">${type.name}</span>` +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
-      `<span class="rl-card__hp rl-dim">${hpNow.toFixed(0)} / ${hpMax.toFixed(0)} hp</span>` +
+      `<span class="rl-card__hp rl-dim">${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}</span>` +
       `</div>` +
       record +
       `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +
       `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
-      `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : 'holding position'}</div>` +
+      `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : t('hud.card.holdingPosition')}</div>` +
       `<div class="rl-card__cols">` +
-      `<div><div class="rl-label">Armament</div>${arms.join('')}</div>` +
-      `<div><div class="rl-label">Capabilities</div>${caps.map((c) => `<div>${c}</div>`).join('')}</div>` +
+      `<div><div class="rl-label">${t('hud.card.armamentLabel')}</div>${arms.join('')}</div>` +
+      `<div><div class="rl-label">${t('hud.card.capabilitiesLabel')}</div>${caps.map((c) => `<div>${c}</div>`).join('')}</div>` +
       `</div></div></div>`
     );
   }

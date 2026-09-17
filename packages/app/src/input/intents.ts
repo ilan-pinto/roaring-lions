@@ -11,6 +11,7 @@
  */
 
 import { fx, type Command } from '@lions/sim';
+import { t } from '../i18n/t';
 
 /** The narrow slice of Sim `applyIntent` needs — so a test can record instead
  *  of constructing a world. */
@@ -275,7 +276,7 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
       ...(suppressed
         ? {
             refused: true,
-            note: { text: 'protected site — hold Alt to order fire on it', tone: 'mute' as const },
+            note: { text: t('intent.protectedSite'), tone: 'mute' as const },
           }
         : {}),
     };
@@ -294,7 +295,7 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
         intents,
         roe,
         marker: true,
-        note: { text: '<b>tunnel charge</b> — team moving to the route', tone: 'info' },
+        note: { text: t('intent.tunnelCharge'), tone: 'info' },
       };
     }
     // Nobody can charge: fall through to the ordinary order, as main.ts does.
@@ -337,14 +338,14 @@ export function resolveKeyVerb(
         intents: [],
         roe: free,
         marker: false,
-        note: { text: 'select a transport and the infantry to load', tone: 'mute' },
+        note: { text: t('intent.load.needsTransport'), tone: 'mute' },
       };
     }
     return {
       intents: [{ kind: 'mount', riders, carrier }],
       roe: free,
       marker: false,
-      note: { text: '<b>mount up</b> — infantry boarding', tone: 'info' },
+      note: { text: t('intent.load.mounting'), tone: 'info' },
     };
   }
   if (verb === 'dismount') {
@@ -354,7 +355,7 @@ export function resolveKeyVerb(
       intents: [{ kind: 'dismount', carriers }],
       roe: free,
       marker: false,
-      note: { text: '<b>dismount</b> — infantry debussing', tone: 'info' },
+      note: { text: t('intent.dismount'), tone: 'info' },
     };
   }
   const smokers = ctx.ids.filter((i) => ctx.canSmoke(i));
@@ -363,7 +364,7 @@ export function resolveKeyVerb(
       intents: [],
       roe: free,
       marker: false,
-      note: { text: 'nothing selected that carries smoke', tone: 'mute' },
+      note: { text: t('intent.smoke.none'), tone: 'mute' },
     };
   }
   return {

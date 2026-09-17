@@ -19,6 +19,7 @@
  *
  * No DOM, no Pixi, no sim state.
  */
+import { t } from '../i18n/t';
 import type { Tone } from './hud';
 
 /**
@@ -38,7 +39,9 @@ import type { Tone } from './hud';
  * through `main.ts`'s event loop for a rarer, cosmetic win.
  */
 export function removedNotice(side: number, unit: string): [string, Tone] {
-  return side === 2 ? ['<b>taken</b> (1)', 'bad'] : [`${unit} <b>taken</b>`, 'bad'];
+  return side === 2
+    ? [t('notice.removed.civilian', { n: 1 }), 'bad']
+    : [t('notice.removed.unit', { unit }), 'bad'];
 }
 
 /**
@@ -67,7 +70,7 @@ export function removedNotice(side: number, unit: string): [string, Tone] {
  * cosmetic win, and here the per-arrival beat is the point.
  */
 export function evacuatedNotice(): [string, Tone] {
-  return ['<b>clear</b> (1)', 'good'];
+  return [t('notice.evacuated', { n: 1 }), 'good'];
 }
 
 /** The label a mission authored for the trigger that just fired, or null when

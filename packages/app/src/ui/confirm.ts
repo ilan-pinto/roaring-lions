@@ -12,6 +12,7 @@
 // popup. `rl-band` does not exist as a class in this sheet; the real stamped
 // band is `.rl-panel__band`, which `panel()` already builds.
 
+import { t } from '../i18n/t';
 import { panel } from './panel';
 
 export interface ConfirmOptions {
@@ -78,7 +79,7 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<
     const no = document.createElement('button');
     no.type = 'button';
     no.className = 'rl-btn rl-confirm__no';
-    no.textContent = 'Cancel';
+    no.textContent = t('confirm.cancel');
     const yes = document.createElement('button');
     yes.type = 'button';
     yes.className = 'rl-btn rl-confirm__yes';

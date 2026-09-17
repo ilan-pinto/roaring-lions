@@ -3,7 +3,7 @@ import {
   roeNotice,
   isProtectedZoneReason,
   WARN_MARGIN,
-  PROTECTED_ZONE_HINT,
+  protectedZoneHint,
 } from './roe-notice';
 
 describe('roeNotice', () => {
@@ -51,22 +51,22 @@ describe('roeNotice', () => {
 
   it('drops the advice once the mission is already lost — there is nothing left to act on', () => {
     const [html] = roeNotice(5, 'fire into protected structure (clinic)', 39, 40, true);
-    expect(html).not.toContain(PROTECTED_ZONE_HINT);
+    expect(html).not.toContain(protectedZoneHint());
   });
 
   it('attaches the advice the first time ordnance lands in a protected zone', () => {
     const [html] = roeNotice(5, 'fire into protected structure (clinic)', 95, 40, true);
-    expect(html).toContain(PROTECTED_ZONE_HINT);
+    expect(html).toContain(protectedZoneHint());
   });
 
   it('does not repeat the advice on later deductions for the same reason', () => {
     const [html] = roeNotice(5, 'fire into protected structure (clinic)', 90, 40, false);
-    expect(html).not.toContain(PROTECTED_ZONE_HINT);
+    expect(html).not.toContain(protectedZoneHint());
   });
 
   it('never attaches zone advice to a reason that is not about a zone', () => {
     const [html] = roeNotice(8, 'civilian casualties', 95, 40, true);
-    expect(html).not.toContain(PROTECTED_ZONE_HINT);
+    expect(html).not.toContain(protectedZoneHint());
   });
 });
 

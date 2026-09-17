@@ -15,6 +15,15 @@ export type Action =
 
 export interface ActionSpec {
   id: Action;
+  /** A catalogue KEY (`'keymap.halt'`), not the label text. Resolved with
+   *  `t()` where it is rendered (`settings-keymap.ts`'s Controls rows,
+   *  `hud.ts`'s order row via `ORDERS[].label`'s own identical convention) --
+   *  not here, and not at module load: a table resolved once at import time
+   *  would freeze in whatever locale was active before `main.ts`'s boot ever
+   *  calls `setCatalogue`, and render plain English under `?pseudo=1`
+   *  forever (the bug `role.ts`'s `ROLE_LABEL` fix round 1 closed). Keeping
+   *  `ACTIONS` as plain, keyed data is what lets `bindingsFrom`/`rebind`/
+   *  `holder` go on comparing `id`s with no locale in the loop at all. */
   label: string;
   key: string;
   rebindable: boolean;
@@ -23,20 +32,20 @@ export interface ActionSpec {
 }
 
 export const ACTIONS: readonly ActionSpec[] = [
-  { id: 'halt', label: 'Halt', key: 'h', rebindable: true },
-  { id: 'smoke', label: 'Smoke at the cursor', key: 'f', rebindable: true },
-  { id: 'load', label: 'Load', key: 'g', rebindable: true },
-  { id: 'unload', label: 'Unload', key: 'u', rebindable: true },
-  { id: 'overlay', label: 'Toggle the debug overlay', key: 'o', rebindable: true },
-  { id: 'production', label: 'Focus the production dock', key: 'b', rebindable: true },
-  { id: 'mute', label: 'Mute', key: 'm', rebindable: true },
-  { id: 'selectAll', label: 'Select every unit', key: 'a', rebindable: true, modifier: 'ctrl' },
-  { id: 'cycleChips', label: 'Cycle the selection chips', key: 'tab', rebindable: false },
-  { id: 'panUp', label: 'Pan up', key: 'w', rebindable: true },
-  { id: 'panDown', label: 'Pan down', key: 's', rebindable: true },
-  { id: 'panLeft', label: 'Pan left', key: 'a', rebindable: true },
-  { id: 'panRight', label: 'Pan right', key: 'd', rebindable: true },
-  { id: 'pause', label: 'Pause', key: 'escape', rebindable: false },
+  { id: 'halt', label: 'keymap.halt', key: 'h', rebindable: true },
+  { id: 'smoke', label: 'keymap.smoke', key: 'f', rebindable: true },
+  { id: 'load', label: 'keymap.load', key: 'g', rebindable: true },
+  { id: 'unload', label: 'keymap.unload', key: 'u', rebindable: true },
+  { id: 'overlay', label: 'keymap.overlay', key: 'o', rebindable: true },
+  { id: 'production', label: 'keymap.production', key: 'b', rebindable: true },
+  { id: 'mute', label: 'keymap.mute', key: 'm', rebindable: true },
+  { id: 'selectAll', label: 'keymap.selectAll', key: 'a', rebindable: true, modifier: 'ctrl' },
+  { id: 'cycleChips', label: 'keymap.cycleChips', key: 'tab', rebindable: false },
+  { id: 'panUp', label: 'keymap.panUp', key: 'w', rebindable: true },
+  { id: 'panDown', label: 'keymap.panDown', key: 's', rebindable: true },
+  { id: 'panLeft', label: 'keymap.panLeft', key: 'a', rebindable: true },
+  { id: 'panRight', label: 'keymap.panRight', key: 'd', rebindable: true },
+  { id: 'pause', label: 'keymap.pause', key: 'escape', rebindable: false },
 ];
 
 /** The arrow keys pan alongside WASD whatever the bindings say. */

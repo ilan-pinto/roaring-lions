@@ -5,4 +5,4 @@
 // Node with no build step (`pnpm validate:ui` runs it directly) — this file
 // exists only for the test's benefit.
 export function bareStringFailures(file: string, source: string): string[];
-export const MIGRATED: string[];
+export function walkChromeFiles(root: string): string[];

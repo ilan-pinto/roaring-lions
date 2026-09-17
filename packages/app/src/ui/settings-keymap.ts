@@ -84,7 +84,9 @@ export function keymapRows(deps: { bindings(): Bindings; set(next: Bindings): vo
       row.className = 'rl-settings__row';
 
       const label = document.createElement('label');
-      label.textContent = a.label;
+      // `a.label` is a catalogue KEY (`input/keymap.ts`'s `ActionSpec.label`
+      // own doc comment), not text -- resolved here, at render time.
+      label.textContent = t(a.label);
       row.appendChild(label);
 
       const control = document.createElement('div');
@@ -148,7 +150,12 @@ export function keymapRows(deps: { bindings(): Bindings; set(next: Bindings): vo
               return;
             }
             paint();
-            const holder = ACTIONS.find((x) => x.id === result.takenBy)?.label ?? result.takenBy;
+            // `.label` is a catalogue key (ActionSpec's own doc comment);
+            // translate it, and fall back to the bare action id untranslated
+            // -- same as the label lookup missing altogether, which cannot
+            // happen in practice but costs nothing to fall back safely.
+            const holderKey = ACTIONS.find((x) => x.id === result.takenBy)?.label;
+            const holder = holderKey ? t(holderKey) : result.takenBy;
             showHint(t('settings.keymap.conflict', { holder }));
           };
           cancelPending = () => {

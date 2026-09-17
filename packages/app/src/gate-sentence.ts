@@ -1,4 +1,5 @@
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
+import { t } from './i18n/t';
 
 /**
  * One human sentence per closed gate, app-side.
@@ -40,19 +41,19 @@ export function gateSentence(
   if (!gate) return null;
   if (gate.bought === true) return null;
   if (gate.roeMin !== undefined && !conductAtLeast(ledger, gate.roeMin)) {
-    return `Needs a campaign Conduct of ${gate.roeMin} or better`;
+    return t('gate.conduct', { n: gate.roeMin });
   }
   if (gate.starsMin !== undefined) {
     const have = starsEarned(ledger);
-    if (have < gate.starsMin) return `Needs ${gate.starsMin} star${gate.starsMin === 1 ? '' : 's'} (you have ${have})`;
+    if (have < gate.starsMin) return t('gate.stars', { n: gate.starsMin, have });
   }
   if (gate.afterMission !== undefined) {
     const done = ledger?.['campaign.completed_missions'];
     if (!Array.isArray(done) || !done.includes(gate.afterMission)) {
       const name = missionName(gate.afterMission);
-      return name ? `Clear ${name} first` : 'Clear an earlier mission first';
+      return name ? t('gate.clearMission', { name }) : t('gate.clearUnknown');
     }
   }
-  if (isBoughtOnly(gate) && gate.price !== undefined) return `Buy for ${gate.price} credits`;
+  if (isBoughtOnly(gate) && gate.price !== undefined) return t('gate.buy', { n: gate.price });
   return null;
 }

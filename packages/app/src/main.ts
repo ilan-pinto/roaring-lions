@@ -53,11 +53,13 @@ import {
   parseMap,
   applyTerrain,
   applyUpgrades,
+  applyMissionLocale,
   DECOR,
   paletteColor,
   audioManifest,
   vfxEmitters,
   type MapJson,
+  type MissionLocaleOverlay,
 } from '@lions/data';
 import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
@@ -164,7 +166,7 @@ import { LEDGER_KEY, TUTORIAL_DONE_KEY, loadLedger, saveLedger } from './main-ke
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
-import { missingKeys, setCatalogue } from './i18n/t';
+import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
 import { pseudo } from './i18n/pseudo';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
@@ -343,22 +345,22 @@ function describeMissionEvent(
       const def = mission.objectives.find((o) => o.id === e.id);
       const label = def?.text ?? e.id;
       return e.status === 'complete'
-        ? [`<b>OBJECTIVE COMPLETE</b> — ${label}`, 'good']
-        : [`<b>OBJECTIVE ${e.status.toUpperCase()}</b> — ${label}`, 'bad'];
+        ? [t('mission.notice.objectiveComplete', { label }), 'good']
+        : [t('mission.notice.objectiveStatus', { status: e.status.toUpperCase(), label }), 'bad'];
     }
     case 'trigger': {
       const label = triggerLabel(mission, e.id);
       return label === null ? null : [escapeHtml(label), 'warn'];
     }
     case 'wave':
-      return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, 'bad'];
+      return [t('mission.notice.wave', { n: e.count }), 'bad'];
     case 'roe': {
       const first = !narratedRoeReasons.has(e.reason);
       narratedRoeReasons.add(e.reason);
       return roeNotice(e.penalty, e.reason, e.score, mission.roe?.fail_below, first);
     }
     case 'built':
-      return [`<b>reinforcement deployed</b> — ${e.unit}`, 'info'];
+      return [t('mission.notice.built', { unit: e.unit }), 'info'];
     case 'say':
       // The commander bar is the one surface for a story line now -- `hud.say`
       // already runs for every `say` event (see the mission-loop handler
@@ -373,8 +375,8 @@ function describeMissionEvent(
     case 'missionEnd':
       return [
         e.result === 'victory'
-          ? `<b>MISSION ACCOMPLISHED</b> — Conduct ${e.roeRating}, ${e.survivors.length} units survive`
-          : '<b>MISSION FAILED</b>',
+          ? t('mission.notice.missionAccomplished', { roe: e.roeRating, n: e.survivors.length })
+          : t('mission.notice.missionFailed'),
         e.result === 'victory' ? 'good' : 'bad',
       ];
     default:
@@ -396,7 +398,7 @@ function bootError(stage: HTMLElement, title: string, body: string, home = route
 
   const a = document.createElement('a');
   a.href = home;
-  a.textContent = '← main menu';
+  a.textContent = t('nav.backToMenu');
   div.appendChild(a);
 
   stage.appendChild(div);
@@ -443,6 +445,26 @@ async function fetchLicenceText(url: string): Promise<string> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url}: ${res.status}`);
   return res.text();
+}
+
+/**
+ * The mission-text locale overlay (`data/locales/<lang>/missions.json`,
+ * `data/locales/README.md`), for `applyMissionLocale`'s second argument.
+ * `en` is the source text on every mission file already, so it is never
+ * fetched -- the same short-circuit `i18n/locales.ts`'s `loadLocale` takes
+ * for the chrome catalogue. Any OTHER id (an unshipped locale, a genuine
+ * 404) is a no-op overlay rather than a boot failure: a translator's file
+ * going missing must degrade to English, not break the mission.
+ */
+async function loadMissionOverlay(lang: string, base: string): Promise<MissionLocaleOverlay | null> {
+  if (lang === 'en') return null;
+  try {
+    const res = await fetch(`${base}locales/${lang}/missions.json`);
+    if (!res.ok) return null;
+    return (await res.json()) as MissionLocaleOverlay;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1198,14 +1220,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const missionId = req.missionId;
   let mission: MissionJson | undefined;
   if (missionId !== null) {
-    mission = (missions as Record<string, MissionJson | undefined>)[missionId];
-    if (!mission) {
+    const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
+    if (!rawMission) {
       bootError(stage, `Unknown mission "${missionId}"`, 'This link points at a mission that does not exist in this build.');
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
       // does nothing today -- but an early return that opts OUT of the teardown
       // is how the next registration added above this line goes unreleased.
       return teardown;
     }
+    // The mission-text locale overlay (`data/locales/<lang>/missions.json`,
+    // `data/locales/README.md`): `name`/`briefing`/objective `text`/trigger
+    // `label` in the current UI language, layered over the `en` source this
+    // mission's own JSON carries. `currentLocale()` -- not the `pseudo`
+    // wrapper `main()`'s own boot swaps in for chrome text -- because mission
+    // text is DATA (CLAUDE.md: "Data text stays data") and never goes through
+    // the pseudo-locale transform; under `?pseudo=1` this reads `'pseudo'`,
+    // finds no `data/locales/pseudo/` directory, and `loadMissionOverlay`
+    // falls back to `null` exactly as it does for `en` or a real 404.
+    mission = applyMissionLocale(rawMission, await loadMissionOverlay(currentLocale(), BASE));
   }
   const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger(storage);
 
@@ -2329,11 +2361,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // batch — a burst of individually-failed fetches is one incident, not one
   // per id.
   if (failedArt.length > 0) {
-    hud.note(
-      `<b>art failed to load</b> for ${failedArt.length} type${failedArt.length === 1 ? '' : 's'}` +
-        ` (${failedArt.join(', ')}) — see the console for details`,
-      'bad'
-    );
+    hud.note(t('main.note.artFailed', { n: failedArt.length, ids: failedArt.join(', ') }), 'bad');
   }
   /** The same notice for a mesh that arrived late and failed. Separate from
    *  `failedArt` because it can happen minutes into a mission, long after that
@@ -2344,7 +2372,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     for (const id of failedMesh) {
       if (reportedMeshFailures.has(id)) continue;
       reportedMeshFailures.add(id);
-      hud.note(`<b>mesh failed to load</b> for ${id} — drawing its sprite instead`, 'bad');
+      hud.note(t('main.note.meshFailed', { id }), 'bad');
     }
   };
   // The instrument, off by default now that the HUD is not built on top of it.
@@ -2373,7 +2401,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const primaries = mission.objectives.filter((o) => o.primary !== false).length;
     // `dispatch` is the story voice (GDD §11); absent, this card behaves
     // exactly as it always has (`titleCard`'s own contract).
-    hud.announce(mission.name ?? mission.id, `${primaries} primary objective(s)`, mission.dispatch);
+    hud.announce(mission.name ?? mission.id, t('main.announce.primaryObjectives', { n: primaries }), mission.dispatch);
   }
 
   const start = mission?.map.player_start;
@@ -2617,10 +2645,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
             : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
         dispatch({ kind: 'support', call, x: w.x, y: w.y, accepted: ok });
+        // Reuses the dock's own SUPPORT word keys (production.ts) so a call's
+        // name reads the same on the tile and in the notice that confirms it.
+        const wordKey = call === 'sweep' ? 'dock.support.sweep.word' : 'dock.support.strike.word';
         hud.note(
           ok
-            ? `<b>${call === 'sweep' ? 'sweep' : 'strike'} called</b> on (${w.x.toFixed(0)}, ${w.y.toFixed(0)})`
-            : 'support call refused — not enough intel',
+            ? t('main.note.supportCalled', { name: t(wordKey), x: w.x.toFixed(0), y: w.y.toFixed(0) })
+            : t('main.note.supportRefused'),
           ok ? 'info' : 'mute'
         );
         if (ok) renderer.addOrderMarker(w.x, w.y);
@@ -2813,7 +2844,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       case 'mute':
         audioMuted = audio.toggle();
         hud.paintMute(); // the key and the strip's chip are one state, both ways
-        hud.note(audioMuted ? 'audio muted' : 'audio on', 'mute');
+        // Same wording as the strip's own mute chip title (`hud.ts`'s
+        // `paintMute`, `hud.mute.muted`/`hud.mute.unmuted`): the key and the
+        // chip say the same thing about the same state.
+        hud.note(t(audioMuted ? 'hud.mute.muted' : 'hud.mute.unmuted'), 'mute');
         break;
       case 'pause':
         // Fix round 1: this listener is the OLDEST bubble listener on
@@ -2868,7 +2902,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         for (const i of mine) renderer.unitGroup[i] = slot;
         dispatch({ kind: 'group', slot, action: 'assign' });
         hud.note(
-          mine.length ? `<b>group ${slot}</b> — ${mine.length} unit(s)` : `group ${slot} cleared`,
+          mine.length
+            ? t('main.note.groupAssigned', { slot, n: mine.length })
+            : t('main.note.groupCleared', { slot }),
           'live'
         );
       } else {
@@ -2980,7 +3016,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               payout = missionId ? payMission(loadAccount(storage), missionId, runValue, Date.now()) : null;
               if (payout) saveAccount(storage, payout.account);
             }
-            hud.note('<b>campaign ledger updated</b> — survivors and Conduct carried forward', 'info');
+            hud.note(t('main.note.ledgerUpdated'), 'info');
           }
           if (missionId) {
             // Campaign order lives in world.json, not in the order data/missions files
@@ -3163,7 +3199,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         }
         if (tut.done) {
           window.localStorage.setItem(TUTORIAL_DONE_KEY, '1');
-          hud.note('<b>working up complete</b> — the town is next', 'good');
+          hud.note(t('main.note.tutorialComplete'), 'good');
           if (stepList?.completes !== undefined) runtime.completeObjective(stepList.completes);
           tut = null;
           tutPanel?.destroy();
@@ -3196,8 +3232,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (out.length > 0) {
         renderer.onMissionEvents?.(out);
         hud.note(
-          `<b>civilian evacuated</b> — ${civFlight.evacuatedCount} of ` +
-            `${sandboxForce.civilians.length} out`,
+          t('main.note.civEvacuated', { n: civFlight.evacuatedCount, total: sandboxForce.civilians.length }),
           'good'
         );
       }

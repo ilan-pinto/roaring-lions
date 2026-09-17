@@ -1,14 +1,25 @@
 // tools/validate_i18n.mjs
 // A chrome string that reaches the DOM as a literal is a string the catalogue
-// cannot translate. This scans the MIGRATED files for a text sink being
+// cannot translate. This scans every walked file for a text sink being
 // assigned a literal with words in it. Reference-free and cheap; falsified
 // in validate_i18n.test.ts and by the mutation in the commit that added it.
 //
+// Task 9 and Task 10 grew a hand-kept `MIGRATED` list, one path per file as
+// it was converted -- deliberately, so the gate could not fail on a file
+// nobody had touched yet. Task 11 finishes the tree, so the list is gone:
+// `walkChromeFiles` below walks every `.ts` file under `packages/app/src`
+// instead, and a NEW chrome file is caught by construction rather than by
+// remembering to add it to a list a second time. Two exclusions, both
+// deliberate and both falsifiable (see the walk's own doc comment): a
+// `*.test.ts` file's asserted-English literals are not chrome, and
+// `sandbox-help.ts`'s blurbs are dev-tool console text by that file's own
+// header (R-3 of the shell-upgrade spec).
+//
 // What this gate CANNOT see, because it is a line-level regex over raw
-// source and not a parser -- worth naming explicitly for whoever grows
-// MIGRATED in Tasks 10-11, since Task 9's own conversion leans on every one
-// of these and passed only because a human read the diff, not because this
-// gate would have caught a regression in it:
+// source and not a parser -- worth naming explicitly for whoever extends the
+// walk, since Task 9's own conversion leans on every one of these and passed
+// only because a human read the diff, not because this gate would have
+// caught a regression in it:
 //
 //   1. A literal passed to a HELPER that assigns it to a sink somewhere
 //      ELSE, one level removed from the call site. `panel({ rank, title:
@@ -31,12 +42,11 @@
 //      adjacent to the sink assignment the regex is anchored on.
 //
 // In short: this gate proves the OBVIOUS case -- a literal typed directly
-// into `el.textContent = '…'` -- stays caught after a MIGRATED file is
-// edited. It is not a substitute for reading a diff that adds new chrome
-// text, and Tasks 10-11 should not treat a clean `validate:i18n` run as proof
-// that nothing was missed.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// into `el.textContent = '…'` -- stays caught across the whole tree. It is
+// not a substitute for reading a diff that adds new chrome text, and a clean
+// `validate:i18n` run is not proof that nothing was missed.
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 const SINKS = /(?:\.textContent|\.innerText|\.innerHTML|\.title|\.placeholder|\.ariaLabel)\s*=\s*(['"`])((?:(?!\1)[\s\S])*)\1/g;
 const ATTR = /setAttribute\(\s*['"](?:aria-label|title|placeholder)['"]\s*,\s*(['"`])((?:(?!\1)[\s\S])*)\1/g;
@@ -61,31 +71,44 @@ export function bareStringFailures(file, source) {
   return out;
 }
 
-/** Grows in Tasks 10-11; Task 11's last commit replaces it with a directory walk. */
-export const MIGRATED = [
-  'packages/app/src/ui/settings-panel.ts',
-  'packages/app/src/ui/settings-keymap.ts',
-  'packages/app/src/ui/pause.ts',
-  'packages/app/src/ui/saves.ts',
-  'packages/app/src/ui/credits.ts',
-  'packages/app/src/ui/menu.ts',
-  'packages/app/src/ui/brigade.ts',
-  'packages/app/src/ui/debrief.ts',
-  'packages/app/src/ui/loading.ts',
-  'packages/app/src/ui/worldmap.ts',
-  'packages/app/src/ui/worldmap3d.ts',
-  'packages/app/src/ui/grade-copy.ts',
-  'packages/app/src/ui/role.ts',
-  'packages/app/src/ui/mark.ts',
-  'packages/app/src/tutorial/panel.ts',
-];
+/** `EXEMPT_FILES`' own doc comment covers the "why"; this is the "what". A
+ *  `Set` rather than a second regex so a name match is exact -- a future
+ *  `sandbox-help-panel.ts` must not silently inherit the exemption by
+ *  substring. */
+const EXEMPT_FILES = new Set(['sandbox-help.ts']);
+
+/**
+ * Every `.ts` file this gate walks: `packages/app/src`, recursively, minus a
+ * `*.test.ts` file's own asserted-English literals and `sandbox-help.ts`'s
+ * dev-tool blurbs (see this file's header). Replaces the Task 9/10
+ * hand-kept `MIGRATED` list -- a new chrome file is caught by construction
+ * now, not by remembering to add its path a second time.
+ *
+ * Exported so a test can prove both exclusions are load-bearing rather than
+ * decorative: dropping the `.test.ts` filter must turn up a real test
+ * file's literal (`validate_i18n.test.ts` and its own asserted English
+ * strings are IN this tree), and dropping the `sandbox-help.ts` filter must
+ * turn up its blurbs. `validate_i18n.test.ts` falsifies both.
+ */
+export function walkChromeFiles(root) {
+  const appSrc = join(root, 'packages/app/src');
+  const out = [];
+  for (const entry of readdirSync(appSrc, { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
+    if (entry.name.endsWith('.test.ts')) continue;
+    if (EXEMPT_FILES.has(entry.name)) continue;
+    out.push(relative(root, join(entry.parentPath, entry.name)));
+  }
+  return out.sort();
+}
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const root = new URL('..', import.meta.url).pathname;
-  const failures = MIGRATED.flatMap((f) => bareStringFailures(f, readFileSync(join(root, f), 'utf8')));
+  const files = walkChromeFiles(root);
+  const failures = files.flatMap((f) => bareStringFailures(f, readFileSync(join(root, f), 'utf8')));
   if (failures.length > 0) {
     console.error(failures.join('\n'));
     process.exit(1);
   }
-  console.log(`validate:i18n OK -- ${MIGRATED.length} file(s), no bare chrome strings`);
+  console.log(`validate:i18n OK -- ${files.length} file(s), no bare chrome strings`);
 }

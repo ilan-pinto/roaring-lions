@@ -52,7 +52,7 @@ liftEl.addEventListener('input', () => spike.setSpriteLift(Number(liftEl.value))
 pauseEl.addEventListener('click', () => {
   paused = !paused;
   spike.setPaused(paused);
-  pauseEl.textContent = paused ? 'play' : 'pause';
+  pauseEl.textContent = paused ? 'play' : 'pause'; /* i18n-ok: dev tool */
 });
 // Stepping is the instrument Q1 needs: band crawl is a property of the
 // difference between two adjacent frames, and it is invisible at 60 fps.
@@ -60,7 +60,7 @@ stepEl.addEventListener('click', () => {
   if (!paused) {
     paused = true;
     spike.setPaused(true);
-    pauseEl.textContent = 'play';
+    pauseEl.textContent = 'play'; /* i18n-ok: dev tool */
   }
   spike.step();
 });
@@ -70,7 +70,7 @@ function loop(now: number): void {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   spike.frame(dt);
-  readout.textContent = `figure ${spike.figurePixels().toFixed(0)} px tall · left = rigged mesh · right = shipping INF_SQUAD sheet`;
+  readout.textContent = /* i18n-ok: dev tool */ `figure ${spike.figurePixels().toFixed(0)} px tall · left = rigged mesh · right = shipping INF_SQUAD sheet`;
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

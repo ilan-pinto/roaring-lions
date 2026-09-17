@@ -15,8 +15,13 @@
  * mission's own `fail_below`, which is why it can live here and be tested
  * without a DOM, a sim, or a mission.
  *
- * No DOM, no Pixi, no sim state.
+ * No DOM, no Pixi, no sim state. `reason` is passed straight through
+ * untranslated -- it is the sim's own event text (`e.reason`, e.g. "fire
+ * into protected structure (clinic)"), data rather than chrome, the same
+ * "Data text stays data" rule `describeMissionEvent`'s own `unit`/`type` ids
+ * follow.
  */
+import { t } from '../i18n/t';
 import type { Tone } from './hud';
 
 /**
@@ -40,9 +45,19 @@ export function isProtectedZoneReason(reason: string): boolean {
  * choose which of its weapons it fires, only where it stands, so "pull the
  * heavy weapons back" is the actionable form and "collateral_risk >= 0.3" is
  * not.
+ *
+ * A function, not the plain string constant this used to be (lesson from
+ * `role.ts`'s `ROLE_LABEL` and `grade-copy.ts`'s `tierName`/`tierLine`): a
+ * module-level value resolved once at import time would freeze in whatever
+ * locale was active before `main.ts`'s boot ever calls `setCatalogue`, and
+ * render plain English under `?pseudo=1` forever. Called fresh from
+ * `roeNotice` below, the same way those two call `t()` on every access.
+ * `roe-notice.test.ts` calls it as `protectedZoneHint()` for the same
+ * reason.
  */
-export const PROTECTED_ZONE_HINT =
-  'heavy weapons are doing this — pull them off the zone and clear it with infantry';
+export function protectedZoneHint(): string {
+  return t('roe.protectedZoneHint');
+}
 
 /**
  * Narrate one `roe` mission event.
@@ -59,19 +74,19 @@ export function roeNotice(
   failBelow: number | undefined,
   first: boolean
 ): [string, Tone] {
-  const head = `<b>Conduct −${penalty}</b> (${reason}) → ${score}`;
+  const head = t('roe.notice.head', { penalty, reason, score });
 
   // Already below the floor. The mission is lost whatever else is on screen,
   // and saying so plainly beats leaving the player to infer it from a number.
   if (failBelow !== undefined && score < failBelow) {
-    return [`${head} — <b>BELOW ${failBelow}: THE MISSION IS LOST</b>`, 'bad'];
+    return [t('roe.notice.lost', { head, floor: failBelow }), 'bad'];
   }
 
-  const hint = first && isProtectedZoneReason(reason) ? ` — ${PROTECTED_ZONE_HINT}` : '';
+  const hint = first && isProtectedZoneReason(reason) ? ` — ${protectedZoneHint()}` : '';
 
   if (failBelow !== undefined && score - failBelow <= WARN_MARGIN) {
-    return [`${head} — <b>${score - failBelow} above the ${failBelow} floor</b>${hint}`, 'bad'];
+    return [t('roe.notice.warn', { head, above: score - failBelow, floor: failBelow, hint }), 'bad'];
   }
 
-  return [`${head}${hint}`, 'bad'];
+  return [t('roe.notice.plain', { head, hint }), 'bad'];
 }
