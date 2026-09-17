@@ -58,7 +58,20 @@ interface Probe {
   leftovers: string[];
 }
 
-const BODY_CHROME = ['.rl-strip', '.rl-minimap', '.rl-marquee', '.rl-bigbanner', '.rl-titlecard'];
+/** Everything a battlefield mounts on `document.body` that has a stable class:
+ *  the HUD's strip and banner, the minimap, the selection marquee, the
+ *  reinforcement dock (`resources` missions only) and a title card still
+ *  holding. The debug overlay's two panes are styled inline and have no class,
+ *  so they are covered by the body-child COUNT rather than by name -- which is
+ *  why both checks are here and neither is redundant. */
+const BODY_CHROME = [
+  '.rl-strip',
+  '.rl-minimap',
+  '.rl-marquee',
+  '.rl-bigbanner',
+  '.rl-titlecard',
+  '.rl-dock',
+];
 
 async function probe(page: Page): Promise<Probe> {
   return page.evaluate((chrome: string[]) => {
@@ -213,6 +226,31 @@ try {
     `the soft-booted mission did not tick: ${b1.tick} -> ${b2.tick}`
   );
   console.log(`[${TAG}] soft mission ticked ${b1.tick} -> ${b2.tick}, boots=${b1.boots}`);
+
+  // And leave THAT one too, which is not belt-and-braces: the board's first
+  // card is a `resources` mission, and a mission with resources fields a
+  // `ReinforcementDock` on the body that the two recon missions above do not.
+  // Leaving only MISSION_A and MISSION_B left that dock unexamined, and it was
+  // leaking -- found by reading the body-mount list rather than by this walk,
+  // which is why the walk now covers it.
+  await page.click('.rl-hud__leave');
+  await page.click('.rl-confirm__yes');
+  await page.waitForSelector('.rl-world');
+  const afterSoft = await probe(page);
+  expect(!afterSoft.lions, 'window.__lions survived leaving the soft-booted mission');
+  expect(
+    afterSoft.leftovers.length === 0,
+    `chrome left on the body after leaving the soft-booted mission: ${afterSoft.leftovers.join(', ')}`
+  );
+  expect(
+    afterSoft.bodyChildren === idleBody,
+    `body has ${afterSoft.bodyChildren} children after leaving the soft-booted mission, ` +
+      `${idleBody} at the menu`
+  );
+  console.log(
+    `[${TAG}] after three missions the body has ${afterSoft.bodyChildren} children` +
+      `${afterSoft.bodyChildren === idleBody ? ' -- back to the menu’s own count' : ` -- the menu had ${idleBody}`}`
+  );
 
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {

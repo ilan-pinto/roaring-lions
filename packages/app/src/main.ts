@@ -2095,6 +2095,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
     });
   }
+  // Also on the body, and only on a `resources` mission -- which is exactly
+  // why the route walk leaves its soft-booted mission too. The board's first
+  // card is `beit_sahwan_breach`, one of the nineteen missions that field a
+  // dock; a walk that only ever left the two recon missions could not have
+  // seen this one, and did not.
+  onDispose(() => production?.destroy());
 
   // --- input ---------------------------------------------------------------
   const canvas = renderer.canvas;

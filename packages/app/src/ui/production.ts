@@ -133,6 +133,21 @@ export class ReinforcementDock {
     this.refresh();
   }
 
+  /**
+   * Take the dock off the host.
+   *
+   * Like the HUD and the minimap it mounts on `document.body`, not on the
+   * stage the router clears, so leaving a `resources` mission strands it over
+   * whatever screen comes next. One root: every tile, the label and the
+   * tooltip are inside `this.el`, and their listeners are on its descendants,
+   * so removing it releases all of them.
+   *
+   * Idempotent -- `Element.remove()` on a detached node is a no-op.
+   */
+  destroy(): void {
+    this.el.remove();
+  }
+
   // ------------------------------------------------------------------
   // Construction. Tiles are built ONCE and only repainted afterwards.
   //
