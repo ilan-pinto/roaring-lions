@@ -280,3 +280,34 @@ Zero materials. Real metres, scale derived via `dimetric`, never hand-typed.
 Forward +X. `extras` requires `export_extras=True`, which is off by default and
 drops silently. A role outside its class's closed set is a loud failure on both
 sides, never a default colour.
+
+---
+
+# v4 — `fall` and `fallAlt`
+
+**Pinned 2026-09-17** (`docs/superpowers/specs/2026-09-17-infantry-animation-design.md`, D3).
+
+The clip vocabulary is `idle, move, fire, down, wreck, work, moveFire,
+wreckAlt, fall, fallAlt`. Two additions, both ONE-SHOT and both played only
+by `units/mesh-death.ts` — `resolveClip` never returns them, because `down`
+loops for suppression and a fall has an end.
+
+- **`fall`** starts standing (first-frame hips height within 10 % of the
+  file's own `idle`), ends prone (last-frame hips height ≤ 0.35 m), lasts
+  0.5–2.0 s, carries **no horizontal root motion** (the hips' horizontal
+  position is held at its first-frame value throughout; vertical kept),
+  and its **last frame is the `wreck` pose** — the same source frame,
+  re-centred the same way — so the switch to the persistent wreck moves
+  nothing. Figures in a team are staggered 0.1 s apart, holding their
+  first frame, so a squad does not drop as clones.
+- **`fallAlt`** is the same for `wreckAlt`. A file with `fallAlt` must have
+  `wreckAlt`; a file with `fall` and `wreckAlt` must have `fallAlt`
+  (`pickDeathClips` decides both halves with one bit); `wreckAlt` without
+  `fall` stays legal.
+- A file with neither `fall` nor `fallAlt` is legal and dies by the
+  runtime's generic topple (D5). `pnpm gait:meshes` ignores both names.
+
+The runtime guarantees: `fall`/`fallAlt` are entered through the same
+crossfade as any clip (D1), never faded out mid-way, and followed by the
+wreck with no opacity fade (D4). The gate is `tools/src/mesh_gait.test.ts`,
+"mesh unit death -- the fall clips".

@@ -33,12 +33,14 @@ const CLIP_NAME_SET: { readonly [K in ClipName]: true } = {
   work: true,
   moveFire: true,
   wreckAlt: true,
+  fall: true,
+  fallAlt: true,
 };
 
 /** Every `ClipName`, for iteration and validation. */
 export const CLIP_NAMES = Object.keys(CLIP_NAME_SET) as ClipName[];
 
-/** True for any of the six canonical clip names. Used to validate a loaded
+/** True for any of the ten canonical clip names. Used to validate a loaded
  *  GLB's animation names against the contract: "a clip present under any
  *  other name is a failure" (mesh-unit-contract.md). */
 export function isMeshClipName(name: string): name is ClipName {
@@ -52,9 +54,15 @@ export function isMeshClipName(name: string): name is ClipName {
  * unit's GLB instead of a sprite sheet's manifest. `available` is the set of
  * clip names a loaded `MeshUnitTemplate` actually carries an
  * `AnimationClip` for.
+ *
+ * For death clips, implements the fallback chain: fallAlt → fall → down → idle,
+ * so a death module never plays a missing name.
  */
 export function meshClipOrFallback(available: ReadonlySet<ClipName>, clip: ClipName): ClipName {
-  return available.has(clip) ? clip : 'idle';
+  if (available.has(clip)) return clip;
+  if (clip === 'fallAlt' && available.has('fall')) return 'fall';
+  if ((clip === 'fall' || clip === 'fallAlt') && available.has('down')) return 'down';
+  return 'idle';
 }
 
 /**
@@ -443,6 +451,25 @@ export function hashEntityId(id: number): number {
  * unchanged) — a team with no `wreckAlt` simply always gets `'wreck'` back,
  * exactly today's behaviour.
  */
-export function pickDeathClip(entityId: number, hasWreckAlt: boolean): ClipName {
+export function pickDeathClip(entityId: number, hasWreckAlt: boolean): 'wreck' | 'wreckAlt' {
   return hasWreckAlt && hashEntityId(entityId) % 2 === 1 ? 'wreckAlt' : 'wreck';
+}
+
+/** The fall a dying body plays and the corpse it becomes, as one pick. */
+export interface DeathClipPick {
+  readonly fall: 'fall' | 'fallAlt';
+  readonly wreck: 'wreck' | 'wreckAlt';
+}
+
+/**
+ * Design D3: the variant bit is decided ONCE per entity (`pickDeathClip`'s
+ * own hash) and applied to both halves, so the fall a body plays always
+ * ends in the pose the wreck holds. `fallAlt` is named only when the file
+ * carries it -- a file with `wreckAlt` and no `fallAlt` (none shipped; the
+ * gait gate forbids it on a file that has `fall`) plays the primary fall.
+ */
+export function pickDeathClips(entityId: number, available: ReadonlySet<ClipName>): DeathClipPick {
+  const wreck = pickDeathClip(entityId, available.has('wreckAlt'));
+  const fall = wreck === 'wreckAlt' && available.has('fallAlt') ? 'fallAlt' : 'fall';
+  return { fall, wreck };
 }

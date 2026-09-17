@@ -25,10 +25,15 @@
  *  `wreckAlt` is a second, equally valid corpse pose, picked per entity by a
  *  deterministic hash rather than authored per figure — see
  *  `packages/render/src/three/units/mesh-anim.ts`'s `resolveMeshMotionClip`
- *  and `pickDeathClip`. Only `art/meshes/sarim_rifles.glb` ships either
+ *  and `pickDeathClip`.
+ *
+ *  `fall`/`fallAlt` (2026-09-17, design D3) are the supplied death animations, one-shot, played only by `units/mesh-death.ts` — `resolveClip` never returns them, because `down` is looped for suppression and a fall is a transition with an end. `fallAlt` pairs with `wreckAlt`.
+ *
+ *  Only `art/meshes/sarim_rifles.glb` ships `wreckAlt` or `fallAlt`
  *  today; every other GLB's `applyMeshClip` call simply never resolves to
  *  them, exactly like `work` on a sheet that never declares it. */
-export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work' | 'moveFire' | 'wreckAlt';
+export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work' | 'moveFire' | 'wreckAlt'
+  | 'fall' | 'fallAlt';
 
 export interface ClipSpec {
   /** Number of frames in this clip. */

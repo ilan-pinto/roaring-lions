@@ -15,6 +15,7 @@ import {
   resolveMeshMotionClip,
   hashEntityId,
   pickDeathClip,
+  pickDeathClips,
   LOCOMOTION_CLIPS,
   isLocomotionClip,
   clipGroundSpeedTiles,
@@ -27,9 +28,9 @@ import { ROUT_CADENCE } from '../../clip';
 import type { ClipName } from '../../sheet';
 
 describe('CLIP_NAMES / isMeshClipName', () => {
-  it('lists exactly the eight canonical clip names', () => {
+  it('lists exactly the ten canonical clip names', () => {
     expect(new Set(CLIP_NAMES)).toEqual(
-      new Set(['idle', 'move', 'fire', 'down', 'wreck', 'work', 'moveFire', 'wreckAlt'])
+      new Set(['idle', 'move', 'fire', 'down', 'wreck', 'work', 'moveFire', 'wreckAlt', 'fall', 'fallAlt'])
     );
   });
 
@@ -68,6 +69,14 @@ describe('meshClipOrFallback', () => {
     // this pure function's own contract is unconditional: asked for idle,
     // it returns idle, never substituting a third clip.
     expect(meshClipOrFallback(new Set(), 'idle')).toBe('idle');
+  });
+
+  it('falls back fallAlt -> fall -> down -> idle, so a death module never plays a missing name', () => {
+    expect(meshClipOrFallback(new Set<ClipName>(['idle', 'down', 'fall', 'fallAlt']), 'fallAlt')).toBe('fallAlt');
+    expect(meshClipOrFallback(new Set<ClipName>(['idle', 'down', 'fall']), 'fallAlt')).toBe('fall');
+    expect(meshClipOrFallback(new Set<ClipName>(['idle', 'down']), 'fallAlt')).toBe('down');
+    expect(meshClipOrFallback(new Set<ClipName>(['idle', 'down']), 'fall')).toBe('down');
+    expect(meshClipOrFallback(new Set<ClipName>(['idle']), 'fall')).toBe('idle');
   });
 });
 
@@ -176,6 +185,26 @@ describe('pickDeathClip', () => {
       const first = pickDeathClip(id, true);
       const second = pickDeathClip(id, true);
       expect(second).toBe(first);
+    }
+  });
+});
+
+describe('pickDeathClips', () => {
+  const all = new Set<ClipName>(['idle', 'fall', 'fallAlt', 'wreck', 'wreckAlt']);
+  it('pairs the fall with the wreck it ends in -- the same variant bit decides both', () => {
+    for (let id = 0; id < 40; id++) {
+      const pick = pickDeathClips(id, all);
+      expect(pick.fall === 'fallAlt').toBe(pick.wreck === 'wreckAlt');
+      expect(pick.wreck).toBe(pickDeathClip(id, true));
+    }
+  });
+  it('never names a clip the file lacks', () => {
+    for (let id = 0; id < 40; id++) {
+      expect(pickDeathClips(id, new Set<ClipName>(['idle', 'wreck'])).wreck).toBe('wreck');
+      expect(pickDeathClips(id, new Set<ClipName>(['idle', 'fall', 'wreck'])).fall).toBe('fall');
+      // Break: drop the `available.has('fallAlt')` guard -- an alt wreck
+      // with no alt fall then names 'fallAlt' here and goes red.
+      expect(pickDeathClips(id, new Set<ClipName>(['idle', 'fall', 'wreck', 'wreckAlt'])).fall).toBe('fall');
     }
   });
 });
