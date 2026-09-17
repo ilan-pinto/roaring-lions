@@ -1013,9 +1013,28 @@ run('khan_rafid_1_recon', () => {}, {}, 'defeat', 'khan_rafid_1_recon (passive c
 // on the alley flyby last -- both `kr_watch` militia are IDENTIFIED at
 // t=15.1s and the drone is shot down at t=30.6s, but by then `find_the_watch`
 // is already latched complete (`identified` only grows, mission.ts:1150).
-// Jeep and Eitan drive straight to one family each (2.9/1.8 tiles/s against
-// a 30-tile reach) and both are back inside the ward well under the 240s
-// clock. Measured: VICTORY in 0.53 min, ROE 100.
+//
+// The jeep's own leg used to route straight through the ward's single
+// north-south gate corridor (the shortest path from its spawn to the west
+// family at [20,16]) -- the same corridor `the_compound_was_never_empty`
+// spawns a militia into the instant a player unit crosses the wall. At base
+// stats the jeep wins that race and clears the gate before it stops to
+// fight; at `jeep_shoded`'s sensors tier 2 (sight 10->12, optics 1.0->1.15
+// -- a purely beneficial bump, no armour or firepower involved) it detects
+// that spawn just early enough to get pulled into the fight INSIDE the
+// gate instead of past it, and never resumes toward [20,16] at all -- the
+// west `kr_watch` militia is then never identified and `find_the_watch` (a
+// primary with no deadline) hangs for the full 20 minutes. Measured: holds
+// at tier 1, flips at tier 2 and tier 3 (`docs/campaign/economy/upgrades.md`
+// §7.6 bisection). The fix routes AROUND the gate instead of re-timing the
+// race: [18,20] sits in the open lane between the ward's west wall and the
+// blocked housing row to its west, 5 tiles clear of the `kr_lane_west` RPG
+// ambush at [13,20] (LOS to it is blocked by that same housing row) and
+// entirely outside the `ward` zone, so the compound-spawn trigger and its
+// corridor fight never touch the jeep's outbound leg at all -- at any tier.
+// Jeep and Eitan are back inside the ward well under the 240s clock.
+// Measured: VICTORY in 0.53 min, ROE 100, unchanged at all 17 KDF types'
+// max tier (VICTORY, 2 stars, `docs/campaign/economy/upgrades.md` §7.6).
 run(
   'khan_rafid_1_recon',
   (sim, _rt, ids, at) => {
@@ -1026,8 +1045,9 @@ run(
     at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(38, 25) }));
     at(22, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
 
-    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(20, 16) }));
+    at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(18, 20) }));
     at(0, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(27, 16) }));
+    at(12, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(20, 16) }));
     at(30, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 22) }));
     at(30, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(24, 22) }));
   },
@@ -1784,6 +1804,30 @@ const ledQH2In = { ...ledQH1, ...ledQH2 };
 // that before the main column ever gets close: three families are moving on
 // their own by the time anything else arrives.
 //
+// That detail used to walk to [29,3] -- almost on top of the `sarim_rifles`
+// garrisoned two tiles away at [27,3] -- to get within shepherd range of the
+// family. At base stats both bodies (one `inf_squad`, one `at_team`, neither
+// escorted or supported) survived that exposure; at `at_team`'s sensors tier
+// 1 alone (sight 9->10, optics 1.1->1.19 -- again a purely beneficial bump)
+// the detection-timing shift was enough that the SAME rifleman killed both
+// in turn (t=46.6, t=64.5) before either ever got close to the family, and
+// `get_the_families_clear` then had nothing left to trigger the flee and
+// failed on the 300s clock. Measured: holds at 0 tiers, flips at tier 1
+// (`docs/campaign/economy/upgrades.md` §7.6 bisection). The fix does not
+// try to keep the detail alive against that rifleman -- it removes the
+// firefight from the family's critical path entirely: the detail now walks
+// to [21,2], directly beside the LARGER family group and away from both
+// garrisoned buildings' engagement, so the flee latches (CivilianFlight's
+// `fledSet` is permanent once set) within the first third of the walk,
+// before anything can reach the detail at all. What happens to the detail
+// afterward -- at base stats and at every KDF unit's max tier alike, both
+// bodies are eventually killed by other village pickets converging from
+// several directions -- no longer matters: the family is already walking to
+// the clinic on its own. Measured: VICTORY in 2.8 min, ROE 77 (was 3.7 min,
+// ROE 80 -- a different route trips different collateral, hence the credits
+// line moving), unchanged at all 17 KDF types' max tier (VICTORY, 2 stars,
+// `docs/campaign/economy/upgrades.md` §7.6).
+//
 // One soldier alone climbs the terraces first -- the mast party will not
 // fire until it is entered -- so the relay dies to a small force rather than
 // costing the main column a detour, and the west ditch crossing under the
@@ -1815,7 +1859,7 @@ const qarnHadid3Plan: Plan = (sim, _rt, ids, at) => {
   const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...mortar, ...sniper];
   at(1, () => {
     sim.queueCommand({ kind: 'attackMove', ids: west, ...M(10, 9) });
-    sim.queueCommand({ kind: 'move', ids: civTeam, ...M(29, 3) });
+    sim.queueCommand({ kind: 'move', ids: civTeam, ...M(21, 2) });
     sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
   });
   at(60, () => sim.queueCommand({ kind: 'attackMove', ids: main, ...M(20, 9) }));
@@ -2229,7 +2273,16 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Re-pinned 2026-09-15, same day: "home" now counts only the starting force
 // (ruling R4) -- production units no longer inflate the payout, which moved
 // the total 5644 -> 5544.
-const LADDER_CREDITS = 5544;
+// Re-pinned 2026-09-17: 5544 -> 5531. `qarn_hadid_3_clearance`'s rescue-detail
+// waypoint moved from [29,3] to [21,2] (brittle-plan fix, see the plan's own
+// comment above) to stop the detail's survival being a knife edge at a
+// stronger KDF tier -- the new route trips a different ROE/roster outcome
+// (80 -> 77 ROE, one fewer survivor) for the same 2 stars, moving that one
+// mission's credits 225 -> 212 and the ladder by the same -13.
+// `khan_rafid_1_recon`'s fix (jeep's gate-transit route) changed nothing
+// about its own outcome -- VICTORY 0.5 min, ROE 100, stars 2, credits 260,
+// byte-identical to before -- so it contributes no change here.
+const LADDER_CREDITS = 5531;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
