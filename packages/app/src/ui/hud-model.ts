@@ -196,8 +196,11 @@ export function objectiveGlyph(status: string): string {
  * (tools/src/bad-text-contrast.test.ts). Every call site that builds a tone
  * class for TEXT should route through here rather than interpolating
  * `` `rl-${tone}` `` by hand, so a new one cannot reintroduce the defect —
- * `.rl-bad` itself stays reserved for a FILL (the ROE gauge, the debrief
- * list), which this function is never used for.
+ * `.rl-bad` itself stays reserved for a FILL (the ROE gauge), which this
+ * function is never used for. The debrief list read as a fill in this
+ * comment until I2 (shell-upgrade Phase 0 final fix wave) moved it, and
+ * four other CSS-only sites, onto `--bad-text` directly — `theme.css`'s own
+ * comment on that token has the list.
  *
  * `tone` may be falsy (an unset hold/deadline tone renders no class at all).
  */

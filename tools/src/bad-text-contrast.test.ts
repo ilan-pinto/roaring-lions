@@ -33,3 +33,72 @@ describe('the red that renders as text', () => {
     expect(contrast(palette.reserved.team.colors.hostile_text, panel)).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+/**
+ * I2 (shell-upgrade Phase 0 final review): the palette-reading test above
+ * proves the TOKEN pair is right; it cannot see a CSS site that names the
+ * wrong one of the two. Five sites did exactly that -- `color: var(--bad)`
+ * on static text (a campaign-board line, a dock tile's price, the
+ * boot-error screen, the debrief's deduction list, the tutorial nudge) --
+ * and were found by a one-off `grep`, a sweep rather than a rule. This
+ * reads `theme.css` directly and turns it into one: every `color:`
+ * declaration (never `border-color:`/`background-color:`, which the
+ * negative lookbehind below excludes) that names `--bad` must belong to one
+ * of the two selectors this repo still allows it for.
+ */
+const COLOR_BAD_RE = /(?<![-a-zA-Z])color:\s*var\(--bad\)/g;
+
+/** The selector (or `@keyframes` percentage) whose block a `color:
+ *  var(--bad)` match sits in directly, found by walking outward from the
+ *  match to the nearest unclosed `{` and the `}` before that -- correct for
+ *  this file's flat (non-nested) CSS, and stripped of any doc comment that
+ *  sits between the previous rule's `}` and this selector. */
+function enclosingSelector(css: string, matchIndex: number): string {
+  const braceIdx = css.lastIndexOf('{', matchIndex);
+  const prevCloseIdx = css.lastIndexOf('}', braceIdx);
+  return css
+    .slice(prevCloseIdx + 1, braceIdx)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
+}
+
+/** `.rl-bad` is the reserved FILL class (an SVG `fill: currentColor`
+ *  consumer per its own comment in `theme.css`, never a rendered string --
+ *  nothing in `packages/app/src` applies it as a DOM class today, which a
+ *  future `git grep classList.*rl-bad` can re-check). `rl-drop`'s `40%`
+ *  keyframe is a 300ms flash midpoint on `.rl-flash-bad`, not static body
+ *  text the WCAG AA floor gates the way the five I2 sites were. Every other
+ *  selector that sets `color:` from `--bad` must read `--bad-text` instead. */
+const ALLOWED_BAD_COLOR_SELECTORS = ['.rl-bad', '40%'];
+
+function findBadColorOffenders(css: string): string[] {
+  const offenders: string[] = [];
+  for (const m of css.matchAll(COLOR_BAD_RE)) {
+    const selector = enclosingSelector(css, m.index ?? 0);
+    if (!ALLOWED_BAD_COLOR_SELECTORS.includes(selector)) offenders.push(selector || '(unresolved selector)');
+  }
+  return offenders;
+}
+
+describe('color: var(--bad) is a rule now, not a sweep (I2)', () => {
+  const cssPath = new URL('../../packages/app/src/ui/theme.css', import.meta.url);
+
+  it('theme.css has no text site left reading the unreadable fill token', () => {
+    const css = readFileSync(cssPath, 'utf8');
+    expect(findBadColorOffenders(css)).toEqual([]);
+  });
+
+  it('is falsifiable: a sixth text site reading --bad is caught by name', () => {
+    // Constructed input, run, watched failing -- CLAUDE.md's own discipline
+    // for a check that did not exist before this fix. Reproduces the exact
+    // shape the five real sites had: an element selector setting `color:`
+    // straight from `--bad` with no allow-listed name.
+    const injected = readFileSync(cssPath, 'utf8') + '\n.rl-falsify-bad-text {\n  color: var(--bad);\n}\n';
+    expect(findBadColorOffenders(injected)).toEqual(['.rl-falsify-bad-text']);
+  });
+
+  it('does not false-positive on border-color or background-color', () => {
+    const css = '.rl-x { border-color: var(--bad); background-color: var(--bad); }';
+    expect(findBadColorOffenders(css)).toEqual([]);
+  });
+});

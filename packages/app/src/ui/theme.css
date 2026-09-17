@@ -135,19 +135,26 @@
      borrows the caution colour (the stripe stars used --warn until 2026-09-11). */
   --commend: var(--rl-dust-0);
   --bad: var(--rl-team-hostile);
-  /* --bad is a FILL colour (the ROE gauge, the debrief list) and reads 4.01:1
-     as text over the panel ground -- under WCAG AA's 4.5:1 floor for body
-     text (tools/src/bad-text-contrast.test.ts). --bad-text is the same red,
+  /* --bad is a FILL colour (the ROE gauge) and reads 4.01:1 as text over the
+     panel ground -- under WCAG AA's 4.5:1 floor for body text
+     (tools/src/bad-text-contrast.test.ts). --bad-text is the same red,
      lightened until it clears that floor, for every place a bad-tone STRING
      is read rather than filled: the five `hud.ts` spans wired to
      `.rl-bad-text` directly (the strip's failed-primary tone, the "N broken"
      info field, "cannot penetrate", and the unit panel's BROKEN/guns-out
      flags), the hold clock's own `.rl-clock[data-tone='bad']` rule below,
-     and every site that builds a tone class from a VARIABLE rather than a
+     every site that builds a tone class from a VARIABLE rather than a
      literal -- `note()`'s mission narration, the strip's inline hold and
      deadline clocks, and a selection chip's status line -- which all route
      through `textToneClass` (hud-model.ts) instead of interpolating
-     `rl-${tone}` by hand, so a bad-tone string cannot land back on the
+     `rl-${tone}` by hand, and (I2, shell-upgrade Phase 0 final fix wave) five
+     more static CSS sites that used to sit on the unreadable fill token
+     instead: the campaign board's locked-region line
+     (`.rl-world__say[data-tone='bad']`), a poor dock tile's price
+     (`.rl-tile[data-poor='1'] .rl-tile__cost`), the boot-failure screen
+     (`.rl-boot-error`), the debrief's deduction list
+     (`.rl-debrief__deductions li`) and the tutorial nudge
+     (`.rl-tutorial__nudge`) -- so a bad-tone string cannot land back on the
      unreadable fill token by accident. */
   --bad-text: var(--rl-team-hostile-text);
   --info: var(--rl-water-0);
@@ -487,7 +494,7 @@ body {
   color: var(--ink-dim);
 }
 .rl-world__say[data-tone='good'] { color: var(--good); }
-.rl-world__say[data-tone='bad'] { color: var(--bad); }
+.rl-world__say[data-tone='bad'] { color: var(--bad-text); }
 .rl-world__say[data-tone='info'] { color: var(--ink-mute); }
 /* The card for the region that was just clicked, so the eye is sent to the
    longer explanation rather than being left with one sentence. */
@@ -736,8 +743,13 @@ body {
 .rl-bad {
   color: var(--bad);
 }
-/* The reading twin of .rl-bad -- see --bad-text above. Fills (the ROE gauge,
-   the debrief list) stay on .rl-bad; a bad-tone STRING moves here. */
+/* The reading twin of .rl-bad -- see --bad-text above. Genuine fills/borders
+   (`.rl-confirm__yes[data-danger='1']`'s border :717, `.rl-fill-bad`'s
+   background :763, the defeat banner's border :1583) stay on .rl-bad /
+   var(--bad); a bad-tone STRING moves here. The debrief deduction list was
+   wrongly named a fill in this comment until I2 (shell-upgrade Phase 0
+   final fix wave) -- it is text, like the four other sites --bad-text's own
+   comment above now names. */
 .rl-bad-text {
   color: var(--bad-text);
 }
@@ -1712,7 +1724,7 @@ body {
   opacity: 0.45;
 }
 .rl-tile[data-poor='1'] .rl-tile__cost {
-  color: var(--bad);
+  color: var(--bad-text);
 }
 
 .rl-tile__art {
@@ -1914,7 +1926,7 @@ body {
 /* Boot failure. Reachable only after this stylesheet has loaded — the module
    that registers the handler is the one that imports it. */
 .rl-boot-error {
-  color: var(--bad);
+  color: var(--bad-text);
   font-family: var(--font-mono);
   font-size: var(--t-m);
   padding: var(--s6);
@@ -2232,7 +2244,7 @@ button.rl-menu__item[data-kind='aside'] {
 /* The account of the taken, the same ink the board's own line takes. */
 .rl-debrief__taken { margin: 0 0 0.5rem; color: var(--ink); }
 .rl-debrief__deductions, .rl-debrief__secondaries { margin: 0.25rem 0 0.5rem 1.2em; padding: 0; }
-.rl-debrief__deductions li { color: var(--bad); }
+.rl-debrief__deductions li { color: var(--bad-text); }
 .rl-debrief__secondary[data-carries='1'] { color: var(--commend); }
 /* `__unlocked` is a `ul` -- one line per unlock, since each carries its own
    reason -- so it needs the same list reset the two lists above take, or the
@@ -2373,7 +2385,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-tutorial__nudge {
   margin-top: 0.5em;
-  color: var(--bad);
+  color: var(--bad-text);
 }
 .rl-tutorial__skip {
   margin-top: 0.75em;
