@@ -67,12 +67,40 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<
 
     const done = (v: boolean): void => {
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onCaptureKey, true);
       scrim.remove();
       opener?.focus();
       resolve(v);
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') done(false);
+    };
+    // I5: `role="dialog"`/`aria-modal="true"` above is a CLAIM that nothing
+    // outside this dialog responds to the keyboard while it is open -- and
+    // until this it was false. `main.ts`'s own `window.addEventListener(
+    // 'keydown', ...)` issues game verbs ('h' halt, 'o' overlay toggle,
+    // Ctrl/Cmd-A select-all, the group keys) with no modal guard at all, and
+    // it is registered once at startup, long before any dialog exists, so a
+    // later BUBBLE-phase listener from `onKey` above can never run before
+    // it on the same target (`window`) -- registration order decides among
+    // same-phase listeners, and main.ts's came first. A CAPTURE-phase
+    // listener sidesteps that: capture always runs before bubble on the
+    // same path, regardless of registration order, because the event has
+    // not reached the target yet. `stopPropagation()` here therefore keeps
+    // the keydown from ever reaching main.ts's bubble listener (or the
+    // focused element's own listeners) at all -- the dialog most exercised
+    // by this, "Leave the mission?" (`hud.ts`), is raised mid-fight, and a
+    // player who types while it is open must not still be commanding units.
+    // Escape/Enter/Tab/Shift+Tab pass through untouched: Escape is this
+    // dialog's OWN cancel (`onKey` above, a bubble listener on the same
+    // target -- stopping propagation for Escape too would block it from
+    // ever reaching itself), Enter activates whichever button has focus,
+    // and Tab/Shift+Tab (both carry `key === 'Tab'`) are the browser's
+    // native focus movement, which nothing here traps (Minor 10 -- a
+    // separate, already-recorded gap).
+    const onCaptureKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') return;
+      e.stopPropagation();
     };
     no.addEventListener('click', () => done(false));
     yes.addEventListener('click', () => done(true));
@@ -83,6 +111,7 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<
       if (e.target === scrim) done(false);
     });
     window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onCaptureKey, true);
 
     scrim.appendChild(p.el);
     host.appendChild(scrim);

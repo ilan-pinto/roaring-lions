@@ -82,4 +82,50 @@ describe('confirmDialog', () => {
     await p;
     expect(document.activeElement).toBe(opener);
   });
+
+  // I5: main.ts's window keydown listener issues game verbs ('h' halt, 'o'
+  // overlay toggle, ...) with no modal guard. Reproduced here with a stand-in
+  // bubble-phase `window` listener rather than importing main.ts (which pulls
+  // in the whole renderer/sim boot) -- what matters is the SHAPE, a
+  // bubble-phase listener on the same target the dialog itself uses, added
+  // BEFORE the dialog opens, exactly like main.ts's real one. Dispatched on
+  // `document.body` with `bubbles: true` rather than directly on `window`,
+  // because a direct `window.dispatchEvent` makes window both the event's
+  // target AND the only node in its path, which collapses capture- and
+  // bubble-registered listeners on it into plain registration order and
+  // would prove nothing about phase ordering -- the real game hands focus to
+  // a genuine descendant, so window is a true ANCESTOR the event bubbles
+  // through, which is what makes capture-before-bubble ordering apply at all.
+  it('stops a game-verb key from reaching a bubble-phase window listener while open', async () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const seen: string[] = [];
+    const gameVerbListener = (e: KeyboardEvent): void => {
+      seen.push(e.key);
+    };
+    window.addEventListener('keydown', gameVerbListener);
+    try {
+      const p = confirmDialog(host, { title: 't', body: 'b', confirm: 'c' });
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
+      expect(seen).toEqual([]);
+
+      // Escape/Enter/Tab still reach it -- the dialog's own cancel key, a
+      // focused button's native activation, and focus movement are not
+      // swallowed, only every OTHER key is.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      expect(seen).toEqual(['Enter', 'Tab']);
+
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await expect(p).resolves.toBe(false);
+      expect(seen).toEqual(['Enter', 'Tab', 'Escape']);
+
+      // The guard is scoped to the dialog's own lifetime: once it is closed,
+      // the same key reaches the listener again.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
+      expect(seen).toEqual(['Enter', 'Tab', 'Escape', 'h']);
+    } finally {
+      window.removeEventListener('keydown', gameVerbListener);
+    }
+  });
 });
