@@ -5,6 +5,7 @@ import { nextTierPrice, type UpgradeTracks } from '@lions/data';
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { gateSentence } from '../gate-sentence';
+import { t } from '../i18n/t';
 import { panel } from './panel';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
@@ -133,16 +134,20 @@ function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: nu
 }
 
 export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
-  const p = panel({ rank: 'mission', title: 'The brigade', mark: true });
+  const p = panel({ rank: 'mission', title: t('brigade.title'), mark: true });
   p.el.classList.add('rl-brigade');
   const b = p.body;
 
   const head = el('div', 'rl-brigade__head');
-  head.appendChild(el('div', 'rl-brigade__stars', `${starsEarned(opts.ledger)} of ${opts.possibleStars} stars`));
+  head.appendChild(
+    el('div', 'rl-brigade__stars', t('brigade.stars', { n: starsEarned(opts.ledger), m: opts.possibleStars }))
+  );
   const roe = campaignRoe(opts.ledger);
-  head.appendChild(el('div', 'rl-brigade__conduct', roe !== null ? `Conduct ${roe.mean}` : 'no missions rated yet'));
+  head.appendChild(
+    el('div', 'rl-brigade__conduct', roe !== null ? t('brigade.conduct', { mean: roe.mean }) : t('brigade.conduct.none'))
+  );
   if (opts.credits !== undefined) {
-    head.appendChild(el('div', 'rl-brigade__credits', `${opts.credits} credits`));
+    head.appendChild(el('div', 'rl-brigade__credits', t('brigade.credits', { n: opts.credits })));
   }
   b.appendChild(head);
 
@@ -188,7 +193,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       const art = document.createElement('div');
       art.className = 'rl-brigade__art';
       art.dataset.nosprite = '1';
-      art.title = `${u.id} — no sprite sheet`;
+      art.title = t('brigade.art.noSprite', { id: u.id });
       art.innerHTML = roleBadgeSvg(roleBucket(u), ART_MARK);
       rowEl.appendChild(art);
     }
@@ -198,13 +203,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     info.appendChild(el('div', 'rl-brigade__role', roleLabel(u.role)));
     rowEl.appendChild(info);
 
-    rowEl.appendChild(el('div', 'rl-brigade__why', row.locked ? row.reason : 'available'));
+    rowEl.appendChild(el('div', 'rl-brigade__why', row.locked ? row.reason : t('brigade.available')));
 
     // The star-gate badge is appended here, BEFORE the tracks block below, so
     // it stays on the row's first line (with .rl-brigade__why) instead of
     // being pushed under a wide upgrade-tracks wrap on an available row.
     if (u.unlock?.starsMin !== undefined) {
-      rowEl.appendChild(el('div', 'rl-brigade__gate', `★ ${u.unlock.starsMin}`));
+      rowEl.appendChild(el('div', 'rl-brigade__gate', t('brigade.gate.stars', { n: u.unlock.starsMin })));
     }
 
     // Upgrade tracks: an AVAILABLE row only -- a locked unit is not yet in the
@@ -241,7 +246,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         // read-only view of what a track offers and what has been bought.
         if (opts.credits !== undefined && opts.onBuyUpgrade) {
           if (ownedTier >= track.tiers.length) {
-            trackEl.appendChild(el('span', 'rl-brigade__track-max', 'maxed'));
+            trackEl.appendChild(el('span', 'rl-brigade__track-max', t('brigade.track.maxed')));
           } else {
             const nextTier = ownedTier + 1;
             const price = nextTierPrice(u, trackName, ownedTier);
@@ -256,8 +261,11 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             const buy = document.createElement('button');
             buy.type = 'button';
             buy.className = 'rl-btn rl-brigade__buy-tier';
-            buy.textContent = `tier ${nextTier} · ${price}`;
-            buy.setAttribute('aria-label', `buy ${u.name} ${trackLabel} tier ${nextTier} for ${price} credits`);
+            buy.textContent = t('brigade.track.buy', { tier: nextTier, price });
+            buy.setAttribute(
+              'aria-label',
+              t('brigade.track.buy.aria', { name: u.name, track: trackLabel, tier: nextTier, price })
+            );
             buy.disabled = opts.credits < price;
             buy.addEventListener('click', () => {
               buy.disabled = true; // one purchase per render; the caller re-renders
@@ -277,8 +285,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       const buy = document.createElement('button');
       buy.type = 'button';
       buy.className = 'rl-btn rl-brigade__buy';
-      buy.textContent = `buy for ${price}`;
-      buy.setAttribute('aria-label', `buy ${u.name} for ${price} credits`);
+      buy.textContent = t('brigade.buyUnlock', { price });
+      buy.setAttribute('aria-label', t('brigade.buyUnlock.aria', { name: u.name, price }));
       // Short balance: the control stays visible so the price is legible, and disabled so
       // a click cannot reach `buyUnlock`'s refusal path from here.
       buy.disabled = opts.credits < price;
@@ -300,18 +308,18 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     a.textContent = label;
     nav.appendChild(a);
   };
-  link('campaign map', routes.campaign());
-  link('menu', routes.menu());
+  link(t('nav.campaignMap'), routes.campaign());
+  link(t('nav.menu'), routes.menu());
   if (opts.credits !== undefined && opts.onReset) {
     const reset = document.createElement('button');
     reset.type = 'button';
     reset.className = 'rl-btn rl-brigade__reset';
-    reset.textContent = 'reset brigade account';
+    reset.textContent = t('brigade.reset.button');
     let armed = false;
     reset.addEventListener('click', () => {
       if (!armed) {
         armed = true;
-        reset.textContent = 'click again to reset — this cannot be undone';
+        reset.textContent = t('brigade.reset.confirm');
         return;
       }
       // Disabled BEFORE the handler runs, so the second click is provably the

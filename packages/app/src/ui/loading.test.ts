@@ -544,7 +544,9 @@ describe('what you brought', () => {
     expect(b.reserve).toBe(4);
     expect(b.marked).toBe(2);
     expect(b.conduct).toBe(80);
-    expect(b.sentences).toContain('Two positions your recon marked are on your map before a shot is fired.');
+    // The catalogue's `loading.marked` spells the count with `#` (digits), not a
+    // word numeral -- the seam's plural form replaced `num()`'s spelled-out "Two".
+    expect(b.sentences).toContain('2 positions your recon marked are on your map before a shot is fired.');
   });
 
   it('draws across placements in order, each entry once', () => {

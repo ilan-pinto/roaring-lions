@@ -8,6 +8,7 @@ import type { LedgerData } from '@lions/sim';
 // takes `Object.keys(maps)` the same way, for the same reason.
 import { maps, type MapJson } from '@lions/data';
 import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
+import { t } from '../i18n/t';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
@@ -126,7 +127,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   // every mission is done, and the old plain "Campaign" link (added below
   // regardless) is what a finished player sees first instead.
   if (opts.continue) {
-    const label = opts.continue.kind === 'tutorial' ? `Start — ${opts.continue.name}` : `Continue — ${opts.continue.name}`;
+    const label = t('menu.continue.label', { kind: opts.continue.kind, name: opts.continue.name });
     add(label, routes.mission(opts.continue.missionId), 'primary');
   }
   // Listed second until it is done, then demoted to the aside below rather
@@ -141,8 +142,8 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   }
   // The war itself lives on its own page: the menu stays a landing, the map a
   // destination you can always come back to.
-  add('Campaign', routes.campaign(), 'campaign');
-  add('Brigade', routes.brigade(), 'brigade');
+  add(t('menu.nav.campaign'), routes.campaign(), 'campaign');
+  add(t('menu.nav.brigade'), routes.brigade(), 'brigade');
   wrap.appendChild(nav);
 
   const aside = document.createElement('nav');
@@ -160,15 +161,15 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   // when they reach it from the campaign — the flag should stop the tutorial
   // being pushed at them, not stop them asking for it.
   if (opts.tutorial.done) {
-    addAside('replay the tutorial', routes.mission(opts.tutorial.id, { tutorial: true }));
+    addAside(t('menu.aside.replayTutorial'), routes.mission(opts.tutorial.id, { tutorial: true }));
   }
   // Was `?sandbox=1`, which is not a map id at all: it warned "unknown sandbox
   // map" and fell back to beit_sahwan_outskirts, so one of five shipped maps
   // and none of the four flags were reachable by anyone who used the menu.
   // Same defect as `&mesh`, which no menu link ever appended either.
-  addAside('free play — any map', routes.freePlay());
-  addAside('Saves', routes.saves());
-  addAside('Settings', routes.settings());
+  addAside(t('menu.aside.freePlay'), routes.freePlay());
+  addAside(t('menu.aside.saves'), routes.saves());
+  addAside(t('menu.aside.settings'), routes.settings());
   // A button, not a link: this one destroys the campaign, so it is confirmed
   // first rather than a plain navigation (task 6 -- `?fresh=1` used to be one
   // click away with nothing standing in front of it). Same `rl-btn
@@ -181,16 +182,16 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   newCampaignBtn.type = 'button';
   newCampaignBtn.className = 'rl-btn rl-menu__item';
   newCampaignBtn.dataset.kind = 'aside';
-  newCampaignBtn.textContent = 'New campaign';
+  newCampaignBtn.textContent = t('menu.newCampaign.button');
   newCampaignBtn.addEventListener('click', () => {
     void confirmDialog(stage, {
-      title: 'Start the campaign over?',
+      title: t('menu.newCampaign.confirm.title'),
       // Not "brigade account and tutorial completion are erased" -- the
       // account deliberately SURVIVES this (main.ts, spec 2026-09-15 §4.1:
       // "a second campaign starts with the brigade you built"). A confirm
       // that names the wrong casualty is worse than one that names none.
-      body: 'Your campaign progress and tutorial completion start over. Your brigade — its credits, unlocks and upgrades — stays.',
-      confirm: 'Start over',
+      body: t('menu.newCampaign.confirm.body'),
+      confirm: t('menu.newCampaign.confirm.action'),
       danger: true,
     }).then((ok) => {
       if (ok) opts.newCampaign?.();
@@ -200,7 +201,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
   // Last, deliberately: people, libraries, fonts and the licence split are
   // the least urgent thing on this screen, not the most.
-  addAside('Credits', routes.credits());
+  addAside(t('menu.aside.credits'), routes.credits());
   wrap.appendChild(aside);
 
   // The menu introduces itself rather than simply existing.
@@ -220,10 +221,10 @@ function audioToggle(audio: { isMuted(): boolean; toggle(): boolean }): HTMLButt
   b.type = 'button';
   b.className = 'rl-btn rl-menu__item';
   b.dataset.kind = 'aside';
-  b.title = 'music and sound — m in a mission';
+  b.title = t('menu.audio.hint');
   const paint = (): void => {
     const on = !audio.isMuted();
-    b.textContent = on ? '♪ audio on' : '♪ audio off';
+    b.textContent = on ? t('menu.audio.on') : t('menu.audio.off');
     b.setAttribute('aria-pressed', String(on));
   };
   b.addEventListener('click', () => {
@@ -350,7 +351,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav';
   const back = document.createElement('a');
-  back.textContent = '← main menu';
+  back.textContent = t('nav.backToMenu');
   back.href = routes.menu();
   back.className = 'rl-btn rl-menu__item';
   back.dataset.kind = 'back';
@@ -395,7 +396,7 @@ export function showSandbox(stage: HTMLElement): Disposer {
 
   const theatre = document.createElement('div');
   theatre.className = 'rl-menu__theatre';
-  theatre.textContent = 'Free play';
+  theatre.textContent = t('menu.sandbox.title');
   wrap.appendChild(theatre);
 
   // --- the extras ---------------------------------------------------------
@@ -407,16 +408,18 @@ export function showSandbox(stage: HTMLElement): Disposer {
     label.className = 'rl-sandbox__flag';
     // The flag's own name, e.g. "&roe" -- not read aloud on the card, but on
     // the label's title for whoever hovers it and wants the URL syntax.
-    label.title = `&${f.name}`;
+    label.title = /* i18n-ok: dev tool */ `&${f.name}`;
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.dataset.flag = f.name;
     // The table's own blurb, not new prose: one description of a flag, in the
     // banner and on this screen alike -- and, since the flag's own name moved
     // to the label's title, the only text a player reads here at all.
+    // `sandbox-help.ts`'s own blurbs are dev-tool text and stay English on
+    // purpose -- see that file's header.
     const blurb = document.createElement('span');
     blurb.className = 'rl-sandbox__blurb';
-    blurb.textContent = f.blurb;
+    blurb.textContent = /* i18n-ok: dev tool */ f.blurb;
     label.append(input, blurb);
     flagBox.appendChild(label);
     boxes.push({ name: f.name, input });
@@ -453,7 +456,7 @@ export function showSandbox(stage: HTMLElement): Disposer {
   const backNav = document.createElement('nav');
   backNav.className = 'rl-menu__nav';
   const back = document.createElement('a');
-  back.textContent = '← main menu';
+  back.textContent = t('nav.backToMenu');
   back.href = routes.menu();
   back.className = 'rl-btn rl-menu__item';
   back.dataset.kind = 'back';
@@ -521,8 +524,8 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
   const won = opts.result === 'victory';
   const p = panel({
     rank: 'alert',
-    title: won ? 'Town is quiet' : 'Withdraw and regroup',
-    tag: won ? 'Victory' : 'Defeat',
+    title: t('menu.end.title', { result: opts.result }),
+    tag: t('menu.end.tag', { result: opts.result }),
     place: 'top:62%;left:50%;transform:translateX(-50%);width:min(26.25rem,90vw);text-align:center',
   });
   p.el.classList.add('rl-enter');
@@ -568,13 +571,13 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
 
     const debrief = document.createElement('p');
     debrief.className = 'rl-enddebrief';
-    debrief.textContent = `“${text}”`;
+    debrief.textContent = t('menu.end.quote', { text });
     p.body.appendChild(debrief);
   }
 
   const summary = document.createElement('div');
   summary.className = 'rl-dim';
-  summary.textContent = `Conduct ${opts.roe} · ${opts.survivors} unit(s) walking out`;
+  summary.textContent = t('menu.end.summary', { roe: opts.roe, n: opts.survivors });
   p.body.appendChild(summary);
 
   const nav = document.createElement('div');
@@ -590,17 +593,17 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'rl-btn rl-endnav__debrief';
-    btn.textContent = 'debrief';
+    btn.textContent = t('menu.end.debrief');
     btn.addEventListener('click', () => {
       p.el.remove();
       opts.onDebrief?.();
     });
     nav.appendChild(btn);
   }
-  if (won && opts.nextMissionId) link('next mission →', routes.mission(opts.nextMissionId));
-  link(won ? 'replay' : 'try again', routes.mission(opts.missionId));
-  link('campaign map', routes.campaign());
-  link('menu', routes.menu());
+  if (won && opts.nextMissionId) link(t('menu.end.next'), routes.mission(opts.nextMissionId));
+  link(t('menu.end.replay', { result: opts.result }), routes.mission(opts.missionId));
+  link(t('nav.campaignMap'), routes.campaign());
+  link(t('nav.menu'), routes.menu());
   p.body.appendChild(nav);
 
   host.appendChild(p.el);

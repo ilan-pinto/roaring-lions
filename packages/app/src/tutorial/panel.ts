@@ -9,6 +9,7 @@
  * is unit-tested. This file only paints.
  */
 
+import { t } from '../i18n/t';
 import { panel } from '../ui/panel';
 import type { TutorialState } from './runtime';
 
@@ -46,7 +47,7 @@ export function tutorialPanel(host: HTMLElement, opts: { onSkip: () => void }): 
   const skip = document.createElement('button');
   skip.type = 'button';
   skip.className = 'rl-btn rl-tutorial__skip';
-  skip.textContent = 'skip tutorial';
+  skip.textContent = t('tutorial.skip');
   skip.addEventListener('click', opts.onSkip);
   p.body.appendChild(skip);
 

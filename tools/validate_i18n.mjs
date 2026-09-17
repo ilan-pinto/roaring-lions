@@ -68,6 +68,16 @@ export const MIGRATED = [
   'packages/app/src/ui/pause.ts',
   'packages/app/src/ui/saves.ts',
   'packages/app/src/ui/credits.ts',
+  'packages/app/src/ui/menu.ts',
+  'packages/app/src/ui/brigade.ts',
+  'packages/app/src/ui/debrief.ts',
+  'packages/app/src/ui/loading.ts',
+  'packages/app/src/ui/worldmap.ts',
+  'packages/app/src/ui/worldmap3d.ts',
+  'packages/app/src/ui/grade-copy.ts',
+  'packages/app/src/ui/role.ts',
+  'packages/app/src/ui/mark.ts',
+  'packages/app/src/tutorial/panel.ts',
 ];
 
 if (import.meta.url === `file://${process.argv[1]}`) {

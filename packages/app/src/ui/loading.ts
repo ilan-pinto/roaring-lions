@@ -16,6 +16,7 @@
 
 import type { LedgerData } from '@lions/sim';
 import { campaignRoe } from '../campaign';
+import { t } from '../i18n/t';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -82,9 +83,6 @@ export interface BroughtPanel {
   sentences: string[];
 }
 
-const NUM = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
-const num = (n: number): string => (n < NUM.length ? NUM[n] : String(n));
-
 /** What the ledger hands this mission, in the player's terms (spec §5). Null when the
  *  mission's contract reads nothing, so a sandbox and First Light show no panel.
  *
@@ -144,11 +142,7 @@ export function broughtFor(
   const conduct = campaignRoe(ledger)?.mean ?? null;
   const sentences: string[] = [];
   if (req.includes('intel.marked_positions')) {
-    sentences.push(
-      marked > 0
-        ? `${num(marked)} position${marked === 1 ? '' : 's'} your recon marked ${marked === 1 ? 'is' : 'are'} on your map before a shot is fired.`
-        : 'Nothing marked. Whatever is out there, you find under fire.'
-    );
+    sentences.push(marked > 0 ? t('loading.marked', { n: marked }) : t('loading.marked.none'));
   }
   // Gated on `draws`, not on `roster.length` alone: a mission that reads the
   // roster key but fields nobody from it (no `from_ledger` placement at all) has
@@ -157,7 +151,7 @@ export function broughtFor(
   // written for -- this mission wanted survivors and the pool had none of that
   // type, so the brigade hands over fresh remnants instead.
   if (draws && roster.length === 0) {
-    sentences.push('No survivors carried forward. The brigade fields a fresh remnant for each slot.');
+    sentences.push(t('loading.brought.none'));
   }
   return { roster, reserve, marked, conduct, sentences };
 }
@@ -245,7 +239,7 @@ export function showLoading(
 
   const label = document.createElement('div');
   label.className = 'rl-loading__label';
-  label.textContent = 'deploying';
+  label.textContent = t('loading.deploying');
 
   const name = document.createElement('div');
   name.className = 'rl-loading__name';
@@ -268,7 +262,7 @@ export function showLoading(
   // neither.
   const commanderLine = document.createElement('div');
   commanderLine.className = 'rl-loading__commander';
-  if (holds && commander) commanderLine.textContent = `${commander.rank} · ${commander.plate}`;
+  if (holds && commander) commanderLine.textContent = t('loading.commander', { rank: commander.rank, plate: commander.plate });
 
   // The same photo the in-mission commander bar shows for Shai, beside the
   // rank/plate line rather than replacing it -- the deploy screen's first
@@ -332,12 +326,12 @@ export function showLoading(
     broughtEl.className = 'rl-loading__brought';
     const h = document.createElement('div');
     h.className = 'rl-loading__brought-head';
-    h.textContent = 'What you brought';
+    h.textContent = t('loading.brought.head');
     broughtEl.appendChild(h);
     const ul = document.createElement('ul');
     for (const r of brought.roster) {
       const li = document.createElement('li');
-      li.textContent = `${r.type} ×${r.count}`;
+      li.textContent = t('loading.brought.item', { type: r.type, count: r.count });
       // The stripe is its own element so it can wear `--commend` like the HUD
       // card's does. Built rather than assigned as innerHTML: `r.type` is a
       // unit name out of the catalogue and this panel never interpolates.
@@ -358,12 +352,12 @@ export function showLoading(
     if (brought.reserve > 0) {
       const li = document.createElement('li');
       li.className = 'rl-loading__reserve';
-      li.textContent = `${brought.reserve} in reserve`;
+      li.textContent = t('loading.brought.reserve', { n: brought.reserve });
       ul.appendChild(li);
     }
     if (brought.conduct !== null) {
       const li = document.createElement('li');
-      li.textContent = `Conduct ${brought.conduct}`;
+      li.textContent = t('loading.brought.conduct', { n: brought.conduct });
       ul.appendChild(li);
     }
     broughtEl.appendChild(ul);
@@ -410,7 +404,7 @@ export function showLoading(
   const deploy = document.createElement('button');
   deploy.className = 'rl-loading__deploy';
   deploy.type = 'button';
-  deploy.textContent = 'Deploy';
+  deploy.textContent = t('loading.deploy');
 
   // The back edge Escape now uses (see `onBack`'s own doc comment above).
   // Rendered only when there is somewhere to go back to -- a sandbox has no
@@ -426,7 +420,7 @@ export function showLoading(
     back = document.createElement('button');
     back.type = 'button';
     back.className = 'rl-btn rl-loading__back';
-    back.textContent = '← campaign map';
+    back.textContent = t('nav.backToCampaignMap');
   }
 
   box.append(label, name, track, count);
@@ -475,7 +469,11 @@ export function showLoading(
     const ratio = expected > 0 ? Math.min(1, loaded / expected) : totalKnown ? 1 : 0;
     fill.style.width = `${(ratio * 100).toFixed(1)}%`;
     count.textContent =
-      expected > 0 ? `${loaded} / ${expected} sheets` : totalKnown ? 'meshes only' : 'reading manifests';
+      expected > 0
+        ? t('loading.sheets', { loaded, expected })
+        : totalKnown
+          ? t('loading.meshesOnly')
+          : t('loading.readingManifests');
   };
   paint();
 
