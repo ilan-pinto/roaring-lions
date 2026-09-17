@@ -180,6 +180,35 @@ export function buyUnlock(
   };
 }
 
+/** Buying an upgrade tier (spec §4.3): buys exactly the NEXT tier of a track, no refunds.
+ *  Refuses — returning the same account by identity — when `tier` is not exactly
+ *  `(account.upgrades[unitId]?.[track] ?? 0) + 1`, when the price is not a positive integer,
+ *  or when the balance is short. Spending writes no grant: `grants` is the earned history,
+ *  and `earned_total` never moves on a purchase. */
+export function buyUpgrade(
+  account: BrigadeAccount,
+  unitId: string,
+  track: string,
+  tier: number,
+  price: number
+): { account: BrigadeAccount; ok: boolean } {
+  const currentTier = account.upgrades[unitId]?.[track] ?? 0;
+  if (tier !== currentTier + 1) return { account, ok: false };
+  if (!isNonNegInt(price) || price < 1) return { account, ok: false };
+  if (account.balance < price) return { account, ok: false };
+  return {
+    account: {
+      ...account,
+      balance: account.balance - price,
+      upgrades: {
+        ...account.upgrades,
+        [unitId]: { ...(account.upgrades[unitId] ?? {}), [track]: tier },
+      },
+    },
+    ok: true,
+  };
+}
+
 export function resetAccount(store: StorageLike): BrigadeAccount {
   store.removeItem(ACCOUNT_KEY);
   return emptyAccount();
