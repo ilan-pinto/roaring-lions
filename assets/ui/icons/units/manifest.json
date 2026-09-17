@@ -1,0 +1,665 @@
+{
+  "icons": {
+    "APACHE_HULL": {
+      "box": [
+        35,
+        31,
+        188,
+        188
+      ],
+      "extent": [
+        112,
+        96
+      ],
+      "facing": 3,
+      "file": "APACHE_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/APACHE_HULL/idle_f03_000.png",
+          "sha256": "aa0540610fb9bc5298e9f4659fa87694b733e8d255e7f3b0e2fb2b657d0067b2"
+        }
+      ]
+    },
+    "D9_HULL": {
+      "box": [
+        9,
+        31,
+        202,
+        202
+      ],
+      "extent": [
+        112,
+        97
+      ],
+      "facing": 3,
+      "file": "D9_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/D9_HULL/idle_f03_000.png",
+          "sha256": "8cd4bfeef8fd0fa1a2f965cab721ee77cedb632d94c22afdd461847ff49a2702"
+        }
+      ]
+    },
+    "DRONE_ATTACK": {
+      "box": [
+        94,
+        97,
+        130,
+        130
+      ],
+      "extent": [
+        107,
+        112
+      ],
+      "facing": 3,
+      "file": "DRONE_ATTACK.png",
+      "sources": [
+        {
+          "path": "assets/sprites/DRONE_ATTACK/idle_f03_000.png",
+          "sha256": "00925f222dc2ed0a36a8c88f94aa7658e8f34c57798f4c1e6f1875b956d1d6ee"
+        }
+      ]
+    },
+    "DRONE_LOITER": {
+      "box": [
+        12,
+        0,
+        233,
+        233
+      ],
+      "extent": [
+        112,
+        51
+      ],
+      "facing": 3,
+      "file": "DRONE_LOITER.png",
+      "sources": [
+        {
+          "path": "assets/sprites/DRONE_LOITER/idle_f03_000.png",
+          "sha256": "99eee6ef227ad8ada6ea02f9a4e1e6e78cac7882f9235e1a6643aed39af01fb9"
+        }
+      ]
+    },
+    "DRONE_RECON": {
+      "box": [
+        37,
+        39,
+        197,
+        197
+      ],
+      "extent": [
+        111,
+        92
+      ],
+      "facing": 3,
+      "file": "DRONE_RECON.png",
+      "sources": [
+        {
+          "path": "assets/sprites/DRONE_RECON/idle_f03_000.png",
+          "sha256": "c8f40d5c5ff4f2cca1752a6248fd988910ab16263d66ebdaf4ab4efc8bc2308c"
+        }
+      ]
+    },
+    "EITAN_HULL": {
+      "box": [
+        31,
+        1,
+        195,
+        195
+      ],
+      "extent": [
+        103,
+        111
+      ],
+      "facing": 3,
+      "file": "EITAN_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/EITAN_HULL/idle_f03_000.png",
+          "sha256": "6c7fc9ecef3b4a2c9d36748fa8c1c1566c498747972b44ca4842300278bd0aa9"
+        },
+        {
+          "path": "assets/sprites/EITAN_TURR/idle_f03_000.png",
+          "sha256": "22df363b77e7196e8cecb89c4cae7a91450860bfe8a14d0dfeb7f4569b68a53b"
+        }
+      ]
+    },
+    "GUNTRUCK_HULL": {
+      "box": [
+        45,
+        50,
+        135,
+        135
+      ],
+      "extent": [
+        111,
+        97
+      ],
+      "facing": 3,
+      "file": "GUNTRUCK_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/GUNTRUCK_HULL/idle_f03_000.png",
+          "sha256": "4d0a36cf7012a31fdca476b34de0c4faac9352cd051a6f4e46dd662b3f2edc2e"
+        },
+        {
+          "path": "assets/sprites/GUNTRUCK_TURR/idle_f03_000.png",
+          "sha256": "0b192ffd24a01a1c15b8aa9c2ebbd2ca5b3fca6a9a5b6f9f3457bfddb69160e7"
+        }
+      ]
+    },
+    "INF_AT": {
+      "box": [
+        61,
+        18,
+        138,
+        138
+      ],
+      "extent": [
+        65,
+        111
+      ],
+      "facing": 3,
+      "file": "INF_AT.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_AT/idle_f03_000.png",
+          "sha256": "ed667fbb31ce00a16261338e70222f64f48285232b94fee3a6b7c094bd8dcfac"
+        }
+      ]
+    },
+    "INF_ATGM": {
+      "box": [
+        50,
+        4,
+        164,
+        164
+      ],
+      "extent": [
+        110,
+        111
+      ],
+      "facing": 3,
+      "file": "INF_ATGM.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_ATGM/idle_f03_000.png",
+          "sha256": "0ece5a91345eb7b6922ff2e5c6dbf1ccd79c456723dac967fa580cea368451ce"
+        }
+      ]
+    },
+    "INF_BREACH": {
+      "box": [
+        42,
+        1,
+        154,
+        154
+      ],
+      "extent": [
+        65,
+        111
+      ],
+      "facing": 5,
+      "file": "INF_BREACH.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_BREACH/idle_f05_000.png",
+          "sha256": "f48c7823cead669ddb10a0b1b4462bc9bdbf0eb8aac98ccfa5fe1062daea647e"
+        }
+      ]
+    },
+    "INF_CHARGE": {
+      "box": [
+        43,
+        0,
+        158,
+        158
+      ],
+      "extent": [
+        45,
+        111
+      ],
+      "facing": 3,
+      "file": "INF_CHARGE.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_CHARGE/idle_f03_000.png",
+          "sha256": "5297406eae0cc978b456ad1fb278eea4a75659e4c3f8c6790bc34abcdc2f213a"
+        }
+      ]
+    },
+    "INF_DEMO": {
+      "box": [
+        65,
+        30,
+        126,
+        126
+      ],
+      "extent": [
+        49,
+        109
+      ],
+      "facing": 3,
+      "file": "INF_DEMO.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_DEMO/idle_f03_000.png",
+          "sha256": "4e4ceb873d357a1cd3b359e5ee59b203bc29928070971bd05685e5f6d3b917f8"
+        }
+      ]
+    },
+    "INF_DIGGER": {
+      "box": [
+        63,
+        49,
+        102,
+        102
+      ],
+      "extent": [
+        84,
+        88
+      ],
+      "facing": 3,
+      "file": "INF_DIGGER.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_DIGGER/idle_f03_000.png",
+          "sha256": "34378999c1a28790f0308115ccc655c88abbc22dcbb4719584ac704d1caa7dfb"
+        }
+      ]
+    },
+    "INF_MANPAD": {
+      "box": [
+        46,
+        0,
+        164,
+        164
+      ],
+      "extent": [
+        50,
+        111
+      ],
+      "facing": 3,
+      "file": "INF_MANPAD.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_MANPAD/idle_f03_000.png",
+          "sha256": "1ec6d82ad23bfacd25c3b897b4cac265b619b0b0aa7b02714471603316c9529f"
+        }
+      ]
+    },
+    "INF_MILITIA": {
+      "box": [
+        62,
+        14,
+        132,
+        132
+      ],
+      "extent": [
+        72,
+        112
+      ],
+      "facing": 3,
+      "file": "INF_MILITIA.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_MILITIA/idle_f03_000.png",
+          "sha256": "766f659d64828327a24b76c8fc4f36f74a179eeb6fabf69d6b02ba652adcd671"
+        }
+      ]
+    },
+    "INF_MORTAR": {
+      "box": [
+        56,
+        21,
+        130,
+        130
+      ],
+      "extent": [
+        110,
+        112
+      ],
+      "facing": 3,
+      "file": "INF_MORTAR.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_MORTAR/idle_f03_000.png",
+          "sha256": "2abf6220ae2610ebe0ee82918340f95efe2c0edc908d75d7b9f2f4168ef9ba62"
+        }
+      ]
+    },
+    "INF_MORTAR_E": {
+      "box": [
+        47,
+        6,
+        161,
+        161
+      ],
+      "extent": [
+        112,
+        104
+      ],
+      "facing": 3,
+      "file": "INF_MORTAR_E.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_MORTAR_E/idle_f03_000.png",
+          "sha256": "ebf87bb10fd0cf89d0655b8f79dbfdb0b74cd6af86b611cda269ddb0f8a87940"
+        }
+      ]
+    },
+    "INF_RECOILLESS": {
+      "box": [
+        47,
+        6,
+        160,
+        160
+      ],
+      "extent": [
+        98,
+        112
+      ],
+      "facing": 3,
+      "file": "INF_RECOILLESS.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_RECOILLESS/idle_f03_000.png",
+          "sha256": "a49ade432be8a1e7b7ef21eb7dc0e963d64671be62bae1a898c93aa8f3d3506e"
+        }
+      ]
+    },
+    "INF_RPG": {
+      "box": [
+        49,
+        0,
+        159,
+        159
+      ],
+      "extent": [
+        46,
+        111
+      ],
+      "facing": 3,
+      "file": "INF_RPG.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_RPG/idle_f03_000.png",
+          "sha256": "f9ea5efd511588a69e2c601bbdccc73f0481ed08b939994dd617a25a010f1dfa"
+        }
+      ]
+    },
+    "INF_SARIM": {
+      "box": [
+        50,
+        6,
+        159,
+        159
+      ],
+      "extent": [
+        97,
+        112
+      ],
+      "facing": 3,
+      "file": "INF_SARIM.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_SARIM/idle_f03_000.png",
+          "sha256": "c01328d12b4020a38966a18dda4bccaa9a0bb2c6246d051f66ac8f96c12aef74"
+        }
+      ]
+    },
+    "INF_SNIPER": {
+      "box": [
+        72,
+        60,
+        118,
+        118
+      ],
+      "extent": [
+        87,
+        102
+      ],
+      "facing": 3,
+      "file": "INF_SNIPER.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_SNIPER/idle_f03_000.png",
+          "sha256": "dc03e5b0171109a46adb8cf3026b83fb1213e0f612a019492f244d70684b6895"
+        }
+      ]
+    },
+    "INF_SQUAD": {
+      "box": [
+        53,
+        8,
+        153,
+        153
+      ],
+      "extent": [
+        111,
+        105
+      ],
+      "facing": 3,
+      "file": "INF_SQUAD.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_SQUAD/idle_f03_000.png",
+          "sha256": "893fbb15cfec45baffc53520cd177b83b7894912d9db705a62281e2dfc9c2bc4"
+        }
+      ]
+    },
+    "INF_YAHALOM": {
+      "box": [
+        51,
+        1,
+        161,
+        161
+      ],
+      "extent": [
+        45,
+        112
+      ],
+      "facing": 3,
+      "file": "INF_YAHALOM.png",
+      "sources": [
+        {
+          "path": "assets/sprites/INF_YAHALOM/idle_f03_000.png",
+          "sha256": "1d434ce3296ba4046b4b5019219d64d427bafcf10bdecdfdd3f2b6b54b1675e1"
+        }
+      ]
+    },
+    "JEEP_HULL": {
+      "box": [
+        0,
+        2,
+        251,
+        251
+      ],
+      "extent": [
+        111,
+        59
+      ],
+      "facing": 3,
+      "file": "JEEP_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/JEEP_HULL/idle_f03_000.png",
+          "sha256": "07b9de9a83b7ee091a0ad610f7ee7578025e02be6cf84078b8f2e44bdce459bc"
+        }
+      ]
+    },
+    "KIPOD_HULL": {
+      "box": [
+        57,
+        43,
+        169,
+        169
+      ],
+      "extent": [
+        107,
+        111
+      ],
+      "facing": 3,
+      "file": "KIPOD_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/KIPOD_HULL/idle_f03_000.png",
+          "sha256": "05f9ed597a056ef67d326b0b230f11589773082a9eceb4ebbd1ed1b1c4001bdf"
+        }
+      ]
+    },
+    "MOTO_RPG": {
+      "box": [
+        64,
+        39,
+        119,
+        119
+      ],
+      "extent": [
+        67,
+        103
+      ],
+      "facing": 3,
+      "file": "MOTO_RPG.png",
+      "sources": [
+        {
+          "path": "assets/sprites/MOTO_RPG/idle_f03_000.png",
+          "sha256": "e88340692485f3c44e9761b4af3d6605e8e382dba8c4449e7351bf1646e541db"
+        }
+      ]
+    },
+    "NAMER_HULL": {
+      "box": [
+        0,
+        0,
+        256,
+        256
+      ],
+      "extent": [
+        114,
+        76
+      ],
+      "facing": 3,
+      "file": "NAMER_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/NAMER_HULL/idle_f03_000.png",
+          "sha256": "d758710eda13d026f30b773b94f27b06702061c309ed42ad9a724ed902e2fb93"
+        },
+        {
+          "path": "assets/sprites/NAMER_TURR/idle_f03_000.png",
+          "sha256": "577ba866faf264cb06a8eba7fba3d8f8f80c219eb8325bca8135441b7666e916"
+        }
+      ]
+    },
+    "PARA_MOTOR": {
+      "box": [
+        21,
+        0,
+        198,
+        198
+      ],
+      "extent": [
+        111,
+        79
+      ],
+      "facing": 3,
+      "file": "PARA_MOTOR.png",
+      "sources": [
+        {
+          "path": "assets/sprites/PARA_MOTOR/idle_f03_000.png",
+          "sha256": "09c5d4efcea2edac75446f73cd5086a832e587b4c79f621fe8e257dbf0df6681"
+        }
+      ]
+    },
+    "ROCKETBATTERY_HULL": {
+      "box": [
+        63,
+        46,
+        129,
+        129
+      ],
+      "extent": [
+        111,
+        112
+      ],
+      "facing": 3,
+      "file": "ROCKETBATTERY_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/ROCKETBATTERY_HULL/idle_f03_000.png",
+          "sha256": "6ce48b9c4f8b704ff155827df9beb7f28ff13df160cbf8fe95069075c96e5b54"
+        }
+      ]
+    },
+    "SHACHAF_HULL": {
+      "box": [
+        39,
+        39,
+        187,
+        187
+      ],
+      "extent": [
+        112,
+        102
+      ],
+      "facing": 3,
+      "file": "SHACHAF_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/SHACHAF_HULL/idle_f03_000.png",
+          "sha256": "aefa7914077eaa716a7cff18d2fb16bcc6eec7d6ba8ae4665e5c227b220b7f0c"
+        }
+      ]
+    },
+    "TECH_HULL": {
+      "box": [
+        43,
+        47,
+        176,
+        176
+      ],
+      "extent": [
+        112,
+        111
+      ],
+      "facing": 3,
+      "file": "TECH_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/TECH_HULL/idle_f03_000.png",
+          "sha256": "c120762583dabdf8eea91dafc0e2bf963df91206e3cb0f3b5b75c4f6d10f8982"
+        },
+        {
+          "path": "assets/sprites/TECH_TURR/idle_f03_000.png",
+          "sha256": "95e7355068797b8fe6dd45856cbe18f232b08627bc7ac6dcfa41ca4da253ccb9"
+        }
+      ]
+    },
+    "TNK_HULL": {
+      "box": [
+        49,
+        59,
+        157,
+        157
+      ],
+      "extent": [
+        112,
+        84
+      ],
+      "facing": 3,
+      "file": "TNK_HULL.png",
+      "sources": [
+        {
+          "path": "assets/sprites/TNK_HULL/f03_000.png",
+          "sha256": "33204c3eb6da6c5f37a065ecc71007d436d207cd3ba5679429ef2f7deb9d4d10"
+        },
+        {
+          "path": "assets/sprites/TNK_TURR/f03_000.png",
+          "sha256": "151bbcd23308cdc96f16f6eebb54f108b2bcf18eb806452bdfdeed728071f58f"
+        }
+      ]
+    }
+  },
+  "version": 1
+}
