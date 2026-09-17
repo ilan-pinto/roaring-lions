@@ -820,8 +820,9 @@ const structureSymbols = new Map(
     failures.push(...narrativeTextFailures(mi, rel(file)));
     // Shell upgrade Phase 0, Task 1: no developer id reaches the battlefield.
     // Every trigger a player can see fire (i.e. not `remove`) must carry a
-    // human label.
-    failures.push(...triggerLabelFailures(rel(file), mi));
+    // human label. T1-a: `(mission, file)`, matching removeTriggerFailures/
+    // narrativeTextFailures above -- this call had the two reversed.
+    failures.push(...triggerLabelFailures(mi, rel(file)));
   }
 }
 
