@@ -129,6 +129,16 @@ function setLoop(action: THREE.AnimationAction, once: boolean): void {
  * reset. The ramps advance in `advanceMeshClipFades`, which every mixer
  * site calls right before `mixer.update`.
  *
+ * "Carries weight" is `isScheduled()`, not `isRunning()`: a `LoopOnce` +
+ * `clampWhenFinished` action that has reached its end (`down`, `wreck`) goes
+ * `paused = true` and `isRunning() === false`, but `PropertyMixer.apply`
+ * keeps blending its frozen last frame at its last `effectiveWeight` until
+ * `.stop()` is called -- weight is independent of `paused`. `isScheduled()`
+ * (`mixer._isActiveAction(this)`) is true for both the running and the
+ * paused-and-held case, so a finished one-shot that is still the current
+ * clip gets its `{ from, to: 0 }` fade instead of being silently skipped and
+ * left contributing forever.
+ *
  * `opts.once` keeps its meaning (`LoopOnce` + `clampWhenFinished`), and is
  * set explicitly either way so a clip once played one-shot cannot inherit
  * that setting when re-selected as a loop.
@@ -163,7 +173,7 @@ export function applyMeshClip(
 
   for (const [name, action] of player.actions) {
     if (name === resolved) continue;
-    if (!action.isRunning() && !player.fades.has(name)) continue;
+    if (!action.isScheduled() && !player.fades.has(name)) continue;
     const w = action.getEffectiveWeight();
     if (w <= 0) {
       action.stop();

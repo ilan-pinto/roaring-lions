@@ -8,6 +8,8 @@
  *   - ramp -> `action.fadeIn`: 'sum of weights is 1 across a re-selection' reads < 1
  *   - drop the signature comparison in `applyMeshClip`: 'a scale swap cuts' sees weight 0.5
  *   - `advanceMeshClipFades` never calls `stop()`: 'outgoing action is stopped at the end' fails
+ *   - `isScheduled()` -> `isRunning()` in the blend branch's "carries weight" guard: 'a finished
+ *     one-shot still fades out on the next switch' fails (fix round 1, GH review)
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
@@ -34,7 +36,7 @@ function weight(e: MeshUnitEntity, name: string): number {
 
 function sumOfWeights(e: MeshUnitEntity): number {
   let s = 0;
-  for (const a of e.actions.values()) if (a.isRunning()) s += a.getEffectiveWeight();
+  for (const a of e.actions.values()) if (a.isScheduled()) s += a.getEffectiveWeight();
   return s;
 }
 
@@ -140,6 +142,38 @@ describe('applyMeshClip -- the crossfade (D1)', () => {
     for (let i = 0; i < 20; i++) frame(e, 0.1);
     expect(e.actions.get('wreck')?.paused).toBe(true);
     expect(weight(e, 'wreck')).toBeCloseTo(1, 6);
+  });
+
+  it('a finished one-shot still fades out on the next switch', async () => {
+    // `down` and `wreck` share a scale signature (both root 0 / death_root
+    // 1), so `down -> wreck` is a BLEND -- the case where a paused-but-
+    // weighted action must still be picked up by the "carries weight" guard.
+    // `idle -> down` differs in signature, so it is a CUT, matching the real
+    // `mesh-death.ts` sequence this test reproduces.
+    const e = await entityWith({
+      clipName: ['idle', 'down', 'wreck'],
+      clipSeconds: 0.1,
+      scaleClips: {
+        idle: { root: 1, deathRoot: 0 },
+        down: { root: 0, deathRoot: 1 },
+        wreck: { root: 0, deathRoot: 1 },
+      },
+    });
+    applyMeshClip(e, 'idle');
+    frame(e, 0.5);
+    applyMeshClip(e, 'down', { once: true }); // a cut (idle/down differ in scale signature)
+    frame(e, 0.5); // 5x the 0.1s clip length -- long since paused at its last frame
+    expect(e.actions.get('down')?.paused).toBe(true);
+    expect(e.actions.get('down')?.isRunning()).toBe(false);
+
+    applyMeshClip(e, 'wreck', { once: true }); // a blend (down/wreck share a scale signature)
+    expect(e.fades.has('down')).toBe(true);
+    expect(e.fades.get('down')?.from).toBe(1);
+    expect(e.fades.get('down')?.to).toBe(0);
+
+    frame(e, MESH_CLIP_FADE_SECONDS);
+    expect(e.actions.get('down')?.isScheduled()).toBe(false);
+    expect(weight(e, 'wreck')).toBe(1);
   });
 });
 
