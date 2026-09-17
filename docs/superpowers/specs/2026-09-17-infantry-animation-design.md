@@ -136,8 +136,10 @@ needs a name `resolveClip` never returns. Only the death module plays it.
 The contract (`2026-08-28-mesh-unit-contract.md`) gains a v4 section: the
 `ClipName` vocabulary becomes `idle, move, fire, down, wreck, work, moveFire,
 wreckAlt, fall, fallAlt`. Semantics: `fall` starts standing (first-frame hips
-height within 10 % of the file's own `idle` hips height) and ends prone
-(last-frame hips height ≤ 0.35 m), lasts 0.5–2.0 s, carries **no horizontal
+height at least three-quarters of the file's own `idle` hips height; the
+soldier's fall opens taller than its low-ready hold) and ends prone
+(last-frame hips height ≤ 0.35 m), lasts 0.5–5.0 s (the five supplied clips
+measure 2.3–4.6 s; they are kept whole), carries **no horizontal
 root motion** — the hips' horizontal position is held at its first-frame
 value throughout, vertical kept — and its **last frame is the `wreck` pose**:
 the same source frame, re-centred the same way `build_wreck_src` already
@@ -160,7 +162,10 @@ Which files, from the sources already on disk:
 | `meshy_soldier.glb` (`inf_squad`) | `tools/import_meshy_soldier.py` | `Shot_and_Blown_Back` | — (`Side_Shot` is a hit reaction, measured, not a fall) |
 | `yahalom_engineer.glb` (`yahalom_squad`) | `tools/import_meshy_yahalom.py` | `Shot_and_Fall_Backward` | `Shot_and_Fall_Forward` (+ its last frame becomes `wreckAlt`) |
 | `sarim_rifles.glb` (`sarim_rifles`) | `tools/import_meshy_soldier_irregular.py` | `Shot_and_Slow_Fall_Backward` | `Shot_and_Fall_Forward` (already `wreckAlt`'s source) |
-| `rpg_team.glb` (`rpg_team`) | `tools/units/import_meshy_rpg_team.py` | `Fall_Dead_from_Abdominal_Injury` | — |
+
+`rpg_team.glb` is a kit rig (`rig.py`, `MESH_KIT_OWNED`); the Meshy RPG
+importer under `tools/units/` is a WIP whose output has never shipped, so the
+RPG team topples (D5). Corrected 2026-09-17 during execution.
 
 Each importer's `check_clip_semantics` table gains rows for the new clips
 (the hips-travel and heading halves both), and the horizontal hold is done
@@ -336,12 +341,12 @@ falsification is named in the commit that adds it.
 3. **`fall` semantics on the shipped bytes** (`mesh_gait.test.ts`, a new
    `describe` sweeping `RIGGED_UNIT_MESHES`): for every file carrying `fall`
    or `fallAlt`, the hips' horizontal travel < 0.05 m, first-frame height
-   within 10 % of `idle`'s, last-frame height ≤ 0.35 m, duration 0.5–2.0 s,
+   at least 0.75 × `idle`'s, last-frame height ≤ 0.35 m, duration 0.5–5.0 s,
    and the last frame equals the paired wreck clip's pose (hips within
    0.01 m, every bone rotation within 1°). Falsified against the current
    shipped files by binding `Shot_and_Blown_Back` WITHOUT the horizontal
    hold: travel reads ≈ 3.7 m. The test also asserts which files carry the
-   names (the four above and no other) so a kit rig cannot acquire a `fall`
+   names (the three above and no other) so a kit rig cannot acquire a `fall`
    by accident, and that no file has `fallAlt` without `wreckAlt`.
 4. **Fall path runtime** (`mesh-death.test.ts`): a fixture with `fall` plays
    it once, does not touch opacity or position.y during it, and becomes a
@@ -419,7 +424,7 @@ last:
 | topple duration / angle / ease | 0.5 s / 90° / `p²` | a body accelerates; 0.5 s is between the fall clips' own ~1 s and the old 0.04 s swap |
 | per-figure stagger (fall and topple) | 0.1 s | a squad is one entity and would otherwise drop as three clones in unison |
 | topple direction with no killer | backward from facing | `debugKill` and tunnel collapse have no shooter |
-| `fall` duration band | 0.5–2.0 s | wide enough for all five supplied clips, tight enough to reject a bound walk |
+| `fall` duration band | 0.5–5.0 s | the supplied clips measure 2.3–4.6 s, kept whole; the band rejects a static hold and an unbound idle |
 | crew standing height | 1.8 m | `kit.py`'s standing figure, same as every rifleman |
 | crew stride / cycle | from `gait_amplitudes(speed)` | printed per team before Blender runs; capped strides reported |
 | deployed weapon on `move` | hidden | crew carry it; a tripod gliding beside a walking crew is the bug being fixed |

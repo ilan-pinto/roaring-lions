@@ -292,9 +292,10 @@ wreckAlt, fall, fallAlt`. Two additions, both ONE-SHOT and both played only
 by `units/mesh-death.ts` — `resolveClip` never returns them, because `down`
 loops for suppression and a fall has an end.
 
-- **`fall`** starts standing (first-frame hips height within 10 % of the
-  file's own `idle`), ends prone (last-frame hips height ≤ 0.35 m), lasts
-  0.5–2.0 s, carries **no horizontal root motion** (the hips' horizontal
+- **`fall`** starts standing (first-frame hips height at least three-quarters
+  of the file's own `idle`'s), ends prone (last-frame hips height ≤ 0.35 m), lasts
+  0.5–5.0 s (measured 2.3–4.6 s on the five supplied clips, 2026-09-17),
+  carries **no horizontal root motion** (the hips' horizontal
   position is held at its first-frame value throughout; vertical kept),
   and its **last frame is the `wreck` pose** — the same source frame,
   re-centred the same way — so the switch to the persistent wreck moves

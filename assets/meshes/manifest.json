@@ -58,13 +58,13 @@
     "digger_crew.glb": "ac39ce1f3250eaeb664f17893361c0e8229dad40dce22eefa6209fd80de2d4af",
     "inf_squad.glb": "94f592cde9533f18d2145b088ed45dea3ca0ea86efa0416127577b9259eb7522",
     "meshy_mortar_team.glb": "5e0552feaa75c0834da7565166e0c671c40ae06f51913167b294b0f6004cca50",
-    "meshy_soldier.glb": "d44f40235f82509483490b8335daef0d15ce462b4931e92b6a87943547791c44",
+    "meshy_soldier.glb": "841bb043dc90d06d4260573864a12358e1e69b2259065aba84093dd5a68f116f",
     "militia_cell.glb": "71fcc4f6a97db754d119efb80fbe54d337d7279697abc0dbecc86f3b5a25c36b",
     "mortar_crew.glb": "2bb388ac6bc20af2d9d13b17eefda81a6075131f97aa68f1bda8c3554459f0f7",
     "mortar_team.glb": "9ab277db6d1d10aa34d6c77a768939ab8ea40f1a69ba02420daa01c6c88bbcd4",
     "moto_rpg.glb": "08a5cdd5f3ed217eaf0778316dcfc7e8e163e7c194da43b7fc782c977a24695d",
     "rpg_team.glb": "cd9267c30ca47de38225884f90c4ceaba32bcd684b97cec987f5a8be0c98807e",
-    "sarim_rifles.glb": "e94a025f22040aa54fd3bf84422367967c78ba5abfd91415dc7e439ebeb93cdc",
+    "sarim_rifles.glb": "a9bbd681cf478fdabbbd9ad20b407bc2cbe3c49745eb0014630f5b09b83be1db",
     "sniper_team.glb": "8a28bc0f39da7fe4092c46c6e459c9b858e04ad4e9073e082bf673d732f6903a",
     "vehicles/apc_eitan.glb": "970d8d18c9efcc1461968dc17a6520bcef4d7a7f5a974e99385a65c5cdc4cc89",
     "vehicles/apc_kipod.glb": "4cb5fb849ebb336a7618323f50c791ba20e3d7cbe2879e8b39e9e55427a1b720",
@@ -80,7 +80,7 @@
     "vfx/explosion_burst.glb": "c111861d350311378a23a73568b9c8ab5fc42308e6d33d107f75db39d68f1702",
     "vfx/muzzle_flash.glb": "cd6d18faa40aaa5ceaeb4a104efc4dd2f62fb99632a56ff3f2d9c03b0294db7b",
     "vfx/smoke_plume.glb": "66787596e321cb586e56e2dfb2923618717820b9e1f2b9bdf8acbd254133bc69",
-    "yahalom_engineer.glb": "6ba63c4b5233d8e5136a3ec86dfe26c7f53f0a20ccd9d4cb69fe939faeb1f6f9",
+    "yahalom_engineer.glb": "8f07ee6590da623f271b3d413d04b1cd9b825011a5a9831437c299e1433cc3ba",
     "yahalom_squad.glb": "c4ab471b25276c0edd36375b3a65611d3a5518495a6fc29ba25005fd9b5cae85"
   }
 }

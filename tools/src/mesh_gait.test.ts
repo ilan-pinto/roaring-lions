@@ -30,17 +30,22 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTIVE_TRAVEL_FRACTION,
   circularMeanDeg,
+  clipSeconds,
   countTracePeaks,
   groundPerCycleM,
   measureFacing,
+  measureJointPoses,
   measureMarkerFacing,
   measureRoleFootprint,
   measureRoleTravel,
   measureRoleTravelByFigure,
+  measureRootTravel,
   measureWeaponAxis,
   MESH_UNITS_PER_TILE,
   readGlb,
+  rotationDeltaDeg,
   swingLiftFraction,
+  type RootTravel,
 } from './mesh_gait';
 import { MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
@@ -2350,6 +2355,98 @@ describe('mesh gait tables -- every key names something real', () => {
     );
     for (const k of Object.keys(WEAPON_IDLE_ELEVATION_DEG)) {
       expect(known.has(k), `WEAPON_IDLE_ELEVATION_DEG key "${k}": not a real gated figure`).toBe(true);
+    }
+  });
+});
+
+// `rpg_team.glb` is a kit rig (`rig.py`, `MESH_KIT_OWNED`) and topples;
+// `tools/units/import_meshy_rpg_team.py` is a WIP whose output has never
+// shipped.
+describe('mesh unit death -- the fall clips (design D3, gate 3)', () => {
+  const FALL_FILES = ['meshy_soldier.glb', 'sarim_rifles.glb', 'yahalom_engineer.glb'];
+  const FALL_ALT_FILES = ['sarim_rifles.glb', 'yahalom_engineer.glb'];
+  const withFall = RIGS.filter((r) => r.clips.includes('fall'));
+  const withFallAlt = RIGS.filter((r) => r.clips.includes('fallAlt'));
+
+  it('exactly the three Meshy bipeds carry fall, and the two with a second fall carry fallAlt', () => {
+    expect(withFall.map((r) => r.file).sort()).toEqual(FALL_FILES);
+    expect(withFallAlt.map((r) => r.file).sort()).toEqual(FALL_ALT_FILES);
+  });
+
+  it('fallAlt implies wreckAlt, and fall + wreckAlt implies fallAlt -- the pick has one bit', () => {
+    for (const r of withFallAlt) expect(r.clips, r.file).toContain('wreckAlt');
+    for (const r of withFall) if (r.clips.includes('wreckAlt')) expect(r.clips, r.file).toContain('fallAlt');
+    for (const r of withFall) expect(r.clips, r.file).toContain('wreck');
+  });
+
+  const pairs = [
+    ...withFall.map((r) => [r.file, 'fall', 'wreck', r] as const),
+    ...withFallAlt.map((r) => [r.file, 'fallAlt', 'wreckAlt', r] as const),
+  ];
+
+  // Controller Ruling 6: the brief's 0.5-2.0 s band was an unmeasured spec
+  // claim. Measured from the shipped bytes, the five supplied falls run
+  // 2.29-4.58 s (soldier `fall` 2.83; Sarim `fall` 4.58, `fallAlt` 2.38;
+  // Yahalom `fall` 3.58, `fallAlt` 2.29) -- the supplied clips are kept
+  // whole rather than re-cut to fit a narrower guess. The upper bound is
+  // widened to 5.0 s; the 0.5 s lower bound (rejects a static hold) is
+  // unchanged. (`rpg_team.glb` carries no `fall` at all -- Ruling 7, it is
+  // the kit rig and topples.)
+  //
+  // Controller Ruling 8: the two-sided "within 10% of idle" standing check
+  // was also an unmeasured guess. `meshy_soldier`'s `idle` is a low-ready
+  // carry with bent knees, so its `fall` opens TALLER than idle, not close
+  // to it -- measured hip startY, clip vs. idle: soldier `fall` 0.9596 vs.
+  // 0.8097-0.8206 (+17-19%); Sarim `fall` 0.9910 vs. 0.9167-0.9255 (+7-8%),
+  // `fallAlt` 0.9654 vs. same idle (+4-5%); Yahalom `fall` 0.9871 vs.
+  // 0.9285-0.9324 (+6%), `fallAlt` 0.9418 vs. same idle (+1%). The check's
+  // real job is rejecting a clip that opens LOW -- a prone hip sits at
+  // 0.17-0.35 m, a third of idle's -- so it is one-sided: at least
+  // three-quarters of idle's own height, no upper bound (a fall may start
+  // from any upright pose).
+  it.each(pairs)('%s %s: 0.5-5.0 s, starts standing, ends prone, no horizontal root motion', (_file, clip, _wreck, r) => {
+    const seconds = clipSeconds(r.path, clip);
+    expect(seconds).toBeGreaterThanOrEqual(0.5);
+    expect(seconds).toBeLessThanOrEqual(5.0);
+    const idle = measureRootTravel(r.path, 'idle');
+    const fall = measureRootTravel(r.path, clip);
+    const live = fall.filter((f) => f.liveAtStart);
+    expect(live.length, `${r.file}: live figure roots`).toBeGreaterThan(0);
+    for (const f of live) {
+      const rest = idle.find((i) => i.root === f.root);
+      expect(rest, `${r.file} ${clip}: ${f.root} has no idle counterpart`).toBeDefined();
+      // Falsified by pointing this at 'move': the run reads metres, not centimetres.
+      expect(f.horizontalM, `${r.file} ${clip} ${f.root}: horizontal drift`).toBeLessThan(0.05);
+      // Opens standing: at least three-quarters of the file's own idle hip
+      // height. One-sided on purpose -- `meshy_soldier`'s fall opens TALLER
+      // than its low-ready idle (0.96 m vs 0.81 m), and a fall may start
+      // from any upright pose; what it may not do is start from a crouch or
+      // the ground (prone hips sit at 0.17-0.35 m, a third of idle's).
+      expect(f.startY, `${r.file} ${clip} ${f.root}: starts standing`).toBeGreaterThanOrEqual(0.75 * (rest as RootTravel).startY);
+      expect(f.endY, `${r.file} ${clip} ${f.root}: ends prone`).toBeLessThanOrEqual(0.35);
+    }
+  });
+
+  it.each(pairs)('%s %s: its last frame IS %s -- hips within 1 cm, every live joint within 1 degree', (_file, clip, wreck, r) => {
+    const end = measureJointPoses(r.path, clip, 'end');
+    const corpse = measureJointPoses(r.path, wreck, 'start');
+    expect(corpse.map((j) => j.name)).toEqual(end.map((j) => j.name));
+    let compared = 0;
+    for (let i = 0; i < end.length; i++) {
+      if (end[i].scale <= 1e-6 || corpse[i].scale <= 1e-6) continue;
+      compared++;
+      const dt = Math.hypot(...end[i].translation.map((v, k) => v - corpse[i].translation[k]));
+      expect(dt, `${r.file} ${clip}->${wreck} ${end[i].name}: translation`).toBeLessThan(0.01);
+      // Falsified by comparing against 'idle' instead of the wreck: tens of degrees.
+      expect(rotationDeltaDeg(end[i].rotation, corpse[i].rotation), `${r.file} ${clip}->${wreck} ${end[i].name}: rotation`).toBeLessThan(1);
+    }
+    expect(compared).toBeGreaterThan(10);
+  });
+
+  it('no kit rig, civilian, sniper, mortar team or motorcycle acquired a fall by accident', () => {
+    for (const r of RIGS) {
+      if (FALL_FILES.includes(r.file)) continue;
+      for (const c of r.clips) expect(FALL_CLIPS.has(c), `${r.file} ${c}`).toBe(false);
     }
   });
 });
