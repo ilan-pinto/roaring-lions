@@ -109,6 +109,21 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // find it -- a worker that will not stand down has no UI.
     blurb: 'unregister the service worker and purge its caches — the recovery switch if a cached build goes wrong',
   },
+  {
+    name: 'lang',
+    // Overrides the saved `settings.language` for this load only -- it is
+    // never written back to storage, so a bookmark or a shared link cannot
+    // silently change what a returning player sees next time. `main.ts`
+    // reads it before any screen mounts.
+    blurb: '<locale id> — override the saved language for this load, without changing the setting',
+  },
+  {
+    name: 'pseudo',
+    // Wraps the `en` catalogue in the pseudo-locale transform (i18n/pseudo.ts)
+    // instead of loading a real one -- the fake-translation pass a screen
+    // walk uses to catch a string that never went through `t()` at all.
+    blurb: 'run every screen through the pseudo-locale (accents, padding, brackets) instead of a real language',
+  },
   ...SANDBOX_FLAGS,
 ];
 

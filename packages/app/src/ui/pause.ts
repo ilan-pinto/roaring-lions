@@ -62,6 +62,7 @@
  * calls `stopPropagation`/`stopImmediatePropagation` before branching on
  * `ev.key === 'Escape'`, so nothing needed to change there.
  */
+import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { panel } from './panel';
 import { settingsPanel, type SettingsDeps } from './settings-panel';
@@ -111,7 +112,7 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   scrim.setAttribute('role', 'dialog');
   scrim.setAttribute('aria-modal', 'true');
 
-  const p = panel({ rank: 'inspect', title: 'Paused' });
+  const p = panel({ rank: 'inspect', title: t('pause.title') });
   p.el.classList.add('rl-pause__panel');
 
   // --- tabs: Objectives | Settings ---------------------------------------
@@ -121,12 +122,12 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   objTabBtn.type = 'button';
   objTabBtn.className = 'rl-btn';
   objTabBtn.dataset.tab = 'objectives';
-  objTabBtn.textContent = 'Objectives';
+  objTabBtn.textContent = t('pause.tab.objectives');
   const setTabBtn = document.createElement('button');
   setTabBtn.type = 'button';
   setTabBtn.className = 'rl-btn';
   setTabBtn.dataset.tab = 'settings';
-  setTabBtn.textContent = 'Settings';
+  setTabBtn.textContent = t('pause.tab.settings');
   tabs.append(objTabBtn, setTabBtn);
   p.body.appendChild(tabs);
 
@@ -174,16 +175,16 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   // --- actions --------------------------------------------------------------
   const actions = document.createElement('div');
   actions.className = 'rl-pause__actions';
-  const resumeBtn = actionButton('Resume', 'resume');
-  const restartBtn = actionButton('Restart', 'restart');
-  const settingsActBtn = actionButton('Settings', 'settings');
-  const quitBtn = actionButton('Quit to campaign', 'quit');
+  const resumeBtn = actionButton(t('pause.resume'), 'resume');
+  const restartBtn = actionButton(t('pause.restart'), 'restart');
+  const settingsActBtn = actionButton(t('pause.settings'), 'settings');
+  const quitBtn = actionButton(t('pause.quit'), 'quit');
   actions.append(resumeBtn, restartBtn, settingsActBtn, quitBtn);
   p.body.appendChild(actions);
 
   const foot = document.createElement('p');
   foot.className = 'rl-settings__hint';
-  foot.textContent = `Build ${deps.build}`;
+  foot.textContent = t('common.build', { build: deps.build });
   p.body.appendChild(foot);
 
   let closed = false;

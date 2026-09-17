@@ -44,6 +44,7 @@
  * before bubble phase on every ancestor, so stopping propagation here is
  * enough to keep it from ever reaching that listener at all.
  */
+import { t } from '../i18n/t';
 import { ACTIONS, bindingsFrom, keyLabel, rebind, type Bindings } from '../input/keymap';
 
 export interface KeymapDeps {
@@ -120,11 +121,11 @@ export function keymapRows(deps: { bindings(): Bindings; set(next: Bindings): vo
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'rl-btn';
-        btn.textContent = 'Change';
+        btn.textContent = t('settings.keymap.change');
         btn.addEventListener('click', () => {
           // At most one capture pending at a time -- see the file header.
           cancelPending?.();
-          kbd.textContent = 'press a key…';
+          kbd.textContent = t('settings.keymap.capturing');
           const capture = (ev: KeyboardEvent): void => {
             ev.preventDefault();
             // Both: `stopPropagation` keeps it from reaching an ANCESTOR's
@@ -148,7 +149,7 @@ export function keymapRows(deps: { bindings(): Bindings; set(next: Bindings): vo
             }
             paint();
             const holder = ACTIONS.find((x) => x.id === result.takenBy)?.label ?? result.takenBy;
-            showHint(`Already used by ${holder}`);
+            showHint(t('settings.keymap.conflict', { holder }));
           };
           cancelPending = () => {
             window.removeEventListener('keydown', capture, true);
@@ -172,7 +173,7 @@ export function keymapRows(deps: { bindings(): Bindings; set(next: Bindings): vo
     const resetBtn = document.createElement('button');
     resetBtn.type = 'button';
     resetBtn.className = 'rl-btn';
-    resetBtn.textContent = 'Reset to defaults';
+    resetBtn.textContent = t('settings.keymap.reset');
     resetBtn.addEventListener('click', () => {
       deps.set(bindingsFrom({}));
       for (const paint of paints) paint();

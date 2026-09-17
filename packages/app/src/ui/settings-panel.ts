@@ -23,6 +23,7 @@
  * panel to react to a change without polling, which is what this buys it.
  */
 import type { AudioGains } from '@lions/render';
+import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import {
   CAMERA_SPEEDS,
@@ -124,7 +125,7 @@ function section(table: HTMLElement, title: string): void {
 }
 
 export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTMLElement; dispose: Disposer } {
-  const p = panel({ rank: 'inspect', title: 'Settings' });
+  const p = panel({ rank: 'inspect', title: t('settings.title') });
   p.el.classList.add('rl-settings');
   const table = document.createElement('div');
   table.className = 'rl-settings__table';
@@ -137,14 +138,14 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   };
   const s = deps.get();
 
-  section(table, 'Video');
+  section(table, t('settings.video'));
   if (deps.fullscreen?.supported()) {
     const fs = deps.fullscreen;
     const cb = document.createElement('input');
     cb.type = 'checkbox';
     cb.name = 'fullscreen';
     cb.checked = fs.active();
-    const fsRow = row(table, 'Fullscreen', cb);
+    const fsRow = row(table, t('settings.fullscreen'), cb);
     // The same `.rl-settings__hint` styling every other row's optional hint
     // already uses -- built here rather than through `row`'s own `hint`
     // param because this one's text only appears AFTER a rejection, not at
@@ -170,7 +171,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
           });
         } catch {
           cb.checked = fs.active();
-          hint.textContent = 'Fullscreen was refused by the browser.';
+          hint.textContent = t('settings.fullscreen.refused');
           clearTimeout(hintTimer);
           hintTimer = setTimeout(() => {
             hint.textContent = '';
@@ -181,12 +182,12 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   }
   row(
     table,
-    'Interface scale',
+    t('settings.uiScale'),
     select<UiScaleSetting>(
       'uiScale',
       UI_SCALES,
       s.video.uiScale,
-      (v) => (v === 'auto' ? 'Automatic (by screen width)' : `${Math.round(v * 100)}%`),
+      (v) => (v === 'auto' ? t('settings.uiScale.auto') : t('settings.uiScale.percent', { pct: Math.round(v * 100) })),
       (v) =>
         update((n) => {
           n.video.uiScale = v;
@@ -195,12 +196,12 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   );
   row(
     table,
-    'Text size',
+    t('settings.textSize'),
     select<TextSize>(
       'textSize',
       TEXT_SIZES,
       s.video.textSize,
-      (v) => (v === 1 ? 'Normal' : `${Math.round(v * 100)}%`),
+      (v) => (v === 1 ? t('settings.textSize.normal') : t('settings.textSize.percent', { pct: Math.round(v * 100) })),
       (v) =>
         update((n) => {
           n.video.textSize = v;
@@ -209,7 +210,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   );
   row(
     table,
-    'Render quality',
+    t('settings.quality'),
     select<Quality>(
       'quality',
       QUALITIES,
@@ -217,9 +218,9 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
       (v) =>
         (
           {
-            low: 'Low — no ambient occlusion, no anti-aliasing, soft shadows',
-            medium: 'Medium — anti-aliasing, 2K shadows',
-            high: 'High — everything, 4K shadows',
+            low: t('settings.quality.low'),
+            medium: t('settings.quality.medium'),
+            high: t('settings.quality.high'),
           } satisfies Record<Quality, string>
         )[v],
       (v) =>
@@ -227,18 +228,18 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
           n.video.quality = v;
         })
     ),
-    'applies when the next mission starts.'
+    t('settings.quality.hint')
   );
 
-  section(table, 'Audio');
+  section(table, t('settings.audio'));
   const live = (k: 'master' | 'music' | 'sfx') => (v: number): void => {
     const g: AudioGains = { ...deps.get().audio, [k]: v };
     deps.audio?.setGains(g);
   };
   for (const [k, label] of [
-    ['master', 'Master'],
-    ['music', 'Music'],
-    ['sfx', 'Effects'],
+    ['master', t('settings.audio.master')],
+    ['music', t('settings.audio.music')],
+    ['sfx', t('settings.audio.sfx')],
   ] as const) {
     row(
       table,
@@ -251,15 +252,15 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     );
   }
 
-  section(table, 'Accessibility');
+  section(table, t('settings.accessibility'));
   row(
     table,
-    'Motion',
+    t('settings.motion'),
     select<'system' | 'reduce'>(
       'motion',
       ['system', 'reduce'],
       s.accessibility.motion,
-      (v) => (v === 'system' ? 'Follow the system setting' : 'Reduce motion'),
+      (v) => (v === 'system' ? t('settings.motion.system') : t('settings.motion.reduce')),
       (v) =>
         update((n) => {
           n.accessibility.motion = v;
@@ -268,7 +269,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   );
   row(
     table,
-    'Colour vision',
+    t('settings.colorVision'),
     select<ColorVision>(
       'colorVision',
       COLOR_VISIONS,
@@ -276,10 +277,10 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
       (v) =>
         (
           {
-            default: 'Default',
-            deuteranopia: 'Deuteranopia (red–green)',
-            protanopia: 'Protanopia (red–green)',
-            tritanopia: 'Tritanopia (blue–yellow)',
+            default: t('settings.colorVision.default'),
+            deuteranopia: t('settings.colorVision.deuteranopia'),
+            protanopia: t('settings.colorVision.protanopia'),
+            tritanopia: t('settings.colorVision.tritanopia'),
           } satisfies Record<ColorVision, string>
         )[v],
       (v) =>
@@ -287,20 +288,20 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
           n.accessibility.colorVision = v;
         })
     ),
-    'Team colours on the map, the minimap and the HUD.'
+    t('settings.colorVision.hint')
   );
 
   if (deps.keymap) {
     const keymap = deps.keymap;
-    section(table, 'Controls');
+    section(table, t('settings.controls'));
     row(
       table,
-      'Camera speed',
+      t('settings.cameraSpeed'),
       select<CameraSpeed>(
         'cameraSpeed',
         CAMERA_SPEEDS,
         s.controls.cameraSpeed,
-        (v) => `${v}×`,
+        (v) => t('settings.cameraSpeed.multiplier', { x: v }),
         (v) =>
           update((n) => {
             n.controls.cameraSpeed = v;
@@ -310,10 +311,10 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     keymap.mount(table);
   }
 
-  section(table, 'Language');
+  section(table, t('settings.language'));
   row(
     table,
-    'Language',
+    t('settings.language'),
     select<string>(
       'language',
       deps.locales.map((l) => l.id),
@@ -324,12 +325,12 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
           n.language = v;
         })
     ),
-    deps.locales.length === 1 ? 'More languages are coming.' : undefined
+    deps.locales.length === 1 ? t('settings.language.hint') : undefined
   );
 
   const foot = document.createElement('p');
   foot.className = 'rl-settings__hint';
-  foot.textContent = `Build ${deps.build}`;
+  foot.textContent = t('common.build', { build: deps.build });
   p.body.appendChild(foot);
 
   host.appendChild(p.el);
@@ -353,7 +354,7 @@ export function showSettings(stage: HTMLElement, deps: SettingsDeps & { back: st
   back.className = 'rl-btn rl-menu__item rl-settings__back';
   back.dataset.kind = 'back';
   back.href = deps.back;
-  back.textContent = '← main menu';
+  back.textContent = t('nav.backToMenu');
   (el.querySelector('.rl-panel__body') ?? el).appendChild(back);
   return dispose;
 }

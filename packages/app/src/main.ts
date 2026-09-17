@@ -163,6 +163,9 @@ import { commanderPortraitUrl } from './portrait-catalogue';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY, loadLedger, saveLedger } from './main-keys';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
+import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
+import { missingKeys, setCatalogue } from './i18n/t';
+import { pseudo } from './i18n/pseudo';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -704,8 +707,7 @@ async function main(): Promise<void> {
         }
       : null,
     audio,
-    // Task 9 fills this from the shipped locale catalogue.
-    locales: [{ id: 'en', name: 'English' }],
+    locales: LOCALES,
     // `bindings()` always answers the FULL table (defaults plus valid
     // overrides), never the raw override map settings.ts stores -- a rebind
     // row reads and writes bindings, not the sparse form. `set` round-trips
@@ -722,6 +724,30 @@ async function main(): Promise<void> {
     }),
     build: __APP_BUILD__,
   };
+
+  // --- locale, before any screen mounts -------------------------------------
+  // `?lang=<id>` overrides the saved `settings.language` for THIS load only
+  // -- it is never written back to storage, so a shared link cannot silently
+  // change what a returning player sees next time. `?pseudo=1` swaps the real
+  // catalogue for the `en` one run through the pseudo-locale transform
+  // (i18n/pseudo.ts) instead of a real language -- the fake-translation pass
+  // a screen walk uses to catch a string that never went through `t()` at
+  // all. Both are read off `window.location.search` for the same reason the
+  // service worker escape hatch below is: before the router rewrites a
+  // legacy query URL into a path. Both join `KNOWN_PARAMS` (sandbox-help.ts)
+  // so `unknownParams` does not report either as a typo, and neither is in
+  // `router.start`'s own `drop` list below, so a reload keeps carrying them.
+  const q = new URLSearchParams(window.location.search);
+  const lang = q.get('lang') ?? settings.language;
+  const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
+  const cat = await loadLocale(activeLocale, BASE);
+  setCatalogue(activeLocale, cat, q.has('pseudo') ? pseudo : undefined);
+  applyLocale(document.documentElement, lang);
+  // Dev-only: which keys a screen walk asked for and never got, without
+  // scraping console output for `[i18n] missing key: …` lines.
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__lionsI18n = { missingKeys };
+  }
 
   // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
   // worker is a cache for the NEXT load, so making this boot wait on it would

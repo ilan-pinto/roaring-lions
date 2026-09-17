@@ -11,6 +11,7 @@
  * `<input type=file>` implementations, so this file needs no DOM API beyond
  * building elements and no browser feature test of its own.
  */
+import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import type { StorageLike } from '../brigade-account';
 import { deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive, type SlotMeta } from '../profile';
@@ -60,7 +61,12 @@ function slotRow(
   name.textContent = meta.name;
   const sub = document.createElement('div');
   sub.className = 'rl-saves__sub';
-  sub.textContent = `${DATE.format(new Date(meta.savedAt))} · ${meta.missions} mission(s) · ${meta.credits} credits · build ${meta.build}`;
+  sub.textContent = t('saves.slot.meta', {
+    date: DATE.format(new Date(meta.savedAt)),
+    n: meta.missions,
+    credits: meta.credits,
+    build: meta.build,
+  });
   info.append(name, sub);
   row.appendChild(info);
 
@@ -74,9 +80,9 @@ function slotRow(
     b.addEventListener('click', onClick);
     btnRow.appendChild(b);
   };
-  button('Load', actions.onLoad);
-  button('Export', actions.onExport);
-  button('Delete', actions.onDelete);
+  button(t('saves.slot.load'), actions.onLoad);
+  button(t('saves.slot.export'), actions.onExport);
+  button(t('saves.slot.delete'), actions.onDelete);
   row.appendChild(btnRow);
 
   return row;
@@ -86,7 +92,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu rl-menu--saves';
 
-  const p = panel({ rank: 'inspect', title: 'Saves' });
+  const p = panel({ rank: 'inspect', title: t('saves.title') });
   wrap.appendChild(p.el);
 
   const list = document.createElement('div');
@@ -95,7 +101,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
 
   const empty = document.createElement('p');
   empty.className = 'rl-dim';
-  empty.textContent = 'No saves yet.';
+  empty.textContent = t('saves.empty');
 
   const msg = document.createElement('p');
   msg.className = 'rl-saves__msg';
@@ -118,9 +124,9 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
         slotRow(meta, {
           onLoad: () => {
             void confirmDialog(stage, {
-              title: 'Load this save?',
-              body: 'Replace your current campaign and brigade with this save?',
-              confirm: 'Load',
+              title: t('saves.load.confirm.title'),
+              body: t('saves.load.confirm.body'),
+              confirm: t('saves.load.confirm.action'),
             }).then((ok) => {
               if (!ok) return;
               const slot = loadSlot(deps.store, meta.id);
@@ -138,9 +144,9 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
           },
           onDelete: () => {
             void confirmDialog(stage, {
-              title: 'Delete this save?',
-              body: `Delete "${meta.name}"? This cannot be undone.`,
-              confirm: 'Delete',
+              title: t('saves.delete.confirm.title'),
+              body: t('saves.delete.confirm.body', { name: meta.name }),
+              confirm: t('saves.delete.confirm.action'),
               danger: true,
             }).then((ok) => {
               if (!ok) return;
@@ -161,13 +167,13 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
   nameInput.name = 'saveName';
-  nameInput.setAttribute('aria-label', 'Save name');
-  const defaultName = (): string => `Save ${listSlots(deps.store).length + 1}`;
+  nameInput.setAttribute('aria-label', t('saves.form.nameLabel'));
+  const defaultName = (): string => t('saves.form.defaultName', { n: listSlots(deps.store).length + 1 });
   nameInput.value = defaultName();
   const saveBtn = document.createElement('button');
   saveBtn.type = 'submit';
   saveBtn.className = 'rl-btn';
-  saveBtn.textContent = 'Save current campaign';
+  saveBtn.textContent = t('saves.form.save');
   form.append(nameInput, saveBtn);
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -184,7 +190,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   const importBtn = document.createElement('button');
   importBtn.type = 'button';
   importBtn.className = 'rl-btn rl-saves__import';
-  importBtn.textContent = 'Import a save file';
+  importBtn.textContent = t('saves.import');
   importBtn.addEventListener('click', () => {
     void deps.pickFile().then((text) => {
       if (text === null) return;
@@ -213,7 +219,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   back.className = 'rl-btn rl-menu__item rl-saves__back';
   back.dataset.kind = 'back';
   back.href = deps.back;
-  back.textContent = '← main menu';
+  back.textContent = t('nav.backToMenu');
   p.body.appendChild(back);
 
   renderList();

@@ -15,7 +15,7 @@
     "validate:assets": "python3 tools/validate_assets.py",
     "icons:units": "python3 tools/crop_unit_icons.py",
     "validate:meshes": "python3 tools/validate_mesh_assets.py",
-    "validate:ui": "node tools/validate_ui_palette.mjs",
+    "validate:ui": "node tools/validate_ui_palette.mjs && node tools/validate_i18n.mjs",
     "validate:audio": "python3 tools/validate_audio.py",
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",

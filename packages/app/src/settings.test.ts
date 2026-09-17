@@ -20,13 +20,17 @@ describe('parseSettings', () => {
       video: { fullscreen: true, uiScale: 7, textSize: 1.15, quality: 'ultra' },
       audio: { master: 0.5, music: 2, sfx: 'loud' },
       accessibility: { motion: 'reduce', colorVision: 'nope' },
-      language: 'he',
+      // Task 9: `language` is now validated against `LOCALES` (only `en`
+      // ships today) rather than a bare BCP-47-shaped regex, so 'he' -- a
+      // syntactically valid tag nobody has shipped a catalogue for -- is
+      // exactly as invalid here as 'nope' is for colorVision above.
+      language: 'en',
       extra: 'dropped',
     }));
     expect(s.video).toEqual({ fullscreen: true, uiScale: 'auto', textSize: 1.15, quality: 'high' });
     expect(s.audio).toEqual({ master: 0.5, music: 1, sfx: 1 });
     expect(s.accessibility).toEqual({ motion: 'reduce', colorVision: 'default' });
-    expect(s.language).toBe('he');
+    expect(s.language).toBe('en');
     expect('extra' in s).toBe(false);
   });
   it('round-trips through save and load', () => {

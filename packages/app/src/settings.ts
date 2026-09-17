@@ -13,6 +13,7 @@
  * owners (main.ts) from the same object.
  */
 import type { StorageLike } from './brigade-account';
+import { LOCALES } from './i18n/locales';
 import type { Disposer } from './shell/router';
 
 export type { StorageLike };
@@ -101,7 +102,7 @@ export function parseSettings(raw: string | null): Settings {
       motion: oneOf(['system', 'reduce'] as const, acc.motion, 'system'),
       colorVision: oneOf(COLOR_VISIONS, acc.colorVision, 'default'),
     },
-    language: typeof v.language === 'string' && /^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(v.language) ? v.language : 'en',
+    language: typeof v.language === 'string' && LOCALES.some((l) => l.id === v.language) ? v.language : 'en',
   };
 }
 
