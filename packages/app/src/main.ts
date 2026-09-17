@@ -162,6 +162,7 @@ import {
 import { commanderPortraitUrl } from './portrait-catalogue';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY, loadLedger, saveLedger } from './main-keys';
 import { showSaves, type SavesDeps } from './ui/saves';
+import { showCredits, type CreditsDeps } from './ui/credits';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
@@ -429,6 +430,16 @@ function pickJsonFile(): Promise<string | null> {
     });
     input.click();
   });
+}
+
+/** `ui/credits.ts`'s `fetchText`: a font's OFL body, fetched only when its
+ *  `<details>` is opened. Rejects on a network failure or a non-OK response
+ *  (a 404 for a licence file that moved) -- that screen turns either into
+ *  "licence text unavailable offline" rather than an unhandled rejection. */
+async function fetchLicenceText(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status}`);
+  return res.text();
 }
 
 /**
@@ -966,6 +977,17 @@ async function main(): Promise<void> {
         mount: (host) => showSettings(host, { ...settingsDeps, back: routes.menu() }),
       },
       { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
+      {
+        name: 'credits',
+        pattern: '/credits',
+        mount: (host) =>
+          showCredits(host, {
+            base: BASE,
+            build: __APP_BUILD__,
+            back: routes.menu(),
+            fetchText: fetchLicenceText,
+          } satisfies CreditsDeps),
+      },
       // Reserved for Phase 1's briefing screen. Until that exists the path is
       // a redirect rather than a 404, so a link written against it today lands
       // the player in the mission rather than on an error card.

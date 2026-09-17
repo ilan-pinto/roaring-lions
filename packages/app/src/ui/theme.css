@@ -3133,3 +3133,78 @@ button.rl-menu__item[data-kind='aside'] {
   width: fit-content;
   margin: var(--s3) auto 0 0;
 }
+
+/* ---------------------------------------------------------------------- */
+/* Credits (ui/credits.ts)                                                */
+/* ---------------------------------------------------------------------- */
+
+/* A `.rl-menu` column like Saves -- a list of sections reads left-aligned,
+   not centred the way `.rl-menu`'s plain nav links do. */
+.rl-menu--credits .rl-panel {
+  text-align: left;
+}
+.rl-credits__section {
+  margin: var(--s4) 0 var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+}
+.rl-credits__section:first-of-type {
+  margin-top: 0;
+}
+.rl-credits__block {
+  margin-bottom: var(--s2);
+}
+.rl-credits__people {
+  color: var(--ink);
+}
+.rl-credits__libs,
+.rl-credits__assets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  color: var(--ink);
+}
+.rl-credits__libs a {
+  color: var(--ink);
+}
+/* A font's disclosure widget -- the OFL body is fetched lazily (credits.ts)
+   and lands in here the first time it is opened. */
+.rl-credits__font {
+  margin-bottom: var(--s2);
+}
+.rl-credits__font summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink);
+}
+.rl-credits__licence-text {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+  max-height: 16rem;
+  overflow: auto;
+  margin: var(--s1) 0 0;
+  padding: var(--s2);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-credits__disclosure {
+  margin-top: var(--s2);
+  color: var(--ink-mute);
+  font-size: var(--t-s);
+}
+.rl-credits__build {
+  margin-top: var(--s3);
+}
+.rl-credits__back {
+  display: block;
+  width: fit-content;
+  margin: var(--s3) auto 0 0;
+}

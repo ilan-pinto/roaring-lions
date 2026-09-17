@@ -215,3 +215,17 @@ describe('showEndScreen', () => {
     expect(opened).toBe(1);
   });
 });
+
+describe('showMenu aside', () => {
+  it('lists Credits last, after every other aside item including the audio toggle', () => {
+    const stage = document.createElement('div');
+    const audio = { isMuted: () => true, toggle: () => false };
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, audio, newCampaign: () => {} });
+    const [, aside] = stage.querySelectorAll('nav.rl-menu__nav');
+    const items = [...aside!.children] as HTMLElement[];
+    const last = items[items.length - 1]!;
+    expect(last.tagName).toBe('A');
+    expect(last.textContent).toBe('Credits');
+    expect(last.getAttribute('href')).toBe('/credits');
+  });
+});

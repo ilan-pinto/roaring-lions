@@ -198,6 +198,9 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   });
   aside.appendChild(newCampaignBtn);
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
+  // Last, deliberately: people, libraries, fonts and the licence split are
+  // the least urgent thing on this screen, not the most.
+  addAside('Credits', routes.credits());
   wrap.appendChild(aside);
 
   // The menu introduces itself rather than simply existing.
