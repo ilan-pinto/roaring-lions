@@ -33,12 +33,12 @@ are each one file:
    the ground. For the sixteen kit rigs `down` and `wreck` are both the SAME
    separate prone geometry, switched in by a bone-scale swap (`rig.py`'s
    `_figure_death_parts`, `_key_death_visibility`), so a standing man becomes a
-   prone one between two frames. The four Meshy bipeds SHIP with real death
+   prone one between two frames. The three Meshy bipeds SHIP with real death
    animations — `Shot_and_Blown_Back`, `Shot_and_Fall_Backward`,
-   `Shot_and_Fall_Forward`, `Shot_and_Slow_Fall_Backward`,
-   `Fall_Dead_from_Abdominal_Injury` — and every importer discards the motion
-   and keeps only the last frame as `wreck` (`import_meshy_soldier.py`'s
-   `FALL_SOURCE` comment: "read by exactly one caller now: `build_wreck_src`").
+   `Shot_and_Fall_Forward`, `Shot_and_Slow_Fall_Backward` — and every importer
+   discards the motion and keeps only the last frame as `wreck`
+   (`import_meshy_soldier.py`'s `FALL_SOURCE` comment: "read by exactly one
+   caller now: `build_wreck_src`").
 3. **Three crews slide.** `atgm_cell`, `mortar_crew` and `digger_crew` are
    built with `animates=False` and a degenerate 0.0417 s `move` with no leg
    keys (`rig.py`'s team table; `mesh_gait.test.ts`'s `GAIT_EXEMPT`). Ordered
@@ -376,7 +376,7 @@ falsification is named in the commit that adds it.
    are deleted in the same commit.
 9. **Capture sheet** (`tools/src/perf/`, a `death-captures.ts` beside
    `gait-captures.ts`): the live renderer at zoom 2.5 and at the default
-   zoom, each of the four Meshy types and one kit rig and one civilian,
+   zoom, each of the three Meshy types and one kit rig and one civilian,
    killed with `__lions.sim.debugKill` (and once with a real killer for the
    direction), photographed at 0, 0.15, 0.25, 0.5, 1.0 and 1.5 s after death,
    plus the three crews walking. "Before" is captured at the branch base
@@ -421,7 +421,7 @@ last:
 | knob | proposed | why |
 |---|---|---|
 | crossfade window | 150 ms | the sweep's recommendation; short enough that a burst still reads as a burst |
-| topple duration / angle / ease | 0.5 s / 90° / `p²` | a body accelerates; 0.5 s is between the fall clips' own ~1 s and the old 0.04 s swap |
+| topple duration / angle / ease | 0.5 s / 90° / `p²` | a body accelerates; 0.5 s sits well inside the fall clips' own measured 2.3–4.6 s and clears the old 0.04 s swap |
 | per-figure stagger (fall and topple) | 0.1 s | a squad is one entity and would otherwise drop as three clones in unison |
 | topple direction with no killer | backward from facing | `debugKill` and tunnel collapse have no shooter |
 | `fall` duration band | 0.5–5.0 s | the supplied clips measure 2.3–4.6 s, kept whole; the band rejects a static hold and an unbound idle |

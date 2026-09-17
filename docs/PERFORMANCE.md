@@ -468,6 +468,31 @@ route total the game can currently produce.
 
 ---
 
+## Infantry animation: crossfades and falls (2026-09-17)
+
+`worktree-art-phase1-infantry` (design `2026-09-17-infantry-animation-design.md`)
+made every clip change a 150 ms blend (two actions evaluated per figure for
+the window), replaced the 0.04 s death swap with a supplied fall or a
+0.5 s topple, and gave three crews a real walk. Same instrument and
+conditions as "Backend curve" above (`backend-curve-gate.ts`, hardware GPU
+confirmed — `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified
+Version)` on both runs), before at the branch base and after at its head:
+
+| checkpoint | living | render p95 before | render p95 after |
+|---|---|---|---|
+| 300 | 266 | 7.40 | 7.60 |
+
+The +0.5 ms budget held with margin: crossfading two actions per figure for
+150 ms, playing a supplied fall or a per-figure 0.5 s topple instead of a
+one-frame pose swap, and a real walk cycle on three crews together cost
+**0.20 ms** of render p95 at the 300 checkpoint (266 living, mixed roster,
+`beit_sahwan_outskirts` seed `20260827`) — measured under the same moderate,
+non-idle load this document's capture-conditions section already describes
+for the "before" pass (`uptime` read a 1-minute load average of ~5.5 across
+12 cores at capture time).
+
+---
+
 ## Known limitations of this evidence
 
 - **Not wired into CI or `pnpm test`.** Same gap `playtest.ts` and
