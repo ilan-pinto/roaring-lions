@@ -1,6 +1,9 @@
 /**
  * The frame's post chain (spec §5): RenderPass -> [FogOfWarPass] -> [GTAOPass]
- * -> OutputPass -> SMAAPass.
+ * -> OutputPass -> [VignettePass] -> SMAAPass.
+ *
+ * The vignette is the one pass on the display-referred side of the output
+ * transform, and `PostChain.setVignettePass` says why it has to be.
  *
  * Why SMAA on a single-sampled target rather than hardware MSAA: the fog
  * pass reads the RenderPass's depth texture, and a multisampled depth
@@ -414,9 +417,20 @@ export interface PostChain {
   setFogPass(pass: Pass | null): void;
   /** Ownership as for `setFogPass` above: the caller disposes what it built. */
   setAoPass(pass: Pass | null): void;
+  /**
+   * The corner vignette (`./vignette-pass.ts`), slotted AFTER `OutputPass`
+   * and BEFORE `SMAAPass` -- the only pass in this chain that runs on
+   * display-referred colour, which is why it cannot join fog and AO in the
+   * scene-referred stretch before the output transform. See that module's
+   * own header for why linear-light darkening is a different operation, and
+   * why SMAA still has to be last.
+   *
+   * Ownership as for `setFogPass` above: the caller disposes what it built.
+   */
+  setVignettePass(pass: Pass | null): void;
   /** Releases the composer's targets and the four passes this module owns
    *  (RenderPass, OutputPass, SMAAPass, and the composer's own copy pass) --
-   *  never a fog or AO pass handed in from outside. */
+   *  never a fog, AO or vignette pass handed in from outside. */
   dispose(): void;
 }
 
@@ -487,6 +501,7 @@ export function createPostChain(
   const smaa = new SMAAPass(w, h);
   let fogPass: Pass | null = null;
   let aoPass: Pass | null = null;
+  let vignettePass: Pass | null = null;
 
   const rebuild = (): void => {
     composer.passes.length = 0;
@@ -494,6 +509,11 @@ export function createPostChain(
     if (fogPass) composer.addPass(fogPass);
     if (aoPass) composer.addPass(aoPass);
     composer.addPass(outputPass);
+    // Between the output transform and SMAA, and it is the only slot that
+    // works: the vignette scales DISPLAY-referred colour (before ACES it
+    // would ride the tone curve's shoulder rather than the display ramp),
+    // and SMAA edge-detects on the final image, so it stays last.
+    if (vignettePass) composer.addPass(vignettePass);
     composer.addPass(smaa);
   };
   rebuild();
@@ -521,6 +541,10 @@ export function createPostChain(
     },
     setAoPass(pass) {
       aoPass = pass;
+      rebuild();
+    },
+    setVignettePass(pass) {
+      vignettePass = pass;
       rebuild();
     },
     dispose() {

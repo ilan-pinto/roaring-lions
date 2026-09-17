@@ -59,10 +59,12 @@
   },
   "triggers": [
     { "id": "the_crew_stops_digging_and_turns_round",
+      "label": "Digging crew turns to fight",
       "on": { "kind": "zone_entered", "zone": "da_west" },
       "do": { "kind": "commit", "group": "da_diggers", "to": "da_west_head" },
       "say": { "speaker": "net", "text": "The crew has stopped digging. They are coming up onto the shoulder with the section that was covering them." } },
     { "id": "the_bed_is_a_road_and_it_is_theirs",
+      "label": "Militia appears in the wadi bed",
       "on": { "kind": "first_contact" },
       "do": { "kind": "spawn", "units": [{ "unit": "militia_cell", "count": 1, "marker": "wadi_bend" }] },
       "say": { "speaker": "idit", "text": "There is a section in the bed behind you. That watercourse is not dead ground for them — it is a road, and it is theirs." } }

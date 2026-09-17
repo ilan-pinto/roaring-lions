@@ -28,6 +28,7 @@
 
 import { fx, type LedgerRosterEntry, type Sim } from '@lions/sim';
 import type { ResolvedCommander } from '../campaign';
+import { confirmDialog } from './confirm';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { roleBadgeSvg, roleBucket } from './role';
@@ -41,6 +42,7 @@ import {
   speakerPortrait,
   stepBeat,
   stripObjectives,
+  textToneClass,
   worstPenalties,
   type MissionView,
   type Tone,
@@ -154,6 +156,12 @@ export interface HudDeps {
   /** Audio state, mirrored by the `m` key. Returns the new muted state. */
   isMuted?: () => boolean;
   toggleMute?: () => void;
+  /** The navigation behind "leave the mission", confirmed first -- the Hud
+   *  reads no `window.location` of its own (`ui/confirm.ts`'s own header:
+   *  this used to be a plain `<a href="?campaign">` with no confirm at all).
+   *  `main.ts` passes `() => window.location.assign('?campaign')`; absent in
+   *  tests that do not exercise the click. */
+  leave?: () => void;
 }
 
 export class Hud {
@@ -275,13 +283,29 @@ export class Hud {
       chips.appendChild(b);
     }
 
-    // The map page is always one click away, mid-mission included. A plain
-    // navigation, so leaving a fight costs the attempt -- deliberately.
-    const campaign = document.createElement('a');
-    campaign.className = 'rl-strip__link';
-    campaign.href = '?campaign';
-    campaign.textContent = '⌂';
-    campaign.title = 'campaign map';
+    // The map page is always one click away, mid-mission included -- but
+    // leaving a fight costs the attempt, so it is confirmed first rather than
+    // a plain navigation (task 6: this used to be a bare `<a href="?campaign">`,
+    // and there was no way to change your mind once the click landed). Moved
+    // to the strip's far left, ahead of the mission's own fields, and out of
+    // this right-hand instrument cluster -- it is not a speed or mute toggle,
+    // it is the one control here that ends the attempt.
+    const leaveBtn = document.createElement('button');
+    leaveBtn.type = 'button';
+    leaveBtn.className = 'rl-strip__link';
+    leaveBtn.textContent = '⌂ leave';
+    leaveBtn.title = 'leave the mission';
+    leaveBtn.addEventListener('click', () => {
+      void confirmDialog(document.body, {
+        title: 'Leave the mission?',
+        body: 'This attempt is lost. The campaign keeps everything from before it.',
+        confirm: 'Leave',
+        danger: true,
+      }).then((ok) => {
+        if (ok) deps.leave?.();
+      });
+    });
+    this.strip.prepend(leaveBtn);
 
     this.muteChip = document.createElement('button');
     this.muteChip.type = 'button';
@@ -292,15 +316,23 @@ export class Hud {
       this.muteChip.blur();
     });
 
-    right.append(chips, campaign, this.muteChip);
+    right.append(chips, this.muteChip);
     this.paintSpeed();
     this.paintMute();
 
     // --- the selection cluster --------------------------------------------
     //
-    // Bottom centre, on the same x as the feed and the controls hint, because
-    // it replaces the hint the moment anything is selected: one place at the
-    // bottom of the screen that answers "what am I holding and what can it do".
+    // Bottom centre: one column (`.rl-sel`) holding, in order, the feed, the
+    // order row, the card/chips, and the controls hint -- the bottom-centre
+    // STACK, never hidden as a whole. `renderCard` shows or hides only the
+    // order row and the card/chips body; `renderHint` shows or hides only the
+    // hint, the moment anything is selected. Splitting it this way (fix
+    // round 1) is what keeps a live notice on screen with nothing selected --
+    // the default state, and true for most of a mission -- where hiding the
+    // whole column used to take the feed down with it. Before that it was
+    // three separate absolutely-positioned blocks at fixed `bottom` offsets,
+    // which drew over each other the moment more than one was on screen at
+    // once.
     //
     // The order buttons are built ONCE and only repainted, while the chips and
     // the card are innerHTML'd wholesale four times a second. That split is not
@@ -308,12 +340,20 @@ export class Hud {
     // single innerHTML over both would drop every button's listener 4 Hz, and
     // the symptom is an order button that fires only if you click it fast
     // enough.
+    // .rl-sel is never hidden as a whole -- it is the bottom-centre STACK
+    // (feed, order row, card/chips, hint), and hiding the whole thing
+    // whenever nothing was selected took the feed and the hint down with it
+    // (task-5 review, fix round 1: the feed is invisible in the default
+    // no-selection state, true for most of a mission). `renderCard` hides
+    // only `orderBar` and `cluster`; `renderHint` hides only `hint`.
     this.sel = document.createElement('div');
     this.sel.className = 'rl-sel';
-    this.sel.style.display = 'none';
 
     this.orderBar = document.createElement('div');
     this.orderBar.className = 'rl-orders';
+    // Nothing is selected at construction, same as the order row and card
+    // used to start hidden via the parent's own display:none.
+    this.orderBar.style.display = 'none';
     for (const spec of ORDERS) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -334,6 +374,7 @@ export class Hud {
 
     this.cluster = document.createElement('div');
     this.cluster.className = 'rl-cluster';
+    this.cluster.style.display = 'none';
     // Delegated, because the chips themselves are replaced 4 Hz. Clicking a
     // chip narrows the selection to that sub-group, which is what makes the
     // focus frame worth having: Tab picks, the click commits.
@@ -350,14 +391,28 @@ export class Hud {
     this.sel.append(this.orderBar, this.cluster);
 
     this.clock = document.createElement('div');
-    this.clock.className = 'rl-clock';
+    // A number over the world too -- the plate through the same class rather
+    // than a second copy of the background rule (task-4 brief resolution).
+    this.clock.className = 'rl-clock rl-plate';
     this.clock.style.display = 'none';
 
     this.feed = document.createElement('div');
     this.feed.className = 'rl-feed';
+    // First child of .rl-sel: with that container's `flex-direction: column`
+    // the feed sits above the order row and the card, separated by the
+    // column's own gap, rather than floating over either at a fixed offset.
+    this.sel.prepend(this.feed);
 
     this.hint = document.createElement('div');
-    this.hint.className = 'rl-hint rl-onmap';
+    // A plate, not the shadow halo -- .rl-onmap alone measured ~1.3:1 over
+    // sand for this line. The halo stays available through .rl-onmap for
+    // glyph-only marks; the hint no longer uses it.
+    this.hint.className = 'rl-hint rl-plate';
+    // Last child of .rl-sel, the same stack the feed is the first child of
+    // (fix round 1): with nothing selected the column reads feed-over-hint;
+    // with a selection it reads feed-over-orders-over-card, and `renderHint`
+    // still hides this element the moment something is selected.
+    this.sel.append(this.hint);
 
     this.fire = document.createElement('div');
     this.fire.className = 'rl-fire';
@@ -445,8 +500,6 @@ export class Hud {
       this.cmd,
       this.clock,
       this.sel,
-      this.feed,
-      this.hint,
       this.fire,
       this.banner
     );
@@ -558,7 +611,9 @@ export class Hud {
   /** Mission-level narration — objectives, triggers, waves, refusals. */
   note(html: string, tone: Tone = 'live'): void {
     const el = document.createElement('div');
-    el.className = `rl-notice rl-enter rl-onmap rl-${tone}`;
+    // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
+    // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
+    el.className = `rl-notice rl-enter rl-plate ${textToneClass(tone)}`;
     el.innerHTML = html;
     this.feed.prepend(el);
     while (this.feed.childElementCount > FEED_LINES) {
@@ -702,10 +757,10 @@ export class Hud {
         // otherwise read as the primary's own timer.
         const inline =
           hold && hold.id === primary.id
-            ? ` <b class="${hold.tone ? `rl-${hold.tone}` : ''}">${hold.text}</b>`
+            ? ` <b class="${textToneClass(hold.tone)}">${hold.text}</b>`
             : '';
         const tone =
-          primary.status === 'complete' ? 'rl-good' : primary.status === 'failed' ? 'rl-bad' : '';
+          primary.status === 'complete' ? 'rl-good' : primary.status === 'failed' ? 'rl-bad-text' : '';
         rows.push(
           `<span class="rl-strip__obj ${tone}" data-obj="${escapeAttr(primary.id)}">` +
             `${objectiveGlyph(primary.status)} ${primary.text}${inline}</span>`
@@ -721,7 +776,7 @@ export class Hud {
           // two long objectives it was the clock that vanished.
           `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeAttr(deadline.objective.id)}">` +
             `${objectiveGlyph(deadline.objective.status)} ` +
-            `<b class="${deadline.tone ? `rl-${deadline.tone}` : ''}">${deadline.text}</b> ` +
+            `<b class="${textToneClass(deadline.tone)}">${deadline.text}</b> ` +
             `${deadline.objective.text}</span>`
         );
       }
@@ -750,7 +805,7 @@ export class Hud {
     // the kind of field a player learns to stop reading.
     const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
     if (pinned > 0) info.push(`<span class="rl-hot"><b>▼ ${pinned} pinned</b></span>`);
-    if (broken > 0) info.push(`<span class="rl-bad"><b>⚑ ${broken} broken</b></span>`);
+    if (broken > 0) info.push(`<span class="rl-bad-text"><b>⚑ ${broken} broken</b></span>`);
 
     this.stripBody.innerHTML = rows.join('');
     this.stripInfo.innerHTML = info.join('');
@@ -853,7 +908,7 @@ export class Hud {
         ['suppressed', fx.toNumber(p.factors.suppressionMod)],
       ]);
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
-      const bounce = p.hurts ? '' : ' · <span class="rl-bad">cannot penetrate</span>';
+      const bounce = p.hurts ? '' : ' · <span class="rl-bad-text">cannot penetrate</span>';
       rows.push(
         `<div>${name} <b>${chance}%</b> <span class="rl-dim">${p.weaponId}${why}</span>${bounce}</div>`
       );
@@ -886,12 +941,19 @@ export class Hud {
   // one wide card.
   //
   // One entry point rather than two, because the two states share the order
-  // row above them and share the decision of whether the whole cluster is on
-  // screen at all. `sel.length` picks the body: one unit gets the 460px card
-  // with its armament and capabilities, more than one gets 150px chips
-  // grouped by type. A player is asking a different question in each case —
-  // "what is this thing" versus "what have I got" — and answering both with
-  // the same widget is what the old bottom-right panel did.
+  // row above them and share the decision of whether the order row and the
+  // card/chips body are on screen at all. `sel.length` picks the body: one
+  // unit gets the 460px card with its armament and capabilities, more than
+  // one gets 150px chips grouped by type. A player is asking a different
+  // question in each case — "what is this thing" versus "what have I got" —
+  // and answering both with the same widget is what the old bottom-right
+  // panel did.
+  //
+  // `.rl-sel` itself is NEVER hidden here (fix round 1) — only `orderBar` and
+  // `cluster` are, the two elements this method owns. Hiding the shared
+  // column used to take the feed and the hint down with the order row and
+  // the card, which is the wrong scope: a live notice or the controls hint
+  // must survive an empty selection exactly as well as a full one.
   // ------------------------------------------------------------------
 
   private renderCard(): void {
@@ -900,12 +962,14 @@ export class Hud {
     // reporting a corpse's health reads as a bug in the health bar.
     const sel = this.deps.getSelection().filter((i) => sim.state.alive[i] === 1);
     if (sel.length === 0) {
-      this.sel.style.display = 'none';
+      this.orderBar.style.display = 'none';
+      this.cluster.style.display = 'none';
       this.chipTypes = [];
       return;
     }
-    const wasHidden = this.sel.style.display === 'none';
-    this.sel.style.display = '';
+    const wasHidden = this.cluster.style.display === 'none';
+    this.orderBar.style.display = '';
+    this.cluster.style.display = '';
 
     this.renderOrders(sel);
     if (sel.length === 1) {
@@ -914,13 +978,18 @@ export class Hud {
     } else {
       this.renderChips(sel);
     }
-    // The cluster arrives from below the frame edge the first time it is
-    // needed, and then holds still: re-running the entrance on every rebuild
-    // would make it twitch four times a second.
+    // The order row and the card/chips body arrive from below the frame edge
+    // the first time they are needed, and then hold still: re-running the
+    // entrance on every rebuild would make them twitch four times a second.
+    // Restarted on both elements individually now, since `.rl-sel` itself no
+    // longer transitions between hidden and shown.
     if (wasHidden) {
-      this.sel.classList.remove('rl-enter');
-      void this.sel.offsetWidth; // restart the animation rather than resume it
-      this.sel.classList.add('rl-enter');
+      this.orderBar.classList.remove('rl-enter');
+      this.cluster.classList.remove('rl-enter');
+      void this.orderBar.offsetWidth; // restart the animation rather than resume it
+      void this.cluster.offsetWidth;
+      this.orderBar.classList.add('rl-enter');
+      this.cluster.classList.add('rl-enter');
     }
   }
 
@@ -1018,7 +1087,7 @@ export class Hud {
 
     this.cluster.innerHTML = chips
       .map((c, i) => {
-        const tone = c.statusTone === null ? 'rl-dim' : `rl-${c.statusTone}`;
+        const tone = c.statusTone === null ? 'rl-dim' : textToneClass(c.statusTone);
         return (
           `<div class="rl-chip" data-type="${escapeAttr(c.typeId)}" ` +
           `data-focus="${i === this.chipFocus ? '1' : '0'}" ` +
@@ -1097,11 +1166,11 @@ export class Hud {
     // this replaces — the list is the product of a dozen play sessions and the
     // layout around it is what GH-153 is changing, not the facts in it.
     const flags: string[] = [];
-    if (st.routed[id] === 1) flags.push('<span class="rl-bad">BROKEN</span>');
+    if (st.routed[id] === 1) flags.push('<span class="rl-bad-text">BROKEN</span>');
     else if (st.pinned[id] === 1) flags.push('<span class="rl-hot">PINNED</span>');
     if (st.garrisonedIn[id] >= 0) flags.push('<span class="rl-live">in a building</span>');
     if (st.mobilityKilled[id] === 1) flags.push('<span class="rl-dim">immobilised</span>');
-    if (st.firepowerKilled[id] === 1) flags.push('<span class="rl-bad">guns out</span>');
+    if (st.firepowerKilled[id] === 1) flags.push('<span class="rl-bad-text">guns out</span>');
     if (st.moving[id] === 1) flags.push('moving');
     const supp = fx.toNumber(st.suppression[id]);
     if (supp > 0.05) flags.push(`suppression ${(supp * 100).toFixed(0)}%`);

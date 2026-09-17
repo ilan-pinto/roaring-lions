@@ -39,6 +39,8 @@ import paletteJson from '../../../../data/palette.json';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import { STRIPE_COLOR_KEY } from './units/overlays';
+import { SKIRT_TONE } from './terrain/skirt';
+import { albedoMean } from './terrain/mesh';
 
 const disposeSpy = vi.fn();
 
@@ -70,7 +72,22 @@ vi.mock('three', async (importOriginal) => {
       disposeSpy();
     }
   }
-  return { ...actual, WebGLRenderer: FakeWebGLRenderer };
+  /**
+   * Shell upgrade Phase 0 Task 9: `loadGroundTexture` reaches the network
+   * through `new THREE.TextureLoader().load(url, onLoad, ...)`, and the one
+   * thing worth proving about it headless is that the OPEN-GROUND slot also
+   * reaches `terrain/skirt.ts`. This stand-in calls `onLoad` synchronously
+   * with a REAL `THREE.Texture` (`prepareGroundTexture` mutates what it is
+   * handed, and a plain object would throw), so the whole callback runs.
+   */
+  class FakeTextureLoader {
+    load(_url: string, onLoad: (t: THREE.Texture) => void): THREE.Texture {
+      const tex = new actual.Texture();
+      onLoad(tex);
+      return tex;
+    }
+  }
+  return { ...actual, WebGLRenderer: FakeWebGLRenderer, TextureLoader: FakeTextureLoader };
 });
 
 const TONES: TerrainTones = {
@@ -226,5 +243,63 @@ describe('the colour pipeline', () => {
     const scene = (renderer as unknown as { scene: THREE.Scene }).scene;
     expect((scene.background as THREE.Color).getHexString()).toBe('14150f');
     renderer.dispose();
+  });
+});
+
+describe('the ground beyond the map', () => {
+  /** Reaches the two private members this describe is about, the same way
+   *  the fog-shroud guard above reaches `shroud`. */
+  function internals(r: ThreeRenderer): {
+    skirtMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+    loadGroundTexture(): void;
+  } {
+    return r as unknown as ReturnType<typeof internals>;
+  }
+
+  it('binds the OPEN-GROUND albedo to the skirt, as a ratio to the image mean', () => {
+    // The surviving mutant this test was written for: deleting the
+    // `slot === 'sand'` branch in `loadGroundTexture` leaves the skirt
+    // drawing flat `SKIRT_TONE` with no grain at all, and NOTHING else sees
+    // it -- the visual gate's `skirt` toggle still moves tens of thousands
+    // of pixels, because a flat quad is still a quad.
+    const r = new ThreeRenderer(makeSim(), {
+      ...makeOpts(),
+      groundTextureUrl: 'http://example.invalid/desert_sand_tile.png',
+    });
+    const mesh = internals(r).skirtMesh;
+    expect(mesh.material.map).toBeNull();
+    internals(r).loadGroundTexture();
+    expect(mesh.material.map).not.toBeNull();
+    // The SAME texture object the ground material samples: one upload, and a
+    // repeat that lines up with the ground's at the map edge.
+    const ground = (r as unknown as { groundMat: { uniforms: Record<string, { value: unknown }> } })
+      .groundMat;
+    expect(mesh.material.map).toBe(ground.uniforms.uSand.value);
+    // And applied as a ratio: `color * mean` is back at SKIRT_TONE.
+    const mean = albedoMean('desert_sand_tile');
+    expect(mesh.material.color.r * mean.x).toBeCloseTo(SKIRT_TONE.r, 5);
+    expect(mesh.material.color.g * mean.y).toBeCloseTo(SKIRT_TONE.g, 5);
+    expect(mesh.material.color.b * mean.z).toBeCloseTo(SKIRT_TONE.b, 5);
+    r.dispose();
+  });
+
+  it('dispose() frees the skirt -- the same shape of leak the fog layer once had', () => {
+    // It is added once in the CONSTRUCTOR and never rebuilt, so it is not
+    // covered by `rebuildTerrain`'s own remove-and-dispose sweep; if
+    // `dispose()` misses it, `tools/src/perf/three-units.ts` leaks one
+    // geometry and one material per renderer it constructs.
+    const r = new ThreeRenderer(makeSim(), makeOpts());
+    const mesh = internals(r).skirtMesh;
+    let geometryDisposed = 0;
+    let materialDisposed = 0;
+    mesh.geometry.addEventListener('dispose', () => {
+      geometryDisposed += 1;
+    });
+    mesh.material.addEventListener('dispose', () => {
+      materialDisposed += 1;
+    });
+    r.dispose();
+    expect(geometryDisposed).toBe(1);
+    expect(materialDisposed).toBe(1);
   });
 });

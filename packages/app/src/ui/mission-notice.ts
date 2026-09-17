@@ -1,6 +1,7 @@
 /**
- * How the two new narrative `MissionEvent` kinds (GDD §11 -- `say`,
- * `removed`) are worded for the HUD notice feed.
+ * How the narrative `MissionEvent` kinds (GDD §11 -- `removed`, `evacuated`)
+ * are worded for the HUD notice feed, plus the two small string utilities
+ * `describeMissionEvent` shares with them (`triggerLabel`, `escapeHtml`).
  *
  * Split out of `describeMissionEvent` for the same reason `roe-notice.ts`
  * is (that file's own top comment): the interesting part is a wording
@@ -9,25 +10,16 @@
  * without importing `main.ts` at all, which would run its own top-level
  * `main().catch(...)` boot sequence the instant the module loaded.
  *
+ * `say` used to be worded here too (`sayNotice`), echoing every commander
+ * line into the feed a second time with its own attribution and its own 9s
+ * clock, independent of the bar's beat-dwell timer. Task 5 (shell upgrade
+ * Phase 0) made the commander bar the one surface for it --
+ * `describeMissionEvent`'s `case 'say'` in `main.ts` now returns null, and
+ * `sayNotice` is gone rather than left unreachable.
+ *
  * No DOM, no Pixi, no sim state.
  */
 import type { Tone } from './hud';
-
-/**
- * `say`: a radio line. Attributed by initials in the feed -- the bar shows
- * the fuller plate instead (`hud-model.ts`'s `speakerPlate`), which is the
- * one place a lookup into `commander.json` happens at all. `shai`/`idit`/
- * `net` are named literally, uppercased, straight off the event's own
- * `speaker` field: a `<b>SHAI</b>` in a fast-scrolling feed is exactly as
- * legible as a full name and needs no data this function does not already
- * have. `enemy` gets no name at all -- an intercepted transmission from an
- * unidentified source reads as more unsettling than a label would, and it is
- * the one case that reads as a warning rather than plain narration.
- */
-export function sayNotice(speaker: string, text: string): [string, Tone] {
-  if (speaker === 'enemy') return [`<b>—</b> ${text}`, 'warn'];
-  return [`<b>${speaker.toUpperCase()}</b> — ${text}`, 'info'];
-}
 
 /**
  * `removed`: a mission `remove` trigger took this entity off the board --
@@ -76,4 +68,35 @@ export function removedNotice(side: number, unit: string): [string, Tone] {
  */
 export function evacuatedNotice(): [string, Tone] {
   return ['<b>clear</b> (1)', 'good'];
+}
+
+/** The label a mission authored for the trigger that just fired, or null when
+ *  it authored none -- and then the player sees NOTHING, never an id. `id` is
+ *  what the runtime emitted: the trigger's own id, or `trigger_<index>` when it
+ *  has none (mission.ts's fallback). */
+export function triggerLabel(
+  mission: { triggers?: readonly { id?: string; label?: string }[] } | undefined,
+  id: string
+): string | null {
+  const triggers = mission?.triggers ?? [];
+  const byId = triggers.find((t) => t.id === id);
+  if (byId) return byId.label ?? null;
+  const m = /^trigger_(\d+)$/.exec(id);
+  if (!m) return null;
+  return triggers[Number(m[1])]?.label ?? null;
+}
+
+/** `describeMissionEvent` builds `innerHTML`, so any authored string landing
+ *  as TEXT CONTENT between tags -- a trigger's `label` included -- must be
+ *  escaped first. The same five-entity replace as the HTML spec's own
+ *  minimal set, kept local to this module: `hud.ts` has its own escapers for
+ *  its own two contexts (an attribute value, a callsign as text content) and
+ *  neither is exported for a second module to share. */
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

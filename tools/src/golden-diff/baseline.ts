@@ -283,6 +283,21 @@ export interface BaselineSpec {
  *  `post-chain.ts` seeds it now (`AO_NOISE_SEED`), and the same three
  *  scenarios went back to 0 px / 0.0000 over five runs. Nothing in this file
  *  was widened for it. */
+/**
+ * Every figure in a `vignette` or `skirt` rationale below, and the conditions
+ * it was taken under.
+ */
+const SHELL_P0 =
+  'measured 2026-09-17 on the shell upgrade\'s Phase 0 Task 9 (a radial vignette after ' +
+  'OutputPass, `packages/render/src/three/vignette-pass.ts`, and a ground skirt three map ' +
+  'widths across beyond the boundary, `terrain/skirt.ts`), 3 consecutive full-gate runs on ' +
+  'macOS 15 / M3 Pro, headless Chromium, software SwiftShader, frame loop frozen. Every figure ' +
+  'below was bit-identical across the three, and the repaint control read 0 px / 0.0000 on both ' +
+  'scenarios, so the whole delta is the layer. Floors are a third, rounded down. EVERY ONE OF ' +
+  'THE FOUR WAS WATCHED GOING RED: with the vignette never handed to the post chain and the ' +
+  'skirt never added to the scene -- the erasure defect, not a toggle a later restore can undo ' +
+  '-- all four read 0 px / 0.0000 and FAIL. ';
+
 const PRE_LIT =
   're-measured 2026-09-15 on the LIT renderer with the sun as a SIDE light (Phase 0: one sun at ' +
   'SUN_DIRECTION (-0.406, 0.819, 0.406) -- the rig azimuth 135 = the camera\'s LEFT, Task 16 -- ' +
@@ -399,6 +414,32 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'building at all; open-ground and relief read a literal 0 and therefore do not declare ' +
           'it.',
       },
+      {
+        layer: 'vignette',
+        minDiffPixels: 6800,
+        minMeanAbsChannelDelta: 0.73,
+        rationale:
+          SHELL_P0 +
+          'switching the corner vignette off moves 20583 px / 2.1920 here. It is the weaker of ' +
+          'the two vignette witnesses because this camera looks at a town from close in, so most ' +
+          'of the frame sits inside the untouched radius; relief carries the same check at 2.9x ' +
+          'the pixels. Turning the pass off at construction -- the falsification -- takes it to ' +
+          '0 px / 0.0000 and fails both floors.',
+      },
+      {
+        layer: 'skirt',
+        minDiffPixels: 7100,
+        minMeanAbsChannelDelta: 0.28,
+        rationale:
+          SHELL_P0 +
+          'hiding the ground beyond the map moves 21455 px / 0.8442 here. The magnitude is small ' +
+          'against the pixel count and that is the shape of the layer rather than a weak signal: ' +
+          'the skirt is uniformly shrouded ground, so every pixel it owns moves by the same ' +
+          'modest step from the background tone, where a building moves a few pixels a long way. ' +
+          'Hiding the mesh takes it to 0 px / 0.0000. Only a framing whose viewport reaches past ' +
+          'the map edge can see it at all: open-ground\'s crop reads a literal 0 px / 0.0000 and ' +
+          'therefore does not declare it.',
+      },
     ],
     rationale:
       'whole frame, no units in shot. Noise 0-1 px / 0.0000-0.0001 pooled over 73 gate runs in two ' +
@@ -418,6 +459,25 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // time, giving 879-1762 differing pixels / 0.087-0.154 run to run even
     // with the tick pinned. Inside the crop the same six captures are
     // bit-identical: 0 px / 0.0000.
+    //
+    // THIS CROP SITS INSIDE THE VIGNETTE'S FALL-OFF SINCE 2026-09-17, AND IT
+    // STAYS WHERE IT IS. The crop's far corner IS the frame's bottom-right
+    // corner, so `vignette-pass.ts` darkens it by up to 48.6%; toggling that
+    // pass moves 8309 px / 4.0929 inside this crop. Task 9's brief asked for
+    // the crop to be moved toward the centre (x:700, y:350, same size) if
+    // that number cleared this scenario's own 0.02 magnitude threshold, and
+    // it clears it by 200x -- so the move was MEASURED rather than made, and
+    // the measurement says do not make it. At the candidate crop, hiding
+    // `units` moves 229 px / 0.1943, where at this one it moves a literal
+    // 0 px / 0.0000: the candidate contains animating rigged infantry, and
+    // being unit-free is the entire reason this crop exists. The 0.02 is a
+    // ceiling on RUN-TO-RUN NOISE in a like-for-like baseline diff, not a
+    // budget for a deterministic change -- the vignette is a pure function of
+    // uv, contributes no noise at all, and is inside the baseline once it is
+    // blessed, after which the diff is 0 again. What it does cost is a little
+    // of the other checks' signal, and that was measured too: scatter
+    // 1.6088 -> 1.5825, ground-albedo 2.6616 -> 2.5622, decor 0.646 ->
+    // 0.6444, all 1-4% and all still far above their own floors.
     region: { x: 950, y: 500, w: 450, h: 400 },
     // Tightened from 60 / 0.050 once 24 consecutive runs read a literal zero
     // inside the crop, and re-measured since at a literal zero over 49 more
@@ -726,6 +786,29 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'Still covers the rock slot as well as sand -- tel_marum is the only gated map with `^` ' +
           'ridge walls -- and the base map authors no `n`, which keeps this the control that says ' +
           'the knoll scree reached knoll tiles and nowhere else.',
+      },
+      {
+        layer: 'vignette',
+        minDiffPixels: 19800,
+        minMeanAbsChannelDelta: 1.13,
+        rationale:
+          SHELL_P0 +
+          'switching the corner vignette off moves 59402 px / 3.4137 here -- the strongest of the ' +
+          'four gated framings, because tel_marum at zoom 2 fills the corners with lit rock ' +
+          'rather than with background. A pass that stops running reads 0 px / 0.0000.',
+      },
+      {
+        layer: 'skirt',
+        minDiffPixels: 1100,
+        minMeanAbsChannelDelta: 0.095,
+        rationale:
+          SHELL_P0 +
+          'hiding the ground beyond the map moves 3403 px / 0.2858 here -- 6x less than on quiet, ' +
+          'because this framing is zoomed to a corridor and only its far corners reach past the ' +
+          'map. Declared anyway, and that is the point of having two: quiet and relief are ' +
+          'different maps at different zooms, so a skirt that failed to build on one map alone ' +
+          'cannot hide behind the other. The weakest layer signal in the gate, which is why the ' +
+          'floor is a third of a small number rather than a round one.',
       },
     ],
     rationale:

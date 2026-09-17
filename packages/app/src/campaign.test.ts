@@ -78,10 +78,20 @@ describe('regionProgress', () => {
     expect(p.done).toBe(p.total);
   });
 
-  it('is locked, and says why, while its gate is unmet', () => {
+  it('is locked, and says why as a human sentence, while its gate is unmet', () => {
+    // No missionName resolver: the neutral fallback, never the raw mission id
+    // the sim's own unlockReason would print.
     const p = regionProgress(sur, {});
     expect(p.status).toBe('locked');
-    expect(p.lockedBecause).toContain('deir_amun_3_subterranean');
+    expect(p.lockedBecause).toBe('Clear an earlier mission first');
+    expect(p.lockedBecause).not.toContain('deir_amun_3_subterranean');
+  });
+
+  it('names the gating mission once a resolver can supply its title', () => {
+    const p = regionProgress(sur, {}, (id) =>
+      id === 'deir_amun_3_subterranean' ? 'Deir Amun III — All Four' : undefined
+    );
+    expect(p.lockedBecause).toBe('Clear Deir Amun III — All Four first');
   });
 
   it('opens once the gating mission is cleared', () => {

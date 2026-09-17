@@ -253,6 +253,10 @@ export interface MissionJson {
   };
   triggers?: readonly {
     id?: string;
+    /** What the player reads in the feed when this fires. Type-only here --
+     *  the sim never reads it; `describeMissionEvent` (packages/app) looks it
+     *  up off the same `MissionJson` by the trigger's id. */
+    label?: string;
     on: { kind: string; value?: number; zone?: string };
     /** do.kind: 'commit' | 'withdraw_to' | 'spawn' | 'reinforce' | 'dismount' |
      *  'remove' — string-typed so parsed JSON assigns structurally; the schema

@@ -215,6 +215,7 @@
   "triggers": [
     {
       "id": "the_tube_goes_west",
+      "label": "Battery displaces west",
       "on": { "kind": "casualties_pct", "value": 40 },
       "do": { "kind": "withdraw_to", "group": "battery", "to": "battery_west" },
       "say": {
@@ -224,6 +225,7 @@
     },
     {
       "id": "he_goes_over_the_back",
+      "label": "Spotter goes over the crest",
       "on": { "kind": "casualties_pct", "value": 50 },
       "do": { "kind": "withdraw_to", "group": "lantern", "to": "crest_reverse" },
       "say": {

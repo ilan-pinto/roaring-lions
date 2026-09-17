@@ -11,6 +11,7 @@ import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, sandboxUrl, type SandboxFlagName } from '../sandbox-help';
+import { confirmDialog } from './confirm';
 import { panel } from './panel';
 import { stagger } from './motion';
 import { markSvg, wordmark } from './mark';
@@ -30,6 +31,10 @@ export interface MenuOptions {
    * it reads as a bug; the same toggle is `m` in a mission.
    */
   audio?: { isMuted(): boolean; toggle(): boolean };
+  /** The navigation behind "reset campaign ledger", confirmed first -- see
+   *  `ui/confirm.ts`. Absent in tests that do not exercise the click; a real
+   *  caller wants `() => window.location.assign('?fresh=1')`. */
+  reset?: () => void;
 }
 
 export interface CampaignOptions {
@@ -39,7 +44,7 @@ export interface CampaignOptions {
   countries: readonly WorldCountry[];
   ledger: LedgerData;
   commander?: CommanderData;
-  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
   /** Resolves a villain's bare portrait file name to a URL, threaded to both
    *  boards -- neither builds a `portraits/...` path itself. */
   portraitUrl?: (file: string) => string | undefined;
@@ -53,10 +58,20 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   // Width-constrained rather than fixed, so the panel stays usable on a narrow
   // window; the intrinsic ratio is declared so the layout does not jump once
   // the image loads.
-  banner.src = `${opts.base}ui/menu_banner.jpg`;
+  //
+  // A plate captured from the running game (`pnpm plate:capture`,
+  // `tools/src/perf/plate-capture.ts`), not a generated painting -- see that
+  // script's own header for what it replaced and why. 2200x900 are the
+  // plate's own pixel dimensions (the intrinsic size hint only; the CSS
+  // below still constrains display width to 100%, height auto) -- not the
+  // 2360x1000 of the old banner's ratio, because no camera position the
+  // follow-up's zoom-1.3/no-off-map-ground constraint was checked against
+  // could hold a void-free 2360-wide window; see the capture script's own
+  // "Clip" section for the measurement.
+  banner.src = `${opts.base}ui/menu_plate.jpg`;
   banner.alt = '';
-  banner.width = 800;
-  banner.height = 339;
+  banner.width = 2200;
+  banner.height = 900;
   banner.className = 'rl-menu__banner';
   wrap.appendChild(banner);
 
@@ -112,8 +127,33 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   // map" and fell back to beit_sahwan_outskirts, so one of five shipped maps
   // and none of the four flags were reachable by anyone who used the menu.
   // Same defect as `&mesh`, which no menu link ever appended either.
-  addAside('sandbox — pick a map', '?sandboxes');
-  addAside('reset campaign ledger', '?fresh=1');
+  addAside('free play — any map', '?sandboxes');
+  // A button, not a link: this one destroys the campaign, so it is confirmed
+  // first rather than a plain navigation (task 6 -- `?fresh=1` used to be one
+  // click away with nothing standing in front of it). Same `rl-btn
+  // rl-menu__item[data-kind='aside']` look the audio toggle below already
+  // wears as the list's one <button>.
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button';
+  resetBtn.className = 'rl-btn rl-menu__item';
+  resetBtn.dataset.kind = 'aside';
+  resetBtn.textContent = 'reset campaign ledger';
+  resetBtn.addEventListener('click', () => {
+    void confirmDialog(stage, {
+      title: 'Start the campaign over?',
+      // Not "brigade account and tutorial completion are erased" -- the
+      // account deliberately SURVIVES `?fresh=1` (main.ts, spec 2026-09-15
+      // §4.1: "a second campaign starts with the brigade you built"). A
+      // confirm that names the wrong casualty is worse than one that names
+      // none.
+      body: 'Your campaign progress and tutorial completion are erased. Your brigade account is not affected.',
+      confirm: 'Erase and restart',
+      danger: true,
+    }).then((ok) => {
+      if (ok) opts.reset?.();
+    });
+  });
+  aside.appendChild(resetBtn);
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
   wrap.appendChild(aside);
 
@@ -182,14 +222,15 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
 
-  const lockup = document.createElement('div');
-  lockup.innerHTML = wordmark('');
-  wrap.appendChild(lockup.firstElementChild as HTMLElement);
+  const wordmarkEl = (() => {
+    const lockup = document.createElement('div');
+    lockup.innerHTML = wordmark('');
+    return lockup.firstElementChild as HTMLElement;
+  })();
 
   const theatre = document.createElement('div');
   theatre.className = 'rl-menu__theatre';
   theatre.textContent = opts.world.name;
-  wrap.appendChild(theatre);
 
   // Which board: the Sahar Basin diorama on three, the flat PNG on Pixi.
   // `worldmap3d.ts`'s own header has the argument for not forcing three here
@@ -233,25 +274,32 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
       console.warn(`campaign board: ${opts.world.id} has no usable world mesh`, err);
     }
   }
-  if (boardUrl === null || campaignBoard(decision.choice) === 'flat') {
-    wrap.appendChild(flat());
-  } else {
-    wrap.appendChild(
-      worldMap3d({
-        world: opts.world,
-        ledger: opts.ledger,
-        href,
-        meshUrl: boardUrl,
-        // This screen constructs no `ThreeRenderer`, so nothing else can
-        // hand it the decoder every shipped GLB now needs.
-        dracoDecoderPath: dracoDecoderPath(),
-        fallback: flat,
-        commander: opts.commander,
-        missionOf: opts.missionOf,
-        portraitUrl: opts.portraitUrl,
-      }).el
-    );
-  }
+  const boardEl: HTMLElement =
+    boardUrl === null || campaignBoard(decision.choice) === 'flat'
+      ? flat()
+      : worldMap3d({
+          world: opts.world,
+          ledger: opts.ledger,
+          href,
+          meshUrl: boardUrl,
+          // This screen constructs no `ThreeRenderer`, so nothing else can
+          // hand it the decoder every shipped GLB now needs.
+          dracoDecoderPath: dracoDecoderPath(),
+          fallback: flat,
+          commander: opts.commander,
+          missionOf: opts.missionOf,
+          portraitUrl: opts.portraitUrl,
+        }).el;
+  // The wordmark and theatre scroll away with the board rather than sitting
+  // beside it: `.rl-menu:has(.rl-world)` (theme.css) is a two-row grid --
+  // scrolling content, then a footer nav -- and `boardEl`, carrying
+  // `rl-world__scroll` (worldmap3d.ts/worldmap.ts), has to be `.rl-menu`'s
+  // ONLY other direct child for that grid to place the nav correctly, so
+  // anything meant to scroll away with the board lives inside it. Nesting
+  // them here keeps `worldMap`/`worldMap3d` themselves unaware of this
+  // screen's layout.
+  boardEl.prepend(wordmarkEl, theatre);
+  wrap.appendChild(boardEl);
 
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav';
@@ -283,8 +331,12 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
  *
  *  The map entries stay real anchors with real hrefs, rewritten as the flag
  *  boxes change, so middle-click, copy-link and the browser's own history all
- *  behave. The URL is also shown: the picker is a dev instrument, and a dev
- *  who can see the URL it built can type the next one themselves. */
+ *  behave. Titled "Free play" for a player: it is the same picker the dev
+ *  banner and this file's own history call the sandbox, but nothing on the
+ *  card should read like an internal name -- a map is shown by its human
+ *  name alone, an opt-in extra by its blurb alone, and neither the map id
+ *  nor the `?sandbox=` URL it builds prints anywhere on the screen (the flag
+ *  name is still on the label's `title`, for the curious who hover it). */
 export function showSandbox(stage: HTMLElement): void {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
@@ -295,7 +347,7 @@ export function showSandbox(stage: HTMLElement): void {
 
   const theatre = document.createElement('div');
   theatre.className = 'rl-menu__theatre';
-  theatre.textContent = 'Sandbox — no mission';
+  theatre.textContent = 'Free play';
   wrap.appendChild(theatre);
 
   // --- the extras ---------------------------------------------------------
@@ -305,25 +357,23 @@ export function showSandbox(stage: HTMLElement): void {
   for (const f of SANDBOX_FLAGS) {
     const label = document.createElement('label');
     label.className = 'rl-sandbox__flag';
+    // The flag's own name, e.g. "&roe" -- not read aloud on the card, but on
+    // the label's title for whoever hovers it and wants the URL syntax.
+    label.title = `&${f.name}`;
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.dataset.flag = f.name;
-    const name = document.createElement('b');
-    name.textContent = `&${f.name}`;
     // The table's own blurb, not new prose: one description of a flag, in the
-    // banner and on this screen alike.
+    // banner and on this screen alike -- and, since the flag's own name moved
+    // to the label's title, the only text a player reads here at all.
     const blurb = document.createElement('span');
     blurb.className = 'rl-sandbox__blurb';
     blurb.textContent = f.blurb;
-    label.append(input, name, blurb);
+    label.append(input, blurb);
     flagBox.appendChild(label);
     boxes.push({ name: f.name, input });
   }
   wrap.appendChild(flagBox);
-
-  const readout = document.createElement('div');
-  readout.className = 'rl-sandbox__url';
-  wrap.appendChild(readout);
 
   // --- the maps -----------------------------------------------------------
   const nav = document.createElement('nav');
@@ -335,15 +385,10 @@ export function showSandbox(stage: HTMLElement): void {
     a.className = 'rl-btn rl-menu__item';
     a.dataset.kind = 'sandbox';
     a.dataset.map = id;
-    const title = document.createElement('span');
-    title.textContent = catalogue[id].name;
-    // The id as well as the name: it is what `?sandbox=` takes and what the
-    // boot banner lists, so seeing the two together is how the URL stops
-    // being a thing you have to look up.
-    const slug = document.createElement('span');
-    slug.className = 'rl-sandbox__mapid';
-    slug.textContent = id;
-    a.append(title, slug);
+    // The name alone -- no id alongside it. `?sandbox=` takes the id and the
+    // boot banner still lists it for a dev reading the console, but a player
+    // clicking this card has no use for it and it read as leaked plumbing.
+    a.textContent = catalogue[id].name;
     nav.appendChild(a);
     links.push({ id, a });
   }
@@ -353,11 +398,6 @@ export function showSandbox(stage: HTMLElement): void {
     const on: Partial<Record<SandboxFlagName, boolean>> = {};
     for (const b of boxes) on[b.name] = b.input.checked;
     for (const l of links) l.a.href = sandboxUrl(l.id, on);
-    // MAP_ID rather than <map>: the readout is built by the same `sandboxUrl`
-    // the links are, so whatever stands in for the id is percent-encoded like
-    // a real one -- and `<map>` comes back as `%3Cmap%3E`. Underscores and
-    // capitals are unreserved and pass through as themselves.
-    readout.textContent = sandboxUrl('MAP_ID', on);
   };
   for (const b of boxes) b.input.addEventListener('change', refresh);
   refresh();
@@ -422,7 +462,7 @@ export interface EndScreenOptions {
    *  standing in for missing text: no paragraph at all. */
   debrief?: EndScreenDebrief;
   /** Opens the full debrief screen (Task 9's `ui/debrief.ts`) in place of this
-   *  panel. Optional: a caller with nothing to show beyond this 420px card
+   *  panel. Optional: a caller with nothing to show beyond this 26.25rem card
    *  (no wiring yet, or a context with no ledger to report on) simply omits
    *  it, and no button appears. */
   onDebrief?: () => void;
@@ -434,7 +474,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
     rank: 'alert',
     title: won ? 'Town is quiet' : 'Withdraw and regroup',
     tag: won ? 'Victory' : 'Defeat',
-    place: 'top:62%;left:50%;transform:translateX(-50%);width:min(420px,90vw);text-align:center',
+    place: 'top:62%;left:50%;transform:translateX(-50%);width:min(26.25rem,90vw);text-align:center',
   });
   p.el.classList.add('rl-enter');
 

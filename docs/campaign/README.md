@@ -107,8 +107,11 @@ finished.
 
 Limits that are code, not taste: a `brief` beat is at most two sentences and 240
 characters (`briefingBeats`); a tutorial `title` is ≤60, `teach` ≤240, `nudge`
-≤160; the shipped briefings run 385–1,225 characters; a trigger `id` is shown
-to the player verbatim as `enemy reacts (<id>)`, so name it as prose.
+≤160; the shipped briefings run 385–1,225 characters; a trigger's `label` is
+≤ 48 characters with no full stop (`mission.schema.json`) -- what the player
+reads in the feed when it fires. An unlabelled trigger shows nothing, `remove`
+triggers are silent, and `validate:data` refuses a shipped non-`remove`
+trigger without one.
 
 ## The two voices and the villain
 

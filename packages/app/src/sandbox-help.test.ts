@@ -181,6 +181,31 @@ describe('the mesh flip', () => {
   });
 });
 
+// I4 (shell-upgrade Phase 0 final review): SANDBOX_FLAGS's blurbs are
+// rendered as visible DOM text on the Free play screen (`showSandbox` in
+// menu.ts), not just printed to the console like KNOWN_PARAMS's -- the
+// `tunnel` flag's blurb named `yahalom_squad` verbatim, the exact
+// "enemy reacts (<id>)" shape the whole phase exists to remove, right next
+// to the `nomesh` blurb above that was deliberately written to avoid it.
+describe('I4: no raw snake_case id in a rendered blurb', () => {
+  // A generic shape check, not just the one instance that was found: any
+  // future flag whose blurb names a unit/map/mission id by its JSON key
+  // (lower_snake_case, at least two words) reproduces the same defect.
+  const SNAKE_CASE_ID = /\b[a-z]+(?:_[a-z]+)+\b/;
+
+  it('SANDBOX_FLAGS carries no lower_snake_case id in any blurb', () => {
+    for (const f of SANDBOX_FLAGS) {
+      expect(f.blurb, `${f.name}: "${f.blurb}"`).not.toMatch(SNAKE_CASE_ID);
+    }
+  });
+
+  it('the tunnel blurb names the unit in English, not by its id', () => {
+    const tunnel = SANDBOX_FLAGS.find((f) => f.name === 'tunnel');
+    expect(tunnel?.blurb).not.toContain('yahalom_squad');
+    expect(tunnel?.blurb).toContain('Yahalom');
+  });
+});
+
 describe('sandboxHelp', () => {
   const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: ['tunnel', 'sur'] };
 

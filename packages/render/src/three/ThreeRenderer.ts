@@ -114,6 +114,7 @@ import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
 import { updateDimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { createSceneLights, type SceneLights } from './lighting';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
+import { VignettePass } from './vignette-pass';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
@@ -126,6 +127,7 @@ import {
 import { SmokePlumeManager, SMOKE_PLUME_DEFAULT_DURATION_MS } from './units/smoke-plume';
 import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
 import { buildGround, groundAlbedoSlotsUsed } from './terrain/ground';
+import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
 import {
@@ -931,6 +933,21 @@ export class ThreeRenderer implements Renderer {
           // driven, which is what a 16x minification costs a fine source.
           this.groundMat.uniforms[u.strength].value = albedo.gain;
           this.groundMat.needsUpdate = true;
+          // The skirt beyond the map carries the OPEN-GROUND image and only
+          // that one -- it is a continuation of the ground, not of the rock
+          // or the road. It takes the same texture OBJECT (one upload, and
+          // a repeat that lines up exactly with the ground's at the map
+          // edge) applied as the same RATIO to the image's own mean; see
+          // `terrain/skirt.ts` for why a plain `map` multiply would be
+          // darker but not desaturated.
+          if (slot === 'sand') {
+            setSkirtAlbedo(
+              this.skirtMesh,
+              this.groundMat.uniforms[u.map].value as THREE.Texture,
+              albedoMean(id as GroundAlbedoId),
+              albedo.tiles
+            );
+          }
         },
         undefined,
         (err) => {
@@ -1516,6 +1533,29 @@ export class ThreeRenderer implements Renderer {
    */
   private aoPass: Pass | null = null;
   /**
+   * Shell upgrade Phase 0: the corner vignette (`./vignette-pass.ts`), the
+   * half of "the world no longer ends in a hard diagonal" that lives in the
+   * post chain rather than in the scene -- `skirtMesh` below is the other.
+   * Built in `init()` and held as a field for the same two reasons
+   * `fogPass`/`aoPass` are: the chain does not own a pass it was handed, and
+   * the nine `ThreeRenderer*.test.ts` fakes never reach `init()`.
+   *
+   * Typed as the concrete class, not `Pass`, because
+   * `setDebugLayerVisible('vignette', ...)` flips its `enabled` and the
+   * visual gate's toggle check is the only thing that proves this pass still
+   * contributes pixels.
+   */
+  private vignettePass: VignettePass | null = null;
+  /**
+   * The ground beyond the map (`./terrain/skirt.ts`). Built and added in the
+   * CONSTRUCTOR, unlike every other terrain mesh in this class: it is a
+   * function of `sim.width`/`sim.height` alone, so a `rebuildTerrain` -- a
+   * destroyed structure, an elevation edit -- has nothing to say about it
+   * and rebuilding it there would be 114-179 ms of work for an identical
+   * quad. Disposed in `dispose()` with everything else added once here.
+   */
+  private readonly skirtMesh: SkirtMesh;
+  /**
    * Phase D readiness fix: `sim.smoke` on screen -- see `smoke-mesh.ts`'s own
    * top comment for the full port account. Unlike the shroud, there is no
    * dirty flag gating this one: Pixi's own smoke loop (`renderer.ts:2576`)
@@ -1743,6 +1783,13 @@ export class ThreeRenderer implements Renderer {
     // haven't run yet) and stay that way until `updateOverlays`'s first
     // call, from `frame()`.
     this.scene.add(this.overlayBatch.mesh, this.numeralBatch.mesh, this.chevronBatch.mesh);
+    // The ground beyond the map (`./terrain/skirt.ts`), added once here and
+    // never rebuilt -- it depends on the map's DIMENSIONS and on nothing
+    // `rebuildTerrain` can change. It draws in the world band under the
+    // terrain, so it is grouped with the other ground-plane meshes for the
+    // same reader's-eye reason they are grouped with each other.
+    this.skirtMesh = buildSkirt(this.sim.width, this.sim.height);
+    this.scene.add(this.skirtMesh);
     // Pixi's own `trailG` is `world`'s SECOND child (`renderer.ts:539`,
     // below fxG/wreckLayer/spriteLayer alike) -- but per trail-mesh.ts's own
     // top comment, scene-graph position carries no draw-order meaning in
@@ -1840,6 +1887,13 @@ export class ThreeRenderer implements Renderer {
     // this one.
     this.aoPass = createAoPass(this.scene, this.viewCamera, this.cssWidth, this.cssHeight, AO_RESOLUTION_SCALE);
     this.post.setAoPass(this.aoPass);
+    // Shell upgrade Phase 0: the corner vignette, AFTER `OutputPass` and
+    // BEFORE SMAA -- the only pass here that runs on display-referred
+    // colour. See `vignette-pass.ts` for why that slot is the only one that
+    // works, and `PostChain.setVignettePass` for the ownership rule, which
+    // is `setFogPass`'s again: `dispose()` below frees this one.
+    this.vignettePass = new VignettePass();
+    this.post.setVignettePass(this.vignettePass);
     host.appendChild(this.renderer.domElement);
     // PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an
     // equivalent the three canvas would stay at boot size while `width`/
@@ -2070,6 +2124,14 @@ export class ThreeRenderer implements Renderer {
     this.post?.setAoPass(null);
     this.aoPass?.dispose();
     this.aoPass = null;
+    // Shell upgrade Phase 0, the same ownership rule and the same order as
+    // the two passes above (out of the chain, then freed).
+    this.post?.setVignettePass(null);
+    this.vignettePass?.dispose();
+    this.vignettePass = null;
+    // The skirt's geometry and material -- added once in the constructor, so
+    // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
+    disposeSkirt(this.skirtMesh);
     // A full-map `InstancedMesh`, same "added once in the constructor, no
     // scene.remove needed" reasoning as every mesh above (terrain,
     // particles, tracers): this dispose() sequence never removes those from
@@ -2282,6 +2344,24 @@ export class ThreeRenderer implements Renderer {
           this.vehicleMeshEntities.size +
           setObjectsVisible(visible, ...[...this.unitInstancers.values()].map((i) => i.mesh))
         );
+      case 'vignette':
+        // A `Pass.enabled` rather than an `Object3D.visible`, and nothing in
+        // `frame()` re-asserts it -- the chain is rebuilt only by the three
+        // `set*Pass` calls, all of which run in `init()`/`dispose()`. So the
+        // plain toggle holds across the gate's repaint, unlike `units`
+        // above. Returns 1 when it actually changed something, which is what
+        // makes a missing pass (`init()` never ran) read as 0 objects rather
+        // than as a silent pass.
+        {
+          const was = this.vignettePass?.enabled ?? false;
+          if (this.vignettePass) this.vignettePass.enabled = visible;
+          return this.vignettePass === null || was === visible ? 0 : 1;
+        }
+      case 'skirt':
+        // An ordinary `visible` flag: the skirt is added once in the
+        // constructor and no per-frame path touches it (grep `skirtMesh` --
+        // the constructor, `loadGroundTexture`, `dispose` and this line).
+        return setObjectsVisible(visible, this.skirtMesh);
       case 'ground-albedo':
         // Not a visibility flag: the ground's texture term is a per-slot
         // STRENGTH, it starts at 0, and a 404 leaves it there
@@ -2294,6 +2374,57 @@ export class ThreeRenderer implements Renderer {
         // (`GROUND_ALBEDOS[id].gain`, never a hardcoded 1), which is why the
         // previous values are stashed rather than recomputed.
         return this.setGroundAlbedoOn(visible);
+      case 'overlays': {
+        // Unlike `units`, a plain `setObjectsVisible` is correct for the
+        // three batches -- `debug-layers.ts`'s own doc comment for
+        // `overlays` has the check that makes that safe rather than
+        // assumed: `OverlayBatch`/`NumeralBatch`/`ChevronBatch.endFrame()`
+        // never touch `.visible`, only `setDrawRange` and the buffer
+        // `needsUpdate` flags, so nothing in the per-frame rebuild
+        // re-asserts it the way fog visibility re-asserts a mesh unit's
+        // `root.visible` every frame.
+        const batchCount = setObjectsVisible(
+          visible,
+          this.overlayBatch.mesh,
+          this.numeralBatch.mesh,
+          this.chevronBatch.mesh
+        );
+        // The occlusion silhouette (band 6, `units/silhouette.ts`) is a
+        // SEPARATE subsystem folded into this same name -- see
+        // `debug-layers.ts`'s own comment for why a key-art tool asking to
+        // hide "the overlays" should not need to know that. Three shared
+        // `MeshBasicMaterial`s, one per side, cover every MESH unit's
+        // silhouette regardless of which entity it belongs to -- a material
+        // is not a scene object, so `setObjectsVisible` cannot reach it, and
+        // `Material.visible` is the real three.js switch for "do not
+        // rasterise anything using this material" with no per-entity
+        // traversal required. The billboard path is not covered (see the
+        // same comment).
+        for (const m of this.silhouetteMeshMaterials) m.visible = visible;
+        return batchCount + this.silhouetteMeshMaterials.length;
+      }
+      case 'fog':
+        // C2 (shell-upgrade Phase 0 final fix wave): this used to be
+        // `Pass.enabled`, exactly `vignette`'s shape -- but skipping the
+        // whole pass to remove the fog-of-war boundary also skipped
+        // `FOG_OFFMAP_FADE_TILES`, the off-map fade the SAME pass carries,
+        // and `tools/src/perf/plate-capture.ts` shipped a pale, unshrouded
+        // wedge beyond the map edge as a result. The pass now stays enabled
+        // always; hiding this layer instead drives `uRevealAll` on the
+        // pass's own uniforms (`fog-pass.ts`), which forces every ON-map
+        // sample to read as fully seen while leaving the off-map fade's
+        // maths untouched -- see that file's own comment on the uniform.
+        // Nothing in `frame()` re-asserts a uniform value any more than it
+        // reasserted `enabled`, so the plain toggle still holds across the
+        // gate's repaint. Returns 1 when it actually changed something,
+        // which is what makes a missing pass (`init()` never ran) read as 0
+        // objects rather than as a silent pass.
+        {
+          const was = (this.fogPass?.uniforms.uRevealAll.value ?? 0) === 1;
+          const reveal = !visible;
+          if (this.fogPass) this.fogPass.uniforms.uRevealAll.value = reveal ? 1 : 0;
+          return this.fogPass === null || was === reveal ? 0 : 1;
+        }
     }
   }
 

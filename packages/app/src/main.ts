@@ -71,7 +71,7 @@ import { buyUnlock, loadAccount, payMission, resetAccount, saveAccount } from '.
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
-import { evacuatedNotice, removedNotice, sayNotice } from './ui/mission-notice';
+import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -344,8 +344,10 @@ function describeMissionEvent(
         ? [`<b>OBJECTIVE COMPLETE</b> — ${label}`, 'good']
         : [`<b>OBJECTIVE ${e.status.toUpperCase()}</b> — ${label}`, 'bad'];
     }
-    case 'trigger':
-      return [`<b>enemy reacts</b> (${e.id})`, 'warn'];
+    case 'trigger': {
+      const label = triggerLabel(mission, e.id);
+      return label === null ? null : [escapeHtml(label), 'warn'];
+    }
     case 'wave':
       return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, 'bad'];
     case 'roe': {
@@ -356,7 +358,12 @@ function describeMissionEvent(
     case 'built':
       return [`<b>reinforcement deployed</b> — ${e.unit}`, 'info'];
     case 'say':
-      return sayNotice(e.speaker, e.text);
+      // The commander bar is the one surface for a story line now -- `hud.say`
+      // already runs for every `say` event (see the mission-loop handler
+      // below), and echoing it into the feed too meant one sentence with two
+      // attributions on two unlinked timers: the bar's own dwell clock and
+      // the feed's 9s note() timeout.
+      return null;
     case 'removed':
       return removedNotice(e.side, e.unit);
     case 'evacuated':
@@ -371,6 +378,26 @@ function describeMissionEvent(
     default:
       return null;
   }
+}
+
+function bootError(stage: HTMLElement, title: string, body: string, home = '?'): void {
+  const div = document.createElement('div');
+  div.className = 'rl-boot-error';
+
+  const h = document.createElement('h2');
+  h.textContent = title;
+  div.appendChild(h);
+
+  const p = document.createElement('p');
+  p.textContent = body;
+  div.appendChild(p);
+
+  const a = document.createElement('a');
+  a.href = home;
+  a.textContent = '← main menu';
+  div.appendChild(a);
+
+  stage.appendChild(div);
 }
 
 async function main(): Promise<void> {
@@ -582,6 +609,7 @@ async function main(): Promise<void> {
       showBrigade(stage, {
         units: kdfUnits,
         ledger: loadLedger(),
+        missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
         portrait: (typeId) => portraits[typeId] ?? null,
         possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
         credits: storage ? loadAccount(storage).balance : undefined,
@@ -622,6 +650,7 @@ async function main(): Promise<void> {
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
         done: tutorialDone,
       },
+      reset: () => window.location.assign('?fresh=1'),
     });
     return;
   }
@@ -630,7 +659,8 @@ async function main(): Promise<void> {
   if (missionId !== null) {
     mission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!mission) {
-      console.warn(`unknown mission "${missionId}" — available: ${Object.keys(missions).join(', ')}`);
+      bootError(stage, `Unknown mission "${missionId}"`, 'This link points at a mission that does not exist in this build.');
+      return;
     }
   }
   const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
@@ -1214,7 +1244,10 @@ async function main(): Promise<void> {
     mission?.briefing,
     { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait },
     mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined,
-    resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined
+    resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined,
+    // A sandbox has no briefing to go back to -- only a real mission gets an
+    // Escape/back edge (task 6).
+    mission ? () => window.location.assign('?campaign') : undefined
   );
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
@@ -1543,6 +1576,7 @@ async function main(): Promise<void> {
     toggleMute: () => {
       audioMuted = audio.toggle();
     },
+    leave: () => window.location.assign('?campaign'),
   });
   // The minimap (GH-153). Mounted here rather than inside the Hud because it
   // needs three things the Hud deliberately does not carry -- the parsed map,
@@ -1656,9 +1690,15 @@ async function main(): Promise<void> {
             sprite: portraits[u.id] ?? null,
             tags: doctrineTags(bucket, abilities),
             blurb: 'blurb' in u ? (u.blurb as string) : undefined,
+            // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's
+            // lock sentence (`gateSentence`, via `dock-model.ts`'s `tileState`) can
+            // never disagree with what the runtime is actually enforcing.
+            unlock: kdfUnlockGate(u, boughtUnits),
           };
         }),
       runtime,
+      ledger,
+      missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
       note: (html, tone) => hud.note(html, tone),
       onArm: (kind) => {
         armedSupport = kind;
@@ -2074,9 +2114,10 @@ async function main(): Promise<void> {
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
         const described = describeMissionEvent(me, mission, narratedRoeReasons);
         if (described) hud.note(described[0], described[1]);
-        // The story voice (GDD §11): the feed gets the note above, the
-        // commander bar gets the fuller, plated version -- see `Hud.say`'s
-        // own doc comment for why this is independent of `brief()`.
+        // The story voice (GDD §11): the commander bar is the one surface for
+        // it now -- `describeMissionEvent`'s own `case 'say'` returns null,
+        // so this is the only place a `say` event lands. See `Hud.say`'s own
+        // doc comment for why this call is independent of `brief()`.
         if (me.kind === 'say') hud.say(me.speaker, me.text);
         if (me.kind === 'missionEnd') {
           // The end screen must not land over a live step panel — an early
@@ -2681,9 +2722,7 @@ main().catch((err: unknown) => {
   console.error('boot failed:', err);
   const stage = document.getElementById('stage');
   if (stage) {
-    const pre = document.createElement('pre');
-    pre.className = 'rl-boot-error';
-    pre.textContent = `boot failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`;
-    stage.appendChild(pre);
+    const body = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    bootError(stage, 'Boot failed', body);
   }
 });

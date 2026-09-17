@@ -20,7 +20,7 @@ const ALL_MARJ = world.regions[0]!.towns.flatMap((t) => t.missions);
 const render = (
   ledger: LedgerData,
   commander?: CommanderData,
-  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined
 ): HTMLElement =>
   worldMap({ base: '/', world, countries, ledger, href: (id) => `?mission=${id}`, commander, missionOf });
 
@@ -132,9 +132,17 @@ describe('worldMap', () => {
     expect(marker.dataset.status).not.toBe('done');
   });
 
-  it('says why a locked region is locked, naming the condition', () => {
+  it('says why a locked region is locked, naming the mission rather than its id', () => {
+    const missionOf = (id: string): { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined =>
+      id === 'deir_amun_3_subterranean' ? { objectives: [], name: 'Deir Amun III — All Four' } : undefined;
+    const panel = render({}, undefined, missionOf).querySelector('[data-region-card="sur"]') as HTMLElement;
+    expect(panel.querySelector('.rl-world__cardprogress')?.textContent).toBe('Clear Deir Amun III — All Four first');
+    expect(panel.textContent).not.toContain('deir_amun_3_subterranean');
+  });
+
+  it('falls back to a neutral sentence when the catalogue has no name for the gating mission', () => {
     const panel = render({}).querySelector('[data-region-card="sur"]') as HTMLElement;
-    expect(panel.textContent).toContain('deir_amun_3_subterranean');
+    expect(panel.querySelector('.rl-world__cardprogress')?.textContent).toBe('Clear an earlier mission first');
   });
 
   it('shows each region doctrine and mission count', () => {

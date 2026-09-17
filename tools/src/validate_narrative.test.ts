@@ -11,6 +11,7 @@ import {
   commanderRankFailures,
   narrativeTextFailures,
   removeTriggerFailures,
+  triggerLabelFailures,
 } from '../validate_narrative.mjs';
 
 describe('remove trigger guards', () => {
@@ -242,5 +243,46 @@ describe('commander.json rank ordering', () => {
     expect(out).toHaveLength(1);
     expect(out[0]).toContain('Captain');
     expect(out[0]).toContain('only the final');
+  });
+});
+
+describe('triggerLabelFailures', () => {
+  it('names every non-remove trigger without a label', () => {
+    const mission = {
+      triggers: [
+        { id: 'a', on: { kind: 'timer_s', value: 5 }, do: { kind: 'commit', group: 'g' } },
+        { id: 'b', on: { kind: 'timer_s', value: 5 }, do: { kind: 'remove', group: 'g' } },
+        { id: 'c', on: { kind: 'timer_s', value: 5 }, do: { kind: 'spawn', units: [] }, label: 'Enemy reinforcements arrive' },
+      ],
+    };
+    expect(triggerLabelFailures(mission, 'm.json')).toEqual(['m.json: trigger "a" (commit) has no label']);
+  });
+  it('rejects a label over 48 characters or with a trailing full stop', () => {
+    const mission = {
+      triggers: [
+        { id: 'a', on: { kind: 'timer_s', value: 5 }, do: { kind: 'commit', group: 'g' }, label: 'x'.repeat(49) },
+        { id: 'b', on: { kind: 'timer_s', value: 5 }, do: { kind: 'commit', group: 'g' }, label: 'Enemy commits.' },
+      ],
+    };
+    expect(triggerLabelFailures(mission, 'm.json')).toEqual([
+      'm.json: trigger "a" label is 49 characters (max 48)',
+      'm.json: trigger "b" label ends in a full stop',
+    ]);
+  });
+
+  // T1-a (shell-upgrade Phase 0 final review): this function used to take
+  // (file, mission), reversing removeTriggerFailures/narrativeTextFailures's
+  // (mission, label) order -- and the one call site (validate_data.mjs) is
+  // plain JS, untypechecked, so a swap there degraded to `mission.triggers`
+  // read off a STRING (`undefined`), `?? []`, and a gate that silently
+  // returned []  rather than naming the mismatch. The signature is now
+  // (mission, file), matching its siblings, and it throws instead of
+  // degrading when the first argument is not a mission-shaped object.
+  it('throws rather than silently returning [] when the arguments are swapped', () => {
+    const mission = {
+      triggers: [{ id: 'a', on: { kind: 'timer_s', value: 5 }, do: { kind: 'commit', group: 'g' } }],
+    };
+    // @ts-expect-error -- exercising the swapped-argument call the gate must reject
+    expect(() => triggerLabelFailures('m.json', mission)).toThrow(/expected a mission object/);
   });
 });

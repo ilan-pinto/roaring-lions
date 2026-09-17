@@ -1,29 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evacuatedNotice, removedNotice, sayNotice } from './mission-notice';
-
-describe('sayNotice', () => {
-  it('names Shai in full caps, with an em dash before the line', () => {
-    const [html, tone] = sayNotice('shai', 'Hold what you have.');
-    expect(html).toBe('<b>SHAI</b> — Hold what you have.');
-    expect(tone).toBe('info');
-  });
-
-  it('names Idit the same way', () => {
-    const [html] = sayNotice('idit', 'Contact on the west ridge.');
-    expect(html).toBe('<b>IDIT</b> — Contact on the west ridge.');
-  });
-
-  it('names the net literally, off the raw event field -- no lookup', () => {
-    const [html] = sayNotice('net', 'Reinforcements are twelve minutes out.');
-    expect(html).toBe('<b>NET</b> — Reinforcements are twelve minutes out.');
-  });
-
-  it('gives the enemy no name at all, and reads as a warning', () => {
-    const [html, tone] = sayNotice('enemy', 'We see you.');
-    expect(html).toBe('<b>—</b> We see you.');
-    expect(tone).toBe('warn');
-  });
-});
+import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './mission-notice';
 
 describe('removedNotice', () => {
   it('reads "taken (n)" for a civilian (side 2)', () => {
@@ -66,5 +42,19 @@ describe('evacuatedNotice', () => {
     // tick's worth of civilians, so the count is always (1).
     expect(evacuatedNotice()[0]).toContain('(1)');
     expect(evacuatedNotice()[0]).toBe(evacuatedNotice()[0]);
+  });
+});
+
+describe('triggerLabel', () => {
+  const mission = { triggers: [{ id: 'hunt', label: 'Enemy scouts hunt the drone' }, { label: 'Reserves commit' }, { id: 'silent' }] };
+  it('reads the authored label by id', () => expect(triggerLabel(mission, 'hunt')).toBe('Enemy scouts hunt the drone'));
+  it('reads the label of an id-less trigger through the runtime index fallback', () => expect(triggerLabel(mission, 'trigger_1')).toBe('Reserves commit'));
+  it('is null for a trigger with no label, so nothing is shown', () => expect(triggerLabel(mission, 'silent')).toBeNull());
+  it('is null for an unknown id', () => expect(triggerLabel(mission, 'nope')).toBeNull());
+});
+
+describe('escapeHtml', () => {
+  it('escapes all five reserved characters', () => {
+    expect(escapeHtml(`<b>&"'`)).toBe('&lt;b&gt;&amp;&quot;&#39;');
   });
 });

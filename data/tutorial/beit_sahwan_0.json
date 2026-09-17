@@ -6,7 +6,7 @@
     {
       "id": "take_command",
       "title": "Take command",
-      "teach": "Click a squad to select it. Drag a box to select several. The panel on the right reads whatever you have selected.",
+      "teach": "Click a squad to select it. Drag a box to select several. The panel at the bottom of the screen reads whatever you have selected.",
       "await": {
         "kind": "intent",
         "intent": "select"

@@ -249,6 +249,7 @@
   "triggers": [
     {
       "id": "flank_delivery_rolls",
+      "label": "Technical rolls up the north lane",
       "on": {
         "kind": "timer_s",
         "value": 60
@@ -262,6 +263,7 @@
     },
     {
       "id": "flank_delivery_drops",
+      "label": "RPG team dismounts short of the line",
       "on": {
         "kind": "timer_s",
         "value": 67

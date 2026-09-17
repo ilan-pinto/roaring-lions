@@ -64,19 +64,22 @@ export function titleCard(
   const card = document.createElement('div');
   card.className = 'rl-titlecard rl-enter';
   const titleEl = document.createElement('div');
-  titleEl.className = 'rl-titlecard__title';
+  // Each line is its own plate now (the card has no panel behind it and
+  // measured close to 1.3:1 over sand) -- .rl-titlecard's grid gives each
+  // plated line its own row rather than one plate spanning the whole card.
+  titleEl.className = 'rl-titlecard__title rl-plate';
   titleEl.textContent = title;
   card.appendChild(titleEl);
   // Present only with `dispatch` -- without it the card is exactly what it
   // was before this field existed.
   if (dispatch) {
     const dispatchEl = document.createElement('div');
-    dispatchEl.className = 'rl-titlecard__dispatch';
+    dispatchEl.className = 'rl-titlecard__dispatch rl-plate';
     dispatchEl.textContent = dispatch;
     card.appendChild(dispatchEl);
   }
   const subEl = document.createElement('div');
-  subEl.className = 'rl-titlecard__sub';
+  subEl.className = 'rl-titlecard__sub rl-plate';
   subEl.textContent = subtitle;
   card.appendChild(subEl);
   host.appendChild(card);

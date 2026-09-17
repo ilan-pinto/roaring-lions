@@ -133,6 +133,16 @@ describe('top strip', () => {
     expect(r.strip()).toContain(big.textContent!.replace(/\s+/g, ' '));
   });
 
+  it('gives the CONTESTED hold clock the readable red in both places it is drawn', () => {
+    const r = rig(mission());
+    const big = r.host.querySelector<HTMLElement>('.rl-clock')!;
+    expect(big.className.split(/\s+/)).toContain('rl-plate');
+    const inline = r.host.querySelector<HTMLElement>('[data-obj="hold_west"] b')!;
+    const classes = inline.className.split(/\s+/);
+    expect(classes).toContain('rl-bad-text');
+    expect(classes).not.toContain('rl-bad');
+  });
+
   it('does not stamp a clock that belongs to a different objective', () => {
     // The strip shows the active PRIMARY; the only timed objective here is a
     // secondary. Its deadline is the big clock's, never the primary's.
@@ -153,6 +163,16 @@ describe('top strip', () => {
     expect(r.strip()).toContain('☐ Take the town');
     expect(r.strip()).not.toContain('1:30');
     expect(r.host.querySelector('.rl-clock')!.textContent).toBe('1:30');
+  });
+
+  it('marks a failed primary with the readable red, not the fill-only one', () => {
+    const r = rig(
+      mission({
+        objectives: [{ id: 'hold_west', text: 'Hold the west', primary: true, status: 'failed' }],
+      })
+    );
+    const obj = r.host.querySelector<HTMLElement>('[data-obj="hold_west"]')!;
+    expect(obj.className).toContain('rl-bad-text');
   });
 
   it('tone-colours ROE by the campaign gate it is heading for', () => {
@@ -251,9 +271,25 @@ describe('top strip: the persistent controls', () => {
     expect(chip.dataset.on).toBe('1');
   });
 
-  it('offers the campaign map at all times, mid-mission included', () => {
-    const a = rig(mission()).host.querySelector<HTMLAnchorElement>('.rl-strip__link')!;
-    expect(a.getAttribute('href')).toBe('?campaign');
+  it('offers to leave the mission at all times, mid-mission included -- confirmed, not a plain navigation', async () => {
+    let left = false;
+    const r = rig(mission(), { leave: () => { left = true; } });
+    const btn = r.host.querySelector<HTMLButtonElement>('.rl-strip__link')!;
+    expect(btn.tagName).toBe('BUTTON');
+    expect(btn.textContent).toContain('leave');
+    btn.click();
+    // Confirmed first: clicking the strip control alone must not navigate.
+    expect(left).toBe(false);
+    const dialog = document.body.querySelector<HTMLElement>('.rl-confirm')!;
+    expect(dialog).not.toBeNull();
+    dialog.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+    await Promise.resolve();
+    expect(left).toBe(true);
+  });
+
+  it('sits leftmost in the strip -- the one control here that ends the attempt, not one of the instruments', () => {
+    const r = rig(mission());
+    expect(r.host.querySelector('.rl-strip')!.firstElementChild?.classList.contains('rl-strip__link')).toBe(true);
   });
 });
 
@@ -456,10 +492,17 @@ describe('bottom-centre controls hint', () => {
     const r = rig(mission(), { getSelection: () => sel });
     const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
     expect(hint.style.display).toBe('');
+    expect(hint.className).toContain('rl-plate');
     expect(hint.textContent).toContain('click/drag select');
     sel = [0];
     for (let i = 0; i < 5; i++) r.tick(); // the rebuild is 4 Hz, not every tick
     expect(hint.style.display).toBe('none');
+  });
+
+  it('the hint stacks under the feed inside the cluster', () => {
+    const r = rig(mission());
+    const sel = r.host.querySelector<HTMLElement>('.rl-sel')!;
+    expect(sel.lastElementChild?.classList.contains('rl-hint')).toBe(true);
   });
 });
 
@@ -486,8 +529,40 @@ describe('event feed', () => {
     const r = rig(mission());
     r.hud.note('contact', 'bad');
     const line = r.host.querySelector('.rl-feed')!.firstElementChild!;
-    expect(line.className).toContain('rl-onmap');
+    expect(line.className).toContain('rl-plate');
     expect(line.className).not.toContain('rl-panel');
+  });
+
+  it('gives a bad-tone notice the readable red -- it sits on the same rl-plate the fill-only red measures 4.01:1 on', () => {
+    const r = rig(mission());
+    r.hud.note('contact', 'bad');
+    const line = r.host.querySelector('.rl-feed')!.firstElementChild!;
+    const classes = line.className.split(/\s+/);
+    expect(classes).toContain('rl-bad-text');
+    expect(classes).not.toContain('rl-bad');
+  });
+
+  it('stacks the feed above the selection cluster instead of over it', () => {
+    const r = rig(mission());
+    const feed = r.host.querySelector('.rl-feed');
+    expect(feed?.parentElement?.classList.contains('rl-sel')).toBe(true);
+    expect(feed?.parentElement?.firstElementChild).toBe(feed);
+  });
+
+  it('a notice stays visible with nothing selected', () => {
+    // review finding (task-5 fix round 1): .rl-sel used to be hidden
+    // wholesale whenever nothing was selected -- the default state, and true
+    // for most of a mission -- which took the feed down with it. .rl-sel
+    // itself must never be display:none; only the order row and the card
+    // hide.
+    const r = rig(mission()); // default getSelection: () => []
+    r.hud.note('contact', 'live');
+    r.tick();
+    const sel = r.host.querySelector<HTMLElement>('.rl-sel')!;
+    expect(sel.style.display).not.toBe('none');
+    const notice = sel.querySelector('.rl-notice');
+    expect(notice).not.toBeNull();
+    expect(notice?.textContent).toBe('contact');
   });
 });
 
@@ -599,6 +674,18 @@ describe('multi-select chips', () => {
     expect(fill.className).toBe('rl-fill-good');
   });
 
+  it('gives a BROKEN chip status the readable red -- this chip sits on the same rl-plate background as the notice/strip', () => {
+    const world = makeForce();
+    const r = clusterRig(() => world.squads, {}, world);
+    world.sim.state.routed[world.squads[0]] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    const status = r.chips()[0].querySelector<HTMLElement>('.rl-chip__status')!;
+    expect(status.textContent).toContain('BROKEN');
+    const classes = status.className.split(/\s+/);
+    expect(classes).toContain('rl-bad-text');
+    expect(classes).not.toContain('rl-bad');
+  });
+
   it('frames one chip and moves the frame on Tab, wrapping', () => {
     const world = makeForce();
     const r = clusterRig(() => [...world.squads, world.at, world.namer], {}, world);
@@ -687,14 +774,20 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-warn')).toBeNull();
   });
 
-  it('hides the whole cluster when nothing is selected', () => {
+  it('hides the order row and the card, never the whole .rl-sel stack, when nothing is selected', () => {
+    // .rl-sel is the bottom-centre stack that also holds the feed and the
+    // hint -- hiding it wholesale (the old behaviour) took the feed down
+    // with it any time nothing was selected, which is most of a mission.
+    // Only the order row and the card/chips body go away now.
     const world = makeForce();
     let sel: number[] = [world.namer];
     const r = clusterRig(() => sel, {}, world);
-    expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).toBe('');
+    expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).not.toBe('none');
     sel = [];
     for (let i = 0; i < 5; i++) r.tick();
-    expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).toBe('none');
+    expect(r.host.querySelector<HTMLElement>('.rl-sel')!.style.display).not.toBe('none');
+    expect(r.host.querySelector<HTMLElement>('.rl-orders')!.style.display).toBe('none');
+    expect(r.host.querySelector<HTMLElement>('.rl-cluster')!.style.display).toBe('none');
   });
 
   it('names a unit drawn from the roster and shows its service record on the card', () => {

@@ -2,6 +2,11 @@
 import { describe, expect, it } from 'vitest';
 import { showBrigade } from './brigade';
 
+// No mission is ever gated behind `afterMission` in this fixture set, so the
+// resolver is never actually called for a real id -- it only has to exist to
+// satisfy `BrigadeOptions`, the same as every other screen's `missionName`.
+const noMissionNames = (): string | undefined => undefined;
+
 const units = [
   { id: 'inf_squad', name: 'Rifle Squad', role: 'infantry', isKamikaze: false, transportSlots: 0, isSoft: true },
   {
@@ -30,6 +35,7 @@ describe('showBrigade', () => {
     showBrigade(host, {
       units,
       ledger: { 'campaign.mission_results': { a: { stars: 2, roe: 90, ticks: 1, lost: 0 } }, 'roe.mission_ratings': { a: 90 } },
+      missionName: noMissionNames,
       possibleStars: 78,
     });
     expect(host.querySelector('.rl-brigade__stars')?.textContent).toBe('2 of 78 stars');
@@ -37,16 +43,21 @@ describe('showBrigade', () => {
     const rows = [...host.querySelectorAll('[data-unit]')].map((r) => r.getAttribute('data-unit'));
     expect(rows).toEqual(['inf_squad', 'ifv_namer', 'breach_team']);
     expect(host.querySelector('[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('0');
-    expect(host.querySelector('[data-unit="breach_team"] .rl-brigade__why')?.textContent).toBe('requires 12 stars (currently 2)');
+    expect(host.querySelector('[data-unit="breach_team"] .rl-brigade__why')?.textContent).toBe('Needs 12 stars (you have 2)');
     expect(host.querySelector('[data-unit="breach_team"] .rl-brigade__gate')?.textContent).toBe('★ 12');
   });
 
-  it('reads a fresh campaign honestly', () => {
+  it('reads a fresh campaign honestly, and speaks a Conduct gate as a sentence, never a bare number', () => {
     const host = document.createElement('div');
-    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
     expect(host.querySelector('.rl-brigade__stars')?.textContent).toBe('0 of 78 stars');
     expect(host.querySelector('.rl-brigade__conduct')?.textContent).toBe('no missions rated yet');
     expect(host.querySelector('[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('1');
+    // ifv_namer's gate is `{ roeMin: 40 }`: the row names what it needs, never
+    // the sim's own "requires campaign Conduct 40 (no missions rated yet)".
+    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__why')?.textContent).toBe(
+      'Needs a campaign Conduct of 40 or better'
+    );
   });
 
   it('sorts on the exact Conduct predicate, not a rounded mean', () => {
@@ -58,6 +69,7 @@ describe('showBrigade', () => {
     showBrigade(host, {
       units,
       ledger: { 'roe.mission_ratings': { a: 39, b: 40 } },
+      missionName: noMissionNames,
       possibleStars: 78,
     });
     expect(host.querySelector('[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('1');
@@ -67,7 +79,7 @@ describe('showBrigade', () => {
 
   it('prints a player-facing role label, never the raw role id', () => {
     const host = document.createElement('div');
-    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
     // F2 minor 4: `ifv` used to print verbatim.
     expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__role')?.textContent).toBe('fighting vehicle');
     expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__role')?.textContent).not.toBe('ifv');
@@ -80,6 +92,7 @@ describe('showBrigade', () => {
         { id: 'made_up_unit', name: 'Made Up Unit', role: 'not_a_real_role', isKamikaze: false, transportSlots: 0, isSoft: false },
       ],
       ledger: {},
+      missionName: noMissionNames,
       possibleStars: 78,
     });
     expect(host.querySelector('[data-unit="made_up_unit"] .rl-brigade__role')?.textContent).toBe('not a real role');
@@ -92,7 +105,7 @@ describe('showBrigade', () => {
     // to fetch, since main.ts's portrait lookup only ever resolves a sprite
     // sheet URL.
     const host = document.createElement('div');
-    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
     const art = host.querySelector('[data-unit="breach_team"] .rl-brigade__art');
     expect(art?.getAttribute('data-nosprite')).toBe('1');
     expect(art?.querySelector('svg')).not.toBeNull();
@@ -101,7 +114,14 @@ describe('showBrigade', () => {
   it('prints the credit balance in the header and asks twice before resetting the account', () => {
     const host = document.createElement('div');
     let resets = 0;
-    showBrigade(host, { units, ledger: {}, possibleStars: 78, credits: 460, onReset: () => resets++ });
+    showBrigade(host, {
+      units,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      credits: 460,
+      onReset: () => resets++,
+    });
     expect(host.querySelector('.rl-brigade__credits')?.textContent).toBe('460 credits');
     const btn = host.querySelector<HTMLButtonElement>('.rl-brigade__reset');
     expect(btn?.textContent).toBe('reset brigade account');
@@ -119,7 +139,7 @@ describe('showBrigade', () => {
 
   it('prints no credits line and no reset control without an account', () => {
     const host = document.createElement('div');
-    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
     expect(host.querySelector('.rl-brigade__credits')).toBeNull();
     expect(host.querySelector('.rl-brigade__reset')).toBeNull();
   });
@@ -133,7 +153,14 @@ describe('showBrigade', () => {
       u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 600 } } : u.id === 'ifv_namer' ? { ...u, unlock: { price: 1200 } } : u
     );
     const bought: [string, number][] = [];
-    showBrigade(host, { units: priced, ledger: {}, possibleStars: 78, credits: 700, onBuy: (id, p) => bought.push([id, p]) });
+    showBrigade(host, {
+      units: priced,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      credits: 700,
+      onBuy: (id, p) => bought.push([id, p]),
+    });
     const breach = host.querySelector<HTMLButtonElement>('[data-unit="breach_team"] .rl-brigade__buy');
     expect(breach?.textContent).toBe('buy for 600');
     expect(breach?.disabled).toBe(false);
@@ -142,15 +169,25 @@ describe('showBrigade', () => {
     const lavi = host.querySelector<HTMLButtonElement>('[data-unit="ifv_namer"] .rl-brigade__buy');
     expect(lavi?.textContent).toBe('buy for 1200');
     expect(lavi?.disabled).toBe(true);
-    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__why')?.textContent).toBe('buy for 1200 credits');
+    // `.rl-brigade__why` is `gateSentence`'s own rendering, never the sim's raw
+    // `unlockReason` string -- ifv_namer here is price-only (D1), so it reads the
+    // Buy sentence rather than a requires/Conduct/stars line.
+    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__why')?.textContent).toBe('Buy for 1200 credits');
   });
 
   it('shows no Buy control without an account, and none on an unpriced or open row', () => {
     const host = document.createElement('div');
-    showBrigade(host, { units, ledger: {}, possibleStars: 78 });
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
     expect(host.querySelector('.rl-brigade__buy')).toBeNull();
     const host2 = document.createElement('div');
-    showBrigade(host2, { units: units.map((u) => ({ ...u, unlock: { price: 5, bought: true } })), ledger: {}, possibleStars: 78, credits: 0, onBuy: () => {} });
+    showBrigade(host2, {
+      units: units.map((u) => ({ ...u, unlock: { price: 5, bought: true } })),
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      credits: 0,
+      onBuy: () => {},
+    });
     expect(host2.querySelector('.rl-brigade__buy')).toBeNull();
     expect(host2.querySelector('.rl-brigade__why')?.textContent).toBe('available');
   });
@@ -162,7 +199,7 @@ describe('showBrigade', () => {
   // because there is no price rather than because there is no account.
   it('renders no Buy control on an unpriced locked row even with an account present', () => {
     const host = document.createElement('div');
-    showBrigade(host, { units, ledger: {}, possibleStars: 78, credits: 999, onBuy: () => {} });
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78, credits: 999, onBuy: () => {} });
     expect(host.querySelector('[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('1');
     expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__buy')).toBeNull();
     expect(host.querySelector('.rl-brigade__buy')).toBeNull();
@@ -190,7 +227,7 @@ describe('showBrigade', () => {
         isSoft: true,
       },
     ];
-    showBrigade(host, { units: fixture, ledger: {}, possibleStars: 78 });
+    showBrigade(host, { units: fixture, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
     const rows = [...host.querySelectorAll('.rl-brigade__list [data-unit]')].map((r) => r.getAttribute('data-unit'));
     expect(rows).toEqual(['mission_gated', 'price_only']);
   });

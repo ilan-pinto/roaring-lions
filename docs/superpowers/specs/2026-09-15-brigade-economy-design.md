@@ -163,8 +163,10 @@ tiers per unit, and the star-gated units take tracks like any other.
 ### 4.4 Unlocks by price
 
 `unlock` gains `price` (integer credits). `unlockReason(gate, ledger, account)` opens a unit
-when its earned conditions pass **or** `account.unlocks` lists it; the sentence for a locked
-unit that has a price ends with "or buy for N credits". A unit with only a `price` is
+when its earned conditions pass **or** `account.unlocks` lists it; a locked unit that has BOTH
+an earned gate and a price keeps its earned sentence alone (the row's own Buy control, §4.5,
+carries the price, so the rendered sentence never appends "or buy for N credits" — shipped as
+`gateSentence`, `packages/app/src/gate-sentence.ts`). A unit with only a `price` is
 **bought only** — the special forces shape — and its sentence is the price alone. The one
 predicate serves every surface that already calls it: the production dock's lock label, the
 brigade screen, `resolveUpgrades` (a bought unit is an open gate for an `upgrades_to` site),

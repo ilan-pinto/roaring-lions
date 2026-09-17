@@ -42,8 +42,11 @@ it. Read, in this order:
 - **State**: there are no variables. A "flag" is an objective id (a wave can key
   on it) or a trigger having fired. `intel.marked_positions` is the one ledger
   key that changes how a placement spawns (pre-identified, ambush forfeited).
-- **Trigger ids are shown to the player** as `enemy reacts (<id>)`. Name them as
-  prose the narrative sheet approved.
+- **Every trigger needs a `label`** (≤ 48 characters, no full stop) — what the
+  player reads in the feed when it fires. An unlabelled trigger shows nothing;
+  `remove` triggers are silent and exempt; `validate:data` refuses a shipped
+  non-`remove` trigger without one. Write it as prose the narrative sheet
+  approved, not the trigger's own id.
 - **Events that exist and are not addressable** from a mission: `ambushSprung
   routed rallied pinned tunnelContact ventOpened surfaced structureDestroyed
   garrison transport destroyed(by)` and the rest of the 24 `SimEvent` kinds. A

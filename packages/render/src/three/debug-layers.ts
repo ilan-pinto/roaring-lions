@@ -80,8 +80,102 @@
  * next frame is not a measurement**, and any future layer whose objects are
  * re-asserted per frame needs the same treatment rather than a bare
  * `setObjectsVisible`.
+ *
+ * TWO MORE SINCE THE SHELL UPGRADE'S PHASE 0, and they are the two halves of
+ * "the world no longer ends in a hard black diagonal":
+ *
+ * - `vignette`  the corner darkening (`../vignette-pass.ts`), toggled by the
+ *               pass's own `enabled`. The first entry here that is not a
+ *               scene object at all -- it is a post pass, so there is
+ *               nothing to hide, only a pass to skip. It survives the
+ *               repaint for the reason the paragraph above demands be
+ *               checked rather than assumed: the chain is rebuilt only from
+ *               `init()` and `dispose()`, so no per-frame path re-asserts
+ *               `enabled`.
+ * - `skirt`     the ground beyond the map (`terrain/skirt.ts`), an ordinary
+ *               `visible` on one quad added once in the constructor. Only a
+ *               scenario whose viewport actually reaches past the map edge
+ *               can see it, which is why it does not get a check on every
+ *               gated scenario.
+ *
+ * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate --
+ * `tools/src/perf/plate-capture.ts` is its only caller today; a `layerChecks`
+ * entry can still be added later if a scenario ever wants to gate it). HP
+ * bars, suppression bars, selection/threat rings, control-group badges and
+ * their numerals, the veterancy chevron, order/objective markers -- every
+ * unit AND structure overlay this backend draws, because all of it funnels
+ * through the same three meshes (`units/overlays.ts`'s `OverlayBatch`,
+ * `NumeralBatch`, `ChevronBatch`; one shared name rather than three, since a
+ * key-art plate wants none of them and a caller that hid only one would still
+ * show a bare badge ring with no numeral in it). Unlike `units`, this one IS
+ * a plain `setObjectsVisible`, not a flag the update path has to consult:
+ * each batch's `endFrame()` (`overlays.ts`) only calls `setDrawRange` and
+ * flags the buffer attributes dirty -- checked directly, nothing in the
+ * per-frame rebuild path ever touches `.visible` -- so a mesh hidden once
+ * stays hidden across every later beginFrame/push/endFrame cycle.
+ *
+ * IT ALSO HIDES THE OCCLUSION SILHOUETTE (`units/silhouette.ts`, band 6),
+ * which is a SEPARATE subsystem from the three batches above, not a fourth
+ * member of the same tier -- see that file's own top comment for why it
+ * exists (a unit walking behind a building must not simply vanish) and
+ * `debug-layers.ts`'s task-10-follow-up history for how this was found: a
+ * plate captured near a civic structure showed a thin red outline poking
+ * through its wall -- not a HUD element at all, but a HOSTILE unit's
+ * occlusion outline (`SILHOUETTE_COLOR_KEY_BY_SIDE`, team-coloured),
+ * standing behind the building and revealed by the sandbox force's own
+ * recon drone. One mesh's ghost-through-walls hint is exactly as unwelcome
+ * in key art as a health bar, so it is folded into the same name rather than
+ * given its own -- a caller asking a key-art tool to hide "the overlays"
+ * should not need to know this is architecturally a different system. Only
+ * the MESH-unit path is covered (`ThreeRenderer.silhouetteMeshMaterials`,
+ * three shared `MeshBasicMaterial`s, one per side, toggled by `.visible`
+ * rather than by object -- every mesh unit's silhouette parts share one of
+ * the three regardless of which entity they belong to, so three writes
+ * reach all of them with no traversal). The BILLBOARD path
+ * (`&nomesh`/`?renderer=pixi`) is NOT covered: it colours per-instance
+ * through a shader uniform (`silhouetteTeamColors`, plain `THREE.Color`
+ * values with no material of their own to hide), and this layer's only
+ * caller always runs on the mesh path, so that gap is recorded rather than
+ * closed.
+ *
+ * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
+ * follow-up 2): the large dark diagonal a first attempt at the plate read as
+ * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
+ * pulling never-seen ground toward 85% shroud and explored ground toward
+ * 40%, which a camera parked near the edge of what the sandbox force can
+ * see paints as a hard line.
+ *
+ * C2 (shell-upgrade Phase 0 final fix wave) CHANGED WHAT THIS DOES. It used
+ * to be a `Pass.enabled` flip, exactly `vignette`'s shape -- but that
+ * skipped the WHOLE pass, including `FOG_OFFMAP_FADE_TILES`, the off-map
+ * fade the same pass carries so ground beyond the map edge reads as
+ * never-seen distance rather than a raw, `ClampToEdgeWrapping`-flooded
+ * wedge. Disabling the pass to remove the fog-of-war boundary reinstated
+ * exactly that wedge in the shipped key art. Hiding this layer now sets
+ * `uRevealAll` on the pass's OWN uniforms (`fog-pass.ts`) instead, which
+ * forces every ON-map sample to read as fully seen while the off-map fade's
+ * maths runs unchanged -- so the fog-of-war boundary disappears and the
+ * off-map skirt still darkens toward never-seen. The pass itself is never
+ * disabled by this layer any more. Confirmed by reading rather than
+ * assumed: `ThreeRenderer.fogPass` is a `Pass | null` set once in `init()`
+ * (`this.fogPass = new FogOfWarPass(...)`) and handed to the chain through
+ * `PostChain.setFogPass`, which only stores it (`post-chain.ts`) --
+ * grepping the whole file for `fogPass.uniforms.uRevealAll` finds no writer
+ * outside this one case, so nothing per-frame re-asserts it and a plain
+ * uniform write holds across the repaint the way `vignette`'s `enabled`
+ * flip does and `units`' plain `visible` write could not.
  */
-export const DEBUG_LAYERS = ['scatter', 'decor', 'ground-albedo', 'buildings', 'units'] as const;
+export const DEBUG_LAYERS = [
+  'scatter',
+  'decor',
+  'ground-albedo',
+  'buildings',
+  'units',
+  'vignette',
+  'skirt',
+  'overlays',
+  'fog',
+] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
 

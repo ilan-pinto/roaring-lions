@@ -27,7 +27,7 @@ export interface UrlParam {
  *  one subsystem is not buried under three others. */
 export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] = [
   { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)' },
-  { name: 'tunnel', blurb: 'a pre-dug route + two yahalom_squad to collapse it' },
+  { name: 'tunnel', blurb: 'a pre-dug route + two Yahalom sapper squads to collapse it' },
   { name: 'sur', blurb: 'the four Sarim units no mission fields' },
   {
     name: 'civ',
@@ -39,8 +39,13 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   },
   {
     name: 'nomesh',
+    // No `&`-prefixed flag name in this string: SANDBOX_FLAGS's blurbs are
+    // rendered as visible DOM text on the Free play screen (`showSandbox`),
+    // unlike KNOWN_PARAMS's (console-only, via `sandboxHelp`) -- so naming
+    // the RETIRED opt-in flag this replaced has to be done without spelling
+    // out its URL syntax.
     blurb:
-      'draw billboards instead of meshes — the diagnostic half of what &mesh used to gate',
+      'draw billboards instead of meshes — the diagnostic half of the old mesh-opt-in switch',
   },
 ];
 

@@ -201,7 +201,19 @@ export function showLoading(
    *  off a briefing is unaffected by whether a panel is present. Gated on
    *  `holds`, the same condition the orders paragraph and commander line are:
    *  a sandbox or a mission with no briefing shows neither. */
-  brought?: BroughtPanel
+  brought?: BroughtPanel,
+  /**
+   * Where Escape takes the player instead of deploying (task 6). Before this,
+   * Escape on the briefing -- and a stray click anywhere on it, the deleted
+   * `pointerdown` listener below -- DEPLOYED the mission nobody meant to
+   * start. Now Escape goes back when there is somewhere to go back to, and a
+   * back link renders under Deploy calling the same function; with nothing
+   * supplied (a sandbox, which has no briefing to return from) Escape does
+   * nothing and no link renders, same as any other key a long briefing is
+   * scrolled with. `main.ts` passes `() => window.location.assign('?campaign')`
+   * for a mission and omits this for a sandbox.
+   */
+  onBack?: () => void
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -374,10 +386,30 @@ export function showLoading(
     }
   }
 
+  // The display face: a stamped button, not a quiet outline -- the one
+  // control on this screen that starts the mission earns the same weight the
+  // mission's own name gets above it.
   const deploy = document.createElement('button');
   deploy.className = 'rl-loading__deploy';
   deploy.type = 'button';
-  deploy.textContent = 'deploy';
+  deploy.textContent = 'Deploy';
+
+  // The back edge Escape now uses (see `onBack`'s own doc comment above).
+  // Rendered only when there is somewhere to go back to -- a sandbox has no
+  // briefing to return from, and no `onBack` to call. Its click listener is
+  // NOT wired here -- `done()` below wires it, through the same `cleanup()`
+  // Escape uses (fix round 1: this used to call `onBack()` directly, which
+  // skipped `cleanup()` and left the window keydown listener, `wrap` and the
+  // pending promise all dangling -- invisible only because every `onBack`
+  // this app wires up is a hard page navigation that tears the whole JS
+  // realm down anyway).
+  let back: HTMLButtonElement | null = null;
+  if (onBack) {
+    back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'rl-btn rl-loading__back';
+    back.textContent = '← campaign map';
+  }
 
   box.append(label, name, track, count);
   if (video) {
@@ -390,6 +422,7 @@ export function showLoading(
     box.append(orders);
     if (broughtEl) box.append(broughtEl);
     box.append(deploy);
+    if (back) box.append(back);
   } else if (video) {
     // A cinematic with no orders still needs the player's go.
     box.append(deploy);
@@ -443,29 +476,47 @@ export function showLoading(
         wrap.remove();
         return Promise.resolve();
       }
-      // Reading time is the player's to spend, and the ways out are the button,
-      // a click anywhere, and Escape.
+      // Reading time is the player's to spend, and the only way out that
+      // starts the mission is the button itself.
       //
       // Deliberately NOT any-key, which is how titleCard works and would be
       // wrong here: a briefing long enough to scroll is a briefing the player
       // scrolls, and Down or Page-Down would deploy them mid-sentence. The
       // button is focused on mount, so Enter and Space still work through its
       // own activation rather than through a global listener.
+      //
+      // A stray click used to dismiss too (the `pointerdown` listener this
+      // replaced), and Escape used to deploy unconditionally -- both read as
+      // the game starting itself, which is the whole complaint task 6 exists
+      // to answer. Escape now goes BACK instead, when `onBack` gives it
+      // somewhere to go: `cleanup` tears the screen down WITHOUT resolving,
+      // because the mission never starts and the page is about to navigate
+      // away under it. With nowhere to go back to, Escape does nothing, same
+      // as any other key a long briefing is scrolled with.
       return new Promise<void>((resolve) => {
         let gone = false;
-        const onKey = (e: KeyboardEvent): void => {
-          if (e.key === 'Escape') dismiss();
-        };
-        const dismiss = (): void => {
+        const cleanup = (): void => {
           if (gone) return;
           gone = true;
-          window.removeEventListener('pointerdown', dismiss);
           window.removeEventListener('keydown', onKey);
           wrap.remove();
-          resolve();
         };
-        deploy.addEventListener('click', dismiss);
-        window.addEventListener('pointerdown', dismiss);
+        // The one path out that does NOT start the mission -- shared by
+        // Escape and the back link (fix round 1), so both tear the screen
+        // down the same way rather than the link bypassing `cleanup()`.
+        const goBack = (): void => {
+          if (!onBack) return;
+          cleanup();
+          onBack();
+        };
+        const onKey = (e: KeyboardEvent): void => {
+          if (e.key === 'Escape') goBack();
+        };
+        deploy.addEventListener('click', () => {
+          cleanup();
+          resolve();
+        });
+        back?.addEventListener('click', goBack);
         window.addEventListener('keydown', onKey);
         deploy.focus();
       });

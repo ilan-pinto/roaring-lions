@@ -158,9 +158,11 @@ shapes, the AI director's cadence, in-level twists classified by what the
 runtime can do, a gap report). The contract they write against is
 `docs/campaign/README.md`; the story is `docs/campaign/storyline.md`; a dated
 digest of what the runtime can express sits beside them. Two facts they exist to
-stop anyone forgetting: the only text a mission can show is `name`, `briefing`
-and `objectives[].text`, and a trigger's `id` is shown to the player verbatim as
-`enemy reacts (<id>)`.
+stop anyone forgetting: the only text a mission can show is `name`, `briefing`,
+`objectives[].text` and a trigger's `label` (≤ 48 characters, no full stop) --
+what the player reads in the feed when it fires. An unlabelled trigger shows
+nothing, `remove` triggers are silent, and `validate:data` refuses a shipped
+non-`remove` trigger without one.
 
 ---
 

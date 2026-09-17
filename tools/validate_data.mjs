@@ -20,7 +20,12 @@ import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
-import { commanderRankFailures, narrativeTextFailures, removeTriggerFailures } from './validate_narrative.mjs';
+import {
+  commanderRankFailures,
+  narrativeTextFailures,
+  removeTriggerFailures,
+  triggerLabelFailures,
+} from './validate_narrative.mjs';
 
 const Ajv2020 = AjvModule.default ?? AjvModule;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -890,6 +895,11 @@ const structureSymbols = new Map(
     // validate_narrative.mjs, so they have their own direct fixture tests.
     failures.push(...removeTriggerFailures(mi, rel(file)));
     failures.push(...narrativeTextFailures(mi, rel(file)));
+    // Shell upgrade Phase 0, Task 1: no developer id reaches the battlefield.
+    // Every trigger a player can see fire (i.e. not `remove`) must carry a
+    // human label. T1-a: `(mission, file)`, matching removeTriggerFailures/
+    // narrativeTextFailures above -- this call had the two reversed.
+    failures.push(...triggerLabelFailures(mi, rel(file)));
   }
 }
 

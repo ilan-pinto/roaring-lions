@@ -27,6 +27,7 @@ import {
   type WorldCountry,
   type WorldRegion,
 } from '../campaign';
+import { nudgeLabels, type LabelBox } from './label-layout';
 
 export interface WorldMapOptions {
   base: string;
@@ -36,7 +37,7 @@ export interface WorldMapOptions {
   ledger: LedgerData;
   href: (missionId: string) => string;
   commander?: CommanderData;
-  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
   /** Resolves a villain's bare portrait file name to a URL an `<img>` can
    *  load -- the same `portrait-catalogue.ts` function the commander bar
    *  uses, handed in from `main.ts` because this module has no browser-side
@@ -69,7 +70,12 @@ const FLAG_W = 66;
 const FLAG_H = 44;
 
 export function worldMap(opts: WorldMapOptions): HTMLElement {
-  const wrap = el('div', 'rl-world');
+  // `rl-world__scroll`: the stable hook `.rl-menu:has(.rl-world)` (theme.css)
+  // scrolls -- this element is the campaign screen's ONLY scrolling region,
+  // with the back nav pinned outside it as a real footer row rather than an
+  // overlay (fix round 1). `showCampaign` (menu.ts) nests the wordmark and
+  // theatre label inside this same element for that reason, not in here.
+  const wrap = el('div', 'rl-world rl-world__scroll');
 
   // --- the map itself ------------------------------------------------------
   const board = el('div', 'rl-world__board');
@@ -86,6 +92,9 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
       height: String(VIEW_H),
     })
   );
+  // A gate's `afterMission` sentence names the mission rather than its id --
+  // `opts.missionOf` is the same catalogue lookup the villain state already uses.
+  const missionName = (id: string): string | undefined => opts.missionOf?.(id)?.name;
   // The first town, in authored order, still asking for a mission: what a click
   // on the country's ground should start.
   const nextMissionOfRegion = (region: WorldRegion): string | null => {
@@ -103,7 +112,7 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
     const region = regionById.get(c.id);
     // A country with no region in world.json has no campaign authored at all:
     // locked, permanently, until data exists for it.
-    const p = region ? regionProgress(region, opts.ledger) : null;
+    const p = region ? regionProgress(region, opts.ledger, missionName) : null;
     const points = c.outline.map(([x, y]) => `${x},${y}`).join(' ');
     const g = svgEl('g', { id: `region-${c.id}` });
     g.setAttribute('data-status', p?.status ?? 'locked');
@@ -150,8 +159,12 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
   }
   board.appendChild(svg);
 
+  // Every town marker built below, so the collision pass after the loop can
+  // measure and nudge them without a second DOM walk.
+  const townMarkers: { id: string; el: HTMLElement }[] = [];
+
   for (const region of opts.world.regions) {
-    const p = regionProgress(region, opts.ledger);
+    const p = regionProgress(region, opts.ledger, missionName);
     const g = board.querySelector(`#region-${region.id}`);
 
     for (const town of region.towns) {
@@ -196,9 +209,37 @@ export function worldMap(opts: WorldMapOptions): HTMLElement {
         marker.appendChild(el('span', 'rl-world__stars', ` ${stars.earned}/${stars.possible}★`));
       }
       board.appendChild(marker);
+      townMarkers.push({ id: town.id, el: marker });
     }
   }
   wrap.appendChild(board);
+
+  // The pins are placed once, not animated, so the collision pass runs once
+  // too -- but only after this whole subtree is actually connected to the
+  // document: `worldMap` returns a detached tree that the caller appends
+  // (`showCampaign`), so measuring `offsetWidth`/`offsetHeight` synchronously
+  // here would read zero regardless of browser. One `requestAnimationFrame`
+  // is enough grace for that synchronous append to have happened -- the same
+  // reasoning as `worldmap3d.ts`'s per-frame pass, run a single time. Guarded
+  // for an environment with no rAF at all, which just runs it immediately
+  // (zero-size boxes, a harmless no-op) rather than throwing.
+  const runNudgePass = (): void => {
+    const boxes: LabelBox[] = townMarkers.map(({ id, el: marker }) => ({
+      id,
+      x: marker.offsetLeft,
+      y: marker.offsetTop,
+      w: marker.offsetWidth,
+      h: marker.offsetHeight,
+    }));
+    const dy = nudgeLabels(boxes, 4);
+    for (const { id, el: marker } of townMarkers) {
+      const d = dy.get(id) ?? 0;
+      marker.style.setProperty('--dy', `${d}px`);
+      marker.style.setProperty('--leader', `${Math.max(0, d - 4)}px`);
+    }
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(runNudgePass);
+  else runNudgePass();
 
   // --- the status panel ----------------------------------------------------
   const cards = el('div', 'rl-world__cards');
@@ -217,11 +258,11 @@ export function regionCard(
   opts: {
     ledger: LedgerData;
     commander?: CommanderData;
-    missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+    missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
     portraitUrl?: (file: string) => string | undefined;
   }
 ): HTMLElement {
-  const p = regionProgress(region, opts.ledger);
+  const p = regionProgress(region, opts.ledger, (id) => opts.missionOf?.(id)?.name);
   const card = el('div', 'rl-world__card');
   card.dataset.regionCard = region.id;
   card.dataset.status = p.status;
@@ -276,8 +317,8 @@ export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement
   }
 
   // The mean lives in campaignRoe, not in the ledger: the sim stores per-mission bests and
-  // does not divide. This is also the figure a locked region's "requires campaign Conduct 45"
-  // is asking you to raise, so the two read together.
+  // does not divide. This is also the figure a locked region's "Needs a campaign Conduct of
+  // 45 or better" (gateSentence) is asking you to raise, so the two read together.
   const roe = campaignRoe(ledger);
   if (roe !== null) {
     parts.push(`Conduct ${roe.mean}`);

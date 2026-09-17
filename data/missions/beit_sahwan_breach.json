@@ -457,6 +457,7 @@
   "triggers": [
     {
       "id": "villages_rise",
+      "label": "North-east village rises",
       "on": {
         "kind": "first_contact"
       },
@@ -469,6 +470,7 @@
     },
     {
       "id": "they_take_the_south_village",
+      "label": "South-east village rises",
       "on": {
         "kind": "first_contact"
       },
@@ -481,6 +483,7 @@
     },
     {
       "id": "they_come_for_the_west_families",
+      "label": "West corner moves on the families",
       "on": {
         "kind": "timer_s",
         "value": 150
@@ -494,6 +497,7 @@
     },
     {
       "id": "the_last_village_goes",
+      "label": "Last village corner rises",
       "on": {
         "kind": "timer_s",
         "value": 190

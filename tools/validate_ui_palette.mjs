@@ -6,7 +6,7 @@
 // hex literals of its own — which meant the one part of the product a player
 // looks at continuously was the one part with no colour discipline.
 //
-// Two checks:
+// Three checks:
 //
 //   1. No colour literal anywhere in UI source. Not hex, not rgb()/rgba().
 //      There is no allowlist: the palette reaches CSS as --rl-* custom
@@ -19,7 +19,17 @@
 //      error either; it renders as nothing at all, which is how it survives
 //      review.
 //
+//   3. No untagged layout px in theme.css (spec 2026-09-16 §5: UI scale is
+//      one number, --ui-scale, and only rem tracks it). See pxFailures below.
+//
 // Run: pnpm validate:ui
+//
+// The checkers are exported pure functions -- the same idiom
+// tools/validate_narrative.mjs uses -- so a test can import one directly
+// without running the whole sweep below, which reads real files off disk and
+// calls process.exit() on failure. The sweep itself only runs when this file
+// is executed directly (`node tools/validate_ui_palette.mjs`), not when it is
+// imported.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -53,6 +63,29 @@ const HEX = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g;
 const RGB = /\brgba?\(\s*\d/g;
 const VAR = /var\(\s*(--[\w-]+)/g;
 
+// Strips shadow/filter DECLARATIONS (not whole lines) before the px scan --
+// `drop-shadow(...)` is always a function nested inside a `filter:` value
+// (never its own `prop:` declaration), so stripping `filter:` already covers
+// it. A whole-line skip on any of these keywords appearing ANYWHERE on the
+// line let a layout px sharing that line escape detection (fix round 1,
+// 2026-09-16): `margin: 8px; text-shadow: 0 1px 2px red;` on one line
+// previously passed with zero failures, because the old line-wide keyword
+// test bailed out before the 8px was ever scanned.
+const SHADOW_DECL = /(text-shadow|box-shadow|filter)\s*:[^;]*;?/g;
+/** Layout must scale with --ui-scale (spec §5: UI scale is one number), so a
+ *  px value of 4 or more in UI CSS is a defect unless the line says why. */
+export function pxFailures(file, css) {
+  const out = [];
+  css.split('\n').forEach((line, i) => {
+    if (line.includes('/* px-ok */')) return;
+    const scanned = line.replace(SHADOW_DECL, '');
+    for (const m of scanned.matchAll(/(\d+(?:\.\d+)?)px\b/g)) {
+      if (Number(m[1]) >= 4) out.push(`${file}:${i + 1}: ${m[0]} -- use rem (or tag the line /* px-ok */ for a hairline)`);
+    }
+  });
+  return out;
+}
+
 function paletteVars() {
   const p = JSON.parse(readFileSync(join(ROOT, PALETTE), 'utf8'));
   const names = new Set();
@@ -74,66 +107,76 @@ function declaredVars(themeSrc) {
   return names;
 }
 
-const failures = [];
-const files = [...ROOTS.flatMap((r) => walk(join(ROOT, r))), ...EXTRA.map((f) => join(ROOT, f))];
-const themeSrc = readFileSync(join(ROOT, THEME), 'utf8');
-const known = new Set([...paletteVars(), ...declaredVars(themeSrc)]);
+function main() {
+  const failures = [];
+  const files = [...ROOTS.flatMap((r) => walk(join(ROOT, r))), ...EXTRA.map((f) => join(ROOT, f))];
+  const themeSrc = readFileSync(join(ROOT, THEME), 'utf8');
+  const known = new Set([...paletteVars(), ...declaredVars(themeSrc)]);
 
-for (const file of files) {
-  const rel = relative(ROOT, file);
-  const src = readFileSync(file, 'utf8');
-  const lines = src.split('\n');
+  for (const file of files) {
+    const rel = relative(ROOT, file);
+    const src = readFileSync(file, 'utf8');
+    const lines = src.split('\n');
 
-  lines.forEach((line, i) => {
-    // The palette is the one place a hex is the point, and it is data, not
-    // source — it is not in ROOTS. Everything reaching here must be clean.
-    for (const m of line.matchAll(HEX)) {
-      failures.push(`${rel}:${i + 1}  colour literal ${m[0]} — use a semantic class or token`);
+    lines.forEach((line, i) => {
+      // The palette is the one place a hex is the point, and it is data, not
+      // source — it is not in ROOTS. Everything reaching here must be clean.
+      for (const m of line.matchAll(HEX)) {
+        failures.push(`${rel}:${i + 1}  colour literal ${m[0]} — use a semantic class or token`);
+      }
+      if (RGB.test(line)) {
+        RGB.lastIndex = 0; // /g regex: a stateful test() would skip the next line
+        failures.push(
+          `${rel}:${i + 1}  rgb()/rgba() literal — use color-mix(in srgb, var(--token) N%, transparent)`
+        );
+      }
+    });
+
+    if (rel.endsWith('.css')) {
+      failures.push(...pxFailures(rel, src));
     }
-    if (RGB.test(line)) {
-      RGB.lastIndex = 0; // /g regex: a stateful test() would skip the next line
-      failures.push(
-        `${rel}:${i + 1}  rgb()/rgba() literal — use color-mix(in srgb, var(--token) N%, transparent)`
-      );
+
+    for (const m of src.matchAll(VAR)) {
+      const name = m[1];
+      if (known.has(name)) continue;
+      // --i drives the menu stagger delay and is set from JS per element.
+      if (name === '--i') continue;
+      failures.push(`${rel}  unknown custom property ${name} — not declared in ${THEME} or ${PALETTE}`);
     }
-  });
-
-  for (const m of src.matchAll(VAR)) {
-    const name = m[1];
-    if (known.has(name)) continue;
-    // --i drives the menu stagger delay and is set from JS per element.
-    if (name === '--i') continue;
-    failures.push(`${rel}  unknown custom property ${name} — not declared in ${THEME} or ${PALETTE}`);
   }
-}
 
-// The two-tier rule: only theme.css maps a raw palette entry onto meaning. If
-// UI code reaches past it for --rl-* directly, a palette revision stops being
-// a one-file change and the semantic layer quietly rots.
-// index.html is the one exemption, and it is a real one rather than a
-// convenience: it paints the ground colour before any stylesheet has parsed,
-// so the semantic layer does not exist yet. Reaching for --rl-* there is the
-// only way to keep a literal out of the document.
-const RAW_EXEMPT = new Set(['packages/app/index.html']);
+  // The two-tier rule: only theme.css maps a raw palette entry onto meaning. If
+  // UI code reaches past it for --rl-* directly, a palette revision stops being
+  // a one-file change and the semantic layer quietly rots.
+  // index.html is the one exemption, and it is a real one rather than a
+  // convenience: it paints the ground colour before any stylesheet has parsed,
+  // so the semantic layer does not exist yet. Reaching for --rl-* there is the
+  // only way to keep a literal out of the document.
+  const RAW_EXEMPT = new Set(['packages/app/index.html']);
 
-const rawOutsideTheme = [];
-for (const file of files) {
-  const rel = relative(ROOT, file);
-  if (rel === THEME || RAW_EXEMPT.has(rel)) continue;
-  const src = readFileSync(file, 'utf8');
-  for (const m of src.matchAll(/var\(\s*(--rl-[\w-]+)/g)) {
-    rawOutsideTheme.push(`${rel}  names ${m[1]} directly — map it to a semantic token in ${THEME}`);
+  const rawOutsideTheme = [];
+  for (const file of files) {
+    const rel = relative(ROOT, file);
+    if (rel === THEME || RAW_EXEMPT.has(rel)) continue;
+    const src = readFileSync(file, 'utf8');
+    for (const m of src.matchAll(/var\(\s*(--rl-[\w-]+)/g)) {
+      rawOutsideTheme.push(`${rel}  names ${m[1]} directly — map it to a semantic token in ${THEME}`);
+    }
   }
+
+  const all = [...failures, ...rawOutsideTheme];
+  if (all.length > 0) {
+    console.error(`UI palette gate: ${all.length} problem(s)\n`);
+    for (const f of all) console.error('  ' + f);
+    console.error(
+      '\nThe battlefield cannot ship an off-palette pixel. Neither can the interface.'
+    );
+    process.exit(1);
+  }
+
+  console.log(`UI palette gate: ${files.length} file(s) clean, ${known.size} token(s) known.`);
 }
 
-const all = [...failures, ...rawOutsideTheme];
-if (all.length > 0) {
-  console.error(`UI palette gate: ${all.length} problem(s)\n`);
-  for (const f of all) console.error('  ' + f);
-  console.error(
-    '\nThe battlefield cannot ship an off-palette pixel. Neither can the interface.'
-  );
-  process.exit(1);
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
+  main();
 }
-
-console.log(`UI palette gate: ${files.length} file(s) clean, ${known.size} token(s) known.`);

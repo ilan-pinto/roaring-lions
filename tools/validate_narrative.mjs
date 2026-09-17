@@ -35,6 +35,21 @@ function collectGroups(node, out) {
 }
 
 /**
+ * T1-a: throws when `mission` is not a plausible mission object, rather
+ * than letting a swapped-argument call degrade to `mission.triggers ?? []`
+ * -> `[]` -> a gate that silently passes. A mission is always the parsed
+ * JSON of a mission file -- a non-null, non-array object -- and never a
+ * bare string, which is exactly what a `(file, mission)` call reversed to
+ * `(mission, file)` would pass as the first argument instead.
+ */
+function mustBeMissionObject(mission, fnName) {
+  if (mission === null || typeof mission !== 'object' || Array.isArray(mission)) {
+    const got = typeof mission === 'string' ? JSON.stringify(mission) : String(mission);
+    throw new TypeError(`${fnName}: expected a mission object as the first argument, got ${got} -- check the argument order`);
+  }
+}
+
+/**
  * `remove` trigger guards.
  *
  * - `do.group` must name a group some placement in this mission actually
@@ -73,6 +88,35 @@ export function removeTriggerFailures(mission, label) {
           `board, which reads as a mission wipe rather than a scripted beat`
       );
     }
+  }
+  return out;
+}
+
+/** Every trigger a player can see fire carries a human label (spec §5: no id
+ *  reaches the DOM). `remove` is silent housekeeping and is exempt.
+ *
+ *  `(mission, file)` -- T1-a (shell-upgrade Phase 0 final review): this used
+ *  to take `(file, mission)`, the one function in this module reversing its
+ *  siblings' `(mission, label)` order (`removeTriggerFailures`,
+ *  `narrativeTextFailures` above and below). The one call site
+ *  (`validate_data.mjs`) is plain JS and untypechecked, so a swap there
+ *  would have `mission.triggers` read as `undefined` on a STRING argument
+ *  and `?? []` silently produce an empty array -- a gate that passes on
+ *  every unlabelled trigger in the tree rather than naming the mismatch.
+ *  `mustBeMissionObject` below is the guard for exactly that shape of
+ *  failure, so a future swap fails loudly instead of returning `[]`. */
+export function triggerLabelFailures(mission, file) {
+  mustBeMissionObject(mission, 'triggerLabelFailures');
+  const out = [];
+  for (const [i, t] of (mission.triggers ?? []).entries()) {
+    const name = t.id ?? `trigger_${i}`;
+    if (t.do?.kind === 'remove') continue;
+    if (typeof t.label !== 'string' || t.label.length === 0) {
+      out.push(`${file}: trigger "${name}" (${t.do?.kind}) has no label`);
+      continue;
+    }
+    if (t.label.length > 48) out.push(`${file}: trigger "${name}" label is ${t.label.length} characters (max 48)`);
+    if (t.label.endsWith('.')) out.push(`${file}: trigger "${name}" label ends in a full stop`);
   }
   return out;
 }

@@ -156,6 +156,7 @@
   "triggers": [
     {
       "id": "deliver_second_squad",
+      "label": "Second rifle squad arrives",
       "on": {
         "kind": "zone_entered",
         "zone": "z_wall"
@@ -173,6 +174,7 @@
     },
     {
       "id": "deliver_sniper",
+      "label": "Sniper team arrives",
       "on": {
         "kind": "zone_entered",
         "zone": "z_house"
@@ -190,6 +192,7 @@
     },
     {
       "id": "deliver_transports",
+      "label": "IFV and jeep arrive",
       "on": {
         "kind": "zone_entered",
         "zone": "z_east_view"
@@ -212,6 +215,7 @@
     },
     {
       "id": "deliver_armour",
+      "label": "Tank and AT team arrive",
       "on": {
         "kind": "zone_entered",
         "zone": "z_road_west"
@@ -234,6 +238,7 @@
     },
     {
       "id": "deliver_drones",
+      "label": "Recon and attack drones arrive",
       "on": {
         "kind": "zone_entered",
         "zone": "z_road_east"
@@ -256,6 +261,7 @@
     },
     {
       "id": "deliver_support",
+      "label": "Mortar and engineers arrive",
       "on": {
         "kind": "zone_entered",
         "zone": "z_demo"

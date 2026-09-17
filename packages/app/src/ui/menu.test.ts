@@ -29,7 +29,10 @@ describe('showMenu audio toggle', () => {
     };
     const stage = document.createElement('div');
     showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, audio });
-    const b = stage.querySelector<HTMLButtonElement>('button.rl-menu__item')!;
+    // `[aria-pressed]` picks out the audio toggle specifically: task 6 gave
+    // the ledger reset a `<button>` too (same `rl-menu__item` look), so a bare
+    // `button.rl-menu__item` selector is no longer unique to the mixer.
+    const b = stage.querySelector<HTMLButtonElement>('button.rl-menu__item[aria-pressed]')!;
     expect(b.textContent).toBe('♪ audio off');
     expect(b.getAttribute('aria-pressed')).toBe('false');
     b.click();
@@ -41,7 +44,28 @@ describe('showMenu audio toggle', () => {
   it('draws no toggle when the shell passes no mixer', () => {
     const stage = document.createElement('div');
     showMenu(stage, { base: '/', version: '0.0.0', world, tutorial });
-    expect(stage.querySelector('button.rl-menu__item')).toBeNull();
+    expect(stage.querySelector('button.rl-menu__item[aria-pressed]')).toBeNull();
+  });
+});
+
+describe('showMenu reset ledger', () => {
+  it('is a button, confirmed before it navigates -- not a plain link', async () => {
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    let reset = 0;
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, reset: () => reset++ });
+    const btn = [...stage.querySelectorAll<HTMLButtonElement>('button.rl-menu__item')].find(
+      (b) => b.textContent === 'reset campaign ledger'
+    )!;
+    expect(btn).toBeDefined();
+    btn.click();
+    expect(reset).toBe(0);
+    const dialog = document.querySelector<HTMLElement>('.rl-confirm')!;
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain('brigade account is not affected');
+    dialog.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
+    await Promise.resolve();
+    expect(reset).toBe(1);
   });
 });
 

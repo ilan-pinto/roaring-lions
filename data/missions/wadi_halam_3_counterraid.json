@@ -263,6 +263,7 @@
   "triggers": [
     {
       "id": "the_commander_runs_for_the_east_track",
+      "label": "Commander runs for the east track",
       "on": {
         "kind": "casualties_pct",
         "value": 40

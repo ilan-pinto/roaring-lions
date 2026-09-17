@@ -96,10 +96,12 @@
   },
   "triggers": [
     { "id": "they_come_out_of_the_square",
+      "label": "Garrison forms on the square",
       "on": { "kind": "zone_entered", "zone": "village" },
       "do": { "kind": "commit", "group": "village", "to": "village_square" },
       "say": { "speaker": "net", "text": "The garrison is out of the buildings and forming on the square." } },
     { "id": "the_town_falls_back_onto_the_hill",
+      "label": "Town falls back onto the hill",
       "on": { "kind": "casualties_pct", "value": 45 },
       "do": { "kind": "withdraw_to", "group": "village", "to": "knoll_top" },
       "say": { "speaker": "idit", "text": "They have left the houses and gone up onto the terraces. He is giving you the town and keeping the hill you have to climb." } }

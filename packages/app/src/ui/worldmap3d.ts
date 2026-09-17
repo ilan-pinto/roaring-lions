@@ -65,6 +65,7 @@ import {
   type RegionStatus,
   type WorldRegion,
 } from '../campaign';
+import { nudgeLabels, type LabelBox } from './label-layout';
 import type { RendererChoice } from '../renderer-choice';
 import { ledgerLine, regionCard } from './worldmap';
 
@@ -130,7 +131,7 @@ export interface World3dOptions {
    *  player parsing an SVG overlay they will not see. */
   fallback: () => HTMLElement;
   commander?: CommanderData;
-  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined;
+  missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined;
   /** Resolves a villain's bare portrait file name to a URL, same as the flat
    *  board's `WorldMapOptions.portraitUrl` -- both boards get it from
    *  `main.ts`, never build a `portraits/...` path themselves. */
@@ -199,8 +200,16 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   const { world, ledger } = opts;
   const navigate = opts.navigate ?? ((href: string) => window.location.assign(href));
   const hasWebgl = opts.webgl ?? webglAvailable;
+  // A gate's `afterMission` sentence names the mission rather than its id --
+  // the same catalogue lookup the flat board's `worldMap` uses.
+  const missionName = (id: string): string | undefined => opts.missionOf?.(id)?.name;
 
-  const wrap = el('div', 'rl-world rl-world--3d');
+  // `rl-world__scroll`: the stable hook `.rl-menu:has(.rl-world)` (theme.css)
+  // scrolls -- this element is the campaign screen's ONLY scrolling region,
+  // with the back nav pinned outside it as a real footer row rather than an
+  // overlay (fix round 1). `showCampaign` (menu.ts) nests the wordmark and
+  // theatre label inside this same element for that reason, not in here.
+  const wrap = el('div', 'rl-world rl-world--3d rl-world__scroll');
   const stage = el('div', 'rl-world__stage');
   const host = el('div', 'rl-world__canvas');
   const pins = el('div', 'rl-world__pins');
@@ -221,7 +230,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     return null;
   };
   for (const region of world.regions) {
-    const p = regionProgress(region, ledger);
+    const p = regionProgress(region, ledger, missionName);
     statuses[region.id] = p.status;
     if (p.status === 'live' && nextOf(region) !== null) clickable.add(region.id);
   }
@@ -229,7 +238,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // --- the town pins ------------------------------------------------------
   const pinFor = new Map<string, HTMLElement>();
   for (const region of world.regions) {
-    const p = regionProgress(region, ledger);
+    const p = regionProgress(region, ledger, missionName);
     for (const town of region.towns) {
       const next = nextMissionOf(town, ledger);
       const { done, total } = townProgress(town, ledger);
@@ -345,7 +354,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       return;
     }
     point(region.id);
-    const p = regionProgress(region, ledger);
+    const p = regionProgress(region, ledger, missionName);
     if (p.status === 'locked') {
       speak(`${region.name} — ${p.lockedBecause ?? 'locked'}`, 'bad');
       return;
@@ -359,17 +368,45 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       speak(`${region.name} — cleared`, 'good');
       return;
     }
-    speak(`${region.name} — opening ${next}`, 'good');
+    // Names the mission, never its id -- the same rule as the locked-region
+    // sentence just above. A catalogue with no title for `next` still says
+    // something real (the region alone) rather than falling through to the id.
+    const nextName = missionName(next);
+    speak(nextName ? `${region.name} — opening ${nextName}` : region.name, 'good');
     navigate(opts.href(next));
   };
 
+  // A label's rendered size never changes frame to frame (the text and the
+  // star count are fixed once the pin is built), so it is measured once --
+  // the moment a pin first gets a real position -- rather than every frame.
+  // `offsetWidth`/`offsetHeight` are the placed-and-visible size regardless
+  // of `opacity`, which is all this pin ever animates.
+  const labelSize = new Map<string, { w: number; h: number }>();
   const onFrame = (towns: readonly TownPin[], bearingDegrees: number): void => {
+    const boxes: LabelBox[] = [];
     for (const t of towns) {
       const pin = pinFor.get(t.id);
       if (!pin) continue;
       pin.style.left = `${t.x.toFixed(1)}px`;
       pin.style.top = `${t.y.toFixed(1)}px`;
-      pin.dataset.placed = '1';
+      if (pin.dataset.placed !== '1') {
+        labelSize.set(t.id, { w: pin.offsetWidth, h: pin.offsetHeight });
+        pin.dataset.placed = '1';
+      }
+      const size = labelSize.get(t.id) ?? { w: 0, h: 0 };
+      boxes.push({ id: t.id, x: t.x, y: t.y, w: size.w, h: size.h });
+    }
+    // Collision avoidance over the PROJECTED positions, recomputed every
+    // frame as the board turns -- cheap at a dozen towns (label-layout.ts).
+    // The pin itself (`pin.style.left/top`, set above) never moves; only the
+    // label's rendered offset does, via `--dy` on the CSS transform.
+    const dy = nudgeLabels(boxes, 4);
+    for (const box of boxes) {
+      const pin = pinFor.get(box.id);
+      if (!pin) continue;
+      const d = dy.get(box.id) ?? 0;
+      pin.style.setProperty('--dy', `${d}px`);
+      pin.style.setProperty('--leader', `${Math.max(0, d - 4)}px`);
     }
     bearing.textContent = `${Math.round(bearingDegrees).toString().padStart(3, '0')}°`;
   };
