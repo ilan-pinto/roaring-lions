@@ -2746,22 +2746,29 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-brigade__buy {
   color: var(--commend);
 }
-/* Task 7 (fix round 1): per-track tier pips and Buy control on an AVAILABLE
+/* Task 7 (fix round 2): per-track tier pips and Buy control on an AVAILABLE
    row (a locked row shows none of this -- nothing can be upgraded before it
    is in the brigade). The first cut made `.rl-brigade__tracks` a normal flex
    ITEM of `.rl-brigade__row`, which is a single-line `display: flex` row
    with every other item `flex: 0 0 auto` -- so two tracks pushed the row
    past the panel's own `min(45rem, 94vw)` floor instead of sitting under the
-   reason text as the comment claimed. Fixed by making the row WRAP
+   reason text as the comment claimed. Fixed (round 1) by making the row WRAP
    (`flex-wrap: wrap` above) and forcing `.rl-brigade__tracks` onto its own
    line with `flex: 1 0 100%`, so it drops below the row's first line
-   regardless of how much room that line has left. `margin-left` insets it
-   past the `.rl-brigade__art` frame (2.5rem) plus the row's own `gap`
-   (`--s2`), so the tracks align under the name/role column rather than the
-   art. */
+   regardless of how much room that line has left.
+   Round 1 then inset it with `margin-left`, which is the wrong box model for
+   a `flex-basis: 100%` item with `flex-shrink: 0`: a percentage basis
+   resolves against the CONTAINER's content width and a margin is added
+   OUTSIDE that, so the item became 100% + inset wide and handed
+   `.rl-brigade` (`overflow: auto`) a horizontal scrollbar on every row with
+   tracks. `box-sizing: border-box` plus `padding-left` keeps the inset
+   INSIDE the 100% box instead of adding to it -- content shrinks to make
+   room for the padding rather than the padding growing the box -- which is
+   why this is padding, not margin. */
 .rl-brigade__tracks {
   flex: 1 0 100%;
-  margin-left: calc(2.5rem + var(--s2));
+  box-sizing: border-box;
+  padding-left: calc(2.5rem + var(--s2));
   display: flex;
   flex-direction: column;
   gap: var(--s1);
