@@ -18,6 +18,35 @@ Fitting note: the curve is refitted from the CURRENT roster on every run, so
 it tracks the game's own economy rather than a hardcoded constant. That means
 a single bad merge shifts the curve slightly -- which is why the gate runs on
 the PR, before merge, not after.
+
+Brigade economy Task 5 -- `--max-tier` / `--upgrade-cost-factor K`:
+
+    python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02
+
+Every unit that carries an `upgrades` block (today, every `data/units/kdf/*.json`
+entry) is patched by its OWN maximum tiers before the curve is fit -- the same
+cumulative-delta-over-base semantics `packages/data/src/upgrades.ts`'s
+`applyUpgrades`/`maxTiers` implement for the sim and for the two TypeScript
+harnesses (`tools/src/backtest/playtest.ts`'s `tiers: 'max'`,
+`tools/src/backtest/harness.ts`'s `unitsAtMaxTier`). `apply_upgrades` below is a
+SEPARATE, deliberate re-implementation of that same function in Python, not an
+import of it -- this validator has no Node runtime available to call the real
+one from, and the two are pinned together by `packages/data/src/upgrades.test.ts`
+reading this file's own whitelist back out rather than by a shared module. Keep
+them in sync by hand if `UPGRADE_PATHS` ever changes on either side.
+A patched unit's cost is `logistics + K * (sum of every tier's price across every
+track that unit has)` -- credits treated as a second currency added on top of the
+unit's own listed logistics, not blended into the curve's inputs any other way.
+`K` is never hardcoded here: it comes from `--upgrade-cost-factor` on every
+invocation (`docs/campaign/economy/upgrades.md` section 5 records the value in
+use, currently 0.02, as a measurement, not as a default this file bakes in).
+The curve is then refit from scratch on the PATCHED roster (every non-upgrade
+unit, KDF and enemy alike, contributes its ordinary unmodified row), and the
+same +/-`--tolerance` band check runs against that refit -- so this run answers
+"is a maxed-out KDF unit still priced fairly against everything else, including
+every enemy unit, once its own tracks are paid for", not "is the unpatched
+roster fairly priced" (that question is what the plain, no-flag invocation
+above already answers, unchanged).
 """
 
 import argparse
@@ -25,7 +54,134 @@ import glob
 import json
 import math
 import os
+import re
 import sys
+
+# Mirrors packages/data/src/upgrades.ts's UPGRADE_PATHS exactly (see the
+# docstring above for why this is a second, hand-kept copy rather than a
+# shared import). Anchored regexes over the same six field families:
+# hull.hp | hull.armor.(front|side|rear) | hull.suppression_resistance |
+# sensors.optics | sensors.sight_tiles | weapons[i].(accuracy|penetration).
+UPGRADE_PATHS = [
+    re.compile(r"^hull\.hp$"),
+    re.compile(r"^hull\.armor\.(front|side|rear)$"),
+    re.compile(r"^hull\.suppression_resistance$"),
+    re.compile(r"^sensors\.optics$"),
+    re.compile(r"^sensors\.sight_tiles$"),
+    re.compile(r"^weapons\[\d+\]\.(accuracy|penetration)$"),
+]
+
+
+def _is_whitelisted(path):
+    return any(p.match(path) for p in UPGRADE_PATHS)
+
+
+def _parse_path(path):
+    """'a.b', 'a[0].b' -> [('a', None), ('b', None)], [('a', 0), ('b', None)]."""
+    segments = []
+    for part in path.split("."):
+        m = re.match(r"^([a-zA-Z_]+)\[(\d+)\]$", part)
+        segments.append((m.group(1), int(m.group(2))) if m else (part, None))
+    return segments
+
+
+def _add_delta_along_path(root, path, delta, unit_id):
+    """Mutates a shallow-cloned-along-the-path copy of `root` in place, the
+    same discipline `addDeltaAlongPath` in upgrades.ts follows: only the
+    fresh copies this call itself created are touched."""
+    segments = _parse_path(path)
+    container = root
+    for i, (key, index) in enumerate(segments):
+        is_last = i == len(segments) - 1
+        if index is not None:
+            arr = container.get(key)
+            arr_copy = list(arr) if isinstance(arr, list) else []
+            container[key] = arr_copy
+            if index >= len(arr_copy):
+                raise ValueError(f"apply_upgrades: {unit_id} has no {key}[{index}]")
+            item_copy = dict(arr_copy[index])
+            arr_copy[index] = item_copy
+            if is_last:
+                raise ValueError(f'apply_upgrades: malformed whitelisted path "{path}"')
+            container = item_copy
+            continue
+        if is_last:
+            current = container.get(key, 0)
+            if not isinstance(current, (int, float)):
+                current = 0
+            container[key] = current + delta
+            return
+        nxt = container.get(key)
+        next_copy = dict(nxt) if isinstance(nxt, dict) else {}
+        container[key] = next_copy
+        container = next_copy
+
+
+def max_tiers(unit):
+    """Mirrors upgrades.ts's `maxTiers`: every track at its own maximum tier."""
+    tracks = unit.get("upgrades")
+    if not tracks:
+        return {}
+    return {name: len(track.get("tiers", [])) for name, track in tracks.items()}
+
+
+def apply_upgrades(unit, tiers):
+    """Mirrors upgrades.ts's `applyUpgrades`: pure, returns a NEW unit. WITHIN a
+    track, a tier's patch is cumulative over base, so the highest requested tier
+    for a path wins over an earlier tier's value for that same path rather than
+    adding to it; ACROSS tracks, independent tracks that happen to patch the same
+    path both contribute and their deltas SUM."""
+    out = dict(unit)
+    tracks = unit.get("upgrades") or {}
+    merged = {}
+    for track_name, requested_tier in tiers.items():
+        track = tracks.get(track_name)
+        if not track:
+            continue
+        tier_list = track.get("tiers", [])
+        tier_index = min(max(requested_tier, 0), len(tier_list))
+        per_track = {}
+        for i in range(tier_index):
+            for path, delta in tier_list[i].get("patch", {}).items():
+                if not _is_whitelisted(path):
+                    raise ValueError(
+                        f'apply_upgrades: patch path "{path}" is outside the UPGRADE_PATHS whitelist'
+                    )
+                per_track[path] = delta
+        for path, delta in per_track.items():
+            merged[path] = merged.get(path, 0) + delta
+    for path, delta in merged.items():
+        _add_delta_along_path(out, path, delta, unit.get("id", "?"))
+    return out
+
+
+def total_tier_price(unit):
+    """Sum of every tier's price, across every track the unit has -- the "sum of
+    all tier prices" the max-tier cost formula reads (docs/campaign/economy/
+    upgrades.md section 5: unit-level, not per-track, since power itself is a
+    unit-level score no single track cleanly separates)."""
+    tracks = unit.get("upgrades")
+    if not tracks:
+        return 0
+    return sum(tier.get("price", 0) for track in tracks.values() for tier in track.get("tiers", []))
+
+
+def patch_to_max_tier(units, k):
+    """Every (path, unit) pair that carries an `upgrades` block, patched to its own
+    max tiers with its cost bumped by `k * total_tier_price`; every other unit
+    (including every enemy-faction one) passes through unchanged. Returns a NEW
+    list -- `units` itself is never mutated."""
+    out = []
+    for path, u in units:
+        if not u.get("upgrades"):
+            out.append((path, u))
+            continue
+        patched = apply_upgrades(u, max_tiers(u))
+        cost = dict(patched.get("cost", {}))
+        cost["logistics"] = cost.get("logistics", 0) + k * total_tier_price(u)
+        patched["cost"] = cost
+        out.append((path, patched))
+    return out
 
 # Exponents on the three power axes. Offense dominates, but survivability
 # matters superlinearly in a game where flanking and concentration decide
@@ -207,7 +363,25 @@ def main():
     ap.add_argument("--units", default="data/units")
     ap.add_argument("--tolerance", type=float, default=0.18)
     ap.add_argument("--report", action="store_true", help="print the whole roster")
+    ap.add_argument(
+        "--max-tier",
+        action="store_true",
+        help="patch every unit that carries an 'upgrades' block to its own maximum "
+        "tiers (cost bumped by --upgrade-cost-factor * total tier price) before "
+        "fitting and checking the curve",
+    )
+    ap.add_argument(
+        "--upgrade-cost-factor",
+        type=float,
+        default=None,
+        metavar="K",
+        help="K in 'logistics + K * total tier price' -- required with --max-tier, "
+        "read from docs/campaign/economy/upgrades.md section 5, never hardcoded here",
+    )
     args = ap.parse_args()
+
+    if args.max_tier and args.upgrade_cost_factor is None:
+        ap.error("--max-tier requires --upgrade-cost-factor K")
 
     paths = sorted(glob.glob(os.path.join(args.units, "**", "*.json"), recursive=True))
     units = []
@@ -221,6 +395,10 @@ def main():
     if len(units) < MIN_ROSTER_FOR_FIT:
         print(f"roster has {len(units)} units, need {MIN_ROSTER_FOR_FIT} to fit a curve -- skipping")
         return 0
+
+    if args.max_tier:
+        units = patch_to_max_tier(units, args.upgrade_cost_factor)
+        print(f"max-tier pass: every 'upgrades'-bearing unit patched, K={args.upgrade_cost_factor}\n")
 
     power_score = build_power_fn([u for _, u in units])
 

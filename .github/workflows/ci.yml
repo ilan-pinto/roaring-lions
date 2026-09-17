@@ -60,6 +60,15 @@ jobs:
       - run: pnpm validate:ui
       - run: pnpm validate:audio
       - run: python tools/validate_balance.py --units data/units
+      # Brigade economy Task 5: the same cost-curve check, run again against every
+      # KDF unit patched to its own maximum tiers (tools/validate_balance.py's
+      # `--max-tier`), cost bumped by `--upgrade-cost-factor K` * that unit's own
+      # total tier price. K = 0.02 is the analyst's fitted value
+      # (docs/campaign/economy/upgrades.md section 5), passed on the command line
+      # rather than defaulted inside the script -- see that file's own docstring
+      # for why the two invocations answer different questions and neither
+      # replaces the other.
+      - run: python tools/validate_balance.py --units data/units --max-tier --upgrade-cost-factor 0.02
       - run: pnpm balance
       # Headless mission playtests (tools/src/backtest/playtest.ts): each Beit Sahwan/
       # Wadi Halam mission must be winnable by a sensible scripted plan inside its time

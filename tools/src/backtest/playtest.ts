@@ -18,7 +18,17 @@ import {
   type MissionResult,
   type Stars,
 } from '@lions/sim';
-import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, world } from '@lions/data';
+import {
+  units,
+  maps,
+  missions,
+  structures as structureCatalogue,
+  parseMap,
+  applyTerrain,
+  world,
+  applyUpgrades,
+  maxTiers,
+} from '@lions/data';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
 
@@ -40,6 +50,27 @@ const missionStars = new Map<string, Stars>();
 /** Each mission's own winning-plan credit value (spec 2026-09-15 §4.2), recorded under
  *  the same `label === id` guard as `missionStars`, so probes and controls never count. */
 const missionCredits = new Map<string, number>();
+
+/** Brigade economy Task 5: everything a plain `label === id` VICTORY run needs to be
+ *  replayed with every KDF type patched to its own maximum tier. Recorded under the
+ *  same guard as `missionStars`/`missionCredits` above -- a control, a "(no orders)"
+ *  run or one of Task 7's gate probes never contributes an entry, because every one
+ *  of them passes a label distinct from its own mission id. `baseResult`/`baseStars`
+ *  are what the max-tier replay is held against: the controller's ruling is that a
+ *  max-tier force must stay in the VICTORY class and must not drop a star the base
+ *  run already earned, never that it reproduce the base run's numbers exactly. */
+interface MaxTierProbe {
+  id: keyof typeof missions;
+  plan: Plan;
+  ledger: LedgerData;
+  expectStar: 0 | 1 | 2 | 3;
+  fielded?: string;
+  bought: ReadonlySet<string>;
+  gateOf?: (unitId: string) => UnlockGate | undefined;
+  baseResult: 'ongoing' | 'victory' | 'defeat';
+  baseStars: Stars;
+}
+const maxTierProbes: MaxTierProbe[] = [];
 
 /** A unit JSON entry's `unlock` gate, mapped from the authored
  *  `roe_rating_min`/`stars_min`/`after_mission`/`price` field names to `UnlockGate` -- the
@@ -91,7 +122,17 @@ function run(
    *  hand `resolveUpgrades` a gate no shipped unit actually authors -- e.g. a price-only
    *  gate isolated from breach_team's real `stars_min`, to prove the divergence this
    *  harness's own `kdfUnlockGate` used to have with `main.ts`'s cannot reappear. */
-  gateOf?: (unitId: string) => UnlockGate | undefined
+  gateOf?: (unitId: string) => UnlockGate | undefined,
+  /** Brigade economy Task 5: when 'max', every KDF unit type registers through
+   *  `applyUpgrades(u, maxTiers(u))` instead of its raw JSON -- the same pre-pass
+   *  `main.ts` runs for an owned tier (`ownedTiers[u.id] ?? {}`), maxed rather than
+   *  bought. Enemy (non-kdf) types are never patched, matching `main.ts` exactly. */
+  tiers?: 'max',
+  /** Written by the max-tier replay pass at the end of this file so it can read back
+   *  what THIS run actually measured, without widening `run`'s return type -- every
+   *  existing call site still gets back exactly the produced `LedgerData` it always
+   *  did, spread or chained as-is. */
+  measured?: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars }
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -124,7 +165,12 @@ function run(
     if (got !== i) throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
   }
   const typeOf = new Map<string, number>();
-  for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
+  for (const u of Object.values(units)) {
+    // Mirrors main.ts's own pre-pass exactly (see the `tiers` doc comment above) --
+    // enemy units never go through applyUpgrades, only a KDF unit can carry a tier.
+    const registered = tiers === 'max' && u.faction === 'kdf' ? applyUpgrades(u, maxTiers(u)) : u;
+    typeOf.set(u.id, sim.addUnitType(registered));
+  }
   // `upgrades_to` resolved once, before the runtime is built, exactly as main.ts
   // does it -- so a placed force fields the earned unit here too and the spawner
   // stays gate-blind.
@@ -213,6 +259,19 @@ function run(
   if (expect === 'victory' && label === id) {
     missionStars.set(id, rt.stars);
     missionCredits.set(id, credits);
+    // Brigade economy Task 5: record this same plain victory for the max-tier
+    // replay pass below. `tiers === undefined` is belt-and-suspenders -- a max-tier
+    // replay always passes a label distinct from `id` (see `MaxTierProbe`'s own
+    // comment), so this branch is already unreachable from a replay on `label ===
+    // id` alone, but guarding on both keeps the recorder from ever re-entering
+    // itself if that ever changes.
+    if (tiers === undefined) {
+      maxTierProbes.push({ id, plan, ledger, expectStar, fielded, bought, gateOf, baseResult: rt.result, baseStars: rt.stars });
+    }
+  }
+  if (measured) {
+    measured.result = rt.result;
+    measured.stars = rt.stars;
   }
   return produced;
 }
@@ -2173,6 +2232,58 @@ run(
   'victory',
   'umm_zeitoun_4_clearance'
 );
+
+// --- Brigade economy Task 5: every optimal plan holds at max tier ----------
+//
+// Controller ruling (overrides this task's own brief, which asked for exact
+// equality): the max-tier pass asserts outcome CLASS, not equality. A plain
+// base VICTORY must stay a VICTORY once every KDF unit fielded is patched to
+// its own maximum tier -- upgrades are supposed to make the player STRONGER,
+// and a mission only a weaker force can win would be a broken track, not a
+// balanced one. Stars may only move UP: a stronger force may clear a third
+// star a base-tier one could not, and that is a strictly better outcome,
+// never one to fail on; what a max-tier run may never do is drop a star the
+// base run already earned. Controls, "(no orders)" runs and Task 7's six gate
+// probes are not replayed at all -- they prove something about the mission's
+// own premise or about `resolveUpgrades`, not about whether a plan holds, and
+// every one of them was already excluded from `maxTierProbes` by the same
+// `label === id` guard `missionStars` relies on above.
+//
+// Each replay goes through `run` itself (`tiers: 'max'`, a distinct label so
+// neither ladder below reads it, and `measured` to read back what the run
+// actually produced without widening `run`'s return type) rather than
+// duplicating any of its setup -- registering the sim, resolving upgrades and
+// unlocks, and building the mission runtime all have to happen exactly the
+// way the base run did them, or a divergence in HOW the roster is built could
+// masquerade as a divergence in whether the tracks are balanced.
+let maxTierHeld = 0;
+for (const probe of maxTierProbes) {
+  const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars } = { result: 'ongoing', stars: 0 };
+  run(
+    probe.id,
+    probe.plan,
+    probe.ledger,
+    'victory',
+    `${probe.id} (max tier)`,
+    probe.expectStar,
+    probe.fielded,
+    probe.bought,
+    probe.gateOf,
+    'max',
+    measured
+  );
+  const held = measured.result === 'victory' && measured.stars >= probe.baseStars;
+  if (held) {
+    maxTierHeld++;
+  } else {
+    console.error(
+      `${probe.id} (max tier): FAILED — base ${probe.baseResult.toUpperCase()}/${probe.baseStars}★, ` +
+        `max ${measured.result.toUpperCase()}/${measured.stars}★`
+    );
+    process.exitCode = 1;
+  }
+}
+console.log(`max tier: ${maxTierHeld} of ${maxTierProbes.length} plain victories hold`);
 
 // --- Task 7: the harness proves the gates open where the ladder says -------
 //
