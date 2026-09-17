@@ -842,7 +842,7 @@ async function main(): Promise<void> {
   function mountSaves(host: HTMLElement): Disposer {
     const storage = safeStorage();
     if (!storage) {
-      bootError(host, 'Saves unavailable', 'This browser has no local storage this game can reach.', routes.menu());
+      bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), routes.menu());
       return () => host.replaceChildren();
     }
     const deps: SavesDeps = {
@@ -1049,7 +1049,7 @@ async function main(): Promise<void> {
       },
     ],
     notFound: (host, req) => {
-      bootError(host, 'No such screen', `Nothing lives at ${req.path}.`, routes.menu());
+      bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), routes.menu());
       return () => host.replaceChildren();
     },
   });
@@ -1222,7 +1222,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (missionId !== null) {
     const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!rawMission) {
-      bootError(stage, `Unknown mission "${missionId}"`, 'This link points at a mission that does not exist in this build.');
+      bootError(stage, t('boot.unknownMission.title', { id: missionId }), t('boot.unknownMission.body'));
       // `teardown`, not a fresh no-op: nothing has been registered yet, so it
       // does nothing today -- but an early return that opts OUT of the teardown
       // is how the next registration added above this line goes unreleased.
@@ -2299,19 +2299,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
       onRestart: () => {
         void confirmDialog(document.body, {
-          title: 'Restart the mission?',
-          body: 'This attempt is lost.',
-          confirm: 'Restart',
+          title: t('pause.restart.confirm.title'),
+          body: t('pause.restart.confirm.body'),
+          confirm: t('pause.restart.confirm.action'),
           danger: true,
         }).then((ok) => {
           if (ok) req.restart();
         });
       },
       onQuit: () => {
+        // Same wording as the HUD's own "leave the mission" confirm
+        // (hud.ts's leaveBtn) -- both ask the identical question.
         void confirmDialog(document.body, {
-          title: 'Leave the mission?',
-          body: 'This attempt is lost. The campaign keeps everything from before it.',
-          confirm: 'Leave',
+          title: t('hud.leave.confirm.title'),
+          body: t('hud.leave.confirm.body'),
+          confirm: t('hud.leave.confirm.action'),
           danger: true,
         }).then((ok) => {
           if (ok) req.navigate(routes.campaign());
@@ -3627,6 +3629,11 @@ main().catch((err: unknown) => {
   const stage = document.getElementById('stage');
   if (stage) {
     const body = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    bootError(stage, 'Boot failed', body);
+    // Not t(): main() itself just threw, which can happen before its own
+    // locale boot (loadLocale/setCatalogue) ever runs -- the catalogue is
+    // not a safe thing to call into here. Every other bootError call site
+    // in this file runs from a router callback or bootBattlefield, well
+    // after main()'s boot sequence has completed successfully.
+    bootError(stage, 'Boot failed', body); /* i18n-ok: boot failure before the catalogue */
   }
 });

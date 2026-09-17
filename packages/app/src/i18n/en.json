@@ -2,6 +2,13 @@
   "nav.backToMenu": "← main menu",
   "common.build": "Build {build}",
 
+  "boot.savesUnavailable.title": "Saves unavailable",
+  "boot.savesUnavailable.body": "This browser has no local storage this game can reach.",
+  "boot.notFound.title": "No such screen",
+  "boot.notFound.body": "Nothing lives at {path}.",
+  "boot.unknownMission.title": "Unknown mission \"{id}\"",
+  "boot.unknownMission.body": "This link points at a mission that does not exist in this build.",
+
   "settings.title": "Settings",
   "settings.video": "Video",
   "settings.fullscreen": "Fullscreen",
@@ -48,6 +55,9 @@
   "pause.restart": "Restart",
   "pause.settings": "Settings",
   "pause.quit": "Quit to campaign",
+  "pause.restart.confirm.title": "Restart the mission?",
+  "pause.restart.confirm.body": "This attempt is lost.",
+  "pause.restart.confirm.action": "Restart",
 
   "saves.title": "Saves",
   "saves.empty": "No saves yet.",

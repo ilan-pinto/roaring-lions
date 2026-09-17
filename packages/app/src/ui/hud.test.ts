@@ -824,6 +824,22 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-card__record')?.textContent).toBe('3 missions · 4 kills');
   });
 
+  it('reads the singular for exactly one mission and one kill -- both plurals, independently', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) =>
+          id === world.namer
+            ? { type: 'inf_squad', veterancy: 0, name: 'Dror', missions: 1, kills: 1 }
+            : undefined,
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__record')?.textContent).toBe('1 mission · 1 kill');
+  });
+
   it('shows the callsign alone for a named unit that carries no record', () => {
     // An old save's entry: named on a victory before `missions`/`kills` were
     // written at all, and never fielded since. The callsign is still its name
