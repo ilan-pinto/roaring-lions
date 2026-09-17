@@ -38,6 +38,10 @@ const KILL_TICK_CAP = 600;
 interface Subject {
   readonly id: string;
   readonly x: number;
+  /** Defaults to `SUBJECT_Y`. The `killed` subject overrides this to a row of
+   *  its own so its killer's reach cannot touch anyone else on the parade
+   *  row -- see the SUBJECTS comment on that row. */
+  readonly y?: number;
   readonly bodies: number;
   readonly mode: 'death' | 'walk' | 'killed';
 }
@@ -51,7 +55,12 @@ const SUBJECTS: readonly Subject[] = [
   { id: 'civilians', x: 25, bodies: 1, mode: 'death' }, // topple then fade, no wreck
   { id: 'sniper_team', x: 29, bodies: 1, mode: 'death' }, // already down
   { id: 'moto_rpg', x: 33, bodies: 1, mode: 'death' },
-  { id: 'inf_squad', x: 37, bodies: 1, mode: 'killed' }, // a real killer: direction
+  // a real killer: direction. On its own row 16 tiles south of the parade
+  // line (x=14 rather than the map's x=20: (14,20)/(14,23) are open ground
+  // the whole column down, while x=20's row 20 is a `hall` building tile --
+  // checked against data/maps/beit_sahwan_outskirts.json's own rows) so the
+  // mbt_lavi's reach cannot touch any other subject on the parade row.
+  { id: 'inf_squad', x: 14, y: SUBJECT_Y + 16, bodies: 1, mode: 'killed' },
   { id: 'atgm_cell', x: 41, bodies: 1, mode: 'walk' },
   { id: 'mortar_crew', x: 44, bodies: 1, mode: 'walk' },
   { id: 'digger_crew', x: 47, bodies: 1, mode: 'walk' },
@@ -74,6 +83,7 @@ interface LionsWindow {
       state: { alive: Int8Array | Uint8Array; posX: Int32Array; posY: Int32Array };
       spawn(typeIdx: number, side: number, x: number, y: number): number;
       debugKill(id: number): void;
+      removeFromPlay(id: number): void;
       queueCommand(cmd: { kind: string; ids: number[]; x?: number; y?: number }): void;
     };
   };
@@ -111,28 +121,33 @@ interface Placed {
   killer: number | null;
 }
 
+/** Spawns every subject's own body/bodies on side 0. Deliberately does NOT
+ *  spawn the `killed` subject's killer -- that used to happen here, at t=0,
+ *  which let an `mbt_lavi` with an 8-12 tile reach start hunting the whole
+ *  parade row for the entire `waitForMeshes` wait (up to ~15,000 ticks: 20
+ *  per 400ms poll, up to 300s). Every subject within its reach was dead
+ *  before its own turn came up, so `meshUnitEntities` never held it (a dead
+ *  entity is never assigned a mesh) and `waitForMeshes` burned its full
+ *  budget waiting for something that could not happen. The killer is now
+ *  spawned lazily, inside `captureDeath`, immediately before its own kill
+ *  loop, and removed the moment that loop ends -- see there. */
 async function spawnAll(page: Page): Promise<Placed[]> {
   return page.evaluate(
-    ([rows, killerType, y]) => {
+    ([rows, defaultY]) => {
       const L = (window as unknown as LionsWindow).__lions;
       const FIXED = 65536;
       const out: { subject: (typeof rows)[number]; ids: number[]; killer: number | null }[] = [];
       for (const row of rows) {
         const typeIdx = L.sim.unitTypes.findIndex((t) => t.id === row.id);
         if (typeIdx < 0) throw new Error(`no unit type "${row.id}" in this build`);
+        const rowY = row.y ?? defaultY;
         const ids: number[] = [];
-        for (let b = 0; b < row.bodies; b++) ids.push(L.sim.spawn(typeIdx, 0, (row.x + b) * FIXED, y * FIXED));
-        let killer: number | null = null;
-        if (row.mode === 'killed') {
-          const kIdx = L.sim.unitTypes.findIndex((t) => t.id === killerType);
-          if (kIdx < 0) throw new Error(`no unit type "${killerType}" in this build`);
-          killer = L.sim.spawn(kIdx, 1, row.x * FIXED, (y - 3) * FIXED);
-        }
-        out.push({ subject: row, ids, killer });
+        for (let b = 0; b < row.bodies; b++) ids.push(L.sim.spawn(typeIdx, 0, (row.x + b) * FIXED, rowY * FIXED));
+        out.push({ subject: row, ids, killer: null });
       }
       return out;
     },
-    [wanted, KILLER_TYPE, SUBJECT_Y] as const
+    [wanted, SUBJECT_Y] as const
   );
 }
 
@@ -233,23 +248,34 @@ async function advanceFrames(page: Page, ms: number): Promise<void> {
 async function captureDeath(page: Page, p: Placed): Promise<void> {
   const id = p.ids[0];
   if (p.subject.mode === 'killed') {
-    const ticks = await page.evaluate(
-      ([e, cap]) => {
+    const y = p.subject.y ?? SUBJECT_Y;
+    // Spawn the killer HERE, immediately before its own kill loop, not in
+    // spawnAll -- see spawnAll's own comment for why. Removed the instant
+    // the loop ends (dead or capped) so it cannot go on to shoot anyone
+    // else during the rest of this run.
+    const result = await page.evaluate(
+      ([e, killerType, kx, ky, cap]) => {
         const L = (window as unknown as LionsWindow).__lions;
+        const FIXED = 65536;
+        const kIdx = L.sim.unitTypes.findIndex((t) => t.id === killerType);
+        if (kIdx < 0) throw new Error(`no unit type "${killerType}" in this build`);
+        const killer = L.sim.spawn(kIdx, 1, kx * FIXED, ky * FIXED);
         let n = 0;
         while (L.sim.state.alive[e] !== 0 && n < cap) {
           L.step(1);
           n++;
         }
-        return n;
+        L.sim.removeFromPlay(killer);
+        return { ticks: n, killer };
       },
-      [id, KILL_TICK_CAP] as const
+      [id, KILLER_TYPE, p.subject.x, y - 3, KILL_TICK_CAP] as const
     );
-    if (ticks >= KILL_TICK_CAP) {
+    p.killer = result.killer;
+    if (result.ticks >= KILL_TICK_CAP) {
       notes.push(`${p.subject.id} (killed): the ${KILLER_TYPE} never killed it in ${KILL_TICK_CAP} ticks`);
       return;
     }
-    console.log(`  ${p.subject.id}: killed by ${KILLER_TYPE} after ${ticks} ticks`);
+    console.log(`  ${p.subject.id}: killed by ${KILLER_TYPE} after ${result.ticks} ticks`);
   } else {
     await page.evaluate((e) => {
       const L = (window as unknown as LionsWindow).__lions;
