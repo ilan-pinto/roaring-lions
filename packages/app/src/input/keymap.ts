@@ -42,12 +42,22 @@ export const ACTIONS: readonly ActionSpec[] = [
 /** The arrow keys pan alongside WASD whatever the bindings say. */
 const ARROWS: Readonly<Record<string, Action>> = { arrowup: 'panUp', arrowdown: 'panDown', arrowleft: 'panLeft', arrowright: 'panRight' };
 
+/** Never assignable, the same way a digit never is. An arrow key already has
+ *  a fixed meaning (`ARROWS` above) that does not go through a binding at
+ *  all -- if a rebind could park, say, `halt` on `'arrowup'`, `resolveKey`'s
+ *  `holder` lookup would find that binding and return `'halt'` before ever
+ *  reaching the `ARROWS` fallback, so pressing the physical Up arrow would
+ *  halt instead of pan. Reusing `ARROWS`' own keys rather than a second
+ *  literal list keeps the two enumerations from drifting apart. */
+const RESERVED = new Set<string>(Object.keys(ARROWS));
+
 export type Bindings = Readonly<Record<Action, string>>;
 
 export const isAction = (s: string): s is Action => ACTIONS.some((a) => a.id === s);
 const spec = (id: Action): ActionSpec => ACTIONS.find((a) => a.id === id) as ActionSpec;
 const norm = (key: string): string => key.toLowerCase();
 const DIGIT = /^[0-9]$/;
+const unassignable = (k: string): boolean => DIGIT.test(k) || RESERVED.has(k) || k.length === 0;
 
 function holder(b: Bindings, key: string, modifier: 'ctrl' | undefined, except?: Action): Action | null {
   for (const a of ACTIONS) {
@@ -62,7 +72,7 @@ export function bindingsFrom(overrides: Record<string, string>): Bindings {
   for (const [id, key] of Object.entries(overrides)) {
     if (!isAction(id) || !spec(id).rebindable) continue;
     const k = norm(key);
-    if (DIGIT.test(k) || k.length === 0) continue;
+    if (unassignable(k)) continue;
     if (holder(out, k, spec(id).modifier, id) !== null) continue;
     out[id] = k;
   }
@@ -81,10 +91,31 @@ export function resolveKey(b: Bindings, ev: { key: string; ctrlKey: boolean; met
 export function rebind(b: Bindings, action: Action, key: string): { ok: true; bindings: Bindings } | { ok: false; takenBy: Action } {
   const k = norm(key);
   const s = spec(action);
-  if (!s.rebindable || DIGIT.test(k) || k.length === 0) return { ok: false, takenBy: action };
+  if (!s.rebindable || unassignable(k)) return { ok: false, takenBy: action };
   const taken = holder(b, k, s.modifier, action);
   if (taken) return { ok: false, takenBy: taken };
   return { ok: true, bindings: { ...b, [action]: k } };
+}
+
+/**
+ * Is ANY physical key in `keys` currently a pan direction for `action`?
+ *
+ * The render loop tracks physical keys (`ev.key.toLowerCase()`), not action
+ * ids, because a modifier-free pan key has no per-key state of its own to
+ * lose track of -- and, more to the point, W and the physical Up arrow are
+ * two different keys that both mean `panUp`. Storing the resolved ACTION
+ * instead of the key would collapse them onto one Set entry, so releasing
+ * either one (whichever's `keyup` happened to fire) would delete the entry
+ * and stop the pan while the OTHER key was still held. Checking with no
+ * modifier is correct for every action this is used for: every pan action's
+ * `modifier` is `undefined`, and a key that was added while a modifier was
+ * held would have resolved to a DIFFERENT action at add-time (`resolveKey`'s
+ * own modifier-aware lookup) and never reached the pan case at all. */
+export function heldAction(b: Bindings, keys: Iterable<string>, action: Action): boolean {
+  for (const k of keys) {
+    if (resolveKey(b, { key: k, ctrlKey: false, metaKey: false }) === action) return true;
+  }
+  return false;
 }
 
 export function overridesOf(b: Bindings): Record<string, string> {

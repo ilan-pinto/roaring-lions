@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, bindingsFrom, keyLabel, overridesOf, rebind, resolveKey } from './keymap';
+import { ACTIONS, bindingsFrom, heldAction, keyLabel, overridesOf, rebind, resolveKey } from './keymap';
 
 describe('keymap', () => {
   it('ships the bindings main.ts had hard-coded, in the same letters', () => {
@@ -38,10 +38,20 @@ describe('keymap', () => {
     expect(rebind(b, 'pause', 'p').ok).toBe(false);
     expect(rebind(b, 'halt', '3').ok).toBe(false);
   });
+  it('rebind refuses an arrow key -- it already has a fixed meaning outside the table', () => {
+    const b = bindingsFrom({});
+    expect(rebind(b, 'halt', 'ArrowUp').ok).toBe(false);
+    expect(rebind(b, 'halt', 'arrowdown').ok).toBe(false);
+  });
   it('bindingsFrom drops an override that collides or names an unknown action', () => {
     const b = bindingsFrom({ halt: 'f', nope: 'x', smoke: 'k' });
     expect(b.halt).toBe('h');
     expect(b.smoke).toBe('k');
+  });
+  it('bindingsFrom drops a digit or an arrow-key override, same as rebind does', () => {
+    const b = bindingsFrom({ halt: '3', smoke: 'arrowleft' });
+    expect(b.halt).toBe('h');
+    expect(b.smoke).toBe('f');
   });
   it('overridesOf round-trips through bindingsFrom and is empty at the defaults', () => {
     expect(overridesOf(bindingsFrom({}))).toEqual({});
@@ -59,5 +69,19 @@ describe('keymap', () => {
   it('every action in ACTIONS has a distinct default key within its modifier class', () => {
     const plain = ACTIONS.filter((a) => a.modifier === undefined).map((a) => a.key);
     expect(new Set(plain).size).toBe(plain.length);
+  });
+  it('heldAction is true while ANY physical key held resolves to that action', () => {
+    const b = bindingsFrom({});
+    // W and the physical Up arrow are two different keys that both mean
+    // panUp -- releasing one (removing it from the held set) must not stop
+    // the other from still counting.
+    expect(heldAction(b, ['w', 'arrowup'], 'panUp')).toBe(true);
+    expect(heldAction(b, ['arrowup'], 'panUp')).toBe(true); // 'w' released
+    expect(heldAction(b, [], 'panUp')).toBe(false); // both released
+    expect(heldAction(b, ['w'], 'panDown')).toBe(false); // wrong direction
+    // The key that answers is not necessarily the FIRST one held -- an
+    // irrelevant key (a Set's insertion order) ahead of the one that matters
+    // must not shadow it.
+    expect(heldAction(b, ['x', 'w'], 'panUp')).toBe(true);
   });
 });

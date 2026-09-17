@@ -2930,6 +2930,18 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink-mute);
   font-size: var(--t-s);
 }
+/* The keycap in a Task 5 keymap row (ui/settings-keymap.ts) -- the same
+   frame-and-mono-face `.rl-settings__control select` already wears, since
+   both are "a small fixed-width readout inside this row's control column". */
+.rl-keymap__key {
+  display: inline-block;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
 /* The back link -- same look as `.rl-loading__back`'s own control-inside-the-
    body placement, sized to its own text rather than stretching the panel's
    width. */

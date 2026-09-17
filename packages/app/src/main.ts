@@ -70,7 +70,7 @@ import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { bindingsFrom, isAction, keyLabel, overridesOf, resolveKey } from './input/keymap';
+import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, resolveKey } from './input/keymap';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -2617,7 +2617,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       case 'panDown':
       case 'panLeft':
       case 'panRight':
-        keys.add(action);
+        // The PHYSICAL key, not the action -- W and the physical Up arrow are
+        // two different keys that both resolve to `panUp`, and storing the
+        // action here would collapse them onto one Set entry, so releasing
+        // whichever key's `keyup` happens to fire first would stop the pan
+        // while the other was still held. `heldAction` (below, in the render
+        // loop) is what turns a set of physical keys back into "is this
+        // direction held right now".
+        keys.add(ev.key.toLowerCase());
         break;
       case null:
         break; // the digit branches below stay exactly as they are
@@ -2668,10 +2675,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
     }
   });
-  onWindow('keyup', (ev) => {
-    const action = resolveKey(bindings, ev);
-    if (action) keys.delete(action);
-  });
+  // Deletes the physical key regardless of what it resolves to NOW -- `keys`
+  // was populated by physical key, so removal has to match by physical key
+  // too, and a delete of something never added is a harmless no-op.
+  onWindow('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const z = renderer.camera.zoom * (ev.deltaY > 0 ? 0.9 : 1.1);
@@ -3303,23 +3310,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // pause menu included (Task 6) -- `get()` is a plain getter, so this
     // costs nothing extra per frame.
     const panSpeed = (0.5 * req.settings.get().controls.cameraSpeed) / renderer.camera.zoom;
-    // `keys` holds pan ACTION ids now (Task 5), not letters -- the arrows pan
-    // alongside whatever WASD is bound to because `resolveKey` folds them
-    // onto the same four actions (`ARROWS` in `input/keymap.ts`), so there is
-    // only one action per direction to test here rather than two keys.
-    if (keys.has('panUp')) {
+    // `keys` holds PHYSICAL keys (Task 5 fix round 1) -- W and the physical
+    // Up arrow are two different keys that both mean `panUp`, so `held`
+    // asks whether ANY held key currently resolves to that action rather
+    // than testing one fixed spelling. Holding W and ArrowUp together and
+    // releasing only one keeps the camera panning.
+    const held = (action: 'panUp' | 'panDown' | 'panLeft' | 'panRight'): boolean =>
+      heldAction(bindings, keys, action);
+    if (held('panUp')) {
       renderer.camera.x -= panSpeed;
       renderer.camera.y -= panSpeed;
     }
-    if (keys.has('panDown')) {
+    if (held('panDown')) {
       renderer.camera.x += panSpeed;
       renderer.camera.y += panSpeed;
     }
-    if (keys.has('panLeft')) {
+    if (held('panLeft')) {
       renderer.camera.x -= panSpeed;
       renderer.camera.y += panSpeed;
     }
-    if (keys.has('panRight')) {
+    if (held('panRight')) {
       renderer.camera.x += panSpeed;
       renderer.camera.y -= panSpeed;
     }

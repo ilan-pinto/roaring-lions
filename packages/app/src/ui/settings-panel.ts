@@ -333,7 +333,18 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   p.body.appendChild(foot);
 
   host.appendChild(p.el);
-  return { el: p.el, dispose: () => p.el.remove() };
+  return {
+    el: p.el,
+    dispose: () => {
+      // Cancels a pending rebind capture and its hint timers -- without this
+      // a capture-phase `keydown` armed by "Change" would keep listening on
+      // `window` after the player left `/settings` (or Task 6 closed the
+      // pause menu mid-capture), answering to a panel that is no longer on
+      // screen.
+      deps.keymap?.dispose();
+      p.el.remove();
+    },
+  };
 }
 
 export function showSettings(stage: HTMLElement, deps: SettingsDeps & { back: string }): Disposer {
