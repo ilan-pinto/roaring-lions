@@ -21,6 +21,7 @@ import { parseFixture } from './mesh-fixture';
 import { rampMaterial } from '../world-materials';
 import { groundWorldY } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
+import { applyMeshClip } from './mesh-clip';
 import {
   MESH_DEATH_SECONDS,
   meshDeathOpacity,
@@ -36,8 +37,14 @@ import {
   type MeshDeathEnv,
 } from './mesh-death';
 
-async function buildEntity(clips: string | string[]): Promise<MeshUnitEntity> {
-  const gltf = await parseFixture({ roleName: 'uniform', clipName: clips });
+async function buildEntity(
+  spec: string | string[] | { clips: string[]; scaleClips?: Record<string, { root: number; deathRoot: number }>; rootOffset?: [number, number, number] }
+): Promise<MeshUnitEntity> {
+  const opts =
+    typeof spec === 'string' || Array.isArray(spec)
+      ? { roleName: 'uniform', clipName: spec }
+      : { roleName: 'uniform', clipName: spec.clips, scaleClips: spec.scaleClips, rootOffset: spec.rootOffset };
+  const gltf = await parseFixture(opts);
   const template = buildMeshUnitTemplate(gltf, 'kdf');
   return instantiateMeshUnit(template, 'inf_squad');
 }
@@ -174,24 +181,59 @@ describe('beginMeshDeathFade / setMeshDeathOpacity / endMeshDeathFade', () => {
 // --- beginMeshDeath ------------------------------------------------------
 
 describe('beginMeshDeath', () => {
-  it('plays the down clip when the GLB has one, and captures baseWorldY/t=0/one swap per mesh', async () => {
-    const entity = await buildEntity(['idle', 'down']);
+  it('a GLB with a fall clip plays it once, no fade clone, phase falling (D3/D4)', async () => {
+    const entity = await buildEntity(['idle', 'fall', 'wreck']);
     entity.root.position.set(2, 5, 3);
-    const dying = beginMeshDeath(entity);
-    // Break check (verified by hand, then reverted): delete the
-    // `applyMeshClip(entity, 'down');` call in `beginMeshDeath`. This
-    // assertion then reads `null` (no clip ever applied to a freshly
-    // instantiated entity) instead of `'down'` and goes red.
-    expect(entity.currentClip).toBe('down');
+    const dying = beginMeshDeath(entity, 3);
+    // Break (verified by hand, then reverted): make beginMeshDeath play
+    // `down` instead of `pick.fall` -- this reads 'down'.
+    expect(entity.currentClip).toBe('fall');
+    expect(dying.phase).toBe('falling');
+    expect(dying.swaps).toHaveLength(0);
+    expect(dying.fallAction).toBe(entity.actions.get('fall'));
     expect(dying.t).toBe(0);
     expect(dying.baseWorldY).toBe(5);
-    expect(dying.swaps).toHaveLength(1);
   });
 
-  it('falls back to idle -- through the EXISTING applyMeshClip fallback, not a second one -- when the GLB has no down clip', async () => {
-    const entity = await buildEntity('idle');
-    beginMeshDeath(entity);
-    expect(entity.currentClip).toBe('idle');
+  it('picks fallAlt for the ids that pick wreckAlt, so the fall ends in its own corpse', async () => {
+    const ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const seen = new Set<string>();
+    for (const id of ids) {
+      const fresh = await buildEntity(['idle', 'fall', 'fallAlt', 'wreck', 'wreckAlt']);
+      beginMeshDeath(fresh, id);
+      seen.add(fresh.currentClip ?? 'none');
+    }
+    expect(seen).toEqual(new Set(['fall', 'fallAlt']));
+  });
+
+  it('"already down": a living clip that keys the same scales as wreck goes straight to settling', async () => {
+    const entity = await buildEntity({
+      clips: ['idle', 'move', 'wreck'],
+      scaleClips: { idle: { root: 0, deathRoot: 1 }, move: { root: 1, deathRoot: 0 }, wreck: { root: 0, deathRoot: 1 } },
+    });
+    applyMeshClip(entity, 'idle'); // the sniper on overwatch: prone rig live
+    const dying = beginMeshDeath(entity);
+    expect(dying.phase).toBe('settling');
+    expect(entity.currentClip).toBe('wreck');
+    expect(dying.swaps).toHaveLength(0);
+  });
+
+  it('the same rig killed on the move (standing rig live) does NOT take the already-down path', async () => {
+    const entity = await buildEntity({
+      clips: ['idle', 'move', 'wreck'],
+      scaleClips: { idle: { root: 0, deathRoot: 1 }, move: { root: 1, deathRoot: 0 }, wreck: { root: 0, deathRoot: 1 } },
+    });
+    applyMeshClip(entity, 'move');
+    const dying = beginMeshDeath(entity);
+    expect(dying.phase).not.toBe('settling');
+  });
+
+  it('no fall, no wreck-shaped living clip: the pre-topple path still plays down and fades (until Task 5)', async () => {
+    const entity = await buildEntity(['idle', 'down', 'wreck']);
+    const dying = beginMeshDeath(entity);
+    expect(entity.currentClip).toBe('down');
+    expect(dying.phase).toBe('fading');
+    expect(dying.swaps).toHaveLength(1);
   });
 });
 
@@ -248,7 +290,7 @@ describe('stepMeshDeath', () => {
     // `MeshWreck` object, not the string `'fading'`).
     const atBoundary = stepMeshDeath(dying, MESH_DEATH_SECONDS, env);
     expect(atBoundary).toBe('fading');
-    expect(dying.settling).toBe(true);
+    expect(dying.phase).toBe('settling');
     expect(entity.currentClip).toBe('wreck');
 
     // Break check (verified by hand, then reverted): in `stepMeshDeath`'s
@@ -395,6 +437,47 @@ describe('stepMeshDeath', () => {
     // let it settle before `frozen` is captured.
     entity.mixer.update(0.37);
     expect(bone.quaternion.equals(frozen)).toBe(true);
+  });
+
+  it('falling: no opacity write, no sink, mixer advances; becomes settling only once the fall action pauses', async () => {
+    const entity = await buildEntity(['idle', 'fall', 'wreck']); // fixture clips are 1 s
+    entity.root.position.set(1, 4, 1);
+    const scene = new THREE.Scene();
+    scene.add(entity.root);
+    const dying = beginMeshDeath(entity, 5);
+    const env = makeEnv({ scene });
+    const material = findMeshMaterial(entity);
+
+    expect(stepMeshDeath(dying, 0.5, env)).toBe('fading');
+    expect(dying.phase).toBe('falling');
+    expect(material.opacity).toBe(1); // Break: call beginMeshDeathFade in the fall path -- a clone at < 1 appears
+    expect(entity.root.position.y).toBe(4);
+
+    expect(stepMeshDeath(dying, 0.6, env)).toBe('fading'); // fall (1 s) has now paused; wreck starts
+    expect(dying.phase).toBe('settling');
+    expect(entity.currentClip).toBe('wreck');
+    expect(dying.swaps).toHaveLength(0);
+
+    stepMeshDeath(dying, 0.5, env);
+    const done = stepMeshDeath(dying, 0.6, env);
+    expect(done).not.toBe('fading');
+    expect(done).not.toBe('removed');
+    expect((done as MeshWreck).root).toBe(entity.root);
+    expect(material.opacity).toBe(1);
+  });
+
+  it('a template with fall but no wreck is impossible by contract; the module still removes it after the fall', async () => {
+    const entity = await buildEntity(['idle', 'fall']);
+    const scene = new THREE.Scene();
+    scene.add(entity.root);
+    const dying = beginMeshDeath(entity);
+    const env = makeEnv({ scene });
+    stepMeshDeath(dying, 1.1, env);
+    expect(dying.phase).toBe('fading');
+    let result: ReturnType<typeof stepMeshDeath> = 'fading';
+    for (let i = 0; i < 6 && result === 'fading'; i++) result = stepMeshDeath(dying, 0.1, env);
+    expect(result).toBe('removed');
+    expect(scene.children).not.toContain(entity.root);
   });
 });
 
