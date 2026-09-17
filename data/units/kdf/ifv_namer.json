@@ -56,5 +56,88 @@
   },
   "abilities": [
     "smoke"
-  ]
+  ],
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 250,
+          "patch": {
+            "hull.hp": 154,
+            "hull.armor.front": 29,
+            "hull.armor.side": 15,
+            "hull.armor.rear": 8
+          }
+        },
+        {
+          "price": 380,
+          "patch": {
+            "hull.hp": 330,
+            "hull.armor.front": 63,
+            "hull.armor.side": 33,
+            "hull.armor.rear": 18
+          }
+        },
+        {
+          "price": 535,
+          "patch": {
+            "hull.hp": 550,
+            "hull.armor.front": 105,
+            "hull.armor.side": 55,
+            "hull.armor.rear": 30
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 210,
+          "patch": {
+            "sensors.optics": 0.09,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 315,
+          "patch": {
+            "sensors.optics": 0.17,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 440,
+          "patch": {
+            "sensors.optics": 0.28,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    },
+    "firepower": {
+      "tiers": [
+        {
+          "price": 315,
+          "patch": {
+            "weapons[0].accuracy": 0.03,
+            "weapons[0].penetration": 10
+          }
+        },
+        {
+          "price": 470,
+          "patch": {
+            "weapons[0].accuracy": 0.06,
+            "weapons[0].penetration": 19
+          }
+        },
+        {
+          "price": 660,
+          "patch": {
+            "weapons[0].accuracy": 0.1,
+            "weapons[0].penetration": 30
+          }
+        }
+      ]
+    }
+  }
 }

@@ -38,5 +38,63 @@
   "unlock": {
     "roe_rating_min": 35,
     "price": 220
+  },
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 85,
+          "patch": {
+            "hull.hp": 8,
+            "hull.armor.front": 0,
+            "hull.armor.side": 0,
+            "hull.armor.rear": 0
+          }
+        },
+        {
+          "price": 125,
+          "patch": {
+            "hull.hp": 18,
+            "hull.armor.front": 0,
+            "hull.armor.side": 0,
+            "hull.armor.rear": 0
+          }
+        },
+        {
+          "price": 180,
+          "patch": {
+            "hull.hp": 30,
+            "hull.armor.front": 0,
+            "hull.armor.side": 0,
+            "hull.armor.rear": 0
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 70,
+          "patch": {
+            "sensors.optics": 0.16,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 105,
+          "patch": {
+            "sensors.optics": 0.3,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 145,
+          "patch": {
+            "sensors.optics": 0.5,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
   }
 }

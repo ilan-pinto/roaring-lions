@@ -16,5 +16,63 @@
   "sensors": { "optics": 0.8, "sight_tiles": 7, "signature": 1.15, "firing_signature_mult": 1.0 },
   "abilities": ["demolish"],
   "demolition_time_s": 2.0,
-  "demolition_method": "blade"
+  "demolition_method": "blade",
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 235,
+          "patch": {
+            "hull.hp": 168,
+            "hull.armor.front": 17,
+            "hull.armor.side": 12,
+            "hull.armor.rear": 8
+          }
+        },
+        {
+          "price": 350,
+          "patch": {
+            "hull.hp": 360,
+            "hull.armor.front": 36,
+            "hull.armor.side": 26,
+            "hull.armor.rear": 16
+          }
+        },
+        {
+          "price": 500,
+          "patch": {
+            "hull.hp": 600,
+            "hull.armor.front": 60,
+            "hull.armor.side": 42,
+            "hull.armor.rear": 28
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 195,
+          "patch": {
+            "sensors.optics": 0.06,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 295,
+          "patch": {
+            "sensors.optics": 0.12,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 410,
+          "patch": {
+            "sensors.optics": 0.2,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    }
+  }
 }
