@@ -129,10 +129,15 @@ export class Router {
   private readonly notFound: Mount;
   private readonly transitionMs: number;
   private mounted: Mounted | null = null;
+  /** The abort controller for a mount currently in flight (awaiting its `mount()` call), or null between navigations. */
+  private inflight: AbortController | null = null;
   private seq = 0;
   private pending: Promise<void> = Promise.resolve();
   private readonly onPop = (): void => {
-    this.pending = this.pending.then(() => this.mountLocation(false, null));
+    // Dispatched immediately, exactly like navigate() below: a back/forward
+    // that arrives while an earlier navigation is still mounting must be able
+    // to preempt it right away rather than queue behind it.
+    this.pending = this.mountLocation(false, null);
   };
 
   constructor(opts: RouterOptions) {
@@ -204,6 +209,12 @@ export class Router {
   }
 
   private unmount(): void {
+    // A mount still in flight (never reached `this.mounted`) is aborted here
+    // too, not just the currently-mounted screen -- otherwise dispose() (which
+    // calls this) or a navigation arriving mid-mount would leave that mount's
+    // `req.signal` unaborted until it happens to resolve on its own.
+    this.inflight?.abort();
+    this.inflight = null;
     const m = this.mounted;
     this.mounted = null;
     if (!m) return;
@@ -238,24 +249,34 @@ export class Router {
     // `await` in between: that atomicity is what lets a second, overlapping
     // navigate() call see the correct (already-cleared) `this.mounted` the
     // moment it runs, rather than racing this one to decide who tears the
-    // old screen down. The leave animation is cosmetic and comes after.
+    // old screen down. The leave animation is cosmetic and comes after --
+    // and since an interrupted earlier call may still be mid-fade, every
+    // call clears any leftover leave class unconditionally right here. That
+    // makes the earlier call's own (guarded, below) removal a harmless
+    // no-op instead of the winner inheriting someone else's faded-out stage.
     const hadPrevious = this.mounted !== null;
     this.unmount();
-    if (animate && hadPrevious) {
+    this.stage.classList.remove('rl-stage--leave');
+    if (animate && hadPrevious && this.transitionMs > 0) {
       this.stage.classList.add('rl-stage--leave');
       await new Promise((r) => setTimeout(r, this.transitionMs));
-      this.stage.classList.remove('rl-stage--leave');
+      // A newer navigation may have taken over while this one was waiting;
+      // only the current call may still touch the shared stage class list.
+      if (seq === this.seq) this.stage.classList.remove('rl-stage--leave');
     }
     const abort = new AbortController();
+    this.inflight = abort;
     const req: RouteRequest = { name: def?.name ?? '404', params, query, path, signal: abort.signal };
     const mount = def?.mount ?? this.notFound;
     let dispose: Disposer;
     try {
       dispose = await mount(this.stage, req);
     } catch (err) {
+      if (this.inflight === abort) this.inflight = null;
       if (abort.signal.aborted || seq !== this.seq) return;
       throw err;
     }
+    if (this.inflight === abort) this.inflight = null;
     if (seq !== this.seq) {
       abort.abort();
       dispose();
@@ -264,6 +285,12 @@ export class Router {
     this.mounted = { req, dispose, abort };
     if (animate && this.transitionMs > 0) {
       this.stage.classList.add('rl-stage--enter');
+      // Unconditional, unlike the leave removal above: `classList.add` on an
+      // already-present class does not retrigger its CSS animation, so if
+      // this call went stale before its own timer fired, leaving the class
+      // stuck would silently break the next navigation's enter animation.
+      // There is no "winner inherits it at the wrong opacity" risk here the
+      // way there is for leave, since entering is additive, not exclusive.
       setTimeout(() => this.stage.classList.remove('rl-stage--enter'), this.transitionMs);
     }
   }

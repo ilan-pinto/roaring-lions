@@ -65,7 +65,7 @@ describe('legacyRedirect', () => {
   });
 });
 
-function makeRouter(opts: { base?: string; start?: string } = {}) {
+function makeRouter(opts: { base?: string; start?: string; transitionMs?: number } = {}) {
   const stage = document.createElement('div');
   document.body.appendChild(stage);
   const log: string[] = [];
@@ -87,7 +87,7 @@ function makeRouter(opts: { base?: string; start?: string } = {}) {
   const router = new Router({
     base: opts.base ?? '/',
     stage,
-    transitionMs: 0,
+    transitionMs: opts.transitionMs ?? 0,
     routes: [
       { name: 'menu', pattern: '/', mount: mountOf('menu') },
       { name: 'campaign', pattern: '/campaign', mount: mountOf('campaign') },
@@ -212,6 +212,43 @@ describe('Router', () => {
     expect(log.at(-1)).toBe('mount:menu');
   });
 
+  it('popstate preempts a pending mount, not queues behind it', async () => {
+    const { router, log, disposed } = makeRouter({ start: '/' });
+    await router.start();
+    const slow = router.navigate('/slow');
+    // Simulate the location a real back-navigation would have already
+    // applied by the time `popstate` fires (see the "follows popstate" test
+    // for why jsdom's own `history.back()` needs extra ticks to do this same
+    // thing) -- what's under test here is the router's own preemption, not
+    // jsdom's back() timing.
+    window.history.pushState(null, '', '/');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await router.idle();
+    expect(log.at(-1)).toBe('mount:menu');
+    await slow;
+    expect(disposed).toEqual(['menu', 'slow']);
+  });
+
+  it('dispose() aborts a mount that is still in flight, not just the mounted one', async () => {
+    const { router } = makeRouter({ start: '/' });
+    // Same TS-narrowing reason as the AbortSignal test above: box the capture.
+    const box: { seen: AbortSignal | null; settle: (() => void) | null } = { seen: null, settle: null };
+    router.register({
+      name: 'pending',
+      pattern: '/pending',
+      mount: (_h, req) =>
+        new Promise<Disposer>((resolve) => {
+          box.seen = req.signal;
+          box.settle = () => resolve(() => {});
+        }),
+    });
+    await router.start();
+    void router.navigate('/pending');
+    router.dispose();
+    expect(box.seen?.aborted).toBe(true);
+    box.settle?.();
+  });
+
   it('mounts notFound for an unknown path', async () => {
     const { router, log } = makeRouter({ start: '/nope' });
     await router.start();
@@ -234,9 +271,18 @@ describe('Router', () => {
     const ext = document.createElement('a');
     ext.href = 'https://example.com/x';
     document.body.appendChild(ext);
+    // Leaving this click to the browser's default action is exactly what's
+    // under test -- jsdom then tries the real navigation it doesn't support
+    // and logs "Not implemented: navigation to another Document" via
+    // console.error. That happens on the next macrotask, not synchronously
+    // with the click (measured), so the mock has to outlive one tick, not
+    // just the dispatch, or it restores before jsdom ever calls it.
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const ev2 = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     ext.dispatchEvent(ev2);
     expect(ev2.defaultPrevented).toBe(false);
+    await new Promise((r) => setTimeout(r, 0));
+    err.mockRestore();
 
     const mod = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, metaKey: true });
     a.dispatchEvent(mod);
@@ -254,7 +300,10 @@ describe('Router', () => {
 
 describe('Router transition', () => {
   it('marks the stage while a screen leaves and enters', async () => {
-    const { router, stage } = makeRouter({ start: '/' });
+    // The leave block only runs when transitionMs > 0 (it mirrors the enter
+    // block's own gate), so this test needs a real duration -- the other
+    // tests all use the default transitionMs: 0 to stay fast and race-free.
+    const { router, stage } = makeRouter({ start: '/', transitionMs: 30 });
     await router.start();
     const seen: string[] = [];
     const obs = new MutationObserver(() => seen.push(stage.className));
@@ -264,5 +313,16 @@ describe('Router transition', () => {
     expect(seen.some((c) => c.includes('rl-stage--leave'))).toBe(true);
     expect(stage.className.includes('rl-stage--leave')).toBe(false);
     vi.restoreAllMocks();
+  });
+
+  it('a fast navigation clears a leave class left behind by the one it superseded', async () => {
+    const { router, stage } = makeRouter({ start: '/', transitionMs: 30 });
+    await router.start();
+    const slow = router.navigate('/slow');
+    const camp = router.navigate('/campaign');
+    await slow;
+    await camp;
+    expect(stage.classList.contains('rl-stage--leave')).toBe(false);
+    expect(stage.querySelector('[data-screen="campaign"]')).not.toBeNull();
   });
 });
