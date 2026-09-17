@@ -2745,3 +2745,46 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-brigade__buy {
   color: var(--commend);
 }
+/* Task 7: per-track tier pips and Buy control on an AVAILABLE row (a locked
+   row shows none of this -- nothing can be upgraded before it is in the
+   brigade). `.rl-brigade__tracks` wraps the whole set as a column placed
+   after `.rl-brigade__why`, rather than letting each `.rl-brigade__track`
+   line sit directly in `.rl-brigade__row`'s own single flex row: two tracks
+   of pips-plus-button next to the name/role/why columns already in that row
+   would crowd it at the panel's own width (min(45rem, 94vw)), so tracks stack
+   under the row's other content instead of widening it. */
+.rl-brigade__tracks {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-brigade__track {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-s);
+}
+.rl-brigade__track-name {
+  color: var(--ink-dim);
+  min-width: 5em;
+}
+.rl-brigade__pips {
+  display: flex;
+  gap: var(--s1);
+}
+.rl-brigade__pip {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  border: 1px solid var(--commend); /* px-ok */
+}
+.rl-brigade__pip[data-filled='1'] {
+  background: var(--commend);
+}
+.rl-brigade__buy-tier {
+  color: var(--commend);
+}
+.rl-brigade__track-max {
+  color: var(--ink-dim);
+}

@@ -1,6 +1,7 @@
 // The brigade: every KDF unit the campaign knows about, whether it is in reach
 // yet, and — for the ones that are not — exactly what would open it. Pure DOM,
 // no sim, the same shape as `debrief.ts` beside it.
+import { nextTierPrice, type UpgradeTracks } from '@lions/data';
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { gateSentence } from '../gate-sentence';
@@ -25,6 +26,11 @@ export interface BrigadeUnit {
   isKamikaze: boolean;
   transportSlots: number;
   isSoft: boolean;
+  /** Brigade economy step 3 upgrade tracks (`@lions/data`'s `UpgradeTracks`) --
+   *  absent for a unit with none. Rendered only on an AVAILABLE row; a locked
+   *  row shows no tracks at all, since nothing can be bought for a unit not
+   *  yet in reach. */
+  upgrades?: UpgradeTracks;
 }
 
 export interface BrigadeOptions {
@@ -51,6 +57,14 @@ export interface BrigadeOptions {
   /** Called when the player clicks a priced locked row's Buy control. The caller buys,
    *  saves and re-renders; this screen only asks — it never mutates the account itself. */
   onBuy?: (unitId: string, price: number) => void;
+  /** The brigade account's own `upgrades` map: unit id -> track -> owned tier (0 = none).
+   *  Absent tiers read as 0. Absent entirely (no account) renders every track's pips
+   *  unfilled -- still informative as a read-only view of what a track offers. */
+  owned?: Record<string, Record<string, number>>;
+  /** Called when the player clicks a track's next-tier Buy control. The caller buys,
+   *  saves and re-renders; this screen only asks. Rendered only alongside `credits`
+   *  -- both present or neither, the same rule the unit-unlock Buy control follows. */
+  onBuyUpgrade?: (unitId: string, track: string, tier: number, price: number) => void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -175,6 +189,61 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
     rowEl.appendChild(info);
 
     rowEl.appendChild(el('div', 'rl-brigade__why', row.locked ? row.reason : 'available'));
+
+    // Upgrade tracks: an AVAILABLE row only -- a locked unit is not yet in the
+    // brigade, so there is nothing on it to upgrade. `owned` keys off the raw
+    // unit id, same as the account itself; a unit or track absent from it
+    // reads as tier 0 (nothing bought yet), never a throw.
+    if (!row.locked && u.upgrades) {
+      const tracksWrap = el('div', 'rl-brigade__tracks');
+      for (const [trackName, track] of Object.entries(u.upgrades)) {
+        const rawOwned = opts.owned?.[u.id]?.[trackName] ?? 0;
+        // Clamp: data may shrink a track after a purchase (applyUpgrades's own
+        // rule) -- an owned tier past the track's own length reads as maxed,
+        // never as a crash or a phantom pip.
+        const ownedTier = Math.min(rawOwned, track.tiers.length);
+
+        const trackEl = el('div', 'rl-brigade__track');
+        trackEl.appendChild(el('span', 'rl-brigade__track-name', trackName));
+
+        const pips = el('span', 'rl-brigade__pips');
+        for (let tier = 1; tier <= track.tiers.length; tier++) {
+          const pip = el('span', 'rl-brigade__pip');
+          pip.dataset.filled = tier <= ownedTier ? '1' : '0';
+          pips.appendChild(pip);
+        }
+        trackEl.appendChild(pips);
+
+        // The control (Buy or "maxed") renders only when the caller supplied
+        // both a balance and a purchase callback -- without them, this is a
+        // read-only view of what a track offers and what has been bought.
+        if (opts.credits !== undefined && opts.onBuyUpgrade) {
+          if (ownedTier >= track.tiers.length) {
+            trackEl.appendChild(el('span', 'rl-brigade__track-max', 'maxed'));
+          } else {
+            const nextTier = ownedTier + 1;
+            const price = nextTierPrice(u, trackName, ownedTier);
+            if (price !== null) {
+              const buy = document.createElement('button');
+              buy.type = 'button';
+              buy.className = 'rl-btn rl-brigade__buy-tier';
+              buy.textContent = `tier ${nextTier} · ${price}`;
+              buy.setAttribute('aria-label', `buy ${u.name} ${trackName} tier ${nextTier} for ${price} credits`);
+              buy.disabled = opts.credits < price;
+              buy.addEventListener('click', () => {
+                buy.disabled = true; // one purchase per render; the caller re-renders
+                opts.onBuyUpgrade?.(u.id, trackName, nextTier, price);
+              });
+              trackEl.appendChild(buy);
+            }
+          }
+        }
+
+        tracksWrap.appendChild(trackEl);
+      }
+      rowEl.appendChild(tracksWrap);
+    }
+
     if (row.locked && row.unlock.price !== undefined && opts.credits !== undefined && opts.onBuy) {
       const price = row.unlock.price;
       const buy = document.createElement('button');

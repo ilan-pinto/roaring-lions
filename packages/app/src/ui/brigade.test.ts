@@ -8,7 +8,23 @@ import { showBrigade } from './brigade';
 const noMissionNames = (): string | undefined => undefined;
 
 const units = [
-  { id: 'inf_squad', name: 'Rifle Squad', role: 'infantry', isKamikaze: false, transportSlots: 0, isSoft: true },
+  {
+    id: 'inf_squad',
+    name: 'Rifle Squad',
+    role: 'infantry',
+    isKamikaze: false,
+    transportSlots: 0,
+    isSoft: true,
+    upgrades: {
+      armour: {
+        tiers: [
+          { price: 200, patch: { 'hull.hp': 40 } },
+          { price: 300, patch: { 'hull.hp': 80 } },
+        ],
+      },
+      sensors: { tiers: [{ price: 150, patch: { 'sensors.sight_tiles': 1 } }] },
+    },
+  },
   {
     id: 'ifv_namer',
     name: 'Namer IFV',
@@ -230,5 +246,121 @@ describe('showBrigade', () => {
     showBrigade(host, { units: fixture, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
     const rows = [...host.querySelectorAll('.rl-brigade__list [data-unit]')].map((r) => r.getAttribute('data-unit'));
     expect(rows).toEqual(['mission_gated', 'price_only']);
+  });
+
+  it('draws one pip per tier, filled up to the owned tier', () => {
+    const host = document.createElement('div');
+    showBrigade(host, {
+      units,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      owned: { inf_squad: { armour: 1 } },
+    });
+    const tracks = host.querySelectorAll('[data-unit="inf_squad"] .rl-brigade__track');
+    expect(tracks).toHaveLength(2);
+    const armourPips = [...tracks[0].querySelectorAll('.rl-brigade__pip')].map((p) => p.getAttribute('data-filled'));
+    expect(armourPips).toEqual(['1', '0']);
+    const sensorPips = [...tracks[1].querySelectorAll('.rl-brigade__pip')].map((p) => p.getAttribute('data-filled'));
+    expect(sensorPips).toEqual(['0']);
+  });
+
+  it('sells the next tier per track, enabled with enough credits', () => {
+    const host = document.createElement('div');
+    const bought: [string, string, number, number][] = [];
+    showBrigade(host, {
+      units,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      owned: { inf_squad: { armour: 1 } },
+      credits: 999,
+      onBuyUpgrade: (unitId, track, tier, price) => bought.push([unitId, track, tier, price]),
+    });
+    const tracks = host.querySelectorAll('[data-unit="inf_squad"] .rl-brigade__track');
+    const armourBtn = tracks[0].querySelector<HTMLButtonElement>('.rl-brigade__buy-tier');
+    expect(armourBtn?.textContent).toBe('tier 2 · 300');
+    expect(armourBtn?.disabled).toBe(false);
+    expect(armourBtn?.getAttribute('aria-label')).toBe('buy Rifle Squad armour tier 2 for 300 credits');
+    armourBtn?.click();
+    expect(bought).toEqual([['inf_squad', 'armour', 2, 300]]);
+    expect(armourBtn?.disabled).toBe(true);
+
+    const sensorBtn = tracks[1].querySelector<HTMLButtonElement>('.rl-brigade__buy-tier');
+    expect(sensorBtn?.textContent).toBe('tier 1 · 150');
+  });
+
+  it('disables both controls when the balance is short', () => {
+    const host = document.createElement('div');
+    showBrigade(host, {
+      units,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      owned: { inf_squad: { armour: 1 } },
+      credits: 100,
+      onBuyUpgrade: () => {},
+    });
+    const buttons = host.querySelectorAll<HTMLButtonElement>('[data-unit="inf_squad"] .rl-brigade__buy-tier');
+    expect(buttons).toHaveLength(2);
+    for (const btn of buttons) expect(btn.disabled).toBe(true);
+  });
+
+  it('shows "maxed" instead of a Buy control on a maxed track, and clamps an owned tier above the track length', () => {
+    const host = document.createElement('div');
+    showBrigade(host, {
+      units,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      owned: { inf_squad: { armour: 2, sensors: 1 } },
+      credits: 999,
+      onBuyUpgrade: () => {},
+    });
+    const tracks = host.querySelectorAll('[data-unit="inf_squad"] .rl-brigade__track');
+    for (const t of tracks) {
+      expect(t.querySelector('.rl-brigade__track-max')?.textContent).toBe('maxed');
+      expect(t.querySelector('.rl-brigade__buy-tier')).toBeNull();
+    }
+
+    const host2 = document.createElement('div');
+    showBrigade(host2, {
+      units,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      owned: { inf_squad: { armour: 9 } },
+      credits: 999,
+      onBuyUpgrade: () => {},
+    });
+    const armourTrack = host2.querySelectorAll('[data-unit="inf_squad"] .rl-brigade__track')[0];
+    expect(armourTrack.querySelector('.rl-brigade__track-max')?.textContent).toBe('maxed');
+  });
+
+  it('renders no tracks at all on a locked row', () => {
+    const host = document.createElement('div');
+    const fixture = units.map((u) =>
+      u.id === 'breach_team'
+        ? { ...u, upgrades: { armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } } }
+        : u
+    );
+    showBrigade(host, {
+      units: fixture,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      credits: 999,
+      onBuyUpgrade: () => {},
+    });
+    expect(host.querySelector('[data-unit="breach_team"] .rl-brigade__track')).toBeNull();
+  });
+
+  it('renders pips read-only, with no Buy or maxed control, without credits/onBuyUpgrade', () => {
+    const host = document.createElement('div');
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
+    const tracks = host.querySelectorAll('[data-unit="inf_squad"] .rl-brigade__track');
+    expect(tracks).toHaveLength(2);
+    expect(host.querySelector('.rl-brigade__buy-tier')).toBeNull();
+    expect(host.querySelector('.rl-brigade__track-max')).toBeNull();
   });
 });
