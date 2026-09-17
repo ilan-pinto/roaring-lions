@@ -1344,13 +1344,17 @@ const SWING_LIFT_FLOOR = 0.05;
 const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
   'sniper_team.glb move': -0.065,
   // Not reversed -- positive, same sign as every other rig -- just small.
-  // `digger_crew`'s stride scale is 0.867, the smallest of the three Task 10
-  // walkers and below `charge_squad`'s 0.321-multiple family entirely, and
-  // its single figure carries a `wood` prop (a pick or shovel haft) rather
-  // than a rifle, which is otherwise irrelevant here since this measures the
-  // BOOT. The knee bend that drives this asymmetry scales with stride
-  // amplitude, so the smallest-amplitude walker in the tree reads the
-  // smallest chirality. Measured 2026-09-17, off the shipped bytes.
+  // 0.010998631554512578 (rounded to 0.011 below): the swing-lift fraction
+  // `swingLiftFraction` reads off the shipped `digger_crew.glb` `move`
+  // clip's own boot trace, the same instrument and the same clip every other
+  // row in this table reads. The one same-unit comparison available is the
+  // other two crews' own gait amplitude SCALE (a different quantity, from
+  // `rig.gait_amplitudes`, not this fraction): `digger_crew` is 0.867
+  // against `atgm_cell`'s 1.213 and `mortar_crew`'s 1.040, the smallest of
+  // the three Task 10 walkers. That is offered as context for where this rig
+  // sits among its own siblings, not as a derivation of the number --
+  // `sniper_team` above is the precedent for a small chirality reading with
+  // no confirmed mechanism. Treat the number as pinned, not as explained.
   'digger_crew.glb move': 0.011,
 };
 
