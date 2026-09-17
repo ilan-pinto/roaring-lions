@@ -67,6 +67,8 @@ import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
+import { showSettings, type SettingsDeps } from './ui/settings-panel';
+import { applySettings, loadSettings, saveSettings, type Settings } from './settings';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -629,6 +631,56 @@ async function main(): Promise<void> {
   // outlives all of them, since a route change no longer reloads the page.
   const audio = battleAudio();
 
+  // --- settings, on every screen --------------------------------------------
+  // Loaded and applied before anything else mounts: `applySettings` (settings.ts)
+  // is the ONLY writer of the `--ui-scale`/`--text-size` inline overrides and
+  // the `data-motion`/`data-cvd` attributes the whole sheet reads off
+  // `document.documentElement`, so the menu itself has to carry a saved scale
+  // or motion preference, not just a mission. The mixer needs its gains before
+  // the first screen's music starts for the same reason.
+  const settingsStore = safeStorage();
+  let settings: Settings = loadSettings(settingsStore);
+  applySettings(settings, document.documentElement);
+  audio.setGains(settings.audio);
+  /** `settingsDeps.set` persists, applies and re-broadcasts through here --
+   *  `onChange` is how a SECOND mount of the settings panel (Task 6's pause
+   *  menu) and the keymap section (Task 5) learn a change happened without
+   *  polling `get()` every frame. */
+  const settingsListeners = new Set<(s: Settings) => void>();
+  const settingsDeps: SettingsDeps = {
+    get: () => settings,
+    set: (next) => {
+      settings = next;
+      saveSettings(settingsStore, next);
+      applySettings(next, document.documentElement);
+      audio.setGains(next.audio);
+      for (const fn of settingsListeners) fn(next);
+    },
+    onChange: (fn) => {
+      settingsListeners.add(fn);
+      return () => settingsListeners.delete(fn);
+    },
+    // `document.fullscreenEnabled` is the browser's own permission check
+    // (iframe embeds without `allow="fullscreen"` read false) -- a row for a
+    // control that would silently no-op is worse than no row.
+    fullscreen: document.fullscreenEnabled
+      ? {
+          supported: () => true,
+          active: () => document.fullscreenElement !== null,
+          set: async (on) => {
+            if (on) await document.documentElement.requestFullscreen();
+            else if (document.fullscreenElement) await document.exitFullscreen();
+          },
+        }
+      : null,
+    audio,
+    // Task 9 fills this from the shipped locale catalogue.
+    locales: [{ id: 'en', name: 'English' }],
+    // Task 5 fills this; `null` renders no Controls section at all.
+    keymap: null,
+    build: __APP_BUILD__,
+  };
+
   // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
   // worker is a cache for the NEXT load, so making this boot wait on it would
   // trade the thing it is meant to buy. It never rejects (see its own doc
@@ -809,6 +861,7 @@ async function main(): Promise<void> {
             query: req.query,
             signal: req.signal,
             navigate: (href, opts) => void router.navigate(href, opts),
+            settings: settingsDeps,
           }),
       },
       {
@@ -821,7 +874,13 @@ async function main(): Promise<void> {
             query: req.query,
             signal: req.signal,
             navigate: (href, opts) => void router.navigate(href, opts),
+            settings: settingsDeps,
           }),
+      },
+      {
+        name: 'settings',
+        pattern: '/settings',
+        mount: (host) => showSettings(host, { ...settingsDeps, back: routes.menu() }),
       },
       // Reserved for Phase 1's briefing screen. Until that exists the path is
       // a redirect rather than a 404, so a link written against it today lands
@@ -865,6 +924,10 @@ export interface BattlefieldRequest {
    *  Passed in rather than closed over so `bootBattlefield` stays a function of
    *  its request and the router stays `main()`'s business. */
   navigate: (href: string, opts?: { replace?: boolean; force?: boolean }) => void;
+  /** The shell's one settings store -- read live (`req.settings.get()`) rather
+   *  than snapshotted, since a pause-menu change (Task 6) must reach the
+   *  camera pan speed and the mixer without a re-boot. */
+  settings: SettingsDeps;
 }
 
 /**
@@ -3172,7 +3235,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       runTick();
       acc -= MS_PER_TICK;
     }
-    const panSpeed = 0.5 / renderer.camera.zoom;
+    // Read live off the settings store, not snapshotted at boot: `set()`
+    // reaches every open battlefield the moment the player changes it,
+    // pause menu included (Task 6) -- `get()` is a plain getter, so this
+    // costs nothing extra per frame.
+    const panSpeed = (0.5 * req.settings.get().controls.cameraSpeed) / renderer.camera.zoom;
     if (keys.has('w') || keys.has('arrowup')) {
       renderer.camera.x -= panSpeed;
       renderer.camera.y -= panSpeed;

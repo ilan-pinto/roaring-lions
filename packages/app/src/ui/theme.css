@@ -58,6 +58,11 @@
      number sizes the whole shell. Viewport defaults; Phase 1's settings
      override it on the root element's style. */
   --ui-scale: 1;
+  /* The settings screen's own multiplier, independent of --ui-scale --
+     `applySettings` (settings.ts) always writes this one inline, never
+     removes it, so the fallback below is only for a page that has not
+     applied settings at all yet (a bare document during boot). */
+  --text-size: 1;
 
   /* --- surfaces ------------------------------------------------------- */
   /* color-mix rather than rgba(): translucency without a numeric literal,
@@ -252,7 +257,7 @@
    them in rem would be circular. */
 @media (min-width: 1900px) { :root { --ui-scale: 1.15; } } /* px-ok */
 @media (min-width: 2400px) { :root { --ui-scale: 1.4; } } /* px-ok */
-html { font-size: calc(16px * var(--ui-scale)); /* px-ok */ }
+html { font-size: calc(16px * var(--ui-scale) * var(--text-size, 1)); /* px-ok */ }
 
 /* The document's own type. index.html paints the ground colour before this
    sheet parses; this is the first place the FACE can be stated, and stating it
@@ -2177,7 +2182,12 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
   cursor: pointer;
 }
-.rl-sandbox__flag input {
+/* Shared with the settings screen's own checkboxes and sliders below --
+   one accent-colour rule for every control that carries one, rather than a
+   second declaration of the same token. */
+.rl-sandbox__flag input,
+.rl-settings__control input[type='checkbox'],
+.rl-settings__control input[type='range'] {
   accent-color: var(--good);
 }
 .rl-sandbox__blurb {
@@ -2402,6 +2412,22 @@ button.rl-menu__item[data-kind='aside'] {
     animation: none;
     opacity: 1;
   }
+}
+
+/* The setting is the media query a player cannot reach from the OS --
+   `data-motion='reduce'` (settings.ts's `applySettings`) does the same
+   collapse the media query above does, for a player whose OS default is
+   fine but who wants this game quieter. Same rules, same exceptions. */
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] *::before,
+:root[data-motion='reduce'] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+:root[data-motion='reduce'] .rl-pulse {
+  animation: none;
+  opacity: 1;
 }
 
 /* Tutorial step panel — the lesson is the thing a first-time player has to
@@ -2698,6 +2724,17 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 
+/* The setting is the media query a player cannot reach from the OS -- see the
+   `data-motion` pair above `.rl-tutorial`. */
+:root[data-motion='reduce'] .rl-loading__fill {
+  transition: none;
+}
+:root[data-motion='reduce'] .rl-loading__beat {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
 /* The brigade screen (ui/brigade.ts). Capped and centred to the same width
    range debrief's own panel uses (debrief.ts's `place:` inline style reads
    `top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);
@@ -2823,4 +2860,81 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-brigade__track-max {
   color: var(--ink-dim);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Settings (ui/settings-panel.ts)                                        */
+/* ---------------------------------------------------------------------- */
+
+/* Same floating-panel shape `.rl-brigade` uses above -- a fixed-position
+   `.rl-panel` rather than a `.rl-menu` column, since this screen is also
+   mounted inside the pause overlay (Task 6), which has no `.rl-menu` frame
+   to sit in. */
+.rl-settings {
+  top: 6%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(32rem, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+}
+.rl-settings__table {
+  display: flex;
+  flex-direction: column;
+}
+.rl-settings__section {
+  margin: var(--s4) 0 var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+}
+.rl-settings__section:first-child {
+  margin-top: 0;
+}
+.rl-settings__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s2);
+  padding-block: var(--s2);
+  /* The hairline is a colour-mixed --ink rather than --panel-rule: it has to
+     read under EITHER of the two backgrounds this panel is mounted on (the
+     ordinary floating panel and the pause overlay), and mixing against the
+     ink colour that is already guaranteed legible there does that without a
+     second token. */
+  border-block-end: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); /* px-ok */
+}
+.rl-settings__row:last-of-type {
+  border-block-end: 0;
+}
+.rl-settings__control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s1);
+  text-align: right;
+}
+.rl-settings__control select {
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame);
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+.rl-settings__control input[type='range'] {
+  width: min(10rem, 40vw);
+}
+.rl-settings__hint {
+  color: var(--ink-mute);
+  font-size: var(--t-s);
+}
+/* The back link -- same look as `.rl-loading__back`'s own control-inside-the-
+   body placement, sized to its own text rather than stretching the panel's
+   width. */
+.rl-settings__back {
+  display: block;
+  width: fit-content;
+  margin: var(--s3) auto 0 0;
 }

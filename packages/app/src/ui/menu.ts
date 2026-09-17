@@ -143,6 +143,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   // and none of the four flags were reachable by anyone who used the menu.
   // Same defect as `&mesh`, which no menu link ever appended either.
   addAside('free play — any map', routes.freePlay());
+  addAside('Settings', routes.settings());
   // A button, not a link: this one destroys the campaign, so it is confirmed
   // first rather than a plain navigation (task 6 -- `?fresh=1` used to be one
   // click away with nothing standing in front of it). Same `rl-btn
