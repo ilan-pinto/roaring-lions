@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "5caa2f3f61e91275c8dd33f7a1cfc8a407c5eb44",
-  "blessedAt": "2026-09-16T13:49:57.733Z",
-  "reason": "Infantry gait (main 5caa2f3, spec docs/superpowers/specs/2026-09-15-infantry-gait-design.md): every rigged infantry team now faces and aims along its travel and fires level, plays the Running clip as move, and is rate-matched to its ground speed (rl_gait extras + gaitTimeScale), so the three inf squads in the vehicle framing hold a different pose at tick 140. CI run 35103752695 on linux-x64-swiftshader: vehicle 1081 px / 0.0740 over budget (300 / 0.02), max channel delta 180, diff confined to the three squads (looked at: diff.png shows three clusters on the infantry and nothing on vehicles, ground, decor or HUD); quiet, open-ground and relief PASS, campaign-board screen PASS, all self-checks PASS. Only vehicle is re-blessed.",
+  "commit": "03fad1836d7df5b239597a332c2c8ec0dd6dd297",
+  "blessedAt": "2026-09-17T05:05:37.548Z",
+  "reason": "Shell upgrade Phase 0 (main 03fad18, spec docs/superpowers/specs/2026-09-16-shell-upgrade-design.md): a radial vignette after OutputPass, a ground skirt beyond the map with a one-tile fog fade, and plates under every over-world HUD string move all four gated scenarios. CI run 35183889329 on linux-x64-swiftshader against the 666c852 baseline: quiet 49351 px / 3.3913, open-ground 9821 / 5.0619, vehicle 373192 / 18.9493, relief 75369 / 4.8899; every layer check PASSED including the new vignette (quiet 20583 / 2.1977, relief 59402 / 3.4113) and skirt (quiet 21277 / 0.8349, relief 3403 / 0.2829) checks at floors of one third; campaign-board screen PASS. Looked at: quiet and vehicle captures downloaded from the run -- the void beyond the map is a dark desaturated skirt under the vignette, the hint line sits on a plate, the strip carries the leave button; nothing else moved. Known: vehicle's repaint-control read 0.0004 against its 0.00036 budget (the unexplained per-repaint drift around the vehicles, recorded in CLAUDE.md); left for investigation, not widened.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "710b9bc0a668c2d06cb2497ddd36a02688e2560ab87106ffaf262ff98caa2fed"
+      "sha256": "04f50ee629e43aa61f387356201868128d8b24aa2608455c23f7efede2074fa6"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "102d6e7561535d669f35884c3dd3e43b4d76cee30d64aa30083f6565fffe48fc"
+      "sha256": "109db07f7197c855d942b31a52c237a79ca9e7333aaf2e5ef8e8ae6f579218bf"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "5d029eee705b5c662f1f1deadab73585afef0489d881940d4811247e2f95d57b"
+      "sha256": "9258a5a0a7a82e9c22c507eeb7fa64265cf273dca336771e4406fe86408a4b06"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "7e7f435c5248e35d98dc6098f3863afa1497946f8e141c705c499004420792b8"
+      "sha256": "b8b4db2e81689b12828e5629eb6f6d49d087db294127a8926d30560b0432467d"
     }
   }
 }
