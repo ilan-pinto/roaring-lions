@@ -70,6 +70,7 @@
     }
   ],
   "unlock": {
-    "roe_rating_min": 50
+    "roe_rating_min": 50,
+    "price": 360
   }
 }

@@ -110,7 +110,7 @@ import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project'
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
-import { resolveClip, type UnitAnimInput } from '../clip';
+import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
 import { updateDimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
 import { createSceneLights, type SceneLights } from './lighting';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
@@ -227,6 +227,8 @@ import {
   MESH_UNITS_PER_TILE,
   MESH_SCALE,
   resolveMeshMotionClip,
+  gaitTimeScale,
+  isLocomotionClip,
 } from './units/mesh-anim';
 import { gltfLoader, setDracoDecoderPath, disposeGltfLoader } from './units/gltf-loader';
 import { stepTurretFacing } from './units/frame-state';
@@ -4598,15 +4600,21 @@ export class ThreeRenderer implements Renderer {
         working: this.sim.tunnelChargeProgress(i) > 0,
       };
       // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
-      // entity is actually moving AND its GLB carries the clip (today, only
-      // `sarim_rifles`) -- every other infantry mesh gets `resolveClip`'s
-      // own answer back unchanged. See that function's own doc comment.
+      // entity is actually moving AND its GLB carries the clip -- today
+      // `meshy_soldier.glb` (since Task 2's `import_meshy_soldier.py`
+      // `CLIP_ORDER`) and `sarim_rifles.glb` -- every other infantry mesh
+      // gets `resolveClip`'s own answer back unchanged. See that function's
+      // own doc comment.
       const desiredClip = resolveMeshMotionClip(
         resolveClip(anim),
         anim.speed > 0,
         entity.actions.has('moveFire')
       );
       applyMeshClip(entity, desiredClip);
+      // `carriedBy >= 0` is a passenger. Its `entitySpeed` is its CARRIER's
+      // -- see `applyGaitRate`'s own doc comment -- so its legs are not
+      // rate-matched at all.
+      this.applyGaitRate(entity, template, anim, st.carriedBy[i] >= 0);
       entity.mixer.update(dtSeconds);
     }
 
@@ -4663,6 +4671,143 @@ export class ThreeRenderer implements Renderer {
     }
     this.stepMeshDeaths(dtSeconds);
     this.stepMeshEvacs(dtSeconds);
+  }
+
+  /**
+   * Sets the playing action's `timeScale` so a figure's legs cover the ground
+   * its body is actually crossing -- design sec 3.4 (D4), the runtime half of
+   * the gait milestone.
+   *
+   * Called every frame, immediately after `applyMeshClip` and before
+   * `mixer.update`, and it reads `entity.currentClip` rather than the clip
+   * that was ASKED for: `applyMeshClip` degrades a clip the GLB never
+   * authored to `idle`, and rate-scaling that would be scaling a stance.
+   *
+   * ## Why the assignment is unconditional
+   *
+   * `timeScale` lives on the `AnimationAction`, which is pooled per clip per
+   * entity and outlives any one clip switch. Writing it only on the
+   * locomotion branch would leave a stale rate on an action that later plays
+   * something else; writing `1` on every other branch is what makes the
+   * non-locomotion rule self-healing rather than order-dependent. Cost is one
+   * float store per living mesh unit per frame. The `carried` exclusion is
+   * part of that: a unit that dismounts must get its rate-match back on the
+   * very next frame, and it does, because nothing here is latched.
+   *
+   * ## A CARRIED unit is never rate-matched, and this is a real bug it fixes
+   *
+   * `Sim.stepTransport` overwrites a passenger's `posX`/`posY` with its
+   * carrier's every tick, so `entitySpeed` -- a raw per-tick position delta
+   * -- reports the VEHICLE's speed for a man sitting inside it. This loop
+   * does not skip carried entities (deliberately: their clones still need
+   * position and fog), so without this flag a passenger's legs were
+   * rate-matched to a hull.
+   *
+   * Measured live on `?sandbox=beit_sahwan_outskirts&sur` with a real load
+   * order: `inf_squad` id 5, `carriedBy` 2, clip `move`, `entitySpeed`
+   * 1.3000, `timeScale` **2.2265**. Every foot role has `canEmbark`, so the
+   * reachable set is worse -- a `sniper_team` in a `jeep_shoded` at 2.9
+   * tiles/s computes **13.53** and clamps, `yahalom_squad` 9.03,
+   * `inf_squad` 4.97, `sarim_rifles` in a `technical` 4.29.
+   *
+   * So the clamp was binding on ordinary shipped configurations, which would
+   * have made Task 7's whole invariant ("a clamp doing real work on a
+   * shipped mesh means that mesh's gait is wrong") false on arrival.
+   *
+   * The fix is to not compute the number rather than to clamp it: a man
+   * inside a hull has his legs off the ground and no ground speed of his
+   * own, so rate-matching him is meaningless in BOTH directions -- speeding
+   * his legs up for a fast APC and slowing them for a slow one are equally
+   * fictional. `timeScale = 1` is also exactly what a carried unit had
+   * before this task, so this is strictly less change than clamping.
+   *
+
+   * ## Why non-locomotion clips cannot be reached here even by mistake
+   *
+   * `template.gait` is keyed by `LocomotionClip`, so `gait.get(clip)` does not
+   * compile for a `ClipName` without narrowing, and `isLocomotionClip` below
+   * is that narrowing. **It is a type guard and not a second runtime check,
+   * and pretending otherwise would be the "check that passes by construction"
+   * this branch has already been bitten by five times.** Measured: forcing
+   * this ternary to take its locomotion branch unconditionally changes NO
+   * observable behaviour and no test goes red, because a map keyed by
+   * `LocomotionClip` returns `undefined` for `idle` and `gaitTimeScale`
+   * answers 1 to that anyway.
+   *
+   * The rule "`idle`, `fire`, `down`, `work` and the two wreck poses are never
+   * rate-scaled" is therefore enforced in exactly ONE place that can fail:
+   * `parseGaitExtras` refusing a non-locomotion key at load (falsifiable --
+   * weakening it to `isMeshClipName` turns `mesh-anim.test.ts`'s "drops a
+   * NON-LOCOMOTION clip" red, and stops compiling besides).
+   *
+   * ## Rout: `ROUT_CADENCE` MULTIPLIES the rate match, and that was a real
+   * decision rather than the spec being followed
+   *
+   * The tension is genuine and the design doc did not see it. Rate-matching
+   * exists to make feet match ground; `ROUT_CADENCE` (1.6, `../clip.ts`)
+   * exists to make a broken unit READ as broken, which means deliberately
+   * breaking that match. And the sim already slows a routed unit by half
+   * (`ROUT_SPEED_SHIFT = 1`, `tuning.ts`), so rate-matching alone halves its
+   * cadence and 1.6x on top lands at **0.8x of a calm walk** -- in absolute
+   * terms, a panicking man whose legs move slower than a strolling one's.
+   *
+   * It still multiplies, for three reasons, in order of weight:
+   *
+   * 1. **The billboard path has always done exactly this**, on BOTH backends
+   *    -- `units/frame-state.ts`'s `walkFps(anim.speed, nFrames) *
+   *    cadenceScale(anim)`, where `walkFps` is itself a rate match (a sprite
+   *    walk cycle covers `STRIDE_TILES`, `anim.ts`). So this is not a new
+   *    composition of two ideas; it is the composition this renderer already
+   *    ships for every unit type without a GLB. Not multiplying would make a
+   *    routed mesh rifleman and the routed `manpad_team` beside it disagree,
+   *    in the same frame, on the same backend. (The brief for this task said
+   *    "no three.js code reads `cadenceScale`" -- that is true of the MESH
+   *    path only; `frame-state.ts` has read it since B3.)
+   * 2. **Relative to the ground, which is what rate-matching made legible,
+   *    1.6x IS short quick steps.** A routed figure completes 1.6 gait cycles
+   *    over the ground a calm one covers in 1, so each cycle carries him less
+   *    far and there are more of them per metre. That is the read
+   *    `ROUT_CADENCE`'s own doc comment asks for, and a time scale can
+   *    express it after all -- against the ground, not against the clock.
+   * 3. **It is strictly closer to the truth than what ships today.** A routed
+   *    mesh unit currently plays `move` at 1.0x while travelling at half
+   *    speed: its feet over-run the ground by 2x. This takes that to 1.6x.
+   *    Dropping the cadence would take it to 1.0x -- a perfect match and no
+   *    panic at all -- which is a legibility regression traded for a
+   *    correctness gain nobody asked for.
+   *
+   * Measured on the running game, `?sandbox=beit_sahwan_outskirts&sur`, three
+   * broken `inf_squad`s read off their own live `AnimationAction`:
+   * `entitySpeed` 0.4496 (exactly half of 0.9), `timeScale` 1.2321 against
+   * the same squad's calm 1.5413. On `meshy_soldier.glb`'s 0.625 s `move`
+   * that is **1.97 gait cycles/s while broken against 2.47 while calm**,
+   * over half the ground -- so the figure travels visibly slower than its
+   * calm neighbours while taking 1.6 strides for every stride's worth of
+   * ground it covers. Captures in
+   * `.superpowers/sdd/2026-09-15-infantry-gait/gait-live-routed.png`.
+   */
+  private applyGaitRate(
+    entity: MeshUnitEntity,
+    template: MeshUnitTemplate,
+    /**
+     * The SINGLE source of this unit's measured ground speed: `anim.speed` is
+     * `this.entitySpeed[i]`, the same array `resolveClip` read to decide
+     * `move` in the first place. It used to be passed a second time as its
+     * own argument alongside this object -- two channels for one number,
+     * which a future caller could hand an inconsistent pair and get the rate
+     * from one and the cadence from the other, with nothing able to see it.
+     */
+    anim: UnitAnimInput,
+    carried: boolean
+  ): void {
+    const playing = entity.currentClip;
+    if (playing === null) return;
+    const action = entity.actions.get(playing);
+    if (!action) return;
+    action.timeScale =
+      isLocomotionClip(playing) && !carried
+        ? gaitTimeScale(template.gait?.get(playing), anim.speed, cadenceScale(anim))
+        : 1;
   }
 
   /**

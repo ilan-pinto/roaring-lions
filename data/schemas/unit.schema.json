@@ -99,6 +99,11 @@
           "type": "integer",
           "minimum": 0,
           "description": "Opens when the campaign's earned stars (the sum of best-of stars over campaign.mission_results, spec 2026-09-10 §4.6) reach this. The three star-gated units carry 12, 30 and 44, fitted to the measured optimal ladder (docs/campaign/special_units/design.md §2)."
+        },
+        "price": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Credits that open this unit from the brigade screen without its earned gates (spec 2026-09-15 §4.4). A unit whose unlock carries ONLY a price is bought-only. Never `bought`: that is resolved by the app from the brigade account and cannot be authored."
         }
       }
     },

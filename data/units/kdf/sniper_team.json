@@ -9,7 +9,8 @@
     "population": 1
   },
   "unlock": {
-    "roe_rating_min": 60
+    "roe_rating_min": 60,
+    "price": 380
   },
   "hull": {
     "hp": 300,

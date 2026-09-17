@@ -181,6 +181,17 @@ const structureSymbols = new Map(
           `hull.transport_slots — the player cannot load anyone into it`
       );
     }
+    // Per-unit unlock checks: bought flag and price faction restriction.
+    if (u && 'bought' in (u.unlock ?? {})) {
+      failures.push(
+        `${rel(file)}: unlock.bought is resolved from the brigade account and cannot be authored`
+      );
+    }
+    if (u && u.unlock?.price !== undefined && u.faction !== 'kdf') {
+      failures.push(
+        `${rel(file)}: unlock.price is only valid on faction 'kdf' units`
+      );
+    }
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
     const mi = loadJson(file);

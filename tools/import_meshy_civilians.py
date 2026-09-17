@@ -37,7 +37,7 @@ what the clips are, how roles are found, and what happens to the child.
 
 ## The clips: three, not five, and `down` is a HELD pose
 
-`Idle_9` -> `idle`, `Walking` -> `move`, `Crawl_and_Look_Back` -> `down`.
+`Idle_9` -> `idle`, `Running` -> `move`, `Crawl_and_Look_Back` -> `down`.
 `fire` and `work` are not authored at all: a civilian neither shoots nor digs,
 and `meshClipOrFallback` degrades both to `idle` by design. `wreck` is not
 authored either, so `mesh-death.ts` fades a killed civilian out rather than
@@ -54,6 +54,48 @@ metres and snap it back, forever. `mesh-death.ts` plays `down` with
 its own corpse and stop there. `CIVILIAN_CLIP_SEMANTICS` below enforces the
 held-pose requirement at build time, in both axes, so this cannot be undone
 by accident.
+
+## `move` is the RUN, and the note that used to forbid it was wrong
+
+`move` bound `Walking_withSkin` until 2026-09-16, and the reason recorded
+against every `Running` clip in this tree -- GH-152, "binding a run needs a
+'fleeing' signal that does not reach the renderer" -- **is false as measured,
+so it is overridden rather than worked around.** `data/units/civilians.json`
+gives these figures ONE speed, `mobility.speed_tiles_s` 0.8, which at
+`MESH_UNITS_PER_TILE` 3.0 is **2.4 m/s**. There is no walking state for a walk
+clip to be the honest picture of: a fleeing civilian and a strolling one are
+the same entity crossing the ground at the same 2.4 m/s, so no runtime signal
+is needed to choose between two states that do not both exist. The argument in
+full, with the measurements, is
+`docs/superpowers/specs/2026-09-15-infantry-gait-design.md` sections 2.2 and
+3.2.
+
+Boot travel over one `move` cycle against the ground the sim covers in that
+time, measured on the shipped bytes with `tools/src/mesh_gait.ts` (1.0 means
+the feet exactly keep up):
+
+    figure           walk (before)      run (after)
+    office_worker    0.445              1.043
+    farm_worker      0.428              1.015
+    civilian_woman   0.382              0.887
+    civilian_child   0.295              0.704
+
+The walk cycle was 1.0333 s over 2.480 m of ground; the run is 0.6333 s over
+1.520 m. Two of the four now read slightly OVER 1.0, which is a run and not an
+error: a sprinting foot swings further back than the body advances in the same
+cycle, so peak-to-peak boot travel exceeds the stride. The child stays lowest
+because its legs are shorter while the sim moves it at the same 0.8 tiles/s as
+the adults -- a data question, not an animation one.
+
+`Running` is also the BASE import now -- it supplies the scratch mesh and
+armature every other clip is replayed onto, and `civilian_roles.FIGURES` was
+fit against `Walking`'s. That is sound only because the mesh is the same mesh,
+which is measured rather than assumed: per figure, `POSITION`/`NORMAL`/
+`TEXCOORD_0`/`JOINTS_0`/`WEIGHTS_0` and the multi-megabyte base-colour image
+all hash IDENTICAL between that figure's `Walking_withSkin.glb` and its
+`Running_withSkin.glb`. So the island classification, the sampled colours and
+`figure_height` are bit-identical either way, and the role-count line this
+script prints on every build is the standing check on that.
 
 The held frame is chosen per figure (`DOWN_FRAME_SECONDS`), by scoring the
 crawl's own frames on two things: all four ground contacts (both hands, both
@@ -148,7 +190,9 @@ CLIP_ORDER = ("idle", "move", "down")
 #: Which supplied file feeds which clip, by filename fragment.
 CLIP_SOURCES = {
     "idle": "Animation_Idle_9_withSkin",
-    "move": "Animation_Walking_withSkin",
+    # `Running`, not `Walking`, since 2026-09-16 -- see the module docstring's
+    # "`move` is the RUN" section. `Walking_withSkin` is now read by nothing.
+    "move": "Animation_Running_withSkin",
     "down": "Animation_Crawl_and_Look_Back_withSkin",
 }
 
@@ -192,16 +236,62 @@ FIGURES = {
 #: death (`mesh-death.ts`, `{ once: true }`), and its supplied source travels
 #: four metres. `flat` is the Hips' horizontal travel across the clip's own
 #: frames, `rise` the vertical -- in centimetres. `None` means unbounded.
+#:
+#: `heading` is the SECOND half, added 2026-09-16 alongside the run, and it is
+#: the same shape `import_meshy_soldier.py`'s own table uses -- one gate, three
+#: files, not three gates. It is `{mean_deg, spread_deg}` on the FACE's
+#: ground-plane bearing in the exported file's own convention
+#: (`_exported_bearing_deg`: forward is `+X` is 0, positive is the figure's
+#: left), or `None` for exempt, and both halves are checked: a mean catches a
+#: clip bound facing the wrong way, and a spread catches a clip that TURNS,
+#: which is a defect no mean can express (a 182-degree sweep averages to a
+#: perfectly innocent number).
+#:
+#: ONE EXTENSION to the soldier's shape, for `down` alone: an optional
+#: `expect_deg`, the bearing the clip is SUPPOSED to hold, against which
+#: `mean_deg` bounds the deviation. It defaults to 0 -- "face forward" -- which
+#: is what every entry in every soldier table means and why none of them says
+#: so. It exists because an absolute `abs(mean) <= ceiling` is the wrong
+#: instrument for a pose that deliberately faces sideways, and not by a little:
+#: this crawl holds -82..-98 deg, so ANY absolute ceiling loose enough to admit
+#: it (120) also admits its own 180-degree mirror at +98 -- falsified by
+#: injection, not reasoned. With `expect_deg: -90` the same clip is bounded to
+#: +-30 of where it belongs and both a forward-bound and a backward-bound
+#: `down` are 90 and 172 deg out.
+#:
+#: **There is no weapon half here, and its absence is a decision.** The
+#: soldier tables gate a second axis taken off `RightHand`'s own bone
+#: direction, because on those rigs the rifle is sculpted into the hand and
+#: that bone is the closest available proxy for a barrel. A civilian carries
+#: no weapon, so the same measurement would be reading a HAND: probed over all
+#: four figures it spreads 118-260 deg across `move` and disagrees between
+#: figures by 110 deg on the very same retargeted `idle`. A ceiling fitted to
+#: that would gate nothing and would look like it gated something.
+#:
+#: Every ceiling below is set from a measurement of these four sources
+#: (Blender probe, 2026-09-16) and stated beside the value it bounds.
 CIVILIAN_CLIP_SEMANTICS = {
     "idle": {
         "means": "a standing hold -- the baseline the other two are measured against.",
         "flat": None,
         "rise": None,
+        # All four figures measure -3.85..-3.88 with a spread of 5.83, to the
+        # hundredth -- which is itself a fact worth knowing: `Idle_9` is ONE
+        # animation Meshy retargeted onto three rigs, and the child's is that
+        # same animation retargeted onto a fourth by `civilian_retarget.py`.
+        # 20/20 is the same ceiling the soldier table carries for `idle`.
+        "heading": {"mean_deg": 20.0, "spread_deg": 20.0},
     },
     "move": {
         "means": "a real gait cycle, played in place while the sim moves the unit.",
         "flat": None,
         "rise": None,
+        # `Running` measures -0.09..+0.00 with a spread of 4.94-5.27 across the
+        # four figures -- squarer than the retired `Walking`, which read -2.60
+        # ..-2.73. The spread bound is looser than idle's because a head bobs
+        # and counter-rotates through a stride; 30 matches the soldier table
+        # rather than being re-derived, and the measurement is 5.7x inside it.
+        "heading": {"mean_deg": 20.0, "spread_deg": 30.0},
     },
     "down": {
         "means": (
@@ -211,6 +301,29 @@ CIVILIAN_CLIP_SEMANTICS = {
         ),
         "flat": 1.0,
         "rise": 1.0,
+        # THE ONE ENTRY THAT FACES SIDEWAYS ON PURPOSE. This is
+        # `Crawl_and_Look_Back`, and `DOWN_FRAME_SECONDS` above picks its frame
+        # partly BY head yaw -- "at least 75% of that clip's peak yaw away from
+        # the hips", measured there at 55/71/77 deg -- because looking back is
+        # the readable half of the pose. Measured face bearing: -81.62 (the
+        # woman, and the child who retargets hers), -91.34 (office worker),
+        # -97.98 (farm worker); all three within 8.4 deg of -90, over the
+        # figure's own right shoulder. Hence `expect_deg: -90` with a 30-deg
+        # bound -- 3.6x the worst deviation, while a forward-bound `down` is 90
+        # deg out and a backward-bound one 172. Spread is 0.00 by construction:
+        # `HELD_FRAMES` identical keyframes.
+        #
+        # One caution for anyone tempted to tighten it. A crawling figure's
+        # forward vector leans toward the ground plane's own normal, so its
+        # projected bearing is soft: `measureFacing` reads these same four
+        # clips at -30.5/-63.7/-59.3/-56.4, 24-51 deg from the numbers here,
+        # against 5-13 deg of disagreement on the standing clips. The soldier
+        # script records the same instrument divergence on ITS prone clips and
+        # takes the other road, exempting the corpse outright. A corpse may
+        # face anywhere; a suppressed civilian is a pose with an intent, so it
+        # gets a bound rather than an exemption -- but a TIGHT bound here would
+        # be gating the softness.
+        "heading": {"expect_deg": -90.0, "mean_deg": 30.0, "spread_deg": 5.0},
     },
 }
 
@@ -489,14 +602,89 @@ def hips_travel(frames, hips_rest, arm_world):
     return flat, (max(zs) - min(zs)) * 100.0
 
 
-def check_clip_semantics(figure, frames_by_clip, hips_rest, arm_world):
+def _exported_bearing_deg(dx, dy):
+    """A Blender WORLD ground-plane vector, as the exported file will read it.
+
+    Two fixed steps, both derived and cross-checked live in
+    `import_meshy_soldier.py`'s own block comment: Blender is Z-up and its
+    glTF exporter writes Y-up as `(x, z, -y)`, so a ground vector `(dx, dy)`
+    becomes `(dx, -dy)` and the bearing negates; then `apply_forward_fix`'s
+    wrapper node subtracts `FORWARD_FIX_DEG` from every bearing in the file.
+
+    Local rather than imported because it closes over THIS file's own
+    `FORWARD_FIX_DEG`. All three Meshy imports here carry 90.0 today; sharing
+    one function would quietly make that coincidence load-bearing."""
+    return soldier._wrap_deg(math.degrees(math.atan2(-dy, dx)) - FORWARD_FIX_DEG)
+
+
+def face_bearings(arm, frames):
+    """The FACE's ground-plane bearing at every frame of `frames`.
+
+    The `Head` -> `headfront` marker pair -- this rig's own, authored by the
+    supplier, and the same probe `import_meshy_soldier._face_bearing_deg`
+    uses. A head reading, deliberately: the complaint this gate answers is
+    about faces not being in front of guns, and the shipping instrument
+    (`tools/src/mesh_gait.ts`'s `measureFacing`) reads a head too, so the two
+    numbers can be compared.
+
+    Takes plain FRAME DATA rather than an action, unlike the soldier script's
+    `measure_clip_bearings`, and that is not gratuitous: three of this file's
+    clip sources are not actions at all by the time they are checked -- `down`
+    is `sample_held`'s two-frame capture with the root's horizontal travel
+    stripped, and the child's `idle`/`down` come out of `retarget_frames`. The
+    only representation all of them share is the pose list, so measuring that
+    is what makes one code path cover every figure.
+
+    Unbinds the action first. Writing pose values while one is still bound
+    happens to survive a bare `view_layer.update()` (animation is re-evaluated
+    on a frame change, not on every update) -- but "happens to" is the whole
+    failure mode `sample_clip`'s stale-`action_slot` docstring records, and a
+    clobbered read here would report one clip's pose for all three. The caller
+    clears it a step later anyway."""
+    arm.animation_data.action = None
+    out = []
+    for pose in frames:
+        for name, (q, loc, sc) in pose.items():
+            pb = arm.pose.bones[name]
+            pb.rotation_quaternion = q
+            pb.location = loc
+            pb.scale = sc
+        bpy.context.view_layer.update()
+        world = arm.matrix_world
+        head = world @ arm.pose.bones["Head"].matrix.translation
+        front = world @ arm.pose.bones["headfront"].matrix.translation
+        out.append(_exported_bearing_deg(front.x - head.x, front.y - head.y))
+    return out
+
+
+def check_clip_semantics(figure, frames_by_clip, hips_rest, arm_world, arm):
     """Enforce `CIVILIAN_CLIP_SEMANTICS` at build time, before the expensive
-    per-clip export and merge run. Raises loudly, naming the clip and both
-    numbers, rather than shipping a clip whose motion contradicts its name."""
+    per-clip export and merge run. Raises loudly, naming the clip and the
+    measured numbers, rather than shipping a clip whose motion contradicts its
+    name.
+
+    TWO independent checks, and the second cannot be replaced by the first.
+    Hips travel asks "does this clip move the body when it should not", which
+    is what caught a `down` that crawled four metres. It is completely blind to
+    facing: a figure standing perfectly still while facing backward travels
+    exactly zero and sails through. The face bearing, on mean AND spread, is
+    the half that can see that -- see `CIVILIAN_CLIP_SEMANTICS`' own comment
+    for why there is no weapon half on an unarmed figure.
+
+    Exemptions would be `None` in the table and are printed by name on the
+    passing path rather than skipped silently; nothing here is exempt today,
+    and `down`'s deliberately wide ceiling is written down as wide instead."""
     for clip in CLIP_ORDER:
         flat, rise = hips_travel(frames_by_clip[clip], hips_rest, arm_world)
         rule = CIVILIAN_CLIP_SEMANTICS[clip]
-        print(f"  {figure}/{clip}: Hips travel flat={flat:.3f} cm rise={rise:.3f} cm")
+        mean, lo, hi = soldier._circular_mean_deg(face_bearings(arm, frames_by_clip[clip]))
+        expect = (rule["heading"] or {}).get("expect_deg", 0.0)
+        off = soldier._wrap_deg(mean - expect)
+        print(
+            f"  {figure}/{clip}: Hips travel flat={flat:.3f} cm rise={rise:.3f} cm; "
+            f"face {mean:+.2f} deg [{lo:+.2f},{hi:+.2f}] spread {hi - lo:.2f}"
+            + (f" ({off:+.2f} off its expected {expect:+.0f})" if expect else "")
+        )
         for axis, value in (("flat", flat), ("rise", rise)):
             ceiling = rule[axis]
             if ceiling is not None and value > ceiling:
@@ -505,6 +693,23 @@ def check_clip_semantics(figure, frames_by_clip, hips_rest, arm_world):
                     f"{ceiling:.3f} -- CIVILIAN_CLIP_SEMANTICS['{clip}']['means'] = "
                     f"{rule['means']!r}"
                 )
+        bound = rule["heading"]
+        if bound is None:
+            print(f"  {figure}/{clip}: face bearing NOT gated (exempt)")
+            continue
+        if abs(off) > bound["mean_deg"]:
+            raise RuntimeError(
+                f"{figure}/{clip}: face bearing {mean:+.1f} deg is {off:+.1f} deg off the "
+                f"{expect:+.0f} deg this clip is supposed to hold, which exceeds "
+                f"+-{bound['mean_deg']:.1f} deg -- "
+                f"CIVILIAN_CLIP_SEMANTICS['{clip}']['means'] = {rule['means']!r}"
+            )
+        if hi - lo > bound["spread_deg"]:
+            raise RuntimeError(
+                f"{figure}/{clip}: face bearing sweeps {hi - lo:.1f} deg "
+                f"([{lo:+.1f},{hi:+.1f}]) exceeds {bound['spread_deg']:.1f} deg -- "
+                f"CIVILIAN_CLIP_SEMANTICS['{clip}']['means'] = {rule['means']!r}"
+            )
 
 
 # --- clip writing ------------------------------------------------------------
@@ -667,8 +872,11 @@ def build_figure(figure, print_islands=False):
         )
         print(f"  {figure}/{clip}: retargeted from {donor_name} (height ratio {ratio:.3f})")
 
-    # --- 5. semantics, before any export work.
-    check_clip_semantics(figure, frames_by_clip, hips_rest, arm_world)
+    # --- 5. semantics, before any export work. `scratch_arm` is passed so the
+    # face bearings can be read back off a real evaluated pose; it leaves the
+    # rig posed on the last frame checked, which is harmless because step 8's
+    # `write_clip` sets every bone from `frames_by_clip` anyway.
+    check_clip_semantics(figure, frames_by_clip, hips_rest, arm_world, scratch_arm)
 
     # --- 6. every `*_src` action must be gone before the clips are written.
     # `sample_clip`/`retarget_frames` already turned each into plain data, and

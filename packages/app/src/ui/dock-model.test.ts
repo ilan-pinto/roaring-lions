@@ -63,6 +63,17 @@ describe('lockLabel', () => {
   it('renders the stars gate as a star count', () => {
     expect(lockLabel({ starsMin: 12 }, {})).toBe('★ ≥12');
   });
+
+  // A gate with no earned field at all is bought-only (D1, the special forces
+  // shape): its number is the price. A gate that also declares an earned field
+  // is never bought-only per `isBoughtOnly` -- the price is an alternative to
+  // an EMPTY earned path, not a discount on a real one -- so an unmet Conduct
+  // or stars floor still wins the label even when the gate carries a price too.
+  it('labels a bought-only lock by its price, and an earned lock by its earned number even when a price is set too', () => {
+    expect(lockLabel({ price: 600 }, {})).toBe('600 cr');
+    expect(lockLabel({ starsMin: 12, price: 600 }, {})).toBe('★ ≥12');
+    expect(lockLabel({ roeMin: 55, price: 400 }, {})).toBe('Conduct ≥55');
+  });
 });
 
 describe('doctrineTags', () => {

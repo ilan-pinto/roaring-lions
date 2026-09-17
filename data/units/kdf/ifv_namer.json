@@ -51,7 +51,8 @@
     }
   ],
   "unlock": {
-    "roe_rating_min": 40
+    "roe_rating_min": 40,
+    "price": 520
   },
   "abilities": [
     "smoke"

@@ -10,7 +10,7 @@
 // one frame of a live mission is invisible; the same wrongness in a pure
 // function is one assertion.
 
-import { TICKS_PER_SECOND, conductAtLeast, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
+import { TICKS_PER_SECOND, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { gateSentence } from '../gate-sentence';
 import type { RoleBucket } from './role';
 
@@ -104,6 +104,11 @@ export function lockLabel(unlock: UnlockGate | undefined, ledger: LedgerData | u
   }
   if (unlock?.starsMin !== undefined && starsEarned(ledger) < unlock.starsMin) {
     return `★ ≥${unlock.starsMin}`;
+  }
+  // No earned field failed above. A gate with no earned field at all is bought-only
+  // (D1, the special forces shape): the tile's number is the price, same as `bindingGate`.
+  if (unlock !== undefined && isBoughtOnly(unlock) && unlock.price !== undefined) {
+    return `${unlock.price} cr`;
   }
   return 'locked';
 }

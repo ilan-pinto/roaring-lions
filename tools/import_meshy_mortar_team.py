@@ -153,6 +153,37 @@ in-game measurement against a known-correct unit -- a still render answers "whic
 is +X", never "which end leads while walking". Five of five supplied assets have
 needed a baked rotation. See the task report for the measurement.
 
+## The standing tableau faces the other way, and it was never measured
+
+Everything under "Orientation" above was measured on the LOADING blend. The standing
+blend arrived later, with `move`, and every standing constant in this file was fitted
+as if it agreed. It does not, and nothing here checked: the limbered crew face Blender
+**+Y**.
+
+One un-measured assumption, two shipped defects.
+
+  * `move` marched the crew backwards. Photographed through `render_clip_pose.py`'s
+    own dimetric camera -- the same rig `validate:meshes` uses -- the shipped `move`
+    shows three backpacks and the backs of three helmets, where `meshy_soldier.glb`'s
+    correct `move` shows three faces and three chest rigs at the same camera. Turning
+    the whole scene 180 degrees and re-rendering puts faces, goggles, the slung rifle
+    and the shouldered tube toward the camera; 90 and 270 do not. That is the
+    measurement, and it is a picture rather than a statistic on purpose -- see
+    "Orientation".
+  * `classify_standing`'s face window is a -Y half-space
+    (`co[:, 1] < cy - STAND_FACE_DEPTH_OFFSET * depth`), so on a +Y-facing figure it
+    selected the BACK of the head. Those vertices carry `rl_role = "face"` and the
+    runtime paints that role with the skin ramp, so all three limbered men wore a
+    patch of skin on the back of the skull while they marched.
+
+`STAND_YAW_DEG` turns the raw standing coordinates before anything reads them, so
+both defects close at one place and every constant below goes back to meaning what
+its own comment claims. Measured through `tools/src/mesh_gait.ts`'s `measureFacing`
+on the EXPORTED bytes, the three figures' `move` bearing goes from +87.7 / -139.5 /
+-101.2 degrees to the band recorded in the task report. `idle`'s splay around the
+deployed tube is untouched and must stay that way -- that source WAS measured, and a
+crew spread around its own weapon is correct.
+
 ## The tube points 136 degrees off the crew's facing, and it is left alone
 
 Measured twice on the isolated hardware: a slab-by-slab centroid trace up the tube
@@ -313,6 +344,19 @@ SCALE = 1.8 / 1.207025
 #: How far the two outer figures are pulled toward the middle one. See "Footprint"
 #: in the module docstring for the four rendered candidates this was chosen from.
 LATERAL_SQUEEZE = 0.80
+
+#: Degrees about +Z the STANDING tableau is turned before ANY of this file reads
+#: it. See "The standing tableau faces the other way" in the module docstring.
+#:
+#: The kneeling source's own orientation was measured ("Orientation", above) and
+#: every standing constant in this file was then fitted as if the second source
+#: agreed with it. It does not: the limbered crew face Blender +Y, so `move`
+#: marched them backwards AND `classify_standing`'s face window -- a -Y
+#: half-space, `co[:, 1] < cy - STAND_FACE_DEPTH_OFFSET * depth` -- landed on the
+#: BACKS of three heads. One cause, two defects, and this is the one place to fix
+#: it: applied to the raw coordinates, so every downstream constant in this file
+#: goes back to meaning what its comment says it means.
+STAND_YAW_DEG = 180.0
 
 #: Per-role decimation ratio. Decimated PER ROLE rather than globally so the
 #: mortar and the rifles keep their silhouettes while the uniform -- 81.7% of the
@@ -915,6 +959,27 @@ def check_clip_sources():
         if not os.path.exists(path):
             raise RuntimeError(f"source blend {name!r} missing: {path}")
     print("clip sources:", {c: CLIP_SOURCES[c] for c in CLIP_ORDER})
+
+
+def yaw_about_z(co, deg):
+    """Turn a whole tableau about the world +Z axis, in place on a copy.
+
+    Rigid, so every relationship INSIDE the sculpt -- who stands where, which
+    hand holds the tube, where the case sits -- survives untouched. It is the
+    smallest transform that can answer "this source faces the other way", and it
+    is applied to the raw coordinates so that everything downstream (the face
+    window, the leg-column split, `recompose`, the exported facing) reads a
+    tableau that agrees with the file's own stated convention rather than one
+    each reader has to correct for.
+    """
+    if deg % 360.0 == 0.0:
+        return co.copy()
+    t = math.radians(deg)
+    c, s = math.cos(t), math.sin(t)
+    out = co.copy()
+    out[:, 0] = co[:, 0] * c - co[:, 1] * s
+    out[:, 1] = co[:, 0] * s + co[:, 1] * c
+    return out
 
 
 def append_standing_mesh():
@@ -1920,7 +1985,7 @@ def prepare_standing():
     the same width when a clip swaps between them; getting it wrong would make the
     team visibly grow or slide sideways the instant it started moving."""
     mesh_obj = append_standing_mesh()
-    co = vertex_positions(mesh_obj)
+    co = yaw_about_z(vertex_positions(mesh_obj), STAND_YAW_DEG)
     cols = basecolor_per_vertex(mesh_obj)
     fig = split_standing_figures(co, mesh_obj)
     roles, hw, meta = classify_standing(co, cols, fig)

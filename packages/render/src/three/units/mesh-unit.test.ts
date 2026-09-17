@@ -39,16 +39,28 @@ import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import {
   buildMeshUnitTemplate,
+  loadMeshUnitTemplate,
   instantiateMeshUnit,
   disposeMeshUnitEntity,
   disposeMeshUnitTemplate,
 } from './mesh-unit';
+import { gltfLoader } from './gltf-loader';
 import { applyMeshClip } from './mesh-clip';
 import { MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 import { parseFixture } from './mesh-fixture';
 import { liftTone } from '../world-materials';
 import { rampForRole } from './mesh-role';
+
+// `loadMeshUnitTemplate` is the only thing in this file that fetches, and the
+// only thing that gives a gait warning its file name. Mocked at module scope
+// so the label assertion can drive the REAL function rather than a
+// re-implementation of it; nothing else here touches the loader.
+vi.mock('./gltf-loader', () => ({
+  gltfLoader: vi.fn(),
+  setDracoDecoderPath: vi.fn(),
+  disposeGltfLoader: vi.fn(),
+}));
 
 // --- tests --------------------------------------------------------------
 
@@ -384,5 +396,97 @@ describe('applyMeshClip once option', () => {
 
     entity.mixer.update(1.5); // past the clip's own 1-second duration
     expect(action.paused).toBe(false);
+  });
+});
+
+describe('buildMeshUnitTemplate: rl_gait', () => {
+  /** What `pnpm gait:meshes` writes into `meshy_soldier.glb` today. */
+  const SOLDIER_GAIT = {
+    move: { strideM: 1.0948, cycleS: 0.625 },
+    moveFire: { strideM: 1.5534, cycleS: 0.6667 },
+  };
+
+  it('reads the scene extra the gait pass writes, through the real GLTFLoader', async () => {
+    // Not a hand-built `userData` object: the fixture puts `rl_gait` into
+    // `scenes[0].extras` of a real GLB and `GLTFLoader.parse` is what
+    // surfaces it as `gltf.scene.userData`. That path -- glTF extras to
+    // `userData` -- is the entire interface between Task 5 and this one, and
+    // asserting it against a synthetic scene graph would test nothing about
+    // it. Break: read `rl_gait` off `gltf.scene.userData.extras` (a plausible
+    // mistake) and this goes red.
+    const gltf = await parseFixture({
+      roleName: 'uniform',
+      clipName: ['idle', 'move', 'moveFire'],
+      sceneExtras: { rl_gait: SOLDIER_GAIT },
+    });
+    const template = buildMeshUnitTemplate(gltf, 'kdf', 'meshy_soldier.glb');
+    expect(template.gait?.get('move')).toEqual({ strideM: 1.0948, cycleS: 0.625 });
+    expect(template.gait?.get('moveFire')).toEqual({ strideM: 1.5534, cycleS: 0.6667 });
+  });
+
+  it('leaves `gait` undefined for a GLB that declares none -- the four crew-served rigs', async () => {
+    const gltf = await parseFixture({ roleName: 'uniform', clipName: ['idle', 'move'] });
+    const template = buildMeshUnitTemplate(gltf, 'kdf', 'atgm_cell.glb');
+    expect(template.gait).toBeUndefined();
+  });
+
+  it('drops a malformed entry with a warning naming the file, rather than throwing', async () => {
+    // Deliberately NOT a throw, unlike an unrecognised role or clip name: a
+    // stale or half-written gait costs a unit its rate-match and nothing
+    // else, where refusing to load the GLB would cost the player the unit.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const gltf = await parseFixture({
+      roleName: 'uniform',
+      clipName: ['idle', 'move'],
+      sceneExtras: { rl_gait: { move: { strideM: 'quite far', cycleS: 0.625 } } },
+    });
+    const template = buildMeshUnitTemplate(gltf, 'kdf', 'half-written.glb');
+    expect(template.gait?.get('move')).toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    expect(String(warn.mock.calls[0]?.[0])).toContain('half-written.glb');
+    warn.mockRestore();
+  });
+
+  it('loadMeshUnitTemplate passes the URL through, so a warning names a real file', async () => {
+    // The ONE production path that gives the warning its file name, and it
+    // had no test: dropping `glbUrl` from `loadMeshUnitTemplate`'s call was
+    // the only implementation mutation of 31 that survived green in fix
+    // round 1's review. Every gait warning would then read "(unnamed glb)"
+    // and the brief's "a warning naming the file" requirement would stop
+    // holding silently.
+    //
+    // `gltfLoader` is mocked rather than the parameter being made required:
+    // making it required is a seven-file churn that proves nothing about
+    // whether THIS call site passes it, which is the thing that broke.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const gltf = await parseFixture({
+      roleName: 'uniform',
+      clipName: ['idle', 'move'],
+      sceneExtras: { rl_gait: { move: { strideM: 'not a number', cycleS: 0.625 } } },
+    });
+    vi.mocked(gltfLoader).mockReturnValue({
+      loadAsync: async () => gltf,
+    } as unknown as ReturnType<typeof gltfLoader>);
+
+    await loadMeshUnitTemplate('/art/meshes/yahalom_engineer.glb', 'kdf');
+
+    expect(warn).toHaveBeenCalled();
+    expect(String(warn.mock.calls[0]?.[0])).toContain('/art/meshes/yahalom_engineer.glb');
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain('unnamed');
+    warn.mockRestore();
+  });
+
+  it('carries other scene extras through untouched -- rl_gait is additive', async () => {
+    // The gait pass adds to whatever `extras` a scene already has rather
+    // than replacing them (`gait-pass.ts`'s own contract), so this reader
+    // must not assume `rl_gait` is the only key there.
+    const gltf = await parseFixture({
+      roleName: 'uniform',
+      clipName: ['idle', 'move'],
+      sceneExtras: { rl_something_else: 7, rl_gait: { move: { strideM: 1.2, cycleS: 0.6 } } },
+    });
+    const template = buildMeshUnitTemplate(gltf, 'kdf', 'extras.glb');
+    expect(template.gait?.get('move')).toEqual({ strideM: 1.2, cycleS: 0.6 });
+    expect((template.root.userData as { rl_something_else?: number }).rl_something_else).toBe(7);
   });
 });

@@ -1,4 +1,4 @@
-"""Retarget the supplied Meshy soldier (five single-clip GLBs, one mesh, one
+"""Retarget the supplied Meshy soldier (six single-clip GLBs, one mesh, one
 24-joint Mixamo-style skeleton) into ONE contract-compliant team file:
 `art/meshes/meshy_soldier.glb`, per
 `docs/superpowers/specs/2026-08-28-mesh-unit-contract.md` (v1, infantry).
@@ -9,28 +9,84 @@ Usage (headless, matching `tools/export_mesh_team.py`'s own invocation shape):
         --python tools/import_meshy_soldier.py
 
 Source files, gitignored (`art/blend/` -- never committed), read from
-`art/blend/KDF/soldier/*.glb`:
+`art/blend/KDF/soldier/Meshy_AI_lowpoly_mideast_soldi_biped/*.glb` (see
+`SRC_DIR`; the short-name `art/blend/soldier/` path this docstring used to
+claim exists in no checkout):
 
-    Walking.glb              (action "...|walking_man|...")   -> move
-    Gun_Hold_Left_Turn.glb   (action "...|Gun_Hold_Left_Turn|...") -> idle
-    Shot_and_Blown_Back.glb  (action "...|Shot_and_Blown_Back|...") -> wreck ONLY
+    Running_withSkin.glb        ("...|running|...")        -> move
+    Run_and_Shoot_withSkin.glb  ("...|Run_and_Shoot|...")  -> moveFire
+    Gun_Hold_Left_Turn_withSkin.glb ("...|Gun_Hold_Left_Turn|...")
+                                                           -> idle, HOLD ONLY
+    Shot_and_Blown_Back_withSkin.glb ("...|Shot_and_Blown_Back|...")
+                                                           -> wreck, LAST FRAME ONLY
 
-    (`down` is synthesized, not retargeted from any of the five -- see
-    point 4 below and `build_down_src`'s own docstring for why.)
+    (`fire` and `down` are synthesized, not retargeted from any of the six --
+    see point 4 below and `build_fire_src`'s/`build_down_src`'s own
+    docstrings for why.)
 
-`Running.glb` is the brief's own named spare (a faster `move`) and is not
-built here -- nothing in the contract asks for a second `move`, and
-`ClipName` has no slot for one.
+`Walking_withSkin.glb` is READ BY NOTHING here as of 2026-09-15. It was
+`move`'s source and is retired in favour of the run, and NOT because a run
+looks better: `data/units/kdf/inf_squad.json` moves at 0.9 tiles/s against
+`MESH_UNITS_PER_TILE` 3.0, so this unit's one and only speed is 2.7 m/s.
+Measured on the shipped file, the walk's boots described 0.315 of the ground
+the body crossed, so the figure glided. There is no second, slower speed for
+a walk to be the honest rendering of, and no "fleeing" state is needed to
+justify binding the run -- see
+`docs/superpowers/specs/2026-09-15-infantry-gait-design.md` section 3.2.
 
 `Side_Shot.glb` is READ BY NOTHING in this file. It was `fire`'s source
 through R1/R2 and is retired here: measured, it is a HIT reaction ("shot in
 the side", not "shooting sideways") with roughly double `idle`'s own vertical
 hip travel, and looping it continuously produced a visible up-down bob on
 every firing unit -- see `build_fire_src`'s own docstring and the task report
-for the measurement. None of the five supplied clips is an actual firing
+for the measurement. None of the six supplied clips is an actual firing
 animation, so `fire` is synthesized instead of retargeted: a held-aim pose
 (borrowed from `idle`'s own settled stance) plus an authored recoil-and-settle
 impulse confined to the weapon-side arm, shoulder and upper spine.
+
+## Facing: the hold, the yaw, and the gate (2026-09-15)
+
+`idle` used to bind the WHOLE of `Gun_Hold_Left_Turn`, which is what its name
+says: a figure holding a gun that then turns roughly 180 degrees. `idle`
+loops, so a standing rifleman rotated on the spot for ever -- and because
+`build_fire_src` and `build_down_src` both took their base pose from that
+clip's LAST frame, ONE mis-binding produced THREE clips facing backwards.
+Measured on the shipped file with `tools/src/mesh_gait.ts`'s `measureFacing`:
+`fire` -156 deg, `down` -163, `idle` sweeping +23 to -159, against `move`'s
+correct -5.
+
+Four mechanisms replace it, and every one computes its numbers per build
+rather than carrying a typed constant. `measure_clip_bearings` reads TWO
+ground-plane bearings per frame in the exported file's own convention: where
+the FACE points (`Head` -> `headfront`) and where the WEAPON points
+(`RightHand`'s own bone direction -- the rifle IS modelled, but it carries no
+`weapon` rl_role of its own, so it cannot be isolated and measured directly;
+see `_weapon_bearing_deg`).
+`find_hold_window` finds where the turn begins and where a loop can close.
+`build_idle_src` binds that window with one root yaw so the held stance's
+face points along `+X`. And `solve_fire_aim` brings the WEAPON onto the same
+axis, for `fire` alone.
+
+That last one is a separate mechanism because it has to be. A root yaw is a
+RIGID rotation of the whole figure, so it cannot change the angle BETWEEN the
+face and the weapon -- it only chooses which end of a pre-existing gap reads
+zero. The gap is a property of the supplied hold, which is a CARRY pose:
+rifle across the body at low ready, weapon about 37 degrees off the face, and
+it was there long before this work (nobody could see it because both ends
+were backwards). The weapon follows the ARMS, so only an arm-chain
+adjustment can reach it, and `_FIRE_AIM_BONES` is that.
+
+**`fire` aims; `idle` and `down` keep the carry.** That split is a decision,
+not an omission: a soldier standing at ease or gone to ground holds his rifle
+across his body, and neither clip draws a tracer that contradicts it. `fire`
+is the one clip the game draws a straight line out of, so `fire` is the one
+clip whose rifle has to be on that line.
+
+`check_clip_semantics` gates all of it: Hips travel, FACE bearing and WEAPON
+bearing, each on its mean AND its spread. The weapon half is the one that can
+actually go red -- the face half is zero by construction on `idle`, `fire`
+and `down`, since the yaw is computed from exactly the bearings it then
+tests. `wreck` is exempt from both, for two reasons recorded in the table.
 
 ## What this script does, in order
 
@@ -96,11 +152,20 @@ impulse confined to the weapon-side arm, shoulder and upper spine.
 
     Also derives a `fire` source action -- `build_fire_src`, same step,
     same "sample one pose from another clip" idiom as `wreck` above, but
-    NOT a static hold: a held-aim base pose (`idle`'s own LAST frame, the
-    settled stance `Gun_Hold_Left_Turn` ends on) plus a short, authored
+    NOT a static hold: a held-aim base pose plus a short, authored
     recoil-and-settle cycle confined to `RightForeArm`/`RightArm`/
     `RightShoulder`/`Spine02`. See `build_fire_src`'s own docstring for why
     this is synthesized rather than retargeted from a supplied clip.
+
+4b. And BEFORE all of that (step 4.5 in `main()`, which runs first), derives
+    `idle` itself -- `build_idle_src`, new 2026-09-15. `idle` is no longer a
+    whole supplied file: `measure_clip_bearings` walks
+    `Gun_Hold_Left_Turn` frame by frame, `find_hold_window` locates where its
+    turn begins, and only the pre-turn hold is bound, with one measured root
+    yaw so that hold faces `+X`. `build_fire_src` and `build_down_src` then
+    take their base pose from a frame INSIDE that window rather than from
+    `frame_range[1]`. See the "Facing" section above for what the old
+    arrangement cost.
 
 5.  Duplicates the scratch rig three times (full independent mesh+armature
     data per copy -- forced via `preferences.edit.use_duplicate_mesh` /
@@ -122,8 +187,8 @@ impulse confined to the weapon-side arm, shoulder and upper spine.
     seven, because this asset ships with exactly one material/UV island --
     see the task report for what that costs.
 
-7.  Builds each of the five clips (`idle`, `move`, `fire`, `down`, `wreck`)
-    ONE AT A TIME by replaying its `*_src` action on the (still-original-
+7.  Builds each of the six clips (`idle`, `move`, `fire`, `moveFire`,
+    `down`, `wreck`) ONE AT A TIME by replaying its `*_src` action on the (still-original-
     named) SCRATCH rig frame by frame and copying the evaluated pose onto
     all three `f{n}_`-prefixed bone sets via `keyframe_insert` -- the same
     "author with pb.keyframe_insert on a freshly created action" idiom
@@ -136,12 +201,12 @@ impulse confined to the weapon-side arm, shoulder and upper spine.
     Each clip is exported to its OWN temporary single-animation GLB
     IMMEDIATELY after being built, and the action is then torn back off the
     armature before the next clip starts. This is not incidental structure
-    -- see `export_glb`'s own docstring for why building all five actions on
+    -- see `export_glb`'s own docstring for why building all six actions on
     one armature and exporting once (the obvious approach, and this script's
     first one) silently produces a file where every clip's every channel
     collapses to two identical keyframes.
 
-8.  Merges the five single-clip temporary GLBs into ONE file in pure Python
+8.  Merges the six single-clip temporary GLBs into ONE file in pure Python
     (`merge_clip_glbs`, no `bpy`) -- the first file's mesh/skin/node graph
     is kept as-is, and each other file's one animation is re-homed into it:
     its sampler accessors and their backing bufferViews are copied into the
@@ -149,7 +214,7 @@ impulse confined to the weapon-side arm, shoulder and upper spine.
     `channel.target.node` and `sampler` indices are left untouched, because
     every temporary file was exported from the SAME rig with nothing but
     the active action differing between exports, so node ordering is
-    identical across all five -- verified by comparing node name lists
+    identical across all six -- verified by comparing node name lists
     before trusting index equivalence, never assumed.
 
 ## rl_role -- recovered from the source texture, not guessed
@@ -212,7 +277,20 @@ import numpy as np
 from mathutils.bvhtree import BVHTree
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC_DIR = os.path.join(REPO, "art", "blend", "soldier")
+#: Corrected 2026-09-15, the same correction `import_meshy_soldier_irregular.py`
+#: already records making for the Sarim asset: the supplied character sits two
+#: grouping folders deeper than this constant used to claim (`art/blend/
+#: soldier/` exists in NO checkout, so every path built from the old value
+#: was a `FileNotFoundError` waiting for the first person to re-run this
+#: script), under Meshy's own full export names. Verified against the real
+#: directory -- all seven files listed and their mesh bytes compared -- not
+#: assumed.
+SRC_DIR = os.path.join(
+    REPO, "art", "blend", "KDF", "soldier", "Meshy_AI_lowpoly_mideast_soldi_biped"
+)
+#: Meshy's own per-animation filename prefix, factored out only because it is
+#: 44 characters long and repeated on every source below.
+_SRC = "Meshy_AI_lowpoly_mideast_soldi_biped_Animation_"
 OUT_PATH = os.path.join(REPO, "art", "meshes", "meshy_soldier.glb")
 
 sys.path.insert(0, os.path.join(REPO, "tools", "units"))
@@ -222,17 +300,19 @@ import kit  # noqa: E402 -- the webbing graft below builds real kit.py geometry
 #: Arbitrary (the runtime reads clips by name, `mesh-unit.ts`'s own
 #: `buildMeshUnitTemplate` builds a `Map<ClipName, AnimationClip>`), kept
 #: fixed only so a rerun's temp-file names are predictable.
-CLIP_ORDER = ("idle", "move", "fire", "down", "wreck")
+CLIP_ORDER = ("idle", "move", "fire", "moveFire", "down", "wreck")
 
-#: The two clips that actually loop at runtime (`LoopRepeat`, see
+#: The three clips that actually loop at runtime (`LoopRepeat`, see
 #: `write_combined_clip`'s own docstring for why that is what makes a
 #: per-figure phase shift well-defined). Passed as `write_combined_clip`'s
 #: `cyclic` argument -- `fire`/`down`/`wreck` are not cycles and stay
-#: synchronised across figures.
-CYCLIC_CLIPS = frozenset({"idle", "move"})
+#: synchronised across figures. `moveFire` is a real gait cycle (the same
+#: shape as `move`, with the rifle up) so it gets the same per-figure phase
+#: offset `move` does, matching `import_meshy_soldier_irregular.py`.
+CYCLIC_CLIPS = frozenset({"idle", "move", "moveFire"})
 
 # --- source clip mapping ------------------------------------------------
-# `fire` is deliberately absent: none of the five supplied Meshy clips is a
+# `fire` is deliberately absent: none of the six supplied Meshy clips is a
 # firing animation, and `Side_Shot.glb` -- the original task brief's `fire`
 # mapping -- is a HIT reaction (measured: ~2x `idle`'s own vertical hip
 # travel), not a firing stance. Looping it produced the visible bob this
@@ -247,10 +327,39 @@ CYCLIC_CLIPS = frozenset({"idle", "move"})
 # played a suppressed soldier being blown backwards, on repeat. See
 # `build_down_src`'s own docstring. `FALL_SOURCE` below keeps the SAME file
 # imported, under a name that says what it is now used for: `wreck` alone.
+#
+# `idle` is deliberately absent as of 2026-09-15, for a third reason of the
+# same family: `Gun_Hold_Left_Turn.glb` -- this pipeline's ORIGINAL `idle`
+# mapping, bound WHOLE -- is a figure holding a gun that then turns roughly
+# 180 degrees, and `idle` loops. A standing rifleman therefore rotated on the
+# spot, for ever. Worse, `build_fire_src` and `build_down_src` both took
+# their base pose from that clip's LAST frame, so ONE mis-binding produced
+# THREE clips facing backwards (measured on the shipped file: `fire` -156
+# deg, `down` -163 deg, `idle` sweeping +23 -> -159, against `move`'s
+# correct -5). `TURN_SOURCE` below keeps the same file imported under a name
+# that says what it is, and `build_idle_src` binds only its measured pre-turn
+# HOLD -- see that function, `find_hold_window`, and
+# `docs/superpowers/specs/2026-09-15-infantry-gait-design.md` section 3.1.
+#
+# `move` is `Running_withSkin.glb` as of the same date, not `Walking`. Not a
+# style preference and not a new "fleeing" state: `data/units/kdf/inf_squad
+# .json` moves at 0.9 tiles/s and one tile is 3 m (`MESH_UNITS_PER_TILE`), so
+# this unit's ONE speed is 2.7 m/s. `move` IS the run. The walk described a
+# third of the ground the body crossed (measured ratio 0.315) and the figure
+# glided; see the design doc's section 3.2. `Walking.glb` is now read by
+# nothing in this file.
 CLIP_SOURCES = {
-    "move": "Walking.glb",
-    "idle": "Gun_Hold_Left_Turn.glb",
+    "move": _SRC + "Running_withSkin.glb",
+    "moveFire": _SRC + "Run_and_Shoot_withSkin.glb",
 }
+
+#: `Gun_Hold_Left_Turn`, imported under a name that does not claim `idle`.
+#: Read by exactly one caller: `build_idle_src`, which binds only the
+#: pre-turn hold this clip OPENS on and discards the turn. Not folded into
+#: `CLIP_SOURCES` above for the same reason `FALL_SOURCE` is not: that dict's
+#: keys are canonical `ClipName`s (`mesh-anim.ts`'s `isMeshClipName`) whose
+#: source file is bound whole, and this one is not.
+TURN_SOURCE = _SRC + "Gun_Hold_Left_Turn_withSkin.glb"
 
 #: `Shot_and_Blown_Back.glb`, imported under a name that does not claim
 #: `down`. Read by exactly one caller now: `build_wreck_src`, for `wreck`'s
@@ -259,9 +368,9 @@ CLIP_SOURCES = {
 #: itself no longer shares it. Not folded into `CLIP_SOURCES` above: that
 #: dict's own keys are canonical `ClipName`s (`mesh-anim.ts`'s
 #: `isMeshClipName`), and this source no longer maps to one directly.
-FALL_SOURCE = "Shot_and_Blown_Back.glb"
+FALL_SOURCE = _SRC + "Shot_and_Blown_Back_withSkin.glb"
 
-#: What each of the FIVE canonical clips must MEAN, and the measurable
+#: What each of the SIX canonical clips must MEAN, and the measurable
 #: property `check_clip_semantics` (below `write_combined_clip`) checks it
 #: against -- added so a THIRD instance of this exact mistake is caught
 #: here, at build time, rather than by the project lead watching his
@@ -277,18 +386,120 @@ FALL_SOURCE = "Shot_and_Blown_Back.glb"
 #: x100 -- the exact metric `.superpowers/meshy-fire-clip-report.md`'s own
 #: comparison table uses). `ceiling(idle_travel)` returns `None` for "no
 #: meaningful bound" (idle defines the baseline; move is SUPPOSED to move).
+#:
+#: `heading` is the SECOND half, added 2026-09-15 after the THIRD instance of
+#: this defect class shipped -- and this one was the worst, because it was
+#: one mis-binding producing three broken clips rather than one (see
+#: `CLIP_SOURCES`' own comment). A Hips-travel ceiling cannot see it at all:
+#: a figure standing perfectly still while facing 156 degrees away from what
+#: it is shooting has a Hips travel of exactly zero and passes. `heading` is
+#: `{mean_deg, spread_deg}` in the EXPORTED file's own convention
+#: (`_exported_bearing_deg`: forward is `+X` is 0, positive is the figure's
+#: left), or `None` for exempt. BOTH halves are checked and both are needed:
+#:
+#:   * `mean_deg` catches a clip bound facing the wrong way (the -156 above).
+#:   * `spread_deg` catches a clip that TURNS. The whole of
+#:     `Gun_Hold_Left_Turn` has a circular mean near -57 and would slip a
+#:     generous mean-only bound on some rigs while sweeping 182 degrees; a
+#:     mean is exactly the wrong summary for a sweep, which is also why
+#:     `tools/src/mesh_gait.ts`'s own `circularMeanDeg` reports min/max
+#:     beside it.
+#:
+#: `weapon` is the same shape again, measured on `_weapon_bearing_deg`, and
+#: it exists because `heading` ALONE CANNOT FAIL on three of these six clips.
+#: `build_idle_src` yaws the hold by the circular mean of exactly the face
+#: bearings this table then tests, so `idle`'s heading mean is 0 BY
+#: CONSTRUCTION; `find_hold_window` keeps every bound frame within
+#: `LOOP_SEAM_DEG` of the opening, so its spread is bounded by construction
+#: too; and `fire` and `down` inherit both from that same base pose. A gate
+#: that can only pass is not a gate. The weapon axis is independent of the
+#: correction -- a root yaw is a RIGID rotation, so it cannot change the
+#: angle between the face and the weapon, only which end of it reads zero --
+#: which is what makes this half real, and it is what holds `fire`'s aim in
+#: place.
+#:
+#: Every ceiling below is set from a measurement of THIS asset's own sources
+#: (Blender probe, 2026-09-15), not guessed, and each is recorded beside the
+#: value it bounds. `tools/src/mesh_gait.test.ts` READS the `heading`
+#: `mean_deg` values out of this file rather than restating them, so there is
+#: one ceiling per clip and not two.
 CLIP_SEMANTICS = {
     "idle": {
         "means": "standing hold, minimal motion -- the baseline every other clip is measured against.",
         "ceiling": lambda idle_travel: None,
+        # The bound hold measures mean +0.00 (yaw-corrected to it by
+        # construction, which is why this half cannot fail here) and spread
+        # 2.68 deg.
+        "heading": {"mean_deg": 20.0, "spread_deg": 20.0},
+        # Measured -37.34, spread 1.49, and KEPT. The supplied hold is a
+        # CARRY -- rifle across the body at low ready -- and a soldier
+        # standing at ease holds his rifle across his body. `idle` draws no
+        # tracer, so nothing on screen contradicts it. This ceiling therefore
+        # has to admit the carry, and says so rather than pretending to be
+        # tight: it bounds the DEFECT class (the -166 that shipped) and not
+        # the carry. `fire` is the only clip the game draws a straight line
+        # out of and the only one that aims -- see `_FIRE_AIM_BONES`.
+        "weapon": {"mean_deg": 50.0, "spread_deg": 20.0},
     },
     "move": {
         "means": "a real gait cycle -- Hips travel is EXPECTED here, unlike every other clip in this table.",
         "ceiling": lambda idle_travel: None,
+        # `Running` measures mean -0.15, spread 6.13. A head bobs and counter-
+        # rotates through a stride, so the spread bound is looser than idle's.
+        "heading": {"mean_deg": 20.0, "spread_deg": 30.0},
+        # EXEMPT, and measured rather than waved through. NOT because there
+        # is no rifle -- there is, in every clip, since this is ONE skinned
+        # mesh: 3,248 of `uniform`'s vertices are dominantly weighted to
+        # `f0_RightHand` and span 0.692 m in bind pose, which is a rifle and
+        # not a hand. The reason is that `Running` swings that arm freely
+        # through the stride, so the weapon bearing measures a spread of
+        # 154.51 deg over the cycle. There is no single heading here for a
+        # ceiling to mean anything against.
+        "weapon": None,
     },
     "fire": {
         "means": "stand and shoot; recoil is upper-body only, so Hips travel must not exceed idle's own.",
         "ceiling": lambda idle_travel: idle_travel + 0.5,
+        # Measures +0.76, spread 0.09. Synthesized from a frame of the
+        # bound hold, so ~0 by construction; `_FIRE_AIM_BONES` deliberately
+        # touches no bone above the shoulder, so the aim does not move it
+        # either (that is why `Spine02` is not in that table -- see its own
+        # comment). The spread ceiling was briefly 20 during the round that
+        # added the aim, widened defensively for the `Spine02` variant that
+        # was then rejected; it is back at 15, where the measurement puts it,
+        # because a ceiling with no measurement beside it is exactly what
+        # this table exists to stop.
+        "heading": {"mean_deg": 20.0, "spread_deg": 15.0},
+        # The tight one, and the whole point of this half of the table.
+        # `solve_fire_aim` drives the weapon onto the facing axis and
+        # re-measures; the clip then measures mean +1.14 with spread 2.48,
+        # the spread being `_FIRE_CYCLE`'s own recoil. 5/15 is real margin
+        # over that and nowhere near the -36.65 the carry starts at, so this
+        # gate fails loudly the moment the aim stops working. Falsified by
+        # hand, not assumed: re-measured with the aim removed it raises at
+        # -36.65, and with the clip bound backwards it raises at +143.
+        "weapon": {"mean_deg": 5.0, "spread_deg": 15.0},
+    },
+    "moveFire": {
+        "means": (
+            "a real gait cycle WHILE firing -- the source's own Run_and_Shoot clip. Hips travel "
+            "is EXPECTED here, exactly like `move`; this is NOT `fire`'s near-zero-Hips shape."
+        ),
+        "ceiling": lambda idle_travel: None,
+        # `Run_and_Shoot` measures face mean +10.82, spread 8.42 -- a
+        # genuinely BLADED stance, which is what a real walk-and-shoot is; the
+        # sibling Sarim rig's own `moveFire` measures +42 and the design doc
+        # records it as "bladed but not broken". So this ceiling deliberately
+        # bounds the DEFECT class (a clip bound backwards) and not the blade.
+        "heading": {"mean_deg": 35.0, "spread_deg": 30.0},
+        # THE CONTROL for this whole half of the table, and it was not
+        # designed as one -- it is the supplier's own authored firing clip,
+        # untouched by anything in this file, and its weapon measures mean
+        # +0.31 with spread 1.63. A real walk-and-shoot puts the weapon on the
+        # axis of travel and blades the body behind it. That is independent
+        # evidence that `_weapon_bearing_deg` measures a weapon rather than an
+        # arbitrary bone, and that 0 is the right target for `fire`'s solve.
+        "weapon": {"mean_deg": 10.0, "spread_deg": 15.0},
     },
     "down": {
         "means": (
@@ -296,10 +507,37 @@ CLIP_SEMANTICS = {
             "(mesh-death.ts plays this before wreck) -- near-zero Hips travel, well under idle's."
         ),
         "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+        # Two identical keyframes, so the spread is 0 by construction; the
+        # mean measures -5.89, the bound hold's own, moved only by
+        # `_CROUCH_BENDS`' spine and neck flexion, which is pitch not yaw.
+        "heading": {"mean_deg": 25.0, "spread_deg": 5.0},
+        # Measured -46.18, and KEPT for the same reason `idle`'s is -- a man
+        # gone to ground holds his rifle across him, and `down` draws no
+        # tracer either. Slightly wider than `idle`'s because `_CROUCH_BENDS`
+        # folds the torso on top of the carry.
+        "weapon": {"mean_deg": 55.0, "spread_deg": 10.0},
     },
     "wreck": {
         "means": "a HELD corpse pose -- same requirement as down: static, near-zero Hips travel.",
         "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+        # EXEMPT from BOTH bearing checks, deliberately, and this is not an
+        # oversight to tidy up later. Two independent reasons:
+        #
+        #   1. `wreck` is the last frame of `Shot_and_Blown_Back` and measures
+        #      -166 deg (face). A body thrown round by the round that killed
+        #      it is a corpse lying where the blast put it, not a clip bound
+        #      backwards. The design doc records the number so the next reader
+        #      does not "fix" it.
+        #   2. Neither bearing is MEASURABLE on a body lying on the ground:
+        #      both forward vectors are then nearly vertical, and the ground
+        #      projection of a nearly-vertical vector is noise. Measured, the
+        #      two instruments disagree by 40 deg on this one pose (this file
+        #      reads face +154.1 where `measureFacing` reads -166.0) against
+        #      1-3 deg on every standing clip. A "wider ceiling" would be
+        #      gating noise; exempt is the correct answer, here and for any
+        #      future `wreckAlt`.
+        "heading": None,
+        "weapon": None,
     },
 }
 
@@ -481,7 +719,7 @@ def _new_objects_and_action(before_objs, before_actions):
 def _real_mesh(new_objs):
     """The actual character mesh among an import's new objects -- picked by
     HIGHEST vertex count, not by name or iteration order. Every one of these
-    five files carries a second, 42-vert "Icosphere" placeholder alongside
+    supplied files carries a second, 42-vert "Icosphere" placeholder alongside
     the real 13,910-vert "char1" mesh (confirmed once by direct inspection,
     see module docstring point 1); a plain `set` difference iterates in
     arbitrary hash order, so picking "the first MESH" silently grabbed the
@@ -592,6 +830,357 @@ def fix_forward(arm_obj):
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
 
 
+# --- forward bearing, measured -----------------------------------------
+#
+# Every number below is in the EXPORTED file's own convention, not Blender's,
+# so it can be compared directly against `tools/src/mesh_gait.ts`'s
+# `measureFacing` and against the design doc's section 2.1 table: forward is
+# `+X` is 0 degrees, and positive is the figure's own LEFT.
+#
+# The conversion is two fixed steps and both were verified live rather than
+# derived and trusted. Blender is Z-up and its glTF exporter writes Y-up as
+# `(x, z, -y)`, so a ground-plane vector `(dx, dy)` here becomes `(dx, -dy)`
+# in glTF's own `(x, z)` ground plane -- which NEGATES the bearing. Then
+# `apply_forward_fix` wraps the whole merged graph in one node rotated
+# `FORWARD_FIX_DEG` about `+Y`, which SUBTRACTS that angle from every bearing
+# in the file. Cross-check (Blender probe against the already-shipped
+# `art/meshes/meshy_soldier.glb`, 2026-09-15): `Gun_Hold_Left_Turn`'s opening
+# frame predicts +22.67 here and the shipped `idle` clip's own first sample
+# reads +22.7 through the same `Head`->`headfront` pair in the exported file.
+
+
+def _wrap_deg(deg):
+    """`deg` folded into `(-180, 180]`."""
+    while deg > 180.0:
+        deg -= 360.0
+    while deg <= -180.0:
+        deg += 360.0
+    return deg
+
+
+def _circular_mean_deg(values):
+    """`(mean, lo, hi)` of a list of bearings in degrees, where `lo`/`hi` are
+    the mean plus the smallest/largest signed deviation from it.
+
+    A plain arithmetic mean is wrong at exactly the place this file most
+    needs to be right -- +179 and -179 are two degrees apart on the circle
+    and average to 0, "facing forward", for a figure facing backward -- and
+    the defects this gate exists for cluster at that discontinuity. Same
+    reasoning, same shape and the same reported window as
+    `tools/src/mesh_gait.ts`'s own `circularMeanDeg`, deliberately, so a
+    build-time number and a shipped-file number can be compared without
+    anyone having to ask which kind of mean each one is."""
+    sx = sum(math.cos(math.radians(v)) for v in values)
+    sy = sum(math.sin(math.radians(v)) for v in values)
+    mean = math.degrees(math.atan2(sy, sx))
+    devs = [_wrap_deg(v - mean) for v in values]
+    return mean, mean + min(devs), mean + max(devs)
+
+
+def _exported_bearing_deg(dx, dy):
+    """A Blender WORLD ground-plane vector, as the exported file will read
+    it. See the block comment above for the two steps and the live
+    cross-check."""
+    return _wrap_deg(math.degrees(math.atan2(-dy, dx)) - FORWARD_FIX_DEG)
+
+
+def _clip_frame_positions(action):
+    """Exactly the frame positions `sample_clip` visits, in order.
+
+    THREE functions need this and it has to be the same list in all three,
+    which is precisely when two copies should be one: `sample_clip` writes
+    output frame `step` from the pose at position `step`, `measure_clip_
+    bearings` reports a bearing per `step`, and `build_idle_src` trims by a
+    window expressed in `step`. If any of them derived its own positions, an
+    index measured by one would silently mean a different frame in another --
+    and the whole hold-window mechanism is nothing but an index passed
+    between them."""
+    f0, f1 = action.frame_range
+    n_steps = max(1, round(f1 - f0))
+    return [f0 + (f1 - f0) * step / n_steps for step in range(n_steps + 1)]
+
+
+def _face_bearing_deg(scratch_arm):
+    """Where the FACE points, from the currently evaluated pose.
+
+    The `Head` -> `headfront` marker pair is this rig's own, authored by the
+    supplier: `headfront` is a leaf marker bone in front of the skull, and it
+    is what the original (wrong, now inert) `fix_forward` derived its angle
+    from. Two reasons it is the right probe rather than, say, the hips: it is
+    a HEAD reading, the same thing `tools/src/mesh_gait.ts`'s `measureFacing`
+    reads in the shipped file, so the two instruments can be compared
+    directly (measured offset on this asset: 1-3 degrees); and the complaint
+    this work answers is about faces not being in front of guns."""
+    world = scratch_arm.matrix_world
+    head = world @ scratch_arm.pose.bones["Head"].matrix.translation
+    front = world @ scratch_arm.pose.bones["headfront"].matrix.translation
+    return _exported_bearing_deg(front.x - head.x, front.y - head.y)
+
+
+def _weapon_bearing_deg(scratch_arm):
+    """Where the WEAPON points, from the currently evaluated pose.
+
+    `RightHand`'s own bone direction -- head to tail.
+
+    **The figure really does carry a rifle**, and a reader who assumes
+    otherwise will draw the wrong conclusion from this whole file: the
+    supplied `char1` mesh models one, skinned to the arm bones like the rest
+    of the body. What it does NOT have is a `weapon` rl_role of its own --
+    `classify_vertex_roles` splits this mesh by sampling its own base-colour
+    texture, the rifle is the same olive as the uniform, and so it lands in
+    `uniform` with ~90% of the vertices. It therefore cannot be isolated by
+    role and measured directly, which is why the bearing is taken off the rig
+    instead. (An earlier revision of this comment said the asset "ships no
+    weapon mesh at all". That was wrong, and the renders under
+    `.superpowers/sdd/2026-09-15-infantry-gait/` show the rifle plainly.)
+
+    The rig proxy is not a fresh invention: `_FIRE_RECOIL_BONES`' own
+    docstring already established `RightHand`'s TAIL as the closest available
+    proxy for muzzle position when the recoil impulse was measured, so
+    head->tail is the line from grip to muzzle under that same proxy.
+
+    It is validated three independent ways, none of them circular. The
+    supplier's own authored firing clip, `Run_and_Shoot` -> `moveFire`,
+    untouched by anything in this file, measures +0.31 deg with spread 1.63
+    on it -- a real walk-and-shoot puts its weapon on the axis of travel, so
+    a proxy that reads 0 there is reading a weapon. The review's own
+    independent reading of the same quantity on the pre-fix file's `fire`
+    agrees to a few degrees (+159.2 here against their +163.4, gap -38.5
+    against their -40.6). And the before/after renders of `fire` show the
+    DRAWN rifle going from held diagonally across the chest, muzzle up and
+    across, to levelled along the facing axis -- which is what this number
+    going from -36.65 to +1.14 claims happened.
+
+    Two definitions were measured and REJECTED, recorded so nobody pays for
+    them twice. `RightHand` -> `LeftHand` is not the barrel: in this pose the
+    support hand sits 0.166 m from the trigger hand and almost entirely
+    PERPENDICULAR to the hand-bone axis, so it says where the support hand is
+    and not where the weapon points. And a mesh-centroid pair is not a
+    heading at all -- `measureFacing`'s own docstring records that negative
+    result for the face, and here the weapon shares a role mesh with the
+    entire uniform, so there is no centroid to take.
+
+    NOT meaningful on `move`: `Running` is a free-swinging run mocap in which
+    the figure carries the rifle in one hand at his side, so `RightHand`
+    tracks a pumping arm. Its weapon spread measures 154.51 deg over the
+    cycle. That is why `CLIP_SEMANTICS['move']['weapon']` is `None`."""
+    world = scratch_arm.matrix_world
+    pb = scratch_arm.pose.bones["RightHand"]
+    grip = world @ pb.matrix.translation
+    muzzle = world @ pb.tail
+    return _exported_bearing_deg(muzzle.x - grip.x, muzzle.y - grip.y)
+
+
+#: How far a frame's forward bearing may drift from the source clip's OWN
+#: OPENING bearing before that frame counts as part of the turn rather than
+#: part of the hold. `build_idle_src` reports the first frame past this and
+#: never binds it. Ten degrees is large enough that idle sway, breathing and
+#: the weapon settling do not read as a turn (the bound hold's own total
+#: spread is 1.2 deg) and small enough to bound a 182-degree sweep to within
+#: a handful of frames of where it starts.
+HOLD_TOLERANCE_DEG = 10.0
+
+#: The SECOND, tighter tolerance, and the one that actually bounds `idle`.
+#: `HOLD_TOLERANCE_DEG` asks "has the turn begun"; this asks "does the
+#: trimmed clip LOOP". `idle` plays on `LoopRepeat` (`mesh-unit.ts`'s
+#: `applyMeshClip`), so its last frame runs straight into its first, and the
+#: source is a one-way clip that never returns to its opening pose -- binding
+#: every frame inside the 10-degree window would put a 7-degree head snap on
+#: the seam, once every 1.3 s, for ever. Measured on this source: the 10-deg
+#: window ends at frame 33 (bearing +15.5, a 7.1-deg seam) and the 2-deg one
+#: at frame 30 (+21.0, a 1.7-deg seam). Both numbers are printed on every
+#: build; only this one is bound.
+LOOP_SEAM_DEG = 2.0
+
+
+def measure_clip_bearings(scratch_arm, action):
+    """Replays `action` on the scratch rig and returns `(face, weapon)` --
+    two lists of ground-plane bearings, one per frame, in the exported file's
+    own convention. See `_face_bearing_deg` and `_weapon_bearing_deg` for
+    what each vector is and why.
+
+    BOTH are needed and the second is the load-bearing one. `build_idle_src`
+    yaws the hold by the circular mean of exactly the FACE bearings that
+    `check_clip_semantics` then tests, so a face-only gate is zero by
+    construction on `idle` and, through the base pose, on `fire` and `down`
+    too -- it could not fire on the three clips it was added for. A root yaw
+    is a RIGID rotation of the whole figure (`Hips` is the root), so it
+    cannot change the angle BETWEEN the face and the weapon; it only chooses
+    which of the two gets to be zero. The weapon bearing is therefore
+    genuinely independent of the correction, and gating it is what makes the
+    check real rather than self-satisfying.
+
+    Sampled at exactly `sample_clip`'s own frame positions
+    (`_clip_frame_positions`), so an index into either list is the same frame
+    as the same index into that function's output, and a window measured here
+    can be applied there without any re-mapping.
+
+    Reassigns `action_slot` explicitly, for the reason `sample_clip`'s own
+    docstring records at length: this function READS pose values back through
+    `frame_set` without ever writing a keyframe, so a stale slot left bound by
+    a previous action silently freezes every reading at that action's pose."""
+    scratch_arm.animation_data.action = action
+    scratch_arm.animation_data.action_slot = action.slots[0] if action.slots else None
+    bpy.context.view_layer.update()
+    face, weapon = [], []
+    for src_frame in _clip_frame_positions(action):
+        bpy.context.scene.frame_set(int(src_frame), subframe=src_frame - int(src_frame))
+        bpy.context.view_layer.update()
+        face.append(_face_bearing_deg(scratch_arm))
+        weapon.append(_weapon_bearing_deg(scratch_arm))
+    return face, weapon
+
+
+def find_hold_window(bearings):
+    """`(departure, hold_end)` -- both indices into `bearings`.
+
+    `departure` is the FIRST frame whose bearing has left the clip's own
+    opening bearing by more than `HOLD_TOLERANCE_DEG` (`None` if the clip
+    never turns at all); `hold_end` is the last frame BEFORE it that is still
+    within `LOOP_SEAM_DEG`, i.e. the last frame that can end a loop without a
+    visible snap back to frame 0.
+
+    Computed on every build, never hand-entered. That is the point: a
+    re-supplied `Gun_Hold_Left_Turn` whose turn starts earlier or later would
+    otherwise silently keep a frame number fitted to the old one, which is the
+    exact shape of bug this whole gate exists to make unshippable. Relative to
+    the clip's OWN opening bearing rather than to absolute forward for the
+    same reason -- the question here is "where does the TURN begin", which is
+    a property of the clip; where the hold points is a separate question and
+    `build_idle_src` answers it separately.
+
+    `hold_end` needs no empty-list fallback and deliberately has none: index
+    0 IS the opening bearing, so its own deviation is exactly 0 and it passes
+    both tolerances unconditionally. A guard there would read as a real case
+    and is not one."""
+    opening = bearings[0]
+    departure = None
+    for i, deg in enumerate(bearings):
+        if abs(_wrap_deg(deg - opening)) > HOLD_TOLERANCE_DEG:
+            departure = i
+            break
+    limit = len(bearings) if departure is None else departure
+    seam = [i for i in range(limit) if abs(_wrap_deg(bearings[i] - opening)) <= LOOP_SEAM_DEG]
+    return departure, seam[-1]
+
+
+def build_idle_src(scratch_arm, turn_action, hold_end, forward_yaw_deg):
+    """`idle` = `turn_action`'s own PRE-TURN HOLD, frames `[0, hold_end]`,
+    re-keyed as its own action with one root yaw applied.
+
+    ## The trim
+
+    `Gun_Hold_Left_Turn` is what its name says and the whole of it used to be
+    bound to `idle`, which loops -- so a standing KDF rifleman turned 180
+    degrees on the spot and started again, and `build_fire_src` and
+    `build_down_src` both sampled the far end of that turn as their base
+    pose. Binding only the hold fixes all three at once, which is the point:
+    ONE mechanism was producing three broken clips.
+
+    ## The yaw, and why the body is left bladed
+
+    The hold is not merely trimmed, it is turned to face forward. Measured on
+    this source, the held stance stands at hips +48 deg with the head at +22
+    -- the man stands quarter-left of the contract's `+X`. `move` (from a
+    different supplied file) stands at 0. So the two clips disagree about
+    which way forward is by the better part of a quarter turn, and the
+    renderer yaws the ROOT at the unit's heading: whatever this clip believes
+    is forward is what the player sees him shoot along.
+
+    `forward_yaw_deg` -- the circular mean of the bound window's own measured
+    bearings, computed by the caller, never typed -- is applied to `Hips`
+    alone. `Hips` is this rig's single root bone, so one rotation there turns
+    the entire figure rigidly, and because it is a ROOT rotation every other
+    bone's local axes are untouched: `_FIRE_RECOIL_BONES` and `_CROUCH_BENDS`
+    keep acting in exactly the same body-relative directions they were
+    measured in, and `_CROUCH_HIPS_DROP_M`'s basis-space conversion is
+    likewise unaffected (a delta in a root bone's basis translation maps to
+    `rest.to_3x3() @ delta` in armature space regardless of what that basis's
+    rotation is).
+
+    The yaw is set from the HEAD, so after it the head reads ~0 and the hips
+    ~+26. **It does not put the weapon at 0, and cannot.** A root yaw is a
+    RIGID rotation of the whole figure, so the angle BETWEEN the face and the
+    weapon is invariant under it: the yaw only chooses which end of a
+    pre-existing gap gets to be zero. That gap is a property of the supplied
+    hold, which is a CARRY pose -- rifle across the body at low ready -- and
+    it was there before any of this work (measured on the pre-trim file's own
+    `fire`: face -156.0, weapon +159.2, gap -38.5; nobody could see it
+    because both ends were backwards). The three available outcomes are
+    exactly determined and none fixes both:
+
+        trim only          face +22.3   weapon -10.4
+        yaw from the head  face  ~0     weapon ~-37    <- this function
+        yaw from the hips  face ~+33    weapon  ~0
+
+    Choosing the head is deliberate: a shooter blades his body to the target
+    and squares his eyes to the sights, and the instrument that gates this
+    (`measureFacing`) reads the head. The WEAPON is brought onto the axis
+    separately, and only for `fire`, by `_FIRE_AIM_BONES` in
+    `build_fire_src` -- which reaches it because the weapon follows the ARMS,
+    which no root rotation can address.
+
+    `idle` and `down` keep the carry, and that is a DECISION rather than an
+    oversight: a soldier standing at ease or gone to ground holds his rifle
+    across his body, face forward and weapon across is correct for both, and
+    neither clip draws a tracer that contradicts it. `fire` is the only one
+    the game draws a straight line out of, so `fire` is the only one that has
+    to aim. `CLIP_SEMANTICS`' `weapon` ceilings encode exactly that split.
+
+    This is NOT `fix_forward` reaching for the mechanism its own docstring
+    spends two paragraphs proving inert. That one baked a rotation into the
+    scratch ARMATURE OBJECT's rest data via `transform_apply`, which preserves
+    the object's `matrix_world` and never touches the parented mesh, so it
+    could not move the exported facing at any angle. This writes POSE data --
+    the same `pb.keyframe_insert` authoring idiom `build_fire_src` and
+    `build_down_src` already use -- into one clip's own keyframes, which is
+    exactly what does get exported. Nor does it replace `FORWARD_FIX_DEG`,
+    which is a whole-FILE correction calibrated against the walk; this is a
+    per-clip correction for one source that disagrees with it."""
+    from mathutils import Matrix  # noqa: PLC0415 -- only this function needs it
+
+    scratch_arm.animation_data.action = turn_action
+    scratch_arm.animation_data.action_slot = (
+        turn_action.slots[0] if turn_action.slots else None
+    )
+    bpy.context.view_layer.update()
+    hips_rest = scratch_arm.data.bones["Hips"].matrix_local
+    yaw = Matrix.Rotation(math.radians(forward_yaw_deg), 4, "Z")
+    rebase = hips_rest.inverted() @ yaw @ hips_rest
+
+    snapshots = []
+    for src_frame in _clip_frame_positions(turn_action)[: hold_end + 1]:
+        bpy.context.scene.frame_set(int(src_frame), subframe=src_frame - int(src_frame))
+        bpy.context.view_layer.update()
+        frame = {}
+        for pb in scratch_arm.pose.bones:
+            if pb.name == "Hips":
+                loc, quat, scale = (rebase @ pb.matrix_basis).decompose()
+                frame[pb.name] = (tuple(quat), tuple(loc), tuple(scale))
+            else:
+                frame[pb.name] = (
+                    tuple(pb.rotation_quaternion),
+                    tuple(pb.location),
+                    tuple(pb.scale),
+                )
+        snapshots.append(frame)
+
+    idle = bpy.data.actions.new("idle_src")
+    idle.use_fake_user = True
+    scratch_arm.animation_data.action = idle
+    scratch_arm.animation_data.action_slot = None
+    for step, frame in enumerate(snapshots):
+        for pb in scratch_arm.pose.bones:
+            q, loc, sc = frame[pb.name]
+            pb.rotation_quaternion = q
+            pb.location = loc
+            pb.scale = sc
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=step)
+            pb.keyframe_insert(data_path="location", frame=step)
+            pb.keyframe_insert(data_path="scale", frame=step)
+    return idle
+
+
 def build_wreck_src(scratch_arm, fall_action):
     """A static two-frame action holding `fall_action`'s own last frame --
     the imported `Shot_and_Blown_Back` clip, the brief's own suggested
@@ -641,8 +1230,9 @@ def build_wreck_src(scratch_arm, fall_action):
 #: report.md` carries the numbers) applied +-15deg about each local axis of
 #: every candidate bone to this exact rig's own idle-last-frame pose and
 #: read back the resulting WORLD-space displacement of `RightHand`'s tail
-#: (the closest available proxy for muzzle position -- this asset ships no
-#: weapon mesh). Local -X on `RightForeArm`/`RightArm`/`Spine02` and local
+#: (the closest available proxy for muzzle position -- the rifle IS modelled
+#: in the supplied mesh, but it carries no `weapon` rl_role of its own and so
+#: cannot be isolated; see `_weapon_bearing_deg`). Local -X on `RightForeArm`/`RightArm`/`Spine02` and local
 #: -Z on `RightShoulder` were the ones that move that point mostly in world
 #: +Z (muzzle rises) with a small world -X companion (pulls back, not
 #: forward) and little lateral drift -- i.e. "up and back", the shape a
@@ -672,32 +1262,350 @@ _FIRE_CYCLE = ((0, 0.0), (2, 1.0), (6, -0.12), (12, 0.0))
 
 _FIRE_AXIS_VEC = {0: (1.0, 0.0, 0.0), 1: (0.0, 1.0, 0.0), 2: (0.0, 0.0, 1.0)}
 
+#: The AIM adjustment: (bone, local axis, SHARE of the solved magnitude).
+#: The ARM half of the chain `_FIRE_RECOIL_BONES` already poses -- the weapon
+#: follows the arms, and a root yaw cannot reach it because a root rotation
+#: moves the whole figure rigidly (see `build_idle_src`).
+#:
+#: The supplied hold is a CARRY -- rifle across the body at low ready -- and
+#: `fire` is the one clip the game draws a straight line out of, so `fire` is
+#: the one clip that has to bring the weapon onto that line. Measured on this
+#: source's own base pose, the weapon starts at -36.65 deg with the face at
+#: +0.75, a gap of -37.40.
+#:
+#: Axis choice per bone is MEASURED, the same way `_FIRE_RECOIL_BONES`' was:
+#: a standalone probe applied +15 deg about each local axis of every
+#: candidate bone to this exact base pose and read back the change in weapon
+#: bearing, in FACE bearing, and in the distance between the two hands.
+#: Degrees of weapon bearing per +15 deg of bone, with what each costs:
+#:
+#:   Spine02 axis Z     +7.93   face -0.29   hands +0.0000   <- REJECTED, see
+#:   Spine01 axis Z     +8.69   face +0.65   hands -0.0000      below
+#:   RightShoulder X   +11.10   face  0.00   hands +0.0453
+#:   RightShoulder Z   +11.05   face  0.00   hands +0.0766
+#:   RightArm Y        +10.11   face  0.00   hands +0.0573
+#:   RightArm Z        +10.95   face  0.00   hands +0.0801
+#:   RightForeArm Z    +14.82   face  0.00   hands +0.0513
+#:
+#: Each of the three arm bones is on the axis with the best weapon-per-hand-
+#: drift ratio available to it, and they share the solved magnitude equally.
+#:
+#: **`Spine02` was tried, and REJECTED on a measurement of the EXPORTED
+#: file** -- which is the whole reason this pipeline verifies the export and
+#: not the script. On the probe table above it looks like the obvious first
+#: choice: it moves the weapon nearly as well as an arm bone, costs 0.019 deg
+#: of face per degree (a 27:1 ratio), and carries BOTH arms so it cannot
+#: separate the hands at all. A build with it carrying double share solved to
+#: 9.54 deg and passed every build-time check -- and then `measureFacing`
+#: read `fire`'s face at **+15.2** against the arm-only build's **+0.3**.
+#: The two instruments disagreed by 14 deg on one clip where they agree to
+#: 1-3 on every other, because a `Spine02` local-Z rotation is not about the
+#: vertical: it TILTS the head rather than yawing it, and the ground-plane
+#: bearing of a tilted vector depends on which vector you measure.
+#: `headfront` lies along the head's own forward axis and barely moved; the
+#: face mesh's centroid does not, and swung 14 deg. The arms move the weapon
+#: and leave the head alone -- measured face delta 0.00 for all three -- so
+#: they are the whole table.
+#:
+#: The hand separation rising from 0.166 m to about 0.32 m is NOT damage and
+#: was checked rather than assumed: a carry holds the hands close together,
+#: and an aim spreads them along the weapon. The rifle is real geometry and
+#: the player really does see this -- it is modelled in the supplied mesh and
+#: skinned to these same arm bones, it just has no `weapon` rl_role of its
+#: own (see `_weapon_bearing_deg`). Photographed before and after at 1400 px
+#: through the game's own camera, `.superpowers/sdd/2026-09-15-infantry-gait/
+#: fire-pose-{before,after}.png`: it goes from held diagonally across the
+#: chest with the muzzle up and across -- port arms, while tracers leave
+#: along `+X` -- to levelled down the facing axis.
+_FIRE_AIM_BONES = (
+    ("RightShoulder", 0, 1.0),
+    ("RightArm", 1, 1.0),
+    ("RightForeArm", 2, 1.0),
+)
 
-def build_fire_src(scratch_arm, idle_action):
-    """Synthesizes a `fire` source action -- none of the five supplied Meshy
+#: How close the solved aim must bring the weapon to the facing axis before
+#: this script will ship the clip. This checks CONVERGENCE and nothing else,
+#: and it is worth being precise about that because an earlier version of
+#: this comment claimed it guarded against "the chain being unable to reach
+#: the axis". It does not and cannot: the three bones move the weapon about
+#: 2.4 deg of bearing per degree of magnitude, with no bound of their own, so
+#: the chain can reach ANY bearing and this residual is effectively
+#: unreachable. What bounds the solve is `_FIRE_AIM_MAX_HAND_SEPARATION_M`
+#: below.
+_FIRE_AIM_RESIDUAL_DEG = 1.0
+
+#: The real bound on the aim, and the reason it needs one: a solve with no
+#: cap will always hit its target. Because the chain can reach any bearing, a
+#: re-supplied source with a much larger carry offset would simply solve to a
+#: much larger magnitude and ship an implausibly posed arm with every gate
+#: green -- the weapon bearing would be correct BY CONSTRUCTION, and
+#: `pnpm validate:meshes` photographs only `idle`, so nothing downstream ever
+#: looks at the firing pose. "It converged" is not "it is a pose".
+#:
+#: The cap is on the physical consequence rather than on the angle, because
+#: the angle alone does not say whether the result is a person: what makes an
+#: over-solved arm read as broken is the two hands coming off the same
+#: weapon. It is DERIVED from the figure, not picked -- the hands may not end
+#: up further apart than the weapon-side arm is long (`RightArm` joint to
+#: `RightHand` joint, measured on the rig at build time), because two hands
+#: further apart than one arm's reach are not holding one rifle between them.
+#: It therefore scales with a differently-proportioned re-supplied figure
+#: instead of going stale.
+#:
+#: Measured on this source (`fire_aim_hand_separation_limit_m`, no export
+#: needed): the aim takes the hands from 0.166 m to 0.315 m against an arm
+#: reach of 0.4685 m, so the shipped input clears the cap by 0.154 m and
+#: adding this guard changed no output -- verified by re-running the solve
+#: against the identical base pose and reading the identical 14.72 deg.
+#: Swept across magnitude, the separation goes 0.166 / 0.268 / 0.315 / 0.365 /
+#: 0.448 / 0.481 m at 0 / 10 / 14.72 / 20 / 30 / 35 deg, so the cap bites at
+#: about 33 deg -- roughly 2.2x what this source needs.
+#:
+#: Falsified through the real `solve_fire_aim` path by moving the target axis
+#: away from the weapon, which is exactly "a re-supplied source with a bigger
+#: carry offset". A carry 30 deg worse than this one solves to 26.69 deg with
+#: the hands 0.423 m apart and PASSES -- deliberately: that is a wide but
+#: physically possible two-handed grip, and this cap bounds the implausible
+#: rather than rejecting everything unfamiliar. 60 deg worse (magnitude 44.79)
+#: and 90 deg worse (magnitude 158.84, each joint wrapped most of the way
+#: round) both raise.
+
+#: Iterations for the secant solve. The bone-to-weapon gains above are close
+#: to linear over the range involved, so this converges in three or four; ten
+#: is a ceiling, not an expectation.
+_FIRE_AIM_MAX_ITERS = 10
+
+
+def _apply_pose(scratch_arm, base, deltas):
+    """Write `base` (a `{bone: (Quaternion, loc, scale)}` snapshot) onto the
+    rig, post-multiplying `deltas` (`{bone: (axis_index, degrees)}`) in each
+    bone's own LOCAL space, and evaluate. The same `base_q @ Quaternion(axis,
+    angle)` convention `build_fire_src` and `build_down_src` both author
+    with, factored out so the aim SOLVE poses the rig exactly the way the
+    final keyframes will be written -- a solve against a different
+    composition would converge on a number that does not hold."""
+    from mathutils import Quaternion  # noqa: PLC0415 -- only this helper needs it
+
+    for pb in scratch_arm.pose.bones:
+        base_q, base_loc, base_sc = base[pb.name]
+        delta = deltas.get(pb.name)
+        if delta is None:
+            pb.rotation_quaternion = base_q
+        else:
+            axis_idx, deg = delta
+            pb.rotation_quaternion = base_q @ Quaternion(_FIRE_AXIS_VEC[axis_idx], math.radians(deg))
+        pb.location = base_loc
+        pb.scale = base_sc
+    bpy.context.view_layer.update()
+
+
+def _aim_deltas(magnitude_deg):
+    """`_FIRE_AIM_BONES` at one scalar magnitude, as `_apply_pose` deltas."""
+    return {name: (axis_idx, share * magnitude_deg) for name, axis_idx, share in _FIRE_AIM_BONES}
+
+
+def fire_aim_hand_separation_limit_m(scratch_arm):
+    """How far apart `solve_fire_aim` may leave the two hands: the weapon-side
+    arm's own full reach, upper arm plus forearm.
+
+    Summed SEGMENT by segment (shoulder joint -> elbow joint -> hand joint),
+    not taken as the straight-line `RightArm`-to-`RightHand` distance, and
+    that distinction is the point of the function rather than a detail. The
+    straight line is the arm's CHORD, which grows as the elbow straightens --
+    on this rig it reads 0.396 m at rest and 0.411 m in the solved aim -- so a
+    cap built on it LOOSENS in exactly the direction the failure it guards
+    against pushes, since an over-solved arm is a straighter one. The two
+    segment lengths are fixed by the skeleton (each joint's head sits at a
+    fixed offset in its parent's frame), so this is pose-invariant and can be
+    called from any pose.
+
+    NOT `data.bones[...].length`, which would be the obvious way to get a
+    rest-pose number and is useless on this asset: its auto-rigged bone TAILS
+    do not sit at the child joint, and summing the two reads 46.9 m on a
+    1.67 m figure. `_CROUCH_BENDS`' own docstring already records the same
+    trap from the other side (`LeftUpLeg.tail` swinging through several metres
+    for a 30-degree test) -- caught the same way both times, by comparing the
+    number against the figure's own height before trusting it.
+
+    Derived from the figure rather than picked, so a differently-proportioned
+    re-supplied character scales with it instead of inheriting a number fitted
+    to this one. See `solve_fire_aim`'s own docstring for why the cap is on
+    the hands rather than on the solved angle."""
+    return (
+        _joint_distance_m(scratch_arm, "RightArm", "RightForeArm")
+        + _joint_distance_m(scratch_arm, "RightForeArm", "RightHand")
+    )
+
+
+def _joint_distance_m(scratch_arm, a, b):
+    """World-space distance between two pose bones' own heads, in metres.
+    `matrix_world` carries this rig's 0.01 import scale, so going through it
+    is what makes the result metres rather than raw units -- the same reason
+    `_hips_world_z_travel` composes through it."""
+    world = scratch_arm.matrix_world
+    return (
+        (world @ scratch_arm.pose.bones[a].matrix.translation)
+        - (world @ scratch_arm.pose.bones[b].matrix.translation)
+    ).length
+
+
+def solve_fire_aim(scratch_arm, base):
+    """Solve `_FIRE_AIM_BONES`' single magnitude so the WEAPON bearing lands
+    on the facing axis, and return it.
+
+    Measure, compute, apply, RE-MEASURE -- the aim is never authored by eye.
+    A secant solve on the measured `_weapon_bearing_deg`, because a local-axis
+    rotation does not compose linearly into a ground-plane bearing (only a
+    rotation about the vertical does, and none of these bones' local axes is
+    vertical), so a single division by a gain would land close and not on.
+
+    Deliberately NOT a hand-entered angle. A re-supplied `Gun_Hold_Left_Turn`
+    with a different carry angle re-solves to a different magnitude on the
+    next build, which is the same reason `find_hold_window` computes its
+    window instead of remembering one.
+
+    ## Two guards, and they check different things
+
+    `_FIRE_AIM_RESIDUAL_DEG` checks CONVERGENCE. It is NOT, as an earlier
+    version of this docstring claimed, a check that "the chain can reach the
+    axis" -- the chain moves the weapon about 2.4 deg of bearing per degree of
+    magnitude and has no bound of its own, so it can reach any bearing at all
+    and that residual is effectively unreachable. It fires only if the secant
+    iteration itself fails (a degenerate gain, a source whose weapon bearing
+    does not respond to these bones).
+
+    `fire_aim_hand_separation_limit_m` is the guard that can actually bite,
+    and the reason a solve like this needs one: **an uncapped solve always
+    hits its target**. A re-supplied source with a much larger carry offset
+    would solve to a much larger magnitude and ship an implausibly posed arm
+    with every gate green, because the weapon bearing would then be correct
+    BY CONSTRUCTION and `pnpm validate:meshes` photographs `idle` only -- so
+    nothing downstream ever looks at the firing pose. The cap is on the
+    physical consequence rather than the angle, and derived from the figure
+    rather than picked: the hands may not go further apart than the
+    weapon-side arm is long, because two hands further apart than one arm's
+    reach are not holding one rifle.
+
+    It is checked along the WHOLE path from 0 to the solved magnitude rather
+    than at the endpoint, because separation is not monotonic in magnitude and
+    an endpoint test is therefore not a bound at all -- falsified, not
+    reasoned: a source needing 90 deg more correction than this one solves to
+    158.84 deg, wrapping each of three joints most of the way round, and its
+    endpoint separation comes back INSIDE the cap at 0.368 m because the hand
+    has swung past the far side. See that function, and the note beside
+    `_FIRE_AIM_RESIDUAL_DEG`, for the measured numbers and for how much
+    headroom this source has."""
+    target = _face_bearing_deg(scratch_arm)  # the axis the tracer flies down
+
+    def residual(magnitude_deg):
+        _apply_pose(scratch_arm, base, _aim_deltas(magnitude_deg))
+        return _wrap_deg(_weapon_bearing_deg(scratch_arm) - target)
+
+    x0, r0 = 0.0, residual(0.0)
+    base_weapon = _wrap_deg(r0 + target)
+    x1, r1 = 10.0, residual(10.0)
+    for _ in range(_FIRE_AIM_MAX_ITERS):
+        if abs(r1) <= _FIRE_AIM_RESIDUAL_DEG * 0.1 or abs(r1 - r0) < 1e-9:
+            break
+        x0, r0, x1 = x1, r1, x1 - r1 * (x1 - x0) / (r1 - r0)
+        r1 = residual(x1)
+    if abs(r1) > _FIRE_AIM_RESIDUAL_DEG:
+        raise RuntimeError(
+            f"fire aim: the solve did not converge -- magnitude {x1:.3f} deg still "
+            f"leaves the weapon {r1:+.2f} deg off the facing axis "
+            f"(limit +-{_FIRE_AIM_RESIDUAL_DEG:.1f}). This source's weapon bearing "
+            f"does not respond to _FIRE_AIM_BONES the way the table's gains assume."
+        )
+
+    # The cap. Swept along the WHOLE path from 0 to the solved magnitude, not
+    # tested at the endpoint alone, because hand separation is NOT monotonic
+    # in magnitude and an endpoint test is therefore not a bound. Falsified:
+    # a source needing +90 deg more correction than this one solves to 158.84
+    # deg -- each of three joints wrapped most of the way round -- and its
+    # ENDPOINT separation comes back down to 0.368 m, inside the 0.469 m
+    # reach, because the hand has swung past the far side. Sweeping catches it
+    # where it crosses, at about 35 deg. The criterion is the same one either
+    # way: the arm has to reach the aim along a path a body could take.
+    reach = fire_aim_hand_separation_limit_m(scratch_arm)
+    _apply_pose(scratch_arm, base, {})
+    rest_separation = _joint_distance_m(scratch_arm, "LeftHand", "RightHand")
+    steps = max(2, int(abs(x1)))  # at least one sample per degree
+    worst, worst_at = rest_separation, 0.0
+    for i in range(steps + 1):
+        magnitude = x1 * i / steps
+        _apply_pose(scratch_arm, base, _aim_deltas(magnitude))
+        separation = _joint_distance_m(scratch_arm, "LeftHand", "RightHand")
+        if separation > worst:
+            worst, worst_at = separation, magnitude
+        if separation > reach:
+            _apply_pose(scratch_arm, base, {})
+            raise RuntimeError(
+                f"fire aim: reaching the solved magnitude {x1:.2f} deg takes the hands "
+                f"{separation:.3f} m apart at {magnitude:.2f} deg, past this figure's own "
+                f"arm reach of {reach:.3f} m -- two hands further apart than one arm is "
+                f"long are not holding one rifle. The weapon bearing lands on the axis "
+                f"({r1:+.2f} deg residual) and the pose is still wrong, which is exactly "
+                f"what an uncapped solve buys. Re-check this source's carry offset "
+                f"({base_weapon:+.2f} deg) before widening anything."
+            )
+    _apply_pose(scratch_arm, base, {})
+    print(
+        f"fire aim: the carry holds the weapon at {base_weapon:+.2f} deg against a face at "
+        f"{target:+.2f}; solved magnitude {x1:.2f} deg over {len(_FIRE_AIM_BONES)} bones "
+        f"({', '.join(f'{n} {s * x1:+.1f}' for n, _a, s in _FIRE_AIM_BONES)}), "
+        f"re-measured residual {r1:+.2f} deg; hands {rest_separation:.3f} -> "
+        f"{worst:.3f} m worst (at {worst_at:.2f} deg) against an arm reach of {reach:.3f} m"
+    )
+    return x1
+
+
+def build_fire_src(scratch_arm, idle_action, base_frame):
+    """Synthesizes a `fire` source action -- none of the six supplied Meshy
     clips is a firing animation, so this is authored, not retargeted.
 
-    Base pose is `idle`'s own LAST frame -- the settled "hold" stance
-    `Gun_Hold_Left_Turn` ends on after its own turn-in motion, i.e. exactly
-    the pose `idle` itself already holds. On top of that base, a short,
-    sharp recoil-and-settle cycle (`_FIRE_CYCLE`) is authored onto four
-    bones only (`_FIRE_RECOIL_BONES`): the weapon-side forearm/upper
-    arm/shoulder and the upper spine. Every OTHER bone -- Hips included --
-    is keyed at the SAME base-pose value on every frame of this clip, never
-    touched. That is deliberate, not an oversight: "stay up and shoot" taken
-    literally means nothing about this clip should move the body's root at
-    all, so this clip's own measured vertical Hips travel is exactly zero
-    (see the task report), safely at-or-below `idle`'s own 7.33 -- against
-    the previous `fire` source (`Side_Shot.glb`, a HIT reaction, 13.37,
-    looped continuously) that produced the reported up-down bob.
+    Base pose is frame `base_frame` of `idle_action`, which since 2026-09-15
+    is `build_idle_src`'s trimmed, yaw-corrected HOLD rather than the whole
+    `Gun_Hold_Left_Turn`. It used to be `idle_action.frame_range[1]` -- the
+    LAST frame -- and that one line is why a KDF rifleman fired at -156
+    degrees: the last frame of a clip that turns 180 degrees is the far end
+    of the turn. `main()` passes the middle of the bound hold window, which
+    is "inside that window" in the strongest available sense: as far as this
+    clip can get from both the raw opening frame and the turn.
 
-    Composition is `base_quat @ Quaternion(axis, angle)` -- POST-multiply,
-    in the bone's own local (rest-relative) space, matching this file's own
-    "author with pb.keyframe_insert" idiom elsewhere (`build_wreck_src`,
-    `write_combined_clip`) rather than a world-space rotation, which would
-    need decomposing each bone's current armature-space orientation out of
-    the pose chain first. `_FIRE_RECOIL_BONES`'s own docstring records how
-    the axis/sign per bone was chosen from measurement, not guessed.
+    TWO authored layers sit on top of that base, in order.
+
+    First a static AIM adjustment (`_FIRE_AIM_BONES`, magnitude solved by
+    `solve_fire_aim`), because the supplied hold is a CARRY -- rifle across
+    the body at low ready -- and this is the one clip the game draws a
+    straight line out of. `build_idle_src`'s root yaw cannot reach it: a root
+    rotation moves the whole figure rigidly, so it leaves the angle between
+    the face and the weapon exactly as it found it. The weapon follows the
+    ARMS, so the arms are what has to move, and `_FIRE_AIM_BONES` is the arm
+    half of the chain `_FIRE_RECOIL_BONES` already poses. `idle` and `down`
+    deliberately do NOT get this and keep the carry -- see `build_idle_src`.
+
+    Then the short, sharp recoil-and-settle cycle (`_FIRE_CYCLE`) on the four
+    `_FIRE_RECOIL_BONES`: the weapon-side forearm/upper arm/shoulder and the
+    upper spine. The recoil composes ON TOP of the aim, not instead of it, so
+    the kick acts in the aimed frame rather than the carried one. Every OTHER
+    bone -- Hips included -- is keyed at the SAME base-pose value on every
+    frame of this clip, never touched. That is deliberate, not an oversight:
+    "stay up and shoot" taken literally means nothing about this clip should
+    move the body's root at all, so this clip's own measured vertical Hips
+    travel is exactly zero -- against the previous `fire` source
+    (`Side_Shot.glb`, a HIT reaction, 13.37, looped continuously) that
+    produced the reported up-down bob. Zero is at-or-below whatever `idle`
+    measures by construction; no fixed baseline is quoted here because
+    trimming `idle` to its hold moved that number (it was 7.33 when `idle`
+    was the whole 182-degree turn, and is a small fraction of that now).
+
+    Composition is `base_quat @ Quaternion(aim) @ Quaternion(recoil)` --
+    POST-multiply throughout, in each bone's own local (rest-relative) space,
+    matching this file's own "author with pb.keyframe_insert" idiom elsewhere
+    (`build_wreck_src`, `write_combined_clip`) rather than a world-space
+    rotation, which would need decomposing each bone's current armature-space
+    orientation out of the pose chain first. Both tables' own docstrings
+    record how the axis per bone was chosen from measurement, not guessed.
 
     Mirrors `sample_clip`'s explicit `action_slot` reassignment (`action =
     X` alone can leave the PREVIOUS action's stale slot bound -- see that
@@ -707,8 +1615,7 @@ def build_fire_src(scratch_arm, idle_action):
     anything, so a stale slot here would read the wrong pose silently."""
     scratch_arm.animation_data.action = idle_action
     scratch_arm.animation_data.action_slot = idle_action.slots[0] if idle_action.slots else None
-    f0, f1 = idle_action.frame_range
-    bpy.context.scene.frame_set(int(f1), subframe=f1 - int(f1))
+    bpy.context.scene.frame_set(int(base_frame), subframe=base_frame - int(base_frame))
     bpy.context.view_layer.update()
 
     from mathutils import Quaternion  # noqa: PLC0415 -- only this function needs it
@@ -722,6 +1629,16 @@ def build_fire_src(scratch_arm, idle_action):
         for pb in scratch_arm.pose.bones
     }
 
+    # Solve the aim against the SAME base snapshot and the same composition
+    # the keyframes below use, then fold it into the base the recoil is
+    # authored on. `solve_fire_aim` leaves the rig back on the unaimed base,
+    # so nothing here depends on the pose it happened to end on.
+    aim_magnitude = solve_fire_aim(scratch_arm, base)
+    aim = {
+        name: Quaternion(_FIRE_AXIS_VEC[axis_idx], math.radians(share * aim_magnitude))
+        for name, axis_idx, share in _FIRE_AIM_BONES
+    }
+
     fire = bpy.data.actions.new("fire_src")
     fire.use_fake_user = True
     scratch_arm.animation_data.action = fire
@@ -730,12 +1647,13 @@ def build_fire_src(scratch_arm, idle_action):
     for frame, fraction in _FIRE_CYCLE:
         for pb in scratch_arm.pose.bones:
             base_q, base_loc, base_sc = base[pb.name]
+            aimed_q = base_q @ aim[pb.name] if pb.name in aim else base_q
             if pb.name in _FIRE_RECOIL_BONES:
                 axis_idx, peak_deg = _FIRE_RECOIL_BONES[pb.name]
                 delta = Quaternion(_FIRE_AXIS_VEC[axis_idx], math.radians(peak_deg * fraction))
-                pb.rotation_quaternion = base_q @ delta
+                pb.rotation_quaternion = aimed_q @ delta
             else:
-                pb.rotation_quaternion = base_q
+                pb.rotation_quaternion = aimed_q
             pb.location = base_loc
             pb.scale = base_sc
             pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
@@ -794,7 +1712,7 @@ _CROUCH_BENDS = (
 _CROUCH_HIPS_DROP_M = 0.15
 
 
-def build_down_src(scratch_arm, idle_action):
+def build_down_src(scratch_arm, idle_action, base_frame):
     """Synthesizes a `down` source action: a LOW, HELD crouch -- gone to
     ground, not a fall.
 
@@ -809,7 +1727,7 @@ def build_down_src(scratch_arm, idle_action):
     more than once", and the flicker between pinned and firing states is
     the "up and down in a weird way".
 
-    None of the five supplied Meshy clips is a "gone to ground" pose, so
+    None of the six supplied Meshy clips is a "gone to ground" pose, so
     this is authored -- the same category of move as `build_fire_src` --
     but NOT by blending `idle` toward `Shot_and_Blown_Back`'s own ending
     pose, which was tried FIRST and rejected: a per-bone SLERP blend at
@@ -843,9 +1761,13 @@ def build_down_src(scratch_arm, idle_action):
     of prone, and every angle here was chosen small enough to render
     cleanly, not maximised for realism.
 
-    Base pose is `idle_action`'s own LAST frame, matching `build_fire_src`'s
-    identical choice for the identical reason: the settled stance every
-    other synthesized clip already starts from. Keyed as a STATIC two-frame
+    Base pose is frame `base_frame` of `idle_action`, matching
+    `build_fire_src`'s identical choice for the identical reason: the settled
+    stance every other synthesized clip already starts from. It used to be
+    `idle_action.frame_range[1]`, the LAST frame, which is why a suppressed
+    rifleman went to ground at -163 degrees -- see `build_fire_src`'s own
+    paragraph on the same line, and `build_idle_src` for the trim and yaw
+    this frame now comes from. Keyed as a STATIC two-frame
     hold (`_VIS_FRAMES`-style, `build_wreck_src`'s own convention) -- nothing
     in this clip's own keyframes has any per-frame motion to record, so its
     vertical Hips travel is exactly 0 by construction, the same way `wreck`
@@ -855,8 +1777,7 @@ def build_down_src(scratch_arm, idle_action):
 
     scratch_arm.animation_data.action = idle_action
     scratch_arm.animation_data.action_slot = idle_action.slots[0] if idle_action.slots else None
-    f0, f1 = idle_action.frame_range
-    bpy.context.scene.frame_set(int(f1), subframe=f1 - int(f1))
+    bpy.context.scene.frame_set(int(base_frame), subframe=base_frame - int(base_frame))
     bpy.context.view_layer.update()
 
     base = {
@@ -1006,13 +1927,13 @@ def sample_clip(scratch_arm, src_action):
     scratch_arm.animation_data.action = src_action
     scratch_arm.animation_data.action_slot = src_action.slots[0] if src_action.slots else None
     bpy.context.view_layer.update()
-    f0, f1 = src_action.frame_range
-    n_steps = max(1, round(f1 - f0))
     bone_names = [pb.name for pb in scratch_arm.pose.bones]
 
     frames = []
-    for step in range(n_steps + 1):
-        src_frame = f0 + (f1 - f0) * step / n_steps
+    # `_clip_frame_positions` is THE definition of which frames a clip is
+    # sampled at -- see its own docstring for why this must not be re-derived
+    # here, in `measure_clip_bearings` or in `build_idle_src`.
+    for src_frame in _clip_frame_positions(src_action):
         bpy.context.scene.frame_set(int(src_frame), subframe=src_frame - int(src_frame))
         bpy.context.view_layer.update()
         frames.append(
@@ -1130,19 +2051,55 @@ def _hips_world_z_travel(frames, hips_rest, arm_world):
     return (max(zs) - min(zs)) * 100.0
 
 
-def check_clip_semantics(frames_by_clip, hips_rest, arm_world):
-    """Enforces `CLIP_SEMANTICS`'s numeric half at BUILD time -- see that
-    table's own comment for the two prior instances (`Side_Shot` -> `fire`,
-    `Shot_and_Blown_Back` -> `down`) this exists to make a THIRD of
-    impossible to ship silently. Raises loudly, naming the offending clip
-    and both numbers, rather than a passing build whose motion contradicts
-    its own clip name. Called from `main()` right after `frames_by_clip` is
-    complete, before duplication/export -- so a violation is caught before
-    any of the expensive downstream work (webbing graft, five-way export,
-    GLB merge) runs at all, not after."""
+def check_clip_semantics(frames_by_clip, hips_rest, arm_world, bearings_by_clip):
+    """Enforces `CLIP_SEMANTICS`'s numeric halves at BUILD time -- see that
+    table's own comment for the three prior instances (`Side_Shot` -> `fire`,
+    `Shot_and_Blown_Back` -> `down`, `Gun_Hold_Left_Turn` -> `idle` and via
+    it `fire` and `down` again) this exists to make a FOURTH of impossible to
+    ship silently. Raises loudly, naming the offending clip, the measured
+    number and the ceiling, rather than passing a build whose motion
+    contradicts its own clip name. Called from `main()` right after
+    `frames_by_clip` is complete, before duplication/export -- so a violation
+    is caught before any of the expensive downstream work (webbing graft,
+    six-way export, GLB merge) runs at all, not after.
+
+    `bearings_by_clip` is `{clip: (face_list, weapon_list)}` from
+    `measure_clip_bearings`. THREE independent checks, and each exists
+    because the one before it was blind to a real defect that shipped:
+
+      * Hips travel -- "does this clip move the body when it should not". It
+        could not see a figure standing perfectly still while facing 156 deg
+        away from what it is shooting: that has a Hips travel of zero.
+      * FACE bearing, mean and spread -- the mean catches a clip bound facing
+        the wrong way, the spread catches a clip that TURNS (which is what
+        `Gun_Hold_Left_Turn` did, and which no mean can express).
+      * WEAPON bearing, mean and spread -- because the face check CANNOT FAIL
+        on `idle`, `fire` or `down`: `build_idle_src` yaws the hold by the
+        circular mean of exactly the face bearings tested here, and the other
+        two inherit that base pose. See `CLIP_SEMANTICS`' own comment. The
+        weapon axis is invariant under that yaw, so it is the half that can
+        actually go red -- and it is what holds `solve_fire_aim`'s aim in
+        place once it is right.
+
+    Exemptions are `None` in the table, printed by name on the passing path
+    the way `pnpm validate:meshes` prints its own, never silent."""
     travel = {name: _hips_world_z_travel(frames_by_clip[name], hips_rest, arm_world) for name in CLIP_ORDER}
     idle_travel = travel["idle"]
     print("Hips world-z travel x100, by clip:", {k: round(v, 3) for k, v in travel.items()})
+
+    stats = {}
+    for name in CLIP_ORDER:
+        face, weapon = bearings_by_clip[name]
+        stats[name] = {"heading": _circular_mean_deg(face), "weapon": _circular_mean_deg(weapon)}
+    print("bearings deg (exported convention, +X = 0, + is the figure's left), by clip:")
+    for name in CLIP_ORDER:
+        line = []
+        for kind in ("heading", "weapon"):
+            mean, lo, hi = stats[name][kind]
+            label = "face" if kind == "heading" else "weapon"
+            line.append(f"{label} {mean:+7.2f} [{lo:+7.2f},{hi:+7.2f}] spread {hi - lo:6.2f}")
+        gap = _wrap_deg(stats[name]["weapon"][0] - stats[name]["heading"][0])
+        print(f"  {name:10s} {'   '.join(line)}   face-to-weapon gap {gap:+7.2f}")
 
     for name in CLIP_ORDER:
         ceiling = CLIP_SEMANTICS[name]["ceiling"](idle_travel)
@@ -1151,6 +2108,25 @@ def check_clip_semantics(frames_by_clip, hips_rest, arm_world):
                 f"{name}: Hips travel {travel[name]:.3f} exceeds {ceiling:.3f} -- "
                 f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
             )
+        for kind, label in (("heading", "face"), ("weapon", "weapon")):
+            bound = CLIP_SEMANTICS[name][kind]
+            mean, lo, hi = stats[name][kind]
+            if bound is None:
+                print(f"  {name}: {label} bearing NOT gated (exempt) -- "
+                      f"mean {mean:+.1f} deg, spread {hi - lo:.1f} deg")
+                continue
+            if abs(mean) > bound["mean_deg"]:
+                raise RuntimeError(
+                    f"{name}: {label} bearing {mean:+.1f} deg exceeds "
+                    f"+-{bound['mean_deg']:.1f} deg -- "
+                    f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
+                )
+            if hi - lo > bound["spread_deg"]:
+                raise RuntimeError(
+                    f"{name}: {label} bearing sweeps {hi - lo:.1f} deg "
+                    f"([{lo:+.1f},{hi:+.1f}]) exceeds {bound['spread_deg']:.1f} deg -- "
+                    f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
+                )
     return travel
 
 
@@ -1160,7 +2136,7 @@ def export_glb(arm_obj, path):
     an armature carrying exactly one action at a time -- see `main()`'s own
     comment for why, and the paragraph below for what "why" turned out to be.
 
-    This function used to be called once, after building all five combined
+    This function used to be called once, after building every combined
     actions on the merged armature (`rig.py`'s own shape, which this script
     first copied verbatim). That produced a file where EVERY clip's EVERY
     channel collapsed to two identical keyframes -- confirmed by parsing the
@@ -1190,7 +2166,7 @@ def export_glb(arm_obj, path):
     armature at export time. `main()` now builds and exports each clip to
     its own temporary single-animation file immediately, tearing the action
     back off before the next one starts, and `merge_clip_glbs` below
-    recombines the five temp files into one in pure Python, after Blender's
+    recombines the temp files into one in pure Python, after Blender's
     own multi-action path is out of the picture entirely.
 
     One more consequence of exporting per-clip while the scratch rig is
@@ -1226,15 +2202,15 @@ def export_glb(arm_obj, path):
 
 # --- pure-Python GLB merge (no bpy) -----------------------------------------
 #
-# Five temporary files, each the SAME rig (mesh, skin, node graph -- nothing
-# but the active action differs between the five export calls that produced
-# them) plus exactly one animation. `merge_clip_glbs` keeps the first file's
+# One temporary file per clip, each the SAME rig (mesh, skin, node graph --
+# nothing but the active action differs between the export calls that
+# produced them) plus exactly one animation. `merge_clip_glbs` keeps the first file's
 # mesh/skin/nodes/buffer as the base and re-homes each other file's one
 # animation into it: its sampler accessors and their backing bufferViews are
 # copied into the base's buffer (4-byte aligned, per the glTF spec) under
 # fresh indices, while `channel.target.node` and each channel's `sampler`
 # index are left untouched -- the first because node ordering is identical
-# across all five files BY CONSTRUCTION and is verified below rather than
+# across all of them BY CONSTRUCTION and is verified below rather than
 # assumed, the second because a channel's `sampler` index is local to its
 # OWN animation's samplers list, unaffected by renumbering accessors in the
 # shared, global accessors array.
@@ -1662,17 +2638,30 @@ def build_webbing(scratch_mesh, scratch_arm):
 def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
-    # --- 1. import: base rig from Walking.glb, then the other two -- no
-    # `fire` import here (`CLIP_SOURCES` has no "fire" key), `Side_Shot.glb`
-    # is read by nothing: `fire` is synthesized in step 4.5 below.
-    # `Shot_and_Blown_Back.glb` is imported as `fall_src`, not `down_src` --
-    # `CLIP_SOURCES` has no "down" key either now; `down` is synthesized in
-    # step 4.5 too (`build_down_src`), and this import feeds `wreck` alone
-    # (step 5). ----------------------------------------------------------
+    # --- 1. import: base rig from Running.glb, then the other three. No
+    # `fire` import (`CLIP_SOURCES` has no "fire" key), and `Side_Shot.glb`
+    # and `Walking.glb` are read by nothing: `fire` is synthesized in step
+    # 4.6 below and `move` is the run now, per `CLIP_SOURCES`' own comment.
+    # `Gun_Hold_Left_Turn.glb` arrives as `turn_src`, not `idle_src`, and
+    # `Shot_and_Blown_Back.glb` as `fall_src`, not `down_src` -- neither maps
+    # to a clip name whole any more; `idle` is trimmed out of the first
+    # (step 4.5) and `wreck` sampled out of the second (step 5).
+    #
+    # The base rig comes from whichever file `CLIP_SOURCES["move"]` names,
+    # and that changing from `Walking` to `Running` changes NOTHING about
+    # `classify_vertex_roles`' fixed centroids, which were fit against
+    # `Walking`'s own scratch mesh: all seven supplied files carry a
+    # byte-identical mesh (POSITION, JOINTS_0, WEIGHTS_0 and TEXCOORD_0
+    # hashed and compared, 2026-09-15) and a byte-identical 18.7 MB
+    # `texture_0`. Measured, not assumed, because a silent vertex reorder
+    # here would silently reassign every role. -----------------------------
     scratch_arm, scratch_mesh, move_src = import_base_clip(
         os.path.join(SRC_DIR, CLIP_SOURCES["move"]), "move_src"
     )
-    idle_src = import_clip(os.path.join(SRC_DIR, CLIP_SOURCES["idle"]), "idle_src")
+    move_fire_src = import_clip(
+        os.path.join(SRC_DIR, CLIP_SOURCES["moveFire"]), "move_fire_src"
+    )
+    turn_src = import_clip(os.path.join(SRC_DIR, TURN_SOURCE), "turn_src")
     fall_src = import_clip(os.path.join(SRC_DIR, FALL_SOURCE), "fall_src")
 
     # --- 2. classify every vertex's rl_role from the mesh's OWN base-color
@@ -1706,37 +2695,76 @@ def main():
     hips_rest = scratch_arm.data.bones["Hips"].matrix_local.copy()
     arm_world = scratch_arm.matrix_world.copy()
 
-    # --- 4.5. synthesize fire and down, each from idle's own base pose plus
-    # an authored motion -- see `build_fire_src`'s and `build_down_src`'s
-    # own docstrings for why each is built rather than retargeted from a
-    # supplied clip. Must run after fix_forward (like wreck, below):
-    # `idle_src`'s fcurves only encode the rest state `sample_clip` will
-    # read once `transform_apply` above has run. -------------------------
-    fire_src = build_fire_src(scratch_arm, idle_src)
-    down_src = build_down_src(scratch_arm, idle_src)
+    # --- 4.5. measure where `Gun_Hold_Left_Turn`'s own turn begins, and bind
+    # `idle` to the hold before it. The window is COMPUTED here on every
+    # build and printed in full -- never a frame number typed into this
+    # file, because a re-supplied source whose turn starts elsewhere would
+    # otherwise inherit a number fitted to the old one in silence. See
+    # `find_hold_window` and `build_idle_src`. Must run after fix_forward,
+    # for the same reason step 4.6 must. ----------------------------------
+    turn_bearings, _turn_weapon = measure_clip_bearings(scratch_arm, turn_src)
+    departure, hold_end = find_hold_window(turn_bearings)
+    print(
+        f"{TURN_SOURCE}: {len(turn_bearings)} frames, forward bearing per frame "
+        "(exported convention, +X = 0, + is the figure's left), "
+        f"dev from the opening {turn_bearings[0]:+.2f}:"
+    )
+    for i, deg in enumerate(turn_bearings):
+        mark = ""
+        if i == hold_end:
+            mark = "  <- idle ends here (last frame within " f"{LOOP_SEAM_DEG:.0f} deg of the opening)"
+        elif i == departure:
+            mark = f"  <- the turn has begun (past {HOLD_TOLERANCE_DEG:.0f} deg)"
+        print(f"  {i:4d} {deg:+8.2f} {_wrap_deg(deg - turn_bearings[0]):+8.2f}{mark}")
+    hold_mean, hold_lo, hold_hi = _circular_mean_deg(turn_bearings[: hold_end + 1])
+    print(
+        f"hold window: frames 0..{hold_end} of {len(turn_bearings) - 1}, "
+        f"turn begins at frame {departure}; bearing mean {hold_mean:+.2f} deg "
+        f"[{hold_lo:+.2f},{hold_hi:+.2f}], spread {hold_hi - hold_lo:.2f} deg -- "
+        f"root yaw {hold_mean:+.2f} deg applied so the hold faces +X"
+    )
+    idle_src = build_idle_src(scratch_arm, turn_src, hold_end, hold_mean)
+
+    # --- 4.6. synthesize fire and down, each from a frame INSIDE that hold
+    # window plus an authored motion -- see `build_fire_src`'s and
+    # `build_down_src`'s own docstrings for why each is built rather than
+    # retargeted from a supplied clip, and for what taking the base from
+    # `frame_range[1]` instead (this file's own previous behaviour) cost.
+    # Must run after fix_forward (like wreck, below): `idle_src`'s fcurves
+    # only encode the rest state `sample_clip` will read once
+    # `transform_apply` above has run. -----------------------------------
+    hold_base_frame = hold_end // 2
+    print(f"fire/down base pose: frame {hold_base_frame} of the bound hold window")
+    fire_src = build_fire_src(scratch_arm, idle_src, hold_base_frame)
+    down_src = build_down_src(scratch_arm, idle_src, hold_base_frame)
 
     # --- 5. derive wreck from the imported fall clip's own last frame ------
     wreck_src = build_wreck_src(scratch_arm, fall_src)
 
-    # --- 6. sample all five clips into plain Python data, off the scratch
+    # --- 6. sample all six clips into plain Python data, off the scratch
     # rig, BEFORE any duplication happens -- order is load-bearing, see the
     # long comment on step 6 below for why. ----------------------------------
     src_by_clip = {
         "idle": idle_src,
         "move": move_src,
         "fire": fire_src,
+        "moveFire": move_fire_src,
         "down": down_src,
         "wreck": wreck_src,
     }
     frames_by_clip = {
         clip_name: sample_clip(scratch_arm, src_by_clip[clip_name]) for clip_name in CLIP_ORDER
     }
+    bearings_by_clip = {
+        clip_name: measure_clip_bearings(scratch_arm, src_by_clip[clip_name])
+        for clip_name in CLIP_ORDER
+    }
 
     # --- 6.5. enforce CLIP_SEMANTICS before any expensive downstream work
-    # (webbing graft, five-way duplicate/export, GLB merge) runs at all --
+    # (webbing graft, six-way duplicate/export, GLB merge) runs at all --
     # see check_clip_semantics's own docstring for why this exists and
     # where it is otherwise the project lead's own eyes. ------------------
-    check_clip_semantics(frames_by_clip, hips_rest, arm_world)
+    check_clip_semantics(frames_by_clip, hips_rest, arm_world, bearings_by_clip)
 
     # --- 7. delete every `*_src` action BEFORE duplicating/renaming --------
     # `sample_clip` already turned each one into plain data, so none needs
@@ -1759,7 +2787,9 @@ def main():
     # `dup_arm.animation_data_clear()`, and froze at the exact line that
     # renames `dup_arm`'s OWN bones. Deleting the source actions first means
     # there is nothing left in the file for that rewrite to corrupt.
-    for action in (move_src, idle_src, fire_src, down_src, wreck_src, fall_src):
+    for action in (
+        move_src, move_fire_src, idle_src, fire_src, down_src, wreck_src, turn_src, fall_src
+    ):
         action.use_fake_user = False
         bpy.data.actions.remove(action)
 
@@ -1883,7 +2913,7 @@ def main():
         combined.use_fake_user = False
         bpy.data.actions.remove(combined)
 
-    # --- 14. merge the five single-clip temp files into the real output ----
+    # --- 14. merge the six single-clip temp files into the real output -----
     merge_clip_glbs(
         {name: clip_paths[name] for name in CLIP_ORDER}, OUT_PATH, forward_fix_deg=FORWARD_FIX_DEG
     )

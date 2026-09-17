@@ -36,6 +36,7 @@
     "mark_tunnel"
   ],
   "unlock": {
-    "roe_rating_min": 35
+    "roe_rating_min": 35,
+    "price": 220
   }
 }

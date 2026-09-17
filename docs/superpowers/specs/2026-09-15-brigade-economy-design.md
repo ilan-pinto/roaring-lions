@@ -106,7 +106,10 @@ The weights are provisional and belong to the balance analyst. The **campaign-le
 is set the way the star gates were, on the measured optimal ladder: an optimal two-star
 campaign should afford about half the upgrade catalogue by its end, a three-star campaign most
 of it, and no single mission should pay more than a fifth of the cheapest star-gated unit's
-price. The harness asserts the ladder's cumulative total (§6).
+price. Exception: `breach_team` ships at 850 -- its own star gate opens at mission 6
+(cumulative 1345 credits), so any cap-compliant price would make buying strictly worse than
+waiting; measurement and ruling in `docs/campaign/economy/prices.md` §6. The harness asserts
+the ladder's cumulative total (§6).
 
 **Improvement only (D2).** At debrief, on a victory, the app computes `v = creditsFor(...)`,
 reads `paid[missionId]` (0 if absent), pays `max(0, v - paid)` into `balance` and
@@ -209,7 +212,10 @@ closed again and the roster is empty, as today.
   `applyUpgrades` (input never mutated, deltas exact, unknown path refused), the predicate in
   `unlockReason` with and without an account.
 - Schema and `validate_data.mjs`: a patch outside the whitelist, a non-monotone track, a
-  non-integer price, `price` beside `from_ledger`, `upgrades` on an enemy unit — each refused
+  non-integer price, `price` beside `from_ledger` (moot as stated — `price` is authored on
+  the unit's own `unlock` block, `from_ledger` on a mission's *placement*, so the two can
+  never appear "beside" each other; the check that matters is `unlock.price` on a non-`kdf`
+  unit, which `validate_data.mjs` does enforce), `upgrades` on an enemy unit — each refused
   with a sentence, each falsified once.
 - `pnpm playtest`: sums the optimal ladder's credits the way it sums stars and asserts the
   campaign total against the balance target; runs each mission once more with every track at
@@ -238,7 +244,8 @@ Three steps, each its own plan and its own branch, in the order the motivation l
    ladder total 5544 (re-pinned same day from 5644 once "brought home" was scoped to
    the starting force only, ruling R4).
 2. **Buy** — `unlock.price`; bought-only units; `unlockReason` with the account; the shop's
-   locked rows; the dock sentence; the harness's bought-gate probe.
+   locked rows; the dock sentence; the harness's bought-gate probe — landed 2026-09-16,
+   prices in docs/campaign/economy/prices.md.
 3. **Upgrade** — the `upgrades` schema and whitelist; `applyUpgrades`; the balance passes;
    the tracks and prices for the seventeen types; the tier pips; the maximum-tier harness
    run.

@@ -1,7 +1,7 @@
 // The brigade: every KDF unit the campaign knows about, whether it is in reach
 // yet, and — for the ones that are not — exactly what would open it. Pure DOM,
 // no sim, the same shape as `debrief.ts` beside it.
-import { conductAtLeast, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
+import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { gateSentence } from '../gate-sentence';
 import { panel } from './panel';
@@ -48,6 +48,9 @@ export interface BrigadeOptions {
   /** Called after the second click on the reset control. The caller resets the account and
    *  re-renders; this screen only asks twice. */
   onReset?: () => void;
+  /** Called when the player clicks a priced locked row's Buy control. The caller buys,
+   *  saves and re-renders; this screen only asks — it never mutates the account itself. */
+  onBuy?: (unitId: string, price: number) => void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -99,7 +102,11 @@ function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: nu
   if (unlock.starsMin !== undefined) {
     if (starsEarned(ledger) < unlock.starsMin) return [1, unlock.starsMin];
   }
-  return [2, 0]; // the mission gate — "last", and no threshold to sort within
+  // No earned field failed above, and none of Conduct/stars/mission is declared at all: a
+  // bought-only gate (D1, the special forces shape). Sorts after every earned-gated row,
+  // by price.
+  if (isBoughtOnly(unlock) && unlock.price !== undefined) return [3, unlock.price];
+  return [2, 0]; // the mission gate — "last" among earned gates, and no threshold to sort within
 }
 
 export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
@@ -118,7 +125,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
 
   // Available first; ties keep their given order (no gate to sort by).
   // Locked rows follow, ordered by the gate that opens soonest — a Conduct
-  // floor, then a star count, then a named mission last — ties broken by name.
+  // floor, then a star count, then a named mission, then a bought-only gate
+  // (D1, sorted by price) last — ties broken by name.
   const rows = opts.units.map((u) => classifyRow(u, opts.ledger, opts.missionName));
   rows.sort((a, b2) => {
     if (a.locked !== b2.locked) return a.locked ? 1 : -1;
@@ -167,6 +175,22 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
     rowEl.appendChild(info);
 
     rowEl.appendChild(el('div', 'rl-brigade__why', row.locked ? row.reason : 'available'));
+    if (row.locked && row.unlock.price !== undefined && opts.credits !== undefined && opts.onBuy) {
+      const price = row.unlock.price;
+      const buy = document.createElement('button');
+      buy.type = 'button';
+      buy.className = 'rl-btn rl-brigade__buy';
+      buy.textContent = `buy for ${price}`;
+      buy.setAttribute('aria-label', `buy ${u.name} for ${price} credits`);
+      // Short balance: the control stays visible so the price is legible, and disabled so
+      // a click cannot reach `buyUnlock`'s refusal path from here.
+      buy.disabled = opts.credits < price;
+      buy.addEventListener('click', () => {
+        buy.disabled = true; // one purchase per render; the caller re-renders
+        opts.onBuy?.(u.id, price);
+      });
+      rowEl.appendChild(buy);
+    }
     if (u.unlock?.starsMin !== undefined) {
       rowEl.appendChild(el('div', 'rl-brigade__gate', `★ ${u.unlock.starsMin}`));
     }

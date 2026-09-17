@@ -10,7 +10,8 @@
     "population": 2
   },
   "unlock": {
-    "stars_min": 44
+    "stars_min": 44,
+    "price": 3200
   },
   "hull": {
     "hp": 1750,

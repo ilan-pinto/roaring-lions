@@ -143,4 +143,92 @@ describe('showBrigade', () => {
     expect(host.querySelector('.rl-brigade__credits')).toBeNull();
     expect(host.querySelector('.rl-brigade__reset')).toBeNull();
   });
+
+  // The brief's own version of this test names `mbt_lavi` for the price-only row; this
+  // fixture has no such id, so `ifv_namer` (otherwise unused here beyond its `roeMin`
+  // gate) stands in for it. Assertions are otherwise identical to the brief.
+  it('offers a Buy control on a priced locked row, disabled when the balance is short', () => {
+    const host = document.createElement('div');
+    const priced = units.map((u) =>
+      u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 600 } } : u.id === 'ifv_namer' ? { ...u, unlock: { price: 1200 } } : u
+    );
+    const bought: [string, number][] = [];
+    showBrigade(host, {
+      units: priced,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      credits: 700,
+      onBuy: (id, p) => bought.push([id, p]),
+    });
+    const breach = host.querySelector<HTMLButtonElement>('[data-unit="breach_team"] .rl-brigade__buy');
+    expect(breach?.textContent).toBe('buy for 600');
+    expect(breach?.disabled).toBe(false);
+    breach?.click();
+    expect(bought).toEqual([['breach_team', 600]]);
+    const lavi = host.querySelector<HTMLButtonElement>('[data-unit="ifv_namer"] .rl-brigade__buy');
+    expect(lavi?.textContent).toBe('buy for 1200');
+    expect(lavi?.disabled).toBe(true);
+    // `.rl-brigade__why` is `gateSentence`'s own rendering, never the sim's raw
+    // `unlockReason` string -- ifv_namer here is price-only (D1), so it reads the
+    // Buy sentence rather than a requires/Conduct/stars line.
+    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__why')?.textContent).toBe('Buy for 1200 credits');
+  });
+
+  it('shows no Buy control without an account, and none on an unpriced or open row', () => {
+    const host = document.createElement('div');
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
+    expect(host.querySelector('.rl-brigade__buy')).toBeNull();
+    const host2 = document.createElement('div');
+    showBrigade(host2, {
+      units: units.map((u) => ({ ...u, unlock: { price: 5, bought: true } })),
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      credits: 0,
+      onBuy: () => {},
+    });
+    expect(host2.querySelector('.rl-brigade__buy')).toBeNull();
+    expect(host2.querySelector('.rl-brigade__why')?.textContent).toBe('available');
+  });
+
+  // The test above's first case ("without an account") is vacuous for an unpriced row:
+  // it lacks credits AND onBuy, so a Buy control could never render regardless of price.
+  // This closes that gap -- `ifv_namer` is locked (roeMin: 40, unmet by an empty ledger)
+  // and declares no price, WITH an account present, proving the missing control is
+  // because there is no price rather than because there is no account.
+  it('renders no Buy control on an unpriced locked row even with an account present', () => {
+    const host = document.createElement('div');
+    showBrigade(host, { units, ledger: {}, missionName: noMissionNames, possibleStars: 78, credits: 999, onBuy: () => {} });
+    expect(host.querySelector('[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('1');
+    expect(host.querySelector('[data-unit="ifv_namer"] .rl-brigade__buy')).toBeNull();
+    expect(host.querySelector('.rl-brigade__buy')).toBeNull();
+  });
+
+  it('sorts a price-only (bought-only) locked row after a mission-gated row', () => {
+    const host = document.createElement('div');
+    const fixture = [
+      {
+        id: 'mission_gated',
+        name: 'Mission Gated',
+        role: 'infantry',
+        unlock: { afterMission: 'x' },
+        isKamikaze: false,
+        transportSlots: 0,
+        isSoft: true,
+      },
+      {
+        id: 'price_only',
+        name: 'Price Only',
+        role: 'infantry',
+        unlock: { price: 50 },
+        isKamikaze: false,
+        transportSlots: 0,
+        isSoft: true,
+      },
+    ];
+    showBrigade(host, { units: fixture, ledger: {}, missionName: noMissionNames, possibleStars: 78 });
+    const rows = [...host.querySelectorAll('.rl-brigade__list [data-unit]')].map((r) => r.getAttribute('data-unit'));
+    expect(rows).toEqual(['mission_gated', 'price_only']);
+  });
 });

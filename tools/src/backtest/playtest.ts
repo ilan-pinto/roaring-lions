@@ -42,14 +42,21 @@ const missionStars = new Map<string, Stars>();
 const missionCredits = new Map<string, number>();
 
 /** A unit JSON entry's `unlock` gate, mapped from the authored
- *  `roe_rating_min`/`stars_min`/`after_mission` field names to `UnlockGate` -- the one
- *  mapping `unitInfo` and `unlockOf` (`resolveUpgrades`'s lookup) both share, exactly
- *  as main.ts's own `kdfUnlockGate` does for the app. */
+ *  `roe_rating_min`/`stars_min`/`after_mission`/`price` field names to `UnlockGate` -- the
+ *  one mapping `unitInfo` and `unlockOf` (`resolveUpgrades`'s lookup) both share. This used
+ *  to claim it matched main.ts's own `kdfUnlockGate` while dropping `price` on the floor --
+ *  a bought-only unit (no earned field, price only) then read OPEN here and LOCKED in the
+ *  app, since `unlockReason` treats a gate with no fields at all as open. Mapped now. */
 function kdfUnlockGate(u: {
-  unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string };
+  unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number };
 }): UnlockGate | undefined {
   return u.unlock
-    ? { roeMin: u.unlock.roe_rating_min, starsMin: u.unlock.stars_min, afterMission: u.unlock.after_mission }
+    ? {
+        roeMin: u.unlock.roe_rating_min,
+        starsMin: u.unlock.stars_min,
+        afterMission: u.unlock.after_mission,
+        price: u.unlock.price,
+      }
     : undefined;
 }
 
@@ -74,7 +81,17 @@ function run(
    *  type at spawn, not merely that the mission still wins fielding its un-upgraded
    *  fallback. Checked before the plan issues a single order or a tick runs; named in
    *  the printed line either way so a reader never has to re-derive it. */
-  fielded?: string
+  fielded?: string,
+  /** Unit type ids the brigade account has bought (spec 2026-09-15 §4.4). Mapped into
+   *  `unlockOf`'s `UnlockGate.bought`, exactly as `main.ts`'s `kdfUnlockGate` resolves it
+   *  from the account -- so a probe can prove a purchase opens an `upgrades_to` slot with
+   *  no stars or Conduct at all, the same lookup the real gate uses. */
+  bought: ReadonlySet<string> = new Set(),
+  /** Replaces `unlockOf`'s normal unit-data lookup entirely when supplied, so a probe can
+   *  hand `resolveUpgrades` a gate no shipped unit actually authors -- e.g. a price-only
+   *  gate isolated from breach_team's real `stars_min`, to prove the divergence this
+   *  harness's own `kdfUnlockGate` used to have with `main.ts`'s cannot reappear. */
+  gateOf?: (unitId: string) => UnlockGate | undefined
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -112,10 +129,15 @@ function run(
   // does it -- so a placed force fields the earned unit here too and the spawner
   // stays gate-blind.
   const unlockOf = (unitId: string): UnlockGate | undefined => {
-    const d = (units as Record<string, { unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string } } | undefined>)[
-      unitId
-    ];
-    return d ? kdfUnlockGate(d) : undefined;
+    if (gateOf) return gateOf(unitId);
+    const d = (
+      units as Record<
+        string,
+        { unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number } } | undefined
+      >
+    )[unitId];
+    const gate = d ? kdfUnlockGate(d) : undefined;
+    return gate ? { ...gate, bought: bought.has(unitId) } : undefined;
   };
   const resolvedMission = resolveUpgrades(mission, ledger, unlockOf);
   const rt = new MissionRuntime(sim, resolvedMission, {
@@ -129,7 +151,7 @@ function run(
         string,
         | {
             faction: string;
-            unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string };
+            unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number };
             cost: { logistics: number; build_time_s?: number };
           }
         | undefined
@@ -1151,6 +1173,45 @@ run(
   'khan_rafid_3_clearance (gate open)',
   2,
   'breach_team'
+);
+
+// Bought-gate probe (brigade economy step 2, spec 2026-09-15 §4.4): the same plan
+// on a bare `{}` ledger -- no stars, no Conduct -- but with breach_team recorded as
+// bought. `unlockOf`'s bought flag short-circuits `unlockReason` before either earned
+// check runs, so `resolveUpgrades` fields breach_team here exactly as the gate-open
+// probe above does with 6 stars. `label === id` keeps this out of both ladders.
+run(
+  'khan_rafid_3_clearance',
+  khanRafid3Plan,
+  {},
+  'victory',
+  'khan_rafid_3_clearance (bought)',
+  2,
+  'breach_team',
+  new Set(['breach_team'])
+);
+
+// Price-only-closed probe (review finding, spec 2026-09-15 §4.4): guards the exact
+// divergence this harness's own `kdfUnlockGate` used to have with `main.ts` -- it
+// dropped `price` on the floor, so a gate with NO earned field and a price alone read
+// as OPEN here (`unlockReason` treats a gate with nothing set as unlocked) while the
+// app correctly read it LOCKED. `gateOf` hands `breach_team` a synthetic `{ price: 850
+// }` gate -- price only, no stars, no Conduct, no `bought` -- bypassing the real
+// unit-data mapping entirely so the assertion is about `resolveUpgrades` +
+// `unlockReason`'s shared contract, not about today's `breach_team` JSON (which also
+// carries `stars_min: 12` and would already read closed either way). Expect the
+// placement to field the un-upgraded base body, `inf_squad` (`data/missions/
+// khan_rafid_3_clearance.json`'s own `starting_force` entry), never `breach_team`.
+run(
+  'khan_rafid_3_clearance',
+  khanRafid3Plan,
+  {},
+  'victory',
+  'khan_rafid_3_clearance (price-only closed)',
+  2,
+  'inf_squad',
+  new Set(),
+  (unitId) => (unitId === 'breach_team' ? { price: 850 } : undefined)
 );
 
 // --- Marj: Deir Amun -------------------------------------------------------------

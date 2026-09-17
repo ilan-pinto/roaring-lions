@@ -107,13 +107,20 @@ heights 1.485 and 1.417). Length-based measures disagree by 13%, but only
 because a prone shooter's outstretched arms make him longer than he is tall;
 that is anatomy, not a scale error.
 
-So one factor, anchored on the shipped asset the way
-`export_meshy_house.py` derives `REAL_METRES_HOUSE` rather than hand-typing
-it: `_measure_shipped_standing_height()` splits the shipped GLB's vertices
-by which bone dominates them and reports the standing rig's own height,
-1.670 m. Independent cross-check: that factor puts this team's prone forward
-footprint at 2.19 m against the shipped prone's 2.235 m -- 2%, from a number
-derived only from the standing pose.
+So one factor, from the `STANDING_HEIGHT_M` anchor -- **and NOT, any more,
+from this file's own previous output.** It used to follow
+`export_meshy_house.py`'s "derive the anchor from the asset that already
+ships" move, which is right when the shipped asset is somebody else's and is
+a feedback loop when it is your own: `SHIPPED_REF = OUT_PATH`, and the two
+sides of the division were not the same measurement, so each export
+multiplied the team by ~1.0249. It ran three times, taking the pair from
+1.670 m to 1.796 m -- 7.5% taller than every other infantryman in the game.
+See `STANDING_HEIGHT_M` for the history, the like-for-like fix and the
+assertion (`check_standing_height`) that now runs on the exported bytes.
+
+Independent cross-check on the 1.670 factor, unchanged: it puts this team's
+prone forward footprint at 2.19 m against the shipped prone's 2.235 m -- 2%,
+from a number derived only from the standing pose.
 """
 import argparse
 import json
@@ -216,10 +223,62 @@ WEAPON_LUM_MAX = 0.36
 BOOT_ZFRAC = 0.075
 
 # --- scale ---------------------------------------------------------------
-# Measured off the shipped GLB by `_measure_shipped_standing_height()`; this
-# literal is the fallback if that file is ever missing, and the two are
-# asserted to agree at build time.
-SHIPPED_STANDING_HEIGHT_M = 1.670
+#
+# **THE ANCHOR IS THIS CONSTANT, AND IT USED TO BE THIS FILE'S OWN PREVIOUS
+# OUTPUT.** That was a ratchet, and it ran: `SHIPPED_REF = OUT_PATH`, so every
+# export measured the file the last export wrote. The two sides of the
+# division were not like-for-like -- the shipped side took the **99.8th**
+# percentile of the `uniform` mesh alone, the source side the **99.5th** of
+# every non-weapon body mesh minus its own min -- and the ratio between them
+# is a fixed multiplicative GAIN of about 1.0249 rather than a fixed point.
+# Every re-export multiplied the team's height by it:
+#
+#     233f683   1.67000 m    the design anchor
+#     05b52e7   1.75299 m    +4.97%
+#     52b0c57   1.79601 m    +2.45%
+#
+# At 52b0c57 the pair stood 7.5% taller than every other infantryman in the
+# game, and two more exports would have put them past 1.9 m.
+#
+# **Every other exporter in this tree already guards against this, and three
+# of them say so in as many words** -- audited 2026-09-16 after the fact.
+# `export_meshy_house.py`'s `REAL_METRES_HOUSE`, `export_meshy_apartment.py`'s
+# and `export_meshy_warehouse.py`'s: all three freeze the anchor as a constant
+# and keep `_measure_existing_extent` in the file for provenance while
+# explicitly NOT calling it from `export()`, because *"this script overwrites
+# that same path, so a second run would measure its own prior output rather
+# than the kit-built ground truth"*. `export_meshy_apache.py` reads a SPRITE
+# manifest -- a file it does not write. This file copied the PATTERN from
+# those and not the LESSON, and it was the only live self-reference left.
+#
+# 1.670 m is not a guess and is not this file's own number. Measured on the
+# shipped roster with the same formula used below (99.5th percentile of a
+# figure's own non-weapon body vertices, minus its own min), 2026-09-16:
+#
+#     breach_team  1.6700     inf_squad  1.6555 / 1.6700 / 1.6555
+#     militia_cell 1.6500 / 1.6382       meshy_soldier  1.6389 (x3)
+#
+# A sniper is a man, and the men beside him are 1.64-1.67 m.
+#
+# `_check_standing_height` measures the file this run just WROTE and raises
+# if it disagrees -- the assertion the comment here used to claim existed
+# ("the two are asserted to agree at build time") and did not. That sentence
+# is why nothing caught the ratchet: a guard documented rather than
+# implemented reads exactly like a guard.
+STANDING_HEIGHT_M = 1.670
+
+#: The percentile the height is read at, on BOTH sides. A percentile rather
+#: than a max because a ghillie tuft or a decimation spike would otherwise set
+#: the scale of the whole team; 99.5 is the source probe's own long-standing
+#: value and the shipped side now matches it instead of using 99.8.
+STANDING_HEIGHT_PCTL = 99.5
+
+#: How far the exported file may sit from the anchor. The measurement is a
+#: fixed point by construction -- nothing between the scale and the export
+#: moves a body vertex except a per-figure translation, which cancels in
+#: `percentile - min` -- so this bounds float and quantisation noise, not a
+#: design allowance. Observed residual on the re-anchored export: under 0.1%.
+STANDING_HEIGHT_TOL = 0.01
 
 # --- composition ---------------------------------------------------------
 # `teams.sniper_team` puts the pair at `close` 0.24 for idle/move and 0.12
@@ -240,8 +299,29 @@ CLOSE_DELTA_M = 0.025
 STANDING_GAP_M = 0.05
 
 # --- clips ---------------------------------------------------------------
+#
+# **The gait is `tools/units/rig.py`'s, not this file's.** `MOVE_FRAMES = 24`
+# and a hardcoded `swing = 0.40 * math.sin(a)` used to live here, and being a
+# second copy is what was wrong with them rather than what they were set to:
+#
+#  * 24 frames gave a 1.0 s cycle where every `rig.py` team is 16 at 0.6667 s.
+#  * The swing never read `mobility.speed_tiles_s`, so `rig.py`'s
+#    stride-from-speed pass (design D3) simply did not reach this unit. It
+#    took a 0.321 m step at 1.35 m/s -- half a walking step at twice the
+#    cadence -- and needed a 2.0999x playback correction, the third largest in
+#    the game, on the game's SLOWEST unit.
+#  * Its knee bent the wrong way: `mesh_gait.ts`'s `swingLiftFraction` read
+#    -0.180 here against +0.113..+0.470 for every other rig in the tree.
+#
+# `rig.gait_pose` is the shared definition now; `rig.MOVE_FRAMES`,
+# `rig.move_seconds` and `rig.gait_for_team` are the cycle and the
+# amplitudes. What stays local is the RIGGING -- this file's fourteen joints
+# are a subset of `rig.py`'s bone set and it keys the five it has.
+#
+# `FPS` is Blender's factory default, which both files rely on and neither
+# sets; it is asserted against the live scene in `build_clips` rather than
+# trusted, because `rig.move_seconds()` divides by it.
 FPS = 24
-MOVE_FRAMES = 24          # one full two-step cycle
 STATIC_FRAMES = (0, 1)    # see rig.py's `_key_scale`: never a single key
 
 CLIPS = ("idle", "move", "fire", "down", "wreck")
@@ -255,6 +335,31 @@ FIG_PREFIX = ("snp_a", "snp_b")
 # ==========================================================================
 def log(msg):
     print(f"SNIPER: {msg}", flush=True)
+
+
+def _rig():
+    """`tools/units/rig.py`, imported LAZILY.
+
+    That module imports `bpy` (and `kit`/`teams`, which do too) at its top
+    level, so importing it here at module scope would break the `--verify`
+    path, which this file's own header promises runs "without Blender -- a
+    verifier that can only run inside the process that produced the file is
+    checking its author's intent, not its output". Same reason `bpy` itself is
+    deferred into `main()`.
+
+    Why import it at all: `rig.py` owns the gait (`gait_for_team`,
+    `gait_pose`, `MOVE_FRAMES`, `gait_phase`). This file used to carry its own
+    and the two disagreed about the cycle length, the stride and which way a
+    knee bends -- see the "clips" section. It does NOT import `rig.py`'s
+    GEOMETRY: `tools/mesh_ownership.py` records that `art/meshes/
+    sniper_team.glb` is this file's, and `rig.build_and_export` raises if
+    anyone asks it to write that path, because doing so would replace two
+    photogrammetry sculpts with primitives.
+    """
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    sys.path.insert(0, os.path.join(REPO, "tools", "units"))
+    import rig  # noqa: PLC0415
+    return rig
 
 
 def reset_scene():
@@ -490,22 +595,38 @@ def split_by_role(ob, face_code, tag):
 # ==========================================================================
 # phase 4 -- orientation, scale, placement
 # ==========================================================================
-def _measure_shipped_standing_height(path):
-    """Standing-rig height, in metres, read out of the shipped GLB.
+def body_height(values):
+    """One figure's standing height from its own body vertices along the up
+    axis: the `STANDING_HEIGHT_PCTL` percentile minus that figure's own min.
 
-    The file carries BOTH rigs in one skin, so a plain bounding box would
-    mix them. Vertices are split by which joint dominates their skin
-    weights: anything whose heaviest joint is a `*_death_root` belongs to
-    the prone rig, everything else to the standing one. glTF is Y-up, so the
-    standing set's Y extent is the figure's height.
+    **The single definition, called from both sides of the scale division.**
+    The ratchet this file carried until 2026-09-16 was not a wrong number, it
+    was two measurements that looked equivalent and were not (99.8th
+    percentile of one mesh on the shipped side, 99.5th of every body mesh
+    minus its min on the source side). Their ratio is a constant gain, so the
+    anchor was a fixed point only by coincidence and in fact was not one.
+    Subtracting the figure's own min is what makes this invariant to the
+    per-figure ground-seating translation applied later.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    return float(np.percentile(v, STANDING_HEIGHT_PCTL) - v.min())
 
-    This is `export_meshy_house.py`'s `_measure_existing_extent` move --
-    derive the anchor from the asset that already ships and already passes
-    the gates, rather than typing a number.
+
+def measure_standing_height(path):
+    """Mean standing body height, in metres, of the two figures in a GLB.
+
+    Exactly `body_height` again, on the EXPORTED bytes: every non-weapon
+    body mesh, split per FIGURE by which joint dominates each vertex's skin
+    weights, prone (`*_death_root`) vertices excluded, glTF Y as the up axis.
+    Returns `None` when the file is absent.
+
+    Used as a CHECK on the file this run just wrote, never as an input to the
+    scale -- see `STANDING_HEIGHT_M`. A build that measures its own previous
+    output is a feedback loop with a gain, and this one ran for three
+    exports.
     """
     if not os.path.exists(path):
-        log(f"scale: {path} absent -- falling back to {SHIPPED_STANDING_HEIGHT_M}")
-        return SHIPPED_STANDING_HEIGHT_M
+        return None
     with open(path, "rb") as fh:
         data = fh.read()
     jlen = struct.unpack("<I", data[12:16])[0]
@@ -536,17 +657,24 @@ def _measure_shipped_standing_height(path):
 
     nodes = gltf["nodes"]
     joints = gltf["skins"][0]["joints"]
-    dead = {i for i, j in enumerate(joints) if "death_root" in nodes[j].get("name", "")}
-    tops = []
+    # Which skin index belongs to which FIGURE, from this module's own prefix
+    # table rather than by string-splitting a bone name.
+    owner = {}
+    for i, j in enumerate(joints):
+        name = nodes[j].get("name", "")
+        if "death_root" in name:
+            continue        # the prone rig, which is not what is being scaled
+        for p in FIG_PREFIX:
+            if name.startswith(p + "_"):
+                owner[i] = p
+    per_fig = {}
     for nd in nodes:
         if "mesh" not in nd:
             continue
-        # BODY height only. The shipped file's `metal` mesh tops out at
-        # 1.684 m because it includes the rifle held above the head, and
-        # anchoring on that would make every figure 0.8% short. `uniform`
-        # is the like-for-like counterpart of what is measured on this
-        # asset's own side (body vertices, weapon excluded).
-        if gltf["meshes"][nd["mesh"]].get("name") != "uniform":
+        # BODY only, so the same vertex set as the source-side probe (which
+        # takes every role except `ROLE_WEAPON`). Anchoring on `weapon` would
+        # read the rifle held above the head.
+        if gltf["meshes"][nd["mesh"]].get("name") == ROLE_WEAPON:
             continue
         for prim in gltf["meshes"][nd["mesh"]]["primitives"]:
             pos, _ = read(prim["attributes"]["POSITION"])
@@ -557,12 +685,42 @@ def _measure_shipped_standing_height(path):
             elif ct == 5121:
                 wt = wt / 255.0
             dom = jt[np.arange(len(jt)), wt.argmax(1)].astype(int)
-            stand = pos[~np.isin(dom, list(dead))]
-            if len(stand):
-                tops.append(np.percentile(stand[:, 1], 99.8))
-    h = float(max(tops))
-    log(f"scale: shipped standing rig height = {h:.4f} m (measured from {os.path.basename(path)})")
-    return h
+            for i, p in owner.items():
+                sel = pos[dom == i]
+                if len(sel):
+                    per_fig.setdefault(p, []).append(sel[:, 1])
+    if not per_fig:
+        return None
+    heights = [body_height(np.concatenate(cols)) for cols in per_fig.values()]
+    return float(np.mean(heights))
+
+
+def check_standing_height(path, where):
+    """Raise unless `path`'s figures stand at `STANDING_HEIGHT_M`.
+
+    **This is the assertion `STANDING_HEIGHT_M`'s comment used to claim
+    already existed.** It did not, and its absence is the whole of why the
+    team grew 2.45% in one commit and 7.5% over three with every gate green.
+    Called on the bytes this run just WROTE -- verify the export, not the
+    script -- because the failure mode it guards is a scale that is correct in
+    the source frame and wrong by the time it lands.
+    """
+    got = measure_standing_height(path)
+    if got is None:
+        raise SystemExit(f"{where}: {path} has no readable standing body -- cannot check height")
+    drift = abs(got - STANDING_HEIGHT_M) / STANDING_HEIGHT_M
+    log(f"height: {where} standing body = {got:.4f} m against the {STANDING_HEIGHT_M:.3f} m "
+        f"anchor ({drift * 100:+.2f}%)")
+    if drift > STANDING_HEIGHT_TOL:
+        raise SystemExit(
+            f"HEIGHT CHECK FAILED: {os.path.basename(path)} stands {got:.4f} m, "
+            f"{drift * 100:.2f}% off the {STANDING_HEIGHT_M:.3f} m anchor (tolerance "
+            f"{STANDING_HEIGHT_TOL * 100:.1f}%). Every other infantryman in the game is "
+            f"1.64-1.67 m. Do NOT widen the tolerance: this is the guard that would have "
+            f"caught this file measuring its own previous output and multiplying the team "
+            f"by 1.0249 per export."
+        )
+    return got
 
 
 def orient_and_scale(role_obs, metres_per_unit):
@@ -815,39 +973,70 @@ def build_clips(arm, figs):
         log(f"clip {name}: prone visible, close={close:.3f} m")
 
     # ---- move: the standing pair, walking -------------------------------
+    #
+    # Driven entirely by `rig.gait_pose` -- see this module's "clips" section
+    # for what was here before and why being a second copy was the defect.
+    rig = _rig()
+    scene_fps = float(bpy.context.scene.render.fps)
+    if scene_fps != float(FPS):
+        raise SystemExit(
+            f"scene fps is {scene_fps}, this file declares FPS={FPS}, and "
+            f"rig.move_seconds() divides by the SCENE's value. One of the "
+            f"three is wrong and the clip length would silently disagree "
+            f"with every rig.py team's."
+        )
+    gait = rig.gait_for_team("sniper_team")
+    log(f"gait: speed={gait['speed']} tiles/s ground={gait['ground_m']:.3f} m/cycle "
+        f"want={gait['want']:.3f} scale={gait['scale']:.3f} "
+        f"thigh={gait['thigh']:.3f} rad shin={gait['shin']:.3f} rad "
+        f"(rig.py's own, via gait_for_team)")
+
     _new_action(arm, "move")
-    n = MOVE_FRAMES
+    n = rig.MOVE_FRAMES
+    bones = arm.data.bones
     for i, p in enumerate(FIG_PREFIX):
         # HARD-WON FACT 6: never ship byte-identical keyframes across
-        # figures. Half a cycle apart, so the pair does not march in
-        # lockstep the way squads used to.
-        phase = 0.5 * i
+        # figures. `rig.gait_phase` is the shared offset table now (a third
+        # of a cycle per figure) rather than this file's own half-cycle --
+        # same property, one definition.
+        offset = rig.gait_phase(i)
+        # Hip joint to ankle joint, read off the bones this file just built
+        # rather than restated from the fractions `build_armature` used --
+        # `rig.LEG_REACH_M` does exactly this against `_BASE_BONES`. These
+        # sculpted men are not 1.67 m each, so `_stance_drop` needs THEIR
+        # lever, not the kit rig's.
+        leg_reach = (bones[f"{p}_thigh_L"].head_local.z
+                     - bones[f"{p}_shin_L"].tail_local.z)
         d = pb[f"{p}_death_root"]
         d.scale = (0.0, 0.0, 0.0)
         d.location = (0.0, 0.0, 0.0)
         root = pb[f"{p}_root"]
         root.scale = (1.0, 1.0, 1.0)
         for fr in range(n + 1):
-            u = (fr / n + phase) % 1.0
-            a = 2.0 * math.pi * u
-            for fr2, b in ((fr, d),):
-                b.scale = (0.0, 0.0, 0.0)
-                _key(b, fr2)
-            # pelvis bob: two dips per cycle, one per footfall
-            bob = -0.018 * abs(math.sin(a))
-            _world_loc(root, (0.0, 0.0, bob))
+            phase = 2.0 * math.pi * fr / n + offset
+            pose = rig.gait_pose(gait, phase, leg_reach)
+            d.scale = (0.0, 0.0, 0.0)
+            _key(d, fr)
+            _world_loc(root, (0.0, 0.0, pose["bob"]))
             root.scale = (1.0, 1.0, 1.0)
             _key(root, fr)
-            _world_rot(pb[f"{p}_pelvis"], Vector((1, 0, 0)), 0.05 * math.sin(2 * a))
+            # The one term that is NOT rig.py's: a lateral pelvic roll, twice
+            # per cycle. `rig.py` has no counterpart -- its `pelvis` carries
+            # only the belt line and its own twist is a YAW, counter-rotated
+            # by a `spine` and a `head` bone this rig does not have. On this
+            # rig `pelvis` carries the whole torso, the head and a metre of
+            # rifle, so importing that yaw would sweep the weapon with
+            # nothing to cancel it. Left at its authored amplitude: it is a
+            # roll rather than a stride term, so it does not scale with one.
+            _world_rot(pb[f"{p}_pelvis"], Vector((1, 0, 0)), 0.05 * math.sin(2 * phase))
             _key(pb[f"{p}_pelvis"], fr)
-            for side, sgn in (("L", 1.0), ("R", -1.0)):
-                swing = 0.40 * math.sin(a + (0.0 if sgn > 0 else math.pi))
-                _world_rot(pb[f"{p}_thigh_{side}"], Vector((0, 1, 0)), swing)
+            for side, key in (("L", "l"), ("R", "r")):
+                _world_rot(pb[f"{p}_thigh_{side}"], Vector((0, 1, 0)), pose[f"thigh_{key}"])
                 _key(pb[f"{p}_thigh_{side}"], fr)
-                bend = -0.55 * max(0.0, math.sin(a + (0.0 if sgn > 0 else math.pi) + 1.4))
-                _world_rot(pb[f"{p}_shin_{side}"], Vector((0, 1, 0)), bend)
+                _world_rot(pb[f"{p}_shin_{side}"], Vector((0, 1, 0)), pose[f"shin_{key}"])
                 _key(pb[f"{p}_shin_{side}"], fr)
-    log(f"clip move: standing visible, {n} frames, per-figure phase offset 0.5")
+    log(f"clip move: standing visible, {n} frames at {FPS} fps "
+        f"({rig.move_seconds():.4f} s), per-figure phase from rig.gait_phase")
 
 
 # ==========================================================================
@@ -1196,6 +1385,19 @@ def verify(path):
              f"ground at Y={gmin[1]:+.4f}")
         if abs(gmin[1]) > 0.02:
             bad(f"figures do not stand on Y=0 (lowest body vertex {gmin[1]:+.4f})")
+        # HEIGHT, bounded rather than printed. This block reported a 1.836 m
+        # body extent on its PASSING path while the team was 7.5% taller than
+        # every other infantryman, which is a number no reader is given any
+        # reason to be alarmed by. `measure_standing_height` is the same
+        # per-figure measurement the build now asserts on.
+        h = measure_standing_height(path)
+        if h is None:
+            bad("cannot read a standing body height at all")
+        else:
+            drift = abs(h - STANDING_HEIGHT_M) / STANDING_HEIGHT_M
+            msg = (f"standing body height {h:.4f} m against the {STANDING_HEIGHT_M:.3f} m "
+                   f"anchor ({drift * 100:+.2f}%; every other infantryman is 1.64-1.67 m)")
+            (good if drift <= STANDING_HEIGHT_TOL else bad)(msg)
 
     print("VERIFY: PASS" if ok else "VERIFY: FAIL")
     return ok
@@ -1222,7 +1424,14 @@ def main():
     from mathutils import Quaternion as _Q, Vector as _V
     bpy, Quaternion, Vector = _bpy, _Q, _V
 
-    height_m = _measure_shipped_standing_height(SHIPPED_REF)
+    # The anchor is the CONSTANT, never the previous output -- see
+    # `STANDING_HEIGHT_M`. What the shipped file measures is logged beside it
+    # so a reader can see any drift that is about to be corrected, and is
+    # deliberately not fed into anything.
+    height_m = STANDING_HEIGHT_M
+    was = measure_standing_height(SHIPPED_REF)
+    log(f"scale: anchor {height_m:.4f} m; the file currently shipped measures "
+        f"{'n/a' if was is None else f'{was:.4f} m'}")
 
     reset_scene()
 
@@ -1266,7 +1475,10 @@ def main():
     for roles in per_pose["standing"]:
         body = [o for r, o in roles.items() if r != ROLE_WEAPON]
         co = np.concatenate([mesh_arrays(o) for o in body])
-        scale_probe.append(np.percentile(co[:, 2], 99.5) - co[:, 2].min())
+        # `body_height` is the ONE definition, shared with the check on the
+        # exported bytes -- this line used to be a second, subtly different
+        # copy of it and that was the ratchet.
+        scale_probe.append(body_height(co[:, 2]))
     unit_h = float(np.mean(scale_probe))
     metres_per_unit = height_m / unit_h
     log(f"scale: standing figures measure {[round(v, 4) for v in scale_probe]} units "
@@ -1333,6 +1545,10 @@ def main():
     log(f"TOTAL {total_v} verts, {total_t} tris across {len(merged)} role meshes")
 
     export_glb(arm, args.out)
+    # On the BYTES, not on the scene: the scale is applied to raw source
+    # coordinates a long way upstream of here, and the thing that matters is
+    # what landed.
+    check_standing_height(args.out, "exported")
     if args.preview:
         preview(args.preview, merged, arm)
 
