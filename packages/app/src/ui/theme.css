@@ -387,6 +387,21 @@ body {
    job here is to leave the status cards, the ledger line and the way back on
    screen. A fixed 16/9 at 1440x900 pushed all three below the fold.
 
+   I3 (shell-upgrade Phase 0 final review): 54vh, this rule's value since
+   before this branch, stopped being enough once Task 3 gave the shell
+   `--ui-scale` (1.15 at a >=1900 px width) -- every rem-sized thing BELOW the
+   stage (the banner, the grid gaps, a card's own padding and text) grew with
+   it while this vh budget did not, so at 1400x900 and 1920x1080 the card
+   row's status word and villain row (portrait, name, quote) clipped against
+   the footer nav at scroll position zero (`.superpowers/ui-shots/task7b` and
+   `/task10c`). Measured down in steps -- 52vh cleared the status word but
+   still cut the villain row; 44vh clears both, with a full card visible at
+   all three of 1400x900, 1920x1080 and 2560x1440
+   (`.superpowers/ui-shots/after`) -- rather than guessed at once. The WIDTH
+   is untouched by this: `.rl-world__board`'s own width still fits the
+   board's whole frustum, so 2560 keeps the wide board this line's other
+   half describes.
+
    The WIDTH is the flat board's, deliberately, and widening it was tried and
    reverted: at both 1440x900 and 1920x1080 the height cap is what binds the
    fit, so a 1440-wide frame drew exactly the same board as a 1200-wide one
@@ -397,7 +412,7 @@ body {
   position: relative;
   width: 100%;
   margin-inline: auto;
-  height: min(54vh, 41.25rem);
+  height: min(44vh, 41.25rem);
   min-height: 18.75rem;
 }
 .rl-world__canvas { position: absolute; inset: 0; }
