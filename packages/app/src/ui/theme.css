@@ -714,7 +714,12 @@ body {
 /* Confirm — the one dialog for anything that destroys player state       */
 /* ====================================================================== */
 
-.rl-confirm {
+/* `.rl-pause` (Task 6) shares this scrim -- same full-screen grid, same
+   colour-mixed dimming -- so the pause modal and a confirm stacked on top of
+   it (Restart/Quit, both confirmed before they act) read as one visual
+   system rather than two competing overlays. */
+.rl-confirm,
+.rl-pause {
   position: fixed;
   inset: 0;
   display: grid;
@@ -726,11 +731,20 @@ body {
    right for a HUD panel pinned over the map, wrong for a modal this grid is
    meant to centre and that the player has to be able to click anywhere on.
    Both are overridden here; equal specificity to `.rl-panel`'s own rule, so
-   this wins purely by coming later in the cascade. */
-.rl-confirm__panel {
+   this wins purely by coming later in the cascade. `.rl-pause__panel` shares
+   this ground (Task 6) and widens/scrolls below, since it carries an
+   objectives list and a whole mounted settings table where a confirm carries
+   two lines of body text. */
+.rl-confirm__panel,
+.rl-pause__panel {
   position: relative;
   pointer-events: auto;
   width: min(26rem, 92vw);
+}
+.rl-pause__panel {
+  width: min(40rem, 94vw);
+  max-height: 88vh;
+  overflow: auto;
 }
 .rl-confirm__body {
   margin: 0;
@@ -744,6 +758,79 @@ body {
 .rl-confirm__yes[data-danger='1'] {
   border-color: var(--bad);
   color: var(--bad-text);
+}
+
+/* ====================================================================== */
+/* Pause (ui/pause.ts) — Escape's target while a battlefield is running    */
+/* ====================================================================== */
+
+.rl-pause__tabs {
+  display: flex;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+.rl-pause__tabs button[data-on='1'] {
+  border-color: var(--live);
+  color: var(--live);
+}
+.rl-pause__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-pause__obj {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s2);
+  padding-block: var(--s1);
+  /* Same colour-mixed hairline `.rl-settings__row` uses -- legible on either
+     background this modal can sit over. */
+  border-block-end: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); /* px-ok */
+}
+.rl-pause__obj:last-child {
+  border-block-end: 0;
+}
+.rl-pause__obj[data-primary='1'] .rl-pause__obj-text {
+  color: var(--ink);
+  font-weight: 700;
+}
+.rl-pause__obj-text {
+  color: var(--ink-dim);
+}
+.rl-pause__obj-status {
+  color: var(--ink-mute);
+  font-size: var(--t-s);
+  text-transform: uppercase;
+  letter-spacing: var(--track-title);
+  white-space: nowrap;
+}
+.rl-pause__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: var(--s4);
+}
+/* `.rl-settings` (ui/settings-panel.ts) is a stand-alone screen elsewhere and
+   positions itself ABSOLUTELY against the viewport (`top: 6%; left: 50%`) --
+   removed from flow there, which is fine when it is the only thing on
+   screen. Mounted here it is a TAB's content, not the whole modal: taking it
+   out of flow left it floating over this panel's own action row instead of
+   pushing it down, which is not a cosmetic miss -- an absolutely positioned
+   element still intercepts pointer events, so "Quit to campaign" underneath
+   was unclickable (found driving Task 6, not by inspection). Un-does the
+   standalone positioning back to ordinary flow; specificity (two classes)
+   wins over the standalone rule regardless of source order, so this is not
+   fragile to reordering either file. */
+.rl-pause__settings .rl-settings {
+  position: static;
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  transform: none;
 }
 
 /* ====================================================================== */
@@ -987,6 +1074,13 @@ body {
 .rl-strip__chip:focus-visible {
   border-color: var(--accent);
   color: var(--accent);
+}
+/* Task 6: `Hud.paintSpeed` sets this on the cluster itself (not per chip)
+   while the pause modal is up, so the strip's speed reading dims as one
+   claim rather than the 1x/2x chips going dark while 0x stays lit -- the
+   mission is paused, not merely set to a speed of zero. */
+.rl-strip__chips[data-paused='1'] {
+  opacity: 0.45;
 }
 /* A `<button>` now (task 6: it used to be a plain `<a href="?campaign">`),
    so it needs the button-chrome reset the anchor never did -- without this

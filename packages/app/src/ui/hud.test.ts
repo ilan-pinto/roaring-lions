@@ -271,6 +271,23 @@ describe('top strip: the persistent controls', () => {
     expect(chip.dataset.on).toBe('1');
   });
 
+  // Task 6: the pause menu calls `hud.paintSpeed()` directly (it is public
+  // now) from `main.ts`'s own `pause`/`resume`, since at `paused` no tick
+  // ever comes to repaint it otherwise -- the same reason a speed-chip click
+  // already repaints itself inline, above.
+  it('dims the speed cluster while paused, distinct from a deliberate 0x hold', () => {
+    let paused = false;
+    const r = rig(mission(), { getSpeed: () => 1, isPaused: () => paused });
+    const cluster = r.host.querySelector<HTMLElement>('.rl-strip__chips')!;
+    expect(cluster.dataset.paused).toBe('0');
+    paused = true;
+    r.hud.paintSpeed();
+    expect(cluster.dataset.paused).toBe('1');
+    paused = false;
+    r.hud.paintSpeed();
+    expect(cluster.dataset.paused).toBe('0');
+  });
+
   it('offers to leave the mission at all times, mid-mission included -- confirmed, not a plain navigation', async () => {
     let left = false;
     const r = rig(mission(), { leave: () => { left = true; } });

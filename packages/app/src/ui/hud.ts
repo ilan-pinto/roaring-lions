@@ -171,6 +171,10 @@ export interface HudDeps {
   /** Audio state, mirrored by the `m` key. Returns the new muted state. */
   isMuted?: () => boolean;
   toggleMute?: () => void;
+  /** Task 6: whether the pause modal is up. `paintSpeed` reads this to dim
+   *  the speed chips -- distinct from `getSpeed() === 0`, which is a player
+   *  choice (a deliberate hold at 0x) rather than the mission being paused. */
+  isPaused?: () => boolean;
   /** The navigation behind "leave the mission", confirmed first -- the Hud
    *  reads no `window.location` of its own and spells no path (`ui/confirm.ts`'s
    *  own header: this used to be a plain `<a href="?campaign">` with no confirm
@@ -186,6 +190,9 @@ export class Hud {
   private readonly stripBody: HTMLDivElement;
   private readonly stripInfo: HTMLDivElement;
   private readonly speedChips: { el: HTMLButtonElement; speed: number }[] = [];
+  /** The chip row itself, so `paintSpeed` can dim it as a whole with
+   *  `data-paused` (theme.css) rather than each chip individually. */
+  private readonly speedCluster: HTMLDivElement;
   private readonly muteChip: HTMLButtonElement;
   /** The bottom-centre cluster: the order row over the chips or the card. */
   private readonly sel: HTMLDivElement;
@@ -296,6 +303,7 @@ export class Hud {
     // whose layout nobody has actually looked at.
     const chips = document.createElement('div');
     chips.className = 'rl-strip__chips';
+    this.speedCluster = chips;
     for (const spec of [
       { speed: 0, label: '▮▮', title: 'pause' },
       { speed: 1, label: '1×', title: 'normal speed' },
@@ -672,9 +680,13 @@ export class Hud {
     this.muteChip.dataset.on = muted ? '0' : '1';
   }
 
-  private paintSpeed(): void {
+  /** Public since Task 6: `main.ts`'s `pause`/`resume` call this directly so
+   *  the strip repaints the moment either one runs, rather than waiting for a
+   *  tick that a pause guarantees never comes. */
+  paintSpeed(): void {
     const now = this.deps.getSpeed?.() ?? 1;
     for (const { el, speed } of this.speedChips) el.dataset.on = speed === now ? '1' : '0';
+    this.speedCluster.dataset.paused = this.deps.isPaused?.() ? '1' : '0';
   }
 
   /** Mission-level narration — objectives, triggers, waves, refusals. */

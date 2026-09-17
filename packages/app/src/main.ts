@@ -69,6 +69,9 @@ import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
+import { confirmDialog } from './ui/confirm';
+import { pauseMenu } from './ui/pause';
+import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, resolveKey } from './input/keymap';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
@@ -875,6 +878,12 @@ async function main(): Promise<void> {
             signal: req.signal,
             navigate: (href, opts) => void router.navigate(href, opts),
             settings: settingsDeps,
+            // Replacing, forced: a plain navigate() to the same path is a
+            // no-op (the router only re-mounts on a real path/query change),
+            // so Restart needs `force` to re-run this same route's mount --
+            // and `replace` so the attempt that was just lost does not sit in
+            // history as a back-button trap into a dead sim.
+            restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
           }),
       },
       {
@@ -888,6 +897,7 @@ async function main(): Promise<void> {
             signal: req.signal,
             navigate: (href, opts) => void router.navigate(href, opts),
             settings: settingsDeps,
+            restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
           }),
       },
       {
@@ -941,6 +951,13 @@ export interface BattlefieldRequest {
    *  than snapshotted, since a pause-menu change (Task 6) must reach the
    *  camera pan speed and the mixer without a re-boot. */
   settings: SettingsDeps;
+  /** Re-mount this same battlefield from scratch -- the pause menu's Restart
+   *  (Task 6), confirmed by the caller first. A forced, replacing navigation
+   *  to this route's own href rather than a bespoke re-init: the router's
+   *  existing mount/dispose sequencing is what tears the old sim/renderer down
+   *  and boots a fresh one, so there is no second teardown path to keep in
+   *  step with the real one. */
+  restart(): void;
 }
 
 /**
@@ -2053,6 +2070,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     unload: () => runVerb('dismount'),
   };
 
+  // Task 6: Escape's target. Declared before `hud` so `isPaused` below closes
+  // over it trivially; `pause`/`resume` (which need `hud.paintSpeed()`) are
+  // defined just after the Hud exists.
+  let paused = false;
+  let pauseHandle: { close: Disposer } | null = null;
+
   const hud = new Hud(document.body, {
     sim,
     getSelection: () => renderer.selection,
@@ -2087,6 +2110,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     toggleMute: () => {
       audioMuted = audio.toggle();
     },
+    isPaused: () => paused,
     // The in-mission exit, behind the strip's confirm dialog. A router
     // navigation since this task: the campaign screen mounts into the same
     // document, and the disposer registered below is what makes that safe --
@@ -2096,6 +2120,60 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
+
+  // Task 6: the pause menu. `pause`/`resume` are the only two writers of
+  // `paused` -- the frame loop below reads it through `advanceClock`, and
+  // `Hud.paintSpeed` reads it through `isPaused` above, so nothing else may
+  // set it directly. Both are idempotent (`if (paused) return;` /
+  // `if (!paused) return;`), which is what keeps the two independent paths
+  // that can call `resume` -- the pause modal's own Escape/Resume handling
+  // and this file's `case 'pause':` below when already paused -- from
+  // double-firing `hud.paintSpeed()` or double-closing `pauseHandle`.
+  const pause = (): void => {
+    if (paused) return;
+    paused = true;
+    // Repainted here, not on the next tick: at `paused` no tick ever comes,
+    // so a strip that waits for one never dims.
+    hud.paintSpeed();
+    pauseHandle = pauseMenu(document.body, {
+      objectives: () => runtime?.objectiveList ?? [],
+      onResume: resume,
+      onRestart: () => {
+        void confirmDialog(document.body, {
+          title: 'Restart the mission?',
+          body: 'This attempt is lost.',
+          confirm: 'Restart',
+          danger: true,
+        }).then((ok) => {
+          if (ok) req.restart();
+        });
+      },
+      onQuit: () => {
+        void confirmDialog(document.body, {
+          title: 'Leave the mission?',
+          body: 'This attempt is lost. The campaign keeps everything from before it.',
+          confirm: 'Leave',
+          danger: true,
+        }).then((ok) => {
+          if (ok) req.navigate(routes.campaign());
+        });
+      },
+      settings: req.settings,
+      build: __APP_BUILD__,
+    });
+  };
+  const resume = (): void => {
+    if (!paused) return;
+    paused = false;
+    pauseHandle?.close();
+    pauseHandle = null;
+    hud.paintSpeed();
+  };
+  // A superseded battlefield's teardown must close its own pause modal --
+  // otherwise leaving a paused mission mid-fight would strand the modal (and
+  // its capture-phase keydown guard) on `document.body` under whatever screen
+  // the router mounts next.
+  onDispose(() => pauseHandle?.close());
   // The minimap (GH-153). Mounted here rather than inside the Hud because it
   // needs three things the Hud deliberately does not carry -- the parsed map,
   // the renderer, and this map's terrain tones -- and threading all three
@@ -2611,7 +2689,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         hud.note(audioMuted ? 'audio muted' : 'audio on', 'mute');
         break;
       case 'pause':
-        // Task 6 fills this in -- the pause menu is not built yet.
+        // In practice this only ever opens: the pause modal's own bubble-phase
+        // Escape handler (`ui/pause.ts`) is what actually resumes, and both
+        // `pause`/`resume` are idempotent, so whichever of the two fires first
+        // on a given Escape is harmless.
+        if (paused) resume();
+        else pause();
         break;
       case 'panUp':
       case 'panDown':
@@ -3277,8 +3360,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // prevX + (curX - prevX) * alpha reduces to curX regardless.
   renderer.frame(1, lastFrameMs);
 
-  let last = performance.now();
-  let acc = 0;
+  // Task 6: the accumulator is `shell/clock.ts`'s pure `Clock`, so "paused"
+  // (fed in below) is unit-tested without a browser. `paused` is READ here,
+  // never written -- `pause`/`resume` above are the only writers.
+  const clock: Clock = { acc: 0, last: performance.now() };
   // The app owns the frame loop, not the renderer.
   //
   // Pixi's ticker is backend-specific, and a renderer that schedules the
@@ -3292,19 +3377,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let rafId = 0;
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
-    const now = performance.now();
-    lastFrameMs = now - last;
     // The speed control feeds the ACCUMULATOR, never the tick. A tick is 50 ms
     // of sim time at every setting (invariant 1); 2x runs two of them where one
     // would have run, and 0 runs none while the frame still draws, so the
-    // camera and the selection stay live in a pause.
-    acc += lastFrameMs * gameSpeed;
-    last = now;
-    if (acc > 250) acc = 250; // don't spiral after a background tab
-    while (acc >= MS_PER_TICK) {
-      runTick();
-      acc -= MS_PER_TICK;
-    }
+    // camera and the selection stay live in a pause. `paused` stops the
+    // accumulator itself (Task 6) -- `__lions.step` bypasses this whole loop
+    // and calls `runTick` directly, so it still advances the sim while paused,
+    // which the tools depend on.
+    const { ticks, frameMs } = advanceClock(clock, performance.now(), gameSpeed, paused, MS_PER_TICK);
+    lastFrameMs = frameMs;
+    for (let i = 0; i < ticks; i++) runTick();
     // Read live off the settings store, not snapshotted at boot: `set()`
     // reaches every open battlefield the moment the player changes it,
     // pause menu included (Task 6) -- `get()` is a plain getter, so this
@@ -3333,7 +3415,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer.camera.x += panSpeed;
       renderer.camera.y -= panSpeed;
     }
-    renderer.frame(acc / MS_PER_TICK, lastFrameMs);
+    renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs);
 
     updateHover();
   };
