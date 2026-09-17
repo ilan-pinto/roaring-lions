@@ -243,6 +243,7 @@
   --dur-fast: 120ms;
   --dur: 160ms;
   --dur-slow: 250ms;
+  --dur-route: 200ms;
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
@@ -1960,6 +1961,14 @@ body {
   padding: var(--s6);
   white-space: pre-wrap;
 }
+
+/* Route transitions (shell/router.ts): the stage fades out under the old
+   screen and in under the new. The blanket reduced-motion rule collapses both
+   durations to 1ms, which is the whole of "honouring prefers-reduced-motion". */
+#stage { transition: opacity var(--dur-route) var(--ease); }
+#stage.rl-stage--leave { opacity: 0; }
+#stage.rl-stage--enter { animation: rl-route-in var(--dur-route) var(--ease); }
+@keyframes rl-route-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* ====================================================================== */
 /* Menu                                                                   */
