@@ -11,11 +11,18 @@
 // renderer itself reads; reading the same one is what keeps this from going
 // stale the way a hand-kept map would.
 //
-// GH-153 lists "dedicated unit portrait icons" as its own open ticket, and this
-// is honest about being the stand-in: idle sprites face one direction and read
-// poorly at 40px. `unitIcon` below is the ticket's actual answer -- a cropped,
-// resampled icon per sheet -- with this frame picker kept as its fallback for
-// any sheet the icon pipeline has not (yet) produced one for.
+// GH-153 asked for "dedicated unit portrait icons". `unitIcon` below is that
+// ticket's build-time answer: `pnpm icons:units` (`tools/crop_unit_icons.py`)
+// crops each sheet's own `portraitFile` frame to the unit's alpha extent --
+// compositing a paired turret sheet at rest first -- and writes the result to
+// `assets/ui/icons/units/<SHEET>.png`, gated by `tools/src/unit_icons.test.ts`
+// in `pnpm test` and by CI's `crop_unit_icons.py --check`. This frame picker
+// is now the FALLBACK: `portraitFile`/`portraitUrl` below hand back a raw
+// sheet frame only for a sheet the crop pipeline has not (yet) produced an
+// icon for. GH-153's dedicated Blender-rendered portraits are the later step
+// that replaces the PNGs under `assets/ui/icons/units/` with hand-composed art
+// -- `unitIcon`'s contract (`UnitIcon { url, size, extent }`) does not change
+// when that lands, only what `pnpm icons:units` writes into it.
 
 import manifest from '../../../../assets/ui/icons/units/manifest.json';
 

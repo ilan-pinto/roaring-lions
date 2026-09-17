@@ -1007,7 +1007,12 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   `SPRITE_MAP` is what queues a sheet for loading, and a unit type absent from
   it never loads anything. Three complete, gate-passing sheets shipped and drew
   NOTHING because of this. No gate catches it. Check `SPRITE_MAP` when adding a
-  unit.
+  unit. A unit's UI picture -- the HUD chip and card, the reinforcements dock
+  tile, the brigade row -- is a separate asset again: `assets/ui/icons/units/
+  <SHEET>.png`, cropped from the sheet's own portrait frame (turret composited
+  in) by `pnpm icons:units`. A re-rendered sheet needs a re-crop, and
+  `tools/src/unit_icons.test.ts` plus CI's `crop_unit_icons.py --check` fail
+  loudly if it was forgotten.
 - **`render_team.py --probe` used to overwrite shipped sprites** with
   unquantized renders (~10% of pixels, file sizes doubling) -- the PNG half of
   the same defect `229aad5` fixed for manifests. Fixed: probe output goes to
