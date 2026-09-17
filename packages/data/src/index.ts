@@ -354,3 +354,82 @@ export function paletteColor(key: string): string {
   if (band in reserved) return reserved[band].colors[name] ?? '#FF00FF';
   return '#FF00FF';
 }
+
+// --- mission-text locale overlay --------------------------------------------
+//
+// A mission's `name`/`briefing`/objective `text`/trigger `label` are DATA
+// (CLAUDE.md's own line: "Data text stays data"), authored in `en` on every
+// file under `data/missions/`. A shipped translation of that text is a
+// separate, optional file — `data/locales/<lang>/missions.json`
+// (`data/locales/README.md` states the shape) — layered onto the `en`
+// mission at the point `@lions/app` resolves it, never edited into the
+// mission JSON itself: `en` stays the one source `mission-author` and
+// `narrative-designer` write against, and a translator's file can go stale
+// or missing without touching it.
+
+/**
+ * One locale's mission text, keyed by mission id. `objectives`/`triggers`
+ * are keyed by THEIR OWN ids — an objective or trigger with no id of its own
+ * cannot be named here, the same identity `tools/validate_narrative.mjs`'s
+ * `overlayFailures` (and `mission.ts`'s own trigger/objective lookups
+ * elsewhere) already key everything else off.
+ */
+export interface MissionLocaleOverlay {
+  [missionId: string]: {
+    name?: string;
+    briefing?: string;
+    objectives?: Record<string, string>;
+    triggers?: Record<string, string>;
+  };
+}
+
+/**
+ * A mission's JSON as far as this module needs to see it — not `@lions/sim`'s
+ * own `MissionJson` (this package is a leaf: it imports nothing from another
+ * `@lions` package, enforced by lint). `applyMissionLocale` below is generic
+ * over `T extends MissionJson`, the same shape `upgrades.ts`'s
+ * `applyUpgrades<T extends UpgradableUnit>` already uses and for the
+ * identical reason: a caller holding a real `@lions/sim` `MissionJson` gets
+ * one back, with no cast at its own call site, rather than this file's
+ * narrower structural type leaking out through the return value.
+ */
+export interface MissionJson {
+  id: string;
+  name?: string;
+  briefing?: string;
+  objectives: readonly { id: string; text?: string }[];
+  triggers?: readonly { id?: string; label?: string }[];
+}
+
+/**
+ * Overlays a locale's mission text onto a mission's own JSON, id-matched:
+ * `name`/`briefing` replace whole-string, `objectives`/`triggers` by their
+ * own ids. A field the overlay does not carry falls back to the mission's
+ * own `en` text, so a partial translation degrades to English per-field
+ * rather than per-mission.
+ *
+ * A missing mission id in the overlay, or a null overlay (`main.ts`'s own
+ * loader returns null for `en` and for a 404, rather than fetching a file
+ * that would just be the source text again), is a no-op that returns
+ * `mission` BY REFERENCE, unchanged — the common case (every mission, on
+ * `en`) costs nothing.
+ */
+export function applyMissionLocale<T extends MissionJson>(
+  mission: T,
+  overlay: MissionLocaleOverlay | null
+): T {
+  const o = overlay?.[mission.id];
+  if (!o) return mission;
+  const out: Record<string, unknown> = {
+    ...(mission as Record<string, unknown>),
+    name: o.name ?? mission.name,
+    briefing: o.briefing ?? mission.briefing,
+    objectives: mission.objectives.map((ob) =>
+      o.objectives?.[ob.id] !== undefined ? { ...ob, text: o.objectives[ob.id] } : ob
+    ),
+    triggers: mission.triggers?.map((tr) =>
+      tr.id !== undefined && o.triggers?.[tr.id] !== undefined ? { ...tr, label: o.triggers[tr.id] } : tr
+    ),
+  };
+  return out as T;
+}

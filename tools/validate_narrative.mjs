@@ -9,6 +9,12 @@
 // plus a world doc) and returns an array of failure strings, so a test can
 // call it directly against a bare fixture object.
 
+/** `triggerLabelFailures`'s own 48-character cap on a trigger `label`,
+ *  applied a second time below to an OVERLAY's label override — a
+ *  translated line is exactly as reachable in a 60px tile as the source one,
+ *  and nothing else checks its length. */
+const MAX_TRIGGER_LABEL = 48;
+
 const MAX_SAY_LENGTH = 240;
 /** `$defs/say`'s own `speaker` enum in mission.schema.json, copied here for
  *  the same reason MAX_SAY_LENGTH is: a direct, importable test rather than
@@ -225,5 +231,57 @@ export function commanderRankFailures(commander, world, label) {
     }
     lastIndex = idx;
   });
+  return out;
+}
+
+/**
+ * Cross-checks one mission-text locale overlay (`data/locales/<lang>/missions.json`,
+ * `@lions/data`'s `MissionLocaleOverlay` shape) against the real missions it
+ * overlays: every mission id it names, and every objective/trigger id under
+ * that mission, must exist, and a trigger label override may not overflow
+ * the 48-character cap the SOURCE label is already held to
+ * (`triggerLabelFailures` above). `applyMissionLocale`
+ * (`packages/data/src/index.ts`) silently no-ops an unknown id at runtime —
+ * a translator's typo would otherwise ship invisibly, doing nothing, forever.
+ *
+ * `missions` is a `Map` from mission id to its parsed JSON, the same shape
+ * `validate_data.mjs`'s own tutorial cross-check already builds — a plain
+ * object would work too, but a `Map` is what every other cross-check in this
+ * file's caller already has lying around by the time an overlay is checked.
+ */
+export function overlayFailures(file, overlay, missions) {
+  const out = [];
+  for (const [missionId, o] of Object.entries(overlay ?? {})) {
+    const mission = missions.get(missionId);
+    if (!mission) {
+      out.push(`${file}: overlay names mission "${missionId}", which is not a mission in data/missions`);
+      continue;
+    }
+    const objectiveIds = new Set((mission.objectives ?? []).map((ob) => ob.id));
+    for (const obId of Object.keys(o.objectives ?? {})) {
+      if (!objectiveIds.has(obId)) {
+        out.push(
+          `${file}: mission "${missionId}" overlay names objective "${obId}", which is not ` +
+            `an objective on that mission`
+        );
+      }
+    }
+    const triggerIds = new Set((mission.triggers ?? []).map((t) => t.id).filter((id) => id !== undefined));
+    for (const [trId, trLabel] of Object.entries(o.triggers ?? {})) {
+      if (!triggerIds.has(trId)) {
+        out.push(
+          `${file}: mission "${missionId}" overlay names trigger "${trId}", which is not ` +
+            `a trigger on that mission`
+        );
+        continue;
+      }
+      if (typeof trLabel === 'string' && trLabel.length > MAX_TRIGGER_LABEL) {
+        out.push(
+          `${file}: mission "${missionId}" trigger "${trId}" overlay label is ` +
+            `${trLabel.length} characters (max ${MAX_TRIGGER_LABEL})`
+        );
+      }
+    }
+  }
   return out;
 }

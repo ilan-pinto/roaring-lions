@@ -8,3 +8,4 @@ export function removeTriggerFailures(mission: object, label: string): string[];
 export function narrativeTextFailures(mission: object, label: string): string[];
 export function commanderRankFailures(commander: object, world: object, label: string): string[];
 export function triggerLabelFailures(mission: object, file: string): string[];
+export function overlayFailures(file: string, overlay: object, missions: Map<string, object>): string[];

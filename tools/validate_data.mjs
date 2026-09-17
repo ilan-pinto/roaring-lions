@@ -23,6 +23,7 @@ import { elevationFailures } from './validate_map_grid.mjs';
 import {
   commanderRankFailures,
   narrativeTextFailures,
+  overlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
 } from './validate_narrative.mjs';
@@ -941,6 +942,28 @@ const structureSymbols = new Map(
         failures.push(`${rel(file)}: step "${step.id}" focus.zone "${zone}" is not a zone on "${mission.map?.file}"`);
       }
     }
+  }
+}
+
+// --- mission-text locale overlays -------------------------------------------
+// data/locales/<lang>/missions.json (data/locales/README.md states the
+// shape; `en` is the source and never ships one of these) may only point at
+// mission, objective and trigger ids that are real, and a translated
+// trigger label may not overflow the same 48-character cap the source label
+// is held to above. None ship yet -- `overlayFailures`'s own test proves the
+// rule against a fixture rather than against nothing.
+{
+  const missionsById = new Map();
+  for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const mi = loadJson(file);
+    if (mi?.id) missionsById.set(mi.id, mi);
+  }
+  for (const file of jsonFilesIn(join(ROOT, 'data/locales'))) {
+    if (!file.endsWith('missions.json')) continue;
+    const overlay = loadJson(file);
+    if (!overlay) continue;
+    failures.push(...overlayFailures(rel(file), overlay, missionsById));
+    checked += 1;
   }
 }
 
