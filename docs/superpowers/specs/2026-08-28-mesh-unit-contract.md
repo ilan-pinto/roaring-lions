@@ -312,3 +312,18 @@ The runtime guarantees: `fall`/`fallAlt` are entered through the same
 crossfade as any clip (D1), never faded out mid-way, and followed by the
 wreck with no opacity fade (D4). The gate is `tools/src/mesh_gait.test.ts`,
 "mesh unit death -- the fall clips".
+
+## Figure roots (Ruling 11, 2026-09-17)
+
+A file with neither `fall`/`fallAlt` nor an already-down match dies by the
+runtime's generic topple (D5, `units/mesh-death.ts`'s `liveFigureRoots`),
+which pitches every currently-live FIGURE root 90 degrees about its own feet.
+**A figure root is a parentless bone at scale 1 that has at least one bone
+child; a prop, ground or exporter-synthesised mount (`neutral_bone`) has none
+and is never toppled.** This is structural, not by name, matching this
+document's own rule that the runtime never depends on bone names: `rig.py`'s
+`_prop_bone` (a deployed weapon/tripod/spoil-heap mount), `_digger_extras`'
+`ground` bone, and the Blender exporter's auto-inserted `neutral_bone` are
+every one of them parentless and at scale 1 in a living clip, but none of
+them has a bone riding on it, where every figure root the kit/Meshy
+convention builds does (a spine). A future rig whose figure root has no bone children of its own does not topple under this rule: `liveFigureRoots` simply never returns it, so its pose holds frozen (not pitched) for the same `TOPPLE_SECONDS` every topple already waits out, before the forced cut onward to its wreck (or the Pixi fade, with none) — a body that never visibly falls rather than one that falls wrong. So a new rig's root joint should carry at least one child bone even when the figure has no other moving parts to hang off it.

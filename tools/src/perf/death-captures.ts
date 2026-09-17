@@ -13,7 +13,13 @@
  * `--label=after`.
  *
  *   npx tsx tools/src/perf/death-captures.ts --label=before
- *   npx tsx tools/src/perf/death-captures.ts --label=after --only=inf_squad
+ *   npx tsx tools/src/perf/death-captures.ts --label=after --only=militia_cell:killed
+ *
+ * `--only` takes a subject id (`inf_squad`), or `id:mode` (`militia_cell:killed`)
+ * when more than one row shares an id -- I3/T1: `militia_cell` ships both a
+ * plain `death` row (`debugKill`, no killer) and the `killed` row below (a
+ * real enemy, exercising the killer-direction logic `debugKill` cannot), so
+ * `--only=militia_cell` alone is ambiguous between them.
  */
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
@@ -60,7 +66,17 @@ const SUBJECTS: readonly Subject[] = [
   // the whole column down, while x=20's row 20 is a `hall` building tile --
   // checked against data/maps/beit_sahwan_outskirts.json's own rows) so the
   // mbt_lavi's reach cannot touch any other subject on the parade row.
-  { id: 'inf_squad', x: 14, y: SUBJECT_Y + 16, bodies: 1, mode: 'killed' },
+  //
+  // I3/T11: this used to be `inf_squad`, which has an authored `fall` (D3) --
+  // a fall plays through the ordinary crossfade with no reference to the
+  // killer at all, so this cell never exercised the killer-direction logic
+  // (`toppleDirection`) it exists to show. `militia_cell` is a kit rig with
+  // no `fall`: it topples (D5), and a topple's direction is computed FROM
+  // the killer's position (`ThreeRenderer.killerX/killerY`, away from
+  // `debugKill`'s `null`), so this is the one cell in the sheet where the
+  // body's fall direction is actual evidence of that logic rather than a
+  // fixed animation.
+  { id: 'militia_cell', x: 14, y: SUBJECT_Y + 16, bodies: 1, mode: 'killed' },
   { id: 'atgm_cell', x: 41, bodies: 1, mode: 'walk' },
   { id: 'mortar_crew', x: 44, bodies: 1, mode: 'walk' },
   { id: 'digger_crew', x: 47, bodies: 1, mode: 'walk' },
@@ -98,8 +114,15 @@ if (label !== 'before' && label !== 'after') throw new Error('--label=before|aft
 const outRoot = arg('out', path.join(process.cwd(), '.superpowers', 'art-captures', 'infantry-anim'));
 const out = path.join(outRoot, label);
 const only = arg('only', '');
-const wanted = only ? SUBJECTS.filter((s) => s.id === only) : SUBJECTS;
-if (wanted.length === 0) throw new Error(`--only=${only} names no subject`);
+// T1: `--only=<id>` alone is ambiguous whenever more than one row shares an
+// id (`militia_cell` now ships both a `death` and a `killed` row) --
+// `--only=<id>:<mode>` disambiguates. The split is on the FIRST colon only,
+// since a subject id itself never contains one.
+const onlySepIndex = only.indexOf(':');
+const onlyId = onlySepIndex === -1 ? only : only.slice(0, onlySepIndex);
+const onlyMode = onlySepIndex === -1 ? undefined : only.slice(onlySepIndex + 1);
+const wanted = only ? SUBJECTS.filter((s) => s.id === onlyId && (onlyMode === undefined || s.mode === onlyMode)) : SUBJECTS;
+if (only && wanted.length === 0) throw new Error(`--only=${only} names no subject`);
 fs.mkdirSync(out, { recursive: true });
 
 interface Cell {

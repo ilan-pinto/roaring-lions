@@ -119,9 +119,13 @@ signature map is carried onto the entity (`ClipPlayer.clipScale`).
 signatures differ or either is `"animated"`, and crossfades otherwise. So:
 kit rig `idle` ↔ `move` (both `root=1, death_root=0`) blends; kit `idle` →
 `down` cuts; sniper `idle` → `move` cuts (as today); vehicle `idle` → `wreck`
-cuts; Meshy `idle` ↔ `move` ↔ `fire` ↔ `down` all blend, since those files
-carry no scale track at all. The scale-swap rigs therefore keep their exact
-current death behaviour from this decision alone; what improves them is 3.3.
+cuts; Meshy `idle` ↔ `move` ↔ `fire` ↔ `down` all blend, since every clip in
+those files keys the same constant scale on every joint, so their signatures
+are equal (M2, 2026-09-17: corrected from "carry no scale track at all" —
+false, every Meshy clip carries constant scale channels on all 72 joints; the
+outcome, equal signatures ⇒ blend, is unchanged). The scale-swap rigs
+therefore keep their exact current death behaviour from this decision alone;
+what improves them is 3.3.
 
 ### 3.2 The supplied falls: `fall` and `fallAlt` (D3, D4)
 
@@ -206,11 +210,24 @@ fade/wreck"), and it is called out in the review request.
 ### 3.3 The generic topple for everything else (D5)
 
 Every rigged GLB without a `fall` — the sixteen kit rigs, the four
-civilians, `moto_rpg`, and the two Meshy files that swap bone trees by scale
-(`sniper_team.glb`, `meshy_mortar_team.glb`) — dies by falling over.
+civilians, `moto_rpg`, and `sniper_team.glb` — dies by falling over.
 `beginMeshDeath` on such a template enters a `'toppling'` phase instead of
 playing `down`, unless the living clip already shows the corpse geometry (see
-"already down" below):
+"already down" below) — which, of the files just named, only `sniper_team.glb`
+does (a prone rig whose `idle`/`fire` already are its corpse rig).
+
+**Correction (2026-09-17, I2):** the previous version of this list named
+`meshy_mortar_team.glb` alongside the sniper as "the two Meshy files that
+swap bone trees by scale", implying both are examples of the generic topple
+this section describes. Neither is, and for `meshy_mortar_team.glb` the
+reason is not the sniper's: it genuinely DOES swap bone trees by scale, but
+only between `idle`/`fire` and `move` (the kneeling vs. standing crew figure,
+3.4's own mechanism) — never for death, since its `idle`, `fire`, `down` and
+`wreck` all key one shared scale signature already. That equality is exactly
+the "already down" proxy below, so `meshy_mortar_team.glb` takes THAT branch
+for death, not this one — see the corrected §7 risk bullet and
+`mesh-team-death-shipped.test.ts`'s "which death path each shipped rig
+takes" for the shipped-bytes gate that pins it.
 
 - **The pose freezes.** The mixer is not advanced during the topple, so the
   figure falls in the pose it died in — a running man topples mid-stride
@@ -441,13 +458,26 @@ last:
 - **Summed weight < 1 for a frame** is the one visible failure mode of
   crossfading and it is a T-pose flash. Gate 1 pins the sum; the ramp is
   owned, not delegated to `fadeIn`.
-- **"Already down" is a proxy.** Equal scale signatures between the living
-  clip and `wreck` stand in for "the figure is already lying down". It is
-  exact for every shipped file (the sniper is the only rig whose living pose
-  is its corpse rig), but a future file that keys no scale at all and ships a
-  static lying `wreck` with no `fall` would blend to it over 150 ms instead
-  of toppling — a poor man's fall rather than a wrong one. Gate 3's
-  which-files assertion is where such a file would be noticed.
+- **"Already down" is a proxy, and it is not exact for every shipped file the
+  way this bullet used to claim.** Equal scale signatures between the living
+  clip and `wreck` stand in for "the figure is already lying down", and the
+  sniper (whose living pose genuinely is its corpse rig) is the file this was
+  measured against. But `meshy_mortar_team.glb` matches the SAME proxy for a
+  different reason: its `idle`, `fire`, `down` and `wreck` are all poses in
+  one bone tree keying identical scale signatures (`f0_root=1,
+  f0_st_root=0, prop=1`), so a mortar team killed while idle or firing takes
+  this branch too, even though nothing about its living pose is prone.
+  Ruling 12 (2026-09-17) accepts this as `meshy_mortar_team`'s death: a
+  150 ms blend from the living kneeling pose into the authored corpse pose
+  is a reasonable death (D2's own blend-or-cut choice for the hand-off; a
+  mortar team's kneel-to-prone slump), not a bug to tighten the predicate
+  against. `mesh-team-death-shipped.test.ts`'s "which death path each
+  shipped rig takes" is the shipped-bytes gate that pins BOTH files onto
+  `settling` and would notice a future file landing here unexpectedly, the
+  same job this bullet used to assign to gate 3's which-files assertion
+  alone. A future file that keys no scale at all and ships a static lying
+  `wreck` with no `fall` would still blend to it over 150 ms instead of
+  toppling — a poor man's fall rather than a wrong one.
 - **The per-figure pivot depends on bone parentage, not bone names.** Every
   shipped rig puts its live roots at the top of the bone tree (kit, sniper,
   mortar team, motorcycle, Meshy bipeds, civilians — checked in the
