@@ -67,7 +67,7 @@ import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
-import { buyUnlock, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
+import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
@@ -598,7 +598,14 @@ async function main(): Promise<void> {
       // deliberately off the map, so it is never in this sum at all).
       const kdfUnits = Object.values(units)
         .filter((u) => u.faction === 'kdf')
-        .map((u) => ({ id: u.id, name: u.name, role: u.role, unlock: kdfUnlockGate(u, boughtUnits), ...kdfBrigadeTraits(u) }));
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          unlock: kdfUnlockGate(u, boughtUnits),
+          ...kdfBrigadeTraits(u),
+          upgrades: 'upgrades' in u ? u.upgrades : undefined,
+        }));
       const portraits: Record<string, string> = {};
       await Promise.all(
         kdfUnits.map(async ({ id }) => {
@@ -622,6 +629,15 @@ async function main(): Promise<void> {
         onBuy: storage
           ? (unitId, price) => {
               const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
+              if (!ok) return;
+              saveAccount(storage, account);
+              window.location.reload();
+            }
+          : undefined,
+        owned: ownedTiers,
+        onBuyUpgrade: storage
+          ? (unitId, track, tier, price) => {
+              const { account, ok } = buyUpgrade(loadAccount(storage), unitId, track, tier, price);
               if (!ok) return;
               saveAccount(storage, account);
               window.location.reload();

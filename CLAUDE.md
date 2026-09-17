@@ -261,7 +261,11 @@ The combat model is the product. Everything else is scaffolding around it.
   pins the optimal ladder's total (`LADDER_CREDITS`) beside the star gates. The tutorial
   pays nothing: it produces no ledger keys, so `main.ts` gates the payout on
   `mission.ledger.produces` rather than a name list. Buying an unlock deducts and records
-  `unlocks`; it writes no grant.
+  `unlocks`; it writes no grant. A KDF unit's `upgrades` tracks (spec §4.3) are applied by
+  `@lions/data`'s `applyUpgrades` before `addUnitType` — in the app, the playtest harness and
+  the balance backtest alike — so the sim never learns a tier exists. `pnpm playtest` replays
+  every plain victory at max tier and requires the outcome class to hold; `pnpm balance` and
+  `validate_balance.py --max-tier` run the §5.7 targets and the cost curve at max tier too.
 - Two ROE facts a visual check needs: **three maps carry `m` civic-hall tiles (`hall`, the O10 replacement; the type was `mosque` until 2026-09-06) — `beit_sahwan_outskirts` (9),
   `marj_perimeter` (4) and `wadi_halam_basin` (9), counted 2026-09-03 from the
   map rows; this line said "only `wadi_halam_basin`" until then** — so the

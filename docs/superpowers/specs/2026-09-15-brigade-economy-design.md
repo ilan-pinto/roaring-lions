@@ -145,7 +145,8 @@ closed and lives in `unit.schema.json`: `hull.hp`, `hull.armor.front|side|rear`,
 speed, not rate of fire, not collateral risk — because the §5.7 targets and the ROE
 thresholds were fitted to those.
 
-`applyUpgrades(unit, tiers)` is a pure pre-pass in `packages/app/src/upgrades.ts`: given a
+`applyUpgrades(unit, tiers)` is a pure pre-pass in `packages/data/src/upgrades.ts` (exported
+from `@lions/data`) so the harness and the backtest import the same function: given a
 unit's JSON and the account's tier per track, it returns a new JSON with the deltas applied,
 never mutating its input. The app calls it for every KDF type **before** `addUnitType`, the
 way `resolveUpgrades` rewrites a mission before the runtime exists. The playtest harness and
@@ -250,4 +251,4 @@ Three steps, each its own plan and its own branch, in the order the motivation l
    prices in docs/campaign/economy/prices.md.
 3. **Upgrade** — the `upgrades` schema and whitelist; `applyUpgrades`; the balance passes;
    the tracks and prices for the seventeen types; the tier pips; the maximum-tier harness
-   run.
+   run — landed 2026-09-17, tracks in docs/campaign/economy/upgrades.md.
