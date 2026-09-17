@@ -290,3 +290,74 @@ distance fade (Phase 0, decided by the capture); which sim events the alert laye
 ## Deviations
 
 (Recorded by the executing sessions as `D-n`, with the measurement that justified each.)
+
+**D-1 — the fog pass carries the off-map fade, not just the vignette and the skirt (Task 9).**
+§6's Phase 0 architecture lists a sun-keyed distance fade in the fog pass's shader as optional,
+landing only if the vignette and the skirt photograph short. They did not photograph short, but
+`terrain/skirt.ts`'s ground beyond the map exposed a defect neither of them touches: the shroud
+texture is `ClampToEdgeWrapping`, so a single visible tile on the map's own border floods a
+whole quadrant of the skirt with that tile's value — measured on `beit_sahwan_1_recon` at
+1920×1080, zoom 0.5, a wedge reading (175, 171, 160) sRGB against the (55, 52, 45) of the
+shrouded skirt beside it. `fog-pass.ts` gained `FOG_OFFMAP_FADE_TILES`, a one-tile fade from the
+border's own shroud value to never-seen, accepted inside Task 9 as a shader change the task did
+not originally plan. On-map pixels are unaffected by construction — the fade only multiplies a
+term that is exactly 0 inside the map bounds.
+
+**D-2 — the golden-diff `open-ground` scenario's crop stays where it is (Task 9).** The plan
+told the implementer to move the crop if the vignette's own delta there cleared a 0.02 floor; it
+cleared it 200× over. The crop was kept anyway, against that instruction, because the
+CANDIDATE crop (following the vignette's own visible falloff) holds animating infantry: the
+`units` debug-layer toggle measured 229 px of noise there against a literal 0 px in the crop
+that shipped, plus a 1–4% signal cost to the other three layer checks framed against it. A
+measurement overruling an instruction, recorded with the numbers rather than silently followed.
+
+**D-3 — the key-art plate's off-map wedge: accepted as the floor, then closed by the final
+review's C2.** Task 10 spent three follow-up rounds (~300k cumulative tokens) chasing the plate's
+own dark diagonal — first read as a shadow, found to be the fog-of-war boundary, closed by
+`setDebugLayerVisible('fog', false)`, which at the time meant disabling the whole `FogOfWarPass`.
+That left a second defect: a pale, texture-poor wedge top-left where the off-map fade (D-1) used
+to run, accepted as Phase 0's floor pending Phase 3's composed key art. The final whole-branch
+review's C2 finding was that hiding the fog pass to remove ONE diagonal had reinstated the other,
+and ruled it back into scope rather than deferred: `FogOfWarPass` gained a `uRevealAll` uniform
+that forces every ON-map sample to read as fully seen while leaving the pass — and D-1's fade —
+running, so `setDebugLayerVisible('fog', false)` no longer disables anything. Regenerated
+`assets/ui/menu_plate.jpg` and sampled it: the same top-left region now reads ~(55, 52, 45), the
+shrouded skirt tone from D-1, in place of the pale wedge, with a smooth gradient at the map edge.
+
+**D-4 — a sandbox flag's URL spelling stays on the checkbox's `title` (Task 2).**
+`sandbox-help.ts`'s table and `menu.ts`'s picker are §6 Phase 0's "no URL flag ... reaches the
+DOM" for the Free play screen's visible text, but `menu.ts`'s checkbox for each flag also sets
+`label.title` to the literal `&<flag>` string — the flag's own URL spelling, on a hover-only
+tooltip, not in the rendered label. Kept deliberately: the sandbox picker is a tool for people
+already reading and typing sandbox URLs, and the tooltip is the one place that spelling is
+useful rather than decorative. This reads narrower than the constraint's absolute wording and is
+recorded here for that reason; no test pins it yet (`progress.md`'s T2-a).
+
+**D-5 — `.rl-sel` is a never-hidden bottom stack, not a conditionally-hidden one (Task 5).**
+The brief's mechanism hid `.rl-sel` (feed, order row, cluster, hint) whenever nothing was
+selected, which is most of a mission — the review that caught it found the feed vanished outside
+combat entirely. Replaced in fix round 1: `.rl-sel` never hides; `renderCard` hides only the
+order row and the cluster; the hint moved into the stack as its own last child, so it and the
+feed both survive an empty selection.
+
+**D-6 — the campaign screen's nav is a footer grid row, not a `position: sticky` overlay
+(Task 7).** The brief's sticky nav pinned over the bottom edge of the region-card row from
+scroll position zero — a real footer only when nothing else occupies that band, and here the
+region cards did, permanently covering the middle card's portrait and flavour text on every
+capture. Replaced: `.rl-menu:has(.rl-world)` is a two-row grid instead, `minmax(0, 1fr)` for the
+scrolling board wrap and `auto` for the footer nav, so the nav can never sit under or over
+anything — it is a document-flow row, not a positioned overlay. Overlap measured zero at all
+three resolutions after the change (a later, narrower regression — the cards clipping against
+that same footer row rather than being covered by it — is the final review's I3, fixed in the
+merge-and-fix-wave that produced this section).
+
+**D-7 — `gateSentence` carries the brigade-economy merge's price rank.** `origin/main`'s
+brigade-economy work ("Buy", `666c852`→`47cb7c6`) landed mid-branch, adding `price`/`bought` and
+`isBoughtOnly` to the unlock gate shape that `gateSentence` (§6 Phase 0's "one human sentence
+from a single helper") already read. The merge to `216a451` gave `gateSentence` the same price
+rank rather than letting the app-side sentence and the sim-side gate diverge. Per the peer
+session's own spec (`docs/superpowers/specs/2026-09-15-brigade-economy-design.md` §4.4, worded
+"requires N stars …, or buy for N credits"), the sentence `gateSentence` renders drops the
+"or buy" clause: the app already puts the price on the Buy button itself, so the binding sentence
+is the earned gate alone and the button carries the price — restated in text it would only
+duplicate the button. §4.4's own wording was updated in the final fix wave to match what ships.
