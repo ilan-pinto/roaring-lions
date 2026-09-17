@@ -231,7 +231,7 @@ OUT_PATH = os.path.join(REPO, "art", "meshes", "sarim_rifles.glb")
 #: `docs/superpowers/specs/2026-08-28-mesh-unit-contract.md`'s v1 "Clips"
 #: section, extended the same way `work` was: a new `ClipName` member,
 #: proposed and documented rather than improvised outside the contract.
-CLIP_ORDER = ("idle", "move", "fire", "moveFire", "down", "wreck", "wreckAlt")
+CLIP_ORDER = ("idle", "move", "fire", "moveFire", "down", "wreck", "wreckAlt", "fall", "fallAlt")
 
 #: The clips that actually loop at runtime. Identical shape to
 #: `import_meshy_soldier.py`'s own `CYCLIC_CLIPS` -- see that file's
@@ -280,6 +280,20 @@ FALL_SOURCE = "Meshy_AI_irregular_fighter_rig_biped_Animation_Shot_and_Slow_Fall
 #: of gait. Picked per living ENTITY, not per figure within a squad -- see
 #: `packages/render/src/three/units/mesh-anim.ts`'s `pickDeathClip`.
 FALL_SOURCE_ALT = "Meshy_AI_irregular_fighter_rig_biped_Animation_Shot_and_Fall_Forward_withSkin.glb"
+
+#: Design D3 (`2026-09-17-infantry-animation-design.md`): the supplied fall is
+#: bound WHOLE as `fall`, one-shot, with its horizontal root motion held
+#: (`hold_hips_horizontal`), and `wreck` is that held clip's own last frame
+#: -- so the runtime's switch from the finished fall to the persistent wreck
+#: moves nothing. `FALL_SOURCE`/`FALL_SOURCE_ALT` are therefore read by two
+#: builders now.
+FALL_STAGGER_S = 0.1
+#: Clips whose figures start `FALL_STAGGER_S` apart (holding their first
+#: frame) so a squad does not drop as three clones. Non-cyclic by nature.
+STAGGERED_CLIPS = frozenset({"fall", "fallAlt"})
+#: Metres the Hips may drift horizontally across a fall after the hold --
+#: the runtime gate (`tools/src/mesh_gait.test.ts`) uses the same 0.05.
+FALL_HORIZONTAL_CEILING_M = 0.05
 
 #: Same semantics table `import_meshy_soldier.py` already built and proved.
 #: See that file's own `CLIP_SEMANTICS` docstring for the two prior
@@ -431,6 +445,29 @@ CLIP_SEMANTICS = {
         ),
         "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
         # Exempt for exactly `wreck`'s two reasons; see that entry.
+        "heading": None,
+        "weapon": None,
+    },
+    "fall": {
+        "means": (
+            "the supplied death fall, played ONCE by mesh-death.ts from standing to prone; "
+            "Hips DROP by design (no vertical ceiling) but may not travel horizontally."
+        ),
+        "ceiling": lambda idle_travel: None,
+        "horizontal_m": FALL_HORIZONTAL_CEILING_M,
+        # A falling body turns; neither bearing is a thing to gate.
+        "heading": None,
+        "weapon": None,
+    },
+    "fallAlt": {
+        "means": (
+            "the SECOND supplied fall, the forward one, paired with wreckAlt; played ONCE by "
+            "mesh-death.ts from standing to prone; Hips DROP by design (no vertical ceiling) "
+            "but may not travel horizontally."
+        ),
+        "ceiling": lambda idle_travel: None,
+        "horizontal_m": FALL_HORIZONTAL_CEILING_M,
+        # A falling body turns; neither bearing is a thing to gate.
         "heading": None,
         "weapon": None,
     },
@@ -717,39 +754,6 @@ def fix_forward(arm_obj):
     bpy.context.view_layer.objects.active = arm_obj
     arm_obj.rotation_euler = (0.0, 0.0, math.radians(_FIX_FORWARD_DEG))
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
-
-
-def build_wreck_src(scratch_arm, fall_action):
-    """Identical to `import_meshy_soldier.py`'s own `build_wreck_src`: a
-    static two-frame hold of `fall_action`'s own last frame. `fall_action`
-    here is `Shot_and_Slow_Fall_Backward`'s imported action -- see the module
-    docstring for why that file, not `Shot_and_Fall_Forward`, was chosen."""
-    scratch_arm.animation_data.action = fall_action
-    f0, f1 = fall_action.frame_range
-    bpy.context.scene.frame_set(int(f1), subframe=f1 - int(f1))
-    bpy.context.view_layer.update()
-
-    snapshot = {}
-    for pb in scratch_arm.pose.bones:
-        snapshot[pb.name] = (
-            tuple(pb.rotation_quaternion),
-            tuple(pb.location),
-            tuple(pb.scale),
-        )
-
-    wreck = bpy.data.actions.new("wreck_src")
-    wreck.use_fake_user = True
-    scratch_arm.animation_data.action = wreck
-    for pb in scratch_arm.pose.bones:
-        q, loc, sc = snapshot[pb.name]
-        pb.rotation_quaternion = q
-        pb.location = loc
-        pb.scale = sc
-        for frame in (0, 1):
-            pb.keyframe_insert(data_path="rotation_quaternion", frame=frame)
-            pb.keyframe_insert(data_path="location", frame=frame)
-            pb.keyframe_insert(data_path="scale", frame=frame)
-    return wreck
 
 
 #: Copied verbatim from `import_meshy_soldier.py` -- same bone names, same
@@ -1157,10 +1161,10 @@ def sample_clip(scratch_arm, src_action):
 GAIT_PHASE_FRACTIONS = (0.0, 1.0 / 3.0, 2.0 / 3.0)
 
 
-def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False):
+def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False, stagger=0):
     """Identical to `import_meshy_soldier.py`'s own `write_combined_clip`,
-    `cyclic` included -- see that function's docstring for what it does and
-    why."""
+    `cyclic` and `stagger` included -- see that function's docstring for what
+    it does and why."""
     combined = bpy.data.actions.new(clip_name)
     combined.use_fake_user = True
     if merged_arm.animation_data is None:
@@ -1169,13 +1173,15 @@ def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False):
     merged_arm.animation_data.action_slot = None
 
     n = len(frames)
-    for step in range(n):
+    total = n + stagger * (len(figures) - 1)
+    for step in range(total):
         for i, (prefix, _dx, _dy) in enumerate(figures):
             if cyclic:
                 shift = round(n * GAIT_PHASE_FRACTIONS[i % len(GAIT_PHASE_FRACTIONS)])
                 sampled = frames[(step + shift) % n]
             else:
-                sampled = frames[step]
+                # `stagger` frames per figure, first frame held until its turn.
+                sampled = frames[min(n - 1, max(0, step - stagger * i))]
             for name, (q, loc, sc) in sampled.items():
                 pb = merged_arm.pose.bones[f"{prefix}_{name}"]
                 pb.rotation_quaternion = q
@@ -1310,6 +1316,69 @@ def _hips_world_z_travel(frames, hips_rest, arm_world):
     return (max(zs) - min(zs)) * 100.0
 
 
+def _hips_armature_translation(pose, hips_rest):
+    """Identical to `import_meshy_soldier.py`'s own `_hips_armature_translation`."""
+    from mathutils import Matrix, Quaternion, Vector  # noqa: PLC0415
+
+    q, loc, sc = pose["Hips"]
+    return (hips_rest @ Matrix.LocRotScale(Vector(loc), Quaternion(q), Vector(sc))).translation
+
+
+def hold_hips_horizontal(frames, hips_rest, anchor_pose):
+    """Identical to `import_meshy_soldier.py`'s own `hold_hips_horizontal`: a
+    copy of `frames` with every frame's Hips armature-space x/y replaced by
+    `anchor_pose`'s own, z (height) kept -- `import_meshy_yahalom.py`'s
+    `build_wreck_src` re-centring, applied to EVERY frame of a fall rather
+    than only its last. Hips is a root bone, so its own (quat, loc, scale)
+    alone determines its pose matrix and the inverse is exact."""
+    from mathutils import Vector  # noqa: PLC0415
+
+    rot3 = hips_rest.to_3x3()
+    inv = rot3.inverted()
+    t_live = _hips_armature_translation(anchor_pose, hips_rest)
+    out = []
+    for pose in frames:
+        t = _hips_armature_translation(pose, hips_rest)
+        target = Vector((t_live.x, t_live.y, t.z))
+        q, _loc, sc = pose["Hips"]
+        held = dict(pose)
+        held["Hips"] = (q, tuple(inv @ (target - hips_rest.translation)), sc)
+        out.append(held)
+    return out
+
+
+def _hips_horizontal_travel_m(frames, hips_rest, arm_world):
+    """Identical to `import_meshy_soldier.py`'s own `_hips_horizontal_travel_m`."""
+    from mathutils import Matrix, Quaternion, Vector  # noqa: PLC0415
+
+    pts = []
+    for f in frames:
+        q, loc, sc = f["Hips"]
+        world = arm_world @ (hips_rest @ Matrix.LocRotScale(Vector(loc), Quaternion(q), Vector(sc)))
+        pts.append((world.translation.x, world.translation.y))
+    x0, y0 = pts[0]
+    return max(math.hypot(x - x0, y - y0) for x, y in pts)
+
+
+def write_pose_action(arm, name, frames):
+    """Identical to `import_meshy_soldier.py`'s own `write_pose_action` --
+    `import_meshy_yahalom.py`'s `_write_pose_action`, copied verbatim."""
+    action = bpy.data.actions.new(name)
+    action.use_fake_user = True
+    arm.animation_data.action = action
+    arm.animation_data.action_slot = None
+    for i, pose in enumerate(frames):
+        for pb in arm.pose.bones:
+            q, loc, sc = pose[pb.name]
+            pb.rotation_quaternion = q
+            pb.location = loc
+            pb.scale = sc
+            pb.keyframe_insert(data_path="rotation_quaternion", frame=i)
+            pb.keyframe_insert(data_path="location", frame=i)
+            pb.keyframe_insert(data_path="scale", frame=i)
+    return action
+
+
 def check_clip_semantics(frames_by_clip, hips_rest, arm_world, bearings_by_clip):
     """Identical to `import_meshy_soldier.py`'s own `check_clip_semantics`:
     enforces `CLIP_SEMANTICS`' numeric halves at BUILD time, before any of the
@@ -1364,6 +1433,15 @@ def check_clip_semantics(frames_by_clip, hips_rest, arm_world, bearings_by_clip)
                 f"{name}: Hips travel {travel[name]:.3f} exceeds {ceiling:.3f} -- "
                 f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
             )
+        horizontal_ceiling = CLIP_SEMANTICS[name].get("horizontal_m")
+        if horizontal_ceiling is not None:
+            drift = _hips_horizontal_travel_m(frames_by_clip[name], hips_rest, arm_world)
+            print(f"  {name}: Hips horizontal drift {drift:.4f} m (ceiling {horizontal_ceiling})")
+            if drift > horizontal_ceiling:
+                raise RuntimeError(
+                    f"{name}: Hips drift {drift:.3f} m exceeds {horizontal_ceiling} m -- "
+                    "the horizontal hold is not holding"
+                )
         for kind, label in (("heading", "face"), ("weapon", "weapon")):
             bound = CLIP_SEMANTICS[name][kind]
             mean, lo, hi = stats[name][kind]
@@ -1598,10 +1676,15 @@ def main():
     move_fire_src = build_move_fire_src(scratch_arm, move_src, firing_pose_src)
     down_src = build_down_src(scratch_arm, idle_src)
 
-    # --- 5. derive wreck/wreckAlt from each imported fall clip's own last
-    # frame ------------------------------------------------------------------
-    wreck_src = build_wreck_src(scratch_arm, fall_src)
-    wreck_alt_src = build_wreck_src(scratch_arm, fall_alt_src)
+    # --- 5. bind both supplied falls whole, horizontal root motion held, and
+    # derive wreck/wreckAlt as each held clip's own last frame ---------------
+    idle_frames = sample_clip(scratch_arm, idle_src)
+    fall_frames = hold_hips_horizontal(sample_clip(scratch_arm, fall_src), hips_rest, idle_frames[0])
+    fall_alt_frames = hold_hips_horizontal(sample_clip(scratch_arm, fall_alt_src), hips_rest, idle_frames[0])
+    fall_held_src = write_pose_action(scratch_arm, "fall_held_src", fall_frames)
+    fall_alt_held_src = write_pose_action(scratch_arm, "fall_alt_held_src", fall_alt_frames)
+    wreck_src = write_pose_action(scratch_arm, "wreck_src", [fall_frames[-1], fall_frames[-1]])
+    wreck_alt_src = write_pose_action(scratch_arm, "wreck_alt_src", [fall_alt_frames[-1], fall_alt_frames[-1]])
 
     # --- 6. sample all seven clips into plain Python data, off the scratch
     # rig, BEFORE any duplication happens.
@@ -1613,6 +1696,8 @@ def main():
         "down": down_src,
         "wreck": wreck_src,
         "wreckAlt": wreck_alt_src,
+        "fall": fall_held_src,
+        "fallAlt": fall_alt_held_src,
     }
     frames_by_clip = {
         clip_name: sample_clip(scratch_arm, src_by_clip[clip_name]) for clip_name in CLIP_ORDER
@@ -1632,6 +1717,7 @@ def main():
     for action in (
         move_src, idle_src, move_fire_src, fire_src, down_src,
         wreck_src, wreck_alt_src, fall_src, fall_alt_src, firing_pose_src,
+        fall_held_src, fall_alt_held_src,
     ):
         action.use_fake_user = False
         bpy.data.actions.remove(action)
@@ -1714,6 +1800,7 @@ def main():
         combined = write_combined_clip(
             merged_arm, figures, clip_name, frames_by_clip[clip_name],
             cyclic=clip_name in CYCLIC_CLIPS,
+            stagger=round(FALL_STAGGER_S * bpy.context.scene.render.fps) if clip_name in STAGGERED_CLIPS else 0,
         )
         tmp_path = os.path.join(tmp_dir, f"{clip_name}.glb")
         export_glb(merged_arm, tmp_path)
