@@ -3,6 +3,38 @@
 // cannot translate. This scans the MIGRATED files for a text sink being
 // assigned a literal with words in it. Reference-free and cheap; falsified
 // in validate_i18n.test.ts and by the mutation in the commit that added it.
+//
+// What this gate CANNOT see, because it is a line-level regex over raw
+// source and not a parser -- worth naming explicitly for whoever grows
+// MIGRATED in Tasks 10-11, since Task 9's own conversion leans on every one
+// of these and passed only because a human read the diff, not because this
+// gate would have caught a regression in it:
+//
+//   1. A literal passed to a HELPER that assigns it to a sink somewhere
+//      ELSE, one level removed from the call site. `panel({ rank, title:
+//      'Settings' })`, `section(table, 'Video')` and `row(table,
+//      'Fullscreen', cb)` (all three shipped in settings-panel.ts before
+//      Task 9) never match SINKS/ATTR in THIS file's source text -- the
+//      actual `title.textContent = opts.title` / `h.textContent = title`
+//      assignment lives inside panel.ts's/this-file's own helper, on a
+//      variable, not a quoted literal next to `=`. A bare English string
+//      handed to any such helper is invisible here.
+//   2. A template literal (or any string) assigned to a LOCAL first, then
+//      the local assigned to the sink: `const label = \`Foo\`; el.title =
+//      label;`. SINKS/ATTR require a quote character immediately after `=`;
+//      one hop of indirection defeats the match entirely.
+//   3. A TABLE-driven literal -- an array of `[key, 'Some Label']` tuples (or
+//      an object literal keyed by variant, `{ low: 'Low — …', … }`, the exact
+//      shape settings-panel.ts used for quality/colour-vision text before
+//      Task 9) fed through a loop or lookup that sets `.textContent` from the
+//      resolved value. The literal sits inside a data structure, never
+//      adjacent to the sink assignment the regex is anchored on.
+//
+// In short: this gate proves the OBVIOUS case -- a literal typed directly
+// into `el.textContent = '…'` -- stays caught after a MIGRATED file is
+// edited. It is not a substitute for reading a diff that adds new chrome
+// text, and Tasks 10-11 should not treat a clean `validate:i18n` run as proof
+// that nothing was missed.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 

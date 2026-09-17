@@ -24,6 +24,7 @@
  */
 import type { AudioGains } from '@lions/render';
 import { t } from '../i18n/t';
+import type { Locale } from '../i18n/locales';
 import type { Disposer } from '../shell/router';
 import {
   CAMERA_SPEEDS,
@@ -47,8 +48,8 @@ export interface SettingsDeps {
   set(next: Settings): void;
   fullscreen: { supported(): boolean; active(): boolean; set(on: boolean): Promise<void> } | null;
   audio: { setGains(g: AudioGains): void } | null;
-  /** Task 9 fills this; `[{ id: 'en', name: 'English' }]` until then. */
-  locales: readonly { id: string; name: string }[];
+  /** `main.ts` passes `LOCALES` (i18n/locales.ts); only `dir` goes unread here. */
+  locales: readonly Locale[];
   /** `main.ts` passes `keymapRows(...)`; `null` renders no Controls section
    *  at all, which is what a test that does not exercise the row wants. */
   keymap: KeymapDeps | null;

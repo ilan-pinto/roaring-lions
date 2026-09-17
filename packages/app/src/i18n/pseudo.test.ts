@@ -15,4 +15,13 @@ describe('pseudo', () => {
   it('is stable for the same input', () => {
     expect(pseudo('Campaign')).toBe(pseudo('Campaign'));
   });
+  it('leaves HTML tags alone but still accents the text between them', () => {
+    const p = pseudo('<b>Enemy reinforcements</b> inbound');
+    expect(p).toContain('<b>');
+    expect(p).toContain('</b>');
+    expect(p.startsWith('⟦') && p.endsWith('⟧')).toBe(true);
+    expect(p).not.toContain('Enemy');
+    expect(p).not.toContain('reinforcements');
+    expect(p).not.toContain('inbound');
+  });
 });

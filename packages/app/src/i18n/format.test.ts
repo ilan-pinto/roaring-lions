@@ -32,4 +32,12 @@ describe('format', () => {
     expect(format(m, { n: 2 }, 'he')).toBe('b');
     expect(format(m, { n: 5 }, 'en')).toBe('e');
   });
+  it('falls back to one/other when Intl.PluralRules rejects the locale tag', () => {
+    // '!!!' is not valid BCP-47 syntax, so the constructor throws a
+    // RangeError rather than returning root/default rules -- the case
+    // pluralCategory's own try/catch exists for.
+    const m = '{n, plural, one {single} other {many}}';
+    expect(format(m, { n: 1 }, '!!!')).toBe('single');
+    expect(format(m, { n: 5 }, '!!!')).toBe('many');
+  });
 });

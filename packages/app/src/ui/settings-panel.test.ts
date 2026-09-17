@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type Settings } from '../settings';
+import { LOCALES } from '../i18n/locales';
 import { settingsPanel, showSettings } from './settings-panel';
 
 function deps(overrides: Partial<Parameters<typeof settingsPanel>[1]> = {}) {
@@ -13,7 +14,7 @@ function deps(overrides: Partial<Parameters<typeof settingsPanel>[1]> = {}) {
       set,
       fullscreen: null,
       audio: { setGains: gains },
-      locales: [{ id: 'en', name: 'English' }],
+      locales: LOCALES,
       keymap: null,
       build: '0.68.0',
       onChange: () => () => {},

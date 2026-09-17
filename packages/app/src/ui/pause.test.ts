@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { bindingsFrom, type Bindings } from '../input/keymap';
 import { DEFAULT_SETTINGS } from '../settings';
+import { LOCALES } from '../i18n/locales';
 import { confirmDialog, isDialogOpen } from './confirm';
 import { pauseMenu } from './pause';
 import { keymapRows } from './settings-keymap';
@@ -20,7 +21,7 @@ function deps() {
       set: vi.fn(),
       fullscreen: null,
       audio: null,
-      locales: [{ id: 'en', name: 'English' }],
+      locales: LOCALES,
       keymap: null,
       build: '0.68.0',
       onChange: () => () => {},
@@ -156,7 +157,7 @@ describe('pauseMenu', () => {
         set: vi.fn(),
         fullscreen: null,
         audio: null,
-        locales: [{ id: 'en', name: 'English' }],
+        locales: LOCALES,
         keymap: keymapRows({
           bindings: () => bindings,
           set: (next) => {

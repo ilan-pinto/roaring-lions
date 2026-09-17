@@ -1,13 +1,14 @@
 // packages/app/src/i18n/pseudo.ts
 /**
  * The pseudo-locale transform: every ASCII letter through a fixed accented
- * table, `{…}` interpolation spans and digit runs left untouched -- touching
- * either would desync a captured screenshot from the params that produced
- * it, or break `format()`'s own `{…}` parsing -- then padded by about a
- * third and bracketed. `?pseudo=1` (see `locales.ts`) wraps the `en`
- * catalogue in this: a screen that never calls `t()` at all reads as
- * conspicuously plain English against everything that does, and a screen
- * whose translated text is too long to fit shows it before a real
+ * table, `{…}` interpolation spans, `<…>` HTML tags and digit runs left
+ * untouched -- touching any of those would desync a captured screenshot from
+ * the params that produced it, break `format()`'s own `{…}` parsing, or turn
+ * a tag name/attribute into something no longer parseable as markup -- then
+ * padded by about a third and bracketed. `?pseudo=1` (see `locales.ts`)
+ * wraps the `en` catalogue in this: a screen that never calls `t()` at all
+ * reads as conspicuously plain English against everything that does, and a
+ * screen whose translated text is too long to fit shows it before a real
  * translator ever sees the string.
  */
 const TABLE: Readonly<Record<string, string>> = {
@@ -60,6 +61,20 @@ export function pseudo(s: string): string {
       // still round-trips through pseudo() the same way format() itself
       // falls back to raw text on one.
       const close = s.indexOf('}', i);
+      const end = close < 0 ? s.length : close + 1;
+      out += s.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (ch === '<') {
+      // An HTML tag -- name and attributes copied verbatim, exactly the way
+      // a `{…}` placeholder is above. A caller that builds `innerHTML` around
+      // translated text (mission-notice.ts's markup, a future rich hint)
+      // needs its tags to stay parseable; accenting `<b>` into `<ƀ>` would
+      // silently stop the browser recognising it as an element at all rather
+      // than merely looking odd, which is a worse failure than the one this
+      // transform exists to surface.
+      const close = s.indexOf('>', i);
       const end = close < 0 ? s.length : close + 1;
       out += s.slice(i, end);
       i = end;
