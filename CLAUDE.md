@@ -60,6 +60,7 @@ pnpm validate:data    # JSON Schema check on all content
 pnpm validate:assets  # palette + silhouette gate, and sheet COMPLETENESS
 pnpm validate:meshes  # the same checks for art/meshes/**, rendered headlessly
 pnpm validate:ui      # no colour literals in UI source
+pnpm icons:units      # crop unit UI icons from the sprite sheets; --check in CI
 pnpm balance          # headless battle sim, prints win rates
 ```
 

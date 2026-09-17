@@ -122,7 +122,8 @@
           "path": "assets/sprites/EITAN_TURR/idle_f03_000.png",
           "sha256": "22df363b77e7196e8cecb89c4cae7a91450860bfe8a14d0dfeb7f4569b68a53b"
         }
-      ]
+      ],
+      "turretFacing": 3
     },
     "GUNTRUCK_HULL": {
       "box": [
@@ -146,7 +147,8 @@
           "path": "assets/sprites/GUNTRUCK_TURR/idle_f03_000.png",
           "sha256": "0b192ffd24a01a1c15b8aa9c2ebbd2ca5b3fca6a9a5b6f9f3457bfddb69160e7"
         }
-      ]
+      ],
+      "turretFacing": 3
     },
     "INF_AT": {
       "box": [
@@ -550,7 +552,8 @@
           "path": "assets/sprites/NAMER_TURR/idle_f03_000.png",
           "sha256": "577ba866faf264cb06a8eba7fba3d8f8f80c219eb8325bca8135441b7666e916"
         }
-      ]
+      ],
+      "turretFacing": 3
     },
     "PARA_MOTOR": {
       "box": [
@@ -634,7 +637,8 @@
           "path": "assets/sprites/TECH_TURR/idle_f03_000.png",
           "sha256": "95e7355068797b8fe6dd45856cbe18f232b08627bc7ac6dcfa41ca4da253ccb9"
         }
-      ]
+      ],
+      "turretFacing": 3
     },
     "TNK_HULL": {
       "box": [
@@ -658,8 +662,10 @@
           "path": "assets/sprites/TNK_TURR/f03_000.png",
           "sha256": "151bbcd23308cdc96f16f6eebb54f108b2bcf18eb806452bdfdeed728071f58f"
         }
-      ]
+      ],
+      "turretFacing": 3
     }
   },
+  "size": 128,
   "version": 1
 }

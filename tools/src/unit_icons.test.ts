@@ -14,11 +14,10 @@
 //   (a) every recorded sha256 matches the sprite-sheet frame it names;
 //   (b) every hull sheet under assets/sprites/ has a manifest entry and a PNG,
 //       and nothing else does;
-//   (c) every icon PNG is 128x128 and its own alpha content either fills the
-//       frame (larger side >= 100px) or matches the manifest's declared
-//       `extent` exactly -- the native-size case for a genuinely small unit;
-//   (d) the manifest's top-level shape, and that every `box` is square and
-//       inside the 256px source frame.
+//   (c) every icon PNG is manifest.size x manifest.size and its own alpha
+//       content matches the manifest's declared `extent` exactly;
+//   (d) the manifest's top-level shape, and that every `box` is square,
+//       has a positive side, and sits inside the 256px source frame.
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -38,12 +37,18 @@ interface IconEntry {
   file: string;
   sources: IconSource[];
   facing: number;
+  /** Only present on a composited (hull+turret) entry, and always equal to
+   *  `facing` -- crop_unit_icons.py raises rather than shipping a mismatch. */
+  turretFacing?: number;
   box: [number, number, number, number];
   extent: [number, number];
 }
 
 interface IconManifest {
   version: number;
+  /** Every icon's pixel width and height -- the one source of truth, read
+   *  back here rather than a hardcoded literal kept in sync by hand. */
+  size: number;
   icons: Record<string, IconEntry>;
 }
 
@@ -107,12 +112,14 @@ describe('unit icon manifest shape', () => {
     // Sanity on the fixture itself: a manifest with zero entries would make
     // every loop below vacuously pass and this whole file would be inert.
     expect(Object.keys(manifest.icons).length).toBeGreaterThan(0);
+    expect(manifest.size, 'manifest.size').toBeGreaterThan(0);
   });
 
-  it('gives every icon a square box inside the 256px source frame', () => {
+  it('gives every icon a square, positive-sized box inside the 256px source frame', () => {
     for (const [name, entry] of Object.entries(manifest.icons)) {
       const [x, y, w, h] = entry.box;
       expect(w, `${name}: box is not square (${w}x${h})`).toBe(h);
+      expect(w, `${name}: box w is not positive`).toBeGreaterThan(0);
       expect(x, `${name}: box x negative`).toBeGreaterThanOrEqual(0);
       expect(y, `${name}: box y negative`).toBeGreaterThanOrEqual(0);
       expect(x + w, `${name}: box extends past x=256`).toBeLessThanOrEqual(256);
@@ -145,23 +152,21 @@ describe('unit icon manifest is pinned to the frames it was cut from', () => {
   }
 });
 
-describe('unit icon PNGs are 128x128 and fill their frame or match their declared extent', () => {
+describe('unit icon PNGs match their manifest size and declared extent exactly', () => {
   for (const [name, entry] of Object.entries(manifest.icons)) {
     it(`${name}`, () => {
       const png = decodePng(`${ICONS_DIR}/${entry.file}`);
-      expect(png.width, `${name}: width`).toBe(128);
-      expect(png.height, `${name}: height`).toBe(128);
+      expect(png.width, `${name}: width`).toBe(manifest.size);
+      expect(png.height, `${name}: height`).toBe(manifest.size);
 
       const bbox = alphaBBox(png);
       expect(bbox, `${name}: icon has no pixel above the alpha threshold`).not.toBeNull();
       const [, , w, h] = bbox as [number, number, number, number];
-      const largerSide = Math.max(w, h);
-      const matchesDeclaredExtent = w === entry.extent[0] && h === entry.extent[1];
 
       expect(
-        largerSide >= 100 || matchesDeclaredExtent,
-        `${name}: measured alpha extent ${w}x${h} (larger side ${largerSide}px) does not fill ` +
-          `the frame and does not match the manifest's declared extent ${entry.extent[0]}x${entry.extent[1]}`
+        w === entry.extent[0] && h === entry.extent[1],
+        `${name}: measured alpha extent ${w}x${h} does not match the manifest's declared extent ` +
+          `${entry.extent[0]}x${entry.extent[1]}`
       ).toBe(true);
     });
   }

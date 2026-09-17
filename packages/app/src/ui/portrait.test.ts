@@ -165,7 +165,7 @@ describe('unit icon manifest pin', () => {
   it('agrees with portraitFile on every shipped icon’s chosen frame and facing', () => {
     const iconManifestPath = path.join(__dirname, '../../../../assets/ui/icons/units/manifest.json');
     const iconManifest = JSON.parse(fs.readFileSync(iconManifestPath, 'utf8')) as {
-      icons: Record<string, { facing: number; sources: { path: string }[] }>;
+      icons: Record<string, { facing: number; turretFacing?: number; sources: { path: string }[] }>;
     };
     const sheets = Object.keys(iconManifest.icons);
     expect(sheets.length).toBeGreaterThan(0);
@@ -181,6 +181,13 @@ describe('unit icon manifest pin', () => {
       expect(portraitFile(sheetManifest)).toBe(expectedFile);
       const picked = (sheetManifest.files ?? []).find((f) => f.file === expectedFile);
       expect(picked?.facing).toBe(entry.facing);
+      // A composited (hull+turret) entry carries a second source and must
+      // record the turret's own resolved facing too -- crop_unit_icons.py
+      // raises rather than shipping a mismatch, so this is the fixture-level
+      // proof that promise holds for every icon actually shipped.
+      if (entry.sources.length > 1) {
+        expect(entry.turretFacing, `${sheet}: composited entry missing turretFacing`).toBe(entry.facing);
+      }
     }
   });
 });

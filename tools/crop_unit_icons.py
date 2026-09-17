@@ -124,6 +124,19 @@ def read_bytes(path):
         return fh.read()
 
 
+def decode_rgba(data):
+    """(size, pixel_bytes) for PNG `data`, decoded through RGBA -- never the raw
+    encoded bytes. Two Pillow versions can encode identical pixels to different
+    PNG bytes (measured: 10.3.0 vs 12.3.0 disagree on every shipped icon), so
+    `--check` must compare what a decoder sees, not what an encoder wrote."""
+    image = Image.open(io.BytesIO(data)).convert("RGBA")
+    try:
+        pixels = np.asarray(image).tobytes()
+    except Exception:
+        pixels = image.tobytes()
+    return image.size, pixels
+
+
 def sha256_hex(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -164,10 +177,18 @@ def build_icon(cropped, size):
     return canvas
 
 
-def process_sheet(sprites_dir, name, size, margin):
+def process_sheet(sprites_dir, name, size, margin, problems):
     manifest = load_manifest(sprites_dir, name)
     files = manifest.get("files", [])
-    target_facing = manifest.get("portraitFacing", PORTRAIT_FACING)
+    # A JSON `null` reads back as Python `None` via `.get`, which is not the
+    # same as the key being absent -- `.get(key, DEFAULT)` only supplies
+    # DEFAULT in the latter case. Treat both alike, matching TS's `??`
+    # (portrait.ts's `manifest.portraitFacing ?? PORTRAIT_FACING`) -- and
+    # unlike a plain `or`, which would also coalesce a legitimately authored
+    # facing of 0.
+    target_facing = manifest.get("portraitFacing")
+    if target_facing is None:
+        target_facing = PORTRAIT_FACING
     hull_pick = pick_frame(files, target_facing)
     if hull_pick is None:
         return None  # no art at all -- none of the shipped hull sheets hit this
@@ -181,6 +202,7 @@ def process_sheet(sprites_dir, name, size, margin):
             "sha256": sha256_hex(hull_bytes),
         }
     ]
+    turret_facing = None
 
     if name.endswith(HULL_SUFFIX):
         turret_name = name[: -len(HULL_SUFFIX)] + TURRET_SUFFIX
@@ -192,6 +214,15 @@ def process_sheet(sprites_dir, name, size, margin):
             # hull side still lands the turret at the identical facing.
             turret_pick = pick_frame(turret_manifest.get("files", []), hull_pick["facing"])
             if turret_pick is not None:
+                if turret_pick["facing"] != hull_pick["facing"]:
+                    # pick_frame falls back to a different facing when the
+                    # turret sheet does not carry the hull's resolved one --
+                    # composited, that draws a turret aimed nowhere near the
+                    # hull's own three-quarter view, silently.
+                    raise ValueError(
+                        f"{name}: turret frame facing {turret_pick['facing']} != "
+                        f"hull facing {hull_pick['facing']}"
+                    )
                 turret_path = os.path.join(sprites_dir, turret_name, turret_pick["file"])
                 turret_bytes = read_bytes(turret_path)
                 turret_image = Image.open(io.BytesIO(turret_bytes)).convert("RGBA")
@@ -207,10 +238,15 @@ def process_sheet(sprites_dir, name, size, margin):
                         "sha256": sha256_hex(turret_bytes),
                     }
                 )
+                turret_facing = turret_pick["facing"]
 
     bbox = alpha_bbox(image)
     if bbox is None:
-        raise ValueError(f"{name}: composited frame has no pixel above the alpha threshold")
+        # Collected rather than raised: one badly-authored portrait frame
+        # should not take an uncaught traceback through the whole batch and
+        # hide every other sheet's result behind it.
+        problems.append(f"{name}: portrait frame has no opaque pixel")
+        return None
 
     box = square_crop_box(bbox, margin, image.width)
     x, y, w, _ = box
@@ -220,7 +256,7 @@ def process_sheet(sprites_dir, name, size, margin):
     extent_bbox = alpha_bbox(icon)
     extent = (0, 0) if extent_bbox is None else (extent_bbox[2] - extent_bbox[0], extent_bbox[3] - extent_bbox[1])
 
-    return {
+    result = {
         "name": name,
         "file": f"{name}.png",
         "sources": sources,
@@ -229,6 +265,9 @@ def process_sheet(sprites_dir, name, size, margin):
         "extent": list(extent),
         "image": icon,
     }
+    if turret_facing is not None:
+        result["turretFacing"] = turret_facing
+    return result
 
 
 def format_log_line(result):
@@ -238,12 +277,14 @@ def format_log_line(result):
 
 
 def build_all(sprites_dir, size, margin):
-    """Recomputes every icon in memory. Returns (manifest_dict, {name: png_bytes}, [log lines])."""
+    """Recomputes every icon in memory.
+    Returns (manifest_dict, {name: png_bytes}, [log lines], [problem lines])."""
     icons = {}
     icon_bytes = {}
     log_lines = []
+    problems = []
     for name in discover_sheets(sprites_dir):
-        result = process_sheet(sprites_dir, name, size, margin)
+        result = process_sheet(sprites_dir, name, size, margin, problems)
         if result is None:
             continue
         icons[name] = {
@@ -253,32 +294,46 @@ def build_all(sprites_dir, size, margin):
             "box": result["box"],
             "extent": result["extent"],
         }
+        if "turretFacing" in result:
+            icons[name]["turretFacing"] = result["turretFacing"]
         buf = io.BytesIO()
         result["image"].save(buf, format="PNG", optimize=False)
         icon_bytes[name] = buf.getvalue()
         log_lines.append(format_log_line(result))
-    manifest = {"version": 1, "icons": icons}
-    return manifest, icon_bytes, log_lines
+    # "size" is the one place the icon's pixel dimensions are recorded --
+    # packages/app/src/ui/portrait.ts and unit_icons.test.ts both read it back
+    # rather than carrying their own copy of this script's --size default.
+    manifest = {"version": 1, "size": size, "icons": icons}
+    return manifest, icon_bytes, log_lines, problems
 
 
 def manifest_json_bytes(manifest):
     return (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
-def run_write(sprites_dir, out_dir, size, margin):
-    manifest, icon_bytes, log_lines = build_all(sprites_dir, size, margin)
+def run_write(sprites_dir, out_dir, size, margin, prune):
+    """Writes every icon plus manifest.json to out_dir.
+
+    `prune` controls whether stray `*.png` files under `out_dir` with no
+    current manifest entry are deleted (e.g. a sheet was renamed or removed).
+    It is only ever True by default when `out_dir` is left at its own default
+    value (see `main`) -- pointing `--out` somewhere else (a scratch
+    directory, a review copy) must never make this script start deleting
+    files it did not write, so a caller who wants that has to ask for it with
+    an explicit `--prune`.
+    """
+    manifest, icon_bytes, log_lines, problems = build_all(sprites_dir, size, margin)
     os.makedirs(out_dir, exist_ok=True)
 
     for name, data in icon_bytes.items():
         with open(os.path.join(out_dir, f"{name}.png"), "wb") as fh:
             fh.write(data)
 
-    # Remove icons for sheets no longer discovered (e.g. a sheet was deleted),
-    # so the directory never carries an orphan the manifest doesn't mention.
-    wanted_files = {f"{name}.png" for name in icon_bytes}
-    for entry in os.listdir(out_dir):
-        if entry.endswith(".png") and entry not in wanted_files:
-            os.remove(os.path.join(out_dir, entry))
+    if prune:
+        wanted_files = {f"{name}.png" for name in icon_bytes}
+        for entry in os.listdir(out_dir):
+            if entry.endswith(".png") and entry not in wanted_files:
+                os.remove(os.path.join(out_dir, entry))
 
     with open(os.path.join(out_dir, "manifest.json"), "wb") as fh:
         fh.write(manifest_json_bytes(manifest))
@@ -286,11 +341,16 @@ def run_write(sprites_dir, out_dir, size, margin):
     for line in log_lines:
         print(line)
     print(f"{len(icon_bytes)} icon(s) written to {out_dir}")
+    if problems:
+        for p in problems:
+            print(f"  - {p}")
+        print(f"{len(problems)} sheet(s) skipped")
+        return 1
     return 0
 
 
 def run_check(sprites_dir, out_dir, size, margin):
-    manifest, icon_bytes, _log_lines = build_all(sprites_dir, size, margin)
+    manifest, icon_bytes, _log_lines, problems = build_all(sprites_dir, size, margin)
 
     manifest_path = os.path.join(out_dir, "manifest.json")
     existing_manifest = {}
@@ -302,7 +362,6 @@ def run_check(sprites_dir, out_dir, size, margin):
     computed_names = set(manifest["icons"].keys())
     existing_names = set(existing_icons.keys())
 
-    problems = []
     for name in sorted(computed_names - existing_names):
         problems.append(f"missing: {name} (in sprites, not in manifest)")
     for name in sorted(existing_names - computed_names):
@@ -315,7 +374,9 @@ def run_check(sprites_dir, out_dir, size, margin):
         if not os.path.isfile(icon_path):
             problems.append(f"missing: {name} (manifest entry has no PNG on disk)")
             continue
-        if read_bytes(icon_path) != icon_bytes[name]:
+        on_disk = decode_rgba(read_bytes(icon_path))
+        fresh = decode_rgba(icon_bytes[name])
+        if on_disk != fresh:
             problems.append(f"stale: {name} (PNG on disk does not match sprites)")
 
     accounted_files = {f"{name}.png" for name in computed_names | existing_names}
@@ -334,10 +395,19 @@ def run_check(sprites_dir, out_dir, size, margin):
     return 0
 
 
+DEFAULT_OUT_DIR = "assets/ui/icons/units"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--sprites", default="assets/sprites")
-    ap.add_argument("--out", default="assets/ui/icons/units")
+    ap.add_argument(
+        "--out",
+        default=DEFAULT_OUT_DIR,
+        help=f"output directory for icon PNGs and manifest.json (default: {DEFAULT_OUT_DIR}); "
+             "stray *.png files here with no current manifest entry are only pruned when this "
+             "is left at its default, or --prune is passed explicitly (see --prune)",
+    )
     ap.add_argument("--size", type=int, default=128)
     ap.add_argument("--margin", type=float, default=0.08)
     ap.add_argument(
@@ -346,11 +416,24 @@ def main():
         help="recompute every icon in memory and compare against the manifest and PNG bytes "
              "on disk; exit 1 listing every stale/missing/extra icon; writes nothing",
     )
+    ap.add_argument(
+        "--prune",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="remove stray *.png files under --out that have no current manifest entry. "
+             "Defaults to on when --out is left at its default value and off otherwise, so "
+             "pointing --out at some other directory never deletes files this script didn't "
+             "write unless asked to; pass --prune or --no-prune to override either way. "
+             "Ignored with --check, which never writes anything.",
+    )
     args = ap.parse_args()
 
     if args.check:
         return run_check(args.sprites, args.out, args.size, args.margin)
-    return run_write(args.sprites, args.out, args.size, args.margin)
+    prune = args.prune
+    if prune is None:
+        prune = args.out == DEFAULT_OUT_DIR
+    return run_write(args.sprites, args.out, args.size, args.margin, prune)
 
 
 if __name__ == "__main__":

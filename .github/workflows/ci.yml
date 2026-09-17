@@ -35,6 +35,11 @@ jobs:
       # from Python rather than trusted to vitest alone: a sheet re-rendered
       # without a matching `pnpm icons:units` afterward changes no TypeScript
       # at all, so a gate that only ran on the node side would stay green.
+      # The two overlap, not duplicate: a sprite-sheet manifest that lists no
+      # files is a hull sheet `discover_sheets` finds but `process_sheet`
+      # returns nothing for, so `--check` silently skips it, while vitest's
+      # coverage test (every discovered hull sheet has a manifest entry) fails
+      # loudly on the same input. Neither is redundant with the other.
       - run: python3 tools/crop_unit_icons.py --check
       # Level load time, step 4: `art/meshes/` is the uncompressed source of
       # record and `assets/meshes/` is the Draco-compressed copy that SHIPS.

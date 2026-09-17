@@ -123,12 +123,18 @@ interface IconManifestEntry {
   file: string;
   sources: { path: string; sha256: string }[];
   facing: number;
+  /** Only present on a composited (hull+turret) entry, and always equal to
+   *  `facing` -- `crop_unit_icons.py` raises rather than shipping a mismatch. */
+  turretFacing?: number;
   box: number[];
   extent: number[];
 }
 
 interface IconManifest {
   version: number;
+  /** Every icon's pixel width and height -- the one place this is recorded;
+   *  read back here rather than a hardcoded literal kept in sync by hand. */
+  size: number;
   icons: Record<string, IconManifestEntry>;
 }
 
@@ -159,7 +165,7 @@ for (const [sheet, entry] of Object.entries(iconManifest.icons)) {
   const url = iconUrlBySheet[sheet];
   if (url === undefined) continue;
   const [w, h] = entry.extent;
-  ICONS[sheet] = { url, size: 128, extent: [w, h] };
+  ICONS[sheet] = { url, size: iconManifest.size, extent: [w, h] };
 }
 
 /**
