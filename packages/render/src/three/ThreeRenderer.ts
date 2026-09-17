@@ -1058,6 +1058,13 @@ export class ThreeRenderer implements Renderer {
   private readonly prevY: Float64Array;
   private readonly curX: Float64Array;
   private readonly curY: Float64Array;
+  /** Where the round that killed entity `i` came from, tile coordinates,
+   *  written by `onEvents` on `destroyed` and read once by `updateMeshUnits`'
+   *  prune loop (D5). NaN = no killer (`by < 0`: `debugKill`, tunnel
+   *  collapse). Entity slots are never reused, so a stale value cannot alias
+   *  a later unit. */
+  private readonly killerX: Float64Array;
+  private readonly killerY: Float64Array;
   private readonly entitySpeed: Float64Array;
   /** Persisted per-entity animation phase state `entityFrame` mutates in
    *  place -- `frame-state.ts`'s own `EntityFrameInput.entityAnimFrame`/
@@ -1630,6 +1637,8 @@ export class ThreeRenderer implements Renderer {
     this.prevY = new Float64Array(n);
     this.curX = new Float64Array(n);
     this.curY = new Float64Array(n);
+    this.killerX = new Float64Array(n).fill(NaN);
+    this.killerY = new Float64Array(n).fill(NaN);
     this.entitySpeed = new Float64Array(n);
     this.entityAnimFrame = new Float64Array(n);
     this.animSeeded = new Uint8Array(n);
@@ -2702,6 +2711,8 @@ export class ThreeRenderer implements Renderer {
       } else if (e.kind === 'tunnelCollapsed') {
         this.onTunnelCollapsed(e.tunnel, e.tick);
       } else if (e.kind === 'destroyed') {
+        this.killerX[e.entity] = e.by >= 0 ? this.curX[e.by] : NaN;
+        this.killerY[e.entity] = e.by >= 0 ? this.curY[e.by] : NaN;
         const deadType = this.sim.unitTypes[st.typeIdx[e.entity]];
         // The BILLBOARD death fade -- the intact sprite dimming in place --
         // is skipped for exactly the types `addWreck` steps aside for: one
@@ -4676,7 +4687,10 @@ export class ThreeRenderer implements Renderer {
       else if (id < n && st.removed[id] === 1) {
         this.scene.remove(entity.root);
         disposeMeshUnitEntity(entity);
-      } else this.meshDying.push(beginMeshDeath(entity, id));
+      } else {
+        const kx = this.killerX[id];
+        this.meshDying.push(beginMeshDeath(entity, id, Number.isNaN(kx) ? null : { x: kx, y: this.killerY[id] }));
+      }
     }
     this.stepMeshDeaths(dtSeconds);
     this.stepMeshEvacs(dtSeconds);
