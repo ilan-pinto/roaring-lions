@@ -265,6 +265,29 @@ describe('showBrigade', () => {
     expect(sensorPips).toEqual(['0']);
   });
 
+  // Fix round 1, Important finding: `.rl-brigade__tracks` must be a direct
+  // child of `.rl-brigade__row` and the row's LAST child, right after
+  // `.rl-brigade__why` -- that structure (plus `.rl-brigade__row`'s own
+  // `flex-wrap: wrap` and the tracks block's `flex: 1 0 100%` in theme.css)
+  // is what puts it on its own line below the row's first line instead of
+  // widening the row past the panel's own width floor.
+  it('places .rl-brigade__tracks as a direct child of the row, right after .rl-brigade__why', () => {
+    const host = document.createElement('div');
+    showBrigade(host, {
+      units,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      owned: { inf_squad: { armour: 1 } },
+    });
+    const row = host.querySelector('[data-unit="inf_squad"]');
+    const tracksEl = row?.querySelector(':scope > .rl-brigade__tracks');
+    expect(tracksEl).not.toBeNull();
+    expect(tracksEl?.parentElement).toBe(row);
+    expect(tracksEl?.previousElementSibling?.className).toBe('rl-brigade__why');
+    expect(tracksEl?.nextElementSibling).toBeNull();
+  });
+
   it('sells the next tier per track, enabled with enough credits', () => {
     const host = document.createElement('div');
     const bought: [string, string, number, number][] = [];

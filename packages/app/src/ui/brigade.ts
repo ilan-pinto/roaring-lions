@@ -223,19 +223,25 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
           } else {
             const nextTier = ownedTier + 1;
             const price = nextTierPrice(u, trackName, ownedTier);
-            if (price !== null) {
-              const buy = document.createElement('button');
-              buy.type = 'button';
-              buy.className = 'rl-btn rl-brigade__buy-tier';
-              buy.textContent = `tier ${nextTier} · ${price}`;
-              buy.setAttribute('aria-label', `buy ${u.name} ${trackName} tier ${nextTier} for ${price} credits`);
-              buy.disabled = opts.credits < price;
-              buy.addEventListener('click', () => {
-                buy.disabled = true; // one purchase per render; the caller re-renders
-                opts.onBuyUpgrade?.(u.id, trackName, nextTier, price);
-              });
-              trackEl.appendChild(buy);
+            // ownedTier < track.tiers.length here (the maxed branch above
+            // already covers the other case), so `nextTierPrice` returning
+            // null would mean it disagrees with `track` about the track's
+            // own length -- a programming error, not data to fall through
+            // silently for.
+            if (price === null) {
+              throw new Error(`showBrigade: ${u.id} has no tier ${nextTier} on track "${trackName}"`);
             }
+            const buy = document.createElement('button');
+            buy.type = 'button';
+            buy.className = 'rl-btn rl-brigade__buy-tier';
+            buy.textContent = `tier ${nextTier} · ${price}`;
+            buy.setAttribute('aria-label', `buy ${u.name} ${trackName} tier ${nextTier} for ${price} credits`);
+            buy.disabled = opts.credits < price;
+            buy.addEventListener('click', () => {
+              buy.disabled = true; // one purchase per render; the caller re-renders
+              opts.onBuyUpgrade?.(u.id, trackName, nextTier, price);
+            });
+            trackEl.appendChild(buy);
           }
         }
 

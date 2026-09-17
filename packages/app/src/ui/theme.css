@@ -2706,6 +2706,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-brigade__row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--s2);
 }
@@ -2745,16 +2746,22 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-brigade__buy {
   color: var(--commend);
 }
-/* Task 7: per-track tier pips and Buy control on an AVAILABLE row (a locked
-   row shows none of this -- nothing can be upgraded before it is in the
-   brigade). `.rl-brigade__tracks` wraps the whole set as a column placed
-   after `.rl-brigade__why`, rather than letting each `.rl-brigade__track`
-   line sit directly in `.rl-brigade__row`'s own single flex row: two tracks
-   of pips-plus-button next to the name/role/why columns already in that row
-   would crowd it at the panel's own width (min(45rem, 94vw)), so tracks stack
-   under the row's other content instead of widening it. */
+/* Task 7 (fix round 1): per-track tier pips and Buy control on an AVAILABLE
+   row (a locked row shows none of this -- nothing can be upgraded before it
+   is in the brigade). The first cut made `.rl-brigade__tracks` a normal flex
+   ITEM of `.rl-brigade__row`, which is a single-line `display: flex` row
+   with every other item `flex: 0 0 auto` -- so two tracks pushed the row
+   past the panel's own `min(45rem, 94vw)` floor instead of sitting under the
+   reason text as the comment claimed. Fixed by making the row WRAP
+   (`flex-wrap: wrap` above) and forcing `.rl-brigade__tracks` onto its own
+   line with `flex: 1 0 100%`, so it drops below the row's first line
+   regardless of how much room that line has left. `margin-left` insets it
+   past the `.rl-brigade__art` frame (2.5rem) plus the row's own `gap`
+   (`--s2`), so the tracks align under the name/role column rather than the
+   art. */
 .rl-brigade__tracks {
-  flex: 0 0 auto;
+  flex: 1 0 100%;
+  margin-left: calc(2.5rem + var(--s2));
   display: flex;
   flex-direction: column;
   gap: var(--s1);
