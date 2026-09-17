@@ -154,6 +154,24 @@ export function buildFixtureGlb(opts: {
    * from pivoting on the entity root. The inverse-bind matrices follow it.
    */
   rootOffset?: [number, number, number];
+  /**
+   * How many ADDITIONAL live figure roots to emit, beyond `root_joint` --
+   * added for the C2/I1 shipped-bytes and stagger tests, which need a
+   * fixture with more than one figure to prove `liveFigureRoots`' sort and
+   * `beginTopple`'s per-figure stagger at all (a single-root fixture cannot
+   * fail either check). Each extra root `k` (1-indexed) is a PARENTLESS
+   * joint named `root_joint_<k>`, offset `rootOffset + (k, 0, 0)` in X, with
+   * its own child joint `bone1_<k>` (a Bone child, exactly like
+   * `root_joint`/`bone1` -- Ruling 11's "at least one Bone child" rule),
+   * both added to the skin's `joints` with their own inverse-bind matrices.
+   * Every clip named in `scaleClips` keys the SAME scale on each extra root
+   * as it does on `root_joint` (the two channels share one sampler, so they
+   * are the identical value by construction, not merely equal by
+   * coincidence). Defaults to 0, so every existing caller -- which never
+   * passes this -- produces byte-identical output to before this option
+   * existed.
+   */
+  extraRoots?: number;
 }): ArrayBuffer {
   const extrasRole = opts.extrasRole === undefined ? opts.roleName : opts.extrasRole;
   const nameRole = opts.nameRole === undefined ? opts.roleName : opts.nameRole;
@@ -168,14 +186,42 @@ export function buildFixtureGlb(opts: {
   const off = opts.rootOffset ?? [0, 0, 0];
   const scaleClips = opts.scaleClips ?? {};
   const hasDeathRoot = Object.keys(scaleClips).length > 0;
+  const extraRootCount = opts.extraRoots ?? 0;
   // Column-major translate(x, y, z).
   const tr = (x: number, y: number, z: number): number[] => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1];
-  // bone0 (root) at `off`; bone1 at `off + (0,1,0)`; death_root at `off`.
-  const inverseBind = f32([
-    ...tr(-off[0], -off[1], -off[2]),
-    ...tr(-off[0], -off[1] - 1, -off[2]),
-    ...(hasDeathRoot ? tr(-off[0], -off[1], -off[2]) : []),
-  ]);
+
+  // Node index bookkeeping. Fixed: 0 root_joint, 1 bone1, 2 the mesh node,
+  // 3 death_root (only when `hasDeathRoot`). Each extra root then takes the
+  // next two indices, root then its own bone child, in order.
+  const deathRootNodeIndex = hasDeathRoot ? 3 : -1;
+  let nextNodeIndex = hasDeathRoot ? 4 : 3;
+  const extraRootNodes: { rootIdx: number; boneIdx: number }[] = [];
+  for (let k = 0; k < extraRootCount; k++) {
+    const rootIdx = nextNodeIndex++;
+    const boneIdx = nextNodeIndex++;
+    extraRootNodes.push({ rootIdx, boneIdx });
+  }
+
+  // The skin's own `joints` list and the inverse-bind translation each one
+  // needs, built in the SAME order so `inverseBindMatrices` lines up with
+  // `skins[0].joints` -- bone0 (root) at `off`; bone1 at `off + (0,1,0)`;
+  // death_root at `off`; each extra root at `off + (k,0,0)` and its own
+  // bone1 at that plus `(0,1,0)`.
+  const skinJoints: number[] = [0, 1];
+  const invBindTranslations: [number, number, number][] = [
+    [-off[0], -off[1], -off[2]],
+    [-off[0], -off[1] - 1, -off[2]],
+  ];
+  if (hasDeathRoot) {
+    skinJoints.push(deathRootNodeIndex);
+    invBindTranslations.push([-off[0], -off[1], -off[2]]);
+  }
+  for (let k = 0; k < extraRootNodes.length; k++) {
+    const x = off[0] + (k + 1);
+    skinJoints.push(extraRootNodes[k].rootIdx, extraRootNodes[k].boneIdx);
+    invBindTranslations.push([-x, -off[1], -off[2]], [-x, -off[1] - 1, -off[2]]);
+  }
+  const inverseBind = f32(invBindTranslations.flatMap(([x, y, z]) => tr(x, y, z)));
   const animInput = f32([0, clipSeconds]);
   // Quaternion (x,y,z,w): identity, then 90 deg about X.
   const HALF = Math.SQRT1_2;
@@ -213,7 +259,7 @@ export function buildFixtureGlb(opts: {
     { bufferView: 2, componentType: 5123, count: 3, type: 'VEC4' }, // 2 JOINTS_0
     { bufferView: 3, componentType: 5126, count: 3, type: 'VEC4' }, // 3 WEIGHTS_0
     { bufferView: 4, componentType: 5123, count: 3, type: 'SCALAR' }, // 4 indices
-    { bufferView: 5, componentType: 5126, count: hasDeathRoot ? 3 : 2, type: 'MAT4' }, // 5 inverseBindMatrices
+    { bufferView: 5, componentType: 5126, count: skinJoints.length, type: 'MAT4' }, // 5 inverseBindMatrices
     { bufferView: 6, componentType: 5126, count: 2, type: 'SCALAR' }, // 6 anim input
     { bufferView: 7, componentType: 5126, count: 2, type: 'VEC4' }, // 7 anim output
     ...scaleParts.map((_, i) => ({ bufferView: 8 + i, componentType: 5126, count: 2, type: 'VEC3' })),
@@ -223,6 +269,16 @@ export function buildFixtureGlb(opts: {
   if (extrasRole !== null) nodeExtras.rl_role = extrasRole;
   const rootNode: Record<string, unknown> = { name: 'root_joint', children: [1] };
   if (opts.rootOffset) rootNode.translation = off;
+
+  const extraNodes: Record<string, unknown>[] = [];
+  for (let k = 0; k < extraRootNodes.length; k++) {
+    const label = k + 1;
+    const x = off[0] + label;
+    extraNodes.push(
+      { name: `root_joint_${label}`, children: [extraRootNodes[k].boneIdx], translation: [x, off[1], off[2]] },
+      { name: `bone1_${label}`, translation: [0, 1, 0] }
+    );
+  }
 
   const json = {
     asset: { version: '2.0' },
@@ -240,7 +296,7 @@ export function buildFixtureGlb(opts: {
         ],
       },
     ],
-    skins: [{ joints: hasDeathRoot ? [0, 1, 3] : [0, 1], inverseBindMatrices: 5 }],
+    skins: [{ joints: skinJoints, inverseBindMatrices: 5 }],
     nodes: [
       rootNode,
       { name: 'bone1', translation: [0, 1, 0] },
@@ -251,10 +307,11 @@ export function buildFixtureGlb(opts: {
         ...(Object.keys(nodeExtras).length > 0 ? { extras: nodeExtras } : {}),
       },
       ...(hasDeathRoot ? [{ name: 'death_root', translation: off }] : []),
+      ...extraNodes,
     ],
     scenes: [
       {
-        nodes: hasDeathRoot ? [0, 2, 3] : [0, 2],
+        nodes: [0, 2, ...(hasDeathRoot ? [3] : []), ...extraRootNodes.map((r) => r.rootIdx)],
         ...(opts.sceneExtras !== undefined ? { extras: opts.sceneExtras } : {}),
       },
     ],
@@ -272,6 +329,11 @@ export function buildFixtureGlb(opts: {
         channels.push({ sampler: 1, target: { node: 0, path: 'scale' } });
         samplers.push({ input: 6, output: scaleAccessorOf.get(`${name}:deathRoot`) as number, interpolation: 'STEP' });
         channels.push({ sampler: 2, target: { node: 3, path: 'scale' } });
+        // Every extra root shares sampler 1 (root_joint's own scale ramp) --
+        // the same value by construction, not merely equal by coincidence.
+        for (const r of extraRootNodes) {
+          channels.push({ sampler: 1, target: { node: r.rootIdx, path: 'scale' } });
+        }
       }
       return { name, channels, samplers };
     }),

@@ -256,6 +256,11 @@ describe('ThreeRenderer mesh-death wiring', () => {
     priv.updateMeshUnits(1, 16);
     const dying = priv.meshDying[0];
     expect(dying.phase).toBe('toppling');
+    // T5: the killer sits due NORTH (same x, 4.5) of the unit, so the
+    // away-from-killer direction is pure +z with no x component at all --
+    // asserting only `.z` let a direction with a spurious x component
+    // (e.g. a swapped x/z or a wrong sign on one axis alone) through green.
+    expect(dying.topple?.direction.x).toBeCloseTo(0, 6);
     expect(dying.topple?.direction.z).toBeCloseTo(1, 6); // away from the killer: toward +y tiles
   });
 });

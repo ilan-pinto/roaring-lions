@@ -175,6 +175,50 @@ describe('applyMeshClip -- the crossfade (D1)', () => {
     expect(e.actions.get('down')?.isScheduled()).toBe(false);
     expect(weight(e, 'wreck')).toBe(1);
   });
+
+  it('M1: a paused once-clip re-selected while fading out keeps the summed weight at 1', async () => {
+    // `down`/`wreck` share a scale signature (both root 0 / death_root 1),
+    // matching the previous test's own setup -- the blend case where a
+    // paused-but-weighted action must still be picked up.
+    const e = await entityWith({
+      clipName: ['idle', 'down', 'wreck'],
+      clipSeconds: 0.1,
+      scaleClips: {
+        idle: { root: 1, deathRoot: 0 },
+        down: { root: 0, deathRoot: 1 },
+        wreck: { root: 0, deathRoot: 1 },
+      },
+    });
+    applyMeshClip(e, 'idle');
+    frame(e, 0.5);
+    applyMeshClip(e, 'down', { once: true }); // a cut (idle/down differ in signature)
+    frame(e, 0.5); // 5x the 0.1s clip length -- long since paused at its last frame
+    expect(e.actions.get('down')?.paused).toBe(true);
+
+    applyMeshClip(e, 'wreck', { once: true }); // a blend: down fades 1 -> 0, wreck 0 -> 1
+    frame(e, MESH_CLIP_FADE_SECONDS / 2); // midway through that fade-out
+    const downMidFade = weight(e, 'down');
+    expect(downMidFade).toBeGreaterThan(0);
+    expect(downMidFade).toBeLessThan(1);
+
+    // Re-select `down` while it is STILL paused (finished, holding its last
+    // frame) AND mid fade-out -- the exact state a mortar-team-style
+    // interrupted death handoff can put a once-clip in.
+    //
+    // Break check (verified by hand, then reverted): change `next.
+    // isScheduled()` back to `next.isRunning()` in `applyMeshClip`'s blend
+    // branch. A paused once-action always reports `isRunning() === false`,
+    // so `resuming` reads false here, `down` restarts from weight 0 instead
+    // of its current fade weight (~`downMidFade`), and `sumOfWeights` dips
+    // below 1 for the next several frames instead of holding at exactly 1.
+    applyMeshClip(e, 'down', { once: true });
+    for (let i = 0; i < 12; i++) {
+      frame(e, 0.025);
+      expect(sumOfWeights(e)).toBeCloseTo(1, 6);
+    }
+    expect(e.currentClip).toBe('down');
+    expect(weight(e, 'down')).toBeCloseTo(1, 6);
+  });
 });
 
 describe('applyMeshClip -- the cut (D2)', () => {

@@ -30,9 +30,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { buildMeshUnitTemplate } from './mesh-unit';
+import { buildMeshUnitTemplate, instantiateMeshUnit } from './mesh-unit';
+import { applyMeshClip } from './mesh-clip';
 import { CLIP_NAMES } from './mesh-anim';
+import { beginMeshDeath, liveFigureRoots, type MeshDeathPhase } from './mesh-death';
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const TEAM_MESHES = `${REPO}art/meshes/`;
@@ -131,5 +134,67 @@ describe('shipped infantry team meshes: the death clips exist', () => {
         }
       }
     }
+  });
+
+  // --- I1 (Ruling 11): liveFigureRoots must never pick up a mount --------
+
+  it.each(shippedTeams())(
+    '%s: liveFigureRoots(idle) names no prop/ground/neutral_bone mount, and every root has a Bone child',
+    async (team) => {
+      const template = await templateFor(team);
+      const entity = instantiateMeshUnit(template, team);
+      applyMeshClip(entity, 'idle');
+      entity.mixer.update(0.01); // writes the scale keys `liveFigureRoots` reads
+      const roots = liveFigureRoots(entity.root);
+      const names = roots.map((b) => b.name);
+      // Printed on the PASSING path, per this task's brief -- the whole
+      // point of a shipped-bytes sweep is to show what it actually found,
+      // not just that nothing it was told to look for showed up.
+      console.log(`${team}: liveFigureRoots(idle) = [${names.join(', ')}]`);
+      for (const mount of ['prop', 'ground', 'neutral_bone']) expect(names).not.toContain(mount);
+      for (const root of roots) {
+        expect(root.children.some((c) => (c as THREE.Bone).isBone)).toBe(true);
+      }
+    }
+  );
+});
+
+// --- I2 (Ruling 12): which death path each shipped rig takes ---------------
+
+/**
+ * Pinned by instantiating each shipped team, playing `idle`, advancing the
+ * mixer once (so any constant scale keys are written), then calling
+ * `beginMeshDeath` and reading `.phase`. Three files carry an authored
+ * `fall`/`fallAlt` and enter `falling` (D3); two -- `sniper_team` (a prone
+ * rig, live in its own wreck geometry already) AND `meshy_mortar_team`
+ * (Ruling 12: its `idle`/`fire`/`down`/`wreck` are all poses in the SAME
+ * bone tree, keying identical scale signatures, so a mortar team killed
+ * while idle or firing takes the "already down" blend straight to
+ * `settling` even though nothing about its actual pose is prone) -- take
+ * the already-down path; every other shipped team has neither and enters
+ * the generic per-figure `toppling` (D5).
+ */
+describe('which death path each shipped rig takes', () => {
+  const EXPECTED_PHASE: Readonly<Record<string, MeshDeathPhase>> = {
+    meshy_soldier: 'falling',
+    sarim_rifles: 'falling',
+    yahalom_engineer: 'falling',
+    sniper_team: 'settling',
+    meshy_mortar_team: 'settling',
+  };
+
+  it.each(shippedTeams())('%s', async (team) => {
+    const template = await templateFor(team);
+    const entity = instantiateMeshUnit(template, team);
+    applyMeshClip(entity, 'idle');
+    entity.mixer.update(0.01);
+    const dying = beginMeshDeath(entity, 1);
+    const expected = EXPECTED_PHASE[team] ?? 'toppling';
+    // Break check (verified by hand, then reverted): change any one entry
+    // above -- e.g. `meshy_mortar_team: 'toppling'`. That team's own case
+    // goes red (reads 'settling', the real already-down blend Ruling 12
+    // accepts), proving this pins the actual bytes rather than restating
+    // whatever the map already says.
+    expect(dying.phase).toBe(expected);
   });
 });
