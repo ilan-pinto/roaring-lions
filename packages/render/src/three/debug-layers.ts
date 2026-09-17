@@ -137,6 +137,20 @@
  * values with no material of their own to hide), and this layer's only
  * caller always runs on the mesh path, so that gap is recorded rather than
  * closed.
+ *
+ * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
+ * follow-up 2): the large dark diagonal a first attempt at the plate read as
+ * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
+ * pulling never-seen ground toward 85% shroud and explored ground toward
+ * 40%, which a camera parked near the edge of what the sandbox force can
+ * see paints as a hard line. Exactly `vignette`'s own shape, confirmed by
+ * reading rather than assumed: `ThreeRenderer.fogPass` is a `Pass | null`
+ * set once in `init()` (`this.fogPass = new FogOfWarPass(...)`) and handed
+ * to the chain through `PostChain.setFogPass`, which only stores it
+ * (`post-chain.ts`) -- grepping the whole file for `fogPass.enabled` finds
+ * no writer at all, so nothing per-frame re-asserts it and a plain toggle on
+ * the pass's own `enabled` holds across the repaint the way `vignette`'s
+ * does and `units`' plain `visible` write could not.
  */
 export const DEBUG_LAYERS = [
   'scatter',
@@ -147,6 +161,7 @@ export const DEBUG_LAYERS = [
   'vignette',
   'skirt',
   'overlays',
+  'fog',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

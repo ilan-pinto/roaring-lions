@@ -21,98 +21,103 @@
  * capture rather than a fast one (`golden-diff/browser.ts`'s
  * `launchCaptureBrowser` makes the same choice for the same reason).
  *
- * Subject: the sandbox force's own `mbt_lavi` on `beit_sahwan_outskirts`
- * (`?sandbox=beit_sahwan_outskirts`, no flags -- `SANDBOX_KDF` in
- * `sandbox-force.ts` fields two tanks and three infantry squads with no
- * `&sur`/`&civ`/`&tunnel` needed). `units(0).find(u => u.type ===
- * 'mbt_lavi')` picks the first of the two, only to confirm the roster and
- * anchor a settle wait; the CAMERA below is NOT centred on it directly (see
- * "Camera" below for why) -- if the type ever disappears from the roster the
- * script throws, naming every type actually present, rather than silently
- * framing empty ground.
+ * ## History: two follow-ups, both from looking at the actual plate
  *
- * Camera: a fixed `(24, 24)` at zoom 1.3, not a formula off the tank's own
- * position -- see "Camera, measured" below for why a fixed point replaced
- * the offset-from-subject approach an earlier version of this file used.
- * `lighting.ts`'s `SUN_DIRECTION` lights the camera's LEFT flank (CLAUDE.md,
- * "The colour pipeline").
+ * v1 framed the sandbox force where it SPAWNS, near `kdf_assembly` (world
+ * (4, 23), four tiles from the map's west edge) -- and fighting the map's
+ * edges from there, at whatever camera position, kept costing something:
+ * either a visible skirt wedge, or the force pushed to a corner of frame, or
+ * (once zoom 1.3 was required) a width narrower than the old banner's. v2
+ * hid the unit/structure overlays and the occlusion silhouette. v3 (this
+ * version) stopped fighting the spawn position and MOVED the force instead:
+ * ordered to open ground between the assembly area and the town, the same
+ * way `golden-diff/baseline.ts`'s `RELIEF_SCENARIO` moves its recon drone
+ * with a `queueCommand` -- see "Order and arrival" below. This also fixed a
+ * defect the coordinator caught that no earlier version of this file even
+ * knew to look for: the large dark diagonal every capture carried was not a
+ * shadow, it was the fog-of-war boundary, and moving the camera around never
+ * could have fixed that -- only hiding the fog pass could.
  *
- * ## Overlays and the occlusion silhouette
+ * ## Order and arrival
  *
- * Every unit/structure overlay (HP bars, suppression bars, selection/threat
- * rings, control-group badges, the veterancy chevron) AND the occlusion
- * silhouette (a unit's team-coloured outline, visible through whatever is
- * standing in front of it -- `units/silhouette.ts`) are hidden via
+ * Every side-0 unit (`__lions.units(0)`, not just the Lavi) is sent, as one
+ * group `move`, to a point WEST_OF_TOWN_CENTER tiles west and
+ * SOUTH_OF_TOWN_CENTER tiles south of the `town_center` marker (21 west, 4
+ * south today -- NOT the coordinator's own suggested "8 west, same y"; see
+ * those constants' own comment for the two independent, partly conflicting
+ * measurements that moved both numbers). `capture-protocol.ts`'s own comment
+ * on `Scenario.orders` has the `queueCommand` shape this borrows: `{ kind:
+ * 'move', ids, x, y }`, `x`/`y` in Q16.16 (`Math.round(tile * 65536)`, never
+ * a raw tile number -- invariant 2). `town_center`'s own tile comes from
+ * `__lions.goto('town_center')`, which both returns the marker's `[x, y]`
+ * and (harmlessly, since the camera below is set explicitly afterward)
+ * recentres the camera there -- reading the map's marker live rather than
+ * hardcoding the map's current (31, 22), so a future map edit does not
+ * silently point this script at the wrong tile.
+ *
+ * Since 2026-09-15 a group order lands in FORMATION
+ * (`packages/sim/src/formation.ts`), not stacked on one tile, so "arrived"
+ * is checked against the one unit the brief names -- `mbt_lavi`, re-found by
+ * id after each step chunk -- within 2 tiles of the goal, not exact
+ * equality. Stepped in 30-tick (1.5s) chunks up to a 600-tick cap; if the
+ * Lavi is still more than 2 tiles out when the cap is reached, the script
+ * throws rather than framing wherever the force happened to stop (a silent
+ * partial arrival would be a worse failure than a loud one -- the same
+ * reasoning as the missing-`mbt_lavi` check below). One more `SETTLE_TICKS`
+ * (150) runs after the Lavi arrives: the CAMERA below frames the whole
+ * force's CENTROID, not the Lavi alone, and formation stragglers left that
+ * centroid measured 3-4 tiles short of the target at the instant the Lavi
+ * itself crossed the arrival threshold.
+ *
+ * ## Overlays, the occlusion silhouette, and fog
+ *
  * `__lions.renderer.setDebugLayerVisible('overlays', false)`
- * (`packages/render/src/three/debug-layers.ts`) before anything else touches
- * the page. Both are in-canvas render objects, not DOM, so the HUD-hide
- * below (which only ever touches `document.body`) never reached them. The
- * silhouette half was found the hard way: an early capture near the map's
- * civic-hall structure showed a thin red outline poking through its wall --
- * a HOSTILE unit standing behind it, revealed by the sandbox force's own
- * recon drone and rendered as a "the enemy is behind that wall" hint. Real
- * gameplay information, and exactly as unwelcome in key art as a health bar
- * -- see `debug-layers.ts`'s own comment for the mechanism (three shared
- * `MeshBasicMaterial`s, one per side, toggled by `.visible`, not a scene
- * traversal).
+ * (`packages/render/src/three/debug-layers.ts`) hides every unit/structure
+ * overlay (HP bars, suppression bars, selection/threat rings, control-group
+ * badges, the veterancy chevron) AND the occlusion silhouette (a unit's
+ * team-coloured outline, visible through whatever is standing in front of
+ * it -- `units/silhouette.ts`) -- found the hard way in the first follow-up:
+ * a capture near the map's civic-hall structure showed a thin red outline
+ * poking through its wall, which turned out to be a HOSTILE unit standing
+ * behind it, revealed by the sandbox force's own recon drone, not a HUD
+ * element. `setDebugLayerVisible('fog', false)` hides the SECOND thing the
+ * coordinator caught: the fog-of-war post pass (`FogOfWarPass`, band-dimming
+ * never-seen ground to 85% shroud and explored ground to 40%), which a
+ * camera anywhere near the edge of what the force can see paints as a hard
+ * diagonal that reads as a shadow until you look for what casts it and find
+ * nothing. Both calls run AFTER the arrival step-loop's last `step()` and
+ * BEFORE the freeze + single repaint, per the coordinator's own ordering --
+ * both are one-time flag flips (a batch's `endFrame()` never touches
+ * `.visible`; neither `Pass`'s `enabled` is ever reasserted per frame, see
+ * `debug-layers.ts`'s own comments for the greps that confirm it), so there
+ * is nothing to race by running them before the freeze rather than after.
  *
- * ## Camera, measured
+ * ## Camera and clip
  *
- * `kdf_assembly` (the sandbox force's anchor, `data/maps/
- * beit_sahwan_outskirts.json`'s own marker) sits at world (4, 23), four
- * tiles from the map's west edge (x=0) -- close enough that an
- * offset-from-the-tank camera (this file's first version: `camera.x =
- * tank.x + 17, camera.y = tank.y, zoom 1.6`) cleared the west edge only by
- * pushing the whole force to the left third of frame. The coordinator's
- * follow-up asked for zoom 1.3 and a camera "between the force and the
- * outpost" with NO off-map ground anywhere in the clip, which turned out to
- * be a much tighter constraint than the west edge alone: at zoom 1.3 the
- * map's NORTH edge (y=0) and SOUTH edge (y=47) are both close enough to
- * intrude too, and which one shows depends on `camera.y` in a way that
- * fighting the west edge (via `camera.x`) does not fix for free. Camera
- * positions tried and read by full-frame pixel classification (`skirt` void
- * is low-luminance AND low colour-saturation; lit sand, shadowed sand and
- * building shadow all keep enough red-over-blue spread to tell apart even
- * when dark) before landing here: (12.5,19.5) -- both north and west edges
- * show; (16,26)/(19,28) -- west edge shrinks, north edge lingers as a
- * sliver; (22,30)/(24,27)/(28,26) -- west and north clear, but far enough
- * south to expose the SOUTH edge in the bottom-left instead; (28,24) --
- * clean on all four edges but only within a ~2200px-wide window, short of
- * the original banner's 2360; (20,24) -- excellent force+outpost framing,
- * but the achievable void-free width shrinks further once the required
- * window is pushed left to include the force. (24,24) -- adopted: zoom 1.3,
- * camera.y at the map's own vertical centre (48-tall map, y=24) rather than
- * matched to any one unit, camera.x roughly midway between the force
- * (world x~2-8) and the civic-hall structure near the KDF outpost (world
- * x~20-22) -- clears all four edges within a verified window and keeps the
- * whole `SANDBOX_KDF` roster in frame.
- *
- * ## Clip
- *
- * `{x:150, y:250, width:2200, height:900}` -- NOT the original
- * `2360x1000` (2.36:1, the old banner's own ratio): every camera position
- * measured above tops out at roughly 2000-2280px of simultaneously
- * void-free width, never the full 2360, because the map's four edges box in
- * the force's own neighbourhood at zoom 1.3 more tightly than the banner's
- * exact aspect ratio leaves room for. 2200x900 (2.44:1, close to the
- * original) is the verified rectangle: every one of its four corners AND a
- * grid over its top-right quadrant -- the specific region a north-edge
- * intrusion would land in -- sampled as lit sand, shadowed sand, a road, or
- * a building, never the skirt's flat low-saturation grey (see the report's
- * own recorded samples for the exact values). `menu.ts`'s intrinsic
- * `width`/`height` hints are updated to match; the CSS itself
- * (`width:100%; height:auto`) does not care what the ratio is.
+ * Camera: the force's own centroid (mean `x`/`y` over `__lions.units(0)`,
+ * read AFTER arrival AND the settle above, not the spawn-time positions) at
+ * zoom 1.4 -- the coordinator's replacement for hunting a camera position
+ * near the map's edges, now that the force stands on open ground with the
+ * town in view instead. That replacement is not quite as clean as it
+ * sounds, though, and the "Order and arrival" measurements above are why:
+ * the force's spawn point is close enough to the map's west edge that even
+ * ground it can safely march to (outside the nearest `SANDBOX_ENEMY` unit's
+ * engagement) still needed a specific, measured (x, y), not merely "some
+ * open ground" -- the edge does not vanish just because the force moved,
+ * it just moves the fight from "which camera offset" to "which order
+ * target". Clip: 2200x900 (this file's own v2 measurement of the largest
+ * window the old banner's ratio could get within reach of), centred in the
+ * 2560x1440 viewport this time (`x=180, y=270`), which the chosen order
+ * target keeps clean on all four sides -- verified the same way v2's clip
+ * was, by cropping and sampling the corners and a grid over the quadrant
+ * likeliest to catch a regression, recorded in the task report.
  *
  * Freeze/repaint: `FREEZE_FRAME_LOOP_SCRIPT` (stop `main.ts`'s own rAF loop
  * so nothing repaints between the last `step()`/camera write and the
  * screenshot) and `REPAINT_SCRIPT` (one explicit zero-time repaint at the
  * FINAL camera position) are `golden-diff/capture-protocol.ts`'s, not
  * reimplemented -- that file's own comment has the measured 28% false-red
- * rate a hand-rolled version of this risked repeating. The overlays toggle
- * runs before the freeze: it is a one-time `.visible` flip with nothing to
- * race (see its own comment above), so there is no ordering hazard, and it
- * keeps every "make the scene look right" step together, ahead of the "now
- * hold it still" step.
+ * rate a hand-rolled version of this risked repeating.
  *
  * HUD: every element `document.body` holds that does not itself CONTAIN the
  * canvas gets `display: none`, never an app flag (CLAUDE.md, "Verify UI
@@ -148,17 +153,78 @@ const MAP_ID = 'beit_sahwan_outskirts';
 const OUT_FILE = path.resolve(REPO_ROOT, 'assets/ui/menu_plate.jpg');
 // 2560x1440, the banner's page-native capture size.
 const VIEWPORT = { width: 2560, height: 1440 } as const;
-// See this file's own top comment ("Camera, measured") for the values below
-// and the measurement behind them.
-const CAMERA = { x: 24, y: 24, zoom: 1.3 } as const;
-// See this file's own top comment ("Clip") for why this is not the original
-// banner's 2360x1000.
-const CLIP = { x: 150, y: 250, width: 2200, height: 900 } as const;
+const ZOOM = 1.4;
+// See this file's own top comment ("Camera and clip") for why 2200x900 and
+// why centred this time.
+const CLIP = { x: (VIEWPORT.width - 2200) / 2, y: (VIEWPORT.height - 900) / 2, width: 2200, height: 900 } as const;
+// Applied to the force's centroid AFTER it is measured, not part of the
+// order target -- see the camera-setting code's own comment for why the
+// combat-safe order and the void-clean camera are not quite the same point.
+const CENTROID_X_NUDGE = 3;
+// Offset from `town_center` the force is ordered to, in tiles -- NOT the
+// coordinator's own suggested "8 west, same y". See this file's own top
+// comment ("Order and arrival") for the two independent, and NOT quite
+// reconcilable at a single point, constraints that moved both numbers, and
+// `CENTROID_X_NUDGE` above for the third piece (the order target and the
+// camera position are not the same point either).
+//
+// COMBAT: `sandboxAnchors` (`packages/app/src/sandbox-anchors.ts`, pinned by
+// its own test for this map) puts the HOSTILE anchor exactly ON
+// `town_center`, and `SANDBOX_ENEMY`'s closest entry (an `rpg_team`, offset
+// (-12, -3) from it, `sight_tiles: 7`) sits only 12 tiles west of it -- an
+// 8-tile order lands well inside its sight. What actually triggers a
+// firefight did not reduce to a single static "stay outside this unit's
+// sight/weapon range" formula: several targets measured 9-10 tiles from that
+// `rpg_team` (by straight-line distance) came back combat-free, and others
+// at a SIMILAR distance, in a different direction, came back with visible
+// tracers, a muzzle flash and a dust burst in the capture. Terrain-dependent
+// line of sight is the likely reason, but nothing here proves it. The one
+// reliable reading, across every order actually tried, is that the Lavi's
+// own ARRIVAL tile staying at x=9 (this file's original "8 west, same y"
+// region, barely extended) was combat-free twice running, while every
+// other arrival tried -- x=11, 12, 13 and 21, at two different y values --
+// came back with a firefight. So x=9 is the value this script now aims the
+// ORDER at, not a distance formula extrapolated from it.
+//
+// VOID: with the camera on the force's own centroid (not independently
+// tuned, as the first two follow-ups' cameras were), x=9-ish at the same y
+// as `town_center` (22) reopens the west-edge void this whole task keeps
+// finding -- a centroid camera pins camera.y to the force's own y too, so
+// there is no independent knob left to clear it the way earlier follow-ups
+// did. Full-viewport probes (zoom 1.4, camera set directly, no orders
+// issued, so cheap to sweep) found x=9-15 at y=26-28 clean on all four
+// corners and both edges -- neither y=22 (too close to the west edge at
+// this x) nor y=32+ (clears the NORTH edge but reopens the WEST one at the
+// BOTTOM of frame, the same edge from a different diagonal) work, but 26-28
+// threads both.
+//
+// The two clean regions (x=9 for the order, x=9-15 for the camera) DO
+// overlap, but the force's own centroid sits measurably west of wherever
+// the Lavi itself stops (formation stragglers -- see `SETTLE_TICKS`'s own
+// comment), so ordering to the safe point alone still leaves the CAMERA
+// west of the clean one. `CENTROID_X_NUDGE` is that gap, measured directly
+// rather than folded into a second guess-and-check on the order itself.
+const WEST_OF_TOWN_CENTER = 21;
+const SOUTH_OF_TOWN_CENTER = 4;
+// See "Order and arrival" above.
+const ARRIVAL_TILES = 2;
+const STEP_CHUNK = 30;
+const STEP_CAP = 600;
+// Extra settle after the Lavi arrives, so the rest of the formation (and the
+// centroid the camera frames on) catches up too -- see this file's own top
+// comment ("Order and arrival") for the measurement that made this
+// necessary: the centroid landed 3-4 tiles short of the target at the
+// moment the Lavi alone arrived.
+const SETTLE_TICKS = 150;
 
 interface LionsWindow {
   __lions: {
     step(n: number): number;
     units(side?: number): { id: number; type: string; x: number; y: number }[];
+    goto(where: string | number, y?: number): [number, number] | null;
+    sim: {
+      queueCommand(c: { kind: string; ids: number[]; x: number; y: number }): void;
+    };
     renderer: {
       camera: { x: number; y: number; zoom: number };
       setDebugLayerVisible(name: string, visible: boolean): number;
@@ -192,18 +258,10 @@ try {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(3000);
 
-  // Hide every unit/structure overlay AND the occlusion silhouette -- see
-  // this file's own top comment ("Overlays and the occlusion silhouette").
-  await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('overlays', false));
-
-  // Freeze the app's own rAF loop before the HUD hide/camera work below, so
-  // nothing can repaint between our own step()/camera writes and the final
-  // screenshot. The overlays toggle above deliberately runs BEFORE this --
-  // see this file's own top comment ("Freeze/repaint") for why there is no
-  // ordering hazard in that.
-  await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
-
   // Hide the HUD by containment, not by tagName -- see top comment for why.
+  // Pure DOM, unrelated to sim timing, so it can run any time before the
+  // final screenshot; doing it early keeps the "make the page look right"
+  // steps together.
   await page.evaluate(() => {
     const canvas = document.querySelector('canvas');
     for (const el of Array.from(document.body.children)) {
@@ -212,18 +270,106 @@ try {
     }
   });
 
-  const units = await page.evaluate(() => (window as unknown as LionsWindow).__lions.units(0));
-  const tank = units.find((u) => u.type === 'mbt_lavi');
-  if (!tank) {
-    const present = [...new Set(units.map((u) => u.type))].join(', ') || '(no side-0 units at all)';
+  const startUnits = await page.evaluate(() => (window as unknown as LionsWindow).__lions.units(0));
+  const startTank = startUnits.find((u) => u.type === 'mbt_lavi');
+  if (!startTank) {
+    const present = [...new Set(startUnits.map((u) => u.type))].join(', ') || '(no side-0 units at all)';
     throw new Error(`no mbt_lavi in the sandbox force on ${MAP_ID} -- types present: ${present}`);
   }
-  console.log(`[${TAG}] mbt_lavi #${tank.id} at (${tank.x}, ${tank.y}) -- camera is fixed, not offset from this`);
 
-  // 40 ticks = 2s of sim time at the fixed 20Hz tick, so spawn dust settles
-  // before the shot.
-  await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(40));
+  // Order: every side-0 unit, as one group, to a point west of town_center.
+  // See "Order and arrival" above for why the marker is read live rather
+  // than hardcoded.
+  const townCenter = await page.evaluate(() => (window as unknown as LionsWindow).__lions.goto('town_center'));
+  if (!townCenter) throw new Error(`map "${MAP_ID}" has no "town_center" marker`);
+  const target = { x: townCenter[0] - WEST_OF_TOWN_CENTER, y: townCenter[1] + SOUTH_OF_TOWN_CENTER };
+  console.log(`[${TAG}] town_center at (${townCenter[0]}, ${townCenter[1]}); ordering the force to (${target.x}, ${target.y})`);
 
+  await page.evaluate(
+    ([ids, tx, ty]) => {
+      const FIXED = 65536;
+      (window as unknown as LionsWindow).__lions.sim.queueCommand({
+        kind: 'move',
+        ids: ids as number[],
+        x: Math.round((tx as number) * FIXED),
+        y: Math.round((ty as number) * FIXED),
+      });
+    },
+    [startUnits.map((u) => u.id), target.x, target.y]
+  );
+
+  // Step until the Lavi is within ARRIVAL_TILES of the goal, capped at
+  // STEP_CAP ticks total -- fail loudly rather than frame wherever the
+  // force happened to stop.
+  let ticksStepped = 0;
+  let arrived = false;
+  let lastTankPos: { x: number; y: number } = { x: startTank.x, y: startTank.y };
+  while (ticksStepped < STEP_CAP) {
+    await page.evaluate((n) => (window as unknown as LionsWindow).__lions.step(n), STEP_CHUNK);
+    ticksStepped += STEP_CHUNK;
+    const cur = await page.evaluate(
+      (id) => {
+        const L = (window as unknown as LionsWindow).__lions;
+        const u = L.units(0).find((u) => u.id === id);
+        return u ? { x: u.x, y: u.y } : null;
+      },
+      startTank.id
+    );
+    if (!cur) throw new Error(`mbt_lavi #${startTank.id} died or vanished while marching to (${target.x}, ${target.y})`);
+    lastTankPos = cur;
+    const dist = Math.hypot(cur.x - target.x, cur.y - target.y);
+    if (dist <= ARRIVAL_TILES) {
+      arrived = true;
+      break;
+    }
+  }
+  if (!arrived) {
+    throw new Error(
+      `mbt_lavi #${startTank.id} never reached within ${ARRIVAL_TILES} tiles of (${target.x}, ${target.y}) ` +
+        `after ${ticksStepped} ticks -- stalled at (${lastTankPos.x}, ${lastTankPos.y})`
+    );
+  }
+  console.log(`[${TAG}] mbt_lavi #${startTank.id} arrived at (${lastTankPos.x}, ${lastTankPos.y}) after ${ticksStepped} ticks`);
+
+  // Let the whole formation -- not just the Lavi -- catch up before framing.
+  // The arrival check above watches only the Lavi (per the coordinator's own
+  // instruction), and a group order lands in FORMATION rather than stacked
+  // (`packages/sim/src/formation.ts`), so trailing units (measured: the
+  // centroid landed 3-4 tiles short of the target at the moment the Lavi
+  // itself arrived) leave the CENTROID -- what the camera below is actually
+  // framed on -- well short of the clean, combat-free point this file's own
+  // top comment measured. `SETTLE_TICKS` is one more `step()` call, so it is
+  // still covered by "overlays and fog after the LAST step()" below.
+  await page.evaluate((n) => (window as unknown as LionsWindow).__lions.step(n), SETTLE_TICKS);
+
+  // Overlays and fog AFTER the last step(), per the coordinator's own
+  // ordering -- see "Overlays, the occlusion silhouette, and fog" above.
+  await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('overlays', false));
+  await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('fog', false));
+
+  // Freeze the app's own rAF loop before the camera write below, so nothing
+  // can repaint between it and the final screenshot.
+  await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
+
+  // Camera on the force's centroid, at its FINAL (arrived) positions --
+  // plus CENTROID_X_NUDGE, which this file's own top comment ("Camera and
+  // clip") explains: the combat-safe order target and the void-clean
+  // camera position turned out not to be the SAME point (a margin of one to
+  // two tiles separates "the Lavi's own arrival is safe" from "the
+  // formation's centroid clears the map edge"), so the order aims for the
+  // safe point and the camera is nudged east from the centroid it actually
+  // produces, onto the clean one -- measured, not a guess: this centroid
+  // plus 3 tiles is where the corner/quadrant samples below were taken.
+  const finalUnits = await page.evaluate(() => (window as unknown as LionsWindow).__lions.units(0));
+  const centroid = finalUnits.reduce(
+    (acc, u) => ({ x: acc.x + u.x / finalUnits.length, y: acc.y + u.y / finalUnits.length }),
+    { x: 0, y: 0 }
+  );
+  const cameraTarget = { x: centroid.x + CENTROID_X_NUDGE, y: centroid.y };
+  console.log(
+    `[${TAG}] force centroid (${centroid.x.toFixed(2)}, ${centroid.y.toFixed(2)}); ` +
+      `camera at (${cameraTarget.x.toFixed(2)}, ${cameraTarget.y.toFixed(2)}), zoom ${ZOOM}`
+  );
   await page.evaluate(
     ([cx, cy, cz]) => {
       const c = (window as unknown as LionsWindow).__lions.renderer.camera;
@@ -231,12 +377,11 @@ try {
       c.y = cy;
       c.zoom = cz;
     },
-    [CAMERA.x, CAMERA.y, CAMERA.zoom]
+    [cameraTarget.x, cameraTarget.y, ZOOM]
   );
 
   // One explicit zero-time repaint at the FINAL camera position -- the
-  // picture step() painted a moment ago was at the OLD (boot) camera, not
-  // this one.
+  // picture the last step() painted was at the OLD camera, not this one.
   await page.evaluate(REPAINT_SCRIPT);
 
   await page.screenshot({ path: OUT_FILE, type: 'jpeg', quality: 86, clip: CLIP });

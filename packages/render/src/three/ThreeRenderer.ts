@@ -2401,6 +2401,20 @@ export class ThreeRenderer implements Renderer {
         for (const m of this.silhouetteMeshMaterials) m.visible = visible;
         return batchCount + this.silhouetteMeshMaterials.length;
       }
+      case 'fog':
+        // Exactly `vignette`'s own shape -- a `Pass.enabled`, not an
+        // `Object3D.visible`, and nothing in `frame()` re-asserts it: the
+        // chain is rebuilt only by the three `set*Pass` calls, all of which
+        // run in `init()`/`dispose()`. See `debug-layers.ts`'s own comment
+        // for the grep that confirmed no other writer of `fogPass.enabled`
+        // exists. Returns 1 when it actually changed something, which is
+        // what makes a missing pass (`init()` never ran) read as 0 objects
+        // rather than as a silent pass.
+        {
+          const was = this.fogPass?.enabled ?? false;
+          if (this.fogPass) this.fogPass.enabled = visible;
+          return this.fogPass === null || was === visible ? 0 : 1;
+        }
     }
   }
 
