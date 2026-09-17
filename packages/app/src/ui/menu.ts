@@ -61,13 +61,17 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   //
   // A plate captured from the running game (`pnpm plate:capture`,
   // `tools/src/perf/plate-capture.ts`), not a generated painting -- see that
-  // script's own header for what it replaced and why. 2360x1000 are the
+  // script's own header for what it replaced and why. 2200x900 are the
   // plate's own pixel dimensions (the intrinsic size hint only; the CSS
-  // below still constrains display width to 100%, height auto).
+  // below still constrains display width to 100%, height auto) -- not the
+  // 2360x1000 of the old banner's ratio, because no camera position the
+  // follow-up's zoom-1.3/no-off-map-ground constraint was checked against
+  // could hold a void-free 2360-wide window; see the capture script's own
+  // "Clip" section for the measurement.
   banner.src = `${opts.base}ui/menu_plate.jpg`;
   banner.alt = '';
-  banner.width = 2360;
-  banner.height = 1000;
+  banner.width = 2200;
+  banner.height = 900;
   banner.className = 'rl-menu__banner';
   wrap.appendChild(banner);
 

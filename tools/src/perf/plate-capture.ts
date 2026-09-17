@@ -24,36 +24,95 @@
  * Subject: the sandbox force's own `mbt_lavi` on `beit_sahwan_outskirts`
  * (`?sandbox=beit_sahwan_outskirts`, no flags -- `SANDBOX_KDF` in
  * `sandbox-force.ts` fields two tanks and three infantry squads with no
- * `&sur`/`&civ`/`&tunnel` needed, so both the vehicle and an infantry squad
- * are in frame for free). `units(0).find(u => u.type === 'mbt_lavi')` picks
- * the first of the two; if the roster ever loses the type entirely the
+ * `&sur`/`&civ`/`&tunnel` needed). `units(0).find(u => u.type ===
+ * 'mbt_lavi')` picks the first of the two, only to confirm the roster and
+ * anchor a settle wait; the CAMERA below is NOT centred on it directly (see
+ * "Camera" below for why) -- if the type ever disappears from the roster the
  * script throws, naming every type actually present, rather than silently
  * framing empty ground.
  *
- * Camera: `(tank.x + CAMERA_X_OFFSET, tank.y)` at zoom 1.6, after `step(40)`
- * (2s of sim time at the fixed 20Hz tick) so spawn dust has settled.
+ * Camera: a fixed `(24, 24)` at zoom 1.3, not a formula off the tank's own
+ * position -- see "Camera, measured" below for why a fixed point replaced
+ * the offset-from-subject approach an earlier version of this file used.
  * `lighting.ts`'s `SUN_DIRECTION` lights the camera's LEFT flank (CLAUDE.md,
  * "The colour pipeline").
  *
- * CAMERA_X_OFFSET is 17, not the task brief's placeholder 1.2 -- measured,
- * not guessed, after the first look this file's own task brief asks for.
+ * ## Overlays and the occlusion silhouette
+ *
+ * Every unit/structure overlay (HP bars, suppression bars, selection/threat
+ * rings, control-group badges, the veterancy chevron) AND the occlusion
+ * silhouette (a unit's team-coloured outline, visible through whatever is
+ * standing in front of it -- `units/silhouette.ts`) are hidden via
+ * `__lions.renderer.setDebugLayerVisible('overlays', false)`
+ * (`packages/render/src/three/debug-layers.ts`) before anything else touches
+ * the page. Both are in-canvas render objects, not DOM, so the HUD-hide
+ * below (which only ever touches `document.body`) never reached them. The
+ * silhouette half was found the hard way: an early capture near the map's
+ * civic-hall structure showed a thin red outline poking through its wall --
+ * a HOSTILE unit standing behind it, revealed by the sandbox force's own
+ * recon drone and rendered as a "the enemy is behind that wall" hint. Real
+ * gameplay information, and exactly as unwelcome in key art as a health bar
+ * -- see `debug-layers.ts`'s own comment for the mechanism (three shared
+ * `MeshBasicMaterial`s, one per side, toggled by `.visible`, not a scene
+ * traversal).
+ *
+ * ## Camera, measured
+ *
  * `kdf_assembly` (the sandbox force's anchor, `data/maps/
  * beit_sahwan_outskirts.json`'s own marker) sits at world (4, 23), four
- * tiles from the map's west edge (x=0); at offset 1.2 the camera (x=5.2) is
- * still well inside the zoom-1.6 view of that edge, and the void beyond it
- * (Task 9's ground skirt, a differently-textured, unlit plane -- see
- * CLAUDE.md's "The ground is SMOOTH" and the vignette/skirt bullets) fills
- * roughly a third of the frame as a hard diagonal. Every whole tile of
- * CAMERA_X_OFFSET shifts the world ~51px left / ~26px up on screen at this
- * zoom (`TILE_W`/`TILE_H` in `packages/render/src/project.ts`, halved and
- * scaled by zoom), so clearing the edge costs far more than the "one tile"
- * the brief's fallback language suggests. 17 is the smallest offset found by
- * capturing at 6, 9, 12, 15, 16, 17 and 18 and reading each result: below it
- * a visible wedge of skirt remains in the top-left corner; above it
- * (18) the frame starts clipping `dozer_d9`/`heli_peten` at the left edge
- * for no further gain. At 17 the whole rostered force from `SANDBOX_KDF`
- * (both tanks, the IFV, the APC, three infantry squads, the AT/mortar pair,
- * the drone) is in frame with no edge, no crop.
+ * tiles from the map's west edge (x=0) -- close enough that an
+ * offset-from-the-tank camera (this file's first version: `camera.x =
+ * tank.x + 17, camera.y = tank.y, zoom 1.6`) cleared the west edge only by
+ * pushing the whole force to the left third of frame. The coordinator's
+ * follow-up asked for zoom 1.3 and a camera "between the force and the
+ * outpost" with NO off-map ground anywhere in the clip, which turned out to
+ * be a much tighter constraint than the west edge alone: at zoom 1.3 the
+ * map's NORTH edge (y=0) and SOUTH edge (y=47) are both close enough to
+ * intrude too, and which one shows depends on `camera.y` in a way that
+ * fighting the west edge (via `camera.x`) does not fix for free. Camera
+ * positions tried and read by full-frame pixel classification (`skirt` void
+ * is low-luminance AND low colour-saturation; lit sand, shadowed sand and
+ * building shadow all keep enough red-over-blue spread to tell apart even
+ * when dark) before landing here: (12.5,19.5) -- both north and west edges
+ * show; (16,26)/(19,28) -- west edge shrinks, north edge lingers as a
+ * sliver; (22,30)/(24,27)/(28,26) -- west and north clear, but far enough
+ * south to expose the SOUTH edge in the bottom-left instead; (28,24) --
+ * clean on all four edges but only within a ~2200px-wide window, short of
+ * the original banner's 2360; (20,24) -- excellent force+outpost framing,
+ * but the achievable void-free width shrinks further once the required
+ * window is pushed left to include the force. (24,24) -- adopted: zoom 1.3,
+ * camera.y at the map's own vertical centre (48-tall map, y=24) rather than
+ * matched to any one unit, camera.x roughly midway between the force
+ * (world x~2-8) and the civic-hall structure near the KDF outpost (world
+ * x~20-22) -- clears all four edges within a verified window and keeps the
+ * whole `SANDBOX_KDF` roster in frame.
+ *
+ * ## Clip
+ *
+ * `{x:150, y:250, width:2200, height:900}` -- NOT the original
+ * `2360x1000` (2.36:1, the old banner's own ratio): every camera position
+ * measured above tops out at roughly 2000-2280px of simultaneously
+ * void-free width, never the full 2360, because the map's four edges box in
+ * the force's own neighbourhood at zoom 1.3 more tightly than the banner's
+ * exact aspect ratio leaves room for. 2200x900 (2.44:1, close to the
+ * original) is the verified rectangle: every one of its four corners AND a
+ * grid over its top-right quadrant -- the specific region a north-edge
+ * intrusion would land in -- sampled as lit sand, shadowed sand, a road, or
+ * a building, never the skirt's flat low-saturation grey (see the report's
+ * own recorded samples for the exact values). `menu.ts`'s intrinsic
+ * `width`/`height` hints are updated to match; the CSS itself
+ * (`width:100%; height:auto`) does not care what the ratio is.
+ *
+ * Freeze/repaint: `FREEZE_FRAME_LOOP_SCRIPT` (stop `main.ts`'s own rAF loop
+ * so nothing repaints between the last `step()`/camera write and the
+ * screenshot) and `REPAINT_SCRIPT` (one explicit zero-time repaint at the
+ * FINAL camera position) are `golden-diff/capture-protocol.ts`'s, not
+ * reimplemented -- that file's own comment has the measured 28% false-red
+ * rate a hand-rolled version of this risked repeating. The overlays toggle
+ * runs before the freeze: it is a one-time `.visible` flip with nothing to
+ * race (see its own comment above), so there is no ordering hazard, and it
+ * keeps every "make the scene look right" step together, ahead of the "now
+ * hold it still" step.
  *
  * HUD: every element `document.body` holds that does not itself CONTAIN the
  * canvas gets `display: none`, never an app flag (CLAUDE.md, "Verify UI
@@ -70,13 +129,6 @@
  * (`el.contains(canvas)`) keeps the brief's actual intent (every body child
  * that is not the drawing surface disappears) correct for the nesting this
  * build actually has.
- *
- * Freeze/repaint: `FREEZE_FRAME_LOOP_SCRIPT` (stop `main.ts`'s own rAF loop
- * so nothing repaints between the last `step()`/camera write and the
- * screenshot) and `REPAINT_SCRIPT` (one explicit zero-time repaint at the
- * FINAL camera position) are `golden-diff/capture-protocol.ts`'s, not
- * reimplemented -- that file's own comment has the measured 28% false-red
- * rate a hand-rolled version of this risked repeating.
  */
 import { chromium, type Browser, type Page } from 'playwright';
 import fs from 'node:fs';
@@ -94,39 +146,24 @@ const TAG = 'plate-capture';
 const PORT = 5177;
 const MAP_ID = 'beit_sahwan_outskirts';
 const OUT_FILE = path.resolve(REPO_ROOT, 'assets/ui/menu_plate.jpg');
-// 2560x1440, the banner's page-native capture size. See this file's own top
-// comment for the measurement behind it.
-const CAMERA_X_OFFSET = 17;
+// 2560x1440, the banner's page-native capture size.
 const VIEWPORT = { width: 2560, height: 1440 } as const;
-// The 2360x1000 clip is the banner's own 2.36:1 ratio. NOT centred in the
-// viewport (100px/220px margins on every side, the original guess) -- at
-// CAMERA_X_OFFSET's zoom-1.6 framing the whole task force sits left-of-centre
-// (clearing the map edge costs screen-left real estate; see the camera
-// comment above), so the clip is pushed to the viewport's own left (x=0) and
-// top (y=100, leaving 340px below rather than 220px above/below) to keep
-// every rostered unit in frame rather than centring on empty sand and the
-// town beyond it. Still inside Task 9's post-tonemap vignette, which darkens
-// the frame's corners rather than its flat centre.
-const CLIP = { x: 0, y: 100, width: 2360, height: 1000 } as const;
+// See this file's own top comment ("Camera, measured") for the values below
+// and the measurement behind them.
+const CAMERA = { x: 24, y: 24, zoom: 1.3 } as const;
+// See this file's own top comment ("Clip") for why this is not the original
+// banner's 2360x1000.
+const CLIP = { x: 150, y: 250, width: 2200, height: 900 } as const;
 
 interface LionsWindow {
   __lions: {
     step(n: number): number;
     units(side?: number): { id: number; type: string; x: number; y: number }[];
-    renderer: { camera: { x: number; y: number; zoom: number } };
+    renderer: {
+      camera: { x: number; y: number; zoom: number };
+      setDebugLayerVisible(name: string, visible: boolean): number;
+    };
   };
-}
-
-async function setCamera(page: Page, x: number, y: number, zoom: number): Promise<void> {
-  await page.evaluate(
-    ([cx, cy, cz]) => {
-      const c = (window as unknown as LionsWindow).__lions.renderer.camera;
-      c.x = cx;
-      c.y = cy;
-      c.zoom = cz;
-    },
-    [x, y, zoom]
-  );
 }
 
 fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
@@ -155,9 +192,15 @@ try {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(3000);
 
-  // Freeze the app's own rAF loop before anything else touches the page, so
-  // nothing can repaint between our own step()/camera writes below and the
-  // final screenshot -- see this file's own top comment.
+  // Hide every unit/structure overlay AND the occlusion silhouette -- see
+  // this file's own top comment ("Overlays and the occlusion silhouette").
+  await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('overlays', false));
+
+  // Freeze the app's own rAF loop before the HUD hide/camera work below, so
+  // nothing can repaint between our own step()/camera writes and the final
+  // screenshot. The overlays toggle above deliberately runs BEFORE this --
+  // see this file's own top comment ("Freeze/repaint") for why there is no
+  // ordering hazard in that.
   await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
 
   // Hide the HUD by containment, not by tagName -- see top comment for why.
@@ -175,13 +218,21 @@ try {
     const present = [...new Set(units.map((u) => u.type))].join(', ') || '(no side-0 units at all)';
     throw new Error(`no mbt_lavi in the sandbox force on ${MAP_ID} -- types present: ${present}`);
   }
-  console.log(`[${TAG}] mbt_lavi #${tank.id} at (${tank.x}, ${tank.y})`);
+  console.log(`[${TAG}] mbt_lavi #${tank.id} at (${tank.x}, ${tank.y}) -- camera is fixed, not offset from this`);
 
   // 40 ticks = 2s of sim time at the fixed 20Hz tick, so spawn dust settles
   // before the shot.
   await page.evaluate(() => (window as unknown as LionsWindow).__lions.step(40));
 
-  await setCamera(page, tank.x + CAMERA_X_OFFSET, tank.y, 1.6);
+  await page.evaluate(
+    ([cx, cy, cz]) => {
+      const c = (window as unknown as LionsWindow).__lions.renderer.camera;
+      c.x = cx;
+      c.y = cy;
+      c.zoom = cz;
+    },
+    [CAMERA.x, CAMERA.y, CAMERA.zoom]
+  );
 
   // One explicit zero-time repaint at the FINAL camera position -- the
   // picture step() painted a moment ago was at the OLD (boot) camera, not

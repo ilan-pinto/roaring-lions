@@ -97,6 +97,46 @@
  *               scenario whose viewport actually reaches past the map edge
  *               can see it, which is why it does not get a check on every
  *               gated scenario.
+ *
+ * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate --
+ * `tools/src/perf/plate-capture.ts` is its only caller today; a `layerChecks`
+ * entry can still be added later if a scenario ever wants to gate it). HP
+ * bars, suppression bars, selection/threat rings, control-group badges and
+ * their numerals, the veterancy chevron, order/objective markers -- every
+ * unit AND structure overlay this backend draws, because all of it funnels
+ * through the same three meshes (`units/overlays.ts`'s `OverlayBatch`,
+ * `NumeralBatch`, `ChevronBatch`; one shared name rather than three, since a
+ * key-art plate wants none of them and a caller that hid only one would still
+ * show a bare badge ring with no numeral in it). Unlike `units`, this one IS
+ * a plain `setObjectsVisible`, not a flag the update path has to consult:
+ * each batch's `endFrame()` (`overlays.ts`) only calls `setDrawRange` and
+ * flags the buffer attributes dirty -- checked directly, nothing in the
+ * per-frame rebuild path ever touches `.visible` -- so a mesh hidden once
+ * stays hidden across every later beginFrame/push/endFrame cycle.
+ *
+ * IT ALSO HIDES THE OCCLUSION SILHOUETTE (`units/silhouette.ts`, band 6),
+ * which is a SEPARATE subsystem from the three batches above, not a fourth
+ * member of the same tier -- see that file's own top comment for why it
+ * exists (a unit walking behind a building must not simply vanish) and
+ * `debug-layers.ts`'s task-10-follow-up history for how this was found: a
+ * plate captured near a civic structure showed a thin red outline poking
+ * through its wall -- not a HUD element at all, but a HOSTILE unit's
+ * occlusion outline (`SILHOUETTE_COLOR_KEY_BY_SIDE`, team-coloured),
+ * standing behind the building and revealed by the sandbox force's own
+ * recon drone. One mesh's ghost-through-walls hint is exactly as unwelcome
+ * in key art as a health bar, so it is folded into the same name rather than
+ * given its own -- a caller asking a key-art tool to hide "the overlays"
+ * should not need to know this is architecturally a different system. Only
+ * the MESH-unit path is covered (`ThreeRenderer.silhouetteMeshMaterials`,
+ * three shared `MeshBasicMaterial`s, one per side, toggled by `.visible`
+ * rather than by object -- every mesh unit's silhouette parts share one of
+ * the three regardless of which entity they belong to, so three writes
+ * reach all of them with no traversal). The BILLBOARD path
+ * (`&nomesh`/`?renderer=pixi`) is NOT covered: it colours per-instance
+ * through a shader uniform (`silhouetteTeamColors`, plain `THREE.Color`
+ * values with no material of their own to hide), and this layer's only
+ * caller always runs on the mesh path, so that gap is recorded rather than
+ * closed.
  */
 export const DEBUG_LAYERS = [
   'scatter',
@@ -106,6 +146,7 @@ export const DEBUG_LAYERS = [
   'units',
   'vignette',
   'skirt',
+  'overlays',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

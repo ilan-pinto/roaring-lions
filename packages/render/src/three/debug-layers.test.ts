@@ -78,6 +78,10 @@ function internals(r: ThreeRenderer): {
   groundMat: GroundMaterial;
   skirtMesh: THREE.Mesh;
   vignettePass: { enabled: boolean } | null;
+  overlayBatch: { mesh: THREE.Mesh };
+  numeralBatch: { mesh: THREE.Mesh };
+  chevronBatch: { mesh: THREE.Mesh };
+  silhouetteMeshMaterials: THREE.MeshBasicMaterial[];
   rebuildTerrain(): void;
 } {
   return r as unknown as ReturnType<typeof internals>;
@@ -97,6 +101,42 @@ describe('DEBUG_LAYERS', () => {
     // was written to assert rather than quietly passing on a stale name.
     expect(isDebugLayer('units')).toBe(true);
     expect(isDebugLayer('unitz')).toBe(false);
+    r.dispose();
+  });
+
+  it('hides every overlay mesh -- HP bars, badges, chevrons, all three batches -- and back, with a plain visible flag', () => {
+    // Unlike `units`, this one is built unconditionally in the constructor
+    // (`OverlayBatch`/`NumeralBatch`/`ChevronBatch`, `ThreeRenderer`'s own
+    // ctor) and nothing in the per-frame beginFrame/push/endFrame cycle
+    // touches `.visible` -- see `debug-layers.ts`'s own comment for the check
+    // that makes a bare `setObjectsVisible` correct here rather than assumed.
+    const r = makeRenderer();
+    expect(r.setDebugLayerVisible('overlays', false)).toBe(6);
+    const i = internals(r);
+    expect(i.overlayBatch.mesh.visible).toBe(false);
+    expect(i.numeralBatch.mesh.visible).toBe(false);
+    expect(i.chevronBatch.mesh.visible).toBe(false);
+    expect(r.setDebugLayerVisible('overlays', true)).toBe(6);
+    expect(i.overlayBatch.mesh.visible).toBe(true);
+    expect(i.numeralBatch.mesh.visible).toBe(true);
+    expect(i.chevronBatch.mesh.visible).toBe(true);
+    r.dispose();
+  });
+
+  it('also hides the occlusion silhouette -- a different subsystem folded into the same name', () => {
+    // Found while framing the key-art plate near a civic structure: a
+    // hostile unit standing behind it showed as a thin red occlusion
+    // outline (`units/silhouette.ts`, render-order band 6) -- NOT one of the
+    // three overlay batches above, and not a HUD element, but just as
+    // unwelcome in key art. Three shared `MeshBasicMaterial`s (one per side)
+    // cover every mesh unit's silhouette with no per-entity traversal.
+    const r = makeRenderer();
+    const i = internals(r);
+    expect(i.silhouetteMeshMaterials).toHaveLength(3);
+    expect(r.setDebugLayerVisible('overlays', false)).toBe(6);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(false);
+    expect(r.setDebugLayerVisible('overlays', true)).toBe(6);
+    for (const m of i.silhouetteMeshMaterials) expect(m.visible).toBe(true);
     r.dispose();
   });
 

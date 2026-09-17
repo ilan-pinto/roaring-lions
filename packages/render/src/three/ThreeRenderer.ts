@@ -2372,6 +2372,35 @@ export class ThreeRenderer implements Renderer {
         // (`GROUND_ALBEDOS[id].gain`, never a hardcoded 1), which is why the
         // previous values are stashed rather than recomputed.
         return this.setGroundAlbedoOn(visible);
+      case 'overlays': {
+        // Unlike `units`, a plain `setObjectsVisible` is correct for the
+        // three batches -- `debug-layers.ts`'s own doc comment for
+        // `overlays` has the check that makes that safe rather than
+        // assumed: `OverlayBatch`/`NumeralBatch`/`ChevronBatch.endFrame()`
+        // never touch `.visible`, only `setDrawRange` and the buffer
+        // `needsUpdate` flags, so nothing in the per-frame rebuild
+        // re-asserts it the way fog visibility re-asserts a mesh unit's
+        // `root.visible` every frame.
+        const batchCount = setObjectsVisible(
+          visible,
+          this.overlayBatch.mesh,
+          this.numeralBatch.mesh,
+          this.chevronBatch.mesh
+        );
+        // The occlusion silhouette (band 6, `units/silhouette.ts`) is a
+        // SEPARATE subsystem folded into this same name -- see
+        // `debug-layers.ts`'s own comment for why a key-art tool asking to
+        // hide "the overlays" should not need to know that. Three shared
+        // `MeshBasicMaterial`s, one per side, cover every MESH unit's
+        // silhouette regardless of which entity it belongs to -- a material
+        // is not a scene object, so `setObjectsVisible` cannot reach it, and
+        // `Material.visible` is the real three.js switch for "do not
+        // rasterise anything using this material" with no per-entity
+        // traversal required. The billboard path is not covered (see the
+        // same comment).
+        for (const m of this.silhouetteMeshMaterials) m.visible = visible;
+        return batchCount + this.silhouetteMeshMaterials.length;
+      }
     }
   }
 
