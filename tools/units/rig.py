@@ -240,9 +240,10 @@ PART_BONE = {
     # --- kneeling legs (new this pass) ---
     # "down"/ground-contact leg (kit.py's own "_r" suffix -- not a body
     # side, the leg whose knee is on the ground) and "front"/planted leg
-    # ("_f"). No hip-fix bone: kneeling never animates thighs (crew stay
-    # deployed through every clip this pass authors -- see the report), so
-    # there is no swing to open a gap at.
+    # ("_f"). No hip-fix bone: the KNEEL skeleton itself never animates
+    # thighs, so there is no swing on IT to open a gap at -- a crew figure
+    # that walks (design D6) does so on its own separate standing walker,
+    # whose `_standing_bones` carry the hip-fix bones already.
     "shin_r": "shin_r", "boot_r": "shin_r", "thigh_r": "thigh_r",
     "shin_f": "shin_f", "boot_f": "shin_f",
     "knee_f": "thigh_f", "kneepad_f": "thigh_f", "thigh_f": "thigh_f",
@@ -2021,12 +2022,23 @@ def build_idle_clip(arm_obj, figures):
 def build_move_clip(arm_obj, figures, gait):
     """Full gait -- thigh/shin/arm swing, weight transfer, settle, head
     stabilisation, vertical bob -- for every figure that walks
-    (`spec["animates"]`). A crew-served figure (kneeling, or `rpg_fire`,
-    whose own `stride` teams.py pins to 0.0 even in `move`) gets NO keys
-    here at all and so stays at `move`'s own frame-0 identity pose for the
-    whole clip -- correctly: "crew-served weapons stay deployed through
-    move" (teams.py's own module docstring) means the whole figure stays
-    put, not just its weapon.
+    (`spec["animates"]`), PLUS -- since design D6 -- every kneeling figure's
+    own separate `{prefix}w` walker (`_walker_specs`), keyed here exactly
+    like a real standing figure while the kneeling body it stands in for is
+    scaled to invisible for this one clip (`_key_death_visibility`'s
+    `moving` branch). `mortar_crew`/`atgm_cell`/`digger_crew` walk this way:
+    their own kneeling `root` gets no gait key at all, but their `{prefix}w`
+    walker does, and it visibly steps.
+
+    A kneeling figure with NO walker -- `at_team`'s `at_fire`, `demo_squad`'s
+    `demo_a`, `mortar_team`'s two crew -- has nothing to switch to, so it
+    still gets no keys here at all and stays at `move`'s own frame-0
+    identity pose for the whole clip: correctly, the whole figure stays put,
+    deployed at its weapon, not just its weapon. `rpg_fire` is the one
+    STANDING figure in the same position, for its own separate reason:
+    teams.py pins its own `stride` to 0.0 even in `move`, so
+    `spec["animates"]` is False for it too, and only a KNEELING figure can
+    own a walker (`_add_figure` asserts it), so it never gets one either.
 
     Each walker's gait is offset by `gait_phase`, keyed by its index among
     `walkers` (not among `figures` -- a figure that never animates does not
