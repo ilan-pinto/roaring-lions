@@ -17,7 +17,8 @@
     "wreck:meshes": "tsx src/meshes/wreck-pass.ts",
     "ui:shots": "tsx src/ui-review/shoot.ts",
     "plate:capture": "tsx src/perf/plate-capture.ts",
-    "gait:meshes": "tsx src/meshes/gait-pass.ts"
+    "gait:meshes": "tsx src/meshes/gait-pass.ts",
+    "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh"
   },
   "dependencies": {
     "@lions/data": "workspace:*",

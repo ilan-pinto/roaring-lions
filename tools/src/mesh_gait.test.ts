@@ -71,7 +71,7 @@ const MESHES = `${REPO}art/meshes/`;
 
 // M-7: the comment above justifies reaching into `mesh-anim.ts` by relative
 // path on the claim that the module "pulls in no three.js". Pinned on the
-// file’s own bytes rather than trusted, so the day someone adds a
+// file's own bytes rather than trusted, so the day someone adds a
 // `from 'three'` import there, this is what says so before this node-only
 // tools gate starts loading three.js by accident.
 describe('the reach into mesh-anim.ts stays safe for node', () => {
@@ -104,7 +104,7 @@ const WALK_FLOOR = 0.6;
  * Which GLB the app actually loads for `mortar_team`.
  *
  * This used to be a REGEX over `packages/app/src/main.ts`, with the comments
- * stripped first because that file’s prose named both candidate basenames and
+ * stripped first because that file's prose named both candidate basenames and
  * a raw-source match would have hit the wrong one. It is an import now: the
  * wiring moved to `packages/app/src/mesh-catalogue.ts` when mesh loading
  * became roster-driven, and that table is plain data with no `import.meta.url`
@@ -327,7 +327,7 @@ describe('mesh unit facing', () => {
     // keffiyeh's eye gap (221 of 16 557 vertices), so the centroid sits off the
     // skull's axis and the two instruments differ by 8-17 deg depending on how
     // the head is pitched. Recorded in `_face_bearing_deg` in the import
-    // script, which is why THAT file’s ceilings are not shared with this one.
+    // script, which is why THAT file's ceilings are not shared with this one.
     const figs = measureFacing(`${MESHES}sarim_rifles.glb`, 'move');
     expect(figs.length).toBe(3);
     for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(20);
@@ -510,7 +510,7 @@ describe('mesh unit gait -- the kit teams take their stride from their speed', (
 // The design (§2.1, §3.6) records `mortar_team`'s `move` as "+84 degrees,
 // identically, on all three figures". Measured on the bytes it is +87.7 /
 // -139.5 / -101.2, and NONE of the three is a reading of the marching crew:
-// that file’s `move` posture is a second, STANDING rig (`f<N>_st_*`) with no
+// that file's `move` posture is a second, STANDING rig (`f<N>_st_*`) with no
 // head bone at all, so `HEAD_JOINT_RE` matches only the kneeling heads, which
 // `move` keys to scale 0. A confident number, off geometry the player cannot
 // see. `hiddenInClip` exists so the next reader is told rather than having to
@@ -708,7 +708,7 @@ interface RiggedFile {
   /** The unit type's own `mobility.speed_tiles_s`. */
   readonly speedTilesPerSecond: number;
   readonly clips: readonly string[];
-  /** The file’s own `rl_gait`, read through the RENDERER's parser -- so a
+  /** The file's own `rl_gait`, read through the RENDERER's parser -- so a
    *  declaration the renderer would drop reads as absent here too. */
   readonly declared: ReadonlyMap<LocomotionClip, GaitMetrics> | undefined;
 }
@@ -728,7 +728,7 @@ export const GAIT_EXEMPT: Readonly<Record<string, string>> = {
 };
 
 /** Clips that are corpses. A body thrown round by the round that killed it
- *  lies where the blast put it; `meshy_soldier`'s −166° is recorded in the
+ *  lies where the blast put it; `meshy_soldier`’s −166° is recorded in the
  *  design as deliberate and pinned above. */
 const CORPSE_CLIPS: ReadonlySet<string> = new Set(['wreck', 'wreckAlt']);
 
@@ -1179,7 +1179,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * How far behind its file’s best-travelling figure any other figure may be.
+ * How far behind its file's best-travelling figure any other figure may be.
  *
  * `rl_gait`'s `strideM` is `axisTravelM[0]` -- the single worst vertex of the
  * POOLED `boot` role -- so a file where one of two riflemen stops moving his
@@ -1410,7 +1410,7 @@ describe('mesh unit gait -- per figure, not per file', () => {
         }
         expect(
           f.forwardTravelM / best,
-          `${key}: ${f.forwardTravelM.toFixed(4)} m against the file’s best ${best.toFixed(4)} m ` +
+          `${key}: ${f.forwardTravelM.toFixed(4)} m against the file's best ${best.toFixed(4)} m ` +
             `(joints ${f.joints.join(', ')})`
         ).toBeGreaterThan(FIGURE_STRIDE_RATIO_FLOOR);
       }
@@ -1443,7 +1443,7 @@ describe('mesh unit gait -- per figure, not per file', () => {
         // same shape `GAIT_MULTIPLIER_UNDER_ONE`'s own below-the-pack pin
         // uses (`(low)`/`(high)`, 1006-1007 above): `< outlier + 0.05` alone
         // is a one-way gate that a MORE reversed reading also clears, and a
-        // genuinely time-reversed export reads -0.11..-0.47 by this file’s
+        // genuinely time-reversed export reads -0.11..-0.47 by this file's
         // own numbers -- well past this bound, and the one this file names as
         // the check "a time-reversed export cannot pass". Falsified
         // 2026-09-16 by negating the sniper trace's forward component; see
@@ -1495,7 +1495,7 @@ describe('mesh unit gait -- declared rl_gait against a fresh measurement', () =>
 });
 
 // ---------------------------------------------------------------------------
-// Step 3c -- a file’s locomotion clips against EACH OTHER.
+// Step 3c -- a file's locomotion clips against EACH OTHER.
 // ---------------------------------------------------------------------------
 
 /**
@@ -1976,7 +1976,7 @@ const WEAPON_SPREAD_DEG = 15;
 
 /**
  * How far a firing clip may lever its weapon off the ELEVATION the same
- * file’s `idle` holds it at, degrees, across every sampled instant.
+ * file's `idle` holds it at, degrees, across every sampled instant.
  *
  * ## The eighth time a defect lived in the dimension no gate was looking at
  *
