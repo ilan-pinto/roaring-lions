@@ -62,7 +62,16 @@ afterEach(() => {
 // scope and not every GLB under art/meshes/).
 const ALL_RIGGED_FILES: readonly string[] = Object.values(RIGGED_UNIT_MESHES).flatMap((e) => e.files);
 
-const EXPECTED_SKIP_TYPES = ['atgm_cell', 'mortar_crew', 'digger_crew', 'moto_rpg'] as const;
+// `atgm_cell`/`mortar_crew`/`digger_crew` were here too until the
+// 2026-09-17 infantry-animation branch gave all three a standing walker
+// (`rig.py`'s `build_move_clip`) -- their `move` clips now measure real
+// forward travel (1.30/1.15/0.99 m, well clear of `MIN_GAIT_TRAVEL_M`) and
+// `measureGait` no longer skips them, so keeping them in this list would be
+// exactly the exemption-outlived-its-need case CLAUDE.md's gait bullet
+// describes: it fails, and that failure is the instruction to delete the
+// name, not to reassert it. `moto_rpg` alone remains -- a motorcycle whose
+// riders' boots do not move.
+const EXPECTED_SKIP_TYPES = ['moto_rpg'] as const;
 
 describe('measureGait over every shipped rigged mesh', () => {
   // Counts, not iteration: an empty result silently passing a `for` loop is
@@ -70,7 +79,7 @@ describe('measureGait over every shipped rigged mesh', () => {
   // (see mesh_gait.ts's own `measureFacing` doc comment). This asserts the
   // total shape of the whole tree, not just that each individual call did
   // not throw.
-  it('declares a gait for every file except the four named exemptions', () => {
+  it('declares a gait for every file except the one named exemption', () => {
     expect(ALL_RIGGED_FILES.length).toBe(19);
 
     const skipped: string[] = [];
@@ -87,10 +96,8 @@ describe('measureGait over every shipped rigged mesh', () => {
       }
     }
 
-    expect(skipped.sort()).toEqual(
-      ['atgm_cell.glb', 'mortar_crew.glb', 'digger_crew.glb', 'moto_rpg.glb'].sort()
-    );
-    expect(declared.length).toBe(15);
+    expect(skipped.sort()).toEqual(['moto_rpg.glb']);
+    expect(declared.length).toBe(18);
     // Only the two Meshy-sourced bipeds carry moveFire today.
     expect(moveFireCount).toBe(2);
   });
@@ -259,7 +266,7 @@ describe('applyGaitPass', () => {
 describe('processGaitFile / the full read-measure-apply-write cycle', () => {
   it('writes a stride a later reader can use, and is idempotent', async () => {
     // A copy of one shipped file (demo_squad.glb: a normal kit-team walker,
-    // not one of the four skips), processed twice in a row on disk -- the
+    // not the one skip), processed twice in a row on disk -- the
     // shape wreck-pass.test.ts's own idempotency test uses, extended to a
     // real round trip through io.read/io.write since this pass's contract
     // is a property of the SOURCE bytes, not of an in-memory Document alone.
@@ -282,16 +289,16 @@ describe('processGaitFile / the full read-measure-apply-write cycle', () => {
   });
 
   it('leaves a skip with no prior rl_gait untouched -- no write at all', async () => {
-    // atgm_cell.glb ships from Blender with no rl_gait key, so there is
+    // moto_rpg.glb ships from Blender with no rl_gait key, so there is
     // nothing to declare and nothing stale to strip. processGaitFile must
     // not even call io.write. Asserted through the file's own mtime rather
-    // than a byte comparison against `art/meshes/atgm_cell.glb`: this suite
+    // than a byte comparison against `art/meshes/moto_rpg.glb`: this suite
     // runs against a shared worktree, and that source file's byte layout
     // depends on whatever this pass (or an earlier version of it,
     // mid-development) has already done to it this session. An unbumped
     // mtime is a direct signal that no write syscall happened at all, not
     // merely that the write happened to reproduce the same bytes.
-    const target = scratchCopy('atgm_cell.glb');
+    const target = scratchCopy('moto_rpg.glb');
     const before = statSync(target).mtimeMs;
 
     const first = await processGaitFile(io, target);
@@ -323,7 +330,7 @@ describe('processGaitFile / the full read-measure-apply-write cycle', () => {
     // rl_gait from an earlier, walking version of the same rig. Simulated
     // here by hand-writing a bogus rl_gait onto a copy of a genuine skip
     // file before processing it.
-    const target = scratchCopy('atgm_cell.glb');
+    const target = scratchCopy('moto_rpg.glb');
     const staleDoc = await io.read(target);
     applyGaitPass(staleDoc, { move: { strideM: 1.28, cycleS: 0.667 } });
     await io.write(target, staleDoc);
@@ -487,9 +494,9 @@ describe('a thrown measurement failure is not a skip', () => {
 
   it('a degenerate (measured, not thrown) skip is the ONLY case that resolves normally', () => {
     // Contrast case, in the same file, so the two are not accidentally
-    // conflated: atgm_cell's move clip measures fine and reads as degenerate
+    // conflated: moto_rpg's move clip measures fine and reads as degenerate
     // -- this must NOT throw.
-    expect(() => measureGait(path.join(MESHES, 'atgm_cell.glb'))).not.toThrow();
+    expect(() => measureGait(path.join(MESHES, 'moto_rpg.glb'))).not.toThrow();
   });
 });
 
