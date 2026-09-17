@@ -30,8 +30,10 @@ there: a clip's NAME does not tell you what it means.
 
     Walking      travel  34.612  net   1.174   real gait          -> move
     Running      travel  31.452  net   0.001   real gait, in place   spare
-    Fall_Dead    travel 265.076  net 136.315   a fall, huge root  -> down/wreck
-                                               (LAST FRAME only)
+    Fall_Dead    travel 265.076  net 136.315   a fall, huge root  -> fall (WHOLE
+                                               clip, root held horizontal, D3)
+                                               and down/wreck (its held last
+                                               frame -- same standing spot)
     Backflip     travel 242.066  z-range 78.9  a BACKFLIP          unused
 
 **There is no idle clip and no fire clip in this set.** Meshy's idle for this
@@ -101,8 +103,20 @@ CLIP_STANDING = {
     "fire": False,
     "down": True,
     "wreck": True,
+    "fall": True,
 }
-CLIP_ORDER = ("idle", "move", "fire", "down", "wreck")
+CLIP_ORDER = ("idle", "move", "fire", "down", "wreck", "fall")
+
+#: Design D3 (`2026-09-17-infantry-animation-design.md`): `fall` is the
+#: supplied `Fall_Dead` clip bound WHOLE, one-shot, with its (huge -- net
+#: 136 cm, see the module docstring's table) root motion held horizontally
+#: so the man drops where he stood; `down`/`wreck` already held its LAST
+#: frame and now hold the SAME re-centred position, so the runtime's switch
+#: from finished fall to persistent wreck moves nothing.
+FALL_STAGGER_S = 0.1
+#: Metres the Hips may drift horizontally across `fall` after the hold --
+#: the runtime gate (`tools/src/mesh_gait.test.ts`) uses the same 0.05.
+FALL_HORIZONTAL_CEILING_M = 0.05
 
 #: teams.py's own rpg_team offsets, in tiles. Both figures carry a launcher
 #: (the lead's call): at gameplay size the launcher's diagonal is the only
@@ -258,6 +272,68 @@ def key_scale(act, bone, value, frames):
             kp.interpolation = "CONSTANT"
 
 
+def hips_location_fcurves(act, bone):
+    """The three `location` f-curves of `bone` in `act`, index-ordered."""
+    fcs = [fc for fc in read_fcurves(act) if fc.data_path == f'pose.bones["{bone}"].location']
+    fcs.sort(key=lambda fc: fc.array_index)
+    if len(fcs) != 3:
+        raise RuntimeError(f"{act.name}: expected 3 location f-curves on {bone}, got {len(fcs)}")
+    return fcs
+
+
+def _hips_world_position(arm, prefix, act, frame, loc_scale):
+    """World-space position of `{prefix}_Hips` at `frame` of `act`, from its
+    location f-curves alone. A pose bone's rotation/scale do not move its OWN
+    head -- only its children's -- so `matrix_basis`'s translation component
+    equals `loc` regardless of the bone's quaternion/scale at that frame, and
+    `rest @ Matrix.Translation(loc)` gives the same world position a full
+    `rest @ Matrix.LocRotScale(loc, quat, scale)` would (verified: the
+    sampled-pose importers' `_hips_armature_translation` does the LocRotScale
+    version and both agree here) -- PROVIDED `loc` is in the same coordinate
+    scale `rest` is. It is not, without `loc_scale`: `act`'s raw f-curve
+    values are the SOURCE `base_arm`'s own units (that armature's own
+    `scale`, e.g. 0.01 -- this rig's own "armature scale" convention), while
+    `rest` (`arm.data.bones[...].matrix_local`, `arm` = the FINAL merged
+    figure) has been re-baked to `TARGET_HEIGHT_M`. `rest.to_3x3()` is a
+    PURE rotation regardless of any of that baking (a bone's local axes are
+    always unit vectors by construction), so it does not carry the scale
+    difference for us -- `loc_scale` (`hips_loc_scale` in `main()`, = the
+    SOURCE armature's own scale times the height-normalisation factor) must.
+    Skipping it was measured giving a Hips 87 m off the ground instead of
+    0.87 m -- see the task report."""
+    from mathutils import Matrix, Vector  # noqa: PLC0415
+
+    rest = arm.data.bones[f"{prefix}_Hips"].matrix_local
+    loc = Vector([fc.evaluate(frame) for fc in hips_location_fcurves(act, "Hips")]) * loc_scale
+    return arm.matrix_world @ (rest @ Matrix.Translation(loc))
+
+
+def held_hips_location(arm, prefix, src_act, frame, hold_xy, loc_scale):
+    """`{prefix}_Hips`' pose-space location at `frame` of `src_act`, with its
+    WORLD x/y replaced by `hold_xy` (z kept) -- the horizontal hold the
+    sampled-pose importers do in `hold_hips_horizontal`, on an f-curve.
+
+    `src_act`'s curves still address `Hips`, not `{prefix}_Hips` -- they are
+    read BEFORE `retarget_action` (never applied to `_fall`); `arm` is
+    `merged_arm` after `rename_bones`, so the rest matrix is looked up under
+    the PREFIXED name -- each figure's own rest matrix already carries its
+    spread offset (Blender's armature join preserves world-space
+    representation), which is what makes the SAME source location value
+    resolve to a different, correct world position per figure. `loc_scale`
+    is passed straight through to `_hips_world_position`; this function's
+    own RETURN VALUE needs no separate correction -- it is built from
+    `target` (already in `rest`'s own, correctly-scaled space, via `hold_xy`
+    and `_hips_world_position`) and `rest.translation` (same space), so the
+    result is a pose-space location `rest` can consume directly."""
+    from mathutils import Vector  # noqa: PLC0415
+
+    rest = arm.data.bones[f"{prefix}_Hips"].matrix_local
+    rot3 = rest.to_3x3()
+    world = _hips_world_position(arm, prefix, src_act, frame, loc_scale)
+    target = arm.matrix_world.inverted() @ Vector((hold_xy[0], hold_xy[1], world.translation.z))
+    return rot3.inverted() @ (target - rest.translation)
+
+
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     if not argv:
@@ -277,6 +353,18 @@ def main():
     scale = TARGET_HEIGHT_M / natural_h
     log(f"base: {len(base_arm.data.bones)} bones, {len(base_body.data.vertices)} verts, "
         f"height {natural_h:.4f} -> {TARGET_HEIGHT_M} m (scale {scale:.4f})")
+    # `base_arm.scale` is this rig's own "armature scale (0.01)" convention
+    # (`import_meshy_yahalom.py`'s docstring names the same pattern for a
+    # different source): `Hips.matrix_local`'s translation and every
+    # `pose.bones["Hips"].location` value in `src_actions` are BOTH in that
+    # same "raw" (un-scaled-down) space. `d_arm` below gets duplicated from
+    # `base_arm` and then re-scaled for `TARGET_HEIGHT_M`, so any Hips
+    # location value taken from a SOURCE action and combined with the
+    # DUPLICATED figure's own (differently-baked) rest needs this SAME
+    # factor applied first -- see `_hips_world_position`'s docstring and the
+    # task report for the measured 87 m / 0.87 m before/after this line
+    # existed.
+    hips_loc_scale = base_arm.scale[0] * scale
 
     for img in bpy.data.images:
         if img.name != "Render Result":
@@ -373,7 +461,22 @@ def main():
         d_arm.name = f"arm_{prefix}"
         d_body.name = f"body_{prefix}"
 
-        d_arm.scale = (scale, scale, scale)
+        # PRE-EXISTING BUG, found and fixed while wiring `held_hips_location`
+        # (task report has the numbers): this OVERWROTE `d_arm`'s own
+        # duplicated-from-`base_arm` scale instead of composing with it.
+        # `base_arm.scale` is (0.01, 0.01, 0.01) -- this rig's own "armature
+        # scale (0.01)" convention, the same one `import_meshy_yahalom.py`'s
+        # docstring names for a different source -- so a bare overwrite baked
+        # `scale` (~0.9494) into bone rest data ~100x too large relative to
+        # the mesh (whose OWN object scale is 1.0 and was never touched here).
+        # Invisible for `move` (its Hips.location values are near-zero, a
+        # deliberately in-place cycle) and for `idle`/`fire` (crouch geometry,
+        # no armature-driven Hips motion at all), but NOT for `down`/`wreck`:
+        # `Fall_Dead`'s own last frame carries real translation, so the
+        # existing held pose was ~100x displaced from the standing figure --
+        # invisible again ONLY because nothing measured its absolute
+        # position before `held_hips_location` needed to.
+        d_arm.scale = tuple(s * scale for s in base_arm.scale)
         bpy.ops.object.select_all(action="DESELECT")
         d_arm.select_set(True)
         d_body.select_set(True)
@@ -429,17 +532,44 @@ def main():
     merged_arm.name = "Armature"
     log(f"merged armature: {len(merged_arm.data.bones)} bones")
 
-    # ---- build the five clips -------------------------------------------
+    # ---- build the six clips -------------------------------------------
     if merged_arm.animation_data is None:
         merged_arm.animation_data_create()
     move_len = int(src_actions["move"].frame_range[1])
+    fall_start = int(src_actions["_fall"].frame_range[0])
     fall_end = int(src_actions["_fall"].frame_range[1])
+    fall_len = fall_end - fall_start
+    stagger = round(FALL_STAGGER_S * bpy.context.scene.render.fps)
+
+    # Each figure's OWN standing spot -- where `fall` and (via the SAME
+    # value at `fall_end`) `down`/`wreck` all hold horizontally, so a man
+    # dies where he stood, at his own spread offset, and the corpse sits
+    # exactly on `fall`'s own last frame. `src_actions["_fall"]` is the one
+    # shared, unprefixed source action; the same location value resolves to
+    # a different world position per figure because each figure's own
+    # `{prefix}_Hips` rest matrix already carries its offset (see
+    # `held_hips_location`'s docstring).
+    hold_xy_by_prefix = {
+        prefix: (lambda w: (w.translation.x, w.translation.y))(
+            _hips_world_position(merged_arm, prefix, src_actions["_fall"], fall_start, hips_loc_scale)
+        )
+        for prefix, _a in FIGURES
+    }
 
     for clip in CLIP_ORDER:
         act = bpy.data.actions.new(clip)
         act.use_fake_user = True
         standing = CLIP_STANDING[clip]
-        span = range(0, move_len + 1) if clip == "move" else range(0, 2)
+        if clip == "move":
+            span = range(0, move_len + 1)
+        elif clip == "fall":
+            # `fall_len + 1` frames per figure, figure `i` starting `stagger *
+            # i` output frames later -- the same stagger shape the sampled-
+            # pose importers give `write_combined_clip`, done here directly on
+            # f-curves instead.
+            span = range(0, fall_len + 1 + stagger * (len(FIGURES) - 1))
+        else:
+            span = range(0, 2)
         for i, (prefix, _a) in enumerate(FIGURES):
             if standing:
                 src = src_actions["move" if clip == "move" else "_fall"]
@@ -461,16 +591,54 @@ def main():
                     if dp in reserved:
                         continue
                     nfc = dst.new(data_path=dp, index=fc.array_index)
+                    is_hips_loc = dp == f'pose.bones["{prefix}_Hips"].location'
                     if clip == "move":
                         for kp in fc.keyframe_points:
                             f = (kp.co.x + shift) % (move_len + 1)
                             nfc.keyframe_points.insert(f, kp.co.y)
+                    elif clip == "fall":
+                        # Design D3: the WHOLE fall plays, one-shot, staggered
+                        # per figure, with Hips held horizontal -- unlike
+                        # `down`/`wreck` below, which hold only the last frame.
+                        for f in range(fall_len + 1):
+                            raw = fall_start + f
+                            value = (
+                                held_hips_location(
+                                    merged_arm, prefix, src, raw, hold_xy_by_prefix[prefix], hips_loc_scale
+                                )[fc.array_index]
+                                if is_hips_loc
+                                else fc.evaluate(raw)
+                            )
+                            nfc.keyframe_points.insert(f + stagger * i, value)
+                        if i > 0:
+                            # Held flat from frame 0 until this figure's own
+                            # start -- LINEAR interpolation between two keys
+                            # of the SAME value (this one and the real f=0 key
+                            # just written at `stagger * i`) holds flat with
+                            # no extra interpolation mode needed.
+                            first_value = (
+                                held_hips_location(
+                                    merged_arm, prefix, src, fall_start, hold_xy_by_prefix[prefix], hips_loc_scale
+                                )[fc.array_index]
+                                if is_hips_loc
+                                else fc.evaluate(fall_start)
+                            )
+                            nfc.keyframe_points.insert(0, first_value)
                     else:
-                        # `down`/`wreck` hold the fall's LAST frame: the clip
-                        # itself carries 136 cm of net root travel and the
-                        # build gate refuses that, so the corpse is a held
-                        # pose, exactly as the irregular importer does it.
-                        y = fc.evaluate(fall_end)
+                        # `down`/`wreck` hold the fall's LAST frame, Hips
+                        # horizontally re-centred to the SAME standing spot
+                        # `fall` holds -- so the corpse sits where the figure
+                        # stood, exactly on `fall`'s own last frame, and the
+                        # `fall` -> `wreck` transition `mesh-death.ts` drives
+                        # moves nothing. Non-Hips-location curves are held
+                        # verbatim, as before.
+                        y = (
+                            held_hips_location(
+                                merged_arm, prefix, src, fall_end, hold_xy_by_prefix[prefix], hips_loc_scale
+                            )[fc.array_index]
+                            if is_hips_loc
+                            else fc.evaluate(fall_end)
+                        )
                         for f in span:
                             nfc.keyframe_points.insert(f, y)
                     for kp in nfc.keyframe_points:
@@ -479,6 +647,34 @@ def main():
             key_scale(act, f"{prefix}_crouch_root", 0.0 if standing else 1.0, span)
         log(f"clip {clip}: {'standing' if standing else 'CROUCH'} geometry, "
             f"{len(read_fcurves(act))} fcurves, frames {min(span)}..{max(span)}")
+
+    # ---- build-time drift check on `fall`, mirroring the sampled-pose
+    # importers' `check_clip_semantics` horizontal block -------------------
+    from mathutils import Matrix, Vector  # noqa: PLC0415
+
+    fall_action = bpy.data.actions["fall"]
+    f0, f1 = fall_action.frame_range
+    for prefix, _a in FIGURES:
+        fcs = hips_location_fcurves(fall_action, f"{prefix}_Hips")
+        rest = merged_arm.data.bones[f"{prefix}_Hips"].matrix_local
+        pts = []
+        zs = []
+        for f in range(int(f0), int(f1) + 1):
+            loc = Vector([fc.evaluate(f) for fc in fcs])
+            world = merged_arm.matrix_world @ (rest @ Matrix.Translation(loc))
+            pts.append((world.translation.x, world.translation.y))
+            zs.append(world.translation.z)
+        x0, y0 = pts[0]
+        drift = max(math.hypot(x - x0, y - y0) for x, y in pts)
+        log(
+            f"fall: {prefix} Hips horizontal drift {drift:.4f} m (ceiling {FALL_HORIZONTAL_CEILING_M}), "
+            f"height {zs[0]:.4f} -> {zs[-1]:.4f} m"
+        )
+        if drift > FALL_HORIZONTAL_CEILING_M:
+            raise RuntimeError(
+                f"fall: {prefix} Hips drift {drift:.3f} m exceeds {FALL_HORIZONTAL_CEILING_M} m -- "
+                "the horizontal hold is not holding"
+            )
 
     merged_arm.animation_data.action = bpy.data.actions["idle"]
     # A slotted action also needs its slot bound, or the object plays nothing.
@@ -496,7 +692,7 @@ def main():
         export_animations=True, export_extras=True, export_materials="EXPORT",
         export_copyright=(
             "Ashwar RPG team -- AI-generated (Meshy), disclosed per CONTRIBUTING.md. "
-            "Rigged standing fighter for move/down/wreck; a separate supplied crouching "
+            "Rigged standing fighter for move/fall/down/wreck; a separate supplied crouching "
             "fighter, rigid-bound and scale-keyed, for idle/fire."
         ),
     )

@@ -1328,10 +1328,11 @@ def _hips_armature_translation(pose, hips_rest):
 def hold_hips_horizontal(frames, hips_rest, anchor_pose):
     """Identical to `import_meshy_soldier.py`'s own `hold_hips_horizontal`: a
     copy of `frames` with every frame's Hips armature-space x/y replaced by
-    `anchor_pose`'s own, z (height) kept -- `import_meshy_yahalom.py`'s
-    `build_wreck_src` re-centring, applied to EVERY frame of a fall rather
-    than only its last. Hips is a root bone, so its own (quat, loc, scale)
-    alone determines its pose matrix and the inverse is exact."""
+    `anchor_pose`'s own, z (height) kept -- the re-centring
+    `import_meshy_yahalom.py` used to do only for the wreck's last frame,
+    applied to EVERY frame of a fall rather than only its last. Hips is a
+    root bone, so its own (quat, loc, scale) alone determines its pose
+    matrix and the inverse is exact."""
     from mathutils import Vector  # noqa: PLC0415
 
     rot3 = hips_rest.to_3x3()
