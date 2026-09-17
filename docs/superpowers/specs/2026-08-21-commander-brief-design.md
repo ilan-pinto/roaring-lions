@@ -74,7 +74,7 @@ The longest briefing is Wadi Halam V at 1,225 characters; the shortest is Wadi H
 | background | transparent |
 | must not | resemble any real person |
 
-`tools/validate_assets.py` walks `assets/sprites/` only, so a UI image faces no palette, alpha or silhouette gate — the same footing as the existing `assets/ui/menu_banner.jpg`. CONTRIBUTING permits generated assets and **requires disclosure in the PR** where generative tools were used.
+`tools/validate_assets.py` walks `assets/sprites/` only, so a UI image faces no palette, alpha or silhouette gate — the same footing as the existing `assets/ui/menu_plate.jpg`. CONTRIBUTING permits generated assets and **requires disclosure in the PR** where generative tools were used.
 
 ### The feature does not depend on the art
 

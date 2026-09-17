@@ -818,14 +818,14 @@ Ordered by what Act I cannot ship without. Every row also appears in
 |---|---|---|---|---|
 | 1 | **`data/campaign/commander.json`** — Shai, Idit, the rank ladder, per-mission `{speaker, rank}` | **MISSING** | `pnpm validate:data` — needs a new `data/schemas/commander.schema.json` *and* a line in `tools/validate_data.mjs`, which names `data/campaign` files individually | hand-authored JSON — `mission-author`; `hud.ts` reader — `render-vfx`. **Act I is the reason this is first**: `ui/hud.ts:68` is `const COMMANDER = { rank: 'Lt Col Shai Hammai' … }` and Shai is a **Captain** for all five of these missions |
 | 2 | **`dispatch` / `aftermath` / `debrief` fields** | **MISSING (fields do not exist)** | `pnpm validate:data` | schema — `sim-guard`; surfaces — `render-vfx`. **Act I is the reason this is second**: under the §6.3 fallback these three strings are the *only* place the taking is said |
-| 3 | Shai portrait `assets/ui/shai_portrait.png` (512×640) | **MISSING** | **no gate** — `tools/validate_assets.py` defaults to `--sprites assets/sprites`, so `assets/ui/` is ungated, same footing as `menu_banner.jpg` | generative, PR disclosure required (`CONTRIBUTING.md`); brief in `2026-08-21-commander-brief-design.md` |
+| 3 | Shai portrait `assets/ui/shai_portrait.png` (512×640) | **MISSING** | **no gate** — `tools/validate_assets.py` defaults to `--sprites assets/sprites`, so `assets/ui/` is ungated, same footing as `menu_plate.jpg` | generative, PR disclosure required (`CONTRIBUTING.md`); brief in `2026-08-21-commander-brief-design.md` |
 | 4 | Idit portrait | **MISSING** | no gate | as above |
 | 5 | Sahim portrait | **MISSING** | no gate | as above. **Must resemble no real person and carry no real insignia** |
 | 6 | KDF rank insignia, 2 stars (Captain) — the only rank Act I needs | **MISSING** | no gate; `pnpm validate:ui` if drawn in CSS (no colour literals) | vector; must resemble no real force |
 | 7 | Ashwar Front faction mark | **MISSING** | no gate | vector. The only insignia shipping is `assets/campaign/flag_brigade.png` (KDF) — **PRESENT** |
 | 8 | `say: { speaker, text }` on `triggers[].do` and `objectives[]` + radio overlay | **MISSING** | `pnpm validate:data`; `pnpm test:determinism` must stay unmoved | `sim-guard` (schema, emit) + `render-vfx` (overlay). §9 G7 |
 | 9 | Debrief screen | **MISSING** | `pnpm validate:ui`, `pnpm test` | `ui/menu.ts` `showEndScreen` has zero authorable text today |
-| 10 | `assets/ui/menu_banner.jpg` | **PRESENT** | — | — |
+| 10 | `assets/ui/menu_plate.jpg` (an engine-captured plate, `pnpm plate:capture` -- shell upgrade Phase 0 task 10) | **PRESENT** | — | — |
 | 11 | Campaign board — `world_map.png`, 3 region layers, `sahar_basin.svg`, `flag_brigade.png`, `art/meshes/campaign/sahar_basin.glb`, `data/campaign/world.json` | **PRESENT** | — | Act I needs only a `world.json` edit if Option B adds a mission |
 
 ---

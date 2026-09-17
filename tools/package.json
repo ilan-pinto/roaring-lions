@@ -15,7 +15,8 @@
     "golden-baseline:bless": "tsx src/ci/three-baseline-gate.ts --bless",
     "encode:meshes": "tsx src/meshes/encode-meshes.ts",
     "wreck:meshes": "tsx src/meshes/wreck-pass.ts",
-    "ui:shots": "tsx src/ui-review/shoot.ts"
+    "ui:shots": "tsx src/ui-review/shoot.ts",
+    "plate:capture": "tsx src/perf/plate-capture.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",

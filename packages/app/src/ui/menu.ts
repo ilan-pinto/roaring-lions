@@ -58,10 +58,16 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   // Width-constrained rather than fixed, so the panel stays usable on a narrow
   // window; the intrinsic ratio is declared so the layout does not jump once
   // the image loads.
-  banner.src = `${opts.base}ui/menu_banner.jpg`;
+  //
+  // A plate captured from the running game (`pnpm plate:capture`,
+  // `tools/src/perf/plate-capture.ts`), not a generated painting -- see that
+  // script's own header for what it replaced and why. 2360x1000 are the
+  // plate's own pixel dimensions (the intrinsic size hint only; the CSS
+  // below still constrains display width to 100%, height auto).
+  banner.src = `${opts.base}ui/menu_plate.jpg`;
   banner.alt = '';
-  banner.width = 800;
-  banner.height = 339;
+  banner.width = 2360;
+  banner.height = 1000;
   banner.className = 'rl-menu__banner';
   wrap.appendChild(banner);
 
