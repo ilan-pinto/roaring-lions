@@ -118,6 +118,27 @@
         "hostile": "#D93A2B",
         "hostile_text": "#F26A55",
         "neutral": "#E8C33A"
+      },
+      "variants_note": "Colour-vision-deficiency alternates of the four colours above, selected by accessibility.colorVision and applied by theme.css's :root[data-cvd=...] blocks and @lions/data's paletteTeamColors(). Gated by tools/src/cvd.test.ts: every pair stays apart by CIE76 ΔE ≥ 25 under Machado et al. 2009 severity-1.0 simulation of its OWN kind, and hostile_text clears 4.5:1 on --bg (tools/src/bad-text-contrast.test.ts). deuteranopia and protanopia share the Okabe–Ito blue/vermillion/yellow triad (indistinguishable dichromacy classes for this palette's own hues); tritanopia keeps kedem and hostile untouched -- they are already ΔE 117 apart under tritanopia -- and only swaps neutral, since S-cone loss is what confuses the default's yellow against sand/limestone terrain, not the blue-vs-red pair. Every entry here is a duplicate hex of one already counted in `colors` above or a fresh pick; validate_data.mjs's total_colors count walks this map alongside `colors` (see its `reserved.<band>.variants` handling) so the count stays honest.",
+      "variants": {
+        "deuteranopia": {
+          "kedem": "#0072B2",
+          "hostile": "#D55E00",
+          "hostile_text": "#F2A15C",
+          "neutral": "#F0E442"
+        },
+        "protanopia": {
+          "kedem": "#0072B2",
+          "hostile": "#D55E00",
+          "hostile_text": "#F2A15C",
+          "neutral": "#F0E442"
+        },
+        "tritanopia": {
+          "kedem": "#2F6FD9",
+          "hostile": "#D93A2B",
+          "hostile_text": "#F26A55",
+          "neutral": "#CC79A7"
+        }
       }
     },
     "group": {
@@ -137,5 +158,5 @@
     }
   },
   "mask_key": "#FF00FF",
-  "total_colors": 59
+  "total_colors": 71
 }

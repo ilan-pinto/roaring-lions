@@ -32,6 +32,17 @@ describe('the red that renders as text', () => {
     expect(contrast(palette.reserved.team.colors.hostile, panel)).toBeLessThan(4.5); // the review's 4.01 -- the reason the token exists
     expect(contrast(palette.reserved.team.colors.hostile_text, panel)).toBeGreaterThanOrEqual(4.5);
   });
+
+  // Task 12: every colour-vision variant swaps in its OWN hostile_text
+  // (theme.css's :root[data-cvd=...] blocks), so each one needs its own AA
+  // floor over the same panel ground -- a variant token that reads fine to a
+  // trichromat but under 4.5:1 would be a readability regression hiding
+  // behind an accessibility feature.
+  for (const variant of ['deuteranopia', 'protanopia', 'tritanopia'] as const) {
+    it(`team.variants.${variant}.hostile_text reads at AA over the panel ground`, () => {
+      expect(contrast(palette.reserved.team.variants[variant].hostile_text, panel)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
 });
 
 /**

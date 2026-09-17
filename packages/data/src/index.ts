@@ -355,6 +355,29 @@ export function paletteColor(key: string): string {
   return '#FF00FF';
 }
 
+/** Mirrors `packages/app/src/settings.ts`'s `ColorVision` -- redeclared here
+ *  rather than imported, since `@lions/data` is a leaf package that imports
+ *  no other `@lions` package. The two stay in sync by
+ *  `packages/app/src/main.ts` passing a real `ColorVision` value straight
+ *  through: a widened caller would be a type error at that call site. */
+export type ColorVisionVariant = 'default' | 'deuteranopia' | 'protanopia' | 'tritanopia';
+
+/**
+ * The three team colours -- kedem, hostile, neutral -- for a colour-vision
+ * variant. `'default'` reads `reserved.team.colors`, the plain palette; any
+ * other variant reads the matching entry of `reserved.team.variants`
+ * (`tools/src/cvd.ts`'s gate is what keeps every one of those pairs apart
+ * under simulated deficiency). Read once at construction, the same as the
+ * renderer backend choice -- `main.ts` calls this when it builds
+ * `RendererOptions` and the minimap, not on every settings change, so a
+ * variant switched mid-mission takes effect from the next one.
+ */
+export function paletteTeamColors(variant: ColorVisionVariant): [kedem: string, hostile: string, neutral: string] {
+  const team = palette.reserved.team as { colors: Record<string, string>; variants: Record<string, Record<string, string>> };
+  const c = variant === 'default' ? team.colors : team.variants[variant];
+  return [c.kedem, c.hostile, c.neutral];
+}
+
 // --- mission-text locale overlay --------------------------------------------
 //
 // A mission's `name`/`briefing`/objective `text`/trigger `label` are DATA

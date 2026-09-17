@@ -56,6 +56,7 @@ import {
   applyMissionLocale,
   DECOR,
   paletteColor,
+  paletteTeamColors,
   audioManifest,
   vfxEmitters,
   type MapJson,
@@ -1489,7 +1490,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // shared module neither of those constraints applies to).
   const opts: RendererOptions = {
     background: paletteColor('shadow.1'),
-    teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor('team.neutral')],
+    // Task 12: the map and the minimap's team colours follow the player's
+    // colour-vision setting, read once here (construction-time, like the
+    // renderer backend choice) rather than live -- a variant switched
+    // mid-mission takes effect from the next one, which the settings hint
+    // says explicitly.
+    teamColors: paletteTeamColors(req.settings.get().accessibility.colorVision),
     hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],
     infantryColors: [paletteColor('olive.0'), paletteColor('dust.0'), paletteColor('limestone.1')],
     groupColors: [

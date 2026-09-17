@@ -252,6 +252,39 @@
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
+/* --- colour-vision variants (Task 12) --------------------------------
+ * `applySettings` (settings.ts) writes `data-cvd` on the root from
+ * `accessibility.colorVision`, immediately -- these four tokens are the ONLY
+ * runtime-reactive part of a variant, because they feed the same --friendly
+ * /--bad/--warn/--bad-text chain every static HUD rule already reads. The
+ * map and the minimap are the other half of the feature and do NOT react
+ * live: `main.ts` reads `paletteTeamColors()` once, at battlefield
+ * construction, so a variant switched mid-mission paints the canvas from the
+ * next mission on (the settings hint says so). Each block re-points exactly
+ * the four tokens the plain team mappings above set from `--rl-team-*`, at
+ * `--rl-team-<variant>-*` instead -- gated by tools/src/cvd.test.ts (every
+ * pair stays apart by CIE76 ΔE ≥ 25 under simulation of its own deficiency)
+ * and tools/src/bad-text-contrast.test.ts (hostile_text ≥ 4.5:1 per
+ * variant). */
+:root[data-cvd='deuteranopia'] {
+  --friendly: var(--rl-team-deuteranopia-kedem);
+  --bad: var(--rl-team-deuteranopia-hostile);
+  --warn: var(--rl-team-deuteranopia-neutral);
+  --bad-text: var(--rl-team-deuteranopia-hostile-text);
+}
+:root[data-cvd='protanopia'] {
+  --friendly: var(--rl-team-protanopia-kedem);
+  --bad: var(--rl-team-protanopia-hostile);
+  --warn: var(--rl-team-protanopia-neutral);
+  --bad-text: var(--rl-team-protanopia-hostile-text);
+}
+:root[data-cvd='tritanopia'] {
+  --friendly: var(--rl-team-tritanopia-kedem);
+  --bad: var(--rl-team-tritanopia-hostile);
+  --warn: var(--rl-team-tritanopia-neutral);
+  --bad-text: var(--rl-team-tritanopia-hostile-text);
+}
+
 /* Breakpoint widths stay in raw viewport px, not rem: they SET --ui-scale
    (and therefore the root font-size rem resolves against), so expressing
    them in rem would be circular. */

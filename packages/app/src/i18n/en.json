@@ -37,7 +37,7 @@
   "settings.colorVision.deuteranopia": "Deuteranopia (red–green)",
   "settings.colorVision.protanopia": "Protanopia (red–green)",
   "settings.colorVision.tritanopia": "Tritanopia (blue–yellow)",
-  "settings.colorVision.hint": "Team colours on the map, the minimap and the HUD.",
+  "settings.colorVision.hint": "Team colours on the HUD update immediately; the map and the minimap from the next mission.",
   "settings.controls": "Controls",
   "settings.cameraSpeed": "Camera speed",
   "settings.cameraSpeed.multiplier": "{x}×",

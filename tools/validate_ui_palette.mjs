@@ -96,6 +96,15 @@ function paletteVars() {
     for (const key of Object.keys(group.colors)) {
       names.add(`--rl-${band}-${key.replace(/_/g, '-')}`);
     }
+    // CVD variants (Task 12): vite-plugin-palette.ts's paletteDeclarations
+    // publishes one extra --rl-<band>-<variant>-<key> per entry -- mirrored
+    // here so theme.css's :root[data-cvd='...'] blocks, the only place
+    // allowed to name one, do not read as unknown custom properties.
+    for (const [variant, colors] of Object.entries(group.variants ?? {})) {
+      for (const key of Object.keys(colors)) {
+        names.add(`--rl-${band}-${variant}-${key.replace(/_/g, '-')}`);
+      }
+    }
   }
   return names;
 }

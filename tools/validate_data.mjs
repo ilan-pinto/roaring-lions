@@ -1216,6 +1216,17 @@ if (palette) {
   for (const [band, spec] of Object.entries(palette.reserved ?? {})) {
     Object.keys(spec.colors ?? {}).forEach((name) => paletteKeys.add(`${band}.${name}`));
     count += Object.keys(spec.colors ?? {}).length;
+    // CVD variants (e.g. reserved.team.variants.deuteranopia.kedem) are a
+    // second full set of colours per band, keyed by variant kind rather than
+    // by ramp index -- declared colour SLOTS, same as `colors` above, so they
+    // count here too. Not added under the plain `${band}.${name}` key a vfx
+    // palette_ref could match: nothing authors VFX against a CVD variant,
+    // and doing so would silently accept "vfx.tracer" resolving to whichever
+    // variant a stray name collision produced.
+    for (const [variant, colors] of Object.entries(spec.variants ?? {})) {
+      Object.keys(colors ?? {}).forEach((name) => paletteKeys.add(`${band}.variants.${variant}.${name}`));
+      count += Object.keys(colors ?? {}).length;
+    }
   }
   if (count !== palette.total_colors) {
     failures.push(
