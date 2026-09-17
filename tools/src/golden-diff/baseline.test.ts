@@ -677,6 +677,16 @@ describe('BASELINES layerChecks', () => {
     // Only two scenarios frame a building at all; `open-ground` and `relief`
     // read a literal 0 for it and must not declare it.
     expect(byLayer.get('buildings')).toEqual(['quiet']);
+    // Shell upgrade Phase 0 Task 9. The vignette is visible in every framing
+    // and the skirt in every framing whose viewport reaches past the map
+    // edge; both are declared on the two whole-frame scenarios with a
+    // bit-zero repaint control, on two different maps. `open-ground` declares
+    // neither: its crop is region-scoped to mid-map ground, where hiding the
+    // skirt moves a literal 0 px / 0.0000 -- see that scenario's own comment
+    // for why the crop was measured and left where it is rather than moved
+    // out of the vignette's fall-off.
+    expect(byLayer.get('vignette')?.sort()).toEqual(['quiet', 'relief']);
+    expect(byLayer.get('skirt')?.sort()).toEqual(['quiet', 'relief']);
   });
 
   it('sets every floor strictly below the signal it was measured from, on both metrics', () => {
@@ -706,6 +716,12 @@ describe('BASELINES layerChecks', () => {
         decor: { px: 10505, mean: 0.7573 },
         'ground-albedo': { px: 51, mean: 1.0316 },
         buildings: { px: 216469, mean: 10.6308 },
+        // Shell upgrade Phase 0 Task 9, 2026-09-17, 3 consecutive full-gate
+        // runs, bit-identical across all three (see `SHELL_P0` in
+        // `baseline.ts`), each one watched going red at 0 px / 0.0000 with
+        // the layer erased rather than merely toggled.
+        vignette: { px: 20583, mean: 2.192 },
+        skirt: { px: 21455, mean: 0.8442 },
       },
       'open-ground': {
         scatter: { px: 3615, mean: 1.6088 },
@@ -716,6 +732,13 @@ describe('BASELINES layerChecks', () => {
         scatter: { px: 4344, mean: 0.4536 },
         decor: { px: 52587, mean: 4.7771 },
         'ground-albedo': { px: 8, mean: 1.9043 },
+        // Shell upgrade Phase 0 Task 9, as for quiet above. `skirt` is the
+        // weakest layer signal in the whole gate (3403 px / 0.2858) because
+        // this framing is zoomed to a corridor and only its corners reach
+        // past the map edge -- which is exactly why it is declared on two
+        // maps rather than on its strongest one alone.
+        vignette: { px: 59402, mean: 3.4137 },
+        skirt: { px: 3403, mean: 0.2858 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the

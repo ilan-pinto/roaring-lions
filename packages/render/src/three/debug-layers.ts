@@ -80,8 +80,33 @@
  * next frame is not a measurement**, and any future layer whose objects are
  * re-asserted per frame needs the same treatment rather than a bare
  * `setObjectsVisible`.
+ *
+ * TWO MORE SINCE THE SHELL UPGRADE'S PHASE 0, and they are the two halves of
+ * "the world no longer ends in a hard black diagonal":
+ *
+ * - `vignette`  the corner darkening (`../vignette-pass.ts`), toggled by the
+ *               pass's own `enabled`. The first entry here that is not a
+ *               scene object at all -- it is a post pass, so there is
+ *               nothing to hide, only a pass to skip. It survives the
+ *               repaint for the reason the paragraph above demands be
+ *               checked rather than assumed: the chain is rebuilt only from
+ *               `init()` and `dispose()`, so no per-frame path re-asserts
+ *               `enabled`.
+ * - `skirt`     the ground beyond the map (`terrain/skirt.ts`), an ordinary
+ *               `visible` on one quad added once in the constructor. Only a
+ *               scenario whose viewport actually reaches past the map edge
+ *               can see it, which is why it does not get a check on every
+ *               gated scenario.
  */
-export const DEBUG_LAYERS = ['scatter', 'decor', 'ground-albedo', 'buildings', 'units'] as const;
+export const DEBUG_LAYERS = [
+  'scatter',
+  'decor',
+  'ground-albedo',
+  'buildings',
+  'units',
+  'vignette',
+  'skirt',
+] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
 

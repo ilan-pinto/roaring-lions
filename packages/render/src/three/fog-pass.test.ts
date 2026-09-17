@@ -10,7 +10,13 @@
  */
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { FogOfWarPass, FOG_NEVER_SEEN, FOG_EXPLORED, FOG_TINT_HEX } from './fog-pass';
+import {
+  FogOfWarPass,
+  FOG_NEVER_SEEN,
+  FOG_EXPLORED,
+  FOG_OFFMAP_FADE_TILES,
+  FOG_TINT_HEX,
+} from './fog-pass';
 import { hexToLinear } from './terrain/shared';
 
 describe('FogOfWarPass', () => {
@@ -46,5 +52,69 @@ describe('FogOfWarPass', () => {
     expect(frag).toContain('uInvProjection * clip');
     expect(frag).toContain('uCameraWorld * view');
     expect(frag).toContain('world.x / uMapSize.x, world.z / uMapSize.y');
+  });
+
+  it('fades ground OUTSIDE the map to never-seen, over one tile', () => {
+    // The shroud is ClampToEdgeWrapping, so without this a single visible
+    // tile on the border floods a whole quadrant of `terrain/skirt.ts`'s
+    // ground with the edge tile's value -- a searchlight wedge that
+    // photographed (175, 171, 160) sRGB against the (55, 52, 45) of the
+    // shrouded skirt beside it.
+    const pass = new FogOfWarPass(new THREE.Texture(), 8, 8);
+    const frag = pass.material.fragmentShader;
+    expect(FOG_OFFMAP_FADE_TILES).toBe(1.0);
+    // The distance outside is measured in TILES, not in map fractions: a
+    // fraction would make the fade a map-size-dependent distance, so the
+    // same overhanging roof would be dimmed differently on a 32-tile map and
+    // a 64-tile one.
+    expect(frag).toContain('max(vec2(0.0), max(-tex, tex - vec2(1.0)))');
+    expect(frag).toContain(
+      `v *= 1.0 - clamp(length(outUv * uMapSize) / ${FOG_OFFMAP_FADE_TILES.toFixed(1)}, 0.0, 1.0);`
+    );
+    // It MULTIPLIES the sampled value rather than replacing it, so a point
+    // exactly on the border is bit-identical to what it was before this
+    // existed -- the whole reason nothing inside the map moved.
+    expect(frag).toContain('float v = texture2D(uShroud, tex).r;');
+  });
+});
+
+/**
+ * The shader's off-map term, in JS, so the two claims about it are checked
+ * rather than asserted from its source text alone. `tex` is the world
+ * position in map fractions; the result is the multiplier applied to the
+ * sampled shroud value.
+ */
+function offMapFade(tex: [number, number], mapSize: [number, number]): number {
+  const outU = Math.max(0, Math.max(-tex[0], tex[0] - 1));
+  const outV = Math.max(0, Math.max(-tex[1], tex[1] - 1));
+  const tiles = Math.hypot(outU * mapSize[0], outV * mapSize[1]);
+  return 1 - Math.min(1, Math.max(0, tiles / FOG_OFFMAP_FADE_TILES));
+}
+
+describe('the off-map fade', () => {
+  it('is 1 everywhere on the map and 0 a tile beyond it', () => {
+    const size: [number, number] = [48, 48];
+    for (const t of [
+      [0, 0],
+      [0.5, 0.5],
+      [1, 1],
+      [0.5, 1],
+    ] as [number, number][]) {
+      expect(offMapFade(t, size), `on-map ${t.join(',')}`).toBe(1);
+    }
+    // One tile out on a 48-tile map is 1/48 of the map.
+    expect(offMapFade([-1 / 48, 0.5], size)).toBeCloseTo(0, 6);
+    expect(offMapFade([1 + 1 / 48, 0.5], size)).toBeCloseTo(0, 6);
+    // ...and a long way out stays clamped at never-seen rather than going
+    // negative and inverting the shroud.
+    expect(offMapFade([-1, -1], size)).toBe(0);
+  });
+
+  it('is a distance in TILES, so map size does not change how far the fade reaches', () => {
+    // A quarter tile out reads the same fraction on a 32-tile map and a
+    // 64-tile one; expressing the fade in map fractions instead would make
+    // it twice as wide on the smaller map.
+    expect(offMapFade([-0.25 / 32, 0.5], [32, 32])).toBeCloseTo(0.75, 6);
+    expect(offMapFade([-0.25 / 64, 0.5], [64, 64])).toBeCloseTo(0.75, 6);
   });
 });

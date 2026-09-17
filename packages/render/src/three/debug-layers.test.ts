@@ -76,6 +76,8 @@ function internals(r: ThreeRenderer): {
   structureBoxes: Map<number, THREE.Mesh>;
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
   groundMat: GroundMaterial;
+  skirtMesh: THREE.Mesh;
+  vignettePass: { enabled: boolean } | null;
   rebuildTerrain(): void;
 } {
   return r as unknown as ReturnType<typeof internals>;
@@ -95,6 +97,43 @@ describe('DEBUG_LAYERS', () => {
     // was written to assert rather than quietly passing on a stale name.
     expect(isDebugLayer('units')).toBe(true);
     expect(isDebugLayer('unitz')).toBe(false);
+    r.dispose();
+  });
+
+  it('flips the skirt beyond the map, and back', () => {
+    // Built in the CONSTRUCTOR rather than in `rebuildTerrain` (it is a
+    // function of the map's dimensions alone), so unlike every other layer
+    // here this one is togglable before any terrain build.
+    const r = makeRenderer();
+    const i = internals(r);
+    expect(r.setDebugLayerVisible('skirt', false)).toBe(1);
+    expect(i.skirtMesh.visible).toBe(false);
+    expect(r.setDebugLayerVisible('skirt', true)).toBe(1);
+    expect(i.skirtMesh.visible).toBe(true);
+    r.dispose();
+  });
+
+  it('the vignette toggle reports 0 when the pass does not exist, and flips it when it does', () => {
+    // The first layer here that is not a scene object: it is a post pass,
+    // built in `init()`, which these fakes never reach. Reporting 0 rather
+    // than 1 in that state is what stops a gate run against a renderer with
+    // no post chain reading as a real (passing) toggle -- the gate's floor
+    // then fails on a zero delta, which is the honest answer.
+    const r = makeRenderer();
+    const i = internals(r);
+    expect(i.vignettePass).toBeNull();
+    expect(r.setDebugLayerVisible('vignette', false)).toBe(0);
+
+    // With a pass in place it is a real toggle, and it reports a change only
+    // when there was one -- `enabled` is already true, so switching it off
+    // counts and switching it off again does not.
+    i.vignettePass = { enabled: true };
+    expect(r.setDebugLayerVisible('vignette', false)).toBe(1);
+    expect(i.vignettePass.enabled).toBe(false);
+    expect(r.setDebugLayerVisible('vignette', false)).toBe(0);
+    expect(r.setDebugLayerVisible('vignette', true)).toBe(1);
+    expect(i.vignettePass.enabled).toBe(true);
+    i.vignettePass = null;
     r.dispose();
   });
 
