@@ -339,7 +339,21 @@ describe('the generic topple (D5)', () => {
     stepMeshDeath(d, 0.1, env);
     const corpse = boneNamed(e, 'death_root');
     const yawDeg = (2 * Math.atan2(corpse.quaternion.y, corpse.quaternion.w) * 180) / Math.PI;
-    expect(Math.abs(yawDeg)).toBeCloseTo(90, 3);
+    // SIGNED, not just magnitude: forward is +X, direction is -Z, so
+    // atan2((forward x direction).up, forward.direction) is +90 deg, and the
+    // corpse root's parent carries no rotation in this fixture, so
+    // 2*atan2(q.y, q.w) reads +90 too. A sign flip here would ship a corpse
+    // whose head lies 180 deg from the fall bearing with only the magnitude
+    // check above still green -- confirmed by mutation (fix round 1).
+    expect(yawDeg).toBeCloseTo(90, 3);
+    // Convention-free check: the corpse's local head axis (local +X on the
+    // kit prone build) transformed into world space must lie along the fall
+    // direction itself -- "the head lies where the body fell" -- rather than
+    // trusting the quaternion-component reading above alone.
+    e.root.updateWorldMatrix(true, true);
+    const headAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(corpse.getWorldQuaternion(new THREE.Quaternion()));
+    expect(headAxis.z).toBeCloseTo(-1, 3);
+    expect(Math.abs(headAxis.x)).toBeLessThan(1e-3);
     let result: ReturnType<typeof stepMeshDeath> = 'fading';
     for (let i = 0; i < 20 && result === 'fading'; i++) result = stepMeshDeath(d, 0.1, env);
     expect(result).not.toBe('fading');
