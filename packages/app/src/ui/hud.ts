@@ -139,6 +139,14 @@ export interface HudDeps {
   orders?: OrderHandlers;
   /** Which order is armed and waiting for a click on the map, if any. */
   armedOrder?: () => OrderId | null;
+  /** The label an order button prints for the key that does the same thing.
+   *  `row.key` (from `selection-model.ts`'s `ORDERS`) is an `input/keymap.ts`
+   *  ACTION id for every bound order and the literal `'RMB'` for `attackMove`
+   *  — this is how the row turns that id into the CURRENT keycap, honouring a
+   *  rebind, rather than printing the id itself. Absent in tests that do not
+   *  exercise the row, which prints `row.key` unchanged (the same as an
+   *  identity mapping). */
+  keyFor?: (action: string) => string;
   /** The idle-frame URL for a unit type, or null where the type ships no sprite
    *  sheet. Resolved once at boot in main.ts from each sheet's own manifest. */
   portrait?: (typeId: string) => string | null;
@@ -1109,7 +1117,7 @@ export class Hud {
         row.capacity !== undefined ? ` <b class="rl-dim">${row.capacity}</b>` : '';
       btn.innerHTML =
         `<span class="rl-order__glyph">${row.glyph}</span>${row.label}` +
-        `${cap} <b class="rl-dim">${row.key}</b>`;
+        `${cap} <b class="rl-dim">${this.deps.keyFor?.(row.key) ?? row.key}</b>`;
       btn.title = row.inert
         ? `${row.label} — nothing in the selection would act on it right now`
         : row.label;

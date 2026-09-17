@@ -32,32 +32,39 @@ export interface OrderSpec {
    *  set as its own ticket. */
   glyph: string;
   label: string;
-  /** The key that does the same thing, shown dim beside the label. Empty for
-   *  an order the keyboard does not bind. */
+  /** The key that does the same thing, shown dim beside the label. Since
+   *  Task 5 this is an `input/keymap.ts` ACTION id (`'halt'`, `'smoke'`,
+   *  `'load'`, `'unload'`), not a letter — the HUD resolves it to a label
+   *  through `HudDeps.keyFor`, which is what lets a rebind change the button
+   *  along with the key. `attackMove` is the one exception: it keeps the
+   *  literal `'RMB'`, which is not an action id and `keyFor` passes through
+   *  unchanged (see its own comment below for why it is not bound to a key
+   *  at all). Empty for an order the keyboard does not bind. */
   key: string;
 }
 
 /**
  * The row, in the spec's order.
  *
- * `attackMove`'s key is `RMB` and not `A`, which is what the spec draws, and
- * that is a deliberate and reversible decision rather than an oversight. `a` is
- * bound to pan the camera left (`main.ts`, the rAF loop's `keys.has('a')`), and
- * with no edge-scroll and no drag-pan in the game, WASD and the arrows are the
- * only two ways to move the camera at all. Binding `a` here would pan the map a
- * couple of tiles on every arm; taking `a` off the pan set would leave `w`,
- * `s` and `d` panning around a hole. Both are worse than a label naming the
- * gesture that actually exists — and a button whose printed key does something
- * else is exactly the drift this row is built to make impossible. Moving the
- * camera off WASD would make `A` available and is a controls decision, not a
- * HUD one.
+ * `attackMove`'s key is the literal `'RMB'`, not an `input/keymap.ts` ACTION
+ * id — there is no `attackMove` action, and `rebindable` does not apply to
+ * it — and that is a deliberate and reversible decision rather than an
+ * oversight. `a` is bound to pan the camera left (`main.ts`, the rAF loop's
+ * `keys.has('panLeft')`), and with no edge-scroll and no drag-pan in the
+ * game, WASD and the arrows are the only two ways to move the camera at all.
+ * Binding `a` here would pan the map a couple of tiles on every arm; taking
+ * `a` off the pan set would leave `w`, `s` and `d` panning around a hole.
+ * Both are worse than a label naming the gesture that actually exists — and
+ * a button whose printed key does something else is exactly the drift this
+ * row is built to make impossible. Moving the camera off WASD would make `A`
+ * available and is a controls decision, not a HUD one.
  */
 export const ORDERS: readonly OrderSpec[] = [
   { id: 'attackMove', glyph: '⟶', label: 'Attack-move', key: 'RMB' },
-  { id: 'halt', glyph: '■', label: 'Halt', key: 'H' },
-  { id: 'smoke', glyph: '◌', label: 'Smoke', key: 'F' },
-  { id: 'load', glyph: '⤓', label: 'Load', key: 'G' },
-  { id: 'unload', glyph: '⤒', label: 'Unload', key: 'U' },
+  { id: 'halt', glyph: '■', label: 'Halt', key: 'halt' },
+  { id: 'smoke', glyph: '◌', label: 'Smoke', key: 'smoke' },
+  { id: 'load', glyph: '⤓', label: 'Load', key: 'load' },
+  { id: 'unload', glyph: '⤒', label: 'Unload', key: 'unload' },
 ];
 
 /**

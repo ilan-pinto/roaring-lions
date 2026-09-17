@@ -68,7 +68,9 @@ import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebri
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
+import { keymapRows } from './ui/settings-keymap';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
+import { bindingsFrom, isAction, keyLabel, overridesOf, resolveKey } from './input/keymap';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -675,8 +677,20 @@ async function main(): Promise<void> {
     audio,
     // Task 9 fills this from the shipped locale catalogue.
     locales: [{ id: 'en', name: 'English' }],
-    // Task 5 fills this; `null` renders no Controls section at all.
-    keymap: null,
+    // `bindings()` always answers the FULL table (defaults plus valid
+    // overrides), never the raw override map settings.ts stores -- a rebind
+    // row reads and writes bindings, not the sparse form. `set` round-trips
+    // the other way: `overridesOf` strips it back to only what differs from
+    // the shipped defaults before it is written into `settings.controls.bindings`,
+    // which is the same sparse shape `bindingsFrom` reads back out.
+    keymap: keymapRows({
+      bindings: () => bindingsFrom(settings.controls.bindings),
+      set: (next) =>
+        settingsDeps.set({
+          ...settings,
+          controls: { ...settings.controls, bindings: overridesOf(next) },
+        }),
+    }),
     build: __APP_BUILD__,
   };
 
@@ -2049,6 +2063,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
+    // `row.key` is an `input/keymap.ts` action id for every bound order and
+    // the literal `'RMB'` for `attackMove` -- `isAction` tells the two apart,
+    // and `bindings` (declared below, alongside the keydown listener that
+    // reads the same table) is closed over rather than copied, so a rebind
+    // repaints the button the next time the HUD ticks.
+    keyFor: (id) => (isAction(id) ? keyLabel(bindings[id]) : id),
     portrait: (typeId) => portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
     // A closure over `runtime`, not a snapshot of it: the Hud is constructed
@@ -2508,6 +2528,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (res.note) hud.note(res.note.text, res.note.tone);
     if (res.marker) renderer.addOrderMarker(w.x, w.y);
   });
+  // The keyboard, as data (Task 5): `resolveKey` is the one place a raw
+  // `KeyboardEvent` becomes an action id, and everything below dispatches on
+  // the id rather than the letter. Read live off the settings store and
+  // re-read on every change, the same way `panSpeed` already does below --
+  // a rebind made from the pause menu (Task 6) over a running mission must
+  // reach this listener without a re-boot.
+  let bindings = bindingsFrom(req.settings.get().controls.bindings);
+  onDispose(req.settings.onChange((next) => {
+    bindings = bindingsFrom(next.controls.bindings);
+  }));
   const keys = new Set<string>();
   // Control groups 1–9, and double-tap tracking for camera centring.
   const groups = new Map<number, number[]>();
@@ -2515,51 +2545,82 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let lastGroupAt = 0;
   onWindow('blur', () => keys.clear());
   onWindow('keydown', (ev) => {
-    // macOS swallows keyups released under Cmd — never track modified keys,
-    // or Cmd+A leaves 'a' stuck and the camera pans forever.
-    if (!ev.metaKey && !ev.ctrlKey) keys.add(ev.key.toLowerCase());
-    // The four bound verbs go through `orders`, which is the very object the
-    // HUD's order row calls (GH-153). A key and its button are one function.
-    if (ev.key === 'h') orders.halt();
-    // Tab walks the lime frame along the selection chips. Swallowed only when
-    // there is something to walk: taking the browser's own focus traversal on
-    // a screen with no chips would be a key spent on nothing.
-    if (ev.key === 'Tab' && hud.cycleChipFocus()) ev.preventDefault();
-    if (ev.key.toLowerCase() === 'a' && (ev.ctrlKey || ev.metaKey)) {
-      ev.preventDefault(); // browser select-all
-      renderer.selection = [];
-      for (let i = 0; i < sim.entityCount; i++) {
-        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) renderer.selection.push(i);
-      }
-    }
-    if (ev.key === 'o') {
-      overlay.toggle();
-      overlayOn = !overlayOn;
-      dispatch({ kind: 'overlay', on: overlayOn });
-    }
-    // Mount up / dismount / smoke: the same resolver the right-click uses,
-    // asked with a KeyContext instead of a PointerContext. The keys are
-    // unchanged; what moved is where the eligibility rules live -- and, as of
-    // GH-153, WHERE THE CALL LIVES: `orders` above is the same object the HUD's
-    // order row clicks, so `g` and the Load button are one code path rather
-    // than two that have to keep agreeing.
-    if (ev.key === 'g') orders.load();
-    if (ev.key === 'u') orders.unload();
-    // The dock's label reads `Reinforcements · B`, and this is what makes that
-    // true. It moves keyboard focus onto the first tile the player could
-    // actually spend on; from there the tiles are ordinary buttons, so Tab
-    // walks them and Enter buys. A label naming a key that did nothing is the
-    // same drift slice 2 refused when it declined to print `Attack-move A`.
-    if (ev.key === 'b') production?.focusFirst();
-    // `f` quick-casts at the cursor rather than arming, which is what it has
-    // always done and what a hand already on the mouse wants. The Smoke
-    // BUTTON arms instead -- see `armOrder` for why a button cannot quick-cast
-    // -- and both end in this same call.
-    if (ev.key === 'f') runVerb('smoke');
-    if (ev.key === 'm') {
-      audioMuted = audio.toggle();
-      hud.paintMute(); // the key and the strip's chip are one state, both ways
-      hud.note(audioMuted ? 'audio muted' : 'audio on', 'mute');
+    // The keydown listener used to be an if-chain of literals -- one per
+    // bound key, and a second copy of each letter living in
+    // `selection-model.ts`'s ORDERS with nothing keeping the two in step.
+    // `resolveKey` is the one place a raw event becomes an action id now,
+    // and this switch is the one place an action id becomes a call.
+    const action = resolveKey(bindings, ev);
+    switch (action) {
+      case 'halt':
+        // The four bound verbs go through `orders`, which is the very object
+        // the HUD's order row calls (GH-153). A key and its button are one
+        // function.
+        orders.halt();
+        break;
+      case 'cycleChips':
+        // Tab walks the lime frame along the selection chips. Swallowed only
+        // when there is something to walk: taking the browser's own focus
+        // traversal on a screen with no chips would be a key spent on
+        // nothing.
+        if (hud.cycleChipFocus()) ev.preventDefault();
+        break;
+      case 'selectAll':
+        ev.preventDefault(); // browser select-all
+        renderer.selection = [];
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) renderer.selection.push(i);
+        }
+        break;
+      case 'overlay':
+        overlay.toggle();
+        overlayOn = !overlayOn;
+        dispatch({ kind: 'overlay', on: overlayOn });
+        break;
+      // Mount up / dismount / smoke: the same resolver the right-click uses,
+      // asked with a KeyContext instead of a PointerContext. The keys are
+      // unchanged; what moved is where the eligibility rules live -- and, as
+      // of GH-153, WHERE THE CALL LIVES: `orders` above is the same object
+      // the HUD's order row clicks, so Load's key and the Load button are one
+      // code path rather than two that have to keep agreeing.
+      case 'load':
+        orders.load();
+        break;
+      case 'unload':
+        orders.unload();
+        break;
+      case 'production':
+        // The dock's label reads `Reinforcements · B`, and this is what makes
+        // that true. It moves keyboard focus onto the first tile the player
+        // could actually spend on; from there the tiles are ordinary
+        // buttons, so Tab walks them and Enter buys. A label naming a key
+        // that did nothing is the same drift slice 2 refused when it
+        // declined to print `Attack-move A`.
+        production?.focusFirst();
+        break;
+      case 'smoke':
+        // Smoke quick-casts at the cursor rather than arming, which is what
+        // it has always done and what a hand already on the mouse wants. The
+        // Smoke BUTTON arms instead -- see `armOrder` for why a button
+        // cannot quick-cast -- and both end in this same call.
+        runVerb('smoke');
+        break;
+      case 'mute':
+        audioMuted = audio.toggle();
+        hud.paintMute(); // the key and the strip's chip are one state, both ways
+        hud.note(audioMuted ? 'audio muted' : 'audio on', 'mute');
+        break;
+      case 'pause':
+        // Task 6 fills this in -- the pause menu is not built yet.
+        break;
+      case 'panUp':
+      case 'panDown':
+      case 'panLeft':
+      case 'panRight':
+        keys.add(action);
+        break;
+      case null:
+        break; // the digit branches below stay exactly as they are
     }
 
     // Control groups: Ctrl/Cmd+digit assigns the selection, digit recalls it,
@@ -2607,7 +2668,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
     }
   });
-  onWindow('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
+  onWindow('keyup', (ev) => {
+    const action = resolveKey(bindings, ev);
+    if (action) keys.delete(action);
+  });
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const z = renderer.camera.zoom * (ev.deltaY > 0 ? 0.9 : 1.1);
@@ -3239,19 +3303,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // pause menu included (Task 6) -- `get()` is a plain getter, so this
     // costs nothing extra per frame.
     const panSpeed = (0.5 * req.settings.get().controls.cameraSpeed) / renderer.camera.zoom;
-    if (keys.has('w') || keys.has('arrowup')) {
+    // `keys` holds pan ACTION ids now (Task 5), not letters -- the arrows pan
+    // alongside whatever WASD is bound to because `resolveKey` folds them
+    // onto the same four actions (`ARROWS` in `input/keymap.ts`), so there is
+    // only one action per direction to test here rather than two keys.
+    if (keys.has('panUp')) {
       renderer.camera.x -= panSpeed;
       renderer.camera.y -= panSpeed;
     }
-    if (keys.has('s') || keys.has('arrowdown')) {
+    if (keys.has('panDown')) {
       renderer.camera.x += panSpeed;
       renderer.camera.y += panSpeed;
     }
-    if (keys.has('a') || keys.has('arrowleft')) {
+    if (keys.has('panLeft')) {
       renderer.camera.x -= panSpeed;
       renderer.camera.y += panSpeed;
     }
-    if (keys.has('d') || keys.has('arrowright')) {
+    if (keys.has('panRight')) {
       renderer.camera.x += panSpeed;
       renderer.camera.y -= panSpeed;
     }

@@ -947,6 +947,19 @@ describe('the order row', () => {
     expect(r.queued).toBe(0);
   });
 
+  it('prints the CURRENT keycap for a rebound order, through keyFor', () => {
+    // `ORDERS[].key` carries an action id ('halt'), not a letter -- this is
+    // what proves the row asks `keyFor` for the label instead of printing the
+    // id itself, so a rebind (Task 5) changes the button along with the key.
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      { keyFor: (action) => (action === 'halt' ? 'J' : action) },
+      world
+    );
+    expect(r.order('halt')!.textContent).toContain('J');
+  });
+
   it('lights the armed order and only that one', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], { armedOrder: () => 'attackMove' }, world);

@@ -1,24 +1,26 @@
 // packages/app/src/ui/settings-panel.ts
 /**
- * The settings screen: one table, four sections today (Video, Audio,
- * Accessibility, Language -- Controls joins once Task 5 supplies a `keymap`),
- * applied as the player changes them. `get`/`set` are the whole contract with
- * the shell -- this module reads the current `Settings` once per render and
- * writes a whole new object back through `set`, which persists and applies it
- * (`main.ts`'s `settingsDeps.set`). The one exception is an audio slider,
- * which also reaches the mixer LIVE while it is being dragged (`audio`),
- * because "does the game go quiet" is the whole point of that control and a
- * player should not have to release the mouse to find out.
+ * The settings screen: one table, five sections (Video, Audio, Controls,
+ * Accessibility, Language), applied as the player changes them. `get`/`set`
+ * are the whole contract with the shell -- this module reads the current
+ * `Settings` once per render and writes a whole new object back through
+ * `set`, which persists and applies it (`main.ts`'s `settingsDeps.set`). The
+ * one exception is an audio slider, which also reaches the mixer LIVE while
+ * it is being dragged (`audio`), because "does the game go quiet" is the
+ * whole point of that control and a player should not have to release the
+ * mouse to find out.
  *
  * `fullscreen` and `keymap` are both nullable: a browser that cannot go
- * fullscreen gets no row for it, and Task 5's rebind table simply has not
- * landed yet, rather than either being represented by a broken control.
+ * fullscreen gets no row for it, and a test that does not exercise the
+ * rebind table (or the pre-Task-5 stub, historically) passes `null` rather
+ * than either being represented by a broken control.
  *
  * `onChange` is a plain subscriber list, not a second copy of the settings --
- * `set()` is still the only writer. Task 5 (live-previewing a rebind) and
- * Task 6 (the pause menu, mounting this same panel over a running mission)
- * both need to react to a change made through a DIFFERENT mount of this
- * panel without polling, which is what this buys them.
+ * `set()` is still the only writer. Task 5's keymap section reads bindings
+ * fresh from `deps.bindings()` on every row it repaints rather than
+ * subscribing here, and Task 6 (the pause menu, mounting this same panel
+ * over a running mission) is the one that needs a DIFFERENT mount of this
+ * panel to react to a change without polling, which is what this buys it.
  */
 import type { AudioGains } from '@lions/render';
 import type { Disposer } from '../shell/router';
@@ -46,7 +48,8 @@ export interface SettingsDeps {
   audio: { setGains(g: AudioGains): void } | null;
   /** Task 9 fills this; `[{ id: 'en', name: 'English' }]` until then. */
   locales: readonly { id: string; name: string }[];
-  /** Task 5 fills this; `null` renders no Controls section at all. */
+  /** `main.ts` passes `keymapRows(...)`; `null` renders no Controls section
+   *  at all, which is what a test that does not exercise the row wants. */
   keymap: KeymapDeps | null;
   /** `__APP_BUILD__`, printed at the foot of the table. */
   build: string;
