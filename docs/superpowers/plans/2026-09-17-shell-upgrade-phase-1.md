@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the shell from a set of query-string page loads into one application: a client-side router with a persistent stage and disposable screens, a settings screen that persists, a pause menu over a visibly paused world, Continue and save slots that carry both stores, a credits screen, and an i18n seam with every chrome string behind `t()` and a pseudo-locale the capture pass can photograph.
+**Goal:** Turn the shell from a set of query-string page loads into one application: a client-side router with a persistent stage and disposable screens, a settings screen that persists, a pause menu over a visibly paused world, Continue and save slots that carry both stores, a credits screen, an i18n seam with every chrome string behind `t()` and a pseudo-locale the capture pass can photograph, and the brigade rebuilt as a garage — one unit large in a lit bay, a roster rail, an upgrade board whose every rung says what it does in the unit's own numbers, at reading size.
 
 **Architecture:** A small pure router (`packages/app/src/shell/router.ts`) owns `history`, matches base-relative paths against a route table, and mounts one screen at a time into `#stage`; every `show*` returns a disposer. `main.ts` becomes the route table plus one `bootBattlefield()` that returns a disposer for everything a mission puts on the page (the rAF loop, window listeners, body-mounted HUD chrome, the renderer). Settings, keybindings, profile slots and the message catalogue are typed stores with pure parse/serialise functions and a thin DOM layer each, all persisted under `lions.*` keys beside the ledger. Old query URLs redirect to paths on boot for one release, so every tool that drives the app by `?sandbox=`/`?mission=`/`?campaign` keeps working unchanged.
 
@@ -42,6 +42,7 @@ Each departs from or narrows the spec's §6 text; each is written into the spec'
 - **R-7 — The credits screen states the licence the project lead decided, and the LICENSE files are aligned to it.** `docs/ART_PIPELINE.md:181` records art and data as "all rights reserved" since 2026-08-30, ahead of a commercial release; `LICENSE:25-26` and `data/LICENSE.md` still say CC BY-SA 4.0. Two files on disk disagree, and a credits screen cannot quote both. Task 8 states the later decision and updates the two stale files in the same commit. **The project lead can reverse this in one line; it is flagged in the landing report.** The Namer IFV model's CC BY 3.0 credit (Mutte, BlendSwap #75225, `docs/ASSET_PROVENANCE.md:39-45`) is mandatory and appears. The jeep sprite set's "LICENCE UNVERIFIED" line (`ASSET_PROVENANCE.md:41`) is NOT credited as anything; it is listed in the landing report for the lead.
 - **R-8 — `?fresh` stays accepted for one release** (it is in `KNOWN_PARAMS` and documented in CLAUDE.md); the menu's "New campaign" replaces the `?fresh=1` navigation and names what it keeps.
 - **R-9 — `bootBattlefield` stays in `main.ts`.** Moving 2,000 lines into a new file would make the review diff unreadable for a mechanical reason. The extraction is a function boundary inside the file; a later phase can move the file.
+- **R-11 — The garage ships in Phase 1 with engine plates, not Phase 3 with renders.** The lead added the garage on 2026-09-17 after this plan was written ("use better graphics and bigger font"); the layout, the type scale and the benefit lines are shell work and do not wait for art, and the running game already photographs a lit, real unit. Phase 3 replaces the plate files and nothing else. **Task 16 keeps every economy rule** — `gateSentence`, per-unit Buy, per-track Buy, `ownedTiers`, `applyUpgrades`, the double-click reset — and changes only what the player sees.
 - **R-10 — Audio gains are master, music and SFX.** No voice channel exists (`packages/render/src/audio.ts` has one master bus and an `<audio>` element for music, nothing else); a slider for silence is a lie. Voice joins when a voice line ships.
 
 ## File structure
@@ -72,6 +73,8 @@ Each departs from or narrows the spec's §6 text; each is written into the spec'
 | `data/palette.json`, `packages/app/vite-plugin-palette.ts`, `theme.css`, `packages/data/src/index.ts`, `tools/src/cvd.test.ts` | Colour-vision variants, measured under simulated deficiency | 12 |
 | `tools/src/ui-review/shoot.ts` | `--pseudo`; settings, credits, saves, pause, end-screen and debrief states | 13 |
 | `packages/render/src/api.ts`, `quality.ts`, `three/post-chain.ts`, `three/lighting.ts`, `three/ThreeRenderer.ts` | The quality preset reaches the renderer | 14 |
+| `tools/src/perf/unit-plates.ts`, `assets/ui/plates/units/*.jpg` + `manifest.json` | Engine-rendered unit plates for the garage | 15 |
+| `packages/app/src/ui/upgrade-benefit.ts` (+test), `packages/app/src/ui/brigade.ts` (+test), `theme.css` | The garage: bay, rail, board, wallet; benefit lines from the patch deltas | 16 |
 
 ---
 
@@ -3086,9 +3089,158 @@ export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQ
 
 ---
 
+---
+
+### Task 15: Engine-rendered unit plates for the garage
+
+**Files:**
+- Create: `tools/src/perf/unit-plates.ts`; `tools/package.json` script `plates:units`; root `package.json` script `plates:units`; `assets/ui/plates/units/<id>.jpg` for every file in `data/units/kdf/` plus `assets/ui/plates/units/manifest.json`
+- Docs: `CLAUDE.md` "Dev instruments" (one paragraph beside `pnpm plate:capture`)
+
+**Interfaces:**
+- Consumes: the plate harness pattern in `tools/src/perf/plate-capture.ts` (dev server, `__lions.goto`, overlays and fog debug layers off, a clipped screenshot) and the spawn pattern in `tools/src/perf/wreck-captures.ts` (`sim.unitTypes`, `sim.spawn(typeIdx, side, x, y)`, `renderer.worldToScreen`).
+- Produces: `pnpm plates:units [--only=<id>] [--out=assets/ui/plates/units]`; each plate a JPEG at `PLATE_W × PLATE_H = 1800 × 1200` capture pixels; `manifest.json` = `{ version: 1, camera: { zoom, dpr }, plates: { [unitId]: { file, width, height, extent: [w, h] } } }` where `extent` is the unit's own pixel footprint (alpha-free, so measured as the bounding box of pixels that differ from the ground plate captured with no unit — the same frame, before the spawn); `unitPlate(base, id): { url, extent } | null` in `packages/app/src/ui/portrait.ts` beside `unitIcon`, reading the manifest through an eager glob the way `unitIcon` does.
+
+- [ ] **Step 1: The harness**
+
+Boot `/free-play/beit_sahwan_outskirts` (the redirect covers the old spelling) at `deviceScaleFactor: 2`, viewport 1400×900; wait for `__lions.renderer`; `setDebugLayerVisible('overlays', false)` and `('fog', false)` (the `uRevealAll` path from Phase 0); `goto('town_center')` then move the camera to a flat open tile ≥ 6 tiles from any building (`sim.blocked` — read how `wreck-captures.ts` picks its parade ground and reuse it); `renderer.camera.zoom = 3` (set directly; `main.ts`'s 0.35–2.5 clamp is the wheel handler's, not the renderer's — verify by reading `camera.zoom` back); `renderer.frame(1, 0)`; capture the empty ground (the reference frame); then for each KDF type: `sim.spawn(typeIdx, 0, x, y)` at the tile centre, `step(2)` so it settles, `renderer.frame(1, 0)`, `worldToScreen` to centre a 900×600 CSS-pixel clip on the unit (1800×1200 capture pixels), screenshot, `sim.removeFromPlay(id)`, `frame`. Measure `extent` by diffing the plate against the reference clip. Write JPEG quality 90. A crew-served team and a squad are a group — spawn once per type; the plate shows the whole team, which is what the player fields.
+
+- [ ] **Step 2: Falsify the extent**
+
+Run with `--only=mbt_lavi`; the manifest's `extent[0]` must be ≥ 600 (a tank six hundred pixels wide at this zoom and DPR — if it is not, raise `zoom` until it is and record the number). Then break the diff on purpose (compare the plate with itself) → `extent` reads `[0, 0]` and the harness must refuse to write the manifest with a zero extent (`"mbt_lavi: empty extent -- the diff is broken or the unit did not spawn"`). Restore.
+
+- [ ] **Step 3: Generate, look, commit**
+
+`pnpm plates:units`; open six plates (a tank, an IFV, a squad, a mortar team, the drone, the helicopter) at 100% and put them in the report; the helicopter and the drone are in the air — the clip centres on `worldToScreen` of the unit, which includes the lift, so they sit in frame. Commit the tool, the plates, the manifest and `unitPlate`:
+
+```bash
+git add tools/src/perf/unit-plates.ts tools/package.json package.json assets/ui/plates/units packages/app/src/ui/portrait.ts packages/app/src/ui/portrait.test.ts CLAUDE.md
+git commit -m "tools(plates): pnpm plates:units -- every KDF type photographed from the running game for the garage
+
+Zoom 3 at DPR 2 on open ground, overlays and fog off, extent measured by diff against the empty
+ground; a tank reads N px wide. Seen red: a self-diff refused for its zero extent." -- <paths>
+```
+
+---
+
+### Task 16: The brigade as a garage
+
+**Files:**
+- Create: `packages/app/src/ui/upgrade-benefit.ts`, `packages/app/src/ui/upgrade-benefit.test.ts`
+- Modify: `packages/app/src/ui/brigade.ts` (the whole render; the data classification `classifyRow`/`bindingGate` and every option stay), `packages/app/src/ui/brigade.test.ts`, `packages/app/src/ui/theme.css` (`.rl-garage*`; the `.rl-brigade__*` rules retire), `packages/app/src/main.ts` (`mountBrigade` passes `plate: (id) => unitPlate(BASE, id)` and the unit's base stats), `packages/app/src/i18n/en.json`
+
+**Interfaces:**
+- Consumes: `applyUpgrades`, `UpgradeTracks`, `UPGRADE_PATHS` (`@lions/data`), `unitPlate` (Task 15), `unitIcon`, `gateSentence`, `roleBucket`/`roleLabel` (`ui/role.ts`), `t()`.
+- Produces:
+  ```ts
+  // ui/upgrade-benefit.ts
+  export interface BenefitLine { path: string; label: string; before: number; after: number; unit: 'hp' | 'armour' | 'tiles' | 'percent' | 'ratio' | 'points' }
+  export function upgradeBenefits(unit: UpgradableUnit, track: string, tier: number): BenefitLine[];
+  // tier N vs tier N-1 (tier 1 vs base): for every path in tiers[N-1].patch, before = base + (tiers[N-2]?.patch[path] ?? 0), after = base + tiers[N-1].patch[path]
+  export function formatBenefit(b: BenefitLine): string;   // 'Front armour 120 → 134', 'Sight 9 → 10 tiles', 'Accuracy 62% → 66%'
+  ```
+  - `BrigadeOptions` gains `plate?: (typeId: string) => { url: string; extent: [number, number] } | null` and `baseOf: (typeId: string) => UpgradableUnit` (the raw unit JSON, for the benefit lines and the stat panel).
+
+- [ ] **Step 1: Write the failing benefit tests**
+
+```ts
+// packages/app/src/ui/upgrade-benefit.test.ts
+import { describe, expect, it } from 'vitest';
+import { formatBenefit, upgradeBenefits } from './upgrade-benefit';
+
+const lavi = {
+  id: 'mbt_lavi',
+  hull: { hp: 2100, armor: { front: 120, side: 60, rear: 30 }, suppression_resistance: 0.4 },
+  sensors: { optics: 1.0, sight_tiles: 9 },
+  weapons: [{ accuracy: 0.62, penetration: 520 }],
+  upgrades: {
+    armour: { tiers: [
+      { price: 360, patch: { 'hull.hp': 210, 'hull.armor.front': 14, 'hull.armor.side': 6, 'hull.armor.rear': 3 } },
+      { price: 545, patch: { 'hull.hp': 450, 'hull.armor.front': 25, 'hull.armor.side': 11, 'hull.armor.rear': 5 } },
+    ] },
+    sensors: { tiers: [{ price: 300, patch: { 'sensors.optics': 0.1, 'sensors.sight_tiles': 1 } }] },
+    firepower: { tiers: [{ price: 400, patch: { 'weapons[0].accuracy': 0.04, 'weapons[0].penetration': 40 } }] },
+  },
+};
+
+describe('upgradeBenefits', () => {
+  it('tier 1 reads against the base', () => {
+    expect(upgradeBenefits(lavi, 'armour', 1)).toEqual([
+      { path: 'hull.hp', label: 'Hit points', before: 2100, after: 2310, unit: 'hp' },
+      { path: 'hull.armor.front', label: 'Front armour', before: 120, after: 134, unit: 'armour' },
+      { path: 'hull.armor.side', label: 'Side armour', before: 60, after: 66, unit: 'armour' },
+      { path: 'hull.armor.rear', label: 'Rear armour', before: 30, after: 33, unit: 'armour' },
+    ]);
+  });
+  it('tier 2 reads against tier 1, because patches are cumulative over the base', () => {
+    const t2 = upgradeBenefits(lavi, 'armour', 2);
+    expect(t2[0]).toEqual({ path: 'hull.hp', label: 'Hit points', before: 2310, after: 2550, unit: 'hp' });
+  });
+  it('percent and tile stats carry their unit', () => {
+    expect(upgradeBenefits(lavi, 'sensors', 1)).toEqual([
+      { path: 'sensors.optics', label: 'Optics', before: 1, after: 1.1, unit: 'ratio' },
+      { path: 'sensors.sight_tiles', label: 'Sight', before: 9, after: 10, unit: 'tiles' },
+    ]);
+    expect(upgradeBenefits(lavi, 'firepower', 1)[0]).toEqual({ path: 'weapons[0].accuracy', label: 'Accuracy', before: 0.62, after: 0.66, unit: 'percent' });
+  });
+  it('an unknown track or tier is empty, never a throw', () => {
+    expect(upgradeBenefits(lavi, 'nope', 1)).toEqual([]);
+    expect(upgradeBenefits(lavi, 'armour', 9)).toEqual([]);
+    expect(upgradeBenefits({ id: 'x' }, 'armour', 1)).toEqual([]);
+  });
+  it('agrees with applyUpgrades: after-values equal the applied unit at that tier', async () => {
+    const { applyUpgrades } = await import('@lions/data');
+    const applied = applyUpgrades(lavi, { armour: 2 });
+    const t2 = upgradeBenefits(lavi, 'armour', 2);
+    expect(t2.find((b) => b.path === 'hull.hp')?.after).toBe(applied.hull?.hp);
+    expect(t2.find((b) => b.path === 'hull.armor.front')?.after).toBe((applied.hull?.armor as { front: number }).front);
+  });
+});
+
+describe('formatBenefit', () => {
+  it('writes each unit the way the HUD does', () => {
+    expect(formatBenefit({ path: 'hull.armor.front', label: 'Front armour', before: 120, after: 134, unit: 'armour' })).toBe('Front armour 120 → 134');
+    expect(formatBenefit({ path: 'sensors.sight_tiles', label: 'Sight', before: 9, after: 10, unit: 'tiles' })).toBe('Sight 9 → 10 tiles');
+    expect(formatBenefit({ path: 'weapons[0].accuracy', label: 'Accuracy', before: 0.62, after: 0.66, unit: 'percent' })).toBe('Accuracy 62% → 66%');
+    expect(formatBenefit({ path: 'sensors.optics', label: 'Optics', before: 1, after: 1.1, unit: 'ratio' })).toBe('Optics +10%');
+    expect(formatBenefit({ path: 'hull.hp', label: 'Hit points', before: 2100, after: 2310, unit: 'hp' })).toBe('Hit points 2100 → 2310');
+  });
+});
+```
+
+- [ ] **Step 2: Implement `upgrade-benefit.ts`**
+
+`LABELS: Record<string, { label: string; unit: BenefitLine['unit'] }>` keyed by the whitelist's paths with `weapons[i]` generalised (`Hit points/hp`, `Front|Side|Rear armour/armour`, `Suppression resistance/percent`, `Optics/ratio`, `Sight/tiles`, `Accuracy/percent`, `Penetration/points`); read the base value by walking the path with the same segment parser `upgrades.ts` uses (export `readPath` from there if it is private — one line in `@lions/data`); before/after as in the interface; `formatBenefit` with `→`, percent as `Math.round(v * 100)%`, ratio as a signed percent delta. Round to two decimals before comparing. The last test is the one that matters: the numbers on the screen are the numbers `applyUpgrades` will give the sim — the whitelist and the parser are shared, so they cannot drift.
+
+- [ ] **Step 3: The screen**
+
+Rebuild `showBrigade`'s DOM (keep its signature, options and every callback), as a `.rl-menu.rl-menu--garage` full-width grid:
+
+- **Header:** the wordmark mark, the title `The garage` (`--t-title`, display face), and the **wallet** right-aligned: `credits` in `--font-mono` at `--t-h2` with the coin word after it; after a purchase the number flashes (`flash(el, 'rl-garage__wallet--spent', 600)` from `motion.ts`).
+- **Rail (left column, `minmax(16rem, 20rem)`):** role tabs across the top (`roleBucket` order: armour, infantry, support, air — whatever `role.ts` exposes; one tab per bucket that has a unit), then a vertical list of `.rl-garage__card` buttons: `unitIcon` at 3rem, name at `--t-body` in the display face, a status chip: `Owned`, `Locked · <gateSentence short form>`, or `<price> credits`. The selected card carries `aria-selected`. Keyboard: arrows move, Enter selects.
+- **Bay (centre, `minmax(0, 1fr)`):** the plate as `<img>` filling the bay's width (object-fit contain, the panel ground behind it, a subtle radial `color-mix()` vignette so the ground plate reads as a floor); under it the unit's name at `--t-title`, the role at `--t-h3`, the unit's `blurb` at `--t-body` (from the unit JSON — data, not chrome), the gate sentence when locked, and the **Buy** button for a locked unit with a price: `Buy for N credits` at `--t-h2` in the display face, disabled below the balance with the shortfall in the hint (`N more credits`).
+- **Board (right column, `minmax(20rem, 26rem)`):** the **stat panel** first — six rows (Hit points, Front/Side/Rear armour, Sight, Accuracy) as label + bar + number (`--t-body`; bars in `--friendly` over `color-mix(var(--ink) 12%)`), the bar's max being the roster's max for that stat so a tank and a rifleman scale honestly; then one `.rl-garage__track` per track: the track name at `--t-h3`, a vertical ladder of rungs (tier 1 at the bottom), each rung = tier number, price in mono, and its `formatBenefit` lines; bought rungs filled in `--friendly`; the next rung carries the `Buy tier N · price` button; **hovering or focusing a rung previews it in the stat panel** — the six bars show the after-values with the delta segment in `--good` and the numbers as `before → after` — like a garage's module preview. A maxed track says `Maxed` where the button was.
+- **Footer:** campaign map, menu, and the double-click reset (unchanged behaviour).
+- **Responsive:** at ≤ 1200px CSS width the rail becomes a horizontal scroll strip above the bay and the board stacks under it; nothing is hidden.
+- **Type floor:** no text on the screen below `--t-small`; the pips' `title` tooltips are gone, the numbers are on the rungs.
+
+`brigade.test.ts`: rewrite the DOM assertions for the new structure — selecting a card changes the bay's name; a locked unit shows the gate sentence and a disabled Buy with the shortfall; a rung shows its benefit lines verbatim from `formatBenefit`; hovering a rung previews the stat panel numbers; Buy tier calls `onBuyUpgrade(unitId, track, tier, price)` exactly as before; the reset needs two clicks; the wallet shows `credits`. Keep every existing economy assertion that still applies (the gate ordering, the price rank, `ownedTiers` past the track length reading as maxed).
+
+- [ ] **Step 4: Gates, capture, commit**
+
+`pnpm ui:shots` after Task 13 photographs `03-brigade` at all three resolutions; put 1920 and 2560 in the report and check by eye: one unit in its bay, every rung with a `→` line, nothing small. Falsify: make `upgradeBenefits` read tier N's patch against the base for every tier — the cumulative test goes red. Commit:
+
+```bash
+git add packages/app/src/ui/upgrade-benefit.ts packages/app/src/ui/upgrade-benefit.test.ts packages/app/src/ui/brigade.ts packages/app/src/ui/brigade.test.ts packages/app/src/ui/theme.css packages/app/src/main.ts packages/app/src/i18n/en.json
+git commit -m "feat(shell): the brigade is a garage -- one unit in a lit bay, a roster rail, an upgrade board that says what each rung does in the unit's own numbers
+
+Benefit lines are derived from the same cumulative patches applyUpgrades reads, and pinned equal
+to it. Every economy rule unchanged. Seen red: benefits read against the base at every tier." -- <paths>
+```
+
 ## Self-review
 
-**Spec coverage (§6 Phase 1):** Router — Tasks 0–2 (route table, persistent stage, `navigate` with disposers, 200 ms crossfade via CSS, `?renderer=`/flags preserved as query, the deploy gate inside the mission route, legacy URLs redirecting; `/briefing` and `/debrief` narrowed by R-1). Settings — Tasks 3–5, 12, 14 (video incl. fullscreen/scale/quality, audio, controls incl. rebinding and camera speed with R-3's narrowing, accessibility incl. CVD/text size/reduced motion, language with the switch present). Pause — Task 6 (Escape, resume, objectives, restart with confirm, settings, quit with confirm; the frame loop keeps drawing, the sim stops). Continue/profile/save — Task 7 (Continue names the next mission; slots in the ledger's own shape plus the account, per spec §6 as amended; file export/import). Credits — Task 8 (contributors, library licences, the three OFL texts, the game's licence, the AI disclosure, the build id also in pause and settings). i18n — Tasks 9–11, 13 (catalogue, `t()` with plurals, every chrome string, the mission-text overlay `validate:data` gates, `?pseudo=1` through the capture harness; fonts narrowed by R-4). §7 evidence — the router's route-table and disposer tests (Task 0), `t()` and plural tests (Task 9), settings defaults and persistence (Task 4), the contrast test extended (Task 12), the capture harness with `--pseudo` and the scripted mission end (Task 13, which is also §7's (a) instrument from the spec's §10 amendment), the `pnpm ui:routes` reference-free check (Task 2).
+**Spec coverage (§6 Phase 1):** Router — Tasks 0–2 (route table, persistent stage, `navigate` with disposers, 200 ms crossfade via CSS, `?renderer=`/flags preserved as query, the deploy gate inside the mission route, legacy URLs redirecting; `/briefing` and `/debrief` narrowed by R-1). Settings — Tasks 3–5, 12, 14 (video incl. fullscreen/scale/quality, audio, controls incl. rebinding and camera speed with R-3's narrowing, accessibility incl. CVD/text size/reduced motion, language with the switch present). Pause — Task 6 (Escape, resume, objectives, restart with confirm, settings, quit with confirm; the frame loop keeps drawing, the sim stops). Continue/profile/save — Task 7 (Continue names the next mission; slots in the ledger's own shape plus the account, per spec §6 as amended; file export/import). Credits — Task 8 (contributors, library licences, the three OFL texts, the game's licence, the AI disclosure, the build id also in pause and settings). i18n — Tasks 9–11, 13 (catalogue, `t()` with plurals, every chrome string, the mission-text overlay `validate:data` gates, `?pseudo=1` through the capture harness; fonts narrowed by R-4). The garage (Decision 8) — Tasks 15–16 (engine plates; the bay, the rail, the board with benefit lines pinned against `applyUpgrades`, the wallet, the type floor). §7 evidence — the router's route-table and disposer tests (Task 0), `t()` and plural tests (Task 9), settings defaults and persistence (Task 4), the contrast test extended (Task 12), the capture harness with `--pseudo` and the scripted mission end (Task 13, which is also §7's (a) instrument from the spec's §10 amendment), the `pnpm ui:routes` reference-free check (Task 2).
 
 **Acceptance (spec §6 Phase 1):** no full page reload between any two screens — `performance.mark('rl:boot')` counted by `pnpm ui:routes` (Task 2); settings persist across reload — Task 4's round-trip test and the drive; Escape pauses and resumes with the tick count unchanged — Task 6's clock test and the drive; a save slot round-trips the ledger byte-for-byte — Task 7's test, and the account with it; the pseudo-localised capture pass shows no clipped chrome string — Task 13's run (clipping is judged by eye on the 17 × 3 sheets; the report names any).
 
@@ -3096,6 +3248,8 @@ export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQ
 
 **Type consistency:** `Disposer`, `RouteRequest`, `Mount`, `RouteDef` (Task 0) are consumed by name in 1, 2, 4, 6, 7, 8; `BattlefieldRequest` is declared in Task 1 and gains `navigate` (2), `settings` (4), `restart` (6) — each named where added; `SettingsDeps` (4) gains `keymap` (5, typed `KeymapDeps` from `settings-keymap.ts`, a stub type in Task 4) and `onChange` (5); `AudioGains` (3) is the type `SettingsDeps.audio.setGains` takes; `StorageLike` is the one in `brigade-account.ts` throughout; `LEDGER_KEY`/`TUTORIAL_DONE_KEY`/`loadLedger`/`saveLedger` move to `main-keys.ts` in Task 7 and take a store parameter there.
 
-**Model tiering for the executor:** Task 1 and Task 2 on the most capable model (two thousand lines of `main.ts` under a function boundary, with teardown); Tasks 0, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14 on the standard model; Tasks 10 and 11 on the standard model too — they are mechanical, but a cheap model takes three times the turns across twenty files, and the validator is the real reviewer. Scoped re-reviews on the cheapest tier. The final whole-branch review on the most capable model.
+**Model tiering for the executor:** Task 1 and Task 2 on the most capable model (two thousand lines of `main.ts` under a function boundary, with teardown), and Task 16 too (a composed screen is judgement, not transcription); Tasks 0, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15 on the standard model; Tasks 10 and 11 on the standard model too — they are mechanical, but a cheap model takes three times the turns across twenty files, and the validator is the real reviewer. Scoped re-reviews on the cheapest tier. The final whole-branch review on the most capable model.
 
-**What lands in the spec's Deviations at landing:** R-1 … R-10 above as D-10 … D-19, each with what the executing session measured.
+**What lands in the spec's Deviations at landing:** R-1 … R-11 above as D-10 … D-20, each with what the executing session measured.
+
+**Task order note:** Task 16 depends on Task 15 (plates) and on Task 9 (`t()`); it runs after Task 13 so the capture harness photographs it. Task 14 stays last because of the art boundary. So the execution order is 0–13, 15, 16, 14.

@@ -75,6 +75,7 @@ objectives, minimap, groups). Those are engineering, not art, and they come firs
 | 5 | Router | Phase 1 | A client-side router with a persistent shell lands before co-op, as its prerequisite |
 | 6 | i18n catalogue | Phase 1 | Chrome strings extracted to a keyed catalogue before the shell doubles |
 | 7 | Controller and Steam Deck | Out; Phase 4 on the product track | Listed, not scheduled |
+| 8 | The brigade's register (added by the project lead, 2026-09-17) | A shop, or a garage — "themed like a shop or garage. This is a common practice in many games." | Phase 1 builds the garage's layout, type scale, engine-rendered unit plates and the benefit lines; Phase 3 replaces the plates with its art pass |
 
 ## 5. Constraints that bind every phase
 
@@ -204,11 +205,40 @@ gate green with one bless.
   with plural rules, every chrome string extracted; a locale key path for mission text that
   `validate:data` can gate; `?pseudo=1` pseudo-localisation through the capture harness; the
   CJK subset faces for body and mono.
+- **The brigade as a garage** (Decision 8; the lead's words: *"redesign the brigade page to
+  look more robust, themed like a shop or garage. This is a common practice in many games.
+  Just look how it is done in other games. This also better explains the benefit of each
+  upgrade for the units. Use better graphics and bigger font."*). What shipped garages share,
+  and this one takes: **one unit at a time, large, in a lit bay** (World of Tanks' garage
+  puts the selected vehicle centre-stage in a hangar and everything else around it; its 2.0
+  rework kept exactly that and made the numbers "more digestible"); **a roster rail** of every
+  unit the brigade can own, grouped by role, each with its status — owned, locked behind a
+  gate, or a price; **an upgrade board beside the unit** where each track is a ladder of rungs,
+  the bought ones filled, the next one priced, and **every rung says what it does in the
+  unit's own numbers** — "front armour 120 → 134", "sight 9 → 10 tiles", "accuracy 62% → 66%"
+  — because XCOM 2's armoury famously did not, and the first thing its players built was a
+  mod to show the stats before buying; **the wallet in the corner** in the display face;
+  **type at reading size** — the unit's name at `--t-title`, prices at `--t-h2`, benefit
+  lines at `--t-body`, nothing a player reads below `--t-small`. The unit picture is an
+  **engine plate**: `pnpm plates:units` photographs every KDF type from the running game on
+  open ground, lit by the mission sun, HUD and overlays off, at a device scale that makes a
+  tank six hundred pixels wide (`assets/ui/plates/units/<id>.jpg`); Phase 3's art pass replaces
+  the files in that directory and nothing else. The economy's rules are untouched: `gateSentence`,
+  per-unit Buy, per-track Buy, `ownedTiers`, `applyUpgrades`, the double-click reset. The
+  benefit lines are a pure function over the unit's `upgrades.<track>.tiers[].patch` (cumulative
+  deltas over base on the closed whitelist in `packages/data/src/upgrades.ts`), so they cannot
+  disagree with what `applyUpgrades` will do. References: the World of Tanks 2.0 garage
+  (https://worldoftanks.eu/en/news/general-news/update-2-0-garage-ux/), the XCOM 2 Armory and
+  its "Better Armory Item Stats" mod (https://steamcommunity.com/sharedfiles/filedetails/?id=1489472552),
+  and the Game UI Database's "Upgrading & Ranking Up" and "Upgrade: Inspect & Confirm" screens
+  (https://www.gameuidatabase.com/index.php?scrn=73, https://www.gameuidatabase.com/index.php?scrn=97).
 
 Acceptance: no full page reload between any two screens (measured by a `performance` mark
 that survives the transition); settings persist across reload; Escape pauses and resumes with
 the sim tick count unchanged while paused; a save slot round-trips the ledger byte-for-byte;
-the pseudo-localised capture pass shows no clipped chrome string.
+the pseudo-localised capture pass shows no clipped chrome string; the brigade at 1920 and 2560
+shows one unit in its bay with every rung of every track carrying a before → after number, and
+no text on the screen smaller than `--t-small`.
 
 ### Phase 2 — the HUD a commander needs
 
@@ -249,12 +279,12 @@ readable in-mission; the capture pass at zoom 2.5 shows no saturated ring fill.
 - **Symbol family.** Twelve drawn glyphs at one weight derived from the chevron's angles, as an
   SVG sprite: seven roles and five verbs, tested at 10 px over lit sand; used by dock, cursor
   badge, order row and minimap.
-- **Brigade as an armoury**: engine turntable renders (the plate harness, one per unit), stats,
-  veterancy, one human gate line, grouped by role. This re-skins the brigade screen the economy
-  work built (per-unit Buy, tier pips and per-track upgrade Buy, `.rl-brigade__tracks`,
-  `ownedTiers`) and does not re-implement its controls; the turntable renders replace the PNGs
-  under `assets/ui/icons/units/` and the crop is re-run, so `unitIcon`'s callers see the new
-  art with no code change.
+- **The garage's art pass** (the garage itself is Phase 1, Decision 8): turntable renders on
+  `lighting.ts`'s sun replace the engine plates under `assets/ui/plates/units/` file for file,
+  a bay backdrop drawn from the diorama pipeline replaces the flat panel ground, veterancy marks
+  and service records join the bay, and the roster rail's icons are re-cropped from the new
+  renders (`pnpm icons:units`). No control changes; `unitIcon`'s and the garage's callers see
+  the new art with no code change.
 - **Deploy as a decision** (Decision 4): the briefing as a two-column spread — portrait and
   orders left, the roster's force and a map preview right — with the force chosen, not merely
   shown.
@@ -372,6 +402,11 @@ and a bless dispatched while `main` is moving retries its push three times and i
 triggers no `ci.yml` run, so two landings close together must bless in turn, not at once;
 CLAUDE.md is edited per section and never wholesale. Each session has its own worktree; this
 programme's is `/Users/ilpinto/dev/roaring-lions-shell`.
+
+**Added by the project lead on 2026-09-17, after the Phase 1 plan was written:** the brigade
+redesigned as a shop or garage (Decision 8, §6 Phase 1's last bullet; Tasks 15–16 of the Phase 1
+plan). The plan's Task 15 is the plate harness and Task 16 the screen; Phase 3's armoury bullet
+became the garage's art pass.
 
 **On the review's time estimates.** The synthesis priced Phase 0 at "about two weeks" and
 Phases 1–3 at two to five weeks each, for a human team. Phase 0 ran in one session under
