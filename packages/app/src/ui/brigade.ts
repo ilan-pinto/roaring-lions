@@ -6,6 +6,8 @@ import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type Unlock
 import { campaignRoe } from '../campaign';
 import { gateSentence } from '../gate-sentence';
 import { panel } from './panel';
+import { routes } from '../shell/links';
+import type { Disposer } from '../shell/router';
 import { roleBadgeSvg, roleBucket, roleLabel } from './role';
 
 export interface BrigadeUnit {
@@ -130,7 +132,7 @@ function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: nu
   return [2, 0]; // the mission gate — "last" among earned gates, and no threshold to sort within
 }
 
-export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
+export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   const p = panel({ rank: 'mission', title: 'The brigade', mark: true });
   p.el.classList.add('rl-brigade');
   const b = p.body;
@@ -298,8 +300,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
     a.textContent = label;
     nav.appendChild(a);
   };
-  link('campaign map', '?campaign');
-  link('menu', '?');
+  link('campaign map', routes.campaign());
+  link('menu', routes.menu());
   if (opts.credits !== undefined && opts.onReset) {
     const reset = document.createElement('button');
     reset.type = 'button';
@@ -324,4 +326,5 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
   b.appendChild(nav);
 
   host.appendChild(p.el);
+  return () => p.el.remove();
 }

@@ -82,7 +82,7 @@ describe('showDebrief', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ next: { id: 'beit_sahwan_4_subterranean', name: 'Beit Sahwan IV — Subterranean', villainLine: 'The digger.' } }));
     const a = host.querySelector<HTMLAnchorElement>('a.rl-debrief__next')!;
-    expect(a.getAttribute('href')).toBe('?mission=beit_sahwan_4_subterranean');
+    expect(a.getAttribute('href')).toBe('/mission/beit_sahwan_4_subterranean');
     expect(a.textContent).toContain('Beit Sahwan IV');
     expect(text(host, '.rl-debrief__villain')).toBe('The digger.');
   });
@@ -133,6 +133,6 @@ describe('showDebrief', () => {
   it('offers the main menu, like the end panel does', () => {
     const host = document.createElement('div');
     showDebrief(host, base());
-    expect([...host.querySelectorAll('.rl-endnav a')].some((a) => a.textContent === 'menu' && a.getAttribute('href') === '?')).toBe(true);
+    expect([...host.querySelectorAll('.rl-endnav a')].some((a) => a.textContent === 'menu' && a.getAttribute('href') === '/')).toBe(true);
   });
 });

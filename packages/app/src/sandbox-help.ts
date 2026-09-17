@@ -7,9 +7,9 @@
  * in a markdown file gets used at a fraction of its value.
  *
  * One table, four callers: `readFlags` parses from it, `sandboxHelp` prints
- * from it, `unknownParams` checks against it, and `sandboxUrl` builds a launch
- * URL from it for the menu's sandbox picker. A flag documented but not parsed,
- * or parsed but not offered, is not expressible — which is the same
+ * from it, `unknownParams` checks against it, and `routes.sandbox`
+ * (`shell/links.ts`) builds the picker's launch URL from it. A flag documented
+ * but not parsed, or parsed but not offered, is not expressible — which is the same
  * one-rule-several-callers shape `zoneContains`, `roleBucket` and `cursorKey`
  * already use.
  *
@@ -49,10 +49,15 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   },
 ];
 
-/** Everything main.ts reads off the query string. The flags are spread in
- *  rather than repeated, so this cannot list fewer than the table above. */
+/** Everything the app reads off the query string — including the five keys
+ *  that are PATHS now and survive only as redirects (`shell/router.ts`'s
+ *  `legacyRedirect`): `sandbox`, `sandboxes`, `mission`, `campaign`, `brigade`.
+ *  They stay listed because they are still accepted, and because
+ *  `unknownParams` must not report a bookmark carrying one as a typo. The flags
+ *  are spread in rather than repeated, so this cannot list fewer than the table
+ *  above. */
 export const KNOWN_PARAMS: readonly UrlParam[] = [
-  { name: 'sandbox', blurb: '<map id> — walk any shipped map, no mission needed' },
+  { name: 'sandbox', blurb: '<map id> — walk any shipped map, no mission needed (redirects to /free-play/<map id>)' },
   {
     name: 'sandboxes',
     // The plural is the index: `?sandbox=<id>` is one sandbox, `?sandboxes`
@@ -118,14 +123,20 @@ export function readFlags(params: URLSearchParams): Record<SandboxFlagName, bool
   return out;
 }
 
-/** The launch URL for one sandbox pick: a map, plus whichever extras are on.
+/** The LEGACY launch URL for one sandbox pick: a map, plus whichever extras
+ *  are on.
  *
- *  The inverse of `readFlags`, and built by iterating the same table, so the
- *  picker cannot offer a flag the parser does not read or spell one in a form
- *  it does not accept. Flags are appended BARE (`&sur`, not `&sur=1`) because
- *  that is how they are typed by hand and what `sandboxHelp` prints — one
- *  spelling everywhere, and `unknownParams` stays silent on anything this
- *  produces.
+ *  The picker builds `routes.sandbox` (`shell/links.ts`) now — a real path,
+ *  `/free-play/<map>?tunnel&sur`. This stays because `?sandbox=` is still a URL
+ *  the app accepts: `legacyRedirect` (`shell/router.ts`) turns one into that
+ *  same path on boot and on click, so a bookmark, a tool and this documented
+ *  spelling all keep working, and it is the form a dev types by hand.
+ *
+ *  The inverse of `readFlags`, and built by iterating the same table, so it
+ *  cannot spell a flag in a form the parser does not accept. Flags are appended
+ *  BARE (`&sur`, not `&sur=1`) because that is how they are typed by hand and
+ *  what `sandboxHelp` prints — one spelling everywhere, and `unknownParams`
+ *  stays silent on anything this produces.
  *
  *  A flag whose value is false is absent rather than `&sur=0`: `readFlags`
  *  tests `has`, so `&sur=0` would read as ON. */

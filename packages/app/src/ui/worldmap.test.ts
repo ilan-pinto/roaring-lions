@@ -22,7 +22,7 @@ const render = (
   commander?: CommanderData,
   missionOf?: (id: string) => { objectives: readonly { type: string; primary: boolean }[]; name?: string } | undefined
 ): HTMLElement =>
-  worldMap({ base: '/', world, countries, ledger, href: (id) => `?mission=${id}`, commander, missionOf });
+  worldMap({ base: '/', world, countries, ledger, href: (id) => `/mission/${id}`, commander, missionOf });
 
 const statusOf = (el: HTMLElement, region: string): string | null =>
   el.querySelector(`#region-${region}`)?.getAttribute('data-status') ?? null;
@@ -81,13 +81,13 @@ describe('worldMap', () => {
   it('links a live town to its next mission', () => {
     const el = render({});
     const link = el.querySelector('[data-town="beit_sahwan"] a') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe(`?mission=${ALL_BS[0]}`);
+    expect(link.getAttribute('href')).toBe(`/mission/${ALL_BS[0]}`);
   });
 
   it('links a town to its next unfinished mission after one is cleared', () => {
     const el = render({ 'campaign.completed_missions': [ALL_BS[0]!] });
     const link = el.querySelector('[data-town="beit_sahwan"] a') as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe(`?mission=${ALL_BS[1]}`);
+    expect(link.getAttribute('href')).toBe(`/mission/${ALL_BS[1]}`);
   });
 
   it('offers no link for a town with nothing left to play', () => {
@@ -120,7 +120,7 @@ describe('worldMap', () => {
         ...world.regions.slice(1),
       ],
     };
-    const el = worldMap({ base: '/', world: marjWithEmptyTown, countries, ledger: {}, href: (id) => `?mission=${id}` });
+    const el = worldMap({ base: '/', world: marjWithEmptyTown, countries, ledger: {}, href: (id) => `/mission/${id}` });
     const marker = el.querySelector('[data-town="empty_town"]') as HTMLElement;
     expect(marker.dataset.status).toBe('empty');
   });
@@ -193,7 +193,7 @@ describe('worldMap', () => {
   it('makes a live country itself the link to its next mission', () => {
     const hit = render({}).querySelector('#region-marj a.country-hit');
     expect(hit).not.toBe(null);
-    expect(hit?.getAttribute('href')).toBe(`?mission=${ALL_BS[0]}`);
+    expect(hit?.getAttribute('href')).toBe(`/mission/${ALL_BS[0]}`);
   });
 
   it('gives a locked country no link — its ground is not playable', () => {
@@ -234,10 +234,10 @@ describe('showMenu', () => {
     const stage = mount(false);
     expect(stage.querySelector('.rl-world')).toBe(null);
     const campaign = stage.querySelector('[data-kind="campaign"]') as HTMLAnchorElement;
-    expect(campaign.getAttribute('href')).toBe('?campaign');
+    expect(campaign.getAttribute('href')).toBe('/campaign');
     // The tutorial teaches the mouse, not the war, so it sits beside Campaign.
     const tut = stage.querySelector('[data-kind="tutorial"]') as HTMLAnchorElement;
-    expect(tut.getAttribute('href')).toBe('?mission=beit_sahwan_0_tutorial');
+    expect(tut.getAttribute('href')).toBe('/mission/beit_sahwan_0_tutorial');
   });
 
   it('drops the tutorial entry once it has been done', () => {
@@ -252,7 +252,7 @@ describe('showCampaign', () => {
     expect(stage.querySelector('.rl-world')).not.toBe(null);
     expect(stage.querySelector('[data-town="beit_sahwan"]')).not.toBe(null);
     const back = stage.querySelector('[data-kind="back"]') as HTMLAnchorElement;
-    expect(back.getAttribute('href')).toBe('?');
+    expect(back.getAttribute('href')).toBe('/');
   });
 });
 

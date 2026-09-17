@@ -164,9 +164,11 @@ export interface HudDeps {
   isMuted?: () => boolean;
   toggleMute?: () => void;
   /** The navigation behind "leave the mission", confirmed first -- the Hud
-   *  reads no `window.location` of its own (`ui/confirm.ts`'s own header:
-   *  this used to be a plain `<a href="?campaign">` with no confirm at all).
-   *  `main.ts` passes `() => window.location.assign('?campaign')`; absent in
+   *  reads no `window.location` of its own and spells no path (`ui/confirm.ts`'s
+   *  own header: this used to be a plain `<a href="?campaign">` with no confirm
+   *  at all). `main.ts` passes
+   *  `() => window.location.assign(routes.campaign())` -- still a FULL
+   *  navigation, because a mission's teardown does not exist yet; absent in
    *  tests that do not exercise the click. */
   leave?: () => void;
 }

@@ -3,6 +3,8 @@
 import type { Stars } from '@lions/sim';
 import { panel } from './panel';
 import { TIER_NAMES } from './grade-copy';
+import { routes } from '../shell/links';
+import type { Disposer } from '../shell/router';
 
 export interface DebriefOptions {
   result: 'victory' | 'defeat';
@@ -44,7 +46,7 @@ export function clock(ticks: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
+export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   const won = o.result === 'victory';
   const p = panel({
     rank: 'mission',
@@ -121,7 +123,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
   if (won && o.next) {
     const a = document.createElement('a');
     a.className = 'rl-btn rl-debrief__next';
-    a.href = `?mission=${o.next.id}`;
+    a.href = routes.mission(o.next.id);
     a.textContent = `next: ${o.next.name} →`;
     nav.appendChild(a);
     if (o.next.villainLine) b.appendChild(el('div', 'rl-debrief__villain', o.next.villainLine));
@@ -133,10 +135,11 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
     a.textContent = label;
     nav.appendChild(a);
   };
-  back(won ? 'replay' : 'try again', `?mission=${o.missionId}`);
-  back('campaign map', '?campaign');
-  back('menu', '?');
+  back(won ? 'replay' : 'try again', routes.mission(o.missionId));
+  back('campaign map', routes.campaign());
+  back('menu', routes.menu());
   b.appendChild(nav);
 
   host.appendChild(p.el);
+  return () => p.el.remove();
 }

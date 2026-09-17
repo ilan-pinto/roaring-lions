@@ -122,6 +122,15 @@ import {
 } from './mesh-catalogue';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { registerServiceWorker } from './service-worker';
+import {
+  Router,
+  interceptLinks,
+  legacyRedirect,
+  stripBase,
+  type Disposer,
+  type RouteRequest,
+} from './shell/router';
+import { routes } from './shell/links';
 import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
@@ -380,7 +389,7 @@ function describeMissionEvent(
   }
 }
 
-function bootError(stage: HTMLElement, title: string, body: string, home = '?'): void {
+function bootError(stage: HTMLElement, title: string, body: string, home = routes.menu()): void {
   const div = document.createElement('div');
   div.className = 'rl-boot-error';
 
@@ -400,308 +409,485 @@ function bootError(stage: HTMLElement, title: string, body: string, home = '?'):
   stage.appendChild(div);
 }
 
+/**
+ * The mixer, one per document rather than one per screen. Recorded clips where
+ * they exist, procedural synth per-sound where they do not — so the library
+ * can be filled in one file at a time.
+ *
+ * It used to be built inside `main()`, and that was still one per screen,
+ * because every screen was its own page load. The router makes the menu, the
+ * campaign board, the free-play picker and a mission one document, so the music
+ * has to survive a route change -- and a second `BattleAudio` on the way into a
+ * mission would be a second manifest load and a second set of gesture
+ * listeners. Lazy rather than module-eager only so that importing this module
+ * constructs no audio graph. `attach()` still waits for the browser's first
+ * gesture.
+ */
+let mixer: BattleAudio | null = null;
+function battleAudio(): BattleAudio {
+  if (mixer === null) {
+    mixer = new BattleAudio();
+    mixer.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
+    mixer.attach();
+  }
+  return mixer;
+}
+
+/**
+ * What the brigade account says RIGHT NOW: the storage handle, the units
+ * bought and the tiers owned. Every surface that reads a KDF unit's unlock
+ * gate through `kdfUnlockGate` starts here -- the dock's `unitInfo`, the
+ * brigade screen, `resolveUpgrades`'s lookup and the debrief's `kdfUnits`.
+ *
+ * Read once per MOUNT, not once per page load, and that is the whole reason
+ * it is a function. A purchase used to end in `window.location.reload()`,
+ * which re-ran `main()` and with it this read; the brigade screen re-mounts
+ * through the router now, so a value resolved once at boot would leave the
+ * roster showing the unit the player has just bought as still locked.
+ */
+function accountState(): {
+  storage: Storage | null;
+  boughtUnits: Set<string>;
+  ownedTiers: Record<string, Record<string, number>>;
+} {
+  const storage = safeStorage();
+  const account = storage ? loadAccount(storage) : null;
+  return {
+    storage,
+    boughtUnits: new Set(account ? account.unlocks : []),
+    // No storage or an empty account is `{}`, and `applyUpgrades` treats an
+    // absent track as the identity, so that case registers the raw JSON
+    // unchanged -- today's behaviour (spec 2026-09-15 §4.3, D5: the sim never
+    // learns a tier exists).
+    ownedTiers: account ? account.upgrades : {},
+  };
+}
+
+/**
+ * Start the campaign over: the ledger, and the tutorial's "already learned"
+ * mark with it. Without the second line `?fresh` is a one-way door -- finish
+ * the tutorial once and Beit Sahwan 0 replays with no step panel at all,
+ * which reads as the tutorial being broken rather than already learned.
+ *
+ * A function because it now has two callers that used to be one: the `fresh`
+ * landing flag, and the menu's confirmed "reset campaign ledger" button, which
+ * was a navigation to `?fresh=1` purely so that this code would run.
+ *
+ * The brigade account (`brigade-account.ts`) deliberately survives it: spec
+ * 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
+ */
+function purgeCampaign(): void {
+  window.localStorage.removeItem(LEDGER_KEY);
+  window.localStorage.removeItem(TUTORIAL_DONE_KEY);
+}
+
+// Which sheet a unit uses -- facing convention, frame counts, clip list and
+// draw scale all come from the sheet's own manifest, written by the rig that
+// produced the files. At module scope rather than inside a screen, because
+// two of them read it: the brigade roster (for its portraits, with no map, sim
+// or renderer of its own to have loaded a sheet through) and the battlefield.
+type SpriteSpec = { path: string; turretPath?: string };
+const TANK: SpriteSpec = {
+  path: `${BASE}sprites/TNK_HULL/`,
+  turretPath: `${BASE}sprites/TNK_TURR/`,
+};
+const EITAN: SpriteSpec = {
+  path: `${BASE}sprites/EITAN_HULL/`,
+  turretPath: `${BASE}sprites/EITAN_TURR/`,
+};
+const NAMER: SpriteSpec = {
+  path: `${BASE}sprites/NAMER_HULL/`,
+  turretPath: `${BASE}sprites/NAMER_TURR/`,
+};
+// Hull only: the model carries no separately modelled weapon station, so
+// there is no turret sheet to composite.
+const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
+// The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
+// no other sheet does: a pintle gun on a bed sits well off the model's centre,
+// and without that the renderer would swing it off the truck while tracking.
+const TECHNICAL: SpriteSpec = {
+  path: `${BASE}sprites/TECH_HULL/`,
+  turretPath: `${BASE}sprites/TECH_TURR/`,
+};
+// No shared infantry sheet. Seven types used to point at one directory, which
+// meant a rifle squad and an enemy militia cell were the same PNG and the
+// silhouette gate could never compare them -- it cannot compare a file with
+// itself. Each type now names its own sheet, so a sheet that fails to load is
+// a visible gap rather than something masked by an alias.
+// The only animated sheet: four frames of hover per facing, looping. Nothing
+// here says so -- the frame count, rate and loop flag all come from the
+// sheet's own manifest, same as every other property of every other sheet.
+const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
+const SPRITE_MAP: Record<string, SpriteSpec> = {
+  mbt_lavi: TANK,
+  apc_eitan: EITAN,
+  ifv_namer: NAMER,
+  jeep_shoded: JEEP,
+  technical: TECHNICAL,
+  recon_drone: DRONE,
+  dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
+  heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
+  // The two star-gated vehicles (docs/campaign/special_units/design.md
+  // §4-5). Hull only, like the jeep: each carries a fixed gun, not a
+  // traversing station. Rendered from the same kit-authored sources their
+  // GLBs were exported from, so the billboard, the portrait and the mesh
+  // agree; the sheet is what gives a dead one a wreck instead of the grey
+  // cross, since a mesh vehicle's death falls back to its sheet.
+  scout_shachaf: { path: `${BASE}sprites/SHACHAF_HULL/` },
+  apc_kipod: { path: `${BASE}sprites/KIPOD_HULL/` },
+  // One sheet per infantry type, composed from tools/units/kit.py. Each is a
+  // distinct silhouette rather than a distinct texture: posture, weapon axis
+  // and figure count are what survive downsampling to a 64px black shape.
+  inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
+  demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
+  at_team: { path: `${BASE}sprites/INF_AT/` },
+  mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
+  sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
+  // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
+  // shows for the whole of a tunnel charge.
+  yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
+  // The star-gated Tzinah team (design.md §3): the upright shield is its
+  // silhouette, the same kit the mesh was exported from.
+  breach_team: { path: `${BASE}sprites/INF_BREACH/` },
+  militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
+  rpg_team: { path: `${BASE}sprites/INF_RPG/` },
+  atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
+  mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
+  // The Sarim set. These three shipped complete, gate-passing sheets and
+  // still drew NOTHING, because art existing and art being LOADED are
+  // different things and only the first has a gate.
+  sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
+  recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
+  manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
+  // The raider set. Like the technical, the gun truck's turret manifest
+  // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
+  // so without the correction the renderer swings it off the bed while
+  // tracking.
+  gun_truck: {
+    path: `${BASE}sprites/GUNTRUCK_HULL/`,
+    turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
+  },
+  charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
+  moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
+  digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
+  // Hull only: the rack is fixed to the bed, not a separately traversing
+  // weapon station, so there is no turret sheet to composite -- same shape
+  // as dozer_d9 above.
+  rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
+  // Two air sheets whose flight is presentational: the sim has no altitude,
+  // so these move on the ground plane like anything else. The paramotor's
+  // `down` clip is its landed state, authored against a land-and-dismount
+  // behaviour that does not exist yet.
+  paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
+  loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
+  // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
+  // munition -- but not its source: reusing loitering_munition.blend would
+  // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
+  // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
+  attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
+};
+
+/**
+ * A unit type's portrait, resolved the same way the mission HUD resolves one
+ * for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
+ * sheet's own cropped `unitIcon` or, failing that, its manifest via
+ * `portraitUrl`) -- fetched fresh here because the brigade screen has no
+ * running renderer to have already fetched it for. A type absent from
+ * `SPRITE_MAP`, or whose manifest 404s with no icon either, resolves to
+ * `null`; the caller draws the reserved hatch for that, same as the HUD's
+ * card does. `isIcon` tells the caller which of the two pictures it got, so
+ * it can set `data-icon` the same way the mission HUD does.
+ */
+const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: boolean } | null> => {
+  const spec = SPRITE_MAP[id];
+  if (!spec) return null;
+  const icon = unitIcon(spec.path);
+  if (icon !== null) return { url: icon.url, isIcon: true };
+  try {
+    const res = await fetch(`${spec.path}manifest.json`);
+    if (!res.ok) return null;
+    const manifest = (await res.json()) as SheetManifest;
+    const url = portraitUrl(spec.path, manifest);
+    return url === null ? null : { url, isIcon: false };
+  } catch (err) {
+    console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
+    return null;
+  }
+};
+
 async function main(): Promise<void> {
+  // The first statement, so the shell's own question -- did that navigation
+  // reload the page? -- has an answer. One `rl:boot` mark per document,
+  // however many screens the player walks through.
+  performance.mark('rl:boot');
   const stage = document.getElementById('stage');
   if (!stage) throw new Error('no #stage');
 
-  // --- audio, on every screen -----------------------------------------------
-  // Created before the mode split so the menu, the campaign board and the
-  // sandbox picker carry the music too, not just a mission. Recorded clips
-  // when they exist, procedural synth per-sound where they don't — so the
-  // library can be filled in one file at a time. Nothing sounds until the
-  // browser's first gesture; `attach` waits for it.
-  const audio = new BattleAudio();
-  audio.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
-  audio.attach();
+  // --- audio, on every screen ----------------------------------------------
+  // Built before the route table so the menu, the campaign board and the
+  // free-play picker carry the music too, not just a mission -- and now it
+  // outlives all of them, since a route change no longer reloads the page.
+  const audio = battleAudio();
 
-  // Which sheet a unit uses -- facing convention, frame counts, clip list and
-  // draw scale all come from the sheet's own manifest, written by the rig
-  // that produced the files. Declared here, ahead of the mode-selection
-  // branches below, because the brigade route (one of them) needs it for its
-  // portrait resolver and is otherwise a plain early return with no map, sim
-  // or renderer of its own to have loaded a sheet through.
-  type SpriteSpec = { path: string; turretPath?: string };
-  const TANK: SpriteSpec = {
-    path: `${BASE}sprites/TNK_HULL/`,
-    turretPath: `${BASE}sprites/TNK_TURR/`,
-  };
-  const EITAN: SpriteSpec = {
-    path: `${BASE}sprites/EITAN_HULL/`,
-    turretPath: `${BASE}sprites/EITAN_TURR/`,
-  };
-  const NAMER: SpriteSpec = {
-    path: `${BASE}sprites/NAMER_HULL/`,
-    turretPath: `${BASE}sprites/NAMER_TURR/`,
-  };
-  // Hull only: the model carries no separately modelled weapon station, so
-  // there is no turret sheet to composite.
-  const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
-  // The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
-  // no other sheet does: a pintle gun on a bed sits well off the model's centre,
-  // and without that the renderer would swing it off the truck while tracking.
-  const TECHNICAL: SpriteSpec = {
-    path: `${BASE}sprites/TECH_HULL/`,
-    turretPath: `${BASE}sprites/TECH_TURR/`,
-  };
-  // No shared infantry sheet. Seven types used to point at one directory, which
-  // meant a rifle squad and an enemy militia cell were the same PNG and the
-  // silhouette gate could never compare them -- it cannot compare a file with
-  // itself. Each type now names its own sheet, so a sheet that fails to load is
-  // a visible gap rather than something masked by an alias.
-  // The only animated sheet: four frames of hover per facing, looping. Nothing
-  // here says so -- the frame count, rate and loop flag all come from the
-  // sheet's own manifest, same as every other property of every other sheet.
-  const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
-  const SPRITE_MAP: Record<string, SpriteSpec> = {
-    mbt_lavi: TANK,
-    apc_eitan: EITAN,
-    ifv_namer: NAMER,
-    jeep_shoded: JEEP,
-    technical: TECHNICAL,
-    recon_drone: DRONE,
-    dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
-    heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
-    // The two star-gated vehicles (docs/campaign/special_units/design.md
-    // §4-5). Hull only, like the jeep: each carries a fixed gun, not a
-    // traversing station. Rendered from the same kit-authored sources their
-    // GLBs were exported from, so the billboard, the portrait and the mesh
-    // agree; the sheet is what gives a dead one a wreck instead of the grey
-    // cross, since a mesh vehicle's death falls back to its sheet.
-    scout_shachaf: { path: `${BASE}sprites/SHACHAF_HULL/` },
-    apc_kipod: { path: `${BASE}sprites/KIPOD_HULL/` },
-    // One sheet per infantry type, composed from tools/units/kit.py. Each is a
-    // distinct silhouette rather than a distinct texture: posture, weapon axis
-    // and figure count are what survive downsampling to a 64px black shape.
-    inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
-    demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
-    at_team: { path: `${BASE}sprites/INF_AT/` },
-    mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
-    sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
-    // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
-    // shows for the whole of a tunnel charge.
-    yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
-    // The star-gated Tzinah team (design.md §3): the upright shield is its
-    // silhouette, the same kit the mesh was exported from.
-    breach_team: { path: `${BASE}sprites/INF_BREACH/` },
-    militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
-    rpg_team: { path: `${BASE}sprites/INF_RPG/` },
-    atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
-    mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
-    // The Sarim set. These three shipped complete, gate-passing sheets and
-    // still drew NOTHING, because art existing and art being LOADED are
-    // different things and only the first has a gate.
-    sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
-    recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
-    manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
-    // The raider set. Like the technical, the gun truck's turret manifest
-    // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
-    // so without the correction the renderer swings it off the bed while
-    // tracking.
-    gun_truck: {
-      path: `${BASE}sprites/GUNTRUCK_HULL/`,
-      turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
-    },
-    charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
-    moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
-    digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
-    // Hull only: the rack is fixed to the bed, not a separately traversing
-    // weapon station, so there is no turret sheet to composite -- same shape
-    // as dozer_d9 above.
-    rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
-    // Two air sheets whose flight is presentational: the sim has no altitude,
-    // so these move on the ground plane like anything else. The paramotor's
-    // `down` clip is its landed state, authored against a land-and-dismount
-    // behaviour that does not exist yet.
-    paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
-    loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
-    // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
-    // munition -- but not its source: reusing loitering_munition.blend would
-    // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
-    // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
-    attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
-  };
+  // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
+  // worker is a cache for the NEXT load, so making this boot wait on it would
+  // trade the thing it is meant to buy. It never rejects (see its own doc
+  // comment) -- a browser that refuses registration keeps the game exactly as
+  // it is today.
+  //
+  // Read off `window.location.search` BEFORE the router rewrites a legacy
+  // query URL into a path: `?nosw` is the recovery switch for a cached build
+  // that has gone wrong, and a switch that only survives the redirects that
+  // happen to carry it is not one.
+  void registerServiceWorker(BASE, window.location.search);
 
-  /**
-   * A unit type's portrait, resolved the same way the mission HUD resolves one
-   * for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
-   * sheet's own cropped `unitIcon` or, failing that, its manifest via
-   * `portraitUrl`) -- fetched fresh here because the brigade screen has no
-   * running renderer to have already fetched it for. A type absent from
-   * `SPRITE_MAP`, or whose manifest 404s with no icon either, resolves to
-   * `null`; the caller draws the reserved hatch for that, same as the HUD's
-   * card does. `isIcon` tells the caller which of the two pictures it got, so
-   * it can set `data-icon` the same way the mission HUD does.
-   */
-  const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: boolean } | null> => {
-    const spec = SPRITE_MAP[id];
-    if (!spec) return null;
-    const icon = unitIcon(spec.path);
-    if (icon !== null) return { url: icon.url, isIcon: true };
-    try {
-      const res = await fetch(`${spec.path}manifest.json`);
-      if (!res.ok) return null;
-      const manifest = (await res.json()) as SheetManifest;
-      const url = portraitUrl(spec.path, manifest);
-      return url === null ? null : { url, isIcon: false };
-    } catch (err) {
-      console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
-      return null;
-    }
-  };
+  // --- where did we land? --------------------------------------------------
+  // `?fresh` purges the campaign, but never on the way INTO a mission -- the
+  // pre-router guard was `params.get('mission') === null`, and this asks the
+  // same question of the path the router is about to mount, whether the player
+  // typed a path or an old query URL.
+  const landingSearch = window.location.search;
+  const landingPath = legacyRedirect(landingSearch)?.path ?? stripBase(BASE, window.location.pathname);
+  const landingIsMission = landingPath.startsWith('/mission/');
+  if (new URLSearchParams(landingSearch).has('fresh') && !landingIsMission) purgeCampaign();
 
-  // --- brigade account: bought units -----------------------------------------
-  // Resolved once, here, for every surface that reads a KDF unit's unlock gate
-  // through `kdfUnlockGate` -- the dock's `unitInfo`, the brigade route,
-  // `resolveUpgrades`'s lookup and the debrief's `kdfUnits`.
-  const storage = safeStorage();
-  const boughtUnits = new Set(storage ? loadAccount(storage).unlocks : []);
-  // Per-unit, per-track tier bought, if any -- the pre-pass below patches
-  // each KDF unit type through `applyUpgrades` with exactly this before the
-  // sim ever registers it (spec 2026-09-15 §4.3, D5: the sim never learns a
-  // tier exists). No storage or an empty account is `{}`, and `applyUpgrades`
-  // treats an absent track as the identity, so that case registers the raw
-  // JSON unchanged -- today's behaviour.
-  const ownedTiers = storage ? loadAccount(storage).upgrades : {};
-
-  // --- mode selection ------------------------------------------------------
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('fresh') !== null && params.get('mission') === null) {
-    window.localStorage.removeItem(LEDGER_KEY);
-    // Starting the campaign over restores the lessons with it. Without this
-    // the flag is a one-way door: finish the tutorial once and Beit Sahwan 0
-    // replays with no step panel at all, which reads as the tutorial being
-    // broken rather than already learned.
-    window.localStorage.removeItem(TUTORIAL_DONE_KEY);
-    // The brigade account (`brigade-account.ts`) deliberately survives this: spec
-    // 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
-  }
-  if (params.get('mission') === null && params.get('sandbox') === null) {
-    const worldData = parseWorld(world);
-    if (params.get('campaign') !== null) {
-      // The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
-      // the world render is served rather than bundled; the per-country overlay is
-      // built by worldMap from the generated geometry in countries.json.
-      showCampaign(stage, {
-        base: BASE,
-        world: worldData,
-        countries: parseCountries(countries),
-        ledger: loadLedger(),
-        // Parsed here rather than reusing a hoisted `commanderData`: that
-        // name is not in scope on this branch, which returns before the
-        // mission-specific commander resolution below ever runs.
-        commander: parseCommander(commander),
-        missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
-        portraitUrl: commanderPortraitUrl,
-      });
-      return;
-    }
-    if (params.get('brigade') !== null) {
-      // The roster: every KDF unit the campaign knows about, and what still
-      // gates the ones not yet earned. `possibleStars` (campaign.ts, F10) walks
-      // the same towns the campaign map itself walks, counting only missions
-      // whose own ledger contract can carry a star at all -- a town added to
-      // `world.json` counts itself in without an edit here (the tutorial is
-      // deliberately off the map, so it is never in this sum at all).
-      const kdfUnits = Object.values(units)
-        .filter((u) => u.faction === 'kdf')
-        .map((u) => ({
-          id: u.id,
-          name: u.name,
-          role: u.role,
-          unlock: kdfUnlockGate(u, boughtUnits),
-          ...kdfBrigadeTraits(u),
-          upgrades: 'upgrades' in u ? u.upgrades : undefined,
-        }));
-      const portraits: Record<string, string> = {};
-      const portraitIcons = new Set<string>();
-      await Promise.all(
-        kdfUnits.map(async ({ id }) => {
-          const picture = await loadBrigadePortrait(id);
-          if (picture === null) return;
-          portraits[id] = picture.url;
-          if (picture.isIcon) portraitIcons.add(id);
-        })
-      );
-      showBrigade(stage, {
-        units: kdfUnits,
-        ledger: loadLedger(),
-        missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
-        portrait: (typeId) => portraits[typeId] ?? null,
-        iconIds: portraitIcons,
-        possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
-        credits: storage ? loadAccount(storage).balance : undefined,
-        onReset: storage
-          ? () => {
-              resetAccount(storage);
-              window.location.reload();
-            }
-          : undefined,
-        onBuy: storage
-          ? (unitId, price) => {
-              const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
-              // A refusal here is only reachable with a stale account (e.g. two
-              // tabs on the same origin both showing this row as affordable) --
-              // the control disabled itself against the balance THIS render
-              // read, so `!ok` means the account on disk has since moved.
-              // Reloading re-renders off the true, current state instead of
-              // leaving the row showing a purchase that did not happen.
-              if (!ok) {
-                window.location.reload();
-                return;
-              }
-              saveAccount(storage, account);
-              window.location.reload();
-            }
-          : undefined,
-        owned: ownedTiers,
-        onBuyUpgrade: storage
-          ? (unitId, track, tier, price) => {
-              const { account, ok } = buyUpgrade(loadAccount(storage), unitId, track, tier, price);
-              // Same reasoning as `onBuy` above: the control disabled itself
-              // against a stale read, so re-render off the true state instead
-              // of returning silently.
-              if (!ok) {
-                window.location.reload();
-                return;
-              }
-              saveAccount(storage, account);
-              window.location.reload();
-            }
-          : undefined,
-      });
-      return;
-    }
-    if (params.get('sandboxes') !== null) {
-      // The sandbox picker. `?sandbox=<id>` boots one sandbox; the plural is
-      // the screen that lists them, so it has to be a distinct key -- bare
-      // `?sandbox` has always meant beit_sahwan_outskirts and still does.
-      // Nothing is passed in: the screen reads the map enumeration and
-      // SANDBOX_FLAGS itself, so a new map cannot be missing from it.
-      showSandbox(stage);
-      return;
-    }
+  /** The landing. The one screen that defines no `window.__lions`. */
+  function mountMenu(host: HTMLElement): Disposer {
     const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
-    showMenu(stage, {
+    return showMenu(host, {
       base: BASE,
       version: __GAME_VERSION__,
-      world: worldData,
+      world: parseWorld(world),
       audio: { isMuted: () => audio.isMuted(), toggle: () => audio.toggle() },
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
         done: tutorialDone,
       },
-      reset: () => window.location.assign('?fresh=1'),
+      // Was `window.location.assign('?fresh=1')`: a whole page load whose only
+      // jobs were to run the purge and redraw this screen. Both are explicit
+      // now, and `force: true` is what redraws a menu the router already
+      // considers mounted.
+      reset: () => {
+        purgeCampaign();
+        void router.navigate(routes.menu(), { replace: true, force: true });
+      },
     });
-    return;
   }
-  const missionId = params.get('mission');
+
+  /** The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
+   *  the world render is served rather than bundled; the per-country overlay is
+   *  built by worldMap from the generated geometry in countries.json. */
+  function mountCampaign(host: HTMLElement, req: RouteRequest): Disposer {
+    return showCampaign(host, {
+      base: BASE,
+      world: parseWorld(world),
+      countries: parseCountries(countries),
+      ledger: loadLedger(),
+      commander: parseCommander(commander),
+      missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
+      portraitUrl: commanderPortraitUrl,
+      // The screen used to read `window.location.search` for this itself. No
+      // screen reads `window.location` any more: the shell knows which
+      // navigation this is and hands the value in.
+      renderer: req.query.get('renderer'),
+      // So a click on the 3D board's ground changes screen without reloading
+      // the document. The flat board's town pins are real anchors and go
+      // through `interceptLinks` instead.
+      navigate: (h) => void router.navigate(h),
+    });
+  }
+
+  /** The roster: every KDF unit the campaign knows about, and what still gates
+   *  the ones not yet earned. `possibleStars` (campaign.ts, F10) walks the same
+   *  towns the campaign map itself walks, counting only missions whose own
+   *  ledger contract can carry a star at all -- a town added to `world.json`
+   *  counts itself in without an edit here (the tutorial is deliberately off
+   *  the map, so it is never in this sum at all). */
+  async function mountBrigade(host: HTMLElement): Promise<Disposer> {
+    const worldData = parseWorld(world);
+    const { storage, boughtUnits, ownedTiers } = accountState();
+    const kdfUnits = Object.values(units)
+      .filter((u) => u.faction === 'kdf')
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        unlock: kdfUnlockGate(u, boughtUnits),
+        ...kdfBrigadeTraits(u),
+        upgrades: 'upgrades' in u ? u.upgrades : undefined,
+      }));
+    const portraits: Record<string, string> = {};
+    const portraitIcons = new Set<string>();
+    await Promise.all(
+      kdfUnits.map(async ({ id }) => {
+        const picture = await loadBrigadePortrait(id);
+        if (picture === null) return;
+        portraits[id] = picture.url;
+        if (picture.isIcon) portraitIcons.add(id);
+      })
+    );
+    // What `window.location.reload()` was for: re-read the account and redraw
+    // the roster off it. This re-runs THIS mount, which re-reads the account
+    // through `accountState()` above -- `force: true` because the URL has not
+    // changed and the router would otherwise consider itself already there.
+    const redraw = (): void => {
+      void router.navigate(routes.brigade(), { replace: true, force: true });
+    };
+    return showBrigade(host, {
+      units: kdfUnits,
+      ledger: loadLedger(),
+      missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+      portrait: (typeId) => portraits[typeId] ?? null,
+      iconIds: portraitIcons,
+      possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
+      credits: storage ? loadAccount(storage).balance : undefined,
+      onReset: storage
+        ? () => {
+            resetAccount(storage);
+            redraw();
+          }
+        : undefined,
+      onBuy: storage
+        ? (unitId, price) => {
+            const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
+            // A refusal here is only reachable with a stale account (e.g. two
+            // tabs on the same origin both showing this row as affordable) --
+            // the control disabled itself against the balance THIS render
+            // read, so `!ok` means the account on disk has since moved.
+            // Redrawing re-renders off the true, current state instead of
+            // leaving the row showing a purchase that did not happen.
+            if (!ok) {
+              redraw();
+              return;
+            }
+            saveAccount(storage, account);
+            redraw();
+          }
+        : undefined,
+      owned: ownedTiers,
+      onBuyUpgrade: storage
+        ? (unitId, track, tier, price) => {
+            const { account, ok } = buyUpgrade(loadAccount(storage), unitId, track, tier, price);
+            // Same reasoning as `onBuy` above: the control disabled itself
+            // against a stale read, so redraw off the true state instead of
+            // returning silently.
+            if (!ok) {
+              redraw();
+              return;
+            }
+            saveAccount(storage, account);
+            redraw();
+          }
+        : undefined,
+    });
+  }
+
+  // --- the screens ---------------------------------------------------------
+  // One table. Every href in the UI comes from `shell/links.ts`, every path
+  // this table declares is matched by `shell/router.ts`, and the old query
+  // URLs (`?campaign`, `?mission=`, `?sandbox=`, `?sandboxes`, `?brigade`)
+  // redirect onto these paths on boot and on click -- so the tools and
+  // bookmarks that drive the app by query string keep working.
+  const router = new Router({
+    base: BASE,
+    stage,
+    routes: [
+      { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
+      { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
+      { name: 'brigade', pattern: '/brigade', mount: (host) => mountBrigade(host) },
+      // The picker. Nothing is passed in: the screen reads the map enumeration
+      // and SANDBOX_FLAGS itself, so a new map cannot be missing from it.
+      { name: 'free-play', pattern: '/free-play', mount: (host) => showSandbox(host) },
+      {
+        name: 'sandbox',
+        pattern: '/free-play/:map',
+        mount: (host, req) =>
+          bootBattlefield(host, {
+            missionId: null,
+            sandboxMap: req.params.map,
+            query: req.query,
+            signal: req.signal,
+          }),
+      },
+      {
+        name: 'mission',
+        pattern: '/mission/:id',
+        mount: (host, req) =>
+          bootBattlefield(host, {
+            missionId: req.params.id,
+            sandboxMap: null,
+            query: req.query,
+            signal: req.signal,
+          }),
+      },
+      // Reserved for Phase 1's briefing screen. Until that exists the path is
+      // a redirect rather than a 404, so a link written against it today lands
+      // the player in the mission rather than on an error card.
+      {
+        name: 'briefing',
+        pattern: '/briefing/:id',
+        mount: (_host, req) => {
+          void router.navigate(routes.mission(req.params.id), { replace: true });
+          return () => {};
+        },
+      },
+    ],
+    notFound: (host, req) => {
+      bootError(host, 'No such screen', `Nothing lives at ${req.path}.`, routes.menu());
+      return () => host.replaceChildren();
+    },
+  });
+  // Same-origin anchors become navigations, for the whole life of the
+  // document -- there is no point at which this page stops wanting them, so
+  // its disposer is dropped rather than stored.
+  interceptLinks(document, router);
+  // `fresh` has done its work above and is not a route parameter, so it comes
+  // off the URL -- except on the way into a mission, where it still means "run
+  // this one against an empty ledger" and `bootBattlefield` reads it back off
+  // `req.query`, exactly as the pre-router code read it off the query string.
+  await router.start({ drop: landingIsMission ? [] : ['fresh'] });
+}
+
+/** What `bootBattlefield` needs off the URL, already resolved by the router:
+ *  a mission id or a sandbox map (never both), the residual query, and the
+ *  signal that goes off when a later navigation wins the race. */
+export interface BattlefieldRequest {
+  missionId: string | null;
+  sandboxMap: string | null;
+  query: URLSearchParams;
+  signal: AbortSignal;
+}
+
+/**
+ * The mission and the sandbox: map, sim, renderer, HUD, and the real-time
+ * loop. Everything below this line was the tail of `main()` before the router;
+ * the boundary is what lets the shell mount a battlefield as one screen among
+ * several rather than as the end of boot.
+ *
+ * The returned disposer is a NO-OP for now, and in-mission exits are still
+ * full navigations (`window.location.assign(routes.campaign())`). The real
+ * teardown -- the frame loop, the HUD and minimap on `document.body`, the
+ * listeners -- is the next task's, and until it lands nothing may navigate
+ * softly out of here.
+ */
+async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Promise<Disposer> {
+  const params = req.query;
+  const audio = battleAudio();
+  const { storage, boughtUnits, ownedTiers } = accountState();
+  /** The end screen and the debrief mount on `document.body`, not on the
+   *  stage, so the router cannot clear them: whoever tears a battlefield down
+   *  has to. Collected here for the teardown Task 2 adds -- nothing reads them
+   *  yet, because nothing leaves a battlefield except a full navigation. */
+  const screenDisposers: Disposer[] = [];
+
+  const missionId = req.missionId;
   let mission: MissionJson | undefined;
   if (missionId !== null) {
     mission = (missions as Record<string, MissionJson | undefined>)[missionId];
     if (!mission) {
       bootError(stage, `Unknown mission "${missionId}"`, 'This link points at a mission that does not exist in this build.');
-      return;
+      return () => {};
     }
   }
   const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
@@ -750,7 +936,7 @@ async function main(): Promise<void> {
   // terrain was walked exactly that way. An unknown id falls back rather than
   // failing, and names what it did: a typo in a dev URL should not look like
   // a broken build.
-  const sandboxMap = params.get('sandbox');
+  const sandboxMap = req.sandboxMap;
   if (sandboxMap && !(sandboxMap in maps)) {
     console.warn(
       `unknown sandbox map "${sandboxMap}" — available: ${Object.keys(maps).join(', ')}`
@@ -1288,16 +1474,16 @@ async function main(): Promise<void> {
     resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined,
     // A sandbox has no briefing to go back to -- only a real mission gets an
     // Escape/back edge (task 6).
-    mission ? () => window.location.assign('?campaign') : undefined
+    mission ? () => window.location.assign(routes.campaign()) : undefined
   );
   await renderer.init(stage);
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
   // Load sprite sheets for unit types that have rendered art (non-blocking).
-  // `SPRITE_MAP` itself is declared above, near the top of this function,
-  // ahead of the mode-selection branches — the brigade route (one of them)
-  // reads the same table for its portrait resolver, so a unit's picture
-  // cannot differ between the HUD's card and the roster screen.
+  // `SPRITE_MAP` itself is declared at module scope, above `main()`, because
+  // the brigade screen is its other reader: the roster resolves a portrait
+  // through the same table, so a unit's picture cannot differ between the
+  // HUD's card and that screen.
   // Structures with art. A building has one sprite, not sixteen: it is placed
   // with a fixed orientation under a fixed camera and never turns. Types without
   // a sheet keep the procedural extrusion, so art lands one building at a time.
@@ -1631,7 +1817,7 @@ async function main(): Promise<void> {
     toggleMute: () => {
       audioMuted = audio.toggle();
     },
-    leave: () => window.location.assign('?campaign'),
+    leave: () => window.location.assign(routes.campaign()),
   });
   // The minimap (GH-153). Mounted here rather than inside the Hud because it
   // needs three things the Hud deliberately does not carry -- the parsed map,
@@ -2346,15 +2532,19 @@ async function main(): Promise<void> {
                   speaker: say.speaker,
                 }
               : undefined;
-            showEndScreen(document.body, {
-              result: me.result,
-              roe: me.roeRating,
-              survivors: me.survivors.length,
-              missionId,
-              nextMissionId,
-              debrief,
-              onDebrief: () => showDebrief(document.body, debriefOpts),
-            });
+            screenDisposers.push(
+              showEndScreen(document.body, {
+                result: me.result,
+                roe: me.roeRating,
+                survivors: me.survivors.length,
+                missionId,
+                nextMissionId,
+                debrief,
+                onDebrief: () => {
+                  screenDisposers.push(showDebrief(document.body, debriefOpts));
+                },
+              })
+            );
           }
         }
       }
@@ -2766,12 +2956,18 @@ async function main(): Promise<void> {
     updateHover();
   };
   rafId = requestAnimationFrame(loop);
-  // `rafId` is a local of main(), and main() has no shutdown path, so nothing
-  // ever reads it -- a teardown would have to lift the handle out of this
-  // scope anyway, which is a restructuring this line does not save anyone.
-  // It exists so the loop's self-re-request has somewhere to land, and is
-  // voided so lint does not report a variable that is only ever written.
+  // Nothing reads `rafId` yet: this function's disposer is still a no-op, so
+  // the loop stops only when the document does. It exists so the loop's
+  // self-re-request has somewhere to land, and is voided so lint does not
+  // report a variable that is only ever written. Task 2's teardown is what
+  // finally cancels it -- it is a local of THIS function now rather than of
+  // `main()`, which is most of what that task needed.
   void rafId;
+
+  // Task 2 replaces this with the real teardown. Until then a battlefield is
+  // only ever left by a full navigation, so there is nothing for the router to
+  // take down that the page load does not.
+  return () => {};
 }
 
 main().catch((err: unknown) => {

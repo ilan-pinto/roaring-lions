@@ -88,7 +88,7 @@ const mountScreen = (
   const { el, ready } = worldMap3d({
     world: over.world ?? world,
     ledger,
-    href: (id) => `?mission=${id}`,
+    href: (id) => `/mission/${id}`,
     meshUrl: '/art/sahar_basin.glb',
     dracoDecoderPath: '/draco/',
     fallback: () => {
@@ -184,7 +184,7 @@ describe('clicking the ground', () => {
     const s = mountScreen({});
     await s.ready;
     s.view().pick('marj');
-    expect(s.went).toEqual(['?mission=beit_sahwan_breach']);
+    expect(s.went).toEqual(['/mission/beit_sahwan_breach']);
   });
 
   it('says the region alone, never the mission id, when it has no mission catalogue', async () => {
@@ -215,7 +215,7 @@ describe('clicking the ground', () => {
     });
     await s.ready;
     s.view().pick('marj');
-    expect(s.went).toEqual(['?mission=beit_sahwan_2_foothold']);
+    expect(s.went).toEqual(['/mission/beit_sahwan_2_foothold']);
   });
 
   /**
@@ -307,7 +307,7 @@ describe('the town pins', () => {
     await s.ready;
     const pin = s.el.querySelector('[data-town="beit_sahwan"]') as HTMLElement;
     const a = pin.querySelector('a') as HTMLAnchorElement;
-    expect(a.getAttribute('href')).toBe('?mission=beit_sahwan_1_recon');
+    expect(a.getAttribute('href')).toBe('/mission/beit_sahwan_1_recon');
     expect(a.textContent).toBe('Beit Sahwan 1/5');
   });
 
@@ -432,7 +432,7 @@ describe('showCampaign picks the board from the renderer the player chose', () =
       window.localStorage.setItem(RENDERER_STORAGE_KEY, choice);
       const stage = mount();
       const back = stage.querySelector('[data-kind="back"]') as HTMLAnchorElement;
-      expect(back.getAttribute('href'), choice).toBe('?');
+      expect(back.getAttribute('href'), choice).toBe('/');
       expect(stage.querySelector('[data-town="beit_sahwan"]'), choice).not.toBe(null);
     }
   });

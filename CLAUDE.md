@@ -196,7 +196,23 @@ The combat model is the product. Everything else is scaffolding around it.
 
 ## Dev instruments
 
-- Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed.
+- **The shell is on a router, and the screens are PATHS**
+  (`packages/app/src/shell/router.ts`, Phase 1): `/` the menu, `/campaign` the
+  map, `/brigade` the roster, `/free-play` the picker, `/free-play/<map id>` a
+  sandbox, `/mission/<id>` a mission. **Every query URL in this file still
+  works** — `?campaign`, `?brigade`, `?sandboxes`, `?sandbox=<map>`,
+  `?mission=<id>` redirect onto those paths on boot and on click
+  (`legacyRedirect`), keeping every bookmark, doc line and tool URL (the golden
+  gate's `capture-protocol.ts` builds `?sandbox=`/`?mission=`) working — so the
+  forms written throughout this file are read as written and land on the path.
+  Flags ride along unchanged: `?sandbox=tel_marum&tunnel&sur` becomes
+  `/free-play/tel_marum?tunnel&sur`. Two consequences worth knowing. **No screen
+  spells a path**: `packages/app/src/shell/links.ts`'s `routes` is the only
+  place one is written, and a same-origin anchor click is a soft navigation
+  rather than a page load. And **a mission is still left by a FULL
+  navigation** — `bootBattlefield`'s disposer is a no-op until the teardown
+  lands, so nothing may navigate softly out of a battlefield.
+- Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed. It is defined by the battlefield alone — the menu, the campaign board, the brigade and the picker define nothing, which is how a tool tells "the app booted a mission" from "the app booted".
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from
   that map's own markers — no mission needed. Bare `?sandbox` still loads
   `beit_sahwan_outskirts` unchanged. Before this, checking anything visual on a new
@@ -216,9 +232,10 @@ The combat model is the product. Everything else is scaffolding around it.
   nothing at all, silently, and reads as a broken feature rather than a typo. The
   flag table (`packages/app/src/sandbox-help.ts`) is the single source for all
   FOUR callers — `readFlags` parses from it, `sandboxHelp` prints from it,
-  `unknownParams` checks against it, and `?sandboxes`, the picker screen in
-  `ui/menu.ts`, builds its checkbox list and its launch URLs from it — so a flag
-  parsed but undocumented, or documented but unparsed, is not expressible.
+  `unknownParams` checks against it, and `/free-play` (`?sandboxes`), the picker
+  screen in `ui/menu.ts`, builds its checkbox list from it and its launch URLs
+  through `routes.sandbox` — so a flag parsed but undocumented, or documented
+  but unparsed, is not expressible.
   Prefer this over grepping this file.
 - The opt-in sandbox flags, each adding only what it names, so a check for one
   subsystem is not buried under four others (`&nomesh` is the one opt-OUT

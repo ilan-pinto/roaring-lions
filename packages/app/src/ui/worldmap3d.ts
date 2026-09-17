@@ -136,8 +136,11 @@ export interface World3dOptions {
    *  board's `WorldMapOptions.portraitUrl` -- both boards get it from
    *  `main.ts`, never build a `portraits/...` path themselves. */
   portraitUrl?: (file: string) => string | undefined;
-  /** Test seams. `mount` defaults to the real dynamic import, `webgl` to a
-   *  live context probe, `navigate` to a real navigation. */
+  /** `mount` defaults to the real dynamic import and `webgl` to a live
+   *  context probe -- both are test seams. `navigate` is not: the shell
+   *  passes the router's own soft navigation through `CampaignOptions`, and
+   *  the default below is the hard one, for a caller with no router (a test,
+   *  and any future host that mounts this board on its own). */
   mount?: MountWorldView;
   webgl?: () => boolean;
   navigate?: (href: string) => void;
