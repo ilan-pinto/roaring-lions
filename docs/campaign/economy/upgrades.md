@@ -364,10 +364,10 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
 
 ### Loitering Munition (`attack_drone`)
 
-Role `drone`, logistics 300. Tracks: armour, sensors, firepower. Total credits to max every track: **1705**.
+Role `drone`, logistics 300. Tracks: armour, sensors, firepower. Total credits to max every track: **410** (re-priced from 1705 — see §5, §7.4).
 
 **Measured at max tier:** not exercised by name in any §5.7 scenario (no target spawns this type); its contribution to the combined all-17 `pnpm balance` pass (§4.5) and to the cost-curve check (§5) is the measurement on record for it.
-Power score (this document's own re-derivation of `validate_balance.py`'s curve): 0.82 → 0.90 at max tier (+10%); the base curve prices that much power at 257→269 logistics against its actual 300.
+Power score (this document's own re-derivation of `validate_balance.py`'s curve): 0.82 → 0.90 at max tier (+10%); the base curve prices that much power at 257→269 logistics against its actual 300. Patches are unchanged from the original fit — only price moved, since the power gain per credit was the problem (§5), not the deltas themselves.
 
 ```json
 {
@@ -375,7 +375,7 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
     "armour": {
       "tiers": [
         {
-          "price": 120,
+          "price": 30,
           "patch": {
             "hull.hp": 6,
             "hull.armor.front": 0,
@@ -384,7 +384,7 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
           }
         },
         {
-          "price": 180,
+          "price": 45,
           "patch": {
             "hull.hp": 14,
             "hull.armor.front": 0,
@@ -393,7 +393,7 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
           }
         },
         {
-          "price": 255,
+          "price": 60,
           "patch": {
             "hull.hp": 22,
             "hull.armor.front": 0,
@@ -406,21 +406,21 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
     "sensors": {
       "tiers": [
         {
-          "price": 100,
+          "price": 25,
           "patch": {
             "sensors.optics": 0.11,
             "sensors.sight_tiles": 1
           }
         },
         {
-          "price": 150,
+          "price": 35,
           "patch": {
             "sensors.optics": 0.21,
             "sensors.sight_tiles": 2
           }
         },
         {
-          "price": 210,
+          "price": 50,
           "patch": {
             "sensors.optics": 0.35,
             "sensors.sight_tiles": 3
@@ -431,21 +431,21 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
     "firepower": {
       "tiers": [
         {
-          "price": 150,
+          "price": 35,
           "patch": {
             "weapons[0].accuracy": 0.03,
             "weapons[0].penetration": 38
           }
         },
         {
-          "price": 225,
+          "price": 55,
           "patch": {
             "weapons[0].accuracy": 0.06,
             "weapons[0].penetration": 77
           }
         },
         {
-          "price": 315,
+          "price": 75,
           "patch": {
             "weapons[0].accuracy": 0.1,
             "weapons[0].penetration": 120
@@ -1770,7 +1770,7 @@ candidate values against every unit's deviation:
 | apc_eitan | 520 | 3.54→4.68 | 578 | 2950 | 0.020 |
 | apc_kipod | 562 | 4.55→6.15 | 656 | 3190 | 0.030 |
 | at_team | 236 | 0.69→0.84 | 261 | 1345 | 0.018 |
-| attack_drone | 300 | 0.82→0.90 | 269 | 1705 | -0.018 |
+| attack_drone | 300 | 0.82→0.90 | 269 | 410 (re-priced from 1705) | -0.076 |
 | breach_team | 306 | 1.16→1.32 | 321 | 1740 | 0.009 |
 | demo_squad | 300 | 1.00→1.25 | 314 | 1705 | 0.008 |
 | dozer_d9 | 586 | 4.60→6.46 | 672 | 1985 | 0.043 |
@@ -1785,31 +1785,37 @@ candidate values against every unit's deviation:
 | sniper_team | 260 | 0.89→1.04 | 288 | 1475 | 0.019 |
 | yahalom_squad | 260 | 0.90→1.16 | 302 | 1475 | 0.029 |
 
-`k_exact` ranges -0.018 (`attack_drone`) to 0.043 (`dozer_d9`), median 0.019,
-mean 0.019 — a tight cluster except for one outlier. Checking round values of k
-against the ±18% band:
+`k_exact` (computed against the ORIGINAL 1705-credit `attack_drone` price)
+ranged -0.018 (`attack_drone`) to 0.043 (`dozer_d9`), median 0.019, mean 0.019 —
+a tight cluster except for one outlier. `attack_drone` has since been re-priced
+(§7.4) to 410 total credits, which moves its own `k_exact` to **-0.076** (a
+LARGER outlier by this per-unit metric — logistics alone, 300, already exceeds
+its 269 expected-max, so no positive k fits it exactly) while median (0.019,
+determined by the 9th of 17 values, unaffected by the extreme) and mean
+(0.019→0.016) barely move. `k_exact` is a diagnostic, not the gate: what matters
+is deviation at the fixed k actually shipped. Checking round values of k against
+the ±18% band, now that `attack_drone` carries its re-priced total:
 
 | k | units outside ±18% |
 |---|---|
 | 0.010 | none |
-| 0.015 | `attack_drone` (+21.0%) |
-| **0.020** | **`attack_drone` (+24.2%) — every other unit −13.1%…+7.3%** |
-| 0.030 | `attack_drone` (+30.5%) |
-| 0.040 | `attack_drone` (+36.8%), `heli_peten` (+18.2%, on the line) |
+| 0.015 | none |
+| **0.020** | **none — `attack_drone` +14.6%, every other unit −13.1%…+7.3%** |
+| 0.030 | none |
+| 0.040 | `heli_peten` (+18.2%, on the line) |
 
-**k = 0.02.** At that value all sixteen other units sit inside a tight
-−13.1%…+7.3% band (well inside ±18%), and `attack_drone` is the one unit outside
-it at every k from 0.01 to 0.04. Its deviation is not a pricing mistake to chase
-with a smaller k for everyone else: `attack_drone`'s offense score is already
-close to `MAX_ENGAGE_RATE` (6 kills/min, `validate_balance.py`'s own ceiling on a
+**k = 0.02.** All seventeen units now sit inside a −13.1%…+14.6% band, well
+inside ±18%. `attack_drone` was the one unit outside it at every k from 0.01 to
+0.04 (+21.0% to +36.8%) before the re-price: its offense score is already close
+to `MAX_ENGAGE_RATE` (6 kills/min, `validate_balance.py`'s own ceiling on a
 single weapon's scored rate) at BASE stats — a `rof_per_min` of 6 firing a single
 shaped charge — so spending on `weapons[0].accuracy` / `.penetration` buys little
 additional SCORED power even though the unit is genuinely a bit deadlier. Power
-moves from 0.82 to only 0.90 (+10%) for 1705 credits, the least power-per-credit
-of any of the seventeen. This is recorded as a finding (§7.4) rather than solved
-by re-pricing `attack_drone` against its own outlier status, since `attack_drone`
-is not in any §5.7 target and the effect is a property of the power MODEL's
-engagement-rate cap, not of this document's price for it.
+still moves from only 0.82 to 0.90 (+10%) at max tier, exactly as before — the
+patches were never the problem. What changed is price: since that 10% power
+gain is real but small, `attack_drone`'s total credits to max were cut from 1705
+to 410 (§7.4), which reads +14.6% here (was +24.2%) — 3.4 points inside the
+band rather than 6.2 points outside it.
 
 ## 6. Budget arithmetic
 
@@ -1889,12 +1895,29 @@ survives a fresh campaign") — the long tail is intended, not a pricing miss.
    from a 0% gunship survival rate to 97% — erasing the entire point of the
    "air is contested by weight of AA" target, which exists specifically because
    nothing else in `pnpm balance` measures the air domain at all. Capped at 12%.
-4. **`attack_drone` is the one unit whose upgrade credits buy the least power**
-   by the cost-curve's own model, because its offense score is already close to
-   `MAX_ENGAGE_RATE` at base stats (§5) — a low-rate-of-fire loitering munition
-   whose accuracy/penetration headroom is capped by the model's own engagement-
-   rate ceiling before its price curve even enters the picture. Not a §5.7
-   failure and not fixed here; flagged for whoever owns the cost-curve model.
+4. **`attack_drone` was the one unit whose upgrade credits bought the least
+   power** by the cost-curve's own model, because its offense score is already
+   close to `MAX_ENGAGE_RATE` at base stats (§5) — a low-rate-of-fire loitering
+   munition whose accuracy/penetration headroom is capped by the model's own
+   engagement-rate ceiling before its price curve even enters the picture. Not
+   a §5.7 failure, but it DID fail the max-tier cost-curve gate once that gate
+   shipped as `tools/validate_balance.py --units data/units --max-tier
+   --upgrade-cost-factor 0.02`: +21.5% against that tool's own refit curve,
+   +24.2% against this document's static-baseline method (§5) — outside the
+   ±18% band either way. **Resolved by re-pricing, not by re-deriving the
+   patches**, since the finding above already says the deltas buy almost no
+   scored power: offense moved only 0.82→0.90 (+10%) for the original 1705
+   credits, the least power-per-credit of any of the seventeen types, so the
+   spend was the wrong side to defend. `data/units/kdf/attack_drone.json`'s
+   three tracks keep their exact patches and lose most of their price — armour
+   120/180/255→30/45/60 (555→135), sensors 100/150/210→25/35/50 (460→110),
+   firepower 150/225/315→35/55/75 (690→165), total 1705→410. That reads +12.4%
+   on the shipped gate and +14.6% on this document's static-baseline method
+   (§5), both comfortably inside ±18%. The underlying model property — an
+   engagement-rate cap that makes firepower spend on a low-RoF weapon nearly
+   free in POWER terms even when it is real in DAMAGE terms — still stands and
+   is still worth flagging for whoever owns the cost-curve model; what changed
+   here is the content, not the model.
 5. **"Most tier-2s and a few tier-3s" at the full ladder (5544) is not
    producible from a single purchase order** (§6.2). A core-force-first order
    (the one a player who fields the same five units every mission would follow)
@@ -1939,7 +1962,7 @@ survives a fresh campaign") — the long tail is intended, not a pricing miss.
 | apc_eitan | 3 (armour, sensors, firepower) | 3 | 2950 |
 | apc_kipod | 3 (armour, sensors, firepower) | 3 | 3190 |
 | at_team | 3 (armour, sensors, firepower) | 3 | 1345 |
-| attack_drone | 3 (armour, sensors, firepower) | 3 | 1705 |
+| attack_drone | 3 (armour, sensors, firepower) | 3 | 410 |
 | breach_team | 3 (armour, sensors, firepower) | 3 | 1740 |
 | demo_squad | 3 (armour, sensors, firepower) | 3 | 1705 |
 | dozer_d9 | 2 (armour, sensors) | 3 | 1985 |
@@ -1953,5 +1976,5 @@ survives a fresh campaign") — the long tail is intended, not a pricing miss.
 | scout_shachaf | 3 (armour, sensors, firepower) | 3 | 2330 |
 | sniper_team | 3 (armour, sensors, firepower) | 3 | 1475 |
 | yahalom_squad | 3 (armour, sensors, firepower) | 3 | 1475 |
-| **all 17** | | | **36260** |
+| **all 17** | | | **34965** (was 36260 before `attack_drone`'s re-price, §7.4) |
 
