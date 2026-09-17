@@ -107,6 +107,36 @@
         }
       }
     },
+    "upgrades": {
+      "type": "object",
+      "description": "Upgrade tracks (spec 2026-09-15 §4.3). Each tier's patch is the cumulative DELTA over base on the closed whitelist; tiers are monotone. Bought per track from the brigade account; applied by @lions/data's applyUpgrades before the sim registers the type. KDF units only.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 3,
+      "patternProperties": {
+        "^[a-z][a-z_]{1,15}$": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tiers"],
+          "properties": {
+            "tiers": {
+              "type": "array", "minItems": 1, "maxItems": 3,
+              "items": {
+                "type": "object", "additionalProperties": false, "required": ["price", "patch"],
+                "properties": {
+                  "price": { "type": "integer", "minimum": 1 },
+                  "patch": {
+                    "type": "object", "minProperties": 1, "additionalProperties": false,
+                    "propertyNames": { "pattern": "^(hull\\.hp|hull\\.armor\\.(front|side|rear)|hull\\.suppression_resistance|sensors\\.optics|sensors\\.sight_tiles|weapons\\[[0-9]+\\]\\.(accuracy|penetration))$" },
+                    "patternProperties": { "": { "type": "number", "minimum": 0 } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "hull": {
       "type": "object",
       "required": [

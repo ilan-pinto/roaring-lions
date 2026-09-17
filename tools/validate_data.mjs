@@ -39,6 +39,51 @@ const FOOT_ROLES = new Set(['infantry', 'at_team', 'artillery', 'engineer', 'sni
 // node with no build step and cannot import from the sim package.
 const PROTECTED_ROE = 20;
 
+// Resolves a whitelist path like "hull.armor.front" or "weapons[2].accuracy"
+// against a unit document. Returns false when any segment along the way is
+// missing — the schema's propertyNames.pattern only closes which STRINGS are
+// legal keys in a patch; it says nothing about whether the unit this patch
+// rides on actually has that field, which is what rule (b) below checks.
+function unitHasPath(unit, path) {
+  let cur = unit;
+  for (const part of path.split('.')) {
+    if (cur == null) return false;
+    const m = part.match(/^([a-zA-Z_]+)\[(\d+)\]$/);
+    if (m) {
+      const [, key, idxStr] = m;
+      cur = cur[key];
+      if (!Array.isArray(cur)) return false;
+      cur = cur[Number(idxStr)];
+    } else {
+      cur = cur[part];
+    }
+  }
+  return cur !== undefined;
+}
+
+// Compares tier `curr` against the tier immediately before it (`prev`) and
+// returns one description string per field that regressed — a lower price,
+// a lower delta on a path both tiers touch, or a path `prev` patched that
+// `curr` drops entirely (which the brief's rule (c) counts as lower, since
+// dropping it is indistinguishable from patching it back to zero).
+function tierRegressions(prev, curr) {
+  const whats = [];
+  if (curr.price < prev.price) {
+    whats.push(`price ${curr.price} < ${prev.price}`);
+  }
+  const prevPatch = prev.patch ?? {};
+  const currPatch = curr.patch ?? {};
+  for (const path of Object.keys(prevPatch)) {
+    const prevVal = prevPatch[path];
+    if (!(path in currPatch)) {
+      whats.push(`${path} missing (was ${prevVal})`);
+    } else if (currPatch[path] < prevVal) {
+      whats.push(`${path} ${currPatch[path]} < ${prevVal}`);
+    }
+  }
+  return whats;
+}
+
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 
 const failures = [];
@@ -186,6 +231,38 @@ const structureSymbols = new Map(
       failures.push(
         `${rel(file)}: unlock.price is only valid on faction 'kdf' units`
       );
+    }
+    // Per-unit upgrades checks (step 3, spec 2026-09-15 §4.3): faction gate,
+    // patch paths must resolve on the unit they ride on, and tiers must be
+    // monotone. The schema's propertyNames.pattern already closes which
+    // paths are legal STRINGS; these three cannot be expressed there.
+    if (u && u.upgrades) {
+      if (u.faction !== 'kdf') {
+        failures.push(
+          `${rel(file)}: upgrades are only valid on faction 'kdf' units`
+        );
+      }
+      for (const [trackName, track] of Object.entries(u.upgrades)) {
+        const tiers = track.tiers ?? [];
+        tiers.forEach((tier, i) => {
+          for (const path of Object.keys(tier.patch ?? {})) {
+            if (!unitHasPath(u, path)) {
+              failures.push(
+                `${rel(file)}: upgrades.${trackName} tier ${i + 1} patches ${path}, ` +
+                  `which this unit does not have`
+              );
+            }
+          }
+        });
+        for (let i = 1; i < tiers.length; i++) {
+          for (const what of tierRegressions(tiers[i - 1], tiers[i])) {
+            failures.push(
+              `${rel(file)}: upgrades.${trackName} tier ${i + 1} is not monotone over ` +
+                `tier ${i} (${what})`
+            );
+          }
+        }
+      }
     }
   }
   for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
