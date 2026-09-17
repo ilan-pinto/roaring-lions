@@ -235,12 +235,16 @@ export class Hud {
    *  `host.append(...)` in the constructor. */
   private readonly roots: HTMLElement[] = [];
 
-  /** The live title card's own dismisser (`titleCard` in `motion.ts`), held
-   *  rather than discarded: the card registers two window listeners and a
+  /** The live title card (`titleCard` in `motion.ts`) and its own dismisser,
+   *  held rather than discarded: the card registers two window listeners and a
    *  timer to take itself down, and holds for up to five seconds with
-   *  `dispatch`. Leaving a mission inside that window has to cancel all
-   *  three. Null whenever no card is up. */
-  private dismissTitle: (() => void) | null = null;
+   *  `dispatch`. Leaving a mission inside that window has to cancel all three
+   *  AND remove the element, because the dismisser only starts a 250 ms fade.
+   *  The ELEMENT is held rather than found again by selector -- this HUD's host
+   *  is `document.body` in the real app, and a `.rl-titlecard` sweep of the
+   *  shared body could match a card this HUD did not create. Null whenever no
+   *  card is up. */
+  private title: { el: HTMLElement; dismiss: () => void } | null = null;
 
   constructor(
     private readonly host: HTMLElement,
@@ -547,13 +551,15 @@ export class Hud {
    * is dismissed explicitly.
    */
   destroy(): void {
-    this.dismissTitle?.();
-    this.dismissTitle = null;
-    // `titleCard`'s dismisser fades over 250 ms before removing the node, so
-    // the card is still on the host when this returns. Teardown has to be
-    // synchronous -- the router mounts the next screen immediately -- so the
-    // element is taken off here rather than waited for.
-    for (const card of this.host.querySelectorAll('.rl-titlecard')) card.remove();
+    // `dismiss()` releases the card's two window listeners and its timer, then
+    // fades it over 250 ms before removing the node -- so the element is still
+    // on the host when this returns. Teardown has to be synchronous (the
+    // router mounts the next screen immediately), so THIS card is taken off by
+    // the reference `announce` kept, not by a selector sweep of a body other
+    // screens also mount on.
+    this.title?.dismiss();
+    this.title?.el.remove();
+    this.title = null;
     for (const root of this.roots) root.remove();
   }
 
@@ -585,8 +591,8 @@ export class Hud {
   announce(name: string, subtitle: string, dispatch?: string): void {
     // Any previous card goes first, so its window listeners and timer are
     // released rather than left running against a node about to be covered.
-    this.dismissTitle?.();
-    this.dismissTitle = titleCard(this.host, name, subtitle, dispatch);
+    this.title?.dismiss();
+    this.title = titleCard(this.host, name, subtitle, dispatch);
   }
 
   /**

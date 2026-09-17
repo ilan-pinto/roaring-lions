@@ -1038,4 +1038,25 @@ describe('destroy', () => {
     expect(document.body.querySelector('.rl-titlecard')).toBeNull();
     expect(document.body.children.length).toBe(before);
   });
+
+  // fix round 1: `destroy()` used to sweep `.rl-titlecard` off `this.host`,
+  // which in the real app is `document.body` -- a host other screens mount on
+  // too. It now removes the card `announce` itself created, by reference, so a
+  // card that is not this HUD's is none of its business.
+  it('removes only the card it created, not every title card on the host', () => {
+    const foreign = document.createElement('div');
+    foreign.className = 'rl-titlecard';
+    foreign.dataset.owner = 'someone-else';
+    document.body.appendChild(foreign);
+
+    const hud = bodyHud();
+    hud.announce('Beit Sahwan II', '2 primary objective(s)');
+    expect(document.body.querySelectorAll('.rl-titlecard').length).toBe(2);
+    hud.destroy();
+
+    const left = document.body.querySelectorAll<HTMLElement>('.rl-titlecard');
+    expect(left.length).toBe(1);
+    expect(left[0].dataset.owner).toBe('someone-else');
+    foreign.remove();
+  });
 });

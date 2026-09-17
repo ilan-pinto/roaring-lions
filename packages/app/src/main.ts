@@ -880,12 +880,21 @@ export interface BattlefieldRequest {
  * router navigations now, so leaving a mission and entering another one is one
  * JS realm and no page load -- which `pnpm ui:routes` is the standing proof of.
  *
- * Two rules for anything added in here. Register its teardown with
+ * Three rules for anything added in here. Register its teardown with
  * `onDispose(...)` at the point it is CREATED, not in a list at the bottom that
- * drifts. And make the teardown idempotent and self-scoped -- a superseded
- * mount's disposer can run after the next battlefield has started booting, so
- * a teardown that reaches for something by name rather than by identity can
- * take the wrong one down (see the `__lions` registration).
+ * drifts. Make the teardown idempotent and self-scoped -- a superseded mount's
+ * disposer can run after the next battlefield has started booting, so a
+ * teardown that reaches for something by name rather than by identity can take
+ * the wrong one down (see the `__lions` registration).
+ *
+ * And **anything that can still COMPLETE after the teardown must consult
+ * `disposed` before it touches `renderer`, `sim` or the DOM.** Cancelling the
+ * frame loop stops the work this function drives; it does nothing about work
+ * already in flight. The deferred art block below is the live case -- wreck
+ * sprites, deferred buildables and building-wreck meshes are started two frames
+ * after deploy and land whole seconds later, by which time the player may have
+ * left and the renderer may be gone. A fetch has no signal to cancel it here,
+ * so the guard is at the points where a resolution would reach back in.
  */
 async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Promise<Disposer> {
   const params = req.query;
@@ -904,6 +913,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     cleanup.push(f);
   };
   /**
+   * Set by `teardown()` before it runs anything, and read by every callback
+   * that can outlive this battlefield -- see the third rule above.
+   *
+   * It is set FIRST, not last, and that ordering is the whole point: a
+   * disposer partway down the list can itself settle a promise (the loading
+   * screen's rejection is one), so a flag set at the end would be false for
+   * exactly the callbacks the teardown is causing to run.
+   */
+  let disposed = false;
+  /**
    * Run every registered teardown, once.
    *
    * `splice(0)` empties the list as it takes it, so a second call -- and both
@@ -913,6 +932,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * half-torn-down battlefield is what leaks a WebGL context.
    */
   const teardown = (): void => {
+    disposed = true;
     for (const f of cleanup.splice(0).reverse()) {
       try {
         f();
@@ -1485,13 +1505,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // mission fields any.
       meshPathActive = true;
       ensureUnitMesh = (typeId: string): void => {
-        if (!hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
+        // A mesh started before the player left would otherwise be handed to a
+        // disposed renderer whenever it lands. Guarded at the start AND in the
+        // handler: `loadMeshUnit` is a fetch plus a GLTF parse, so the window
+        // between the two is seconds wide on a cold cache.
+        if (disposed || !hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
         meshLoaded.add(typeId);
         const rigged = RIGGED_UNIT_MESHES[typeId];
         const job = rigged
           ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction)
           : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]));
         job.catch((err: unknown) => {
+          if (disposed) return;
           console.warn(`[lions] mesh FAILED for ${typeId}:`, err);
           failedMesh.push(typeId);
         });
@@ -1502,8 +1527,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // is already drawing for it, so the warning is the whole cost.
       wreckMeshLoader = (structureId: string): void => {
         const files = BUILDING_MESHES[structureId];
-        if (!files) return;
+        // The longest-latency load in the boot -- 9.6 MiB of collapsed masonry
+        // that nobody is waiting for -- and therefore the one most likely to
+        // land after a leave.
+        if (disposed || !files) return;
         three.loadBuildingWreckMesh(structureId, meshUrl(files.wreck)).catch((err: unknown) => {
+          if (disposed) return;
           console.warn(`[lions] building wreck mesh FAILED for ${structureId}:`, err);
           failedMesh.push(`${structureId}_wreck`);
         });
@@ -1594,7 +1623,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // without this is a session that stops drawing after a handful of them.
   // Optional on the seam (`api.ts`): PixiRenderer's file is frozen and
   // implements nothing, so a Pixi battlefield still leaks here.
-  onDispose(() => renderer.dispose?.());
+  //
+  // The CANVAS is taken off in the same breath, and that half is not
+  // redundant. `WebGLRenderer.dispose()` frees the context's resources and
+  // leaves the element in the DOM, and the router only clears the stage for a
+  // screen that actually MOUNTED -- `Router.unmount()` returns early at
+  // `if (!m) return` when the mount is still in flight. So a battlefield
+  // abandoned on its deploy screen left its canvas behind in the stage, under
+  // the campaign board, and the route walk photographed exactly that: two
+  // canvases where the board needs one. Measured, not assumed; a teardown that
+  // relies on the router to clean up after it is the rule this file states at
+  // the top, broken.
+  onDispose(() => {
+    renderer.dispose?.();
+    renderer.canvas.remove();
+  });
   if (req.signal.aborted) abandon('left while the renderer was starting');
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
@@ -1672,8 +1715,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** One unit sheet, its own failure swallowed into `failedArt` -- shared by
    *  the deploy-gating loop below and the after-first-frame loads. */
   const loadUnitSheet = (id: string): Promise<void> => {
+    // The deferred half of the sheet plan runs through here two frames after
+    // deploy, so this can be called -- and can resolve -- after the player has
+    // left. `loadSprites` decodes into the renderer's atlases, which is exactly
+    // the kind of touch the third rule at the top of this function names.
+    if (disposed) return Promise.resolve();
     const { path, ...rest } = SPRITE_MAP[id];
     return renderer.loadSprites(id, path, rest).catch((err) => {
+      if (disposed) return;
       console.warn(`[lions] sprites FAILED for ${id}:`, err);
       failedArt.push(id);
     });
@@ -1801,11 +1850,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
   }
   if (afterFirstFrame.length > 0) {
-    requestAnimationFrame(() =>
+    // Guarded at BOTH hops, and neither is the frame loop. These two callbacks
+    // are scheduled on their own, are not the `rafId` the disposer cancels, and
+    // fire whether or not the battlefield is still there -- so a player who
+    // leaves within two frames of deploying would otherwise start the whole
+    // deferred art batch against a renderer that has just been disposed.
+    requestAnimationFrame(() => {
+      if (disposed) return;
       requestAnimationFrame(() => {
+        if (disposed) return;
         for (const start of afterFirstFrame) start();
-      })
-    );
+      });
+    });
   }
 
   const getMission = (): MissionView | null =>

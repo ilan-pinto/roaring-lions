@@ -266,6 +266,131 @@ describe('reading a long briefing', () => {
   });
 });
 
+/**
+ * Task 2 (fix round 1): tearing the screen down from OUTSIDE.
+ *
+ * `done()` parks on the player's click for as long as they care to read, and a
+ * router navigation that supersedes a half-booted mission has to unpark it --
+ * otherwise `bootBattlefield` hangs on that await forever, holding a renderer
+ * and a WebGL context, and the disposer that would release them is a value it
+ * has not returned yet. `dispose()` is the one lever that reaches in; these are
+ * the four things it has to get right.
+ */
+describe('disposing the deploy screen from outside', () => {
+  /** A briefing long enough to hold deployment, with a back edge, so both the
+   *  pending promise and the keydown listener exist to be torn down. */
+  function held(): { el: HTMLElement; screen: ReturnType<typeof showLoading>; backCalls: () => number } {
+    const el = document.createElement('div');
+    let calls = 0;
+    const screen = showLoading(
+      el,
+      'Break the Depot',
+      'Seven structures inside the walled depot.',
+      undefined,
+      undefined,
+      undefined,
+      () => {
+        calls++;
+      }
+    );
+    return { el, screen, backCalls: () => calls };
+  }
+
+  const isAbort = (err: unknown): boolean => err instanceof DOMException && err.name === 'AbortError';
+
+  it('rejects a pending done() with an AbortError, removes the wrap, and takes the keydown listener with it', async () => {
+    const { el, screen, backCalls } = held();
+    let rejected: unknown = null;
+    let handed = false;
+    const pending = screen
+      .done()
+      .then(() => {
+        handed = true;
+      })
+      .catch((err: unknown) => {
+        rejected = err;
+      });
+
+    expect(el.querySelector('.rl-loading')).not.toBeNull();
+    screen.dispose();
+    await pending;
+
+    expect(handed).toBe(false);
+    expect(isAbort(rejected)).toBe(true);
+    expect(el.querySelector('.rl-loading')).toBeNull();
+
+    // The listener went with it. Escape after a dispose must reach nothing:
+    // `wrap` being gone is not evidence on its own, because `onKey` is
+    // registered on `window` and would survive the element's removal.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(backCalls()).toBe(0);
+  });
+
+  it('is a no-op the second time', async () => {
+    const { el, screen } = held();
+    let rejections = 0;
+    const pending = screen.done().catch(() => {
+      rejections++;
+    });
+    screen.dispose();
+    await pending;
+    expect(rejections).toBe(1);
+    // The battlefield disposer can run after the teardown that aborted it
+    // (a stale mount resolving onto an aborted route), so this really happens.
+    expect(() => {
+      screen.dispose();
+    }).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(rejections).toBe(1);
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('rejects a done() called after the dispose, rather than putting a dead screen back', async () => {
+    const { screen } = held();
+    screen.dispose();
+    let rejected: unknown = null;
+    await screen.done().catch((err: unknown) => {
+      rejected = err;
+    });
+    expect(isAbort(rejected)).toBe(true);
+  });
+
+  it('leaves the ordinary deploy path alone -- the click still resolves, and a later dispose does not reject it', async () => {
+    const { el, screen } = held();
+    let handed = false;
+    let rejections = 0;
+    const pending = screen
+      .done()
+      .then(() => {
+        handed = true;
+      })
+      .catch(() => {
+        rejections++;
+      });
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')!.click();
+    await pending;
+    expect(handed).toBe(true);
+    expect(rejections).toBe(0);
+
+    // The ordinary battlefield teardown runs `loading.dispose()` minutes into
+    // a mission the player deployed into. It must not reject a promise that
+    // was already answered.
+    screen.dispose();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(rejections).toBe(0);
+  });
+
+  it('removes a screen that was never awaited at all', () => {
+    // The mission was superseded while its sheets were still loading, so the
+    // screen is up and no promise is outstanding.
+    const { el, screen } = held();
+    expect(el.querySelector('.rl-loading')).not.toBeNull();
+    screen.dispose();
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+});
+
 // A brief is delivered a beat at a time, so the prose has to come apart into
 // beats. Sentence boundaries are the natural seam, and the eleven authored
 // briefings contain no decimals and no abbreviations to trip on — checked, not

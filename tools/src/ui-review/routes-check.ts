@@ -56,6 +56,10 @@ interface Probe {
   bodyChildren: number;
   /** The body-mounted battlefield chrome, by name, for a readable failure. */
   leftovers: string[];
+  /** Every `<canvas>` in the document. A battlefield draws into one and the
+   *  campaign diorama into another, so this is how an abandoned renderer that
+   *  no DOM count can see gets counted. */
+  canvases: number;
 }
 
 /** Everything a battlefield mounts on `document.body` that has a stable class:
@@ -82,8 +86,42 @@ async function probe(page: Page): Promise<Probe> {
       tick: w.__lions ? w.__lions.sim.tickCount : null,
       bodyChildren: document.body.children.length,
       leftovers: chrome.filter((sel) => document.querySelector(sel) !== null),
+      canvases: document.querySelectorAll('canvas').length,
     };
   }, BODY_CHROME);
+}
+
+/**
+ * Escape off the deploy screen, retried until the screen is actually gone.
+ *
+ * A single press does not work, and the reason is the deploy gate's own trap
+ * (CLAUDE.md, the visual gate): the `keydown` listener that Escape needs is
+ * registered INSIDE `loading.done()`, and `done()` is not called until the art
+ * gate above it has settled -- so `.rl-loading__deploy` being on the page does
+ * NOT mean anything is listening yet, and a press before that is silently lost
+ * with no second chance. `dismissDeployGate` solved the same problem for the
+ * button by clicking every 250 ms; this does it for the key, and REPORTS the
+ * count, because a run that needed one press and a run that needed nine are
+ * different facts about the boot.
+ */
+async function pressEscapeUntilGone(page: Page, timeoutMs = 60_000): Promise<void> {
+  const started = Date.now();
+  let presses = 0;
+  for (;;) {
+    if ((await page.$('.rl-loading')) === null) {
+      console.log(
+        `[${TAG}] deploy screen left by Escape after ${Date.now() - started} ms and ${presses} press(es)` +
+          `${presses > 1 ? ` -- ${presses - 1} landed before done() attached its listener and were lost` : ''}`
+      );
+      return;
+    }
+    if (Date.now() - started >= timeoutMs) {
+      throw new Error(`[${TAG}] the deploy screen did not respond to Escape in ${timeoutMs} ms`);
+    }
+    await page.keyboard.press('Escape');
+    presses += 1;
+    await page.waitForTimeout(250);
+  }
 }
 
 const failures: string[] = [];
@@ -250,6 +288,63 @@ try {
   console.log(
     `[${TAG}] after three missions the body has ${afterSoft.bodyChildren} children` +
       `${afterSoft.bodyChildren === idleBody ? ' -- back to the menu’s own count' : ` -- the menu had ${idleBody}`}`
+  );
+
+  // --- leaving from the DEPLOY SCREEN, which is the abort path ---------------
+  //
+  // Every leg above lets the mission finish booting first. This one does not,
+  // and it is the only one that drives the machinery built for it: Escape on
+  // the briefing calls `onBack` -> `req.navigate(routes.campaign())` while
+  // `bootBattlefield` is still parked on `await loading.done()`. The router
+  // aborts the in-flight mount's signal, `onAbort` disposes the loading screen,
+  // that rejects the parked promise with an `AbortError`, the boot tears itself
+  // down and rethrows, and the router swallows it.
+  //
+  // Without that chain the mount never resolves at all: it sits on the await
+  // forever holding a renderer and a WebGL context, and the disposer that would
+  // release them is a value the function has not returned. A hang is not a
+  // crash, so nothing else here would have reported it.
+  await page.goto(`http://localhost:${PORT}/?mission=${MISSION_A}`, { waitUntil: 'load' });
+  await page.waitForSelector('.rl-loading__deploy');
+  await pressEscapeUntilGone(page);
+  await page.waitForSelector('.rl-world');
+  const afterEscape = await probe(page);
+  expect(afterEscape.boots === 1, `Escape off the deploy screen reloaded the page: boots=${afterEscape.boots}`);
+  expect(!afterEscape.lions, 'window.__lions exists after leaving from the deploy screen');
+  expect(
+    afterEscape.leftovers.length === 0,
+    `chrome left on the body after leaving from the deploy screen: ${afterEscape.leftovers.join(', ')}`
+  );
+  expect(
+    afterEscape.bodyChildren === idleBody,
+    `body has ${afterEscape.bodyChildren} children after leaving from the deploy screen, ${idleBody} at the menu`
+  );
+  expect(
+    (await page.$('.rl-loading')) === null,
+    'the deploy screen is still on the page after Escape'
+  );
+  // THE assertion for this leg, and the only one of the five that a hung mount
+  // cannot satisfy. Every other question here -- boots, `__lions`, the body
+  // count, the console -- is answered identically by a battlefield that tore
+  // itself down and by one that is parked on `await loading.done()` forever
+  // holding a renderer, because a mount that never resolves never mounted
+  // anything to leave behind. Measured: with the abort chain removed this leg
+  // passed all four, unchanged.
+  //
+  // What differs is the canvas. An abandoned boot's renderer is never disposed
+  // and its canvas is never removed, so the campaign board draws over it. The
+  // reference is `back.canvases` -- the same board, in the same run, reached by
+  // leaving a mission the ordinary way -- rather than a hard-coded 1, so this
+  // cannot drift when the board's own rendering changes.
+  expect(
+    afterEscape.canvases === back.canvases,
+    `leaving from the deploy screen left ${afterEscape.canvases} canvas(es) on the campaign board, ` +
+      `against ${back.canvases} after an ordinary leave -- an abandoned boot's renderer was never disposed`
+  );
+  console.log(
+    `[${TAG}] left from the deploy screen: boots=${afterEscape.boots}, ` +
+      `body=${afterEscape.bodyChildren}, __lions=${String(afterEscape.lions)}, ` +
+      `canvases=${afterEscape.canvases} (${back.canvases} after an ordinary leave)`
   );
 
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
