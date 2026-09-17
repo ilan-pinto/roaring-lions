@@ -75,7 +75,7 @@ import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, resolveKey } from './input/keymap';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
-import { TIER_LINES } from './ui/grade-copy';
+import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
@@ -3002,7 +3002,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 name: u.name ?? u.id,
                 unlock: kdfUnlockGate(u, boughtUnits),
               }));
-            const tier = TIER_LINES[runtime.stars];
+            const tier = tierLine(runtime.stars);
             const promotion = me.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
             const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;
             const region = enemyRegion;

@@ -128,6 +128,7 @@
   "debrief.row.time.value": "{clock} of {target}:00",
   "debrief.row.lost.label": "Lost",
   "debrief.row.lost.none": "nobody",
+  "debrief.secondary.carries": "{text} · carries",
   "debrief.row.marked.label": "Marked",
   "debrief.row.promoted.label": "Promoted",
   "debrief.row.credits.label": "Credits",

@@ -1,21 +1,46 @@
 import { t } from '../i18n/t';
 
-/** The tier names and their closing lines (spec 2026-09-10 §4.1, decided by the lead). Fixed
- *  here so no screen rewrites them; the debrief resolves `speaker` to a plate and portrait
- *  the same way the commander bar does. Index by stars; 0 has neither.
- *
- *  Read through `t()` at MODULE load, not per-render: this module has a non-screen
- *  consumer (`main.ts`'s `TIER_LINES[runtime.stars]`, out of this batch's scope) that
- *  expects a plain array, not a function. `t.ts`'s module state defaults to the bundled
- *  `en` catalogue before any async boot code runs, so this resolves correctly for the
- *  only locale shipped today; it will not pick up a `?pseudo=1`/later-locale switch that
- *  happens after this module is first imported, which is a known limitation until
- *  `main.ts`'s own callers move to a lazy accessor (Task 11 territory). */
-export const TIER_NAMES = ['', t('grade.tier.1'), t('grade.tier.2'), t('grade.tier.3')] as const;
+/** A tier's closing line: who says it, and what. Index by stars (1-3; 0 has neither). */
+export interface TierLine {
+  speaker: 'shai' | 'idit';
+  text: string;
+}
 
-export const TIER_LINES = [
-  null,
-  { speaker: 'shai', text: t('grade.tier.1.line') },
-  { speaker: 'idit', text: t('grade.tier.2.line') },
-  { speaker: 'shai', text: t('grade.tier.3.line') },
-] as const;
+/**
+ * The tier names and their closing lines (spec 2026-09-10 §4.1, decided by the lead). Fixed
+ * here so no screen rewrites them; the debrief resolves `speaker` to a plate and portrait
+ * the same way the commander bar does. Index by stars; 0 has neither.
+ *
+ * Functions, not the arrays this module shipped with first -- those called `t()` once, at
+ * MODULE LOAD, and froze the result. The pseudo pass caught the identical shape wrong in
+ * `role.ts`'s `ROLE_LABEL` (fix round 1): `main.ts`'s boot sets the active catalogue,
+ * `?pseudo=1` included, well after every module's top-level code has already run, so a
+ * value resolved at import time can never see a locale picked after it. `tierName`/`tierLine`
+ * call `t()` on every access instead, which is what lets `main.ts`'s own `TIER_LINES[stars]`
+ * become `tierLine(stars)` -- same call site, now reactive -- with no other change there.
+ */
+export function tierName(stars: number): string {
+  switch (stars) {
+    case 1:
+      return t('grade.tier.1');
+    case 2:
+      return t('grade.tier.2');
+    case 3:
+      return t('grade.tier.3');
+    default:
+      return '';
+  }
+}
+
+export function tierLine(stars: number): TierLine | null {
+  switch (stars) {
+    case 1:
+      return { speaker: 'shai', text: t('grade.tier.1.line') };
+    case 2:
+      return { speaker: 'idit', text: t('grade.tier.2.line') };
+    case 3:
+      return { speaker: 'shai', text: t('grade.tier.3.line') };
+    default:
+      return null;
+  }
+}

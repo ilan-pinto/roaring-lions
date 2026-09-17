@@ -3,7 +3,7 @@
 import type { Stars } from '@lions/sim';
 import { t } from '../i18n/t';
 import { panel } from './panel';
-import { TIER_NAMES } from './grade-copy';
+import { tierName } from './grade-copy';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 
@@ -52,7 +52,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   const defeatTitle = t('debrief.defeat.title');
   const p = panel({
     rank: 'mission',
-    title: won ? TIER_NAMES[o.stars] || TIER_NAMES[1] : defeatTitle,
+    title: won ? tierName(o.stars) || tierName(1) : defeatTitle,
     tag: t('debrief.tag', { result: o.result }),
     mark: true,
     place: 'top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);max-height:88vh;overflow:auto',
@@ -61,7 +61,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   const b = p.body;
 
   const head = el('div', 'rl-debrief__head');
-  head.appendChild(el('div', 'rl-debrief__tier', won ? TIER_NAMES[o.stars] : defeatTitle));
+  head.appendChild(el('div', 'rl-debrief__tier', won ? tierName(o.stars) : defeatTitle));
   if (won && o.stars > 0) head.appendChild(el('div', 'rl-debrief__stars', '★'.repeat(o.stars)));
   b.appendChild(head);
 
@@ -108,7 +108,11 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   if (o.secondaries.length > 0) {
     const ul = el('ul', 'rl-debrief__secondaries');
     for (const s of o.secondaries) {
-      const li = el('li', 'rl-debrief__secondary', `${s.complete ? '☑' : '☐'} ${s.text}${s.carries ? ' · carries' : ''}`);
+      const glyph = s.complete ? '☑' : '☐';
+      // `s.text` is a param, never touched by the catalogue -- it is the mission's own
+      // objective text, data flowing through unchanged, same as `o.taken`/`o.unlocked` above.
+      const label = s.carries ? t('debrief.secondary.carries', { text: s.text }) : s.text;
+      const li = el('li', 'rl-debrief__secondary', `${glyph} ${label}`);
       li.dataset.carries = s.carries ? '1' : '0';
       li.dataset.complete = s.complete ? '1' : '0';
       ul.appendChild(li);
