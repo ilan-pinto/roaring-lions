@@ -1407,6 +1407,19 @@ body {
      and a smooth downscale invents colours that are not in it. */
   image-rendering: pixelated;
 }
+/* A cropped unit icon (`tools/crop_unit_icons.py`) is a DIFFERENT kind of
+   image from a sheet frame: it was already resampled with Lanczos at build
+   time, at 128 square pixels, well above any of these frame sizes, so this is
+   a plain downscale of a smooth photograph rather than a palette-quantised
+   sprite. Nearest-neighbour would re-alias what Lanczos already anti-aliased
+   -- the opposite mistake from the sheet-frame rule above. No size changes;
+   the icon fills the same frame the sheet frame did. */
+.rl-chip__art[data-icon='1'],
+.rl-card__art[data-icon='1'],
+.rl-tile__art[data-icon='1'],
+.rl-brigade__art[data-icon='1'] {
+  image-rendering: auto;
+}
 .rl-chip__body {
   flex: 1;
   min-width: 0;

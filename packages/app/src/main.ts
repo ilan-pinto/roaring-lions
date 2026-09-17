@@ -62,7 +62,7 @@ import {
 import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
-import { portraitUrl, type SheetManifest } from './ui/portrait';
+import { portraitUrl, unitIcon, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
@@ -522,21 +522,27 @@ async function main(): Promise<void> {
   };
 
   /**
-   * A unit type's portrait URL, resolved the same way the mission HUD resolves
-   * one for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
-   * sheet's own manifest via `portraitUrl`) -- fetched fresh here because the
-   * brigade screen has no running renderer to have already fetched it for. A
-   * type absent from `SPRITE_MAP`, or whose manifest 404s, resolves to `null`;
-   * the caller draws the reserved hatch for that, same as the HUD's card does.
+   * A unit type's portrait, resolved the same way the mission HUD resolves one
+   * for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
+   * sheet's own cropped `unitIcon` or, failing that, its manifest via
+   * `portraitUrl`) -- fetched fresh here because the brigade screen has no
+   * running renderer to have already fetched it for. A type absent from
+   * `SPRITE_MAP`, or whose manifest 404s with no icon either, resolves to
+   * `null`; the caller draws the reserved hatch for that, same as the HUD's
+   * card does. `isIcon` tells the caller which of the two pictures it got, so
+   * it can set `data-icon` the same way the mission HUD does.
    */
-  const loadBrigadePortrait = async (id: string): Promise<string | null> => {
+  const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: boolean } | null> => {
     const spec = SPRITE_MAP[id];
     if (!spec) return null;
+    const icon = unitIcon(spec.path);
+    if (icon !== null) return { url: icon.url, isIcon: true };
     try {
       const res = await fetch(`${spec.path}manifest.json`);
       if (!res.ok) return null;
       const manifest = (await res.json()) as SheetManifest;
-      return portraitUrl(spec.path, manifest);
+      const url = portraitUrl(spec.path, manifest);
+      return url === null ? null : { url, isIcon: false };
     } catch (err) {
       console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
       return null;
@@ -607,10 +613,13 @@ async function main(): Promise<void> {
           upgrades: 'upgrades' in u ? u.upgrades : undefined,
         }));
       const portraits: Record<string, string> = {};
+      const portraitIcons = new Set<string>();
       await Promise.all(
         kdfUnits.map(async ({ id }) => {
-          const url = await loadBrigadePortrait(id);
-          if (url !== null) portraits[id] = url;
+          const picture = await loadBrigadePortrait(id);
+          if (picture === null) return;
+          portraits[id] = picture.url;
+          if (picture.isIcon) portraitIcons.add(id);
         })
       );
       showBrigade(stage, {
@@ -618,6 +627,7 @@ async function main(): Promise<void> {
         ledger: loadLedger(),
         missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
         portrait: (typeId) => portraits[typeId] ?? null,
+        iconIds: portraitIcons,
         possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
         credits: storage ? loadAccount(storage).balance : undefined,
         onReset: storage
@@ -1367,21 +1377,31 @@ async function main(): Promise<void> {
   /**
    * The frame each unit type shows in the HUD's selection cluster (GH-153).
    *
-   * Resolved from each sheet's own manifest rather than from a filename
-   * template, because there are already two naming conventions in
-   * `assets/sprites/` (`idle_f03_000.png` where the sheet declares clips, a
-   * bare `f03_000.png` where it does not) and a hand-kept map of which sheet is
-   * which is the `SPRITE_MAP` failure mode all over again. The manifest is the
-   * file the renderer itself reads, so reading the same one cannot drift.
+   * `unitIcon` first -- the cropped icon needs no fetch at all, it is already
+   * in the bundle -- and only when a sheet has none does this fall back to
+   * fetching that sheet's own manifest and picking a frame from it the way it
+   * always has. Resolving from the manifest rather than from a filename
+   * template matters for exactly that fallback: there are already two naming
+   * conventions in `assets/sprites/` (`idle_f03_000.png` where the sheet
+   * declares clips, a bare `f03_000.png` where it does not) and a hand-kept map
+   * of which sheet is which is the `SPRITE_MAP` failure mode all over again.
    *
    * A type absent from here has no picture and the HUD draws its role mark on
    * the reserved hatch instead — `civilians` is the one shipped type in that
    * position, and a click-select can reach it.
    */
   const portraits: Record<string, string> = {};
+  /** Which ids in `portraits` above came from a cropped `unitIcon` rather than
+   *  a whole sheet frame -- read by the HUD and the dock to set `data-icon`. */
+  const portraitIcons = new Set<string>();
 
   for (const [id, spec] of Object.entries(SPRITE_MAP)) {
     const { path } = spec;
+    const icon = unitIcon(path);
+    if (icon !== null) {
+      portraits[id] = icon.url;
+      portraitIcons.add(id);
+    }
     artJobs.push(
       Promise.all([
         spritePlan.before.has(id) ? loadUnitSheet(id) : Promise.resolve(),
@@ -1390,15 +1410,18 @@ async function main(): Promise<void> {
         // `failedArt` and must not hold up the art gate on its own. For a type
         // whose sheet loads, the renderer has just fetched the same URL and
         // this is a cache hit; for the rest it is the 2 KB the portrait needs.
-        fetch(`${path}manifest.json`)
-          .then((r) => (r.ok ? (r.json() as Promise<SheetManifest>) : null))
-          .then((m) => {
-            const url = m === null ? null : portraitUrl(path, m);
-            if (url !== null) portraits[id] = url;
-          })
-          .catch((err: unknown) => {
-            console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
-          }),
+        // Skipped entirely once an icon already answered the question above.
+        icon !== null
+          ? Promise.resolve()
+          : fetch(`${path}manifest.json`)
+              .then((r) => (r.ok ? (r.json() as Promise<SheetManifest>) : null))
+              .then((m) => {
+                const url = m === null ? null : portraitUrl(path, m);
+                if (url !== null) portraits[id] = url;
+              })
+              .catch((err: unknown) => {
+                console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
+              }),
       ]).then(() => {
         if (spritePlan.before.has(id)) loading.step();
       })
@@ -1591,6 +1614,7 @@ async function main(): Promise<void> {
     orders,
     armedOrder: () => armedOrder,
     portrait: (typeId) => portraits[typeId] ?? null,
+    portraitIsIcon: (typeId) => portraitIcons.has(typeId),
     // A closure over `runtime`, not a snapshot of it: the Hud is constructed
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.
@@ -1719,6 +1743,7 @@ async function main(): Promise<void> {
             // resolved from each sheet's own manifest, so the two cannot
             // disagree and neither goes stale when a rig renames its files.
             sprite: portraits[u.id] ?? null,
+            spriteIsIcon: portraitIcons.has(u.id),
             tags: doctrineTags(bucket, abilities),
             blurb: 'blurb' in u ? (u.blurb as string) : undefined,
             // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's

@@ -127,6 +127,22 @@ describe('showBrigade', () => {
     expect(art?.querySelector('svg')).not.toBeNull();
   });
 
+  it('marks a row data-icon="1" only when iconIds names it, never from portrait alone', () => {
+    const host = document.createElement('div');
+    showBrigade(host, {
+      units,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      portrait: (id) => `/ui/icons/units/${id}.png`,
+      iconIds: new Set(['inf_squad']),
+    });
+    expect(host.querySelector('[data-unit="inf_squad"] .rl-brigade__art')?.getAttribute('data-icon')).toBe('1');
+    expect(
+      host.querySelector('[data-unit="ifv_namer"] .rl-brigade__art')?.getAttribute('data-icon')
+    ).toBeNull();
+  });
+
   it('prints the credit balance in the header and asks twice before resetting the account', () => {
     const host = document.createElement('div');
     let resets = 0;

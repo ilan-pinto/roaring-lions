@@ -152,6 +152,15 @@ describe('the dock’s shape', () => {
     // Never an empty box: the role mark says what the unit IS.
     expect(gap?.querySelector('svg')).not.toBe(null);
   });
+
+  it('marks a cropped icon data-icon="1", and leaves an ordinary sheet frame unmarked', () => {
+    const r = rig([
+      dockUnit({ id: 'inf_squad', spriteIsIcon: true }),
+      dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT', sprite: '/sprites/TNK_HULL/f03_000.png' }),
+    ]);
+    expect(r.tile('inf_squad').querySelector<HTMLElement>('.rl-tile__art')?.dataset.icon).toBe('1');
+    expect(r.tile('mbt_lavi').querySelector<HTMLElement>('.rl-tile__art')?.dataset.icon).toBeUndefined();
+  });
 });
 
 // ----------------------------------------------------------------------

@@ -46,6 +46,13 @@ export interface BrigadeOptions {
    *  a type with no sheet, or when the caller has no resolver at all — draws
    *  the reserved hatch instead of a broken image. */
   portrait?: (typeId: string) => string | null;
+  /** Which unit ids `portrait` above resolved from a cropped `unitIcon` rather
+   *  than a whole sheet frame -- checked only to set the row art's
+   *  `data-icon="1"`, which `theme.css` reads to pick `image-rendering` (a
+   *  resampled crop must not be nearest-neighboured the way a
+   *  palette-quantised sheet frame is). Absent reads as "none of them", the
+   *  same as every id reading as a sheet frame. */
+  iconIds?: ReadonlySet<string>;
   /** Every campaign mission grades to 3 stars; the tutorial carries none. */
   possibleStars: number;
   /** The brigade account's balance, for the header. Absent when the caller has no account
@@ -168,6 +175,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
       img.className = 'rl-brigade__art';
       img.src = src;
       img.alt = '';
+      if (opts.iconIds?.has(u.id) === true) img.dataset.icon = '1';
       rowEl.appendChild(img);
     } else {
       // The HUD's own "reserved, not broken" hatch (hud.ts's `artHtml`) —

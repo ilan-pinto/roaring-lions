@@ -854,6 +854,29 @@ describe('unit art the pipeline has not produced', () => {
   });
 });
 
+describe('data-icon: telling a cropped unit icon from a sheet frame', () => {
+  it('marks the art data-icon="1" when the deps say this picture is a cropped icon', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      { portraitIsIcon: (id) => id === 'ifv_namer' },
+      world
+    );
+    const art = r.host.querySelector<HTMLImageElement>('.rl-card__art')!;
+    expect(art.dataset.icon).toBe('1');
+  });
+
+  it('leaves data-icon unset for an ordinary sheet frame', () => {
+    const world = makeForce();
+    // No `portraitIsIcon` at all -- the same as every caller before this
+    // feature existed, and the same as a type whose picture came from the
+    // sheet-frame fallback.
+    const r = clusterRig(() => [world.namer], {}, world);
+    const art = r.host.querySelector<HTMLImageElement>('.rl-card__art')!;
+    expect(art.dataset.icon).toBeUndefined();
+  });
+});
+
 describe('the order row', () => {
   it('offers only the orders the selection can give', () => {
     const world = makeForce();

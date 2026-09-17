@@ -13,7 +13,11 @@
 //
 // GH-153 lists "dedicated unit portrait icons" as its own open ticket, and this
 // is honest about being the stand-in: idle sprites face one direction and read
-// poorly at 40px.
+// poorly at 40px. `unitIcon` below is the ticket's actual answer -- a cropped,
+// resampled icon per sheet -- with this frame picker kept as its fallback for
+// any sheet the icon pipeline has not (yet) produced one for.
+
+import manifest from '../../../../assets/ui/icons/units/manifest.json';
 
 /** The subset of a sheet manifest this needs. Structural, so a test can hand it
  *  an object rather than a file. */
@@ -75,4 +79,96 @@ export function portraitFile(manifest: SheetManifest): string | null {
 export function portraitUrl(basePath: string, manifest: SheetManifest): string | null {
   const file = portraitFile(manifest);
   return file === null ? null : basePath + file;
+}
+
+// --- cropped unit icons (GH-153 follow-up) ----------------------------------
+//
+// `tools/crop_unit_icons.py` (`pnpm icons:units`) walks every hull sheet under
+// `assets/sprites/`, picks this exact frame (the Python reimplements
+// `portraitFile`'s rule, and `portrait.test.ts` pins the two against each
+// other from the shipped manifests), composites a paired turret sheet at rest
+// and crops to the unit's own alpha extent -- a 40px chip showing a whole
+// 256px frame is a 20px smudge; the icon fills its frame instead. Icons live
+// under `assets/ui/icons/units/`, not `assets/sprites/`, so `pnpm
+// validate:assets` never walks them and the palette/silhouette gates are
+// unaffected.
+//
+// The catalogue is an eager `import.meta.glob` of the icon PNGs, the same
+// shape `portrait-catalogue.ts` uses for commander portraits, joined against
+// the icon manifest for each sheet's declared `extent`. A manifest entry whose
+// PNG the glob did not capture is skipped -- this is a listing of what
+// actually exists on disk, the same "paths are data, a glob is a function"
+// rule, not a hand-kept map that could drift from what shipped.
+
+/** One cropped icon: the URL to draw, its fixed pixel size, and the unit's own
+ *  alpha bounding box inside it (for a caller that wants to know how much of
+ *  the frame is actually filled, not yet used by anything in this app). */
+export interface UnitIcon {
+  url: string;
+  size: number;
+  extent: readonly [number, number];
+}
+
+/** The manifest's own JSON shape -- `box`/`extent` are plain arrays on disk
+ *  (JSON has no tuple type), narrowed to the fixed-length tuple `UnitIcon`
+ *  promises only where a value is actually read, below. */
+interface IconManifestEntry {
+  file: string;
+  sources: { path: string; sha256: string }[];
+  facing: number;
+  box: number[];
+  extent: number[];
+}
+
+interface IconManifest {
+  version: number;
+  icons: Record<string, IconManifestEntry>;
+}
+
+// `manifest` is a JSON module import, so its inferred type is the literal
+// shape of today's file (each entry's exact key set), not the general
+// `IconManifest` shape a future entry still has to match -- `unknown` first
+// is the honest way to say "structurally compatible, not identical".
+const iconManifest = manifest as unknown as IconManifest;
+
+const iconUrlBySheet: Record<string, string> = {};
+for (const [path, url] of Object.entries(
+  import.meta.glob('../../../../assets/ui/icons/units/*.png', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  }) as Record<string, string>
+)) {
+  const file = path.slice(path.lastIndexOf('/') + 1);
+  const sheet = file.slice(0, -'.png'.length);
+  iconUrlBySheet[sheet] = url;
+}
+
+/** Built once at module load: every manifest entry whose PNG the glob above
+ *  actually captured. The default `unitIcon` catalogue -- a test hands its
+ *  own instead, so it needs no glob. */
+const ICONS: Record<string, UnitIcon> = {};
+for (const [sheet, entry] of Object.entries(iconManifest.icons)) {
+  const url = iconUrlBySheet[sheet];
+  if (url === undefined) continue;
+  const [w, h] = entry.extent;
+  ICONS[sheet] = { url, size: 128, extent: [w, h] };
+}
+
+/**
+ * The cropped icon for a sheet, or null when none was built for it --
+ * `BLD_*` sheets, `*_TURR` sheets (composited into their hull's own icon, not
+ * given one of their own) and any sheet the icon pipeline has not reached yet
+ * all read the same way: no icon, fall back to the sheet frame.
+ *
+ * `basePath` is a `SPRITE_MAP` path, always ending in `/`; its last segment is
+ * the sheet name the icon manifest keys on.
+ */
+export function unitIcon(
+  basePath: string,
+  catalogue: Readonly<Record<string, UnitIcon>> = ICONS
+): UnitIcon | null {
+  const trimmed = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
+  const sheet = trimmed.slice(trimmed.lastIndexOf('/') + 1);
+  return catalogue[sheet] ?? null;
 }

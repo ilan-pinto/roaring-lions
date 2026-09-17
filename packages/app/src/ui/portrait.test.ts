@@ -4,8 +4,10 @@
 // two conventions that actually ship (a sheet with clips, and TNK_HULL's
 // clipless one) are the two cases a filename template would get wrong.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PORTRAIT_FACING, portraitFile, portraitUrl } from './portrait';
+import { PORTRAIT_FACING, portraitFile, portraitUrl, unitIcon, type SheetManifest, type UnitIcon } from './portrait';
 
 /** A sheet with clips, as INF_SQUAD's manifest is shaped. */
 const withClips = {
@@ -112,5 +114,73 @@ describe('portrait url', () => {
 
   it('stays null when there is no frame, so the HUD can draw its own gap', () => {
     expect(portraitUrl('/sprites/NOTHING/', {})).toBeNull();
+  });
+});
+
+describe('unitIcon', () => {
+  const fakeCatalogue: Record<string, UnitIcon> = {
+    INF_SQUAD: { url: '/ui/icons/units/INF_SQUAD.png', size: 128, extent: [111, 105] },
+  };
+
+  it('resolves a known sheet from its base path', () => {
+    expect(unitIcon('/sprites/INF_SQUAD/', fakeCatalogue)).toEqual({
+      url: '/ui/icons/units/INF_SQUAD.png',
+      size: 128,
+      extent: [111, 105],
+    });
+  });
+
+  it('accepts a base path with no trailing slash too', () => {
+    expect(unitIcon('/sprites/INF_SQUAD', fakeCatalogue)).toEqual(fakeCatalogue.INF_SQUAD);
+  });
+
+  it('returns null for a sheet the catalogue never built one for', () => {
+    // A building sheet: no icon is ever cropped for `BLD_*`, so this reads
+    // exactly like an unknown sheet -- there is nothing that distinguishes
+    // the two cases here, and there does not need to be.
+    expect(unitIcon('/sprites/BLD_HOUSE/', fakeCatalogue)).toBeNull();
+  });
+
+  it('returns null for a sheet this catalogue does not know at all', () => {
+    expect(unitIcon('/sprites/TNK_HULL/', fakeCatalogue)).toBeNull();
+  });
+
+  it('reads a real cropped icon off the shipped catalogue by default', () => {
+    // No catalogue argument: exercises the module's own `import.meta.glob` +
+    // manifest join against the real `assets/ui/icons/units/` output.
+    const icon = unitIcon('/sprites/INF_SQUAD/');
+    expect(icon).not.toBeNull();
+    expect(icon?.size).toBe(128);
+    expect(icon?.url).toContain('INF_SQUAD');
+  });
+});
+
+describe('unit icon manifest pin', () => {
+  // The Python picker in `tools/crop_unit_icons.py` reimplements
+  // `portraitFile`'s exact rule rather than sharing code with it (there is no
+  // TS the build step can call from Python) -- so this reads BOTH manifests
+  // straight off disk and proves the two choices agree, for every icon
+  // actually shipped. A drift here means the icon was cropped from a
+  // different frame than the one this app would have shown as the fallback.
+  it('agrees with portraitFile on every shipped icon’s chosen frame and facing', () => {
+    const iconManifestPath = path.join(__dirname, '../../../../assets/ui/icons/units/manifest.json');
+    const iconManifest = JSON.parse(fs.readFileSync(iconManifestPath, 'utf8')) as {
+      icons: Record<string, { facing: number; sources: { path: string }[] }>;
+    };
+    const sheets = Object.keys(iconManifest.icons);
+    expect(sheets.length).toBeGreaterThan(0);
+
+    for (const [sheet, entry] of Object.entries(iconManifest.icons)) {
+      const sheetManifestPath = path.join(__dirname, `../../../../assets/sprites/${sheet}/manifest.json`);
+      const sheetManifest = JSON.parse(fs.readFileSync(sheetManifestPath, 'utf8')) as SheetManifest;
+      // `sources[0]` is always the hull frame -- the icon script composites a
+      // paired turret sheet's frame ON TOP of it, but the frame CHOICE and its
+      // facing are the hull's own, exactly what `portraitFile` picks when
+      // called on the hull's own manifest.
+      const expectedFile = entry.sources[0].path.split('/').pop();
+      expect(portraitFile(sheetManifest)).toBe(expectedFile);
+      const picked = (sheetManifest.files ?? []).find((f) => f.file === expectedFile);
+      expect(picked?.facing).toBe(entry.facing);
+    }
   });
 });

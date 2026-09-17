@@ -33,6 +33,13 @@ export interface DockUnit {
    *  these has its own failure path in `main.ts` and deliberately does not hold
    *  up the art gate, so a 404 costs the HUD a picture and nothing else. */
   sprite: string | null;
+  /** True when `sprite` above is a cropped `unitIcon` rather than a whole
+   *  sheet frame -- `main.ts` sets this beside `sprite` from the same
+   *  resolution, and the tile uses it only to pick `image-rendering`
+   *  (`data-icon="1"`): a smooth Lanczos crop must not be nearest-neighboured
+   *  the way a palette-quantised sheet frame is. Absent/false for a sheet
+   *  frame or no sprite at all. */
+  spriteIsIcon?: boolean;
   /** `doctrineTags` output, computed once at construction. */
   tags: readonly string[];
   /** The one-line description, from the unit JSON's optional `blurb`. */

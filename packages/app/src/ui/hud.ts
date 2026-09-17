@@ -142,6 +142,13 @@ export interface HudDeps {
   /** The idle-frame URL for a unit type, or null where the type ships no sprite
    *  sheet. Resolved once at boot in main.ts from each sheet's own manifest. */
   portrait?: (typeId: string) => string | null;
+  /** True when the URL `portrait` above returned for this type came from a
+   *  cropped `unitIcon` rather than a whole sheet frame -- `artHtml` uses this
+   *  only to set `data-icon="1"`, which `theme.css` reads to pick
+   *  `image-rendering` (a resampled crop must not be nearest-neighboured the
+   *  way a palette-quantised sheet frame is). Absent in tests that do not
+   *  exercise it, which is the same as every type reading as a sheet frame. */
+  portraitIsIcon?: (typeId: string) => boolean;
   /** The campaign roster entry a fielded unit was drawn from, if any -- the
    *  card's callsign and service record. Absent in tests and for a fresh spawn
    *  with no campaign history. Readonly, matching `MissionRuntime.rosterEntryOf`:
@@ -1136,7 +1143,10 @@ export class Hud {
         `${roleBadgeSvg(bucket, markSize)}</div>`
       );
     }
-    return `<img class="${cls}" src="${escapeAttr(src)}" alt="" draggable="false">`;
+    const icon = this.deps.portraitIsIcon?.(typeId) === true;
+    return (
+      `<img class="${cls}"${icon ? ` data-icon="1"` : ''} src="${escapeAttr(src)}" alt="" draggable="false">`
+    );
   }
 
   // ------------------------------------------------------------------

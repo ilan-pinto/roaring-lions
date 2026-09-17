@@ -161,6 +161,10 @@ export class ReinforcementDock {
       art.className = 'rl-tile__art';
       art.src = unit.sprite;
       art.alt = '';
+      // A cropped icon is already resampled at build time -- nearest-neighbour
+      // here would re-alias a smooth Lanczos crop the same way it would any
+      // other photograph. `theme.css` reads this to switch `image-rendering`.
+      if (unit.spriteIsIcon === true) art.dataset.icon = '1';
       el.appendChild(art);
     }
 
