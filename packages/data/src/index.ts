@@ -160,6 +160,19 @@ export {
   type TerrainTheme,
 } from './map';
 
+/** Brigade economy step 3 (spec 2026-09-15 §4.3): patches a unit's JSON
+ *  with its bought upgrade tiers before @lions/sim registers the type. */
+export {
+  applyUpgrades,
+  maxTiers,
+  nextTierPrice,
+  UPGRADE_PATHS,
+  type UpgradableUnit,
+  type UpgradeTier,
+  type UpgradeTrack,
+  type UpgradeTracks,
+} from './upgrades';
+
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {
   beit_sahwan_outskirts: beitSahwanOutskirts,
