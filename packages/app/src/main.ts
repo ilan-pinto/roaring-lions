@@ -69,7 +69,7 @@ import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
-import { confirmDialog } from './ui/confirm';
+import { confirmDialog, isDialogOpen } from './ui/confirm';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
@@ -2075,6 +2075,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // defined just after the Hud exists.
   let paused = false;
   let pauseHandle: { close: Disposer } | null = null;
+  // Fix round 1: set the moment `showEndScreen` shows (below, at the
+  // `missionEnd` event) and read by `case 'pause':` -- Escape must do
+  // nothing once the mission is over, win or lose, rather than open a menu
+  // for an attempt that no longer exists.
+  let missionEnded = false;
 
   const hud = new Hud(document.body, {
     sim,
@@ -2124,11 +2129,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Task 6: the pause menu. `pause`/`resume` are the only two writers of
   // `paused` -- the frame loop below reads it through `advanceClock`, and
   // `Hud.paintSpeed` reads it through `isPaused` above, so nothing else may
-  // set it directly. Both are idempotent (`if (paused) return;` /
-  // `if (!paused) return;`), which is what keeps the two independent paths
-  // that can call `resume` -- the pause modal's own Escape/Resume handling
-  // and this file's `case 'pause':` below when already paused -- from
-  // double-firing `hud.paintSpeed()` or double-closing `pauseHandle`.
+  // set it directly (the `missionEnd` handler below is the one exception,
+  // and it closes `pauseHandle` without going through `resume`, since
+  // "resumed" is not the right word for a mission that just ended). Both are
+  // idempotent (`if (paused) return;` / `if (!paused) return;`) -- fix round
+  // 1 removed the SECOND caller of `resume` this comment used to describe
+  // (`case 'pause':` no longer resumes at all, see there), but idempotence
+  // stays right: the modal's own Escape and its Resume button both still
+  // reach `resume`, and either can fire first.
   const pause = (): void => {
     if (paused) return;
     paused = true;
@@ -2138,6 +2146,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     pauseHandle = pauseMenu(document.body, {
       objectives: () => runtime?.objectiveList ?? [],
       onResume: resume,
+      // Fix round 1: read from `bindings` (declared below, closed over --
+      // safe, since this only runs from a captured keydown, long after
+      // `bindings` exists) through the same `resolveKey` the game's own
+      // keydown listener uses, so a rebind of w/a/s/d is honoured
+      // immediately rather than the hardcoded default set this shipped
+      // with first. No modifier: none of the four pan actions declares one.
+      isPanKey: (ev) => {
+        const a = resolveKey(bindings, ev);
+        return a === 'panUp' || a === 'panDown' || a === 'panLeft' || a === 'panRight';
+      },
       onRestart: () => {
         void confirmDialog(document.body, {
           title: 'Restart the mission?',
@@ -2689,12 +2707,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         hud.note(audioMuted ? 'audio muted' : 'audio on', 'mute');
         break;
       case 'pause':
-        // In practice this only ever opens: the pause modal's own bubble-phase
-        // Escape handler (`ui/pause.ts`) is what actually resumes, and both
-        // `pause`/`resume` are idempotent, so whichever of the two fires first
-        // on a given Escape is harmless.
-        if (paused) resume();
-        else pause();
+        // Fix round 1: this listener is the OLDEST bubble listener on
+        // `window` (registered once at boot, long before any dialog
+        // exists), so on a bare Escape it used to run BEFORE any dialog's
+        // own Escape handler and act on Escape regardless of what was
+        // already open -- resuming the game (and tearing the pause menu
+        // down) while the player only meant to cancel a "Restart the
+        // mission?" confirm stacked on top of it, or opening this menu
+        // under the HUD's own "Leave the mission?" confirm. The game now
+        // only OPENS the menu, and only when nothing else already owns
+        // Escape: not already paused, no confirm or pause modal in the DOM
+        // (`isDialogOpen`, `ui/confirm.ts`), and the mission has not ended.
+        // Resuming stays exclusively the modal's own job (its bubble Escape
+        // handler and its Resume button, both calling `resume` -- see the
+        // comment above `pause`).
+        if (!paused && !isDialogOpen() && !missionEnded) pause();
         break;
       case 'panUp':
       case 'panDown':
@@ -2968,6 +2995,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   speaker: say.speaker,
                 }
               : undefined;
+            // Fix round 1: set at the exact point `showEndScreen` is about
+            // to show, per the review -- `case 'pause':` reads this and
+            // Escape does nothing once the attempt is over. If the pause
+            // menu happened to be open when the mission ended, close it
+            // directly rather than through `resume()`: there is no clock to
+            // resume any more (the mission is over, not merely unpaused),
+            // so this only needs to take the modal off the screen and let
+            // `paused` settle back to its resting `false`.
+            missionEnded = true;
+            if (paused) {
+              paused = false;
+              pauseHandle?.close();
+              pauseHandle = null;
+            }
             screenDisposers.push(
               showEndScreen(document.body, {
                 result: me.result,

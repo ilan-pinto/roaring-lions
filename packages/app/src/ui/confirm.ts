@@ -23,6 +23,28 @@ export interface ConfirmOptions {
 }
 
 /**
+ * Is SOME modal -- a confirm or the pause menu (`ui/pause.ts`) -- currently
+ * open?
+ *
+ * Task 6 fix round 1: `main.ts`'s battlefield keydown listener is the
+ * OLDEST bubble listener on `window` (registered once at boot, long before
+ * any dialog exists), so on a bare Escape it used to run before any
+ * dialog's own Escape handler and act on its own idea of what Escape means
+ * -- opening the pause menu under a confirm the HUD's own "Leave the
+ * mission?" button had just opened, or (worse) resuming the game and
+ * tearing the pause menu down while the player was only trying to cancel a
+ * "Restart the mission?" confirm stacked on top of it. The fix is not
+ * another capture-phase trick -- it is for the game's OWN handler to check
+ * this before doing anything on Escape, so the open dialog (whichever one)
+ * is always Escape's sole target and the game defers to it rather than
+ * racing it. `.rl-pause` counts as a dialog here too: the pause menu's own
+ * Resume/Escape handling is what closes IT, never the game.
+ */
+export function isDialogOpen(doc: Document = document): boolean {
+  return doc.querySelector('.rl-confirm, .rl-pause') !== null;
+}
+
+/**
  * Mounts a modal confirm under `host` and resolves once the player answers.
  *
  * Cancel takes focus on mount, so an Enter that was meant for the game

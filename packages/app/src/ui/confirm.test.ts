@@ -1,6 +1,22 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { confirmDialog } from './confirm';
+import { afterEach, describe, expect, it } from 'vitest';
+import { confirmDialog, isDialogOpen } from './confirm';
+
+afterEach(() => {
+  document.body.replaceChildren();
+});
+
+describe('isDialogOpen', () => {
+  it('is false with nothing open, true with a confirm, true with a bare .rl-pause', () => {
+    expect(isDialogOpen()).toBe(false);
+    const scrim = document.createElement('div');
+    scrim.className = 'rl-confirm';
+    document.body.appendChild(scrim);
+    expect(isDialogOpen()).toBe(true);
+    scrim.className = 'rl-pause';
+    expect(isDialogOpen()).toBe(true);
+  });
+});
 
 describe('confirmDialog', () => {
   it('resolves false on Escape and true on the confirm button, and removes itself either way', async () => {

@@ -14,12 +14,24 @@
  * + `aria-modal`, opener focus captured and restored, a bubble-phase
  * `keydown` for Escape and a capture-phase guard that `stopPropagation()`s
  * everything but Escape/Enter/Tab -- plus one exemption confirm.ts has no
- * need for, the four pan keys (see `onCaptureKey` below). See that file's own
- * header for why the guard is capture-phase (it has to run before
- * `main.ts`'s bubble-phase game listener, which is registered once at boot
- * and would otherwise always win on registration order) and why Escape/
- * Enter/Tab pass through untouched (Escape is this dialog's own cancel,
- * Enter activates a focused button, Tab is native focus movement).
+ * need for, the pan keys (`deps.isPanKey`, see `onCaptureKey` below). See
+ * that file's own header for why the guard is capture-phase (it has to run
+ * before `main.ts`'s bubble-phase game listener, which is registered once at
+ * boot) and why Escape/Enter/Tab pass through untouched (Escape is this
+ * dialog's own cancel, Enter activates a focused button, Tab is native focus
+ * movement).
+ *
+ * Fix round 1: `main.ts`'s bubble-phase game listener is the OLDEST one on
+ * `window`, so it used to run BEFORE any dialog's own Escape handler and act
+ * on Escape regardless of what was open -- opening this menu under a confirm
+ * the HUD's "Leave the mission?" button had raised, or resuming the game
+ * (and tearing this menu down) while the player was only cancelling a
+ * "Restart the mission?" confirm stacked on top of it. The fix lives in
+ * `main.ts`, not here: the game handler now only OPENS this menu, and only
+ * when `!isDialogOpen()` (`ui/confirm.ts`) and the mission has not ended --
+ * it never resumes. Resuming stays exclusively this module's own job (the
+ * bubble `onKey` below and the Resume button), which is what makes it safe
+ * for the game handler to stop trying.
  *
  * Two stacking cases fall out of reusing the same `window`-level, capture-vs-
  * bubble pattern everywhere, and both are exercised in `pause.test.ts` rather
@@ -63,6 +75,14 @@ export interface PauseDeps {
   onQuit(): void;
   settings: SettingsDeps;
   build: string;
+  /** Is this physical keydown currently bound to a pan action? Fix round 1:
+   *  `bootBattlefield` supplies this from its live `bindings` through
+   *  `input/keymap.ts`'s `resolveKey`, so a rebind is honoured immediately --
+   *  a hardcoded WASD/arrow set (what this shipped with first) stays wrong
+   *  the moment a player moves one of those four letters onto something
+   *  else. See `onCaptureKey` below for why panning is exempted from the
+   *  capture guard at all. */
+  isPanKey(ev: KeyboardEvent): boolean;
 }
 
 type Tab = 'objectives' | 'settings';
@@ -200,19 +220,12 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   // only (`renderer.camera.x/y`) -- it dispatches nothing, touches no sim
   // state, and stays correct under invariant 4 whether or not the modal is
   // up. Blocking it here would mean the world keeps drawing but the player
-  // cannot look at it. Arrow keys always pan (`input/keymap.ts`'s `ARROWS`,
-  // never rebindable); WASD are the SHIPPED DEFAULT for the same four
-  // actions but are individually rebindable, so this exemption is keyed on
-  // the physical default keys, not on `resolveKey`'s current bindings --
-  // `PauseDeps` carries no bindings table, and threading one through just
-  // for this would widen the interface past what mounting this modal needs.
-  // A player who has rebound w/a/s/d away from panning would find whatever
-  // that physical key now does still reaches the game while paused; every
-  // other rebindable key stays blocked.
-  const PAN_KEYS = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
+  // cannot look at it. `deps.isPanKey` (fix round 1) is the live answer,
+  // built by `bootBattlefield` from its own `bindings` through
+  // `resolveKey` -- see `PauseDeps.isPanKey`'s own doc comment.
   const onCaptureKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') return;
-    if (!e.ctrlKey && !e.metaKey && PAN_KEYS.has(e.key.toLowerCase())) return;
+    if (deps.isPanKey(e)) return;
     e.stopPropagation();
   };
   scrim.addEventListener('click', (e) => {
