@@ -129,14 +129,16 @@ tests. `wreck` is exempt from both, for two reasons recorded in the table.
 
 4.  Derives TWO held-pose source actions, from two DIFFERENT bases -- they
     are deliberately not the same pose, see the note below on why. `wreck`
-    (`build_wreck_src`, UNCHANGED) samples the imported `Shot_and_Blown_Back`
-    clip's own LAST frame -- the brief's own original suggestion, and the
-    only thing this function has ever done -- once, and keys it static at
-    two frames (frame 0 and 1, mirroring `rig.py`'s own `_VIS_FRAMES`
-    convention for a well-formed, non-degenerate static clip). `down`
-    (`build_down_src`, new) does NOT sample `Shot_and_Blown_Back` at all --
-    it starts from `idle`'s own base pose and adds authored leg/spine/head
-    bends, kept static the same `_VIS_FRAMES`-style way.
+    (`write_pose_action`, called from `main()`) is a static two-frame hold
+    of the HELD `fall` clip's own LAST frame -- `fall` is the imported
+    `Shot_and_Blown_Back` clip with its horizontal root motion removed
+    (`hold_hips_horizontal`), so `wreck` is exactly where `fall` ends, not a
+    second, independent sampling of the same source (frame 0 and 1,
+    mirroring `rig.py`'s own `_VIS_FRAMES` convention for a well-formed,
+    non-degenerate static clip). `down` (`build_down_src`, new) does NOT
+    sample `Shot_and_Blown_Back` at all -- it starts from `idle`'s own base
+    pose and adds authored leg/spine/head bends, kept static the same
+    `_VIS_FRAMES`-style way.
 
     `down` USED to be retargeted from that same `Shot_and_Blown_Back` clip in
     full (a multi-frame violent fall) -- wrong, because `resolveClip`
@@ -362,12 +364,13 @@ CLIP_SOURCES = {
 TURN_SOURCE = _SRC + "Gun_Hold_Left_Turn_withSkin.glb"
 
 #: `Shot_and_Blown_Back.glb`, imported under a name that does not claim
-#: `down`. Read by exactly one caller now: `build_wreck_src`, for `wreck`'s
-#: own last-frame corpse pose -- the SAME use `CLIP_SOURCES["down"]` used to
-#: serve before this revision, unchanged in every respect except that `down`
-#: itself no longer shares it. Not folded into `CLIP_SOURCES` above: that
-#: dict's own keys are canonical `ClipName`s (`mesh-anim.ts`'s
-#: `isMeshClipName`), and this source no longer maps to one directly.
+#: `down`. Read in `main()` for `wreck`'s own last-frame corpse pose (via
+#: `hold_hips_horizontal` + `write_pose_action`, see the comment below) --
+#: the SAME use `CLIP_SOURCES["down"]` used to serve before this revision,
+#: unchanged in every respect except that `down` itself no longer shares it.
+#: Not folded into `CLIP_SOURCES` above: that dict's own keys are canonical
+#: `ClipName`s (`mesh-anim.ts`'s `isMeshClipName`), and this source no
+#: longer maps to one directly.
 FALL_SOURCE = _SRC + "Shot_and_Blown_Back_withSkin.glb"
 
 #: Design D3 (`2026-09-17-infantry-animation-design.md`): the supplied fall is
@@ -837,7 +840,7 @@ def fix_forward(arm_obj):
     into the ARMATURE this way therefore rotates every BONE's own rest
     matrix (real, and load-bearing for `sample_clip`'s pose evaluation,
     which is why this function still runs before `build_fire_src`/
-    `build_wreck_src`/`sample_clip` below) but leaves the scratch MESH's own
+    `hold_hips_horizontal`/`sample_clip` below) but leaves the scratch MESH's own
     vertex data and object transform completely untouched, at every angle --
     and this pipeline's live measurement reads the `face` role MESH's own
     geometry (`boundingSphere.center` through `localToWorld`), which
@@ -1584,15 +1587,15 @@ def build_fire_src(scratch_arm, idle_action, base_frame):
     Composition is `base_quat @ Quaternion(aim) @ Quaternion(recoil)` --
     POST-multiply throughout, in each bone's own local (rest-relative) space,
     matching this file's own "author with pb.keyframe_insert" idiom elsewhere
-    (`build_wreck_src`, `write_combined_clip`) rather than a world-space
+    (`write_pose_action`, `write_combined_clip`) rather than a world-space
     rotation, which would need decomposing each bone's current armature-space
     orientation out of the pose chain first. Both tables' own docstrings
     record how the axis per bone was chosen from measurement, not guessed.
 
     Mirrors `sample_clip`'s explicit `action_slot` reassignment (`action =
     X` alone can leave the PREVIOUS action's stale slot bound -- see that
-    function's own docstring for the confirmed failure mode) rather than
-    `build_wreck_src`'s bare `.action = X`, since this function -- like
+    function's own docstring for the confirmed failure mode) rather than a
+    bare `.action = X` with no slot management, since this function -- like
     `sample_clip` -- reads pose values back via `frame_set` before writing
     anything, so a stale slot here would read the wrong pose silently."""
     scratch_arm.animation_data.action = idle_action
@@ -1749,12 +1752,13 @@ def build_down_src(scratch_arm, idle_action, base_frame):
     `idle_action.frame_range[1]`, the LAST frame, which is why a suppressed
     rifleman went to ground at -163 degrees -- see `build_fire_src`'s own
     paragraph on the same line, and `build_idle_src` for the trim and yaw
-    this frame now comes from. Keyed as a STATIC two-frame
-    hold (`_VIS_FRAMES`-style, `build_wreck_src`'s own convention) -- nothing
-    in this clip's own keyframes has any per-frame motion to record, so its
-    vertical Hips travel is exactly 0 by construction, the same way `wreck`
-    already measures 0 -- matching the semantics `CLIP_SEMANTICS['down']`
-    states and `check_clip_semantics` enforces."""
+    this frame now comes from. Keyed as a STATIC two-frame hold
+    (`_VIS_FRAMES`-style, matching `wreck`'s own two-frame hold via
+    `write_pose_action`) -- nothing in this clip's own keyframes has any
+    per-frame motion to record, so its vertical Hips travel is exactly 0 by
+    construction, the same way `wreck` already measures 0 -- matching the
+    semantics `CLIP_SEMANTICS['down']` states and `check_clip_semantics`
+    enforces."""
     from mathutils import Quaternion, Vector  # noqa: PLC0415 -- only this function needs them
 
     scratch_arm.animation_data.action = idle_action
@@ -1827,12 +1831,13 @@ def duplicate_figure(scratch_arm, scratch_role_meshes, prefix, dx, dy):
     bpy.context.preferences.edit.use_duplicate_armature = True
     # This factory profile defaults `use_duplicate_action` ON, which
     # duplicates whatever action `scratch_arm` happens to be pointing at
-    # (by the time this runs, `wreck_src` -- see `build_wreck_src`) once per
-    # figure, leaving three stray `wreck_src.001/.002/.003` actions that
-    # later got swept into an export via `__get_blender_actions`'s own
-    # scan of `bpy.data.actions` -- verified once (a first run's "idle" temp
-    # file carried 9 animations instead of 1) and fixed by forcing this off
-    # explicitly rather than leaving it to whatever the factory default is.
+    # (by the time this runs, `wreck_src` -- built by `write_pose_action` in
+    # `main()`) once per figure, leaving three stray `wreck_src.001/.002/
+    # .003` actions that later got swept into an export via
+    # `__get_blender_actions`'s own scan of `bpy.data.actions` -- verified
+    # once (a first run's "idle" temp file carried 9 animations instead of
+    # 1) and fixed by forcing this off explicitly rather than leaving it to
+    # whatever the factory default is.
     bpy.context.preferences.edit.use_duplicate_action = False
 
     bpy.ops.object.select_all(action="DESELECT")
@@ -1887,10 +1892,12 @@ def sample_clip(scratch_arm, src_action):
     Reassigns `action_slot` explicitly to `src_action`'s OWN slot, not to
     `None`. `.action` alone is not enough to rebind evaluation once
     `scratch_arm` has already had a DIFFERENT action assigned (true from the
-    second `sample_clip` call onward in a real run -- `build_wreck_src`
-    alone leaves it on `wreck_src`): the stale `.action_slot` from
-    whichever action was assigned before stays bound, and every bone read
-    back through `frame_set` here comes back frozen at that stale pose,
+    second `sample_clip` call onward in a real run, once any other
+    pose-writing helper has left `scratch_arm.animation_data.action`
+    pointing elsewhere -- e.g. `write_pose_action`'s own `wreck_src`): the
+    stale `.action_slot` from whichever action was assigned before stays
+    bound, and every bone read back through `frame_set` here comes back
+    frozen at that stale pose,
     `src_action`'s own frame range notwithstanding. `None` was the first
     fix tried and is WRONG for this function specifically, even though it
     is exactly right for `write_combined_clip` below: that function's very

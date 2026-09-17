@@ -263,10 +263,11 @@ FIRING_POSE_SOURCE = (
     "Meshy_AI_irregular_fighter_rig_biped_Animation_Walk_Forward_While_Shooting_withSkin.glb"
 )
 
-#: Read by `build_wreck_src`, for `wreck`'s own last-frame corpse pose. See
-#: the module docstring for why this file (not `Shot_and_Fall_Forward`) was
-#: chosen as the PRIMARY fall -- a rendered, visually-judged call, not the
-#: lower-Hips-Z number alone.
+#: Read in `main()` for both `fall` (via `hold_hips_horizontal`) and
+#: `wreck`'s own last-frame corpse pose (that held clip's own last frame,
+#: via `write_pose_action`). See the module docstring for why this file
+#: (not `Shot_and_Fall_Forward`) was chosen as the PRIMARY fall -- a
+#: rendered, visually-judged call, not the lower-Hips-Z number alone.
 FALL_SOURCE = "Meshy_AI_irregular_fighter_rig_biped_Animation_Shot_and_Slow_Fall_Backward_withSkin.glb"
 
 #: The second fall, bound 2026-09-06 as `wreckAlt` -- free variation, not a
