@@ -32,8 +32,17 @@ harnesses (`tools/src/backtest/playtest.ts`'s `tiers: 'max'`,
 SEPARATE, deliberate re-implementation of that same function in Python, not an
 import of it -- this validator has no Node runtime available to call the real
 one from, and the two are pinned together by `packages/data/src/upgrades.test.ts`
-reading this file's own whitelist back out rather than by a shared module. Keep
-them in sync by hand if `UPGRADE_PATHS` ever changes on either side.
+reading THIS file off disk (its own describe block, "UPGRADE_PATHS pin against
+tools/validate_balance.py"): it extracts every `re.compile(r"...")` source
+string out of the `UPGRADE_PATHS` block below and asserts that set equals
+`UPGRADE_PATHS.map(r => r.source)` on the TS side, and separately asserts this
+module's own `apply_upgrades` docstring contains the phrase "summed across
+tracks" -- pinning the cross-track-sum semantics textually, the cheapest check
+available with no shared runtime between the two languages. A whitelist edit on
+either side that the other does not mirror fails that vitest spec; the phrase
+check fails if the semantics stop being described in Python even if the
+Python CODE still agrees. Keep them in sync by hand regardless -- the test
+catches drift, it does not prevent it.
 A patched unit's cost is `logistics + K * (sum of every tier's price across every
 track that unit has)` -- credits treated as a second currency added on top of the
 unit's own listed logistics, not blended into the curve's inputs any other way.
@@ -129,8 +138,10 @@ def apply_upgrades(unit, tiers):
     """Mirrors upgrades.ts's `applyUpgrades`: pure, returns a NEW unit. WITHIN a
     track, a tier's patch is cumulative over base, so the highest requested tier
     for a path wins over an earlier tier's value for that same path rather than
-    adding to it; ACROSS tracks, independent tracks that happen to patch the same
-    path both contribute and their deltas SUM."""
+    adding to it; deltas for a path that appears on more than one track are
+    summed across tracks, since two independent tracks that happen to patch the
+    same path (e.g. an armour track and a survivability track both raising
+    hull.hp) both contribute rather than one silently overriding the other."""
     out = dict(unit)
     tracks = unit.get("upgrades") or {}
     merged = {}
@@ -170,7 +181,13 @@ def patch_to_max_tier(units, k):
     """Every (path, unit) pair that carries an `upgrades` block, patched to its own
     max tiers with its cost bumped by `k * total_tier_price`; every other unit
     (including every enemy-faction one) passes through unchanged. Returns a NEW
-    list -- `units` itself is never mutated."""
+    list -- `units` itself is never mutated. Gating on `u.get("upgrades")` rather
+    than on faction is safe to agree with the TS side's `faction === 'kdf'` check
+    (main.ts, playtest.ts's `tiers === 'max'` pre-pass) precisely because
+    `validate_data.mjs` refuses to let any unit carry an `upgrades` block unless
+    its own `faction` is `'kdf'` -- so by the time a unit reaches this function,
+    "has upgrades" and "is KDF" are the same set of units and either gate reads
+    identically."""
     out = []
     for path, u in units:
         if not u.get("upgrades"):

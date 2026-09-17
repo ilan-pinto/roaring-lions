@@ -190,6 +190,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
 
     rowEl.appendChild(el('div', 'rl-brigade__why', row.locked ? row.reason : 'available'));
 
+    // The star-gate badge is appended here, BEFORE the tracks block below, so
+    // it stays on the row's first line (with .rl-brigade__why) instead of
+    // being pushed under a wide upgrade-tracks wrap on an available row.
+    if (u.unlock?.starsMin !== undefined) {
+      rowEl.appendChild(el('div', 'rl-brigade__gate', `★ ${u.unlock.starsMin}`));
+    }
+
     // Upgrade tracks: an AVAILABLE row only -- a locked unit is not yet in the
     // brigade, so there is nothing on it to upgrade. `owned` keys off the raw
     // unit id, same as the account itself; a unit or track absent from it
@@ -202,9 +209,14 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
         // rule) -- an owned tier past the track's own length reads as maxed,
         // never as a crash or a phantom pip.
         const ownedTier = Math.min(rawOwned, track.tiers.length);
+        // Display only: `trackName` itself stays the raw JSON key everywhere
+        // it is used as a lookup or passed to a callback (nextTierPrice,
+        // onBuyUpgrade) -- only the text a player reads gets underscores
+        // turned into spaces.
+        const trackLabel = trackName.replace(/_/g, ' ');
 
         const trackEl = el('div', 'rl-brigade__track');
-        trackEl.appendChild(el('span', 'rl-brigade__track-name', trackName));
+        trackEl.appendChild(el('span', 'rl-brigade__track-name', trackLabel));
 
         const pips = el('span', 'rl-brigade__pips');
         for (let tier = 1; tier <= track.tiers.length; tier++) {
@@ -235,7 +247,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
             buy.type = 'button';
             buy.className = 'rl-btn rl-brigade__buy-tier';
             buy.textContent = `tier ${nextTier} · ${price}`;
-            buy.setAttribute('aria-label', `buy ${u.name} ${trackName} tier ${nextTier} for ${price} credits`);
+            buy.setAttribute('aria-label', `buy ${u.name} ${trackLabel} tier ${nextTier} for ${price} credits`);
             buy.disabled = opts.credits < price;
             buy.addEventListener('click', () => {
               buy.disabled = true; // one purchase per render; the caller re-renders
@@ -265,9 +277,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): void {
         opts.onBuy?.(u.id, price);
       });
       rowEl.appendChild(buy);
-    }
-    if (u.unlock?.starsMin !== undefined) {
-      rowEl.appendChild(el('div', 'rl-brigade__gate', `★ ${u.unlock.starsMin}`));
     }
     list.appendChild(rowEl);
   }

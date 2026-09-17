@@ -63,28 +63,19 @@
         {
           "price": 30,
           "patch": {
-            "hull.hp": 6,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 6
           }
         },
         {
           "price": 45,
           "patch": {
-            "hull.hp": 14,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 14
           }
         },
         {
           "price": 60,
           "patch": {
-            "hull.hp": 22,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 22
           }
         }
       ]

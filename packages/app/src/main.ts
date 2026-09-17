@@ -629,7 +629,16 @@ async function main(): Promise<void> {
         onBuy: storage
           ? (unitId, price) => {
               const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
-              if (!ok) return;
+              // A refusal here is only reachable with a stale account (e.g. two
+              // tabs on the same origin both showing this row as affordable) --
+              // the control disabled itself against the balance THIS render
+              // read, so `!ok` means the account on disk has since moved.
+              // Reloading re-renders off the true, current state instead of
+              // leaving the row showing a purchase that did not happen.
+              if (!ok) {
+                window.location.reload();
+                return;
+              }
               saveAccount(storage, account);
               window.location.reload();
             }
@@ -638,7 +647,13 @@ async function main(): Promise<void> {
         onBuyUpgrade: storage
           ? (unitId, track, tier, price) => {
               const { account, ok } = buyUpgrade(loadAccount(storage), unitId, track, tier, price);
-              if (!ok) return;
+              // Same reasoning as `onBuy` above: the control disabled itself
+              // against a stale read, so re-render off the true state instead
+              // of returning silently.
+              if (!ok) {
+                window.location.reload();
+                return;
+              }
               saveAccount(storage, account);
               window.location.reload();
             }

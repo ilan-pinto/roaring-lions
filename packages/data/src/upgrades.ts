@@ -103,7 +103,15 @@ function addDeltaAlongPath(root: Record<string, unknown>, path: string, delta: n
     }
 
     if (isLast) {
-      const current = typeof container[seg.key] === 'number' ? (container[seg.key] as number) : 0;
+      const current = container[seg.key];
+      if (typeof current !== 'number') {
+        // Same class as an array index past the unit's own weapons length
+        // above: the validator refuses a whitelisted patch path the unit
+        // does not itself declare as a scalar, so reaching this is a
+        // programming error (a unit edited after its upgrades were
+        // authored, or a bad fixture), not data to default to 0 for.
+        throw new Error(`applyUpgrades: ${unitId} has no ${path}`);
+      }
       container[seg.key] = current + delta;
       return;
     }
@@ -161,8 +169,17 @@ export function applyUpgrades<T extends UpgradableUnit>(unit: T, tiers: Readonly
   // independent improvement over the same base, so two tracks that happen
   // to patch the same path (e.g. an armour track and a survivability track
   // both raising hull.hp) both contribute and their resolved deltas SUM.
+  // Track names walked in a fixed, canonical (lexicographic) order rather
+  // than object-insertion order -- an account's owned-tiers map and a unit's
+  // `upgrades` JSON both key by track name with no ordering guarantee of
+  // their own, and float addition is not associative: summing the same two
+  // deltas in the opposite order can read back a different (if
+  // ULP-adjacent) float. Sorting `tiers`'s own keys makes `merged`'s
+  // per-path sum order depend only on the SET of requested tracks, never on
+  // the order the caller happened to write them or the JSON parsed them in.
   const merged: Record<string, number> = {};
-  for (const [trackName, requestedTier] of Object.entries(tiers)) {
+  for (const trackName of Object.keys(tiers).sort()) {
+    const requestedTier = tiers[trackName];
     const track = tracks?.[trackName];
     if (!track) continue; // unknown track: ignored
 

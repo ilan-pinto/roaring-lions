@@ -58,7 +58,12 @@ const missionCredits = new Map<string, number>();
  *  of them passes a label distinct from its own mission id. `baseResult`/`baseStars`
  *  are what the max-tier replay is held against: the controller's ruling is that a
  *  max-tier force must stay in the VICTORY class and must not drop a star the base
- *  run already earned, never that it reproduce the base run's numbers exactly. */
+ *  run already earned, never that it reproduce the base run's numbers exactly.
+ *  `baseRoe`/`baseCredits` are carried the same way, purely for the diagnostic
+ *  line the max-tier loop prints below -- unlike `baseResult`/`baseStars`, they
+ *  are never asserted against, since the controller's ruling never asked the
+ *  replay to reproduce ROE or credits, only the outcome class and the star
+ *  floor. */
 interface MaxTierProbe {
   id: keyof typeof missions;
   plan: Plan;
@@ -69,6 +74,8 @@ interface MaxTierProbe {
   gateOf?: (unitId: string) => UnlockGate | undefined;
   baseResult: 'ongoing' | 'victory' | 'defeat';
   baseStars: Stars;
+  baseRoe: number;
+  baseCredits: number;
 }
 const maxTierProbes: MaxTierProbe[] = [];
 
@@ -131,8 +138,10 @@ function run(
   /** Written by the max-tier replay pass at the end of this file so it can read back
    *  what THIS run actually measured, without widening `run`'s return type -- every
    *  existing call site still gets back exactly the produced `LedgerData` it always
-   *  did, spread or chained as-is. */
-  measured?: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars }
+   *  did, spread or chained as-is. `roeScore`/`credits` were added alongside
+   *  `result`/`stars` so the replay can print a base-vs-max ROE/credits line
+   *  without re-deriving either from `produced`. */
+  measured?: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number }
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -266,12 +275,26 @@ function run(
     // id` alone, but guarding on both keeps the recorder from ever re-entering
     // itself if that ever changes.
     if (tiers === undefined) {
-      maxTierProbes.push({ id, plan, ledger, expectStar, fielded, bought, gateOf, baseResult: rt.result, baseStars: rt.stars });
+      maxTierProbes.push({
+        id,
+        plan,
+        ledger,
+        expectStar,
+        fielded,
+        bought,
+        gateOf,
+        baseResult: rt.result,
+        baseStars: rt.stars,
+        baseRoe: rt.roeScore,
+        baseCredits: credits,
+      });
     }
   }
   if (measured) {
     measured.result = rt.result;
     measured.stars = rt.stars;
+    measured.roeScore = rt.roeScore;
+    measured.credits = credits;
   }
   return produced;
 }
@@ -2258,7 +2281,12 @@ run(
 // masquerade as a divergence in whether the tracks are balanced.
 let maxTierHeld = 0;
 for (const probe of maxTierProbes) {
-  const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars } = { result: 'ongoing', stars: 0 };
+  const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number } = {
+    result: 'ongoing',
+    stars: 0,
+    roeScore: 0,
+    credits: 0,
+  };
   run(
     probe.id,
     probe.plan,
@@ -2282,6 +2310,14 @@ for (const probe of maxTierProbes) {
     );
     process.exitCode = 1;
   }
+  // Review finding 3: no assertion here, deliberately -- the controller's ruling
+  // above only gates outcome class and the star floor. This line exists purely
+  // so a reader can SEE how much a max-tier force's ROE/credits drifted from its
+  // own base run without re-running the harness twice by hand.
+  console.log(
+    `${probe.id} (max tier): ROE ${measured.roeScore} (base ${probe.baseRoe}), ` +
+      `credits ${measured.credits} (base ${probe.baseCredits})`
+  );
 }
 console.log(`max tier: ${maxTierHeld} of ${maxTierProbes.length} plain victories hold`);
 

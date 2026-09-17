@@ -377,28 +377,19 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
         {
           "price": 30,
           "patch": {
-            "hull.hp": 6,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 6
           }
         },
         {
           "price": 45,
           "patch": {
-            "hull.hp": 14,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 14
           }
         },
         {
           "price": 60,
           "patch": {
-            "hull.hp": 22,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 22
           }
         }
       ]
@@ -1302,28 +1293,19 @@ Power score (this document's own re-derivation of `validate_balance.py`'s curve)
         {
           "price": 85,
           "patch": {
-            "hull.hp": 8,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 8
           }
         },
         {
           "price": 125,
           "patch": {
-            "hull.hp": 18,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 18
           }
         },
         {
           "price": 180,
           "patch": {
-            "hull.hp": 30,
-            "hull.armor.front": 0,
-            "hull.armor.side": 0,
-            "hull.armor.rear": 0
+            "hull.hp": 30
           }
         }
       ]
@@ -1819,22 +1801,29 @@ band rather than 6.2 points outside it.
 
 ## 6. Budget arithmetic
 
-**Sum of every tier's price, every track, all seventeen types: 36260.**
-Per-unit totals are in §3 and §8. Summed by tier across the whole catalogue:
+**Sum of every tier's price, every track, all seventeen types: 34965** (re-summed
+directly from the shipped `data/units/kdf/*.json`, 2026-09-17 — this replaces the
+36260 this section used to carry, which predated `attack_drone`'s re-price, §7.4;
+§8's own summary table already carried the correct 34965). Per-unit totals are in
+§3 and §8. Summed by tier across the whole catalogue:
 
-tier 1 across all tracks/types: 7860; tier 2: 11805; tier 3: 16595; cumulative 7860/19665/36260.
+tier 1 across all tracks/types: 7580; tier 2: 11385; tier 3: 16000; cumulative
+7580/18965/34965.
 
-### 6.1 The core force, tier 1: does 2772 (half the ★★ ladder) buy it
+### 6.1 The core force, tier 1: does 2765 (half the ★★ ladder) buy it
 
 The brief names "rifle squad, Eitan/Namer, Lavi, at_team, mortar" as the core
 force. Reading Eitan/Namer as the one IFV/APC slot the roster actually fields —
 `ifv_namer` — and summing tier 1 of EVERY track for those five units:
 
 `inf_squad` + `ifv_namer` + `mbt_lavi` + `at_team` + `mortar_team`, tier 1 of every
-track each: **2800** credits — against the 2772 target, a 1.0% shortfall.
-Reading Eitan instead of Namer for the APC/IFV slot gives 2665 (3.9% short).
-Either way this is the fit the brief calls "roughly the first tier": both land
-inside 4% of the target with no numbers forced to match it.
+track each: **2800** credits — against the 2765 target (half of the re-pinned
+5531-credit ladder, §7.6; this reads as a 1.3% overshoot rather than the 1.0%
+shortfall this line used to carry against the old 2772 target), a 1.3%
+difference either way. Reading Eitan instead of Namer for the APC/IFV slot gives
+2665 (3.6% short, was 3.9% against 2772). Either way this is the fit the brief
+calls "roughly the first tier": both land inside 4% of the target with no
+numbers forced to match it.
 
 ### 6.2 A purchase-order simulation
 
@@ -1850,6 +1839,14 @@ starting on a unit not yet in the rotation).
 **Cheapest-first** — a flat greedy sort of every (unit, track, tier) purchase by
 price, respecting only that a track's tier N needs tier N−1 already bought (the
 ordering a completionist chasing breadth would follow).
+
+The table below was computed against the ★★ ladder as it stood when this
+document was measured, 5544, giving the three budget rows 2772 / 5544 / 11088.
+The ladder has since been re-pinned 5544 → 5531 (§7.6), moving the same three
+budgets to 2765 / 5531 / 11062 — a 0.2% change. Re-running the simulation was
+not repeated for this: at that magnitude it moves no purchase across a price
+threshold in either ordering, so the table's counts stand unchanged; only the
+budget labels in the left column are the pre-re-pin numbers.
 
 | budget | core-first result | cheapest-first result |
 |---|---|---|
@@ -1869,9 +1866,11 @@ rather than picking numbers that would make one ordering fit by construction.
 
 ### 6.3 Maxing everything
 
-36260 credits maxes every track of all seventeen types — **6.5× the ★★ ladder total (5544)**, 6.3× the ★★★ total (5784). That is several campaigns' worth of
-earning with nothing else bought, which matches D4's own framing ("the account
-survives a fresh campaign") — the long tail is intended, not a pricing miss.
+34965 credits maxes every track of all seventeen types — **6.3× the ★★ ladder
+total (5531)**, 6.0× the ★★★ total (5784) (was 6.5× / 6.3× against the old
+36260/5544 pair). That is several campaigns' worth of earning with nothing else
+bought, which matches D4's own framing ("the account survives a fresh
+campaign") — the long tail is intended, not a pricing miss.
 
 ## 7. Findings against the spec's assumptions
 
@@ -1929,31 +1928,43 @@ survives a fresh campaign") — the long tail is intended, not a pricing miss.
    ordering hit both halves of the phrase would have meant re-deriving prices
    against a purchase-order target instead of against the campaign ladder and
    the cost curve, which is a different (and unstated) fitting target.
-6. **Maxing every track measurably changes what the pinned optimal-play ladder
-   does, even though `creditsFor` never reads unit stats** (`pnpm playtest`,
-   run once with every KDF type patched to its own max tier and restored
-   afterward — not committed, and `playtest.ts` was NOT edited, per the brief).
-   Two of the ladder's nineteen plain victory lines FLIP outcome:
-   `khan_rafid_1_recon` (VICTORY in 0.5 min at base → ONGOING at the 20-minute
-   ceiling at max tier — the scripted recon plan's fixed waypoints and timings
-   no longer clear the mission when every unit's stats have moved) and
-   `qarn_hadid_3_clearance` (VICTORY, ROE 80 at base → DEFEAT, ROE 97 at max
-   tier — `get_the_families_clear` flips from complete to failed). The pinned
-   ladder total moves from **5544 to 5181 (−6.5%)** as a direct consequence —
-   not because `creditsFor` was touched, but because the SIMULATED outcome of
-   the same fixed orders differs when the units executing them are stronger.
-   Every star-gate assertion the harness pins also reads fewer cumulative stars
-   at max tier (`breach_team`'s gate opens at 10 stars instead of 12 by mission
-   6, etc.) for the same reason. This is not a defect in this document's prices
-   — `playtest.ts` has no max-tier mode (the brief is explicit that building one
-   is future work) and its scripted plans were authored and tuned entirely
-   against BASE stats, so a plan overshooting or undershooting a scripted
-   waypoint once the units behind it move faster or kill more per volley is
-   exactly the kind of drift a fixed-script harness cannot absorb. It is
-   recorded here as a heads-up for whoever builds that mode: the max-tier
-   ladder total and the star-gate timings are NOT going to match §2's numbers
-   unmodified, and the two flipped missions are worth checking by hand rather
-   than assuming they are harness noise.
+6. **The max-tier replay mode this finding once called future work has
+   SHIPPED, the two flips it originally measured were diagnosed as plan
+   brittleness rather than a balance defect, and both plans were fixed.**
+   `pnpm playtest` now replays every plain victory a second time with every
+   KDF type patched to its own maximum tier (`MaxTierProbe`,
+   `tools/src/backtest/playtest.ts`) and asserts the outcome CLASS holds —
+   still a VICTORY, never fewer stars than the base run earned — printing
+   `max tier: 26 of 26 plain victories hold`. Getting there took two plan
+   fixes, not two price changes: `khan_rafid_1_recon`'s scripted jeep now
+   routes through the gate at a waypoint that still clears at max-tier unit
+   speeds, and `qarn_hadid_3_clearance`'s rescue detail was re-routed through
+   `[21,2]` so `get_the_families_clear` no longer depends on a knife-edge
+   timing that a stronger KDF tier tips into failure. Both were plan
+   brittleness against faster, harder-hitting units, not a pricing problem
+   this document's tracks needed to absorb — no tier price changed to fix
+   either. One of the two fixes moved the base (non-max) ladder itself:
+   `qarn_hadid_3_clearance`'s safer route brings one fewer survivor home for
+   the same 2 stars (ROE 80→77, credits 225→212), re-pinning the ladder total
+   **5544 → 5531** (§6, §6.1); `khan_rafid_1_recon`'s fix changed nothing
+   about its own base outcome (VICTORY, 0.5 min, ROE 100, 2 stars, 260
+   credits, byte-identical). At max tier both hold at 2★, same as base.
+   The paragraph below is the original 2026-09-15 measurement, kept as
+   history rather than deleted, since it is what motivated both fixes:
+   >
+   > Measured once with every KDF type patched to its own max tier and
+   > restored afterward, before either fix and before `playtest.ts` had a
+   > max-tier mode of its own: two of the ladder's plain victory lines
+   > FLIPPED outcome — `khan_rafid_1_recon` (VICTORY in 0.5 min at base →
+   > ONGOING at the 20-minute ceiling at max tier, the scripted plan's fixed
+   > waypoints no longer clearing the mission once every unit's stats moved)
+   > and `qarn_hadid_3_clearance` (VICTORY, ROE 80 at base → DEFEAT, ROE 97 at
+   > max tier, `get_the_families_clear` flipping from complete to failed).
+   > The ladder total as measured that way moved 5544 → 5181 (−6.5%), and
+   > every star-gate assertion read fewer cumulative stars at max tier for
+   > the same reason. Recorded then as a heads-up for whoever built the
+   > max-tier mode, not as a defect in this document's prices — which is
+   > exactly how it was resolved.
 
 ## 8. Summary
 

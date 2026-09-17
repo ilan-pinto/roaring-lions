@@ -386,4 +386,65 @@ describe('showBrigade', () => {
     expect(host.querySelector('.rl-brigade__buy-tier')).toBeNull();
     expect(host.querySelector('.rl-brigade__track-max')).toBeNull();
   });
+
+  // Review finding 4: the star-gate badge must render BEFORE the tracks block
+  // so it stays on the row's first line. `breach_team` here carries both a
+  // `starsMin` gate AND upgrade tracks, and the ledger clears 12 stars so the
+  // row is AVAILABLE (unlocked) -- the case the old ordering got wrong, since
+  // an available, star-gated unit is exactly where `.rl-brigade__tracks`
+  // could otherwise land between `.rl-brigade__why` and the gate span.
+  it('renders .rl-brigade__gate before .rl-brigade__tracks on an available, star-gated row', () => {
+    const host = document.createElement('div');
+    const fixture = units.map((u) =>
+      u.id === 'breach_team'
+        ? { ...u, upgrades: { armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } } }
+        : u
+    );
+    const twelveStars = {
+      'campaign.mission_results': {
+        a: { stars: 2, roe: 90, ticks: 1, lost: 0 },
+        b: { stars: 2, roe: 90, ticks: 1, lost: 0 },
+        c: { stars: 2, roe: 90, ticks: 1, lost: 0 },
+        d: { stars: 2, roe: 90, ticks: 1, lost: 0 },
+        e: { stars: 2, roe: 90, ticks: 1, lost: 0 },
+        f: { stars: 2, roe: 90, ticks: 1, lost: 0 },
+      },
+    } as const;
+    showBrigade(host, { units: fixture, ledger: twelveStars, missionName: noMissionNames, possibleStars: 78 });
+    const row = host.querySelector('[data-unit="breach_team"]');
+    expect(row?.getAttribute('data-locked')).toBe('0');
+    const gate = row?.querySelector('.rl-brigade__gate');
+    const tracks = row?.querySelector('.rl-brigade__tracks');
+    expect(gate?.textContent).toBe('★ 12');
+    expect(tracks).not.toBeNull();
+    expect(gate?.compareDocumentPosition(tracks as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  // Review finding 10: an underscored track key (as authored in JSON, e.g.
+  // `fire_control`) reads with spaces wherever a player sees it -- the label
+  // span and the Buy control's aria-label -- while the raw key keeps going to
+  // `onBuyUpgrade`/`nextTierPrice` unchanged.
+  it('renders an underscored track name with spaces, in the label and the aria-label', () => {
+    const host = document.createElement('div');
+    const fixture = units.map((u) =>
+      u.id === 'inf_squad'
+        ? { ...u, upgrades: { fire_control: { tiers: [{ price: 100, patch: { 'weapons[0].accuracy': 0.05 } }] } } }
+        : u
+    );
+    const bought: [string, string, number, number][] = [];
+    showBrigade(host, {
+      units: fixture,
+      ledger: {},
+      missionName: noMissionNames,
+      possibleStars: 78,
+      credits: 999,
+      onBuyUpgrade: (unitId, track, tier, price) => bought.push([unitId, track, tier, price]),
+    });
+    const track = host.querySelector('[data-unit="inf_squad"] .rl-brigade__track');
+    expect(track?.querySelector('.rl-brigade__track-name')?.textContent).toBe('fire control');
+    const btn = track?.querySelector<HTMLButtonElement>('.rl-brigade__buy-tier');
+    expect(btn?.getAttribute('aria-label')).toBe('buy Rifle Squad fire control tier 1 for 100 credits');
+    btn?.click();
+    expect(bought).toEqual([['inf_squad', 'fire_control', 1, 100]]);
+  });
 });

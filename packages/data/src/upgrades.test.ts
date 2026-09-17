@@ -117,6 +117,41 @@ describe('applyUpgrades', () => {
       /fixture_unit has no weapons\[5\]/,
     );
   });
+
+  it('throws when a whitelisted scalar path has no leaf on the unit, rather than defaulting to 0', () => {
+    const u: UpgradableUnit = {
+      id: 'no_rear_armor_unit',
+      hull: { hp: 100, armor: { front: 10, side: 10 } }, // no `rear`
+      upgrades: {
+        armour: {
+          tiers: [{ price: 100, patch: { 'hull.armor.rear': 5 } }],
+        },
+      },
+    };
+    expect(() => applyUpgrades(u, { armour: 1 })).toThrow(
+      /no_rear_armor_unit has no hull\.armor\.rear/,
+    );
+  });
+
+  it('sums a same-path float delta from two tracks the same way regardless of the tiers object\'s own key order', () => {
+    const u: UpgradableUnit = {
+      id: 'float_order_unit',
+      sensors: { optics: 1.0 },
+      upgrades: {
+        zzz_track: { tiers: [{ price: 100, patch: { 'sensors.optics': 0.11 } }] },
+        aaa_track: { tiers: [{ price: 100, patch: { 'sensors.optics': 0.21 } }] },
+      },
+    };
+    // Two calls, same two tracks, `tiers` object literal written in opposite
+    // key order each time -- `applyUpgrades` must read the same result
+    // either way, because it sorts `Object.keys(tiers)` itself rather than
+    // trusting insertion order.
+    const forward = applyUpgrades(u, { zzz_track: 1, aaa_track: 1 });
+    const backward = applyUpgrades(u, { aaa_track: 1, zzz_track: 1 });
+    expect(forward.sensors?.optics).toBeCloseTo(1.0 + 0.32);
+    expect(backward.sensors?.optics).toBeCloseTo(1.0 + 0.32);
+    expect(forward.sensors?.optics).toBe(backward.sensors?.optics);
+  });
 });
 
 describe('maxTiers', () => {
@@ -202,5 +237,50 @@ describe('UPGRADE_PATHS pin against unit.schema.json', () => {
     const illegal = CANDIDATES.filter((p) => !pattern.test(p));
     expect(legal.length).toBe(9);
     expect(illegal.length).toBe(3);
+  });
+});
+
+// Review finding 1: tools/validate_balance.py's own docstring claims this
+// pin exists ("the two are pinned together by packages/data/src/upgrades.test.ts
+// reading this file's own whitelist back out"). It did not, until this block --
+// the Python `UPGRADE_PATHS` was a hand-kept, unchecked mirror of the TS one
+// above. This reads the .py file off disk (no Node/Python bridge; the two
+// stay in sync only because this test fails the moment they diverge) and
+// compares regex SOURCE strings as a set, so reordering either list cannot
+// cause a false failure.
+describe('UPGRADE_PATHS pin against tools/validate_balance.py', () => {
+  const pyPath = join(__dirname, '../../../tools/validate_balance.py');
+  const py = readFileSync(pyPath, 'utf8');
+
+  function pythonUpgradePathSources(): string[] {
+    const block = /UPGRADE_PATHS\s*=\s*\[([\s\S]*?)\n\]/.exec(py);
+    if (!block) throw new Error('could not find the UPGRADE_PATHS = [ ... ] block in validate_balance.py');
+    const sources: string[] = [];
+    // Each entry is `re.compile(r"...")` -- a Python RAW string, so (unlike a
+    // plain Python string literal) a single backslash in the source text
+    // already means a single backslash in the compiled pattern, exactly as a
+    // JS regex literal's own `.source` reads it. No de-doubling or other
+    // escape normalisation is needed for that reason; every pattern here is
+    // asserted byte-for-byte against `UPGRADE_PATHS[i].source`.
+    const re = /re\.compile\(r"([^"]+)"\)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(block[1])) !== null) sources.push(m[1]);
+    return sources;
+  }
+
+  it('is the exact same set of regex source strings as the TS whitelist', () => {
+    const pySources = pythonUpgradePathSources();
+    const tsSources = UPGRADE_PATHS.map((re) => re.source);
+    expect(pySources.length).toBeGreaterThan(0);
+    expect(new Set(pySources)).toEqual(new Set(tsSources));
+    // Also same COUNT -- two lists could share a set but disagree on a
+    // duplicate entry, which a plain Set comparison would hide.
+    expect(pySources.length).toBe(tsSources.length);
+  });
+
+  it("pins apply_upgrades' cross-track semantics textually: its docstring names summing across tracks", () => {
+    const docstring = /def apply_upgrades\(unit, tiers\):\s*"""([\s\S]*?)"""/.exec(py);
+    expect(docstring, 'could not find apply_upgrades\' docstring in validate_balance.py').not.toBeNull();
+    expect((docstring as RegExpExecArray)[1]).toMatch(/summed across tracks/);
   });
 });
