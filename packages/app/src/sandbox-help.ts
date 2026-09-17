@@ -27,7 +27,7 @@ export interface UrlParam {
  *  one subsystem is not buried under three others. */
 export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] = [
   { name: 'roe', blurb: 'flagged no-fire ground (the map’s own, or a synthesised 4×4)' },
-  { name: 'tunnel', blurb: 'a pre-dug route + two yahalom_squad to collapse it' },
+  { name: 'tunnel', blurb: 'a pre-dug route + two Yahalom sapper squads to collapse it' },
   { name: 'sur', blurb: 'the four Sarim units no mission fields' },
   {
     name: 'civ',
