@@ -60,6 +60,41 @@ describe('settingsPanel', () => {
     expect(el.querySelector('input[name="fullscreen"]')).toBeNull();
     expect(el.textContent).toContain('applies when the next mission starts');
   });
+  it('reverts the fullscreen checkbox and does not persist when the browser refuses', async () => {
+    const fsSet = vi.fn((): Promise<void> => Promise.reject(new Error('denied')));
+    const { d, set } = deps({
+      fullscreen: { supported: () => true, active: () => false, set: fsSet },
+    });
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="fullscreen"]');
+    if (!cb) throw new Error('no fullscreen control');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fsSet).toHaveBeenCalledWith(true);
+    expect(cb.checked).toBe(false);
+    expect(set).not.toHaveBeenCalled();
+  });
+  it('persists fullscreen once the browser grants it', async () => {
+    let active = false;
+    const fsSet = vi.fn((on: boolean): Promise<void> => {
+      active = on;
+      return Promise.resolve();
+    });
+    const { d, set } = deps({
+      fullscreen: { supported: () => true, active: () => active, set: fsSet },
+    });
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="fullscreen"]');
+    if (!cb) throw new Error('no fullscreen control');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set.mock.calls[0][0].video.fullscreen).toBe(true);
+  });
   it('showSettings mounts on the stage with a back link and its disposer empties the stage', () => {
     const { d } = deps();
     const stage = document.createElement('div');

@@ -68,7 +68,7 @@ import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebri
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
-import { applySettings, loadSettings, saveSettings, type Settings } from './settings';
+import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { TIER_LINES } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -645,8 +645,10 @@ async function main(): Promise<void> {
   /** `settingsDeps.set` persists, applies and re-broadcasts through here --
    *  `onChange` is how a SECOND mount of the settings panel (Task 6's pause
    *  menu) and the keymap section (Task 5) learn a change happened without
-   *  polling `get()` every frame. */
-  const settingsListeners = new Set<(s: Settings) => void>();
+   *  polling `get()` every frame. The bus itself lives in settings.ts (with
+   *  its own tests) so a throwing subscriber can be proven not to starve the
+   *  rest without booting the whole shell. */
+  const bus = settingsBus();
   const settingsDeps: SettingsDeps = {
     get: () => settings,
     set: (next) => {
@@ -654,12 +656,9 @@ async function main(): Promise<void> {
       saveSettings(settingsStore, next);
       applySettings(next, document.documentElement);
       audio.setGains(next.audio);
-      for (const fn of settingsListeners) fn(next);
+      bus.notify(next);
     },
-    onChange: (fn) => {
-      settingsListeners.add(fn);
-      return () => settingsListeners.delete(fn);
-    },
+    onChange: bus.onChange,
     // `document.fullscreenEnabled` is the browser's own permission check
     // (iframe embeds without `allow="fullscreen"` read false) -- a row for a
     // control that would silently no-op is worse than no row.

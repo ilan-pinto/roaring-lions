@@ -13,6 +13,7 @@
  * owners (main.ts) from the same object.
  */
 import type { StorageLike } from './brigade-account';
+import type { Disposer } from './shell/router';
 
 export type { StorageLike };
 export type UiScaleSetting = 'auto' | 0.85 | 1 | 1.15 | 1.4;
@@ -38,14 +39,20 @@ export const QUALITIES: readonly Quality[] = ['low', 'medium', 'high'];
 export const COLOR_VISIONS: readonly ColorVision[] = ['default', 'deuteranopia', 'protanopia', 'tritanopia'];
 export const CAMERA_SPEEDS: readonly CameraSpeed[] = [0.5, 1, 1.5, 2];
 
-export const DEFAULT_SETTINGS: Settings = {
+// Frozen at the TOP level only, deliberately -- `structuredClone` (every
+// caller that hands one out) makes a fresh, fully writable object regardless
+// of the source's frozen-ness, so this buys nothing there. What it guards
+// against is code that reaches for `DEFAULT_SETTINGS` directly instead of
+// cloning it first and mutates the shared singleton -- a bug that would
+// otherwise corrupt every caller's "defaults" for the rest of the session.
+export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   version: 1,
   video: { fullscreen: false, uiScale: 'auto', textSize: 1, quality: 'high' },
   audio: { master: 1, music: 1, sfx: 1 },
   controls: { cameraSpeed: 1, bindings: {} },
   accessibility: { motion: 'system', colorVision: 'default' },
   language: 'en',
-};
+});
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const oneOf = <T,>(allowed: readonly T[], v: unknown, dflt: T): T => (allowed.includes(v as T) ? (v as T) : dflt);
@@ -81,8 +88,15 @@ export function parseSettings(raw: string | null): Settings {
       textSize: oneOf(TEXT_SIZES, video.textSize, d.video.textSize),
       quality: oneOf(QUALITIES, video.quality, d.video.quality),
     },
-    audio: { master: unit(audio.master, 1), music: unit(audio.music, 1), sfx: unit(audio.sfx, 1) },
-    controls: { cameraSpeed: oneOf(CAMERA_SPEEDS, controls.cameraSpeed, 1), bindings: bindings(controls.bindings) },
+    audio: {
+      master: unit(audio.master, d.audio.master),
+      music: unit(audio.music, d.audio.music),
+      sfx: unit(audio.sfx, d.audio.sfx),
+    },
+    controls: {
+      cameraSpeed: oneOf(CAMERA_SPEEDS, controls.cameraSpeed, d.controls.cameraSpeed),
+      bindings: bindings(controls.bindings),
+    },
     accessibility: {
       motion: oneOf(['system', 'reduce'] as const, acc.motion, 'system'),
       colorVision: oneOf(COLOR_VISIONS, acc.colorVision, 'default'),
@@ -116,4 +130,42 @@ export function applySettings(s: Settings, root: HTMLElement): void {
   root.dataset.motion = s.accessibility.motion;
   root.dataset.cvd = s.accessibility.colorVision;
   root.setAttribute('lang', s.language);
+}
+
+export interface SettingsBus {
+  /** Subscribe; returns the unsubscribe. */
+  onChange(fn: (s: Settings) => void): Disposer;
+  /** Call every subscriber with `s`, in subscription order. */
+  notify(s: Settings): void;
+}
+
+/**
+ * A plain pub/sub for "settings changed", pulled out of `main.ts` so it can
+ * be unit-tested without booting the shell. `main.ts`'s `settingsDeps.set`
+ * calls `notify` once it has persisted and applied; Task 5 (live-previewing a
+ * rebind) and Task 6 (the pause menu, a SECOND mount of the settings panel
+ * over a running mission) both subscribe through `onChange`.
+ *
+ * `notify` isolates each listener: one that throws is logged and skipped, not
+ * left to abort every listener registered after it. A settings screen with
+ * two independent subscribers (the panel itself and, later, the keymap's live
+ * preview) must not have one subscriber's bug silently starve the other.
+ */
+export function settingsBus(): SettingsBus {
+  const listeners = new Set<(s: Settings) => void>();
+  return {
+    onChange(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    notify(s) {
+      for (const fn of listeners) {
+        try {
+          fn(s);
+        } catch (err) {
+          console.error('settings listener:', err);
+        }
+      }
+    },
+  };
 }

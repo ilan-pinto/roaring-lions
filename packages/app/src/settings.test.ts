@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, SETTINGS_KEY, applySettings, loadSettings, parseSettings, saveSettings } from './settings';
+import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_SETTINGS, SETTINGS_KEY, applySettings, loadSettings, parseSettings, saveSettings, settingsBus } from './settings';
 
 function memStore(): { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void; map: Map<string, string> } {
   const map = new Map<string, string>();
@@ -59,5 +59,41 @@ describe('applySettings', () => {
     expect(root.dataset.cvd).toBe('tritanopia');
     applySettings(DEFAULT_SETTINGS, root);
     expect(root.style.getPropertyValue('--ui-scale')).toBe('');
+  });
+});
+
+describe('settingsBus', () => {
+  it('fires a subscribed listener after notify', () => {
+    const bus = settingsBus();
+    const seen: unknown[] = [];
+    bus.onChange((s) => seen.push(s));
+    bus.notify(DEFAULT_SETTINGS);
+    expect(seen).toEqual([DEFAULT_SETTINGS]);
+  });
+  it('a throwing listener does not stop a later one, and the error is logged', () => {
+    const bus = settingsBus();
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let secondRan = false;
+    bus.onChange(() => {
+      throw new Error('boom');
+    });
+    bus.onChange(() => {
+      secondRan = true;
+    });
+    bus.notify(DEFAULT_SETTINGS);
+    expect(secondRan).toBe(true);
+    expect(spy).toHaveBeenCalledWith('settings listener:', expect.any(Error));
+    spy.mockRestore();
+  });
+  it('the disposer unsubscribes', () => {
+    const bus = settingsBus();
+    let calls = 0;
+    const off = bus.onChange(() => {
+      calls++;
+    });
+    bus.notify(DEFAULT_SETTINGS);
+    off();
+    bus.notify(DEFAULT_SETTINGS);
+    expect(calls).toBe(1);
   });
 });

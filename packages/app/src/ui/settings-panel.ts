@@ -113,15 +113,6 @@ function slider(name: string, value: number, onInput: (v: number) => void, onCom
   return r;
 }
 
-function checkbox(name: string, value: boolean, onChange: (v: boolean) => void): HTMLInputElement {
-  const c = document.createElement('input');
-  c.type = 'checkbox';
-  c.name = name;
-  c.checked = value;
-  c.addEventListener('change', () => onChange(c.checked));
-  return c;
-}
-
 function section(table: HTMLElement, title: string): void {
   const h = document.createElement('h3');
   h.className = 'rl-settings__section';
@@ -146,16 +137,44 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   section(table, 'Video');
   if (deps.fullscreen?.supported()) {
     const fs = deps.fullscreen;
-    row(
-      table,
-      'Fullscreen',
-      checkbox('fullscreen', fs.active(), (on) => {
-        void fs.set(on);
-        update((n) => {
-          n.video.fullscreen = on;
-        });
-      })
-    );
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.name = 'fullscreen';
+    cb.checked = fs.active();
+    const fsRow = row(table, 'Fullscreen', cb);
+    // The same `.rl-settings__hint` styling every other row's optional hint
+    // already uses -- built here rather than through `row`'s own `hint`
+    // param because this one's text only appears AFTER a rejection, not at
+    // render time.
+    const hint = document.createElement('div');
+    hint.className = 'rl-settings__hint';
+    fsRow.querySelector('.rl-settings__control')?.appendChild(hint);
+    let hintTimer: ReturnType<typeof setTimeout> | undefined;
+    // Honest, not optimistic: the checkbox only STAYS where the player left
+    // it once the browser has actually granted the request. `requestFullscreen`
+    // rejects for plenty of ordinary reasons (no user-activation window left,
+    // a denied permission, a disallowed iframe) and a control that ignores
+    // that reads as broken the next time the player looks at it -- checked,
+    // but not actually fullscreen. Neither the checkbox nor `deps.set` (the
+    // persisted flag) moves until `fs.set` resolves.
+    cb.addEventListener('change', () => {
+      const on = cb.checked;
+      void (async () => {
+        try {
+          await fs.set(on);
+          update((n) => {
+            n.video.fullscreen = on;
+          });
+        } catch {
+          cb.checked = fs.active();
+          hint.textContent = 'Fullscreen was refused by the browser.';
+          clearTimeout(hintTimer);
+          hintTimer = setTimeout(() => {
+            hint.textContent = '';
+          }, 3000);
+        }
+      })();
+    });
   }
   row(
     table,
