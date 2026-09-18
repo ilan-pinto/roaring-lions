@@ -16,7 +16,7 @@ import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { PlayerIntent } from '../input/intents';
 
 export interface PredicateJson {
-  kind: 'intent' | 'sim' | 'mission' | 'elapsed_s' | 'all_of' | 'any_of';
+  kind: 'intent' | 'sim' | 'mission' | 'elapsed_s' | 'all_of' | 'any_of' | 'hover';
   intent?: string;
   verb?: 'move' | 'attackMove';
   via?: 'click' | 'box' | 'group';
@@ -28,6 +28,7 @@ export interface PredicateJson {
   loaded?: boolean;
   seconds?: number;
   of?: PredicateJson[];
+  target?: 'enemy' | 'structure' | 'any';
 }
 
 export interface StepJson {
@@ -46,7 +47,8 @@ export type TutorialInput =
   | { kind: 'intent'; intent: PlayerIntent }
   | { kind: 'sim'; event: SimEvent; sideOf: (entity: number) => number; typeIdOf?: (entity: number) => string }
   | { kind: 'mission'; event: MissionEvent }
-  | { kind: 'tick' };
+  | { kind: 'tick' }
+  | { kind: 'hover'; entity: number; structure: number; sideOf: (entity: number) => number };
 
 export interface TutorialState {
   readonly steps: readonly StepJson[];
@@ -109,6 +111,18 @@ export function matches(
     }
     case 'mission':
       return input.kind === 'mission' && input.event.kind === pred.event;
+    case 'hover': {
+      if (input.kind !== 'hover') return false;
+      const want = pred.target ?? 'any';
+      const onEnemy = input.entity >= 0 && input.sideOf(input.entity) === 1;
+      const onStructure = input.structure >= 0;
+      if (want === 'enemy') return onEnemy;
+      if (want === 'structure') return onStructure;
+      // 'any': hovering literally anything -- any entity regardless of side,
+      // or a structure -- not narrowed to `onEnemy`, which would reject a
+      // hover over your own unit.
+      return input.entity >= 0 || onStructure;
+    }
     case 'elapsed_s':
       return nowMs - openedAtMs > (pred.seconds ?? 0) * 1000;
     case 'any_of':

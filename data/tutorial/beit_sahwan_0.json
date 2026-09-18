@@ -221,6 +221,21 @@
       "nudge": "Get to the road's east end for the drones, then send the attack drone at the RPG team."
     },
     {
+      "id": "read_before_you_fire",
+      "title": "Read before you fire",
+      "teach": "Hold the cursor over a hostile with your squad selected. The panel beside it is the chance each of your units has to hit, and why -- range, cover, movement.",
+      "await": {
+        "kind": "any_of",
+        "of": [
+          { "kind": "hover", "target": "enemy" },
+          { "kind": "elapsed_s", "seconds": 40 }
+        ]
+      },
+      "focus": { "kind": "none" },
+      "nudge_after_s": 18,
+      "nudge": "Put the cursor on an enemy and read the panel."
+    },
+    {
       "id": "what_a_shot_costs",
       "title": "What a shot costs",
       "teach": "Swing south past the shed for a mortar team and a demo squad. Fire the mortar near the flagged house and watch Conduct: it scores how cleanly you fight, the mortar does not care who is under it, and the score you carry forward remembers.",

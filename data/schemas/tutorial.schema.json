@@ -43,7 +43,7 @@
       "required": ["kind"],
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "all_of", "any_of"] },
+        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "all_of", "any_of", "hover"] },
         "intent": {
           "type": "string",
           "description": "intent only: a PlayerIntent kind. Cross-checked against INTENT_KINDS in packages/app/src/input/intents.ts."
@@ -65,6 +65,10 @@
           "minItems": 2,
           "items": { "$ref": "#/$defs/nestedPredicate" },
           "description": "all_of/any_of only. Children come from nestedPredicate, not predicate: all_of is only ever satisfiable as a step's top-level await (see runtime.ts), so a child predicate here may not itself be all_of."
+        },
+        "target": {
+          "enum": ["enemy", "structure", "any"],
+          "description": "hover only: which kind of thing must be under the cursor. Default any. Cross-checked against runtime.ts's `matches`."
         }
       }
     },
@@ -74,7 +78,7 @@
       "additionalProperties": false,
       "description": "Same as predicate, but for use inside another predicate's `of`. `kind` excludes all_of: the reducer accumulates all_of across successive inputs only for a step's top-level await, so an all_of nested any deeper can never be satisfied and would stall the tutorial silently.",
       "properties": {
-        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "any_of"] },
+        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "any_of", "hover"] },
         "intent": {
           "type": "string",
           "description": "intent only: a PlayerIntent kind. Cross-checked against INTENT_KINDS in packages/app/src/input/intents.ts."
@@ -96,6 +100,10 @@
           "minItems": 2,
           "items": { "$ref": "#/$defs/nestedPredicate" },
           "description": "any_of only here (all_of is excluded from this definition's kind enum)."
+        },
+        "target": {
+          "enum": ["enemy", "structure", "any"],
+          "description": "hover only: which kind of thing must be under the cursor. Default any. Cross-checked against runtime.ts's `matches`."
         }
       }
     },
