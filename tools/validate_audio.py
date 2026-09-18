@@ -46,6 +46,10 @@ ALLOWED_LICENSES = {
 
 KNOWN_EVENTS = {
     "fire", "penetration", "ricochet", "near_miss", "aps_intercept", "destroyed",
+    # Not a thing happening on the map: the mixer plays this unpositioned, so
+    # it has no weapon class and no distance -- an alert or an objective cue,
+    # about the player rather than about a place.
+    "ui",
 }
 KNOWN_WEAPON_CLASSES = {
     "apfsds", "heat", "he", "atgm", "rpg", "small_arms", "hmg", "autocannon",

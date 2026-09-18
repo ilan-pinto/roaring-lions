@@ -85,6 +85,14 @@ export function busGain(manifestMaster: number, g: AudioGains): { master: number
   return { master: clamp01(manifestMaster * g.master), sfx: clamp01(g.sfx) };
 }
 
+/** A UI cue's gain, clamped. The manifest's own sanity check allows up to
+ *  MAX_GAIN (1.5) because a battlefield one-shot is attenuated by distance
+ *  before it is heard; a UI cue is not attenuated by anything, so 1.5 here is
+ *  1.5 in the player's ears. */
+export function uiSetGain(manifestSetGain: number): number {
+  return Math.max(0, Math.min(1, manifestSetGain));
+}
+
 interface LoadedSet {
   gain: number;
   jitter: number;
@@ -397,6 +405,44 @@ export class BattleAudio {
     x ^= x << 5;
     this.prng = x | 0;
     return ((x >>> 0) % 100000) / 100000;
+  }
+
+  /**
+   * Play a cue that is about the PLAYER rather than about a place -- an alert,
+   * an objective landing. No panner, no distance attenuation and no lowpass:
+   * every one of those asks "where is this", and the answer for a HUD cue is
+   * "nowhere". That is the whole reason this is not `playSet` with a listener
+   * position of its own -- `playSet`'s first act is a distance early-out
+   * (`dist > AUDIBLE_TILES`), so a cue routed through it would go silent the
+   * moment the camera was far from the origin.
+   *
+   * Falls back to the synth when the set ships no clips, exactly as every
+   * battlefield event already does. Safe before `attach()`: with no context
+   * there is nothing to play and nothing to complain about.
+   */
+  playUi(setName: string): void {
+    const ctx = this.ctx;
+    const sfx = this.sfx;
+    if (!ctx || !sfx) return;
+    const set = this.sets.get(setName);
+    if (set && set.buffers.length > 0) {
+      const src = ctx.createBufferSource();
+      src.buffer = set.buffers[Math.floor(this.rand() * set.buffers.length)];
+      const g = ctx.createGain();
+      g.gain.value = uiSetGain(set.gain);
+      src.connect(g).connect(sfx);
+      src.start();
+      return;
+    }
+    // Two shapes, so the player can tell the two apart with their back to the
+    // screen: an alert falls, an objective rises.
+    if (setName === 'ui_objective') {
+      this.tone(660, 0.09, 'sine', 0.05);
+      window.setTimeout(() => this.tone(990, 0.12, 'sine', 0.045), 70);
+    } else {
+      this.tone(520, 0.08, 'triangle', 0.06);
+      window.setTimeout(() => this.tone(390, 0.16, 'triangle', 0.05), 60);
+    }
   }
 
   onEvents(events: SimEvent[], sim: Sim): void {
