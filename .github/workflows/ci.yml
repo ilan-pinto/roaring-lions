@@ -208,13 +208,19 @@ jobs:
       # above uses :5175, so the two never contend) and kills its process
       # GROUP on the way out.
       #
-      # Cost, measured on this branch before wiring it up: **73.1-73.5 s** wall
-      # clock, three consecutive runs on one machine (macOS, warm pnpm cache),
-      # dev-server boot included. That is roughly twice the baseline gate's
-      # 39-40 s and it is paid on every PR deliberately -- it is the only check
-      # that can catch a battlefield that does not release its realm, and the
-      # failure it guards against is invisible until a player has played two
-      # missions in one tab.
+      # Cost, measured on this branch: **60.5-73.5 s** wall clock over SIX runs
+      # on one machine (macOS, warm pnpm cache), dev-server boot included --
+      # and it is two clusters, not a spread: 73.1 / 73.2 / 73.5 mid-fix-wave,
+      # then 60.5 / 61.2 / 61.9 after it, with nothing in between. The cause is
+      # not established; nothing in the walk changed between the two sets, so
+      # the likeliest reader is machine contention (the first three were taken
+      # while a full vitest run had just finished). Stated as two clusters
+      # rather than averaged, because an average would hide that.
+      #
+      # Either way it is roughly 1.5-2x the baseline gate's 39-40 s, and it is
+      # paid on every PR deliberately: it is the only check that can catch a
+      # battlefield which does not release its realm, and the failure it guards
+      # against is invisible until a player has played two missions in one tab.
       - name: one realm, no reload -- the router's own walk
         run: pnpm ui:routes
       # Uploaded on failure AND on success: the diff image is what a triager

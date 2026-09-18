@@ -360,6 +360,64 @@ comes from `pnpm plate:capture`, and the string `enemy reacts (` is out of the b
 acceptance items are NOT met and are recorded rather than restated: the menu column at 2560
 (D-8) and, in the picture only, the plate's top-left corner (D-3's floor).
 
+**Phase 1 — landed.** `feat/shell-phase-1` at `<landing commit>`, off `dea7e483` (main's
+v0.69.0 infantry-animation landing, merged in before Task 14). **Seventeen tasks** (0–16, run
+0–13 then 15, 16, 14 — Task 14 waited on the art session's `ThreeRenderer.ts`) and **eleven
+fix rounds** (Tasks 0, 2, 4, 5, 6, 9, 10, 11, 12, 15, 16), each task reviewed and every fix
+round re-reviewed. Final whole-branch review: 1 Critical, 10 Important, 20 Minor, closed in
+one fix wave (C1, I1–I10 and thirteen minors; six deferred with reasons, below). *The final
+review's own header says "16 tasks, 9 fix rounds"; the ledger counts 17 and 11, and the
+ledger is what was run.*
+
+Gate on the merged tree, before the fix wave (Task 14): **4771 tests**, determinism hash
+unmoved, `encode --check` clean. After the fix wave: **4795 tests**, plus `validate:data`,
+`validate:ui` (now `validate_ui_palette.mjs` + `validate_i18n.mjs`) and `test:determinism`.
+**`git diff --stat dea7e483..HEAD -- packages/sim` is empty** — the determinism hash could not
+have moved, and did not.
+
+**The acceptance items, line by line** (§6 Phase 1):
+
+- *No full page reload between screens; a mission boots and is left without one.* **Met**, and
+  it is the one claim with a dedicated instrument: `pnpm ui:routes` plays two missions and a
+  soft-booted third in one page and asks four reference-free questions plus a canvas count.
+  **It is in CI as of this landing** (I9), in `ci.yml`'s `visual` job, at 60.5–73.5 s over six
+  runs on one machine — two clusters, 73.1/73.2/73.5 then 60.5/61.2/61.9, cause not established.
+- *Settings persist and apply.* **Met** — `lions.settings`, applied on write, and the quality
+  preset reaches the renderer at the next mission's boot (Task 14).
+- *Escape pauses; the sim stops and the frame loop does not; the tick count is frozen.*
+  **Met** (`shell/clock.ts`, and `ui:routes` reads a left mission's tick twice 1200 ms apart).
+- *A save slot round-trips the ledger byte-for-byte.* **Met** (`profile.test.ts`) — and the
+  write-failure hole the final review named (I2) is **closed by this wave**: a storage refusal
+  partway through a load is named in the screen's `role="status"` line and the load is not
+  reported as done, rather than becoming an unhandled rejection under a list that re-rendered
+  as if it had worked.
+- *The pseudo-localised capture pass shows no clipped chrome string.* **Met as of this wave.**
+  It was NOT met at review time: the pseudo set predated the garage, so the phase's newest and
+  most text-dense screen had never been photographed under it, and the set that existed showed
+  the `/settings` quality select drawn over its own label (I6). Both are fixed and re-shot at
+  three resolutions — `.superpowers/ui-shots/p1-final-pseudo/` and `p1-final/` — and
+  `shoot.ts` now carries a reference-free overflow probe (a printed report, per §7, not a
+  gate). The re-shoot found one further defect and closed it: the garage's three upgrade-track
+  headings were the raw JSON key humanised, unbracketed under `?pseudo=1`.
+- *The garage reads at 1920 and 2560, every rung carries numbers, nothing below `--t-small`.*
+  **Met**, the type floor gated from disk (`brigade.test.ts` reads `theme.css`).
+
+**Carried forward from the final review, deferred with reasons** (the way Phase 0's twelve
+are): **minor 9** — eight of seventeen KDF units carry no `blurb`, so the garage's bay shows
+name + role and nothing else for half the roster, `apc_eitan` (the default selection) among
+them; content for the lead or a narrative pass, not code. **Minor 10** — the per-track Buy
+control sits below the fold at 1920 because the rungs descend; ruled on already (a board fade
+was added), and reordering them is a design call on the screen that exists to sell things.
+**Minor 13** — `readAll` round-trips every slot through `JSON.stringify` → `importSlot`'s
+`JSON.parse` on every read; a real cost only at a slot count nothing approaches. **Minor 15** —
+a third private `clamp01` (`audio.ts`, two under `three/`). **Minor 17** — a scenery figure is
+cropped at a plate's top-left by the bay zoom; the next `plates:units` run should spawn on
+emptier ground. **Minor 20** — the Pixi soft-leave WebGL leak (D-25 below), the lead's call.
+Also standing from Phase 0: the `vehicle` repaint-control self-check at 0.0004 against 0.00036,
+still not widened.
+
+**No bless was taken, and none was needed** — see D-27.
+
 **Twelve minors deferred by the task reviews**, carried here because the plan's SDD workspace
 is deleted: `triggerLabelFailures(file, mission)` reverses its siblings' argument order;
 `escapeHtml` exists twice (`mission-notice.ts`, `hud.ts`); two labels paraphrase their own
@@ -510,3 +568,140 @@ asks the question with a confirm label that answers it ("Leave the mission?" / "
 one's body deliberately does NOT say the brigade is erased, because it is not (§6 Phase 1).
 Every later confirm in the programme (pause menu's restart and quit, profile delete) uses this
 signature.
+
+---
+
+### Phase 1's deviations
+
+The plan's eleven rulings (R-1 … R-11, `docs/superpowers/plans/2026-09-17-shell-upgrade-phase-1.md`),
+written in here as D-10 … D-20 with what the executing session measured, followed by the seven
+this branch earned.
+
+**D-10 — `/briefing/:mission` redirects to `/mission/:id`, and `/debrief` is not a route
+(R-1).** The briefing is a mode of `showLoading` fused with asset loading and the deploy gate
+(`loading.ts`'s `briefingHoldsDeployment`); the end screen and the debrief are overlays
+painted on the live mission. Splitting them is Phase 3's two-column deploy spread and its
+victory/defeat moments. What this phase owed them instead is a lifetime: **both overlays are
+torn down by the mission's own disposer** (`screenDisposers`, drained by `bootBattlefield`'s
+`teardown`), because they mount on `document.body` and the router never touches that.
+Measured: `pnpm ui:routes` reads the body back to the menu's own three children after three
+missions.
+
+**D-11 — `/saves` is in the route table (R-2).** The spec's screen table had no home for save
+slots. The menu's aside links to it; `showSaves` is a plain screen with a disposer like any
+other.
+
+**D-12 — Controls means keybindings and camera speed, and nothing else (R-3).** Edge pan and
+zoom-to-cursor do not exist until Phase 2, and a setting for a feature that does not exist is
+a lie. They join this section with the features.
+
+**D-13 — no CJK subset; the locale table carries `dir` (R-4).** `docs/GDD.md:314` names Hebrew
+as the deferred second locale, which is RTL and not CJK — the spec's "CJK subset" was a guess
+about a language nobody had picked. `LOCALES` carries `dir`, `document.documentElement.dir`
+follows it, and the first non-Latin locale brings its own subset under `assets/fonts/` with
+its OFL text. Fonts stay self-hosted; this phase added no font file.
+
+**D-14 — settings from the pause menu is a panel inside the modal, not a navigation (R-5).**
+Navigating to `/settings` would unmount the mission, which is the one thing a pause menu must
+not do. One `settingsPanel()` serves both the route and the modal; the modal mounts it lazily,
+on the first open of its Settings tab, and disposes it with itself.
+
+**D-15 — the quality preset is stored from Task 4 and reaches the renderer in Task 14
+(R-6).** The plumbing touches `ThreeRenderer.ts`, which the art session held until `dea7e483`.
+Between the two, the screen said "applies when the next mission starts" — and it now does
+exactly that. `QUALITY_PRESETS.high` is pinned to the constants that existed before the preset
+and every new parameter defaults to it, which is why no baseline moved (D-27).
+
+**D-16 — the licence flip, and the four files that had to agree (R-7).** `docs/ART_PIPELINE.md`
+§8 recorded art and data as "all rights reserved" since 2026-08-30, ahead of a commercial
+release, while `LICENSE`, `data/LICENSE.md` and `README.md` still said CC BY-SA 4.0 — and a
+credits screen cannot quote both. Task 8 stated the later decision and aligned the three stale
+files; the final review found a fourth, `CONTRIBUTING.md`, one line above "by contributing you
+confirm you have the right to license the work under these terms", and the fix wave closed it
+(I4). All five now carry the irrevocability note: a Creative Commons grant cannot be withdrawn
+from copies already obtained, so the change stops adding to that set and cannot undo it.
+**The project lead can reverse this in one line.** The Namer IFV's mandatory CC BY 3.0 credit
+(Mutte, BlendSwap #75225) appears on the screen; `JEEP_HULL` does not — see D-26.
+
+**D-17 — `?fresh` stays accepted for one release, and "New campaign" names what it keeps
+(R-8).** It is in `KNOWN_PARAMS` and documented in CLAUDE.md, so dropping it would break the
+documented spelling silently. The menu's button replaces the `?fresh=1` navigation, and its
+confirm deliberately does NOT say the brigade account is erased, because it is not (spec
+2026-09-15 §4.1). `?fresh` keeps its exact pre-router meaning and is dropped from the URL
+except on a mission landing.
+
+**D-18 — `bootBattlefield` stays in `main.ts` (R-9).** Moving 2,000 lines into a new file
+would have made the review diff unreadable for a purely mechanical reason. The extraction is a
+function boundary inside the file; a later phase can move the file. What the phase DID owe it
+is the disposer contract, which is stated in that function's own header and proved by
+`ui:routes`.
+
+**D-19 — audio gains are master, music and SFX (R-10).** `packages/render/src/audio.ts` has
+one master bus and an `<audio>` element for music, and nothing else — there is no voice
+channel, so a voice slider would be a slider for silence. Voice joins when a voice line ships.
+
+**D-20 — the garage ships in Phase 1 with engine plates, not Phase 3 with renders (R-11).**
+The lead added it on 2026-09-17, after the plan was written. The layout, the type scale and
+the benefit lines are shell work and do not wait for art, and the running game already
+photographs a lit, real unit (`pnpm plates:units`). Phase 3 replaces the plate FILES and
+nothing else. Task 16 kept every economy rule unchanged — `gateSentence`, per-unit Buy,
+per-track Buy, `ownedTiers`, `applyUpgrades`, the double-click reset — and changed only what
+the player sees.
+
+**D-21 — a `ratio` benefit line prints a signed delta, not `before → after`.** The acceptance
+sentence says "every rung … carrying a before → after number", and one rung SHAPE deliberately
+does not. `sensors.optics` multiplies detection linearly, so `+0.1` on a base of 1.2 is +8%,
+not +10%; printing "1.2 → 1.3" would invite the reader to do the wrong arithmetic.
+`formatBenefit`'s `ratio` case renders "Optics +8%" instead (`ui/upgrade-benefit.ts`).
+
+**D-22 — the CVD gate's retired ceiling, with the numbers, as a decision for the lead.** The
+plan's sanity check assumed the default team colours collapse under simulated deficiency. They
+do not. Measured in this repository's own instrument (`tools/src/cvd.ts`, Machado et al. 2009
+at severity 1.0, CIE76 ΔE), the worst — closest — default pair per kind is **32.06**
+(deuteranopia), **55.46** (protanopia) and **64.84** (tritanopia), every one of them above the
+ΔE 25 floor the gate uses for "a different colour at a glance". Protanopia and tritanopia were
+never near collapse at all. What ships is therefore one relational check, for deuteranopia
+only: the variant's worst pair must beat the default's worst pair under the same deficiency.
+**Its measured gain is 33.57 against 32.06 — 1.5 ΔE, below the 2.3 that is a just-noticeable
+difference.** Stated plainly: by this branch's own instrument, the deuteranopia variant is not
+perceptibly more separated than the default at the pair it exists to fix, and the other two
+variants address a collapse that was never measured. Three variants, a validator, a palette
+expansion and a runtime resolver were built on that assumption. That may still be the right
+call — CIE76 is a blunt metric and no real deuteranope's judgement is in this repository — but
+it should be a decision, not an inheritance. **For the lead, before Phase 2.**
+One more thing the fix wave measured while repairing that gate (I7): the per-pair ΔE check
+**stays green with an entire simulation matrix row zeroed**. It gates the palette, not the
+instrument. The grey-identity test is the only thing that can see a broken `simulate`, and
+until this wave it compared a simulated value with another simulated value.
+
+**D-23 — the eight `disposed` guards in `bootBattlefield` are defensive and unfalsified.**
+They exist because an async art load can complete after the battlefield is gone. Neutralising
+all eight and leaving a mission mid-load produced **837 late art requests and zero console
+errors either way**, so no test in this branch can distinguish them from their absence. They
+stay, stated as what they are: a rule about ordering (`disposed` is set BEFORE the teardown
+list is drained, because a disposer can itself settle a promise), not a measured fix.
+
+**D-24 — `pnpm plates:units` runs one browser per unit, and why is unexplained.** A session's
+SECOND screenshot loses its WebGL context, on both SwiftShader and Metal — Metal merely fails
+faster (14.9 s against minutes). The harness therefore spawns one child per unit against a
+shared dev server: 17/17 in **562.4 s**. SwiftShader stays the default and `--metal` is opt-in,
+because a uniform set matters more than a fast one. The cause is not understood and is
+recorded rather than papered over.
+
+**D-25 — the Pixi backend leaks its WebGL context on a soft leave.** `Renderer.dispose` is
+optional on the interface (`packages/render/src/api.ts`) and `renderer.ts` is frozen, so the
+three.js backend releases its context on a router navigation and the Pixi one does not. Before
+Phase 1 this could not happen — leaving a mission was a page load. Unfreezing `renderer.ts` is
+the lead's call; until then, `?renderer=pixi` should be treated as a one-mission-per-tab
+escape hatch.
+
+**D-26 — `JEEP_HULL`'s licence is still unverified and still shipping.** `docs/ASSET_PROVENANCE.md`
+carries a "LICENCE UNVERIFIED" line for the jeep sprite set; the credits screen credits it as
+nothing, deliberately, because crediting an unknown source is worse than naming the gap. Lead
+item, carried forward from Task 8.
+
+**D-27 — no bless was needed or taken.** `QUALITY_PRESETS.high` reproduces the pre-branch frame
+exactly (every new renderer parameter defaults to the constant that existed before it), and the
+golden deltas were measured unmoved at High. Phase 1 touches no world material, no light, no
+pass and no scenario. **The baseline this phase leaves behind is still Phase 0's** (`495c1a4`),
+and the next phase should read a red `visual` job as a real regression rather than as drift.

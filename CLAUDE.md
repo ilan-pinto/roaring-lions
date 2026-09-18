@@ -59,7 +59,8 @@ pnpm lint
 pnpm validate:data    # JSON Schema check on all content
 pnpm validate:assets  # palette + silhouette gate, and sheet COMPLETENESS
 pnpm validate:meshes  # the same checks for art/meshes/**, rendered headlessly
-pnpm validate:ui      # no colour literals in UI source
+pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
+pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (60-74 s, in CI)
 pnpm icons:units      # crop unit UI icons from the sprite sheets; --check in CI
 pnpm balance          # headless battle sim, prints win rates
 ```
@@ -209,10 +210,106 @@ The combat model is the product. Everything else is scaffolding around it.
   `/free-play/tel_marum?tunnel&sur`. Two consequences worth knowing. **No screen
   spells a path**: `packages/app/src/shell/links.ts`'s `routes` is the only
   place one is written, and a same-origin anchor click is a soft navigation
-  rather than a page load. And **a mission is still left by a FULL
-  navigation** — `bootBattlefield`'s disposer is a no-op until the teardown
-  lands, so nothing may navigate softly out of a battlefield.
+  rather than a page load. And **a mission is left SOFTLY, like every other
+  screen** — the HUD's leave button and the pause menu's Quit both call
+  `req.navigate`, and `pnpm ui:routes` is what proves the realm survives it.
+  (This file said the opposite until 2026-09-18: written during Task 1, when
+  `bootBattlefield`'s disposer really was a no-op, and left standing after
+  Task 2 landed the real teardown.)
+- **The disposer contract, which the whole shell now rests on.** Every `show*`
+  returns a `Disposer`, and the router calls it and then empties the stage —
+  so **the stage's own children are the only thing the router removes**.
+  Anything a screen mounts on `document.body` (the HUD, the minimap, the end
+  screen, the debrief, the tutorial panel), any `window` listener, any
+  interval, any renderer: the screen that made it takes it down, in its own
+  disposer. `bootBattlefield` states the three rules it follows — register the
+  teardown where the thing is CREATED, make it idempotent and identity-scoped,
+  and consult `disposed` in anything that can still complete afterwards — and
+  `onWindow`/`onAbort` exist so the add and the remove cannot drift apart.
+  One thing is deliberately NOT a screen's own: a **confirm dialog** mounts as
+  a sibling (on the stage, or on `document.body`) and the screen has no handle
+  on it, so `confirmDialog` returns `{ answer, close }`, `ui/confirm.ts` keeps
+  the one open dialog, and `Router.unmount()` and `bootBattlefield`'s teardown
+  both call `closeOpenDialog()`. Skipping that left an orphaned capture-phase
+  `keydown` guard on `window` that swallowed every game key for the rest of the
+  session — reachable in two clicks from the main menu, and invisible.
+- `pnpm ui:routes` (`tools/src/ui-review/routes-check.ts`) is the instrument
+  for all of the above, and the only one: it boots its own dev server, plays
+  two missions and a soft-booted third in ONE page, and asks four
+  reference-free questions — does the boot counter stay at 1 (no reload), is
+  `window.__lions` gone after leaving, is the body child count back to the
+  menu's own, and does a LEFT mission's sim stay frozen while the next one
+  ticks — plus a canvas count, which is what caught `Router.unmount`'s
+  early return leaving an abandoned boot's canvas under the campaign board.
+  **In CI since 2026-09-18**, in `ci.yml`'s `visual` job (which already has
+  Playwright), at **60.5–73.5 s** wall clock — six runs, one machine,
+  dev-server boot included, and in two clusters (73.1/73.2/73.5, then
+  60.5/61.2/61.9) with nothing between them and no established cause.
+- **Every chrome string goes through `t()`, and `en.json` is the catalogue**
+  (`packages/app/src/i18n/`). `t('key', params)` formats ICU-style plurals and
+  returns a MISSING key as itself, warning once per key per session;
+  `__lionsI18n.missingKeys()` is what a test or a capture pass reads back rather
+  than scraping the console. `?lang=<id>` picks a locale for the session only and
+  is never written to settings; `?pseudo=1` swaps the catalogue for the
+  bracketed, accented pseudo-locale, so **a plain unbracketed word in a pseudo
+  capture is a string that never went through `t()`**. Two things follow that are
+  easy to get wrong. **A table resolved at MODULE LOAD freezes in whatever locale
+  was active before `main.ts`'s boot calls `setCatalogue`** — which is never the
+  player's — so a label table uses getters or accessor functions
+  (`ui/role.ts`'s `ROLE_LABEL`, `ui/grade-copy.ts`'s `tierName`/`tierLine`), and
+  this has been shipped wrong twice. And **`pnpm validate:ui` runs
+  `validate_i18n.mjs` as well as the palette gate, but its regex is anchored on a
+  sink assignment with an adjacent quote** — a string that reaches a sink through
+  a VARIABLE is invisible to it, which is how a thrown error message and the
+  garage's three upgrade-track headings both shipped in English. Its own header
+  names the three defect classes it cannot see; a clean run is not proof that
+  nothing was missed. The pseudo capture pass is the instrument that finds them.
+  **Mission TEXT is data, not chrome**: `name`, `briefing`, objective `text` and
+  trigger `label` are overlaid per locale from
+  `data/locales/<lang>/missions.json` (`applyMissionLocale`), gated by
+  `pnpm validate:data`, and deliberately do NOT go through the pseudo transform.
+  Unit names, roles and blurbs have no overlay yet and read English in every
+  locale.
+- **Two more `localStorage` keys, beside the ledger/account pair below.**
+  `lions.settings` (`packages/app/src/settings.ts`, the only reader and writer)
+  holds video/audio/controls/accessibility/language and is the only thing that
+  writes `--ui-scale`, `--text-size`, `data-motion` and `data-cvd` onto the
+  document. `lions.saves` (`packages/app/src/profile.ts`) holds named save slots,
+  each a snapshot of all THREE campaign keys — ledger, brigade account, tutorial
+  flag — because a slot carrying only the ledger would restore a campaign into
+  the wrong brigade. Loading one writes the three back, in that order, with no
+  transaction available to it: a storage refusal partway through is surfaced to
+  the player rather than swallowed.
+- **Escape opens the pause menu** (`ui/pause.ts`), and only opens it: the modal
+  owns Escape from then on, and the game's own keydown handler defers
+  (`isDialogOpen()`). **The sim stops and the frame loop does not** — the world
+  keeps drawing under the modal while `shell/clock.ts` withholds ticks, which is
+  why the pan keys are the one exemption from the modal's capture guard
+  (`passesThroughModal`, `input/keymap.ts`: panning writes `renderer.camera` and
+  nothing else). Objectives, a settings panel, restart and quit live in it.
+- **The render quality preset** (`packages/render/src/three/quality.ts`) is
+  `high` / `medium` / `low`, applied at the next mission's BOOT, not live.
+  `high` is pinned to the constants that existed before the preset and every
+  parameter defaults to it, so the golden baselines did not move; `low` drops
+  GTAO and SMAA and halves the shadow map.
+- **There are four team-colour sets, not one.** `reserved.team.variants` in
+  `data/palette.json` carries a deuteranopia, protanopia and tritanopia variant
+  beside the default, and the accessibility setting picks one.
+  `variantAwareResolver(variant)` (`@lions/data`) is what the renderer resolves
+  `team.*` keys through, and `paletteTeamColors(variant)` is the tuple — both
+  read the same entry, so they cannot disagree. The HUD updates immediately; the
+  map and minimap from the next mission. Before changing a team colour, read
+  D-22 in `docs/superpowers/specs/2026-09-16-shell-upgrade-design.md`: the
+  default colours were measured NOT to collapse under any simulated deficiency,
+  and the one variant with a relational gate buys 1.5 ΔE, below the 2.3
+  just-noticeable difference.
 - `pnpm ui:shots -- [--pseudo] [--res=…] [--out=…]` (`tools/src/ui-review/shoot.ts`) boots its own dev server and photographs every shell screen at three resolutions, and since Task 13 that walk covers settings, credits, saves, the pause menu (`Escape` in a running mission) and a scripted `debugKill`-forced defeat plus its debrief, with `--pseudo` swapping the catalogue for the bracketed pseudo-locale first.
+  After each shot it also prints every element inside `.rl-menu`/`.rl-panel`/
+  `.rl-garage` whose content is wider than its own box, by selector — a printed
+  REPORT and deliberately not a gate, because a threshold on "how much overflow
+  is acceptable" would be a fitted number and several of the hits are the design
+  (an ellipsis is a decision). It prints its total even at zero, since a check
+  that speaks only on a hit and a check that never ran read identically.
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed. It is defined by the battlefield alone — the menu, the campaign board, the brigade and the picker define nothing, which is how a tool tells "the app booted a mission" from "the app booted".
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from
   that map's own markers — no mission needed. Bare `?sandbox` still loads
