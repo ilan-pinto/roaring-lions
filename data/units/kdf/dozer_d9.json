@@ -1,6 +1,7 @@
 {
   "id": "dozer_d9",
   "name": "D9 Dov",
+  "blurb": "Takes a building down with a blade instead of a shell. Unarmed, and it cannot be hurried.",
   "faction": "kdf",
   "role": "engineer",
   "cost": { "logistics": 586, "build_time_s": 26, "population": 1 },

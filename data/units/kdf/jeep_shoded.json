@@ -1,6 +1,7 @@
 {
   "id": "jeep_shoded",
   "name": "Shoded Jeep",
+  "blurb": "Fast and thin. Two seats, a machine gun, and nothing at all that stops a rocket.",
   "faction": "kdf",
   "role": "apc",
   "cost": {

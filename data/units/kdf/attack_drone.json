@@ -1,6 +1,7 @@
 {
   "id": "attack_drone",
   "name": "Loitering Munition",
+  "blurb": "Flies itself at the nearest thing your side has identified, and does not come back.",
   "faction": "kdf",
   "role": "drone",
   "cost": {

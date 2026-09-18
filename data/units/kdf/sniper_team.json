@@ -1,6 +1,7 @@
 {
   "id": "sniper_team",
   "name": "Sniper Team",
+  "blurb": "Takes one man at a time, at the least cost a shot can carry. Firing shows the hide.",
   "faction": "kdf",
   "role": "sniper",
   "cost": {

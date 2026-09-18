@@ -1,6 +1,7 @@
 {
   "id": "heli_peten",
   "name": "AH-64 Peten",
+  "blurb": "Crosses the map in seconds and kills armour at standoff. The cannon is the expensive half.",
   "faction": "kdf",
   "role": "gunship",
   "cost": { "logistics": 402, "build_time_s": 42, "population": 2 },

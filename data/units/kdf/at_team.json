@@ -1,6 +1,7 @@
 {
   "id": "at_team",
   "name": "Spike AT Team",
+  "blurb": "Kills armour that rifles cannot touch, one missile at a time. Place it before you need it.",
   "faction": "kdf",
   "role": "at_team",
   "cost": {

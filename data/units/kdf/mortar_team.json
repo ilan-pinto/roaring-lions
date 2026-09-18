@@ -1,6 +1,7 @@
 {
   "id": "mortar_team",
   "name": "60mm Mortar Team",
+  "blurb": "Fires past its own sight, so someone else must look. You are billed for where it lands.",
   "faction": "kdf",
   "role": "artillery",
   "cost": {

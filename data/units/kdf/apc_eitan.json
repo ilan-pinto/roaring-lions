@@ -1,6 +1,7 @@
 {
   "id": "apc_eitan",
   "name": "Eitan APC",
+  "blurb": "Armour that keeps up with the tanks, seats for two, and a gun that answers aircraft.",
   "faction": "kdf",
   "role": "apc",
   "cost": {
