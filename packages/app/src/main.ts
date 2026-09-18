@@ -68,6 +68,7 @@ import {
 import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
+import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
 import { Minimap, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
@@ -2398,6 +2399,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // capturing a particular mount.
   onDispose(() => closeKeysOverlay());
 
+  // Task 9: the hint line's own first-use memory -- one store read here,
+  // reused by both the hint dep below and the `production` key handler
+  // further down, rather than a fresh `safeStorage()` at each site (they are
+  // the same global either way, but one call is what the task asked for).
+  // `seen` is mutated in place the moment a first-use thing is actually
+  // USED, not the moment its hint is merely shown -- showing it and
+  // immediately un-showing it would teach the player nothing.
+  const settingsStore = safeStorage();
+  const seen = loadSeen(settingsStore);
+
   const hud = new Hud(document.body, {
     sim,
     getSelection: () => renderer.selection,
@@ -2440,6 +2451,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // running over whatever screen came next.
     leave: () => req.navigate(routes.campaign()),
     openObjectives,
+    // Task 9: facts only the shell has, handed to the pure priority list in
+    // `hint-model.ts`. `renderer.hoverEntity >= 0` is the same "over a
+    // hostile" signal the cursor resolver already reads further down
+    // (`hints.hostile`) -- one definition of "hovering a hostile" for both.
+    hint: () =>
+      hintFor({
+        selected: renderer.selection.length,
+        hoveringHostile: renderer.hoverEntity >= 0,
+        sawProjectedFire: seen.projectedFire,
+        sawDock: seen.dock,
+        dockAvailable: mission?.resources !== undefined,
+      }),
+    // Marked on USE, not on the hint merely showing -- see `hint-model.ts`'s
+    // own header for why showing it once would teach nobody. `renderFire`
+    // (hud.ts) calls this once per three-tick streak; `case 'production':`
+    // below is the dock's own use site.
+    onProjectedFireShown: () => {
+      seen.projectedFire = true;
+      markSeen(settingsStore, 'projectedFire');
+    },
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
@@ -3073,6 +3104,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // buttons, so Tab walks them and Enter buys. A label naming a key
         // that did nothing is the same drift slice 2 refused when it
         // declined to print `Attack-move A`.
+        // Task 9: this key press IS using the dock, unlike merely reading its
+        // hint -- the one place `lions.seen.dock` is ever earned. Gated on
+        // `production` actually existing: the key is bound whether or not
+        // this mission fields a dock, and a press that did nothing must not
+        // be recorded as having taught anything.
+        if (production) {
+          seen.dock = true;
+          markSeen(settingsStore, 'dock');
+        }
         production?.focusFirst();
         break;
       case 'smoke':

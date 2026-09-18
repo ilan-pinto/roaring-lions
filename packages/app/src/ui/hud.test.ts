@@ -562,7 +562,12 @@ describe('commander portrait', () => {
 });
 
 describe('bottom-centre controls hint', () => {
-  it('shows while nothing is selected and hides once something is', () => {
+  // Task 9: the line used to hide the instant anything was selected -- the
+  // opposite of what a new player needs. `renderHint` no longer hides it for
+  // any reason; a HUD with no `hint` dep wired (every other rig in this file)
+  // falls back to the plain controls line, unconditionally, which is "today's
+  // behaviour" for a dep every OTHER test here still omits.
+  it('shows the plain controls line, with or without a selection, when no hint dep is wired', () => {
     let sel: number[] = [];
     const r = rig(mission(), { getSelection: () => sel });
     const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
@@ -571,13 +576,117 @@ describe('bottom-centre controls hint', () => {
     expect(hint.textContent).toContain('click/drag select');
     sel = [0];
     for (let i = 0; i < 5; i++) r.tick(); // the rebuild is 4 Hz, not every tick
-    expect(hint.style.display).toBe('none');
+    // The inversion this task exists for: still on screen, still saying
+    // something, with a selection.
+    expect(hint.style.display).toBe('');
+    expect(hint.textContent).toContain('click/drag select');
+  });
+
+  it('prints whatever the hint dep returns, selection or not', () => {
+    const r = rig(mission(), { getSelection: () => [0], hint: () => ({ key: 'hud.hint.selected' }) });
+    const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(hint.style.display).toBe('');
+    expect(hint.textContent).toContain('order row above');
+  });
+
+  // hint-model.test.ts pins the priority order itself; this is the one thing
+  // only the DOM join can prove -- `hintFor` never sees a keybinding, so the
+  // dock hint's key name has to be merged in here, from `keyFor`, the same
+  // way the order row's own key caps are.
+  it('names the CURRENT key for the dock hint, through keyFor -- never a literal letter', () => {
+    const r = rig(mission(), {
+      hint: () => ({ key: 'hud.hint.dock' }),
+      keyFor: (action) => (action === 'production' ? 'J' : action),
+    });
+    const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(hint.textContent).toBe('press J to open the reinforcements dock and call in support');
+  });
+
+  it('falls back to the raw action id for the dock hint when keyFor is absent', () => {
+    const r = rig(mission(), { hint: () => ({ key: 'hud.hint.dock' }) });
+    const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(hint.textContent).toContain('press production to open');
   });
 
   it('the hint stacks under the feed inside the cluster', () => {
     const r = rig(mission());
     const sel = r.host.querySelector<HTMLElement>('.rl-sel')!;
     expect(sel.lastElementChild?.classList.contains('rl-hint')).toBe(true);
+  });
+});
+
+describe('projected fire: taught once, after it has actually shown', () => {
+  /** A rig with a knob for whether the panel is visible this tick, and a
+   *  count of how many times `onProjectedFireShown` fired -- `contentTick`
+   *  drives `onTick` five times, since `renderFire` only actually runs on
+   *  every FIFTH call (the 4Hz throttle `onTick`'s own comment explains),
+   *  so "three consecutive HUD ticks" means three consecutive CONTENT
+   *  ticks, not three raw `onTick` calls. */
+  function fireRig(): { setVisible: (v: boolean) => void; shownCount: () => number; contentTick: () => void } {
+    let visible = false;
+    let shownCount = 0;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const { sim, ids } = makeSim();
+    const hud = new Hud(host, {
+      sim,
+      getSelection: () => (visible ? [ids[0]] : []),
+      getMission: () => null,
+      hoverStructure: () => -1,
+      hoverEntity: () => (visible ? ids[1] : -1),
+      gameVersion: '0.1',
+      commander: TEST_COMMANDER,
+      onProjectedFireShown: () => {
+        shownCount++;
+      },
+    });
+    const contentTick = (): void => {
+      for (let i = 0; i < 5; i++) hud.onTick();
+    };
+    return { setVisible: (v) => (visible = v), shownCount: () => shownCount, contentTick };
+  }
+
+  it('is not learned from a two-tick glimpse, only from a three-tick hold, and re-learnable after a gap', () => {
+    const r = fireRig();
+    r.setVisible(true);
+    r.contentTick(); // streak 1
+    r.contentTick(); // streak 2
+    expect(r.shownCount()).toBe(0);
+    r.contentTick(); // streak 3 -- the streak this task exists to teach from
+    expect(r.shownCount()).toBe(1);
+    r.contentTick(); // streak 4 -- once per streak, not once per tick after
+    expect(r.shownCount()).toBe(1);
+
+    r.setVisible(false);
+    r.contentTick(); // hidden: the streak resets to 0
+    expect(r.shownCount()).toBe(1);
+
+    r.setVisible(true);
+    r.contentTick(); // streak 1
+    r.contentTick(); // streak 2
+    expect(r.shownCount()).toBe(1);
+    r.contentTick(); // streak 3 again -- a second, independent streak
+    expect(r.shownCount()).toBe(2);
+  });
+
+  it('never calls the dep at all when it is absent -- a HUD built without it behaves as before', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const { sim, ids } = makeSim();
+    const hud = new Hud(host, {
+      sim,
+      getSelection: () => [ids[0]],
+      getMission: () => null,
+      hoverStructure: () => -1,
+      hoverEntity: () => ids[1],
+      gameVersion: '0.1',
+      commander: TEST_COMMANDER,
+    });
+    // No onProjectedFireShown -- five full content ticks, well past the
+    // streak, must not throw on the missing optional dep.
+    expect(() => {
+      for (let i = 0; i < 25; i++) hud.onTick();
+    }).not.toThrow();
   });
 });
 
