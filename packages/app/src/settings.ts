@@ -27,7 +27,19 @@ export interface Settings {
   version: 1;
   video: { fullscreen: boolean; uiScale: UiScaleSetting; textSize: TextSize; quality: Quality };
   audio: { master: number; music: number; sfx: number };
-  controls: { cameraSpeed: CameraSpeed; bindings: Record<string, string> };
+  controls: {
+    cameraSpeed: CameraSpeed;
+    bindings: Record<string, string>;
+    /** Pans the camera when the pointer sits at the edge of the play surface.
+     *  Off by default: it fights a player reaching for the minimap or the
+     *  dock, and an RTS that starts scrolling when the mouse nears the HUD
+     *  reads as broken. */
+    edgePan: boolean;
+    /** Zooms about the world point under the cursor rather than the screen
+     *  centre. On by default: it is what every map application does, and the
+     *  alternative is what shipped before this setting existed. */
+    zoomToCursor: boolean;
+  };
   accessibility: { motion: 'system' | 'reduce'; colorVision: ColorVision };
   language: string;
 }
@@ -50,7 +62,7 @@ export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   version: 1,
   video: { fullscreen: false, uiScale: 'auto', textSize: 1, quality: 'high' },
   audio: { master: 1, music: 1, sfx: 1 },
-  controls: { cameraSpeed: 1, bindings: {} },
+  controls: { cameraSpeed: 1, bindings: {}, edgePan: false, zoomToCursor: true },
   accessibility: { motion: 'system', colorVision: 'default' },
   language: 'en',
 });
@@ -97,6 +109,8 @@ export function parseSettings(raw: string | null): Settings {
     controls: {
       cameraSpeed: oneOf(CAMERA_SPEEDS, controls.cameraSpeed, d.controls.cameraSpeed),
       bindings: bindings(controls.bindings),
+      edgePan: bool(controls.edgePan, d.controls.edgePan),
+      zoomToCursor: bool(controls.zoomToCursor, d.controls.zoomToCursor),
     },
     accessibility: {
       motion: oneOf(['system', 'reduce'] as const, acc.motion, 'system'),

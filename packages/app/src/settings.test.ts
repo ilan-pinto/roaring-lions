@@ -46,6 +46,14 @@ describe('parseSettings', () => {
     expect(loadSettings(bad)).toEqual(DEFAULT_SETTINGS);
     expect(() => saveSettings(bad, DEFAULT_SETTINGS)).not.toThrow();
   });
+  it('controls carries edgePan and zoomToCursor, with tolerant parsing', () => {
+    expect(DEFAULT_SETTINGS.controls.edgePan).toBe(false);
+    expect(DEFAULT_SETTINGS.controls.zoomToCursor).toBe(true);
+    const s = parseSettings(JSON.stringify({ version: 1, controls: { edgePan: 'yes', zoomToCursor: false } }));
+    expect(s.controls.edgePan).toBe(false);      // a bad value falls back, field by field
+    expect(s.controls.zoomToCursor).toBe(false);
+    expect(s.controls.cameraSpeed).toBe(1);      // and its neighbour survives
+  });
 });
 
 describe('applySettings', () => {

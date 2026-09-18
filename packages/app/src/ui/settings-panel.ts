@@ -130,6 +130,15 @@ function slider(name: string, value: number, onInput: (v: number) => void, onCom
   return r;
 }
 
+function checkbox(name: string, checked: boolean, onChange: (v: boolean) => void): HTMLInputElement {
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.name = name;
+  cb.checked = checked;
+  cb.addEventListener('change', () => onChange(cb.checked));
+  return cb;
+}
+
 function section(table: HTMLElement, title: string): void {
   const h = document.createElement('h3');
   h.className = 'rl-settings__section';
@@ -338,6 +347,26 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
             n.controls.cameraSpeed = v;
           })
       )
+    );
+    row(
+      table,
+      t('settings.edgePan'),
+      checkbox('edgePan', s.controls.edgePan, (v) =>
+        update((n) => {
+          n.controls.edgePan = v;
+        })
+      ),
+      t('settings.edgePan.hint')
+    );
+    row(
+      table,
+      t('settings.zoomToCursor'),
+      checkbox('zoomToCursor', s.controls.zoomToCursor, (v) =>
+        update((n) => {
+          n.controls.zoomToCursor = v;
+        })
+      ),
+      t('settings.zoomToCursor.hint')
     );
     keymap.mount(table);
   }
