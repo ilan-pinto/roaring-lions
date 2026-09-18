@@ -81,7 +81,7 @@ import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey } from './input/keymap';
+import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -2968,6 +2968,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         runVerb('smoke');
         break;
       case 'jumpToAlert':
+        // Space is also the activation key of whatever holds focus, and the
+        // dock's `focusFirst()` and a Tab onto a chip both leave a button
+        // focused -- so the jump stands down and does NOT preventDefault,
+        // leaving the control its own key (`shouldYieldSpace`, keymap.ts).
+        if (shouldYieldSpace(document.activeElement)) break;
         // The camera, and nothing else: no selection change, no order. The
         // key answers "what just happened, and where" -- deciding what to do
         // about it is still the player's.

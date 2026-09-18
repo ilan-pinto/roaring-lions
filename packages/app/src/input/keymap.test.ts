@@ -1,5 +1,10 @@
+// @vitest-environment jsdom
+//
+// jsdom, since `shouldYieldSpace` below is the one helper here that reads the
+// DOM. Everything else in this file is pure and does not care.
+
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, bindingsFrom, heldAction, keyLabel, overridesOf, rebind, resolveKey } from './keymap';
+import { ACTIONS, bindingsFrom, heldAction, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
 
 describe('keymap', () => {
   it('ships the bindings main.ts had hard-coded, in the same letters', () => {
@@ -91,6 +96,49 @@ describe('keymap', () => {
     expect(keyLabel('space')).toBe('Space');
     expect(keyLabel(' ')).toBe('Space');
   });
+  // Space is the jump key AND the activation key of every focused control, so
+  // the one case that binds it has to stand down when a control holds focus --
+  // the reinforcement dock's `focusFirst()` and a Tab onto a HUD chip both
+  // leave a button focused, and a camera that jumped every time the player
+  // pressed a button would read as the camera being broken.
+  describe('shouldYieldSpace', () => {
+    const el = (html: string): Element => {
+      const host = document.createElement('div');
+      host.innerHTML = html;
+      const first = host.firstElementChild;
+      if (!first) throw new Error(`no element in ${html}`);
+      return first;
+    };
+    it('yields to a focused interactive control', () => {
+      expect(shouldYieldSpace(el('<button>Buy</button>'))).toBe(true);
+      expect(shouldYieldSpace(el('<input type="text">'))).toBe(true);
+      expect(shouldYieldSpace(el('<select><option>a</option></select>'))).toBe(true);
+      expect(shouldYieldSpace(el('<textarea></textarea>'))).toBe(true);
+      expect(shouldYieldSpace(el('<div contenteditable="true"></div>'))).toBe(true);
+      expect(shouldYieldSpace(el('<a href="#x">go</a>'))).toBe(true);
+    });
+    it('does not yield to anything else, nor to nothing at all', () => {
+      expect(shouldYieldSpace(el('<div></div>'))).toBe(false);
+      expect(shouldYieldSpace(null)).toBe(false);
+      // The two near-misses that are NOT controls: an anchor with no href is
+      // not focusable, and `contenteditable="false"` is the attribute saying
+      // exactly that this element does not take typing.
+      expect(shouldYieldSpace(el('<a>go</a>'))).toBe(false);
+      expect(shouldYieldSpace(el('<div contenteditable="false"></div>'))).toBe(false);
+      // The canvas and the body are where focus sits during play, and both
+      // must let the key through -- otherwise the feature never fires at all.
+      expect(shouldYieldSpace(el('<canvas></canvas>'))).toBe(false);
+      expect(shouldYieldSpace(document.body)).toBe(false);
+    });
+    it('is case-insensitive about the tag, because a DOM tagName is upper-case', () => {
+      // `tagName` reads 'BUTTON', not 'button'. A raw === comparison against
+      // the lower-case literal would return false for every real element and
+      // the guard would be inert on the one path it exists for.
+      expect(el('<button>Buy</button>').tagName).toBe('BUTTON');
+      expect(shouldYieldSpace(el('<BUTTON>Buy</BUTTON>'))).toBe(true);
+    });
+  });
+
   it('heldAction is true while ANY physical key held resolves to that action', () => {
     const b = bindingsFrom({});
     // W and the physical Up arrow are two different keys that both mean
