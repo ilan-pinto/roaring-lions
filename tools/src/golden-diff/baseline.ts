@@ -670,8 +670,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         rationale:
           PRE_LIT +
           'hiding every unit body moves 29622-29624 px / 2.9600-2.9620 here -- a spread of 2 px ' +
-          'and 0.0020, the ONE layer delta in the gate that is not bit-identical run to run, for ' +
-          'the same reason this scenario\'s baseline is not: continuous dust and exhaust FX. ' +
+          'and 0.0020, measured BEFORE c0044ff6 -- then the one layer delta in the gate that was ' +
+          'not bit-identical run to run, for the same reason this scenario\'s baseline was not: ' +
+          'the vehicle ambient FX spending a banked emission backlog one puff per frame() call. ' +
+          'That defect is fixed and the repaint-control reads a literal 0 here now; this ' +
+          'delta has NOT been re-measured since, so the spread above may simply be gone. ' +
           'Floors are a third of the SMALLEST of the five. Against 27531-27536 px / 2.6776-2.6797 ' +
           'under the front-lit sun and a pre-lit 23147-23152 px / ' +
           '2.0232-2.0247: the pixel count is up 28% on the pre-lit figure and the magnitude 46%, ' +

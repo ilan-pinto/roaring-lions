@@ -367,9 +367,13 @@ Phase 2's plan is the next thing to write, and it wants the lead's answers to D-
 (D-27's list of what needs a decision is the short version). CI on `main` today: `gates` and
 all three `determinism` runners green on every push; the `visual` job went red twice on
 `pnpm ui:routes` (fixed, below) and once on the `vehicle` scenario's repaint-control self-check
-(0.0004 against its 0.00036 budget — the drift Phase 0 recorded; a root-cause investigation is
-in flight and this line is updated when it lands), so the `version` job cut v0.70.0 on the
-one fully green run and skipped the rest.
+(0.0004 against its 0.00036 budget — the drift Phase 0 recorded; **found and fixed the same
+day**, `c0044ff6`: `updateVehicleAmbientFx` fed its dust/exhaust accumulators the RAW frame
+delta where every other clock clamps to 100 ms, so a long load frame banked seconds of
+emission credit that later zero-time repaints spent one puff per call — all four gated
+scenarios now read a literal 0 px / 0.0000 against the global hard zero, the per-scenario
+override is deleted, and no bless was needed), so the `version` job cut v0.70.0 and v0.71.0
+on the fully green runs and skipped the red ones.
 
 **Phase 0 — landed.** `feat/shell-upgrade` merged to `main` at `03fad18` (2026-09-17), eleven
 tasks each reviewed, final whole-branch review 2 Critical / 7 Important all fixed in one wave,
@@ -446,11 +450,13 @@ a third private `clamp01` (`audio.ts`, two under `three/`). **Minor 17** — a s
 cropped at a plate's top-left by the bay zoom; the next `plates:units` run should spawn on
 emptier ground. **Minor 20** — the Pixi soft-leave WebGL leak (D-25 below), the lead's call.
 Also standing from Phase 0: the `vehicle` repaint-control self-check at 0.0004 against 0.00036,
-still not widened — and now measured on CI as a coin flip: of the five `visual` runs on `main`
-on 2026-09-18 it read 0.0003 and passed on three and 0.0004 and failed on two
-(`35320650908` the latest), on identical renderer code. A root-cause hunt was dispatched the
-same day (what still animates between two zero-time `frame(1, 0)` calls in that scene); its
-outcome is recorded here when it lands.
+still not widened — measured on CI as a coin flip (of the five `visual` runs on `main` on
+2026-09-18 it read 0.0003 and passed on three and 0.0004 and failed on two, `35320650908` the
+latest, on identical renderer code), then **closed at the source** the same day (`c0044ff6`,
+above: the vehicle ambient FX spent a banked emission backlog one puff per `frame()` call;
+the repaint-control drift and the scenario's documented 5–157 px "renderer noise" were one
+defect). The `vehicle` thresholds were calibrated against that noise and are NOT re-derived
+against the new zero floor — a separate decision, recorded in `baseline.ts`.
 
 **No bless was taken, and none was needed** — see D-27.
 
