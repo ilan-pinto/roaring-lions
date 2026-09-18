@@ -1138,4 +1138,24 @@ describe('top strip: the objectives control', () => {
     host.querySelector<HTMLButtonElement>('.rl-strip__more')?.click();
     expect(opened).toEqual([1]);
   });
+
+  // Fix round 1 (task 6 review, I3): a keyboard/screen-reader user reads the
+  // tracker's state off `aria-expanded`, not off the CSS-only `data-open` on
+  // the strip -- and since the button is rebuilt at 4 Hz, the attribute has
+  // to be read back from `Hud`'s own stored flag on every rebuild rather
+  // than written once and left to survive.
+  it('setObjectivesOpen mirrors onto the button\'s own aria-expanded, both ways', () => {
+    const { hud, host } = rig(mission());
+    hud.onTick();
+    const btn = (): HTMLButtonElement | null => host.querySelector('.rl-strip__more');
+    expect(btn()?.getAttribute('aria-expanded')).toBe('false');
+
+    hud.setObjectivesOpen(true);
+    for (let i = 0; i < 10; i++) hud.onTick();
+    expect(btn()?.getAttribute('aria-expanded')).toBe('true');
+
+    hud.setObjectivesOpen(false);
+    for (let i = 0; i < 10; i++) hud.onTick();
+    expect(btn()?.getAttribute('aria-expanded')).toBe('false');
+  });
 });

@@ -79,4 +79,24 @@ describe('objectivesPanel', () => {
     expect(clock('sweep')).toBeNull();
     p.dispose();
   });
+
+  // Fix round 1 (task 6 review, I1): a mount with no other way for a
+  // keyboard user to dismiss it -- the in-mission tracker over a battlefield
+  // -- passes `onClose`; the pause tab (Resume/Escape already closes the
+  // whole modal) and the briefing (read once, never dismissed) do not.
+  it('renders a close button only when onClose is given, and clicking it calls back', () => {
+    const host = document.createElement('div');
+    const closed: number[] = [];
+    const withClose = objectivesPanel(host, { rows: () => rows, paysCredits: true, onClose: () => closed.push(1) });
+    const btn = withClose.el.querySelector<HTMLButtonElement>('.rl-obj-close');
+    expect(btn).not.toBeNull();
+    btn?.click();
+    expect(closed).toEqual([1]);
+    withClose.dispose();
+
+    const host2 = document.createElement('div');
+    const noClose = objectivesPanel(host2, { rows: () => rows, paysCredits: true });
+    expect(noClose.el.querySelector('.rl-obj-close')).toBeNull();
+    noClose.dispose();
+  });
 });

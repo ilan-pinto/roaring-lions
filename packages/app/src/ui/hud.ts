@@ -229,6 +229,14 @@ export class Hud {
   private bannerShown = false;
   private tickN = 0;
 
+  /** Fix round 1 (task 6 review, I1/I3): whether the in-mission tracker is
+   *  open, mirrored onto the strip control's own `aria-expanded` every
+   *  rebuild. `data-open` on `this.strip` (below) is for CSS; this is for a
+   *  screen reader, and `renderStrip` rebuilds the button from THIS field
+   *  every 4 Hz, so the attribute cannot go stale the way a plain DOM write
+   *  made once, on the button `main.ts` will replace on the next tick, would. */
+  private objectivesOpen = false;
+
   /** "${rank} ${name}", precomputed once from `deps.commander.shai` --
    *  the combined line the face tooltip and the open bar's `who` line both
    *  show, exactly what the retired `COMMANDER.rank` constant used to hold
@@ -718,8 +726,12 @@ export class Hud {
    *  rebuilt at 4 Hz (`renderStrip`) and cannot hold that state itself the
    *  way a persistent button's own `dataset` would. CSS reads it to mark the
    *  control while the panel is up, the same pattern `paintSpeed` already
-   *  uses for the speed chips. */
+   *  uses for the speed chips. Fix round 1: also stores the flag for
+   *  `renderStrip` to read back onto the button's own `aria-expanded` on the
+   *  very next rebuild, so a screen-reader user is told the tracker's state
+   *  without depending on `data-open` alone. */
   setObjectivesOpen(open: boolean): void {
+    this.objectivesOpen = open;
     this.strip.dataset.open = open ? '1' : '0';
   }
 
@@ -904,8 +916,13 @@ export class Hud {
       // left open" -- every objective complete or failed -- is the one case
       // with no control at all, never a disabled one.
       if (m.objectives.some((o) => o.status === 'active')) {
+        // Fix round 1 (I3): `aria-expanded` mirrors `this.objectivesOpen`,
+        // which `setObjectivesOpen` writes -- read back here on every 4 Hz
+        // rebuild so the attribute tracks the tracker even though the button
+        // element itself is torn down and recreated each time.
         rows.push(
-          `<button type="button" class="rl-strip__more" data-open-objectives>` +
+          `<button type="button" class="rl-strip__more" data-open-objectives ` +
+            `aria-expanded="${this.objectivesOpen ? 'true' : 'false'}">` +
             `${t('hud.strip.open', { primary: primaryOpen, secondary: secondaryOpen })}</button>`
         );
       }
