@@ -26,9 +26,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import {
+  FLASH_MS,
   MINIMAP_SIZE,
   Minimap,
+  flashAlpha,
   minimapProjection,
+  objectivePoint,
   objectivePoints,
   observedMarkers,
   tileToBox,
@@ -54,6 +57,12 @@ interface StrokePath {
   kind: 'stroke';
   style: string;
   filter: string;
+  /** `globalAlpha` at the moment of the stroke. Recorded because the alert
+   *  flash is the one mark drawn translucent, and a `save`/`restore` it
+   *  forgot would leave every later mark faded -- a defect that photographs
+   *  as "the minimap went dim" and reads as nothing at all in a test that
+   *  only looked at coordinates. */
+  alpha: number;
   points: [number, number][];
 }
 interface DrawImage {
@@ -76,14 +85,39 @@ const realGetContext = HTMLCanvasElement.prototype.getContext;
 function installContext(): Recorder {
   const ops: Op[] = [];
   let path: [number, number][] = [];
+  const saved: { fillStyle: string; strokeStyle: string; lineWidth: number; globalAlpha: number }[] = [];
   const ctx = {
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 1,
+    globalAlpha: 1,
     filter: 'none',
     imageSmoothingEnabled: true,
     setTransform: () => {},
     clearRect: () => {},
+    // A real 2D context's save/restore stack, for the style fields this stub
+    // records. A no-op pair would make a missing `restore()` untestable.
+    save() {
+      saved.push({
+        fillStyle: String(this.fillStyle),
+        strokeStyle: String(this.strokeStyle),
+        lineWidth: Number(this.lineWidth),
+        globalAlpha: Number(this.globalAlpha),
+      });
+    },
+    restore() {
+      const was = saved.pop();
+      if (!was) return;
+      this.fillStyle = was.fillStyle;
+      this.strokeStyle = was.strokeStyle;
+      this.lineWidth = was.lineWidth;
+      this.globalAlpha = was.globalAlpha;
+    },
+    // Flattened to the four cardinal points, which is all any assertion here
+    // asks of a circle: where its centre is and how big it is.
+    arc(x: number, y: number, r: number) {
+      path.push([x + r, y], [x, y + r], [x - r, y], [x, y - r]);
+    },
     drawImage() {
       ops.push({
         kind: 'drawImage',
@@ -105,6 +139,7 @@ function installContext(): Recorder {
         kind: 'stroke',
         style: String(this.strokeStyle),
         filter: String(this.filter),
+        alpha: Number(this.globalAlpha),
         points: [...path],
       });
     },
@@ -407,6 +442,21 @@ describe('objective diamonds', () => {
     expect(objectivePoints([{ status: 'active' }], map)).toEqual([]);
   });
 
+  // `objectivePoint` is the single-objective half, shared with `main.ts`'s
+  // `alertWorld.objectiveAt` so the camera jumps to the ground the diamond is
+  // drawn on rather than to a second, re-derived answer. It resolves ground
+  // and nothing else -- the `status` filter above is `objectivePoints`' own
+  // concern, and must not live here: an `objective` MissionEvent fires when a
+  // status CHANGES, so the alert a player most wants to jump to names an
+  // objective that is no longer active by the time it is read.
+  it('resolves one objective on its own, status and all', () => {
+    expect(objectivePoint({ status: 'active', zone: 'west_approach' }, map)).toEqual({ x: 7, y: 12 });
+    expect(objectivePoint({ status: 'active', zone: 'battery' }, map)).toEqual({ x: 40.5, y: 40.5 });
+    expect(objectivePoint({ status: 'active' }, map)).toBeNull();
+    expect(objectivePoint({ status: 'active', zone: 'nowhere' }, map)).toBeNull();
+    expect(objectivePoint({ status: 'complete', zone: 'west_approach' }, map)).toEqual({ x: 7, y: 12 });
+  });
+
   it('is not fog-gated — the player is told where the objective is', () => {
     mount(() => false, { objectives: () => [{ status: 'active', zone: 'west_approach' }] });
     // Total blackout: not one marker and not one contact was drawn, and the
@@ -483,5 +533,118 @@ describe('mount', () => {
     expect(recorder.ops.length).toBe(after1);
     minimap.onTick();
     expect(recorder.ops.length).toBeGreaterThan(after1);
+  });
+});
+
+// --- the alert flash ------------------------------------------------------
+
+describe('the alert flash', () => {
+  it('is full strength at the event and gone at the end', () => {
+    expect(flashAlpha(0)).toBe(1);
+    expect(flashAlpha(FLASH_MS / 2)).toBeCloseTo(0.5);
+    expect(flashAlpha(FLASH_MS)).toBe(0);
+    expect(flashAlpha(FLASH_MS + 1000)).toBe(0);
+  });
+
+  // The flash is a TILE, not an entity: the unit the alert is about is usually
+  // dead, so an entity-keyed flash would have nothing to draw at.
+  //
+  // DISCLOSED: this one cannot fail on its own, and that was measured rather
+  // than reasoned. `onTick` redraws the whole minimap, so the stroke count
+  // grows by the markers and the viewport outline whether or not a ring is
+  // drawn -- gutting `flash` so it records nothing leaves this green. It is
+  // kept because its SUBJECT is right (a point, not an entity, and 12,12 is
+  // nobody's tile), and the four tests below are what actually gate it: each
+  // finds the ring by the one thing nothing else in the draw path does.
+  it('draws a mark for a point whose unit no longer exists', () => {
+    const { minimap } = mount(() => true);
+    const strokesBefore = recorder.strokes().length;
+    minimap.flash([{ x: 12, y: 12 }], 1000);
+    minimap.onTick();
+    expect(recorder.strokes().length).toBeGreaterThan(strokesBefore);
+  });
+
+  /**
+   * The flash ring, identified by the one thing nothing else in the draw path
+   * does: stroke at less than full alpha. Shape cannot tell it from a diamond
+   * -- the stub flattens an arc to its four cardinal points, which is the
+   * diamond's own point set -- and colour cannot either, because jsdom's
+   * `getComputedStyle` resolves every chrome token to the same empty string.
+   */
+  const ring = (): StrokePath | undefined => recorder.strokes().find((k) => k.alpha < 1);
+
+  it('rings the tile it was given, and fades over FLASH_MS', () => {
+    // A point nowhere near a unit, a marker or the viewport quad. Stamped
+    // half a window in the past, so the alpha at draw time is a value the
+    // real clock cannot land outside.
+    const { minimap } = mount(() => false);
+    recorder.ops.length = 0;
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2);
+    minimap.onTick();
+    const hit = ring();
+    expect(hit).toBeDefined();
+    expect(hit?.alpha).toBeGreaterThan(0.4);
+    expect(hit?.alpha).toBeLessThan(0.6);
+    // Centred on the tile. The whole point set rather than one of them: a ring
+    // at the right x and the wrong y passes a single-point check.
+    const at = tileToBox(minimapProjection(W, W, MINIMAP_SIZE), 12, 34);
+    const cx = hit?.points.map(([x]) => x) ?? [];
+    const cy = hit?.points.map(([, y]) => y) ?? [];
+    expect((Math.min(...cx) + Math.max(...cx)) / 2).toBeCloseTo(at.x, 6);
+    expect((Math.min(...cy) + Math.max(...cy)) / 2).toBeCloseTo(at.y, 6);
+    expect(Math.max(...cx) - Math.min(...cx)).toBeGreaterThan(0);
+  });
+
+  it('puts globalAlpha back, so the viewport outline is not left faded', () => {
+    const { minimap } = mount(() => false);
+    recorder.ops.length = 0;
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2);
+    minimap.onTick();
+    // The viewport outline is the LAST stroke of a redraw, drawn after the
+    // flash. A missing `restore()` leaves it wearing the ring's alpha, which
+    // photographs as "the minimap went dim" and reads as nothing at all in a
+    // test that only looked at coordinates.
+    const strokes = recorder.strokes();
+    expect(strokes.length).toBeGreaterThan(1);
+    expect(strokes[strokes.length - 1].alpha).toBe(1);
+  });
+
+  it('stops drawing a mark that has outlived FLASH_MS', () => {
+    const { minimap } = mount(() => false);
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS - 1);
+    recorder.ops.length = 0;
+    minimap.onTick();
+    expect(ring()).toBeUndefined();
+  });
+
+  it('draws over the unit dots and under the viewport outline', () => {
+    // The order is the whole reason this layer is in `draw()` rather than in
+    // its own canvas. A mark the player must see OVER the dots -- a squad
+    // wiped out is exactly the moment its own dot stops being there -- and
+    // UNDER the frame that says where they are looking, which is the one mark
+    // that must never be obscured.
+    const { minimap } = mount(() => true);
+    recorder.ops.length = 0;
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS / 2);
+    minimap.onTick();
+    const ringAt = recorder.ops.findIndex((o) => o.kind === 'stroke' && o.alpha < 1);
+    const lastDot = recorder.ops.reduce(
+      (best, o, i) => (o.kind === 'fillRect' && (o.style === 'blue' || o.style === 'red') ? i : best),
+      -1
+    );
+    const lastStroke = recorder.ops.reduce((best, o, i) => (o.kind === 'stroke' ? i : best), -1);
+    expect(ringAt).toBeGreaterThan(-1);
+    expect(lastDot).toBeGreaterThan(-1);
+    expect(ringAt).toBeGreaterThan(lastDot);
+    expect(ringAt).toBeLessThan(lastStroke);
+  });
+
+  it('draws one ring per live point, and none for the expired ones beside them', () => {
+    const { minimap } = mount(() => false);
+    minimap.flash([{ x: 12, y: 34 }], performance.now() - FLASH_MS - 1);
+    minimap.flash([{ x: 20, y: 30 }, { x: 30, y: 20 }], performance.now() - FLASH_MS / 2);
+    recorder.ops.length = 0;
+    minimap.onTick();
+    expect(recorder.strokes().filter((k) => k.alpha < 1)).toHaveLength(2);
   });
 });

@@ -260,16 +260,34 @@ export function objectivePoints(
   const out: MinimapPoint[] = [];
   for (const o of objectives) {
     if (o.status !== 'active') continue;
-    if (o.zone === undefined) continue;
-    const z = map.zones[o.zone];
-    if (z) {
-      out.push({ x: z[0] + z[2] / 2, y: z[1] + z[3] / 2 });
-      continue;
-    }
-    const m = map.markers[o.zone];
-    if (m) out.push({ x: m[0] + 0.5, y: m[1] + 0.5 });
+    const at = objectivePoint(o, map);
+    if (at) out.push(at);
   }
   return out;
+}
+
+/**
+ * The ground ONE objective names, or null when it names none.
+ *
+ * Split out of `objectivePoints` above because `main.ts`'s alert layer needs
+ * the same answer for a single objective -- where the camera goes when the
+ * player presses the jump key on an `objective` alert. Two resolutions of
+ * "zone, or a marker of the same name, or nothing" would be two answers that
+ * could disagree by a tile, and the one place a disagreement would show is
+ * the camera landing somewhere other than the diamond the player aimed at.
+ *
+ * It resolves GROUND and nothing else. The `status !== 'active'` filter stays
+ * in `objectivePoints`, where it belongs: an `objective` MissionEvent fires
+ * when a status CHANGES, so by the time the alert layer asks, the objective
+ * worth jumping to is usually the one that just stopped being active.
+ */
+export function objectivePoint(o: MinimapObjective, map: MinimapMap): MinimapPoint | null {
+  if (o.zone === undefined) return null;
+  const z = map.zones[o.zone];
+  if (z) return { x: z[0] + z[2] / 2, y: z[1] + z[3] / 2 };
+  const m = map.markers[o.zone];
+  if (m) return { x: m[0] + 0.5, y: m[1] + 0.5 };
+  return null;
 }
 
 /**
@@ -339,10 +357,41 @@ export function unitDots(sim: Sim, isVisible: (wx: number, wy: number) => boolea
   return out;
 }
 
+/**
+ * How long an alert mark stays on the minimap. Long enough to catch an eye
+ * that was elsewhere when it landed, short enough that three in a row do not
+ * become a permanent decoration.
+ *
+ * A WALL-CLOCK duration, in milliseconds, and never a tick count. The flash
+ * is presentation: it says "something happened over there" to a player, and
+ * nothing about it may reach the sim (invariant 4). Measuring it in ticks
+ * would also make it a different length at double speed, which is the one
+ * thing an attention cue must not be.
+ */
+export const FLASH_MS = 1400;
+
+/**
+ * Linear, because the thing being judged is "is it still there", not a
+ * brightness curve -- and linear is the one shape a reader can check against
+ * the number above without running it.
+ */
+export function flashAlpha(ageMs: number): number {
+  if (ageMs <= 0) return 1;
+  if (ageMs >= FLASH_MS) return 0;
+  return 1 - ageMs / FLASH_MS;
+}
+
 /** Dot edge, in box pixels. 6px filled, from the spec's own inline style. */
 const DOT = 6;
 /** Diamond edge before the 45-degree turn, in box pixels. Spec: 8px stroked. */
 const DIAMOND = 8;
+/** The alert ring, in box pixels: where it starts and where it ends. It
+ *  EXPANDS as it fades, so the eye is caught by motion rather than by
+ *  brightness alone -- the same reason a real warning light sweeps. The
+ *  larger end is well clear of `DIAMOND`, so an alert standing on an
+ *  objective is still two distinguishable marks. */
+const FLASH_R0 = 5;
+const FLASH_R1 = 16;
 
 export class Minimap {
   private readonly el: HTMLCanvasElement;
@@ -352,6 +401,8 @@ export class Minimap {
   private readonly proj: MinimapProjection;
   private readonly chrome: ChromeColors;
   private readonly seenMarkers = new Set<string>();
+  /** Live alert marks: where, and the wall-clock instant each landed. */
+  private readonly flashes: { p: MinimapPoint; at: number }[] = [];
   private readonly dpr: number;
   private tickN = 0;
 
@@ -391,7 +442,33 @@ export class Minimap {
    */
   onTick(): void {
     if (this.tickN++ % 5 !== 0) return;
-    this.draw();
+    this.draw(performance.now());
+  }
+
+  /**
+   * Mark ground the player should look at, now.
+   *
+   * Points rather than entities, and that is the whole design: the alert this
+   * exists for is `unitLost`, whose subject is dead by the time the feed line
+   * is written, so an entity-keyed mark would have nothing to draw at. A tile
+   * survives its occupant.
+   *
+   * `nowMs` is passed in rather than read here for the same reason `draw`
+   * takes one -- the caller is the tick loop, which already holds a frame
+   * clock, and a second `performance.now()` a few hundred microseconds later
+   * would make the two disagree for no gain.
+   *
+   * Expired entries are dropped here, on every call, so the list holds at
+   * most one `FLASH_MS` window's worth of alerts plus the batch just added --
+   * a bound set by how fast alerts can arrive, never by mission length. The
+   * sweep is on the ADD rather than on the draw because `drawFlashes` runs
+   * five times as often and skips a dead entry in one comparison anyway.
+   */
+  flash(points: readonly MinimapPoint[], nowMs: number): void {
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      if (nowMs - this.flashes[i].at >= FLASH_MS) this.flashes.splice(i, 1);
+    }
+    for (const p of points) this.flashes.push({ p: { x: p.x, y: p.y }, at: nowMs });
   }
 
   destroy(): void {
@@ -429,7 +506,10 @@ export class Minimap {
     return c;
   }
 
-  private draw(): void {
+  /** `nowMs` defaults so the constructor's first paint needs no clock of its
+   *  own; `onTick` passes the frame's. Wall time, never ticks -- see
+   *  `FLASH_MS`. */
+  private draw(nowMs: number = performance.now()): void {
     const { ctx, proj } = this;
     const s = MINIMAP_SIZE;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -475,7 +555,45 @@ export class Minimap {
       ctx.fillRect(Math.round(at.x - DOT / 2), Math.round(at.y - DOT / 2), DOT, DOT);
     }
 
+    this.drawFlashes(nowMs);
+
     this.drawViewport();
+  }
+
+  /**
+   * The alert marks: an expanding stroked ring, fading over `FLASH_MS`.
+   *
+   * Drawn AFTER the unit dots and BEFORE the viewport outline. A mark the
+   * player must see over the dots -- a squad wiped out is exactly the moment
+   * its own dot stops being there -- and under the frame that says where they
+   * are looking, which is the one mark that must never be obscured.
+   *
+   * `CHROME.objective`'s amber rather than a fifth chrome key: an alert is
+   * the same "look here" the objective diamond already means, and a second
+   * amber would be two tokens for one idea (CLAUDE.md: colour comes from the
+   * palette, through `theme.css`'s semantic names).
+   *
+   * At the minimap's 4 Hz a 1400 ms flash gets about six frames, which is a
+   * visible fade rather than a blink.
+   */
+  private drawFlashes(nowMs: number): void {
+    const { ctx, proj } = this;
+    for (const f of this.flashes) {
+      const a = flashAlpha(nowMs - f.at);
+      if (a <= 0) continue;
+      const at = tileToBox(proj, f.p.x, f.p.y);
+      // Expands as it fades: motion is what catches an eye that was looking
+      // somewhere else, which is the whole job.
+      const r = FLASH_R0 + (FLASH_R1 - FLASH_R0) * (1 - a);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = this.chrome.objective;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   /** Bound once: `unitDots` and `observedMarkers` take fog as a predicate so

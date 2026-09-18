@@ -278,6 +278,7 @@
   "hud.fire.holdingFire": "{n} holding fire",
   "hud.fire.unidentified": "{n} unidentified",
 
+  "hud.jump.nothing": "nothing has happened worth jumping to yet",
   "hud.mute.muted": "audio muted",
   "hud.mute.unmuted": "audio on",
   "hud.order.inertTitle": "{label} — nothing in the selection would act on it right now",
@@ -330,6 +331,7 @@
   "keymap.mute": "Mute",
   "keymap.selectAll": "Select every unit",
   "keymap.cycleChips": "Cycle the selection chips",
+  "keymap.jumpToAlert": "Jump to the last alert",
   "keymap.panUp": "Pan up",
   "keymap.panDown": "Pan down",
   "keymap.panLeft": "Pan left",
@@ -415,9 +417,11 @@
   "objective.status.failed": "Failed",
   "mission.notice.wave": "<b>enemy reinforcements</b> — {n, plural, one {# unit} other {# units}} inbound",
   "mission.notice.built": "<b>reinforcement deployed</b> — {unit}",
-  "mission.notice.unitLost": "<b>Lost</b> — {unit}",
   "mission.notice.missionAccomplished": "<b>MISSION ACCOMPLISHED</b> — Conduct {roe}, {n, plural, one {# unit} other {# units}} survive",
   "mission.notice.missionFailed": "<b>MISSION FAILED</b>",
+
+  "alert.unitLost": "<b>lost</b> — {n, plural, one {{name}} other {{name} (#)}}",
+  "alert.underFire": "<b>under fire</b> — {n, plural, one {# unit} other {# units}}",
 
   "notice.removed.civilian": "<b>taken</b> ({n})",
   "notice.removed.unit": "{unit} <b>taken</b>",

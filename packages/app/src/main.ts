@@ -69,7 +69,8 @@ import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
-import { Minimap } from './ui/minimap';
+import { Minimap, objectivePoint } from './ui/minimap';
+import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
@@ -381,11 +382,6 @@ function describeMissionEvent(
       return null;
     case 'removed':
       return removedNotice(e.side, e.unit);
-    case 'unitLost':
-      // Temporary: Task 4's alert layer takes this line over and removes this
-      // case. Until then a `unitLost` reaching here would say nothing at all,
-      // because the `default` below returns null.
-      return [t('mission.notice.unitLost', { unit: e.unit }), 'bad'];
     case 'evacuated':
       return evacuatedNotice();
     case 'missionEnd':
@@ -2813,6 +2809,46 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       return false;
     },
   };
+  /**
+   * Everything the alert layer may ask about the world (`ui/alerts.ts`'s own
+   * `AlertWorld`), built once beside `intentWorld` above and for the same
+   * reason: the model stays a pure function over a fixture, and this is the
+   * one adapter that knows it is looking at a real `Sim`.
+   *
+   * `posOf` reads the position of an entity that is usually DEAD -- that is
+   * the whole point of `unitLost` -- which is safe because the sim clears
+   * `alive` and leaves `posX`/`posY` where the casualty fell. The bounds
+   * guard is not defensive noise: `alertsForTick` is handed entity ids out of
+   * an event stream, and an id past `entityCount` would read `undefined` out
+   * of a typed array and turn into `NaN` through `fx.toNumber`, which draws a
+   * flash nowhere and jumps the camera to nowhere, silently.
+   *
+   * `objectiveAt` goes through `minimap.ts`'s own `objectivePoint` rather
+   * than resolving zones and markers a second time here: the camera lands on
+   * the diamond the minimap drew, by construction.
+   */
+  const alertWorld: AlertWorld = {
+    posOf: (entity) => {
+      if (entity < 0 || entity >= sim.entityCount) return null;
+      return { x: fx.toNumber(sim.state.posX[entity]), y: fx.toNumber(sim.state.posY[entity]) };
+    },
+    sideOf: (entity) => sim.state.side[entity],
+    // The same lookup the deploy panel's `broughtFor` caller uses, so a feed
+    // line and a briefing line name a unit the same way.
+    unitName: (typeId) => units[typeId as keyof typeof units]?.name ?? typeId,
+    objectiveAt: (id) => {
+      const o = runtime?.objectiveList.find((x) => x.id === id);
+      return o === undefined ? null : objectivePoint(o, map);
+    },
+  };
+  /** Carried across ticks: when each entity last made the feed. Copy-on-write
+   *  inside `alertsForTick`, so this is only ever reassigned, never mutated. */
+  let alertState = initAlertState();
+  /** Where the jump key goes. A plain local: it is presentation state about
+   *  the last thing worth looking at, it is read by exactly one keydown case,
+   *  and nothing outside this function has any business knowing it. */
+  let lastAlertAt: { x: number; y: number } | null = null;
+
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
     const rect = canvas.getBoundingClientRect();
@@ -2930,6 +2966,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // Smoke BUTTON arms instead -- see `armOrder` for why a button
         // cannot quick-cast -- and both end in this same call.
         runVerb('smoke');
+        break;
+      case 'jumpToAlert':
+        // The camera, and nothing else: no selection change, no order. The
+        // key answers "what just happened, and where" -- deciding what to do
+        // about it is still the player's.
+        if (lastAlertAt) {
+          renderer.camera.x = lastAlertAt.x;
+          renderer.camera.y = lastAlertAt.y;
+        } else {
+          // Not padding. A key that does nothing and says nothing is
+          // indistinguishable from a key that is broken -- the lesson the
+          // campaign board's locked-ground `aria-live` line records, and the
+          // reason `?sandbox` warns an unknown flag by name rather than
+          // ignoring it.
+          hud.note(t('hud.jump.nothing'), 'mute');
+        }
         break;
       case 'mute':
         audioMuted = audio.toggle();
@@ -3057,6 +3109,33 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Optional on the interface (`api.ts`) -- Pixi draws no civilians at all
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
+
+      // The alert layer (spec acceptance (a)): one classification of the tick,
+      // four consequences, all in one place so a line, a cue and a mark can
+      // never disagree about what just happened. `ui/alerts.ts` decides WHAT
+      // is worth saying; this decides WHERE it goes.
+      //
+      // `performance.now()` and not `sim.tickCount`: the flash is a
+      // presentation fade on the frame clock, and nothing here writes to the
+      // sim (invariant 4). The tick count goes the other way -- into the
+      // model, as the cooldown's own clock.
+      const { state: nextAlerts, alerts } = alertsForTick(
+        alertState,
+        events,
+        missionEvents,
+        alertWorld,
+        sim.tickCount
+      );
+      alertState = nextAlerts;
+      for (const a of alerts) {
+        if (a.line) hud.note(t(a.line.key, a.line.params), a.line.tone);
+        if (a.sound) audio.playUi(a.sound);
+        if (a.at) {
+          minimap.flash([a.at], performance.now());
+          lastAlertAt = a.at;
+        }
+      }
+
       for (const me of missionEvents) {
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
