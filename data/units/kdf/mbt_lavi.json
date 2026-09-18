@@ -77,7 +77,7 @@
     }
   ],
   "unlock": {
-    "roe_rating_min": 55,
+    "roe_rating_min": 90,
     "price": 720
   },
   "abilities": [

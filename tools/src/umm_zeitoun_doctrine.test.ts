@@ -506,7 +506,9 @@ describe('F: the sniper (amr, range 15, collateral_risk 0.05) is the answer to t
   it('grounds range and collateral risk in the roster', () => {
     expect(units.sniper_team.weapons[0].range_tiles).toBe(15);
     expect(units.sniper_team.weapons[0].collateral_risk).toBe(0.05);
-    expect(units.sniper_team.unlock?.roe_rating_min).toBe(60);
+    // WP-G-E1 (2026-09-18): Conduct floors raised 35-65 -> 70-90 so the nine
+    // grace-period gates spread for a well-played campaign (docs/campaign/economy/prices.md §3.2).
+    expect(units.sniper_team.unlock?.roe_rating_min).toBe(80);
   });
 
   const SHOTS: [string, Pt, Pt, number][] = [

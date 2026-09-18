@@ -5,6 +5,15 @@
 code touched; no unit JSON edited. Everything below is measured against this worktree's
 `pnpm playtest` output and `data/units/kdf/*.json`, both read on 2026-09-16.
 
+**Addendum, WP-G-E1, 2026-09-18 (GH-173):** the lead acted on finding 1 below and raised
+the nine Conduct floors from 35-65 to 70-90 (§3.3) and decided finding 2 -- `breach_team`
+keeps its 850 price, the §4.2 cap exception is accepted rather than fixed (§3.4). Prices
+themselves are unchanged; nothing in §2, §4-§8 or §10 moved. `LADDER_CREDITS` (5531,
+re-pinned 2026-09-17 for an unrelated reason -- see `tools/src/backtest/playtest.ts`'s own
+comment) is unchanged by this addendum too: no scripted plan in the ladder builds or buys
+any of these nine units, they are all fielded through `starting_force`, which does not
+consult `unlock` at all.
+
 ## 1. Method
 
 ```
@@ -152,7 +161,90 @@ unit is free to build), uniformly, in the table below — and no positive price 
 (non-optimal) player, who does not ride a 93-100 Conduct average and for whom these gates
 would spread out exactly the way the design intended.
 
-## 4. Pricing method for the nine Conduct-gated units
+### 3.3 The floors, raised 70-90 (WP-G-E1, 2026-09-18) — the same finding at the new ceiling
+
+The lead's decision on finding 1 above: raise the nine floors so they read as a real
+progression for a well-played campaign rather than a grace period that clears itself on
+mission 1. New floors, ordered by price (`data/units/kdf/*.json` `cost.logistics`'s own
+ordering, and the three most expensive — `ifv_namer`, `dozer_d9`, `mbt_lavi` — placed at
+the top of the band, per the lead's brief, so their earned gate is no longer trivially
+ahead of a price a player might otherwise consider paying for):
+
+| unit | old floor | new floor | price |
+|---|---|---|---|
+| recon_drone | 35 | 70 | 220 |
+| attack_drone | 45 | 72 | 320 |
+| yahalom_squad | 55 | 75 | 340 |
+| demo_squad | 50 | 77 | 360 |
+| sniper_team | 60 | 80 | 380 |
+| heli_peten | 65 | 82 | 460 |
+| ifv_namer | 40 | 85 | 520 |
+| dozer_d9 | 60 | 87 | 560 |
+| mbt_lavi | 55 | 90 | 720 |
+
+Re-walked against the CURRENT ladder (`pnpm playtest`, 2026-09-18 — the per-mission
+Conduct sequence has shifted slightly since §3.2 was written, from map and plan fixes
+merged since 2026-09-16, though not by much):
+
+```
+ 1 beit_sahwan_breach          roe= 97  avg= 97.00
+ 2 beit_sahwan_1_recon         roe=100  avg= 98.50
+ 3 beit_sahwan_2_foothold      roe=100  avg= 99.00
+ 4 beit_sahwan_3_clearance     roe=100  avg= 99.25
+ 5 beit_sahwan_4_subterranean  roe= 98  avg= 99.00
+ 6 khan_rafid_1_recon          roe=100  avg= 99.17
+ 7 khan_rafid_2_foothold       roe=100  avg= 99.29
+ 8 khan_rafid_3_clearance      roe= 76  avg= 96.38
+ 9 deir_amun_1_recon           roe=100  avg= 96.78
+10 deir_amun_2_foothold        roe= 75  avg= 94.60
+11 deir_amun_3_subterranean    roe= 85  avg= 93.73   <- campaign low so far
+...                                                     (avg never drops below 93.5
+26 wadi_halam_5_depot          roe= 79  avg= 93.50   <-  again, the campaign's overall low)
+```
+
+**Raising the ceiling to 90 does not move a single gate's opening mission, and this is a
+measured fact, not a tuning choice left on the table.** `beit_sahwan_breach` is mission 1,
+unconditionally (`world.json`'s fixed order), and its own Conduct score (97) IS the
+campaign average after one mission — a single data point equals its own mean. Since 97
+clears every floor up to 90, and the campaign average never dips below 93.5 for the
+remaining 25 missions either, **all nine gates open after mission 1 at every floor in the
+mandated 70-90 band**, exactly as they did at the old 35-65 band (`pnpm playtest`'s new
+`CONDUCT_GATES` probes assert this directly — see that file's Task 7b comment). Producing
+the "opens around mission 3, spreads to about mission 22" spread the brief describes would
+need a floor above 97 (mission 1's own score), which is outside the mandated range, or a
+change to mission 1's own Conduct trajectory, which is mission content and out of this
+work package's scope (unit JSON, this document, and test pins only — no `packages/sim`,
+no mission JSON).
+
+**The floors were raised anyway, and they are not wasted**, for the reason §3.2 and §7
+already gave for the old ones: this optimal-play harness proves missions winnable, it does
+not model a realistic player's Conduct, and every plan on this ladder scores 75-100
+because the plans are written to. A floor of 90 is a materially higher bar than 65 for
+a player whose actual Conduct trajectory sags — one who takes collateral-risk shots, loses
+the two-star grade a few times, or plays roughly rather than cleanly — even though the
+scripted optimal ladder this repository can measure cannot exhibit that difference. The
+change is honestly reported as "raises the bar for an imperfect player" rather than
+"spreads the gates on the optimal ladder", because the second claim is false and the first
+is what actually moved.
+
+### 3.4 `breach_team`'s price exception — decided, 2026-09-18
+
+§6 measured that `breach_team`'s 850 price fails the §4.2 cap (which would require >= 1550,
+five times the ladder's highest single-mission line) and that no price can satisfy the cap
+without making the purchase strictly worse than waiting: `breach_team`'s own `stars_min: 12`
+gate opens at mission 6 (cumulative 1345 credits on ★★), before a cap-compliant price
+(>= 1550) would even be affordable (mission 7, cumulative 1570). §6 recommended keeping the
+850 shortcut over literal cap compliance and flagged the conflict for the lead rather than
+resolving it unilaterally.
+
+**Decided 2026-09-18: keep 850.** The cap is a design guideline for keeping a bought-only
+purchase from ever eclipsing the star-gated tier's cheapest entry by too little headroom; it
+is not a hard invariant, and `breach_team` is the one unit on the whole catalogue for which
+the guideline and requirement 1 ("a real shortcut before its earned gate") are mutually
+exclusive, by the numbers above. Holding the cap here would ship a 1550+ price nobody would
+ever rationally pay — the ladder's OWN measured worst case — which is a worse defect than a
+documented, understood cap exception. No other price on the catalogue is affected: every
+other unit's cap check in §6 already clears with margin.
 
 Since §3.2 rules out "shortcut before the gate" as a meaningful design lever for these
 nine on the optimal ladder, they are priced on **power and gate strength** (requirement
@@ -197,17 +289,22 @@ Affordable-at mission = the earliest mission whose cumulative ★★ (or ★★�
 is >= price (`ladder.py` computed this by scanning the cumulative arrays; verified by
 hand for the boundary cases). Gate-opens mission is from §3.
 
+Floor column updated 2026-09-18 (WP-G-E1, §3.3) to the raised 70-90 range; the "gate
+opens" and "affordable at" columns are the same numbers as before the raise, because
+every floor in that range still opens after mission 1 on this ladder (§3.3) -- exactly
+as every floor in the old 35-65 range did (§3.2).
+
 | unit | gate | gate opens (★★ / ★★★) | price | affordable at (★★ / ★★★) | margin (★★ / ★★★) |
 |---|---|---|---|---|---|
-| recon_drone | roe >= 35 | 2 / 2 | 220 | 2 / 2 | 0 / 0 |
-| attack_drone | roe >= 45 | 2 / 2 | 320 | 2 / 2 | 0 / 0 |
-| yahalom_squad | roe >= 55 | 2 / 2 | 340 | 2 / 2 | 0 / 0 |
-| demo_squad | roe >= 50 | 2 / 2 | 360 | 2 / 2 | 0 / 0 |
-| sniper_team | roe >= 60 | 2 / 2 | 380 | 2 / 2 | 0 / 0 |
-| heli_peten | roe >= 65 | 2 / 2 | 460 | 2 / 2 | 0 / 0 |
-| ifv_namer | roe >= 40 | 2 / 2 | 520 | 3 / 3 | **-1 / -1** |
-| dozer_d9 | roe >= 60 | 2 / 2 | 560 | 3 / 3 | **-1 / -1** |
-| mbt_lavi | roe >= 55 | 2 / 2 | 720 | 4 / 4 | **-2 / -2** |
+| recon_drone | roe >= 70 | 2 / 2 | 220 | 2 / 2 | 0 / 0 |
+| attack_drone | roe >= 72 | 2 / 2 | 320 | 2 / 2 | 0 / 0 |
+| yahalom_squad | roe >= 75 | 2 / 2 | 340 | 2 / 2 | 0 / 0 |
+| demo_squad | roe >= 77 | 2 / 2 | 360 | 2 / 2 | 0 / 0 |
+| sniper_team | roe >= 80 | 2 / 2 | 380 | 2 / 2 | 0 / 0 |
+| heli_peten | roe >= 82 | 2 / 2 | 460 | 2 / 2 | 0 / 0 |
+| ifv_namer | roe >= 85 | 2 / 2 | 520 | 3 / 3 | **-1 / -1** |
+| dozer_d9 | roe >= 87 | 2 / 2 | 560 | 3 / 3 | **-1 / -1** |
+| mbt_lavi | roe >= 90 | 2 / 2 | 720 | 4 / 4 | **-2 / -2** |
 | breach_team | stars >= 12 | 6 / 4 | 850 | 4 / 4 | +2 / 0 |
 | scout_shachaf | stars >= 30 | 15 / 10 | 1800 | 9 / 8 | +6 / +2 |
 | apc_kipod | stars >= 44 | 22 / 15 | 3200 | 15 / 14 | +7 / +1 |
@@ -334,6 +431,14 @@ account "survives a fresh campaign").
    `balance-analyst`/the lead: either the nine floors should be raised so they spread out
    even for a well-played campaign, or the buy price for this tier should be understood
    and documented as convenience-for-average-players rather than shortcut-for-optimal-players.
+   **Addressed 2026-09-18 (WP-G-E1, §3.3): the floors were raised, 35-65 -> 70-90.** The
+   raise does NOT produce the "spreads across the campaign" half of this finding — measured
+   fresh against the current ladder, mission 1's own Conduct (97) still clears every floor up
+   to 90, so all nine gates still open after mission 1, exactly as before. What the raise
+   does deliver is the second option this finding named: these nine are now documented,
+   deliberately, as **convenience-for-a-realistic-player**, not shortcut-for-optimal-play —
+   a materially higher bar (90 vs 65) for a player whose actual Conduct trajectory is not
+   93-100, which this harness cannot model or falsify either way.
 2. **The §4.2 cap and requirement 1 cannot both hold for `breach_team`** (§6). The cap
    floor (1550) sits above the mission at which `breach_team`'s own free gate opens
    (cumulative 1345 at mission 6). No price can be both >= 1550 and a genuine shortcut for
@@ -345,6 +450,7 @@ account "survives a fresh campaign").
    design change to the special-forces doc) or lower `CREDIT_WEIGHTS` so the ladder's peak
    mission (currently 310) drops enough that 5x it clears comfortably before mission 6 —
    both out of this document's scope.
+   **Decided 2026-09-18 (§3.4): keep 850, the cap exception is accepted rather than fixed.**
 3. **"Half the catalogue at ★★, most of it at ★★★" is not producible from the ladder
    totals alone** (§7) — they differ by only 4.3%. The task's own reinterpretation
    (half-budget vs. full-budget spending, rather than ★★-vs-★★★ totals) is what produces
