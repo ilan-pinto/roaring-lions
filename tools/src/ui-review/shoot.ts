@@ -9,9 +9,12 @@
 //
 // Usage: pnpm ui:shots -- [--pseudo] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots]
 //
-// Writes <out>/<WxH>/NN-<state>.png for the seventeen states below. Every
-// later Phase 0 task's acceptance is read off these files -- see
-// .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/.
+// Writes <out>/<WxH>/NN-<state>.png for the twenty-three states below (Phase
+// 0 shipped seventeen; Phase 2's Task 14 added 18-hud-alert, 19-objectives,
+// 20-keys, 21-tooltip, 22-groups and 23-minimap-ping). Every later task's
+// acceptance is read off these files -- see
+// .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/ and
+// .superpowers/sdd/2026-09-18-shell-upgrade-phase-2/.
 //
 // `--pseudo` appends `?pseudo=1` to every navigation (`url()` below), which
 // swaps the real catalogue for the bracketed pseudo-locale one
@@ -262,6 +265,122 @@ try {
     await page.evaluate(() => (window as LionsWindow).__lions?.step(40));
     await settle(page, 600);
     await shot(page, dir, '06-hud-idle');
+
+    // Phase 2, Task 14: six more HUD states, each the standing capture for
+    // one of Tasks 4/6/7/8/10/11's own acceptance -- inserted here, after the
+    // idle HUD settles and before the pause menu, so nothing below has to
+    // move. Same shape every other state in this file already uses: act,
+    // settle, shot.
+
+    // 18-hud-alert -- Task 4's acceptance (a). Kill one player unit directly
+    // (`sim.debugKill`, the same dev hook `16-end-defeat` below already
+    // uses) and step one tick so the death's own event plumbing reaches the
+    // feed line and the minimap mark. The alert's CUE (a flash, a sound) is
+    // not something a screenshot can show and is recorded in the report
+    // instead, not chased here.
+    await page.evaluate(() => {
+      const L = (window as LionsWindow).__lions;
+      if (!L) return;
+      const victim = L.units(0)[0];
+      if (victim) L.sim.debugKill(victim.id);
+      L.step(1);
+    });
+    await settle(page, 400);
+    await shot(page, dir, '18-hud-alert');
+
+    // 19-objectives -- Task 6. The strip's `+N` control opens the full
+    // objective tracker. `renderStrip` innerHTMLs the strip's own body at
+    // 4 Hz (hud.ts's own comment on this: it is WHY the click listener is
+    // delegated onto `.rl-strip` rather than bound to the button), so a
+    // Playwright `page.click` -- which waits for the target to be visible,
+    // enabled AND STABLE before dispatching -- loses that race against the
+    // rebuild indefinitely; a direct in-page `.click()` dispatches
+    // synchronously against whichever node currently matches and sidesteps
+    // it. The objective count is read back from the panel's own rows rather
+    // than hard-coded, so this line keeps telling the truth if `MISSION`
+    // ever changes out from under it.
+    const clickMore = (): Promise<void> =>
+      page.evaluate(() => (document.querySelector('.rl-strip__more') as HTMLElement | null)?.click());
+    await clickMore();
+    await settle(page, 500);
+    const objectiveCount = await page.evaluate(
+      () => document.querySelectorAll('.rl-obj-list .rl-obj').length
+    );
+    console.log(`  19-objectives: ${MISSION} declares ${objectiveCount} objective(s)`);
+    await shot(page, dir, '19-objectives');
+    // Closed the same way a second click on the strip control does, so the
+    // tracker is not left open over the states that follow.
+    await clickMore();
+    await settle(page, 400);
+
+    // 20-keys -- Task 8. F1's reference card, opened and closed the same
+    // shape `15-pause` below uses: open, shoot, Escape.
+    await page.keyboard.press('F1');
+    await settle(page, 500);
+    await shot(page, dir, '20-keys');
+    await page.keyboard.press('Escape');
+    await settle(page, 300);
+
+    // 21-tooltip -- Task 7, Conduct first. Neither `page.hover()` nor a raw
+    // `page.mouse.move` can reach this element AT ALL, and that is a finding
+    // for the final review, not a script bug to route around quietly:
+    // `.rl-strip` is `pointer-events: none` furniture (theme.css) and only
+    // re-enables it for `<a>`/`<button>` descendants, but the Conduct
+    // trigger is `<span data-tip="conduct">` wrapping `<b data-roe>` --
+    // neither tag, and no `tabindex` either, so it is unreachable by mouse
+    // OR keyboard for a real player. Confirmed with a throwaway Playwright
+    // probe against this exact build: `document.elementFromPoint` on the
+    // span's own centre resolves to the world canvas underneath it, and a
+    // real `page.hover()` times out waiting for an element that will never
+    // become hit-testable. To still photograph what the tooltip LOOKS like,
+    // a `mouseover` is dispatched directly on the element -- it reaches
+    // `bindDelegatedTip`'s listener the same way a real one would if the CSS
+    // let it arrive, which is exactly what a fixed version needs to do.
+    const roeExists = await page.evaluate(() => {
+      const el = document.querySelector('.rl-strip [data-roe]');
+      el?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      return el !== null;
+    });
+    if (!roeExists) console.log('  !! .rl-strip [data-roe] not found -- 21-tooltip skipped the hover');
+    await settle(page, 300);
+    await shot(page, dir, '21-tooltip');
+    // Closed the same explicit way it was opened, rather than relying on a
+    // mouse leave that -- per the above -- was never real in the first place.
+    await page.evaluate(() => {
+      document.querySelector('.rl-strip [data-roe]')?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+    });
+    await settle(page, 200);
+
+    // 22-groups -- Task 11. The same six-unit selection
+    // `08-hud-selection-mixed` below uses, then Ctrl+1 assigns it to group
+    // 1 -- one chip, its track tinted the same colour `renderer.unitGroup`'s
+    // own badge draws a grouped unit with.
+    await page.evaluate(() => {
+      const L = (window as LionsWindow).__lions;
+      if (!L) return;
+      const us = L.units();
+      const ids = us.slice(0, 6).map((u) => u.id);
+      L.sel(ids);
+    });
+    await page.keyboard.press('Control+1');
+    await settle(page, 500);
+    await shot(page, dir, '22-groups');
+
+    // 23-minimap-ping -- Task 10. Alt+click the minimap's own centre --
+    // `onDown`'s ping branch, not the drag/jump path. `Mouse.click` (unlike
+    // `Locator.click`/`Page.click`) takes no `modifiers` option, so the Alt
+    // key is held with `Keyboard.down`/`up` around a plain coordinate click
+    // over the element's bounding box.
+    const minimapBox = await page.locator('.rl-minimap').boundingBox();
+    if (minimapBox) {
+      await page.keyboard.down('Alt');
+      await page.mouse.click(minimapBox.x + minimapBox.width / 2, minimapBox.y + minimapBox.height / 2);
+      await page.keyboard.up('Alt');
+    } else {
+      console.log('  !! .rl-minimap not found -- 23-minimap-ping skipped the click');
+    }
+    await settle(page, 300);
+    await shot(page, dir, '23-minimap-ping');
 
     // Task 6's pause menu: Escape opens it over a running mission (its root
     // is `.rl-pause`), a second Escape resumes -- the same key, both ways,
