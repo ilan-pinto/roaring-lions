@@ -16,6 +16,17 @@ describe('isDialogOpen', () => {
     scrim.className = 'rl-pause';
     expect(isDialogOpen()).toBe(true);
   });
+
+  // Task 8 fix round 1: C1 -- without this, `main.ts`'s handler-wide guard
+  // never learns the key-bindings overlay is up, and Escape opens the pause
+  // menu underneath it in the same tick the overlay closes itself.
+  it('is true with a bare .rl-keys', () => {
+    expect(isDialogOpen()).toBe(false);
+    const scrim = document.createElement('div');
+    scrim.className = 'rl-keys';
+    document.body.appendChild(scrim);
+    expect(isDialogOpen()).toBe(true);
+  });
 });
 
 describe('confirmDialog', () => {

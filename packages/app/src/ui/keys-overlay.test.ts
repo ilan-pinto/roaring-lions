@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ACTIONS, bindingsFrom, keyLabel } from '../input/keymap';
 import { UNBOUND_KEYS, showKeysOverlay } from './keys-overlay';
 
@@ -62,5 +62,47 @@ describe('showKeysOverlay', () => {
     const { host, dispose } = mount();
     dispose();
     expect(host.childElementCount).toBe(0);
+  });
+
+  // Task 8 fix round 1 (C1): the overlay is a real dialog now. Its own
+  // capture-phase guard (mirroring `pause.ts`'s `onCaptureKey`) has to
+  // swallow every game verb before `main.ts`'s own bubble listener on
+  // `window` ever sees it -- a spy standing in for that listener is the
+  // instrument, since it is registered exactly the same way (a bare bubble
+  // `keydown` listener on `window`).
+  it('swallows every other key while open via a capture-phase guard, and releases them on dispose', () => {
+    const spy = vi.fn();
+    window.addEventListener('keydown', spy);
+    try {
+      const first = mount();
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true, cancelable: true }));
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockClear(); // Escape and the overlay's own binding are deliberately NOT stopped (see below), so each stage clears the log rather than accumulating across them.
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      expect(first.closed).toEqual([1]);
+      first.dispose();
+      spy.mockClear();
+
+      // Re-mount: the overlay's own binding -- read LIVE from `bindings()`,
+      // not hardcoded -- also closes it, and is the one key this module
+      // itself calls `preventDefault()` for (F1 is the browser's own help
+      // key, and `main.ts`'s `case 'keysOverlay':` no longer runs while this
+      // is open, so nothing else will).
+      const second = mount();
+      const ev = new KeyboardEvent('keydown', { key: 'F1', bubbles: true, cancelable: true });
+      window.dispatchEvent(ev);
+      expect(second.closed).toEqual([1]);
+      expect(ev.defaultPrevented).toBe(true);
+      second.dispose();
+      spy.mockClear();
+
+      // The guard went with the overlay: the same key that was swallowed
+      // above now reaches the spy again.
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true, cancelable: true }));
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('keydown', spy);
+    }
   });
 });
