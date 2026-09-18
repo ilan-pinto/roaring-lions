@@ -11,7 +11,8 @@
  */
 export type Action =
   | 'halt' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
-  | 'selectAll' | 'cycleChips' | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause';
+  | 'selectAll' | 'cycleChips' | 'jumpToAlert'
+  | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause';
 
 export interface ActionSpec {
   id: Action;
@@ -41,6 +42,11 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: 'mute', label: 'keymap.mute', key: 'm', rebindable: true },
   { id: 'selectAll', label: 'keymap.selectAll', key: 'a', rebindable: true, modifier: 'ctrl' },
   { id: 'cycleChips', label: 'keymap.cycleChips', key: 'tab', rebindable: false },
+  // The space bar, the one key on this table that is not a letter, a word or
+  // an arrow. It is free: h f g u o b m, ctrl+a, tab, w s a d and escape are
+  // the whole of what was taken, and space is the key a hand resting on the
+  // keyboard can reach without looking -- which is the point of an alert jump.
+  { id: 'jumpToAlert', label: 'keymap.jumpToAlert', key: 'space', rebindable: true },
   { id: 'panUp', label: 'keymap.panUp', key: 'w', rebindable: true },
   { id: 'panDown', label: 'keymap.panDown', key: 's', rebindable: true },
   { id: 'panLeft', label: 'keymap.panLeft', key: 'a', rebindable: true },
@@ -64,7 +70,15 @@ export type Bindings = Readonly<Record<Action, string>>;
 
 export const isAction = (s: string): s is Action => ACTIONS.some((a) => a.id === s);
 const spec = (id: Action): ActionSpec => ACTIONS.find((a) => a.id === id) as ActionSpec;
-const norm = (key: string): string => key.toLowerCase();
+/**
+ * `KeyboardEvent.key` for the space bar is a single SPACE character, and a
+ * binding stored as `' '` would be invisible in the Controls rows and
+ * indistinguishable from an empty one. It is stored as `'space'` and mapped
+ * here, so the event and the table agree at the one point every lookup goes
+ * through -- `resolveKey`, `rebind`, `bindingsFrom` and `keyLabel` all call
+ * this, so neither spelling can reach any of them unconverted.
+ */
+const norm = (key: string): string => (key === ' ' ? 'space' : key.toLowerCase());
 const DIGIT = /^[0-9]$/;
 const unassignable = (k: string): boolean => DIGIT.test(k) || RESERVED.has(k) || k.length === 0;
 
@@ -163,8 +177,19 @@ export function overridesOf(b: Bindings): Record<string, string> {
   return out;
 }
 
+// Keyed by the NORMALISED spelling: `keyLabel` calls `norm` first, so the `' '`
+// entry this table used to carry became unreachable the moment `norm` started
+// mapping the space bar to `'space'`, and it is replaced rather than joined.
+//
+// Disclosed because it was measured rather than assumed: the `space` entry is
+// belt-and-braces and NO test can separate it from the fallback below, which
+// capitalises any multi-character key and so returns `'Space'` for `'space'`
+// by itself. Swapping the key back to `' '` leaves every keymap spec green.
+// It stays because a table that names its own keycaps is the thing a reader
+// checks, and because the fallback is not a promise -- a future `keyLabel`
+// that stopped capitalising would take this label with it, silently.
 const LABELS: Readonly<Record<string, string>> = {
-  ' ': 'Space', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→',
+  space: 'Space', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→',
   escape: 'Esc', tab: 'Tab', enter: 'Enter', backspace: '⌫', delete: 'Del',
 };
 

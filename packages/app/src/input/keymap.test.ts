@@ -70,6 +70,27 @@ describe('keymap', () => {
     const plain = ACTIONS.filter((a) => a.modifier === undefined).map((a) => a.key);
     expect(new Set(plain).size).toBe(plain.length);
   });
+  it('jumpToAlert is bound, rebindable and free of the existing letters', () => {
+    const b = bindingsFrom({});
+    expect(b.jumpToAlert).toBe('space');
+    expect(resolveKey(b, { key: ' ', ctrlKey: false, metaKey: false })).toBe('jumpToAlert');
+    const taken = ACTIONS.filter((a) => a.key === 'space' && a.modifier === undefined);
+    expect(taken).toHaveLength(1);
+  });
+  it('a rebind onto a taken key is still refused, with the new action in the table', () => {
+    expect(rebind(bindingsFrom({}), 'jumpToAlert', 'h')).toEqual({ ok: false, takenBy: 'halt' });
+  });
+  // The space bar is the one key whose physical spelling (`' '`) and its stored
+  // spelling (`'space'`) differ, so both have to resolve and both have to
+  // label. `norm` lower-cases everything else, which leaves `' '` as `' '` --
+  // a binding table written in that spelling would be unreadable in settings
+  // and unmatched by `keyLabel`'s own `norm` call.
+  it('space resolves and labels under both its spellings', () => {
+    const b = bindingsFrom({});
+    expect(resolveKey(b, { key: 'space', ctrlKey: false, metaKey: false })).toBe('jumpToAlert');
+    expect(keyLabel('space')).toBe('Space');
+    expect(keyLabel(' ')).toBe('Space');
+  });
   it('heldAction is true while ANY physical key held resolves to that action', () => {
     const b = bindingsFrom({});
     // W and the physical Up arrow are two different keys that both mean
