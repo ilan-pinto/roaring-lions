@@ -1,8 +1,9 @@
 # Shell and HUD upgrade — design
 
 Date: 2026-09-16. Status: **Phase 0 landed on `main` 2026-09-17** (`03fad18`, visual baseline
-re-blessed at `495c1a4`); Phase 1 has no plan yet. Approved on the review's defaults by the
-project lead ("proceed with your defaults"). §10 carries the programme's status, what has landed
+re-blessed at `495c1a4`); **Phase 1 landed on `main` 2026-09-18** (`274e35b5`, fast-forward,
+no bless needed; released as v0.70.0 at `c12c16c4`); Phase 2 has no plan yet. Approved on the
+review's defaults by the project lead ("proceed with your defaults"). §10 carries the programme's status, what has landed
 beside it from other sessions, and the file boundary that lets them run in parallel. Source: the four-lens review of the menu screen and HUD
 (`.superpowers/ui-review-2026-09-16/`, synthesis and four reports; artifact
 https://claude.ai/artifact/LBdY8bdd9qAawgW61b3Bf2).
@@ -351,6 +352,25 @@ job stays red on `main` for that one self-check until someone finds what drifts.
 
 ## 10. Status, and the boundary with the sessions beside this one
 
+**Where the programme stands, 2026-09-18.** Two of the five phases are on `main`: Phase 0
+(the floor: routes-free shell on rem, plates under over-world text, the vignette and ground
+skirt, confirms, key art) and Phase 1 (the shell as an application: router and soft navigation,
+settings, keymap, pause and clock, profile slots and saves, credits, i18n with a pseudo-locale,
+colour-vision team variants, the garage, the quality preset). Landed the same day beside Phase
+1: the routes-walk CI fix (`6f08cf57`, below), and the Meshy text-to-3D CLI (`e3b5ea40`,
+`pnpm meshy`, `docs/ART_PIPELINE.md` "Meshy API") — which is what Phase 3's art pass now has
+for a base model, with Blender for everything after it, per the lead's cost rule. Not yet
+started: Phase 2 (the HUD a commander needs — alert layer, objectives, minimap control, control
+groups, range rings, chips on `unitIcon`), Phase 3 (one register: scene host, deploy as a
+decision, the garage's art pass, Blender portraits GH-153), Phase 4 (platform, unscheduled).
+Phase 2's plan is the next thing to write, and it wants the lead's answers to D-10…D-27 first
+(D-27's list of what needs a decision is the short version). CI on `main` today: `gates` and
+all three `determinism` runners green on every push; the `visual` job went red twice on
+`pnpm ui:routes` (fixed, below) and once on the `vehicle` scenario's repaint-control self-check
+(0.0004 against its 0.00036 budget — the drift Phase 0 recorded; a root-cause investigation is
+in flight and this line is updated when it lands), so the `version` job cut v0.70.0 on the
+one fully green run and skipped the rest.
+
 **Phase 0 — landed.** `feat/shell-upgrade` merged to `main` at `03fad18` (2026-09-17), eleven
 tasks each reviewed, final whole-branch review 2 Critical / 7 Important all fixed in one wave,
 full gate green locally and on CI. All four gated visual scenarios moved, as §5 said they
@@ -361,7 +381,9 @@ acceptance items are NOT met and are recorded rather than restated: the menu col
 (D-8) and, in the picture only, the plate's top-left corner (D-3's floor).
 
 **Phase 1 — landed.** `feat/shell-phase-1` at `274e35b5`, off `dea7e483` (main's
-v0.69.0 infantry-animation landing, merged in before Task 14). **Seventeen tasks** (0–16, run
+v0.69.0 infantry-animation landing, merged in before Task 14), pushed to `main` as a
+fast-forward on 2026-09-18; the spec's landing-commit fill `1744eec0` is what CI cut v0.70.0
+from. **Seventeen tasks** (0–16, run
 0–13 then 15, 16, 14 — Task 14 waited on the art session's `ThreeRenderer.ts`) and **eleven
 fix rounds** (Tasks 0, 2, 4, 5, 6, 9, 10, 11, 12, 15, 16), each task reviewed and every fix
 round re-reviewed. Final whole-branch review: 1 Critical, 10 Important, 20 Minor, closed in
@@ -424,7 +446,11 @@ a third private `clamp01` (`audio.ts`, two under `three/`). **Minor 17** — a s
 cropped at a plate's top-left by the bay zoom; the next `plates:units` run should spawn on
 emptier ground. **Minor 20** — the Pixi soft-leave WebGL leak (D-25 below), the lead's call.
 Also standing from Phase 0: the `vehicle` repaint-control self-check at 0.0004 against 0.00036,
-still not widened.
+still not widened — and now measured on CI as a coin flip: of the five `visual` runs on `main`
+on 2026-09-18 it read 0.0003 and passed on three and 0.0004 and failed on two
+(`35320650908` the latest), on identical renderer code. A root-cause hunt was dispatched the
+same day (what still animates between two zero-time `frame(1, 0)` calls in that scene); its
+outcome is recorded here when it lands.
 
 **No bless was taken, and none was needed** — see D-27.
 
