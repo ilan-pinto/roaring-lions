@@ -15,10 +15,11 @@
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
+import { closeTip } from './tooltip';
 
 /** A stand-in resolved commander, the shape `main.ts` would hand over from
  *  `commanderForMission` -- this suite is about the DOM join, not about rank
@@ -1365,6 +1366,19 @@ describe('destroy', () => {
   // shared tooltip's Escape listener on `window`, which is why `destroy()`
   // runs `tipDisposers` explicitly first.
   it('releases its tooltip even mid-hover, leaving no window listener behind', () => {
+    // Fix wave I2: `not.toThrow()` used to be the whole assertion here, and
+    // dispatching a keydown never throws whether or not anything is still
+    // listening for it -- this test could not have caught the mutation it
+    // is now named for (dropping `hide()` from `bindTip`'s disposer). It now
+    // spies on the shared listener itself. `closeTip()` first, because
+    // `tooltip.ts`'s Escape listener is a single MODULE-level singleton
+    // shared by every host in this file -- an earlier suite's hover left
+    // open (nothing else in this file calls `closeTip`) would otherwise
+    // mean `escBound` is already true before this test's own hover runs, so
+    // the `addEventListener` call below would never happen and there would
+    // be no call to find.
+    closeTip();
+
     // Other suites in this file mount a `Hud` on their own scratch `host`
     // and never destroy it (only this describe block cares to), so
     // `document.body` carries other Huds' order buttons and tips by the
@@ -1384,15 +1398,23 @@ describe('destroy', () => {
       }
       return null;
     };
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
     findIn('[data-order="halt"]')!.dispatchEvent(new Event('mouseenter'));
     expect(findIn('.rl-tip')?.hidden).toBe(false);
+    const keydownAdd = addSpy.mock.calls.find(([type]) => type === 'keydown');
+    expect(keydownAdd).toBeDefined();
+    const listener = keydownAdd![1];
+
     hud.destroy();
     // The tip is a descendant of `this.strip`, itself in `this.roots`, and
     // goes down with it -- no node left over for the next mission's HUD to
     // collide with.
     expect(roots.some((root) => document.body.contains(root))).toBe(false);
     expect(document.body.children.length).toBe(before);
-    expect(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))).not.toThrow();
+    // The SAME listener reference that went on -- proof the one the hover
+    // installed is the one that came off, not merely that something did.
+    expect(removeSpy).toHaveBeenCalledWith('keydown', listener);
   });
 });
 
