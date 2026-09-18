@@ -750,12 +750,13 @@ body {
 /* Confirm — the one dialog for anything that destroys player state       */
 /* ====================================================================== */
 
-/* `.rl-pause` (Task 6) shares this scrim -- same full-screen grid, same
-   colour-mixed dimming -- so the pause modal and a confirm stacked on top of
-   it (Restart/Quit, both confirmed before they act) read as one visual
-   system rather than two competing overlays. */
+/* `.rl-pause` (Task 6) and `.rl-keys` (Task 8, F1's overlay) share this
+   scrim -- same full-screen grid, same colour-mixed dimming -- so a pause
+   modal, a confirm stacked on top of it, and the key-bindings overlay all
+   read as one visual system rather than three competing ones. */
 .rl-confirm,
-.rl-pause {
+.rl-pause,
+.rl-keys {
   position: fixed;
   inset: 0;
   display: grid;
@@ -772,12 +773,14 @@ body {
    objectives list and a whole mounted settings table where a confirm carries
    two lines of body text. */
 .rl-confirm__panel,
-.rl-pause__panel {
+.rl-pause__panel,
+.rl-keys__panel {
   position: relative;
   pointer-events: auto;
   width: min(26rem, 92vw);
 }
-.rl-pause__panel {
+.rl-pause__panel,
+.rl-keys__panel {
   width: min(40rem, 94vw);
   max-height: 88vh;
   overflow: auto;
@@ -964,6 +967,60 @@ body {
   max-height: 70vh;
   overflow: auto;
   z-index: 20;
+}
+
+/* ====================================================================== */
+/* Keys overlay (ui/keys-overlay.ts) — F1, every binding from one table    */
+/* ====================================================================== */
+
+.rl-keys__close {
+  display: block;
+  margin: 0 0 var(--s2) auto;
+}
+.rl-keys__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+/* The four fixed rows share every rule below with an ordinary row -- only
+   the selector differs, so `keys-overlay.test.ts` can count `.rl-keys__row`
+   and `.rl-keys__row--fixed` as two disjoint sets from the same markup. */
+.rl-keys__row,
+.rl-keys__row--fixed {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s3);
+  padding-block: var(--s1);
+  /* Same colour-mixed hairline `.rl-obj`/`.rl-pause__obj` use. */
+  border-block-end: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); /* px-ok */
+}
+/* Every row in this list is an <li>, so `:last-of-type` scoped to either
+   class alone would match the last li carrying THAT class -- wrongly leaving
+   a hairline under the last plain row, since a fixed row follows it. Plain
+   `:last-child` on the list's own children is what actually reaches the one
+   row with nothing below it. */
+.rl-keys__list > li:last-child {
+  border-block-end: 0;
+}
+/* The fixed rows sit in their own block below the table, visually set apart
+   by being dimmer -- they are real bindings, not a lesser kind of row, but
+   they are not what a rebind in Settings can touch, and that distinction is
+   worth reading at a glance. */
+.rl-keys__row--fixed .rl-keys__label {
+  color: var(--ink-mute);
+}
+.rl-keys__label {
+  color: var(--ink-dim);
+}
+.rl-keys__cap {
+  flex: none;
+  font-family: var(--font-mono);
+  color: var(--ink);
+  white-space: nowrap;
 }
 
 /* ====================================================================== */

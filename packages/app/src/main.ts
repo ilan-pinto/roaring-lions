@@ -87,6 +87,7 @@ import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
+import { showKeysOverlay } from './ui/keys-overlay';
 import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
@@ -2364,6 +2365,39 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     hud.setObjectivesOpen(true);
   };
 
+  // Task 8: F1's overlay -- every binding from the same `ACTIONS` table
+  // `settings-keymap.ts` renders. Unlike the tracker above, `showKeysOverlay`
+  // hands back its own `Disposer` rather than a hide/show handle (`ui/
+  // credits.ts`'s `showCredits` is the other caller of that shape): the
+  // overlay's own row list is read once at mount from the live `bindings`
+  // closure below, so there is nothing to refresh while it sits open, and a
+  // second F1 tearing it down and a fresh mount rebuilding it costs nothing a
+  // hide/show toggle would have saved. `closeKeysOverlay` is idempotent and
+  // is what `onClose` (Escape, the scrim, the close button) calls, so there
+  // is exactly one way this ever closes, same rule as `closeObjectives`.
+  let keysOverlayDispose: Disposer | null = null;
+  const closeKeysOverlay = (): void => {
+    if (!keysOverlayDispose) return;
+    const dispose = keysOverlayDispose;
+    keysOverlayDispose = null;
+    dispose();
+  };
+  const toggleKeysOverlay = (): void => {
+    if (keysOverlayDispose) {
+      closeKeysOverlay();
+      return;
+    }
+    keysOverlayDispose = showKeysOverlay(document.body, {
+      bindings: () => bindings,
+      onClose: closeKeysOverlay,
+    });
+  };
+  // Mirrors `pauseHandle`'s own `onDispose(() => pauseHandle?.close());`
+  // below: registered ONCE, not on every open, since `closeKeysOverlay` is
+  // idempotent and reads `keysOverlayDispose` by reference rather than
+  // capturing a particular mount.
+  onDispose(() => closeKeysOverlay());
+
   const hud = new Hud(document.body, {
     sim,
     getSelection: () => renderer.selection,
@@ -3069,6 +3103,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           hud.note(t('hud.jump.nothing'), 'mute');
         }
         break;
+      case 'keysOverlay':
+        // F1 is the browser's own help key everywhere else on the page --
+        // always swallowed, whether or not this toggle actually opens
+        // anything. Blocked over the pause menu by the handler-wide guard
+        // above (`isDialogOpen()`, `keysOverlay` is not a pan), the same way
+        // every other verb in this switch already is; a second F1 while open
+        // closes it, since `toggleKeysOverlay` is a toggle.
+        ev.preventDefault();
+        toggleKeysOverlay();
+        break;
       case 'mute':
         audioMuted = audio.toggle();
         hud.paintMute(); // the key and the strip's chip are one state, both ways
@@ -3424,6 +3468,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // to be pushed, and once every objective resolves the strip's
             // own button (its only other way to close) vanishes.
             closeObjectives();
+            // Task 8: same reasoning as the tracker above -- F1 is independent
+            // of `paused` too, and left open it would render over the end
+            // screen about to be pushed.
+            closeKeysOverlay();
             screenDisposers.push(
               showEndScreen(document.body, {
                 result: me.result,

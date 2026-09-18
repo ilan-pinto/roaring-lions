@@ -11,7 +11,7 @@
  */
 export type Action =
   | 'halt' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
-  | 'selectAll' | 'cycleChips' | 'jumpToAlert'
+  | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay'
   | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause';
 
 export interface ActionSpec {
@@ -47,6 +47,13 @@ export const ACTIONS: readonly ActionSpec[] = [
   // the whole of what was taken, and space is the key a hand resting on the
   // keyboard can reach without looking -- which is the point of an alert jump.
   { id: 'jumpToAlert', label: 'keymap.jumpToAlert', key: 'space', rebindable: true },
+  // F1 is the browser's own help key everywhere else on the page, and free
+  // here: h f g u o b m, ctrl+a, tab, space, w s a d and escape are the whole
+  // of what was taken. `unassignable` only refuses digits, the four arrows
+  // and the empty string, so f1 is also a legal REBIND target for something
+  // else -- there is nothing about a function key that this table treats
+  // specially.
+  { id: 'keysOverlay', label: 'keymap.keysOverlay', key: 'f1', rebindable: true },
   { id: 'panUp', label: 'keymap.panUp', key: 'w', rebindable: true },
   { id: 'panDown', label: 'keymap.panDown', key: 's', rebindable: true },
   { id: 'panLeft', label: 'keymap.panLeft', key: 'a', rebindable: true },

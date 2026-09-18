@@ -139,6 +139,19 @@ describe('keymap', () => {
     });
   });
 
+  // Task 8: F1 is free -- h f g u o b m, ctrl+a, tab, space, w s a d and
+  // escape are the whole of what was taken -- and `unassignable` only
+  // refuses digits, the four arrows and the empty string, so f1 is also a
+  // legal REBIND target for something else.
+  it('keysOverlay is bound to f1 and rebindable', () => {
+    const b = bindingsFrom({});
+    expect(b.keysOverlay).toBe('f1');
+    expect(resolveKey(b, { key: 'F1', ctrlKey: false, metaKey: false })).toBe('keysOverlay');
+    const taken = ACTIONS.filter((a) => a.key === 'f1' && a.modifier === undefined);
+    expect(taken).toHaveLength(1);
+    expect(rebind(b, 'keysOverlay', 'j').ok).toBe(true);
+  });
+
   it('heldAction is true while ANY physical key held resolves to that action', () => {
     const b = bindingsFrom({});
     // W and the physical Up arrow are two different keys that both mean
