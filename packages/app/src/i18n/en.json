@@ -282,6 +282,7 @@
   "hud.fire.holdingFire": "{n} holding fire",
   "hud.fire.unidentified": "{n} unidentified",
 
+  "hud.idle.none": "no unit is idle right now",
   "hud.jump.nothing": "nothing has happened worth jumping to yet",
   "hud.mute.muted": "audio muted",
   "hud.mute.unmuted": "audio on",
@@ -342,6 +343,7 @@
   "keymap.cycleChips": "Cycle the selection chips",
   "keymap.jumpToAlert": "Jump to the last alert",
   "keymap.keysOverlay": "Show every key binding",
+  "keymap.idleNext": "Select the next idle unit",
   "keymap.panUp": "Pan up",
   "keymap.panDown": "Pan down",
   "keymap.panLeft": "Pan left",

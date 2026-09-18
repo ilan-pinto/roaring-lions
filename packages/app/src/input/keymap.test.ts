@@ -152,6 +152,19 @@ describe('keymap', () => {
     expect(rebind(b, 'keysOverlay', 'j').ok).toBe(true);
   });
 
+  // Task 11: i is free -- h f g u o b m, ctrl+a, tab, space, f1, w s a d and
+  // escape are the whole of what was taken -- and `unassignable` only refuses
+  // digits, the four arrows and the empty string, so i is also a legal
+  // REBIND target for something else.
+  it('idleNext is bound to i and rebindable', () => {
+    const b = bindingsFrom({});
+    expect(b.idleNext).toBe('i');
+    expect(resolveKey(b, { key: 'I', ctrlKey: false, metaKey: false })).toBe('idleNext');
+    const taken = ACTIONS.filter((a) => a.key === 'i' && a.modifier === undefined);
+    expect(taken).toHaveLength(1);
+    expect(rebind(b, 'idleNext', 'j').ok).toBe(true);
+  });
+
   it('heldAction is true while ANY physical key held resolves to that action', () => {
     const b = bindingsFrom({});
     // W and the physical Up arrow are two different keys that both mean

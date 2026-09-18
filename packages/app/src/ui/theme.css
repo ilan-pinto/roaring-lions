@@ -1613,6 +1613,65 @@ body {
   z-index: 5;
 }
 
+/* --- the control-group bar (Task 11) ----------------------------------- */
+
+/* Stacked directly above the minimap and sharing its right edge and width, so
+   a slot chip is never more than a glance from the panel it recalls into and
+   the bar never competes with the centred selection cluster or the
+   bottom-left reinforcements dock for room. Capped at --minimap wide rather
+   than left free to grow: that is the exact band the cluster's own max-width
+   calc already treats as spoken for on this side, so a full row of nine
+   wraps onto more rows (growing upward, since the box is anchored by
+   `bottom`) instead of reaching past it. Furniture over a live battlefield
+   like the strip and the dock -- only the chips themselves take the
+   pointer. */
+.rl-group-bar {
+  position: absolute;
+  right: var(--s2);
+  bottom: calc(var(--minimap) + var(--s2) * 2);
+  width: var(--minimap);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s1);
+  pointer-events: none;
+  z-index: 5;
+}
+.rl-group {
+  box-sizing: border-box;
+  width: 2.5rem;
+  padding: var(--s1);
+  background: var(--tile-bg);
+  border: 1px solid var(--panel-frame);
+  color: var(--ink);
+  font-family: var(--font-body);
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1875rem;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.rl-group:hover,
+.rl-group:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+.rl-group__slot {
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  line-height: 1;
+}
+.rl-group__count {
+  font-size: var(--t-s);
+  color: var(--ink-dim);
+  line-height: 1;
+}
+.rl-group .rl-track {
+  width: 100%;
+}
+
 /* --- the selection cluster (GH-153 slice 2) --------------------------- */
 
 /* Bottom centre, on the same x as the feed and the hint, because it REPLACES
