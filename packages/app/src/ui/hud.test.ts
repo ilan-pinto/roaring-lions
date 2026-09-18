@@ -13,6 +13,8 @@
 //   - a field that would report nothing (`0 pinned`, `+0 secondary`) is absent
 //     rather than present and empty.
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
@@ -183,12 +185,23 @@ describe('top strip', () => {
     expect(roeClass(20)).toBe('rl-bad');
   });
 
+  // Task 7: this used to be a bare `title=`, which a touch player and a
+  // keyboard user could never reach. `data-tip="conduct"` is delegated on
+  // `this.strip` (`bindDelegatedTip`, not one bound per field, since the
+  // strip is innerHTML'd at 4 Hz), so a real hover event -- bubbled, the way
+  // a browser's own would be -- has to reach `.rl-tip` for the definition to
+  // show at all.
   it('labels the figure Conduct, never ROE, and defines it on hover', () => {
     const r = rig(mission({ roe: 95 }));
     expect(r.strip()).toContain('95 Conduct');
     expect(r.strip()).not.toContain('ROE');
-    const figure = r.host.querySelector('[data-roe]')!;
-    expect(figure.closest('[title]')?.getAttribute('title')).toContain('how cleanly you fight');
+    const figure = r.host.querySelector<HTMLElement>('[data-tip="conduct"]')!;
+    expect(figure.querySelector('[data-roe]')).not.toBeNull();
+    expect(figure.hasAttribute('title')).toBe(false);
+    figure.dispatchEvent(new Event('mouseover', { bubbles: true }));
+    const tip = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toContain('how cleanly you fight');
   });
 
   it('shows ⚑ broken and ▼ pinned only when there are some', () => {
@@ -227,6 +240,31 @@ describe('top strip', () => {
 
   it('drops the rate when the mission pays none, rather than printing +0/min', () => {
     expect(rig(mission({ logistics: 410, logisticsRate: 0 })).strip()).not.toContain('/min');
+  });
+
+  // Task 7: Logistics, Intel, Pinned and Broken -- the strip's four other
+  // fields never had a `title` at all, and each is a state a player sees
+  // before they have a name for it. All four are delegated on the SAME
+  // `this.strip` listener as Conduct above, so one hover call proves the
+  // whole set rather than just the first one bound.
+  it('explains logistics, intel, pinned and broken on hover, with none of them a bare title', () => {
+    const r = rig(mission({ logistics: 410, logisticsRate: 120, intel: 40 }));
+    r.sim.state.pinned[r.ids[0]] = 1;
+    r.sim.state.routed[r.ids[1]] = 1;
+    r.sim.state.pinned[r.ids[1]] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+
+    const hover = (sel: string): string => {
+      const el = r.host.querySelector<HTMLElement>(sel)!;
+      expect(el.hasAttribute('title')).toBe(false);
+      el.dispatchEvent(new Event('mouseover', { bubbles: true }));
+      return r.host.querySelector<HTMLElement>('.rl-tip')!.textContent!;
+    };
+    expect(hover('[data-tip="logistics"]')).toContain('spent to build reinforcements');
+    expect(hover('[data-tip="logistics"]')).toContain('120 more a minute');
+    expect(hover('[data-tip="intel"]')).toContain('fire support');
+    expect(hover('[data-tip="pinned"]')).toContain('suppressed');
+    expect(hover('[data-tip="broken"]')).toContain('routed');
   });
 });
 
@@ -723,11 +761,12 @@ describe('multi-select chips', () => {
     expect(r.hud.cycleChipFocus()).toBe(false);
   });
 
-  it('puts the name in its own element so a long one ellipses', () => {
-    // A 150px chip is narrower than several shipped unit names, and
-    // `text-overflow` does nothing to a flex CONTAINER's own text — the name
-    // has to be an element of its own or it is simply cut, which reads as a
-    // truncated field rather than a long name.
+  it('puts the name in its own element so a long one can wrap without cutting', () => {
+    // A 150px chip is narrower than several shipped unit names. Task 7 widened
+    // `--chip-w` and let this span wrap instead of ellipsising (theme.css's
+    // own `.rl-chip__name > span`, pinned below), but the name still has to
+    // be an element of its own for either rule to have anything to act on —
+    // `text-overflow`/wrapping does nothing to a flex CONTAINER's own text.
     const world = makeForce();
     const r = clusterRig(() => [...world.squads, world.at], {}, world);
     const name = r.chips()[0].querySelector('.rl-chip__name')!;
@@ -749,6 +788,23 @@ describe('multi-select chips', () => {
     world.sim.state.alive[world.at] = 0;
     for (let i = 0; i < 5; i++) r.tick();
     expect(r.chips().map((c) => c.dataset.type)).toEqual(['inf_squad']);
+  });
+
+  // Task 7: `title` used to carry the name; it is a bound tip now, delegated
+  // on `this.cluster` (`bindDelegatedTip`) since the chip row is innerHTML'd
+  // at 4 Hz the same way the strip is. `mouseover` (not `mouseenter`, which
+  // does not bubble) dispatched on a descendant proves the delegation, not
+  // merely a listener on the chip itself.
+  it('names the unit and its count in a real tooltip, not a bare title', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [...world.squads, world.at, world.namer], {}, world);
+    const chip = r.chips()[0];
+    expect(chip.hasAttribute('title')).toBe(false);
+    chip.querySelector('.rl-chip__name > span')!.dispatchEvent(new Event('mouseover', { bubbles: true }));
+    const tip = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toContain('Rifle Squad');
+    expect(tip.textContent).toContain('×2');
   });
 });
 
@@ -1017,6 +1073,49 @@ describe('the order row', () => {
     // The card still draws: the player asked what that thing is.
     expect(r.host.querySelector('.rl-card')).not.toBeNull();
   });
+
+  // Task 7: `btn.title` is gone -- every order button is bound once, directly
+  // (`bindTip`, not delegated: the row is built once and only repainted), so
+  // a plain `mouseenter` on the button itself is enough to show it.
+  it('explains what the order does in a real tooltip, not a bare title', () => {
+    const world = makeForce();
+    const r = clusterRig(() => world.squads, {}, world);
+    const btn = r.order('attackMove')!;
+    expect(btn.hasAttribute('title')).toBe(false);
+    btn.dispatchEvent(new Event('mouseenter'));
+    const tip = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tip.hidden).toBe(false);
+    expect(tip.textContent).toContain('Attack-move');
+    expect(tip.textContent).toContain('engaging anything in the way');
+  });
+
+  it('says why an inert order would do nothing, in the same tooltip', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    const btn = r.order('unload')!;
+    expect(btn.dataset.inert).toBe('1');
+    btn.dispatchEvent(new Event('mouseenter'));
+    const tip = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tip.textContent).toContain('Step out of the transport');
+    expect(tip.textContent).toContain('nothing in the selection would act on it right now');
+  });
+
+  it('drops the inert reason once the order stops being inert', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    for (const s of world.squads) {
+      world.sim.state.posX[s] = world.sim.state.posX[world.namer];
+      world.sim.state.posY[s] = world.sim.state.posY[world.namer];
+    }
+    world.sim.queueCommand({ kind: 'load', ids: world.squads, carrier: world.namer });
+    world.sim.tick();
+    for (let i = 0; i < 5; i++) r.tick();
+    const btn = r.order('unload')!;
+    expect(btn.dataset.inert).toBe('0');
+    btn.dispatchEvent(new Event('mouseenter'));
+    const tip = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tip.textContent).not.toContain('nothing in the selection would act on it right now');
+  });
 });
 
 describe('victory banner', () => {
@@ -1157,5 +1256,29 @@ describe('top strip: the objectives control', () => {
     hud.setObjectivesOpen(false);
     for (let i = 0; i < 10; i++) hud.onTick();
     expect(btn()?.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('the chip name slot', () => {
+  // jsdom computes no stylesheet, so -- the shape `brigade.test.ts`'s "the
+  // garage type floor" established for its own reading ladder -- this reads
+  // `theme.css` back off disk rather than asking a computed style for a rule
+  // no rendering engine here applies.
+  //
+  // Falsified by hand: putting `text-overflow: ellipsis` back on this rule
+  // turns it red.
+  it('lets the name wrap instead of ellipsising', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
+    let found = false;
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1].replace(/\/\*[\s\S]*?\*\//g, '').trim();
+      if (selector !== '.rl-chip__name > span') continue;
+      found = true;
+      const textOverflow = /text-overflow\s*:\s*([^;]+);/.exec(rule[2]);
+      expect(textOverflow?.[1].trim()).not.toBe('ellipsis');
+    }
+    // A selector that stopped matching (a rename, a merge into another rule)
+    // would otherwise report zero offenders forever.
+    expect(found).toBe(true);
   });
 });

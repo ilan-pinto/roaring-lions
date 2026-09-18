@@ -527,4 +527,28 @@ describe('destroy', () => {
     dock.destroy();
     expect(document.body.children.length).toBe(before);
   });
+
+  // Task 7: the dock's tooltip moved onto the shared `bindTip`, whose
+  // Escape handling lives on `window`, not on `this.el` -- the one listener
+  // `Element.remove()` cannot take down by itself. This is what proves the
+  // disposers `destroy()` now runs actually release it, rather than merely
+  // detaching the DOM node the app never happened to query again.
+  it('releases its tooltip even mid-hover, leaving no window listener behind', () => {
+    document.body.replaceChildren();
+    const dock = new ReinforcementDock(document.body, {
+      units: [dockUnit()],
+      runtime: fakeRuntime(),
+      note: () => {},
+      onArm: () => {},
+    });
+    const tile = document.body.querySelector<HTMLButtonElement>('[data-unit="inf_squad"]')!;
+    hover(tile);
+    expect(document.body.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(false);
+    dock.destroy();
+    // The tip is a descendant of `this.el` and goes down with it -- no node
+    // left over for a later dock's tip to collide with.
+    expect(document.body.querySelector<HTMLElement>('.rl-tip')).toBeNull();
+    // And nothing throws reaching for a tile, or a tip, that is gone.
+    expect(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))).not.toThrow();
+  });
 });
