@@ -947,6 +947,21 @@ body {
   font-size: var(--t-s);
   color: var(--commend);
 }
+/* Task 6: the in-mission tracker mounted straight onto `document.body` behind
+   the strip's own toggle. `.rl-obj-panel` alone carries no width (task-5
+   review) -- right for the briefing's inline mount, which fills its own
+   column, and for the pause tab, which fills its tab body, but wrong for a
+   popover with no container to fill. Reuses `.rl-pause__panel`'s own figure
+   rather than inventing a second one. */
+.rl-obj-panel--tracker {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s3));
+  right: var(--s3);
+  width: min(40rem, 94vw);
+  max-height: 70vh;
+  overflow: auto;
+  z-index: 20;
+}
 
 /* ====================================================================== */
 /* Semantic ink — the only way UI code names a colour                     */
@@ -1212,6 +1227,34 @@ body {
 }
 .rl-strip__link:hover {
   color: var(--accent);
+}
+/* Task 6: the strip's own open-the-tracker control -- the same chip chrome
+   `.rl-strip__chip` wears, since it lives in the same right-hand instrument
+   cluster and reads as one family with the speed/mute chips beside it. One
+   button, not two: it used to be two `.rl-dim` spans (`+N primary`,
+   `+N secondary`), and two controls that open the same panel are two answers
+   to one question. */
+.rl-strip__more {
+  border: 1px solid var(--panel-frame);
+  color: var(--ink-dim);
+  background: none;
+  padding: 0 0.5rem;
+  font: inherit;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.rl-strip__more:hover,
+.rl-strip__more:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* `Hud.setObjectivesOpen` writes this on the strip itself, not on the button
+   -- the button's own element is torn down and rebuilt at 4 Hz
+   (`renderStrip`), so nothing but a persistent ancestor can carry state
+   across a rebuild. */
+.rl-strip[data-open='1'] .rl-strip__more {
+  border-color: var(--live);
+  color: var(--live);
 }
 
 /* --- hold clock ------------------------------------------------------- */

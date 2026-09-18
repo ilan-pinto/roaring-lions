@@ -86,7 +86,7 @@ import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccou
 import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
-import type { ObjectiveRow } from './ui/objectives';
+import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
 import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
@@ -2308,6 +2308,39 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // for an attempt that no longer exists.
   let missionEnded = false;
 
+  // Task 6: the in-mission objective tracker -- the strip's own `+N` control
+  // is the only caller. One `objectivesPanel`, mounted lazily on
+  // `document.body` (not the stage: like the HUD and the minimap, it has to
+  // survive a soft leave on its own, hence the disposer registered the
+  // moment it exists) the first time this runs, and toggled open/closed on
+  // every call after that -- `hud.ts`'s own doc comment on `openObjectives`
+  // describes exactly this shape. Declared before `hud` for the same reason
+  // `orders` above references `dispatch` (declared far later in this same
+  // function): the closure only RUNS on a later click, long after every
+  // `const` below it has initialized.
+  let objectivesHandle: { el: HTMLElement; refresh(): void; dispose: Disposer } | null = null;
+  let objectivesOpen = false;
+  const openObjectives = (): void => {
+    if (!objectivesHandle) {
+      objectivesHandle = objectivesPanel(document.body, {
+        // A closure, not a snapshot, exactly like `rosterEntryOf` below --
+        // `runtime` does not exist yet on every path this function can run.
+        rows: () => runtime?.objectiveList ?? [],
+        paysCredits,
+      });
+      objectivesHandle.el.classList.add('rl-obj-panel--tracker');
+      objectivesHandle.el.hidden = true;
+      onDispose(() => objectivesHandle?.dispose());
+    }
+    objectivesOpen = !objectivesOpen;
+    objectivesHandle.el.hidden = !objectivesOpen;
+    // Refreshed on the way IN, not the way out -- a closed tracker never
+    // paints again until it is reopened, and the tick loop below only calls
+    // `refresh()` again while `objectivesOpen` stays true.
+    if (objectivesOpen) objectivesHandle.refresh();
+    hud.setObjectivesOpen(objectivesOpen);
+  };
+
   const hud = new Hud(document.body, {
     sim,
     getSelection: () => renderer.selection,
@@ -2349,6 +2382,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before it, a soft leave left the HUD, the minimap and the frame loop
     // running over whatever screen came next.
     leave: () => req.navigate(routes.campaign()),
+    openObjectives,
   });
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
@@ -2372,6 +2406,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     hud.paintSpeed();
     pauseHandle = pauseMenu(document.body, {
       objectives: () => runtime?.objectiveList ?? [],
+      paysCredits,
       onResume: resume,
       // Fix round 1: read from `bindings` (declared below, closed over --
       // safe, since this only runs from a captured keydown, long after
@@ -3446,6 +3481,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     minimap.onTick();
     overlay.onTick(events);
     if (production && sim.tickCount % 5 === 0) production.refresh();
+    // Task 6: the same 4 Hz cadence `production.refresh()` above already uses
+    // (Hud.onTick's own throttle, `tickN % 5`, is private -- this mirrors it
+    // rather than reaching for it), and ONLY while the tracker is open: a
+    // closed popover costs nothing, since `openObjectives` itself already
+    // refreshed it once on the way in.
+    if (objectivesOpen && sim.tickCount % 5 === 0) objectivesHandle?.refresh();
     // The safety net under roster-driven mesh loading, once a second.
     //
     // `missionUnitTypes` reads the mission JSON and `sandboxUnitTypes` reads

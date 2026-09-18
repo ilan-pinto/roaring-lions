@@ -184,6 +184,13 @@ export interface HudDeps {
    *  navigation, because a mission's teardown does not exist yet; absent in
    *  tests that do not exercise the click. */
   leave?: () => void;
+  /** Task 6: opens (or, on a second call, closes) the in-mission objective
+   *  tracker -- the strip's `+N` control is the one thing on this bar that
+   *  reads the mission's FULL objective list rather than the one primary
+   *  `renderStrip` already stamps inline. `main.ts` mounts the shared
+   *  `objectivesPanel` lazily behind this call; absent in tests that do not
+   *  exercise the click, which is the same as the control doing nothing. */
+  openObjectives?: () => void;
 }
 
 export class Hud {
@@ -298,6 +305,21 @@ export class Hud {
     right.className = 'rl-strip__right rl-strip__gap';
     right.appendChild(this.stripInfo);
     this.strip.append(mark, this.stripBody, right);
+
+    // Delegated, once, here -- exactly the lesson `stripBody`'s own three-run
+    // comment above already records for the speed chips and the mute toggle,
+    // and the same fix `this.cluster`'s click listener below applies for the
+    // selection chips: `renderStrip` innerHTMLs `stripBody` at 4 Hz (task 6),
+    // so a listener bound to the `.rl-strip__more` button ITSELF would be
+    // dropped on the very next rebuild and the first click would land only if
+    // it beat that rebuild. Bound on `this.strip`, which is never replaced,
+    // the listener outlives every rebuild the button underneath it goes
+    // through.
+    this.strip.addEventListener('click', (ev) => {
+      const btn = (ev.target as HTMLElement | null)?.closest('[data-open-objectives]');
+      if (!btn) return;
+      this.deps.openObjectives?.();
+    });
 
     // Speed. Rendered even where the frame loop has not wired it, because a
     // strip that grows a control the moment a dependency appears is a strip
@@ -690,6 +712,17 @@ export class Hud {
     this.speedCluster.dataset.paused = this.deps.isPaused?.() ? '1' : '0';
   }
 
+  /** Task 6: paints the strip's own knowledge of the in-mission tracker's
+   *  open/closed state via `data-open` on `this.strip` -- `main.ts` calls this
+   *  from `openObjectives`'s own toggle, since the control's element is
+   *  rebuilt at 4 Hz (`renderStrip`) and cannot hold that state itself the
+   *  way a persistent button's own `dataset` would. CSS reads it to mark the
+   *  control while the panel is up, the same pattern `paintSpeed` already
+   *  uses for the speed chips. */
+  setObjectivesOpen(open: boolean): void {
+    this.strip.dataset.open = open ? '1' : '0';
+  }
+
   /** Mission-level narration — objectives, triggers, waves, refusals. */
   note(html: string, tone: Tone = 'live'): void {
     const el = document.createElement('div');
@@ -862,11 +895,19 @@ export class Hud {
             `${deadline.objective.text}</span>`
         );
       }
-      if (primaryOpen > 0) {
-        rows.push(`<span class="rl-dim">${t('hud.strip.primaryOpen', { n: primaryOpen })}</span>`);
-      }
-      if (secondaryOpen > 0) {
-        rows.push(`<span class="rl-dim">${t('hud.strip.secondaryOpen', { n: secondaryOpen })}</span>`);
+      // Task 6: the two `+N` counts above (primaries/secondaries the inline
+      // fields do not already name) collapse into ONE control -- two buttons
+      // that open the same tracker would be two answers to one question. It
+      // is a control to open the FULL list, not merely a display of the extra
+      // counts, so it shows whenever the mission has anything open at all
+      // (including the one primary already stamped inline above): "nothing
+      // left open" -- every objective complete or failed -- is the one case
+      // with no control at all, never a disabled one.
+      if (m.objectives.some((o) => o.status === 'active')) {
+        rows.push(
+          `<button type="button" class="rl-strip__more" data-open-objectives>` +
+            `${t('hud.strip.open', { primary: primaryOpen, secondary: secondaryOpen })}</button>`
+        );
       }
     } else {
       /* i18n-ok: proper noun */
