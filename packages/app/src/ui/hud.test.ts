@@ -1106,3 +1106,36 @@ describe('destroy', () => {
     foreign.remove();
   });
 });
+
+// Task 6: the strip's `+N` counts, collapsed into one button that opens the
+// in-mission tracker (`main.ts`'s `objectivesPanel` popover).
+describe('top strip: the objectives control', () => {
+  it('the +N counts are a button, and clicking one opens the tracker', () => {
+    const opened: number[] = [];
+    const { hud, host } = rig(mission(), { openObjectives: () => opened.push(1) }); // hud.test.ts:66, :93
+    hud.onTick();
+    const btn = host.querySelector<HTMLButtonElement>('.rl-strip__more');
+    expect(btn).not.toBeNull();
+    expect(btn?.tagName).toBe('BUTTON');
+    btn?.click();
+    expect(opened).toEqual([1]);
+  });
+
+  it('with nothing left open there is no control at all, not a disabled one', () => {
+    const { hud, host } = rig(mission({ objectives: [{ id: 'a', text: 'Done', primary: true, status: 'complete' }] }));
+    hud.onTick();
+    expect(host.querySelector('.rl-strip__more')).toBeNull();
+  });
+
+  // `renderStrip` innerHTMLs `stripBody` four times a second (hud.ts:894). A
+  // listener bound to the button itself would be dropped 4 Hz and the first
+  // click would land only if it beat the next rebuild.
+  it('the control survives a rebuild -- the click is delegated', () => {
+    const opened: number[] = [];
+    const { hud, host } = rig(mission(), { openObjectives: () => opened.push(1) });
+    hud.onTick();
+    for (let i = 0; i < 10; i++) hud.onTick();
+    host.querySelector<HTMLButtonElement>('.rl-strip__more')?.click();
+    expect(opened).toEqual([1]);
+  });
+});

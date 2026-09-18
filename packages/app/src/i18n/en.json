@@ -242,8 +242,7 @@
   "role.support": "support",
 
   "hud.strip.conduct": "Conduct",
-  "hud.strip.primaryOpen": "+{n} primary",
-  "hud.strip.secondaryOpen": "+{n} secondary",
+  "hud.strip.open": "Objectives{primary, plural, =0 {} other { +{primary} primary}}{secondary, plural, =0 {} other { +{secondary} secondary}}",
   "hud.strip.logistics": "logistics",
   "hud.strip.intel": "intel",
   "hud.strip.rate": "+{n}/min",

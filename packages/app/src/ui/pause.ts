@@ -62,20 +62,26 @@
  * calls `stopPropagation`/`stopImmediatePropagation` before branching on
  * `ev.key === 'Escape'`, so nothing needed to change there.
  */
-import type { ObjectiveStatus } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
-import { objectiveStatusLabel } from './objective-status';
+import { objectivesPanel, type ObjectiveRow } from './objectives';
 import { panel } from './panel';
 import { settingsPanel, type SettingsDeps } from './settings-panel';
 
 export interface PauseDeps {
-  /** `MissionRuntime.objectiveList`'s own shape, narrowed to what this menu
-   *  draws. `status` is the sim's `ObjectiveStatus` union rather than a bare
-   *  `string` (I10): `objectiveStatusLabel` maps it to catalogue text, and a
-   *  fourth status the sim adds should be a compile error here rather than a
-   *  key that renders as itself. */
-  objectives(): readonly { text: string; primary: boolean; status: ObjectiveStatus }[];
+  /** `MissionRuntime.objectiveList`'s own shape -- a structural superset of
+   *  `ObjectiveRow`, so it is passed straight through with no adapter. Task 6
+   *  widened this from a narrowed `{ text, primary, status }[]`: the tab now
+   *  mounts the SAME shared panel `objectives.ts` builds (R-7, one component,
+   *  three mounts) rather than its own `<ol>`, and that panel wants `id` (for
+   *  its own row keys) and `carries` (to know which secondaries to name a
+   *  reward for) too. */
+  objectives(): readonly ObjectiveRow[];
+  /** Whether this mission pays credits at all -- threaded straight through to
+   *  the shared panel's own `paysCredits` (see `objective-reward.ts`'s own
+   *  header for why that is a caller-supplied boolean rather than something
+   *  this module derives). */
+  paysCredits: boolean;
   onResume(): void;
   /** The caller confirms before actually restarting. */
   onRestart(): void;
@@ -139,30 +145,14 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   p.body.appendChild(tabs);
 
   // --- objectives pane -----------------------------------------------------
-  // Read once at mount: nothing ticks while paused (that is the whole point
-  // of `clock.ts`'s `paused` input), so the list cannot go stale under the
-  // player while this menu is up.
-  const list = document.createElement('ol');
-  list.className = 'rl-pause__list';
-  const sorted = [...deps.objectives()].sort((a, b) => Number(b.primary) - Number(a.primary));
-  for (const o of sorted) {
-    const li = document.createElement('li');
-    li.className = 'rl-pause__obj';
-    if (o.primary) li.dataset.primary = '1';
-    const text = document.createElement('span');
-    text.className = 'rl-pause__obj-text';
-    text.textContent = o.text;
-    const status = document.createElement('span');
-    status.className = 'rl-pause__obj-status';
-    // I10: `o.status` is the SIM's enum ('active' | 'complete' | 'failed').
-    // Printed raw it stayed English in every locale and read unbracketed under
-    // `?pseudo=1`. `objectiveStatusLabel` is shared with `main.ts`'s HUD notice
-    // so the two cannot drift apart.
-    status.textContent = objectiveStatusLabel(o.status);
-    li.append(text, status);
-    list.appendChild(li);
-  }
-  p.body.appendChild(list);
+  // The shared panel (R-7: one component, three mounts) rather than this
+  // tab's own list -- `deps.objectives` is read fresh on every `refresh()`,
+  // but nothing here ever calls it: nothing ticks while paused (that is the
+  // whole point of `clock.ts`'s `paused` input), so the one paint the panel
+  // does at mount cannot go stale under the player while this menu is up.
+  // Appends itself to `p.body` in mount order, exactly where the old `<ol>`
+  // used to sit -- between the tabs and the settings pane.
+  const objPanel = objectivesPanel(p.body, { rows: deps.objectives, paysCredits: deps.paysCredits });
 
   // --- settings pane: mounted lazily, on first open, and kept -------------
   const settingsPane = document.createElement('div');
@@ -171,7 +161,7 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
   let mountedSettings: { el: HTMLElement; dispose: Disposer } | null = null;
 
   const showTab = (tab: Tab): void => {
-    list.hidden = tab !== 'objectives';
+    objPanel.el.hidden = tab !== 'objectives';
     settingsPane.hidden = tab !== 'settings';
     objTabBtn.dataset.on = tab === 'objectives' ? '1' : '0';
     setTabBtn.dataset.on = tab === 'settings' ? '1' : '0';
@@ -205,6 +195,7 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('keydown', onCaptureKey, true);
     mountedSettings?.dispose();
+    objPanel.dispose();
     scrim.remove();
     opener?.focus();
   };

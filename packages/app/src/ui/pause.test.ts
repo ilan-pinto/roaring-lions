@@ -10,9 +10,10 @@ import { keymapRows } from './settings-keymap';
 function deps() {
   return {
     objectives: () => [
-      { text: 'Take the crossroads', primary: true, status: 'active' as const },
-      { text: 'Lose no one', primary: false, status: 'failed' as const },
+      { id: 'crossroads', text: 'Take the crossroads', primary: true, carries: false, status: 'active' as const },
+      { id: 'no_losses', text: 'Lose no one', primary: false, carries: false, status: 'failed' as const },
     ],
+    paysCredits: true,
     onResume: vi.fn(),
     onRestart: vi.fn(),
     onQuit: vi.fn(),
@@ -50,7 +51,9 @@ describe('pauseMenu', () => {
     // I10: the status column is catalogue text, not the sim's own enum word.
     // Asserting "not the enum" is what catches a regression to
     // `status.textContent = o.status`; the English spelling alone would not.
-    const words = [...(dlg?.querySelectorAll('.rl-pause__obj-status') ?? [])].map((e) => e.textContent);
+    // `.rl-obj__status`, not `.rl-pause__obj-status`, since task 6: the tab
+    // mounts the shared `objectives.ts` panel now, which owns this class.
+    const words = [...(dlg?.querySelectorAll('.rl-obj__status') ?? [])].map((e) => e.textContent);
     expect(words).toEqual(['In progress', 'Failed']);
     expect(words).not.toContain('active');
     expect(words).not.toContain('failed');
@@ -369,5 +372,24 @@ describe('pauseMenu', () => {
     } finally {
       window.removeEventListener('keydown', gameKeydown);
     }
+  });
+
+  // Task 6 (R-7: one component, three mounts): the Objectives tab is not this
+  // module's own list any more -- it is the SAME `objectivesPanel` the
+  // in-mission tracker and the briefing mount, so a reward line and the
+  // `.rl-obj` row shape appear here for free rather than needing a second
+  // implementation.
+  it('the Objectives tab is the shared panel, with rewards on the secondaries', () => {
+    pauseMenu(document.body, {
+      ...deps(),
+      objectives: () => [
+        { id: 'a', text: 'Take it', primary: true, carries: false, status: 'active' as const },
+        { id: 'd', text: 'Mark the cache', primary: false, carries: true, status: 'active' as const },
+      ],
+      paysCredits: true,
+    });
+    expect(document.body.querySelectorAll('.rl-obj')).toHaveLength(2);
+    expect(document.body.querySelector('.rl-obj[data-id="d"] .rl-obj__reward')?.textContent).toContain('40');
+    expect(document.body.querySelector('.rl-pause__list')).toBeNull(); // the old <ol> is gone
   });
 });
