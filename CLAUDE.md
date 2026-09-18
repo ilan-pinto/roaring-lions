@@ -311,6 +311,7 @@ The combat model is the product. Everything else is scaffolding around it.
   (an ellipsis is a decision). It prints its total even at zero, since a check
   that speaks only on a hit and a check that never ran read identically.
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed. It is defined by the battlefield alone — the menu, the campaign board, the brigade and the picker define nothing, which is how a tool tells "the app booted a mission" from "the app booted".
+- `pnpm meshy -- <command>` (`tools/src/meshy/`) is the Meshy text-to-3D/image-to-3D CLI — estimate before you spend, key lives outside the repo, see `docs/ART_PIPELINE.md`'s "Meshy API — generating a base model" for the full workflow and policy.
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from
   that map's own markers — no mission needed. Bare `?sandbox` still loads
   `beit_sahwan_outskirts` unchanged. Before this, checking anything visual on a new

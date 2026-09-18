@@ -20,6 +20,7 @@
     "plate:capture": "tsx src/perf/plate-capture.ts",
     "plates:units": "tsx src/perf/unit-plates.ts",
     "gait:meshes": "tsx src/meshes/gait-pass.ts",
+    "meshy": "tsx src/meshy/cli.ts",
     "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh"
   },
   "dependencies": {

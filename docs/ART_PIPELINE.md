@@ -161,6 +161,60 @@ Safe: **Kenney.nl** (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to CC0.
 
 **AI-generated art:** permitted, with disclosure — see `CONTRIBUTING.md`. Worth knowing what it is good at: strong for concept art, terrain textures, and UI backgrounds; still weak for unit sprites, where 16 consistent facings of the same vehicle is the hard part and identity tends to drift between views. Whatever the source, the output faces the same four CI checks, so a sprite that survives the palette and silhouette gates is a sprite that works.
 
+### Meshy API — generating a base model
+
+`pnpm meshy -- <command>` (`tools/src/meshy/`) is a token-disciplined CLI over
+[Meshy](https://www.meshy.ai)'s text-to-3D and image-to-3D APIs, for the same
+`art/meshes/**` pipeline the ten supplied Meshy assets in
+`docs/ASSET_PROVENANCE.md` already came from. It is a generation tool, not a
+finishing tool — the project lead's own words on how the two fit together:
+
+> Always optimize the cost by using Blender. Use Meshy to create the initial
+> robust model and then Blender to enhance or modify it. If there are new
+> parts to create for an existing model, you can use Meshy.
+
+In practice: reach for Meshy to get a rough base mesh onto disk quickly —
+especially a new part an existing kit doesn't have — then take it into
+Blender for the retopology, rigging and palette-matching the rest of this
+document describes. Meshy is a shortcut to a starting point, not a
+replacement for `tools/units/kit.py`, `render_rig.py`, or the mesh pipeline
+in `CLAUDE.md`'s "Mesh units" section.
+
+**Announce the plan before you spend.** Every generate command
+(`text`/`image`) prints its credit and USD estimate before doing anything
+chargeable, and `estimate text|image` prints the same numbers with no API
+call at all — run that first, tell the project lead the plan and the
+estimate, and only then run the real command. `--yes` skips the interactive
+`[y/N]` confirmation for scripted use; with no `--yes` and no TTY to prompt
+on, the CLI refuses outright rather than risk a silent spend.
+
+**The key lives outside the repository.** `~/.config/roaring-lions/meshy.env`
+(mode 600), read by the CLI or via a `MESHY_API_KEY` environment variable —
+never committed, never printed, never logged. `MESHY_USD_PER_CREDIT` in the
+same file overrides the CLI's built-in USD-per-credit estimate (the API does
+not publish one; the default is the Pro plan's advertised $20/1,000 credits).
+`MESHY_DRY_RUN=1` prints the exact request body and stops before the POST —
+use it to check a command before it can possibly spend anything.
+
+**Files are retained by Meshy for three days.** A generate command downloads
+every format, thumbnail and texture map immediately into
+`art/meshy/<slug>-<yyyymmdd>-<task id prefix>/`, with a `task.json` (request,
+final response, `consumed_credits`, timestamps, the USD estimate) beside them
+— don't let a finished task sit unfetched. Unlike `art/blend/`, **these
+downloads are meant to be committed**: they are the base model, i.e. the same
+kind of source `art/meshes/**` already needs.
+
+**Every spend is logged.** `art/meshy/ledger.jsonl` gets one line per
+submitted preview/refine/image task — `pnpm meshy -- spent` sums it, so "how
+much have we spent" never depends on anyone's memory or the Meshy dashboard.
+
+**Disclosure is still required.** A model built via this CLI is AI-generated
+art exactly like the ten Meshy assets already shipped, and CONTRIBUTING.md's
+AI policy — disclosure in the PR description, the same four CI gates as
+anything else — applies unchanged. Each generate command prints a line
+formatted to paste straight into `docs/ASSET_PROVENANCE.md`'s Meshy table;
+fill in "Draws as" once the model has a role.
+
 ---
 
 ## 7a. Audio

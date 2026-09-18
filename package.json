@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.69.0",
+  "version": "0.70.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.17.0",
@@ -31,7 +31,8 @@
     "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "plate:capture": "pnpm --filter @lions/tools plate:capture",
     "plates:units": "pnpm --filter @lions/tools plates:units",
-    "gait:meshes": "pnpm --filter @lions/tools gait:meshes"
+    "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
+    "meshy": "pnpm --filter @lions/tools meshy --"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
