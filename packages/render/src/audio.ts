@@ -421,6 +421,15 @@ export class BattleAudio {
    * there is nothing to play and nothing to complain about.
    */
   playUi(setName: string): void {
+    // Mute first, and HERE rather than at the call site. `m` toggles one flag
+    // and the HUD says "audio muted" on the strength of it, so a sound that
+    // checked the flag only at some of its callers would make that line a lie
+    // the moment a new caller appeared -- which is exactly how this was found,
+    // the alert layer being `playUi`'s first. `onEvents` (below) and both
+    // music paths already guard here for the same reason; the gain buses
+    // cannot stand in for it, because they are driven by the volume sliders
+    // alone and mute is not a volume.
+    if (this.muted) return;
     const ctx = this.ctx;
     const sfx = this.sfx;
     if (!ctx || !sfx) return;
