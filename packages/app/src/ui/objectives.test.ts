@@ -1,6 +1,7 @@
 // packages/app/src/ui/objectives.test.ts
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
+import { clockText } from './hud-model';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 
 const rows: ObjectiveRow[] = [
@@ -60,5 +61,22 @@ describe('objectivesPanel', () => {
     p.dispose();
     p.dispose();
     expect(host.childElementCount).toBe(0);
+  });
+
+  // Fix round 1: nothing exercised the ticksLeft branch -- every row above
+  // omits it, so `.rl-obj__clock` never got built in any test even though
+  // task 6's in-mission mount depends on exactly this rendering.
+  it('shows a clock for a timed objective and none for an untimed one', () => {
+    const host = document.createElement('div');
+    const timed: ObjectiveRow[] = [
+      { id: 'hold', text: 'Hold the crossroads', primary: true, carries: false, status: 'active', ticksLeft: 1500 },
+      { id: 'sweep', text: 'Sweep the block', primary: false, carries: false, status: 'active' },
+    ];
+    const p = objectivesPanel(host, { rows: () => timed, paysCredits: true });
+    const clock = (id: string): string | null =>
+      p.el.querySelector(`.rl-obj[data-id="${id}"] .rl-obj__clock`)?.textContent ?? null;
+    expect(clock('hold')).toBe(clockText(1500));
+    expect(clock('sweep')).toBeNull();
+    p.dispose();
   });
 });
