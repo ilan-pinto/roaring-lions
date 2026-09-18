@@ -334,7 +334,7 @@ The combat model is the product. Everything else is scaffolding around it.
   "after" and looks exactly right. Use the live one whenever the question is
   about runtime behaviour (playback rate, ramps, the sun, the occlusion
   outline) and the Blender one when it is about the authored pose alone.
-- **`pnpm plates:units [--only=<id>[,<id>...]] [--out=…]`**
+- **`pnpm plates:units [--only=<id>[,<id>...]] [--out=…] [--port=…] [--metal]`**
   (`tools/src/perf/unit-plates.ts`) photographs every KDF type through the
   running game for the garage screen — one JPEG per id under
   `assets/ui/plates/units/`, plus a manifest read by `unitPlate`
@@ -357,21 +357,37 @@ The combat model is the product. Everything else is scaffolding around it.
   only queues a billboard sheet for a type the BOOT-TIME force already
   fields, so spawning either one cold drew nothing but a stray VFX blur on
   otherwise empty ground — fixed by calling `renderer.loadSprites` on their
-  own `SPRITE_MAP` paths directly before the first spawn. **The dev
-  instrument that actually failed here was SwiftShader itself**, not
+  own `SPRITE_MAP` paths directly before the first spawn.
+  **The dev instrument that actually failed here was SwiftShader itself**, not
   content: a `page.screenshot` measured 180s+ stalls (`GL Driver Message ...
   GPU stall due to ReadPixels`) after only two or three captures shared one
   browser tab, and once escalated to a WebGL context loss that took
   `window.__lions` down with it (a full-frame diff — extent reading the
   capture's own dimensions — is the tell something upstream broke, not a
-  giant unit). `captureWithRetry` (three attempts, 5s apart) papers over the
-  first kind; the second kind does not recover, and the reliable fix was
-  giving each capture its OWN process — `--only` now accepts a comma list for
-  a smaller batch, but a run of all seventeen through one browser session is
-  not reliable and one-id-per-invocation is what actually shipped the
-  checked-in set. The manifest MERGES with whatever is already on disk for
-  exactly this reason — a `--only` run must add its entries, never clobber
-  every id a fuller run already wrote.
+  giant unit). **Hardware GPU was tried and measured NOT to fix it**: Metal
+  args (`docs/PERFORMANCE.md`, `backend-curve-gate.ts`) made the monolithic
+  all-seventeen loop 24x faster to its own crash (14.88s vs multi-minute
+  SwiftShader stalls) but hit the SAME context loss on the very next capture
+  after the first succeeded — so the failure is not GPU-backend speed, and
+  the shipped default stays SwiftShader; `--metal` is an explicit opt-in,
+  confirmed and logged via `readUnmaskedRenderer` (`golden-diff/browser.ts`,
+  the same `WEBGL_debug_renderer_info` read `backend-curve-gate.ts` uses)
+  into the manifest's own `camera.gpu`.
+  **The reliable fix is one browser per unit.** With no `--only`, the entry
+  point is an ORCHESTRATOR: it starts the dev server once, then spawns one
+  `tsx` CHILD process per id (`--only=<id> --child --port=<port>`, run
+  SEQUENTIALLY — parallel Chromiums would reproduce the same resource
+  pressure), each getting its own fresh `chromium.launch` and therefore never
+  asking a page for a second screenshot. A child writes its own result as a
+  fragment under `<outDir>/.fragments/<id>.json` instead of touching the
+  shared `manifest.json` directly; only the orchestrator merges, once, at the
+  end, which is what makes a single failed id reported and skipped without
+  losing every other id's already-written entry or racing the file. `pnpm
+  plates:units` with no args is now the one command that reliably produces
+  the full set — verified end to end, 17/17, 562.4s. `--only=<id>[,<id>]`
+  with no `--child` is UNCHANGED from before this split: a direct,
+  single-session capture that merges straight into `manifest.json`, still the
+  fast path for the falsification workflow above.
 - `pnpm balance` runs the §5.7 backtest; `tools/src/backtest/urban-only.ts` is the fast urban-ratio calibration loop.
 - The determinism golden hash lives in `packages/sim/src/determinism.test.ts`. It changes only when sim code or tuning changes deliberately — update it in the same commit and say why.
 - Combat tuning lives in `packages/sim/src/tuning.ts`. §5.7 targets outrank §5 formula text.

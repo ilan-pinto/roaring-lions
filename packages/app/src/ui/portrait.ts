@@ -220,7 +220,7 @@ interface PlateManifestEntry {
 
 interface PlateManifest {
   version: number;
-  camera: { zoom: number; dpr: number };
+  camera: { zoom: number; dpr: number; gpu: string };
   plates: Record<string, PlateManifestEntry>;
 }
 

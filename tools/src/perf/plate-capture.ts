@@ -137,28 +137,17 @@
  * reimplemented -- that file's own comment has the measured 28% false-red
  * rate a hand-rolled version of this risked repeating.
  *
- * HUD: every element `document.body` holds that does not itself CONTAIN the
- * canvas gets `display: none`, never an app flag (CLAUDE.md, "Verify UI
- * features by driving the UI" -- a flag exercises a code path a player never
- * takes). This is deliberately NOT "every body child whose tagName is not
- * CANVAS": in this build the canvas is not a direct child of `<body>`, it is
- * nested one level down (`main.ts`: `document.getElementById('stage')` ->
- * `renderer.init(stage)` -> `host.appendChild(this.renderer.domElement)`),
- * while the HUD and minimap attach straight to `body` as ITS siblings (`new
- * Hud(document.body, ...)`'s `host.append(this.strip, this.cmd, this.clock,
- * this.sel, this.fire, this.banner)`; `new Minimap(document.body, ...)`).
- * Hiding by `tagName !== 'CANVAS'` would hide `#stage` -- and the canvas
- * inside it -- right along with the HUD. Hiding by containment
- * (`el.contains(canvas)`) keeps the brief's actual intent (every body child
- * that is not the drawing surface disappears) correct for the nesting this
- * build actually has.
+ * HUD: `hideHudExceptCanvas` (`golden-diff/capture-protocol.ts`, shared with
+ * `unit-plates.ts` since fix round 1 of task 15) hides every element
+ * `document.body` holds that does not itself CONTAIN the canvas; see that
+ * function's own doc comment for why containment rather than a tagName test.
  */
 import { chromium, type Browser, type Page } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
-import { FREEZE_FRAME_LOOP_SCRIPT, REPAINT_SCRIPT } from '../golden-diff/capture-protocol';
+import { FREEZE_FRAME_LOOP_SCRIPT, REPAINT_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -276,17 +265,11 @@ try {
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(3000);
 
-  // Hide the HUD by containment, not by tagName -- see top comment for why.
-  // Pure DOM, unrelated to sim timing, so it can run any time before the
-  // final screenshot; doing it early keeps the "make the page look right"
-  // steps together.
-  await page.evaluate(() => {
-    const canvas = document.querySelector('canvas');
-    for (const el of Array.from(document.body.children)) {
-      if (canvas && el.contains(canvas)) continue;
-      (el as HTMLElement).style.display = 'none';
-    }
-  });
+  // Hide the HUD by containment, not by tagName -- see `hideHudExceptCanvas`'s
+  // own doc comment (`capture-protocol.ts`) for why. Pure DOM, unrelated to
+  // sim timing, so it can run any time before the final screenshot; doing it
+  // early keeps the "make the page look right" steps together.
+  await page.evaluate(hideHudExceptCanvas);
 
   const startUnits = await page.evaluate(() => (window as unknown as LionsWindow).__lions.units(0));
   const startTank = startUnits.find((u) => u.type === 'mbt_lavi');
