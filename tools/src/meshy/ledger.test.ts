@@ -2,11 +2,11 @@
  * Ledger append/read/sum against a temp `.jsonl` file -- never the real
  * `art/meshy/ledger.jsonl`, and no network.
  */
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { appendLedgerEntry, readLedger, summarizeLedger, type LedgerEntry } from './ledger';
+import { appendLedgerEntry, patchLedgerCreditsConsumed, readLedger, summarizeLedger, type LedgerEntry } from './ledger';
 
 function entry(overrides: Partial<LedgerEntry> = {}): LedgerEntry {
   return {
@@ -79,5 +79,46 @@ describe('ledger', () => {
     appendFileSync(p, '\n');
     appendLedgerEntry(p, entry({ id: 'b' }));
     expect(readLedger(p).map((e) => e.id)).toEqual(['a', 'b']);
+  });
+
+  describe('patchLedgerCreditsConsumed', () => {
+    it('sets credits_consumed on the matching entry and leaves the others untouched', () => {
+      const p = freshPath();
+      appendLedgerEntry(p, entry({ id: 'a', credits_estimated: 20 }));
+      appendLedgerEntry(p, entry({ id: 'b', credits_estimated: 30 }));
+      patchLedgerCreditsConsumed(p, 'b', 27);
+      const read = readLedger(p);
+      expect(read).toHaveLength(2);
+      expect(read.find((e) => e.id === 'a')).toEqual(entry({ id: 'a', credits_estimated: 20 }));
+      expect(read.find((e) => e.id === 'b')).toEqual(entry({ id: 'b', credits_estimated: 30, credits_consumed: 27 }));
+    });
+
+    it('rewrites atomically: no stray temp file is left in the ledger directory', () => {
+      const p = freshPath();
+      appendLedgerEntry(p, entry({ id: 'a' }));
+      patchLedgerCreditsConsumed(p, 'a', 18);
+      expect(readdirSync(path.dirname(p))).toEqual(['ledger.jsonl']);
+    });
+
+    // (c) from the review brief: patching an id absent from the ledger must
+    // not append a new line -- it throws instead, so `spent` never silently
+    // stays wrong. Falsified by hand: with the `index === -1` guard in
+    // ledger.ts commented out (falling through to `patched[-1] = ...`,
+    // which is a no-op array write that leaves the file byte-identical),
+    // this test goes red because nothing is thrown -- confirming the guard,
+    // not just the array length, is what makes it pass.
+    it('throws and appends nothing when the id is not in the ledger', () => {
+      const p = freshPath();
+      appendLedgerEntry(p, entry({ id: 'a' }));
+      const before = readFileSync(p, 'utf8');
+      expect(() => patchLedgerCreditsConsumed(p, 'does-not-exist', 5)).toThrow(/no entry with id "does-not-exist"/);
+      expect(readFileSync(p, 'utf8')).toBe(before);
+      expect(readLedger(p)).toHaveLength(1);
+    });
+
+    it('throws when the ledger file does not exist yet', () => {
+      const p = freshPath();
+      expect(() => patchLedgerCreditsConsumed(p, 'a', 5)).toThrow(/no entry with id "a"/);
+    });
   });
 });

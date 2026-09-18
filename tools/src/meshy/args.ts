@@ -154,6 +154,21 @@ export function assertYesOrInteractive(yes: boolean, isTTY: boolean): void {
   }
 }
 
+/**
+ * Whether `main()` (`cli.ts`) must refuse `command` outright when no API key
+ * is configured. `text`/`image` are the one pair that may run with no key at
+ * all, and only when `dryRun` is true: both print the request and return
+ * before ever calling the network (`runText`/`runImage` enforce this
+ * themselves too, by throwing if ever called with no client outside a dry
+ * run). Every other command that reaches this check always needs a real
+ * key -- `estimate`, `spent` and `help` never reach it, since `cli.ts`
+ * returns for those before the key check runs at all.
+ */
+export function commandNeedsApiKey(command: string, dryRun: boolean): boolean {
+  if ((command === 'text' || command === 'image') && dryRun) return false;
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Shared "generate" flags
 // ---------------------------------------------------------------------------

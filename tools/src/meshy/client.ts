@@ -33,6 +33,24 @@ export interface ListParams {
   readonly sortBy?: string;
 }
 
+/**
+ * The slice of `MeshyClient` that `runText` (`cli.ts`) actually calls.
+ * Narrower than the class itself -- which carries a private `apiKey` field
+ * and so cannot be satisfied by a plain object literal -- so tests can pass
+ * a fake with no network and no key. `MeshyClient` satisfies this
+ * structurally with no `implements` needed.
+ */
+export interface TextTaskClient {
+  submitTextTask(body: TextToThreeDRequest): Promise<SubmitTaskResponse>;
+  getTextTask(id: string): Promise<TextToThreeDTask>;
+}
+
+/** Same idea as `TextTaskClient`, for `runImage`. */
+export interface ImageTaskClient {
+  submitImageTask(body: ImageToThreeDRequest): Promise<SubmitTaskResponse>;
+  getImageTask(id: string): Promise<ImageToThreeDTask>;
+}
+
 function buildQuery(params: Readonly<Record<string, string | number | undefined>>): string {
   const sp = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

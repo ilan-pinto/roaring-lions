@@ -94,6 +94,20 @@ export function estimateCredits(kind: EstimateKind, opts: EstimateOptions = {}):
       } else {
         credits = smart ? PRICING.imageSmartTopologyWithTexture : PRICING.imageStandardWithTexture;
       }
+      // Important 2 (review, 2026-09-18): unlike text-preview above, this
+      // adds the surcharge even under smart-topology. Checked against
+      // https://docs.meshy.ai/en/api/pricing on 2026-09-18: that page
+      // documents `ultra_mode`'s +5 credits only under the "Meshy-7 models"
+      // row, in BOTH the text-to-3d and image-to-3d sections, and never
+      // mentions it under either section's "Smart Topology (Meshy T2)
+      // models" row -- so the page does not explicitly say whether the two
+      // combine for image-to-3d, only that they're never written together.
+      // Kept unconditional deliberately: this is the number a spend gate
+      // shows the user before they confirm, and adding the surcharge is the
+      // conservative direction (an over-estimate, never an under-estimate).
+      // UNVERIFIED against a real spend -- if a real `consumed_credits` for
+      // image + smart-topology + ultra ever disagrees, this is the line to
+      // revisit, and the fix would be to exclude it, matching text-preview.
       if (opts.ultra) credits += PRICING.imageUltraSurcharge;
       return credits;
     }

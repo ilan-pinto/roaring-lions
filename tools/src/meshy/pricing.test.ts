@@ -4,6 +4,7 @@
  * this is a pure function over a hardcoded table.
  */
 import { describe, expect, it } from 'vitest';
+import type { ModelType, TextureResolution } from './options';
 import { DEFAULT_USD_PER_CREDIT, estimateCredits, estimateUsd, formatUsd, PRICING, resolveUsdPerCredit } from './pricing';
 
 describe('estimateCredits', () => {
@@ -67,6 +68,21 @@ describe('estimateCredits', () => {
       expect(estimateCredits('image', { modelType: 'smart-topology', shouldTexture: true, textureResolution: '4k' })).toBe(15);
       expect(estimateCredits('image', { modelType: 'smart-topology', shouldTexture: true, textureResolution: '8k' })).toBe(20);
     });
+
+    // Important 2 (review): https://docs.meshy.ai/en/api/pricing (checked
+    // 2026-09-18) documents the +5 ultra surcharge only under each section's
+    // "Meshy-7 models" row and never mentions it under "Smart Topology
+    // (Meshy T2) models" in EITHER section -- so it does not explicitly say
+    // whether image-to-3d's smart-topology tier takes the surcharge. This
+    // pins the current, deliberately conservative (over-estimating) choice:
+    // apply it unconditionally, same as every other image tier. See the
+    // comment beside this branch in pricing.ts for the full citation: if
+    // that comment's reasoning changes, this literal must change with it.
+    it('adds the ultra surcharge to smart-topology too (kept as the safe over-estimate; see pricing.ts)', () => {
+      expect(estimateCredits('image', { modelType: 'smart-topology', shouldTexture: false, ultra: true })).toBe(10);
+      expect(estimateCredits('image', { modelType: 'smart-topology', shouldTexture: true, textureResolution: '4k', ultra: true })).toBe(20);
+      expect(estimateCredits('image', { modelType: 'smart-topology', shouldTexture: true, textureResolution: '8k', ultra: true })).toBe(25);
+    });
   });
 
   it('remesh is a flat 5', () => {
@@ -92,13 +108,58 @@ describe('estimateCredits', () => {
     });
   });
 
-  it('every PRICING row is reachable from at least one estimateCredits call', () => {
-    // A literal cross-check against the table object itself, so a row added
-    // to PRICING with no corresponding estimateCredits branch is caught here
-    // rather than only by code review.
-    const rows = Object.values(PRICING);
-    expect(rows.length).toBeGreaterThan(0);
-    expect(rows.every((n) => typeof n === 'number' && n > 0)).toBe(true);
+  // Minor 1 (review): the old version of this test only checked that
+  // Object.values(PRICING) were positive numbers -- true of any pricing
+  // table and blind to a row nothing ever reads. This sweeps the real input
+  // space of every `EstimateKind` through the real `estimateCredits` and
+  // diffs the achievable numbers against PRICING itself, so a row with no
+  // reachable branch (or a surcharge that stops being added) goes red here.
+  //
+  // A "flat" row (remesh, rigging, a resolution tier, ...) must appear
+  // verbatim among the swept RETURN values. `ultra_mode` never appears
+  // alone -- it is always added to a base -- so it is checked as the
+  // difference between two calls that differ ONLY in `ultra`, holding every
+  // other parameter fixed (`ultraDeltas`), rather than as a difference
+  // between any two arbitrary swept numbers: an all-pairs diff of a dozen
+  // values from 3 to 40 turns out to cover nearly every integer up to ~32
+  // by sheer arithmetic coincidence (falsified by hand -- a deliberately
+  // unreachable orphan row of 17 still read "achievable" under that
+  // version), which would have made the check nearly impossible to fail.
+  it('every PRICING row is achievable from a full sweep of estimateCredits: a flat row verbatim, ultra_mode as an isolated delta', () => {
+    const MODEL_TYPES: readonly ModelType[] = ['standard', 'lowpoly', 'smart-topology'];
+    const TEXTURE_RESOLUTIONS: readonly TextureResolution[] = ['2k', '4k', '8k'];
+    const BOOLS = [false, true] as const;
+
+    const returned = new Set<number>();
+    const ultraDeltas = new Set<number>();
+
+    for (const modelType of MODEL_TYPES) {
+      const withUltra = estimateCredits('text-preview', { modelType, ultra: true });
+      const withoutUltra = estimateCredits('text-preview', { modelType, ultra: false });
+      returned.add(withUltra).add(withoutUltra);
+      ultraDeltas.add(Math.abs(withUltra - withoutUltra));
+    }
+    for (const textureResolution of TEXTURE_RESOLUTIONS) {
+      returned.add(estimateCredits('text-refine', { textureResolution }));
+    }
+    for (const modelType of MODEL_TYPES) {
+      for (const shouldTexture of BOOLS) {
+        for (const textureResolution of TEXTURE_RESOLUTIONS) {
+          const withUltra = estimateCredits('image', { modelType, shouldTexture, textureResolution, ultra: true });
+          const withoutUltra = estimateCredits('image', { modelType, shouldTexture, textureResolution, ultra: false });
+          returned.add(withUltra).add(withoutUltra);
+          ultraDeltas.add(Math.abs(withUltra - withoutUltra));
+        }
+      }
+    }
+    returned.add(estimateCredits('remesh'));
+    for (const textureResolution of TEXTURE_RESOLUTIONS) returned.add(estimateCredits('retexture', { textureResolution }));
+    returned.add(estimateCredits('rigging'));
+    for (let actions = 1; actions <= 5; actions++) returned.add(estimateCredits('animation', { actions }));
+
+    const achievable = new Set([...returned, ...ultraDeltas]);
+    const unreachable = Object.entries(PRICING).filter(([, value]) => !achievable.has(value));
+    expect(unreachable).toEqual([]);
   });
 });
 

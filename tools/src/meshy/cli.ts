@@ -9,9 +9,12 @@
  * key, writes files, or prompts on stdin -- every other module here is pure
  * and independently testable. `MESHY_DRY_RUN=1` short-circuits both generate
  * commands right before the POST that would submit a task, which is the knob
- * this file's own tests (run via `pnpm meshy`, not vitest -- see the task
- * report) were driven through instead of vitest, since a real submit would
- * spend credits.
+ * this file's own manual smoke tests (`MESHY_DRY_RUN=1 pnpm meshy -- ...`,
+ * see docs/ART_PIPELINE.md) are driven through, since a real submit would
+ * spend credits. `runText`/`runImage` are additionally exported and covered
+ * by `cli.test.ts` against a fake `TextTaskClient`/`ImageTaskClient`
+ * (`client.ts`) and a temp `MeshyPaths` override, so the ledger-patch and
+ * dry-run wiring below are exercised by vitest too, still with no network.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -20,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { ImageToThreeDRequest, ImageToThreeDTask, TextPreviewRequest, TextRefineRequest, TextToThreeDTask } from './api-types';
 import {
+  commandNeedsApiKey,
   parseBalanceArgs,
   parseDownloadArgs,
   parseEstimateImageArgs,
@@ -37,9 +41,16 @@ import {
   type StatusOptions,
   type TextOptions,
 } from './args';
-import { MeshyApiError, MeshyClient } from './client';
+import { MeshyApiError, MeshyClient, type ImageTaskClient, type TextTaskClient } from './client';
 import { loadMeshyConfig, type MeshyConfig } from './config';
-import { appendLedgerEntry, LEDGER_RELATIVE_PATH, readLedger, summarizeLedger, type LedgerEntry } from './ledger';
+import {
+  appendLedgerEntry,
+  LEDGER_RELATIVE_PATH,
+  patchLedgerCreditsConsumed,
+  readLedger,
+  summarizeLedger,
+  type LedgerEntry,
+} from './ledger';
 import { isHttpUrl, resolveImageUrl, taskDirName } from './naming';
 import { TERMINAL_STATUSES, type TaskKind, type TaskStatus } from './options';
 import { estimateCredits, estimateUsd, formatUsd, PRICING_SOURCE } from './pricing';
@@ -49,6 +60,15 @@ const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const ART_DIR = path.join(REPO_ROOT, 'art', 'meshy');
 const LEDGER_PATH = path.join(REPO_ROOT, LEDGER_RELATIVE_PATH);
 const POLL_INTERVAL_MS = 5000;
+
+/** Where output and the ledger live. Defaulted to the real repo paths above
+ *  everywhere `main()` calls in; overridable so `runText`/`runImage` are
+ *  testable against a temp directory instead of the real `art/meshy/`. */
+interface MeshyPaths {
+  readonly artDir: string;
+  readonly ledgerPath: string;
+}
+const DEFAULT_PATHS: MeshyPaths = { artDir: ART_DIR, ledgerPath: LEDGER_PATH };
 
 // ---------------------------------------------------------------------------
 // Small IO helpers
@@ -252,7 +272,12 @@ function ledgerEntry(kind: TaskKind, mode: LedgerEntry['mode'], id: string, opts
   };
 }
 
-async function runText(client: MeshyClient, config: MeshyConfig, opts: TextOptions): Promise<number> {
+export async function runText(
+  client: TextTaskClient | undefined,
+  config: MeshyConfig,
+  opts: TextOptions,
+  paths: MeshyPaths = DEFAULT_PATHS
+): Promise<number> {
   const previewCredits = estimateCredits('text-preview', { modelType: opts.modelType, ultra: opts.ultra });
   const refineCredits = opts.refine ? estimateCredits('text-refine', { textureResolution: opts.textureResolution }) : 0;
   const totalCredits = previewCredits + refineCredits;
@@ -269,6 +294,12 @@ async function runText(client: MeshyClient, config: MeshyConfig, opts: TextOptio
     return 0;
   }
 
+  if (!client) {
+    // Unreachable from `main()`: it only omits the client when
+    // MESHY_DRY_RUN=1, which already returned above.
+    throw new Error('internal: runText called with no client outside MESHY_DRY_RUN=1');
+  }
+
   if (!(await confirmSpend(totalCredits, estimateUsd(totalCredits, config.usdPerCredit), opts.yes))) {
     console.log('aborted -- nothing was spent');
     return 1;
@@ -276,7 +307,7 @@ async function runText(client: MeshyClient, config: MeshyConfig, opts: TextOptio
 
   const submitted = await client.submitTextTask(previewBody);
   const previewId = submitted.result;
-  appendLedgerEntry(LEDGER_PATH, ledgerEntry('text', 'preview', previewId, opts, previewCredits, config.usdPerCredit));
+  appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'preview', previewId, opts, previewCredits, config.usdPerCredit));
   console.log(`submitted preview task ${previewId}`);
 
   const finalPreview = await pollTask(() => client.getTextTask(previewId), `preview ${previewId}`);
@@ -284,9 +315,12 @@ async function runText(client: MeshyClient, config: MeshyConfig, opts: TextOptio
     console.error(`preview task ${previewId} ended ${finalPreview.status}: ${finalPreview.task_error?.message ?? '(no message)'}`);
     return 1;
   }
+  if (finalPreview.consumed_credits !== undefined) {
+    patchLedgerCreditsConsumed(paths.ledgerPath, previewId, finalPreview.consumed_credits);
+  }
 
   const dirName = taskDirName(opts.name ?? opts.prompt, previewId);
-  const dir = path.join(ART_DIR, dirName);
+  const dir = path.join(paths.artDir, dirName);
   await downloadTaskOutputs(finalPreview, dir);
   writeTaskJson(dir, {
     request: previewBody,
@@ -307,13 +341,16 @@ async function runText(client: MeshyClient, config: MeshyConfig, opts: TextOptio
     const refineBody = buildRefineRequest(opts, previewId);
     const submittedRefine = await client.submitTextTask(refineBody);
     const refineId = submittedRefine.result;
-    appendLedgerEntry(LEDGER_PATH, ledgerEntry('text', 'refine', refineId, opts, refineCredits, config.usdPerCredit));
+    appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'refine', refineId, opts, refineCredits, config.usdPerCredit));
     console.log(`submitted refine task ${refineId}`);
 
     const finalRefine = await pollTask(() => client.getTextTask(refineId), `refine ${refineId}`);
     if (finalRefine.status !== 'SUCCEEDED') {
       console.error(`refine task ${refineId} ended ${finalRefine.status}: ${finalRefine.task_error?.message ?? '(no message)'}`);
       return 1;
+    }
+    if (finalRefine.consumed_credits !== undefined) {
+      patchLedgerCreditsConsumed(paths.ledgerPath, refineId, finalRefine.consumed_credits);
     }
     finalDir = path.join(dir, 'refine');
     await downloadTaskOutputs(finalRefine, finalDir);
@@ -369,7 +406,12 @@ function buildImageRequest(opts: ImageOptions, imageUrl: string): ImageToThreeDR
   };
 }
 
-async function runImage(client: MeshyClient, config: MeshyConfig, opts: ImageOptions): Promise<number> {
+export async function runImage(
+  client: ImageTaskClient | undefined,
+  config: MeshyConfig,
+  opts: ImageOptions,
+  paths: MeshyPaths = DEFAULT_PATHS
+): Promise<number> {
   const credits = estimateCredits('image', {
     modelType: opts.modelType,
     ultra: opts.ultra,
@@ -392,6 +434,12 @@ async function runImage(client: MeshyClient, config: MeshyConfig, opts: ImageOpt
     return 0;
   }
 
+  if (!client) {
+    // Unreachable from `main()`: it only omits the client when
+    // MESHY_DRY_RUN=1, which already returned above.
+    throw new Error('internal: runImage called with no client outside MESHY_DRY_RUN=1');
+  }
+
   if (!(await confirmSpend(credits, estimateUsd(credits, config.usdPerCredit), opts.yes))) {
     console.log('aborted -- nothing was spent');
     return 1;
@@ -399,7 +447,7 @@ async function runImage(client: MeshyClient, config: MeshyConfig, opts: ImageOpt
 
   const submitted = await client.submitImageTask(body);
   const id = submitted.result;
-  appendLedgerEntry(LEDGER_PATH, ledgerEntry('image', 'image', id, { name: opts.name }, credits, config.usdPerCredit));
+  appendLedgerEntry(paths.ledgerPath, ledgerEntry('image', 'image', id, { name: opts.name }, credits, config.usdPerCredit));
   console.log(`submitted image-to-3d task ${id}`);
 
   const finalTask = await pollTask(() => client.getImageTask(id), `image ${id}`);
@@ -407,9 +455,12 @@ async function runImage(client: MeshyClient, config: MeshyConfig, opts: ImageOpt
     console.error(`image task ${id} ended ${finalTask.status}: ${finalTask.task_error?.message ?? '(no message)'}`);
     return 1;
   }
+  if (finalTask.consumed_credits !== undefined) {
+    patchLedgerCreditsConsumed(paths.ledgerPath, id, finalTask.consumed_credits);
+  }
 
   const dirName = taskDirName(opts.name ?? path.basename(opts.pathOrUrl), id);
-  const dir = path.join(ART_DIR, dirName);
+  const dir = path.join(paths.artDir, dirName);
   await downloadTaskOutputs(finalTask, dir);
   writeTaskJson(dir, {
     request: { ...body, image_url: isHttpUrl(imageUrl) ? imageUrl : '<local file, base64-encoded at submit time>' },
@@ -553,6 +604,22 @@ async function main(): Promise<number> {
   if (command === 'estimate') return runEstimate(rest, config.usdPerCredit);
   if (command === 'spent') return runSpent(parseSpentArgs(rest));
 
+  const dryRun = process.env.MESHY_DRY_RUN === '1';
+
+  if (command === 'text' || command === 'image') {
+    // The one pair of commands that may run without a key: MESHY_DRY_RUN=1
+    // prints the request and stops before any POST (see `commandNeedsApiKey`),
+    // so `client` stays undefined rather than forcing a key nobody is about
+    // to use -- `runText`/`runImage` never touch it past that point.
+    if (!config.apiKey && commandNeedsApiKey(command, dryRun)) {
+      console.error(noKeyMessage(config.keyFile));
+      return 1;
+    }
+    const client = config.apiKey ? new MeshyClient(config.apiKey) : undefined;
+    const ctx = { isTTY: process.stdin.isTTY === true };
+    return command === 'text' ? runText(client, config, parseTextArgs(rest, ctx)) : runImage(client, config, parseImageArgs(rest, ctx));
+  }
+
   if (!config.apiKey) {
     console.error(noKeyMessage(config.keyFile));
     return 1;
@@ -562,10 +629,6 @@ async function main(): Promise<number> {
   switch (command) {
     case 'balance':
       return runBalance(client, parseBalanceArgs(rest));
-    case 'text':
-      return runText(client, config, parseTextArgs(rest, { isTTY: process.stdin.isTTY === true }));
-    case 'image':
-      return runImage(client, config, parseImageArgs(rest, { isTTY: process.stdin.isTTY === true }));
     case 'status':
       return runStatus(client, parseStatusArgs(rest));
     case 'download':

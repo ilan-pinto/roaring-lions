@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertYesOrInteractive,
+  commandNeedsApiKey,
   parseBalanceArgs,
   parseDownloadArgs,
   parseEstimateImageArgs,
@@ -67,6 +68,27 @@ describe('assertYesOrInteractive', () => {
 
   it('refuses with no TTY and no --yes', () => {
     expect(() => assertYesOrInteractive(false, false)).toThrow(/--yes/);
+  });
+});
+
+describe('commandNeedsApiKey', () => {
+  // Minor 2 from the review brief: MESHY_DRY_RUN=1 stops `text`/`image`
+  // before any POST, so they are the one pair that may run with no key.
+  it('text and image are exempt under a dry run', () => {
+    expect(commandNeedsApiKey('text', true)).toBe(false);
+    expect(commandNeedsApiKey('image', true)).toBe(false);
+  });
+
+  it('text and image still need a key when not dry-running', () => {
+    expect(commandNeedsApiKey('text', false)).toBe(true);
+    expect(commandNeedsApiKey('image', false)).toBe(true);
+  });
+
+  it('every other network command always needs a key, dry run or not', () => {
+    for (const command of ['balance', 'status', 'download', 'list']) {
+      expect(commandNeedsApiKey(command, false)).toBe(true);
+      expect(commandNeedsApiKey(command, true)).toBe(true);
+    }
   });
 });
 
