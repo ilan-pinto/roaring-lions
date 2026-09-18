@@ -145,7 +145,7 @@ commercial build, and the retirements below are unblocked.
 
 ## What closing the source changes
 
-- **Code (MIT, effectively sole-authored)** — 747 of ~753 commits are the
+- **Code (MIT until 2026-09-18, then PolyForm Noncommercial 1.0.0 with `CLA.md`; effectively sole-authored)** — 747 of ~753 commits are the
   project lead's, the rest a bot. No contributor's permission is needed. MIT is
   an offer made to others; copyright is retained. Closing it is straightforward.
 - **Art currently declared CC BY-SA 4.0** (`ART_PIPELINE.md` §8) — the repo has

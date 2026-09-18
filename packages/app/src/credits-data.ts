@@ -25,7 +25,7 @@ export const CREDITS = {
   assets: [
     { what: 'Namer IFV model (sprite sheets NAMER_HULL, NAMER_TURR)', author: 'Mutte', licence: 'CC BY 3.0', source: 'BlendSwap #75225' },
   ],
-  codeLicence: 'MIT License',
+  codeLicence: 'PolyForm Noncommercial 1.0.0',
   artLicence: 'all rights reserved',
   aiDisclosure:
     'Some models were generated with Meshy and reworked in Blender. Every asset, generated or drawn, passes the same four art gates before it ships; the full provenance record is docs/ASSET_PROVENANCE.md in the repository.',

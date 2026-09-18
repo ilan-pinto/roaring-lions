@@ -6,7 +6,7 @@
 
 ## 0. The governing idea
 
-An open-source RTS has two art problems that look unrelated but share one solution:
+A source-available RTS has two art problems that look unrelated but share one solution:
 
 1. Claude Code cannot draw.
 2. Contributed art from many hands drifts into visual mush.
@@ -231,7 +231,8 @@ Sound follows the same logic as sprites: mechanical gates, not taste. Emitters a
 
 ## 8. Licensing
 
-- Code: **MIT**
+- Code: **PolyForm Noncommercial 1.0.0** since 2026-09-18 (MIT before; copies
+  obtained under MIT stay MIT); contributions under `CLA.md`.
 - Art and data: **all rights reserved.** Changed 2026-08-30, ahead of a planned
   commercial release. It was CC BY-SA 4.0, and that matters in one direction
   only: a Creative Commons grant is **irrevocable for copies already obtained**,

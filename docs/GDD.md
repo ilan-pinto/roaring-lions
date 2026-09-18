@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-**Roaring Lions** is an open-source, single-player real-time strategy game in the Command & Conquer tradition, played in 2:1 dimetric projection. The player commands the 401st "Ari'im" Brigade of the **Kedem Defense Forces** through a campaign of urban and rural operations across the fictional **Sahar Basin**.
+**Roaring Lions** is a source-available, single-player real-time strategy game in the Command & Conquer tradition, played in 2:1 dimetric projection. The player commands the 401st "Ari'im" Brigade of the **Kedem Defense Forces** through a campaign of urban and rural operations across the fictional **Sahar Basin**.
 
 The game's distinguishing claim is that its combat model **simulates real engagement odds** rather than trading hit points. Fights are resolved through a detect → hit → penetrate → component-damage chain, with suppression as the dominant battlefield force. Firepower is abundant; the scarce resources are information, initiative, and restraint.
 
@@ -296,9 +296,9 @@ Target 300–600 simultaneous units at 60 fps. Struct-of-arrays layout over type
 
 ---
 
-## 9. Open-source governance
+## 9. Governance
 
-**Licensing:** code MIT · art and data CC BY-SA 4.0 · all contributions under DCO sign-off · source `.blend` files required alongside rendered sprites.
+**Licensing:** code PolyForm Noncommercial 1.0.0 (source-available; commercial and closed licensing is the project owner's alone) · art and data all rights reserved · every contribution under `CLA.md` with a DCO sign-off · source `.blend` files required alongside rendered sprites. Code was MIT and art CC BY-SA 4.0 before 2026-09-18 and 2026-08-30 respectively; copies obtained under those grants keep them.
 
 **Balance protection** — the real risk in an open contribution model is a well-meaning overpowered unit:
 

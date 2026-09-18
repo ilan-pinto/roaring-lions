@@ -8,7 +8,10 @@ Read `docs/GDD.md` before proposing design changes, and `CLAUDE.md` before writi
 
 ## Licensing and sign-off
 
-- Code: **MIT**
+- Code: **PolyForm Noncommercial 1.0.0** (`LICENSE`) — source-available: anyone
+  may read, run, modify and contribute for noncommercial use; commercial and
+  closed licensing is the project owner's alone. It was MIT before 2026-09-18;
+  copies obtained under MIT stay MIT.
 - Art and data (`data/`, `art/`, `assets/`): **all rights reserved** — changed
   2026-08-30 ahead of a planned commercial release, and it was CC BY-SA 4.0
   before that. That matters in one direction only: a Creative Commons grant is
@@ -17,7 +20,12 @@ Read `docs/GDD.md` before proposing design changes, and `CLAUDE.md` before writi
   stops adding to that set; it cannot undo it. See `data/LICENSE.md` and
   `docs/ART_PIPELINE.md` §8 — the project lead can reverse this decision, but
   not retroactively.
-- All commits require a **DCO sign-off** (`git commit -s`)
+- All commits require a **DCO sign-off** (`git commit -s`), and by opening a pull
+  request you agree to the **Contributor License Agreement** in `CLA.md`: you keep
+  your copyright and grant the project owner the right to license your
+  contribution under any terms, including commercial and closed ones. That is
+  what lets a contribution ship in a commercial build of a noncommercial-licensed
+  codebase.
 
 By contributing you confirm you have the right to license the work under these terms. **Do not submit assets from paid packs.** Most commercial packs — Synty POLYGON among them — forbid redistributing source assets in a public repository, regardless of whether you own a license. If you cannot point to explicit redistribution rights, it cannot go in.
 

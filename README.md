@@ -1,6 +1,6 @@
 # Roaring Lions
 
-An open-source, single-player real-time strategy game in the Command & Conquer tradition — 2:1 dimetric, TypeScript + PixiJS — whose distinguishing claim is that combat **simulates real engagement odds** instead of trading hit points. Fights resolve through a detect → hit → penetrate → component-damage chain, and suppression, not damage, is the dominant battlefield force.
+A source-available, single-player real-time strategy game in the Command & Conquer tradition — 2:1 dimetric, TypeScript + PixiJS — whose distinguishing claim is that combat **simulates real engagement odds** instead of trading hit points. Fights resolve through a detect → hit → penetrate → component-damage chain, and suppression, not damage, is the dominant battlefield force.
 
 All geography and factions are fictional. Enemy forces are defined by military doctrine — tunnels and ambush, standoff fires, mobile raiding — never by ethnicity, nationality, or faith.
 
@@ -111,4 +111,4 @@ Design documents: [`docs/GDD.md`](docs/GDD.md) · [`docs/ART_PIPELINE.md`](docs/
 
 ## License
 
-Code is MIT. Art and game data are all rights reserved (see `data/LICENSE.md`). All contributions require a DCO sign-off (`git commit -s`).
+Code is source-available under the PolyForm Noncommercial License 1.0.0 (`LICENSE`): read, run, modify and contribute for noncommercial use; commercial and closed licensing is the project owner's alone. Art and game data are all rights reserved (see `data/LICENSE.md`). Contributions are accepted under `CLA.md` with a DCO sign-off (`git commit -s`). The code was MIT before 2026-09-18, and copies obtained under MIT stay MIT.
