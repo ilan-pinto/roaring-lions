@@ -201,10 +201,14 @@ export function unitIcon(
 // captured at the same camera, not an alpha channel -- a JPEG plate carries
 // none.
 
-/** One engine-rendered plate: the URL to draw, and the unit's own measured
- *  pixel footprint inside it (not yet used by anything in this app). */
+/** One engine-rendered plate: the URL to draw, the plate's own pixel size, and
+ *  the unit's own measured pixel footprint inside it. The two together are what
+ *  `ui/plate-fit.ts` needs: a footprint alone says nothing without the frame it
+ *  was measured in, and handing them back as one object is what stops a caller
+ *  pairing one plate's footprint with another plate's size. */
 export interface UnitPlate {
   url: string;
+  size: readonly [number, number];
   extent: readonly [number, number];
 }
 
@@ -277,5 +281,5 @@ export function unitPlate(
   if (entry === undefined || !knownFiles.has(entry.file)) return null;
   const trimmedBase = base.endsWith('/') ? base : `${base}/`;
   const [w, h] = entry.extent;
-  return { url: trimmedBase + entry.file, extent: [w, h] };
+  return { url: trimmedBase + entry.file, size: [entry.width, entry.height], extent: [w, h] };
 }

@@ -3075,13 +3075,16 @@ button.rl-menu__item[data-kind='aside'] {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* One line, clipped: a Conduct gate's sentence is longer than any rail is
-   wide, and the bay prints the whole of it the moment the card is picked. */
+/* No ellipsis, deliberately. The chip carries `gateShort`'s REQUIREMENT
+   (`Locked · Conduct 55`, `Locked · 12★`), which fits; the first cut put the
+   full sentence here and let this rule clip it, and every Conduct-gated unit
+   on the rail read `Locked · Needs a campaign Conduc…` -- identical for a
+   floor of 35 and one of 75. A rule that hides the only part of a string that
+   differs is worse than no rule. The sentence is on the card's `title` and in
+   the bay. */
 .rl-garage__card-chip {
   font-size: var(--t-small);
   color: var(--ink-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .rl-garage__card[data-locked='0'] .rl-garage__card-chip {
@@ -3121,10 +3124,15 @@ button.rl-menu__item[data-kind='aside'] {
     ),
     var(--tile-bg);
 }
+/* `brigade.ts` writes a `transform: scale()` here from `ui/plate-fit.ts`, so
+   the UNIT fills the bay rather than the sand around it. The origin is the
+   centre because the capture centres the unit in its own frame, and the
+   parent's `overflow: hidden` is what crops the rest. */
 .rl-garage__plate-img {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform-origin: 50% 50%;
 }
 /* No plate photographed for this unit: the same "reserved, not broken" hatch
    the HUD draws for a type with no sheet, at bay size. */
@@ -3181,13 +3189,29 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* --- the board ---------------------------------------------------------- */
+/* The board is taller than its column for every unit with three tracks, and
+   the bottom rung used to end at a hard edge that reads as the end of the
+   list. `mask-image` fades the last 2rem of the SCROLL PORT, so what is cut
+   off announces itself; the gradient carries no colour (a mask reads alpha,
+   and `black`/`transparent` here are opacity 1 and 0, not palette entries).
+   `scrollbar-gutter: stable` reserves the scrollbar's own width whether or not
+   it is showing, so the rungs do not shift sideways as a taller unit is
+   selected -- which replaces the `padding-right` hack this rule used to
+   carry. */
 .rl-garage__board {
   display: flex;
   flex-direction: column;
   gap: var(--s3);
   min-height: 0;
   overflow-y: auto;
-  padding-right: var(--s1);
+  scrollbar-gutter: stable;
+  mask-image: linear-gradient(to bottom, black 0%, black calc(100% - 2rem), transparent 100%);
+  /* The fade is a fixed band at the bottom of the scroll PORT, so without this
+     it would still dim the last rung once the board is scrolled all the way
+     down -- an affordance that costs legibility at exactly the moment it has
+     nothing left to promise. The padding is part of the scroll extent, so
+     there is always 2rem of nothing for the fade to land on at the end. */
+  padding-bottom: var(--s6);
 }
 .rl-garage__board-title,
 .rl-garage__track-name {

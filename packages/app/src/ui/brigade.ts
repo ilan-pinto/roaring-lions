@@ -27,12 +27,13 @@
 //     `onBuyUpgrade`, `onReset`); the caller buys, saves and re-renders.
 //   * The two-click reset, and the rule that a Buy control renders only when
 //     the caller supplied BOTH a balance and a callback.
-import { applyUpgrades, nextTierPrice, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
+import { applyUpgrades, nextTierPrice, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
-import { gateSentence } from '../gate-sentence';
+import { gateSentence, gateShort } from '../gate-sentence';
 import { t } from '../i18n/t';
 import { markSvg } from './mark';
+import { plateFit } from './plate-fit';
 import { flash } from './motion';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
@@ -86,11 +87,15 @@ export interface BrigadeOptions {
    *  palette-quantised sheet frame is). Absent reads as "none of them", the
    *  same as every id reading as a sheet frame. */
   iconIds?: ReadonlySet<string>;
-  /** The engine-rendered plate for the bay (Task 15's `unitPlate`): a 900×600
-   *  JPEG of the unit on lit sand, captured through the game's own camera.
-   *  `null`, or no resolver at all, draws the reserved hatch — the same
-   *  "reserved, not broken" language the rail's card art uses. */
-  plate?: (typeId: string) => { url: string; extent: readonly [number, number] } | null;
+  /** The engine-rendered plate for the bay (Task 15's `unitPlate`): a JPEG of
+   *  the unit on lit sand, captured through the game's own camera, with the
+   *  plate's own pixel `size` and the unit's measured `extent` inside it.
+   *  Both are needed: `ui/plate-fit.ts` divides one by the other to decide how
+   *  far to zoom, and a footprint without the frame it was measured in is a
+   *  number that means nothing. `null`, or no resolver at all, draws the
+   *  reserved hatch — the same "reserved, not broken" language the rail's card
+   *  art uses. */
+  plate?: (typeId: string) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
   /** The unit's raw JSON, for the bay's stat panel and for every rung's
    *  benefit lines. Required, not optional: a garage with no numbers is the
    *  list this screen replaced. An id the caller does not know should hand
@@ -167,13 +172,19 @@ const PANEL_PATHS: readonly string[] = [
  *  itself checked non-undefined, and `reason` narrowed to a real string for
  *  the same reason (F2 minor 5: `brigade.ts:79-80` used to cast `u.unlock as
  *  UnlockGate` twice instead of typing this). */
-type Row = { u: BrigadeUnit; locked: false } | { u: BrigadeUnit; locked: true; unlock: UnlockGate; reason: string };
+type Row =
+  | { u: BrigadeUnit; locked: false }
+  | { u: BrigadeUnit; locked: true; unlock: UnlockGate; reason: string; short: string };
 
 function classifyRow(u: BrigadeUnit, ledger: LedgerData, missionName: (id: string) => string | undefined): Row {
   if (u.unlock === undefined) return { u, locked: false };
   const reason = gateSentence(u.unlock, ledger, missionName);
   if (reason === null) return { u, locked: false };
-  return { u, locked: true, unlock: u.unlock, reason };
+  // `gateShort` is null on exactly the gates `gateSentence` is null on -- both
+  // read one `gateRequirement` -- so this branch always has both. The `??` is
+  // the type system's price for that, not a real fallback.
+  const short = gateShort(u.unlock, ledger, missionName) ?? reason;
+  return { u, locked: true, unlock: u.unlock, reason, short };
 }
 
 /**
@@ -292,7 +303,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   for (const row of rows) {
     const base = opts.baseOf(row.u.id);
     for (const path of PANEL_PATHS) {
-      const v = readStat(base, path);
+      const v = readPath(base, path);
       if (v === undefined) continue;
       rosterMax.set(path, Math.max(rosterMax.get(path) ?? 0, v));
     }
@@ -357,19 +368,30 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       // shipped case) reads as reserved rather than as a broken image.
       const art = el('div', 'rl-garage__card-art');
       art.dataset.nosprite = '1';
+      // Named, not silent: the hatch says WHICH type has no sheet, which is
+      // the difference between "reserved" and "this build is broken" for
+      // anyone looking at the roster.
+      art.title = t('garage.card.noSprite', { id: u.id });
       art.innerHTML = roleBadgeSvg(roleBucket(u), CARD_MARK);
       card.appendChild(art);
     }
 
     const text = el('div', 'rl-garage__card-text');
     text.appendChild(el('div', 'rl-garage__card-name', u.name));
+    // The chip is the REQUIREMENT, not the instruction: `Locked · Conduct 55`,
+    // not a sentence clipped to `Locked · Needs a campaign Conduc…`, which is
+    // the same eleven characters for a floor of 35 and one of 75 and therefore
+    // distinguishes nothing. The sentence is not lost -- it is the card's
+    // `title` here and the bay prints it in full the moment the card is
+    // picked.
     text.appendChild(
       el(
         'div',
         'rl-garage__card-chip',
-        row.locked ? t('garage.chip.locked', { why: row.reason }) : t('garage.chip.owned')
+        row.locked ? t('garage.chip.locked', { why: row.short }) : t('garage.chip.owned')
       )
     );
+    if (row.locked) card.title = row.reason;
     card.appendChild(text);
 
     card.addEventListener('click', () => {
@@ -457,7 +479,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       console.warn(`[lions] garage: ${u.id}'s owned tiers do not fit its own JSON:`, err);
     }
 
-    // The plate.
+    // The plate, zoomed so the UNIT is large rather than the sand. Every plate
+    // is the same frame at the same camera zoom, so a rifleman occupies 154 of
+    // its 1800 pixels and a Namer 823; drawn at the plate's own scale the
+    // rifleman is a speck. `plateFit` turns the measured footprint into a
+    // scale factor and the bay's `overflow: hidden` crops the rest. The unit
+    // is centred in the plate by construction (the capture frames it), so a
+    // centred transform keeps it centred.
     const plate = el('div', 'rl-garage__plate');
     const picture = opts.plate?.(u.id) ?? null;
     if (picture !== null) {
@@ -465,9 +493,16 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       img.className = 'rl-garage__plate-img';
       img.src = picture.url;
       img.alt = '';
+      const { scale } = plateFit(picture.extent, picture.size);
+      // Read back by `brigade.test.ts`, which cannot compute a transform in
+      // jsdom -- and worth having on the element regardless, since "how far is
+      // this one zoomed" is otherwise only discoverable by measuring pixels.
+      plate.dataset.zoom = String(scale);
+      img.style.transform = `scale(${scale})`;
       plate.appendChild(img);
     } else {
       plate.dataset.noplate = '1';
+      plate.title = t('garage.plate.none', { id: u.id });
       plate.innerHTML = roleBadgeSvg(roleBucket(u), BAY_MARK);
     }
     bay.appendChild(plate);
@@ -519,7 +554,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       const delta = el('span', 'rl-garage__stat-delta');
       bar.append(fill, delta);
       stat.appendChild(bar);
-      const value = readStat(asOwned, path);
+      const value = readPath(asOwned, path);
       const num = el('span', 'rl-garage__stat-n', value === undefined ? t('garage.stat.none') : statNumber(value, meta.unit));
       stat.appendChild(num);
       const max = rosterMax.get(path) ?? 0;
@@ -694,25 +729,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 function barWidth(value: number, max: number): string {
   if (max <= 0) return '0%';
   return `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
-}
-
-/** One whitelisted stat off a unit's JSON. A deliberately local walker rather
- *  than `@lions/data`'s `readPath`: the panel reads `weapons[0].accuracy` off
- *  a unit that may declare no weapons at all, where an absent value is the
- *  answer (an em-dash) and not an error. */
-function readStat(unit: UpgradableUnit, path: string): number | undefined {
-  const indexed = /^(\w+)\[(\d+)\]\.(\w+)$/.exec(path);
-  if (indexed !== null) {
-    const item = unit.weapons?.[Number(indexed[2])];
-    const v = item?.[indexed[3]];
-    return typeof v === 'number' ? v : undefined;
-  }
-  let cur: unknown = unit;
-  for (const seg of path.split('.')) {
-    if (cur === null || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[seg];
-  }
-  return typeof cur === 'number' ? cur : undefined;
 }
 
 /** The unit's own one-line description, when its JSON carries one.

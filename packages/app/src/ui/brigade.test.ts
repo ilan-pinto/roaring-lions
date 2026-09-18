@@ -108,10 +108,13 @@ describe('showBrigade — the header and the rail', () => {
     expect(text(host, '.rl-garage__campaign')).toBe('2 of 78 stars · Conduct 90');
     expect(cardIds(host)).toEqual(['inf_squad', 'ifv_namer', 'breach_team']);
     expect(host.querySelector('.rl-garage__card[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('0');
-    expect(text(host, '.rl-garage__card[data-unit="breach_team"] .rl-garage__card-chip')).toBe(
-      'Locked · Needs 12 stars (you have 2)'
+    // The chip is the requirement; the card's `title` is the sentence.
+    expect(text(host, '.rl-garage__card[data-unit="breach_team"] .rl-garage__card-chip')).toBe('Locked · 12★');
+    expect(host.querySelector('.rl-garage__card[data-unit="breach_team"]')?.getAttribute('title')).toBe(
+      'Needs 12 stars (you have 2)'
     );
     expect(text(host, '.rl-garage__card[data-unit="ifv_namer"] .rl-garage__card-chip')).toBe('Owned');
+    expect(host.querySelector('.rl-garage__card[data-unit="ifv_namer"]')?.getAttribute('title')).toBeNull();
   });
 
   it('reads a fresh campaign honestly, and speaks a Conduct gate as a sentence, never a bare number', () => {
@@ -200,6 +203,24 @@ describe('showBrigade — the header and the rail', () => {
     const art = host.querySelector('.rl-garage__card[data-unit="breach_team"] .rl-garage__card-art');
     expect(art?.getAttribute('data-nosprite')).toBe('1');
     expect(art?.querySelector('svg')).not.toBeNull();
+    // Named, so "reserved" cannot be mistaken for "this build is broken".
+    expect(art?.getAttribute('title')).toBe('breach_team — no sprite sheet');
+  });
+
+  // The whole point of the short form: two units held by the same KIND of gate
+  // at different numbers must read differently on the rail. Clipping the
+  // sentence made both `Locked · Needs a campaign Conduc…`.
+  it('distinguishes two Conduct floors on the chip', () => {
+    const host = mount({
+      units: [
+        { ...units[1], id: 'a', name: 'A', unlock: { roeMin: 35 } },
+        { ...units[1], id: 'b', name: 'B', unlock: { roeMin: 75 } },
+      ],
+      ledger: {},
+      possibleStars: 78,
+    });
+    expect(text(host, '.rl-garage__card[data-unit="a"] .rl-garage__card-chip')).toBe('Locked · Conduct 35');
+    expect(text(host, '.rl-garage__card[data-unit="b"] .rl-garage__card-chip')).toBe('Locked · Conduct 75');
   });
 
   it('moves focus down the rail on an arrow, without changing the selection', () => {
@@ -270,13 +291,56 @@ describe('showBrigade — the bay', () => {
       units,
       ledger: {},
       possibleStars: 78,
-      plate: (id) => (id === 'inf_squad' ? { url: '/ui/plates/units/inf_squad.jpg', extent: [600, 400] } : null),
+      plate: (id) =>
+        id === 'inf_squad'
+          ? { url: '/ui/plates/units/inf_squad.jpg', size: [1800, 1200], extent: [600, 400] }
+          : null,
     });
     expect(host.querySelector('.rl-garage__plate-img')?.getAttribute('src')).toBe('/ui/plates/units/inf_squad.jpg');
     select(host, 'ifv_namer');
     const plate = host.querySelector('.rl-garage__plate');
     expect(plate?.getAttribute('data-noplate')).toBe('1');
     expect(plate?.querySelector('svg')).not.toBeNull();
+    expect(plate?.getAttribute('title')).toBe('ifv_namer — no plate photographed');
+  });
+
+  // "One unit LARGE in a lit bay": every plate is the same frame at the same
+  // camera zoom, so the unit inside it is whatever size it is -- 154 of 1800
+  // pixels for a sniper team. Drawn at the plate's own scale that is a speck,
+  // which is what the first cut shipped. The bay zooms per unit off the
+  // measured footprint.
+  it('zooms the plate so the unit fills the bay, not the sand', async () => {
+    const { plateFit } = await import('./plate-fit');
+    const extents: Record<string, [number, number]> = {
+      inf_squad: [280, 196], // a rifle squad: asks for 3.86x, clamped to the ceiling
+      ifv_namer: [823, 511], // the widest shipped unit: 1.31x
+      breach_team: [1800, 1200], // already fills its plate: no zoom at all
+    };
+    const host = mount({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      plate: (id) => ({ url: `/ui/plates/units/${id}.jpg`, size: [1800, 1200], extent: extents[id] }),
+    });
+    const zoom = (): string | undefined =>
+      host.querySelector('.rl-garage__plate')?.getAttribute('data-zoom') ?? undefined;
+    const styled = (): string | undefined =>
+      host.querySelector<HTMLElement>('.rl-garage__plate-img')?.style.transform;
+
+    expect(zoom()).toBe('2.5');
+    expect(styled()).toBe('scale(2.5)');
+    select(host, 'ifv_namer');
+    expect(zoom()).toBe('1.31');
+    expect(styled()).toBe('scale(1.31)');
+    select(host, 'breach_team');
+    expect(zoom()).toBe('1');
+
+    // And the numbers on the element are the module's own, not a second
+    // arithmetic in the screen.
+    for (const [id, extent] of Object.entries(extents)) {
+      select(host, id);
+      expect(zoom(), id).toBe(String(plateFit(extent, [1800, 1200]).scale));
+    }
   });
 
   it('offers a Buy control on a priced locked unit, disabled below the balance with the shortfall', () => {

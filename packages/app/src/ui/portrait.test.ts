@@ -174,6 +174,7 @@ describe('unitPlate', () => {
   it('resolves a known id from the manifest shape', () => {
     expect(unitPlate('/ui/plates/units/', 'mbt_lavi', fakeManifest, fakeKnownFiles)).toEqual({
       url: '/ui/plates/units/mbt_lavi.jpg',
+      size: [1800, 1200],
       extent: [636, 448],
     });
   });
@@ -181,6 +182,7 @@ describe('unitPlate', () => {
   it('accepts a base with no trailing slash too', () => {
     expect(unitPlate('/ui/plates/units', 'mbt_lavi', fakeManifest, fakeKnownFiles)).toEqual({
       url: '/ui/plates/units/mbt_lavi.jpg',
+      size: [1800, 1200],
       extent: [636, 448],
     });
   });
@@ -206,6 +208,11 @@ describe('unitPlate', () => {
     expect(plate?.url).toContain('mbt_lavi');
     expect(plate?.extent[0]).toBeGreaterThan(0);
     expect(plate?.extent[1]).toBeGreaterThan(0);
+    // `size` is the frame the footprint was measured in -- the garage's bay
+    // divides one by the other (`ui/plate-fit.ts`), so a footprint without its
+    // own frame is a number that means nothing.
+    expect(plate?.size[0]).toBeGreaterThan(plate?.extent[0] ?? 0);
+    expect(plate?.size[1]).toBeGreaterThan(plate?.extent[1] ?? 0);
   });
 });
 
