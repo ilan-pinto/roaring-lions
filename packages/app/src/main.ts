@@ -2575,7 +2575,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // The three player gestures (Task 10). FORWARD REFERENCES, deliberately
     // and not by accident: `orderSink`, `intentWorld` and `minimap` itself
     // are all declared further down this same function, and these three
-    // closures name them. That is safe because none of them RUNS until a
+    // closures name them (`myLiving` is not one of them -- it is declared
+    // above, and it is the SAME reading of "whose order is this" the armed
+    // left-click path uses, so the two cannot drift). That is safe because none of them RUNS until a
     // pointer event, which cannot be delivered before `bootBattlefield`
     // returns -- by which time every one is initialised. The options object
     // is built here rather than after the instance, and `minimap` is a
@@ -2597,7 +2599,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // would be two answers to one question, and the one that would drift
       // first is the protected-structure refusal -- invisible on open ground
       // and only reported in the debrief.
-      order: (x, y, mods) => issueOrder(intentWorld, orderSink, mySelection(), x, y, mods),
+      order: (x, y, mods) => issueOrder(intentWorld, orderSink, myLiving(), x, y, mods),
       // Local and silent to the sim (R-10): a mark on the minimap and a
       // marker on the field, nothing queued, nothing dispatched, no intent
       // kind. There is no second player to signal.
@@ -2809,10 +2811,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     applyIntent(sim, intent);
     for (const fn of intentListeners) fn(intent);
   };
-  /** Whose the order is: the living side-0 units currently selected. One
-   *  reading, so the minimap and the field cannot disagree about it either. */
-  const mySelection = (): number[] =>
-    renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
   /** Where a resolved right-click's three effects land. Built once and passed
    *  to `issueOrder` by both pointing surfaces. */
   const orderSink: OrderSink = {
@@ -3058,7 +3056,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // this same contextmenu with ctrlKey true, and ctrl-click is the
     // standard Mac idiom for opening a context menu — that click already
     // means "confirmed attack," not "let me reconsider."
-    issueOrder(intentWorld, orderSink, mySelection(), w.x, w.y, {
+    issueOrder(intentWorld, orderSink, myLiving(), w.x, w.y, {
       append: ev.shiftKey,
       confirm: ev.altKey,
     });

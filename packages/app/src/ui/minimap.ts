@@ -557,6 +557,14 @@ export class Minimap {
     this.el.addEventListener('pointerdown', this.onDown, { signal });
     this.el.addEventListener('pointermove', this.onMove, { signal });
     this.el.addEventListener('pointerup', this.onUp, { signal });
+    // `pointerup` is not the only way a drag ends, and the other two are not
+    // hypothetical: a pen or touch contact can be interrupted
+    // (`pointercancel`), and without `setPointerCapture` the release lands on
+    // whatever is under the pointer -- the battlefield canvas -- so this
+    // element never hears it. Either way `dragging` would latch true and
+    // every later BUTTON-LESS hover over the box would pan the camera.
+    this.el.addEventListener('pointercancel', this.onCancel, { signal });
+    this.el.addEventListener('lostpointercapture', this.onCancel, { signal });
     this.el.addEventListener('contextmenu', this.onMenu, { signal });
 
     const ctx = this.el.getContext('2d');
@@ -725,6 +733,15 @@ export class Minimap {
     if (!input || !moved) return;
     const at = this.pointAt(ev);
     input.jumpTo(at.x, at.y);
+  };
+
+  /** The drag ends with no final position: nothing is jumped to, the flags
+   *  are simply put back. Not folded into `onUp` because that one ANSWERS the
+   *  release and this one has no answer to give -- a cancelled gesture is not
+   *  a gesture that finished somewhere. */
+  private readonly onCancel = (): void => {
+    this.dragging = false;
+    this.dragMoved = false;
   };
 
   /** The order. The modifiers are passed on rather than interpreted: what

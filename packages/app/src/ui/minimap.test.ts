@@ -840,6 +840,29 @@ describe('minimap input', () => {
     expect(jumps[2].x).toBeCloseTo(32, 1);
   });
 
+  it('lets go of the drag when the pointer stream is cut', () => {
+    // `pointerup` is not the only way a drag ends. A pen or touch contact can
+    // be interrupted (`pointercancel`), and in a browser without
+    // `setPointerCapture` the release lands on whatever is under the pointer
+    // -- the battlefield canvas -- so this element never hears it. Either way
+    // `dragging` would stay true and every subsequent BUTTON-LESS hover over
+    // the box would pan the camera, until the next click happened to clear
+    // it. A minimap that pans when the hand merely passes over it reads as a
+    // broken camera rather than a stuck flag.
+    for (const cut of ['pointercancel', 'lostpointercapture']) {
+      document.body.innerHTML = '';
+      const jumps: MinimapPoint[] = [];
+      mount(() => true, { input: { ...noopInput, jumpTo: (x, y) => jumps.push({ x, y }) } });
+      const c = canvasOf();
+      c.dispatchEvent(at('pointerdown', 20, 20, { button: 0 }));
+      c.dispatchEvent(at('pointermove', 60, 60));
+      expect(jumps).toHaveLength(2);
+      c.dispatchEvent(at(cut, 60, 60));
+      c.dispatchEvent(at('pointermove', 140, 140));
+      expect(jumps, cut).toHaveLength(2);
+    }
+  });
+
   it('a right click orders, with the modifiers, and never jumps', () => {
     const orders: { mods: { append: boolean; confirm: boolean } }[] = [];
     const jumps: number[] = [];
