@@ -381,6 +381,11 @@ function describeMissionEvent(
       return null;
     case 'removed':
       return removedNotice(e.side, e.unit);
+    case 'unitLost':
+      // Temporary: Task 4's alert layer takes this line over and removes this
+      // case. Until then a `unitLost` reaching here would say nothing at all,
+      // because the `default` below returns null.
+      return [t('mission.notice.unitLost', { unit: e.unit }), 'bad'];
     case 'evacuated':
       return evacuatedNotice();
     case 'missionEnd':

@@ -415,6 +415,7 @@
   "objective.status.failed": "Failed",
   "mission.notice.wave": "<b>enemy reinforcements</b> — {n, plural, one {# unit} other {# units}} inbound",
   "mission.notice.built": "<b>reinforcement deployed</b> — {unit}",
+  "mission.notice.unitLost": "<b>Lost</b> — {unit}",
   "mission.notice.missionAccomplished": "<b>MISSION ACCOMPLISHED</b> — Conduct {roe}, {n, plural, one {# unit} other {# units}} survive",
   "mission.notice.missionFailed": "<b>MISSION FAILED</b>",
 

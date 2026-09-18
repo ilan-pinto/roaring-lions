@@ -333,6 +333,23 @@ export type MissionEvent =
    */
   | { kind: 'removed'; tick: number; entity: number; side: number; unit: string }
   /**
+   * One of the player's own units is dead.
+   *
+   * Mirrors `removed`'s field shape (`entity`, `side`, `unit`) for the same
+   * reason it carries them: the HUD needs to word the line without reaching
+   * into sim state, and `SimEvent`'s own `destroyed` carries neither. `side`
+   * is always 0 -- it is on the event anyway so the two neighbouring kinds
+   * read identically at a call site, and so a future "enemy lost" is a filter
+   * rather than a second kind.
+   *
+   * Emitted for a DEATH, never for a `remove` trigger (that is `removed`
+   * above, which is not a death and is never scored) and never for a
+   * civilian evacuation (`evacuated`). Unlike the veterancy branch beside it,
+   * it is NOT gated on `by >= 0`: a unit killed by nothing in particular --
+   * a building collapse, `debugKill` -- is still a unit the player lost.
+   */
+  | { kind: 'unitLost'; tick: number; entity: number; side: number; unit: string }
+  /**
    * The story voice (GDD §11): a `say` on a trigger or objective, fired
    * immediately after the event it annotates so a listener can pair them by
    * position in the same tick's array. Pure translation of mission data —
@@ -354,7 +371,8 @@ export type MissionEvent =
 
 /** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
 export const MISSION_EVENT_KINDS = [
-  'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'removed', 'say', 'missionEnd',
+  'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'removed', 'unitLost', 'say',
+  'missionEnd',
 ] as const satisfies readonly MissionEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union. See
@@ -990,6 +1008,21 @@ export class MissionRuntime {
       if (e.kind === 'destroyed' && e.by >= 0) {
         this.kills.set(e.by, (this.kills.get(e.by) ?? 0) + 1);
         if (this.sim.state.side[e.by] === 0) this.contributed.add(e.by);
+      }
+      // Deliberately a SECOND branch rather than an `else`/extension of the
+      // one above: that one answers "who gets the kill" and is rightly gated
+      // on there being a killer; this one answers "what did the player lose"
+      // and must fire for a death with no killer at all. `destroy()` clears
+      // `alive` but leaves `side` and `typeIdx` untouched (sim.ts:4833-4847),
+      // so both are still readable here, one tick's-worth of statements later.
+      if (e.kind === 'destroyed' && this.sim.state.side[e.entity] === 0) {
+        out.push({
+          kind: 'unitLost',
+          tick,
+          entity: e.entity,
+          side: 0,
+          unit: this.sim.unitTypes[this.sim.state.typeIdx[e.entity]].id,
+        });
       }
     }
 

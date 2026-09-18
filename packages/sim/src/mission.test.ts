@@ -3718,3 +3718,70 @@ describe('the narrative layer: remove, say, starting_force groups', () => {
     expect(Math.abs(y - 8.5)).toBeLessThan(2.0);
   });
 });
+
+describe('unitLost', () => {
+  it('reports a side-0 death with its entity, side and type id', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 2, at: [3, 5] }],
+        enemy: { garrison: [{ unit: 'm_tank', count: 1, at: [24, 5] }] },
+      })
+    );
+    w.sim.debugKill(0);
+    const { mission } = w.step(1);
+    const lost = mission.filter((e) => e.kind === 'unitLost');
+    expect(lost).toEqual([
+      { kind: 'unitLost', tick: w.sim.tickCount, entity: 0, side: 0, unit: 'm_squad' },
+    ]);
+  });
+
+  it('is silent for an enemy and for a civilian', () => {
+    const w = makeWorld(
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        enemy: { garrison: [{ unit: 'm_tank', count: 1, at: [24, 5] }] },
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }] },
+      })
+    );
+    const enemy = 1;
+    const civ = 2;
+    expect(w.sim.state.side[enemy]).toBe(1);
+    expect(w.sim.state.side[civ]).toBe(2);
+    w.sim.debugKill(enemy);
+    w.sim.debugKill(civ);
+    const { mission } = w.step(1);
+    expect(mission.filter((e) => e.kind === 'unitLost')).toEqual([]);
+  });
+
+  // `debugKill` destroys with `by === -1`, and so does anything the sim kills
+  // with no shooter. The existing veterancy branch in step() is gated on
+  // `by >= 0`; this one must NOT be, or a unit lost to a collapse or a mine
+  // dies with no alert at all.
+  it('fires when nothing killed it -- by === -1 is still a loss', () => {
+    const w = makeWorld(baseMission({ starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }] }));
+    const seen: SimEvent[] = [];
+    w.sim.debugKill(0);
+    const { sim, mission } = w.step(1);
+    seen.push(...sim);
+    expect(seen.some((e) => e.kind === 'destroyed' && e.by === -1)).toBe(true);
+    expect(mission.some((e) => e.kind === 'unitLost' && e.entity === 0)).toBe(true);
+  });
+
+  // The loss is reported ONCE. `destroy()` clears `alive` before the event is
+  // pushed (sim.ts:4833-4847), so a second tick has nothing to report -- but
+  // the assertion is what stops a future reader moving the push somewhere that
+  // runs per tick rather than per event.
+  it('reports each loss exactly once', () => {
+    const w = makeWorld(baseMission({ starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }] }));
+    w.sim.debugKill(0);
+    const first = w.step(1).mission.filter((e) => e.kind === 'unitLost').length;
+    const second = w.step(20).mission.filter((e) => e.kind === 'unitLost').length;
+    expect(first).toBe(1);
+    expect(second).toBe(0);
+  });
+
+  it('is in MISSION_EVENT_KINDS', async () => {
+    const { MISSION_EVENT_KINDS } = await import('./mission');
+    expect(MISSION_EVENT_KINDS).toContain('unitLost');
+  });
+});
