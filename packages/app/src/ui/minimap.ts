@@ -135,6 +135,31 @@ export interface MinimapDeps {
   teamColors: readonly [string, string, string];
   /** Live objectives. A thunk: objectives complete and drop off mid-mission. */
   objectives: () => readonly MinimapObjective[];
+  /** What the three player gestures mean. Optional: without it the canvas is
+   *  inert and swallows its events exactly as it did before Task 10, which is
+   *  also what every test that predates this mounts. */
+  input?: MinimapInput;
+}
+
+/**
+ * What the minimap does with a click, as three questions put to the caller.
+ *
+ * Deliberately not a renderer, a Sim or an intent: this file knows where the
+ * player pointed and nothing whatever about what a camera or an order is.
+ * `main.ts` owns all three answers, and the middle one is required to go
+ * through the SAME `resolvePointer` the battlefield's own right-click does --
+ * a minimap order that resolved differently from the identical click on the
+ * field would be two answers to one question.
+ */
+export interface MinimapInput {
+  /** Put the camera on this tile. */
+  jumpTo(x: number, y: number): void;
+  /** A right-click here, with the modifiers the player was holding. */
+  order(x: number, y: number, mods: { append: boolean; confirm: boolean }): void;
+  /** Mark this tile. Local and silent to the sim: nothing is queued and
+   *  nothing is dispatched (invariant 4), and there is no second player to
+   *  signal. */
+  ping(x: number, y: number): void;
 }
 
 /**
@@ -219,6 +244,35 @@ export function minimapProjection(w: number, h: number, size: number): MinimapPr
 /** Tile point → box pixel. */
 export function tileToBox(p: MinimapProjection, tx: number, ty: number): MinimapPoint {
   return { x: p.ox + tx * p.scale, y: p.oy + ty * p.scale };
+}
+
+/**
+ * Box pixel → tile point: the inverse of `tileToBox`, clamped to the map.
+ *
+ * Written as the algebraic inverse rather than as a second projection, so the
+ * two cannot drift -- the round trip is a test, and a minimap whose click
+ * landed a tile away from the mark it was aimed at would be a second answer
+ * to the question section 2 of this file's header settles once.
+ *
+ * The clamp is not tidiness. A letterboxed map (`ox`/`oy` non-zero) has box
+ * pixels with NO tile under them, and every caller of this is a player's
+ * click: without it a click on the dead strip below a wide map jumps the
+ * camera off the world, or -- worse, because it is silent -- orders a squad
+ * to walk to a tile that does not exist. Clamping to the map's own edge is
+ * the nearest honest answer to "there".
+ */
+export function boxToTile(
+  p: MinimapProjection,
+  bx: number,
+  by: number,
+  w: number,
+  h: number
+): MinimapPoint {
+  const clamp = (v: number, hi: number): number => (v < 0 ? 0 : v > hi ? hi : v);
+  return {
+    x: clamp((bx - p.ox) / p.scale, w),
+    y: clamp((by - p.oy) / p.scale, h),
+  };
 }
 
 /**
@@ -334,6 +388,33 @@ export interface MinimapDot extends MinimapPoint {
   side: number;
 }
 
+/** The three silhouettes a unit dot can wear. */
+export type DotShape = 'square' | 'triangle' | 'circle';
+
+/**
+ * Which silhouette a side gets.
+ *
+ * A SECOND channel beside the colour, not a replacement for it, and the
+ * distinction is load-bearing: G0 decision #3 measured this palette's team
+ * colours as NOT collapsing under any simulated deficiency, so the colours
+ * here are unchanged and the shape is laid down beside them. Anything
+ * claiming this FIXES a colour problem would be claiming a measurement that
+ * says the opposite.
+ *
+ * What the three shapes are chosen for is corner count -- four, three, none
+ * -- rather than size, because every dot is the same `DOT` tall and a
+ * silhouette that differed by size would read as distance instead of side.
+ * Which side gets which is arbitrary beyond that, except that the default
+ * arm is the circle: it is also the honest answer for a side this file has
+ * never been told about, since `teamColors` has exactly three entries and
+ * `dotShape` must answer for any number.
+ */
+export function dotShape(side: number): DotShape {
+  if (side === 0) return 'square';
+  if (side === 1) return 'triangle';
+  return 'circle';
+}
+
 /**
  * Every unit the player is entitled to see, in tile space.
  *
@@ -371,15 +452,38 @@ export function unitDots(sim: Sim, isVisible: (wx: number, wy: number) => boolea
 export const FLASH_MS = 1400;
 
 /**
+ * One fade, over whatever span the caller names: 1 at the event, 0 at the end
+ * of the span, straight line between.
+ *
  * Linear, because the thing being judged is "is it still there", not a
  * brightness curve -- and linear is the one shape a reader can check against
- * the number above without running it.
+ * the numbers beside it without running it.
+ *
+ * Generalised from `flashAlpha` when the ping arrived on its own, longer
+ * span (Task 10). Two curves for two marks would have been two places for the
+ * "is it gone yet" boundary to be written down, and they agree here by
+ * construction instead.
  */
-export function flashAlpha(ageMs: number): number {
+export function linearFade(ageMs: number, spanMs: number): number {
   if (ageMs <= 0) return 1;
-  if (ageMs >= FLASH_MS) return 0;
-  return 1 - ageMs / FLASH_MS;
+  if (spanMs <= 0 || ageMs >= spanMs) return 0;
+  return 1 - ageMs / spanMs;
 }
+
+/** The alert flash's own span. Kept as its own name because Task 4's callers
+ *  and tests speak it, and because `FLASH_MS` is the fact, not the curve. */
+export function flashAlpha(ageMs: number): number {
+  return linearFade(ageMs, FLASH_MS);
+}
+
+/**
+ * How long a ping stays on the minimap -- nearly twice `FLASH_MS`, and
+ * deliberately so. A flash is the game telling the player to look; a ping is
+ * the player telling THEMSELVES to look, at a tile they picked out on purpose
+ * and are about to act on. It has to outlive the glance away from the minimap
+ * that reading it causes.
+ */
+export const PING_MS = 2500;
 
 /** Dot edge, in box pixels. 6px filled, from the spec's own inline style. */
 const DOT = 6;
@@ -392,6 +496,14 @@ const DIAMOND = 8;
  *  objective is still two distinguishable marks. */
 const FLASH_R0 = 5;
 const FLASH_R1 = 16;
+/** The ping's ring, same idea and deliberately a different size: it starts
+ *  inside `FLASH_R0` and ends outside `FLASH_R1`, so a ping landing on top of
+ *  an alert is never the same circle at the same instant. */
+const PING_R0 = 3;
+const PING_R1 = 20;
+/** The ping's centre dot. Static: the ring is the motion that catches the
+ *  eye, and by the time it has expanded it no longer says WHERE. */
+const PING_DOT = 2;
 
 export class Minimap {
   private readonly el: HTMLCanvasElement;
@@ -403,8 +515,16 @@ export class Minimap {
   private readonly seenMarkers = new Set<string>();
   /** Live alert marks: where, and the wall-clock instant each landed. */
   private readonly flashes: { p: MinimapPoint; at: number }[] = [];
+  /** Live player pings, same shape and its own span. */
+  private readonly pings: { p: MinimapPoint; at: number }[] = [];
   private readonly dpr: number;
   private tickN = 0;
+  /** A left button is down and the camera is following the pointer. */
+  private dragging = false;
+  /** The pointer has moved since that button went down. See `onUp`. */
+  private dragMoved = false;
+  /** Every listener this component owns, cut in one call by `destroy()`. */
+  private readonly listeners = new AbortController();
 
   constructor(
     host: HTMLElement,
@@ -420,11 +540,24 @@ export class Minimap {
     this.el.className = 'rl-minimap';
     this.el.width = MINIMAP_SIZE * this.dpr;
     this.el.height = MINIMAP_SIZE * this.dpr;
-    // Deliberately NOT pointer-events:none. The minimap sits over the corner
-    // of the battlefield, and a click that fell through it would issue an
-    // order on ground the player cannot see and did not aim at. Swallowing the
-    // event is the correct behaviour until click-to-jump exists.
+    // Deliberately NOT pointer-events:none, and since Task 10 the reason has
+    // changed rather than gone away. It used to be that a click falling
+    // through would issue an order on ground the player did not aim at, so
+    // swallowing was the whole of it. Now the box IS a control -- click to
+    // jump, drag to pan, right-click to order, alt-click to ping -- and the
+    // swallowing is what keeps those four gestures from ALSO reaching the
+    // battlefield underneath and doing a second, different thing. Every
+    // handler that acts calls `preventDefault` BEFORE it consults `input`, so
+    // a click is swallowed even where nothing is wired -- which is the promise
+    // this comment made before the box was a control and still makes. A bare
+    // hover is deliberately not swallowed: `pointermove` is only this
+    // component's event while a drag is in flight.
     host.appendChild(this.el);
+    const signal = this.listeners.signal;
+    this.el.addEventListener('pointerdown', this.onDown, { signal });
+    this.el.addEventListener('pointermove', this.onMove, { signal });
+    this.el.addEventListener('pointerup', this.onUp, { signal });
+    this.el.addEventListener('contextmenu', this.onMenu, { signal });
 
     const ctx = this.el.getContext('2d');
     if (!ctx) throw new Error('minimap: no 2D context');
@@ -471,9 +604,140 @@ export class Minimap {
     for (const p of points) this.flashes.push({ p: { x: p.x, y: p.y }, at: nowMs });
   }
 
+  /**
+   * Mark ground the PLAYER chose, now.
+   *
+   * The same shape as `flash` and deliberately not the same list: a flash is
+   * the game saying "look", a ping is the player saying it, they run on
+   * different spans, and a player who pings the tile an alert just fired on
+   * should see both marks rather than one that has quietly replaced the
+   * other.
+   *
+   * Local and silent to the sim: nothing here is queued, dispatched, or
+   * observable from `sim.state` (invariant 4). There is no second player to
+   * signal -- this is a note to oneself, and `main.ts` drops an order marker
+   * on the field beside it so the note exists in both places the eye goes.
+   *
+   * Expired entries are dropped on the ADD, exactly as `flash` does, so the
+   * list holds at most one `PING_MS` window's worth plus the one just pushed:
+   * a bound set by how fast a player can click, never by mission length.
+   */
+  ping(x: number, y: number, nowMs: number): void {
+    for (let i = this.pings.length - 1; i >= 0; i--) {
+      if (nowMs - this.pings[i].at >= PING_MS) this.pings.splice(i, 1);
+    }
+    this.pings.push({ p: { x, y }, at: nowMs });
+  }
+
   destroy(): void {
+    // Before the element goes: a drag in flight when a mission ends still
+    // holds a reference to this node through the browser's pointer capture,
+    // and a removed element's listeners are otherwise only collected when
+    // nothing holds it.
+    this.listeners.abort();
     this.el.remove();
   }
+
+  /**
+   * Where the player pointed, in tile space.
+   *
+   * `clientX - rect.left`, matching `main.ts`'s own `canvasXY`, so the app has
+   * one convention for reading a pointer rather than two. It is a convention
+   * and not a correctness claim: `ev.offsetX` is already relative to the
+   * target's own box and would give the same answer in a browser. What is NOT
+   * optional is subtracting the element's origin at all -- this box is
+   * anchored bottom-RIGHT, so its rect starts roughly 1200px in, and a raw
+   * client coordinate would clamp every click to the far corner of the map.
+   *
+   * No DPR term -- the backing store is `MINIMAP_SIZE * dpr` but the CSS box
+   * is `MINIMAP_SIZE`, and both `getBoundingClientRect` and `boxToTile` work
+   * in CSS pixels.
+   */
+  private pointAt(ev: MouseEvent): MinimapPoint {
+    const rect = this.el.getBoundingClientRect();
+    return boxToTile(
+      this.proj,
+      ev.clientX - rect.left,
+      ev.clientY - rect.top,
+      this.deps.map.width,
+      this.deps.map.height
+    );
+  }
+
+  /**
+   * A click and a drag are ONE path: a click is a drag of zero length, so
+   * `jumpTo` is called on down, on every move while the button is held, and
+   * once more on release. Two code paths would be two answers to "where did
+   * the player point".
+   *
+   * Alt takes the click instead, and does NOT arm the drag -- a ping is a
+   * single mark on a tile the player picked out, and a ping that panned the
+   * camera as the hand moved off would be both gestures at once.
+   */
+  private readonly onDown = (ev: PointerEvent): void => {
+    ev.preventDefault();
+    const input = this.deps.input;
+    if (!input || ev.button !== 0) return;
+    const at = this.pointAt(ev);
+    if (ev.altKey) {
+      input.ping(at.x, at.y);
+      return;
+    }
+    this.dragging = true;
+    this.dragMoved = false;
+    // Optional because jsdom implements neither this nor `PointerEvent`, and
+    // because what it buys is a drag that keeps panning once the pointer has
+    // left the 210px box -- which is most of a real drag.
+    this.el.setPointerCapture?.(ev.pointerId);
+    input.jumpTo(at.x, at.y);
+  };
+
+  /** Only while dragging, and `preventDefault` only then too: a bare hover
+   *  over the minimap is not this component's event to swallow. */
+  private readonly onMove = (ev: PointerEvent): void => {
+    if (!this.dragging) return;
+    ev.preventDefault();
+    this.dragMoved = true;
+    const input = this.deps.input;
+    if (!input) return;
+    const at = this.pointAt(ev);
+    input.jumpTo(at.x, at.y);
+  };
+
+  /**
+   * The release ends a DRAG where the hand stopped, rather than where the last
+   * `pointermove` happened to fire -- a pointer moved and released inside one
+   * frame delivers its final position only here.
+   *
+   * It jumps only when the pointer actually moved, and that is what keeps a
+   * click one gesture: a plain click is a drag of zero length whose press has
+   * already answered it, and jumping again on its release would write the
+   * camera twice for one click. Pointer capture is released implicitly by the
+   * browser after pointerup, so there is nothing to give back here.
+   */
+  private readonly onUp = (ev: PointerEvent): void => {
+    if (!this.dragging) return;
+    ev.preventDefault();
+    const moved = this.dragMoved;
+    this.dragging = false;
+    this.dragMoved = false;
+    const input = this.deps.input;
+    if (!input || !moved) return;
+    const at = this.pointAt(ev);
+    input.jumpTo(at.x, at.y);
+  };
+
+  /** The order. The modifiers are passed on rather than interpreted: what
+   *  Shift and Alt MEAN is `resolvePointer`'s business, and this file
+   *  deciding any part of it would be the second answer the whole arrangement
+   *  exists to prevent. */
+  private readonly onMenu = (ev: MouseEvent): void => {
+    ev.preventDefault();
+    const input = this.deps.input;
+    if (!input) return;
+    const at = this.pointAt(ev);
+    input.order(at.x, at.y, { append: ev.shiftKey, confirm: ev.altKey });
+  };
 
   /**
    * The ground, once. Cover tiers read as the graining they are on the field;
@@ -551,13 +815,53 @@ export class Minimap {
 
     for (const d of unitDots(this.deps.sim, this.fogAt)) {
       const at = tileToBox(proj, d.x, d.y);
+      // Colour FIRST and unchanged: the shape is the second channel, not the
+      // replacement for a first one that was measured to work.
       ctx.fillStyle = this.deps.teamColors[d.side] ?? this.deps.teamColors[2];
-      ctx.fillRect(Math.round(at.x - DOT / 2), Math.round(at.y - DOT / 2), DOT, DOT);
+      this.dot(at, dotShape(d.side));
     }
 
     this.drawFlashes(nowMs);
+    this.drawPings(nowMs);
 
     this.drawViewport();
+  }
+
+  /**
+   * One unit mark, `DOT` box pixels tall whichever silhouette it wears.
+   *
+   * The square keeps its rounded integer rect -- a 6px axis-aligned fill on a
+   * half-pixel boundary is a blurred 7px one, and the player's own units are
+   * the marks most often stacked. The other two are paths and are NOT
+   * rounded: a triangle snapped to whole pixels is a different triangle, and
+   * neither shape has an edge that a half pixel can smear along.
+   *
+   * All three are centred on the tile, and for the triangle that means its
+   * CENTROID rather than its bounding box -- an equilateral sitting on its
+   * bounding centre reads as a mark a pixel above where the unit is, which is
+   * exactly the error a minimap must not make.
+   */
+  private dot(at: MinimapPoint, shape: DotShape): void {
+    const { ctx } = this;
+    if (shape === 'square') {
+      ctx.fillRect(Math.round(at.x - DOT / 2), Math.round(at.y - DOT / 2), DOT, DOT);
+      return;
+    }
+    if (shape === 'circle') {
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, DOT / 2, 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    // Equilateral, `DOT` tall, apex up. The centroid sits one third of the
+    // height above the base, so the apex is 2/3 up and the base 1/3 down.
+    const half = DOT / Math.sqrt(3);
+    ctx.beginPath();
+    ctx.moveTo(at.x, at.y - (DOT * 2) / 3);
+    ctx.lineTo(at.x + half, at.y + DOT / 3);
+    ctx.lineTo(at.x - half, at.y + DOT / 3);
+    ctx.closePath();
+    ctx.fill();
   }
 
   /**
@@ -592,6 +896,43 @@ export class Minimap {
       ctx.beginPath();
       ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /**
+   * The player's own marks: an expanding ring with a static dot at its centre,
+   * fading over `PING_MS`.
+   *
+   * `CHROME.story`'s tone rather than the alert amber, and that is the whole
+   * distinction the two marks carry: amber is the game asking for attention,
+   * and this is the player's own note on ground they named. A ping in the
+   * alert colour would make the minimap report a threat the sim never raised.
+   *
+   * Drawn after the flashes and still under the viewport outline, for the
+   * same reason the flashes are: the frame that says where the player is
+   * looking is the one mark nothing may obscure.
+   */
+  private drawPings(nowMs: number): void {
+    const { ctx, proj } = this;
+    for (const p of this.pings) {
+      const a = linearFade(nowMs - p.at, PING_MS);
+      if (a <= 0) continue;
+      const at = tileToBox(proj, p.p.x, p.p.y);
+      const r = PING_R0 + (PING_R1 - PING_R0) * (1 - a);
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = this.chrome.story;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      // The address, and it does not grow: by the time the ring has expanded
+      // it has stopped saying WHERE.
+      ctx.fillStyle = this.chrome.story;
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, PING_DOT, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
   }

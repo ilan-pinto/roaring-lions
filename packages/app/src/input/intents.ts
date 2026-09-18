@@ -374,6 +374,63 @@ export function resolveKeyVerb(
   };
 }
 
+/**
+ * Where a resolved right-click's three outputs go.
+ *
+ * Named separately from the sim's `CommandSink` because none of these three
+ * is a command: `dispatch` is the app's own intent stream (the tutorial
+ * listens to it), `note` is the HUD, and `marker` is the renderer. Keeping
+ * them as one interface is what lets `issueOrder` below be the single
+ * carrying-out that both pointing surfaces call.
+ */
+export interface OrderSink {
+  dispatch(intent: PlayerIntent): void;
+  note(text: string, tone: 'info' | 'mute'): void;
+  marker(x: number, y: number): void;
+}
+
+/**
+ * Carry out what a right-click at a tile means, whatever surface it arrived
+ * on -- the battlefield canvas, or the minimap since Task 10.
+ *
+ * `resolvePointer` was already the one DECISION; this is the one ACTION, and
+ * it exists because the five lines that follow a resolution (dispatch every
+ * intent, show the note, drop the marker) are exactly the sort of thing a
+ * second surface copies and then quietly diverges from. The divergence that
+ * matters is invisible on open ground: a minimap click that skipped the
+ * resolver would attack a protected structure without the Alt override and
+ * without the note, and the player would learn about it in the debrief.
+ *
+ * `armed` is always null here, deliberately and not by omission. Only
+ * pointerup's LEFT click may spend an armed support call; a right-click made
+ * while a call is armed must give the ordinary order it looks like. Neither
+ * surface gets to decide that for itself.
+ *
+ * Returns the `Resolution` so a caller that wants more than the three
+ * standard effects -- the cursor, say -- can have it without resolving twice.
+ */
+export function issueOrder(
+  world: IntentWorld,
+  sink: OrderSink,
+  ids: number[],
+  x: number,
+  y: number,
+  mods: { append: boolean; confirm: boolean }
+): Resolution {
+  const res = resolvePointer(world, {
+    ids,
+    x,
+    y,
+    append: mods.append,
+    armed: null,
+    confirm: mods.confirm,
+  });
+  for (const intent of res.intents) sink.dispatch(intent);
+  if (res.note) sink.note(res.note.text, res.note.tone);
+  if (res.marker) sink.marker(x, y);
+  return res;
+}
+
 /** The tier of whatever is under the pointer. A mission-flagged zone is
  *  protected regardless of what stands on it. */
 function roeTierAt(world: IntentWorld, x: number, y: number): RoeTier {

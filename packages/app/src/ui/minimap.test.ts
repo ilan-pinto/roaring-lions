@@ -29,7 +29,11 @@ import {
   FLASH_MS,
   MINIMAP_SIZE,
   Minimap,
+  PING_MS,
+  boxToTile,
+  dotShape,
   flashAlpha,
+  linearFade,
   minimapProjection,
   objectivePoint,
   objectivePoints,
@@ -37,8 +41,10 @@ import {
   tileToBox,
   unitDots,
   viewportQuad,
+  type DotShape,
   type MinimapDeps,
   type MinimapMap,
+  type MinimapPoint,
   type MinimapView,
 } from './minimap';
 
@@ -65,18 +71,53 @@ interface StrokePath {
   alpha: number;
   points: [number, number][];
 }
+/** A filled PATH, which is how the two non-square unit marks and the ping's
+ *  centre dot are drawn. Recorded with the same shape as a stroke so the two
+ *  can be compared; `fillRect` stays its own op because a rectangle never
+ *  becomes a path. */
+interface FillPath {
+  kind: 'fillPath';
+  style: string;
+  filter: string;
+  alpha: number;
+  points: [number, number][];
+}
 interface DrawImage {
   kind: 'drawImage';
   filter: string;
   smoothing: boolean;
 }
-type Op = FillRect | StrokePath | DrawImage;
+type Op = FillRect | StrokePath | FillPath | DrawImage;
+
+/**
+ * One unit mark, whatever shape it was drawn as.
+ *
+ * Colour alone stopped being the whole story in Task 10: a side is a colour
+ * AND a silhouette, so a test has to be able to ask which shape was laid
+ * down. The three are told apart by what they record and nothing is guessed:
+ * a square is a `fillRect`, a triangle a filled path of three points, a
+ * circle a filled path of the four cardinal points the `arc` stub flattens
+ * to. Reported with its centre (the MEAN of the path's points, which is the
+ * tile for all three by construction), its bounding height, and its style --
+ * the last because the ground fill is a square too, and picking one side out
+ * is exactly what the fog tests do.
+ */
+interface Dot {
+  shape: DotShape;
+  style: string;
+  x: number;
+  y: number;
+  /** Bounding height in box pixels. 6 for every shape the dot loop draws. */
+  size: number;
+}
 
 interface Recorder {
   ops: Op[];
   fills(): FillRect[];
   strokes(): StrokePath[];
+  paths(): FillPath[];
   images(): DrawImage[];
+  dots(): Dot[];
 }
 
 let recorder: Recorder;
@@ -143,6 +184,15 @@ function installContext(): Recorder {
         points: [...path],
       });
     },
+    fill() {
+      ops.push({
+        kind: 'fillPath',
+        style: String(this.fillStyle),
+        filter: String(this.filter),
+        alpha: Number(this.globalAlpha),
+        points: [...path],
+      });
+    },
   };
   // Assigned rather than `vi.spyOn`d: `getContext` is overloaded five ways and
   // `mockReturnValue` binds to the last of them (`GPUCanvasContext`), so the
@@ -150,11 +200,30 @@ function installContext(): Recorder {
   // happening. The original is put back in `afterEach`.
   HTMLCanvasElement.prototype.getContext = (() =>
     ctx) as unknown as HTMLCanvasElement['getContext'];
+  const mean = (ns: number[]): number => ns.reduce((a, b) => a + b, 0) / ns.length;
   return {
     ops,
     fills: () => ops.filter((o): o is FillRect => o.kind === 'fillRect'),
     strokes: () => ops.filter((o): o is StrokePath => o.kind === 'stroke'),
+    paths: () => ops.filter((o): o is FillPath => o.kind === 'fillPath'),
     images: () => ops.filter((o): o is DrawImage => o.kind === 'drawImage'),
+    dots: () =>
+      ops.flatMap((o): Dot[] => {
+        if (o.kind === 'fillRect') {
+          return [{ shape: 'square', style: o.style, x: o.x + o.w / 2, y: o.y + o.h / 2, size: o.h }];
+        }
+        if (o.kind !== 'fillPath' || o.points.length === 0) return [];
+        const ys = o.points.map(([, y]) => y);
+        return [
+          {
+            shape: o.points.length === 3 ? 'triangle' : 'circle',
+            style: o.style,
+            x: mean(o.points.map(([x]) => x)),
+            y: mean(ys),
+            size: Math.max(...ys) - Math.min(...ys),
+          },
+        ];
+      }),
   };
 }
 
@@ -279,8 +348,8 @@ function strokeMatching(want: [number, number][]): StrokePath | undefined {
  * Team colours cannot collide with anything else recorded here: the terrain
  * layer fills in `tones`, and the box fill in a chrome colour.
  */
-function dotsOf(color: string): FillRect[] {
-  return recorder.fills().filter((f) => f.style === color);
+function dotsOf(color: string): (FillRect | FillPath)[] {
+  return [...recorder.fills(), ...recorder.paths()].filter((f) => f.style === color);
 }
 
 // --- fog: the deliverable -------------------------------------------------
@@ -293,14 +362,16 @@ describe('fog', () => {
 
   it('draws the hostile the moment its tile is observed', () => {
     mount((x, y) => x >= 39 && x <= 41 && y >= 39 && y <= 41);
-    const red = dotsOf('red');
+    const red = recorder.dots().filter((d) => d.style === 'red');
     expect(red).toHaveLength(1);
-    // The spec's own inline style: a 6x6 fill, centred on the tile. 40 tiles
-    // at 210/48 px per tile.
-    expect([red[0].w, red[0].h]).toEqual([6, 6]);
+    // The spec's own inline style: 6 box pixels tall, centred on the tile,
+    // 40 tiles at 210/48 px per tile. The SHAPE is side 1's own (Task 10) --
+    // a triangle, drawn beside the colour rather than instead of it.
+    expect(red[0].shape).toBe('triangle');
+    expect(red[0].size).toBeCloseTo(6, 6);
     const at = tileToBox(minimapProjection(W, W, MINIMAP_SIZE), 40, 40);
-    expect(red[0].x).toBe(Math.round(at.x - red[0].w / 2));
-    expect(red[0].y).toBe(Math.round(at.y - red[0].h / 2));
+    expect(red[0].x).toBeCloseTo(at.x, 6);
+    expect(red[0].y).toBeCloseTo(at.y, 6);
   });
 
   it("draws the player's own units through fog", () => {
@@ -629,7 +700,10 @@ describe('the alert flash', () => {
     minimap.onTick();
     const ringAt = recorder.ops.findIndex((o) => o.kind === 'stroke' && o.alpha < 1);
     const lastDot = recorder.ops.reduce(
-      (best, o, i) => (o.kind === 'fillRect' && (o.style === 'blue' || o.style === 'red') ? i : best),
+      (best, o, i) =>
+        (o.kind === 'fillRect' || o.kind === 'fillPath') && (o.style === 'blue' || o.style === 'red')
+          ? i
+          : best,
       -1
     );
     const lastStroke = recorder.ops.reduce((best, o, i) => (o.kind === 'stroke' ? i : best), -1);
@@ -646,5 +720,360 @@ describe('the alert flash', () => {
     recorder.ops.length = 0;
     minimap.onTick();
     expect(recorder.strokes().filter((k) => k.alpha < 1)).toHaveLength(2);
+  });
+});
+
+// --- the minimap becomes a control (Task 10) -------------------------------
+
+describe('boxToTile', () => {
+  const p = minimapProjection(48, 48, 210);
+  it('is the inverse of tileToBox', () => {
+    for (const [tx, ty] of [
+      [0, 0],
+      [12.5, 30.25],
+      [47.9, 47.9],
+    ] as const) {
+      const b = tileToBox(p, tx, ty);
+      const back = boxToTile(p, b.x, b.y, 48, 48);
+      expect(back.x).toBeCloseTo(tx, 5);
+      expect(back.y).toBeCloseTo(ty, 5);
+    }
+  });
+
+  it('clamps a point in the letterbox to the map, never off it', () => {
+    const wide = minimapProjection(48, 24, 210); // a hypothetical non-square map
+    expect(boxToTile(wide, 105, 0, 48, 24)).toEqual({ x: 24, y: 0 });
+    expect(boxToTile(wide, -50, 999, 48, 24)).toEqual({ x: 0, y: 24 });
+  });
+});
+
+describe('dotShape', () => {
+  it('gives each side its own silhouette, so colour is not the only channel', () => {
+    expect(dotShape(0)).toBe('square');
+    expect(dotShape(1)).toBe('triangle');
+    expect(dotShape(2)).toBe('circle');
+    expect(dotShape(7)).toBe('circle');
+  });
+
+  it('draws each side in its own shape AND its own colour, on the real path', () => {
+    // Redundancy, not a replacement: G0 decision #3 measured the team colours
+    // as NOT collapsing under any simulated deficiency, so the shape is a
+    // second channel beside a working first one. A test that only checked the
+    // shape would let the colour quietly go.
+    const sim = new Sim({ seed: 1, width: W, height: W, capacity: 16 });
+    const t = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+    sim.spawn(t, 0, fx.from(2), fx.from(2));
+    sim.spawn(t, 1, fx.from(10), fx.from(10));
+    sim.spawn(t, 2, fx.from(30), fx.from(30));
+    mount(() => true, { sim });
+    const shapesOf = (color: string): DotShape[] =>
+      recorder
+        .dots()
+        .filter((d) => d.style === color)
+        .map((d) => d.shape);
+    expect(shapesOf('blue')).toEqual(['square']);
+    expect(shapesOf('red')).toEqual(['triangle']);
+    expect(shapesOf('amber')).toEqual(['circle']);
+  });
+});
+
+// jsdom has no `PointerEvent`, so the events below are plain `MouseEvent`s
+// carrying `clientX`/`clientY`, and the implementation reads
+// `clientX - rect.left` the way `main.ts`'s own `canvasXY` does. One
+// convention for pointer coordinates in this app.
+//
+// MEASURED, because the obvious reason to prefer it is not true here: jsdom's
+// `offsetX` is NOT a read-only zero, it is `pageX` (probed -- a click at
+// clientX 105 reads offsetX 105), so on an element whose bounding rect starts
+// at the origin the two expressions agree and no test can tell them apart.
+// What IS testable, and is the defect that would actually ship, is dropping
+// the element's own origin: the minimap lives in the bottom-RIGHT corner, so
+// its rect starts some 1200px in, and a handler that forgot to subtract that
+// would clamp every click to the far edge of the map. `a click on a box that
+// is not at the origin` below stubs the rect and pins it -- and jsdom's
+// `offsetX` does not consult that stub, so it separates the two.
+const at = (kind: string, x: number, y: number, init: MouseEventInit = {}): MouseEvent =>
+  new MouseEvent(kind, { bubbles: true, cancelable: true, clientX: x, clientY: y, ...init });
+const noopInput = { jumpTo: () => undefined, order: () => undefined, ping: () => undefined };
+const canvasOf = (): HTMLCanvasElement => {
+  const el = document.body.querySelector<HTMLCanvasElement>('canvas.rl-minimap');
+  if (!el) throw new Error('no minimap canvas');
+  return el;
+};
+
+describe('minimap input', () => {
+  it('a left click jumps the camera to that tile', () => {
+    const jumps: MinimapPoint[] = [];
+    mount(() => true, { input: { ...noopInput, jumpTo: (x, y) => jumps.push({ x, y }) } });
+    const c = canvasOf();
+    c.dispatchEvent(at('pointerdown', 105, 105, { button: 0 }));
+    c.dispatchEvent(at('pointerup', 105, 105, { button: 0 }));
+    expect(jumps).toHaveLength(1);
+    expect(jumps[0].x).toBeCloseTo(24, 1);
+  });
+
+  // Drag and click are ONE path: a click is a drag of zero length. Two code
+  // paths here would be two answers to "where did the player point".
+  it('a drag keeps jumping while the button is down, and stops on release', () => {
+    const jumps: MinimapPoint[] = [];
+    mount(() => true, { input: { ...noopInput, jumpTo: (x, y) => jumps.push({ x, y }) } });
+    const c = canvasOf();
+    c.dispatchEvent(at('pointerdown', 20, 20, { button: 0 }));
+    c.dispatchEvent(at('pointermove', 60, 60));
+    c.dispatchEvent(at('pointermove', 100, 100));
+    c.dispatchEvent(at('pointerup', 100, 100));
+    c.dispatchEvent(at('pointermove', 140, 140));
+    expect(jumps).toHaveLength(4); // down + two moves + up, and nothing after
+  });
+
+  it('lands on the release point, even when no pointermove reported it', () => {
+    // A pointer moved and released inside one frame delivers its final
+    // position only on the up, so the release is not decoration: without it
+    // the camera stops where the last move happened to fire.
+    const jumps: MinimapPoint[] = [];
+    mount(() => true, { input: { ...noopInput, jumpTo: (x, y) => jumps.push({ x, y }) } });
+    const c = canvasOf();
+    c.dispatchEvent(at('pointerdown', 20, 20, { button: 0 }));
+    c.dispatchEvent(at('pointermove', 60, 60));
+    c.dispatchEvent(at('pointerup', 140, 140));
+    expect(jumps).toHaveLength(3);
+    expect(jumps[2].x).toBeCloseTo(32, 1);
+  });
+
+  it('a right click orders, with the modifiers, and never jumps', () => {
+    const orders: { mods: { append: boolean; confirm: boolean } }[] = [];
+    const jumps: number[] = [];
+    mount(() => true, {
+      input: {
+        ...noopInput,
+        jumpTo: () => jumps.push(1),
+        order: (_x, _y, mods) => orders.push({ mods }),
+      },
+    });
+    canvasOf().dispatchEvent(at('contextmenu', 105, 105, { shiftKey: true, altKey: true }));
+    expect(jumps).toEqual([]);
+    expect(orders).toEqual([{ mods: { append: true, confirm: true } }]);
+  });
+
+  it('keeps Shift and Alt apart, which holding both cannot show', () => {
+    // MEASURED: the test above holds BOTH modifiers, so swapping the two in
+    // the handler leaves it green -- proved by swapping them and watching
+    // nothing go red. One modifier at a time is what separates them.
+    const mods: { append: boolean; confirm: boolean }[] = [];
+    mount(() => true, {
+      input: { ...noopInput, order: (_x, _y, m) => mods.push(m) },
+    });
+    const c = canvasOf();
+    c.dispatchEvent(at('contextmenu', 105, 105, { shiftKey: true }));
+    c.dispatchEvent(at('contextmenu', 105, 105, { altKey: true }));
+    c.dispatchEvent(at('contextmenu', 105, 105));
+    expect(mods).toEqual([
+      { append: true, confirm: false },
+      { append: false, confirm: true },
+      { append: false, confirm: false },
+    ]);
+  });
+
+  it('reads a click on a box that is not at the origin', () => {
+    // The minimap is anchored bottom-right, so its bounding rect never starts
+    // at 0 in a real browser. A handler that read the raw client coordinate
+    // would put every click a thousand pixels off the map and clamp it to the
+    // corner -- which looks like a broken minimap rather than a coordinate
+    // bug, because a clamped answer is still a plausible one.
+    const jumps: MinimapPoint[] = [];
+    mount(() => true, { input: { ...noopInput, jumpTo: (x, y) => jumps.push({ x, y }) } });
+    const c = canvasOf();
+    const rect = { left: 1000, top: 500, right: 1210, bottom: 710, width: 210, height: 210, x: 1000, y: 500, toJSON: () => ({}) };
+    c.getBoundingClientRect = (() => rect) as HTMLCanvasElement['getBoundingClientRect'];
+    c.dispatchEvent(at('pointerdown', 1105, 605, { button: 0 }));
+    expect(jumps).toHaveLength(1);
+    expect(jumps[0].x).toBeCloseTo(24, 1);
+    expect(jumps[0].y).toBeCloseTo(24, 1);
+  });
+
+  it('orders on the tile under the pointer, in the same coordinates a jump uses', () => {
+    // The order and the jump are the same question asked with a different
+    // button, so a right-click that landed a tile away from where the same
+    // pixel jumps to would be a second projection.
+    const orders: MinimapPoint[] = [];
+    const jumps: MinimapPoint[] = [];
+    mount(() => true, {
+      input: {
+        ...noopInput,
+        jumpTo: (x, y) => jumps.push({ x, y }),
+        order: (x, y) => orders.push({ x, y }),
+      },
+    });
+    const c = canvasOf();
+    c.dispatchEvent(at('contextmenu', 70, 140));
+    c.dispatchEvent(at('pointerdown', 70, 140, { button: 0 }));
+    expect(orders).toEqual(jumps);
+    expect(orders[0].x).toBeCloseTo(16, 1);
+    expect(orders[0].y).toBeCloseTo(32, 1);
+  });
+
+  it('alt+left pings instead of jumping', () => {
+    const pings: MinimapPoint[] = [];
+    const jumps: number[] = [];
+    mount(() => true, {
+      input: { ...noopInput, jumpTo: () => jumps.push(1), ping: (x, y) => pings.push({ x, y }) },
+    });
+    canvasOf().dispatchEvent(at('pointerdown', 105, 105, { button: 0, altKey: true }));
+    expect(pings).toHaveLength(1);
+    expect(jumps).toEqual([]);
+  });
+
+  it('does not start a drag from an alt+click, so a ping cannot pan the camera', () => {
+    const jumps: number[] = [];
+    mount(() => true, { input: { ...noopInput, jumpTo: () => jumps.push(1) } });
+    const c = canvasOf();
+    c.dispatchEvent(at('pointerdown', 105, 105, { button: 0, altKey: true }));
+    c.dispatchEvent(at('pointermove', 60, 60));
+    c.dispatchEvent(at('pointerup', 60, 60));
+    expect(jumps).toEqual([]);
+  });
+
+  // The pre-existing promise the constructor makes: a click must never fall
+  // through to the battlefield underneath.
+  it('still swallows every pointer event it handles', () => {
+    mount(() => true, { input: noopInput });
+    const ev = at('contextmenu', 10, 10);
+    canvasOf().dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    const down = at('pointerdown', 10, 10, { button: 0 });
+    canvasOf().dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+  });
+
+  it('with no input wired the canvas is inert, exactly as it was', () => {
+    mount(() => true);
+    expect(() => canvasOf().dispatchEvent(at('pointerdown', 10, 10, { button: 0 }))).not.toThrow();
+  });
+
+  it('releases its listeners on destroy', () => {
+    // The element is removed either way, so a leaked listener is invisible
+    // until something else still holds the node -- a drag in flight when a
+    // mission ends, which is precisely the case.
+    const jumps: number[] = [];
+    const { minimap } = mount(() => true, {
+      input: { ...noopInput, jumpTo: () => jumps.push(1) },
+    });
+    const c = canvasOf();
+    minimap.destroy();
+    c.dispatchEvent(at('pointerdown', 105, 105, { button: 0 }));
+    c.dispatchEvent(at('contextmenu', 105, 105));
+    expect(jumps).toEqual([]);
+  });
+});
+
+describe('the ping', () => {
+  it('fades over PING_MS and then is gone', () => {
+    expect(linearFade(0, PING_MS)).toBe(1);
+    expect(linearFade(PING_MS, PING_MS)).toBe(0);
+  });
+
+  it('is the one fade curve, so the flash is a span rather than a second one', () => {
+    // `flashAlpha` is Task 4's wrapper and stays, so its callers and its tests
+    // are untouched; what it must not be any more is a second implementation.
+    expect(flashAlpha(FLASH_MS / 2)).toBe(linearFade(FLASH_MS / 2, FLASH_MS));
+    expect(linearFade(PING_MS / 4, PING_MS)).toBeCloseTo(0.75, 10);
+    expect(linearFade(-1, PING_MS)).toBe(1);
+    expect(linearFade(PING_MS + 1000, PING_MS)).toBe(0);
+  });
+
+  /** The ping's ring: the one stroke drawn at less than full alpha here. */
+  const pingRing = (): StrokePath | undefined => recorder.strokes().find((k) => k.alpha < 1);
+  /** Its centre dot: the one FILLED path drawn at less than full alpha. */
+  const pingDot = (): FillPath | undefined => recorder.paths().find((f) => f.alpha < 1);
+  const span = (points: [number, number][]): number => {
+    const xs = points.map(([x]) => x);
+    return Math.max(...xs) - Math.min(...xs);
+  };
+
+  it('rings the tile it was given, and puts a static dot at its centre', () => {
+    const { minimap } = mount(() => false);
+    recorder.ops.length = 0;
+    minimap.ping(12, 34, performance.now() - PING_MS / 2);
+    minimap.onTick();
+    const box = tileToBox(minimapProjection(W, W, MINIMAP_SIZE), 12, 34);
+    const ring = pingRing();
+    expect(ring).toBeDefined();
+    expect(ring?.alpha).toBeGreaterThan(0.4);
+    expect(ring?.alpha).toBeLessThan(0.6);
+    const rx = ring?.points.map(([x]) => x) ?? [];
+    const ry = ring?.points.map(([, y]) => y) ?? [];
+    expect((Math.min(...rx) + Math.max(...rx)) / 2).toBeCloseTo(box.x, 6);
+    expect((Math.min(...ry) + Math.max(...ry)) / 2).toBeCloseTo(box.y, 6);
+    const dot = pingDot();
+    expect(dot).toBeDefined();
+    const dx = dot?.points.map(([x]) => x) ?? [];
+    expect((Math.min(...dx) + Math.max(...dx)) / 2).toBeCloseTo(box.x, 6);
+  });
+
+  it('expands the ring as it fades, and never the centre dot', () => {
+    // The ring is motion, which is what catches an eye looking elsewhere; the
+    // dot is the address, and an address that grew would stop being one.
+    const { minimap } = mount(() => false);
+    recorder.ops.length = 0;
+    const now = performance.now();
+    minimap.ping(12, 34, now - PING_MS * 0.1);
+    minimap.ping(30, 20, now - PING_MS * 0.9);
+    minimap.onTick();
+    const rings = recorder.strokes().filter((k) => k.alpha < 1);
+    const dots = recorder.paths().filter((f) => f.alpha < 1);
+    expect(rings).toHaveLength(2);
+    expect(dots).toHaveLength(2);
+    expect(span(rings[1].points)).toBeGreaterThan(span(rings[0].points));
+    expect(span(dots[1].points)).toBeCloseTo(span(dots[0].points), 6);
+  });
+
+  // DISCLOSED, and measured rather than assumed: the sweep `ping` does on
+  // every push -- which is what bounds the list -- has NO observable
+  // consequence and no test here can fail on it. Removing it entirely leaves
+  // all 53 specs green, because `drawPings` skips a faded entry in one
+  // comparison whether or not it is still in the array. The test below gates
+  // that SKIP, which is the visible half; the bound is a memory claim, stated
+  // in `ping`'s own comment and carried by review. The same is true of
+  // `flash`, and has been since Task 4.
+  it('draws one mark per live ping, and none for the expired ones beside them', () => {
+    const { minimap } = mount(() => false);
+    const now = performance.now();
+    minimap.ping(12, 34, now - PING_MS - 1);
+    minimap.ping(20, 30, now - PING_MS / 2);
+    minimap.ping(30, 20, now - PING_MS / 2);
+    recorder.ops.length = 0;
+    minimap.onTick();
+    expect(recorder.strokes().filter((k) => k.alpha < 1)).toHaveLength(2);
+    expect(recorder.paths().filter((f) => f.alpha < 1)).toHaveLength(2);
+  });
+
+  it('puts globalAlpha back, so the viewport outline is not left faded', () => {
+    const { minimap } = mount(() => false);
+    recorder.ops.length = 0;
+    minimap.ping(12, 34, performance.now() - PING_MS / 2);
+    minimap.onTick();
+    const strokes = recorder.strokes();
+    expect(strokes.length).toBeGreaterThan(1);
+    expect(strokes[strokes.length - 1].alpha).toBe(1);
+  });
+
+  it('draws over the unit dots and under the viewport outline', () => {
+    const { minimap } = mount(() => true);
+    recorder.ops.length = 0;
+    minimap.ping(12, 34, performance.now() - PING_MS / 2);
+    minimap.onTick();
+    const ringAt = recorder.ops.findIndex((o) => o.kind === 'stroke' && o.alpha < 1);
+    const lastDot = recorder.ops.reduce(
+      (best, o, i) =>
+        (o.kind === 'fillRect' || o.kind === 'fillPath') && (o.style === 'blue' || o.style === 'red')
+          ? i
+          : best,
+      -1
+    );
+    const lastStroke = recorder.ops.reduce((best, o, i) => (o.kind === 'stroke' ? i : best), -1);
+    expect(ringAt).toBeGreaterThan(-1);
+    expect(lastDot).toBeGreaterThan(-1);
+    expect(ringAt).toBeGreaterThan(lastDot);
+    expect(ringAt).toBeLessThan(lastStroke);
   });
 });
