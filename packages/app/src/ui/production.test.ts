@@ -14,7 +14,7 @@
 //   - a click reaches the runtime and NOTHING else — invariant 4;
 //   - the tooltip is assembled from the tile it belongs to.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { units } from '@lions/data';
 import {
   MissionRuntime,
@@ -25,6 +25,7 @@ import {
 import { ReinforcementDock, type ProductionRuntime, type SupportKind } from './production';
 import type { DockUnit } from './dock-model';
 import type { Tone } from './hud';
+import { closeTip } from './tooltip';
 
 type QueueItem = ProductionRuntime['production'][number];
 
@@ -534,6 +535,16 @@ describe('destroy', () => {
   // disposers `destroy()` now runs actually release it, rather than merely
   // detaching the DOM node the app never happened to query again.
   it('releases its tooltip even mid-hover, leaving no window listener behind', () => {
+    // Fix wave I2: `not.toThrow()` used to be the whole assertion -- a
+    // keydown never throws whether or not the listener came off, so this
+    // could not have caught the mutation it is now named for (dropping
+    // `hide()` from `bindTip`'s disposer). `closeTip()` first, because
+    // `tooltip.ts`'s Escape listener is a single MODULE-level singleton
+    // shared by every host in the process: a hover left open by an earlier
+    // test elsewhere would mean `escBound` is already true before this
+    // test's own hover, and the `addEventListener` call below would never
+    // happen.
+    closeTip();
     document.body.replaceChildren();
     const dock = new ReinforcementDock(document.body, {
       units: [dockUnit()],
@@ -542,13 +553,20 @@ describe('destroy', () => {
       onArm: () => {},
     });
     const tile = document.body.querySelector<HTMLButtonElement>('[data-unit="inf_squad"]')!;
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
     hover(tile);
     expect(document.body.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(false);
+    const keydownAdd = addSpy.mock.calls.find(([type]) => type === 'keydown');
+    expect(keydownAdd).toBeDefined();
+    const listener = keydownAdd![1];
+
     dock.destroy();
     // The tip is a descendant of `this.el` and goes down with it -- no node
     // left over for a later dock's tip to collide with.
     expect(document.body.querySelector<HTMLElement>('.rl-tip')).toBeNull();
-    // And nothing throws reaching for a tile, or a tip, that is gone.
-    expect(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))).not.toThrow();
+    // The SAME listener reference that went on -- proof the one the hover
+    // installed is the one that came off, not merely that something did.
+    expect(removeSpy).toHaveBeenCalledWith('keydown', listener);
   });
 });

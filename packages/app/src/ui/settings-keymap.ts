@@ -96,7 +96,12 @@ export function keymapRows(deps: { bindings(): Bindings; set(next: Bindings): vo
       kbd.className = 'rl-keymap__key';
       const paint = (): void => {
         const key = keyLabel(deps.bindings()[a.id]);
-        kbd.textContent = a.modifier === 'ctrl' ? `ctrl + ${key}` : key;
+        // Fix wave I4: this used to be a bare `ctrl + ` literal, the one
+        // spelling of the modifier prefix that never went through `t()` --
+        // `keymap.modifier.ctrl` (`en.json`, "Ctrl + ") already existed for
+        // Task 8's keys overlay, which reads it correctly; this row was the
+        // second, uncaught copy.
+        kbd.textContent = a.modifier === 'ctrl' ? `${t('keymap.modifier.ctrl')}${key}` : key;
       };
       paint();
       paints.push(paint);

@@ -154,6 +154,33 @@ export function passesThroughModal(action: Action | null): boolean {
 }
 
 /**
+ * Fix wave I1. What the `pause` action (Escape) should do right now, given
+ * the in-mission objectives tracker (`main.ts`'s `objectivesOpen`, the
+ * strip's `+N` popover) and whether a modal already owns the key.
+ *
+ * The tracker had no keyboard dismiss of its own: opened from the strip, its
+ * only other close path was clicking `.rl-strip__more` again, which sits
+ * inside `stripBody` and loses focus every ~250 ms to `renderStrip`'s own
+ * 4 Hz rebuild. Before this, Escape ignored it entirely and stacked the
+ * pause menu ON TOP of an open tracker instead of closing the tracker --
+ * two panels for one key, and the one the player actually meant left
+ * dangling underneath. The tracker now owns Escape first: closing it is one
+ * clear action, and it must never have to compete with opening a second
+ * modal over itself.
+ *
+ * `dialogOpen` mirrors `case 'pause':`'s own kept (if, by the time this runs,
+ * already-redundant) guard -- the handler-wide `isDialogOpen()` check ahead
+ * of the whole switch already filters every dialog-open keydown before this
+ * ever runs, and that comment's own reasoning for keeping it anyway ("this
+ * case's own stated contract") applies here just the same.
+ */
+export function escapeTarget(trackerOpen: boolean, dialogOpen: boolean): 'closeTracker' | 'pause' | 'none' {
+  if (trackerOpen) return 'closeTracker';
+  if (dialogOpen) return 'none';
+  return 'pause';
+}
+
+/**
  * Does a key bound to the SPACE bar have to stand down right now?
  *
  * Space is not an ordinary game letter: it is the activation key of every

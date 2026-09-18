@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ACTIONS, bindingsFrom, type Bindings } from '../input/keymap';
+import { t } from '../i18n/t';
 import { keymapRows, type KeymapDeps } from './settings-keymap';
 
 function deps(initial: Bindings = bindingsFrom({})) {
@@ -44,6 +45,20 @@ describe('keymapRows', () => {
     // ACTIONS.length rows plus the trailing "Reset to defaults" row.
     expect(rows.length).toBe(ACTIONS.length + 1);
     expect(rowFor(table, 'Halt').querySelector('kbd')?.textContent).toBe('H');
+  });
+
+  // Fix wave I4: this row used to spell the ctrl prefix as a bare `ctrl + `
+  // literal, its own uncaught copy of the catalogue string
+  // `keymap.modifier.ctrl` ("Ctrl + ") that `keys-overlay.ts` already reads
+  // correctly for the same binding.
+  //
+  // Falsified by hand: restoring the `ctrl + ${key}` literal turns this red
+  // -- the lower-case `c` no longer matches the catalogue's `t()` value.
+  it('spells the ctrl modifier from the catalogue, not a hardcoded literal', () => {
+    const { table } = mount(deps());
+    const kbd = rowFor(table, 'Select every unit').querySelector('kbd');
+    expect(kbd?.textContent).toBe(`${t('keymap.modifier.ctrl')}A`);
+    expect(kbd?.textContent?.startsWith(t('keymap.modifier.ctrl'))).toBe(true);
   });
 
   it('rebinds through a captured keydown and calls set with the new table', () => {

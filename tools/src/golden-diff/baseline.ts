@@ -571,7 +571,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       '0.0131, which is the cushion these thresholds sit above rather than their calibration ' +
       'basis. The re-injected scatter defect read 0 px / 0.3519 pre-lit -- 17x over the threshold ' +
       'on meanAbsChannelDelta and literally invisible to the pixel count. This is the scenario ' +
-      'that discriminates the defect cross-backend measured 1.945%-vs-1.937% on.',
+      'that discriminates the defect cross-backend measured 1.945%-vs-1.937% on. ' +
+      'Shell Phase 2 Task 10 (the minimap becomes a control) put the minimap box and its ' +
+      'hostile/neutral side dots inside this crop -- it sits at the frame\'s bottom-right corner, ' +
+      'same as the minimap. A red here after that landing is the expected bless, not new noise: ' +
+      'check the diff picture before touching a threshold.',
   },
   vehicle: {
     // Whole frame: the vehicles' own dust and exhaust are the only real-time

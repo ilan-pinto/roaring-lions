@@ -79,11 +79,12 @@ import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
 import { EDGE_MARGIN_PX, clampZoom, edgeVector, panDelta, zoomAnchor } from './ui/camera-input';
 import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
+import { closeTip } from './ui/tooltip';
 import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
+import { bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -2556,6 +2557,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // -- the visible half of C1. Idempotent and safe if the router already closed
   // it on its way through `unmount()`.
   onDispose(() => closeOpenDialog());
+  // Fix wave I2: `closeTip()` had no production caller at all -- the HUD and
+  // the dock each release their OWN tooltip binding in their own `destroy()`
+  // (see `hud.ts`'s and `production.ts`'s `tipDisposers`), but a tip shown
+  // from a strip field or a chip at the moment the battlefield is torn down
+  // (a mid-fight defeat, a leave) is a shared element on `document.body`
+  // outside either one's own root, with a `keydown` Escape listener on
+  // `window` -- exactly the class of leak C1 named for the pause modal.
+  onDispose(() => closeTip());
   // The minimap (GH-153). Mounted here rather than inside the Hud because it
   // needs three things the Hud deliberately does not carry -- the parsed map,
   // the renderer, and this map's terrain tones -- and threading all three
@@ -3326,7 +3335,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // chip say the same thing about the same state.
         hud.note(t(audioMuted ? 'hud.mute.muted' : 'hud.mute.unmuted'), 'mute');
         break;
-      case 'pause':
+      case 'pause': {
+        // Fix wave I1: the in-mission objectives tracker (the strip's `+N`
+        // popover, `openObjectives`/`closeObjectives` above) had no keyboard
+        // dismiss of its own, so Escape used to fall straight through to the
+        // logic below and stack the pause menu ON TOP of an open tracker
+        // instead of closing it -- `isDialogOpen()` does not know about
+        // `.rl-obj-panel--tracker`. `escapeTarget` (`input/keymap.ts`) is the
+        // one place this priority is decided; it hands the tracker Escape
+        // first, exclusively, so there is exactly one thing a bare Escape
+        // does at a time.
+        const target = escapeTarget(objectivesOpen, isDialogOpen());
+        if (target === 'closeTracker') {
+          closeObjectives();
+          break;
+        }
+        if (target === 'none') break;
         // Fix round 1: this listener is the OLDEST bubble listener on
         // `window` (registered once at boot, long before any dialog
         // exists), so on a bare Escape it used to run BEFORE any dialog's
@@ -3342,15 +3366,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // handler and its Resume button, both calling `resume` -- see the
         // comment above `pause`).
         //
-        // The `isDialogOpen()` here is subsumed by the handler-wide guard at
-        // the top (Escape resolves to `pause`, which is not a pan, so the
-        // listener has already returned). It is kept rather than deleted
-        // because it is this case's own stated contract -- the game only OPENS
-        // the menu, and only when nothing else owns Escape -- and
-        // `pause.test.ts`'s stand-in mirrors this exact expression. Two reads
-        // of one predicate, not two predicates.
-        if (!paused && !isDialogOpen() && !missionEnded) pause();
+        // `target === 'pause'` already implies `!isDialogOpen()` (folded into
+        // `escapeTarget` above); `pause.test.ts`'s stand-in mirrors this exact
+        // expression.
+        if (!paused && !missionEnded) pause();
         break;
+      }
       case 'panUp':
       case 'panDown':
       case 'panLeft':

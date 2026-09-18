@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import { UNDER_FIRE_COOLDOWN_TICKS, alertsForTick, initAlertState, type AlertWorld } from './alerts';
+import en from '../i18n/en.json';
 
 const world: AlertWorld = {
   posOf: (e) => (e < 0 ? null : { x: e + 0.5, y: 10.5 }),
@@ -94,5 +95,27 @@ describe('alertsForTick — objectives', () => {
     const out = alertsForTick(s, [], [], world, 40);
     expect(out.alerts).toEqual([]);
     expect(out.state).toBe(s);
+  });
+});
+
+// Fix wave I3: `alerts.ts`'s doc comment says it returns catalogue KEYS and
+// never calls `t()` itself -- true, but nothing ever pinned the two keys it
+// actually emits (`alert.unitLost`, `alert.underFire`) against the catalogue
+// that has to resolve them. A key renamed on one side only would render as
+// itself, once per session, past `t()`'s own missing-key warning, and no
+// existing spec above reads `en.json` at all.
+//
+// Falsified by hand: renaming `alert.underFire` in `en.json` (and reverting
+// it) turns this red.
+describe('alertsForTick — alert keys are in the catalogue', () => {
+  it('emits only keys en.json actually defines', () => {
+    const catalogue = en as Record<string, string>;
+    const loss = alertsForTick(initAlertState(), [], [lost(0, 'inf_squad')], world, 40);
+    const underFire = alertsForTick(initAlertState(), [fire(0), fire(1)], [], world, 40);
+    const keys = [...loss.alerts, ...underFire.alerts]
+      .map((a) => a.line?.key)
+      .filter((k): k is string => k !== undefined && k !== null);
+    expect(keys).toEqual(expect.arrayContaining(['alert.unitLost', 'alert.underFire']));
+    for (const key of keys) expect(catalogue).toHaveProperty(key);
   });
 });

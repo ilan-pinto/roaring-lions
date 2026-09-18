@@ -4,7 +4,7 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, bindingsFrom, heldAction, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
+import { ACTIONS, bindingsFrom, escapeTarget, heldAction, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
 
 describe('keymap', () => {
   it('ships the bindings main.ts had hard-coded, in the same letters', () => {
@@ -178,5 +178,29 @@ describe('keymap', () => {
     // irrelevant key (a Set's insertion order) ahead of the one that matters
     // must not shadow it.
     expect(heldAction(b, ['x', 'w'], 'panUp')).toBe(true);
+  });
+
+  // Fix wave I1: `main.ts`'s `case 'pause':` decides between closing the
+  // in-mission objectives tracker and opening the pause menu; pulled out
+  // here as a pure function because that case lives inside `bootBattlefield`
+  // and cannot be driven without booting a whole battlefield.
+  //
+  // Falsified by hand: deleting the `if (trackerOpen) return 'closeTracker';`
+  // branch turns the first case below red (it falls through to 'pause').
+  describe('escapeTarget', () => {
+    it('closes the tracker first, ahead of everything else', () => {
+      expect(escapeTarget(true, false)).toBe('closeTracker');
+      // Even with a dialog somehow already open, per the rule this is
+      // supposed to enforce -- the tracker is not a `.rl-obj-panel--tracker`
+      // dialog `isDialogOpen()` recognises, so the two states could coexist,
+      // and closing the tracker is still the one thing Escape does.
+      expect(escapeTarget(true, true)).toBe('closeTracker');
+    });
+    it('opens the pause menu when the tracker is closed and nothing else owns Escape', () => {
+      expect(escapeTarget(false, false)).toBe('pause');
+    });
+    it('does nothing when a dialog already owns Escape and the tracker is closed', () => {
+      expect(escapeTarget(false, true)).toBe('none');
+    });
   });
 });
