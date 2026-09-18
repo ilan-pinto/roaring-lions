@@ -29,10 +29,12 @@
 import { fx, type LedgerRosterEntry, type Sim } from '@lions/sim';
 import type { ResolvedCommander } from '../campaign';
 import { t } from '../i18n/t';
+import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { roleBadgeSvg, roleBucket } from './role';
+import { bindDelegatedTip, bindTip } from './tooltip';
 import {
   beatDwellMs,
   conductDefinition,
@@ -55,7 +57,9 @@ import {
   hpTone,
   orderRow,
   stepFocus,
+  type ChipView,
   type OrderId,
+  type OrderSpec,
   type SelectionFacts,
   type UnitFacts,
 } from './selection-model';
@@ -213,6 +217,13 @@ export class Hud {
    *  not leave the frame pointing past the end of the row. */
   private chipFocus = 0;
   private chipTypes: string[] = [];
+  /** The chip row's own data from the last `renderChips`, so the delegated
+   *  chip tooltip (bound once, in the constructor) can look a hovered chip's
+   *  name and count back up by `data-tip` at SHOW time, rather than needing
+   *  the html baked into the chip's own markup the way `title` used to carry
+   *  it -- `groupChips` is already recomputed at 4 Hz, so this is never more
+   *  than one tick stale. */
+  private chipViews: ChipView[] = [];
   private readonly clock: HTMLDivElement;
   private readonly feed: HTMLDivElement;
   private readonly hint: HTMLDivElement;
@@ -265,6 +276,19 @@ export class Hud {
    *  names that goes stale the next time a pane is added. Filled at the single
    *  `host.append(...)` in the constructor. */
   private readonly roots: HTMLElement[] = [];
+
+  /** Every `bindTip`/`bindDelegatedTip` disposer this HUD registered --
+   *  released in `destroy()`. `Element.remove()` on `roots` (below) already
+   *  drops every hover/focus listener these calls added, since they live on
+   *  descendants of `this.strip`/`this.cluster`; what it cannot reach is the
+   *  shared tooltip's app-wide Escape listener on `window`, which is why the
+   *  disposers still run first. All ten of this HUD's tooltips share one
+   *  `.rl-tip` element, hosted on `this.strip` rather than on `document.body`
+   *  -- `document.body` is what `host` (this HUD's own mount point) actually
+   *  is in the real app, and a tip element that lived there directly would be
+   *  a body child that outlives every `destroy()`, which is exactly the kind
+   *  of leftover node `pnpm ui:routes` exists to catch. */
+  private readonly tipDisposers: Disposer[] = [];
 
   /** The live title card (`titleCard` in `motion.ts`) and its own dismisser,
    *  held rather than discarded: the card registers two window listeners and a
@@ -328,6 +352,19 @@ export class Hud {
       if (!btn) return;
       this.deps.openObjectives?.();
     });
+
+    // Same delegation, same reason, for the strip's five field tooltips
+    // (Conduct, Logistics, Intel, Pinned, Broken) -- `stripBody`/`stripInfo`
+    // are innerHTML'd at 4 Hz, so a `bindTip` on one of their spans would be
+    // dropped on the very next rebuild. `this.strip` also hosts the tip
+    // element itself (`host` below): it is a node this HUD owns and removes
+    // in `destroy()`, not `document.body`, which is what `host` (the
+    // constructor parameter) actually is in the real app.
+    this.tipDisposers.push(
+      bindDelegatedTip(this.strip, (target) => this.stripTipHtml(target.dataset.tip), {
+        host: this.strip,
+      })
+    );
 
     // Speed. Rendered even where the frame loop has not wired it, because a
     // strip that grows a control the moment a dependency appears is a strip
@@ -448,6 +485,10 @@ export class Hud {
       });
       this.orderBtns.set(spec.id, b);
       this.orderBar.appendChild(b);
+      // Bound once, directly on the button -- unlike the chips and the strip
+      // fields, the order row is built ONCE and only repainted (the comment
+      // below explains why), so there is no rebuild to lose this listener to.
+      this.tipDisposers.push(bindTip(b, () => this.orderTipHtml(spec), { host: this.strip }));
     }
 
     this.cluster = document.createElement('div');
@@ -466,6 +507,15 @@ export class Hud {
         .filter((i) => sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].id === typeId);
       if (ids.length > 0) this.deps.setSelection?.(ids);
     });
+    // Same delegation, for the same reason, as the tooltip: a chip's own
+    // `data-tip` names the type id, and `chipTipHtml` looks its name and
+    // count up in `this.chipViews` from the last `renderChips` rather than
+    // needing the html baked into markup that is rebuilt out from under it.
+    this.tipDisposers.push(
+      bindDelegatedTip(this.cluster, (target) => this.chipTipHtml(target.dataset.tip), {
+        host: this.strip,
+      })
+    );
     this.sel.append(this.orderBar, this.cluster);
 
     this.clock = document.createElement('div');
@@ -593,9 +643,13 @@ export class Hud {
    * a stale battlefield mount resolving onto an aborted route runs its
    * disposer after the teardown that aborted it.
    *
-   * The button listeners go with their buttons: nothing here is registered on
-   * `window` or `document` except through `titleCard`, which is why that one
-   * is dismissed explicitly.
+   * The button listeners go with their buttons -- `Element.remove()` on
+   * `roots` takes every hover/focus/click listener a descendant carries with
+   * it. Two things here are registered on `window` rather than on anything
+   * `roots` reaches: `titleCard`'s own pair, dismissed explicitly below, and
+   * the shared tooltip's single Escape listener (`tooltip.ts`), which is why
+   * `tipDisposers` runs first rather than being left to the DOM removal that
+   * follows it.
    */
   destroy(): void {
     // `dismiss()` releases the card's two window listeners and its timer, then
@@ -607,6 +661,7 @@ export class Hud {
     this.title?.dismiss();
     this.title?.el.remove();
     this.title = null;
+    for (const off of this.tipDisposers) off();
     for (const root of this.roots) root.remove();
   }
 
@@ -873,7 +928,7 @@ export class Hud {
       );
       if (m.roe !== undefined) {
         rows.push(
-          `<span title="${escapeAttr(conductDefinition())}"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">${t('hud.strip.conduct')}</span></span>`
+          `<span data-tip="conduct"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">${t('hud.strip.conduct')}</span></span>`
         );
       }
       const { primary, deadline, primaryOpen, secondaryOpen } = stripObjectives(m);
@@ -937,18 +992,18 @@ export class Hud {
         m.logisticsRate !== undefined && m.logisticsRate > 0
           ? ` <span class="rl-dim">${t('hud.strip.rate', { n: m.logisticsRate })}</span>`
           : '';
-      info.push(
-        `<span class="rl-info" title="${t('hud.strip.logistics')}">▣ <b>${m.logistics}</b>${rate}</span>`
-      );
+      info.push(`<span class="rl-info" data-tip="logistics">▣ <b>${m.logistics}</b>${rate}</span>`);
     }
     if (m?.intel !== undefined) {
-      info.push(`<span class="rl-info" title="${t('hud.strip.intel')}">◎ <b>${m.intel}</b></span>`);
+      info.push(`<span class="rl-info" data-tip="intel">◎ <b>${m.intel}</b></span>`);
     }
     // Suppression: shown only when there is some. A permanent "0 pinned" is
     // the kind of field a player learns to stop reading.
     const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
-    if (pinned > 0) info.push(`<span class="rl-hot"><b>${t('hud.strip.pinned', { n: pinned })}</b></span>`);
-    if (broken > 0) info.push(`<span class="rl-bad-text"><b>${t('hud.strip.broken', { n: broken })}</b></span>`);
+    if (pinned > 0)
+      info.push(`<span class="rl-hot" data-tip="pinned"><b>${t('hud.strip.pinned', { n: pinned })}</b></span>`);
+    if (broken > 0)
+      info.push(`<span class="rl-bad-text" data-tip="broken"><b>${t('hud.strip.broken', { n: broken })}</b></span>`);
 
     this.stripBody.innerHTML = rows.join('');
     this.stripInfo.innerHTML = info.join('');
@@ -970,6 +1025,32 @@ export class Hud {
       this.lastRoe = m.roe;
       const el = this.stripBody.querySelector<HTMLElement>('[data-roe]');
       if (dropped && el) flash(el, 'rl-flash-bad', 300);
+    }
+  }
+
+  /**
+   * The strip's five field tooltips, keyed by the `data-tip` the hovered
+   * span carries -- Conduct first, the one §6 names, since the ROE numeral
+   * is the least self-explanatory thing on screen. `null` for anything else
+   * `bindDelegatedTip`'s `[data-tip]` selector could in principle match,
+   * which there is currently nothing of, but a resolver that cannot say "no
+   * tip here" is a resolver that will show stale content the day something
+   * else in the strip picks up the same attribute by accident.
+   */
+  private stripTipHtml(key: string | undefined): string | null {
+    switch (key) {
+      case 'conduct':
+        return conductDefinition();
+      case 'logistics':
+        return t('hud.strip.logistics.tip', { rate: this.deps.getMission()?.logisticsRate ?? 0 });
+      case 'intel':
+        return t('hud.strip.intel.tip');
+      case 'pinned':
+        return t('hud.strip.pinned.tip');
+      case 'broken':
+        return t('hud.strip.broken.tip');
+      default:
+        return null;
     }
   }
 
@@ -1195,8 +1276,29 @@ export class Hud {
       btn.innerHTML =
         `<span class="rl-order__glyph">${row.glyph}</span>${label}` +
         `${cap} <b class="rl-dim">${this.deps.keyFor?.(row.key) ?? row.key}</b>`;
-      btn.title = row.inert ? t('hud.order.inertTitle', { label }) : label;
+      // `btn.title` used to carry this; `orderTipHtml` (bound once, in the
+      // constructor) reads `dataset.inert` back off the button at SHOW time
+      // instead, so the tooltip's "why inert" clause is never one tick stale
+      // behind this repaint.
     }
+  }
+
+  /**
+   * What a verb DOES -- its key is already on the button's own face, so the
+   * tooltip does not repeat it -- and, only while `row.inert` is true, why
+   * giving it right now would do nothing. Read fresh from the button's own
+   * `dataset.inert` on every show (`bindTip`'s thunk contract), rather than
+   * captured at bind time, since `renderOrders` repaints that dataset
+   * without rebuilding the button itself.
+   */
+  private orderTipHtml(spec: OrderSpec): string {
+    const label = t(spec.label);
+    const inert = this.orderBtns.get(spec.id)?.dataset.inert === '1';
+    const does = `<div class="rl-tip__blurb">${t(`hud.order.tip.${spec.id}`)}</div>`;
+    const why = inert
+      ? `<div class="rl-tip__blurb rl-dim">${t('hud.order.inertTitle', { label })}</div>`
+      : '';
+    return `<div class="rl-tip__head"><span class="rl-tip__name">${label}</span></div>${does}${why}`;
   }
 
   // ------------------------------------------------------------------
@@ -1225,6 +1327,10 @@ export class Hud {
     });
     const chips = groupChips(facts);
     this.chipTypes = chips.map((c) => c.typeId);
+    // The chip tooltip's own lookup table -- see `chipTipHtml` -- kept
+    // alongside `chipTypes` rather than derived from it, since the tooltip
+    // needs the name and count too, not only the id.
+    this.chipViews = chips;
     // Clamp rather than reset: losing the last sub-group should walk the frame
     // back one, not throw it to the front of the row.
     if (this.chipFocus >= chips.length) this.chipFocus = Math.max(0, chips.length - 1);
@@ -1234,15 +1340,15 @@ export class Hud {
         const tone = c.statusTone === null ? 'rl-dim' : textToneClass(c.statusTone);
         return (
           `<div class="rl-chip" data-type="${escapeAttr(c.typeId)}" ` +
-          `data-focus="${i === this.chipFocus ? '1' : '0'}" ` +
-          `title="${escapeAttr(t('hud.chip.selectOnly', { name: c.name }))}">` +
+          `data-tip="${escapeAttr(c.typeId)}" ` +
+          `data-focus="${i === this.chipFocus ? '1' : '0'}">` +
           this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
-          // The name in its own span, not loose text beside the badge:
-          // `text-overflow: ellipsis` has no effect on a flex CONTAINER's own
-          // text, so "AH-64 Peten" was being cut to "AH-64 Pete" with no
-          // ellipsis, which reads as a truncated field rather than a long name.
+          // The name in its own span: `text-overflow`/wrapping does nothing
+          // to a flex CONTAINER's own text (`theme.css`'s
+          // `.rl-chip__name > span`), so "AH-64 Peten" was being cut to
+          // "AH-64 Pete" with no ellipsis glyph at all before it had one.
           `<span class="rl-chip__name">${roleBadgeSvg(c.bucket, CHIP_BADGE)}` +
           `<span>${c.name}</span></span>` +
           `<b>×${c.count}</b>` +
@@ -1254,6 +1360,17 @@ export class Hud {
         );
       })
       .join('');
+  }
+
+  /** The chip's own name and count -- what `title` used to carry, before a
+   *  chip that is rebuilt at 4 Hz could keep a `bindTip` of its own. `null`
+   *  for a stale `data-tip` whose sub-group vanished (a casualty, a rebuild
+   *  mid-hover) between the mouse landing on it and this lookup running,
+   *  which `bindDelegatedTip` treats as "no tip here" rather than showing
+   *  whatever the last render happened to leave behind. */
+  private chipTipHtml(typeId: string | undefined): string | null {
+    const chip = this.chipViews.find((c) => c.typeId === typeId);
+    return chip ? t('hud.chip.selectOnly', { name: chip.name, count: chip.count }) : null;
   }
 
   /**

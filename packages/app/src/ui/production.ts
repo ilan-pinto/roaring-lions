@@ -17,7 +17,9 @@
 
 import type { LedgerData } from '@lions/sim';
 import { t } from '../i18n/t';
+import type { Disposer } from '../shell/router';
 import { roleBadgeSvg } from './role';
+import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
 import type { Tone } from './hud';
 
@@ -99,10 +101,18 @@ interface SupportTile {
 
 export class ReinforcementDock {
   private readonly el: HTMLDivElement;
-  private readonly tip: HTMLDivElement;
   private readonly unitTiles: UnitTile[] = [];
   private readonly supportTiles: SupportTile[] = [];
   private armed: SupportKind | null = null;
+  /** Every `bindTip` disposer this dock registered, so `destroy()` has one
+   *  list to release rather than a hand-kept count of tiles. `bindTip` itself
+   *  lazily creates the tip element the first call needs (see `buildUnitTile`
+   *  below) inside `this.el` -- the spec's own reasoning for anchoring above
+   *  the container's top edge rather than the label -- so removing `this.el`
+   *  already takes the tip's DOM node with it; these disposers are what
+   *  additionally drop its listeners and the app-wide Escape hook if this
+   *  dock's tip happens to be the one showing when the mission ends. */
+  private readonly tipDisposers: Disposer[] = [];
 
   constructor(
     host: HTMLElement,
@@ -110,15 +120,6 @@ export class ReinforcementDock {
   ) {
     this.el = document.createElement('div');
     this.el.className = 'rl-dock';
-
-    // Above the label, not merely above the grid, so it can never sit on top
-    // of the band it belongs to. The spec's mock puts it level with the label
-    // because its own hovered tile happened to be four columns right of it;
-    // anchoring to the container's top edge is the same picture at two rows
-    // and still correct at four, which is what the shipped KDF catalogue needs.
-    this.tip = document.createElement('div');
-    this.tip.className = 'rl-tip';
-    this.tip.hidden = true;
 
     const label = document.createElement('div');
     label.className = 'rl-label rl-dock__label';
@@ -135,7 +136,7 @@ export class ReinforcementDock {
       grid.appendChild(this.buildSupportTile(spec, cost));
     }
 
-    this.el.append(this.tip, label, grid);
+    this.el.append(label, grid);
     host.appendChild(this.el);
     this.refresh();
   }
@@ -146,12 +147,18 @@ export class ReinforcementDock {
    * Like the HUD and the minimap it mounts on `document.body`, not on the
    * stage the router clears, so leaving a `resources` mission strands it over
    * whatever screen comes next. One root: every tile, the label and the
-   * tooltip are inside `this.el`, and their listeners are on its descendants,
-   * so removing it releases all of them.
+   * tooltip are inside `this.el`, and their click/hover/focus listeners are on
+   * its descendants, so removing it releases all of those. The one thing
+   * `Element.remove()` cannot reach is `bindTip`'s app-wide Escape listener on
+   * `window`, which is why the disposers are released explicitly first --
+   * harmless if this dock's tip was not the one showing (`tooltip.ts`'s own
+   * ownership guard makes that a no-op), necessary if it was.
    *
-   * Idempotent -- `Element.remove()` on a detached node is a no-op.
+   * Idempotent -- `Element.remove()` on a detached node is a no-op, and
+   * calling an already-called `bindTip` disposer a second time is too.
    */
   destroy(): void {
+    for (const off of this.tipDisposers) off();
     this.el.remove();
   }
 
@@ -226,7 +233,7 @@ export class ReinforcementDock {
       el.blur(); // keep the keyboard on the battlefield
       this.refresh(); // the bar starts now, not at the next 4 Hz beat
     });
-    this.bindTip(el, () => this.unitTipHtml(unit));
+    this.tipDisposers.push(bindTip(el, () => this.unitTipHtml(unit), { host: this.el }));
 
     this.unitTiles.push({ el, unit, cost, left, bar, lock });
     return el;
@@ -257,7 +264,7 @@ export class ReinforcementDock {
       );
       el.blur();
     });
-    this.bindTip(el, () => this.supportTipHtml(spec, cost));
+    this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(spec, cost), { host: this.el }));
 
     this.supportTiles.push({ el, kind: spec.kind, cost });
     return el;
@@ -265,27 +272,15 @@ export class ReinforcementDock {
 
   // ------------------------------------------------------------------
   // The hover tooltip.
+  //
+  // `bindTip` (`./tooltip`) is the shared component the HUD's order row and
+  // chip row now use too -- shown on hover AND on keyboard focus, since the
+  // two are the same event as far as the player is concerned ("I am about to
+  // spend on this") and a tooltip only a mouse can reach makes `B` a worse
+  // way in than the mouse. `host: this.el` keeps this dock's tip inside its
+  // own stacking context rather than sharing the HUD's document.body one --
+  // the two never need to agree about where either draws.
   // ------------------------------------------------------------------
-
-  /** Shown on hover AND on keyboard focus. The two are the same event as far
-   *  as the player is concerned — "I am about to spend on this" — and a
-   *  tooltip only a mouse can reach makes `B` a worse way in than the mouse. */
-  private bindTip(el: HTMLElement, html: () => string): void {
-    const show = (): void => {
-      this.tip.innerHTML = html();
-      // Read off the tile itself rather than from a column count this file
-      // would have to keep in step with the stylesheet's `repeat(...)`.
-      this.tip.style.setProperty('--tip-x', `${el.offsetLeft}px`);
-      this.tip.hidden = false;
-    };
-    const hide = (): void => {
-      this.tip.hidden = true;
-    };
-    el.addEventListener('mouseenter', show);
-    el.addEventListener('focus', show);
-    el.addEventListener('mouseleave', hide);
-    el.addEventListener('blur', hide);
-  }
 
   private unitTipHtml(unit: BuildableUnit): string {
     const blurb =

@@ -202,7 +202,10 @@
      reserves rather than inventing a second set. */
   --hud-strip-h: 2.625rem; /* was 30: the lead found the strip's text and icons almost invisible */
   --tile: 3.75rem;
-  --chip-w: 9.375rem;
+  /* Widened from 9.375rem (task 7): several unit names ("AH-64 Peten") were
+     ellipsised past legibility at the old width, and the name now wraps to a
+     second line instead of clipping -- see `.rl-chip__name > span` below. */
+  --chip-w: 11.5rem;
   --card-w: 28.75rem;
   --minimap: 13.125rem;
   /* The feed, the controls hint and the order row all share one x: centred on
@@ -1696,13 +1699,18 @@ body {
   gap: var(--s1);
   min-width: 0;
 }
-/* The ellipsis lives on the inner span, because text-overflow does nothing to
-   a flex container's own text — 9.375rem is narrower than several unit names. */
+/* Task 7: this used to ellipsise here, because text-overflow does nothing to
+   a flex container's own text and 9.375rem was narrower than several unit
+   names ("AH-64 Peten" was cut to "AH-64 Pete" with no ellipsis glyph at
+   all). `--chip-w` widened to 11.5rem is not enough on its own for the
+   longest names, so the name now WRAPS to a second line instead of clipping
+   -- a chip is free to grow a row taller; it was never free to hide a unit's
+   own name. */
 .rl-chip__name > span {
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 .rl-chip__top > b {
   flex: none;
@@ -2155,20 +2163,26 @@ body {
    draws — the name is the first line of the content, so a band would say it
    twice.
 
-   `--tip-x` is written by production.ts from the hovered tile's own
-   `offsetLeft`, so the tooltip stands over the tile it describes without this
-   file and that one having to agree about a column count. */
+   Since task 7 this is `packages/app/src/ui/tooltip.ts`'s one shared element
+   rather than something each screen builds for itself, and it is shown over
+   places `--tip-x`/`bottom: 100%` (a tile grid's own column) could never
+   reach — the top strip, the order row, the chip row. `position: fixed` is
+   what makes one rule work everywhere: `--tip-x`/`--tip-y` are VIEWPORT
+   coordinates `tooltip.ts` writes from the hovered element's own
+   `getBoundingClientRect()`, clamped so the tip never leaves the screen,
+   with no column count or shared positioned ancestor for this file and that
+   one to agree about. */
 .rl-tip {
   /* Declared here, not only written from JS: an undeclared custom property is
      a `pnpm validate:ui` failure, and rightly — the gate cannot tell a
-     positional variable from a colour one that nobody defined. The default is
-     the first column, which is where a tooltip shown before any hover would
+     positional variable from a colour one that nobody defined. The default
+     is the top-left corner, where a tooltip shown before any hover would
      belong anyway. */
   --tip-x: 0;
-  position: absolute;
+  --tip-y: 0;
+  position: fixed;
   left: var(--tip-x);
-  bottom: 100%;
-  margin-bottom: var(--s1);
+  top: var(--tip-y);
   box-sizing: border-box;
   width: 14.375rem;
   padding: 0.375rem 0.625rem;
