@@ -3105,11 +3105,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         break;
       case 'keysOverlay':
         // F1 is the browser's own help key everywhere else on the page --
-        // always swallowed, whether or not this toggle actually opens
-        // anything. Blocked over the pause menu by the handler-wide guard
-        // above (`isDialogOpen()`, `keysOverlay` is not a pan), the same way
-        // every other verb in this switch already is; a second F1 while open
-        // closes it, since `toggleKeysOverlay` is a toggle.
+        // always swallowed here, on the open. Blocked over the pause menu by
+        // the handler-wide guard above (`isDialogOpen()`, `keysOverlay` is
+        // not a pan), the same way every other verb in this switch already
+        // is. `toggleKeysOverlay` is a toggle, but fix round 1 (C1) moved the
+        // CLOSE half off this case: `.rl-keys` is a dialog now
+        // (`isDialogOpen()`, `ui/confirm.ts`), so once it is open this
+        // handler-wide guard refuses `keysOverlay` too, and a second F1
+        // never reaches this `case` at all -- it is `keys-overlay.ts`'s own
+        // capture-phase guard that sees it and closes the card.
         ev.preventDefault();
         toggleKeysOverlay();
         break;

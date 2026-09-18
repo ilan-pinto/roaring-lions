@@ -40,9 +40,21 @@ export interface ConfirmOptions {
  * is always Escape's sole target and the game defers to it rather than
  * racing it. `.rl-pause` counts as a dialog here too: the pause menu's own
  * Resume/Escape handling is what closes IT, never the game.
+ *
+ * Task 8 fix round 1: `.rl-keys` (F1's key-bindings overlay) joined the
+ * selector for the identical reason `.rl-pause` did. Before this, the
+ * overlay had only a bubble-phase `keydown` listener of its own, so on a
+ * bare Escape `main.ts`'s handler -- the oldest bubble listener on
+ * `window`, per the paragraph above -- ran first, read this function as
+ * `false`, and opened the pause menu in the same tick the overlay's own
+ * listener closed the card: one key, two things. `keys-overlay.ts` now
+ * installs a capture-phase guard of its own, mirroring `pause.ts`'s
+ * `onCaptureKey`; this function's job is only to keep `main.ts`'s
+ * handler-wide guard refusing `pause` AND `keysOverlay` while the card is
+ * open, the same way it already refuses everything else.
  */
 export function isDialogOpen(doc: Document = document): boolean {
-  return doc.querySelector('.rl-confirm, .rl-pause') !== null;
+  return doc.querySelector('.rl-confirm, .rl-pause, .rl-keys') !== null;
 }
 
 /** What `confirmDialog` hands back: the player's answer, and a way to take the

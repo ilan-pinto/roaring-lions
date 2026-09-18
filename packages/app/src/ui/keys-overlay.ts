@@ -7,14 +7,29 @@
  * second copy of either.
  *
  * Modal like `ui/confirm.ts`'s dialog -- a scrim plus a centred `panel()` --
- * but it does NOT self-dispose on Escape or a scrim click. Both call
+ * but it does NOT self-dispose on Escape or its own binding. Both call
  * `deps.onClose()` only, exactly like `objectives.ts`'s popover close button:
  * whoever mounted this owns hiding or tearing it down (`main.ts`'s toggle),
  * and this module's own `Disposer` is the one thing that removes it from the
  * document, so a caller that wants "F1 again closes it" gets that by calling
  * the disposer from `onClose`, not by this module guessing at it.
+ *
+ * Task 8 fix round 1 (C1): this is a real dialog and has to behave like one.
+ * `.rl-keys` joined `isDialogOpen()`'s selector (`ui/confirm.ts`), so
+ * `main.ts`'s handler-wide guard refuses `pause` AND `keysOverlay` while the
+ * card is up -- but that guard only protects `main.ts`'s OWN listener, and
+ * before this fix the overlay had only a bubble-phase `keydown` listener of
+ * its own, so every other game verb (`halt`, `smoke`, `mute`, Tab's
+ * `cycleChips`, ...) kept firing under the card, and a bare Escape reached
+ * `main.ts` first (registered at boot, oldest listener on `window`) and
+ * opened the pause menu in the same tick this module's own listener closed
+ * the overlay. `onCaptureKey` below mirrors `pause.ts`'s own guard: it
+ * `stopPropagation()`s everything except Escape, Tab, and the overlay's own
+ * binding (read live, so a rebind still closes it). No pan-key exemption --
+ * this is a reference card over a mission, not `pause.ts`'s "modal over a
+ * world that keeps drawing while the sim stops".
  */
-import { ACTIONS, keyLabel, type Bindings } from '../input/keymap';
+import { ACTIONS, keyLabel, resolveKey, type Bindings } from '../input/keymap';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { panel } from './panel';
@@ -87,22 +102,62 @@ export function showKeysOverlay(host: HTMLElement, deps: KeysOverlayDeps): Dispo
     row(list, u.label, t(u.keys), { fixed: true });
   }
 
+  // Minor (fix round 1): remembered on show, restored on close/dispose when
+  // still connected -- a full focus trap is deferred, this is just "give the
+  // keyboard back to whatever had it". Mirrors `confirmDialog`'s `opener`.
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
   scrim.appendChild(p.el);
   host.appendChild(scrim);
   close.focus();
 
+  // Is this keydown the overlay's OWN binding (normally F1, but read live --
+  // a rebind onto another key must still close it)? Goes through the same
+  // `resolveKey` `main.ts`'s own listener uses, rather than a raw string
+  // compare, so case, the space-bar spelling and a future modifier all agree
+  // with the rest of the keymap.
+  const isOwnKey = (ev: KeyboardEvent): boolean =>
+    resolveKey(deps.bindings(), { key: ev.key, ctrlKey: ev.ctrlKey, metaKey: ev.metaKey }) === 'keysOverlay';
+
   const onKey = (ev: KeyboardEvent): void => {
-    if (ev.key === 'Escape') deps.onClose();
+    if (ev.key === 'Escape') {
+      deps.onClose();
+      return;
+    }
+    if (isOwnKey(ev)) {
+      // F1 is the browser's own help key; `main.ts`'s `case 'keysOverlay':`
+      // no longer runs while this is open (the capture guard below stops the
+      // event before it gets there), so this is now the only preventDefault
+      // a second F1 gets.
+      ev.preventDefault();
+      deps.onClose();
+    }
+  };
+  // See `pause.ts`'s `onCaptureKey` for the phase reasoning this mirrors.
+  // Escape and Tab pass through untouched (Escape is this dialog's own
+  // cancel above, a bubble listener on the same target; Tab is the browser's
+  // native focus movement, which nothing here traps), and so does the
+  // overlay's own binding, which needs to reach `onKey` above to close it.
+  // Every other key -- game verbs, the control-group digits, everything --
+  // is swallowed: unlike `pause.ts` there is no pan-key exemption, because
+  // this is a reference card over a mission, not a modal over a world that
+  // keeps drawing while the sim stops.
+  const onCaptureKey = (ev: KeyboardEvent): void => {
+    if (ev.key === 'Escape' || ev.key === 'Tab' || isOwnKey(ev)) return;
+    ev.stopPropagation();
   };
   const onScrimClick = (ev: MouseEvent): void => {
     if (ev.target === scrim) deps.onClose();
   };
   window.addEventListener('keydown', onKey);
+  window.addEventListener('keydown', onCaptureKey, true);
   scrim.addEventListener('click', onScrimClick);
 
   return () => {
     window.removeEventListener('keydown', onKey);
+    window.removeEventListener('keydown', onCaptureKey, true);
     scrim.removeEventListener('click', onScrimClick);
     scrim.remove();
+    if (opener?.isConnected) opener.focus();
   };
 }
