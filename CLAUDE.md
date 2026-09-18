@@ -821,16 +821,28 @@ yours; each one records what the next phase inherits.
   vehicles AND the billboard instancers, so it is the unit BODIES rather than
   overlays or silhouettes. And giving `vehicle` any check at all made it run
   the zero-time **repaint control for the first time** — `runSelfChecks`
-  returns early on an empty `layerChecks` — where it fails the global hard
-  zero at 0 px / 0.0002–0.0003. That drift was already measured and recorded
-  in its own entry; it is now expressed as `BaselineSpec.repaintControl`, a
-  PER-SCENARIO budget (0 px, 0.001 mean) that loosens one scenario and nothing
-  else. The constants stay 0 and must: their own comment is right that
-  widening them would silently loosen every layer floor at once. **What
-  drifts is still unknown** — ~65–99 scattered pixels around the vehicles,
-  decaying over successive repaints, and a literal 0 on the other three
-  scenarios. Finding it would let that field go away. A regression in anything
-  no layer check names still passes on an unblessed runner at any size.
+  returns early on an empty `layerChecks` — where it failed the global hard
+  zero at 0 px / 0.0002–0.0004, and was given `BaselineSpec.repaintControl`, a
+  PER-SCENARIO budget that loosens one scenario and nothing else. The
+  constants stay 0 and must: their own comment is right that widening them
+  would silently loosen every layer floor at once.
+  **What drifted is known now, and the override is deleted (2026-09-18).**
+  It was `ThreeRenderer.updateVehicleAmbientFx` adding the RAW frame delta to
+  its per-entity dust/exhaust accumulators, where every other elapsed-time
+  reader in `frame()` clamps to 100 ms (`frameDtMs`/`frameDtSeconds`). A long
+  frame therefore BANKED emission credit that later frames spent at one puff
+  per CALL, elapsed time or not: boot plus the settle left the accumulator at
+  5607.9 ms on all seven stationary vehicles in shot, `step(140)`'s single
+  `frame(1, lastFrameMs)` took it to 11198.3, and the next **22** zero-time
+  repaints each spawned 7 exhaust puffs. Each fresh puff landed on the last
+  one's pixels, which is why the series decayed without reaching zero — and
+  because the backlog's size is a LOAD TIME, it also explains this scenario's
+  5–157 px baseline noise. One call (`frameDtMs(dtMs)`) takes the control to a
+  literal **0 px / 0.0000**, and two full-gate runs bit-identical to each other
+  on this frame. Two lessons worth more than the fix: **a control that cannot
+  reach zero is a defect with a stopgap on top of it**, and the drift and the
+  "renderer noise" were the same thing all along. A regression in anything no
+  layer check names still passes on an unblessed runner at any size.
   **Run-to-run noise is not spread over the frame**; it sits in tight clusters
   around animating mesh units and real-time VFX, and every other pixel is
   bit-identical between captures. That is why a scenario can declare a
@@ -857,7 +869,12 @@ yours; each one records what the next phase inherits.
   but the `vehicle` figure this line used to carry (5–101 / 0.0029–0.0058) was
   a single sample's best case, the second time that entry recorded one.
   **A range with no sample size beside it is an anecdote**, and **a bimodal
-  noise reading is a bug to find, not a band to widen.**
+  noise reading is a bug to find, not a band to widen.** `vehicle`'s share of
+  that was not renderer noise either: it was the ambient-FX emission backlog
+  described above (its size is a LOAD TIME, so it varied run to run), and with
+  that fixed two full-gate runs of this frame are **bit-identical**. The
+  thresholds are still 300 / 0.02 — nobody has re-derived them against a
+  zero floor, and doing so is a separate decision from the fix.
   **`tel_marum` is in the gate now, and it is the only map that can catch
   terrain.** The `relief` scenario frames the T1-C boulder corridor and the
   extruded rock-ridge walls either side of it. Before it, the gate sampled two

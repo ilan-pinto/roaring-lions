@@ -220,12 +220,21 @@ export interface BaselineSpec {
    * loosens ONE scenario's control and nothing else, and every other scenario
    * still has to be bit-identical.
    *
-   * `vehicle` is the only user. Its drift was already measured and recorded in
-   * its own entry before it declared any layer check -- it simply never RAN
-   * the control, because `runSelfChecks` returns early on an empty
-   * `layerChecks`. Giving it a `units` check on 2026-09-10 made the control
-   * run for the first time and it failed, which is a pre-existing anomaly
-   * surfacing rather than a new one.
+   * **NOTHING USES IT TODAY, and that is the outcome the field was for.**
+   * `vehicle` was the only user, at 0 px / 0.00036, from 2026-09-10 until
+   * 2026-09-18, when the drift behind it was found and fixed at the source
+   * (`ThreeRenderer.updateVehicleAmbientFx` added the RAW frame delta to its
+   * emission accumulators instead of the clamped one, so a long frame banked
+   * seconds of exhaust that later frames spent one puff at a time, elapsed
+   * time or not -- see that method's own "the ceiling is load-bearing"
+   * section, and this file's `vehicle` entry for the numbers). All five
+   * scenarios now meet the global hard zero.
+   *
+   * The field stays because the shape is still right for a scenario that
+   * genuinely cannot be bit-identical, and because deleting it would lose the
+   * argument above. A NEW user is a claim that needs the same treatment the
+   * last one eventually got: the stopgap bought eight days and one red CI
+   * run, not a resolution.
    */
   repaintControl?: { readonly maxDiffPixels: number; readonly maxMeanAbsChannelDelta: number };
   /** Provenance for both numbers, printed on every run so it travels with the
@@ -618,38 +627,41 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // scenario is judged by its baseline and, on an unblessed runner, captured
     // and not judged -- which the summary says in those words.
     //
-    // It is also the one scenario whose zero-time repaint is not bit-identical:
-    // 0 px / 0.0001-0.0004 over ~65-99 scattered pixels around the vehicles,
-    // decaying run to run (0.00035, 0.00021, 0.00021, 0.00012 ... over ten
-    // successive repaints). Three orders of magnitude below any floor here, and
-    // recorded rather than swept up: `quiet`, `open-ground` and `relief` all
-    // read a literal 0 / 0.0000, so whatever it is, it lives with the mesh
-    // vehicles and their continuous FX -- the same place this entry's own
-    // run-to-run noise already sits.
-    // 0 px is still demanded -- the PIXEL count is bit-identical here, as
-    // everywhere, on all 5 side-light runs. Only the mean is given room, and
-    // only for this scenario: RE-MEASURED 2026-09-15 at 0.0002-0.0003 over
-    // those 5 runs (0.0002 twice, 0.0003 three times). It read the same
-    // 0.0002-0.0003 over the 5 front-lit runs of 2026-09-14, the same over 4
-    // pre-lit runs, and 0.0001-0.0004 in the older sample this entry already
-    // carried -- neither the relight nor the sun's azimuth moved it.
-    // 0.00036 is the largest reading plus 20%, and ~2700x BELOW this
-    // scenario's own `units` floor of 0.98, so the control still proves the
-    // toggle is the toggle by a wide margin. It is TIGHTER than the 0.001 this
-    // entry used to carry (3.3x the maximum), which is the direction a control
-    // should move. One caveat worth knowing before reacting to a red here: the
-    // gate prints this number to four decimal places, so "0.0003" is anything
-    // up to 0.00035 and the true headroom may be as little as 3%. A run that
-    // fails by a hair is a reason to print more digits and re-derive, not to
-    // widen.
+    // WHAT DRIFTED IS KNOWN NOW, AND IT IS FIXED (2026-09-18). This entry
+    // carried a `repaintControl` of 0 px / 0.00036 from 2026-09-10 -- the one
+    // scenario in the gate whose zero-time repaint was not bit-identical
+    // (0 px / 0.0001-0.0004, ~65-99 scattered pixels around the vehicles,
+    // decaying over successive repaints) and the one whose whole-frame
+    // baseline comparison carried 5-157 px / 0.0029-0.0069 of run-to-run
+    // noise. BOTH were the same defect, and it was not in the harness or the
+    // GPU: `ThreeRenderer.updateVehicleAmbientFx` added the RAW `dtMs` to its
+    // per-entity dust/exhaust accumulators while every other elapsed-time
+    // reader in `frame()` clamped to 100 ms, so one long frame banked seconds
+    // of emission credit that later frames spent at ONE puff per call,
+    // whatever the elapsed time -- including zero.
     //
-    // WHAT DRIFTS IS NOT KNOWN, and that is recorded rather than closed: it is
-    // ~65-99 scattered pixels around the vehicles, it decays over successive
-    // repaints (0.00035, 0.00021, 0.00021, 0.00012 ...), and `quiet`,
-    // `open-ground` and `relief` all read a literal 0. Whatever it is lives
-    // with the mesh vehicles and their continuous FX. Finding it would let
-    // this field go away.
-    repaintControl: { maxDiffPixels: 0, maxMeanAbsChannelDelta: 0.00036 },
+    // Measured on this scenario's own protocol: boot plus the 1 s settle left
+    // `vehicleExhaustAccumMs` at 5607.9 ms for all SEVEN stationary vehicles
+    // in shot, and `__lions.step(140)`'s single `frame(1, lastFrameMs)` took
+    // it to 11198.3 -- so the next 22 consecutive zero-time repaints each
+    // spawned 7 exhaust puffs (7, 14, 21 ... 161) before the backlog fell
+    // under one 500 ms interval and the scene finally stood still. Each fresh
+    // puff landed on the last one's pixels, which is why the series decayed
+    // (0.00025, 0.00020, 0.00013 ...) without ever reaching zero. And because
+    // the size of the backlog is set by `lastFrameMs` -- a load time -- it
+    // differed run to run, which is where this entry's baseline noise came
+    // from too.
+    //
+    // After the fix (`frameDtMs(dtMs)`, one call) the control reads a literal
+    // 0 px / 0.0000 over 8 successive repaints on the standalone instrument
+    // and on 2 full-gate runs, so NO `repaintControl` override is declared and
+    // the global hard zero applies. Falsified by re-injecting the one-line
+    // defect: 0 px / 0.0004 -> FAIL, the same coin flip CI saw (PASS at
+    // 0.0003, FAIL at 0.0004, same commit). Two whole-gate runs with the fix
+    // are now bit-identical to each other on this frame (0 px / 0.0000), so
+    // the noise figures above are HISTORY -- they are left in the rationale
+    // below because the thresholds were calibrated against them and have not
+    // been re-derived.
     layerChecks: [
       {
         layer: 'units',
@@ -1073,10 +1085,13 @@ export function capturePreconditionMismatches(
  *
  *  So these are ZERO, not a band, and a control that starts drifting is a bug
  *  to find rather than a number to widen -- widening it would silently loosen
- *  every layer floor below at the same time. The two scenarios that do NOT
- *  read zero (`vehicle` at 0 px / 0.0001-0.0004, `combat` at four figures)
- *  declare no layer checks and never run this; their own entries carry the
- *  measurement and what is known about it. */
+ *  every layer floor below at the same time. That is not a slogan: `vehicle`
+ *  read 0 px / 0.0001-0.0004 here for eight days behind a per-scenario
+ *  stopgap, and finding the cause (see its own entry -- vehicle ambient FX
+ *  banked emission credit from the raw frame delta) took it to a literal
+ *  0 px / 0.0000 like the rest. Every scenario that runs this control now
+ *  meets these constants; `combat`, at four figures, declares no layer checks
+ *  and never runs it. */
 export const REPAINT_CONTROL_MAX_DIFF_PIXELS = 0;
 export const REPAINT_CONTROL_MAX_MEAN_DELTA = 0;
 

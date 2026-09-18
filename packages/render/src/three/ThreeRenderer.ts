@@ -560,6 +560,23 @@ const VEHICLE_DUST_INTERVAL_MS = 250;
 const VEHICLE_EXHAUST_INTERVAL_MS = 500;
 
 /**
+ * The ceiling every elapsed-time reading in `frame()` is clamped to
+ * (`frameDtMs`/`frameDtSeconds`), matching `PixiRenderer.frame()`'s own
+ * `dtSeconds` clamp (`renderer.ts:1880`): a tab returning from the
+ * background, or a frame that waited on a 5-second GLB load, catches up in
+ * one bounded step instead of a huge stride.
+ *
+ * It MUST stay below the smaller of the two intervals above, and that is a
+ * load-bearing coupling rather than a coincidence -- see
+ * `updateVehicleAmbientFx`'s own "the ceiling is load-bearing" section for
+ * the measurement. A ceiling at or above an interval lets one frame bank
+ * more than one spawn's worth of credit, and the accumulator spends credit
+ * at one spawn per FRAME, so emission stops being a function of elapsed
+ * time for as long as the backlog lasts.
+ */
+const FRAME_DT_CEILING_MS = 100;
+
+/**
  * Fixed `magnitude` for `vehicle_exhaust`'s `spawn()` call -- unlike dust,
  * which scales with ground speed (`vehicleDustMagnitude`), idle exhaust has
  * no speed to scale against (`nextVehicleMoving` only reaches this branch
@@ -3374,6 +3391,43 @@ export class ThreeRenderer implements Renderer {
    * Reads only `Sim.state.alive`/`typeIdx`/`facing` (read-only, per
    * invariant 4) plus this class's own presentation arrays. Writes nothing
    * back to `Sim`.
+   *
+   * ## THE CEILING IS LOAD-BEARING, and leaving it off cost a CI coin flip
+   *
+   * The two accumulators below are fed `frameDtMs(dtMs)`, not the raw
+   * `dtMs`, and that one call is the whole of GH "the vehicle repaint
+   * control drifts". Until 2026-09-18 this was the ONE elapsed-time reader
+   * in `frame()` that did not go through the shared clamp, while the
+   * particle AGEING those spawns feed (`updateFx`) always has -- so a single
+   * long frame aged every live particle by 100 ms and banked seconds of
+   * fresh emission at the same time.
+   *
+   * What that bought, measured on `?sandbox=beit_sahwan_outskirts` through
+   * the visual gate's own protocol (frame loop frozen, `frame(1, 0)`
+   * repaints): boot and the 1 s settle left `vehicleExhaustAccumMs` at
+   * **5607.9 ms** for every one of the seven stationary vehicles -- eleven
+   * intervals of credit, accrued from a handful of real frames whose `dtMs`
+   * were hundreds to thousands of milliseconds -- and `__lions.step(140)`,
+   * which repaints once with `lastFrameMs`, took it to **11198.3**. The
+   * accumulator spends ONE interval per call, so the next **22 consecutive
+   * ZERO-TIME repaints each spawned 7 exhaust puffs** (7, 14, 21 ... 161
+   * spawns) before the backlog fell under 500 and the scene finally stood
+   * still. That is what the gate photographed: 78-126 scattered pixels
+   * around the vehicles, 0.00025 falling to 0.00011 as each fresh puff
+   * landed on the same spot as the last and the compositing saturated --
+   * decaying, never reaching zero, on a budget of 0.00036.
+   *
+   * With the clamp the accumulator can never hold more than one interval:
+   * it starts a frame below `VEHICLE_*_INTERVAL_MS`, gains at most
+   * `FRAME_DT_CEILING_MS` (100, under both intervals), and a spawn takes a
+   * whole interval back off it. So a repaint handed 0 ms adds nothing,
+   * crosses nothing and spawns nothing -- which is also the only reading
+   * that makes the gate's layer toggles measure the layer.
+   *
+   * It is the right behaviour for a player quite apart from the gate: a
+   * 5-second load frame used to buy eleven puffs' worth of exhaust, dribbled
+   * out one per FRAME over the next fifth of a second, which is a burst of
+   * smoke triggered by a slow frame rather than by elapsed time.
    */
   private updateVehicleAmbientFx(dtMs: number): void {
     if (!this.particleSystem) return;
@@ -3383,6 +3437,9 @@ export class ThreeRenderer implements Renderer {
 
     const st = this.sim.state;
     const n = this.sim.entityCount;
+    // The shared ceiling, never the raw `dtMs` -- see this method's own
+    // "the ceiling is load-bearing" section.
+    const dt = this.frameDtMs(dtMs);
 
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
@@ -3402,7 +3459,7 @@ export class ThreeRenderer implements Renderer {
         // this frame, not racing it.
         this.vehicleExhaustAccumMs[i] = 0;
         if (!dust) continue;
-        this.vehicleDustAccumMs[i] += dtMs;
+        this.vehicleDustAccumMs[i] += dt;
         if (this.vehicleDustAccumMs[i] < VEHICLE_DUST_INTERVAL_MS) continue;
         this.vehicleDustAccumMs[i] -= VEHICLE_DUST_INTERVAL_MS;
 
@@ -3416,7 +3473,7 @@ export class ThreeRenderer implements Renderer {
       } else {
         this.vehicleDustAccumMs[i] = 0;
         if (!exhaust) continue;
-        this.vehicleExhaustAccumMs[i] += dtMs;
+        this.vehicleExhaustAccumMs[i] += dt;
         if (this.vehicleExhaustAccumMs[i] < VEHICLE_EXHAUST_INTERVAL_MS) continue;
         this.vehicleExhaustAccumMs[i] -= VEHICLE_EXHAUST_INTERVAL_MS;
 
@@ -4329,14 +4386,25 @@ export class ThreeRenderer implements Renderer {
     return updateDimetricCamera(this.camera, { width: this.width, height: this.height }, this.viewCamera);
   }
 
-  /** Wall-clock seconds since the previous frame, clamped exactly the way
-   *  `PixiRenderer.frame()` clamps its own `dtSeconds` (`renderer.ts:1880`):
-   *  a 100 ms ceiling so a tab returning from the background catches up in
-   *  one bounded step instead of a huge stride. Shared by `updateUnits`
-   *  (animation phase advance) and `updateFx` (particle/tracer ageing) so
-   *  the two cannot silently clamp differently. */
+  /** Wall-clock MILLISECONDS since the previous frame, clamped exactly the
+   *  way `PixiRenderer.frame()` clamps its own `dtSeconds`
+   *  (`renderer.ts:1880`): a `FRAME_DT_CEILING_MS` ceiling so a tab
+   *  returning from the background catches up in one bounded step instead of
+   *  a huge stride.
+   *
+   *  Every consumer in `frame()` that measures ELAPSED TIME goes through
+   *  this or `frameDtSeconds` below, so none of them can silently clamp
+   *  differently -- and `updateVehicleAmbientFx` being the one that did NOT
+   *  is what made the visual gate's `vehicle` repaint control drift. See
+   *  that method's own "the ceiling is load-bearing" section. */
+  private frameDtMs(dtMs: number): number {
+    return Math.min(dtMs, FRAME_DT_CEILING_MS);
+  }
+
+  /** `frameDtMs` in seconds. Shared by `updateUnits` (animation phase
+   *  advance) and `updateFx` (particle/tracer ageing). */
   private frameDtSeconds(dtMs: number): number {
-    return Math.min(dtMs, 100) / 1000;
+    return this.frameDtMs(dtMs) / 1000;
   }
 
   /**
