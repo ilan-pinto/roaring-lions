@@ -30,6 +30,7 @@
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
     "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "plate:capture": "pnpm --filter @lions/tools plate:capture",
+    "plates:units": "pnpm --filter @lions/tools plates:units",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes"
   },
   "devDependencies": {

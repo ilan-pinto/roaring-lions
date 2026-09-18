@@ -7,7 +7,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PORTRAIT_FACING, portraitFile, portraitUrl, unitIcon, type SheetManifest, type UnitIcon } from './portrait';
+import {
+  PORTRAIT_FACING,
+  portraitFile,
+  portraitUrl,
+  unitIcon,
+  unitPlate,
+  type SheetManifest,
+  type UnitIcon,
+} from './portrait';
 
 /** A sheet with clips, as INF_SQUAD's manifest is shaped. */
 const withClips = {
@@ -152,6 +160,52 @@ describe('unitIcon', () => {
     expect(icon).not.toBeNull();
     expect(icon?.size).toBe(128);
     expect(icon?.url).toContain('INF_SQUAD');
+  });
+});
+
+describe('unitPlate', () => {
+  // The real shape `tools/src/perf/unit-plates.ts` writes to
+  // `assets/ui/plates/units/manifest.json`.
+  const fakeManifest = {
+    mbt_lavi: { file: 'mbt_lavi.jpg', width: 1800, height: 1200, extent: [636, 448] },
+  };
+  const fakeKnownFiles = new Set(['mbt_lavi.jpg']);
+
+  it('resolves a known id from the manifest shape', () => {
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', fakeManifest, fakeKnownFiles)).toEqual({
+      url: '/ui/plates/units/mbt_lavi.jpg',
+      extent: [636, 448],
+    });
+  });
+
+  it('accepts a base with no trailing slash too', () => {
+    expect(unitPlate('/ui/plates/units', 'mbt_lavi', fakeManifest, fakeKnownFiles)).toEqual({
+      url: '/ui/plates/units/mbt_lavi.jpg',
+      extent: [636, 448],
+    });
+  });
+
+  it('returns null for an id the manifest never names', () => {
+    expect(unitPlate('/ui/plates/units/', 'nope', fakeManifest, fakeKnownFiles)).toBeNull();
+  });
+
+  it('returns null for a manifest entry whose file the glob never captured', () => {
+    // A manifest that outran a partial `pnpm plates:units` run -- the id is
+    // named, but its JPEG was never written (or was deleted). Reads exactly
+    // like an unknown id, deliberately: a broken `<img>` is worse than no
+    // picture at all.
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', fakeManifest, new Set())).toBeNull();
+  });
+
+  it('reads the real shipped catalogue by default', () => {
+    // No manifest/catalogue argument: exercises the module's own
+    // `import.meta.glob` + `manifest.json` join against whatever
+    // `pnpm plates:units` actually wrote under `assets/ui/plates/units/`.
+    const plate = unitPlate('/ui/plates/units/', 'mbt_lavi');
+    expect(plate).not.toBeNull();
+    expect(plate?.url).toContain('mbt_lavi');
+    expect(plate?.extent[0]).toBeGreaterThan(0);
+    expect(plate?.extent[1]).toBeGreaterThan(0);
   });
 });
 

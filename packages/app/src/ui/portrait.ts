@@ -25,6 +25,7 @@
 // when that lands, only what `pnpm icons:units` writes into it.
 
 import manifest from '../../../../assets/ui/icons/units/manifest.json';
+import plateManifestJson from '../../../../assets/ui/plates/units/manifest.json';
 
 /** The subset of a sheet manifest this needs. Structural, so a test can hand it
  *  an object rather than a file. */
@@ -184,4 +185,97 @@ export function unitIcon(
   const trimmed = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
   const sheet = trimmed.slice(trimmed.lastIndexOf('/') + 1);
   return catalogue[sheet] ?? null;
+}
+
+// --- engine-rendered unit plates (Task 15, GH-153's garage) -----------------
+//
+// `tools/src/perf/unit-plates.ts` (`pnpm plates:units`) photographs each KDF
+// unit through the running game itself -- the same camera, sun and tone
+// mapping a mission uses -- rather than compositing one from a sprite-sheet
+// frame the way the cropped icon above does. One JPEG per unit id, flat under
+// `assets/ui/plates/units/<id>.jpg` (there is no per-unit sheet DIRECTORY the
+// way `assets/sprites/<SHEET>/` has one -- a plate is not a frame picked out
+// of a manifest of many, it is the whole capture), alongside a manifest
+// recording each plate's own measured pixel footprint (`extent`): the
+// bounding box of pixels that differ from the empty-ground reference frame
+// captured at the same camera, not an alpha channel -- a JPEG plate carries
+// none.
+
+/** One engine-rendered plate: the URL to draw, and the unit's own measured
+ *  pixel footprint inside it (not yet used by anything in this app). */
+export interface UnitPlate {
+  url: string;
+  extent: readonly [number, number];
+}
+
+/** The manifest's own JSON shape -- `extent` is a plain array on disk (JSON
+ *  has no tuple type), narrowed to the fixed-length tuple `UnitPlate` promises
+ *  only where a value is actually read, below. */
+interface PlateManifestEntry {
+  file: string;
+  width: number;
+  height: number;
+  extent: number[];
+}
+
+interface PlateManifest {
+  version: number;
+  camera: { zoom: number; dpr: number };
+  plates: Record<string, PlateManifestEntry>;
+}
+
+// `manifest` is a JSON module import, so its inferred type is the literal
+// shape of today's file, not the general `PlateManifest` shape a future entry
+// still has to match -- `unknown` first is the honest way to say
+// "structurally compatible, not identical" (the same cast `unitIcon`'s own
+// manifest import uses above).
+const plateManifest = plateManifestJson as unknown as PlateManifest;
+
+/** Every plate file the eager glob actually found on disk, by filename -- the
+ *  manifest can name an id `pnpm plates:units` has not (yet) photographed for
+ *  this checkout, and a stale entry should read as absent rather than a
+ *  broken `<img>`, the same rule `unitIcon`'s own `ICONS` catalogue enforces
+ *  by only ever recording sheets its glob actually captured. */
+const PLATE_FILES = new Set<string>(
+  Object.keys(
+    import.meta.glob('../../../../assets/ui/plates/units/*.jpg', { eager: true })
+  ).map((p) => p.slice(p.lastIndexOf('/') + 1))
+);
+
+/**
+ * The engine-rendered plate for a KDF unit id, or null when none was
+ * photographed for it.
+ *
+ * `base` is the plates directory, always ending in `/` (mirrors `unitIcon`'s
+ * `basePath`); `id` is the unit's own id (`data/units/kdf/<id>.json`'s
+ * filename) rather than something parsed back out of a path the way
+ * `unitIcon` parses a sheet name out of `basePath` -- a plate is not filed
+ * under a per-unit directory of its own the way a sprite sheet is, the whole
+ * set sits flat under one directory keyed by id, so the caller already has
+ * the id in hand and there is nothing to derive from a path.
+ *
+ * The URL is a plain join of `base` and the manifest's own `file` name.
+ * Plates ship through Vite's `publicDir` unhashed
+ * (`packages/app/vite.config.ts`: `assets/` -> `/`, "Serve repo-root assets/
+ * statically"), so string-joining is exactly what serves them -- the same
+ * convention `portraitUrl` above uses for a sprite frame, rather than
+ * `unitIcon`'s glob-resolved URL, which exists to survive a bundler renaming
+ * the file and is not needed for an asset that is never hashed. Resolution is
+ * still gated on the manifest naming the id AND the eager glob above having
+ * actually found that file on disk, so an id the manifest outran (a build
+ * whose `pnpm plates:units` run is stale or partial) reads as absent rather
+ * than a broken image, exactly as `unitIcon` reads a manifest entry its own
+ * glob never captured.
+ */
+export function unitPlate(
+  base: string,
+  id: string,
+  manifest: Readonly<Record<string, PlateManifestEntry>> = plateManifest.plates,
+  knownFiles: ReadonlySet<string> = PLATE_FILES
+): UnitPlate | null {
+  const entry = manifest[id];
+  if (entry === undefined || !knownFiles.has(entry.file)) return null;
+  const trimmedBase = base.endsWith('/') ? base : `${base}/`;
+  const [w, h] = entry.extent;
+  return { url: trimmedBase + entry.file, extent: [w, h] };
 }

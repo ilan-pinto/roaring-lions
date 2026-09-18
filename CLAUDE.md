@@ -334,6 +334,44 @@ The combat model is the product. Everything else is scaffolding around it.
   "after" and looks exactly right. Use the live one whenever the question is
   about runtime behaviour (playback rate, ramps, the sun, the occlusion
   outline) and the Blender one when it is about the authored pose alone.
+- **`pnpm plates:units [--only=<id>[,<id>...]] [--out=…]`**
+  (`tools/src/perf/unit-plates.ts`) photographs every KDF type through the
+  running game for the garage screen — one JPEG per id under
+  `assets/ui/plates/units/`, plus a manifest read by `unitPlate`
+  (`packages/app/src/ui/portrait.ts`, beside the cropped-icon `unitIcon`).
+  Every type is spawned, captured and struck at the SAME tile (found live
+  from `sim.blocked`, open ground clear of any building for 6 tiles), camera
+  zoom 3.2 at DPR 2 — the brief's own starting zoom of 3 read a tank at 596px
+  wide, under the 600px floor, so it went up. The plate carries no alpha, so
+  `extent` (the unit's own pixel footprint) is measured by diffing against an
+  empty-ground reference frame with `pixelmatch` (`diffMask: true`, the
+  bounding box of what differs) rather than read off a channel — a self-diff
+  is pixel-identical and reads `[0, 0]`, which the harness refuses to ship a
+  manifest entry for, loudly. It strips every unit `showSandbox` fields by
+  default (both sides) before spawning anything: an early run put the parade
+  tile 7 tiles from a default `militia_cell`, and an `apc_eitan` found it and
+  opened fire mid-capture, its own muzzle flash and tracer blowing the
+  measured extent out past 1100px. **Two KDF types carry no GLB at all**
+  (`attack_drone`, `recon_drone` — checked against `hasUnitMesh`, not
+  assumed; `heli_peten` does have one) and the roster-driven sprite loader
+  only queues a billboard sheet for a type the BOOT-TIME force already
+  fields, so spawning either one cold drew nothing but a stray VFX blur on
+  otherwise empty ground — fixed by calling `renderer.loadSprites` on their
+  own `SPRITE_MAP` paths directly before the first spawn. **The dev
+  instrument that actually failed here was SwiftShader itself**, not
+  content: a `page.screenshot` measured 180s+ stalls (`GL Driver Message ...
+  GPU stall due to ReadPixels`) after only two or three captures shared one
+  browser tab, and once escalated to a WebGL context loss that took
+  `window.__lions` down with it (a full-frame diff — extent reading the
+  capture's own dimensions — is the tell something upstream broke, not a
+  giant unit). `captureWithRetry` (three attempts, 5s apart) papers over the
+  first kind; the second kind does not recover, and the reliable fix was
+  giving each capture its OWN process — `--only` now accepts a comma list for
+  a smaller batch, but a run of all seventeen through one browser session is
+  not reliable and one-id-per-invocation is what actually shipped the
+  checked-in set. The manifest MERGES with whatever is already on disk for
+  exactly this reason — a `--only` run must add its entries, never clobber
+  every id a fuller run already wrote.
 - `pnpm balance` runs the §5.7 backtest; `tools/src/backtest/urban-only.ts` is the fast urban-ratio calibration loop.
 - The determinism golden hash lives in `packages/sim/src/determinism.test.ts`. It changes only when sim code or tuning changes deliberately — update it in the same commit and say why.
 - Combat tuning lives in `packages/sim/src/tuning.ts`. §5.7 targets outrank §5 formula text.
