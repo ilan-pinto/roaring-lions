@@ -77,6 +77,7 @@ import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
+import { EDGE_MARGIN_PX, clampZoom, edgeVector, panDelta, zoomAnchor } from './ui/camera-input';
 import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
 import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
@@ -2744,6 +2745,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let dragStart: { x: number; y: number } | null = null;
   /** Last cursor position over the map, for keyboard-issued orders. */
   const lastCursor = { x: 0, y: 0 };
+  /** Whether the pointer is currently over the canvas -- edge pan (below) is
+   *  gated on this AND the settings flag AND window focus (see the `blur`
+   *  listener beside the canvas's own pointer listeners), so a pointer that
+   *  is merely hovering some other part of the page, or one left behind by a
+   *  window that lost focus mid-drag, never starts the camera moving. */
+  let pointerInside = false;
   /** Alt/Option state as of the last pointer event — the resolver's `confirm`
    *  for the per-frame hover cursor. The click handlers read `ev.altKey`
    *  directly instead, since the event's own state is authoritative at the
@@ -2863,6 +2870,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   canvas.addEventListener('pointerdown', (ev) => {
     if (ev.button === 0) dragStart = canvasXY(ev);
+  });
+  // Edge pan's own presence gate. `pointerleave` covers the ordinary case (the
+  // mouse crosses back onto the HUD or off the window into the OS chrome);
+  // `blur` covers the one it cannot -- a window that loses focus (Alt-Tab, a
+  // dev-tools click) while the OS never delivers a `pointerleave` at all,
+  // which would otherwise leave `pointerInside` stuck true and the camera
+  // panning under an unfocused window.
+  canvas.addEventListener('pointerenter', () => {
+    pointerInside = true;
+  });
+  canvas.addEventListener('pointerleave', () => {
+    pointerInside = false;
+  });
+  onWindow('blur', () => {
+    pointerInside = false;
   });
   onWindow('pointermove', (ev) => {
     // Position and modifier state only. The hover work this used to do
@@ -3377,7 +3399,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const z = renderer.camera.zoom * (ev.deltaY > 0 ? 0.9 : 1.1);
-    renderer.camera.zoom = Math.min(2.5, Math.max(0.35, z));
+    if (req.settings.get().controls.zoomToCursor) {
+      const before = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+      renderer.camera.zoom = clampZoom(z);
+      const after = renderer.screenToWorld(lastCursor.x, lastCursor.y);
+      const anchored = zoomAnchor(renderer.camera, before, after);
+      renderer.camera.x = anchored.x;
+      renderer.camera.y = anchored.y;
+    } else {
+      renderer.camera.zoom = clampZoom(z);
+    }
   });
 
   // --- fixed-tick loop with render interpolation ---------------------------
@@ -4087,6 +4118,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (held('panRight')) {
       renderer.camera.x += panSpeed;
       renderer.camera.y -= panSpeed;
+    }
+    // Edge pan: same speed term as the keys above, gated on its own setting
+    // (default off -- see settings.ts) AND the pointer actually being over
+    // the canvas AND the window holding focus, so a player reaching for the
+    // minimap or the dock never finds the map scrolling under them.
+    if (req.settings.get().controls.edgePan && pointerInside) {
+      const e = edgeVector(lastCursor.x, lastCursor.y, canvas.clientWidth, canvas.clientHeight, EDGE_MARGIN_PX);
+      const d = panDelta(e.right, e.down, panSpeed);
+      renderer.camera.x += d.dx;
+      renderer.camera.y += d.dy;
     }
     renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs);
 

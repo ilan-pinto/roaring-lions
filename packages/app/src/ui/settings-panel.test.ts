@@ -2,7 +2,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS, type Settings } from '../settings';
 import { LOCALES } from '../i18n/locales';
+import { bindingsFrom } from '../input/keymap';
 import { settingsPanel, showSettings } from './settings-panel';
+import { keymapRows } from './settings-keymap';
 
 function deps(overrides: Partial<Parameters<typeof settingsPanel>[1]> = {}) {
   let s: Settings = structuredClone(DEFAULT_SETTINGS);
@@ -162,6 +164,23 @@ describe('settingsPanel', () => {
     await Promise.resolve();
     expect(set).toHaveBeenCalledTimes(1);
     expect(set.mock.calls[0][0].video.fullscreen).toBe(true);
+  });
+  // `deps()` (settings-panel.test.ts:7) passes `keymap: null` by default and the
+  // Controls section only renders when it is truthy (settings-panel.ts:324) --
+  // so this test supplies a real one through the same `keymapRows` factory
+  // `pause.test.ts` already imports. That also means the file's existing
+  // "four sections" assertion is untouched: with `keymap: null` there is still
+  // no Controls section at all.
+  it('the Controls section offers both new toggles and writes them through set()', () => {
+    const { d, set } = deps({ keymap: keymapRows({ bindings: () => bindingsFrom({}), set: () => {} }) });
+    const { el } = settingsPanel(document.body, d);
+    const edge = el.querySelector<HTMLInputElement>('input[name="edgePan"]');
+    if (!edge) throw new Error('no edgePan control');
+    expect(edge.type).toBe('checkbox');
+    edge.checked = true;
+    edge.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set.mock.calls.at(-1)?.[0].controls.edgePan).toBe(true);
+    expect(el.querySelector('input[name="zoomToCursor"]')).not.toBeNull();
   });
   it('showSettings mounts on the stage with a back link and its disposer empties the stage', () => {
     const { d } = deps();
