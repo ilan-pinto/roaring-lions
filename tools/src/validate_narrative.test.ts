@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   commanderRankFailures,
   narrativeTextFailures,
+  overlayFailures,
   removeTriggerFailures,
   triggerLabelFailures,
 } from '../validate_narrative.mjs';
@@ -284,5 +285,59 @@ describe('triggerLabelFailures', () => {
     };
     // @ts-expect-error -- exercising the swapped-argument call the gate must reject
     expect(() => triggerLabelFailures('m.json', mission)).toThrow(/expected a mission object/);
+  });
+});
+
+describe('overlayFailures', () => {
+  const missions = () =>
+    new Map([
+      [
+        'm1',
+        {
+          id: 'm1',
+          objectives: [{ id: 'o1' }, { id: 'o2' }],
+          triggers: [{ id: 't1' }, { id: 't2' }],
+        },
+      ],
+    ]);
+
+  it('passes an overlay that names only real mission/objective/trigger ids', () => {
+    const overlay = {
+      m1: { name: 'X', objectives: { o1: 'Y' }, triggers: { t1: 'Z' } },
+    };
+    expect(overlayFailures('en.json', overlay, missions())).toEqual([]);
+  });
+
+  it('rejects an overlay naming a bogus objective id', () => {
+    const overlay = { m1: { objectives: { ghost: 'Y' } } };
+    const out = overlayFailures('fr/missions.json', overlay, missions());
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('"ghost"');
+    expect(out[0]).toContain('not an objective');
+  });
+
+  it('rejects an overlay naming a bogus trigger id', () => {
+    const overlay = { m1: { triggers: { ghost: 'Y' } } };
+    const out = overlayFailures('fr/missions.json', overlay, missions());
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('"ghost"');
+    expect(out[0]).toContain('not a trigger');
+  });
+
+  it('rejects an overlay naming a mission that does not exist', () => {
+    const out = overlayFailures('fr/missions.json', { ghost_mission: { name: 'X' } }, missions());
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('"ghost_mission"');
+    expect(out[0]).toContain('not a mission in data/missions');
+  });
+
+  it('rejects a trigger label override over the 48-character cap', () => {
+    const overlay = { m1: { triggers: { t1: 'x'.repeat(49) } } };
+    const out = overlayFailures('fr/missions.json', overlay, missions());
+    expect(out).toEqual(['fr/missions.json: mission "m1" trigger "t1" overlay label is 49 characters (max 48)']);
+  });
+
+  it('is silent on an empty overlay', () => {
+    expect(overlayFailures('fr/missions.json', {}, missions())).toEqual([]);
   });
 });

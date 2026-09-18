@@ -88,4 +88,22 @@ describe('lighting', () => {
   it('shadow box radius is half the map diagonal plus the margin', () => {
     expect(shadowBoxRadius(48, 48)).toBeCloseTo(Math.hypot(24, 24) + 2, 6);
   });
+
+  it('defaults the shadow map to SHADOW_MAP_SIZE, and follows an explicit shadowMapSize otherwise', () => {
+    // Task 14: the quality preset. Every pre-existing caller (this file's own
+    // `scene()` included) passes nothing for the third argument and must keep
+    // building today's 4096 map -- falsify by hard-coding the low preset's
+    // 1024 as the default and watch this go red.
+    const { lights: defaultLights } = scene(48, 48);
+    expect(defaultLights.sun.shadow.mapSize.x).toBe(SHADOW_MAP_SIZE);
+    expect(defaultLights.sun.shadow.mapSize.y).toBe(SHADOW_MAP_SIZE);
+
+    for (const size of [1024, 2048, 4096] as const) {
+      const s = new THREE.Scene();
+      const lights = createSceneLights(48, 48, size);
+      lights.addTo(s);
+      expect(lights.sun.shadow.mapSize.x).toBe(size);
+      expect(lights.sun.shadow.mapSize.y).toBe(size);
+    }
+  });
 });

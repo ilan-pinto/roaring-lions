@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.69.0",
+  "version": "0.70.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.17.0",
@@ -15,7 +15,7 @@
     "validate:assets": "python3 tools/validate_assets.py",
     "icons:units": "python3 tools/crop_unit_icons.py",
     "validate:meshes": "python3 tools/validate_mesh_assets.py",
-    "validate:ui": "node tools/validate_ui_palette.mjs",
+    "validate:ui": "node tools/validate_ui_palette.mjs && node tools/validate_i18n.mjs",
     "validate:audio": "python3 tools/validate_audio.py",
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",
@@ -28,7 +28,9 @@
     "encode:meshes": "pnpm --filter @lions/tools encode:meshes",
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
+    "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "plate:capture": "pnpm --filter @lions/tools plate:capture",
+    "plates:units": "pnpm --filter @lions/tools plates:units",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
     "meshy": "pnpm --filter @lions/tools meshy --"
   },

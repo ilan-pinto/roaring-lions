@@ -1,3 +1,5 @@
+import { t } from '../i18n/t';
+
 /**
  * The seven buckets a unit falls into for display.
  *
@@ -47,27 +49,46 @@ export const ROLE_GLYPH: Record<RoleBucket, string> = {
   armour: '■',
 };
 
+/** Role id -> catalogue key. Not the labels themselves -- see `ROLE_LABEL` below
+ *  for why the labels are read lazily instead of resolved from this table once. */
+const ROLE_KEYS: Readonly<Record<string, string>> = {
+  apc: 'role.apc',
+  artillery: 'role.artillery',
+  at_team: 'role.at_team',
+  drone: 'role.drone',
+  engineer: 'role.engineer',
+  gunship: 'role.gunship',
+  ifv: 'role.ifv',
+  infantry: 'role.infantry',
+  mbt: 'role.mbt',
+  recon: 'role.recon',
+  sniper: 'role.sniper',
+  support: 'role.support',
+};
+
 /**
  * The twelve KDF roles (`data/units/kdf/*.json`'s own `role` field), as
  * lowercase player-facing words. The brigade screen (F2) is the first place
  * that ever printed a raw role id to a player; this is what stops it doing
  * that again the moment a thirteenth role ships. `role.test.ts` pins every
  * role any shipped KDF unit declares against this table.
- */
-export const ROLE_LABEL: Record<string, string> = {
-  apc: 'carrier',
-  artillery: 'artillery',
-  at_team: 'anti-tank team',
-  drone: 'drone',
-  engineer: 'engineer',
-  gunship: 'gunship',
-  ifv: 'fighting vehicle',
-  infantry: 'infantry',
-  mbt: 'tank',
-  recon: 'reconnaissance',
-  sniper: 'sniper',
-  support: 'support',
-};
+ *
+ * Each property is a GETTER that calls `t()` on ACCESS, not a value resolved once
+ * at module load: `main.ts`'s boot sets the active catalogue -- `?pseudo=1` and
+ * `?lang=` included -- well after every module's top-level code has run, so a
+ * value resolved at import time can never see a locale picked after it. Caught by
+ * the pseudo pass: an eager version left every role label as plain English on the
+ * brigade screen.
+ *
+ * Minor 3 (final review): this comment used to contrast the getters with
+ * "`grade-copy.ts`'s eager trade". That trade is gone -- Task 10's fix round made
+ * grade-copy's tables the `tierName`/`tierLine` accessors for exactly this reason,
+ * so the two modules agree now and the contrast described a file that no longer
+ * exists in that shape. */
+export const ROLE_LABEL: Record<string, string> = {};
+for (const [role, key] of Object.entries(ROLE_KEYS)) {
+  Object.defineProperty(ROLE_LABEL, role, { get: () => t(key), enumerable: true });
+}
 
 /** `ROLE_LABEL[role]`, or the id with underscores turned to spaces for a role
  *  this table has not caught up with yet -- never a crash, and never the raw

@@ -55,6 +55,7 @@
  */
 import type { LedgerData } from '@lions/sim';
 
+import { t } from '../i18n/t';
 import {
   nextMissionOf,
   regionProgress,
@@ -136,8 +137,11 @@ export interface World3dOptions {
    *  board's `WorldMapOptions.portraitUrl` -- both boards get it from
    *  `main.ts`, never build a `portraits/...` path themselves. */
   portraitUrl?: (file: string) => string | undefined;
-  /** Test seams. `mount` defaults to the real dynamic import, `webgl` to a
-   *  live context probe, `navigate` to a real navigation. */
+  /** `mount` defaults to the real dynamic import and `webgl` to a live
+   *  context probe -- both are test seams. `navigate` is not: the shell
+   *  passes the router's own soft navigation through `CampaignOptions`, and
+   *  the default below is the hard one, for a caller with no router (a test,
+   *  and any future host that mounts this board on its own). */
   mount?: MountWorldView;
   webgl?: () => boolean;
   navigate?: (href: string) => void;
@@ -278,7 +282,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   bearing.type = 'button';
   bearing.className = 'rl-world__bearing';
   bearing.dataset.spin = 'north';
-  bearing.title = 'face north again';
+  bearing.title = t('world3d.bearing.title');
   bearing.textContent = '000°';
   const spinButton = (dir: 'ccw' | 'cw', glyph: string, title: string): HTMLButtonElement => {
     const b = document.createElement('button');
@@ -289,14 +293,14 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     b.textContent = glyph;
     return b;
   };
-  const ccw = spinButton('ccw', '↺', `turn the board ${NUDGE_DEGREES}° left`);
-  const cw = spinButton('cw', '↻', `turn the board ${NUDGE_DEGREES}° right`);
+  const ccw = spinButton('ccw', '↺', t('world3d.spin.left', { deg: NUDGE_DEGREES }));
+  const cw = spinButton('cw', '↻', t('world3d.spin.right', { deg: NUDGE_DEGREES }));
   spin.append(ccw, bearing, cw);
   stage.appendChild(spin);
   wrap.appendChild(stage);
 
   // --- the line that answers a click --------------------------------------
-  const HINT = 'Drag the board to turn it. Click a front to open its next operation.';
+  const HINT = t('world3d.hint');
   const say = el('p', 'rl-world__say', HINT);
   say.setAttribute('role', 'status');
   say.setAttribute('aria-live', 'polite');
@@ -350,29 +354,29 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       // .test.ts` makes that unreachable on the shipped asset; it is handled
       // rather than assumed away because the alternative is a dead click.
       point(null);
-      speak(`${regionId} — no campaign is authored for this ground`, 'info');
+      speak(t('world3d.say.unmapped', { id: regionId }), 'info');
       return;
     }
     point(region.id);
     const p = regionProgress(region, ledger, missionName);
     if (p.status === 'locked') {
-      speak(`${region.name} — ${p.lockedBecause ?? 'locked'}`, 'bad');
+      speak(t('world3d.say.locked', { region: region.name, reason: p.lockedBecause ?? t('world3d.locked.fallback') }), 'bad');
       return;
     }
     if (p.status === 'empty') {
-      speak(`${region.name} — no operations authored yet`, 'info');
+      speak(t('world3d.say.empty', { region: region.name }), 'info');
       return;
     }
     const next = nextOf(region);
     if (next === null) {
-      speak(`${region.name} — cleared`, 'good');
+      speak(t('world3d.say.cleared', { region: region.name }), 'good');
       return;
     }
     // Names the mission, never its id -- the same rule as the locked-region
     // sentence just above. A catalogue with no title for `next` still says
     // something real (the region alone) rather than falling through to the id.
     const nextName = missionName(next);
-    speak(nextName ? `${region.name} — opening ${nextName}` : region.name, 'good');
+    speak(nextName ? t('world3d.say.opening', { region: region.name, mission: nextName }) : region.name, 'good');
     navigate(opts.href(next));
   };
 

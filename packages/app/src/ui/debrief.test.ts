@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { showDebrief, type DebriefOptions } from './debrief';
-import { TIER_NAMES } from './grade-copy';
+import { tierName } from './grade-copy';
 
 const base = (over: Partial<DebriefOptions> = {}): DebriefOptions => ({
   result: 'victory',
@@ -27,7 +27,7 @@ describe('showDebrief', () => {
   it('names the tier and speaks its line', () => {
     const host = document.createElement('div');
     showDebrief(host, base());
-    expect(text(host, '.rl-debrief__tier')).toBe(TIER_NAMES[2]);
+    expect(text(host, '.rl-debrief__tier')).toBe(tierName(2));
     expect(text(host, '.rl-debrief__stars')).toBe('★★');
     expect(text(host, '.rl-debrief__line')).toContain('Brigade read the file');
   });
@@ -53,6 +53,16 @@ describe('showDebrief', () => {
     const row = host.querySelector('.rl-debrief__secondary')!;
     expect(row.getAttribute('data-carries')).toBe('1');
     expect(row.getAttribute('data-complete')).toBe('1');
+    // The " · carries" suffix goes through the catalogue (`debrief.secondary.carries`);
+    // the objective text itself is a param and reads through untouched.
+    expect(row.textContent).toBe('☑ Build the picture · carries');
+  });
+
+  it('shows the objective text alone, with no suffix, when it does not carry', () => {
+    const host = document.createElement('div');
+    showDebrief(host, base({ secondaries: [{ text: 'Hold the crossing', complete: false, carries: false }] }));
+    const row = host.querySelector('.rl-debrief__secondary')!;
+    expect(row.textContent).toBe('☐ Hold the crossing');
   });
 
   it('announces unlocks and a promotion when there is one', () => {
@@ -82,7 +92,7 @@ describe('showDebrief', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ next: { id: 'beit_sahwan_4_subterranean', name: 'Beit Sahwan IV — Subterranean', villainLine: 'The digger.' } }));
     const a = host.querySelector<HTMLAnchorElement>('a.rl-debrief__next')!;
-    expect(a.getAttribute('href')).toBe('?mission=beit_sahwan_4_subterranean');
+    expect(a.getAttribute('href')).toBe('/mission/beit_sahwan_4_subterranean');
     expect(a.textContent).toContain('Beit Sahwan IV');
     expect(text(host, '.rl-debrief__villain')).toBe('The digger.');
   });
@@ -133,6 +143,6 @@ describe('showDebrief', () => {
   it('offers the main menu, like the end panel does', () => {
     const host = document.createElement('div');
     showDebrief(host, base());
-    expect([...host.querySelectorAll('.rl-endnav a')].some((a) => a.textContent === 'menu' && a.getAttribute('href') === '?')).toBe(true);
+    expect([...host.querySelectorAll('.rl-endnav a')].some((a) => a.textContent === 'menu' && a.getAttribute('href') === '/')).toBe(true);
   });
 });

@@ -7,7 +7,8 @@
 // opt-in for a whole phase and `ui/menu.ts` never appended it to a single
 // link, so no player reached through the menu ever saw a mesh. The menu's one
 // sandbox entry was the same shape -- `?sandbox=1`, one destination, out of
-// five shipped maps and four flags.
+// five shipped maps and four flags. (The screen builds `/free-play/<map>` now;
+// `?sandbox=` still redirects onto it.)
 //
 // So the assertions worth having here are not "it renders". They are that
 // NEITHER list is written down in the UI: the maps must be the real
@@ -20,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 
 import { maps } from '@lions/data';
 import { SANDBOX_FLAGS, readFlags, unknownParams } from '../sandbox-help';
+import { matchPath, stripBase } from '../shell/router';
 import { showMenu, showSandbox } from './menu';
 import { parseWorld } from '../campaign';
 import worldJson from '../../../../data/campaign/world.json';
@@ -35,8 +37,8 @@ const mapLinks = (stage: HTMLElement): HTMLAnchorElement[] =>
 
 const hrefOf = (stage: HTMLElement, id: string): string =>
   // getAttribute, not `.href`: jsdom resolves the property against the
-  // document base and would compare "http://localhost:3000/?sandbox=x"
-  // against the relative URL the app actually navigates with.
+  // document base and would compare "http://localhost:3000/free-play/x"
+  // against the base-relative URL the app actually navigates with.
   stage.querySelector(`a[data-map="${id}"]`)?.getAttribute('href') ?? '';
 
 const toggle = (stage: HTMLElement, flag: string): void => {
@@ -113,14 +115,14 @@ describe('the flag list', () => {
 
 describe('the launch URL', () => {
   it('is the bare map when nothing is ticked', () => {
-    expect(hrefOf(render(), 'tel_marum')).toBe('?sandbox=tel_marum');
+    expect(hrefOf(render(), 'tel_marum')).toBe('/free-play/tel_marum');
   });
 
   it('carries a ticked flag onto every map link, not just the one below it', () => {
     const stage = render();
     toggle(stage, 'sur');
     for (const a of mapLinks(stage)) {
-      expect(a.getAttribute('href')).toBe(`?sandbox=${a.dataset.map}&sur`);
+      expect(a.getAttribute('href')).toBe(`/free-play/${a.dataset.map}?sur`);
     }
   });
 
@@ -128,20 +130,26 @@ describe('the launch URL', () => {
     const stage = render();
     toggle(stage, 'tunnel');
     toggle(stage, 'sur');
-    expect(hrefOf(stage, 'tel_marum')).toBe('?sandbox=tel_marum&tunnel&sur');
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?tunnel&sur');
     toggle(stage, 'tunnel');
-    expect(hrefOf(stage, 'tel_marum')).toBe('?sandbox=tel_marum&sur');
+    expect(hrefOf(stage, 'tel_marum')).toBe('/free-play/tel_marum?sur');
   });
 
-  it('produces a URL main.ts reads back as the same pick', () => {
+  it('produces a URL the shell reads back as the same pick', () => {
     // The round trip is the assertion that matters: a URL this screen builds
-    // and `readFlags`/`unknownParams` disagree about is a picker that looks
-    // like it works and silently launches something else.
+    // and the router/`readFlags`/`unknownParams` disagree about is a picker
+    // that looks like it works and silently launches something else. The map
+    // is a PATH segment now, so the router's own matcher is what has to find
+    // it -- pulling it back out with a second regex here would be an oracle
+    // that agrees with itself.
     const stage = render();
     toggle(stage, 'roe');
     toggle(stage, 'nomesh');
-    const params = new URLSearchParams(hrefOf(stage, 'wadi_halam_basin'));
-    expect(params.get('sandbox')).toBe('wadi_halam_basin');
+    const url = new URL(hrefOf(stage, 'wadi_halam_basin'), 'http://localhost:3000');
+    expect(matchPath('/free-play/:map', stripBase('/', url.pathname))).toEqual({
+      map: 'wadi_halam_basin',
+    });
+    const params = url.searchParams;
     expect(readFlags(params)).toEqual({
       roe: true,
       tunnel: false,
@@ -162,6 +170,7 @@ describe('the launch URL', () => {
     toggle(stage, 'tunnel');
     expect(stage.querySelector('.rl-sandbox__url')).toBeNull();
     const text = stage.textContent ?? '';
+    expect(text).not.toContain('/free-play/');
     expect(text).not.toContain('?sandbox=');
     expect(text).not.toContain('MAP_ID');
     // The flag's own name moved to the label's `title` (hover text, not
@@ -183,13 +192,13 @@ describe('reaching it', () => {
       tutorial: { id: 'beit_sahwan_0_tutorial', name: 'Tutorial', done: true },
     });
     const hrefs = Array.from(stage.querySelectorAll('a')).map((a) => a.getAttribute('href'));
-    expect(hrefs).toContain('?sandboxes');
+    expect(hrefs).toContain('/free-play');
   });
 
   it('offers a way back to the main menu', () => {
     const back = Array.from(render().querySelectorAll('a')).filter(
       (a) => a.dataset.kind === 'back'
     );
-    expect(back.map((a) => a.getAttribute('href'))).toEqual(['?']);
+    expect(back.map((a) => a.getAttribute('href'))).toEqual(['/']);
   });
 });

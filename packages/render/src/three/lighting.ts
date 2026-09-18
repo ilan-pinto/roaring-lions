@@ -93,7 +93,15 @@ export function shadowBoxRadius(width: number, height: number): number {
   return Math.hypot(width / 2, height / 2) + SHADOW_MARGIN_TILES;
 }
 
-export function createSceneLights(width: number, height: number): SceneLights {
+/**
+ * `shadowMapSize` defaults to `SHADOW_MAP_SIZE` (4096) so every caller that
+ * predates the quality preset -- every `ThreeRenderer*.test.ts` fake, every
+ * `createSceneLights(w, h)` this file's own tests still write -- keeps
+ * building today's shadow map without change. `ThreeRenderer` is the one
+ * caller that passes something else, from `(opts.quality ??
+ * QUALITY_PRESETS.high).shadowMapSize` (`quality.ts`).
+ */
+export function createSceneLights(width: number, height: number, shadowMapSize: number = SHADOW_MAP_SIZE): SceneLights {
   const centre = new THREE.Vector3(width / 2, 0, height / 2);
   const r = shadowBoxRadius(width, height);
 
@@ -101,7 +109,7 @@ export function createSceneLights(width: number, height: number): SceneLights {
   sun.position.copy(centre).addScaledVector(SUN_DIRECTION, r * 2);
   sun.target.position.copy(centre);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+  sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
   const cam = sun.shadow.camera;
   cam.left = -r;
   cam.right = r;

@@ -166,6 +166,7 @@ export {
   applyUpgrades,
   maxTiers,
   nextTierPrice,
+  readPath,
   UPGRADE_PATHS,
   type UpgradableUnit,
   type UpgradeTier,
@@ -353,4 +354,161 @@ export function paletteColor(key: string): string {
   if (band in ramps) return ramps[band].colors[Number(name)] ?? '#FF00FF';
   if (band in reserved) return reserved[band].colors[name] ?? '#FF00FF';
   return '#FF00FF';
+}
+
+/** Mirrors `packages/app/src/settings.ts`'s `ColorVision` -- redeclared here
+ *  rather than imported, since `@lions/data` is a leaf package that imports
+ *  no other `@lions` package. The two stay in sync by
+ *  `packages/app/src/main.ts` passing a real `ColorVision` value straight
+ *  through: a widened caller would be a type error at that call site. */
+export type ColorVisionVariant = 'default' | 'deuteranopia' | 'protanopia' | 'tritanopia';
+
+/** The four `reserved.team` colours (`kedem`/`hostile`/`hostile_text`/
+ *  `neutral`) for one variant -- `'default'` is the plain `colors` entry,
+ *  every other variant its matching `variants` entry. The one place either
+ *  `paletteTeamColors` or `variantAwareResolver` below reads the palette's
+ *  team band, so the two can never read two different entries for the same
+ *  variant. */
+function teamColorsFor(variant: ColorVisionVariant): Record<string, string> {
+  const team = palette.reserved.team as { colors: Record<string, string>; variants: Record<string, Record<string, string>> };
+  // Minor 18 (final review): `team.variants[variant]` is an index into JSON,
+  // not into a type -- a variant the palette has not grown yet reads
+  // `undefined`, and the caller's `.kedem` then throws. Unreachable through the
+  // typed path (`main.ts` passes a real `ColorVision`), but this is data on
+  // disk and the union is a hand-kept mirror of it, so the two CAN part. The
+  // default set is the honest answer to "this variant does not exist": the
+  // colours the game shipped with, rather than a crash on a screen the player
+  // reached by turning an accessibility setting on.
+  return (variant === 'default' ? team.colors : team.variants[variant]) ?? team.colors;
+}
+
+/**
+ * The three team colours -- kedem, hostile, neutral -- for a colour-vision
+ * variant. `'default'` reads `reserved.team.colors`, the plain palette; any
+ * other variant reads the matching entry of `reserved.team.variants`
+ * (`tools/src/cvd.ts`'s gate is what keeps every one of those pairs apart
+ * under simulated deficiency). Read once at construction, the same as the
+ * renderer backend choice -- `main.ts` calls this when it builds
+ * `RendererOptions` and the minimap, not on every settings change, so a
+ * variant switched mid-mission takes effect from the next one.
+ */
+export function paletteTeamColors(variant: ColorVisionVariant): [kedem: string, hostile: string, neutral: string] {
+  const c = teamColorsFor(variant);
+  return [c.kedem, c.hostile, c.neutral];
+}
+
+/**
+ * A `resolveColor`-shaped function -- the shape `RendererOptions.resolveColor`
+ * takes, `(key: string) => string` -- for one colour-vision variant. Both
+ * renderer backends ask for a team colour by STRING KEY rather than by
+ * reading `teamColors` directly, in several places that are not the unit
+ * body tint `teamColors` itself covers: the occlusion-silhouette outline
+ * (`packages/render/src/three/units/silhouette.ts`'s
+ * `SILHOUETTE_COLOR_KEY_BY_SIDE`, which feeds every billboard
+ * `UnitInstancer`'s own shader uniform AND the mesh path's shared
+ * silhouette materials), the HP bar fill (`hpBarColorKey`), the
+ * objective-zone tint (`objectiveZoneColorKey`), and the min-range ring. A
+ * plain `paletteColor` passed as `resolveColor` resolves `'team.hostile'`
+ * to the DEFAULT hex regardless of the player's setting, which is exactly
+ * the bug this function closes -- Task 12's `teamColors` tuple alone was
+ * not enough, because most of the renderer's own team-coloured draws never
+ * read that tuple.
+ *
+ * The four `team.*` keys route through `variant`'s own entry (matching
+ * `paletteTeamColors` plus `hostile_text`, which nothing currently calls
+ * `resolveColor` for but is included for the same reason the palette
+ * declares it: a caller that starts asking for readable red text on a
+ * variant should get that variant's own readable red, not the default's).
+ * Every other key falls through to the plain `paletteColor`, unaffected by
+ * the setting -- exactly `paletteColor`'s own current behaviour for
+ * `variant === 'default'`.
+ */
+export function variantAwareResolver(variant: ColorVisionVariant): (key: string) => string {
+  const team = teamColorsFor(variant);
+  return (key: string): string => {
+    if (key === 'team.kedem') return team.kedem;
+    if (key === 'team.hostile') return team.hostile;
+    if (key === 'team.neutral') return team.neutral;
+    if (key === 'team.hostile_text') return team.hostile_text;
+    return paletteColor(key);
+  };
+}
+
+// --- mission-text locale overlay --------------------------------------------
+//
+// A mission's `name`/`briefing`/objective `text`/trigger `label` are DATA
+// (CLAUDE.md's own line: "Data text stays data"), authored in `en` on every
+// file under `data/missions/`. A shipped translation of that text is a
+// separate, optional file — `data/locales/<lang>/missions.json`
+// (`data/locales/README.md` states the shape) — layered onto the `en`
+// mission at the point `@lions/app` resolves it, never edited into the
+// mission JSON itself: `en` stays the one source `mission-author` and
+// `narrative-designer` write against, and a translator's file can go stale
+// or missing without touching it.
+
+/**
+ * One locale's mission text, keyed by mission id. `objectives`/`triggers`
+ * are keyed by THEIR OWN ids — an objective or trigger with no id of its own
+ * cannot be named here, the same identity `tools/validate_narrative.mjs`'s
+ * `overlayFailures` (and `mission.ts`'s own trigger/objective lookups
+ * elsewhere) already key everything else off.
+ */
+export interface MissionLocaleOverlay {
+  [missionId: string]: {
+    name?: string;
+    briefing?: string;
+    objectives?: Record<string, string>;
+    triggers?: Record<string, string>;
+  };
+}
+
+/**
+ * A mission's JSON as far as this module needs to see it — not `@lions/sim`'s
+ * own `MissionJson` (this package is a leaf: it imports nothing from another
+ * `@lions` package, enforced by lint). `applyMissionLocale` below is generic
+ * over `T extends MissionJson`, the same shape `upgrades.ts`'s
+ * `applyUpgrades<T extends UpgradableUnit>` already uses and for the
+ * identical reason: a caller holding a real `@lions/sim` `MissionJson` gets
+ * one back, with no cast at its own call site, rather than this file's
+ * narrower structural type leaking out through the return value.
+ */
+export interface MissionJson {
+  id: string;
+  name?: string;
+  briefing?: string;
+  objectives: readonly { id: string; text?: string }[];
+  triggers?: readonly { id?: string; label?: string }[];
+}
+
+/**
+ * Overlays a locale's mission text onto a mission's own JSON, id-matched:
+ * `name`/`briefing` replace whole-string, `objectives`/`triggers` by their
+ * own ids. A field the overlay does not carry falls back to the mission's
+ * own `en` text, so a partial translation degrades to English per-field
+ * rather than per-mission.
+ *
+ * A missing mission id in the overlay, or a null overlay (`main.ts`'s own
+ * loader returns null for `en` and for a 404, rather than fetching a file
+ * that would just be the source text again), is a no-op that returns
+ * `mission` BY REFERENCE, unchanged — the common case (every mission, on
+ * `en`) costs nothing.
+ */
+export function applyMissionLocale<T extends MissionJson>(
+  mission: T,
+  overlay: MissionLocaleOverlay | null
+): T {
+  const o = overlay?.[mission.id];
+  if (!o) return mission;
+  const out: Record<string, unknown> = {
+    ...(mission as Record<string, unknown>),
+    name: o.name ?? mission.name,
+    briefing: o.briefing ?? mission.briefing,
+    objectives: mission.objectives.map((ob) =>
+      o.objectives?.[ob.id] !== undefined ? { ...ob, text: o.objectives[ob.id] } : ob
+    ),
+    triggers: mission.triggers?.map((tr) =>
+      tr.id !== undefined && o.triggers?.[tr.id] !== undefined ? { ...tr, label: o.triggers[tr.id] } : tr
+    ),
+  };
+  return out as T;
 }

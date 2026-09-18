@@ -67,6 +67,29 @@ function parsePath(path: string): PathSegment[] {
   });
 }
 
+/**
+ * The number at a whitelisted `path` on a unit, or `undefined` when the unit
+ * does not declare it (a missing key, a `weapons[i]` past the unit's own
+ * weapons list, a non-numeric value).
+ *
+ * The read half of `addDeltaAlongPath` below, exported because the shell's
+ * upgrade board has to print what a tier moves a stat FROM, and it must
+ * resolve that base value through the same segment parser the patch is
+ * applied through. A second parser in `packages/app` could disagree about
+ * `weapons[0].accuracy` and print a number the sim will never see -- which is
+ * exactly the drift `upgrade-benefit.test.ts` pins against `applyUpgrades`.
+ * `@lions/data` stays a leaf: this adds no import.
+ */
+export function readPath(unit: UpgradableUnit, path: string): number | undefined {
+  let cur: unknown = unit;
+  for (const seg of parsePath(path)) {
+    if (cur === null || typeof cur !== 'object') return undefined;
+    const held = (cur as Record<string, unknown>)[seg.key];
+    cur = seg.index === undefined ? held : Array.isArray(held) ? (held as unknown[])[seg.index] : undefined;
+  }
+  return typeof cur === 'number' ? cur : undefined;
+}
+
 /** Applies one numeric delta at `path` onto a shallow-cloned-along-the-path
  *  copy of `root`, mutating only the fresh copies this call itself created.
  *  `root` must already be a top-level shallow copy owned by the caller.

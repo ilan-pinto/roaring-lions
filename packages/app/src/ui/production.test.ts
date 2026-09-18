@@ -502,3 +502,29 @@ describe('invariant 4: the dock never touches the sim', () => {
     expect(r.tile('mbt_lavi').title).not.toContain('requires campaign Conduct');
   });
 });
+
+/** `main.ts` mounts the dock on `document.body`, not on the stage the router
+ *  clears, so a `resources` mission that is LEFT strands it over the campaign
+ *  board unless the battlefield's disposer takes it off. Mounted on the body
+ *  here for that reason, rather than through `rig()`'s scratch host. */
+describe('destroy', () => {
+  it('removes the dock from the body, and can be called twice', () => {
+    document.body.replaceChildren();
+    const before = document.body.children.length;
+    const dock = new ReinforcementDock(document.body, {
+      units: [dockUnit()],
+      runtime: fakeRuntime(),
+      note: () => {},
+      onArm: () => {},
+    });
+    expect(document.body.querySelector('.rl-dock')).not.toBeNull();
+    dock.destroy();
+    expect(document.body.querySelector('.rl-dock')).toBeNull();
+    expect(document.body.children.length).toBe(before);
+    // Idempotent, like the HUD's and the overlay's: a stale battlefield mount
+    // resolving onto an aborted route runs its disposer after the teardown
+    // that aborted it.
+    dock.destroy();
+    expect(document.body.children.length).toBe(before);
+  });
+});

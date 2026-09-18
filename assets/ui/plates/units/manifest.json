@@ -1,0 +1,163 @@
+{
+  "version": 1,
+  "camera": {
+    "zoom": 3.2,
+    "dpr": 2,
+    "gpu": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)"
+  },
+  "plates": {
+    "apc_eitan": {
+      "file": "apc_eitan.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        744,
+        549
+      ]
+    },
+    "apc_kipod": {
+      "file": "apc_kipod.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        780,
+        540
+      ]
+    },
+    "at_team": {
+      "file": "at_team.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        193,
+        222
+      ]
+    },
+    "attack_drone": {
+      "file": "attack_drone.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        139,
+        106
+      ]
+    },
+    "breach_team": {
+      "file": "breach_team.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        166,
+        214
+      ]
+    },
+    "demo_squad": {
+      "file": "demo_squad.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        143,
+        207
+      ]
+    },
+    "dozer_d9": {
+      "file": "dozer_d9.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        752,
+        515
+      ]
+    },
+    "heli_peten": {
+      "file": "heli_peten.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        549,
+        391
+      ]
+    },
+    "ifv_namer": {
+      "file": "ifv_namer.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        823,
+        511
+      ]
+    },
+    "inf_squad": {
+      "file": "inf_squad.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        280,
+        196
+      ]
+    },
+    "jeep_shoded": {
+      "file": "jeep_shoded.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        508,
+        354
+      ]
+    },
+    "mbt_lavi": {
+      "file": "mbt_lavi.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        636,
+        448
+      ]
+    },
+    "mortar_team": {
+      "file": "mortar_team.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        225,
+        175
+      ]
+    },
+    "recon_drone": {
+      "file": "recon_drone.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        156,
+        107
+      ]
+    },
+    "scout_shachaf": {
+      "file": "scout_shachaf.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        476,
+        396
+      ]
+    },
+    "sniper_team": {
+      "file": "sniper_team.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        154,
+        91
+      ]
+    },
+    "yahalom_squad": {
+      "file": "yahalom_squad.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        240,
+        163
+      ]
+    }
+  }
+}

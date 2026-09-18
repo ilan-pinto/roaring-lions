@@ -7,7 +7,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PORTRAIT_FACING, portraitFile, portraitUrl, unitIcon, type SheetManifest, type UnitIcon } from './portrait';
+import {
+  PORTRAIT_FACING,
+  portraitFile,
+  portraitUrl,
+  unitIcon,
+  unitPlate,
+  type SheetManifest,
+  type UnitIcon,
+} from './portrait';
 
 /** A sheet with clips, as INF_SQUAD's manifest is shaped. */
 const withClips = {
@@ -152,6 +160,96 @@ describe('unitIcon', () => {
     expect(icon).not.toBeNull();
     expect(icon?.size).toBe(128);
     expect(icon?.url).toContain('INF_SQUAD');
+  });
+});
+
+describe('unitPlate', () => {
+  // The real shape `tools/src/perf/unit-plates.ts` writes to
+  // `assets/ui/plates/units/manifest.json`.
+  const fakeManifest = {
+    mbt_lavi: { file: 'mbt_lavi.jpg', width: 1800, height: 1200, extent: [636, 448] },
+  };
+  const fakeKnownFiles = new Set(['mbt_lavi.jpg']);
+
+  it('resolves a known id from the manifest shape', () => {
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', fakeManifest, fakeKnownFiles)).toEqual({
+      url: '/ui/plates/units/mbt_lavi.jpg',
+      size: [1800, 1200],
+      extent: [636, 448],
+    });
+  });
+
+  it('accepts a base with no trailing slash too', () => {
+    expect(unitPlate('/ui/plates/units', 'mbt_lavi', fakeManifest, fakeKnownFiles)).toEqual({
+      url: '/ui/plates/units/mbt_lavi.jpg',
+      size: [1800, 1200],
+      extent: [636, 448],
+    });
+  });
+
+  it('returns null for an id the manifest never names', () => {
+    expect(unitPlate('/ui/plates/units/', 'nope', fakeManifest, fakeKnownFiles)).toBeNull();
+  });
+
+  it('returns null for a manifest entry whose file the glob never captured', () => {
+    // A manifest that outran a partial `pnpm plates:units` run -- the id is
+    // named, but its JPEG was never written (or was deleted). Reads exactly
+    // like an unknown id, deliberately: a broken `<img>` is worse than no
+    // picture at all.
+    expect(unitPlate('/ui/plates/units/', 'mbt_lavi', fakeManifest, new Set())).toBeNull();
+  });
+
+  it('reads the real shipped catalogue by default', () => {
+    // No manifest/catalogue argument: exercises the module's own
+    // `import.meta.glob` + `manifest.json` join against whatever
+    // `pnpm plates:units` actually wrote under `assets/ui/plates/units/`.
+    const plate = unitPlate('/ui/plates/units/', 'mbt_lavi');
+    expect(plate).not.toBeNull();
+    expect(plate?.url).toContain('mbt_lavi');
+    expect(plate?.extent[0]).toBeGreaterThan(0);
+    expect(plate?.extent[1]).toBeGreaterThan(0);
+    // `size` is the frame the footprint was measured in -- the garage's bay
+    // divides one by the other (`ui/plate-fit.ts`), so a footprint without its
+    // own frame is a number that means nothing.
+    expect(plate?.size[0]).toBeGreaterThan(plate?.extent[0] ?? 0);
+    expect(plate?.size[1]).toBeGreaterThan(plate?.extent[1] ?? 0);
+  });
+});
+
+// Minor 8 (final review): nothing pinned "every KDF unit has a plate". All 17
+// are covered today and a missing one degrades quietly to the reserved hatch,
+// which is exactly the `SPRITE_MAP` failure mode CLAUDE.md names -- "art
+// existing is not art drawing", and here, art NOT existing and nothing saying
+// so. The garage's whole bay is this picture.
+//
+// Read off disk rather than through `unitPlate`'s glob, because the question is
+// about the shipped FILES: a manifest entry whose JPEG never landed passes a
+// glob-free check and fails the player.
+describe('unit plate coverage', () => {
+  it('every KDF unit has a plate entry and a file on disk', () => {
+    const dir = path.join(__dirname, '../../../../assets/ui/plates/units');
+    const manifest = (
+      JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as {
+        plates: Record<string, { file: string; width: number; height: number; extent: [number, number] }>;
+      }
+    ).plates;
+    // The roster read from the CONTENT directory, not from a bundled
+    // catalogue: "every KDF unit" means every file a content author dropped in
+    // `data/units/kdf/`, and a unit added there is exactly the case this test
+    // exists to catch on the day it ships without a plate.
+    const unitDir = path.join(__dirname, '../../../../data/units/kdf');
+    const kdf = fs
+      .readdirSync(unitDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => (JSON.parse(fs.readFileSync(path.join(unitDir, f), 'utf8')) as { id: string }).id);
+    // Vacuity guard: an empty roster would make every loop below pass.
+    expect(kdf.length).toBeGreaterThan(10);
+
+    const missing = kdf.filter((id) => manifest[id] === undefined);
+    expect(missing, `KDF units with no plate: ${missing.join(', ')}`).toEqual([]);
+
+    const noFile = kdf.filter((id) => !fs.existsSync(path.join(dir, manifest[id].file)));
+    expect(noFile, `plates named in the manifest but not on disk: ${noFile.join(', ')}`).toEqual([]);
   });
 });
 

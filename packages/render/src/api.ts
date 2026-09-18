@@ -11,6 +11,7 @@
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Camera } from './project';
 import type { EmitterSpec } from './vfx';
+import type { RenderQuality } from './quality';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -191,6 +192,19 @@ export interface RendererOptions {
    * and `/roaring-lions/` on Pages, and that is an app fact.
    */
   dracoDecoderPath?: string;
+  /**
+   * The player's video-quality preset (`./quality.ts`), translated from
+   * `packages/app/src/settings.ts`'s `Quality` by `QUALITY_PRESETS`.
+   *
+   * Three-only, like `shellColors` and the texture URLs above: `PixiRenderer`
+   * has no AO pass, no SMAA pass and no shadow map to size, so it ignores
+   * this field entirely. Optional so a test that constructs a renderer with
+   * no opinion on quality -- most of the nine `ThreeRenderer*.test.ts` fakes
+   * -- keeps building today's frame; `ThreeRenderer` itself falls back to
+   * `QUALITY_PRESETS.high` when this is absent, which is the same frame the
+   * renderer built before the preset existed.
+   */
+  quality?: RenderQuality;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */
@@ -238,6 +252,28 @@ export interface Renderer {
    * not a grep, keeps the app honest about that.
    */
   onMissionEvents?(events: readonly MissionEvent[]): void;
+
+  /**
+   * Release everything this backend holds: the GPU context, the geometries and
+   * materials it allocated, and any observer it registered on the canvas.
+   *
+   * Called by `bootBattlefield`'s disposer when a mission is LEFT rather than
+   * when the document goes away -- which is a thing the shell can do since the
+   * router landed, and could not before. Without it, walking in and out of
+   * three missions strands three WebGL contexts, and a browser hands out a
+   * bounded number of them.
+   *
+   * OPTIONAL for the same reason `onMissionEvents` is, and the precedent is
+   * deliberate: `ThreeRenderer` implements it, and PixiRenderer's file is
+   * under a freeze (CLAUDE.md, "renderer.ts must stay byte-identical to
+   * main"), so declaring it as required would either break the build or force
+   * an edit this task has no mandate for. `main.ts` calls it as `?.()`, so the
+   * compiler rather than a grep keeps the app honest -- and a Pixi battlefield
+   * therefore still leaks its context on a soft leave. Recorded rather than
+   * hidden; closing it means unfreezing that file, which is someone's
+   * deliberate call to make.
+   */
+  dispose?(): void;
 
   // --- the surface itself
   /** The element to attach input listeners to. Callers must not ask which

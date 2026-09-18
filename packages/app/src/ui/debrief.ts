@@ -1,8 +1,11 @@
 // The debrief: a full screen after a mission (storyline O7, spec §4.2). The end panel keeps
 // its portrait and quote; this is the card that would not fit in 26.25rem. Pure DOM, no sim.
 import type { Stars } from '@lions/sim';
+import { t } from '../i18n/t';
 import { panel } from './panel';
-import { TIER_NAMES } from './grade-copy';
+import { tierName } from './grade-copy';
+import { routes } from '../shell/links';
+import type { Disposer } from '../shell/router';
 
 export interface DebriefOptions {
   result: 'victory' | 'defeat';
@@ -44,12 +47,13 @@ export function clock(ticks: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
+export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   const won = o.result === 'victory';
+  const defeatTitle = t('debrief.defeat.title');
   const p = panel({
     rank: 'mission',
-    title: won ? TIER_NAMES[o.stars] || 'Entered in the log' : 'Withdraw and regroup',
-    tag: won ? 'Debrief' : 'Defeat',
+    title: won ? tierName(o.stars) || tierName(1) : defeatTitle,
+    tag: t('debrief.tag', { result: o.result }),
     mark: true,
     place: 'top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);max-height:88vh;overflow:auto',
   });
@@ -57,12 +61,12 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
   const b = p.body;
 
   const head = el('div', 'rl-debrief__head');
-  head.appendChild(el('div', 'rl-debrief__tier', won ? TIER_NAMES[o.stars] : 'Withdraw and regroup'));
+  head.appendChild(el('div', 'rl-debrief__tier', won ? tierName(o.stars) : defeatTitle));
   if (won && o.stars > 0) head.appendChild(el('div', 'rl-debrief__stars', '★'.repeat(o.stars)));
   b.appendChild(head);
 
   if (o.tierLine) {
-    const q = el('blockquote', 'rl-debrief__line', `“${o.tierLine.text}”`);
+    const q = el('blockquote', 'rl-debrief__line', t('debrief.tierLine.quote', { text: o.tierLine.text }));
     q.appendChild(el('cite', 'rl-debrief__who', o.tierLine.plate));
     b.appendChild(q);
   }
@@ -72,14 +76,24 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
     grid.appendChild(el('dt', '', k));
     grid.appendChild(el('dd', cls, v));
   };
-  row('Conduct', `Conduct ${o.roe} · orders floor ${o.roeFloor}`, 'rl-debrief__conduct');
-  row('Time', o.targetMinutes !== undefined ? `${clock(o.ticks)} of ${o.targetMinutes}:00` : clock(o.ticks), 'rl-debrief__time');
-  row('Lost', o.lost.length === 0 ? 'nobody' : o.lost.map((l) => `${l.type} ×${l.count}`).join(', '), 'rl-debrief__lost');
-  row('Marked', String(o.marked), 'rl-debrief__marked');
-  row('Promoted', String(o.promoted), 'rl-debrief__promoted');
+  row(t('debrief.row.conduct.label'), t('debrief.row.conduct.value', { roe: o.roe, floor: o.roeFloor }), 'rl-debrief__conduct');
+  row(
+    t('debrief.row.time.label'),
+    o.targetMinutes !== undefined
+      ? t('debrief.row.time.value', { clock: clock(o.ticks), target: o.targetMinutes })
+      : clock(o.ticks),
+    'rl-debrief__time'
+  );
+  row(
+    t('debrief.row.lost.label'),
+    o.lost.length === 0 ? t('debrief.row.lost.none') : o.lost.map((l) => `${l.type} ×${l.count}`).join(', '),
+    'rl-debrief__lost'
+  );
+  row(t('debrief.row.marked.label'), String(o.marked), 'rl-debrief__marked');
+  row(t('debrief.row.promoted.label'), String(o.promoted), 'rl-debrief__promoted');
   if (o.credits) {
-    const paidText = o.credits.paid > 0 ? `+${o.credits.paid} credits` : 'no improvement over your best, nothing paid';
-    row('Credits', `${paidText} · ${o.credits.balance} on hand`, 'rl-debrief__credits');
+    const paidText = o.credits.paid > 0 ? t('debrief.credits.paid', { n: o.credits.paid }) : t('debrief.credits.none');
+    row(t('debrief.row.credits.label'), t('debrief.row.credits.value', { paid: paidText, balance: o.credits.balance }), 'rl-debrief__credits');
   }
   b.appendChild(grid);
 
@@ -94,7 +108,11 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
   if (o.secondaries.length > 0) {
     const ul = el('ul', 'rl-debrief__secondaries');
     for (const s of o.secondaries) {
-      const li = el('li', 'rl-debrief__secondary', `${s.complete ? '☑' : '☐'} ${s.text}${s.carries ? ' · carries' : ''}`);
+      const glyph = s.complete ? '☑' : '☐';
+      // `s.text` is a param, never touched by the catalogue -- it is the mission's own
+      // objective text, data flowing through unchanged, same as `o.taken`/`o.unlocked` above.
+      const label = s.carries ? t('debrief.secondary.carries', { text: s.text }) : s.text;
+      const li = el('li', 'rl-debrief__secondary', `${glyph} ${label}`);
       li.dataset.carries = s.carries ? '1' : '0';
       li.dataset.complete = s.complete ? '1' : '0';
       ul.appendChild(li);
@@ -112,8 +130,16 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
   }
 
   if (o.promotion) {
-    const pr = el('div', 'rl-debrief__promotion', `Promoted: ${o.promotion.rank} · ${'★'.repeat(o.promotion.stars)}`);
-    if (o.promotion.line) pr.appendChild(el('blockquote', 'rl-debrief__line', `“${o.promotion.line.text}” — ${o.promotion.line.plate}`));
+    const pr = el(
+      'div',
+      'rl-debrief__promotion',
+      t('debrief.promotion.value', { rank: o.promotion.rank, stars: '★'.repeat(o.promotion.stars) })
+    );
+    if (o.promotion.line) {
+      pr.appendChild(
+        el('blockquote', 'rl-debrief__line', t('debrief.promotion.line', { text: o.promotion.line.text, plate: o.promotion.line.plate }))
+      );
+    }
     b.appendChild(pr);
   }
 
@@ -121,8 +147,8 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
   if (won && o.next) {
     const a = document.createElement('a');
     a.className = 'rl-btn rl-debrief__next';
-    a.href = `?mission=${o.next.id}`;
-    a.textContent = `next: ${o.next.name} →`;
+    a.href = routes.mission(o.next.id);
+    a.textContent = t('debrief.next', { name: o.next.name });
     nav.appendChild(a);
     if (o.next.villainLine) b.appendChild(el('div', 'rl-debrief__villain', o.next.villainLine));
   }
@@ -133,10 +159,11 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): void {
     a.textContent = label;
     nav.appendChild(a);
   };
-  back(won ? 'replay' : 'try again', `?mission=${o.missionId}`);
-  back('campaign map', '?campaign');
-  back('menu', '?');
+  back(t('debrief.replay', { result: o.result }), routes.mission(o.missionId));
+  back(t('nav.campaignMap'), routes.campaign());
+  back(t('nav.menu'), routes.menu());
   b.appendChild(nav);
 
   host.appendChild(p.el);
+  return () => p.el.remove();
 }

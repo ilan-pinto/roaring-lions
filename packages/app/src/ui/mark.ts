@@ -29,13 +29,19 @@ export function markSvg(width: number, height: number, className = ''): string {
   );
 }
 
-/** The full menu lockup: mark, name, rule, and the formation it belongs to. */
+/** The full menu lockup: mark, name, rule, and the formation it belongs to.
+ *
+ *  The game's own name and its brigade's designation are proper nouns, not chrome --
+ *  they do not change per locale any more than a studio's own logotype would, so they
+ *  are tagged rather than routed through the catalogue. */
 export function wordmark(version: string): string {
   return (
     `<div class="rl-wordmark">` +
     markSvg(86, 52, 'rl-wordmark__mark') +
+    /* i18n-ok: proper noun */
     `<h1 class="rl-wordmark__name">Roaring Lions</h1>` +
     `<div class="rl-wordmark__rule"></div>` +
+    /* i18n-ok: proper noun */
     `<div class="rl-wordmark__unit">401<span>st</span> Ari'im Brigade` +
     (version ? ` · V ${version}` : '') +
     `</div>` +

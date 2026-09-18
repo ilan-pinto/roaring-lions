@@ -1,6 +1,22 @@
 /**
  * The frame's post chain (spec §5): RenderPass -> [FogOfWarPass] -> [GTAOPass]
- * -> OutputPass -> [VignettePass] -> SMAAPass.
+ * -> OutputPass -> [VignettePass] -> [SMAAPass].
+ *
+ * `GTAOPass` and `SMAAPass` are the two passes the quality preset
+ * (`../quality.ts`) can remove. `high` -- `QUALITY_PRESETS.high`, the
+ * default every caller got before the preset existed -- builds both, so the
+ * bracketed chain above is exactly what it always was. `low` builds
+ * neither: `RenderPass -> [FogOfWarPass] -> OutputPass -> [VignettePass]`,
+ * with fog and the vignette unaffected -- they are not part of the
+ * `quality` contract at all, and stay whatever the caller slots through
+ * `setFogPass`/`setVignettePass`. `medium` keeps SMAA and drops only AO.
+ * SMAA's construction lives in THIS file (`new SMAAPass` below), gated
+ * directly on `quality.smaa`; the AO pass is built and owned by the
+ * caller (`ThreeRenderer.init`, via `createAoPass`), which is why gating it
+ * is a decision NOT to call `createAoPass`/`setAoPass` at all rather than
+ * anything this file does -- `setAoPass(null)` and "never called
+ * `setAoPass`" look identical from here, and both leave `GTAOPass` out of
+ * `passNames`.
  *
  * The vignette is the one pass on the display-referred side of the output
  * transform, and `PostChain.setVignettePass` says why it has to be.
@@ -51,6 +67,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
+import { QUALITY_PRESETS, type RenderQuality } from '../quality';
 
 /** Retina is worth paying for; a 3x phone panel is not, and this canvas is
  *  full-window. 2 caps the drawing buffer at 4x the pixels of a CSS-sized
@@ -456,7 +473,8 @@ export function createPostChain(
   camera: THREE.Camera,
   cssWidth: number,
   cssHeight: number,
-  pixelRatio: number
+  pixelRatio: number,
+  quality: RenderQuality = QUALITY_PRESETS.high
 ): PostChain {
   const w = Math.max(1, Math.round(cssWidth * pixelRatio));
   const h = Math.max(1, Math.round(cssHeight * pixelRatio));
@@ -498,7 +516,10 @@ export function createPostChain(
 
   const renderPass = new RenderPass(scene, camera);
   const outputPass = new OutputPass();
-  const smaa = new SMAAPass(w, h);
+  // `quality.smaa` gates construction, not merely whether it is slotted --
+  // building an SMAAPass nobody adds would still fetch its two lookup
+  // textures (`new Image()`, a base64 `src`) for a pass `low` never runs.
+  const smaa = quality.smaa ? new SMAAPass(w, h) : null;
   let fogPass: Pass | null = null;
   let aoPass: Pass | null = null;
   let vignettePass: Pass | null = null;
@@ -514,7 +535,7 @@ export function createPostChain(
     // would ride the tone curve's shoulder rather than the display ramp),
     // and SMAA edge-detects on the final image, so it stays last.
     if (vignettePass) composer.addPass(vignettePass);
-    composer.addPass(smaa);
+    if (smaa) composer.addPass(smaa);
   };
   rebuild();
 
@@ -551,7 +572,7 @@ export function createPostChain(
       composer.dispose();
       renderPass.dispose();
       outputPass.dispose();
-      smaa.dispose();
+      smaa?.dispose();
     },
   };
 }

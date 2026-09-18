@@ -35,6 +35,7 @@ import {
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
+  QUALITY_PRESETS,
   type RendererOptions,
   type AudioManifest,
   type EmitterSpec,
@@ -53,22 +54,35 @@ import {
   parseMap,
   applyTerrain,
   applyUpgrades,
+  applyMissionLocale,
   DECOR,
   paletteColor,
+  paletteTeamColors,
+  variantAwareResolver,
   audioManifest,
   vfxEmitters,
   type MapJson,
+  type MissionLocaleOverlay,
+  type UpgradableUnit,
 } from '@lions/data';
 import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
-import { portraitUrl, unitIcon, type SheetManifest } from './ui/portrait';
+import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
+import { showSettings, type SettingsDeps } from './ui/settings-panel';
+import { keymapRows } from './ui/settings-keymap';
+import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
+import { objectiveStatusShout } from './ui/objective-status';
+import { pauseMenu } from './ui/pause';
+import { advance as advanceClock, type Clock } from './shell/clock';
+import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
+import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey } from './input/keymap';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
-import { TIER_LINES } from './ui/grade-copy';
+import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
@@ -122,6 +136,15 @@ import {
 } from './mesh-catalogue';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { registerServiceWorker } from './service-worker';
+import {
+  Router,
+  interceptLinks,
+  legacyRedirect,
+  stripBase,
+  type Disposer,
+  type RouteRequest,
+} from './shell/router';
+import { routes } from './shell/links';
 import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
@@ -132,6 +155,7 @@ import {
   campaignRoe,
   campaignSummary,
   commanderForMission,
+  continueTarget,
   hostagesAccount,
   hostagesLine,
   nextMissionAfter,
@@ -143,33 +167,18 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
+import { LEDGER_KEY, TUTORIAL_DONE_KEY, loadLedger, markTutorialDone, saveLedger, tutorialDone } from './main-keys';
+import { showSaves, type SavesDeps } from './ui/saves';
+import { showCredits, type CreditsDeps } from './ui/credits';
+import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
+import { currentLocale, missingKeys, setCatalogue, t } from './i18n/t';
+import { pseudo } from './i18n/pseudo';
 
 /** Deploy base ('/' locally, '/<repo>/' on GitHub Pages) — every asset URL
  *  is built from it so the same bundle works in both places. */
 const BASE = import.meta.env.BASE_URL;
 
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
-
-// Campaign persistence: victories merge their produced ledger keys here;
-// defeats write nothing — replaying a mission for a better ledger is free.
-const LEDGER_KEY = 'lions.campaign.ledger';
-
-/** Whether this human has been through the tutorial — a fact about the person,
- *  not the campaign, so it survives a ledger reset. Clearing your ledger should
- *  not re-teach you right-click. */
-const TUTORIAL_DONE_KEY = 'lions.tutorial.done';
-
-function loadLedger(): LedgerData {
-  try {
-    return JSON.parse(window.localStorage.getItem(LEDGER_KEY) ?? '{}') as LedgerData;
-  } catch {
-    return {};
-  }
-}
-
-function saveLedger(ledger: LedgerData): void {
-  window.localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger));
-}
 
 /** `window.localStorage` can throw on the PROPERTY ACCESS itself (private mode, site
  *  data blocked) rather than on a method call. The brigade account route and the
@@ -340,23 +349,29 @@ function describeMissionEvent(
     case 'objective': {
       const def = mission.objectives.find((o) => o.id === e.id);
       const label = def?.text ?? e.id;
+      // I10: the status word goes through the catalogue (shared with the
+      // pause menu's objective list), not `e.status.toUpperCase()`.
+      // Minor 6: `label` reaches an `innerHTML` sink -- `hud.note` ->
+      // `hud.ts`'s notice row -- and its author is mission DATA, now including
+      // a translator's `data/locales/<lang>/missions.json` overlay. The
+      // `trigger` branch below has always escaped its label; this one did not.
       return e.status === 'complete'
-        ? [`<b>OBJECTIVE COMPLETE</b> — ${label}`, 'good']
-        : [`<b>OBJECTIVE ${e.status.toUpperCase()}</b> — ${label}`, 'bad'];
+        ? [t('mission.notice.objectiveComplete', { label: escapeHtml(label) }), 'good']
+        : [t('mission.notice.objectiveStatus', { status: objectiveStatusShout(e.status), label: escapeHtml(label) }), 'bad'];
     }
     case 'trigger': {
       const label = triggerLabel(mission, e.id);
       return label === null ? null : [escapeHtml(label), 'warn'];
     }
     case 'wave':
-      return [`<b>enemy reinforcements</b> — ${e.count} unit(s) inbound`, 'bad'];
+      return [t('mission.notice.wave', { n: e.count }), 'bad'];
     case 'roe': {
       const first = !narratedRoeReasons.has(e.reason);
       narratedRoeReasons.add(e.reason);
       return roeNotice(e.penalty, e.reason, e.score, mission.roe?.fail_below, first);
     }
     case 'built':
-      return [`<b>reinforcement deployed</b> — ${e.unit}`, 'info'];
+      return [t('mission.notice.built', { unit: e.unit }), 'info'];
     case 'say':
       // The commander bar is the one surface for a story line now -- `hud.say`
       // already runs for every `say` event (see the mission-loop handler
@@ -371,8 +386,8 @@ function describeMissionEvent(
     case 'missionEnd':
       return [
         e.result === 'victory'
-          ? `<b>MISSION ACCOMPLISHED</b> — Conduct ${e.roeRating}, ${e.survivors.length} units survive`
-          : '<b>MISSION FAILED</b>',
+          ? t('mission.notice.missionAccomplished', { roe: e.roeRating, n: e.survivors.length })
+          : t('mission.notice.missionFailed'),
         e.result === 'victory' ? 'good' : 'bad',
       ];
     default:
@@ -380,7 +395,7 @@ function describeMissionEvent(
   }
 }
 
-function bootError(stage: HTMLElement, title: string, body: string, home = '?'): void {
+function bootError(stage: HTMLElement, title: string, body: string, home = routes.menu()): void {
   const div = document.createElement('div');
   div.className = 'rl-boot-error';
 
@@ -394,294 +409,424 @@ function bootError(stage: HTMLElement, title: string, body: string, home = '?'):
 
   const a = document.createElement('a');
   a.href = home;
-  a.textContent = '← main menu';
+  a.textContent = t('nav.backToMenu');
   div.appendChild(a);
 
   stage.appendChild(div);
 }
 
+/** `ui/saves.ts`'s `download`: a Blob URL and a click on an `<a download>`
+ *  nobody sees, revoked right after -- the ordinary way a page hands the
+ *  player a file with no server round trip. */
+function downloadFile(name: string, json: string): void {
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** `ui/saves.ts`'s `pickFile`: an `<input type=file>` nobody sees, opened by a
+ *  synthetic click and read through `File.text()`. Resolves to null on a
+ *  cancelled picker (a `change` with no file chosen), never rejects. */
+function pickJsonFile(): Promise<string | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      void file.text().then(resolve);
+    });
+    input.click();
+  });
+}
+
+/** `ui/credits.ts`'s `fetchText`: a font's OFL body, fetched only when its
+ *  `<details>` is opened. Rejects on a network failure or a non-OK response
+ *  (a 404 for a licence file that moved) -- that screen turns either into
+ *  "licence text unavailable offline" rather than an unhandled rejection. */
+async function fetchLicenceText(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status}`);
+  return res.text();
+}
+
+/**
+ * The mission-text locale overlay (`data/locales/<lang>/missions.json`,
+ * `data/locales/README.md`), for `applyMissionLocale`'s second argument.
+ * `en` is the source text on every mission file already, so it is never
+ * fetched -- the same short-circuit `i18n/locales.ts`'s `loadLocale` takes
+ * for the chrome catalogue. Any OTHER id (an unshipped locale, a genuine
+ * 404) is a no-op overlay rather than a boot failure: a translator's file
+ * going missing must degrade to English, not break the mission.
+ */
+async function loadMissionOverlay(lang: string, base: string): Promise<MissionLocaleOverlay | null> {
+  if (lang === 'en') return null;
+  try {
+    const res = await fetch(`${base}locales/${lang}/missions.json`);
+    if (!res.ok) return null;
+    return (await res.json()) as MissionLocaleOverlay;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The mixer, one per document rather than one per screen. Recorded clips where
+ * they exist, procedural synth per-sound where they do not — so the library
+ * can be filled in one file at a time.
+ *
+ * It used to be built inside `main()`, and that was still one per screen,
+ * because every screen was its own page load. The router makes the menu, the
+ * campaign board, the free-play picker and a mission one document, so the music
+ * has to survive a route change -- and a second `BattleAudio` on the way into a
+ * mission would be a second manifest load and a second set of gesture
+ * listeners. Lazy rather than module-eager only so that importing this module
+ * constructs no audio graph. `attach()` still waits for the browser's first
+ * gesture.
+ */
+let mixer: BattleAudio | null = null;
+function battleAudio(): BattleAudio {
+  if (mixer === null) {
+    mixer = new BattleAudio();
+    mixer.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
+    mixer.attach();
+  }
+  return mixer;
+}
+
+/**
+ * What the brigade account says RIGHT NOW: the storage handle, the units
+ * bought and the tiers owned. Every surface that reads a KDF unit's unlock
+ * gate through `kdfUnlockGate` starts here -- the dock's `unitInfo`, the
+ * brigade screen, `resolveUpgrades`'s lookup and the debrief's `kdfUnits`.
+ *
+ * Read once per MOUNT, not once per page load, and that is the whole reason
+ * it is a function. A purchase used to end in `window.location.reload()`,
+ * which re-ran `main()` and with it this read; the brigade screen re-mounts
+ * through the router now, so a value resolved once at boot would leave the
+ * roster showing the unit the player has just bought as still locked.
+ */
+function accountState(): {
+  storage: Storage | null;
+  boughtUnits: Set<string>;
+  ownedTiers: Record<string, Record<string, number>>;
+} {
+  const storage = safeStorage();
+  const account = storage ? loadAccount(storage) : null;
+  return {
+    storage,
+    boughtUnits: new Set(account ? account.unlocks : []),
+    // No storage or an empty account is `{}`, and `applyUpgrades` treats an
+    // absent track as the identity, so that case registers the raw JSON
+    // unchanged -- today's behaviour (spec 2026-09-15 §4.3, D5: the sim never
+    // learns a tier exists).
+    ownedTiers: account ? account.upgrades : {},
+  };
+}
+
+/**
+ * Start the campaign over: the ledger, and the tutorial's "already learned"
+ * mark with it. Without the second line `?fresh` is a one-way door -- finish
+ * the tutorial once and Beit Sahwan 0 replays with no step panel at all,
+ * which reads as the tutorial being broken rather than already learned.
+ *
+ * A function because it now has two callers that used to be one: the `fresh`
+ * landing flag, and the menu's confirmed "reset campaign ledger" button, which
+ * was a navigation to `?fresh=1` purely so that this code would run.
+ *
+ * The brigade account (`brigade-account.ts`) deliberately survives it: spec
+ * 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
+ */
+function purgeCampaign(): void {
+  // Minor 5: through `safeStorage()`, not the global. `window.localStorage` can
+  // throw on the PROPERTY ACCESS itself in a private window or with site data
+  // blocked (that function's own doc comment), and this one runs on the `fresh`
+  // landing -- so a player in that state met a thrown boot error instead of a
+  // menu, for a store that has nothing in it to purge.
+  const store = safeStorage();
+  store?.removeItem(LEDGER_KEY);
+  store?.removeItem(TUTORIAL_DONE_KEY);
+}
+
+// Which sheet a unit uses -- facing convention, frame counts, clip list and
+// draw scale all come from the sheet's own manifest, written by the rig that
+// produced the files. At module scope rather than inside a screen, because
+// two of them read it: the brigade roster (for its portraits, with no map, sim
+// or renderer of its own to have loaded a sheet through) and the battlefield.
+type SpriteSpec = { path: string; turretPath?: string };
+const TANK: SpriteSpec = {
+  path: `${BASE}sprites/TNK_HULL/`,
+  turretPath: `${BASE}sprites/TNK_TURR/`,
+};
+const EITAN: SpriteSpec = {
+  path: `${BASE}sprites/EITAN_HULL/`,
+  turretPath: `${BASE}sprites/EITAN_TURR/`,
+};
+const NAMER: SpriteSpec = {
+  path: `${BASE}sprites/NAMER_HULL/`,
+  turretPath: `${BASE}sprites/NAMER_TURR/`,
+};
+// Hull only: the model carries no separately modelled weapon station, so
+// there is no turret sheet to composite.
+const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
+// The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
+// no other sheet does: a pintle gun on a bed sits well off the model's centre,
+// and without that the renderer would swing it off the truck while tracking.
+const TECHNICAL: SpriteSpec = {
+  path: `${BASE}sprites/TECH_HULL/`,
+  turretPath: `${BASE}sprites/TECH_TURR/`,
+};
+// No shared infantry sheet. Seven types used to point at one directory, which
+// meant a rifle squad and an enemy militia cell were the same PNG and the
+// silhouette gate could never compare them -- it cannot compare a file with
+// itself. Each type now names its own sheet, so a sheet that fails to load is
+// a visible gap rather than something masked by an alias.
+// The only animated sheet: four frames of hover per facing, looping. Nothing
+// here says so -- the frame count, rate and loop flag all come from the
+// sheet's own manifest, same as every other property of every other sheet.
+const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
+const SPRITE_MAP: Record<string, SpriteSpec> = {
+  mbt_lavi: TANK,
+  apc_eitan: EITAN,
+  ifv_namer: NAMER,
+  jeep_shoded: JEEP,
+  technical: TECHNICAL,
+  recon_drone: DRONE,
+  dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
+  heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
+  // The two star-gated vehicles (docs/campaign/special_units/design.md
+  // §4-5). Hull only, like the jeep: each carries a fixed gun, not a
+  // traversing station. Rendered from the same kit-authored sources their
+  // GLBs were exported from, so the billboard, the portrait and the mesh
+  // agree; the sheet is what gives a dead one a wreck instead of the grey
+  // cross, since a mesh vehicle's death falls back to its sheet.
+  scout_shachaf: { path: `${BASE}sprites/SHACHAF_HULL/` },
+  apc_kipod: { path: `${BASE}sprites/KIPOD_HULL/` },
+  // One sheet per infantry type, composed from tools/units/kit.py. Each is a
+  // distinct silhouette rather than a distinct texture: posture, weapon axis
+  // and figure count are what survive downsampling to a 64px black shape.
+  inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
+  demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
+  at_team: { path: `${BASE}sprites/INF_AT/` },
+  mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
+  sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
+  // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
+  // shows for the whole of a tunnel charge.
+  yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
+  // The star-gated Tzinah team (design.md §3): the upright shield is its
+  // silhouette, the same kit the mesh was exported from.
+  breach_team: { path: `${BASE}sprites/INF_BREACH/` },
+  militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
+  rpg_team: { path: `${BASE}sprites/INF_RPG/` },
+  atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
+  mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
+  // The Sarim set. These three shipped complete, gate-passing sheets and
+  // still drew NOTHING, because art existing and art being LOADED are
+  // different things and only the first has a gate.
+  sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
+  recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
+  manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
+  // The raider set. Like the technical, the gun truck's turret manifest
+  // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
+  // so without the correction the renderer swings it off the bed while
+  // tracking.
+  gun_truck: {
+    path: `${BASE}sprites/GUNTRUCK_HULL/`,
+    turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
+  },
+  charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
+  moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
+  digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
+  // Hull only: the rack is fixed to the bed, not a separately traversing
+  // weapon station, so there is no turret sheet to composite -- same shape
+  // as dozer_d9 above.
+  rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
+  // Two air sheets whose flight is presentational: the sim has no altitude,
+  // so these move on the ground plane like anything else. The paramotor's
+  // `down` clip is its landed state, authored against a land-and-dismount
+  // behaviour that does not exist yet.
+  paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
+  loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
+  // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
+  // munition -- but not its source: reusing loitering_munition.blend would
+  // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
+  // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
+  attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
+};
+
+/**
+ * A unit type's portrait, resolved the same way the mission HUD resolves one
+ * for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
+ * sheet's own cropped `unitIcon` or, failing that, its manifest via
+ * `portraitUrl`) -- fetched fresh here because the brigade screen has no
+ * running renderer to have already fetched it for. A type absent from
+ * `SPRITE_MAP`, or whose manifest 404s with no icon either, resolves to
+ * `null`; the caller draws the reserved hatch for that, same as the HUD's
+ * card does. `isIcon` tells the caller which of the two pictures it got, so
+ * it can set `data-icon` the same way the mission HUD does.
+ */
+const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: boolean } | null> => {
+  const spec = SPRITE_MAP[id];
+  if (!spec) return null;
+  const icon = unitIcon(spec.path);
+  if (icon !== null) return { url: icon.url, isIcon: true };
+  try {
+    const res = await fetch(`${spec.path}manifest.json`);
+    if (!res.ok) return null;
+    const manifest = (await res.json()) as SheetManifest;
+    const url = portraitUrl(spec.path, manifest);
+    return url === null ? null : { url, isIcon: false };
+  } catch (err) {
+    console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
+    return null;
+  }
+};
+
 async function main(): Promise<void> {
+  // The first statement, so the shell's own question -- did that navigation
+  // reload the page? -- has an answer. One `rl:boot` mark per document,
+  // however many screens the player walks through.
+  performance.mark('rl:boot');
   const stage = document.getElementById('stage');
   if (!stage) throw new Error('no #stage');
 
-  // --- audio, on every screen -----------------------------------------------
-  // Created before the mode split so the menu, the campaign board and the
-  // sandbox picker carry the music too, not just a mission. Recorded clips
-  // when they exist, procedural synth per-sound where they don't — so the
-  // library can be filled in one file at a time. Nothing sounds until the
-  // browser's first gesture; `attach` waits for it.
-  const audio = new BattleAudio();
-  audio.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
-  audio.attach();
+  // --- audio, on every screen ----------------------------------------------
+  // Built before the route table so the menu, the campaign board and the
+  // free-play picker carry the music too, not just a mission -- and now it
+  // outlives all of them, since a route change no longer reloads the page.
+  const audio = battleAudio();
 
-  // Which sheet a unit uses -- facing convention, frame counts, clip list and
-  // draw scale all come from the sheet's own manifest, written by the rig
-  // that produced the files. Declared here, ahead of the mode-selection
-  // branches below, because the brigade route (one of them) needs it for its
-  // portrait resolver and is otherwise a plain early return with no map, sim
-  // or renderer of its own to have loaded a sheet through.
-  type SpriteSpec = { path: string; turretPath?: string };
-  const TANK: SpriteSpec = {
-    path: `${BASE}sprites/TNK_HULL/`,
-    turretPath: `${BASE}sprites/TNK_TURR/`,
-  };
-  const EITAN: SpriteSpec = {
-    path: `${BASE}sprites/EITAN_HULL/`,
-    turretPath: `${BASE}sprites/EITAN_TURR/`,
-  };
-  const NAMER: SpriteSpec = {
-    path: `${BASE}sprites/NAMER_HULL/`,
-    turretPath: `${BASE}sprites/NAMER_TURR/`,
-  };
-  // Hull only: the model carries no separately modelled weapon station, so
-  // there is no turret sheet to composite.
-  const JEEP: SpriteSpec = { path: `${BASE}sprites/JEEP_HULL/` };
-  // The enemy's armed pickup. Its turret manifest carries `turretAxisPx`, which
-  // no other sheet does: a pintle gun on a bed sits well off the model's centre,
-  // and without that the renderer would swing it off the truck while tracking.
-  const TECHNICAL: SpriteSpec = {
-    path: `${BASE}sprites/TECH_HULL/`,
-    turretPath: `${BASE}sprites/TECH_TURR/`,
-  };
-  // No shared infantry sheet. Seven types used to point at one directory, which
-  // meant a rifle squad and an enemy militia cell were the same PNG and the
-  // silhouette gate could never compare them -- it cannot compare a file with
-  // itself. Each type now names its own sheet, so a sheet that fails to load is
-  // a visible gap rather than something masked by an alias.
-  // The only animated sheet: four frames of hover per facing, looping. Nothing
-  // here says so -- the frame count, rate and loop flag all come from the
-  // sheet's own manifest, same as every other property of every other sheet.
-  const DRONE: SpriteSpec = { path: `${BASE}sprites/DRONE_RECON/` };
-  const SPRITE_MAP: Record<string, SpriteSpec> = {
-    mbt_lavi: TANK,
-    apc_eitan: EITAN,
-    ifv_namer: NAMER,
-    jeep_shoded: JEEP,
-    technical: TECHNICAL,
-    recon_drone: DRONE,
-    dozer_d9: { path: `${BASE}sprites/D9_HULL/` },
-    heli_peten: { path: `${BASE}sprites/APACHE_HULL/` },
-    // The two star-gated vehicles (docs/campaign/special_units/design.md
-    // §4-5). Hull only, like the jeep: each carries a fixed gun, not a
-    // traversing station. Rendered from the same kit-authored sources their
-    // GLBs were exported from, so the billboard, the portrait and the mesh
-    // agree; the sheet is what gives a dead one a wreck instead of the grey
-    // cross, since a mesh vehicle's death falls back to its sheet.
-    scout_shachaf: { path: `${BASE}sprites/SHACHAF_HULL/` },
-    apc_kipod: { path: `${BASE}sprites/KIPOD_HULL/` },
-    // One sheet per infantry type, composed from tools/units/kit.py. Each is a
-    // distinct silhouette rather than a distinct texture: posture, weapon axis
-    // and figure count are what survive downsampling to a 64px black shape.
-    inf_squad: { path: `${BASE}sprites/INF_SQUAD/` },
-    demo_squad: { path: `${BASE}sprites/INF_DEMO/` },
-    at_team: { path: `${BASE}sprites/INF_AT/` },
-    mortar_team: { path: `${BASE}sprites/INF_MORTAR/` },
-    sniper_team: { path: `${BASE}sprites/INF_SNIPER/` },
-    // The Yahalom sheet is the one carrying a `work` clip — what resolveClip
-    // shows for the whole of a tunnel charge.
-    yahalom_squad: { path: `${BASE}sprites/INF_YAHALOM/` },
-    // The star-gated Tzinah team (design.md §3): the upright shield is its
-    // silhouette, the same kit the mesh was exported from.
-    breach_team: { path: `${BASE}sprites/INF_BREACH/` },
-    militia_cell: { path: `${BASE}sprites/INF_MILITIA/` },
-    rpg_team: { path: `${BASE}sprites/INF_RPG/` },
-    atgm_cell: { path: `${BASE}sprites/INF_ATGM/` },
-    mortar_crew: { path: `${BASE}sprites/INF_MORTAR_E/` },
-    // The Sarim set. These three shipped complete, gate-passing sheets and
-    // still drew NOTHING, because art existing and art being LOADED are
-    // different things and only the first has a gate.
-    sarim_rifles: { path: `${BASE}sprites/INF_SARIM/` },
-    recoilless_team: { path: `${BASE}sprites/INF_RECOILLESS/` },
-    manpad_team: { path: `${BASE}sprites/INF_MANPAD/` },
-    // The raider set. Like the technical, the gun truck's turret manifest
-    // carries `turretAxisPx`: its cannon sits 1.65 m behind the model centre,
-    // so without the correction the renderer swings it off the bed while
-    // tracking.
-    gun_truck: {
-      path: `${BASE}sprites/GUNTRUCK_HULL/`,
-      turretPath: `${BASE}sprites/GUNTRUCK_TURR/`,
+  // --- settings, on every screen --------------------------------------------
+  // Loaded and applied before anything else mounts: `applySettings` (settings.ts)
+  // is the ONLY writer of the `--ui-scale`/`--text-size` inline overrides and
+  // the `data-motion`/`data-cvd` attributes the whole sheet reads off
+  // `document.documentElement`, so the menu itself has to carry a saved scale
+  // or motion preference, not just a mission. The mixer needs its gains before
+  // the first screen's music starts for the same reason.
+  const settingsStore = safeStorage();
+  let settings: Settings = loadSettings(settingsStore);
+  applySettings(settings, document.documentElement);
+  audio.setGains(settings.audio);
+  /** `settingsDeps.set` persists, applies and re-broadcasts through here --
+   *  `onChange` is how a SECOND mount of the settings panel (Task 6's pause
+   *  menu) and the keymap section (Task 5) learn a change happened without
+   *  polling `get()` every frame. The bus itself lives in settings.ts (with
+   *  its own tests) so a throwing subscriber can be proven not to starve the
+   *  rest without booting the whole shell. */
+  const bus = settingsBus();
+  const settingsDeps: SettingsDeps = {
+    get: () => settings,
+    set: (next) => {
+      settings = next;
+      saveSettings(settingsStore, next);
+      applySettings(next, document.documentElement);
+      audio.setGains(next.audio);
+      bus.notify(next);
     },
-    charge_squad: { path: `${BASE}sprites/INF_CHARGE/` },
-    moto_rpg: { path: `${BASE}sprites/MOTO_RPG/` },
-    digger_crew: { path: `${BASE}sprites/INF_DIGGER/` },
-    // Hull only: the rack is fixed to the bed, not a separately traversing
-    // weapon station, so there is no turret sheet to composite -- same shape
-    // as dozer_d9 above.
-    rocket_battery: { path: `${BASE}sprites/ROCKETBATTERY_HULL/` },
-    // Two air sheets whose flight is presentational: the sim has no altitude,
-    // so these move on the ground plane like anything else. The paramotor's
-    // `down` clip is its landed state, authored against a land-and-dismount
-    // behaviour that does not exist yet.
-    paramotor: { path: `${BASE}sprites/PARA_MOTOR/` },
-    loiter_drone: { path: `${BASE}sprites/DRONE_LOITER/` },
-    // attack_drone shares loiter_drone's shape of unit -- KDF's own loitering
-    // munition -- but not its source: reusing loitering_munition.blend would
-    // have been an identical silhouette (IoU ~= 1.0, guaranteed, not merely a
-    // risk), so it renders from its own hull, art/src/drones/attack_drone.blend.
-    attack_drone: { path: `${BASE}sprites/DRONE_ATTACK/` },
+    onChange: bus.onChange,
+    // `document.fullscreenEnabled` is the browser's own permission check
+    // (iframe embeds without `allow="fullscreen"` read false) -- a row for a
+    // control that would silently no-op is worse than no row.
+    fullscreen: document.fullscreenEnabled
+      ? {
+          supported: () => true,
+          active: () => document.fullscreenElement !== null,
+          set: async (on) => {
+            if (on) await document.documentElement.requestFullscreen();
+            else if (document.fullscreenElement) await document.exitFullscreen();
+          },
+        }
+      : null,
+    audio,
+    locales: LOCALES,
+    // `bindings()` always answers the FULL table (defaults plus valid
+    // overrides), never the raw override map settings.ts stores -- a rebind
+    // row reads and writes bindings, not the sparse form. `set` round-trips
+    // the other way: `overridesOf` strips it back to only what differs from
+    // the shipped defaults before it is written into `settings.controls.bindings`,
+    // which is the same sparse shape `bindingsFrom` reads back out.
+    keymap: keymapRows({
+      bindings: () => bindingsFrom(settings.controls.bindings),
+      set: (next) =>
+        settingsDeps.set({
+          ...settings,
+          controls: { ...settings.controls, bindings: overridesOf(next) },
+        }),
+    }),
+    build: __APP_BUILD__,
   };
 
-  /**
-   * A unit type's portrait, resolved the same way the mission HUD resolves one
-   * for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
-   * sheet's own cropped `unitIcon` or, failing that, its manifest via
-   * `portraitUrl`) -- fetched fresh here because the brigade screen has no
-   * running renderer to have already fetched it for. A type absent from
-   * `SPRITE_MAP`, or whose manifest 404s with no icon either, resolves to
-   * `null`; the caller draws the reserved hatch for that, same as the HUD's
-   * card does. `isIcon` tells the caller which of the two pictures it got, so
-   * it can set `data-icon` the same way the mission HUD does.
-   */
-  const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: boolean } | null> => {
-    const spec = SPRITE_MAP[id];
-    if (!spec) return null;
-    const icon = unitIcon(spec.path);
-    if (icon !== null) return { url: icon.url, isIcon: true };
-    try {
-      const res = await fetch(`${spec.path}manifest.json`);
-      if (!res.ok) return null;
-      const manifest = (await res.json()) as SheetManifest;
-      const url = portraitUrl(spec.path, manifest);
-      return url === null ? null : { url, isIcon: false };
-    } catch (err) {
-      console.warn(`[lions] portrait manifest FAILED for ${id}:`, err);
-      return null;
-    }
-  };
-
-  // --- brigade account: bought units -----------------------------------------
-  // Resolved once, here, for every surface that reads a KDF unit's unlock gate
-  // through `kdfUnlockGate` -- the dock's `unitInfo`, the brigade route,
-  // `resolveUpgrades`'s lookup and the debrief's `kdfUnits`.
-  const storage = safeStorage();
-  const boughtUnits = new Set(storage ? loadAccount(storage).unlocks : []);
-  // Per-unit, per-track tier bought, if any -- the pre-pass below patches
-  // each KDF unit type through `applyUpgrades` with exactly this before the
-  // sim ever registers it (spec 2026-09-15 §4.3, D5: the sim never learns a
-  // tier exists). No storage or an empty account is `{}`, and `applyUpgrades`
-  // treats an absent track as the identity, so that case registers the raw
-  // JSON unchanged -- today's behaviour.
-  const ownedTiers = storage ? loadAccount(storage).upgrades : {};
-
-  // --- mode selection ------------------------------------------------------
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('fresh') !== null && params.get('mission') === null) {
-    window.localStorage.removeItem(LEDGER_KEY);
-    // Starting the campaign over restores the lessons with it. Without this
-    // the flag is a one-way door: finish the tutorial once and Beit Sahwan 0
-    // replays with no step panel at all, which reads as the tutorial being
-    // broken rather than already learned.
-    window.localStorage.removeItem(TUTORIAL_DONE_KEY);
-    // The brigade account (`brigade-account.ts`) deliberately survives this: spec
-    // 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
+  // --- locale, before any screen mounts -------------------------------------
+  // `?lang=<id>` overrides the saved `settings.language` for THIS load only
+  // -- it is never written back to storage, so a shared link cannot silently
+  // change what a returning player sees next time. `?pseudo=1` swaps the real
+  // catalogue for the `en` one run through the pseudo-locale transform
+  // (i18n/pseudo.ts) instead of a real language -- the fake-translation pass
+  // a screen walk uses to catch a string that never went through `t()` at
+  // all. Both are read off `window.location.search` for the same reason the
+  // service worker escape hatch below is: before the router rewrites a
+  // legacy query URL into a path. Both join `KNOWN_PARAMS` (sandbox-help.ts)
+  // so `unknownParams` does not report either as a typo, and neither is in
+  // `router.start`'s own `drop` list below, so a reload keeps carrying them.
+  const q = new URLSearchParams(window.location.search);
+  const lang = q.get('lang') ?? settings.language;
+  const activeLocale = q.has('pseudo') ? 'pseudo' : lang;
+  const cat = await loadLocale(activeLocale, BASE);
+  setCatalogue(activeLocale, cat, q.has('pseudo') ? pseudo : undefined);
+  applyLocale(document.documentElement, lang);
+  // Dev-only: which keys a screen walk asked for and never got, without
+  // scraping console output for `[i18n] missing key: …` lines.
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__lionsI18n = { missingKeys };
   }
-  if (params.get('mission') === null && params.get('sandbox') === null) {
+
+  // Level load time step 5. Fire-and-forget and deliberately NOT awaited: the
+  // worker is a cache for the NEXT load, so making this boot wait on it would
+  // trade the thing it is meant to buy. It never rejects (see its own doc
+  // comment) -- a browser that refuses registration keeps the game exactly as
+  // it is today.
+  //
+  // Read off `window.location.search` BEFORE the router rewrites a legacy
+  // query URL into a path: `?nosw` is the recovery switch for a cached build
+  // that has gone wrong, and a switch that only survives the redirects that
+  // happen to carry it is not one.
+  void registerServiceWorker(BASE, window.location.search);
+
+  // --- where did we land? --------------------------------------------------
+  // `?fresh` purges the campaign, but never on the way INTO a mission -- the
+  // pre-router guard was `params.get('mission') === null`, and this asks the
+  // same question of the path the router is about to mount, whether the player
+  // typed a path or an old query URL.
+  const landingSearch = window.location.search;
+  const landingPath = legacyRedirect(landingSearch)?.path ?? stripBase(BASE, window.location.pathname);
+  const landingIsMission = landingPath.startsWith('/mission/');
+  if (new URLSearchParams(landingSearch).has('fresh') && !landingIsMission) purgeCampaign();
+
+  /** The landing. The one screen that defines no `window.__lions`. */
+  function mountMenu(host: HTMLElement): Disposer {
     const worldData = parseWorld(world);
-    if (params.get('campaign') !== null) {
-      // The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
-      // the world render is served rather than bundled; the per-country overlay is
-      // built by worldMap from the generated geometry in countries.json.
-      showCampaign(stage, {
-        base: BASE,
-        world: worldData,
-        countries: parseCountries(countries),
-        ledger: loadLedger(),
-        // Parsed here rather than reusing a hoisted `commanderData`: that
-        // name is not in scope on this branch, which returns before the
-        // mission-specific commander resolution below ever runs.
-        commander: parseCommander(commander),
-        missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
-        portraitUrl: commanderPortraitUrl,
-      });
-      return;
-    }
-    if (params.get('brigade') !== null) {
-      // The roster: every KDF unit the campaign knows about, and what still
-      // gates the ones not yet earned. `possibleStars` (campaign.ts, F10) walks
-      // the same towns the campaign map itself walks, counting only missions
-      // whose own ledger contract can carry a star at all -- a town added to
-      // `world.json` counts itself in without an edit here (the tutorial is
-      // deliberately off the map, so it is never in this sum at all).
-      const kdfUnits = Object.values(units)
-        .filter((u) => u.faction === 'kdf')
-        .map((u) => ({
-          id: u.id,
-          name: u.name,
-          role: u.role,
-          unlock: kdfUnlockGate(u, boughtUnits),
-          ...kdfBrigadeTraits(u),
-          upgrades: 'upgrades' in u ? u.upgrades : undefined,
-        }));
-      const portraits: Record<string, string> = {};
-      const portraitIcons = new Set<string>();
-      await Promise.all(
-        kdfUnits.map(async ({ id }) => {
-          const picture = await loadBrigadePortrait(id);
-          if (picture === null) return;
-          portraits[id] = picture.url;
-          if (picture.isIcon) portraitIcons.add(id);
-        })
-      );
-      showBrigade(stage, {
-        units: kdfUnits,
-        ledger: loadLedger(),
-        missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
-        portrait: (typeId) => portraits[typeId] ?? null,
-        iconIds: portraitIcons,
-        possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
-        credits: storage ? loadAccount(storage).balance : undefined,
-        onReset: storage
-          ? () => {
-              resetAccount(storage);
-              window.location.reload();
-            }
-          : undefined,
-        onBuy: storage
-          ? (unitId, price) => {
-              const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
-              // A refusal here is only reachable with a stale account (e.g. two
-              // tabs on the same origin both showing this row as affordable) --
-              // the control disabled itself against the balance THIS render
-              // read, so `!ok` means the account on disk has since moved.
-              // Reloading re-renders off the true, current state instead of
-              // leaving the row showing a purchase that did not happen.
-              if (!ok) {
-                window.location.reload();
-                return;
-              }
-              saveAccount(storage, account);
-              window.location.reload();
-            }
-          : undefined,
-        owned: ownedTiers,
-        onBuyUpgrade: storage
-          ? (unitId, track, tier, price) => {
-              const { account, ok } = buyUpgrade(loadAccount(storage), unitId, track, tier, price);
-              // Same reasoning as `onBuy` above: the control disabled itself
-              // against a stale read, so re-render off the true state instead
-              // of returning silently.
-              if (!ok) {
-                window.location.reload();
-                return;
-              }
-              saveAccount(storage, account);
-              window.location.reload();
-            }
-          : undefined,
-      });
-      return;
-    }
-    if (params.get('sandboxes') !== null) {
-      // The sandbox picker. `?sandbox=<id>` boots one sandbox; the plural is
-      // the screen that lists them, so it has to be a distinct key -- bare
-      // `?sandbox` has always meant beit_sahwan_outskirts and still does.
-      // Nothing is passed in: the screen reads the map enumeration and
-      // SANDBOX_FLAGS itself, so a new map cannot be missing from it.
-      showSandbox(stage);
-      return;
-    }
-    const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
-    showMenu(stage, {
+    // Minor 4 + Minor 5: one predicate (`main-keys.ts`), through `safeStorage()`.
+    // This runs on every menu MOUNT now rather than once per page load, so a
+    // store whose property access throws would have thrown on every return to
+    // the menu.
+    const tutorialIsDone = tutorialDone(safeStorage());
+    // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
+    // been played, else the first open mission of wherever the map is live.
+    // Null once every authored mission is done, which is `continue: undefined`
+    // below -- the first nav item reverts to the plain "Campaign" link.
+    const target = continueTarget(worldData, loadLedger(safeStorage()), {
+      id: 'beit_sahwan_0_tutorial',
+      done: tutorialIsDone,
+    });
+    return showMenu(host, {
       base: BASE,
       version: __GAME_VERSION__,
       world: worldData,
@@ -689,22 +834,447 @@ async function main(): Promise<void> {
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
-        done: tutorialDone,
+        done: tutorialIsDone,
       },
-      reset: () => window.location.assign('?fresh=1'),
+      continue: target
+        ? {
+            missionId: target.missionId,
+            name: (missions as Record<string, MissionJson | undefined>)[target.missionId]?.name ?? target.missionId,
+            kind: target.kind,
+          }
+        : undefined,
+      // Was `window.location.assign('?fresh=1')`: a whole page load whose only
+      // jobs were to run the purge and redraw this screen. Both are explicit
+      // now, and `force: true` is what redraws a menu the router already
+      // considers mounted. Renamed from `reset` (Task 7): the brigade account
+      // survives this, on purpose, and "New campaign" says so where "reset
+      // campaign ledger" did not.
+      newCampaign: () => {
+        purgeCampaign();
+        void router.navigate(routes.menu(), { replace: true, force: true });
+      },
     });
-    return;
   }
-  const missionId = params.get('mission');
-  let mission: MissionJson | undefined;
-  if (missionId !== null) {
-    mission = (missions as Record<string, MissionJson | undefined>)[missionId];
-    if (!mission) {
-      bootError(stage, `Unknown mission "${missionId}"`, 'This link points at a mission that does not exist in this build.');
+
+  /** The saves screen (Task 7): every slot under `lions.saves`, over the SAME
+   *  two stores the active campaign already reads and writes -- see
+   *  `profile.ts`'s own header. No storage means no screen: a save slot with
+   *  nowhere durable to live is worse than an error card naming why. */
+  function mountSaves(host: HTMLElement): Disposer {
+    const storage = safeStorage();
+    if (!storage) {
+      bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), routes.menu());
+      return () => host.replaceChildren();
+    }
+    const deps: SavesDeps = {
+      store: storage,
+      build: __APP_BUILD__,
+      now: () => Date.now(),
+      back: routes.menu(),
+      download: downloadFile,
+      pickFile: pickJsonFile,
+      // Nothing to re-read here today: the menu computes `continueTarget`
+      // fresh off the ledger every time IT mounts (see `mountMenu` above), so
+      // a slot mutation needs no signal beyond the router navigation away
+      // from this screen. Kept as a real hook rather than removed from
+      // `SavesDeps` -- see that interface's own doc comment.
+      onChanged: () => {},
+    };
+    return showSaves(host, deps);
+  }
+
+  /** The map page. publicDir is the repo-root assets/ dir (vite.config.ts), so
+   *  the world render is served rather than bundled; the per-country overlay is
+   *  built by worldMap from the generated geometry in countries.json. */
+  function mountCampaign(host: HTMLElement, req: RouteRequest): Disposer {
+    return showCampaign(host, {
+      base: BASE,
+      world: parseWorld(world),
+      countries: parseCountries(countries),
+      ledger: loadLedger(safeStorage()),
+      commander: parseCommander(commander),
+      missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
+      portraitUrl: commanderPortraitUrl,
+      // The screen used to read `window.location.search` for this itself. No
+      // screen reads `window.location` any more: the shell knows which
+      // navigation this is and hands the value in.
+      renderer: req.query.get('renderer'),
+      // So a click on the 3D board's ground changes screen without reloading
+      // the document. The flat board's town pins are real anchors and go
+      // through `interceptLinks` instead.
+      navigate: (h) => void router.navigate(h),
+    });
+  }
+
+  /** The roster: every KDF unit the campaign knows about, and what still gates
+   *  the ones not yet earned. `possibleStars` (campaign.ts, F10) walks the same
+   *  towns the campaign map itself walks, counting only missions whose own
+   *  ledger contract can carry a star at all -- a town added to `world.json`
+   *  counts itself in without an edit here (the tutorial is deliberately off
+   *  the map, so it is never in this sum at all). */
+  async function mountBrigade(host: HTMLElement): Promise<Disposer> {
+    const worldData = parseWorld(world);
+    const { storage, boughtUnits, ownedTiers } = accountState();
+    const kdfUnits = Object.values(units)
+      .filter((u) => u.faction === 'kdf')
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        unlock: kdfUnlockGate(u, boughtUnits),
+        ...kdfBrigadeTraits(u),
+        upgrades: 'upgrades' in u ? u.upgrades : undefined,
+      }));
+    const portraits: Record<string, string> = {};
+    const portraitIcons = new Set<string>();
+    await Promise.all(
+      kdfUnits.map(async ({ id }) => {
+        const picture = await loadBrigadePortrait(id);
+        if (picture === null) return;
+        portraits[id] = picture.url;
+        if (picture.isIcon) portraitIcons.add(id);
+      })
+    );
+    // What `window.location.reload()` was for: re-read the account and redraw
+    // the roster off it. This re-runs THIS mount, which re-reads the account
+    // through `accountState()` above -- `force: true` because the URL has not
+    // changed and the router would otherwise consider itself already there.
+    const redraw = (): void => {
+      void router.navigate(routes.brigade(), { replace: true, force: true });
+    };
+    return showBrigade(host, {
+      units: kdfUnits,
+      ledger: loadLedger(storage),
+      missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+      portrait: (typeId) => portraits[typeId] ?? null,
+      iconIds: portraitIcons,
+      // The garage's bay (Task 15/16). `unitPlate` resolves against the
+      // plates manifest AND the eager glob of what is actually on disk, so a
+      // unit `pnpm plates:units` has not photographed reads as absent and the
+      // bay draws its reserved hatch -- never a broken <img>.
+      plate: (typeId) => unitPlate(`${BASE}ui/plates/units/`, typeId),
+      // The raw unit JSON, for the bay's stat panel and every rung's benefit
+      // lines. Same `units` catalogue `kdfUnits` above is built from, so the
+      // numbers the garage prints and the numbers `applyUpgrades` hands the
+      // sim come from one file. An id this does not know (it cannot happen
+      // for a `kdfUnits` entry, but the option is called with whatever the
+      // screen selects) hands back a bare `{ id }`, which the panel reads as
+      // em-dashes.
+      baseOf: (typeId) =>
+        ((units as Record<string, unknown>)[typeId] as UpgradableUnit | undefined) ?? { id: typeId },
+      possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
+      credits: storage ? loadAccount(storage).balance : undefined,
+      onReset: storage
+        ? () => {
+            resetAccount(storage);
+            redraw();
+          }
+        : undefined,
+      onBuy: storage
+        ? (unitId, price) => {
+            const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
+            // A refusal here is only reachable with a stale account (e.g. two
+            // tabs on the same origin both showing this row as affordable) --
+            // the control disabled itself against the balance THIS render
+            // read, so `!ok` means the account on disk has since moved.
+            // Redrawing re-renders off the true, current state instead of
+            // leaving the row showing a purchase that did not happen.
+            if (!ok) {
+              redraw();
+              return;
+            }
+            saveAccount(storage, account);
+            redraw();
+          }
+        : undefined,
+      owned: ownedTiers,
+      onBuyUpgrade: storage
+        ? (unitId, track, tier, price) => {
+            const { account, ok } = buyUpgrade(loadAccount(storage), unitId, track, tier, price);
+            // Same reasoning as `onBuy` above: the control disabled itself
+            // against a stale read, so redraw off the true state instead of
+            // returning silently.
+            if (!ok) {
+              redraw();
+              return;
+            }
+            saveAccount(storage, account);
+            redraw();
+          }
+        : undefined,
+    });
+  }
+
+  // --- the screens ---------------------------------------------------------
+  // One table. Every href in the UI comes from `shell/links.ts`, every path
+  // this table declares is matched by `shell/router.ts`, and the old query
+  // URLs (`?campaign`, `?mission=`, `?sandbox=`, `?sandboxes`, `?brigade`)
+  // redirect onto these paths on boot and on click -- so the tools and
+  // bookmarks that drive the app by query string keep working.
+  const router = new Router({
+    base: BASE,
+    stage,
+    routes: [
+      { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
+      { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
+      { name: 'brigade', pattern: '/brigade', mount: (host) => mountBrigade(host) },
+      // The picker. Nothing is passed in: the screen reads the map enumeration
+      // and SANDBOX_FLAGS itself, so a new map cannot be missing from it.
+      { name: 'free-play', pattern: '/free-play', mount: (host) => showSandbox(host) },
+      {
+        name: 'sandbox',
+        pattern: '/free-play/:map',
+        mount: (host, req) =>
+          bootBattlefield(host, {
+            missionId: null,
+            sandboxMap: req.params.map,
+            query: req.query,
+            signal: req.signal,
+            navigate: (href, opts) => void router.navigate(href, opts),
+            settings: settingsDeps,
+            // Replacing, forced: a plain navigate() to the same path is a
+            // no-op (the router only re-mounts on a real path/query change),
+            // so Restart needs `force` to re-run this same route's mount --
+            // and `replace` so the attempt that was just lost does not sit in
+            // history as a back-button trap into a dead sim.
+            restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
+          }),
+      },
+      {
+        name: 'mission',
+        pattern: '/mission/:id',
+        mount: (host, req) =>
+          bootBattlefield(host, {
+            missionId: req.params.id,
+            sandboxMap: null,
+            query: req.query,
+            signal: req.signal,
+            navigate: (href, opts) => void router.navigate(href, opts),
+            settings: settingsDeps,
+            restart: () => void router.navigate(router.href(req.path, req.query), { replace: true, force: true }),
+          }),
+      },
+      {
+        name: 'settings',
+        pattern: '/settings',
+        mount: (host) => showSettings(host, { ...settingsDeps, back: routes.menu() }),
+      },
+      { name: 'saves', pattern: '/saves', mount: (host) => mountSaves(host) },
+      {
+        name: 'credits',
+        pattern: '/credits',
+        mount: (host) =>
+          showCredits(host, {
+            base: BASE,
+            build: __APP_BUILD__,
+            back: routes.menu(),
+            fetchText: fetchLicenceText,
+          } satisfies CreditsDeps),
+      },
+      // Reserved for Phase 1's briefing screen. Until that exists the path is
+      // a redirect rather than a 404, so a link written against it today lands
+      // the player in the mission rather than on an error card.
+      {
+        name: 'briefing',
+        pattern: '/briefing/:id',
+        mount: (_host, req) => {
+          void router.navigate(routes.mission(req.params.id), { replace: true });
+          return () => {};
+        },
+      },
+    ],
+    notFound: (host, req) => {
+      bootError(host, t('boot.notFound.title'), t('boot.notFound.body', { path: req.path }), routes.menu());
+      return () => host.replaceChildren();
+    },
+  });
+  // Same-origin anchors become navigations, for the whole life of the
+  // document -- there is no point at which this page stops wanting them, so
+  // its disposer is dropped rather than stored.
+  interceptLinks(document, router);
+  // `fresh` has done its work above and is not a route parameter, so it comes
+  // off the URL -- except on the way into a mission, where it still means "run
+  // this one against an empty ledger" and `bootBattlefield` reads it back off
+  // `req.query`, exactly as the pre-router code read it off the query string.
+  await router.start({ drop: landingIsMission ? [] : ['fresh'] });
+}
+
+/** What `bootBattlefield` needs off the URL, already resolved by the router:
+ *  a mission id or a sandbox map (never both), the residual query, the signal
+ *  that goes off when a later navigation wins the race, and the one way out. */
+export interface BattlefieldRequest {
+  missionId: string | null;
+  sandboxMap: string | null;
+  query: URLSearchParams;
+  signal: AbortSignal;
+  /** Leave the battlefield. A ROUTER navigation, not `window.location.assign`:
+   *  the exits below go through this so the shell keeps one JS realm across a
+   *  mission boundary, which is the whole point of the disposer beneath it.
+   *  Passed in rather than closed over so `bootBattlefield` stays a function of
+   *  its request and the router stays `main()`'s business. */
+  navigate: (href: string, opts?: { replace?: boolean; force?: boolean }) => void;
+  /** The shell's one settings store -- read live (`req.settings.get()`) rather
+   *  than snapshotted, since a pause-menu change (Task 6) must reach the
+   *  camera pan speed and the mixer without a re-boot. */
+  settings: SettingsDeps;
+  /** Re-mount this same battlefield from scratch -- the pause menu's Restart
+   *  (Task 6), confirmed by the caller first. A forced, replacing navigation
+   *  to this route's own href rather than a bespoke re-init: the router's
+   *  existing mount/dispose sequencing is what tears the old sim/renderer down
+   *  and boots a fresh one, so there is no second teardown path to keep in
+   *  step with the real one. */
+  restart(): void;
+}
+
+/**
+ * The mission and the sandbox: map, sim, renderer, HUD, and the real-time
+ * loop. Everything below this line was the tail of `main()` before the router;
+ * the boundary is what lets the shell mount a battlefield as one screen among
+ * several rather than as the end of boot.
+ *
+ * The returned disposer really tears the battlefield down: the frame loop, the
+ * renderer's GPU context, every window listener and timer below, and the HUD,
+ * minimap, overlay, marquee, tutorial panel, end screen and debrief that mount
+ * on `document.body` rather than on the stage the router clears. Exits are
+ * router navigations now, so leaving a mission and entering another one is one
+ * JS realm and no page load -- which `pnpm ui:routes` is the standing proof of.
+ *
+ * Three rules for anything added in here. Register its teardown with
+ * `onDispose(...)` at the point it is CREATED, not in a list at the bottom that
+ * drifts. Make the teardown idempotent and self-scoped -- a superseded mount's
+ * disposer can run after the next battlefield has started booting, so a
+ * teardown that reaches for something by name rather than by identity can take
+ * the wrong one down (see the `__lions` registration).
+ *
+ * And **anything that can still COMPLETE after the teardown must consult
+ * `disposed` before it touches `renderer`, `sim` or the DOM.** Cancelling the
+ * frame loop stops the work this function drives; it does nothing about work
+ * already in flight. The deferred art block below is the live case -- wreck
+ * sprites, deferred buildables and building-wreck meshes are started two frames
+ * after deploy and land whole seconds later, by which time the player may have
+ * left and the renderer may be gone. A fetch has no signal to cancel it here,
+ * so the guard is at the points where a resolution would reach back in.
+ */
+async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Promise<Disposer> {
+  const params = req.query;
+  const audio = battleAudio();
+  const { storage, boughtUnits, ownedTiers } = accountState();
+  /** The end screen and the debrief mount on `document.body`, not on the
+   *  stage, so the router cannot clear them: whoever tears a battlefield down
+   *  has to. Collected here and drained by `teardown` below. */
+  const screenDisposers: Disposer[] = [];
+
+  /** Every teardown this boot has registered, in creation order. Drained in
+   *  REVERSE by `teardown()`, so a thing is released before whatever it was
+   *  built on top of. */
+  const cleanup: Disposer[] = [];
+  const onDispose = (f: Disposer): void => {
+    cleanup.push(f);
+  };
+  /**
+   * Set by `teardown()` before it runs anything, and read by every callback
+   * that can outlive this battlefield -- see the third rule above.
+   *
+   * It is set FIRST, not last, and that ordering is the whole point: a
+   * disposer partway down the list can itself settle a promise (the loading
+   * screen's rejection is one), so a flag set at the end would be false for
+   * exactly the callbacks the teardown is causing to run.
+   */
+  let disposed = false;
+  /**
+   * Run every registered teardown, once.
+   *
+   * `splice(0)` empties the list as it takes it, so a second call -- and both
+   * happen, since an aborted boot tears down here and the router may still
+   * call the disposer it eventually gets back -- finds nothing to do. Each
+   * teardown is isolated: one that throws must not strand the rest, and a
+   * half-torn-down battlefield is what leaks a WebGL context.
+   */
+  const teardown = (): void => {
+    disposed = true;
+    for (const f of cleanup.splice(0).reverse()) {
+      try {
+        f();
+      } catch (err) {
+        console.error('battlefield teardown:', err);
+      }
+    }
+  };
+  /** Bail out of a boot that has been superseded. The `AbortError` shape is
+   *  what `Router.mountLocation` swallows for a stale mount; anything else
+   *  would print a boot failure for a mission the player deliberately left. */
+  const abandon = (why: string): never => {
+    teardown();
+    throw new DOMException(why, 'AbortError');
+  };
+  onDispose(() => {
+    for (const d of screenDisposers.splice(0)) d();
+  });
+  /**
+   * `window.addEventListener`, with the removal registered in the same
+   * statement.
+   *
+   * Every listener this function puts on `window` outlives the battlefield
+   * unless something takes it off -- `window` is not the stage, and the router
+   * cannot clear it. Writing the add and the remove apart is how one of them
+   * goes missing, so they are one call here and the listener's own identity is
+   * captured rather than re-derived from a name.
+   *
+   * Listeners on `canvas` are deliberately NOT routed through this: the canvas
+   * is the renderer's, it is a child of the stage the router replaces, and it
+   * is unreachable and collectable the moment `renderer.dispose()` and that
+   * replacement have run.
+   */
+  const onWindow = <K extends keyof WindowEventMap>(
+    type: K,
+    fn: (ev: WindowEventMap[K]) => void,
+    opts?: AddEventListenerOptions
+  ): void => {
+    window.addEventListener(type, fn, opts);
+    onDispose(() => window.removeEventListener(type, fn, opts));
+  };
+  /** The same shape for `req.signal`. Used for the one teardown that has to
+   *  happen BEFORE this function returns its disposer -- see the loading
+   *  screen below, which is the only thing that can park the boot
+   *  indefinitely. `once` so it is a single shot; also removed by the ordinary
+   *  teardown, so a mission played to its end leaves nothing on the signal.
+   *
+   *  An ALREADY-aborted signal never fires `abort` again, so it is answered
+   *  inline instead. Reachable: several awaits sit between this function's
+   *  first line and the registration below, and a navigation during any of
+   *  them aborts the signal before this listener exists. */
+  const onAbort = (signal: AbortSignal, fn: () => void): void => {
+    if (signal.aborted) {
+      fn();
       return;
     }
+    signal.addEventListener('abort', fn, { once: true });
+    onDispose(() => signal.removeEventListener('abort', fn));
+  };
+
+  const missionId = req.missionId;
+  let mission: MissionJson | undefined;
+  if (missionId !== null) {
+    const rawMission = (missions as Record<string, MissionJson | undefined>)[missionId];
+    if (!rawMission) {
+      bootError(stage, t('boot.unknownMission.title', { id: missionId }), t('boot.unknownMission.body'));
+      // `teardown`, not a fresh no-op: nothing has been registered yet, so it
+      // does nothing today -- but an early return that opts OUT of the teardown
+      // is how the next registration added above this line goes unreleased.
+      return teardown;
+    }
+    // The mission-text locale overlay (`data/locales/<lang>/missions.json`,
+    // `data/locales/README.md`): `name`/`briefing`/objective `text`/trigger
+    // `label` in the current UI language, layered over the `en` source this
+    // mission's own JSON carries. `currentLocale()` -- not the `pseudo`
+    // wrapper `main()`'s own boot swaps in for chrome text -- because mission
+    // text is DATA (CLAUDE.md: "Data text stays data") and never goes through
+    // the pseudo-locale transform; under `?pseudo=1` this reads `'pseudo'`,
+    // finds no `data/locales/pseudo/` directory, and `loadMissionOverlay`
+    // falls back to `null` exactly as it does for `en` or a real 404.
+    mission = applyMissionLocale(rawMission, await loadMissionOverlay(currentLocale(), BASE));
   }
-  const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger();
+  const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger(storage);
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -750,7 +1320,7 @@ async function main(): Promise<void> {
   // terrain was walked exactly that way. An unknown id falls back rather than
   // failing, and names what it did: a typo in a dev URL should not look like
   // a broken build.
-  const sandboxMap = params.get('sandbox');
+  const sandboxMap = req.sandboxMap;
   if (sandboxMap && !(sandboxMap in maps)) {
     console.warn(
       `unknown sandbox map "${sandboxMap}" — available: ${Object.keys(maps).join(', ')}`
@@ -952,9 +1522,20 @@ async function main(): Promise<void> {
   // could not import this function-local declaration, and this function could
   // not import a test file, so each kept its own copy until both moved to a
   // shared module neither of those constraints applies to).
+  // Task 12: read once here (construction-time, like the renderer backend
+  // choice) rather than live -- a variant switched mid-mission takes effect
+  // from the next one, which the settings hint says explicitly. Both
+  // `teamColors` (the minimap's own tuple) and `resolveColor` below (what
+  // the renderer -- either backend -- asks for a palette key by STRING) have
+  // to agree on this same value, or the silhouette outline, the HP bars, the
+  // objective-zone tints and the min-range ring -- every one of which asks
+  // `resolveColor('team.hostile')`/`'team.kedem'`/`'team.neutral'` rather
+  // than reading `teamColors` directly -- would keep drawing the default
+  // palette regardless of the setting.
+  const cvdVariant = req.settings.get().accessibility.colorVision;
   const opts: RendererOptions = {
     background: paletteColor('shadow.1'),
-    teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor('team.neutral')],
+    teamColors: paletteTeamColors(cvdVariant),
     hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],
     infantryColors: [paletteColor('olive.0'), paletteColor('dust.0'), paletteColor('limestone.1')],
     groupColors: [
@@ -977,7 +1558,17 @@ async function main(): Promise<void> {
     flashColor: paletteColor('vfx.fire'),
     nearMissColor: paletteColor('dust.0'),
     interceptColor: paletteColor('vfx.interceptor'),
-    resolveColor: paletteColor,
+    // `variantAwareResolver` (@lions/data) is `paletteColor` for every key
+    // except the four `team.*` ones, which it routes through this same
+    // `cvdVariant` -- the silhouette outline (`silhouette.ts`'s
+    // `SILHOUETTE_COLOR_KEY_BY_SIDE`, every billboard `UnitInstancer`'s
+    // `uTeam` and the mesh path's shared materials), the HP bar
+    // (`hpBarColorKey`), the objective-zone tint (`objectiveZoneColorKey`)
+    // and the min-range ring all ask for a palette key by name rather than
+    // reading `teamColors` above, so a bare `paletteColor` here would leave
+    // every one of them on the default palette no matter what the player
+    // picked.
+    resolveColor: variantAwareResolver(cvdVariant),
     // The ground albedos, served out of the repo-root `assets/` publicDir
     // like every sprite sheet and font. Three-only and fail-soft: Pixi
     // ignores the fields and the three ground draws its flat palette tone if
@@ -1012,6 +1603,12 @@ async function main(): Promise<void> {
     // (level load time, step 4), so a mesh renderer without this loads no
     // mesh at all -- it is not a nicety, and `gltf-loader.ts` says so.
     dracoDecoderPath: dracoDecoderPath(),
+    // Shell upgrade Phase 1: the video-quality setting, read once here like
+    // `cvdVariant` above -- a change mid-mission takes effect from the next
+    // one, which is what `settings.quality.hint` tells the player. Three-only
+    // (see `RendererOptions.quality`); Pixi ignores it like every other field
+    // in this stretch.
+    quality: QUALITY_PRESETS[req.settings.get().video.quality],
   };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the
@@ -1204,13 +1801,18 @@ async function main(): Promise<void> {
       // mission fields any.
       meshPathActive = true;
       ensureUnitMesh = (typeId: string): void => {
-        if (!hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
+        // A mesh started before the player left would otherwise be handed to a
+        // disposed renderer whenever it lands. Guarded at the start AND in the
+        // handler: `loadMeshUnit` is a fetch plus a GLTF parse, so the window
+        // between the two is seconds wide on a cold cache.
+        if (disposed || !hasUnitMesh(typeId) || meshLoaded.has(typeId)) return;
         meshLoaded.add(typeId);
         const rigged = RIGGED_UNIT_MESHES[typeId];
         const job = rigged
           ? three.loadMeshUnit(typeId, rigged.files.map(meshUrl), rigged.faction)
           : three.loadVehicleMesh(typeId, meshUrl(VEHICLE_UNIT_MESHES[typeId]));
         job.catch((err: unknown) => {
+          if (disposed) return;
           console.warn(`[lions] mesh FAILED for ${typeId}:`, err);
           failedMesh.push(typeId);
         });
@@ -1221,8 +1823,12 @@ async function main(): Promise<void> {
       // is already drawing for it, so the warning is the whole cost.
       wreckMeshLoader = (structureId: string): void => {
         const files = BUILDING_MESHES[structureId];
-        if (!files) return;
+        // The longest-latency load in the boot -- 9.6 MiB of collapsed masonry
+        // that nobody is waiting for -- and therefore the one most likely to
+        // land after a leave.
+        if (disposed || !files) return;
         three.loadBuildingWreckMesh(structureId, meshUrl(files.wreck)).catch((err: unknown) => {
+          if (disposed) return;
           console.warn(`[lions] building wreck mesh FAILED for ${structureId}:`, err);
           failedMesh.push(`${structureId}_wreck`);
         });
@@ -1287,17 +1893,55 @@ async function main(): Promise<void> {
     mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined,
     resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined,
     // A sandbox has no briefing to go back to -- only a real mission gets an
-    // Escape/back edge (task 6).
-    mission ? () => window.location.assign('?campaign') : undefined
+    // Escape/back edge (task 6). A router navigation now, not a page load:
+    // this is the earliest soft exit from a battlefield, and it fires while
+    // this very function is still parked on `loading.done()` below.
+    mission ? () => req.navigate(routes.campaign()) : undefined
   );
+  onDispose(() => loading.dispose());
+  // The one teardown that cannot wait for this function to return.
+  //
+  // `loading.done()` parks on the player's click for as long as they care to
+  // read. A navigation that supersedes this boot aborts `req.signal` (the
+  // router's `unmount()` aborts an in-flight mount, not just a mounted one) --
+  // but the disposer it would run is the value this function has not returned
+  // yet, so nothing would unpark the await and the mount would hang forever
+  // holding a renderer. Disposing the screen from the signal rejects that
+  // parked promise with an `AbortError`; the `catch` below does the rest.
+  //
+  // Registered with `once` so it is a single shot, and removed by the ordinary
+  // teardown so a mission played to its end leaves nothing on the signal.
+  onAbort(req.signal, () => loading.dispose());
   await renderer.init(stage);
+  // `ThreeRenderer` holds a WebGL context, a 4096 shadow map, every geometry
+  // and material for the map, and a ResizeObserver on the canvas. A browser
+  // hands out a bounded number of contexts, so walking in and out of missions
+  // without this is a session that stops drawing after a handful of them.
+  // Optional on the seam (`api.ts`): PixiRenderer's file is frozen and
+  // implements nothing, so a Pixi battlefield still leaks here.
+  //
+  // The CANVAS is taken off in the same breath, and that half is not
+  // redundant. `WebGLRenderer.dispose()` frees the context's resources and
+  // leaves the element in the DOM, and the router only clears the stage for a
+  // screen that actually MOUNTED -- `Router.unmount()` returns early at
+  // `if (!m) return` when the mount is still in flight. So a battlefield
+  // abandoned on its deploy screen left its canvas behind in the stage, under
+  // the campaign board, and the route walk photographed exactly that: two
+  // canvases where the board needs one. Measured, not assumed; a teardown that
+  // relies on the router to clean up after it is the rule this file states at
+  // the top, broken.
+  onDispose(() => {
+    renderer.dispose?.();
+    renderer.canvas.remove();
+  });
+  if (req.signal.aborted) abandon('left while the renderer was starting');
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
   // Load sprite sheets for unit types that have rendered art (non-blocking).
-  // `SPRITE_MAP` itself is declared above, near the top of this function,
-  // ahead of the mode-selection branches — the brigade route (one of them)
-  // reads the same table for its portrait resolver, so a unit's picture
-  // cannot differ between the HUD's card and the roster screen.
+  // `SPRITE_MAP` itself is declared at module scope, above `main()`, because
+  // the brigade screen is its other reader: the roster resolves a portrait
+  // through the same table, so a unit's picture cannot differ between the
+  // HUD's card and that screen.
   // Structures with art. A building has one sprite, not sixteen: it is placed
   // with a fixed orientation under a fixed camera and never turns. Types without
   // a sheet keep the procedural extrusion, so art lands one building at a time.
@@ -1367,8 +2011,14 @@ async function main(): Promise<void> {
   /** One unit sheet, its own failure swallowed into `failedArt` -- shared by
    *  the deploy-gating loop below and the after-first-frame loads. */
   const loadUnitSheet = (id: string): Promise<void> => {
+    // The deferred half of the sheet plan runs through here two frames after
+    // deploy, so this can be called -- and can resolve -- after the player has
+    // left. `loadSprites` decodes into the renderer's atlases, which is exactly
+    // the kind of touch the third rule at the top of this function names.
+    if (disposed) return Promise.resolve();
     const { path, ...rest } = SPRITE_MAP[id];
     return renderer.loadSprites(id, path, rest).catch((err) => {
+      if (disposed) return;
       console.warn(`[lions] sprites FAILED for ${id}:`, err);
       failedArt.push(id);
     });
@@ -1455,7 +2105,20 @@ async function main(): Promise<void> {
 
   // Waits for the player when there are orders to read; resolves at once when
   // there are none, which is every sandbox and the tutorial.
-  await loading.done();
+  //
+  // The one await in this function that can park indefinitely, so it is the
+  // one with a catch: the signal listener above disposes the screen when this
+  // boot is superseded, which rejects this promise with an `AbortError` rather
+  // than leaving the mount hanging. Anything else that comes out of here is a
+  // genuine boot failure and is rethrown untouched -- after the teardown, so a
+  // failed boot does not strand a renderer either.
+  try {
+    await loading.done();
+  } catch (err) {
+    teardown();
+    throw err;
+  }
+  if (req.signal.aborted) abandon('left before deploy');
 
   // The art the game may still need but nobody is waiting for -- a mesh
   // vehicle's wreck sprite, a deferred buildable's billboard fallback, and
@@ -1483,11 +2146,18 @@ async function main(): Promise<void> {
     });
   }
   if (afterFirstFrame.length > 0) {
-    requestAnimationFrame(() =>
+    // Guarded at BOTH hops, and neither is the frame loop. These two callbacks
+    // are scheduled on their own, are not the `rafId` the disposer cancels, and
+    // fire whether or not the battlefield is still there -- so a player who
+    // leaves within two frames of deploying would otherwise start the whole
+    // deferred art batch against a renderer that has just been disposed.
+    requestAnimationFrame(() => {
+      if (disposed) return;
       requestAnimationFrame(() => {
+        if (disposed) return;
         for (const start of afterFirstFrame) start();
-      })
-    );
+      });
+    });
   }
 
   const getMission = (): MissionView | null =>
@@ -1603,6 +2273,17 @@ async function main(): Promise<void> {
     unload: () => runVerb('dismount'),
   };
 
+  // Task 6: Escape's target. Declared before `hud` so `isPaused` below closes
+  // over it trivially; `pause`/`resume` (which need `hud.paintSpeed()`) are
+  // defined just after the Hud exists.
+  let paused = false;
+  let pauseHandle: { close: Disposer } | null = null;
+  // Fix round 1: set the moment `showEndScreen` shows (below, at the
+  // `missionEnd` event) and read by `case 'pause':` -- Escape must do
+  // nothing once the mission is over, win or lose, rather than open a menu
+  // for an attempt that no longer exists.
+  let missionEnded = false;
+
   const hud = new Hud(document.body, {
     sim,
     getSelection: () => renderer.selection,
@@ -1613,6 +2294,12 @@ async function main(): Promise<void> {
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
+    // `row.key` is an `input/keymap.ts` action id for every bound order and
+    // the literal `'RMB'` for `attackMove` -- `isAction` tells the two apart,
+    // and `bindings` (declared below, alongside the keydown listener that
+    // reads the same table) is closed over rather than copied, so a rebind
+    // repaints the button the next time the HUD ticks.
+    keyFor: (id) => (isAction(id) ? keyLabel(bindings[id]) : id),
     portrait: (typeId) => portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
     // A closure over `runtime`, not a snapshot of it: the Hud is constructed
@@ -1631,8 +2318,92 @@ async function main(): Promise<void> {
     toggleMute: () => {
       audioMuted = audio.toggle();
     },
-    leave: () => window.location.assign('?campaign'),
+    isPaused: () => paused,
+    // The in-mission exit, behind the strip's confirm dialog. A router
+    // navigation since this task: the campaign screen mounts into the same
+    // document, and the disposer registered below is what makes that safe --
+    // before it, a soft leave left the HUD, the minimap and the frame loop
+    // running over whatever screen came next.
+    leave: () => req.navigate(routes.campaign()),
   });
+  // Six panes on `document.body`, plus a title card that may still be holding.
+  onDispose(() => hud.destroy());
+
+  // Task 6: the pause menu. `pause`/`resume` are the only two writers of
+  // `paused` -- the frame loop below reads it through `advanceClock`, and
+  // `Hud.paintSpeed` reads it through `isPaused` above, so nothing else may
+  // set it directly (the `missionEnd` handler below is the one exception,
+  // and it closes `pauseHandle` without going through `resume`, since
+  // "resumed" is not the right word for a mission that just ended). Both are
+  // idempotent (`if (paused) return;` / `if (!paused) return;`) -- fix round
+  // 1 removed the SECOND caller of `resume` this comment used to describe
+  // (`case 'pause':` no longer resumes at all, see there), but idempotence
+  // stays right: the modal's own Escape and its Resume button both still
+  // reach `resume`, and either can fire first.
+  const pause = (): void => {
+    if (paused) return;
+    paused = true;
+    // Repainted here, not on the next tick: at `paused` no tick ever comes,
+    // so a strip that waits for one never dims.
+    hud.paintSpeed();
+    pauseHandle = pauseMenu(document.body, {
+      objectives: () => runtime?.objectiveList ?? [],
+      onResume: resume,
+      // Fix round 1: read from `bindings` (declared below, closed over --
+      // safe, since this only runs from a captured keydown, long after
+      // `bindings` exists) through the same `resolveKey` the game's own
+      // keydown listener uses, so a rebind of w/a/s/d is honoured
+      // immediately rather than the hardcoded default set this shipped
+      // with first. No modifier: none of the four pan actions declares one.
+      isPanKey: (ev) => {
+        const a = resolveKey(bindings, ev);
+        return a === 'panUp' || a === 'panDown' || a === 'panLeft' || a === 'panRight';
+      },
+      onRestart: () => {
+        void confirmDialog(document.body, {
+          title: t('pause.restart.confirm.title'),
+          body: t('pause.restart.confirm.body'),
+          confirm: t('pause.restart.confirm.action'),
+          danger: true,
+        }).answer.then((ok) => {
+          if (ok) req.restart();
+        });
+      },
+      onQuit: () => {
+        // Same wording as the HUD's own "leave the mission" confirm
+        // (hud.ts's leaveBtn) -- both ask the identical question.
+        void confirmDialog(document.body, {
+          title: t('hud.leave.confirm.title'),
+          body: t('hud.leave.confirm.body'),
+          confirm: t('hud.leave.confirm.action'),
+          danger: true,
+        }).answer.then((ok) => {
+          if (ok) req.navigate(routes.campaign());
+        });
+      },
+      settings: req.settings,
+      build: __APP_BUILD__,
+    });
+  };
+  const resume = (): void => {
+    if (!paused) return;
+    paused = false;
+    pauseHandle?.close();
+    pauseHandle = null;
+    hud.paintSpeed();
+  };
+  // A superseded battlefield's teardown must close its own pause modal --
+  // otherwise leaving a paused mission mid-fight would strand the modal (and
+  // its capture-phase keydown guard) on `document.body` under whatever screen
+  // the router mounts next.
+  onDispose(() => pauseHandle?.close());
+  // ...and its own confirm dialogs, which mount on `document.body` (the HUD's
+  // leave button, and the pause menu's Restart/Quit) rather than on the stage,
+  // so the router never clears them. Without this a battlefield left while one
+  // was up would leave the scrim sitting over the next screen, still listening
+  // -- the visible half of C1. Idempotent and safe if the router already closed
+  // it on its way through `unmount()`.
+  onDispose(() => closeOpenDialog());
   // The minimap (GH-153). Mounted here rather than inside the Hud because it
   // needs three things the Hud deliberately does not carry -- the parsed map,
   // the renderer, and this map's terrain tones -- and threading all three
@@ -1653,17 +2424,15 @@ async function main(): Promise<void> {
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
   });
+  // Also on the body, and it carries its own pointer listeners and canvas.
+  onDispose(() => minimap.destroy());
   // Loud, not a console.warn behind a completed loading bar: `failedArt`
   // (collected above, before the HUD existed to report through) names every
   // structure or unit type whose art never loaded. One notice for the whole
   // batch — a burst of individually-failed fetches is one incident, not one
   // per id.
   if (failedArt.length > 0) {
-    hud.note(
-      `<b>art failed to load</b> for ${failedArt.length} type${failedArt.length === 1 ? '' : 's'}` +
-        ` (${failedArt.join(', ')}) — see the console for details`,
-      'bad'
-    );
+    hud.note(t('main.note.artFailed', { n: failedArt.length, ids: failedArt.join(', ') }), 'bad');
   }
   /** The same notice for a mesh that arrived late and failed. Separate from
    *  `failedArt` because it can happen minutes into a mission, long after that
@@ -1674,11 +2443,14 @@ async function main(): Promise<void> {
     for (const id of failedMesh) {
       if (reportedMeshFailures.has(id)) continue;
       reportedMeshFailures.add(id);
-      hud.note(`<b>mesh failed to load</b> for ${id} — drawing its sprite instead`, 'bad');
+      hud.note(t('main.note.meshFailed', { id }), 'bad');
     }
   };
   // The instrument, off by default now that the HUD is not built on top of it.
   const overlay = new DebugOverlay(document.body, sim, () => renderer.selection, __GAME_VERSION__);
+  // Two panes on the body -- the status pane and the roll feed -- whether or
+  // not the instrument was ever opened.
+  onDispose(() => overlay.destroy());
   // DebugOverlay does not expose its own visibility, so the intent that
   // reports it is tracked here, kept in lockstep with every `toggle()` call.
   let overlayOn = false;
@@ -1700,7 +2472,7 @@ async function main(): Promise<void> {
     const primaries = mission.objectives.filter((o) => o.primary !== false).length;
     // `dispatch` is the story voice (GDD §11); absent, this card behaves
     // exactly as it always has (`titleCard`'s own contract).
-    hud.announce(mission.name ?? mission.id, `${primaries} primary objective(s)`, mission.dispatch);
+    hud.announce(mission.name ?? mission.id, t('main.announce.primaryObjectives', { n: primaries }), mission.dispatch);
   }
 
   const start = mission?.map.player_start;
@@ -1765,13 +2537,23 @@ async function main(): Promise<void> {
       },
     });
   }
+  // Also on the body, and only on a `resources` mission -- which is exactly
+  // why the route walk leaves its soft-booted mission too. The board's first
+  // card is `beit_sahwan_breach`, one of the nineteen missions that field a
+  // dock; a walk that only ever left the two recon missions could not have
+  // seen this one, and did not.
+  onDispose(() => production?.destroy());
 
   // --- input ---------------------------------------------------------------
   const canvas = renderer.canvas;
   // Left drag = box select; a short click = single select.
   const dragBox = document.createElement('div');
   dragBox.className = 'rl-marquee';
+  // On the BODY, not the stage -- it is positioned in client coordinates
+  // against the canvas's bounding rect -- so the router cannot clear it and
+  // this has to.
   document.body.appendChild(dragBox);
+  onDispose(() => dragBox.remove());
   let dragStart: { x: number; y: number } | null = null;
   /** Last cursor position over the map, for keyboard-issued orders. */
   const lastCursor = { x: 0, y: 0 };
@@ -1812,6 +2594,10 @@ async function main(): Promise<void> {
     }
     animName = null;
   };
+  // A `setInterval` outlives the document's attention span, not just the
+  // frame loop: left running it writes `data-cursor-frame` to a detached
+  // canvas several times a second for the rest of the session.
+  onDispose(stopCursorAnim);
   const ensureCursorAnim = (name: CursorName): void => {
     const anim = ANIMATED_CURSORS[name];
     if (!anim) {
@@ -1858,7 +2644,7 @@ async function main(): Promise<void> {
   if (
     mission &&
     stepList &&
-    (tutorialReplay || window.localStorage.getItem(TUTORIAL_DONE_KEY) === null)
+    (tutorialReplay || !tutorialDone(safeStorage()))
   ) {
     tut = initTutorial(stepList.steps, performance.now());
     tutPanel = tutorialPanel(document.body, {
@@ -1869,6 +2655,12 @@ async function main(): Promise<void> {
         renderer.clearTutorialFocus();
       },
     });
+    // Also on the body. `destroy()` is idempotent-by-nulling here: whichever
+    // of Skip and the teardown runs first leaves the other with nothing.
+    onDispose(() => {
+      tutPanel?.destroy();
+      tutPanel = null;
+    });
     intentListeners.push((intent) => {
       if (!tut) return;
       tut = advance(tut, { kind: 'intent', intent }, performance.now());
@@ -1878,7 +2670,7 @@ async function main(): Promise<void> {
   canvas.addEventListener('pointerdown', (ev) => {
     if (ev.button === 0) dragStart = canvasXY(ev);
   });
-  window.addEventListener('pointermove', (ev) => {
+  onWindow('pointermove', (ev) => {
     // Position and modifier state only. The hover work this used to do
     // inline — screenToWorld, structureAt, the garrison check, and the O(N)
     // entity scan — moved to the ticker (below), which runs it once per
@@ -1898,7 +2690,7 @@ async function main(): Promise<void> {
     dragBox.style.width = `${Math.abs(p.x - dragStart.x)}px`;
     dragBox.style.height = `${Math.abs(p.y - dragStart.y)}px`;
   });
-  window.addEventListener('pointerup', (ev) => {
+  onWindow('pointerup', (ev) => {
     if (ev.button !== 0 || !dragStart) return;
     const p = canvasXY(ev);
     const moved = Math.hypot(p.x - dragStart.x, p.y - dragStart.y);
@@ -1924,10 +2716,13 @@ async function main(): Promise<void> {
             ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
             : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
         dispatch({ kind: 'support', call, x: w.x, y: w.y, accepted: ok });
+        // Reuses the dock's own SUPPORT word keys (production.ts) so a call's
+        // name reads the same on the tile and in the notice that confirms it.
+        const wordKey = call === 'sweep' ? 'dock.support.sweep.word' : 'dock.support.strike.word';
         hud.note(
           ok
-            ? `<b>${call === 'sweep' ? 'sweep' : 'strike'} called</b> on (${w.x.toFixed(0)}, ${w.y.toFixed(0)})`
-            : 'support call refused — not enough intel',
+            ? t('main.note.supportCalled', { name: t(wordKey), x: w.x.toFixed(0), y: w.y.toFixed(0) })
+            : t('main.note.supportRefused'),
           ok ? 'info' : 'mute'
         );
         if (ok) renderer.addOrderMarker(w.x, w.y);
@@ -2040,58 +2835,145 @@ async function main(): Promise<void> {
     if (res.note) hud.note(res.note.text, res.note.tone);
     if (res.marker) renderer.addOrderMarker(w.x, w.y);
   });
+  // The keyboard, as data (Task 5): `resolveKey` is the one place a raw
+  // `KeyboardEvent` becomes an action id, and everything below dispatches on
+  // the id rather than the letter. Read live off the settings store and
+  // re-read on every change, the same way `panSpeed` already does below --
+  // a rebind made from the pause menu (Task 6) over a running mission must
+  // reach this listener without a re-boot.
+  let bindings = bindingsFrom(req.settings.get().controls.bindings);
+  onDispose(req.settings.onChange((next) => {
+    bindings = bindingsFrom(next.controls.bindings);
+  }));
   const keys = new Set<string>();
   // Control groups 1–9, and double-tap tracking for camera centring.
   const groups = new Map<number, number[]>();
   let lastGroupKey = -1;
   let lastGroupAt = 0;
-  window.addEventListener('blur', () => keys.clear());
-  window.addEventListener('keydown', (ev) => {
-    // macOS swallows keyups released under Cmd — never track modified keys,
-    // or Cmd+A leaves 'a' stuck and the camera pans forever.
-    if (!ev.metaKey && !ev.ctrlKey) keys.add(ev.key.toLowerCase());
-    // The four bound verbs go through `orders`, which is the very object the
-    // HUD's order row calls (GH-153). A key and its button are one function.
-    if (ev.key === 'h') orders.halt();
-    // Tab walks the lime frame along the selection chips. Swallowed only when
-    // there is something to walk: taking the browser's own focus traversal on
-    // a screen with no chips would be a key spent on nothing.
-    if (ev.key === 'Tab' && hud.cycleChipFocus()) ev.preventDefault();
-    if (ev.key.toLowerCase() === 'a' && (ev.ctrlKey || ev.metaKey)) {
-      ev.preventDefault(); // browser select-all
-      renderer.selection = [];
-      for (let i = 0; i < sim.entityCount; i++) {
-        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) renderer.selection.push(i);
-      }
-    }
-    if (ev.key === 'o') {
-      overlay.toggle();
-      overlayOn = !overlayOn;
-      dispatch({ kind: 'overlay', on: overlayOn });
-    }
-    // Mount up / dismount / smoke: the same resolver the right-click uses,
-    // asked with a KeyContext instead of a PointerContext. The keys are
-    // unchanged; what moved is where the eligibility rules live -- and, as of
-    // GH-153, WHERE THE CALL LIVES: `orders` above is the same object the HUD's
-    // order row clicks, so `g` and the Load button are one code path rather
-    // than two that have to keep agreeing.
-    if (ev.key === 'g') orders.load();
-    if (ev.key === 'u') orders.unload();
-    // The dock's label reads `Reinforcements · B`, and this is what makes that
-    // true. It moves keyboard focus onto the first tile the player could
-    // actually spend on; from there the tiles are ordinary buttons, so Tab
-    // walks them and Enter buys. A label naming a key that did nothing is the
-    // same drift slice 2 refused when it declined to print `Attack-move A`.
-    if (ev.key === 'b') production?.focusFirst();
-    // `f` quick-casts at the cursor rather than arming, which is what it has
-    // always done and what a hand already on the mouse wants. The Smoke
-    // BUTTON arms instead -- see `armOrder` for why a button cannot quick-cast
-    // -- and both end in this same call.
-    if (ev.key === 'f') runVerb('smoke');
-    if (ev.key === 'm') {
-      audioMuted = audio.toggle();
-      hud.paintMute(); // the key and the strip's chip are one state, both ways
-      hud.note(audioMuted ? 'audio muted' : 'audio on', 'mute');
+  onWindow('blur', () => keys.clear());
+  onWindow('keydown', (ev) => {
+    // The keydown listener used to be an if-chain of literals -- one per
+    // bound key, and a second copy of each letter living in
+    // `selection-model.ts`'s ORDERS with nothing keeping the two in step.
+    // `resolveKey` is the one place a raw event becomes an action id now,
+    // and this switch is the one place an action id becomes a call.
+    const action = resolveKey(bindings, ev);
+    // I1 (final review): ONE guard for the whole handler, not one per case.
+    // With a modal up, the only key this listener may still act on is a camera
+    // pan -- see `passesThroughModal` for why that one is not a game verb, and
+    // for what Tab was doing behind an open dialog before this line existed.
+    // It covers the control-group digits below the switch too, which are not a
+    // `case` at all and so could never have been guarded case by case.
+    //
+    // This is a SECOND line of defence, deliberately: both modals already
+    // `stopPropagation()` in the capture phase, so in the normal course this
+    // listener never runs at all while one is open. What it defends against is
+    // the abnormal course -- a modal whose listener is missing (C1) or one that
+    // passes a key through on purpose (Tab, Enter, Escape, and the pause menu's
+    // pan exemption).
+    if (isDialogOpen() && !passesThroughModal(action)) return;
+    switch (action) {
+      case 'halt':
+        // The four bound verbs go through `orders`, which is the very object
+        // the HUD's order row calls (GH-153). A key and its button are one
+        // function.
+        orders.halt();
+        break;
+      case 'cycleChips':
+        // Tab walks the lime frame along the selection chips. Swallowed only
+        // when there is something to walk: taking the browser's own focus
+        // traversal on a screen with no chips would be a key spent on
+        // nothing.
+        if (hud.cycleChipFocus()) ev.preventDefault();
+        break;
+      case 'selectAll':
+        ev.preventDefault(); // browser select-all
+        renderer.selection = [];
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) renderer.selection.push(i);
+        }
+        break;
+      case 'overlay':
+        overlay.toggle();
+        overlayOn = !overlayOn;
+        dispatch({ kind: 'overlay', on: overlayOn });
+        break;
+      // Mount up / dismount / smoke: the same resolver the right-click uses,
+      // asked with a KeyContext instead of a PointerContext. The keys are
+      // unchanged; what moved is where the eligibility rules live -- and, as
+      // of GH-153, WHERE THE CALL LIVES: `orders` above is the same object
+      // the HUD's order row clicks, so Load's key and the Load button are one
+      // code path rather than two that have to keep agreeing.
+      case 'load':
+        orders.load();
+        break;
+      case 'unload':
+        orders.unload();
+        break;
+      case 'production':
+        // The dock's label reads `Reinforcements · B`, and this is what makes
+        // that true. It moves keyboard focus onto the first tile the player
+        // could actually spend on; from there the tiles are ordinary
+        // buttons, so Tab walks them and Enter buys. A label naming a key
+        // that did nothing is the same drift slice 2 refused when it
+        // declined to print `Attack-move A`.
+        production?.focusFirst();
+        break;
+      case 'smoke':
+        // Smoke quick-casts at the cursor rather than arming, which is what
+        // it has always done and what a hand already on the mouse wants. The
+        // Smoke BUTTON arms instead -- see `armOrder` for why a button
+        // cannot quick-cast -- and both end in this same call.
+        runVerb('smoke');
+        break;
+      case 'mute':
+        audioMuted = audio.toggle();
+        hud.paintMute(); // the key and the strip's chip are one state, both ways
+        // Same wording as the strip's own mute chip title (`hud.ts`'s
+        // `paintMute`, `hud.mute.muted`/`hud.mute.unmuted`): the key and the
+        // chip say the same thing about the same state.
+        hud.note(t(audioMuted ? 'hud.mute.muted' : 'hud.mute.unmuted'), 'mute');
+        break;
+      case 'pause':
+        // Fix round 1: this listener is the OLDEST bubble listener on
+        // `window` (registered once at boot, long before any dialog
+        // exists), so on a bare Escape it used to run BEFORE any dialog's
+        // own Escape handler and act on Escape regardless of what was
+        // already open -- resuming the game (and tearing the pause menu
+        // down) while the player only meant to cancel a "Restart the
+        // mission?" confirm stacked on top of it, or opening this menu
+        // under the HUD's own "Leave the mission?" confirm. The game now
+        // only OPENS the menu, and only when nothing else already owns
+        // Escape: not already paused, no confirm or pause modal in the DOM
+        // (`isDialogOpen`, `ui/confirm.ts`), and the mission has not ended.
+        // Resuming stays exclusively the modal's own job (its bubble Escape
+        // handler and its Resume button, both calling `resume` -- see the
+        // comment above `pause`).
+        //
+        // The `isDialogOpen()` here is subsumed by the handler-wide guard at
+        // the top (Escape resolves to `pause`, which is not a pan, so the
+        // listener has already returned). It is kept rather than deleted
+        // because it is this case's own stated contract -- the game only OPENS
+        // the menu, and only when nothing else owns Escape -- and
+        // `pause.test.ts`'s stand-in mirrors this exact expression. Two reads
+        // of one predicate, not two predicates.
+        if (!paused && !isDialogOpen() && !missionEnded) pause();
+        break;
+      case 'panUp':
+      case 'panDown':
+      case 'panLeft':
+      case 'panRight':
+        // The PHYSICAL key, not the action -- W and the physical Up arrow are
+        // two different keys that both resolve to `panUp`, and storing the
+        // action here would collapse them onto one Set entry, so releasing
+        // whichever key's `keyup` happens to fire first would stop the pan
+        // while the other was still held. `heldAction` (below, in the render
+        // loop) is what turns a set of physical keys back into "is this
+        // direction held right now".
+        keys.add(ev.key.toLowerCase());
+        break;
+      case null:
+        break; // the digit branches below stay exactly as they are
     }
 
     // Control groups: Ctrl/Cmd+digit assigns the selection, digit recalls it,
@@ -2113,7 +2995,9 @@ async function main(): Promise<void> {
         for (const i of mine) renderer.unitGroup[i] = slot;
         dispatch({ kind: 'group', slot, action: 'assign' });
         hud.note(
-          mine.length ? `<b>group ${slot}</b> — ${mine.length} unit(s)` : `group ${slot} cleared`,
+          mine.length
+            ? t('main.note.groupAssigned', { slot, n: mine.length })
+            : t('main.note.groupCleared', { slot }),
           'live'
         );
       } else {
@@ -2139,7 +3023,10 @@ async function main(): Promise<void> {
       }
     }
   });
-  window.addEventListener('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
+  // Deletes the physical key regardless of what it resolves to NOW -- `keys`
+  // was populated by physical key, so removal has to match by physical key
+  // too, and a delete of something never added is a harmless no-op.
+  onWindow('keyup', (ev) => keys.delete(ev.key.toLowerCase()));
   canvas.addEventListener('wheel', (ev) => {
     ev.preventDefault();
     const z = renderer.camera.zoom * (ev.deltaY > 0 ? 0.9 : 1.1);
@@ -2207,7 +3094,7 @@ async function main(): Promise<void> {
               updatedLedger['roster.surviving_units'] = named.roster;
               updatedLedger['campaign.names_issued'] = named.issued;
             }
-            saveLedger(updatedLedger);
+            saveLedger(storage, updatedLedger);
             // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
             // only for improvement over what this mission has paid before. Read from the
             // runtime's own counters -- the same numbers the debrief prints -- and the
@@ -2222,7 +3109,7 @@ async function main(): Promise<void> {
               payout = missionId ? payMission(loadAccount(storage), missionId, runValue, Date.now()) : null;
               if (payout) saveAccount(storage, payout.account);
             }
-            hud.note('<b>campaign ledger updated</b> — survivors and Conduct carried forward', 'info');
+            hud.note(t('main.note.ledgerUpdated'), 'info');
           }
           if (missionId) {
             // Campaign order lives in world.json, not in the order data/missions files
@@ -2244,7 +3131,7 @@ async function main(): Promise<void> {
                 name: u.name ?? u.id,
                 unlock: kdfUnlockGate(u, boughtUnits),
               }));
-            const tier = TIER_LINES[runtime.stars];
+            const tier = tierLine(runtime.stars);
             const promotion = me.result === 'victory' ? promotionAfter(commanderData, worldData, missionId) : null;
             const nextJson = nextMissionId ? (missions as Record<string, MissionJson | undefined>)[nextMissionId] : undefined;
             const region = enemyRegion;
@@ -2346,15 +3233,33 @@ async function main(): Promise<void> {
                   speaker: say.speaker,
                 }
               : undefined;
-            showEndScreen(document.body, {
-              result: me.result,
-              roe: me.roeRating,
-              survivors: me.survivors.length,
-              missionId,
-              nextMissionId,
-              debrief,
-              onDebrief: () => showDebrief(document.body, debriefOpts),
-            });
+            // Fix round 1: set at the exact point `showEndScreen` is about
+            // to show, per the review -- `case 'pause':` reads this and
+            // Escape does nothing once the attempt is over. If the pause
+            // menu happened to be open when the mission ended, close it
+            // directly rather than through `resume()`: there is no clock to
+            // resume any more (the mission is over, not merely unpaused),
+            // so this only needs to take the modal off the screen and let
+            // `paused` settle back to its resting `false`.
+            missionEnded = true;
+            if (paused) {
+              paused = false;
+              pauseHandle?.close();
+              pauseHandle = null;
+            }
+            screenDisposers.push(
+              showEndScreen(document.body, {
+                result: me.result,
+                roe: me.roeRating,
+                survivors: me.survivors.length,
+                missionId,
+                nextMissionId,
+                debrief,
+                onDebrief: () => {
+                  screenDisposers.push(showDebrief(document.body, debriefOpts));
+                },
+              })
+            );
           }
         }
       }
@@ -2386,8 +3291,8 @@ async function main(): Promise<void> {
           renderer.clearTutorialFocus();
         }
         if (tut.done) {
-          window.localStorage.setItem(TUTORIAL_DONE_KEY, '1');
-          hud.note('<b>working up complete</b> — the town is next', 'good');
+          markTutorialDone(safeStorage());
+          hud.note(t('main.note.tutorialComplete'), 'good');
           if (stepList?.completes !== undefined) runtime.completeObjective(stepList.completes);
           tut = null;
           tutPanel?.destroy();
@@ -2420,8 +3325,7 @@ async function main(): Promise<void> {
       if (out.length > 0) {
         renderer.onMissionEvents?.(out);
         hud.note(
-          `<b>civilian evacuated</b> — ${civFlight.evacuatedCount} of ` +
-            `${sandboxForce.civilians.length} out`,
+          t('main.note.civEvacuated', { n: civFlight.evacuatedCount, total: sandboxForce.civilians.length }),
           'good'
         );
       }
@@ -2583,6 +3487,24 @@ async function main(): Promise<void> {
       },
     },
   });
+  /**
+   * Take the dev hook off on the way out -- `window` is not the stage, so
+   * nothing else would, and a `__lions` pointing at a disposed renderer and a
+   * frozen sim is worse than none: `__lions.step()` on it draws into a lost
+   * context. `pnpm ui:routes` asserts its absence after a leave, which is the
+   * cheapest single question that distinguishes "the battlefield went away"
+   * from "the battlefield is still running behind the screen you can see".
+   *
+   * Deleted BY IDENTITY, not by name. A superseded mount's disposer can run
+   * after the next battlefield has already installed its own hook, and a bare
+   * `delete window.__lions` would take that one down instead -- leaving a live
+   * mission with no console API and no error to say why.
+   */
+  const lionsHandle = (window as unknown as Record<string, unknown>).__lions;
+  onDispose(() => {
+    const w = window as unknown as Record<string, unknown>;
+    if (w.__lions === lionsHandle) delete w.__lions;
+  });
 
   /** The hover read: pointer position -> resolver -> cursor name -> DOM.
    *
@@ -2716,8 +3638,10 @@ async function main(): Promise<void> {
   // prevX + (curX - prevX) * alpha reduces to curX regardless.
   renderer.frame(1, lastFrameMs);
 
-  let last = performance.now();
-  let acc = 0;
+  // Task 6: the accumulator is `shell/clock.ts`'s pure `Clock`, so "paused"
+  // (fed in below) is unit-tested without a browser. `paused` is READ here,
+  // never written -- `pause`/`resume` above are the only writers.
+  const clock: Clock = { acc: 0, last: performance.now() };
   // The app owns the frame loop, not the renderer.
   //
   // Pixi's ticker is backend-specific, and a renderer that schedules the
@@ -2731,47 +3655,64 @@ async function main(): Promise<void> {
   let rafId = 0;
   const loop = (): void => {
     rafId = requestAnimationFrame(loop);
-    const now = performance.now();
-    lastFrameMs = now - last;
     // The speed control feeds the ACCUMULATOR, never the tick. A tick is 50 ms
     // of sim time at every setting (invariant 1); 2x runs two of them where one
     // would have run, and 0 runs none while the frame still draws, so the
-    // camera and the selection stay live in a pause.
-    acc += lastFrameMs * gameSpeed;
-    last = now;
-    if (acc > 250) acc = 250; // don't spiral after a background tab
-    while (acc >= MS_PER_TICK) {
-      runTick();
-      acc -= MS_PER_TICK;
-    }
-    const panSpeed = 0.5 / renderer.camera.zoom;
-    if (keys.has('w') || keys.has('arrowup')) {
+    // camera and the selection stay live in a pause. `paused` stops the
+    // accumulator itself (Task 6) -- `__lions.step` bypasses this whole loop
+    // and calls `runTick` directly, so it still advances the sim while paused,
+    // which the tools depend on.
+    const { ticks, frameMs } = advanceClock(clock, performance.now(), gameSpeed, paused, MS_PER_TICK);
+    lastFrameMs = frameMs;
+    for (let i = 0; i < ticks; i++) runTick();
+    // Read live off the settings store, not snapshotted at boot: `set()`
+    // reaches every open battlefield the moment the player changes it,
+    // pause menu included (Task 6) -- `get()` is a plain getter, so this
+    // costs nothing extra per frame.
+    const panSpeed = (0.5 * req.settings.get().controls.cameraSpeed) / renderer.camera.zoom;
+    // `keys` holds PHYSICAL keys (Task 5 fix round 1) -- W and the physical
+    // Up arrow are two different keys that both mean `panUp`, so `held`
+    // asks whether ANY held key currently resolves to that action rather
+    // than testing one fixed spelling. Holding W and ArrowUp together and
+    // releasing only one keeps the camera panning.
+    const held = (action: 'panUp' | 'panDown' | 'panLeft' | 'panRight'): boolean =>
+      heldAction(bindings, keys, action);
+    if (held('panUp')) {
       renderer.camera.x -= panSpeed;
       renderer.camera.y -= panSpeed;
     }
-    if (keys.has('s') || keys.has('arrowdown')) {
+    if (held('panDown')) {
       renderer.camera.x += panSpeed;
       renderer.camera.y += panSpeed;
     }
-    if (keys.has('a') || keys.has('arrowleft')) {
+    if (held('panLeft')) {
       renderer.camera.x -= panSpeed;
       renderer.camera.y += panSpeed;
     }
-    if (keys.has('d') || keys.has('arrowright')) {
+    if (held('panRight')) {
       renderer.camera.x += panSpeed;
       renderer.camera.y -= panSpeed;
     }
-    renderer.frame(acc / MS_PER_TICK, lastFrameMs);
+    renderer.frame(clock.acc / MS_PER_TICK, lastFrameMs);
 
     updateHover();
   };
   rafId = requestAnimationFrame(loop);
-  // `rafId` is a local of main(), and main() has no shutdown path, so nothing
-  // ever reads it -- a teardown would have to lift the handle out of this
-  // scope anyway, which is a restructuring this line does not save anyone.
-  // It exists so the loop's self-re-request has somewhere to land, and is
-  // voided so lint does not report a variable that is only ever written.
-  void rafId;
+  // The load-bearing line of this whole teardown, and the one the route walk
+  // is calibrated against: without it the loop re-requests itself forever,
+  // ticking the sim and drawing into a disposed renderer from behind whatever
+  // screen the player went to. `pnpm ui:routes` was run with exactly this line
+  // commented out and fails on the console errors that produces, which is what
+  // makes its green run evidence rather than an assumption.
+  //
+  // `requestAnimationFrame` above is deliberately left as the bare global so
+  // `capture-protocol.ts`'s `FREEZE_FRAME_LOOP_STATEMENTS` can still stop the
+  // loop by replacing `window.requestAnimationFrame` -- the golden gate's
+  // whole settle depends on that, and a captured local would be invisible to
+  // it. `cancelAnimationFrame` is the global for the same reason.
+  onDispose(() => cancelAnimationFrame(rafId));
+
+  return teardown;
 }
 
 main().catch((err: unknown) => {
@@ -2779,6 +3720,11 @@ main().catch((err: unknown) => {
   const stage = document.getElementById('stage');
   if (stage) {
     const body = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    bootError(stage, 'Boot failed', body);
+    // Not t(): main() itself just threw, which can happen before its own
+    // locale boot (loadLocale/setCatalogue) ever runs -- the catalogue is
+    // not a safe thing to call into here. Every other bootError call site
+    // in this file runs from a router callback or bootBattlefield, well
+    // after main()'s boot sequence has completed successfully.
+    bootError(stage, 'Boot failed', body); /* i18n-ok: boot failure before the catalogue */
   }
 });

@@ -271,6 +271,23 @@ describe('top strip: the persistent controls', () => {
     expect(chip.dataset.on).toBe('1');
   });
 
+  // Task 6: the pause menu calls `hud.paintSpeed()` directly (it is public
+  // now) from `main.ts`'s own `pause`/`resume`, since at `paused` no tick
+  // ever comes to repaint it otherwise -- the same reason a speed-chip click
+  // already repaints itself inline, above.
+  it('dims the speed cluster while paused, distinct from a deliberate 0x hold', () => {
+    let paused = false;
+    const r = rig(mission(), { getSpeed: () => 1, isPaused: () => paused });
+    const cluster = r.host.querySelector<HTMLElement>('.rl-strip__chips')!;
+    expect(cluster.dataset.paused).toBe('0');
+    paused = true;
+    r.hud.paintSpeed();
+    expect(cluster.dataset.paused).toBe('1');
+    paused = false;
+    r.hud.paintSpeed();
+    expect(cluster.dataset.paused).toBe('0');
+  });
+
   it('offers to leave the mission at all times, mid-mission included -- confirmed, not a plain navigation', async () => {
     let left = false;
     const r = rig(mission(), { leave: () => { left = true; } });
@@ -807,6 +824,22 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-card__record')?.textContent).toBe('3 missions · 4 kills');
   });
 
+  it('reads the singular for exactly one mission and one kill -- both plurals, independently', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) =>
+          id === world.namer
+            ? { type: 'inf_squad', veterancy: 0, name: 'Dror', missions: 1, kills: 1 }
+            : undefined,
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__record')?.textContent).toBe('1 mission · 1 kill');
+  });
+
   it('shows the callsign alone for a named unit that carries no record', () => {
     // An old save's entry: named on a victory before `missions`/`kills` were
     // written at all, and never fielded since. The callsign is still its name
@@ -947,6 +980,19 @@ describe('the order row', () => {
     expect(r.queued).toBe(0);
   });
 
+  it('prints the CURRENT keycap for a rebound order, through keyFor', () => {
+    // `ORDERS[].key` carries an action id ('halt'), not a letter -- this is
+    // what proves the row asks `keyFor` for the label instead of printing the
+    // id itself, so a rebind (Task 5) changes the button along with the key.
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      { keyFor: (action) => (action === 'halt' ? 'J' : action) },
+      world
+    );
+    expect(r.order('halt')!.textContent).toContain('J');
+  });
+
   it('lights the armed order and only that one', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], { armedOrder: () => 'attackMove' }, world);
@@ -993,5 +1039,70 @@ describe('victory banner', () => {
     const banner = r.host.querySelector<HTMLElement>('.rl-bigbanner')!;
     expect(banner.querySelector('.rl-bigbanner__head')!.textContent).toBe('Mission accomplished');
     expect(banner.querySelector('.rl-bigbanner__aftermath')).toBeNull();
+  });
+});
+
+/** The HUD mounts on `document.body` in the real app, not on the stage the
+ *  router clears -- so leaving a mission softly means the HUD has to take
+ *  itself off. These two mount on the body deliberately, rather than through
+ *  `rig()`'s scratch host, because "the body is back where it started" is the
+ *  actual claim. */
+describe('destroy', () => {
+  const bodyHud = (): Hud =>
+    new Hud(document.body, {
+      sim: makeSim().sim,
+      getSelection: () => [],
+      getMission: () => null,
+      hoverStructure: () => -1,
+      hoverEntity: () => -1,
+      gameVersion: '0.1',
+      commander: TEST_COMMANDER,
+    });
+
+  it('removes everything it put on the body, and can be called twice', () => {
+    const before = document.body.children.length;
+    const hud = bodyHud();
+    expect(document.body.children.length).toBeGreaterThan(before);
+    hud.destroy();
+    expect(document.body.children.length).toBe(before);
+    // Idempotent: a stale battlefield mount resolving onto an already-aborted
+    // route runs its disposer after the teardown that aborted it.
+    hud.destroy();
+    expect(document.body.children.length).toBe(before);
+  });
+
+  // `announce` mounts a title card that holds for up to five seconds and
+  // registers two window listeners and a timer to dismiss itself. Leaving a
+  // mission inside that window stranded all three on the document, because
+  // `announce` discarded the dismisser `titleCard` hands back.
+  it('takes a mid-hold title card down with it', () => {
+    const before = document.body.children.length;
+    const hud = bodyHud();
+    hud.announce('Beit Sahwan II', '2 primary objective(s)', 'Move out.');
+    expect(document.body.querySelector('.rl-titlecard')).not.toBeNull();
+    hud.destroy();
+    expect(document.body.querySelector('.rl-titlecard')).toBeNull();
+    expect(document.body.children.length).toBe(before);
+  });
+
+  // fix round 1: `destroy()` used to sweep `.rl-titlecard` off `this.host`,
+  // which in the real app is `document.body` -- a host other screens mount on
+  // too. It now removes the card `announce` itself created, by reference, so a
+  // card that is not this HUD's is none of its business.
+  it('removes only the card it created, not every title card on the host', () => {
+    const foreign = document.createElement('div');
+    foreign.className = 'rl-titlecard';
+    foreign.dataset.owner = 'someone-else';
+    document.body.appendChild(foreign);
+
+    const hud = bodyHud();
+    hud.announce('Beit Sahwan II', '2 primary objective(s)');
+    expect(document.body.querySelectorAll('.rl-titlecard').length).toBe(2);
+    hud.destroy();
+
+    const left = document.body.querySelectorAll<HTMLElement>('.rl-titlecard');
+    expect(left.length).toBe(1);
+    expect(left[0].dataset.owner).toBe('someone-else');
+    foreign.remove();
   });
 });

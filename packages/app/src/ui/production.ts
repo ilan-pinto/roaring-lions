@@ -16,6 +16,7 @@
 // that indirection is load-bearing and not ceremony.
 
 import type { LedgerData } from '@lions/sim';
+import { t } from '../i18n/t';
 import { roleBadgeSvg } from './role';
 import { tileState, type DockUnit, type DockView } from './dock-model';
 import type { Tone } from './hud';
@@ -51,7 +52,13 @@ export interface ProductionOptions {
   missionName?: (id: string) => string | undefined;
 }
 
-/** The two fire-support calls, as the dock draws them. */
+/** The two fire-support calls, as the dock draws them. `word`/`name`/`blurb`
+ *  are catalogue KEYS, not text -- the same `ORDERS[].label`/`ACTIONS[].label`
+ *  convention (see either file's own doc comment): a module-level table
+ *  resolved to text once, at import time, freezes in whatever locale was
+ *  active before `main.ts`'s boot ever calls `setCatalogue`. Every reader
+ *  below (`buildSupportTile`, `unitTipHtml`/`supportTipHtml`, the click
+ *  handler's own notes) calls `t()` at render/use time instead. */
 const SUPPORT: readonly {
   kind: SupportKind;
   glyph: string;
@@ -62,16 +69,16 @@ const SUPPORT: readonly {
   {
     kind: 'sweep',
     glyph: '◎',
-    word: 'sweep',
-    name: 'Satellite sweep',
-    blurb: 'Reveals what is on the ground in a circle, once. It shoots nothing.',
+    word: 'dock.support.sweep.word',
+    name: 'dock.support.sweep.name',
+    blurb: 'dock.support.sweep.blurb',
   },
   {
     kind: 'strike',
     glyph: '✸',
-    word: 'strike',
-    name: 'Precision strike',
-    blurb: 'One round on one point. It does not ask whose building it is.',
+    word: 'dock.support.strike.word',
+    name: 'dock.support.strike.name',
+    blurb: 'dock.support.strike.blurb',
   },
 ];
 
@@ -117,7 +124,7 @@ export class ReinforcementDock {
     label.className = 'rl-label rl-dock__label';
     // `B` focuses the first tile — see `focusFirst`. A label that named a key
     // doing nothing is the drift slice 2 refused for `Attack-move A`.
-    label.textContent = 'Reinforcements · B';
+    label.textContent = t('dock.label');
 
     const grid = document.createElement('div');
     grid.className = 'rl-dock__grid';
@@ -131,6 +138,21 @@ export class ReinforcementDock {
     this.el.append(this.tip, label, grid);
     host.appendChild(this.el);
     this.refresh();
+  }
+
+  /**
+   * Take the dock off the host.
+   *
+   * Like the HUD and the minimap it mounts on `document.body`, not on the
+   * stage the router clears, so leaving a `resources` mission strands it over
+   * whatever screen comes next. One root: every tile, the label and the
+   * tooltip are inside `this.el`, and their listeners are on its descendants,
+   * so removing it releases all of them.
+   *
+   * Idempotent -- `Element.remove()` on a detached node is a no-op.
+   */
+  destroy(): void {
+    this.el.remove();
   }
 
   // ------------------------------------------------------------------
@@ -193,13 +215,13 @@ export class ReinforcementDock {
       // own comment says a tile can never show.
       const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
       if (state.lock !== null) {
-        this.opts.note(`<b>${unit.name}</b> is locked — ${state.lock.full}`, 'warn');
+        this.opts.note(t('dock.note.locked', { name: unit.name, reason: state.lock.full }), 'warn');
         return;
       }
       if (this.opts.runtime.requestBuild(unit.id)) {
-        this.opts.note(`<b>building</b> ${unit.name} — deploys at the start line`, 'info');
+        this.opts.note(t('dock.note.building', { name: unit.name }), 'info');
       } else {
-        this.opts.note(`cannot build ${unit.name} — insufficient logistics`, 'mute');
+        this.opts.note(t('dock.note.cannotBuild', { name: unit.name }), 'mute');
       }
       el.blur(); // keep the keyboard on the battlefield
       this.refresh(); // the bar starts now, not at the next 4 Hz beat
@@ -221,18 +243,16 @@ export class ReinforcementDock {
     el.dataset.armed = '0';
     el.innerHTML =
       `<span class="rl-tile__glyph">${spec.glyph}</span>` +
-      `<span class="rl-tile__word">${spec.word} ${cost}</span>`;
+      `<span class="rl-tile__word">${t(spec.word)} ${cost}</span>`;
 
     el.addEventListener('click', () => {
       if (this.opts.runtime.intel < cost) {
-        this.opts.note(`not enough intel for ${spec.name.toLowerCase()} — watch longer`, 'mute');
+        this.opts.note(t('dock.note.noIntel', { name: t(spec.name).toLowerCase() }), 'mute');
         return;
       }
       this.setArmed(this.armed === spec.kind ? null : spec.kind);
       this.opts.note(
-        this.armed
-          ? `<b>${spec.name} armed</b> — click the map to place it`
-          : 'support call cancelled',
+        this.armed ? t('dock.note.armed', { name: t(spec.name) }) : t('dock.note.cancelled'),
         'info'
       );
       el.blur();
@@ -283,10 +303,10 @@ export class ReinforcementDock {
   private supportTipHtml(spec: (typeof SUPPORT)[number], cost: number): string {
     return (
       `<div class="rl-tip__head">` +
-      `<span class="rl-tip__name">${spec.name}</span>` +
-      `<span class="rl-tip__cost">${cost} intel</span>` +
+      `<span class="rl-tip__name">${t(spec.name)}</span>` +
+      `<span class="rl-tip__cost">${t('dock.tip.intelCost', { n: cost })}</span>` +
       `</div>` +
-      `<div class="rl-tip__blurb">${spec.blurb}</div>`
+      `<div class="rl-tip__blurb">${t(spec.blurb)}</div>`
     );
   }
 
@@ -309,7 +329,8 @@ export class ReinforcementDock {
    *  affordable, because focusing nothing would read as a dead key. */
   focusFirst(): boolean {
     if (this.unitTiles.length === 0) return false;
-    const open = this.unitTiles.find((t) => t.el.dataset.locked === '0' && t.el.dataset.poor === '0');
+    // Not named `t`: this file imports the catalogue's own `t()`.
+    const open = this.unitTiles.find((tile) => tile.el.dataset.locked === '0' && tile.el.dataset.poor === '0');
     (open ?? this.unitTiles[0]).el.focus();
     return true;
   }
@@ -329,13 +350,11 @@ export class ReinforcementDock {
       tile.bar.style.width = state.queue === null ? '0' : `${state.queue.percent.toFixed(1)}%`;
 
       const queued =
-        state.queue === null
-          ? ''
-          : ` — ${state.queue.count} building, next in ${state.queue.secs}s`;
+        state.queue === null ? '' : t('dock.tile.queuedSuffix', { n: state.queue.count, secs: state.queue.secs });
       const title =
         state.lock !== null
-          ? `${tile.unit.name} — ${state.lock.full}`
-          : `${tile.unit.name} — ${tile.unit.logistics} logistics${queued}`;
+          ? t('dock.tile.titleLocked', { name: tile.unit.name, reason: state.lock.full })
+          : t('dock.tile.title', { name: tile.unit.name, logistics: tile.unit.logistics, queued });
       tile.el.title = title;
       // A button's accessible name comes from its own text, and this one's
       // text is the cost badge — so without this a screen reader announces a

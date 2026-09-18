@@ -53,6 +53,14 @@ const DISPATCH_HOLD_MS = 5000;
  * ROE score should not have to watch it a fourth time. The hold is driven from
  * JS rather than CSS so that under `prefers-reduced-motion` the card still
  * stays up for its full read; only the movement is dropped, never the words.
+ *
+ * Returns the card AND its dismisser, not just the dismisser. `dismiss` fades
+ * over 250 ms before removing the node, which is right for a skip and wrong
+ * for a teardown that has to finish before the next screen mounts -- so a
+ * caller being torn down needs the element itself. Handing it back beats every
+ * way of finding it again: `Hud.destroy()` used to sweep `.rl-titlecard` off
+ * the shared `document.body`, which is a query that can match a card this HUD
+ * did not create.
  */
 export function titleCard(
   host: HTMLElement,
@@ -60,7 +68,7 @@ export function titleCard(
   subtitle: string,
   dispatch?: string,
   holdMs?: number
-): () => void {
+): { el: HTMLElement; dismiss: () => void } {
   const card = document.createElement('div');
   card.className = 'rl-titlecard rl-enter';
   const titleEl = document.createElement('div');
@@ -97,5 +105,5 @@ export function titleCard(
   const timer = window.setTimeout(dismiss, hold + 250);
   window.addEventListener('pointerdown', dismiss);
   window.addEventListener('keydown', dismiss);
-  return dismiss;
+  return { el: card, dismiss };
 }

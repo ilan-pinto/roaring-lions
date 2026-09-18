@@ -17,7 +17,7 @@ import type { Plugin } from 'vite';
 
 interface Palette {
   ramps: Record<string, { colors: string[] }>;
-  reserved: Record<string, { colors: Record<string, string> }>;
+  reserved: Record<string, { colors: Record<string, string>; variants?: Record<string, Record<string, string>> }>;
 }
 
 /** `limestone` + index 2 → `--rl-limestone-2`; `vfx` + `white_hot` → `--rl-vfx-white-hot`. */
@@ -25,7 +25,11 @@ function varName(band: string, key: string): string {
   return `--rl-${band}-${key.replace(/_/g, '-')}`;
 }
 
-/** Every palette colour as a `--rl-*` declaration, ramps then reserved bands. */
+/** Every palette colour as a `--rl-*` declaration, ramps then reserved bands.
+ *  A reserved band's `variants` (Task 12: colour-vision alternates of
+ *  `team`) publish one extra `--rl-<band>-<variant>-<key>` per entry --
+ *  `--rl-team-deuteranopia-kedem`, `--rl-team-deuteranopia-hostile-text` --
+ *  alongside the plain `--rl-<band>-<key>` set every band already gets. */
 export function paletteDeclarations(palette: Palette): string[] {
   const out: string[] = [];
   for (const [band, ramp] of Object.entries(palette.ramps)) {
@@ -34,6 +38,11 @@ export function paletteDeclarations(palette: Palette): string[] {
   for (const [band, group] of Object.entries(palette.reserved)) {
     for (const [name, hex] of Object.entries(group.colors)) {
       out.push(`${varName(band, name)}: ${hex};`);
+    }
+    for (const [variant, colors] of Object.entries(group.variants ?? {})) {
+      for (const [name, hex] of Object.entries(colors)) {
+        out.push(`${varName(`${band}-${variant}`, name)}: ${hex};`);
+      }
     }
   }
   return out;

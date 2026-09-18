@@ -23,6 +23,7 @@ import {
 } from './post-chain';
 import { GTAOPass as THREE_GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import type { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { QUALITY_PRESETS } from '../quality';
 
 /**
  * The order-sensitive digest of the 64x64 RGBA Poisson-denoise noise texture
@@ -91,6 +92,48 @@ describe('createPostChain', () => {
     expect(chain.passNames).toEqual(['RenderPass', 'FogOfWarPass', 'GTAOPass', 'OutputPass', 'SMAAPass']);
     chain.setAoPass(null);
     expect(chain.passNames).toEqual(['RenderPass', 'FogOfWarPass', 'OutputPass', 'SMAAPass']);
+  });
+
+  it('quality low: no SMAAPass is even built, and fog + vignette still slot normally', () => {
+    // Task 14. `low` never calls `setAoPass` at all in the real renderer
+    // (`ThreeRenderer.init` gates that call on `quality.ao`, not on this
+    // file) -- so this test only has to prove the half `createPostChain`
+    // itself owns: `quality.smaa === false` means `new SMAAPass` is never
+    // constructed, not merely that it is left out of `rebuild()`. Falsify:
+    // drop the `quality.smaa ?` guard around `new SMAAPass(w, h)` and this
+    // goes red on the SMAAPass entry alone.
+    const chain = createPostChain(
+      fakeRenderer(),
+      new THREE.Scene(),
+      new THREE.OrthographicCamera(),
+      800,
+      600,
+      1,
+      QUALITY_PRESETS.low
+    );
+    const fog = { name: 'FogOfWarPass', render() {}, setSize() {}, dispose() {}, needsSwap: true, enabled: true, clear: false, renderToScreen: false } as unknown as import('three/addons/postprocessing/Pass.js').Pass;
+    const vignette = { ...fog, name: 'VignettePass' } as unknown as import('three/addons/postprocessing/Pass.js').Pass;
+    chain.setFogPass(fog);
+    chain.setVignettePass(vignette);
+    expect(chain.passNames).toEqual(['RenderPass', 'FogOfWarPass', 'OutputPass', 'VignettePass']);
+    chain.dispose();
+  });
+
+  it('quality high (and the no-argument default): SMAAPass is built and slotted last, unchanged from before this task', () => {
+    const withHigh = createPostChain(
+      fakeRenderer(),
+      new THREE.Scene(),
+      new THREE.OrthographicCamera(),
+      1440,
+      900,
+      1,
+      QUALITY_PRESETS.high
+    );
+    const withDefault = createPostChain(fakeRenderer(), new THREE.Scene(), new THREE.OrthographicCamera(), 1440, 900, 1);
+    expect(withHigh.passNames).toEqual(['RenderPass', 'OutputPass', 'SMAAPass']);
+    expect(withDefault.passNames).toEqual(withHigh.passNames);
+    withHigh.dispose();
+    withDefault.dispose();
   });
 
   it('createAoPass is a GTAOPass at the spec radius and scale, in world units', () => {

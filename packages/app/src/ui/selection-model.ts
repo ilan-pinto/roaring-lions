@@ -20,6 +20,7 @@
 // at all -- invariant 4: the HUD renders what the sim reports and mutates
 // nothing.
 
+import { t } from '../i18n/t';
 import type { RoleBucket } from './role';
 
 /** The five verbs the order row offers. Named rather than positional so the
@@ -31,33 +32,44 @@ export interface OrderSpec {
   /** The mark, left of the label. Unicode for now — GH-153 lists a drawn glyph
    *  set as its own ticket. */
   glyph: string;
+  /** A catalogue KEY, not the label text -- the same lesson `input/keymap.ts`'s
+   *  `ActionSpec.label` follows (that file's own header comment has the
+   *  full reasoning). `hud.ts`'s `renderOrders` calls `t()` on this at
+   *  render time, which is what lets this table stay static data. */
   label: string;
-  /** The key that does the same thing, shown dim beside the label. Empty for
-   *  an order the keyboard does not bind. */
+  /** The key that does the same thing, shown dim beside the label. Since
+   *  Task 5 this is an `input/keymap.ts` ACTION id (`'halt'`, `'smoke'`,
+   *  `'load'`, `'unload'`), not a letter — the HUD resolves it to a label
+   *  through `HudDeps.keyFor`, which is what lets a rebind change the button
+   *  along with the key. `attackMove` is the one exception: it keeps the
+   *  literal `'RMB'`, which is not an action id and `keyFor` passes through
+   *  unchanged (see its own comment below for why it is not bound to a key
+   *  at all). Empty for an order the keyboard does not bind. */
   key: string;
 }
 
 /**
  * The row, in the spec's order.
  *
- * `attackMove`'s key is `RMB` and not `A`, which is what the spec draws, and
- * that is a deliberate and reversible decision rather than an oversight. `a` is
- * bound to pan the camera left (`main.ts`, the rAF loop's `keys.has('a')`), and
- * with no edge-scroll and no drag-pan in the game, WASD and the arrows are the
- * only two ways to move the camera at all. Binding `a` here would pan the map a
- * couple of tiles on every arm; taking `a` off the pan set would leave `w`,
- * `s` and `d` panning around a hole. Both are worse than a label naming the
- * gesture that actually exists — and a button whose printed key does something
- * else is exactly the drift this row is built to make impossible. Moving the
- * camera off WASD would make `A` available and is a controls decision, not a
- * HUD one.
+ * `attackMove`'s key is the literal `'RMB'`, not an `input/keymap.ts` ACTION
+ * id — there is no `attackMove` action, and `rebindable` does not apply to
+ * it — and that is a deliberate and reversible decision rather than an
+ * oversight. `a` is bound to pan the camera left (`main.ts`, the rAF loop's
+ * `keys.has('panLeft')`), and with no edge-scroll and no drag-pan in the
+ * game, WASD and the arrows are the only two ways to move the camera at all.
+ * Binding `a` here would pan the map a couple of tiles on every arm; taking
+ * `a` off the pan set would leave `w`, `s` and `d` panning around a hole.
+ * Both are worse than a label naming the gesture that actually exists — and
+ * a button whose printed key does something else is exactly the drift this
+ * row is built to make impossible. Moving the camera off WASD would make `A`
+ * available and is a controls decision, not a HUD one.
  */
 export const ORDERS: readonly OrderSpec[] = [
-  { id: 'attackMove', glyph: '⟶', label: 'Attack-move', key: 'RMB' },
-  { id: 'halt', glyph: '■', label: 'Halt', key: 'H' },
-  { id: 'smoke', glyph: '◌', label: 'Smoke', key: 'F' },
-  { id: 'load', glyph: '⤓', label: 'Load', key: 'G' },
-  { id: 'unload', glyph: '⤒', label: 'Unload', key: 'U' },
+  { id: 'attackMove', glyph: '⟶', label: 'order.attackMove', key: 'RMB' },
+  { id: 'halt', glyph: '■', label: 'order.halt', key: 'halt' },
+  { id: 'smoke', glyph: '◌', label: 'order.smoke', key: 'smoke' },
+  { id: 'load', glyph: '⤓', label: 'order.load', key: 'load' },
+  { id: 'unload', glyph: '⤒', label: 'order.unload', key: 'unload' },
 ];
 
 /**
@@ -281,14 +293,14 @@ interface StatusCounts {
 /** The single condition line, exported so its precedence can be tested without
  *  assembling a group around it. */
 export function chipStatus(c: StatusCounts): { status: string; statusTone: ChipTone } {
-  if (c.routed > 0) return { status: `${c.routed} BROKEN`, statusTone: 'bad' };
+  if (c.routed > 0) return { status: t('selection.chip.broken', { n: c.routed }), statusTone: 'bad' };
   // 'hot' and not 'bad': pinned is recoverable and broken is not, and the top
   // strip already draws that same distinction in those same two colours.
-  if (c.pinned > 0) return { status: `${c.pinned} PINNED`, statusTone: 'hot' };
-  if (c.aboard > 0) return { status: `${c.aboard} aboard`, statusTone: null };
-  if (c.aps) return { status: `APS ${c.aps.ammo}/${c.aps.magazine}`, statusTone: null };
-  if (c.moving > 0) return { status: `${c.moving} moving`, statusTone: null };
-  return { status: 'holding', statusTone: null };
+  if (c.pinned > 0) return { status: t('selection.chip.pinned', { n: c.pinned }), statusTone: 'hot' };
+  if (c.aboard > 0) return { status: t('selection.chip.aboard', { n: c.aboard }), statusTone: null };
+  if (c.aps) return { status: t('selection.chip.aps', { ammo: c.aps.ammo, magazine: c.aps.magazine }), statusTone: null };
+  if (c.moving > 0) return { status: t('selection.chip.moving', { n: c.moving }), statusTone: null };
+  return { status: t('selection.chip.holding'), statusTone: null };
 }
 
 /** Step the chip focus, wrapping. Tab is a cycle: reaching the end and stopping

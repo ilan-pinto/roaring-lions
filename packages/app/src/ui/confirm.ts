@@ -12,6 +12,7 @@
 // popup. `rl-band` does not exist as a class in this sheet; the real stamped
 // band is `.rl-panel__band`, which `panel()` already builds.
 
+import { t } from '../i18n/t';
 import { panel } from './panel';
 
 export interface ConfirmOptions {
@@ -20,6 +21,78 @@ export interface ConfirmOptions {
   confirm: string;
   /** Red band, red confirm button -- for an action that cannot be undone. */
   danger?: boolean;
+}
+
+/**
+ * Is SOME modal -- a confirm or the pause menu (`ui/pause.ts`) -- currently
+ * open?
+ *
+ * Task 6 fix round 1: `main.ts`'s battlefield keydown listener is the
+ * OLDEST bubble listener on `window` (registered once at boot, long before
+ * any dialog exists), so on a bare Escape it used to run before any
+ * dialog's own Escape handler and act on its own idea of what Escape means
+ * -- opening the pause menu under a confirm the HUD's own "Leave the
+ * mission?" button had just opened, or (worse) resuming the game and
+ * tearing the pause menu down while the player was only trying to cancel a
+ * "Restart the mission?" confirm stacked on top of it. The fix is not
+ * another capture-phase trick -- it is for the game's OWN handler to check
+ * this before doing anything on Escape, so the open dialog (whichever one)
+ * is always Escape's sole target and the game defers to it rather than
+ * racing it. `.rl-pause` counts as a dialog here too: the pause menu's own
+ * Resume/Escape handling is what closes IT, never the game.
+ */
+export function isDialogOpen(doc: Document = document): boolean {
+  return doc.querySelector('.rl-confirm, .rl-pause') !== null;
+}
+
+/** What `confirmDialog` hands back: the player's answer, and a way to take the
+ *  question away again. */
+export interface ConfirmHandle {
+  /** True on confirm, false on cancel -- and false if the dialog was closed out
+   *  from under the player by `closeOpenDialog()`, so a `.then` that acts only
+   *  on `true` needs no extra guard. */
+  answer: Promise<boolean>;
+  /** Cancel and tear down: both `window` listeners off, scrim out of the DOM,
+   *  `answer` settled false. Idempotent, and a no-op once answered. */
+  close(): void;
+}
+
+/**
+ * The one dialog that can be open (`isDialogOpen` above has always assumed
+ * this), as a cancel function rather than as a DOM node -- because the DOM node
+ * is exactly what goes missing.
+ *
+ * C1 (final review): a confirm registers two `window` keydown listeners and
+ * took them off only from `done()`, which runs only when the player ANSWERS.
+ * Nothing could cancel one. `Router.unmount()` calls the screen's disposer and
+ * then `stage.replaceChildren()` -- and a screen's disposer is `() => wrap
+ * .remove()`, which knows nothing about a scrim `confirmDialog` appended to the
+ * STAGE as `wrap`'s sibling. So navigating away from an open confirm (browser
+ * Back out of `/saves` mid-Delete, two clicks from a cold boot) stripped the
+ * dialog from the document with `done()` never called, leaving its
+ * CAPTURE-phase guard on `window` for the life of the page. That guard
+ * `stopPropagation()`s every key that is not Escape/Enter/Tab, so every game
+ * verb -- halt, smoke, overlay, load/unload, mute, select-all, the control
+ * groups, all four pan keys -- was silently dead from then on, on every mission
+ * booted afterwards, with nothing on screen to explain it and only a reload to
+ * clear it.
+ *
+ * This is a cancel function and not a node so that `closeOpenDialog()` still
+ * works after the node is gone, which is the only case that matters.
+ */
+let openCancel: (() => void) | null = null;
+
+/**
+ * Cancel whatever confirm is open, if any.
+ *
+ * Called by the two places that can destroy a dialog's host without the dialog
+ * knowing: `Router.unmount()` (the stage is about to be emptied) and
+ * `bootBattlefield`'s teardown (the HUD's leave confirm and the pause menu's
+ * Restart/Quit confirms mount on `document.body`, which the router never
+ * touches). Both are idempotent and either may run first.
+ */
+export function closeOpenDialog(): void {
+  openCancel?.();
 }
 
 /**
@@ -34,9 +107,19 @@ export interface ConfirmOptions {
  * opened it, captured here before `no.focus()` steals it. Removing the
  * focused element from the document would otherwise drop focus to `<body>`,
  * losing a keyboard player's position entirely.
+ *
+ * Returns a handle rather than a bare promise (C1): whoever owns the HOST owns
+ * the dialog's lifetime, and until this there was no way to say so. Callers
+ * that only want the answer read `.answer`; nobody has to call `.close()` by
+ * hand, because `Router.unmount` and `bootBattlefield`'s teardown both go
+ * through `closeOpenDialog()` above.
  */
-export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): ConfirmHandle {
+  // Assigned synchronously inside the executor below, before this function
+  // returns -- a Promise executor runs immediately, so the handle never escapes
+  // holding the placeholder.
+  let cancel: () => void = () => {};
+  const answer = new Promise<boolean>((resolve) => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const scrim = document.createElement('div');
     scrim.className = 'rl-confirm';
@@ -56,7 +139,7 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<
     const no = document.createElement('button');
     no.type = 'button';
     no.className = 'rl-btn rl-confirm__no';
-    no.textContent = 'Cancel';
+    no.textContent = t('confirm.cancel');
     const yes = document.createElement('button');
     yes.type = 'button';
     yes.className = 'rl-btn rl-confirm__yes';
@@ -65,7 +148,17 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<
     row.append(no, yes);
     p.body.appendChild(row);
 
+    // Idempotent, and it has to be: `close()` may arrive after the player has
+    // already clicked an answer (a navigation triggered by the answer itself
+    // unmounts the screen), and both `Router.unmount` and the battlefield
+    // teardown can call `closeOpenDialog()` for the same dialog.
+    let settled = false;
     const done = (v: boolean): void => {
+      if (settled) return;
+      settled = true;
+      // Only clear the module slot if it still points at THIS dialog -- a
+      // second confirm opened over the first owns the slot from then on.
+      if (openCancel === cancel) openCancel = null;
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keydown', onCaptureKey, true);
       scrim.remove();
@@ -113,8 +206,12 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): Promise<
     window.addEventListener('keydown', onKey);
     window.addEventListener('keydown', onCaptureKey, true);
 
+    cancel = () => done(false);
+
     scrim.appendChild(p.el);
     host.appendChild(scrim);
     no.focus();
   });
+  openCancel = cancel;
+  return { answer, close: cancel };
 }

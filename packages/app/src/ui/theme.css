@@ -58,6 +58,11 @@
      number sizes the whole shell. Viewport defaults; Phase 1's settings
      override it on the root element's style. */
   --ui-scale: 1;
+  /* The settings screen's own multiplier, independent of --ui-scale --
+     `applySettings` (settings.ts) always writes this one inline, never
+     removes it, so the fallback below is only for a page that has not
+     applied settings at all yet (a bare document during boot). */
+  --text-size: 1;
 
   /* --- surfaces ------------------------------------------------------- */
   /* color-mix rather than rgba(): translucency without a numeric literal,
@@ -243,7 +248,41 @@
   --dur-fast: 120ms;
   --dur: 160ms;
   --dur-slow: 250ms;
+  --dur-route: 200ms;
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* --- colour-vision variants (Task 12) --------------------------------
+ * `applySettings` (settings.ts) writes `data-cvd` on the root from
+ * `accessibility.colorVision`, immediately -- these four tokens are the ONLY
+ * runtime-reactive part of a variant, because they feed the same --friendly
+ * /--bad/--warn/--bad-text chain every static HUD rule already reads. The
+ * map and the minimap are the other half of the feature and do NOT react
+ * live: `main.ts` reads `paletteTeamColors()` once, at battlefield
+ * construction, so a variant switched mid-mission paints the canvas from the
+ * next mission on (the settings hint says so). Each block re-points exactly
+ * the four tokens the plain team mappings above set from `--rl-team-*`, at
+ * `--rl-team-<variant>-*` instead -- gated by tools/src/cvd.test.ts (every
+ * pair stays apart by CIE76 ΔE ≥ 25 under simulation of its own deficiency)
+ * and tools/src/bad-text-contrast.test.ts (hostile_text ≥ 4.5:1 per
+ * variant). */
+:root[data-cvd='deuteranopia'] {
+  --friendly: var(--rl-team-deuteranopia-kedem);
+  --bad: var(--rl-team-deuteranopia-hostile);
+  --warn: var(--rl-team-deuteranopia-neutral);
+  --bad-text: var(--rl-team-deuteranopia-hostile-text);
+}
+:root[data-cvd='protanopia'] {
+  --friendly: var(--rl-team-protanopia-kedem);
+  --bad: var(--rl-team-protanopia-hostile);
+  --warn: var(--rl-team-protanopia-neutral);
+  --bad-text: var(--rl-team-protanopia-hostile-text);
+}
+:root[data-cvd='tritanopia'] {
+  --friendly: var(--rl-team-tritanopia-kedem);
+  --bad: var(--rl-team-tritanopia-hostile);
+  --warn: var(--rl-team-tritanopia-neutral);
+  --bad-text: var(--rl-team-tritanopia-hostile-text);
 }
 
 /* Breakpoint widths stay in raw viewport px, not rem: they SET --ui-scale
@@ -251,7 +290,7 @@
    them in rem would be circular. */
 @media (min-width: 1900px) { :root { --ui-scale: 1.15; } } /* px-ok */
 @media (min-width: 2400px) { :root { --ui-scale: 1.4; } } /* px-ok */
-html { font-size: calc(16px * var(--ui-scale)); /* px-ok */ }
+html { font-size: calc(16px * var(--ui-scale) * var(--text-size, 1)); /* px-ok */ }
 
 /* The document's own type. index.html paints the ground colour before this
    sheet parses; this is the first place the FACE can be stated, and stating it
@@ -708,7 +747,12 @@ body {
 /* Confirm — the one dialog for anything that destroys player state       */
 /* ====================================================================== */
 
-.rl-confirm {
+/* `.rl-pause` (Task 6) shares this scrim -- same full-screen grid, same
+   colour-mixed dimming -- so the pause modal and a confirm stacked on top of
+   it (Restart/Quit, both confirmed before they act) read as one visual
+   system rather than two competing overlays. */
+.rl-confirm,
+.rl-pause {
   position: fixed;
   inset: 0;
   display: grid;
@@ -720,11 +764,20 @@ body {
    right for a HUD panel pinned over the map, wrong for a modal this grid is
    meant to centre and that the player has to be able to click anywhere on.
    Both are overridden here; equal specificity to `.rl-panel`'s own rule, so
-   this wins purely by coming later in the cascade. */
-.rl-confirm__panel {
+   this wins purely by coming later in the cascade. `.rl-pause__panel` shares
+   this ground (Task 6) and widens/scrolls below, since it carries an
+   objectives list and a whole mounted settings table where a confirm carries
+   two lines of body text. */
+.rl-confirm__panel,
+.rl-pause__panel {
   position: relative;
   pointer-events: auto;
   width: min(26rem, 92vw);
+}
+.rl-pause__panel {
+  width: min(40rem, 94vw);
+  max-height: 88vh;
+  overflow: auto;
 }
 .rl-confirm__body {
   margin: 0;
@@ -738,6 +791,79 @@ body {
 .rl-confirm__yes[data-danger='1'] {
   border-color: var(--bad);
   color: var(--bad-text);
+}
+
+/* ====================================================================== */
+/* Pause (ui/pause.ts) — Escape's target while a battlefield is running    */
+/* ====================================================================== */
+
+.rl-pause__tabs {
+  display: flex;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+.rl-pause__tabs button[data-on='1'] {
+  border-color: var(--live);
+  color: var(--live);
+}
+.rl-pause__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-pause__obj {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s2);
+  padding-block: var(--s1);
+  /* Same colour-mixed hairline `.rl-settings__row` uses -- legible on either
+     background this modal can sit over. */
+  border-block-end: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); /* px-ok */
+}
+.rl-pause__obj:last-child {
+  border-block-end: 0;
+}
+.rl-pause__obj[data-primary='1'] .rl-pause__obj-text {
+  color: var(--ink);
+  font-weight: 700;
+}
+.rl-pause__obj-text {
+  color: var(--ink-dim);
+}
+.rl-pause__obj-status {
+  color: var(--ink-mute);
+  font-size: var(--t-s);
+  text-transform: uppercase;
+  letter-spacing: var(--track-title);
+  white-space: nowrap;
+}
+.rl-pause__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: var(--s4);
+}
+/* `.rl-settings` (ui/settings-panel.ts) is a stand-alone screen elsewhere and
+   positions itself ABSOLUTELY against the viewport (`top: 6%; left: 50%`) --
+   removed from flow there, which is fine when it is the only thing on
+   screen. Mounted here it is a TAB's content, not the whole modal: taking it
+   out of flow left it floating over this panel's own action row instead of
+   pushing it down, which is not a cosmetic miss -- an absolutely positioned
+   element still intercepts pointer events, so "Quit to campaign" underneath
+   was unclickable (found driving Task 6, not by inspection). Un-does the
+   standalone positioning back to ordinary flow; specificity (two classes)
+   wins over the standalone rule regardless of source order, so this is not
+   fragile to reordering either file. */
+.rl-pause__settings .rl-settings {
+  position: static;
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  transform: none;
 }
 
 /* ====================================================================== */
@@ -981,6 +1107,13 @@ body {
 .rl-strip__chip:focus-visible {
   border-color: var(--accent);
   color: var(--accent);
+}
+/* Task 6: `Hud.paintSpeed` sets this on the cluster itself (not per chip)
+   while the pause modal is up, so the strip's speed reading dims as one
+   claim rather than the 1x/2x chips going dark while 0x stays lit -- the
+   mission is paused, not merely set to a speed of zero. */
+.rl-strip__chips[data-paused='1'] {
+  opacity: 0.45;
 }
 /* A `<button>` now (task 6: it used to be a plain `<a href="?campaign">`),
    so it needs the button-chrome reset the anchor never did -- without this
@@ -1393,11 +1526,14 @@ body {
 .rl-chip[data-focus='1'] {
   border-color: var(--live);
 }
-/* `.rl-brigade__art` (ui/brigade.ts) shares this rule by declaration rather
-   than borrowing `.rl-chip__art` by name -- same 2.5rem chip-art frame, same
-   rules, one place to change either. */
+/* `.rl-garage__card-art` (ui/brigade.ts) shares this rule by declaration
+   rather than borrowing `.rl-chip__art` by name -- same chip-art frame, same
+   rules, one place to change either. The garage overrides the SIZE (3rem, a
+   rail card is not a HUD chip) in its own block below and inherits
+   everything else, so the two image-rendering rules underneath stay stated
+   once. */
 .rl-chip__art,
-.rl-brigade__art {
+.rl-garage__card-art {
   flex: 0 0 auto;
   width: 2.5rem;
   height: 2.5rem;
@@ -1417,7 +1553,7 @@ body {
 .rl-chip__art[data-icon='1'],
 .rl-card__art[data-icon='1'],
 .rl-tile__art[data-icon='1'],
-.rl-brigade__art[data-icon='1'] {
+.rl-garage__card-art[data-icon='1'] {
   image-rendering: auto;
 }
 .rl-chip__body {
@@ -1464,12 +1600,12 @@ body {
    "reserved" reads the same way everywhere in this HUD, with the role mark on
    top so the frame still says what the unit IS. Never an empty box: a blank
    2.5rem hole reads as a broken image, and this reads as a deliberate gap.
-   `.rl-brigade__art[data-nosprite='1']` (ui/brigade.ts, the mesh-only
-   breach_team/scout_shachaf/apc_kipod rows) shares this by declaration --
+   `.rl-garage__card-art[data-nosprite='1']` (ui/brigade.ts, the mesh-only
+   breach_team/scout_shachaf/apc_kipod cards) shares this by declaration --
    see the shared sizing rule above. */
 .rl-chip__art[data-nosprite='1'],
 .rl-card__art[data-nosprite='1'],
-.rl-brigade__art[data-nosprite='1'] {
+.rl-garage__card-art[data-nosprite='1'] {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1961,6 +2097,14 @@ body {
   white-space: pre-wrap;
 }
 
+/* Route transitions (shell/router.ts): the stage fades out under the old
+   screen and in under the new. The blanket reduced-motion rule collapses both
+   durations to 1ms, which is the whole of "honouring prefers-reduced-motion". */
+#stage { transition: opacity var(--dur-route) var(--ease); }
+#stage.rl-stage--leave { opacity: 0; }
+#stage.rl-stage--enter { animation: rl-route-in var(--dur-route) var(--ease); }
+@keyframes rl-route-in { from { opacity: 0; } to { opacity: 1; } }
+
 /* ====================================================================== */
 /* Menu                                                                   */
 /* ====================================================================== */
@@ -2168,7 +2312,12 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
   cursor: pointer;
 }
-.rl-sandbox__flag input {
+/* Shared with the settings screen's own checkboxes and sliders below --
+   one accent-colour rule for every control that carries one, rather than a
+   second declaration of the same token. */
+.rl-sandbox__flag input,
+.rl-settings__control input[type='checkbox'],
+.rl-settings__control input[type='range'] {
   accent-color: var(--good);
 }
 .rl-sandbox__blurb {
@@ -2393,6 +2542,22 @@ button.rl-menu__item[data-kind='aside'] {
     animation: none;
     opacity: 1;
   }
+}
+
+/* The setting is the media query a player cannot reach from the OS --
+   `data-motion='reduce'` (settings.ts's `applySettings`) does the same
+   collapse the media query above does, for a player whose OS default is
+   fine but who wants this game quieter. Same rules, same exceptions. */
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] *::before,
+:root[data-motion='reduce'] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+:root[data-motion='reduce'] .rl-pulse {
+  animation: none;
+  opacity: 1;
 }
 
 /* Tutorial step panel — the lesson is the thing a first-time player has to
@@ -2689,129 +2854,798 @@ button.rl-menu__item[data-kind='aside'] {
   }
 }
 
-/* The brigade screen (ui/brigade.ts). Capped and centred to the same width
-   range debrief's own panel uses (debrief.ts's `place:` inline style reads
-   `top:6%;left:50%;transform:translateX(-50%);width:min(45rem,94vw);
-   max-height:88vh;overflow:auto`) -- expressed here as a class rule instead
-   of a second inline style, since `panel()`'s own `place` option is
-   documented "never colour" but every rl-brigade__* rule already lives in
-   this file, and a screen with no per-instance placement (unlike a mission's
-   HUD panels, which move) has no reason to reach for an inline style at all.
-   `.rl-panel`'s own rule already sets `position: absolute`. */
-.rl-brigade {
+/* The setting is the media query a player cannot reach from the OS -- see the
+   `data-motion` pair above `.rl-tutorial`. */
+:root[data-motion='reduce'] .rl-loading__fill {
+  transition: none;
+}
+:root[data-motion='reduce'] .rl-loading__beat {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------------------------------------------------------------------- */
+/* The garage (ui/brigade.ts)                                             */
+/* ---------------------------------------------------------------------- */
+
+/* The brigade screen was a `.rl-panel` capped at `min(45rem, 94vw)` -- a
+   column of twenty rows, each a 2.5rem sprite frame and three lines of type
+   set at 0.6875rem.
+   Decision 8 of the shell-upgrade design retired it: a shop is a place you
+   stand in, not a list you scroll, and the project lead asked for bigger type
+   by name. This is a full-width `.rl-menu` (the one other screen that takes
+   that exception is the campaign board, and for the same reason: its content
+   wants the display it is on), laid out as header / rail-bay-board / footer.
+
+   THE READING LADDER. The global --t-* scale above is sized for type drawn
+   OVER a battlefield and glanced at between orders, so it bottoms out at
+   0.625rem and calls 0.75rem "body". Nothing on this screen is glanced at.
+   The five names the garage sets its type in are therefore re-pointed HERE,
+   on the screen's own root, and inherit down to everything inside it --
+   including `.rl-btn`, which reads --t-body and so comes out at reading size
+   in this screen's footer without a rule of its own. Nothing OUTSIDE this
+   selector sees any of it, which is the whole reason the ladder is scoped
+   rather than moved: raising --t-body globally would resize every HUD chip
+   in the game. --t-small is this screen's FLOOR -- no rule below may name a
+   smaller size, and `brigade.test.ts` reads this block back off disk and
+   fails if one does. */
+.rl-menu--garage {
+  --t-title: 2.25rem;
+  --t-h2: 1.5rem;
+  --t-h3: 1.125rem;
+  --t-body: 1rem;
+  --t-small: 0.875rem;
+
+  /* The same width exception, and the same vw arithmetic, the campaign board
+     takes: subtract the menu's own horizontal padding and border so the BOX,
+     not just its content, stays inside the viewport. */
+  width: min(112.5rem, calc(98vw - 2 * var(--s6) - 2px)); /* px-ok */
+  max-height: 96vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--s4);
+  overflow: hidden;
+  /* `.rl-menu`'s own centred, monospaced column is right for a list of four
+     buttons and wrong for a screen that is read. */
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: var(--t-body);
+}
+
+/* --- header: mark, title, campaign line, wallet ------------------------ */
+.rl-garage__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding-bottom: var(--s3);
+  border-bottom: 1px solid var(--panel-frame);
+}
+.rl-garage__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.rl-garage__mark {
+  flex: none;
+}
+.rl-garage__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-title);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-garage__campaign {
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+/* The wallet. Mono, because it is a figure that changes while you look at it
+   and a proportional face makes it jump sideways as it does. */
+.rl-garage__wallet {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.rl-garage__wallet-n {
+  font-family: var(--font-mono);
+  font-size: var(--t-h2);
+  font-weight: 600;
+  color: var(--commend);
+}
+.rl-garage__wallet-word {
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+/* Spent: the wallet is struck once on the click that asks for a purchase.
+   Colour plus a single beat of scale -- under `prefers-reduced-motion` the
+   sheet's own global rule flattens the movement and the colour still
+   reports. */
+.rl-garage__wallet--spent {
+  animation: rl-garage-spend 600ms var(--ease);
+}
+@keyframes rl-garage-spend {
+  0% {
+    color: var(--commend);
+    transform: none;
+  }
+  30% {
+    color: var(--warn);
+    transform: scale(1.12);
+  }
+  100% {
+    color: var(--commend);
+    transform: none;
+  }
+}
+
+/* --- the three columns -------------------------------------------------- */
+.rl-garage__body {
+  display: grid;
+  grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr) minmax(20rem, 26rem);
+  gap: var(--s4);
+  min-height: 0;
+}
+
+/* --- the rail ----------------------------------------------------------- */
+.rl-garage__rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-height: 0;
+}
+.rl-garage__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+.rl-garage__tab {
+  padding: var(--s1) var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-garage__tab[aria-selected='true'] {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rl-garage__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: var(--s1);
+}
+.rl-garage__card {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2);
+  text-align: left;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-garage__card:hover,
+.rl-garage__card:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+.rl-garage__card[aria-selected='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--well));
+}
+/* Bigger than the HUD chip's 2.5rem frame it otherwise shares every rule
+   with (see `.rl-chip__art, .rl-garage__card-art` above): a rail card is the
+   only picture of a unit on this screen other than the bay's own plate. */
+.rl-garage__card-art {
+  width: 3rem;
+  height: 3rem;
+}
+.rl-garage__card[data-locked='1'] .rl-garage__card-art {
+  opacity: 0.55;
+}
+.rl-garage__card-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rl-garage__card-name {
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* No ellipsis, deliberately. The chip carries `gateShort`'s REQUIREMENT
+   (`Locked · Conduct 55`, `Locked · 12★`), which fits; the first cut put the
+   full sentence here and let this rule clip it, and every Conduct-gated unit
+   on the rail read `Locked · Needs a campaign Conduc…` -- identical for a
+   floor of 35 and one of 75. A rule that hides the only part of a string that
+   differs is worse than no rule. The sentence is on the card's `title` and in
+   the bay. */
+.rl-garage__card-chip {
+  font-size: var(--t-small);
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.rl-garage__card[data-locked='0'] .rl-garage__card-chip {
+  color: var(--good);
+}
+
+/* --- the bay ------------------------------------------------------------ */
+.rl-garage__bay {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-height: 0;
+  overflow-y: auto;
+}
+/* The plate is a photograph of the unit on lit sand; the vignette under it is
+   what makes the sand read as a FLOOR the unit is standing on rather than a
+   rectangle it is pasted over. */
+.rl-garage__plate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* `flex: none` and not the default `1 1 auto`: the bay is a column flex box
+     inside a height-constrained grid row, and a shrinkable item loses its
+     `aspect-ratio` to the flex algorithm -- measured at 1100 CSS px, where the
+     plate collapsed from 3:2 to about 5:1 and letterboxed the photograph
+     inside it. The bay scrolls instead. */
+  flex: none;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  border: 1px solid var(--panel-frame);
+  background:
+    radial-gradient(
+      ellipse at 50% 74%,
+      color-mix(in srgb, var(--ink) 15%, transparent) 0%,
+      transparent 62%
+    ),
+    var(--tile-bg);
+}
+/* `brigade.ts` writes a `transform: scale()` here from `ui/plate-fit.ts`, so
+   the UNIT fills the bay rather than the sand around it. The origin is the
+   centre because the capture centres the unit in its own frame, and the
+   parent's `overflow: hidden` is what crops the rest. */
+.rl-garage__plate-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: 50% 50%;
+}
+/* No plate photographed for this unit: the same "reserved, not broken" hatch
+   the HUD draws for a type with no sheet, at bay size. */
+.rl-garage__plate[data-noplate='1'] {
+  color: var(--ink-dim);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--type-shadow) 0,
+    var(--type-shadow) 0.5rem,
+    var(--panel-frame) 0.5rem,
+    var(--panel-frame) 0.75rem
+  );
+}
+.rl-garage__name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-title);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-garage__role {
+  font-family: var(--font-display);
+  font-size: var(--t-h3);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.rl-garage__blurb {
+  margin: 0;
+  max-width: 48ch;
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  color: var(--ink-mute);
+}
+.rl-garage__gate {
+  margin: 0;
+  font-size: var(--t-body);
+  color: var(--warn);
+}
+.rl-garage__buy {
+  align-self: flex-start;
+  font-family: var(--font-display);
+  font-size: var(--t-h2);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--commend);
+}
+.rl-garage__short {
+  font-size: var(--t-small);
+  color: var(--bad-text);
+}
+
+/* --- the board ---------------------------------------------------------- */
+/* The board is taller than its column for every unit with three tracks, and
+   the bottom rung used to end at a hard edge that reads as the end of the
+   list. `mask-image` fades the last 2rem of the SCROLL PORT, so what is cut
+   off announces itself; the gradient carries no colour (a mask reads alpha,
+   and `black`/`transparent` here are opacity 1 and 0, not palette entries).
+   `scrollbar-gutter: stable` reserves the scrollbar's own width whether or not
+   it is showing, so the rungs do not shift sideways as a taller unit is
+   selected -- which replaces the `padding-right` hack this rule used to
+   carry. */
+.rl-garage__board {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  mask-image: linear-gradient(to bottom, black 0%, black calc(100% - 2rem), transparent 100%);
+  /* The fade is a fixed band at the bottom of the scroll PORT, so without this
+     it would still dim the last rung once the board is scrolled all the way
+     down -- an affordance that costs legibility at exactly the moment it has
+     nothing left to promise. The padding is part of the scroll extent, so
+     there is always 2rem of nothing for the fade to land on at the end. */
+  padding-bottom: var(--s6);
+}
+.rl-garage__board-title,
+.rl-garage__track-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-h3);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-garage__stats,
+.rl-garage__track {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  background: var(--well);
+  border: 1px solid var(--panel-frame);
+}
+/* Label, bar, number. The bar's own maximum is the ROSTER's maximum for that
+   stat (brigade.ts's `rosterMax`), so a rifleman's 400 hit points and a
+   Lavi's 3000 do not both draw full. */
+.rl-garage__stat {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(3rem, 1fr) auto;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-body);
+}
+.rl-garage__stat-label {
+  color: var(--ink-dim);
+}
+.rl-garage__stat-bar {
+  display: flex;
+  height: 0.5rem;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.rl-garage__stat-fill {
+  background: var(--friendly);
+}
+/* What a previewed rung would ADD, drawn on the end of what is there now --
+   the one thing on this screen that is not yet true. */
+.rl-garage__stat-delta {
+  background: var(--good);
+}
+.rl-garage__stat-n {
+  font-family: var(--font-mono);
+  color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* --- the rungs ---------------------------------------------------------- */
+.rl-garage__rungs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.rl-garage__rung {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2);
+  border-left: 2px solid var(--panel-frame); /* px-ok */
+}
+.rl-garage__rung:hover,
+.rl-garage__rung:focus-visible {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: none;
+}
+.rl-garage__rung[data-owned='1'] {
+  border-left-color: var(--friendly);
+  background: color-mix(in srgb, var(--friendly) 12%, transparent);
+}
+.rl-garage__rung-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.rl-garage__rung-tier {
+  font-family: var(--font-display);
+  font-size: var(--t-h3);
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-garage__rung-price {
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  color: var(--commend);
+}
+.rl-garage__rung-owned {
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--friendly);
+}
+.rl-garage__benefit {
+  font-size: var(--t-body);
+  color: var(--ink-mute);
+}
+.rl-garage__buy-tier {
+  align-self: flex-start;
+  color: var(--commend);
+}
+.rl-garage__track-max {
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.rl-garage__reset {
+  color: var(--bad-text);
+}
+
+/* Narrow: the rail becomes a horizontal strip above the bay and the board
+   drops under it. Nothing is hidden and nothing shrinks -- the DOM order is
+   already rail, bay, board, so a single-column grid is the whole change. */
+@media (max-width: 1200px) { /* px-ok */
+  .rl-garage__body {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+  }
+  /* One scroller instead of three. Side by side each column scrolls in its
+     own lane, which is right; stacked, three short independent scrollers in
+     one screen-height row is not -- the body takes the scroll and each
+     section sizes to its own content. */
+  .rl-garage__rail,
+  .rl-garage__bay,
+  .rl-garage__board {
+    min-height: auto;
+    overflow: visible;
+  }
+  .rl-garage__cards {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: var(--s1);
+  }
+  .rl-garage__card {
+    flex: 0 0 14rem;
+  }
+  /* Stacked, the bay is the full width of the screen, so an uncapped 3:2
+     plate is two thirds of the viewport's height and pushes the unit's own
+     name below the fold -- measured at 1100 x 900, where it drew 1014 x 677.
+     Capped here and nowhere else; the photograph contains inside it. */
+  .rl-garage__plate {
+    max-height: 40vh;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Settings (ui/settings-panel.ts)                                        */
+/* ---------------------------------------------------------------------- */
+
+/* A fixed-position `.rl-panel` rather than a `.rl-menu` column, since this
+   screen is also mounted inside the pause overlay (Task 6), which has no
+   `.rl-menu` frame to sit in. (The brigade screen this used to point at for
+   the shape is the garage now, and a full-width grid.) */
+.rl-settings {
   top: 6%;
   left: 50%;
   transform: translateX(-50%);
-  width: min(45rem, 94vw);
+  width: min(32rem, 94vw);
   max-height: 88vh;
   overflow: auto;
 }
-.rl-brigade__head {
+.rl-settings__table {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+  flex-direction: column;
+}
+.rl-settings__section {
+  margin: var(--s4) 0 var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+}
+.rl-settings__section:first-child {
+  margin-top: 0;
+}
+.rl-settings__row {
+  display: grid;
+  /* I6 (final review): the control column was `auto`, so a `<select>`'s
+     intrinsic width is its longest OPTION and the control pushed the label
+     column until it wrapped -- "Render quality" went to two lines in English
+     at 1920, and under the pseudo-locale (which pads ~40%) the select grew
+     past the label column entirely and drew OVER the first line of its own
+     label. `max-content` capped by `minmax(0, ...)` lets the control shrink
+     instead of push; `minmax(8rem, 1fr)` keeps the label a floor it cannot be
+     squeezed below. The three quality strings were shortened to the preset
+     name in the same pass, with the descriptions moved into this row's own
+     hint -- both halves, because either alone leaves the other locale's worst
+     case unfixed. */
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, max-content);
+  align-items: center;
+  gap: var(--s2);
+  padding-block: var(--s2);
+  /* The hairline is a colour-mixed --ink rather than --panel-rule: it has to
+     read under EITHER of the two backgrounds this panel is mounted on (the
+     ordinary floating panel and the pause overlay), and mixing against the
+     ink colour that is already guaranteed legible there does that without a
+     second token. */
+  border-block-end: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); /* px-ok */
+}
+.rl-settings__row:last-of-type {
+  border-block-end: 0;
+}
+.rl-settings__control {
+  display: flex;
+  /* Minor 11: this was `column`, which stacked a keymap row's `<kbd>` ABOVE
+     its "Change" button and left the action's label floating between two
+     stacked controls. A wrapping ROW puts the keycap beside the button, which
+     is what the row reads as, while `.rl-settings__hint`'s `flex-basis: 100%`
+     below keeps every hint on its own line under the control it explains --
+     so a select-plus-hint row looks exactly as it did. */
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s1) var(--s2);
+  text-align: right;
+  /* Part of I6: the grid track can now shrink, so the contents must be
+     allowed to as well -- a flex item's default `min-width: auto` would
+     otherwise refuse and put the overflow back. */
+  min-width: 0;
+  max-width: 100%;
+}
+.rl-settings__control select {
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame);
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+  /* I6: ellipsise rather than push. A `<select>`'s closed display is the one
+     place `text-overflow` applies to a replaced element in Chromium, which is
+     the browser the capture pass photographs. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-settings__control input[type='range'] {
+  width: min(10rem, 40vw);
+}
+.rl-settings__hint {
+  color: var(--ink-mute);
+  font-size: var(--t-s);
+  /* Its own line under the control, now that `.rl-settings__control` is a
+     wrapping row (Minor 11). Inert where a hint is NOT a flex child -- the
+     panel foot and the settings screen's build line both use this class. */
+  flex-basis: 100%;
+}
+/* The keycap in a Task 5 keymap row (ui/settings-keymap.ts) -- the same
+   frame-and-mono-face `.rl-settings__control select` already wears, since
+   both are "a small fixed-width readout inside this row's control column". */
+.rl-keymap__key {
+  display: inline-block;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+/* The back link -- same look as `.rl-loading__back`'s own control-inside-the-
+   body placement, sized to its own text rather than stretching the panel's
+   width. */
+.rl-settings__back {
+  display: block;
+  width: fit-content;
+  margin: var(--s3) auto 0 0;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Saves (ui/saves.ts)                                                    */
+/* ---------------------------------------------------------------------- */
+
+/* A `.rl-menu` column like the sandbox picker and the campaign screen --
+   not a floating `.rl-panel` like Settings -- so the panel's own `Saves`
+   band sits inside the same centred frame every other menu screen does.
+   Left-aligned rather than `.rl-menu`'s own centred text: a row of name,
+   date and three buttons reads as a list, not a headline. */
+.rl-menu--saves .rl-panel {
+  text-align: left;
+}
+.rl-saves__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
   margin-bottom: var(--s3);
 }
-.rl-brigade__list {
+.rl-saves__row {
   display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-}
-.rl-brigade__row {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--s2);
+  justify-content: space-between;
+  gap: var(--s3);
+  padding-block: var(--s2);
+  border-block-end: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); /* px-ok */
 }
-/* Name-over-role: the one column between the art (a fixed 2.5rem leading
-   frame, `.rl-chip__art`'s own size) and the reason text that is itself two
-   rows tall, so `.rl-brigade__row`'s single flex row does not have to know
-   that. */
-.rl-brigade__info {
+.rl-saves__row:last-child {
+  border-block-end: 0;
+}
+.rl-saves__name {
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+}
+.rl-saves__sub {
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-saves__actions {
   display: flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-  min-width: 8em;
+  gap: var(--s1);
+  flex: none;
 }
-/* A locked row reads as reserved, the same "dimmed, not hidden" language the
-   rest of this file already uses -- `data-locked` is the same attribute the
-   DOM carries, not a class the component keeps in sync by hand. */
-.rl-brigade__row[data-locked='1'] {
-  opacity: 0.6;
-}
-.rl-brigade__gate,
-.rl-brigade__stars {
-  color: var(--commend);
-}
-.rl-brigade__gate {
-  flex: 0 0 auto;
-  text-align: right;
-}
-.rl-brigade__why {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: var(--ink-dim);
+.rl-saves__actions .rl-btn {
+  padding: var(--s1) var(--s2);
   font-size: var(--t-s);
 }
-.rl-brigade__credits {
-  color: var(--commend);
+/* The save-current-campaign form: a name field and the submit button on one
+   row, the same `.rl-settings__control select` frame-and-mono-face every
+   other small text control in this sheet wears. */
+.rl-saves__form {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+  margin: var(--s3) 0;
 }
-.rl-brigade__buy {
-  color: var(--commend);
+.rl-saves__form input[type='text'] {
+  flex: 1;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
 }
-/* Task 7 (fix round 2): per-track tier pips and Buy control on an AVAILABLE
-   row (a locked row shows none of this -- nothing can be upgraded before it
-   is in the brigade). The first cut made `.rl-brigade__tracks` a normal flex
-   ITEM of `.rl-brigade__row`, which is a single-line `display: flex` row
-   with every other item `flex: 0 0 auto` -- so two tracks pushed the row
-   past the panel's own `min(45rem, 94vw)` floor instead of sitting under the
-   reason text as the comment claimed. Fixed (round 1) by making the row WRAP
-   (`flex-wrap: wrap` above) and forcing `.rl-brigade__tracks` onto its own
-   line with `flex: 1 0 100%`, so it drops below the row's first line
-   regardless of how much room that line has left.
-   Round 1 then inset it with `margin-left`, which is the wrong box model for
-   a `flex-basis: 100%` item with `flex-shrink: 0`: a percentage basis
-   resolves against the CONTAINER's content width and a margin is added
-   OUTSIDE that, so the item became 100% + inset wide and handed
-   `.rl-brigade` (`overflow: auto`) a horizontal scrollbar on every row with
-   tracks. `box-sizing: border-box` plus `padding-left` keeps the inset
-   INSIDE the 100% box instead of adding to it -- content shrinks to make
-   room for the padding rather than the padding growing the box -- which is
-   why this is padding, not margin. */
-.rl-brigade__tracks {
-  flex: 1 0 100%;
-  box-sizing: border-box;
-  padding-left: calc(2.5rem + var(--s2));
+.rl-saves__import {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--s2);
+}
+/* The refusal line for a bad import -- an `aria-live` region, so it reads
+   even when nothing else on screen moves, and empty (no reserved height)
+   until there is something to say. `--bad-text`, not `--bad`: this is a
+   rendered string over the panel ground, and `--bad` alone reads 4.01:1
+   there, under WCAG AA's 4.5:1 floor (I2, tools/src/bad-text-contrast.test.ts). */
+.rl-saves__msg {
+  min-height: 1.2em;
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--bad-text);
+}
+.rl-saves__back {
+  display: block;
+  width: fit-content;
+  margin: var(--s3) auto 0 0;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Credits (ui/credits.ts)                                                */
+/* ---------------------------------------------------------------------- */
+
+/* A `.rl-menu` column like Saves -- a list of sections reads left-aligned,
+   not centred the way `.rl-menu`'s plain nav links do. */
+.rl-menu--credits .rl-panel {
+  text-align: left;
+}
+.rl-credits__section {
+  margin: var(--s4) 0 var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-card);
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+}
+.rl-credits__section:first-of-type {
+  margin-top: 0;
+}
+.rl-credits__block {
+  margin-bottom: var(--s2);
+}
+.rl-credits__people {
+  color: var(--ink);
+}
+.rl-credits__libs,
+.rl-credits__assets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: var(--s1);
+  color: var(--ink);
 }
-.rl-brigade__track {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
+.rl-credits__libs a {
+  color: var(--ink);
+}
+/* A font's disclosure widget -- the OFL body is fetched lazily (credits.ts)
+   and lands in here the first time it is opened. */
+.rl-credits__font {
+  margin-bottom: var(--s2);
+}
+.rl-credits__font summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink);
+}
+.rl-credits__licence-text {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+  max-height: 16rem;
+  overflow: auto;
+  margin: var(--s1) 0 0;
+  padding: var(--s2);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-credits__disclosure {
+  margin-top: var(--s2);
+  color: var(--ink-mute);
   font-size: var(--t-s);
 }
-.rl-brigade__track-name {
-  color: var(--ink-dim);
-  min-width: 5em;
+.rl-credits__build {
+  margin-top: var(--s3);
 }
-.rl-brigade__pips {
-  display: flex;
-  gap: var(--s1);
-}
-.rl-brigade__pip {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  border: 1px solid var(--commend); /* px-ok */
-}
-.rl-brigade__pip[data-filled='1'] {
-  background: var(--commend);
-}
-.rl-brigade__buy-tier {
-  color: var(--commend);
-}
-.rl-brigade__track-max {
-  color: var(--ink-dim);
+.rl-credits__back {
+  display: block;
+  width: fit-content;
+  margin: var(--s3) auto 0 0;
 }

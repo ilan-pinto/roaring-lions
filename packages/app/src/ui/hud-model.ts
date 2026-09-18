@@ -13,6 +13,7 @@
 // (invariant 4: the HUD renders what the sim reports and mutates nothing).
 
 import { TICKS_PER_SECOND } from '@lions/sim';
+import { t } from '../i18n/t';
 
 export interface ObjectiveView {
   id: string;
@@ -88,9 +89,9 @@ export function holdClock(m: MissionView | null): HoldClock | null {
   const secs = Math.ceil(timed.ticksLeft / TICKS_PER_SECOND);
   const why =
     timed.paused === 'contested'
-      ? 'CONTESTED'
+      ? t('hud.hold.contested')
       : timed.paused === 'unheld'
-        ? 'NOBODY HOLDING'
+        ? t('hud.hold.unheld')
         : '';
   return {
     id: timed.id,
@@ -105,9 +106,17 @@ export function holdClock(m: MissionView | null): HoldClock | null {
  * The one-line definition of the Conduct rating, for the strip's hover and anywhere
  * else the figure appears without room to explain itself. "ROE" is the design and
  * ledger term; the player never sees the acronym (renamed 2026-09-10).
+ *
+ * A function, not the plain string constant this used to be — the same
+ * lesson `role.ts`'s `ROLE_LABEL` fix round 1 and `roe-notice.ts`'s
+ * `protectedZoneHint` follow: a module-level value resolved once at import
+ * time freezes in whatever locale was active before `main.ts`'s boot ever
+ * calls `setCatalogue`, and renders plain English under `?pseudo=1` forever.
+ * `hud.ts` calls it fresh on every strip repaint.
  */
-export const CONDUCT_DEFINITION =
-  'Conduct: how cleanly you fight. Civilian harm, protected buildings and disproportionate fire all lower it. Under the mission floor, the mission is lost.';
+export function conductDefinition(): string {
+  return t('hud.conductDefinition');
+}
 
 /** Conduct gates campaign progression, so its colour is a verdict, not decoration. */
 export function roeTone(roe: number): 'good' | 'warn' | 'bad' {
@@ -284,7 +293,7 @@ export function speakerPlate(
 ): string {
   if (speaker === 'shai') return people.shai.plate;
   if (speaker === 'idit') return people.idit.plate;
-  return speaker === 'net' ? 'NET' : 'ENEMY';
+  return speaker === 'net' ? t('hud.speaker.net') : t('hud.speaker.enemy');
 }
 
 /**

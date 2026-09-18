@@ -37,7 +37,7 @@ clipEl.addEventListener('change', async () => {
 });
 shadingEl.addEventListener('click', () => {
   shading = shading === 'textured' ? 'palette' : 'textured';
-  shadingEl.textContent = `shading: ${shading}`;
+  shadingEl.textContent = /* i18n-ok: dev tool */ `shading: ${shading}`;
   shadingEl.dataset.on = shading === 'palette' ? '1' : '0';
   view.setShading(shading);
 });
@@ -46,7 +46,7 @@ yawEl.addEventListener('input', () => view.setYaw((Number(yawEl.value) * Math.PI
 pauseEl.addEventListener('click', () => {
   paused = !paused;
   view.setPaused(paused);
-  pauseEl.textContent = paused ? 'play' : 'pause';
+  pauseEl.textContent = paused ? 'play' : 'pause'; /* i18n-ok: dev tool */
 });
 
 let last = performance.now();
@@ -54,7 +54,7 @@ function loop(now: number): void {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
   view.frame(dt);
-  readout.textContent = `${view.clipName()} · ${view.figurePixels().toFixed(0)} px tall · game draws infantry at ~25 px`;
+  readout.textContent = /* i18n-ok: dev tool */ `${view.clipName()} · ${view.figurePixels().toFixed(0)} px tall · game draws infantry at ~25 px`;
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

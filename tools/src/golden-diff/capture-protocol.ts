@@ -736,3 +736,40 @@ return JSON.stringify({
 /** Back-compat named export: the quiet scenario's capture script, exactly as
  *  it was before scenarios existed. Prefer `captureScript(scenario)`. */
 export const CAPTURE_SCRIPT = captureScript(QUIET_SCENARIO);
+
+/**
+ * Hides every `<body>` child that does not itself CONTAIN the canvas --
+ * the HUD, the minimap, any other chrome -- for a clean capture, never an
+ * app flag (CLAUDE.md, "Verify UI features by driving the UI": a flag
+ * exercises a code path a player never takes).
+ *
+ * Tests by CONTAINMENT, not `tagName !== 'CANVAS'`: in this build the canvas
+ * is not a direct child of `<body>`, it is nested one level down (`main.ts`:
+ * `document.getElementById('stage')` -> `renderer.init(stage)` ->
+ * `host.appendChild(this.renderer.domElement)`), while the HUD and minimap
+ * attach straight to `body` as its SIBLINGS. Hiding by `tagName !== 'CANVAS'`
+ * would hide `#stage` -- and the canvas inside it -- right along with the
+ * HUD; hiding by containment (`el.contains(canvas)`) is correct for the
+ * nesting this build actually has.
+ *
+ * Passed BY REFERENCE to `page.evaluate` (`page.evaluate(hideHudExceptCanvas)`)
+ * rather than invoked here -- this module is imported by Node, but the
+ * function body only ever runs inside the page. No nested `const f = (...)
+ * => {}`, so `tsx`'s `keepNames` cannot rewrite it into an
+ * `__name(f, "f")` call the page has no definition for (see
+ * `FREEZE_FRAME_LOOP_STATEMENTS`'s neighbour scripts for the same trap
+ * pattern, and `unit-plates.ts`'s own top comment for a caller that hit it
+ * elsewhere in the same file).
+ *
+ * Extracted from `plate-capture.ts` (v2 of that file) when `unit-plates.ts`
+ * needed the identical snippet a second time -- two independent copies of a
+ * DOM-shape assumption this specific is exactly the kind of thing that goes
+ * stale silently in one copy after the other is fixed.
+ */
+export function hideHudExceptCanvas(): void {
+  const canvas = document.querySelector('canvas');
+  for (const el of Array.from(document.body.children)) {
+    if (canvas && el.contains(canvas)) continue;
+    (el as HTMLElement).style.display = 'none';
+  }
+}

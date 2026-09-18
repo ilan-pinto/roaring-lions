@@ -111,4 +111,4 @@ Design documents: [`docs/GDD.md`](docs/GDD.md) · [`docs/ART_PIPELINE.md`](docs/
 
 ## License
 
-Code is MIT. Art and game data are CC BY-SA 4.0 (see `data/LICENSE.md`). All contributions require a DCO sign-off (`git commit -s`).
+Code is MIT. Art and game data are all rights reserved (see `data/LICENSE.md`). All contributions require a DCO sign-off (`git commit -s`).

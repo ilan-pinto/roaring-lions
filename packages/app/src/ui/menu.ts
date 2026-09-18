@@ -8,9 +8,12 @@ import type { LedgerData } from '@lions/sim';
 // takes `Object.keys(maps)` the same way, for the same reason.
 import { maps, type MapJson } from '@lions/data';
 import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
+import { t } from '../i18n/t';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice';
-import { SANDBOX_FLAGS, sandboxUrl, type SandboxFlagName } from '../sandbox-help';
+import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
+import { routes } from '../shell/links';
+import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { panel } from './panel';
 import { stagger } from './motion';
@@ -31,10 +34,23 @@ export interface MenuOptions {
    * it reads as a bug; the same toggle is `m` in a mission.
    */
   audio?: { isMuted(): boolean; toggle(): boolean };
-  /** The navigation behind "reset campaign ledger", confirmed first -- see
-   *  `ui/confirm.ts`. Absent in tests that do not exercise the click; a real
-   *  caller wants `() => window.location.assign('?fresh=1')`. */
-  reset?: () => void;
+  /**
+   * Where the campaign is right now (Task 7, `continueTarget` in
+   * `campaign.ts`), already resolved by the shell -- this screen has no
+   * ledger of its own to compute it from. `kind: 'tutorial'` means nothing
+   * has been played yet; `kind: 'next'` names the first open mission of
+   * wherever the map is live. Absent once every authored mission is done,
+   * which is when the first nav item reverts to a plain "Campaign" link.
+   */
+  continue?: { missionId: string; name: string; kind: 'tutorial' | 'next' };
+  /** What "New campaign" does, confirmed first -- see `ui/confirm.ts`.
+   *  Absent in tests that do not exercise the click; the shell purges the
+   *  campaign ledger and the tutorial-done flag (the brigade account
+   *  survives, on purpose) and re-mounts this screen. Replaces `reset`
+   *  (Task 7) -- same button, new name and new confirm copy, since "reset
+   *  campaign ledger" read like plumbing and said nothing about what it
+   *  spared. */
+  newCampaign?: () => void;
 }
 
 export interface CampaignOptions {
@@ -48,9 +64,20 @@ export interface CampaignOptions {
   /** Resolves a villain's bare portrait file name to a URL, threaded to both
    *  boards -- neither builds a `portraits/...` path itself. */
   portraitUrl?: (file: string) => string | undefined;
+  /** This navigation's `?renderer=` value, or null. Read by the SHELL and
+   *  handed in: this screen used to reach into `window.location.search` for
+   *  it, and no screen reads `window.location` now that the router owns the
+   *  URL. `undefined` and `null` both mean "not asked for", which is what a
+   *  test that does not care passes. */
+  renderer?: string | null;
+  /** Soft navigation for the 3D board's ground clicks, threaded down to
+   *  `worldMap3d`. Absent means a real page load, which is that function's
+   *  own default -- the flat board's town pins are anchors and go through the
+   *  shell's link interception instead. */
+  navigate?: (href: string) => void;
 }
 
-export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
+export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
 
@@ -94,16 +121,29 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
     if (kind) a.dataset.kind = kind;
     nav.appendChild(a);
   };
-  // Listed first until it is done, then demoted to the aside below rather than
-  // removed. Taking it off the menu entirely made the tutorial unreachable for
-  // good: the flag that hides it also suppresses the step panel, so the only
-  // way back in was ?fresh=1, which pays for a replay with the whole campaign
-  // ledger.
-  if (!opts.tutorial.done) add(opts.tutorial.name, `?mission=${opts.tutorial.id}`, 'tutorial');
+  // The FIRST thing a commander's eye lands on (Task 7): where the campaign
+  // is right now, resolved by the shell's `continueTarget`. "Start" while
+  // nothing has been played, "Continue" once something has; absent once
+  // every mission is done, and the old plain "Campaign" link (added below
+  // regardless) is what a finished player sees first instead.
+  if (opts.continue) {
+    const label = t('menu.continue.label', { kind: opts.continue.kind, name: opts.continue.name });
+    add(label, routes.mission(opts.continue.missionId), 'primary');
+  }
+  // Listed second until it is done, then demoted to the aside below rather
+  // than removed. Taking it off the menu entirely made the tutorial
+  // unreachable for good: the flag that hides it also suppresses the step
+  // panel, so the only way back in was ?fresh=1, which pays for a replay with
+  // the whole campaign ledger. Dropped here specifically when the item above
+  // already names the tutorial ("Start — ...") -- otherwise the same mission
+  // would sit in this list twice.
+  if (!opts.tutorial.done && opts.continue?.kind !== 'tutorial') {
+    add(opts.tutorial.name, routes.mission(opts.tutorial.id), 'tutorial');
+  }
   // The war itself lives on its own page: the menu stays a landing, the map a
   // destination you can always come back to.
-  add('Campaign', '?campaign', 'campaign');
-  add('Brigade', '?brigade', 'brigade');
+  add(t('menu.nav.campaign'), routes.campaign(), 'campaign');
+  add(t('menu.nav.brigade'), routes.brigade(), 'brigade');
   wrap.appendChild(nav);
 
   const aside = document.createElement('nav');
@@ -121,45 +161,53 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): void {
   // when they reach it from the campaign — the flag should stop the tutorial
   // being pushed at them, not stop them asking for it.
   if (opts.tutorial.done) {
-    addAside('replay the tutorial', `?mission=${opts.tutorial.id}&tutorial=1`);
+    addAside(t('menu.aside.replayTutorial'), routes.mission(opts.tutorial.id, { tutorial: true }));
   }
   // Was `?sandbox=1`, which is not a map id at all: it warned "unknown sandbox
   // map" and fell back to beit_sahwan_outskirts, so one of five shipped maps
   // and none of the four flags were reachable by anyone who used the menu.
   // Same defect as `&mesh`, which no menu link ever appended either.
-  addAside('free play — any map', '?sandboxes');
+  addAside(t('menu.aside.freePlay'), routes.freePlay());
+  addAside(t('menu.aside.saves'), routes.saves());
+  addAside(t('menu.aside.settings'), routes.settings());
   // A button, not a link: this one destroys the campaign, so it is confirmed
   // first rather than a plain navigation (task 6 -- `?fresh=1` used to be one
   // click away with nothing standing in front of it). Same `rl-btn
   // rl-menu__item[data-kind='aside']` look the audio toggle below already
-  // wears as the list's one <button>.
-  const resetBtn = document.createElement('button');
-  resetBtn.type = 'button';
-  resetBtn.className = 'rl-btn rl-menu__item';
-  resetBtn.dataset.kind = 'aside';
-  resetBtn.textContent = 'reset campaign ledger';
-  resetBtn.addEventListener('click', () => {
+  // wears as the list's one <button>. Renamed from "reset campaign ledger"
+  // (Task 7): a save slot is now the real answer to "I want to keep this
+  // run", so the button's only honest job left is starting a new one -- and
+  // its label should say what happens, not what storage key it touches.
+  const newCampaignBtn = document.createElement('button');
+  newCampaignBtn.type = 'button';
+  newCampaignBtn.className = 'rl-btn rl-menu__item';
+  newCampaignBtn.dataset.kind = 'aside';
+  newCampaignBtn.textContent = t('menu.newCampaign.button');
+  newCampaignBtn.addEventListener('click', () => {
     void confirmDialog(stage, {
-      title: 'Start the campaign over?',
+      title: t('menu.newCampaign.confirm.title'),
       // Not "brigade account and tutorial completion are erased" -- the
-      // account deliberately SURVIVES `?fresh=1` (main.ts, spec 2026-09-15
-      // §4.1: "a second campaign starts with the brigade you built"). A
-      // confirm that names the wrong casualty is worse than one that names
-      // none.
-      body: 'Your campaign progress and tutorial completion are erased. Your brigade account is not affected.',
-      confirm: 'Erase and restart',
+      // account deliberately SURVIVES this (main.ts, spec 2026-09-15 §4.1:
+      // "a second campaign starts with the brigade you built"). A confirm
+      // that names the wrong casualty is worse than one that names none.
+      body: t('menu.newCampaign.confirm.body'),
+      confirm: t('menu.newCampaign.confirm.action'),
       danger: true,
-    }).then((ok) => {
-      if (ok) opts.reset?.();
+    }).answer.then((ok) => {
+      if (ok) opts.newCampaign?.();
     });
   });
-  aside.appendChild(resetBtn);
+  aside.appendChild(newCampaignBtn);
   if (opts.audio) aside.appendChild(audioToggle(opts.audio));
+  // Last, deliberately: people, libraries, fonts and the licence split are
+  // the least urgent thing on this screen, not the most.
+  addAside(t('menu.aside.credits'), routes.credits());
   wrap.appendChild(aside);
 
   // The menu introduces itself rather than simply existing.
   stagger(wrap);
   stage.appendChild(wrap);
+  return () => wrap.remove();
 }
 
 /**
@@ -173,10 +221,10 @@ function audioToggle(audio: { isMuted(): boolean; toggle(): boolean }): HTMLButt
   b.type = 'button';
   b.className = 'rl-btn rl-menu__item';
   b.dataset.kind = 'aside';
-  b.title = 'music and sound — m in a mission';
+  b.title = t('menu.audio.hint');
   const paint = (): void => {
     const on = !audio.isMuted();
-    b.textContent = on ? '♪ audio on' : '♪ audio off';
+    b.textContent = on ? t('menu.audio.on') : t('menu.audio.off');
     b.setAttribute('aria-pressed', String(on));
   };
   b.addEventListener('click', () => {
@@ -218,7 +266,7 @@ function rememberRenderer(choice: string): void {
 /** The campaign map page: the world, its states, and a way back. Reached from the
  *  menu's Campaign entry, from every mission's return link, and from the end
  *  screen -- the map is the place the player can always come back to. */
-export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
+export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Disposer {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
 
@@ -238,17 +286,15 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
   // three has failed them, and loading three behind that choice for one menu
   // is not a fallback, it is ignoring them.
   //
-  // The decision is read (and persisted) HERE rather than passed in from
-  // `main.ts`, which resolves it later, inside the branch that boots a
-  // mission -- the campaign screen returns before that line is reached. Same
-  // pure function, same storage key, so `?campaign&renderer=pixi` survives
-  // into every mission link this screen builds exactly as it does elsewhere.
-  const decision = resolveRendererChoice(
-    new URLSearchParams(window.location.search).get('renderer'),
-    storedRenderer()
-  );
+  // The query VALUE arrives from the shell (`CampaignOptions.renderer`); the
+  // decision is still resolved and persisted HERE, through the same pure
+  // function and the same storage key `main.ts` uses for a mission, so an
+  // explicit `?renderer=pixi` survives into every mission link this screen
+  // builds exactly as it does elsewhere. Reading `window.location.search`
+  // directly is the one thing the router took away from every screen.
+  const decision = resolveRendererChoice(opts.renderer ?? null, storedRenderer());
   if (decision.persist) rememberRenderer(decision.persist);
-  const href = (id: string): string => `?mission=${id}`;
+  const href = (id: string): string => routes.mission(id);
   const flat = (): HTMLElement =>
     worldMap({
       base: opts.base,
@@ -289,6 +335,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
           commander: opts.commander,
           missionOf: opts.missionOf,
           portraitUrl: opts.portraitUrl,
+          navigate: opts.navigate,
         }).el;
   // The wordmark and theatre scroll away with the board rather than sitting
   // beside it: `.rl-menu:has(.rl-world)` (theme.css) is a two-row grid --
@@ -304,8 +351,8 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav';
   const back = document.createElement('a');
-  back.textContent = '← main menu';
-  back.href = '?';
+  back.textContent = t('nav.backToMenu');
+  back.href = routes.menu();
   back.className = 'rl-btn rl-menu__item';
   back.dataset.kind = 'back';
   nav.appendChild(back);
@@ -313,6 +360,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
 
   stagger(wrap);
   stage.appendChild(wrap);
+  return () => wrap.remove();
 }
 
 /** The sandbox picker: which map, and which of the opt-in extras.
@@ -322,12 +370,12 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
  *
  *  Neither list is written here. The maps are `@lions/data`'s own enumeration
  *  and the flags are `SANDBOX_FLAGS`, which is also what `main.ts` parses,
- *  what the boot banner prints, and what `unknownParams` checks against; the
- *  URL itself is built by `sandboxUrl` from that same table. A copy of either
- *  list in this file could drift from the thing that actually runs, and the
- *  screen would then offer a map that does not load or a flag that does
- *  nothing -- which is exactly the silence this whole subsystem was built to
- *  remove.
+ *  what the boot banner prints, and what `unknownParams` checks against. A
+ *  copy of either list in this file could drift from the thing that actually
+ *  runs, and the screen would then offer a map that does not load or a flag
+ *  that does nothing -- which is exactly the silence this whole subsystem was
+ *  built to remove. The URL is built by `routes.sandbox` (`shell/links.ts`),
+ *  which iterates that same `SANDBOX_FLAGS` table.
  *
  *  The map entries stay real anchors with real hrefs, rewritten as the flag
  *  boxes change, so middle-click, copy-link and the browser's own history all
@@ -335,9 +383,9 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): void {
  *  banner and this file's own history call the sandbox, but nothing on the
  *  card should read like an internal name -- a map is shown by its human
  *  name alone, an opt-in extra by its blurb alone, and neither the map id
- *  nor the `?sandbox=` URL it builds prints anywhere on the screen (the flag
+ *  nor the free-play URL it builds prints anywhere on the screen (the flag
  *  name is still on the label's `title`, for the curious who hover it). */
-export function showSandbox(stage: HTMLElement): void {
+export function showSandbox(stage: HTMLElement): Disposer {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
 
@@ -347,7 +395,7 @@ export function showSandbox(stage: HTMLElement): void {
 
   const theatre = document.createElement('div');
   theatre.className = 'rl-menu__theatre';
-  theatre.textContent = 'Free play';
+  theatre.textContent = t('menu.sandbox.title');
   wrap.appendChild(theatre);
 
   // --- the extras ---------------------------------------------------------
@@ -359,16 +407,18 @@ export function showSandbox(stage: HTMLElement): void {
     label.className = 'rl-sandbox__flag';
     // The flag's own name, e.g. "&roe" -- not read aloud on the card, but on
     // the label's title for whoever hovers it and wants the URL syntax.
-    label.title = `&${f.name}`;
+    label.title = /* i18n-ok: dev tool */ `&${f.name}`;
     const input = document.createElement('input');
     input.type = 'checkbox';
     input.dataset.flag = f.name;
     // The table's own blurb, not new prose: one description of a flag, in the
     // banner and on this screen alike -- and, since the flag's own name moved
     // to the label's title, the only text a player reads here at all.
+    // `sandbox-help.ts`'s own blurbs are dev-tool text and stay English on
+    // purpose -- see that file's header.
     const blurb = document.createElement('span');
     blurb.className = 'rl-sandbox__blurb';
-    blurb.textContent = f.blurb;
+    blurb.textContent = /* i18n-ok: dev tool */ f.blurb;
     label.append(input, blurb);
     flagBox.appendChild(label);
     boxes.push({ name: f.name, input });
@@ -385,7 +435,7 @@ export function showSandbox(stage: HTMLElement): void {
     a.className = 'rl-btn rl-menu__item';
     a.dataset.kind = 'sandbox';
     a.dataset.map = id;
-    // The name alone -- no id alongside it. `?sandbox=` takes the id and the
+    // The name alone -- no id alongside it. The route carries the id and the
     // boot banner still lists it for a dev reading the console, but a player
     // clicking this card has no use for it and it read as leaked plumbing.
     a.textContent = catalogue[id].name;
@@ -397,7 +447,7 @@ export function showSandbox(stage: HTMLElement): void {
   const refresh = (): void => {
     const on: Partial<Record<SandboxFlagName, boolean>> = {};
     for (const b of boxes) on[b.name] = b.input.checked;
-    for (const l of links) l.a.href = sandboxUrl(l.id, on);
+    for (const l of links) l.a.href = routes.sandbox(l.id, on);
   };
   for (const b of boxes) b.input.addEventListener('change', refresh);
   refresh();
@@ -405,8 +455,8 @@ export function showSandbox(stage: HTMLElement): void {
   const backNav = document.createElement('nav');
   backNav.className = 'rl-menu__nav';
   const back = document.createElement('a');
-  back.textContent = '← main menu';
-  back.href = '?';
+  back.textContent = t('nav.backToMenu');
+  back.href = routes.menu();
   back.className = 'rl-btn rl-menu__item';
   back.dataset.kind = 'back';
   backNav.appendChild(back);
@@ -414,6 +464,7 @@ export function showSandbox(stage: HTMLElement): void {
 
   stagger(wrap);
   stage.appendChild(wrap);
+  return () => wrap.remove();
 }
 
 /**
@@ -468,12 +519,12 @@ export interface EndScreenOptions {
   onDebrief?: () => void;
 }
 
-export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
+export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Disposer {
   const won = opts.result === 'victory';
   const p = panel({
     rank: 'alert',
-    title: won ? 'Town is quiet' : 'Withdraw and regroup',
-    tag: won ? 'Victory' : 'Defeat',
+    title: t('menu.end.title', { result: opts.result }),
+    tag: t('menu.end.tag', { result: opts.result }),
     place: 'top:62%;left:50%;transform:translateX(-50%);width:min(26.25rem,90vw);text-align:center',
   });
   p.el.classList.add('rl-enter');
@@ -519,13 +570,13 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
 
     const debrief = document.createElement('p');
     debrief.className = 'rl-enddebrief';
-    debrief.textContent = `“${text}”`;
+    debrief.textContent = t('menu.end.quote', { text });
     p.body.appendChild(debrief);
   }
 
   const summary = document.createElement('div');
   summary.className = 'rl-dim';
-  summary.textContent = `Conduct ${opts.roe} · ${opts.survivors} unit(s) walking out`;
+  summary.textContent = t('menu.end.summary', { roe: opts.roe, n: opts.survivors });
   p.body.appendChild(summary);
 
   const nav = document.createElement('div');
@@ -541,18 +592,19 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): void {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'rl-btn rl-endnav__debrief';
-    btn.textContent = 'debrief';
+    btn.textContent = t('menu.end.debrief');
     btn.addEventListener('click', () => {
       p.el.remove();
       opts.onDebrief?.();
     });
     nav.appendChild(btn);
   }
-  if (won && opts.nextMissionId) link('next mission →', `?mission=${opts.nextMissionId}`);
-  link(won ? 'replay' : 'try again', `?mission=${opts.missionId}`);
-  link('campaign map', '?campaign');
-  link('menu', '?');
+  if (won && opts.nextMissionId) link(t('menu.end.next'), routes.mission(opts.nextMissionId));
+  link(t('menu.end.replay', { result: opts.result }), routes.mission(opts.missionId));
+  link(t('nav.campaignMap'), routes.campaign());
+  link(t('nav.menu'), routes.menu());
   p.body.appendChild(nav);
 
   host.appendChild(p.el);
+  return () => p.el.remove();
 }

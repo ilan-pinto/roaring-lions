@@ -10,6 +10,11 @@ obligations that survive into a credits screen** become the question.
 This file is a snapshot with a date on it. It is not a gate. See
 "The gap" below for why that is the most important line in it.
 
+The in-game credits screen (`ui/credits.ts`, `/credits`) is the player-facing
+surface of this file: `credits-data.ts` carries forward only the entries
+whose licence requires a credit — the Namer's, below — plus the AI-generated
+disclosure this file's own header already anticipated.
+
 ---
 
 ## The three mechanisms, one of which does not exist

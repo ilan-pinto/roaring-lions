@@ -13,6 +13,7 @@
 
 import type { LedgerData } from '@lions/sim';
 
+import { t } from '../i18n/t';
 import {
   campaignRoe,
   hostagesAccount,
@@ -272,12 +273,12 @@ export function regionCard(
 
   const progress =
     p.status === 'locked'
-      ? (p.lockedBecause ?? 'locked')
+      ? (p.lockedBecause ?? t('world.card.locked'))
       : p.total === 0
-        ? 'no operations authored yet'
-        : `${p.done} / ${p.total} missions`;
+        ? t('world.card.noOps')
+        : t('world.card.missions', { done: p.done, total: p.total });
   card.appendChild(el('div', 'rl-world__cardprogress', progress));
-  card.appendChild(el('span', 'rl-world__badge', p.status));
+  card.appendChild(el('span', 'rl-world__badge', t('world.card.badge', { status: p.status })));
 
   const villain = opts.commander?.villains?.[region.id];
   if (villain && opts.missionOf) {
@@ -313,7 +314,7 @@ export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement
   const roster = ledger['roster.surviving_units'];
   if (Array.isArray(roster) && roster.length > 0) {
     const vets = roster.filter((r) => r.veterancy > 0).length;
-    parts.push(`roster ${roster.length}${vets > 0 ? ` (${vets}★)` : ''}`);
+    parts.push(t('world.ledger.roster', { n: roster.length }) + (vets > 0 ? ` (${vets}★)` : ''));
   }
 
   // The mean lives in campaignRoe, not in the ledger: the sim stores per-mission bests and
@@ -321,11 +322,11 @@ export function ledgerLine(ledger: LedgerData, world?: ParsedWorld): HTMLElement
   // 45 or better" (gateSentence) is asking you to raise, so the two read together.
   const roe = campaignRoe(ledger);
   if (roe !== null) {
-    parts.push(`Conduct ${roe.mean}`);
-    if (roe.worst !== null) parts.push(`worst ${roe.worst[0]} (${roe.worst[1]})`);
+    parts.push(t('world.ledger.conduct', { mean: roe.mean }));
+    if (roe.worst !== null) parts.push(t('world.ledger.worst', { name: roe.worst[0], value: roe.worst[1] }));
   }
 
-  line.textContent = parts.length > 0 ? parts.join(' · ') : 'campaign: fresh start';
+  line.textContent = parts.length > 0 ? parts.join(' · ') : t('world.ledger.fresh');
 
   const wrap = el('div', 'rl-world__ledgerwrap');
   wrap.appendChild(line);

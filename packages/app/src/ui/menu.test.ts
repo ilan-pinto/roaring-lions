@@ -48,24 +48,67 @@ describe('showMenu audio toggle', () => {
   });
 });
 
-describe('showMenu reset ledger', () => {
+describe('showMenu new campaign', () => {
   it('is a button, confirmed before it navigates -- not a plain link', async () => {
     const stage = document.createElement('div');
     document.body.appendChild(stage);
     let reset = 0;
-    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, reset: () => reset++ });
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, newCampaign: () => reset++ });
     const btn = [...stage.querySelectorAll<HTMLButtonElement>('button.rl-menu__item')].find(
-      (b) => b.textContent === 'reset campaign ledger'
+      (b) => b.textContent === 'New campaign'
     )!;
     expect(btn).toBeDefined();
     btn.click();
     expect(reset).toBe(0);
     const dialog = document.querySelector<HTMLElement>('.rl-confirm')!;
     expect(dialog).not.toBeNull();
-    expect(dialog.textContent).toContain('brigade account is not affected');
+    // Names what survives ("stays"), not what is erased -- the brigade
+    // account deliberately outlives a new campaign (spec 2026-09-15 §4.1).
+    expect(dialog.textContent).toContain('Your brigade — its credits, unlocks and upgrades — stays.');
     dialog.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
     await Promise.resolve();
     expect(reset).toBe(1);
+  });
+});
+
+describe('showMenu continue/start', () => {
+  it('names "Start" and the tutorial mission when nothing has been played, and drops the plain tutorial item', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, {
+      base: '/',
+      version: '0.0.0',
+      world,
+      tutorial: { ...tutorial, done: false },
+      continue: { missionId: 'beit_sahwan_0_tutorial', name: 'Working Up', kind: 'tutorial' },
+    });
+    const items = [...stage.querySelectorAll<HTMLAnchorElement>('a.rl-menu__item')];
+    expect(items[0]!.textContent).toBe('Start — Working Up');
+    expect(items[0]!.getAttribute('href')).toBe('/mission/beit_sahwan_0_tutorial');
+    expect(items[0]!.dataset.kind).toBe('primary');
+    // Not a second, plain "Tutorial" item beside it -- the item above already
+    // names the same mission.
+    expect(items.filter((a) => a.dataset.kind === 'tutorial')).toHaveLength(0);
+  });
+
+  it('names "Continue" and the next mission once the tutorial is done', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, {
+      base: '/',
+      version: '0.0.0',
+      world,
+      tutorial,
+      continue: { missionId: 'beit_sahwan_1_recon', name: 'First Contact', kind: 'next' },
+    });
+    const first = stage.querySelector<HTMLAnchorElement>('a.rl-menu__item')!;
+    expect(first.textContent).toBe('Continue — First Contact');
+    expect(first.getAttribute('href')).toBe('/mission/beit_sahwan_1_recon');
+  });
+
+  it('leads with "Campaign" when the whole campaign is complete and nothing to continue', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial });
+    const first = stage.querySelector<HTMLAnchorElement>('a.rl-menu__item')!;
+    expect(first.textContent).toBe('Campaign');
   });
 });
 
@@ -93,10 +136,12 @@ describe('showEndScreen', () => {
     expect(debrief?.textContent).toBe(`“${shaiVictory.text}”`);
     expect(host.querySelector('.rl-enddebrief__who')?.textContent).toBe(shaiVictory.plate);
     // "above the rating" -- the face+plate head is the FIRST thing in the
-    // panel body, ahead of the `Conduct 94 · 11 unit(s) walking out` line.
+    // panel body, ahead of the `Conduct 94 · 11 units walking out` line.
+    // The catalogue's `menu.end.summary` is a real plural now, not the old
+    // `unit(s)` shorthand.
     const body = host.querySelector('.rl-panel__body')!;
     expect(body.firstElementChild).toBe(host.querySelector('.rl-enddebrief__head'));
-    expect(body.textContent).toContain('Conduct 94 · 11 unit(s) walking out');
+    expect(body.textContent).toContain('Conduct 94 · 11 units walking out');
   });
 
   it('shows the defeat line and plate on a loss', () => {
@@ -170,5 +215,19 @@ describe('showEndScreen', () => {
     showEndScreen(host, { result: 'victory', roe: 94, survivors: 11, missionId: 'x', onDebrief: () => opened++ });
     host.querySelector<HTMLButtonElement>('button.rl-endnav__debrief')!.click();
     expect(opened).toBe(1);
+  });
+});
+
+describe('showMenu aside', () => {
+  it('lists Credits last, after every other aside item including the audio toggle', () => {
+    const stage = document.createElement('div');
+    const audio = { isMuted: () => true, toggle: () => false };
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, audio, newCampaign: () => {} });
+    const [, aside] = stage.querySelectorAll('nav.rl-menu__nav');
+    const items = [...aside!.children] as HTMLElement[];
+    const last = items[items.length - 1]!;
+    expect(last.tagName).toBe('A');
+    expect(last.textContent).toBe('Credits');
+    expect(last.getAttribute('href')).toBe('/credits');
   });
 });
