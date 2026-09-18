@@ -17,6 +17,7 @@
 import type { LedgerData } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { t } from '../i18n/t';
+import { objectivesPanel, type ObjectiveRow } from './objectives';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -225,7 +226,15 @@ export function showLoading(
    * torn down here without settling `done()`; the abort that follows the
    * navigation is what unparks whoever is awaiting it (`dispose()` above).
    */
-  onBack?: () => void
+  onBack?: () => void,
+  /** Every objective the mission declares, shown under the orders. The
+   *  briefing is the one place the player can read the whole contract before
+   *  committing; the strip shows one primary and a count (`stripObjectives`),
+   *  which is right on the field and wrong here. Absent for a sandbox. */
+  objectives?: readonly ObjectiveRow[],
+  /** Whether this mission pays credits at all -- `ledger.produces.length > 0`,
+   *  the same gate `main.ts` puts on `payMission`. */
+  paysCredits?: boolean
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -432,6 +441,18 @@ export function showLoading(
     box.classList.add('rl-loading__box--brief');
     if (commander) box.append(commanderHead);
     box.append(orders);
+    // Task 5 (R-7: one component, three mounts): the full objective list,
+    // read once, before deploying. A sibling of the beats -- appended here,
+    // never built as one -- so a test counting `.rl-loading__beat` off a
+    // briefing is unaffected by whether this is present. Gated on `holds`
+    // exactly like `orders` and `broughtEl`: a sandbox declares no
+    // objectives here and shows none. `objs` is captured in a local `const`
+    // rather than closing over the `objectives` parameter directly, so the
+    // `rows()` thunk keeps the type this `if` already narrowed it to.
+    if (objectives) {
+      const objs = objectives;
+      objectivesPanel(box, { rows: () => objs, paysCredits: paysCredits ?? false });
+    }
     if (broughtEl) box.append(broughtEl);
     box.append(deploy);
     if (back) box.append(back);
