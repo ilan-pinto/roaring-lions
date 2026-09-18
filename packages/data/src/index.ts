@@ -166,6 +166,7 @@ export {
   applyUpgrades,
   maxTiers,
   nextTierPrice,
+  readPath,
   UPGRADE_PATHS,
   type UpgradableUnit,
   type UpgradeTier,

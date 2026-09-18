@@ -62,11 +62,12 @@ import {
   vfxEmitters,
   type MapJson,
   type MissionLocaleOverlay,
+  type UpgradableUnit,
 } from '@lions/data';
 import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
-import { portraitUrl, unitIcon, type SheetManifest } from './ui/portrait';
+import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
 import { Minimap } from './ui/minimap';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
@@ -929,6 +930,20 @@ async function main(): Promise<void> {
       missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
       portrait: (typeId) => portraits[typeId] ?? null,
       iconIds: portraitIcons,
+      // The garage's bay (Task 15/16). `unitPlate` resolves against the
+      // plates manifest AND the eager glob of what is actually on disk, so a
+      // unit `pnpm plates:units` has not photographed reads as absent and the
+      // bay draws its reserved hatch -- never a broken <img>.
+      plate: (typeId) => unitPlate(`${BASE}ui/plates/units/`, typeId),
+      // The raw unit JSON, for the bay's stat panel and every rung's benefit
+      // lines. Same `units` catalogue `kdfUnits` above is built from, so the
+      // numbers the garage prints and the numbers `applyUpgrades` hands the
+      // sim come from one file. An id this does not know (it cannot happen
+      // for a `kdfUnits` entry, but the option is called with whatever the
+      // screen selects) hands back a bare `{ id }`, which the panel reads as
+      // em-dashes.
+      baseOf: (typeId) =>
+        ((units as Record<string, unknown>)[typeId] as UpgradableUnit | undefined) ?? { id: typeId },
       possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
       credits: storage ? loadAccount(storage).balance : undefined,
       onReset: storage
