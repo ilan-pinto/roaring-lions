@@ -360,7 +360,7 @@ comes from `pnpm plate:capture`, and the string `enemy reacts (` is out of the b
 acceptance items are NOT met and are recorded rather than restated: the menu column at 2560
 (D-8) and, in the picture only, the plate's top-left corner (D-3's floor).
 
-**Phase 1 — landed.** `feat/shell-phase-1` at `<landing commit>`, off `dea7e483` (main's
+**Phase 1 — landed.** `feat/shell-phase-1` at `274e35b5`, off `dea7e483` (main's
 v0.69.0 infantry-animation landing, merged in before Task 14). **Seventeen tasks** (0–16, run
 0–13 then 15, 16, 14 — Task 14 waited on the art session's `ThreeRenderer.ts`) and **eleven
 fix rounds** (Tasks 0, 2, 4, 5, 6, 9, 10, 11, 12, 15, 16), each task reviewed and every fix
