@@ -468,6 +468,65 @@ route total the game can currently produce.
 
 ---
 
+## Infantry animation: crossfades and falls (2026-09-17)
+
+`worktree-art-phase1-infantry` (design `2026-09-17-infantry-animation-design.md`)
+made every clip change a 150 ms blend (two actions evaluated per figure for
+the window), replaced the 0.04 s death swap with a supplied fall or a
+0.5 s topple, and gave three crews a real walk. Same instrument and
+conditions as "Backend curve" above (`backend-curve-gate.ts`, hardware GPU
+confirmed — `ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified
+Version)` on both runs), before at the branch base and after at its head:
+
+| checkpoint | living | render p95 before | render p95 after |
+|---|---|---|---|
+| 300 | 266 | 7.40 | 7.60 |
+
+The +0.5 ms budget held with margin: crossfading two actions per figure for
+150 ms, playing a supplied fall or a per-figure 0.5 s topple instead of a
+one-frame pose swap, and a real walk cycle on three crews together cost
+**0.20 ms** of render p95 at the 300 checkpoint (266 living, mixed roster,
+`beit_sahwan_outskirts` seed `20260827`) — measured under the same moderate,
+non-idle load this document's capture-conditions section already describes
+for the "before" pass (`uptime` read a 1-minute load average of ~5.5 across
+12 cores at capture time).
+
+### Level-load cost: the six re-exported GLBs, Draco-mirror bytes (Ruling 13)
+
+Six team files were re-exported on this branch to carry the new `fall`/
+`fallAlt` clips or the crew walk cycles: three Meshy importers gained a
+supplied fall (`meshy_soldier`, `sarim_rifles`, `yahalom_engineer`) and three
+kit crews gained a real `move` gait (`atgm_cell`, `mortar_crew`,
+`digger_crew`). Measured off the committed bytes — `/usr/bin/git show
+4884a9d8:assets/meshes/<file>.glb | wc -c` (the branch's merge-base) against
+the current working tree, one file at a time, 2026-09-17:
+
+| file | before (B) | after (B) | delta (B) | delta (%) |
+|---|---|---|---|---|
+| `sarim_rifles.glb` | 1,030,396 | 1,600,992 | +570,596 | +55.4% |
+| `yahalom_engineer.glb` | 608,544 | 966,648 | +358,104 | +58.8% |
+| `meshy_soldier.glb` | 820,504 | 1,060,980 | +240,476 | +29.3% |
+| `atgm_cell.glb` | 96,644 | 178,760 | +82,116 | +85.0% |
+| `mortar_crew.glb` | 97,032 | 178,364 | +81,332 | +83.8% |
+| `digger_crew.glb` | 54,180 | 96,948 | +42,768 | +78.9% |
+| **total** | 2,707,300 | 4,082,692 | **+1,375,392** | **+50.8%** |
+
+**+1,375,392 B (+1.31 MiB) on a 2.58 MiB starting set.** Most of it is the
+whole-length fall clips on the three Meshy files (2.3–4.6 s at 24 fps, one
+keyframe per bone across 72 bones each — Ruling 6 kept them whole rather than
+trimmed, since the real fall checks are standing→prone/zero drift/last-frame
+==wreck, not a duration band): `sarim_rifles` and `yahalom_engineer` alone
+account for +928,700 B, 67.5% of the total delta, and both carry TWO fall
+variants (`fall`/`fallAlt`) rather than one. The three kit crews' deltas are
+smaller in absolute bytes but the largest in percentage (+79–85%) because
+their starting files were small (54–97 KB) and a `move` gait cycle is new
+keyframe data across every walking bone, not a swap of an existing clip.
+Whether to trim the fall clips (an importer-side change, reversible) is an
+art call for the lead — this table is the number needed to make it, not a
+recommendation either way.
+
+---
+
 ## Known limitations of this evidence
 
 - **Not wired into CI or `pnpm test`.** Same gap `playtest.ts` and

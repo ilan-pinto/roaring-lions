@@ -44,7 +44,7 @@ import {
   type GaitMetrics,
   type LocomotionClip,
 } from './mesh-anim';
-import type { ClipPlayer } from './mesh-clip';
+import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER } from './render-order';
 
 /**
@@ -63,6 +63,8 @@ export interface MeshUnitTemplate {
   readonly clips: ReadonlyMap<ClipName, THREE.AnimationClip>;
   readonly materials: readonly THREE.Material[];
   readonly geometries: readonly THREE.BufferGeometry[];
+  /** Design D2: `scaleSignature` per clip, computed once here. */
+  readonly clipScale: ReadonlyMap<ClipName, string | null>;
   /**
    * What this GLB's own legs describe, per locomotion clip -- the `rl_gait`
    * scene extra `pnpm gait:meshes` writes (design sec 3.4), read once here
@@ -164,8 +166,9 @@ export function buildMeshUnitTemplate(
   // costs the unit its rate-match and nothing else, where refusing the GLB
   // would cost the player the unit.
   const gait = parseGaitExtras((root.userData as { rl_gait?: unknown }).rl_gait, label);
+  const clipScale = clipScaleSignatures(clips);
 
-  return { root, clips, materials, geometries, ...(gait !== undefined ? { gait } : {}) };
+  return { root, clips, materials, geometries, clipScale, ...(gait !== undefined ? { gait } : {}) };
 }
 
 /**
@@ -222,7 +225,7 @@ export function instantiateMeshUnit(template: MeshUnitTemplate, typeId: string):
     actions.set(name, mixer.clipAction(clip));
   }
 
-  return { typeId, root, mixer, actions, currentClip: null };
+  return { typeId, root, mixer, actions, currentClip: null, clipScale: template.clipScale, fades: new Map() };
 }
 
 /** Releases everything a `MeshUnitEntity` owns for itself -- its mixer's

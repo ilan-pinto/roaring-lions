@@ -916,8 +916,9 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   `extras`; `gaitTimeScale` (`three/units/mesh-anim.ts`) divides the unit's
   MEASURED ground speed by what the clip's legs cover and hands the result to
   the mixer as a `timeScale`. **A mesh with no `rl_gait` gets exactly 1**,
-  which is precisely the old behaviour, so the four crew-served/motorcycle
-  files and any un-passed re-export are never made worse.
+  which is precisely the old behaviour, so the motorcycle (the three crews
+  walk since 2026-09-17, on a third root per figure) and any un-passed
+  re-export are never made worse.
   Six things about it are worth knowing and every one was measured.
   **The old behaviour was a third to two-thirds of a stride.** Before this,
   fourteen rigs played a 0.67 s march whatever they were doing: boot travel
@@ -1284,6 +1285,14 @@ it compares `window.localStorage.length` before and after, and both are
   (`moto_rpg` carries `wreck` only — a motorcycle cannot go prone;
   `yahalom_engineer` also carries `work`), civilians carry `down`, and
   `units/mesh-death.ts` plays them: 0.4 s fade, then a persistent `MeshWreck`.
+  **Since 2026-09-17 that is the exception, not the rule** (design
+  `2026-09-17-infantry-animation-design.md`): the three Meshy bipeds carry
+  `fall`/`fallAlt` (contract v4) and play them once, every other rig topples
+  per figure about its own feet away from its killer over 0.5 s, and neither
+  path fades — the fade survives only for evacuation and for a body with no
+  wreck (civilians). Clip changes crossfade over 150 ms unless the two clips
+  key different bone scales, which is decided from the bytes at load
+  (`mesh-clip.ts`'s `scaleSignature`).
   Verified 2026-09-01 both from the shipped bytes and on screen — a killed
   `inf_squad` on `?sandbox=beit_sahwan_outskirts` leaves three prone figures beside
   a standing squad.

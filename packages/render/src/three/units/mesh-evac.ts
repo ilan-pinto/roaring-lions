@@ -64,6 +64,7 @@ import {
   setMeshDeathOpacity,
   type MeshFadeSwap,
 } from './mesh-death';
+import { advanceMeshClipFades } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
 
 /**
@@ -153,6 +154,7 @@ export function stepMeshEvac(
 ): 'fading' | 'removed' {
   d.t += dtSeconds;
   setMeshDeathOpacity(d.swaps, meshEvacOpacity(d.t));
+  advanceMeshClipFades(d.entity, dtSeconds);
   d.entity.mixer.update(dtSeconds);
 
   if (d.t < MESH_EVAC_SECONDS) return 'fading';

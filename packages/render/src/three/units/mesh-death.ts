@@ -19,6 +19,49 @@
  * fields, so `ThreeRenderer.ts`'s own job shrinks to bookkeeping three
  * arrays and calling in.
  *
+ * ## The fade is no longer the whole death (D4/D5)
+ *
+ * The paragraph above described the ENTIRE death before D3/D5 landed. Three
+ * shapes now share `beginMeshDeath`'s priority chain (see that function's own
+ * doc comment): an authored `fall`/`fallAlt` plays through `falling` and,
+ * per D4, never fades at all -- the fall IS the death's visible motion, and
+ * it ends lying in exactly the pose its paired wreck clip holds (D3's
+ * `pickDeathClips`, which picks the fall and the wreck as one unit so a body
+ * never falls one way and wakes up posed another); a body already lying in
+ * its wreck's own geometry (a prone sniper on overwatch) skips straight to
+ * `settling`; and everything else enters `toppling` (D5) -- the generic
+ * per-figure pitch this file's own "The generic topple" section below
+ * describes -- which likewise never fades, only a body with NEITHER a fall
+ * NOR a wreck clip ever reaches this file's fade curve at all (a civilian,
+ * whose GLB carries `down` but no `wreck`). `DyingMeshUnit.phase` (`falling`
+ * / `toppling` / `fading` / `settling`) is what replaced the old
+ * `settling: boolean` to say which of these shapes a given corpse is
+ * currently in -- see that type's own doc comment and `stepMeshDeath`'s.
+ *
+ * ## The generic topple (D5)
+ *
+ * A body with no authored fall and no already-down match does not simply
+ * play a static `down` pose and fade (the pre-D5 behaviour) -- each
+ * currently-live figure root (`liveFigureRoots`: a parentless bone at scale
+ * 1 WITH a bone of its own riding on it -- Ruling 11, see that function's own
+ * doc comment -- the kit/Meshy convention the scale-swap already relies on)
+ * pitches 90
+ * degrees over `TOPPLE_SECONDS`, about the horizontal line through the
+ * ground point beneath ITS OWN origin -- never the entity root -- so a
+ * figure's feet never move while its body falls. Multiple figures (a mortar
+ * team, a squad) are staggered `TOPPLE_STAGGER_SECONDS` apart
+ * (`beginTopple`'s own `delaySeconds`) rather than dropping in lockstep. The
+ * direction is away from the killer's last known position, or straight back
+ * from the entity's own facing when there is none (`toppleDirection`). Once
+ * every figure has finished (`ToppleState.totalSeconds`), the swap onto the
+ * wreck clip -- or, for a GLB with none, this file's own Pixi fade -- is
+ * forced to a one-frame CUT (`startWreck(d, true)`): a blend would have the
+ * mixer lay the wreck's pose under a figure still frozen 90 degrees over,
+ * which reads as the corpse un-toppling itself. `yawCorpseRoots` then turns
+ * the swapped-in corpse geometry -- bones that were NOT live at death and
+ * just appeared -- to face the fall bearing, since the kit's authored prone
+ * pose always faces local +X regardless of which way the body actually fell.
+ *
  * ## The curve, read from the source rather than invented
  *
  * `PixiRenderer.stepDeaths` (`renderer.ts:1230-1275`): `DEATH_SECONDS =
@@ -104,9 +147,9 @@
 import * as THREE from 'three';
 import { groundWorldY, type ElevationSource } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { applyMeshClip } from './mesh-clip';
+import { advanceMeshClipFades, applyMeshClip } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
-import { pickDeathClip } from './mesh-anim';
+import { pickDeathClips } from './mesh-anim';
 
 /** Seconds a dying mesh unit fades before it either becomes a wreck or is
  *  torn down -- see this file's own top comment, "The curve, read from the
@@ -217,74 +260,289 @@ export function endMeshDeathFade(swaps: readonly MeshFadeSwap[]): void {
   }
 }
 
-/** One entity mid-death-fade. `t` advances every frame in `stepMeshDeath`;
- *  `baseWorldY` is `entity.root.position.y` at the moment of death, the
- *  fixed point the sink subtracts from (so repeated calls do not compound
- *  the sink onto an already-sunk value) -- unlike Pixi's `dying`/
- *  `DyingUnit`, this needs no captured x/y/facing/typeId at all: `entity`
- *  IS the real, already-positioned `Object3D` (this module never rebuilds
- *  position from tile coordinates the way a 2D sprite's `isoX`/`isoY` must),
- *  and the entity id it died under is never touched again -- it was already
- *  removed from `ThreeRenderer.meshUnitEntities` by the caller before this
- *  was constructed, so a later spawn reusing that id can never alias it. */
+export type MeshDeathPhase = 'falling' | 'toppling' | 'fading' | 'settling';
+
+/** Where the round that killed this entity came from, in tile coordinates
+ *  -- `ThreeRenderer.killerX/killerY`, written from the `destroyed` event's
+ *  `by`. `null` when nothing shot it (`debugKill`, a tunnel collapse). */
+export interface KillerRef {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** One entity mid-death. `phase` replaces the old `settling` boolean:
+ *   - `falling`  -- playing `fall`/`fallAlt` once (D3); no fade clone exists
+ *   - `toppling` -- the generic per-figure topple (D5, Task 5)
+ *   - `fading`   -- Pixi's 0.4 s fade-to-half + sink; reached only by a
+ *                   body that has nothing persistent to become (D4)
+ *   - `settling` -- the wreck one-shot until it pauses, then `MeshWreck`
+ *  `t` is seconds since the CURRENT phase began. `swaps` is empty until
+ *  the fading phase starts. Unlike Pixi's `dying`/`DyingUnit`, this needs no
+ *  captured x/y/facing/typeId at all: `entity` IS the real, already-
+ *  positioned `Object3D` (this module never rebuilds position from tile
+ *  coordinates the way a 2D sprite's `isoX`/`isoY` must), and the entity id
+ *  it died under is never touched again except to hash a deterministic
+ *  fall/wreck pick -- it was already removed from
+ *  `ThreeRenderer.meshUnitEntities` by the caller before this was
+ *  constructed, so a later spawn reusing that id can never alias it. */
 export interface DyingMeshUnit {
   readonly entity: MeshUnitEntity;
-  /** The sim entity id `entity` was drawing, at the moment it died — kept
-   *  only so the eventual `wreck`/`wreckAlt` choice (`stepMeshDeath`, once
-   *  the settle phase begins) can hash a STABLE id rather than needing the
-   *  caller to thread it through a second time. Defaulted to 0 by
-   *  `beginMeshDeath` for every existing caller that has no id to give
-   *  (every fixture-driven test today) — `pickDeathClip(0, ...)` is exactly
-   *  as deterministic as any other id, so this changes no existing test's
-   *  outcome. */
   readonly entityId: number;
   t: number;
   readonly baseWorldY: number;
-  readonly swaps: readonly MeshFadeSwap[];
-  /** False while fading (the first `MESH_DEATH_SECONDS`); true once the
-   *  fade has closed and the wreck clip's own one-shot playback has begun.
-   *  See `stepMeshDeath`'s own doc comment for the two-phase shape this
-   *  drives -- an entity with no `wreck` clip never sets this; it is
-   *  removed the instant the fade closes instead. */
-  settling: boolean;
-  /** The `wreck` `AnimationAction`, captured once `settling` goes true so
-   *  the settle phase never has to look it up again -- null until then,
-   *  and always non-null once `settling` is true. */
+  swaps: readonly MeshFadeSwap[];
+  phase: MeshDeathPhase;
   wreckAction: THREE.AnimationAction | null;
+  readonly fallAction: THREE.AnimationAction | null;
+  topple: ToppleState | null;
+  readonly killer: KillerRef | null;
 }
 
-/** Starts a death fade for `entity` -- call once, the instant `Sim` reports
- *  it no longer alive, and only once (the caller owns not calling this
- *  twice for the same entity; `ThreeRenderer.updateMeshUnits`'s prune loop
- *  deletes the id from `meshUnitEntities` in the same step it calls this,
- *  so there is nothing left to find it under a second time). Plays `down`
- *  through the EXISTING fallback (`applyMeshClip` -> `meshClipOrFallback`)
- *  rather than a second clip-resolution path -- a GLB with no `down` simply
- *  keeps whatever it was already playing, exactly like a sheet with no
- *  `down` clip does on the billboard side. `{ once: true }` -- see
- *  `applyMeshClip`'s own doc comment for why: without it, an authored
- *  collapse clip SHORTER than the fade window would loop back to its own
- *  start and replay while the corpse is still fading, a visible flip-flop
- *  `down`'s own static shipped pose happens not to expose today, but a
- *  future animated one would.
+/** Design D5 -- one live figure root and the frame it topples in. */
+export interface ToppleFigure {
+  readonly bone: THREE.Bone;
+  readonly restQuaternion: THREE.Quaternion;
+  readonly restPosition: THREE.Vector3;
+  /** Ground point beneath the bone's origin, in the bone's PARENT space. */
+  readonly pivot: THREE.Vector3;
+  /** `up x direction`, in the bone's parent space. */
+  readonly axis: THREE.Vector3;
+  readonly delaySeconds: number;
+}
+
+export interface ToppleState {
+  readonly direction: THREE.Vector3;
+  readonly figures: readonly ToppleFigure[];
+  readonly totalSeconds: number;
+  /** The roots that were live at death -- NOT yawed at the swap. */
+  readonly liveRoots: ReadonlySet<THREE.Bone>;
+  /** Signed angle from the entity's forward to `direction`, about up. */
+  readonly corpseYaw: number;
+}
+
+export const TOPPLE_SECONDS = 0.5;
+export const TOPPLE_STAGGER_SECONDS = 0.1;
+const TOPPLE_ANGLE = Math.PI / 2;
+const UP = new THREE.Vector3(0, 1, 0);
+const LIVE_SCALE = 0.5;
+
+/** `90 deg * p^2`, `p = t / TOPPLE_SECONDS`, clamped -- a body accelerates. */
+export function toppleAngle(t: number): number {
+  const p = Math.min(1, Math.max(0, t / TOPPLE_SECONDS));
+  return TOPPLE_ANGLE * p * p;
+}
+
+/** World-space unit direction the body falls in: away from the killer,
+ *  else straight back from its facing. `entity.root.position` is
+ *  `(tileX, groundY, tileY)`, the same frame `killer` is in. */
+export function toppleDirection(entity: MeshUnitEntity, killer: KillerRef | null): THREE.Vector3 {
+  if (killer && Number.isFinite(killer.x) && Number.isFinite(killer.y)) {
+    const d = new THREE.Vector3(entity.root.position.x - killer.x, 0, entity.root.position.z - killer.y);
+    if (d.lengthSq() > 1e-9) return d.normalize();
+  }
+  return new THREE.Vector3(1, 0, 0).applyAxisAngle(UP, entity.root.rotation.y).negate();
+}
+
+/** Every parentless bone currently at scale 1 WITH AT LEAST ONE BONE CHILD:
+ *  a kit `{prefix}_root`, a Meshy `Hips`, `m_root` on the motorcycle. Sorted
+ *  by name for a stable stagger order. Structural, not by name -- the
+ *  contract forbids the runtime depending on bone names.
+ *
+ *  Ruling 11 (I1): "every parentless bone at scale 1" also matched things
+ *  that are not figures at all -- `rig.py`'s `_prop_bone` (a deployed
+ *  weapon/tripod/spoil-heap mount, parentless, scale 1 in every LIVING clip),
+ *  `_digger_extras`' `ground` bone, and the Blender exporter's own
+ *  auto-inserted `neutral_bone` (parentless, scale 1, keyed by no clip at
+ *  all). Measured toppling every one of those on five shipped rigs
+ *  (`demo_squad`, `at_team`, `atgm_cell`, `mortar_crew`, `digger_crew`): a
+ *  spoil heap tipping 90 degrees and snapping back at the wreck swap, a
+ *  deployed tube/tripod/charge falling with its crew then vanishing, and a
+ *  `neutral_bone` never restored at all (half the corpse's vertices left
+ *  pitched 90 degrees permanently). The fix is structural rather than a name
+ *  denylist, matching the contract's own "never depend on bone names" rule:
+ *  every one of those mounts is a LEAF (no bone rides on it), while every
+ *  figure root the kit/Meshy convention builds has a spine -- at least one
+ *  Bone child -- riding on it. Contract v4 states the rule this function
+ *  implements.
+ *
+ *  Break check (verified by hand, then reverted): drop the `hasBoneChild`
+ *  term. `mesh-team-death-shipped.test.ts`'s shipped-bytes sweep then finds
+ *  `prop`/`ground`/`neutral_bone` among the returned names on the five files
+ *  above and goes red. */
+export function liveFigureRoots(root: THREE.Object3D): THREE.Bone[] {
+  const out: THREE.Bone[] = [];
+  root.traverse((o) => {
+    const b = o as THREE.Bone;
+    if (!b.isBone) return;
+    if ((b.parent as THREE.Bone | null)?.isBone) return;
+    if (b.scale.x <= LIVE_SCALE) return;
+    const hasBoneChild = b.children.some((c) => (c as THREE.Bone).isBone);
+    if (!hasBoneChild) return;
+    out.push(b);
+  });
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function beginTopple(entity: MeshUnitEntity, direction: THREE.Vector3): ToppleState {
+  entity.root.updateWorldMatrix(true, true);
+  const groundY = entity.root.position.y;
+  const axisWorld = UP.clone().cross(direction).normalize();
+  const roots = liveFigureRoots(entity.root);
+  const figures = roots.map((bone, i) => {
+    const parent = bone.parent ?? entity.root;
+    const worldPos = bone.getWorldPosition(new THREE.Vector3());
+    const pivot = parent.worldToLocal(new THREE.Vector3(worldPos.x, groundY, worldPos.z));
+    const parentInverse = parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+    return {
+      bone,
+      restQuaternion: bone.quaternion.clone(),
+      restPosition: bone.position.clone(),
+      pivot,
+      axis: axisWorld.clone().applyQuaternion(parentInverse).normalize(),
+      delaySeconds: i * TOPPLE_STAGGER_SECONDS,
+    };
+  });
+  const forward = new THREE.Vector3(1, 0, 0).applyAxisAngle(UP, entity.root.rotation.y);
+  const corpseYaw = Math.atan2(forward.clone().cross(direction).dot(UP), forward.dot(direction));
+  return {
+    direction,
+    figures,
+    totalSeconds: TOPPLE_SECONDS + TOPPLE_STAGGER_SECONDS * Math.max(0, roots.length - 1),
+    liveRoots: new Set(roots),
+    corpseYaw,
+  };
+}
+
+/** Writes every figure's pitch for time `t` since the topple began. */
+export function applyTopple(state: ToppleState, t: number): void {
+  const q = new THREE.Quaternion();
+  const v = new THREE.Vector3();
+  for (const f of state.figures) {
+    q.setFromAxisAngle(f.axis, toppleAngle(t - f.delaySeconds));
+    f.bone.quaternion.copy(q).multiply(f.restQuaternion);
+    v.copy(f.restPosition).sub(f.pivot).applyQuaternion(q).add(f.pivot);
+    f.bone.position.copy(v);
+  }
+}
+
+/** After the swap: every parentless bone that is visible now and was NOT a
+ *  live root at death is corpse geometry that just appeared; yaw it about
+ *  its own origin so its head lies along the fall direction (the kit prone
+ *  build has its head at local +X). Applied after each `mixer.update` in
+ *  the settle phase, since the wreck clip re-keys the bone every update;
+ *  once the wreck stops being updated the last write persists. An authored
+ *  wreck POSE (no swap: the live root stays the live root) is untouched. */
+export function yawCorpseRoots(entity: MeshUnitEntity, state: ToppleState): void {
+  if (state.corpseYaw === 0) return;
+  const q = new THREE.Quaternion();
+  entity.root.traverse((o) => {
+    const b = o as THREE.Bone;
+    if (!b.isBone) return;
+    if ((b.parent as THREE.Bone | null)?.isBone) return;
+    if (state.liveRoots.has(b) || b.scale.x <= LIVE_SCALE) return;
+    const parent = b.parent ?? entity.root;
+    const upLocal = UP.clone().applyQuaternion(parent.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+    q.setFromAxisAngle(upLocal, state.corpseYaw);
+    b.quaternion.premultiply(q);
+  });
+}
+
+/** Switches the entity onto its picked wreck clip and enters `settling`.
+ *  `cut` forces a one-frame switch (the topple's swap, D5); otherwise D2
+ *  decides. */
+function startWreck(d: DyingMeshUnit, cut: boolean): void {
+  const pick = pickDeathClips(d.entityId, new Set(d.entity.actions.keys()));
+  applyMeshClip(d.entity, pick.wreck, { once: true, cut });
+  d.wreckAction = d.entity.actions.get(pick.wreck) ?? null;
+  d.phase = 'settling';
+  d.t = 0;
+}
+
+/** Enters the Pixi fade for a body with no wreck: clones the materials now
+ *  (not at `beginMeshDeath`), so a body that falls or topples into a wreck
+ *  never pays for clones it will not use. */
+function beginFadePhase(d: DyingMeshUnit): void {
+  d.swaps = beginMeshDeathFade(d.entity.root);
+  d.phase = 'fading';
+  d.t = 0;
+}
+
+/** Starts a death for `entity` -- call once, the instant `Sim` reports it no
+ *  longer alive, and only once (the caller owns not calling this twice for
+ *  the same entity; `ThreeRenderer.updateMeshUnits`'s prune loop deletes the
+ *  id from `meshUnitEntities` in the same step it calls this, so there is
+ *  nothing left to find it under a second time).
+ *
+ *  Three shapes, in priority order (D3/D4):
+ *   1. The GLB has a `fall`/`fallAlt` clip (`pickDeathClips`): play it once,
+ *      through the ordinary crossfade -- `falling`. No fade clone is made;
+ *      D4 says a body with an authored fall is never faded, only the
+ *      no-fall path still is (see `beginFadePhase`'s own comment).
+ *   2. "Already down": the currently-playing living clip keys the SAME
+ *      scale signature as the picked wreck (D2's `clipScale`) -- the body is
+ *      already lying in the wreck's own geometry (a prone sniper on
+ *      overwatch, killed where it stood), so there is nothing to fall OR
+ *      topple. Straight to `settling`.
+ *   3. Neither: D5's generic topple. The pose freezes -- no clip is applied
+ *      and the mixer is never advanced while toppling -- and each live
+ *      figure root (`liveFigureRoots`) pitches 90 deg over `TOPPLE_SECONDS`,
+ *      staggered `TOPPLE_STAGGER_SECONDS` apart, about the ground point
+ *      beneath its own origin, away from `killer` (or straight back from
+ *      the entity's own facing with none). Once every figure lands, the
+ *      swap to the wreck (or, with none, the Pixi fade) is a one-frame
+ *      CUT -- see `stepMeshDeath`'s `toppling` branch.
  *
  *  `entityId` defaults to 0 so every existing call site (test fixtures with
  *  no sim entity id to give) keeps compiling with unchanged, deterministic
  *  behaviour; `ThreeRenderer`'s own real call site passes the actual id,
- *  which is what makes `wreckAlt`'s per-entity pick (`pickDeathClip`, used
- *  once the settle phase begins) vary entity to entity rather than picking
- *  the same fall for every corpse in a mission. */
-export function beginMeshDeath(entity: MeshUnitEntity, entityId: number = 0): DyingMeshUnit {
-  applyMeshClip(entity, 'down', { once: true });
-  return {
+ *  which is what makes the per-entity fall/wreck pick (`pickDeathClips`)
+ *  vary entity to entity rather than picking the same corpse for every body
+ *  in a mission. `killer` is threaded through for the topple direction (D5)
+ *  and otherwise unused here. */
+export function beginMeshDeath(entity: MeshUnitEntity, entityId: number = 0, killer: KillerRef | null = null): DyingMeshUnit {
+  const available = new Set(entity.actions.keys());
+  const pick = pickDeathClips(entityId, available);
+  const base = {
     entity,
     entityId,
     t: 0,
     baseWorldY: entity.root.position.y,
-    swaps: beginMeshDeathFade(entity.root),
-    settling: false,
-    wreckAction: null,
+    swaps: [] as readonly MeshFadeSwap[],
+    wreckAction: null as THREE.AnimationAction | null,
+    topple: null as ToppleState | null,
+    killer,
   };
+
+  // D3: the supplied fall, entered through the ordinary crossfade.
+  if (available.has(pick.fall)) {
+    applyMeshClip(entity, pick.fall, { once: true });
+    return { ...base, phase: 'falling', fallAction: entity.actions.get(pick.fall) ?? null };
+  }
+
+  // "Already down": the living clip shows the corpse geometry (equal scale
+  // signatures -- the sniper on overwatch). Nothing to topple; straight to
+  // the wreck, blending or cutting by D2.
+  //
+  // M4: guard on `available.has(pick.wreck)`, not the literal `'wreck'` --
+  // `startWreck` plays whichever of `wreck`/`wreckAlt` `pickDeathClips`
+  // picked, so a file whose picked variant is `wreckAlt` (and which has no
+  // plain `wreck` at all -- none shipped, but not excluded by the contract)
+  // would otherwise read `available.has('wreck')` as false and fall through
+  // to the topple for a body already lying in `wreckAlt`'s own pose.
+  if (
+    available.has(pick.wreck) &&
+    entity.currentClip !== null &&
+    entity.clipScale.get(entity.currentClip) === entity.clipScale.get(pick.wreck)
+  ) {
+    const d: DyingMeshUnit = { ...base, phase: 'settling', fallAction: null };
+    startWreck(d, false);
+    return d;
+  }
+
+  // D5: the generic topple. The pose freezes (no clip applied, mixer not
+  // advanced); each live figure root pitches about its own feet.
+  const topple = beginTopple(entity, toppleDirection(entity, killer));
+  return { ...base, phase: 'toppling', fallAction: null, topple };
 }
 
 /** Persistent wreckage -- the mesh-path counterpart of `renderer.ts`'s
@@ -313,19 +571,47 @@ export interface MeshDeathEnv {
 }
 
 /**
- * Advances one dying entity by `dtSeconds`. Two phases:
+ * Advances one dying entity by `dtSeconds`. Four phases (`d.phase`,
+ * `MeshDeathPhase`):
  *
- *  1. **Fading** (`!d.settling`): the first `MESH_DEATH_SECONDS`, exactly as
- *     before -- opacity and sink advance, `down`'s mixer keeps running.
- *     Once the window closes: an entity with no `wreck` clip is removed and
- *     fully disposed here, returning `'removed'`; one WITH a `wreck` clip
- *     starts it (`applyMeshClip(..., 'wreck', { once: true })`) and moves
- *     into the settle phase, still returning `'fading'` this same call --
- *     the wreck action gets its first real `mixer.update` on the NEXT call
- *     rather than this one, a one-frame deferral with no visible effect
- *     (the action's own `.time` is 0 either way at this point).
- *  2. **Settling** (`d.settling`): advances ONLY the wreck action's own
- *     mixer time until it reports `.paused` -- `THREE.LoopOnce` +
+ *  1. **Falling** (D3): the picked `fall`/`fallAlt` plays through the
+ *     ordinary mixer, `advanceMeshClipFades` included -- no opacity write,
+ *     no sink, because D4 says a body with an authored fall never fades:
+ *     the fall itself IS the death's whole visible motion, and it ends
+ *     lying in the exact pose its wreck clip holds. Once the action
+ *     reports `.paused` (the same `LoopOnce` + `clampWhenFinished`
+ *     mechanism the settle phase already relied on -- see point 4 below),
+ *     it hands off: a GLB with a `wreck` clip starts it immediately
+ *     (`startWreck(d, false)`, `cut = false` -- D2's own `clipScale`
+ *     comparison decides blend vs cut from here, same as any other clip
+ *     switch in this file; the fall and its paired wreck normally share a
+ *     scale signature, so this is ordinarily a blend between two poses that
+ *     already agree); one without is impossible by the mesh-unit contract
+ *     (every team that ships `fall` ships `wreck`) but falls back to the
+ *     fade (`beginFadePhase`) rather than assuming that can never happen.
+ *  2. **Toppling** (D5): advances `d.t` and calls `applyTopple`, writing
+ *     every live figure's pitch for this instant -- no clip is applied and
+ *     the mixer is never advanced, so the pose the body died in freezes
+ *     apart from the topple rotation itself. Once every figure's stagger
+ *     delay plus its own `TOPPLE_SECONDS` has elapsed
+ *     (`d.t >= topple.totalSeconds`), the swap onward is a forced CUT
+ *     (`startWreck(d, true)` for a GLB with a `wreck` clip, else
+ *     `beginFadePhase`) -- never a blend, since blending would lay the new
+ *     pose under a figure still frozen 90 degrees over.
+ *  3. **Fading**: Pixi's curve, verbatim and unchanged from before this
+ *     module grew a topple -- opacity and sink advance, the mixer keeps
+ *     running. Reached ONLY by a body with no fall, no already-down match
+ *     and no `wreck` clip to topple into (a civilian's `down`-only GLB,
+ *     via `beginFadePhase` at the end of the `toppling` branch) -- a body
+ *     that falls or topples into a real wreck never pays for a fade clone
+ *     it will not use (D4). Once the window closes: the entity is removed
+ *     and fully disposed here, returning `'removed'` -- unconditionally,
+ *     since only a body with no wreck ever reaches this phase at all (D4).
+ *  4. **Settling**: advances ONLY the wreck action's own mixer time (and,
+ *     mid-topple-swap, `yawCorpseRoots` -- see that function's own doc
+ *     comment for why the corpse geometry needs turning to the fall
+ *     bearing separately from the pitch `applyTopple` already wrote) until
+ *     it reports `.paused` -- `THREE.LoopOnce` +
  *     `clampWhenFinished` (set by `applyMeshClip`) is what flips that,
  *     three.js's own mechanism for "play once, then hold the last frame",
  *     verified directly against `AnimationAction.js`'s source rather than
@@ -381,10 +667,38 @@ export interface MeshDeathEnv {
  * came back, keep it somewhere (`pushMeshWreck` below).
  */
 export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeathEnv): 'fading' | 'removed' | MeshWreck {
-  if (d.settling) {
+  if (d.phase === 'settling') {
     const action = d.wreckAction;
+    advanceMeshClipFades(d.entity, dtSeconds);
     d.entity.mixer.update(dtSeconds);
-    if (!action || !action.paused) return 'fading';
+    if (d.topple) yawCorpseRoots(d.entity, d.topple);
+    // Ruling 10 (C1): `action.paused` alone flips true on the THIRD frame of
+    // a blend-in, not at its end -- three.js's own `LoopOnce` +
+    // `clampWhenFinished` clamps `.paused` off the wreck CLIP's own duration,
+    // which for every kit-convention `wreck` (a two-frame hold, 0.0417 s)
+    // elapses long before the 150 ms `MESH_CLIP_FADE_SECONDS` weight ramp
+    // this same `startWreck(d, false)` call started (D2's blend-or-cut
+    // choice for the wreck handoff). Returning the `MeshWreck` at that point
+    // freezes the crossfade one third of the way through, permanently: the
+    // `DyingMeshUnit` is dropped here and nothing ever calls
+    // `advanceMeshClipFades`/`mixer.update` on this entity again, so the
+    // wreck's own effective weight (and whatever it was fading in FROM,
+    // still holding weight too) never reaches its intended value. Requiring
+    // `d.entity.fades.size === 0` too keeps the blend (or cut, when D2 chose
+    // one) running to genuine completion before the corpse is handed off --
+    // a mortar team's 150 ms kneel-to-prone slump plays out in full instead
+    // of freezing at idle=0.667/wreck=0.333 forever. Cut transitions never
+    // populate `fades` at all (`applyMeshClip`'s `cut` branch calls
+    // `player.fades.clear()`), so this is a no-op there and only ever delays
+    // the already-topple-forced-cut settle path when some OTHER fade is
+    // still live for an unrelated reason.
+    //
+    // Break check (verified by hand, then reverted): drop the
+    // `|| d.entity.fades.size > 0` term. `mesh-death.test.ts`'s "the wreck
+    // handoff blend completes before the MeshWreck is built" test then goes
+    // red: the returned `MeshWreck` root's wreck action reads an
+    // intermediate effective weight (~0.333) instead of exactly 1.
+    if (!action || !action.paused || d.entity.fades.size > 0) return 'fading';
 
     // No `disposeMeshUnitEntity` here -- see this function's own doc
     // comment for why calling it would corrupt the very pose this branch
@@ -400,32 +714,45 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
     return { root: d.entity.root, x, y, shown };
   }
 
+  if (d.phase === 'falling') {
+    advanceMeshClipFades(d.entity, dtSeconds);
+    d.entity.mixer.update(dtSeconds);
+    d.t += dtSeconds;
+    if (!d.fallAction || !d.fallAction.paused) return 'fading';
+    // D4: the body is already lying in its final pose -- no fade, no sink.
+    if (d.entity.actions.has('wreck')) startWreck(d, false);
+    else beginFadePhase(d);
+    return 'fading';
+  }
+
+  if (d.phase === 'toppling') {
+    const topple = d.topple;
+    if (!topple) throw new Error('mesh-death: toppling with no ToppleState');
+    d.t += dtSeconds;
+    applyTopple(topple, d.t);
+    if (d.t < topple.totalSeconds) return 'fading';
+    // The swap is always a cut: a blend would have the mixer lay the wreck
+    // pose under a figure still pitched 90 deg (spec 3.3).
+    if (d.entity.actions.has('wreck')) startWreck(d, true);
+    else beginFadePhase(d);
+    return 'fading';
+  }
+
+  // 'fading' -- Pixi's curve, verbatim. Only a body with no wreck ever
+  // reaches this phase at all (D4): a fall or a topple with a `wreck` clip
+  // to become goes straight from its own phase to `settling` instead.
   d.t += dtSeconds;
   setMeshDeathOpacity(d.swaps, meshDeathOpacity(d.t));
   d.entity.root.position.y = d.baseWorldY - meshDeathSinkPx(d.t) * WORLD_Y_PER_LIFT_PIXEL;
+  advanceMeshClipFades(d.entity, dtSeconds);
   d.entity.mixer.update(dtSeconds);
-
   if (d.t < MESH_DEATH_SECONDS) return 'fading';
 
   endMeshDeathFade(d.swaps);
-
-  if (!d.entity.actions.has('wreck')) {
-    env.scene.remove(d.entity.root);
-    disposeMeshUnitEntity(d.entity);
-    return 'removed';
-  }
-
-  // `pickDeathClip` decides `wreck` vs `wreckAlt` deterministically from
-  // `d.entityId` -- `wreckAction` MUST be looked up under whichever name it
-  // actually resolved to, not a hardcoded `'wreck'`: an entity that picked
-  // `wreckAlt` would otherwise capture the UNPLAYED `wreck` action, whose
-  // `.paused` never flips true, hanging this entity in the settle phase
-  // forever (its mixer keeps advancing a clip nothing ever started).
-  const wreckClip = pickDeathClip(d.entityId, d.entity.actions.has('wreckAlt'));
-  applyMeshClip(d.entity, wreckClip, { once: true });
-  d.wreckAction = d.entity.actions.get(wreckClip) ?? null;
-  d.settling = true;
-  return 'fading';
+  d.swaps = [];
+  env.scene.remove(d.entity.root);
+  disposeMeshUnitEntity(d.entity);
+  return 'removed';
 }
 
 /** Appends `wreck` to `wrecks`, evicting the OLDEST entry once `max` is

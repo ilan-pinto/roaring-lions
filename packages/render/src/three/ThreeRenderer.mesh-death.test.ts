@@ -100,6 +100,9 @@ interface ThreeRendererPrivates {
   meshDying: DyingMeshUnit[];
   meshWrecks: MeshWreck[];
   updateMeshUnits(alpha: number, dtMs: number): void;
+  killerX: Float64Array;
+  killerY: Float64Array;
+  onEvents(events: unknown[]): void;
 }
 
 async function setUp(clips: string | string[]) {
@@ -178,7 +181,11 @@ describe('ThreeRenderer mesh-death wiring', () => {
 
     sim.state.alive[id] = 0;
     priv.updateMeshUnits(1, 16);
-    for (let i = 0; i < 5; i++) priv.updateMeshUnits(1, 200);
+    // D5: this body has no wreck, so it topples (0.5s) THEN fades (0.4s)
+    // before it is torn down -- 10 iterations at the 100ms-per-call cap is
+    // ~1s, comfortably past the combined ~0.9s with margin (the old 5
+    // iterations, ~0.5s, predates the topple and stopped mid-topple).
+    for (let i = 0; i < 10; i++) priv.updateMeshUnits(1, 200);
 
     expect(priv.meshDying).toHaveLength(0);
     expect(priv.meshWrecks).toHaveLength(0);
@@ -224,5 +231,36 @@ describe('ThreeRenderer mesh-death wiring', () => {
     renderer.dispose();
     expect(priv.meshDying).toHaveLength(0);
     expect(priv.meshWrecks).toHaveLength(0);
+  });
+
+  it('records the killer\'s position on destroyed, NaN when nothing shot it', async () => {
+    const { sim, renderer, priv, id } = await setUp('idle');
+    const typeIdx = sim.addUnitType({ ...INF, id: 'mesh_test_killer' });
+    const killer = sim.spawn(typeIdx, 1, fx.from(1.5), fx.from(2.5));
+    renderer.snapshot();
+    renderer.onEvents([{ kind: 'destroyed', tick: 1, entity: id, by: killer }]);
+    expect(priv.killerX[id]).toBeCloseTo(1.5, 6);
+    expect(priv.killerY[id]).toBeCloseTo(2.5, 6);
+    renderer.onEvents([{ kind: 'destroyed', tick: 1, entity: id, by: -1 }]);
+    expect(Number.isNaN(priv.killerX[id])).toBe(true);
+  });
+
+  it('hands the killer to beginMeshDeath: the topple direction points away from it', async () => {
+    const { sim, renderer, priv, id } = await setUp('idle');
+    priv.updateMeshUnits(1, 16);
+    const typeIdx = sim.addUnitType({ ...INF, id: 'mesh_test_killer2' });
+    const killer = sim.spawn(typeIdx, 1, fx.from(4.5), fx.from(2.5)); // north of the unit at (4.5, 6.5)
+    renderer.snapshot();
+    renderer.onEvents([{ kind: 'destroyed', tick: 1, entity: id, by: killer }]);
+    sim.state.alive[id] = 0;
+    priv.updateMeshUnits(1, 16);
+    const dying = priv.meshDying[0];
+    expect(dying.phase).toBe('toppling');
+    // T5: the killer sits due NORTH (same x, 4.5) of the unit, so the
+    // away-from-killer direction is pure +z with no x component at all --
+    // asserting only `.z` let a direction with a spurious x component
+    // (e.g. a swapped x/z or a wrong sign on one axis alone) through green.
+    expect(dying.topple?.direction.x).toBeCloseTo(0, 6);
+    expect(dying.topple?.direction.z).toBeCloseTo(1, 6); // away from the killer: toward +y tiles
   });
 });

@@ -75,6 +75,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildVehicleMeshTemplate, instantiateVehicleMesh } from './mesh-vehicle';
 import type { VehicleMeshTemplate } from './mesh-vehicle';
 import { CLIP_NAMES } from './mesh-anim';
+import { transitionIsCut } from './mesh-clip';
 import { TEXTURED_VEHICLE_TYPES } from './textured-vehicle';
 
 // See this file's own top comment, 2026-09-07 paragraph.
@@ -351,4 +352,13 @@ describe('shipped vehicle GLBs', () => {
       expect(wreckMeshCount).toBe(wanted.size);
     }
   );
+
+  it.each(shippedVehicleIds())('%s: idle -> wreck is a CUT under D2 (both clips key node scale, differently)', async (id) => {
+    const template = await templateFor(id);
+    const idle = template.clipScale.get('idle');
+    const wreck = template.clipScale.get('wreck');
+    expect(idle, `${id}: idle signature`).not.toBeNull();
+    expect(wreck, `${id}: wreck signature`).not.toBeNull();
+    expect(transitionIsCut(idle, wreck)).toBe(true);
+  });
 });

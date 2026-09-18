@@ -30,17 +30,22 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTIVE_TRAVEL_FRACTION,
   circularMeanDeg,
+  clipSeconds,
   countTracePeaks,
   groundPerCycleM,
   measureFacing,
+  measureJointPoses,
   measureMarkerFacing,
   measureRoleFootprint,
   measureRoleTravel,
   measureRoleTravelByFigure,
+  measureRootTravel,
   measureWeaponAxis,
   MESH_UNITS_PER_TILE,
   readGlb,
+  rotationDeltaDeg,
   swingLiftFraction,
+  type RootTravel,
 } from './mesh_gait';
 import { MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
@@ -445,24 +450,38 @@ describe('mesh unit gait -- the kit teams take their stride from their speed', (
     expect(m.maxTravelM / ground).toBeGreaterThan(before);
   });
 
-  // The four the pass must NOT have touched. Three carry `animates: False` on
-  // every figure (`teams.py`: "crew-served weapons stay deployed through
-  // move") and ship a degenerate 0.04 s `move` with no leg keys at all; the
-  // fourth is a motorcycle whose riders' boots do not move. All four are built
-  // by the same `build_clips` this pass rewired, so "unchanged" is a real
-  // claim about the scaling being scoped to walkers and not a tautology.
-  const STILL: [string, number][] = [
-    ['atgm_cell', 0.0417],
-    ['mortar_crew', 0.0417],
-    ['digger_crew', 0.0417],
-    ['moto_rpg', 0.6667],
+  // Task 10 (D6 part 2) -- `atgm_cell`, `mortar_crew` and `digger_crew` used
+  // to be in `STILL` below: every figure carries `animates: False`
+  // (`teams.py`: "crew-served weapons stay deployed through move") and the
+  // deployed pose shipped a degenerate 0.04 s `move` with no leg keys at all,
+  // so `before` for these three is exactly 0 -- not a small number, a real
+  // shipped absence of any forward travel. `rig.py` now gives each a third
+  // root, a standing walker hidden everywhere but `move`, while the deployed
+  // figure hides in turn (the mortar-team precedent -- see the facing sweep's
+  // `hidden` assertion below). Same `it.each` shape as `KIT` on purpose: this
+  // is the same check, not a different one, now that these three have
+  // something to measure.
+  const CREW_WALKERS: [string, number, number][] = [
+    ['atgm_cell', 0.7, 0],
+    ['mortar_crew', 0.6, 0],
+    ['digger_crew', 0.5, 0],
   ];
+
+  it.each(CREW_WALKERS)('%s strides for its own speed, now that its crew walks', (team, speed, before) => {
+    const m = measureRoleTravel(`${MESHES}${team}.glb`, 'boot', 'move');
+    const ground = groundPerCycleM(speed, m.clipSeconds);
+    expect(m.maxTravelM / ground).toBeGreaterThan(before);
+  });
+
+  // The one the pass must NOT have touched: a motorcycle whose riders' boots
+  // do not move (they bob with the machine). It is built by the same
+  // `build_clips` the KIT pass rewired, so "unchanged" is a real claim about
+  // the scaling being scoped to walkers and not a tautology.
+  const STILL: [string, number][] = [['moto_rpg', 0.6667]];
 
   it.each(STILL)('%s is deliberately not a walker and did not move', (team, cycleS) => {
     const m = measureRoleTravel(`${MESHES}${team}.glb`, 'boot', 'move');
     expect(m.clipSeconds).toBeCloseTo(cycleS, 3);
-    // A motorcycle's riders bob with the machine; the crew-served teams key
-    // nothing at all. Both are far under any gait.
     expect(m.maxTravelM).toBeLessThan(0.1);
   });
 
@@ -472,6 +491,7 @@ describe('mesh unit gait -- the kit teams take their stride from their speed', (
     // run from here, so this asserts the input it depends on: every team the
     // rig builds has exactly one unit JSON with a positive speed.
     const teams: [string, number][] = [...KIT.map(([t, s]) => [t, s] as [string, number]),
+      ...CREW_WALKERS.map(([t, s]) => [t, s] as [string, number]),
       ...STILL.map(([t]) => [t, 0] as [string, number])];
     for (const [team, speed] of teams) {
       const hits = ['kdf', 'enemy']
@@ -704,11 +724,6 @@ interface RiggedFile {
  * silently stops declaring a gait.
  */
 export const GAIT_EXEMPT: Readonly<Record<string, string>> = {
-  atgm_cell:
-    'crew-served: teams.py gives every figure `animates: False` ("crew-served weapons stay ' +
-    'deployed through move") and the rig ships a degenerate 0.0417 s `move` with no leg keys',
-  mortar_crew: 'crew-served, as atgm_cell',
-  digger_crew: 'crew-served, as atgm_cell',
   moto_rpg: 'a motorcycle -- its wheels turn, its riders’ boots do not',
 };
 
@@ -716,6 +731,11 @@ export const GAIT_EXEMPT: Readonly<Record<string, string>> = {
  *  lies where the blast put it; `meshy_soldier`’s −166° is recorded in the
  *  design as deliberate and pinned above. */
 const CORPSE_CLIPS: ReadonlySet<string> = new Set(['wreck', 'wreckAlt']);
+
+/** Clips that are a fall in progress -- the body turns as it goes down, so
+ *  no facing is asserted (a corpse is the same exemption one frame later).
+ *  Exported: the fall gate below sweeps exactly these names. */
+export const FALL_CLIPS: ReadonlySet<string> = new Set(['fall', 'fallAlt']);
 
 /**
  * Every rigged mesh the app loads, with its own speed and its own
@@ -982,7 +1002,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     const declaring = RIGS.filter((r) => r.declared !== undefined).map((r) => r.typeId);
     const silent = RIGS.filter((r) => r.declared === undefined).map((r) => r.typeId);
     expect([...new Set(silent)].sort()).toEqual(Object.keys(GAIT_EXEMPT).sort());
-    expect(new Set(declaring).size).toBe(12);
+    expect(new Set(declaring).size).toBe(15);
     for (const [type, why] of Object.entries(GAIT_EXEMPT)) {
       expect(why.length, `${type}: a reason, not a name`).toBeGreaterThan(20);
     }
@@ -997,7 +1017,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
   });
 
   it('every gaited file declares a `move` gait, so none can be skipped by absence', () => {
-    expect(gaited).toHaveLength(15);
+    expect(gaited).toHaveLength(18);
     for (const rig of gaited) {
       expect(rig.declared?.has('move'), `${rig.file}: rl_gait.move`).toBe(true);
     }
@@ -1148,8 +1168,8 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
         checked++;
       }
     }
-    // Twelve types over fifteen files, two of which declare `moveFire` too.
-    expect(checked).toBe(17);
+    // Fifteen types over eighteen files, two of which declare `moveFire` too.
+    expect(checked).toBe(20);
   });
 });
 
@@ -1245,6 +1265,9 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'civilians/office_worker.glb move': 346,
   'civilians/farm_worker.glb move': 279,
   'civilians/civilian_child.glb move': 284,
+  'atgm_cell.glb move': 1152,
+  'mortar_crew.glb move': 1152,
+  'digger_crew.glb move': 576,
 };
 
 /**
@@ -1318,7 +1341,22 @@ const SWING_LIFT_FLOOR = 0.05;
  * consume. Recorded as the follow-up; at gameplay zoom the visible difference
  * is a boot's height profile over 0.67 s at 25 px.
  */
-const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = { 'sniper_team.glb move': -0.065 };
+const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
+  'sniper_team.glb move': -0.065,
+  // Not reversed -- positive, same sign as every other rig -- just small.
+  // 0.010998631554512578 (rounded to 0.011 below): the swing-lift fraction
+  // `swingLiftFraction` reads off the shipped `digger_crew.glb` `move`
+  // clip's own boot trace, the same instrument and the same clip every other
+  // row in this table reads. The one same-unit comparison available is the
+  // other two crews' own gait amplitude SCALE (a different quantity, from
+  // `rig.gait_amplitudes`, not this fraction): `digger_crew` is 0.867
+  // against `atgm_cell`'s 1.213 and `mortar_crew`'s 1.040, the smallest of
+  // the three Task 10 walkers. That is offered as context for where this rig
+  // sits among its own siblings, not as a derivation of the number --
+  // `sniper_team` above is the precedent for a small chirality reading with
+  // no confirmed mechanism. Treat the number as pinned, not as explained.
+  'digger_crew.glb move': 0.011,
+};
 
 describe('mesh unit gait -- per figure, not per file', () => {
   const rows = declaredLocomotion().map(([, file, clip, rig]) => {
@@ -1327,14 +1365,17 @@ describe('mesh unit gait -- per figure, not per file', () => {
   });
 
   it('reads a known number of figures, and every still one is named', () => {
-    expect(rows).toHaveLength(17);
+    expect(rows).toHaveLength(20);
     const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
-    // 35 visible figures over 17 clips: two each on the six `kit.py` teams
-    // and `yahalom_engineer`, three each on `meshy_soldier` (x2 clips),
-    // `sarim_rifles` (x2) and `meshy_mortar_team`, and one per civilian.
-    // The hidden `death_root` twins and `meshy_mortar_team`'s three kneeling
-    // roots are not in it.
-    expect(live).toHaveLength(35);
+    // 40 visible figures over 20 clips: two each on the six original
+    // `kit.py` teams and `yahalom_engineer`, three each on `meshy_soldier`
+    // (x2 clips), `sarim_rifles` (x2) and `meshy_mortar_team`, one per
+    // civilian, and Task 10's three crew-served walkers on their own `move`
+    // -- two each for `atgm_cell` and `mortar_crew`, one for `digger_crew`.
+    // The hidden `death_root` twins, `meshy_mortar_team`'s three kneeling
+    // roots and the three crews' own deployed roots (hidden on `move`, the
+    // mortar-team precedent) are not in it.
+    expect(live).toHaveLength(40);
     // Both directions, the way GAIT_EXEMPT is: every named still figure must
     // be a figure that really exists and really is still, and every figure
     // that is still must be named.
@@ -1445,7 +1486,7 @@ describe('mesh unit gait -- declared rl_gait against a fresh measurement', () =>
     // The other half. Without this the exemption list could hide a rig whose
     // `move` genuinely walks and whose declaration was simply never written.
     const exempt = RIGS.filter((r) => r.declared === undefined);
-    expect(exempt).toHaveLength(4);
+    expect(exempt).toHaveLength(1);
     for (const rig of exempt) {
       const fp = measureRoleFootprint(rig.path, 'boot', 'move');
       expect(fp.axisTravelM[0], `${rig.file}: forward stride`).toBeLessThan(MIN_GAIT_TRAVEL_M);
@@ -1635,8 +1676,8 @@ function facingSweep(): {
       // the one exemption class the passing path never printed now prints
       // like every other one. A reader of the log should not have to know
       // that `wreck` was skipped somewhere above the table.
-      if (CORPSE_CLIPS.has(clip)) {
-        exempted.push(`${rig.file} ${clip} (corpse)`);
+      if (CORPSE_CLIPS.has(clip) || FALL_CLIPS.has(clip)) {
+        exempted.push(`${rig.file} ${clip} (${CORPSE_CLIPS.has(clip) ? 'corpse' : 'fall'})`);
         continue;
       }
       if (FACING_EXEMPT[rig.file] || FACING_EXEMPT[`${rig.file} ${clip}`]) {
@@ -1726,11 +1767,30 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // `meshy_mortar_team` hides its whole kneeling tableau during `move`.
     // A figure that STOPS being hidden, or starts, is a change to how a rig
     // switches posture and must be looked at rather than absorbed.
+    //
+    // Task 10 adds a THIRD root per crew-served figure -- the mortar-team
+    // precedent named above, now real rather than borrowed: `atgm_cell` and
+    // `mortar_crew` (two figures each) and `digger_crew` (one) each carry a
+    // standing walker root that is scaled to zero everywhere but `move`, so
+    // each of their figures is hidden on TWO clips rather than one -- the
+    // deployed root on `move` (where the walker takes over) and the walker
+    // root on every OTHER clip (`idle`, and `down`, on top of the deployed
+    // root the death posture already hid there). That is why `atgm_cell.glb
+    // down` and `mortar_crew.glb down` -- two figures apiece -- read FOUR
+    // hidden entries rather than two: the deployed root x2 plus the walker
+    // root x2, both hidden at once once a figure is dead. Measured
+    // 2026-09-17 off the shipped bytes.
     expect(hidden.map((h) => h.replace(/ \w+$/, '')).sort()).toEqual([
       'at_team.glb down',
       'at_team.glb down',
       'atgm_cell.glb down',
       'atgm_cell.glb down',
+      'atgm_cell.glb down',
+      'atgm_cell.glb down',
+      'atgm_cell.glb idle',
+      'atgm_cell.glb idle',
+      'atgm_cell.glb move',
+      'atgm_cell.glb move',
       'breach_team.glb down',
       'breach_team.glb down',
       'charge_squad.glb down',
@@ -1738,10 +1798,19 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'demo_squad.glb down',
       'demo_squad.glb down',
       'digger_crew.glb down',
+      'digger_crew.glb down',
+      'digger_crew.glb idle',
+      'digger_crew.glb move',
       'militia_cell.glb down',
       'militia_cell.glb down',
       'mortar_crew.glb down',
       'mortar_crew.glb down',
+      'mortar_crew.glb down',
+      'mortar_crew.glb down',
+      'mortar_crew.glb idle',
+      'mortar_crew.glb idle',
+      'mortar_crew.glb move',
+      'mortar_crew.glb move',
       'rpg_team.glb down',
       'rpg_team.glb down',
     ]);
@@ -2325,7 +2394,7 @@ describe('mesh gait tables -- every key names something real', () => {
   it('FACING_EXEMPT keys on a real file, or a real non-corpse file/clip pair', () => {
     const knownFiles = new Set(RIGS.map((r) => r.file));
     const knownFileClips = new Set(
-      RIGS.flatMap((r) => r.clips.filter((c) => !CORPSE_CLIPS.has(c)).map((c) => `${r.file} ${c}`))
+      RIGS.flatMap((r) => r.clips.filter((c) => !CORPSE_CLIPS.has(c) && !FALL_CLIPS.has(c)).map((c) => `${r.file} ${c}`))
     );
     for (const k of Object.keys(FACING_EXEMPT)) {
       expect(
@@ -2345,6 +2414,98 @@ describe('mesh gait tables -- every key names something real', () => {
     );
     for (const k of Object.keys(WEAPON_IDLE_ELEVATION_DEG)) {
       expect(known.has(k), `WEAPON_IDLE_ELEVATION_DEG key "${k}": not a real gated figure`).toBe(true);
+    }
+  });
+});
+
+// `rpg_team.glb` is a kit rig (`rig.py`, `MESH_KIT_OWNED`) and topples;
+// `tools/units/import_meshy_rpg_team.py` is a WIP whose output has never
+// shipped.
+describe('mesh unit death -- the fall clips (design D3, gate 3)', () => {
+  const FALL_FILES = ['meshy_soldier.glb', 'sarim_rifles.glb', 'yahalom_engineer.glb'];
+  const FALL_ALT_FILES = ['sarim_rifles.glb', 'yahalom_engineer.glb'];
+  const withFall = RIGS.filter((r) => r.clips.includes('fall'));
+  const withFallAlt = RIGS.filter((r) => r.clips.includes('fallAlt'));
+
+  it('exactly the three Meshy bipeds carry fall, and the two with a second fall carry fallAlt', () => {
+    expect(withFall.map((r) => r.file).sort()).toEqual(FALL_FILES);
+    expect(withFallAlt.map((r) => r.file).sort()).toEqual(FALL_ALT_FILES);
+  });
+
+  it('fallAlt implies wreckAlt, and fall + wreckAlt implies fallAlt -- the pick has one bit', () => {
+    for (const r of withFallAlt) expect(r.clips, r.file).toContain('wreckAlt');
+    for (const r of withFall) if (r.clips.includes('wreckAlt')) expect(r.clips, r.file).toContain('fallAlt');
+    for (const r of withFall) expect(r.clips, r.file).toContain('wreck');
+  });
+
+  const pairs = [
+    ...withFall.map((r) => [r.file, 'fall', 'wreck', r] as const),
+    ...withFallAlt.map((r) => [r.file, 'fallAlt', 'wreckAlt', r] as const),
+  ];
+
+  // Controller Ruling 6: the brief's 0.5-2.0 s band was an unmeasured spec
+  // claim. Measured from the shipped bytes, the five supplied falls run
+  // 2.29-4.58 s (soldier `fall` 2.83; Sarim `fall` 4.58, `fallAlt` 2.38;
+  // Yahalom `fall` 3.58, `fallAlt` 2.29) -- the supplied clips are kept
+  // whole rather than re-cut to fit a narrower guess. The upper bound is
+  // widened to 5.0 s; the 0.5 s lower bound (rejects a static hold) is
+  // unchanged. (`rpg_team.glb` carries no `fall` at all -- Ruling 7, it is
+  // the kit rig and topples.)
+  //
+  // Controller Ruling 8: the two-sided "within 10% of idle" standing check
+  // was also an unmeasured guess. `meshy_soldier`'s `idle` is a low-ready
+  // carry with bent knees, so its `fall` opens TALLER than idle, not close
+  // to it -- measured hip startY, clip vs. idle: soldier `fall` 0.9596 vs.
+  // 0.8097-0.8206 (+17-19%); Sarim `fall` 0.9910 vs. 0.9167-0.9255 (+7-8%),
+  // `fallAlt` 0.9654 vs. same idle (+4-5%); Yahalom `fall` 0.9871 vs.
+  // 0.9285-0.9324 (+6%), `fallAlt` 0.9418 vs. same idle (+1%). The check's
+  // real job is rejecting a clip that opens LOW -- a prone hip sits at
+  // 0.17-0.35 m, a third of idle's -- so it is one-sided: at least
+  // three-quarters of idle's own height, no upper bound (a fall may start
+  // from any upright pose).
+  it.each(pairs)('%s %s: 0.5-5.0 s, starts standing, ends prone, no horizontal root motion', (_file, clip, _wreck, r) => {
+    const seconds = clipSeconds(r.path, clip);
+    expect(seconds).toBeGreaterThanOrEqual(0.5);
+    expect(seconds).toBeLessThanOrEqual(5.0);
+    const idle = measureRootTravel(r.path, 'idle');
+    const fall = measureRootTravel(r.path, clip);
+    const live = fall.filter((f) => f.liveAtStart);
+    expect(live.length, `${r.file}: live figure roots`).toBeGreaterThan(0);
+    for (const f of live) {
+      const rest = idle.find((i) => i.root === f.root);
+      expect(rest, `${r.file} ${clip}: ${f.root} has no idle counterpart`).toBeDefined();
+      // Falsified by pointing this at 'move': the run reads metres, not centimetres.
+      expect(f.horizontalM, `${r.file} ${clip} ${f.root}: horizontal drift`).toBeLessThan(0.05);
+      // Opens standing: at least three-quarters of the file's own idle hip
+      // height. One-sided on purpose -- `meshy_soldier`'s fall opens TALLER
+      // than its low-ready idle (0.96 m vs 0.81 m), and a fall may start
+      // from any upright pose; what it may not do is start from a crouch or
+      // the ground (prone hips sit at 0.17-0.35 m, a third of idle's).
+      expect(f.startY, `${r.file} ${clip} ${f.root}: starts standing`).toBeGreaterThanOrEqual(0.75 * (rest as RootTravel).startY);
+      expect(f.endY, `${r.file} ${clip} ${f.root}: ends prone`).toBeLessThanOrEqual(0.35);
+    }
+  });
+
+  it.each(pairs)('%s %s: its last frame IS %s -- hips within 1 cm, every live joint within 1 degree', (_file, clip, wreck, r) => {
+    const end = measureJointPoses(r.path, clip, 'end');
+    const corpse = measureJointPoses(r.path, wreck, 'start');
+    expect(corpse.map((j) => j.name)).toEqual(end.map((j) => j.name));
+    let compared = 0;
+    for (let i = 0; i < end.length; i++) {
+      if (end[i].scale <= 1e-6 || corpse[i].scale <= 1e-6) continue;
+      compared++;
+      const dt = Math.hypot(...end[i].translation.map((v, k) => v - corpse[i].translation[k]));
+      expect(dt, `${r.file} ${clip}->${wreck} ${end[i].name}: translation`).toBeLessThan(0.01);
+      // Falsified by comparing against 'idle' instead of the wreck: tens of degrees.
+      expect(rotationDeltaDeg(end[i].rotation, corpse[i].rotation), `${r.file} ${clip}->${wreck} ${end[i].name}: rotation`).toBeLessThan(1);
+    }
+    expect(compared).toBeGreaterThan(10);
+  });
+
+  it('no kit rig, civilian, sniper, mortar team or motorcycle acquired a fall by accident', () => {
+    for (const r of RIGS) {
+      if (FALL_FILES.includes(r.file)) continue;
+      for (const c of r.clips) expect(FALL_CLIPS.has(c), `${r.file} ${c}`).toBe(false);
     }
   });
 });

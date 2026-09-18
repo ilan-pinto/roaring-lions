@@ -21,6 +21,8 @@ import { parseFixture } from './mesh-fixture';
 import { rampMaterial } from '../world-materials';
 import { groundWorldY } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
+import { applyMeshClip } from './mesh-clip';
+import { MESH_SCALE } from './mesh-anim';
 import {
   MESH_DEATH_SECONDS,
   meshDeathOpacity,
@@ -32,12 +34,39 @@ import {
   stepMeshDeath,
   pushMeshWreck,
   updateMeshWrecks,
+  toppleAngle,
+  toppleDirection,
+  liveFigureRoots,
+  TOPPLE_SECONDS,
+  TOPPLE_STAGGER_SECONDS,
   type MeshWreck,
   type MeshDeathEnv,
 } from './mesh-death';
 
-async function buildEntity(clips: string | string[]): Promise<MeshUnitEntity> {
-  const gltf = await parseFixture({ roleName: 'uniform', clipName: clips });
+async function buildEntity(
+  spec:
+    | string
+    | string[]
+    | {
+        clips: string[];
+        scaleClips?: Record<string, { root: number; deathRoot: number }>;
+        rootOffset?: [number, number, number];
+        extraRoots?: number;
+        clipSeconds?: number;
+      }
+): Promise<MeshUnitEntity> {
+  const opts =
+    typeof spec === 'string' || Array.isArray(spec)
+      ? { roleName: 'uniform', clipName: spec }
+      : {
+          roleName: 'uniform',
+          clipName: spec.clips,
+          scaleClips: spec.scaleClips,
+          rootOffset: spec.rootOffset,
+          extraRoots: spec.extraRoots,
+          clipSeconds: spec.clipSeconds,
+        };
+  const gltf = await parseFixture(opts);
   const template = buildMeshUnitTemplate(gltf, 'kdf');
   return instantiateMeshUnit(template, 'inf_squad');
 }
@@ -174,24 +203,367 @@ describe('beginMeshDeathFade / setMeshDeathOpacity / endMeshDeathFade', () => {
 // --- beginMeshDeath ------------------------------------------------------
 
 describe('beginMeshDeath', () => {
-  it('plays the down clip when the GLB has one, and captures baseWorldY/t=0/one swap per mesh', async () => {
-    const entity = await buildEntity(['idle', 'down']);
+  it('a GLB with a fall clip plays it once, no fade clone, phase falling (D3/D4)', async () => {
+    const entity = await buildEntity(['idle', 'fall', 'wreck']);
     entity.root.position.set(2, 5, 3);
-    const dying = beginMeshDeath(entity);
-    // Break check (verified by hand, then reverted): delete the
-    // `applyMeshClip(entity, 'down');` call in `beginMeshDeath`. This
-    // assertion then reads `null` (no clip ever applied to a freshly
-    // instantiated entity) instead of `'down'` and goes red.
-    expect(entity.currentClip).toBe('down');
+    const dying = beginMeshDeath(entity, 3);
+    // Break (verified by hand, then reverted): make beginMeshDeath play
+    // `down` instead of `pick.fall` -- this reads 'down'.
+    expect(entity.currentClip).toBe('fall');
+    expect(dying.phase).toBe('falling');
+    expect(dying.swaps).toHaveLength(0);
+    expect(dying.fallAction).toBe(entity.actions.get('fall'));
     expect(dying.t).toBe(0);
     expect(dying.baseWorldY).toBe(5);
-    expect(dying.swaps).toHaveLength(1);
   });
 
-  it('falls back to idle -- through the EXISTING applyMeshClip fallback, not a second one -- when the GLB has no down clip', async () => {
-    const entity = await buildEntity('idle');
-    beginMeshDeath(entity);
-    expect(entity.currentClip).toBe('idle');
+  it('picks fallAlt for the ids that pick wreckAlt, so the fall ends in its own corpse', async () => {
+    const ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const seen = new Set<string>();
+    for (const id of ids) {
+      const fresh = await buildEntity(['idle', 'fall', 'fallAlt', 'wreck', 'wreckAlt']);
+      beginMeshDeath(fresh, id);
+      seen.add(fresh.currentClip ?? 'none');
+    }
+    expect(seen).toEqual(new Set(['fall', 'fallAlt']));
+  });
+
+  it('"already down": a living clip that keys the same scales as wreck goes straight to settling', async () => {
+    const entity = await buildEntity({
+      clips: ['idle', 'move', 'wreck'],
+      scaleClips: { idle: { root: 0, deathRoot: 1 }, move: { root: 1, deathRoot: 0 }, wreck: { root: 0, deathRoot: 1 } },
+    });
+    applyMeshClip(entity, 'idle'); // the sniper on overwatch: prone rig live
+    const dying = beginMeshDeath(entity);
+    expect(dying.phase).toBe('settling');
+    expect(entity.currentClip).toBe('wreck');
+    expect(dying.swaps).toHaveLength(0);
+  });
+
+  it('the same rig killed on the move (standing rig live) does NOT take the already-down path', async () => {
+    const entity = await buildEntity({
+      clips: ['idle', 'move', 'wreck'],
+      scaleClips: { idle: { root: 0, deathRoot: 1 }, move: { root: 1, deathRoot: 0 }, wreck: { root: 0, deathRoot: 1 } },
+    });
+    applyMeshClip(entity, 'move');
+    const dying = beginMeshDeath(entity);
+    expect(dying.phase).not.toBe('settling');
+  });
+
+});
+
+// --- C1: the wreck handoff blend must run to completion --------------------
+
+/** Steps `d` in real 1/60s frames (the granularity a running game actually
+ *  ticks the renderer at, unlike the file's other tests' big single-shot
+ *  steps) until `stepMeshDeath` stops returning `'fading'` or `maxFrames` is
+ *  exhausted. Returns the final result plus whether the loop ever observed
+ *  the settling branch mid-blend -- `wreckAction.paused` already true (the
+ *  short fixture wreck clip has clamped) while `entity.fades.size` is still
+ *  > 0 (the 150ms crossfade has not) -- which is exactly the state the
+ *  pre-fix code mistook for "done". */
+function stepUntilSettled(
+  d: ReturnType<typeof beginMeshDeath>,
+  env: MeshDeathEnv,
+  maxFrames = 60
+): { result: ReturnType<typeof stepMeshDeath>; sawMidBlend: boolean } {
+  const dt = 1 / 60;
+  let result: ReturnType<typeof stepMeshDeath> = 'fading';
+  let sawMidBlend = false;
+  for (let i = 0; i < maxFrames && result === 'fading'; i++) {
+    result = stepMeshDeath(d, dt, env);
+    if (d.phase === 'settling' && d.wreckAction?.paused && d.entity.fades.size > 0) {
+      sawMidBlend = true;
+      // Break check (verified by hand, then reverted): drop the
+      // `|| d.entity.fades.size > 0` term from `stepMeshDeath`'s settling
+      // guard. This assertion then goes red the very first frame the wreck
+      // action clamps -- `stepMeshDeath` returns a `MeshWreck` here instead
+      // of `'fading'`, one third of the way through the crossfade.
+      expect(result).toBe('fading');
+    }
+  }
+  return { result, sawMidBlend };
+}
+
+describe('C1: the wreck handoff blend completes before the MeshWreck is built', () => {
+  it('fall path: a short wreck clip clamps well before the 150ms blend ends', async () => {
+    // `clipSeconds: 0.04` applies to every clip in this fixture, including
+    // `fall` -- so the fall itself also clamps almost immediately, and this
+    // exercises the SAME blend-outlives-the-clip shape D3's fall->wreck
+    // hand-off uses. No `scaleClips`: both clips key no scale track at all
+    // (`scaleSignature` reads null for each), so `transitionIsCut(null,
+    // null)` is false and the hand-off is a genuine 150ms BLEND, not a cut.
+    const entity = await buildEntity({ clips: ['idle', 'fall', 'wreck'], clipSeconds: 0.04 });
+    entity.root.position.set(2, 0, 3);
+    const dying = beginMeshDeath(entity, 11);
+    expect(dying.phase).toBe('falling');
+    const env = makeEnv();
+
+    const { result, sawMidBlend } = stepUntilSettled(dying, env);
+
+    // The loop must actually have PASSED THROUGH the buggy window (wreck
+    // clamped, blend still running) for the test to mean anything -- a
+    // fixture whose wreck clip outlives the blend would make `sawMidBlend`
+    // false and the break-check assertion above unreachable, silently.
+    expect(sawMidBlend).toBe(true);
+    expect(result).not.toBe('fading');
+    expect(result).not.toBe('removed');
+
+    // Once the MeshWreck comes back: every OTHER scheduled action is
+    // stopped, and the wreck itself sits at effective weight exactly 1 --
+    // not the ~0.333 `action.paused` alone would have frozen it at.
+    for (const [name, action] of entity.actions) {
+      if (name === entity.currentClip) continue;
+      expect(action.isScheduled()).toBe(false);
+    }
+    const wreckAction = entity.actions.get(entity.currentClip!);
+    expect(wreckAction?.getEffectiveWeight()).toBe(1);
+    expect(entity.fades.size).toBe(0);
+  });
+
+  it('already-down path: the sniper-on-overwatch blend also runs to completion', async () => {
+    // Same short-clip shape, on the "already down" branch (D2's blend,
+    // `meshy_mortar_team`'s own real shape per Ruling 12): the living clip
+    // keys the same scale signature as `wreck`, so `beginMeshDeath` goes
+    // straight to `settling` via a blend rather than a cut or a topple.
+    const entity = await buildEntity({
+      clips: ['idle', 'wreck'],
+      scaleClips: { idle: { root: 0, deathRoot: 1 }, wreck: { root: 0, deathRoot: 1 } },
+      clipSeconds: 0.04,
+    });
+    applyMeshClip(entity, 'idle');
+    entity.mixer.update(0.01);
+    entity.root.position.set(0, 0, 0);
+    const dying = beginMeshDeath(entity, 4);
+    expect(dying.phase).toBe('settling');
+    expect(entity.fades.size).toBeGreaterThan(0); // a blend, not a cut
+    const env = makeEnv();
+
+    const { result, sawMidBlend } = stepUntilSettled(dying, env);
+
+    expect(sawMidBlend).toBe(true);
+    expect(result).not.toBe('fading');
+    expect(result).not.toBe('removed');
+    for (const [name, action] of entity.actions) {
+      if (name === entity.currentClip) continue;
+      expect(action.isScheduled()).toBe(false);
+    }
+    expect(entity.actions.get(entity.currentClip!)?.getEffectiveWeight()).toBe(1);
+    expect(entity.fades.size).toBe(0);
+  });
+});
+
+// --- the generic topple (D5) -----------------------------------------------
+
+/** The fixture's live root is `root_joint` (scale 1) with `death_root` at 0
+ *  -- one figure, standing `rootOffset` away from the entity origin so the
+ *  per-figure pivot is distinguishable from an entity-root pivot. */
+const KIT_LIKE = {
+  clips: ['idle', 'move', 'down', 'wreck'],
+  scaleClips: {
+    idle: { root: 1, deathRoot: 0 },
+    move: { root: 1, deathRoot: 0 },
+    down: { root: 0, deathRoot: 1 },
+    wreck: { root: 0, deathRoot: 1 },
+  },
+  rootOffset: [0.5, 0, 0] as [number, number, number],
+};
+
+function boneNamed(entity: MeshUnitEntity, name: string): THREE.Bone {
+  let hit: THREE.Bone | null = null;
+  entity.root.traverse((o) => {
+    if ((o as THREE.Bone).isBone && o.name === name) hit = o as THREE.Bone;
+  });
+  if (!hit) throw new Error(`no bone ${name}`);
+  return hit;
+}
+
+function rotationDeg(b: THREE.Bone): number {
+  return (2 * Math.acos(Math.min(1, Math.abs(b.quaternion.w))) * 180) / Math.PI;
+}
+
+async function standing(): Promise<MeshUnitEntity> {
+  const entity = await buildEntity(KIT_LIKE);
+  entity.root.position.set(10, 0, 10); // ground at y = 0
+  applyMeshClip(entity, 'move');
+  entity.mixer.update(0.01); // writes the scale keys onto the bones
+  entity.root.updateWorldMatrix(true, true);
+  return entity;
+}
+
+describe('the generic topple (D5)', () => {
+  it('toppleAngle is 90 deg * p^2 -- 22.5 at a quarter second, 90 at the end, clamped', () => {
+    expect((toppleAngle(0.25) * 180) / Math.PI).toBeCloseTo(22.5, 6); // Break: drop the square -> 45
+    expect((toppleAngle(0.5) * 180) / Math.PI).toBeCloseTo(90, 6);
+    expect(toppleAngle(-0.1)).toBe(0);
+    expect((toppleAngle(9) * 180) / Math.PI).toBeCloseTo(90, 6);
+  });
+
+  it('falls away from the killer, and straight back from its facing with no killer', async () => {
+    const e = await standing();
+    e.root.rotation.y = 0; // facing local +X = world +X
+    expect(toppleDirection(e, { x: 9, y: 10 }).x).toBeCloseTo(1, 6); // killer to the -x side
+    expect(toppleDirection(e, { x: 10, y: 12 }).z).toBeCloseTo(-1, 6);
+    expect(toppleDirection(e, null).x).toBeCloseTo(-1, 6); // backward
+    e.root.rotation.y = Math.PI / 2; // three.js: +90 deg yaw turns +X toward -Z
+    expect(toppleDirection(e, null).z).toBeCloseTo(1, 6);
+  });
+
+  it('a no-fall rig enters toppling with its live root pitched about its OWN feet; the feet never move', async () => {
+    const e = await standing();
+    const root = boneNamed(e, 'root_joint');
+    const feetBefore = root.getWorldPosition(new THREE.Vector3());
+    const d = beginMeshDeath(e, 4, { x: 9, y: 10 }); // falls toward +x
+    expect(d.phase).toBe('toppling');
+    expect(e.currentClip).toBe('move'); // no clip applied: the pose freezes
+    const env = makeEnv();
+
+    stepMeshDeath(d, 0.25, env);
+    expect(rotationDeg(root)).toBeCloseTo(22.5, 4);
+    e.root.updateWorldMatrix(true, true);
+    // Break (verified, reverted): pivot on the entity root instead -- this
+    // point moves by 0.5 m, the figure's own offset from the origin.
+    expect(root.getWorldPosition(new THREE.Vector3()).distanceTo(feetBefore)).toBeLessThan(1e-6);
+    // No clip is applied while toppling, so the mixer never advances --
+    // `move`'s own action sits exactly where `standing()`'s setup left it.
+    expect(e.actions.get('move')?.time).toBeCloseTo(0.01, 6);
+
+    // This second step lands EXACTLY at TOPPLE_SECONDS (one figure, no
+    // stagger) -- the same instant the next test below proves completes the
+    // topple and cuts to the wreck in this SAME call, so `move`'s action is
+    // stopped (and its `.time` reset) as part of that cut, not asserted
+    // unchanged here.
+    stepMeshDeath(d, 0.25, env);
+    expect(rotationDeg(root)).toBeCloseTo(90, 4);
+    // The head (bone1, +1 up from the root) now lies +1 along the fall direction.
+    e.root.updateWorldMatrix(true, true);
+    const head = boneNamed(e, 'bone1').getWorldPosition(new THREE.Vector3());
+    expect(head.y).toBeCloseTo(feetBefore.y, 4);
+    expect(head.x - feetBefore.x).toBeCloseTo(MESH_SCALE, 4); // 1 m in the GLB, scaled to world
+  });
+
+  it('after the last figure lands: a one-frame cut to the wreck, the corpse root yawed to the bearing, then a MeshWreck', async () => {
+    const e = await standing();
+    e.root.rotation.y = 0;
+    const scene = new THREE.Scene();
+    scene.add(e.root);
+    const d = beginMeshDeath(e, 4, { x: 10, y: 12 }); // falls toward -z: bearing +90 deg from +x
+    const env = makeEnv({ scene });
+    stepMeshDeath(d, 0.5, env);
+    expect(d.phase).toBe('settling');
+    expect(e.currentClip).toBe('wreck');
+    expect(e.actions.get('wreck')?.getEffectiveWeight()).toBe(1); // a cut, not a blend
+    expect(e.actions.get('move')?.isRunning()).toBe(false);
+    stepMeshDeath(d, 0.1, env);
+    const corpse = boneNamed(e, 'death_root');
+    const yawDeg = (2 * Math.atan2(corpse.quaternion.y, corpse.quaternion.w) * 180) / Math.PI;
+    // SIGNED, not just magnitude: forward is +X, direction is -Z, so
+    // atan2((forward x direction).up, forward.direction) is +90 deg, and the
+    // corpse root's parent carries no rotation in this fixture, so
+    // 2*atan2(q.y, q.w) reads +90 too. A sign flip here would ship a corpse
+    // whose head lies 180 deg from the fall bearing with only the magnitude
+    // check above still green -- confirmed by mutation (fix round 1).
+    expect(yawDeg).toBeCloseTo(90, 3);
+    // Convention-free check: the corpse's local head axis (local +X on the
+    // kit prone build) transformed into world space must lie along the fall
+    // direction itself -- "the head lies where the body fell" -- rather than
+    // trusting the quaternion-component reading above alone.
+    e.root.updateWorldMatrix(true, true);
+    const headAxis = new THREE.Vector3(1, 0, 0).applyQuaternion(corpse.getWorldQuaternion(new THREE.Quaternion()));
+    expect(headAxis.z).toBeCloseTo(-1, 3);
+    expect(Math.abs(headAxis.x)).toBeLessThan(1e-3);
+    let result: ReturnType<typeof stepMeshDeath> = 'fading';
+    for (let i = 0; i < 20 && result === 'fading'; i++) result = stepMeshDeath(d, 0.1, env);
+    expect(result).not.toBe('fading');
+    expect(result).not.toBe('removed');
+    expect(findMeshMaterial(e).opacity).toBe(1); // D4: never faded
+  });
+
+  it('a no-wreck rig topples, then takes the Pixi fade and is removed', async () => {
+    const e = await buildEntity(['idle', 'down']); // civilians' shape: no wreck
+    e.root.position.set(3, 0, 3);
+    applyMeshClip(e, 'idle');
+    e.mixer.update(0.01);
+    const scene = new THREE.Scene();
+    scene.add(e.root);
+    const d = beginMeshDeath(e);
+    expect(d.phase).toBe('toppling');
+    const env = makeEnv({ scene });
+    stepMeshDeath(d, 0.5, env);
+    expect(d.phase).toBe('fading');
+    expect(d.swaps.length).toBeGreaterThan(0);
+    let result: ReturnType<typeof stepMeshDeath> = 'fading';
+    for (let i = 0; i < 10 && result === 'fading'; i++) result = stepMeshDeath(d, 0.1, env);
+    expect(result).toBe('removed');
+  });
+
+  it('C2: stagger -- the second live figure starts 0.1 s after the first (a real two-figure fixture)', async () => {
+    // C2: the old version of this test called `toppleAngle` and the
+    // constant only -- it never reached `beginTopple`, `ToppleFigure.
+    // delaySeconds`, `liveFigureRoots`' sort, or `totalSeconds`, and
+    // `mesh-fixture.ts` could only ever build ONE parentless bone at scale
+    // 1, so no render test could have two live figure roots to actually
+    // stagger. `extraRoots: 1` (added for this fix) gives a second,
+    // structurally real figure root -- `root_joint_1`, with its own Bone
+    // child -- so this now exercises the real per-figure pipeline.
+    const e = await buildEntity({ ...KIT_LIKE, extraRoots: 1 });
+    e.root.position.set(10, 0, 10); // ground at y = 0
+    applyMeshClip(e, 'move');
+    e.mixer.update(0.01); // writes the scale keys onto both figures' bones
+    e.root.updateWorldMatrix(true, true);
+
+    const d = beginMeshDeath(e, 4, { x: 9, y: 10 }); // falls toward +x
+    expect(d.phase).toBe('toppling');
+    // Sorted by name (`root_joint` < `root_joint_1`), which is also the
+    // stagger order: figure 0 has no delay, figure 1 is delayed by
+    // TOPPLE_STAGGER_SECONDS.
+    expect(d.topple?.figures.map((f) => f.bone.name)).toEqual(['root_joint', 'root_joint_1']);
+    // TOPPLE_SECONDS (0.5) + TOPPLE_STAGGER_SECONDS (0.1) * (2 figures - 1).
+    expect(d.topple?.totalSeconds).toBe(0.6);
+
+    const env = makeEnv();
+    stepMeshDeath(d, 0.25, env);
+    const root0 = boneNamed(e, 'root_joint');
+    const root1 = boneNamed(e, 'root_joint_1');
+    // Figure 0 (no delay): toppleAngle(0.25) = 22.5 deg, same as the
+    // single-figure test above.
+    expect(rotationDeg(root0)).toBeCloseTo(22.5, 4);
+    // Figure 1 (delayed 0.1s): toppleAngle(0.25 - 0.1) = toppleAngle(0.15) --
+    // measured, not guessed, at ~8.1 deg. Strictly less than figure 0's
+    // angle at the same instant, which is the property the stagger exists
+    // for.
+    expect(rotationDeg(root1)).toBeCloseTo((toppleAngle(0.25 - TOPPLE_STAGGER_SECONDS) * 180) / Math.PI, 6);
+    expect(rotationDeg(root1)).toBeCloseTo(8.1, 3);
+    expect(rotationDeg(root1)).toBeLessThan(rotationDeg(root0));
+
+    // Break check (verified by hand, then reverted): in `beginTopple`,
+    // change `delaySeconds: i * TOPPLE_STAGGER_SECONDS` to a flat `0`. Both
+    // figures then read the IDENTICAL angle (22.5 deg) at t=0.25s --
+    // `rotationDeg(root1)` reads ~22.5 instead of ~8.1 and the
+    // `toBeLessThan` assertion above goes red, along with `totalSeconds`
+    // (reads 0.5, not 0.6).
+  });
+
+  it('I1: a parentless, childless bone at scale 1 is not a figure root -- a prop/ground/neutral_bone stand-in', async () => {
+    // `death_root` here plays the part of a mount bone: parentless (per the
+    // fixture's own node layout) and, with no `bone1`-style child of its
+    // own, exactly the shape `rig.py`'s `_prop_bone`/`_digger_extras`'
+    // `ground` and the exporter's `neutral_bone` all share. Keying it to
+    // scale 1 on the SAME clip as `root_joint` (rather than the usual
+    // living/dead 1/0 split) is what a real prop bone does too -- it sits
+    // at scale 1 in every LIVING clip, never swapped by the death convention
+    // at all.
+    const entity = await buildEntity({
+      clips: ['idle'],
+      scaleClips: { idle: { root: 1, deathRoot: 1 } },
+    });
+    applyMeshClip(entity, 'idle');
+    entity.mixer.update(0.01);
+    const roots = liveFigureRoots(entity.root);
+    // Break check (verified by hand, then reverted): drop the
+    // `hasBoneChild` term in `liveFigureRoots`. `death_root` (childless) is
+    // then included and this reads `['death_root', 'root_joint']` instead.
+    expect(roots.map((b) => b.name)).toEqual(['root_joint']);
   });
 });
 
@@ -210,10 +582,15 @@ function makeEnv(overrides: Partial<MeshDeathEnv> = {}): MeshDeathEnv {
 
 describe('stepMeshDeath', () => {
   it('while still fading: advances t, writes this frame\'s opacity, and sinks position.y from baseWorldY -- returns "fading"', async () => {
-    const entity = await buildEntity(['idle', 'down', 'wreck']);
+    // No `wreck` clip: D4/D5 mean a wreck-carrying rig topples straight into
+    // its wreck and never fades at all (see the topple describe block above)
+    // -- this is the shape (a civilian's `down`-only GLB) that still reaches
+    // this file's own Pixi-ported fade curve.
+    const entity = await buildEntity(['idle', 'down']);
     entity.root.position.set(2, 7, 3);
     const dying = beginMeshDeath(entity);
     const env = makeEnv();
+    stepMeshDeath(dying, TOPPLE_SECONDS, env); // completes the topple; fading starts at t=0
 
     const result = stepMeshDeath(dying, 0.1, env);
 
@@ -228,12 +605,15 @@ describe('stepMeshDeath', () => {
     expect(entity.root.position.y).toBeCloseTo(7 - meshDeathSinkPx(0.1) * WORLD_Y_PER_LIFT_PIXEL, 10);
   });
 
-  it('at the fade boundary: starts the wreck one-shot but does not settle until its OWN clip duration has elapsed', async () => {
+  it('at the topple boundary: starts the wreck one-shot but does not settle until its OWN clip duration has elapsed', async () => {
     // This fixture's wreck clip runs t=0..1 (buildFixtureGlb's own fixed
     // 1-second animInput) -- a stand-in for a real future animated
     // collapse, proving the settle phase genuinely waits for it rather than
     // assuming a duration of zero the way the earlier, pre-`{ once: true }`
-    // implementation had to.
+    // implementation had to. A wreck-carrying rig topples first (D5) and the
+    // swap onto the wreck one-shot is a one-frame CUT the instant the topple
+    // completes -- TOPPLE_SECONDS here, not MESH_DEATH_SECONDS, since this
+    // body never fades at all (D4).
     const entity = await buildEntity(['idle', 'down', 'wreck']);
     entity.root.position.set(1, 0, 1);
     const dying = beginMeshDeath(entity);
@@ -246,9 +626,9 @@ describe('stepMeshDeath', () => {
     // to instead build and return a `MeshWreck` immediately, in the SAME
     // call that starts the wreck one-shot. This assertion then goes red (a
     // `MeshWreck` object, not the string `'fading'`).
-    const atBoundary = stepMeshDeath(dying, MESH_DEATH_SECONDS, env);
+    const atBoundary = stepMeshDeath(dying, TOPPLE_SECONDS, env);
     expect(atBoundary).toBe('fading');
-    expect(dying.settling).toBe(true);
+    expect(dying.phase).toBe('settling');
     expect(entity.currentClip).toBe('wreck');
 
     // Break check (verified by hand, then reverted): in `stepMeshDeath`'s
@@ -279,7 +659,7 @@ describe('stepMeshDeath', () => {
     scene.add(entity.root);
     const env = makeEnv({ scene, elevation, isExplored: (x, y) => x === 4 && y === 6 });
 
-    stepMeshDeath(dying, MESH_DEATH_SECONDS, env); // fade closes, wreck one-shot starts
+    stepMeshDeath(dying, TOPPLE_SECONDS, env); // topple closes, wreck one-shot starts (D5: a cut, never a fade)
     const result = stepMeshDeath(dying, 1.5, env); // settles (fixture's wreck clip is 1s)
 
     expect(result).not.toBe('fading');
@@ -318,7 +698,7 @@ describe('stepMeshDeath', () => {
     // `false` and goes red.
     const env = makeEnv({ scene, isExplored: () => false });
 
-    stepMeshDeath(dying, MESH_DEATH_SECONDS, env);
+    stepMeshDeath(dying, TOPPLE_SECONDS, env); // topple closes, wreck one-shot starts
     const result = stepMeshDeath(dying, 1.5, env) as MeshWreck;
 
     expect(result.shown).toBe(false);
@@ -333,18 +713,20 @@ describe('stepMeshDeath', () => {
     scene.add(entity.root);
     const env = makeEnv({ scene });
 
+    // No wreck clip: the topple's own completion (D5) falls through to
+    // `beginFadePhase` rather than `startWreck`, so this body still needs
+    // the FULL fade window on top of the topple before it is torn down.
+    // Break check (verified by hand, then reverted): in `stepMeshDeath`'s
+    // `toppling` branch, change `if (d.entity.actions.has('wreck'))
+    // startWreck(d, true); else beginFadePhase(d);` to always call
+    // `startWreck(d, true)`. `applyMeshClip` then silently resolves the
+    // missing `wreck` clip to `idle` (its own existing fallback for a
+    // genuinely missing clip), `d.wreckAction` reads `null`, and the entity
+    // is neither removed nor ever settles into a real `MeshWreck` -- stuck
+    // fading forever instead of the intended no-wreck-clip removal.
+    stepMeshDeath(dying, TOPPLE_SECONDS, env); // topple closes, fade starts (no wreck)
     const result = stepMeshDeath(dying, MESH_DEATH_SECONDS, env);
 
-    // Break check (verified by hand, then reverted): in `stepMeshDeath`,
-    // change `if (!d.entity.actions.has('wreck'))` to `if (false)` -- i.e.
-    // never take the no-wreck-clip removal path. This assertion then reads
-    // `'fading'` instead of `'removed'`: the wreck one-shot starts anyway,
-    // `applyMeshClip` silently resolves it to `idle` (its own existing,
-    // correct fallback for a genuinely MISSING clip -- `d.entity.actions.
-    // get('wreck')` then reads `undefined`, so `d.wreckAction` is `null`),
-    // and the entity is neither removed nor ever settles into a real
-    // `MeshWreck` -- stuck fading forever instead of the intended
-    // no-wreck-clip removal.
     expect(result).toBe('removed');
     expect(scene.children).not.toContain(entity.root);
   });
@@ -357,7 +739,7 @@ describe('stepMeshDeath', () => {
     scene.add(entity.root);
     const env = makeEnv({ scene });
 
-    stepMeshDeath(dying, MESH_DEATH_SECONDS, env); // fade closes, wreck one-shot starts
+    stepMeshDeath(dying, TOPPLE_SECONDS, env); // topple closes, wreck one-shot starts
     stepMeshDeath(dying, 1.5, env); // settles -- the clip's own duration (1s) has elapsed
 
     const bone = findBone(entity);
@@ -385,7 +767,7 @@ describe('stepMeshDeath', () => {
     // is NOT clamped sets `enabled = false` instead of `paused = true` --
     // and this file's settle guard checks `.paused`, so `stepMeshDeath`
     // then never reports the wreck settled at all: four tests in this
-    // file go red, not just this one (`at the fade boundary`, `becomes a
+    // file go red, not just this one (`at the topple boundary`, `becomes a
     // MeshWreck`, `starts a wreck HIDDEN` all time out waiting for a
     // `MeshWreck` that never arrives). THIS test goes red on its OWN sanity
     // line above (`frozen.x` reads back at identity, not the rotated end
@@ -395,6 +777,47 @@ describe('stepMeshDeath', () => {
     // let it settle before `frozen` is captured.
     entity.mixer.update(0.37);
     expect(bone.quaternion.equals(frozen)).toBe(true);
+  });
+
+  it('falling: no opacity write, no sink, mixer advances; becomes settling only once the fall action pauses', async () => {
+    const entity = await buildEntity(['idle', 'fall', 'wreck']); // fixture clips are 1 s
+    entity.root.position.set(1, 4, 1);
+    const scene = new THREE.Scene();
+    scene.add(entity.root);
+    const dying = beginMeshDeath(entity, 5);
+    const env = makeEnv({ scene });
+    const material = findMeshMaterial(entity);
+
+    expect(stepMeshDeath(dying, 0.5, env)).toBe('fading');
+    expect(dying.phase).toBe('falling');
+    expect(material.opacity).toBe(1); // Break: call beginMeshDeathFade in the fall path -- a clone at < 1 appears
+    expect(entity.root.position.y).toBe(4);
+
+    expect(stepMeshDeath(dying, 0.6, env)).toBe('fading'); // fall (1 s) has now paused; wreck starts
+    expect(dying.phase).toBe('settling');
+    expect(entity.currentClip).toBe('wreck');
+    expect(dying.swaps).toHaveLength(0);
+
+    stepMeshDeath(dying, 0.5, env);
+    const done = stepMeshDeath(dying, 0.6, env);
+    expect(done).not.toBe('fading');
+    expect(done).not.toBe('removed');
+    expect((done as MeshWreck).root).toBe(entity.root);
+    expect(material.opacity).toBe(1);
+  });
+
+  it('a template with fall but no wreck is impossible by contract; the module still removes it after the fall', async () => {
+    const entity = await buildEntity(['idle', 'fall']);
+    const scene = new THREE.Scene();
+    scene.add(entity.root);
+    const dying = beginMeshDeath(entity);
+    const env = makeEnv({ scene });
+    stepMeshDeath(dying, 1.1, env);
+    expect(dying.phase).toBe('fading');
+    let result: ReturnType<typeof stepMeshDeath> = 'fading';
+    for (let i = 0; i < 6 && result === 'fading'; i++) result = stepMeshDeath(dying, 0.1, env);
+    expect(result).toBe('removed');
+    expect(scene.children).not.toContain(entity.root);
   });
 });
 

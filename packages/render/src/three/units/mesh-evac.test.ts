@@ -87,11 +87,21 @@ describe('beginMeshEvac', () => {
 
   it('is the exact contrast with beginMeshDeath on the same entity and the same clip', async () => {
     // The paired half of the test above: same fixture, same starting clip,
-    // the other path. If a refactor ever collapses the two, this fails.
+    // the other path. Before D5's generic topple landed, `beginMeshDeath`
+    // applied `down` immediately and this asserted that difference in
+    // `currentClip` directly. A no-fall, not-already-down body now topples
+    // first instead (`mesh-death.ts`'s own "the generic topple (D5)" tests)
+    // -- freezing the pose with NO clip applied, the same `move` evac also
+    // leaves untouched -- so the contrast that survives is structural
+    // rather than clip-level: death enters `toppling`, a phase heading
+    // toward a wreck or the death fade, evac a plain departure that only
+    // ever fades to nothing and never plays `down` at all. If a refactor
+    // ever collapses evac onto the death path, this fails.
     const entity = await buildEntity(['idle', 'move', 'down']);
     applyMeshClip(entity, 'move');
-    beginMeshDeath(entity);
-    expect(entity.currentClip).toBe('down');
+    const dying = beginMeshDeath(entity);
+    expect(entity.currentClip).toBe('move'); // frozen, same as evac -- see comment above
+    expect(dying.phase).toBe('toppling');
   });
 
   it('keeps an idle civilian idle -- whatever she was doing, not a new clip', async () => {

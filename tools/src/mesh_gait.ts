@@ -567,6 +567,116 @@ export function measureRoleTravelByFigure(
     .sort((a, b) => a.root.localeCompare(b.root));
 }
 
+export interface RootTravel {
+  readonly root: string;
+  /** Largest horizontal (x/z) distance from the first sample, metres. */
+  readonly horizontalM: number;
+  readonly startY: number;
+  readonly endY: number;
+  readonly liveAtStart: boolean;
+}
+
+/** The parentless joints of skin 0 -- one per figure on every shipped rig. */
+function skinRoots(glb: GlbFile): number[] {
+  const nodes = glb.json.nodes ?? [];
+  const skin = glb.json.skins?.[0];
+  if (!skin) throw new Error('no skin');
+  const jointSet = new Set(skin.joints);
+  const parent = new Int32Array(nodes.length).fill(-1);
+  nodes.forEach((n, i) => { for (const c of n.children ?? []) parent[c] = i; });
+  return skin.joints.filter((j) => parent[j] < 0 || !jointSet.has(parent[j]));
+}
+
+/** Where each figure's root joint goes over `clip`: the fall gate's
+ *  "no horizontal root motion, starts standing, ends prone" instrument. */
+export function measureRootTravel(path: string, clip: string): RootTravel[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const { tracks, start, end } = readClip(glb, clip);
+  const roots = skinRoots(glb);
+  const first = nodeWorlds(glb, tracks, start);
+  const out = roots.map((r) => ({
+    root: nodes[r]?.name ?? `node${r}`,
+    x0: first[r][12], y0: first[r][13], z0: first[r][14],
+    liveAtStart: jointScale(first[r]) > HIDDEN_SCALE,
+    horizontalM: 0, endY: first[r][13],
+  }));
+  for (let s = 1; s <= SAMPLES; s++) {
+    const t = start + ((end - start) * s) / SAMPLES;
+    const worlds = nodeWorlds(glb, tracks, t);
+    roots.forEach((r, i) => {
+      const m = worlds[r];
+      const o = out[i];
+      o.horizontalM = Math.max(o.horizontalM, Math.hypot(m[12] - o.x0, m[14] - o.z0));
+      o.endY = m[13];
+    });
+  }
+  return out.map((o) => ({ root: o.root, horizontalM: o.horizontalM, startY: o.y0, endY: o.endY, liveAtStart: o.liveAtStart }));
+}
+
+export function clipSeconds(path: string, clip: string): number {
+  const glb = readGlb(path);
+  const { start, end } = readClip(glb, clip);
+  return end - start;
+}
+
+export interface JointPose {
+  readonly name: string;
+  readonly translation: [number, number, number];
+  /** Unit quaternion (x, y, z, w) of the world rotation, scale removed. */
+  readonly rotation: [number, number, number, number];
+  readonly scale: number;
+}
+
+function quatFromMat(m: Mat4, scale: number): [number, number, number, number] {
+  const s = scale > 0 ? 1 / scale : 0;
+  const m00 = m[0] * s, m01 = m[4] * s, m02 = m[8] * s;
+  const m10 = m[1] * s, m11 = m[5] * s, m12 = m[9] * s;
+  const m20 = m[2] * s, m21 = m[6] * s, m22 = m[10] * s;
+  const trace = m00 + m11 + m22;
+  let x: number, y: number, z: number, w: number;
+  if (trace > 0) {
+    const k = 0.5 / Math.sqrt(trace + 1);
+    w = 0.25 / k; x = (m21 - m12) * k; y = (m02 - m20) * k; z = (m10 - m01) * k;
+  } else if (m00 > m11 && m00 > m22) {
+    const k = 2 * Math.sqrt(1 + m00 - m11 - m22);
+    w = (m21 - m12) / k; x = 0.25 * k; y = (m01 + m10) / k; z = (m02 + m20) / k;
+  } else if (m11 > m22) {
+    const k = 2 * Math.sqrt(1 + m11 - m00 - m22);
+    w = (m02 - m20) / k; x = (m01 + m10) / k; y = 0.25 * k; z = (m12 + m21) / k;
+  } else {
+    const k = 2 * Math.sqrt(1 + m22 - m00 - m11);
+    w = (m10 - m01) / k; x = (m02 + m20) / k; y = (m12 + m21) / k; z = 0.25 * k;
+  }
+  return [x, y, z, w];
+}
+
+/** Every skin-0 joint's world pose at the first or last frame of `clip`. */
+export function measureJointPoses(path: string, clip: string, at: 'start' | 'end'): JointPose[] {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const skin = glb.json.skins?.[0];
+  if (!skin) throw new Error(`${path}: no skin`);
+  const { tracks, start, end } = readClip(glb, clip);
+  const worlds = nodeWorlds(glb, tracks, at === 'start' ? start : end);
+  return skin.joints.map((j) => {
+    const m = worlds[j];
+    const scale = jointScale(m);
+    return {
+      name: nodes[j]?.name ?? `node${j}`,
+      translation: [m[12], m[13], m[14]],
+      rotation: quatFromMat(m, scale),
+      scale,
+    };
+  });
+}
+
+/** Angle between two unit quaternions, degrees, sign-agnostic. */
+export function rotationDeltaDeg(a: readonly number[], b: readonly number[]): number {
+  const d = Math.min(1, Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]));
+  return (2 * Math.acos(d) * 180) / Math.PI;
+}
+
 export function measureRoleFootprint(path: string, role: string, clip: string): RoleFootprint {
   const { glb, pos, joints, weights, skin, ibm } = loadSkinnedRole(path, role);
 

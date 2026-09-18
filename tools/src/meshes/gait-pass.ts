@@ -149,23 +149,30 @@
  * the file's `boot` role and skin are sound by the time `moveFire` is even
  * attempted.
  *
- * `atgm_cell`, `mortar_crew` and `digger_crew` are crew-served -- every
- * figure carries `animates: False` in `teams.py`'s own `TEAMS` table -- and
- * ship a degenerate ~0.04s `move` with no leg keys at all; `moto_rpg` is a
- * motorcycle whose riders' boots do not move. All four DO carry a `move`
- * clip and a `boot` mesh (measured directly, 2026-09-16: every one of them
- * resolves through `measureRoleFootprint` without throwing), so the skip is
- * not "clip absent" or "role absent" -- it is that the measured forward
- * travel is degenerate. `MIN_GAIT_TRAVEL_M` draws that line at the same
- * 0.1 m `mesh_gait.test.ts`'s own STILL assertion already uses
- * (`expect(m.maxTravelM).toBeLessThan(0.1)`), reused rather than a second
- * number invented for the same fact -- and it still separates cleanly under
- * the forward-only metric, since a forward component can only be smaller
- * than the hypot it used to be measured from: atgm_cell/mortar_crew/
- * digger_crew read 0.0000 m and moto_rpg 0.0184 m, against 0.64-1.53 m for
- * every declaring file.
+ * `moto_rpg` is a motorcycle whose riders' boots do not move -- the one
+ * remaining skip. It DOES carry a `move` clip and a `boot` mesh (measured
+ * directly, 2026-09-16: it resolves through `measureRoleFootprint` without
+ * throwing), so the skip is not "clip absent" or "role absent" -- it is
+ * that the measured forward travel is degenerate. `MIN_GAIT_TRAVEL_M` draws
+ * that line at the same 0.1 m `mesh_gait.test.ts`'s own STILL assertion
+ * already uses (`expect(m.maxTravelM).toBeLessThan(0.1)`), reused rather
+ * than a second number invented for the same fact -- and it still separates
+ * cleanly under the forward-only metric, since a forward component can only
+ * be smaller than the hypot it used to be measured from: moto_rpg reads
+ * 0.0184 m, against 0.64-1.53 m for every declaring file.
  *
- * `sniper_team` is NOT one of the four, and was checked rather than assumed:
+ * `atgm_cell`, `mortar_crew` and `digger_crew` were here too, and read
+ * 0.0000 m under this same metric, until the 2026-09-17
+ * infantry-animation branch gave all three a standing walker
+ * (`rig.py`'s `build_move_clip`) rather than the crew-served
+ * `animates: False` pose `teams.py`'s `TEAMS` table used to carry for them.
+ * Their `move` clips now measure 0.99-1.30 m of real forward travel, well
+ * clear of `MIN_GAIT_TRAVEL_M`, so `measureGait` declares a gait for all
+ * three like any other file -- this pass needed no change of its own to
+ * pick that up, since the skip was always a measured floor rather than a
+ * name list.
+ *
+ * `sniper_team` is NOT a skip either, and was checked rather than assumed:
  * it comes from a different build path than the other kit teams (absent
  * from both `mesh_gait.test.ts`'s KIT and STILL tables) and has no `face`
  * role, but it measures a completely ordinary walk. The "no `face` role"

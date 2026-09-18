@@ -59,7 +59,7 @@ import type { ClipName } from '../../sheet';
 import { charredTexturedMaterial, rampMaterial, texturedMaterial } from '../world-materials';
 import { CHARRED_RAMP, isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
 import { isMeshClipName, MESH_SCALE } from './mesh-anim';
-import type { ClipPlayer } from './mesh-clip';
+import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 
 /** The pivot node's own name, per the contract: "The turret pivot is a node
@@ -152,6 +152,8 @@ export interface VehicleMeshTemplate {
    * this module's own top comment.
    */
   readonly clips: ReadonlyMap<ClipName, THREE.AnimationClip>;
+  /** Design D2: `scaleSignature` per clip, computed once here. */
+  readonly clipScale: ReadonlyMap<ClipName, string | null>;
   /**
    * Every material this template owns and disposes exactly once -- one per
    * DISTINCT OBJECT, deduped by identity, exactly like `geometries` below.
@@ -423,6 +425,7 @@ export function buildVehicleMeshTemplate(
   return {
     root,
     clips,
+    clipScale: clipScaleSignatures(clips),
     materials,
     geometries,
     hasWreck: clips.has('wreck'),
@@ -576,6 +579,8 @@ export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: st
     mixer,
     actions,
     currentClip: null,
+    clipScale: template.clipScale,
+    fades: new Map(),
     turretPivot,
     turretPivotBase,
     rotorPivot,

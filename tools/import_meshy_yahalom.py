@@ -64,48 +64,58 @@ Four things are genuinely NEW here, each because this source is different:
      mirrored sequence closes EXACTLY by construction while staying a
      well-defined cycle for `write_combined_clip`'s phase shift.
 
-  4. **`wreck` is re-centred horizontally.** Unlike both predecessors' fall
-     clips, `Shot_and_Fall_Backward` carries real root motion -- the `Hips`
-     travel 1.34 m in y and 0.39 m in x across the fall. Held as-is (which is
-     literally what `build_wreck_src` does, snapshotting `pb.location` for
-     every bone including `Hips`), the corpse would sit ~0.45 tiles from the
-     unit it belongs to, and would JUMP there at the `down`->`wreck`
-     transition `mesh-death.ts` drives. `build_wreck_src` here keeps the
-     fall's final rotation and its final HEIGHT and puts the horizontal
-     translation back where the living figure's own was.
+  4. **`fall`/`fallAlt` are bound WHOLE, one-shot, and `wreck`/`wreckAlt` are
+     that held clip's own last frame** -- design D3
+     (`2026-09-17-infantry-animation-design.md`): `mesh-death.ts` plays the
+     supplied fall from standing to prone rather than snapshotting straight
+     to a static corpse. Both this rig's falls carry real root motion --
+     `Shot_and_Fall_Backward` (`fall`/`wreck`) travels 1.34 m in y and 0.39 m
+     in x across the clip, and `Shot_and_Fall_Forward` (`fallAlt`/`wreckAlt`,
+     previously UNUSED here -- see the source-clip table below for why
+     Backward is the primary) travels similarly. Held as-is, the corpse would
+     slide ~0.45 tiles from the unit it belongs to and JUMP there at the
+     `down`->`wreck` transition. `hold_hips_horizontal` re-centres every
+     frame's Hips x/y onto the living figure's own (`living_pose`, keeping
+     each frame's own height and rotation), so the whole fall plays in
+     place; `wreck`/`wreckAlt` are then just the held clip's own last frame,
+     frozen two-frame, so the runtime's switch from finished fall to
+     persistent wreck moves nothing.
 
 ## Source clips, and why each canonical clip maps where it does
 
 Measured `Hips` world-z travel (x100, this rig, this script's own
 `check_clip_semantics` prints the final table):
 
-    Walking_withSkin.glb                -> move   (7.69; closes to 6e-4)
-    Confused_Scratch_withSkin.glb       -> idle   (whole clip 3.43; the
-                                                   246-276 window 0.85,
-                                                   in family with
-                                                   sarim_rifles' own 0.955)
-    CrouchLookAroundBow_withSkin.glb    -> down   (frame 82 frozen) and
-                                        -> work   (frame 82 + arm pump)
-    Shot_and_Fall_Backward_withSkin.glb -> wreck  (last frame, re-centred)
+    Walking_withSkin.glb                -> move     (7.69; closes to 6e-4)
+    Confused_Scratch_withSkin.glb       -> idle     (whole clip 3.43; the
+                                                     246-276 window 0.85,
+                                                     in family with
+                                                     sarim_rifles' own 0.955)
+    CrouchLookAroundBow_withSkin.glb    -> down     (frame 82 frozen) and
+                                        -> work     (frame 82 + arm pump)
+    Shot_and_Fall_Backward_withSkin.glb -> fall     (held horizontal, D3) and
+                                        -> wreck    (held fall's last frame)
+    Shot_and_Fall_Forward_withSkin.glb  -> fallAlt  (held horizontal, D3) and
+                                        -> wreckAlt (held fall's last frame --
+                                                     bound 2026-09-17, D3; a
+                                                     second one-shot VARIATION,
+                                                     not a correction of the
+                                                     Backward/Forward call
+                                                     below, which still picks
+                                                     Backward as the PRIMARY
+                                                     `fall`/`wreck`)
 
     Running_withSkin.glb                 UNUSED  (spare `move`, 8.17)
     Run_02_withSkin.glb                  UNUSED  (spare `move`, 11.11)
-    Shot_and_Fall_Forward_withSkin.glb   UNUSED  (the second fall. Both last
-                                                  frames were rendered from
-                                                  two angles and compared:
-                                                  Backward lies the body out
-                                                  flat on its back, arms
-                                                  spread, reading as a body
-                                                  from the dimetric camera;
-                                                  Forward puts the man face
-                                                  down under his own
-                                                  rucksack, which from above
-                                                  reads as a pack, not a
-                                                  casualty. The number agreed
-                                                  -- Backward's final Hips
-                                                  height is 0.129 m against
-                                                  Forward's 0.153 -- but the
-                                                  call was the render.)
+
+Backward vs Forward as the PRIMARY fall was decided by render, not by the
+number alone: both last frames were rendered from two angles and compared --
+Backward lies the body out flat on its back, arms spread, reading as a body
+from the dimetric camera; Forward puts the man face down under his own
+rucksack, which from above reads as a pack, not a casualty. The number agreed
+-- Backward's final Hips height is 0.129 m against Forward's 0.153 -- but the
+call was the render. Forward is not discarded any more (D3 gives every squad
+a `fallAlt`/`wreckAlt`); it is the SECOND fall, not the first.
 
 `CrouchLookAroundBow` frame 82 is not an arbitrary pick: the clip sweeps the
 head left and right through the 141 frames (yaw -99.8 to +29.1 degrees
@@ -141,7 +151,7 @@ SRC_PREFIX = "Meshy_AI_combat_engineer_soldi_biped_Animation_"
 
 #: Clip build order -- also the order clips appear in the merged file.
 #: `fire` is absent BY DECISION; see the module docstring, point 2.
-CLIP_ORDER = ("idle", "move", "down", "work", "wreck")
+CLIP_ORDER = ("idle", "move", "down", "work", "wreck", "wreckAlt", "fall", "fallAlt")
 
 #: The clips that actually loop at runtime, and so are the only ones a
 #: per-figure phase shift is well-defined on. `down` and `wreck` are excluded
@@ -161,6 +171,24 @@ MOVE_SOURCE = SRC_PREFIX + "Walking_withSkin.glb"
 IDLE_SOURCE = SRC_PREFIX + "Confused_Scratch_withSkin.glb"
 CROUCH_SOURCE = SRC_PREFIX + "CrouchLookAroundBow_withSkin.glb"
 FALL_SOURCE = SRC_PREFIX + "Shot_and_Fall_Backward_withSkin.glb"
+#: The second fall, bound 2026-09-17 (design D3) as `fallAlt`/`wreckAlt` --
+#: previously UNUSED here; see the module docstring's source-clip table for
+#: why Backward, not Forward, is the PRIMARY `fall`/`wreck`.
+FALL_SOURCE_ALT = SRC_PREFIX + "Shot_and_Fall_Forward_withSkin.glb"
+
+#: Design D3 (`2026-09-17-infantry-animation-design.md`): both supplied falls
+#: are bound WHOLE as one-shot clips (`fall`, `fallAlt`), horizontal root
+#: motion held (`hold_hips_horizontal`), and `wreck`/`wreckAlt` are each held
+#: clip's own last frame -- so the runtime's switch from finished fall to
+#: persistent wreck moves nothing. `FALL_SOURCE`/`FALL_SOURCE_ALT` are
+#: therefore each read by two builders now.
+FALL_STAGGER_S = 0.1
+#: Clips whose figures start `FALL_STAGGER_S` apart (holding their first
+#: frame) so a squad does not drop as two clones. Non-cyclic by nature.
+STAGGERED_CLIPS = frozenset({"fall", "fallAlt"})
+#: Metres the Hips may drift horizontally across a fall after the hold --
+#: the runtime gate (`tools/src/mesh_gait.test.ts`) uses the same 0.05.
+FALL_HORIZONTAL_CEILING_M = 0.05
 
 #: The hand-down, settled window inside `Confused_Scratch`, as offsets from
 #: that action's own `frame_range[0]` -- see the module docstring, point 3,
@@ -220,6 +248,27 @@ CLIP_SEMANTICS = {
     "wreck": {
         "means": "a HELD corpse pose -- same requirement as down: static, near-zero Hips travel.",
         "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+    },
+    "wreckAlt": {
+        "means": "a HELD corpse pose -- same requirement as wreck: static, near-zero Hips travel.",
+        "ceiling": lambda idle_travel: max(1.0, idle_travel * 0.5),
+    },
+    "fall": {
+        "means": (
+            "the supplied death fall, played ONCE by mesh-death.ts from standing to prone; "
+            "Hips DROP by design (no vertical ceiling) but may not travel horizontally."
+        ),
+        "ceiling": lambda idle_travel: None,
+        "horizontal_m": FALL_HORIZONTAL_CEILING_M,
+    },
+    "fallAlt": {
+        "means": (
+            "the SECOND supplied fall, paired with wreckAlt; played ONCE by mesh-death.ts "
+            "from standing to prone; Hips DROP by design (no vertical ceiling) but may not "
+            "travel horizontally."
+        ),
+        "ceiling": lambda idle_travel: None,
+        "horizontal_m": FALL_HORIZONTAL_CEILING_M,
     },
 }
 assert "fire" not in CLIP_ORDER, "see the module docstring: fire is not built for this asset"
@@ -694,39 +743,54 @@ def build_idle_src(arm, scratch_action):
     return _write_pose_action(arm, "idle_src", frames)
 
 
-def build_wreck_src(arm, fall_action, living_pose):
-    """`wreck` -- `Shot_and_Fall_Backward`'s own last frame, frozen as a
-    two-frame static hold, with the fall's HORIZONTAL root translation undone.
-
-    Both predecessors' `build_wreck_src` snapshot `pb.location` verbatim for
-    every bone including `Hips`, which is correct for their sources and wrong
-    for this one: this fall carries real root motion (the `Hips` travel 1.34 m
-    in y and 0.39 m in x across the clip), so a verbatim hold would drop the
-    corpse ~0.45 tiles from the unit it belongs to and JUMP it there at the
-    `down` -> `wreck` transition `mesh-death.ts` drives. The final rotation
-    and the final HEIGHT -- the parts that make it a corpse -- are kept
-    exactly; only the horizontal offset is put back to `living_pose`'s own."""
+def _hips_armature_translation(pose, hips_rest):
+    """`Hips`' evaluated ARMATURE-space position for one sampled pose
+    (`_pose_at`'s or `sample_clip`'s own per-frame dict shape)."""
     from mathutils import Matrix, Quaternion, Vector  # noqa: PLC0415
 
-    end = _pose_at(arm, fall_action, fall_action.frame_range[1] - fall_action.frame_range[0])
-    hips_rest = arm.data.bones["Hips"].matrix_local.copy()
+    q, loc, sc = pose["Hips"]
+    return (hips_rest @ Matrix.LocRotScale(Vector(loc), Quaternion(q), Vector(sc))).translation
+
+
+def hold_hips_horizontal(frames, hips_rest, anchor_pose):
+    """A copy of `frames` with every frame's Hips armature-space x/y replaced
+    by `anchor_pose`'s own, z (height) kept -- the re-centring this file's own
+    `build_wreck_src` used to do only for the wreck's last frame, generalised
+    here to EVERY frame of a fall, so the whole clip plays in place rather
+    than only the corpse it ends on. `Hips` is a root bone, so its own
+    (quat, loc, scale) alone determines its pose matrix and the inverse is
+    exact -- identical mechanism to both predecessor scripts' own
+    `hold_hips_horizontal`."""
+    from mathutils import Vector  # noqa: PLC0415
+
     rot3 = hips_rest.to_3x3()
+    inv = rot3.inverted()
+    t_live = _hips_armature_translation(anchor_pose, hips_rest)
+    out = []
+    for pose in frames:
+        t = _hips_armature_translation(pose, hips_rest)
+        target = Vector((t_live.x, t_live.y, t.z))
+        q, _loc, sc = pose["Hips"]
+        held = dict(pose)
+        held["Hips"] = (q, tuple(inv @ (target - hips_rest.translation)), sc)
+        out.append(held)
+    return out
 
-    def hips_translation(pose):
-        q, loc, sc = pose["Hips"]
-        return (hips_rest @ Matrix.LocRotScale(Vector(loc), Quaternion(q), Vector(sc))).translation
 
-    t_end = hips_translation(end)
-    t_live = hips_translation(living_pose)
-    target = Vector((t_live.x, t_live.y, t_end.z))
-    q, _loc, sc = end["Hips"]
-    end = dict(end)
-    end["Hips"] = (q, tuple(rot3.inverted() @ (target - hips_rest.translation)), sc)
-    print(
-        "  wreck root re-centred: hips (%.3f, %.3f, %.3f) -> (%.3f, %.3f, %.3f)"
-        % (t_end.x, t_end.y, t_end.z, target.x, target.y, target.z)
-    )
-    return _write_pose_action(arm, "wreck_src", [end, end])
+def _hips_horizontal_travel_m(frames, hips_rest, arm_world):
+    """Largest horizontal distance (world x/y, metres) the Hips get from
+    their first-frame position across `frames` -- the number
+    `CLIP_SEMANTICS[...]["horizontal_m"]` bounds. Identical to both
+    predecessor scripts' own `_hips_horizontal_travel_m`."""
+    from mathutils import Matrix, Quaternion, Vector  # noqa: PLC0415
+
+    pts = []
+    for f in frames:
+        q, loc, sc = f["Hips"]
+        world = arm_world @ (hips_rest @ Matrix.LocRotScale(Vector(loc), Quaternion(q), Vector(sc)))
+        pts.append((world.translation.x, world.translation.y))
+    x0, y0 = pts[0]
+    return max(math.hypot(x - x0, y - y0) for x, y in pts)
 
 
 def duplicate_figure(scratch_arm, scratch_role_meshes, prefix, dx, dy):
@@ -805,8 +869,12 @@ def sample_clip(scratch_arm, src_action):
 GAIT_PHASE_FRACTIONS = (0.0, 1.0 / 3.0, 2.0 / 3.0)
 
 
-def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False):
-    """Identical to both predecessors' own `write_combined_clip`."""
+def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False, stagger=0):
+    """Identical to both predecessors' own `write_combined_clip`, `stagger`
+    included -- see `import_meshy_soldier.py`'s own docstring for what it does
+    and why (`fall`/`fallAlt` only: figure `i` holds `frames[0]` for
+    `stagger * i` output frames and then plays; the clip grows by
+    `stagger * (len(figures) - 1)` frames)."""
     combined = bpy.data.actions.new(clip_name)
     combined.use_fake_user = True
     if merged_arm.animation_data is None:
@@ -815,13 +883,15 @@ def write_combined_clip(merged_arm, figures, clip_name, frames, cyclic=False):
     merged_arm.animation_data.action_slot = None
 
     n = len(frames)
-    for step in range(n):
+    total = n + stagger * (len(figures) - 1)
+    for step in range(total):
         for i, (prefix, _dx, _dy) in enumerate(figures):
             if cyclic:
                 shift = round(n * GAIT_PHASE_FRACTIONS[i % len(GAIT_PHASE_FRACTIONS)])
                 sampled = frames[(step + shift) % n]
             else:
-                sampled = frames[step]
+                # `stagger` frames per figure, first frame held until its turn.
+                sampled = frames[min(n - 1, max(0, step - stagger * i))]
             for name, (q, loc, sc) in sampled.items():
                 pb = merged_arm.pose.bones[f"{prefix}_{name}"]
                 pb.rotation_quaternion = q
@@ -858,6 +928,15 @@ def check_clip_semantics(frames_by_clip, hips_rest, arm_world):
                 f"{name}: Hips travel {travel[name]:.3f} exceeds {ceiling:.3f} -- "
                 f"CLIP_SEMANTICS['{name}']['means'] = {CLIP_SEMANTICS[name]['means']!r}"
             )
+        horizontal_ceiling = CLIP_SEMANTICS[name].get("horizontal_m")
+        if horizontal_ceiling is not None:
+            drift = _hips_horizontal_travel_m(frames_by_clip[name], hips_rest, arm_world)
+            print(f"  {name}: Hips horizontal drift {drift:.4f} m (ceiling {horizontal_ceiling})")
+            if drift > horizontal_ceiling:
+                raise RuntimeError(
+                    f"{name}: Hips drift {drift:.3f} m exceeds {horizontal_ceiling} m -- "
+                    "the horizontal hold is not holding"
+                )
     return travel
 
 
@@ -1052,6 +1131,7 @@ def main():
     scratch_src = import_clip(os.path.join(SRC_DIR, IDLE_SOURCE), "scratch_src")
     crouch_src = import_clip(os.path.join(SRC_DIR, CROUCH_SOURCE), "crouch_src")
     fall_src = import_clip(os.path.join(SRC_DIR, FALL_SOURCE), "fall_src")
+    fall_alt_src = import_clip(os.path.join(SRC_DIR, FALL_SOURCE_ALT), "fall_alt_src")
 
     # --- 2. classify every vertex's rl_role from the mesh's OWN base-color
     # texture, BEFORE the material is stripped.
@@ -1071,18 +1151,26 @@ def main():
     hips_rest = scratch_arm.data.bones["Hips"].matrix_local.copy()
     arm_world = scratch_arm.matrix_world.copy()
 
-    # --- 4.5. build idle / down / work / wreck ----------------------------
+    # --- 4.5. build idle / down / work, and bind both falls whole (horizontal
+    # root motion held) with wreck/wreckAlt as each held clip's own last
+    # frame -------------------------------------------------------------------
     idle_src = build_idle_src(scratch_arm, scratch_src)
     down_src = build_down_src(scratch_arm, crouch_src)
     work_src = build_work_src(scratch_arm, crouch_src)
     living_pose = _pose_at(scratch_arm, move_src, 0)
-    wreck_src = build_wreck_src(scratch_arm, fall_src, living_pose)
+    fall_frames = hold_hips_horizontal(sample_clip(scratch_arm, fall_src), hips_rest, living_pose)
+    fall_alt_frames = hold_hips_horizontal(sample_clip(scratch_arm, fall_alt_src), hips_rest, living_pose)
+    fall_held_src = _write_pose_action(scratch_arm, "fall_held_src", fall_frames)
+    fall_alt_held_src = _write_pose_action(scratch_arm, "fall_alt_held_src", fall_alt_frames)
+    wreck_src = _write_pose_action(scratch_arm, "wreck_src", [fall_frames[-1], fall_frames[-1]])
+    wreck_alt_src = _write_pose_action(scratch_arm, "wreck_alt_src", [fall_alt_frames[-1], fall_alt_frames[-1]])
 
     # --- 5. sample every clip into plain Python data, off the scratch rig,
     # BEFORE any duplication happens.
     src_by_clip = {
-        "idle": idle_src, "move": move_src, "down": down_src,
-        "work": work_src, "wreck": wreck_src,
+        "idle": idle_src, "move": move_src, "down": down_src, "work": work_src,
+        "wreck": wreck_src, "wreckAlt": wreck_alt_src,
+        "fall": fall_held_src, "fallAlt": fall_alt_held_src,
     }
     frames_by_clip = {name: sample_clip(scratch_arm, src_by_clip[name]) for name in CLIP_ORDER}
     print("frames per clip:", {k: len(v) for k, v in frames_by_clip.items()})
@@ -1093,7 +1181,10 @@ def main():
     # --- 6. delete every `*_src` action BEFORE duplicating/renaming --------
     # Load-bearing ordering: Blender's bone-rename callback is not scoped to
     # the object being renamed. See `import_meshy_soldier.py`'s own `main()`.
-    for action in (move_src, scratch_src, crouch_src, fall_src, idle_src, down_src, work_src, wreck_src):
+    for action in (
+        move_src, scratch_src, crouch_src, fall_src, fall_alt_src, idle_src, down_src, work_src,
+        wreck_src, wreck_alt_src, fall_held_src, fall_alt_held_src,
+    ):
         action.use_fake_user = False
         bpy.data.actions.remove(action)
 
@@ -1171,6 +1262,7 @@ def main():
         combined = write_combined_clip(
             merged_arm, figures, clip_name, frames_by_clip[clip_name],
             cyclic=clip_name in CYCLIC_CLIPS,
+            stagger=round(FALL_STAGGER_S * bpy.context.scene.render.fps) if clip_name in STAGGERED_CLIPS else 0,
         )
         tmp_path = os.path.join(tmp_dir, f"{clip_name}.glb")
         export_glb(merged_arm, tmp_path)

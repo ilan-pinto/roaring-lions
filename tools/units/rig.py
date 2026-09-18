@@ -26,10 +26,14 @@ placement). Both are read, neither is re-derived a second way.
     (`_kneel_bones`, derived below) plus a convention for a free-standing
     weapon prop that is not gripped by any bone-bound hand: `demo_squad`,
     `at_team`, `mortar_team`, `mortar_crew`, `atgm_cell`, and `digger_crew`
-    (its own ground-clutter spoil heap, see `_digger_extras` -- kneeling
-    through `idle`/`move`/`fire` rather than standing to relocate for
-    `move` the way `teams.digger_crew` itself does; a deliberate
-    simplification, not an oversight, see the report).
+    (its own ground-clutter spoil heap, see `_digger_extras`). `demo_squad`
+    and `at_team`/`mortar_team` stay kneeling and deployed through every
+    clip; `mortar_crew`, `atgm_cell` and `digger_crew` instead walk standing
+    on a THIRD root for `move` -- `move_posture="standing"`, the walker
+    `_add_figure` builds beside a figure's kneeling `root` and prone
+    `death_root` -- matching `teams.digger_crew`'s own sprite-side "stands
+    to relocate" and hiding the deployed prop while the crew is in transit
+    (design D6, `2026-09-17-infantry-animation-design.md`).
   * `sniper_team` -- a THIRD bone topology, because its canonical idle is
     PRONE, not standing or kneeling. `_sniper_rest`/`build_sniper_clips`
     give it its own bespoke rest/clip builders rather than forcing it
@@ -236,9 +240,10 @@ PART_BONE = {
     # --- kneeling legs (new this pass) ---
     # "down"/ground-contact leg (kit.py's own "_r" suffix -- not a body
     # side, the leg whose knee is on the ground) and "front"/planted leg
-    # ("_f"). No hip-fix bone: kneeling never animates thighs (crew stay
-    # deployed through every clip this pass authors -- see the report), so
-    # there is no swing to open a gap at.
+    # ("_f"). No hip-fix bone: the KNEEL skeleton itself never animates
+    # thighs, so there is no swing on IT to open a gap at -- a crew figure
+    # that walks (design D6) does so on its own separate standing walker,
+    # whose `_standing_bones` carry the hip-fix bones already.
     "shin_r": "shin_r", "boot_r": "shin_r", "thigh_r": "thigh_r",
     "shin_f": "shin_f", "boot_f": "shin_f",
     "knee_f": "thigh_f", "kneepad_f": "thigh_f", "thigh_f": "thigh_f",
@@ -374,9 +379,10 @@ def _standing_bones(prefix, dx, dy):
 
 def _kneel_bones(prefix, dx, dy):
     """Kneeling figure's bone table, translated to its rest placement. No
-    hip-fix bones: kneeling never animates thighs in this pass (crew stay
-    deployed and static through every authored clip -- see module
-    docstring), so there is no swing to open a gap at."""
+    hip-fix bones: kneeling never animates thighs in this pass -- a crew
+    figure either stays deployed and static in every clip, or (design D6)
+    walks on its own separate standing walker root for `move` while this
+    kneeling body sits invisible -- so there is no swing to open a gap at."""
     return _translate(_KNEEL_BONES, dx, dy, prefix)
 
 
@@ -1042,10 +1048,10 @@ def _weapon_parts(prefix, at, yaw=0.0, posture="standing", aim=False):
 # re-derived -- REST_FIGURES's own discipline, carried forward.
 
 def _f(prefix, x, y, posture="standing", headgear="helmet", loadout="regular",
-       leader=False, mirror=False, animates=True, weapon=None):
+       leader=False, mirror=False, animates=True, weapon=None, move_posture=None):
     return dict(prefix=prefix, x=x, y=y, posture=posture, headgear=headgear,
                 loadout=loadout, leader=leader, mirror=mirror,
-                animates=animates, weapon=weapon)
+                animates=animates, weapon=weapon, move_posture=move_posture)
 
 
 #: sniper_team's own rest spacing -- copied verbatim from `teams.sniper_team`
@@ -1103,12 +1109,12 @@ TEAM_FIGURES = {
         _f("mtr_no3", -0.62, 0.0, leader=True, weapon="rifle"),
     ],
     "mortar_crew": [
-        _f("emtr_crew0", -0.16, -0.40, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
-        _f("emtr_crew1", -0.16, 0.42, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
+        _f("emtr_crew0", -0.16, -0.40, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False, move_posture="standing"),
+        _f("emtr_crew1", -0.16, 0.42, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False, move_posture="standing"),
     ],
     "atgm_cell": [
-        _f("atgm_crew0", -0.34, -0.40, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
-        _f("atgm_crew1", -0.34, 0.44, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False),
+        _f("atgm_crew0", -0.34, -0.40, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False, move_posture="standing"),
+        _f("atgm_crew1", -0.34, 0.44, posture="kneeling", headgear="keffiyeh", loadout="irregular", animates=False, move_posture="standing"),
     ],
     # sniper_team is NOT built through `_add_figure` (see `_sniper_rest`) --
     # its own `posture` varies BY CLIP (prone for idle/fire, standing for
@@ -1130,14 +1136,12 @@ TEAM_FIGURES = {
         _f("brc_point", 0.32, -0.18, leader=True, weapon="rifle"),
         _f("brc_cover", -0.30, 0.24, weapon="rifle"),
     ],
-    # `dig` stays kneeling through idle/move/fire in this pass rather than
-    # standing to relocate for `move` the way `teams.digger_crew` itself
-    # does (`_crew_posture`'s own kneeling/prone split, plus a THIRD
-    # standing-for-move posture no other crew figure needs) -- a deliberate
-    # simplification, not an oversight; see this task's report.
+    # Stands to relocate for `move`, as `teams.digger_crew` itself does --
+    # design D6 (`2026-09-17-infantry-animation-design.md`); the walker is
+    # the third root `_add_figure` builds.
     "digger_crew": [
         _f("dig", -0.34, 0.04, posture="kneeling", headgear="keffiyeh",
-           loadout="irregular", animates=False),
+           loadout="irregular", animates=False, move_posture="standing"),
     ],
     # moto_rpg is NOT built through `_add_figure`/PART_BONE at all -- see
     # `_moto_rpg_rest`, which force-binds every single part it creates to an
@@ -1228,6 +1232,20 @@ def _figure_death_parts(spec):
     )
 
 
+def _walker_prefix(spec):
+    return f"{spec['prefix']}w"
+
+
+def _walker_specs(figures):
+    """A synthetic standing spec per figure that walks standing (design D6):
+    same placement, prefix `{prefix}w`, `animates=True`, no weapon, no
+    death parts of its own (the kneeling half already owns the corpse)."""
+    return [
+        dict(s, prefix=_walker_prefix(s), posture="standing", animates=True, weapon=None, move_posture=None)
+        for s in figures if s.get("move_posture") == "standing"
+    ]
+
+
 def _add_figure(spec):
     """One figure -- geometry, bone table, and (if it carries one) its rigid
     weapon assembly, plus its prone death-state geometry and bone. Returns
@@ -1255,6 +1273,16 @@ def _add_figure(spec):
     for ob in death_parts:
         forced[ob] = death_bone[0]
     parts += death_parts
+    if spec.get("move_posture") == "standing":
+        assert spec["posture"] == "kneeling", spec
+        wp = _walker_prefix(spec)
+        walker = kit.figure(
+            wp, (spec["x"], spec["y"], 0.0), posture="standing", yaw=0.0,
+            headgear=spec["headgear"], stride=0.0, arms=True, leader=spec["leader"],
+            mirror=spec["mirror"], loadout=spec["loadout"], smoke=None,
+        )
+        parts += walker
+        bones += _standing_bones(wp, spec["x"], spec["y"])
     return parts, bones, forced
 
 
@@ -1895,7 +1923,7 @@ def _key_scale(pb, value, frames):
 _VIS_FRAMES = (0, 1)
 
 
-def _key_death_visibility(pbones, figures, has_prop, alive, frame=0):
+def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=False):
     """Explicit scale keys for every figure's `root`/`death_root` (and the
     team's shared `prop` bone, if it has one) -- the switch that actually
     hides whichever rig, living or dead, is not this clip's.
@@ -1910,15 +1938,33 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0):
     future clip could vary it over time; every caller today passes only the
     default, and `_key_scale` still keys `_VIS_FRAMES` around it so the
     action's own time range stays well-formed regardless.
+
+    `moving` (design D6) is True only for `build_move_clip`. A figure with a
+    walker (`spec["move_posture"] == "standing"`) hides its deployed
+    kneeling body while moving and shows its standing walker instead; a
+    figure with no walker is unaffected either way. The team's shared `prop`
+    (deployed launcher/mortar) hides too, but only for a team that HAS a
+    walker -- `demo_squad`/`at_team`/`mortar_team`'s crews stay deployed
+    through `move` and keep their prop visible, unchanged.
     """
     alive_scale = 1.0 if alive else 0.0
     dead_scale = 0.0 if alive else 1.0
+    walkers = False
     for spec in figures:
         prefix = spec["prefix"]
-        _key_scale(pbones[f"{prefix}_root"], alive_scale, _VIS_FRAMES)
+        has_walker = spec.get("move_posture") == "standing"
+        walkers = walkers or has_walker
+        # A figure with a walker shows its deployed body in every living
+        # clip but `move`, where the walker shows instead (design D6).
+        deployed = alive_scale if not (has_walker and moving) else 0.0
+        _key_scale(pbones[f"{prefix}_root"], deployed, _VIS_FRAMES)
         _key_scale(pbones[f"{prefix}_death_root"], dead_scale, _VIS_FRAMES)
+        if has_walker:
+            _key_scale(pbones[f"{_walker_prefix(spec)}_root"], 1.0 if (alive and moving) else 0.0, _VIS_FRAMES)
     if has_prop:
-        _key_scale(pbones["prop"], alive_scale, _VIS_FRAMES)
+        # The deployed launcher/mortar is carried, not modelled, while a crew
+        # walks -- a tripod gliding beside a walking crew is the bug D6 fixes.
+        _key_scale(pbones["prop"], 0.0 if (moving and walkers) else alive_scale, _VIS_FRAMES)
 
 
 #: Per-figure gait-phase offset, as a FRACTION of one cycle (0..1), keyed by
@@ -1976,12 +2022,23 @@ def build_idle_clip(arm_obj, figures):
 def build_move_clip(arm_obj, figures, gait):
     """Full gait -- thigh/shin/arm swing, weight transfer, settle, head
     stabilisation, vertical bob -- for every figure that walks
-    (`spec["animates"]`). A crew-served figure (kneeling, or `rpg_fire`,
-    whose own `stride` teams.py pins to 0.0 even in `move`) gets NO keys
-    here at all and so stays at `move`'s own frame-0 identity pose for the
-    whole clip -- correctly: "crew-served weapons stay deployed through
-    move" (teams.py's own module docstring) means the whole figure stays
-    put, not just its weapon.
+    (`spec["animates"]`), PLUS -- since design D6 -- every kneeling figure's
+    own separate `{prefix}w` walker (`_walker_specs`), keyed here exactly
+    like a real standing figure while the kneeling body it stands in for is
+    scaled to invisible for this one clip (`_key_death_visibility`'s
+    `moving` branch). `mortar_crew`/`atgm_cell`/`digger_crew` walk this way:
+    their own kneeling `root` gets no gait key at all, but their `{prefix}w`
+    walker does, and it visibly steps.
+
+    A kneeling figure with NO walker -- `at_team`'s `at_fire`, `demo_squad`'s
+    `demo_a`, `mortar_team`'s two crew -- has nothing to switch to, so it
+    still gets no keys here at all and stays at `move`'s own frame-0
+    identity pose for the whole clip: correctly, the whole figure stays put,
+    deployed at its weapon, not just its weapon. `rpg_fire` is the one
+    STANDING figure in the same position, for its own separate reason:
+    teams.py pins its own `stride` to 0.0 even in `move`, so
+    `spec["animates"]` is False for it too, and only a KNEELING figure can
+    own a walker (`_add_figure` asserts it), so it never gets one either.
 
     Each walker's gait is offset by `gait_phase`, keyed by its index among
     `walkers` (not among `figures` -- a figure that never animates does not
@@ -2010,8 +2067,8 @@ def build_move_clip(arm_obj, figures, gait):
     _new_action(arm_obj, "move")
     bones = arm_obj.data.bones
     pbones = arm_obj.pose.bones
-    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True)
-    walkers = [s for s in figures if s["animates"]]
+    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True, moving=True)
+    walkers = [s for s in figures if s["animates"]] + _walker_specs(figures)
     if not walkers:
         # A crew-served team keys no leg at all, so there is no stride to
         # report. The print used to sit above this return and announced a
@@ -2349,8 +2406,23 @@ def build_and_export(team_id=DEFAULT_TEAM, out_path=None):
     parts, bone_table, forced_bone = build_team_rest(team_id)
     arm_obj = build_armature(bone_table)
     figure_prefixes = {spec["prefix"] for spec in TEAM_FIGURES[team_id]}
+    figure_prefixes |= {s["prefix"] for s in _walker_specs(TEAM_FIGURES[team_id])}
     rig_parts(parts, arm_obj, forced_bone, figure_prefixes)
     merged = join_by_role(parts)
     build_clips(arm_obj, team_id)
     export_glb(arm_obj, path)
     return arm_obj, merged, path
+
+
+def print_crew_gait_table(team_ids):
+    """The numbers the project lead approves BEFORE Blender renders a crew
+    walker (memory: approve art numbers before rendering): standing height,
+    the stride `gait_amplitudes` sizes from the unit's own speed, whether
+    the thigh cap clipped it, and the cycle length."""
+    print("team          speed  ground/cycle  stride scale  capped  cycle s  standing m")
+    for team_id in team_ids:
+        g = gait_for_team(team_id)
+        print(
+            f"{team_id:12s}  {g['speed']:5.2f}  {g['ground_m']:12.3f}  {g['scale']:12.3f}  "
+            f"{'yes' if g['capped'] else 'no ':6s}  {move_seconds():7.3f}  {kit.FIGURE_H:10.3f}"
+        )
