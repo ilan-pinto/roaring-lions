@@ -29,7 +29,8 @@
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
     "plate:capture": "pnpm --filter @lions/tools plate:capture",
-    "gait:meshes": "pnpm --filter @lions/tools gait:meshes"
+    "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
+    "meshy": "pnpm --filter @lions/tools meshy --"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
