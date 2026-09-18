@@ -2309,17 +2309,35 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let missionEnded = false;
 
   // Task 6: the in-mission objective tracker -- the strip's own `+N` control
-  // is the only caller. One `objectivesPanel`, mounted lazily on
-  // `document.body` (not the stage: like the HUD and the minimap, it has to
-  // survive a soft leave on its own, hence the disposer registered the
-  // moment it exists) the first time this runs, and toggled open/closed on
-  // every call after that -- `hud.ts`'s own doc comment on `openObjectives`
-  // describes exactly this shape. Declared before `hud` for the same reason
-  // `orders` above references `dispatch` (declared far later in this same
-  // function): the closure only RUNS on a later click, long after every
-  // `const` below it has initialized.
+  // is the only caller of `openObjectives`. One `objectivesPanel`, mounted
+  // lazily on `document.body` (not the stage: like the HUD and the minimap,
+  // it has to survive a soft leave on its own, hence the disposer registered
+  // the moment it exists) the first time this runs, and toggled open/closed
+  // on every call after that -- `hud.ts`'s own doc comment on
+  // `openObjectives` describes exactly this shape. Declared before `hud` for
+  // the same reason `orders` above references `dispatch` (declared far later
+  // in this same function): the closures only RUN on a later click or a
+  // later `missionEnd`, long after every `const` below them has initialized.
+  //
+  // Fix round 1 (task 6 review, I1/I2): the popover had no reliable keyboard
+  // dismiss path -- Escape opened the Pause menu ON TOP of it instead of
+  // closing it (`isDialogOpen()` does not know about `.rl-obj-panel--tracker`),
+  // and the only other way to close it, clicking `.rl-strip__more` again,
+  // sits inside `stripBody`, which loses focus every ~250 ms to `renderStrip`'s
+  // own 4 Hz rebuild. `closeObjectives` is the ONE function both the second
+  // strip click and the popover's own close button (`onClose` below) now
+  // call, so there is exactly one way this state ever goes false. It was
+  // also never torn down at mission end, unlike `pauseHandle` -- left open,
+  // it rendered over the victory/defeat panel, and once every objective
+  // resolved the strip's own button vanished and nothing could close it.
   let objectivesHandle: { el: HTMLElement; refresh(): void; dispose: Disposer } | null = null;
   let objectivesOpen = false;
+  const closeObjectives = (): void => {
+    if (!objectivesOpen) return;
+    objectivesOpen = false;
+    if (objectivesHandle) objectivesHandle.el.hidden = true;
+    hud.setObjectivesOpen(false);
+  };
   const openObjectives = (): void => {
     if (!objectivesHandle) {
       objectivesHandle = objectivesPanel(document.body, {
@@ -2327,18 +2345,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // `runtime` does not exist yet on every path this function can run.
         rows: () => runtime?.objectiveList ?? [],
         paysCredits,
+        onClose: closeObjectives,
       });
       objectivesHandle.el.classList.add('rl-obj-panel--tracker');
       objectivesHandle.el.hidden = true;
       onDispose(() => objectivesHandle?.dispose());
     }
-    objectivesOpen = !objectivesOpen;
-    objectivesHandle.el.hidden = !objectivesOpen;
+    if (objectivesOpen) {
+      closeObjectives();
+      return;
+    }
+    objectivesOpen = true;
+    objectivesHandle.el.hidden = false;
     // Refreshed on the way IN, not the way out -- a closed tracker never
     // paints again until it is reopened, and the tick loop below only calls
     // `refresh()` again while `objectivesOpen` stays true.
-    if (objectivesOpen) objectivesHandle.refresh();
-    hud.setObjectivesOpen(objectivesOpen);
+    objectivesHandle.refresh();
+    hud.setObjectivesOpen(true);
   };
 
   const hud = new Hud(document.body, {
@@ -3394,6 +3417,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               pauseHandle?.close();
               pauseHandle = null;
             }
+            // Fix round 1 (task 6 review, I2): the tracker is independent of
+            // `paused` (it can be open on an unpaused battlefield), so it
+            // gets its own unconditional close rather than riding the branch
+            // above -- otherwise it would render over the end screen about
+            // to be pushed, and once every objective resolves the strip's
+            // own button (its only other way to close) vanishes.
+            closeObjectives();
             screenDisposers.push(
               showEndScreen(document.body, {
                 result: me.result,
