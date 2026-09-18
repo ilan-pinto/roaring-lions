@@ -266,6 +266,26 @@ describe('top strip', () => {
     expect(hover('[data-tip="pinned"]')).toContain('suppressed');
     expect(hover('[data-tip="broken"]')).toContain('routed');
   });
+
+  // Fix round 1, I1: `renderStrip` replaces `[data-tip="logistics"]` wholesale
+  // every 4 Hz repaint, with no event of its own -- a tip shown for the OLD
+  // node used to freeze on the rate it read at the moment of the hover and
+  // never move again, however long the mouse sat still over it.
+  it('keeps a shown tooltip live across the 4 Hz rebuild instead of freezing it', () => {
+    const m = mission({ logistics: 400, logisticsRate: 100, intel: 20 });
+    const r = rig(m);
+    const tipText = (): string => r.host.querySelector<HTMLElement>('.rl-tip')!.textContent!;
+    r.host
+      .querySelector<HTMLElement>('[data-tip="logistics"]')!
+      .dispatchEvent(new Event('mouseover', { bubbles: true }));
+    expect(tipText()).toContain('100 more a minute');
+
+    // The rate changes and the strip repaints at 4 Hz -- no new hover.
+    m.logisticsRate = 250;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(tipText()).toContain('250 more a minute');
+    expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(false);
+  });
 });
 
 describe('top strip: the persistent controls', () => {
@@ -806,6 +826,31 @@ describe('multi-select chips', () => {
     expect(tip.textContent).toContain('Rifle Squad');
     expect(tip.textContent).toContain('×2');
   });
+
+  // Fix round 1, I1: `renderChips` replaces every `.rl-chip` wholesale each
+  // 4 Hz repaint, with no event of its own -- a tip shown for the OLD chip
+  // used to freeze at the count it read on hover, however long the mouse
+  // sat still, and however many of the group then died.
+  it('keeps a shown chip tooltip live across the 4 Hz rebuild instead of freezing it', () => {
+    const world = makeForce();
+    // Three selected (two rifle squads, one AT team) so the group still has
+    // more than one member once the first drops -- otherwise `renderCard`
+    // takes the single-unit CARD path instead, which is a different bug.
+    const r = clusterRig(() => [...world.squads, world.at], {}, world);
+    const tipText = (): string => r.host.querySelector<HTMLElement>('.rl-tip')!.textContent!;
+    r.chips()[0]
+      .querySelector('.rl-chip__name > span')!
+      .dispatchEvent(new Event('mouseover', { bubbles: true }));
+    expect(tipText()).toContain('×2');
+
+    // One squad falls: the group's count drops to one, the chip row
+    // rebuilds at 4 Hz with a brand-new node for the same type, and no new
+    // mouse event fires.
+    world.sim.state.alive[world.squads[1]] = 0;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(tipText()).toContain('×1');
+    expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(false);
+  });
 });
 
 describe('the single-unit card', () => {
@@ -1203,6 +1248,42 @@ describe('destroy', () => {
     expect(left.length).toBe(1);
     expect(left[0].dataset.owner).toBe('someone-else');
     foreign.remove();
+  });
+
+  // Task 7 fix round 1 (minor a): `production.test.ts` already proves this
+  // for the dock's tip; this is the HUD's own equivalent, mirrored for the
+  // same reason -- `Element.remove()` on `this.roots` cannot reach the
+  // shared tooltip's Escape listener on `window`, which is why `destroy()`
+  // runs `tipDisposers` explicitly first.
+  it('releases its tooltip even mid-hover, leaving no window listener behind', () => {
+    // Other suites in this file mount a `Hud` on their own scratch `host`
+    // and never destroy it (only this describe block cares to), so
+    // `document.body` carries other Huds' order buttons and tips by the
+    // time this runs -- a plain `document.body.querySelector` would as
+    // easily find one of THOSE. The six elements `bodyHud`'s constructor
+    // appends (`roots.push(strip, cmd, clock, sel, fire, banner)`) are what
+    // scope every query below to THIS Hud alone, the same way `rig()`'s own
+    // `host` scopes its -- the order button lives under `sel`, the tip's
+    // host is `strip`, so both have to be searched.
+    const before = document.body.children.length;
+    const hud = bodyHud();
+    const roots = [...document.body.children].slice(before, before + 6) as HTMLElement[];
+    const findIn = (sel: string): HTMLElement | null => {
+      for (const root of roots) {
+        const found = root.querySelector<HTMLElement>(sel);
+        if (found) return found;
+      }
+      return null;
+    };
+    findIn('[data-order="halt"]')!.dispatchEvent(new Event('mouseenter'));
+    expect(findIn('.rl-tip')?.hidden).toBe(false);
+    hud.destroy();
+    // The tip is a descendant of `this.strip`, itself in `this.roots`, and
+    // goes down with it -- no node left over for the next mission's HUD to
+    // collide with.
+    expect(roots.some((root) => document.body.contains(root))).toBe(false);
+    expect(document.body.children.length).toBe(before);
+    expect(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))).not.toThrow();
   });
 });
 
