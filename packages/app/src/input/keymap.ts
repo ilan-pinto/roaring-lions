@@ -141,6 +141,40 @@ export function passesThroughModal(action: Action | null): boolean {
   return action === 'panUp' || action === 'panDown' || action === 'panLeft' || action === 'panRight';
 }
 
+/**
+ * Does a key bound to the SPACE bar have to stand down right now?
+ *
+ * Space is not an ordinary game letter: it is the activation key of every
+ * focused control on the screen. `production.focusFirst()` (the `b` key)
+ * moves focus into the reinforcements dock and Tab walks the HUD chips, so a
+ * player buying a unit with the keyboard is holding focus on a button at the
+ * exact moment `jumpToAlert` would fire -- and the camera flying off on every
+ * purchase reads as the camera being broken rather than as two features
+ * meeting.
+ *
+ * The answer is to YIELD, never to `preventDefault()`: swallowing the key
+ * would keep the camera still and break the button instead, which is strictly
+ * worse. The caller returns and the control gets its own key.
+ *
+ * Deliberately NOT a handler-wide guard. Every other bound key is a letter no
+ * control claims, and stopping `h` from halting because a chip has focus
+ * would be a regression dressed as a fix.
+ *
+ * `tagName` is upper-case on a real element and lower-case on an XML one, so
+ * it is folded rather than compared raw -- a `=== 'button'` here would be
+ * false for every button in the game and the guard would be silently inert.
+ */
+export function shouldYieldSpace(el: Element | null): boolean {
+  if (el === null) return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'button' || tag === 'input' || tag === 'select' || tag === 'textarea') return true;
+  // An anchor is only focusable with an href, and `contenteditable="false"`
+  // is the attribute whose whole job is to say this element does not type.
+  if (tag === 'a') return el.hasAttribute('href');
+  const editable = el.getAttribute('contenteditable');
+  return editable !== null && editable !== 'false';
+}
+
 export function rebind(b: Bindings, action: Action, key: string): { ok: true; bindings: Bindings } | { ok: false; takenBy: Action } {
   const k = norm(key);
   const s = spec(action);
