@@ -196,6 +196,7 @@ The combat model is the product. Everything else is scaffolding around it.
 
 ## Dev instruments
 
+- `pnpm meshy -- <command>` (`tools/src/meshy/`) is the Meshy text-to-3D/image-to-3D CLI — estimate before you spend, key lives outside the repo, see `docs/ART_PIPELINE.md`'s "Meshy API — generating a base model" for the full workflow and policy.
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed.
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from
   that map's own markers — no mission needed. Bare `?sandbox` still loads
