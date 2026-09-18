@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-18 (G0 answered) · main: 27b96bea (v0.71.1 + ledger) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 0 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M4 (3–6), gate issues #164–#169, package issues #170–#191
+Updated: 2026-09-18 (Stage 1 opened) · main: 3d2a4045 (v0.71.1 + ledger) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 0 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M4 (3–6), gate issues #164–#169, package issues #170–#191
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,8 +8,8 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | — | — | — | idle | write the shell Phase 2 plan (open with the `MissionEvent` audit); WP-L1 licence change (#192) and the eight blurbs are two small tasks beside it |
-| B (render · art · data) | — | — | — | idle | before-captures of the mortar impact and a vehicle death (still + 10 s); apply G-E1 (#173): floors to 70–90, re-pin |
+| A (packages/app) | L1 #192 · blurbs (G0 #5) · Phase 2 plan | `feat/licence-polyform` (PR #193) · `feat/unit-blurbs` (PR #195) · `docs/shell-phase-2-plan` (in progress) | spec §6 Phase 2 · plan being written from the research brief · — | PRs open, gate green in worktree | merge #193 and #195 once CI is green; review the Phase 2 plan PR when it opens; then S2a #170 |
+| B (render · art · data) | G-E1 #173 | `feat/conduct-floors` (PR #194) | — | PR open, gate green; FINDING: floors 70–90 still all open after mission 1 on the optimal ladder (mission 1 Conduct 97, average never below 93.5) | lead decides: merge as "raises the bar for a real player" and revisit the gate shape, or redesign the gate; then before-captures for A1.2 #172 |
 | C (packages/sim) | — | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
@@ -47,6 +47,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-18 · ledger 27b96bea, G0 answers 3d2a4045 (docs)
 - 2026-09-18 · shell Phase 1 · 274e35b5 · v0.70.0 / v0.71.0 · no bless · vehicle repaint drift closed c0044ff6 (v0.71.1) · Meshy CLI e3b5ea40
 - 2026-09-17 · art Phase 1a infantry animation · 484c0589 · v0.69.0 · no bless
 - 2026-09-17 · brigade economy step 3 Upgrade · ad4e65f · v0.67.0 · unit icons c88440d · v0.68.0
@@ -66,6 +67,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 6. Risks and debts — one line each, owner, when it bites
 
+- The Conduct floors cannot spread on the optimal ladder (mission 1 scores 97): spread needs a middling-player ladder (naive/sensible plans) or a different gate shape · lead · G1
 - E5 is three units (~12 tasks), not two · Stage 3 lane B is heavier; its buffer absorbs it or A2's second plan slips a week · R1
 - `ThreeRenderer.ts` is shared by both lanes · schedule interleave (A1.2 → S2b; A1.3 → scene host) · every stage
 - Meshy balance 454 credits vs ~540 for eighteen bakes · G1 · Stage 2
@@ -92,12 +94,12 @@ HANDOFF — Roaring Lions · 2026-09-18 · from session "Execution plan"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
       M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027.
 PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced 18 Sep (milestones EP M1–M4, issues #164–#191)
-STATUS: Stage 0 · nothing from this plan in flight · main dd7097bb (v0.71.1) · CI green on main
+STATUS: Stage 1 open · in flight: L1 PR #193, blurbs PR #195, E1 PR #194, Phase 2 plan (branch docs/shell-phase-2-plan) · main dd7097bb (v0.71.1) · CI green on main
         shell Phase 1 landed 274e35b5 · art infantry animation v0.69.0 · economy step 3 v0.67.0
         the shared tree /Users/ilpinto/dev/roaring-lions is on feat/terrain-tiles and stale: never work there
 DECISIONS THIS SESSION: G0 all fourteen answered 18 Sep (§3): defaults on 2–10, 12–14; #1 → PolyForm NC + CLA (WP-L1 #192); #11 → three units.
 NEXT STEP (exact):
-  1. G0 is done. Lane A: WP-L1 #192 (licence files + CLA.md + README/credits) and the eight unit blurbs, then the Phase 2 plan
+  1. Merge #193, #195 (and #194 after the lead's call on the floors finding) once CI is green; then the Phase 2 plan PR
   2. Lane A: write docs/superpowers/plans/2026-09-2x-shell-upgrade-phase-2.md (WP-S2a #170 + S2b #171), opening with the MissionEvent audit
      Lane B: before-captures of the mortar impact and a vehicle death (still + ten seconds) for WP-A1.2 #172; apply G-E1 #173 when #9 answers
   3. At the first landing: refresh this file §1/§4/§8 AND the plan page's status board in the same step
