@@ -1197,6 +1197,14 @@ body {
 .rl-strip button {
   pointer-events: auto;
 }
+/* Fix wave C1: the strip's five field tooltips (Conduct, Logistics, Intel,
+   Pinned, Broken) are `bindDelegatedTip`'s `[data-tip]` spans, not links or
+   buttons, so the blanket `pointer-events: none` above swallowed every
+   `mouseover` before it could reach them -- a real player could never hover
+   one, only a test dispatching the event directly on the element itself. */
+.rl-strip [data-tip] {
+  pointer-events: auto;
+}
 /* The one field allowed to shrink. Everything else in the strip is a fixed
    stamp; a long mission name plus a long objective is what actually overflows
    at 1440, and truncating the objective loses less than truncating a count. */
@@ -2317,6 +2325,11 @@ body {
   font-size: var(--t-body);
   line-height: var(--lh-body);
   pointer-events: none;
+  /* Fix wave C2: the strip that hosts a strip tooltip sets `white-space:
+     nowrap` (above), and `position: fixed` does not cut the inheritance
+     chain -- every strip tip rendered as one unbroken line past its own
+     14.375rem width instead of wrapping. */
+  white-space: normal;
 }
 .rl-tip__head {
   display: flex;

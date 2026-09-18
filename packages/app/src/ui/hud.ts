@@ -978,7 +978,7 @@ export class Hud {
       );
       if (m.roe !== undefined) {
         rows.push(
-          `<span data-tip="conduct"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">${t('hud.strip.conduct')}</span></span>`
+          `<span data-tip="conduct" tabindex="0"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">${t('hud.strip.conduct')}</span></span>`
         );
       }
       const { primary, deadline, primaryOpen, secondaryOpen } = stripObjectives(m);
@@ -1042,18 +1042,22 @@ export class Hud {
         m.logisticsRate !== undefined && m.logisticsRate > 0
           ? ` <span class="rl-dim">${t('hud.strip.rate', { n: m.logisticsRate })}</span>`
           : '';
-      info.push(`<span class="rl-info" data-tip="logistics">▣ <b>${m.logistics}</b>${rate}</span>`);
+      info.push(`<span class="rl-info" data-tip="logistics" tabindex="0">▣ <b>${m.logistics}</b>${rate}</span>`);
     }
     if (m?.intel !== undefined) {
-      info.push(`<span class="rl-info" data-tip="intel">◎ <b>${m.intel}</b></span>`);
+      info.push(`<span class="rl-info" data-tip="intel" tabindex="0">◎ <b>${m.intel}</b></span>`);
     }
     // Suppression: shown only when there is some. A permanent "0 pinned" is
     // the kind of field a player learns to stop reading.
     const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
     if (pinned > 0)
-      info.push(`<span class="rl-hot" data-tip="pinned"><b>${t('hud.strip.pinned', { n: pinned })}</b></span>`);
+      info.push(
+        `<span class="rl-hot" data-tip="pinned" tabindex="0"><b>${t('hud.strip.pinned', { n: pinned })}</b></span>`
+      );
     if (broken > 0)
-      info.push(`<span class="rl-bad-text" data-tip="broken"><b>${t('hud.strip.broken', { n: broken })}</b></span>`);
+      info.push(
+        `<span class="rl-bad-text" data-tip="broken" tabindex="0"><b>${t('hud.strip.broken', { n: broken })}</b></span>`
+      );
 
     this.stripBody.innerHTML = rows.join('');
     this.stripInfo.innerHTML = info.join('');

@@ -1472,3 +1472,73 @@ describe('the chip name slot', () => {
     expect(found).toBe(true);
   });
 });
+
+describe('the strip tooltips (final review, C1/C2)', () => {
+  // C1: `.rl-strip` is `pointer-events: none` furniture, re-enabled only for
+  // `a`/`button` -- so the five `[data-tip]` spans (Conduct, Logistics,
+  // Intel, Pinned, Broken) never received a real hover at all; only a test
+  // dispatching `mouseover` directly on the element, bypassing hit-testing,
+  // could ever show one. Same disk-read shape as "the chip name slot" above.
+  //
+  // Falsified by hand: deleting the `.rl-strip [data-tip]` rule turns this
+  // red.
+  it('re-enables pointer events on the strip field tooltip triggers', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
+    let found = false;
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1].replace(/\/\*[\s\S]*?\*\//g, '').trim();
+      if (!selector.includes('.rl-strip [data-tip]')) continue;
+      found = true;
+      const pointerEvents = /pointer-events\s*:\s*([^;]+);/.exec(rule[2]);
+      expect(pointerEvents?.[1].trim()).toBe('auto');
+    }
+    expect(found).toBe(true);
+  });
+
+  // C1: a keyboard/touch player has no `mouseover` at all, and the delegated
+  // `focusin` path in `bindDelegatedTip` only fires for an element that can
+  // actually TAKE focus -- a bare `<span data-tip>` cannot without
+  // `tabindex="0"`, so every field beyond Conduct was unreachable by
+  // keyboard even after C1's pointer-events fix landed for the mouse.
+  //
+  // Falsified by hand: dropping `tabindex="0"` from any one of the five
+  // spans in `renderStrip` turns this red.
+  it('makes every strip field tooltip trigger focusable', () => {
+    const r = rig(mission({ roe: 80, logistics: 410, logisticsRate: 120, intel: 40 }));
+    r.sim.state.pinned[r.ids[0]] = 1;
+    r.sim.state.routed[r.ids[1]] = 1;
+    r.sim.state.pinned[r.ids[1]] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+
+    const tipped = [...r.host.querySelectorAll<HTMLElement>('.rl-strip [data-tip]')];
+    const keys = tipped.map((el) => el.dataset.tip).sort();
+    expect(keys).toEqual(['broken', 'conduct', 'intel', 'logistics', 'pinned']);
+    for (const el of tipped) expect(el.tabIndex).toBe(0);
+  });
+});
+
+describe('the strip tooltip element (final review, C2)', () => {
+  // C2: `.rl-strip` sets `white-space: nowrap` and `.rl-tip` is
+  // `position: fixed`, which does not cut the inheritance chain -- every
+  // strip tooltip rendered as one unbroken line running off its own
+  // 14.375rem box instead of wrapping.
+  //
+  // Falsified by hand: removing the `white-space: normal;` declaration from
+  // `.rl-tip` turns this red.
+  it('lets the tip text wrap instead of running off the box', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
+    let found = false;
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selector = rule[1].replace(/\/\*[\s\S]*?\*\//g, '').trim();
+      if (selector !== '.rl-tip') continue;
+      found = true;
+      // The rule's own body carries a comment that mentions `white-space:
+      // nowrap` in prose (explaining what this declaration overrides) --
+      // stripped first so the regex below cannot match inside it.
+      const body = rule[2].replace(/\/\*[\s\S]*?\*\//g, '');
+      const whiteSpace = /white-space\s*:\s*([^;]+);/.exec(body);
+      expect(whiteSpace?.[1].trim()).toBe('normal');
+    }
+    expect(found).toBe(true);
+  });
+});
