@@ -60,7 +60,7 @@ pnpm validate:data    # JSON Schema check on all content
 pnpm validate:assets  # palette + silhouette gate, and sheet COMPLETENESS
 pnpm validate:meshes  # the same checks for art/meshes/**, rendered headlessly
 pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
-pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (60-74 s, in CI)
+pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (60-74 s local, ~130 s on CI: no GPU there)
 pnpm icons:units      # crop unit UI icons from the sprite sheets; --check in CI
 pnpm balance          # headless battle sim, prints win rates
 ```

@@ -43,6 +43,22 @@ const REPO_ROOT = path.resolve(__dirname, '../../..');
 const PORT = 5177;
 const TAG = 'ui-routes';
 
+/**
+ * Per-action hang guard, sized from a measurement and not a threshold: nothing
+ * the walk asserts is a duration. Headless Chromium has no GPU, so a live
+ * mission draws through SwiftShader -- the soft-booted `beit_sahwan_breach`
+ * measured 476-592 ms mean / 820-922 ms max per frame on an M-series Mac
+ * (`frameCadence` below prints it every run), and a Playwright click is five
+ * round-trips into that thread: resolve, the visible/enabled/stable check (two
+ * frames by definition), scroll, hit-test, dispatch. One click cost 4.8-7.5 s
+ * here, and the same leave leg took 29-40 s on CI. Playwright's 30 s default
+ * therefore failed the FIRST run on main (35317801475: the leave click of the
+ * soft-booted mission, 166 s into the walk) and passed the second (35317980642,
+ * 132 s), on the same tree a docs-only diff apart. 120 s is ~4x the slowest
+ * CI click seen and still bounds a genuine hang to a couple of minutes.
+ */
+const ACTION_TIMEOUT_MS = 120_000;
+
 /** Two shipped missions on two different maps, so the second boot exercises a
  *  fresh terrain/mesh load rather than re-reading what the first one warmed. */
 const MISSION_A = 'beit_sahwan_1_recon';
@@ -92,6 +108,30 @@ async function probe(page: Page): Promise<Probe> {
 }
 
 /**
+ * How fast the page is drawing, printed rather than gated. This is the number
+ * `ACTION_TIMEOUT_MS` is sized from, and a run whose frames suddenly read 3 s
+ * says why the walk got slow before anything times out. Two seconds of
+ * `requestAnimationFrame` plus the sim ticks that landed inside them. A string
+ * script on purpose: tsx compiles a function's inner arrow with a `__name`
+ * helper the page does not have, and the walk died on it.
+ */
+async function frameCadence(page: Page, where: string): Promise<void> {
+  const st = await page.evaluate<{ n: number; ms: number; max: number; ticks: number }>(
+    '(() => new Promise((res) => {' +
+      ' const w = window; const tick0 = w.__lions ? w.__lions.sim.tickCount : 0;' +
+      ' let n = 0; let max = 0; const t0 = performance.now(); let last = t0;' +
+      ' const f = () => { const now = performance.now(); max = Math.max(max, now - last); last = now; n += 1;' +
+      ' if (now - t0 < 2000) requestAnimationFrame(f);' +
+      ' else res({ n, ms: now - t0, max, ticks: (w.__lions ? w.__lions.sim.tickCount : 0) - tick0 }); };' +
+      ' requestAnimationFrame(f); }))()'
+  );
+  console.log(
+    `[${TAG}] frame cadence in ${where}: ${st.n} frames / ${st.ms.toFixed(0)} ms` +
+      ` (mean ${(st.ms / st.n).toFixed(0)} ms, max ${st.max.toFixed(0)} ms), ${st.ticks} sim ticks`
+  );
+}
+
+/**
  * Escape off the deploy screen, retried until the screen is actually gone.
  *
  * A single press does not work, and the reason is the deploy gate's own trap
@@ -134,6 +174,29 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
   browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  page.setDefaultTimeout(ACTION_TIMEOUT_MS);
+  const started = Date.now();
+  const at = (): string => `${((Date.now() - started) / 1000).toFixed(1)} s`;
+
+  // Question 1's real oracle. `rl:boot` is a `performance.mark`, and the
+  // performance timeline is per DOCUMENT: a page that reloaded reads 1 just
+  // like one that did not, so `boots` alone can only catch `main()` running
+  // TWICE in one document. The harness counts documents itself -- every
+  // `load` event is a new one, and only the four hard `page.goto`s below may
+  // make one. Seen red: a `page.reload()` injected after leaving mission A
+  // fails "leaving mission A" with 3 documents against the 2 expected.
+  let documents = 0;
+  page.on('load', () => {
+    documents += 1;
+  });
+  page.on('framenavigated', (f) => {
+    if (f === page.mainFrame()) console.log(`[${TAG}] ${at()} navigated: ${new URL(f.url()).pathname}${new URL(f.url()).search}`);
+  });
+  const expectDocuments = (n: number, where: string): void =>
+    expect(
+      documents === n,
+      `${where}: ${documents} document(s) loaded, expected ${n} -- a navigation went through the network`
+    );
   const errors: string[] = [];
   page.on('console', (m: ConsoleMessage) => {
     if (m.type() === 'error') errors.push(m.text());
@@ -154,6 +217,7 @@ try {
   await page.waitForSelector('.rl-world');
   const board = await probe(page);
   expect(board.boots === 1, `clicking Campaign reloaded the page: boots=${board.boots}`);
+  expectDocuments(1, 'clicking Campaign');
 
   // --- mission A, reached by a LEGACY query URL ----------------------------
   // A hard navigation on purpose: this is the URL every tool and bookmark in
@@ -174,6 +238,7 @@ try {
     `mission A did not tick: ${a1.tick} -> ${a2.tick}`
   );
   console.log(`[${TAG}] mission A ticked ${a1.tick} -> ${a2.tick}`);
+  await frameCadence(page, `mission A (${MISSION_A})`);
 
   // --- leave it, in-app, through the control a player would use ------------
   //
@@ -221,6 +286,7 @@ try {
 
   const back = await probe(page);
   expect(back.boots === 1, `leaving mission A reloaded the page: boots=${back.boots}`);
+  expectDocuments(2, 'leaving mission A');
   expect(!back.lions, 'window.__lions survived leaving mission A -- the battlefield is still mounted');
   expect(
     back.leftovers.length === 0,
@@ -240,6 +306,7 @@ try {
   await page.waitForSelector('.rl-world');
   const afterB = await probe(page);
   expect(!afterB.lions, 'window.__lions survived leaving mission B');
+  expectDocuments(3, 'leaving mission B');
   expect(
     afterB.bodyChildren === idleBody,
     `body has ${afterB.bodyChildren} children after leaving B, ${idleBody} at the menu`
@@ -258,12 +325,15 @@ try {
   await page.waitForTimeout(1500);
   const b2 = await probe(page);
   expect(b1.boots === 1, `the soft mission boot reloaded the page: boots=${b1.boots}`);
+  expectDocuments(3, 'the soft mission boot');
   expect(b1.lions, 'the soft mission boot defined no window.__lions');
   expect(
     b1.tick !== null && b2.tick !== null && b2.tick > b1.tick,
     `the soft-booted mission did not tick: ${b1.tick} -> ${b2.tick}`
   );
   console.log(`[${TAG}] soft mission ticked ${b1.tick} -> ${b2.tick}, boots=${b1.boots}`);
+
+  await frameCadence(page, 'the soft-booted mission');
 
   // And leave THAT one too, which is not belt-and-braces: the board's first
   // card is a `resources` mission, and a mission with resources fields a
@@ -276,6 +346,7 @@ try {
   await page.waitForSelector('.rl-world');
   const afterSoft = await probe(page);
   expect(!afterSoft.lions, 'window.__lions survived leaving the soft-booted mission');
+  expectDocuments(3, 'leaving the soft-booted mission');
   expect(
     afterSoft.leftovers.length === 0,
     `chrome left on the body after leaving the soft-booted mission: ${afterSoft.leftovers.join(', ')}`
@@ -310,6 +381,7 @@ try {
   await page.waitForSelector('.rl-world');
   const afterEscape = await probe(page);
   expect(afterEscape.boots === 1, `Escape off the deploy screen reloaded the page: boots=${afterEscape.boots}`);
+  expectDocuments(4, 'Escape off the deploy screen');
   expect(!afterEscape.lions, 'window.__lions exists after leaving from the deploy screen');
   expect(
     afterEscape.leftovers.length === 0,

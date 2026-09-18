@@ -382,6 +382,16 @@ have moved, and did not.
   soft-booted third in one page and asks four reference-free questions plus a canvas count.
   **It is in CI as of this landing** (I9), in `ci.yml`'s `visual` job, at 60.5–73.5 s over six
   runs on one machine — two clusters, 73.1/73.2/73.5 then 60.5/61.2/61.9, cause not established.
+  On CI it read 132 s green and 166 s RED on its first two runs (35317980642 / 35317801475, the
+  same tree a docs-only diff apart): headless Chromium has no GPU, a live mission draws through
+  SwiftShader at a measured 0.43–0.59 s mean / 0.73–0.92 s max per frame on an M-series Mac, and
+  a Playwright click is five round-trips that each queue behind a frame, so one leave leg took
+  29–40 s on CI against Playwright's 30 s default. Fixed the same day: the walk's actions run
+  under a 120 s hang guard sized from that cadence, the cadence is printed per mission, and
+  the reload oracle was replaced — `rl:boot` is a per-document `performance.mark`, so `boots`
+  could never see a reload at all (it reads 1 after one exactly as before); the harness now
+  counts `load` events against the four hard `page.goto`s, and an injected `page.reload()`
+  fails it with "3 document(s) loaded, expected 2".
 - *Settings persist and apply.* **Met** — `lions.settings`, applied on write, and the quality
   preset reaches the renderer at the next mission's boot (Task 14).
 - *Escape pauses; the sim stops and the frame loop does not; the tick count is frozen.*

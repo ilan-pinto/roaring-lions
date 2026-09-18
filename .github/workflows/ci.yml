@@ -221,6 +221,17 @@ jobs:
       # paid on every PR deliberately: it is the only check that can catch a
       # battlefield which does not release its realm, and the failure it guards
       # against is invisible until a player has played two missions in one tab.
+      #
+      # On CI it is ~2x slower again, and the reason is the browser, not the
+      # runner: headless Chromium has no GPU, a live mission draws through
+      # SwiftShader at a measured 0.5-0.9 s per frame on a Mac (the walk prints
+      # its frame cadence per mission), and every Playwright action queues
+      # behind a frame. The first two runs on main took 132 s (35317980642,
+      # green) and 166 s (35317801475, red: one click on the soft-booted
+      # mission hit Playwright's 30 s default), on the same tree a docs-only
+      # diff apart. The walk's actions now run under a 120 s guard sized from
+      # that cadence -- a hang guard, not a threshold; nothing it asserts is a
+      # duration.
       - name: one realm, no reload -- the router's own walk
         run: pnpm ui:routes
       # Uploaded on failure AND on success: the diff image is what a triager
