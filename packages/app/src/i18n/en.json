@@ -263,6 +263,9 @@
   "hud.banner.victory": "Mission accomplished",
   "hud.banner.defeat": "Mission failed",
   "hud.controlHint": "click/drag select · right-click attack-move · shift adds a waypoint · ctrl+1–9 group · 1–9 recall",
+  "hud.hint.selected": "the order row above has what this selection can do · click a chip to narrow it",
+  "hud.hint.projectedFire": "the panel beside your target shows the odds before you fire",
+  "hud.hint.dock": "press {key} to open the reinforcements dock and call in support",
 
   "hud.fire.factor.range": "range",
   "hud.fire.factor.cover": "cover",

@@ -107,6 +107,12 @@ const FEED_LINES = 4;
  *  and slightly up, so it never covers the unit the player is aiming at. */
 const FIRE_OFFSET = { x: 36, y: -8 };
 
+/** Task 9: consecutive HUD ticks the projected-fire panel must stay visible
+ *  before `deps.onProjectedFireShown` fires -- 3 ticks at the 4Hz
+ *  `renderFire` cadence is ~0.75s, long enough that a player actually read
+ *  it rather than swept the cursor past a hostile on the way somewhere else. */
+const FIRE_TAUGHT_STREAK = 3;
+
 /** The badge size in each of the two places a unit is pictured. Both are small
  *  enough that the mark is a shape rather than a drawing — the same reason the
  *  cursor's badge is seven buckets and not fourteen roles. */
@@ -195,6 +201,24 @@ export interface HudDeps {
    *  `objectivesPanel` lazily behind this call; absent in tests that do not
    *  exercise the click, which is the same as the control doing nothing. */
   openObjectives?: () => void;
+  /** Task 9: what the bottom-centre hint line says, right now -- built by
+   *  `main.ts` from `hint-model.ts`'s `hintFor` and the facts only the shell
+   *  has (the selection, the hover, and the two `lions.seen` first-use
+   *  flags). Absent in tests that do not exercise it, which falls back to
+   *  today's plain controls line -- the same "a HUD built without this dep
+   *  behaves as before" rule every other optional dep here follows. `hud.ts`
+   *  itself carries no facts and no storage: it only asks the question and
+   *  paints the answer, merging in a live key cap (`keyFor`) for the one
+   *  hint that names a key. */
+  hint?: () => { key: string; params?: Readonly<Record<string, string | number>> } | null;
+  /** Task 9: the projected-fire panel has now held the screen for three
+   *  consecutive HUD ticks (~0.75s at 4Hz) -- `renderFire`'s own streak
+   *  counter, not a raw "is it visible this frame" signal, so a panel that
+   *  flickers past on one hover does not teach the same lesson a panel the
+   *  player actually read does. Called once per streak; `main.ts` marks
+   *  `lions.seen.projectedFire` from it. Absent in tests that do not
+   *  exercise it, which is the same as never marking it. */
+  onProjectedFireShown?: () => void;
 }
 
 export class Hud {
@@ -239,6 +263,13 @@ export class Hud {
   private readonly banner: HTMLDivElement;
   private bannerShown = false;
   private tickN = 0;
+  /** Task 9: consecutive HUD ticks (the 4Hz `renderFire` cadence, not raw
+   *  `onTick` calls) the projected-fire panel has been visible without a
+   *  gap -- reset to 0 the instant it hides. `renderFire` calls
+   *  `deps.onProjectedFireShown` once it reaches `FIRE_TAUGHT_STREAK`, and
+   *  only once per streak: a panel a player glances past on one hover has
+   *  not taught them anything, where one they held over for ~0.75s has. */
+  private fireVisibleStreak = 0;
 
   /** Fix round 1 (task 6 review, I1/I3): whether the in-mission tracker is
    *  open, mirrored onto the strip control's own `aria-expanded` every
@@ -453,14 +484,16 @@ export class Hud {
     // Bottom centre: one column (`.rl-sel`) holding, in order, the feed, the
     // order row, the card/chips, and the controls hint -- the bottom-centre
     // STACK, never hidden as a whole. `renderCard` shows or hides only the
-    // order row and the card/chips body; `renderHint` shows or hides only the
-    // hint, the moment anything is selected. Splitting it this way (fix
-    // round 1) is what keeps a live notice on screen with nothing selected --
-    // the default state, and true for most of a mission -- where hiding the
-    // whole column used to take the feed down with it. Before that it was
-    // three separate absolutely-positioned blocks at fixed `bottom` offsets,
-    // which drew over each other the moment more than one was on screen at
-    // once.
+    // order row and the card/chips body; `renderHint` (Task 9) no longer
+    // hides the hint at all -- it is on screen with a selection exactly as
+    // it is with none, and what it says is `hintFor`'s call
+    // (`hint-model.ts`), not a visibility toggle. Splitting the stack this
+    // way (fix round 1) is what keeps a live notice on screen with nothing
+    // selected -- the default state, and true for most of a mission -- where
+    // hiding the whole column used to take the feed down with it. Before
+    // that it was three separate absolutely-positioned blocks at fixed
+    // `bottom` offsets, which drew over each other the moment more than one
+    // was on screen at once.
     //
     // The order buttons are built ONCE and only repainted, while the chips and
     // the card are innerHTML'd wholesale four times a second. That split is not
@@ -551,8 +584,8 @@ export class Hud {
     this.hint.className = 'rl-hint rl-plate';
     // Last child of .rl-sel, the same stack the feed is the first child of
     // (fix round 1): with nothing selected the column reads feed-over-hint;
-    // with a selection it reads feed-over-orders-over-card, and `renderHint`
-    // still hides this element the moment something is selected.
+    // with a selection it reads feed-over-orders-over-card-over-hint (Task 9:
+    // `renderHint` no longer hides this element on a selection at all).
     this.sel.append(this.hint);
 
     this.fire = document.createElement('div');
@@ -1072,22 +1105,43 @@ export class Hud {
   }
 
   // ------------------------------------------------------------------
-  // Bottom centre: what the controls are, while nothing is selected.
+  // Bottom centre: the hint line -- always on, one line, never hidden.
   // ------------------------------------------------------------------
 
+  /**
+   * Task 9: the line used to hide the moment anything was selected, which is
+   * exactly when a new player most needs it -- so it no longer hides for
+   * that reason at all. What it SAYS is `this.deps.hint`'s call: a thunk
+   * `main.ts` builds from `hint-model.ts`'s `hintFor` and the facts only the
+   * shell has (the selection, the hover, the two `lions.seen` first-use
+   * flags, and whether this mission fields a dock). Absent in tests that do
+   * not exercise it -- the same as every other optional dep here -- which
+   * falls back to today's plain controls line, so a HUD built without the
+   * dep behaves exactly as it did before this task.
+   *
+   * One line, not the three-line block this replaces. That block was a panel
+   * section with room to spare; on bare map it is a wall, and measured at
+   * 1440 the full key list wrapped to two lines and read as a paragraph
+   * sitting on the battlefield. The verb keys (h/f/g/u) are deliberately not
+   * here: the order row a later slice puts in this same place names them as
+   * buttons, and the unit card's Capabilities section already does.
+   */
   private renderHint(): void {
-    if (this.deps.getSelection().length > 0) {
-      this.hint.style.display = 'none';
+    this.hint.style.display = '';
+    const hint = this.deps.hint?.();
+    if (!hint) {
+      this.hint.textContent = t('hud.controlHint');
       return;
     }
-    this.hint.style.display = '';
-    // One line, not the three-line block this replaces. That block was a panel
-    // section with room to spare; on bare map it is a wall, and measured at
-    // 1440 the full key list wrapped to two lines and read as a paragraph
-    // sitting on the battlefield. The verb keys (h/f/g/u) are deliberately not
-    // here: the order row a later slice puts in this same place names them as
-    // buttons, and the unit card's Capabilities section already does.
-    this.hint.textContent = t('hud.controlHint');
+    // `hintFor` answers from facts alone and never sees a binding -- the key
+    // name inside the dock hint's copy comes from HERE, the same way the
+    // order row's own key caps do (`this.deps.keyFor`, above), so a rebind
+    // keeps the hint true instead of quietly starting to lie.
+    const params: Readonly<Record<string, string | number>> | undefined =
+      hint.key === 'hud.hint.dock'
+        ? { ...hint.params, key: this.deps.keyFor?.('production') ?? 'production' }
+        : hint.params;
+    this.hint.textContent = t(hint.key, params);
   }
 
   // ------------------------------------------------------------------
@@ -1101,11 +1155,26 @@ export class Hud {
    * are capped because selecting the whole force must not bury the map, and
    * units that cannot engage are counted rather than listed — "3 cannot reach"
    * is information, three empty rows are not.
+   *
+   * Task 9: also the panel's own first-use instrument. Counted HERE, where
+   * visibility is actually decided, rather than in `main.ts` re-deriving the
+   * same condition a second time -- `fireVisibleStreak` resets to 0 the
+   * instant the panel hides, so a player who sweeps past a hostile without
+   * pausing never trips `onProjectedFireShown`, and `=== FIRE_TAUGHT_STREAK`
+   * (not `>=`) is what makes the call fire exactly once per streak rather
+   * than once more on every tick the panel stays up after that.
    */
   private renderFire(): void {
     const html = this.projectedFireHtml();
-    this.fire.style.display = html === '' ? 'none' : '';
-    if (html !== '') this.fire.innerHTML = html;
+    const visible = html !== '';
+    this.fire.style.display = visible ? '' : 'none';
+    if (visible) this.fire.innerHTML = html;
+    if (!visible) {
+      this.fireVisibleStreak = 0;
+      return;
+    }
+    this.fireVisibleStreak++;
+    if (this.fireVisibleStreak === FIRE_TAUGHT_STREAK) this.deps.onProjectedFireShown?.();
   }
 
   private projectedFireHtml(): string {
