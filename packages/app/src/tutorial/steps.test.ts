@@ -73,6 +73,7 @@ describe('shipped tutorial steps', () => {
       elapsed_s: ['kind', 'seconds'],
       all_of: ['kind', 'of'],
       any_of: ['kind', 'of'],
+      hover: ['kind', 'target'],
     };
     for (const t of all) {
       for (const s of t.steps) {
@@ -109,6 +110,14 @@ describe('shipped tutorial steps', () => {
       const ids = t.steps.map((s) => s.id);
       expect(new Set(ids).size, `${t.id} has duplicate step ids`).toBe(ids.length);
     }
+  });
+
+  it('the tutorial teaches the hover, and every step id is still unique', () => {
+    const STEPS = tutorials.beit_sahwan_0.steps;
+    const ids = STEPS.map((s) => s.id);
+    expect(ids).toContain('read_before_you_fire');
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(STEPS).toHaveLength(14);
   });
 
   it('completes only an objective its mission declares', () => {

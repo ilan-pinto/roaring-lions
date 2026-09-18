@@ -2838,6 +2838,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   ).find((t) => t?.mission === missionId);
   let tut: TutorialState | null = null;
   let tutPanel: TutorialPanel | null = null;
+  // Companions for the hover dispatch in `updateHover`: it runs every frame,
+  // and an unchanged hover is not a new thing the player did, so these hold
+  // the last-dispatched values to gate on a real change.
+  let lastHoverEntity = -1;
+  let lastHoverStructure = -1;
   // Two ways to be taught: you have not been yet, or you asked to be again.
   // Without the second, the done flag is a one-way door — the lesson is gone
   // for good and only ?fresh=1 brings it back, at the cost of the campaign.
@@ -3988,6 +3993,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
   }
   renderer.hoverEntity = he;
+
+  // Teach the hover, but only on a real change: `updateHover` runs every
+  // frame, and an unchanged hover is not a new thing the player did.
+  if (tut && (he !== lastHoverEntity || hs !== lastHoverStructure)) {
+    lastHoverEntity = he;
+    lastHoverStructure = hs;
+    tut = advance(tut, { kind: 'hover', entity: he, structure: hs, sideOf: (e) => sim.state.side[e] }, performance.now());
+  }
 
   // Keep the projected-fire panel beside the target it describes. Per frame
   // rather than per tick: the HUD rebuilds its CONTENT at 4 Hz, and a panel

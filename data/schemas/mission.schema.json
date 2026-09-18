@@ -29,7 +29,7 @@
         "maximum": 10
       }
     },
-    "description": "The one named exemption from the 5-7 ceiling, and it is an exemption rather than a cut on purpose. The tutorial is not a campaign mission -- it produces no ledger keys and is not in the campaign chain. Its length is set by 13 teaching steps in data/tutorial/beit_sahwan_0.json, four of which carry 45s patience fallbacks, and it ends when the LAST STEP CLEARS (`completes: work_up`, applied by main.ts), not when a timer fires. The `survive_until` 600s primary is a BACKSTOP that ejects a stalled player, so 10 declares the backstop. Nothing headless can measure a step machine driven by player input, so cutting this to 7 would be tuning a number to fit a ceiling with no measurement behind it -- the exact move GH-84 forbids. Revisit only with a real measurement of a played tutorial."
+    "description": "The one named exemption from the 5-7 ceiling, and it is an exemption rather than a cut on purpose. The tutorial is not a campaign mission -- it produces no ledger keys and is not in the campaign chain. Its length is set by 14 teaching steps in data/tutorial/beit_sahwan_0.json, four of which carry 45s patience fallbacks, and it ends when the LAST STEP CLEARS (`completes: work_up`, applied by main.ts), not when a timer fires. The `survive_until` 600s primary is a BACKSTOP that ejects a stalled player, so 10 declares the backstop. Nothing headless can measure a step machine driven by player input, so cutting this to 7 would be tuning a number to fit a ceiling with no measurement behind it -- the exact move GH-84 forbids. Revisit only with a real measurement of a played tutorial."
   },
   "else": {
     "properties": {

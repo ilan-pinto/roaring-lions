@@ -314,3 +314,32 @@ describe('append narrowing', () => {
     expect(s.index).toBe(0);
   });
 });
+
+const hover = (entity: number, structure = -1): TutorialInput =>
+  ({ kind: 'hover', entity, structure, sideOf: (e) => (e >= 100 ? 1 : 0) });
+
+describe('the hover predicate', () => {
+  it('matches a hover over an enemy and not over one of your own', () => {
+    const p = { kind: 'hover', target: 'enemy' } as PredicateJson;
+    expect(matches(p, hover(101), 0, 0)).toBe(true);
+    expect(matches(p, hover(1), 0, 0)).toBe(false);
+    expect(matches(p, hover(-1), 0, 0)).toBe(false);
+  });
+  it('matches a hover over a building when asked for one', () => {
+    const p = { kind: 'hover', target: 'structure' } as PredicateJson;
+    expect(matches(p, hover(-1, 4), 0, 0)).toBe(true);
+    expect(matches(p, hover(-1, -1), 0, 0)).toBe(false);
+  });
+  it('`any` takes either, and the default is `any`', () => {
+    expect(matches({ kind: 'hover', target: 'any' } as PredicateJson, hover(1), 0, 0)).toBe(true);
+    expect(matches({ kind: 'hover' } as PredicateJson, hover(-1, 4), 0, 0)).toBe(true);
+    expect(matches({ kind: 'hover' } as PredicateJson, hover(-1, -1), 0, 0)).toBe(false);
+  });
+  it('no other input kind satisfies it', () => {
+    expect(matches({ kind: 'hover' } as PredicateJson, { kind: 'tick' }, 0, 0)).toBe(false);
+  });
+  it('a hover input satisfies no other predicate kind', () => {
+    expect(matches({ kind: 'intent', intent: 'select' } as PredicateJson, hover(101), 0, 0)).toBe(false);
+    expect(matches({ kind: 'sim', event: 'fire' } as PredicateJson, hover(101), 0, 0)).toBe(false);
+  });
+});
