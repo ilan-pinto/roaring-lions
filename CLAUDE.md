@@ -212,6 +212,7 @@ The combat model is the product. Everything else is scaffolding around it.
   rather than a page load. And **a mission is still left by a FULL
   navigation** — `bootBattlefield`'s disposer is a no-op until the teardown
   lands, so nothing may navigate softly out of a battlefield.
+- `pnpm ui:shots -- [--pseudo] [--res=…] [--out=…]` (`tools/src/ui-review/shoot.ts`) boots its own dev server and photographs every shell screen at three resolutions, and since Task 13 that walk covers settings, credits, saves, the pause menu (`Escape` in a running mission) and a scripted `debugKill`-forced defeat plus its debrief, with `--pseudo` swapping the catalogue for the bracketed pseudo-locale first.
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed. It is defined by the battlefield alone — the menu, the campaign board, the brigade and the picker define nothing, which is how a tool tells "the app booted a mission" from "the app booted".
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from
   that map's own markers — no mission needed. Bare `?sandbox` still loads
