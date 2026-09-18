@@ -25,7 +25,16 @@
 //      focus and returns the tip's html, or `null` for "no tip here". One
 //      `mouseover`/`focusin` pair (and their `mouseout`/`focusout`
 //      partners) does the delegation — `mouseenter`/`mouseleave` do not
-//      bubble and cannot be delegated this way.
+//      bubble and cannot be delegated this way. Returns `{ dispose, refresh
+//      }` rather than a bare disposer: the container's own rebuild replaces
+//      the element the tip is currently anchored to with a NEW node (same
+//      `data-tip`, different identity) and fires no event of its own, so a
+//      shown tip would otherwise freeze on stale content until the pointer
+//      physically leaves and re-enters. The caller runs `refresh()` after
+//      every repaint of `container`'s tipped descendants; it is a no-op
+//      unless THIS binding's tip is currently shown, and it re-resolves onto
+//      the replacement carrying the same `data-tip` value if one exists, or
+//      hides if none does.
 //
 // Both shapes share one tip element per HOST (lazily created, `opts.host`,
 // default `document.body`) rather than one per bound element — "one
@@ -89,21 +98,33 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
 }
 
-/** Above the trigger, clamped so the tip never leaves the viewport — a
- *  fixed-position element ignores every ancestor's clipping and offset, so
- *  this is the one place that has to keep it on screen. */
+/**
+ * Above the trigger by default, flipped below when there is no room above,
+ * both clamped so the tip never leaves the viewport — a fixed-position
+ * element ignores every ancestor's clipping and offset, so this is the one
+ * place that has to keep it on screen.
+ *
+ * The strip sits at `top: 0`, so every strip tooltip (Conduct first) has no
+ * room above it at all: `rect.top - h - gap` is negative there, and the old
+ * unconditional "above" placement put the tip over its own trigger row
+ * rather than beside it. `.rl-tip--below` is toggled alongside the flip so a
+ * later arrow/border can point the other way; it changes nothing on its own
+ * today.
+ */
 function positionTip(tip: HTMLDivElement, el: HTMLElement): void {
   const rect = el.getBoundingClientRect();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const left = clamp(rect.left, TIP_EDGE_MARGIN_PX, Math.max(TIP_EDGE_MARGIN_PX, vw - tip.offsetWidth - TIP_EDGE_MARGIN_PX));
-  const top = clamp(
-    rect.top - tip.offsetHeight - TIP_GAP_PX,
-    TIP_EDGE_MARGIN_PX,
-    Math.max(TIP_EDGE_MARGIN_PX, vh - tip.offsetHeight - TIP_EDGE_MARGIN_PX)
-  );
+  const th = tip.offsetHeight;
+  const tw = tip.offsetWidth;
+  const above = rect.top - th - TIP_GAP_PX;
+  const below = above < TIP_EDGE_MARGIN_PX;
+  const rawTop = below ? rect.bottom + TIP_GAP_PX : above;
+  const left = clamp(rect.left, TIP_EDGE_MARGIN_PX, Math.max(TIP_EDGE_MARGIN_PX, vw - tw - TIP_EDGE_MARGIN_PX));
+  const top = clamp(rawTop, TIP_EDGE_MARGIN_PX, Math.max(TIP_EDGE_MARGIN_PX, vh - th - TIP_EDGE_MARGIN_PX));
   tip.style.setProperty('--tip-x', `${left}px`);
   tip.style.setProperty('--tip-y', `${top}px`);
+  tip.classList.toggle('rl-tip--below', below);
 }
 
 // --- Escape, one listener for the whole app -------------------------------
@@ -182,6 +203,23 @@ export function bindTip(el: HTMLElement, html: () => string, opts: BindTipOption
   };
 }
 
+/** Returned by `bindDelegatedTip` — see that function's own header for why
+ *  this is not a bare `Disposer` the way `bindTip`'s return is. */
+export interface DelegatedTip {
+  /** Removes every listener this call added and, if this binding's tip is
+   *  the one currently showing, hides it. */
+  dispose: Disposer;
+  /**
+   * Re-anchors a currently-shown tip onto its replacement after the
+   * container's tipped descendants were rebuilt, or hides it if no
+   * replacement carries the same `data-tip` value. A no-op when this
+   * binding has no tip currently shown, or when the shown tip's element is
+   * still connected (nothing to refresh). Call once after every repaint of
+   * `container`'s tipped descendants.
+   */
+  refresh: () => void;
+}
+
 /**
  * Bind a tooltip to a CONTAINER whose tipped descendants are torn down and
  * rebuilt (an innerHTML repaint), rather than to those descendants
@@ -195,7 +233,7 @@ export function bindDelegatedTip(
   container: HTMLElement,
   resolve: (target: HTMLElement) => string | null,
   opts: BindTipOptions = {}
-): Disposer {
+): DelegatedTip {
   const state = ensureTip(opts.host ?? document.body);
   let current: HTMLElement | null = null;
 
@@ -208,9 +246,10 @@ export function bindDelegatedTip(
   const onOver = (ev: Event): void => {
     const target = targetOf(ev);
     if (!target || target === current) return;
-    if (resolve(target) === null) return;
+    const html = resolve(target);
+    if (html === null) return;
     current = target;
-    showState(state, target, () => resolve(target) ?? '');
+    showState(state, target, () => html);
   };
   const onOut = (ev: Event): void => {
     if (!current) return;
@@ -227,7 +266,36 @@ export function bindDelegatedTip(
   container.addEventListener('mouseout', onOut);
   container.addEventListener('focusout', onOut);
 
-  return () => {
+  const refresh = (): void => {
+    // Nothing shown, or the shared tip belongs to a different binding now
+    // (a later focus elsewhere took it) -- not ours to touch either way.
+    if (current === null || state.owner !== current) return;
+    // Still the same node, still in the document: this call is not
+    // following a rebuild that touched it, so its content is not stale.
+    if (container.contains(current)) return;
+    const stale = current;
+    const key = stale.dataset.tip;
+    const replacement =
+      key !== undefined ? container.querySelector<HTMLElement>(`[data-tip="${CSS.escape(key)}"]`) : null;
+    if (!replacement) {
+      current = null;
+      hideState(state, stale);
+      return;
+    }
+    const html = resolve(replacement);
+    if (html === null) {
+      current = null;
+      hideState(state, stale);
+      return;
+    }
+    // The stale node is detached and never queried again, but it should not
+    // go on claiming to describe a tip it no longer owns.
+    stale.removeAttribute('aria-describedby');
+    current = replacement;
+    showState(state, replacement, () => html);
+  };
+
+  const dispose = (): void => {
     container.removeEventListener('mouseover', onOver);
     container.removeEventListener('focusin', onOver);
     container.removeEventListener('mouseout', onOut);
@@ -235,6 +303,8 @@ export function bindDelegatedTip(
     if (current) hideState(state, current);
     current = null;
   };
+
+  return { dispose, refresh };
 }
 
 /**

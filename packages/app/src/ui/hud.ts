@@ -290,6 +290,19 @@ export class Hud {
    *  of leftover node `pnpm ui:routes` exists to catch. */
   private readonly tipDisposers: Disposer[] = [];
 
+  /**
+   * The strip and chip delegated tips' own `refresh()` (`./tooltip`'s
+   * `DelegatedTip`), called after every `renderStrip`/`renderChips` — both
+   * rebuild their container's tipped descendants wholesale via `innerHTML`
+   * and fire no event of their own, so a tip shown for the OLD node would
+   * otherwise freeze on stale content (a `{rate}` that stopped ticking, a
+   * chip's `×{count}` that stopped counting) until the pointer physically
+   * left and re-entered. Assigned once in the constructor, where the two
+   * `bindDelegatedTip` calls that produce them live.
+   */
+  private readonly refreshStripTip: () => void;
+  private readonly refreshChipTip: () => void;
+
   /** The live title card (`titleCard` in `motion.ts`) and its own dismisser,
    *  held rather than discarded: the card registers two window listeners and a
    *  timer to take itself down, and holds for up to five seconds with
@@ -360,11 +373,11 @@ export class Hud {
     // element itself (`host` below): it is a node this HUD owns and removes
     // in `destroy()`, not `document.body`, which is what `host` (the
     // constructor parameter) actually is in the real app.
-    this.tipDisposers.push(
-      bindDelegatedTip(this.strip, (target) => this.stripTipHtml(target.dataset.tip), {
-        host: this.strip,
-      })
-    );
+    const stripTip = bindDelegatedTip(this.strip, (target) => this.stripTipHtml(target.dataset.tip), {
+      host: this.strip,
+    });
+    this.tipDisposers.push(stripTip.dispose);
+    this.refreshStripTip = stripTip.refresh;
 
     // Speed. Rendered even where the frame loop has not wired it, because a
     // strip that grows a control the moment a dependency appears is a strip
@@ -511,11 +524,11 @@ export class Hud {
     // `data-tip` names the type id, and `chipTipHtml` looks its name and
     // count up in `this.chipViews` from the last `renderChips` rather than
     // needing the html baked into markup that is rebuilt out from under it.
-    this.tipDisposers.push(
-      bindDelegatedTip(this.cluster, (target) => this.chipTipHtml(target.dataset.tip), {
-        host: this.strip,
-      })
-    );
+    const chipTip = bindDelegatedTip(this.cluster, (target) => this.chipTipHtml(target.dataset.tip), {
+      host: this.strip,
+    });
+    this.tipDisposers.push(chipTip.dispose);
+    this.refreshChipTip = chipTip.refresh;
     this.sel.append(this.orderBar, this.cluster);
 
     this.clock = document.createElement('div');
@@ -739,6 +752,10 @@ export class Hud {
     // floods events. 4 Hz reads identically.
     if (this.tickN++ % 5 !== 0) return;
     this.renderStrip();
+    // `renderStrip` innerHTML's `stripBody`/`stripInfo` wholesale; a strip
+    // tip shown for the pre-rebuild node would otherwise freeze on stale
+    // content (fix round 1, I1) with no event of its own to notice by.
+    this.refreshStripTip();
     this.renderCard();
     this.renderClock();
     this.renderHint();
@@ -1202,6 +1219,12 @@ export class Hud {
     } else {
       this.renderChips(sel);
     }
+    // `this.cluster.innerHTML` was just replaced wholesale either way -- by
+    // the chips or by the single-unit card -- so a chip tip shown for the
+    // pre-rebuild node needs the same rescue `renderStrip` needs above (fix
+    // round 1, I1). Dropping to one unit removes every `[data-tip]` from the
+    // cluster entirely, which `refresh` reads as "no replacement" and hides.
+    this.refreshChipTip();
     // The order row and the card/chips body arrive from below the frame edge
     // the first time they are needed, and then hold still: re-running the
     // entrance on every rebuild would make them twitch four times a second.
