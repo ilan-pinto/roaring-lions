@@ -35,6 +35,7 @@ import {
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
+  QUALITY_PRESETS,
   type RendererOptions,
   type AudioManifest,
   type EmitterSpec,
@@ -1585,6 +1586,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // (level load time, step 4), so a mesh renderer without this loads no
     // mesh at all -- it is not a nicety, and `gltf-loader.ts` says so.
     dracoDecoderPath: dracoDecoderPath(),
+    // Shell upgrade Phase 1: the video-quality setting, read once here like
+    // `cvdVariant` above -- a change mid-mission takes effect from the next
+    // one, which is what `settings.quality.hint` tells the player. Three-only
+    // (see `RendererOptions.quality`); Pixi ignores it like every other field
+    // in this stretch.
+    quality: QUALITY_PRESETS[req.settings.get().video.quality],
   };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the

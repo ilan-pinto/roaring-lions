@@ -107,6 +107,7 @@ import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
 import type { ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
+import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
@@ -1777,7 +1778,11 @@ export class ThreeRenderer implements Renderer {
     // spike scenes and the tests construct this class and never call `init`
     // -- and with every world material now a `MeshStandardMaterial`, a
     // lightless scene renders black rather than flat.
-    this.sceneLights = createSceneLights(sim.width, sim.height);
+    // Shell upgrade Phase 1: the quality preset's `shadowMapSize`, falling
+    // back to `QUALITY_PRESETS.high` -- today's `SHADOW_MAP_SIZE` -- for a
+    // caller (every spike scene, every one of these tests) that builds no
+    // opinion on quality at all.
+    this.sceneLights = createSceneLights(sim.width, sim.height, (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize);
     this.sceneLights.addTo(this.scene);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above, but for real `THREE.PointLight`s rather than a batched
@@ -1870,6 +1875,10 @@ export class ThreeRenderer implements Renderer {
     // edge on it reads as a staircase across a tank's own footprint.
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.fitToHost();
+    // Shell upgrade Phase 1: the one read of the quality preset this method
+    // needs, so the chain builder below and the AO guard after it agree on
+    // the same object rather than re-deriving the fallback twice.
+    const quality = this.opts.quality ?? QUALITY_PRESETS.high;
     // AFTER `fitToHost`, which is what first fills `cssWidth`/`cssHeight`,
     // and after `setPixelRatio`, which `getPixelRatio` reads back here so
     // the composer's targets and the canvas agree on their scale without
@@ -1880,7 +1889,8 @@ export class ThreeRenderer implements Renderer {
       this.viewCamera,
       this.cssWidth,
       this.cssHeight,
-      this.renderer.getPixelRatio()
+      this.renderer.getPixelRatio(),
+      quality
     );
     // Task 10: fog of war, slotted directly after `RenderPass` so what it
     // reads as `readBuffer.depthTexture` is that pass's own depth. The chain
@@ -1894,8 +1904,17 @@ export class ThreeRenderer implements Renderer {
     // the camera it has to be given. Ownership is `setFogPass`'s again: the
     // chain takes the pass, not responsibility for it, so `dispose()` frees
     // this one.
-    this.aoPass = createAoPass(this.scene, this.viewCamera, this.cssWidth, this.cssHeight, AO_RESOLUTION_SCALE);
-    this.post.setAoPass(this.aoPass);
+    //
+    // Shell upgrade Phase 1: gated on `quality.ao`, `low` and `medium` never
+    // build a `WorldGTAOPass` at all rather than building one and hiding it
+    // -- the pass re-renders the whole scene through its own normal
+    // material, so skipping the call is the actual saving, not merely a
+    // cosmetic one. `this.aoPass` stays `null`, which is exactly the state
+    // `dispose()` already handles (`this.aoPass?.dispose()`).
+    if (quality.ao) {
+      this.aoPass = createAoPass(this.scene, this.viewCamera, this.cssWidth, this.cssHeight, AO_RESOLUTION_SCALE);
+      this.post.setAoPass(this.aoPass);
+    }
     // Shell upgrade Phase 0: the corner vignette, AFTER `OutputPass` and
     // BEFORE SMAA -- the only pass here that runs on display-referred
     // colour. See `vignette-pass.ts` for why that slot is the only one that

@@ -11,6 +11,7 @@
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Camera } from './project';
 import type { EmitterSpec } from './vfx';
+import type { RenderQuality } from './quality';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -191,6 +192,19 @@ export interface RendererOptions {
    * and `/roaring-lions/` on Pages, and that is an app fact.
    */
   dracoDecoderPath?: string;
+  /**
+   * The player's video-quality preset (`./quality.ts`), translated from
+   * `packages/app/src/settings.ts`'s `Quality` by `QUALITY_PRESETS`.
+   *
+   * Three-only, like `shellColors` and the texture URLs above: `PixiRenderer`
+   * has no AO pass, no SMAA pass and no shadow map to size, so it ignores
+   * this field entirely. Optional so a test that constructs a renderer with
+   * no opinion on quality -- most of the nine `ThreeRenderer*.test.ts` fakes
+   * -- keeps building today's frame; `ThreeRenderer` itself falls back to
+   * `QUALITY_PRESETS.high` when this is absent, which is the same frame the
+   * renderer built before the preset existed.
+   */
+  quality?: RenderQuality;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */

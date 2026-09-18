@@ -23,6 +23,12 @@ export const RENDER_VERSION = 1;
 // why it is redeclared rather than imported from `renderer.ts`.
 export { TERRAIN_DECOR } from './decor';
 export type { RendererOptions, TerrainTones, TerrainScatter, ObjectiveZoneView } from './api';
+// Backend-neutral by construction (no three import -- see the file's own
+// header), so it stays a static export of the barrel like `TERRAIN_DECOR`
+// rather than joining a lazy entry point. `main.ts` reads `QUALITY_PRESETS`
+// to translate `Settings.video.quality` into `RendererOptions.quality`
+// before it knows which backend it is about to build.
+export { QUALITY_PRESETS, type RenderQuality } from './quality';
 export { DebugOverlay } from './overlay';
 // ThreeRenderer is deliberately NOT re-exported here. It lives behind its own
 // entry point, `@lions/render/three`, so that `import '@lions/render'` does
