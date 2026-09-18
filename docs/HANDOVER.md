@@ -8,13 +8,13 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | S2a + S2b #170 #171 | `feat/shell-phase-2` · `.claude/worktrees/ep-s2` | spec §6 Phase 2 · plan `docs/superpowers/plans/2026-09-18-shell-upgrade-phase-2.md` (merged #196) · SDD ledger `.superpowers/sdd/2026-09-18-shell-upgrade-phase-2/progress.md` in that worktree | executing: task 1/14 complete (6478a4d6, sim-guard approved), task 2 in progress | tasks 2–14 → final review → one PR; 15–16 after A1.2 |
+| A (packages/app) | S2a + S2b #170 #171 (renderer half) | — (next branch off main when A1.2 lands) | spec §6 Phase 2 Tasks 15–16 in `docs/superpowers/plans/2026-09-18-shell-upgrade-phase-2.md` | idle: Tasks 1–14 LANDED 19 Sep (PR #197 → 8596bc37, visual job green, no bless) | when WP-A1.2 #172 is on main: new worktree off main, merge nothing, run Tasks 15 (annulus range rings) and 16 (minimap on the lit ground) subagent-driven, one PR; then S3e #178 app half |
 | B (render · art · data) | — | — | — | a second session is being opened (handoff prompt given 2026-09-18) | A1.2 #172 the blast: before-captures → spec → plan → SDD → PR; then E2–E4 #174–#176; then A1.3 #177 when Lane A is off ThreeRenderer.ts |
 | C (packages/sim) | — | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: L1 #192 licence (2 tasks) · S2a #170 → S2b #171 (one branch, one bless) → S3e #178 app half → S3e scene host (after A1.3 lands) → S3a #180 → S-F #184, A4 #186
+- A: S2b #171 renderer half (Tasks 15–16, after A1.2 #172) → S3e #178 app half → S3e scene host (after A1.3 lands) → S3a #180 → S-F #184, A4 #186
 - B: A1.2 #172 blast → G-E1..E4 #173–#176 → A1.3 #177 vehicle weight → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 → A3.2 #185
 - C: G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 
@@ -47,6 +47,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-19 · shell Phase 2 Tasks 1–14 (S2a #170 + the app half of S2b #171) · PR #197 → 8596bc37 · 23 commits, 14 tasks, 7 fix rounds each closed in one round, final review + one fix wave · v0.73.0 · visual job GREEN, all four gated scenarios PASS against the Phase 0 baseline (the plan's hideHudExceptCanvas claim was wrong — the HUD IS in the frame — but the picture held) · no bless · deferred: Tasks 15–16 wait for A1.2; keyboard focus on the strip resets every 250 ms (Phase 3)
 - 2026-09-18 · shell Phase 2 plan · PR #196 → 89e60848 · v0.72.0 cut at ef74d77a (the version job raced on three merges; two duplicate runs failed harmlessly)
 - 2026-09-18 · blurbs (G0 #5) · PR #195 → 5bc04533 · no bless
 - 2026-09-18 · WP-G-E1 Conduct floors 70–90 · PR #194 → a9efab12 · ladder 5531 unchanged · finding recorded on G1 #165
@@ -95,26 +96,26 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 ## 8. Latest handoff prompt — verbatim, replaced at every handoff
 
 ```
-HANDOFF — Roaring Lions · 2026-09-18 · from session "Execution plan"
+HANDOFF — Roaring Lions · 2026-09-19 · from session "Execution plan"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
       M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027.
-PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced 18 Sep (milestones EP M1–M4, issues #164–#191)
-STATUS: Stage 1 · main 89e60848 (v0.72.0) · landed today: L1 #193, E1 #194, blurbs #195, Phase 2 plan #196 · Lane A executing Phase 2 in .claude/worktrees/ep-s2 (task 1/14 done) · Lane B: second session being opened · main dd7097bb (v0.71.1) · CI green on main
-        shell Phase 1 landed 274e35b5 · art infantry animation v0.69.0 · economy step 3 v0.67.0
-        the shared tree /Users/ilpinto/dev/roaring-lions is on feat/terrain-tiles and stale: never work there
-DECISIONS THIS SESSION: G0 all fourteen answered 18 Sep (§3): defaults on 2–10, 12–14; #1 → PolyForm NC + CLA (WP-L1 #192); #11 → three units.
+PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (milestones EP M1–M4, issues #164–#191, PR #197)
+STATUS: Stage 1 · main 8596bc37 (v0.73.0) · shell Phase 2 Tasks 1–14 LANDED 19 Sep (PR #197): alerts, objectives, tooltip, F1, hint line,
+        minimap control, group bar, idle finder, edge pan, zoom to cursor, tutorial hover, capture states 18–23 · CI green on main, no bless
+        Lane A idle until WP-A1.2 #172 lands (Tasks 15–16 touch ThreeRenderer.ts) · Lane B: second session on A1.2 (blast), then E2–E4, then A1.3
+        the shared tree /Users/ilpinto/dev/roaring-lions is on feat/terrain-tiles and stale: never work there; ep-s2 worktree removed
+DECISIONS THIS SESSION: subagent-driven Phase 2 with a task review per task, one final opus review, one fix wave (rulings in the archived SDD ledger);
+        the visual gate does NOT hide the HUD (plan text wrong) — a HUD change CAN move it; it did not this time.
 NEXT STEP (exact):
-  1. Lane A: continue the SDD run from its ledger (.superpowers/sdd/2026-09-18-shell-upgrade-phase-2/progress.md in ep-s2): resume at the first task without a "complete" line
-  1b. Lane B (new session): the handoff prompt in the execution-plan session; A1.2 first
-  2. Lane A: write docs/superpowers/plans/2026-09-2x-shell-upgrade-phase-2.md (WP-S2a #170 + S2b #171), opening with the MissionEvent audit
-     Lane B: before-captures of the mortar impact and a vehicle death (still + ten seconds) for WP-A1.2 #172; apply G-E1 #173 when #9 answers
-  3. At the first landing: refresh this file §1/§4/§8 AND the plan page's status board in the same step
-CONSTRAINTS: §7 above; the shell spec §10 file boundary; blesses one per landing; ThreeRenderer.ts one lane at a time
-READ FIRST: docs/superpowers/specs/2026-09-16-shell-upgrade-design.md §6 Phase 2 + §10 · gamification page §Phase E ·
-            art page §Phase 1 · CLAUDE.md "The three.js backend" and "Mesh units" ·
-            memory: land-commits-through-a-main-worktree · concurrent-sessions-share-this-working-tree ·
-            subagent-model-tiering · meshy-api-policy · hud-changes-move-the-visual-gate
+  1. Lane A: when `gh pr list -R ilan-pinto/roaring-lions --search "A1.2"` shows #172's PR merged: `git worktree add .claude/worktrees/ep-s2r -b feat/shell-phase-2-render origin/main`,
+     then Tasks 15–16 of docs/superpowers/plans/2026-09-18-shell-upgrade-phase-2.md subagent-driven (opus implementer, sim-guard not needed, render-vfx review), one PR, expect a bless
+  2. Lane A meanwhile (optional, small): the Phase 3 note "strip keyboard focus resets every 250 ms" → a state-preserving strip render; and the parked minors in the archived deferred-minors.md
+  3. Lane B: A1.2 #172 → E2–E4 #174–#176 → A1.3 #177
+  4. G1 #165 on 2 Oct: Meshy top-up, style bible, symbol sheet, board route, vehicle numbers, portrait rig, Conduct gate shape
+CONSTRAINTS: §7 above; the shell spec §10 file boundary; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time; merge ONE PR at a time (the version job races)
+READ FIRST: docs/superpowers/specs/2026-09-16-shell-upgrade-design.md §6 + §10 · the Phase 2 plan's Tasks 15–16 and "The last two tasks" preamble ·
+            CLAUDE.md "The three.js backend" · memory: land-commits-through-a-main-worktree · hud-changes-move-the-visual-gate · subagent-model-tiering
 VERIFY BEFORE BELIEVING: pnpm lint && pnpm typecheck && pnpm test && pnpm test:determinism && pnpm validate:data
                          && pnpm validate:ui && pnpm playtest && pnpm balance · gh run list --branch main --workflow ci.yml --limit 3
-OPEN FOR THE LEAD: G0 #11 special-forces concepts (needed by 19 Oct) · G1 Meshy top-up (by 2 Oct)
+OPEN FOR THE LEAD: G1 items (by 2 Oct) · G0 #11 special-forces concepts (by 19 Oct)
 ```
