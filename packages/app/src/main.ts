@@ -89,6 +89,8 @@ import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
 import { showKeysOverlay } from './ui/keys-overlay';
+import { groupBar, groupChips } from './ui/group-bar';
+import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
@@ -3076,6 +3078,61 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const groups = new Map<number, number[]>();
   let lastGroupKey = -1;
   let lastGroupAt = 0;
+  /**
+   * The recall half of control groups: a bare digit selects the slot's
+   * surviving members, and a second recall of the SAME slot inside 400ms
+   * centres the camera on them. Extracted (Task 11) so the group bar's click
+   * runs through this exact function rather than a second copy of it — R-2's
+   * "not a second mechanism" is true in the code, not only in the plan. The
+   * assign half (ctrl/cmd+digit) stays inline in the keydown case below,
+   * since nothing else needs to trigger it.
+   *
+   * Sharing `lastGroupKey`/`lastGroupAt` with the keydown case means the
+   * double-tap-to-centre gesture is input-agnostic: pressing digit `3` twice,
+   * clicking the bar's slot-3 chip twice, or one of each within the window,
+   * all centre the camera the same way, because this function does not know
+   * or care which input reached it.
+   */
+  const recallGroup = (slot: number): void => {
+    const members = (groups.get(slot) ?? []).filter((i) => sim.state.alive[i] === 1);
+    groups.set(slot, members);
+    if (members.length === 0) return;
+    renderer.selection = members;
+    dispatch({ kind: 'group', slot, action: 'recall' });
+    const now = performance.now();
+    if (lastGroupKey === slot && now - lastGroupAt < 400) {
+      let cx = 0;
+      let cy = 0;
+      for (const i of members) {
+        cx += fx.toNumber(sim.state.posX[i]);
+        cy += fx.toNumber(sim.state.posY[i]);
+      }
+      renderer.camera.x = cx / members.length;
+      renderer.camera.y = cy / members.length;
+    }
+    lastGroupKey = slot;
+    lastGroupAt = now;
+  };
+  // The control-group bar (Task 11, R-2): a surface over `groups` above, with
+  // no state of its own. `groupColor` reads the exact palette entries
+  // `renderer.unitGroup`'s own badge already draws with, so the chip and the
+  // badge can never drift apart. `onRecall` is `recallGroup` itself -- not a
+  // wrapper, not a second path.
+  const groupUnitFacts = (id: number): { alive: boolean; hp: number; hpMax: number } | null => {
+    if (id < 0 || id >= sim.capacity) return null;
+    const type = sim.unitTypes[sim.state.typeIdx[id]];
+    return {
+      alive: sim.state.alive[id] === 1,
+      hp: fx.toNumber(sim.state.hp[id]),
+      hpMax: fx.toNumber(type.hp),
+    };
+  };
+  const groupsBar = groupBar(document.body, {
+    chips: () => groupChips(groups, groupUnitFacts),
+    onRecall: recallGroup,
+    groupColor: (slot) => opts.groupColors[slot - 1],
+  });
+  onDispose(() => groupsBar.dispose());
   onWindow('blur', () => keys.clear());
   onWindow('keydown', (ev) => {
     // The keydown listener used to be an if-chain of literals -- one per
@@ -3182,6 +3239,44 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           hud.note(t('hud.jump.nothing'), 'mute');
         }
         break;
+      case 'idleNext': {
+        // The idle-unit finder (Task 11, GDD §6). `ids` is every living
+        // side-0 entity, in ascending id order -- the same population and
+        // order `selectAll` above walks -- and `nextIdle` cycles the search
+        // forward from the currently selected unit (so pressing the key
+        // again advances rather than re-selecting the same one), wrapping
+        // once back to the front. A selection that is not a single unit
+        // (nothing, or a box of several) has no "current" to continue from,
+        // so the search starts at the front.
+        const ids: number[] = [];
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) ids.push(i);
+        }
+        const idleFactsOf = (id: number): IdleFacts => ({
+          alive: sim.state.alive[id] === 1,
+          side: sim.state.side[id],
+          moving: sim.state.moving[id] === 1,
+          waypoints: sim.waypointCount(id),
+          curTarget: sim.state.curTarget[id],
+          curStructure: sim.state.curStructure[id],
+          demoTarget: sim.state.demoTarget[id],
+          carriedBy: sim.state.carriedBy[id],
+          garrisonedIn: sim.state.garrisonedIn[id],
+        });
+        const after = renderer.selection.length === 1 ? renderer.selection[0] : -1;
+        const id = nextIdle(ids, after, (i) => isIdle(idleFactsOf(i)));
+        if (id >= 0) {
+          renderer.selection = [id];
+          dispatch({ kind: 'select', ids: [id], via: 'click' });
+          renderer.camera.x = fx.toNumber(sim.state.posX[id]);
+          renderer.camera.y = fx.toNumber(sim.state.posY[id]);
+        } else {
+          // Same "say why" rule as the jump key just above: nothing found
+          // and nothing said is indistinguishable from a broken key.
+          hud.note(t('hud.idle.none'), 'mute');
+        }
+        break;
+      }
       case 'keysOverlay':
         // F1 is the browser's own help key everywhere else on the page --
         // always swallowed here, on the open. Blocked over the pause menu by
@@ -3271,25 +3366,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           'live'
         );
       } else {
-        const members = (groups.get(slot) ?? []).filter((i) => sim.state.alive[i] === 1);
-        groups.set(slot, members);
-        if (members.length > 0) {
-          renderer.selection = members;
-          dispatch({ kind: 'group', slot, action: 'recall' });
-          const now = performance.now();
-          if (lastGroupKey === slot && now - lastGroupAt < 400) {
-            let cx = 0;
-            let cy = 0;
-            for (const i of members) {
-              cx += fx.toNumber(sim.state.posX[i]);
-              cy += fx.toNumber(sim.state.posY[i]);
-            }
-            renderer.camera.x = cx / members.length;
-            renderer.camera.y = cy / members.length;
-          }
-          lastGroupKey = slot;
-          lastGroupAt = now;
-        }
+        recallGroup(slot);
       }
     }
   });
@@ -3640,6 +3717,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     hud.onTick();
     minimap.onTick();
+    // Task 11: same cadence as the HUD's own chip row -- rebuilt wholesale
+    // every tick from the `groups` map, which is why the bar's click has to
+    // be delegated rather than bound per chip.
+    groupsBar.refresh();
     overlay.onTick(events);
     if (production && sim.tickCount % 5 === 0) production.refresh();
     // Task 6: the same 4 Hz cadence `production.refresh()` above already uses

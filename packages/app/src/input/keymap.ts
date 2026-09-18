@@ -11,7 +11,7 @@
  */
 export type Action =
   | 'halt' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
-  | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay'
+  | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay' | 'idleNext'
   | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause';
 
 export interface ActionSpec {
@@ -54,6 +54,11 @@ export const ACTIONS: readonly ActionSpec[] = [
   // else -- there is nothing about a function key that this table treats
   // specially.
   { id: 'keysOverlay', label: 'keymap.keysOverlay', key: 'f1', rebindable: true },
+  // Task 11: the idle-unit finder. Free -- h f g u o b m, ctrl+a, tab, space,
+  // f1, w s a d and escape are the whole of what was taken -- and `i` sits
+  // beside the letters this table already uses without reaching for a
+  // modifier or a function key.
+  { id: 'idleNext', label: 'keymap.idleNext', key: 'i', rebindable: true },
   { id: 'panUp', label: 'keymap.panUp', key: 'w', rebindable: true },
   { id: 'panDown', label: 'keymap.panDown', key: 's', rebindable: true },
   { id: 'panLeft', label: 'keymap.panLeft', key: 'a', rebindable: true },
