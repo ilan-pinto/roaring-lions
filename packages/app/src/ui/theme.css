@@ -867,6 +867,88 @@ body {
 }
 
 /* ====================================================================== */
+/* Objectives panel (ui/objectives.ts) — one component, three mounts       */
+/* ====================================================================== */
+
+/* `.rl-panel` is absolutely positioned and pointer-events:none by default --
+   right for a HUD panel pinned over the map, wrong wherever this mounts
+   inline in ordinary flow (the briefing's beat column; task 6's popover and
+   pause-menu tab). Same override `.rl-pause__panel` makes for the same
+   reason. */
+.rl-obj-panel {
+  position: relative;
+  pointer-events: auto;
+}
+.rl-obj-panel .rl-panel__body {
+  max-height: min(40vh, 26rem);
+  overflow-y: auto;
+}
+.rl-obj-close {
+  display: block;
+  margin: 0 0 var(--s2) auto;
+}
+.rl-obj-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-obj {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2);
+  padding-block: var(--s1);
+  /* Same colour-mixed hairline `.rl-pause__obj` uses. */
+  border-block-end: 1px solid color-mix(in srgb, var(--ink) 12%, transparent); /* px-ok */
+}
+.rl-obj:last-child {
+  border-block-end: 0;
+}
+.rl-obj__glyph {
+  flex: none;
+  color: var(--ink-mute);
+}
+.rl-obj[data-status='complete'] .rl-obj__glyph {
+  color: var(--good);
+}
+.rl-obj[data-status='failed'] .rl-obj__glyph {
+  color: var(--bad-text);
+}
+.rl-obj__text {
+  flex: 1 1 auto;
+  color: var(--ink-dim);
+}
+.rl-obj[data-primary='1'] .rl-obj__text {
+  color: var(--ink);
+  font-weight: 700;
+}
+.rl-obj__status {
+  color: var(--ink-mute);
+  font-size: var(--t-s);
+  text-transform: uppercase;
+  letter-spacing: var(--track-title);
+  white-space: nowrap;
+}
+.rl-obj__clock {
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+/* What a secondary is worth (task 5) -- the same commend token a stripe or a
+   star wears, so a carry-over reads as an earned thing rather than as more
+   status text. Full width of the row: the reward line reads under the
+   objective's text/status, not squeezed beside them. */
+.rl-obj__reward {
+  flex-basis: 100%;
+  font-size: var(--t-s);
+  color: var(--commend);
+}
+
+/* ====================================================================== */
 /* Semantic ink — the only way UI code names a colour                     */
 /* ====================================================================== */
 

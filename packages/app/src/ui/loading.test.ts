@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { missions } from '@lions/data';
 import { briefingBeats, briefingHoldsDeployment, broughtFor, showLoading } from './loading';
+import type { ObjectiveRow } from './objectives';
 
 // Whether the deploying screen waits for the player is the whole of #82, and it
 // is decidable without a DOM: a screen that tears itself down the instant the
@@ -666,5 +667,43 @@ describe('what you brought', () => {
     const stripes = host.querySelectorAll('.rl-loading__brought .rl-commend');
     expect(stripes).toHaveLength(1);
     expect(stripes[0].textContent).toBe('★★');
+  });
+});
+
+// Task 5 (R-7: one component, three mounts): the same `objectivesPanel` the
+// pause menu and the strip's `+N` will mount (task 6), shown once here on the
+// screen the player reads before committing. A sibling of the beats, never a
+// beat itself -- `describe('deploy screen beat layout (GH-162)')` above pins
+// the beat count off the SAME briefing text, so this only has to prove the
+// panel does not move that number.
+describe('the objective panel on the briefing (task 5)', () => {
+  const rows: ObjectiveRow[] = [
+    { id: 'raze_the_stockpile', text: 'Raze the stockpile inside five minutes', primary: true, carries: false, status: 'active' },
+    { id: 'kill_adhal', text: 'Kill Karim Adhal on the northern crest', primary: true, carries: false, status: 'active' },
+    { id: 'kill_the_battery', text: 'Destroy the rocket battery north of the depot', primary: false, carries: false, status: 'active' },
+    { id: 'get_the_porters_clear', text: 'Get three porters off the depot ground to the northern shelf', primary: false, carries: true, status: 'active' },
+    { id: 'bring_the_relay_down', text: 'Bring the relay tower down', primary: false, carries: false, status: 'active' },
+  ];
+  const briefing = 'Orders. More orders.';
+
+  it('shows all five declared objectives without changing the beat count', () => {
+    const el = document.createElement('div');
+    showLoading(el, 'Umm Zeitoun IV', briefing, undefined, undefined, undefined, undefined, rows, true);
+    expect(el.querySelectorAll('.rl-obj')).toHaveLength(5);
+    expect(el.querySelectorAll('.rl-loading__beat')).toHaveLength(briefingBeats(briefing).length);
+  });
+
+  it('shows no objectives for a sandbox, which declares none', () => {
+    const el = document.createElement('div');
+    showLoading(el, 'M0 sandbox');
+    expect(el.querySelectorAll('.rl-obj')).toHaveLength(0);
+  });
+
+  it('is gated on holds exactly like the orders paragraph -- no objectives panel with nothing to brief', () => {
+    const el = document.createElement('div');
+    // A video-only screen with no briefing text: `holds` is false even though
+    // `objectives` is supplied, and the panel must not appear anyway.
+    showLoading(el, 'Cinematic only', undefined, undefined, '/video/x.mp4', undefined, undefined, rows, true);
+    expect(el.querySelectorAll('.rl-obj')).toHaveLength(0);
   });
 });

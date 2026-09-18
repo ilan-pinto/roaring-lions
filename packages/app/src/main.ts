@@ -86,6 +86,7 @@ import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccou
 import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
+import type { ObjectiveRow } from './ui/objectives';
 import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
@@ -1883,6 +1884,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
   renderer.setDecor(map.decor);
   renderer.setElevation(map.elevation);
+  // Task 5: the briefing's full objective list, off the mission's own JSON
+  // rather than `runtime.objectiveList` -- the deploy screen is read before
+  // the mission ticks at all, so every objective is 'active' and no clock has
+  // started. `resolvedMission` (not `mission`) because `upgrades_to` can
+  // change what a placement fields but never touches `objectives`; either
+  // would read the same list here, and this keeps one reader for both.
+  const objectiveRows: ObjectiveRow[] | undefined = resolvedMission?.objectives.map(
+    (o): ObjectiveRow => ({
+      id: o.id,
+      text: o.text ?? '',
+      primary: o.primary,
+      carries: o.carries ?? false,
+      status: 'active',
+    })
+  );
+  // The same gate `main.ts` puts on `payMission` below (`mission.ledger.
+  // produces.length > 0`) -- the tutorial produces no ledger keys and never
+  // reaches that call, so its briefing must not promise a secondary pays
+  // credits when nothing will pay them.
+  const paysCredits = mission !== undefined && mission.ledger.produces.length > 0;
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.
@@ -1897,7 +1918,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Escape/back edge (task 6). A router navigation now, not a page load:
     // this is the earliest soft exit from a battlefield, and it fires while
     // this very function is still parked on `loading.done()` below.
-    mission ? () => req.navigate(routes.campaign()) : undefined
+    mission ? () => req.navigate(routes.campaign()) : undefined,
+    objectiveRows,
+    paysCredits
   );
   onDispose(() => loading.dispose());
   // The one teardown that cannot wait for this function to return.
