@@ -43,6 +43,26 @@ describe('the red that renders as text', () => {
       expect(contrast(palette.reserved.team.variants[variant].hostile_text, panel)).toBeGreaterThanOrEqual(4.5);
     });
   }
+
+  // Fix round 1 (review finding #3): `--warn` (`team.neutral`) is read as
+  // TEXT too -- `.rl-warn` and `.rl-clock[data-tone='warn']` in theme.css --
+  // the same job `--bad-text` exists for on the hostile side, but `neutral`
+  // has no separate "_text" token of its own because it has never needed
+  // one: unlike `team.hostile` (4.01:1, under AA), the plain `neutral` fill
+  // already clears 4.5:1 on the panel ground in every variant, default
+  // included (measured: default 10.75:1, deuteranopia/protanopia 13.88:1,
+  // tritanopia 5.997:1 -- tritanopia's `neutral` swap to `#CC79A7` is the
+  // closest to the floor and still clears it by a third). Gated here so a
+  // future variant pick cannot regress it silently the way `team.hostile`
+  // once did.
+  it('team.colors.neutral reads at AA over the panel ground (no separate _text token needed)', () => {
+    expect(contrast(palette.reserved.team.colors.neutral, panel)).toBeGreaterThanOrEqual(4.5);
+  });
+  for (const variant of ['deuteranopia', 'protanopia', 'tritanopia'] as const) {
+    it(`team.variants.${variant}.neutral reads at AA over the panel ground`, () => {
+      expect(contrast(palette.reserved.team.variants[variant].neutral, panel)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
 });
 
 /**

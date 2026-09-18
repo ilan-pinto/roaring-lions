@@ -362,6 +362,17 @@ export function paletteColor(key: string): string {
  *  through: a widened caller would be a type error at that call site. */
 export type ColorVisionVariant = 'default' | 'deuteranopia' | 'protanopia' | 'tritanopia';
 
+/** The four `reserved.team` colours (`kedem`/`hostile`/`hostile_text`/
+ *  `neutral`) for one variant -- `'default'` is the plain `colors` entry,
+ *  every other variant its matching `variants` entry. The one place either
+ *  `paletteTeamColors` or `variantAwareResolver` below reads the palette's
+ *  team band, so the two can never read two different entries for the same
+ *  variant. */
+function teamColorsFor(variant: ColorVisionVariant): Record<string, string> {
+  const team = palette.reserved.team as { colors: Record<string, string>; variants: Record<string, Record<string, string>> };
+  return variant === 'default' ? team.colors : team.variants[variant];
+}
+
 /**
  * The three team colours -- kedem, hostile, neutral -- for a colour-vision
  * variant. `'default'` reads `reserved.team.colors`, the plain palette; any
@@ -373,9 +384,45 @@ export type ColorVisionVariant = 'default' | 'deuteranopia' | 'protanopia' | 'tr
  * variant switched mid-mission takes effect from the next one.
  */
 export function paletteTeamColors(variant: ColorVisionVariant): [kedem: string, hostile: string, neutral: string] {
-  const team = palette.reserved.team as { colors: Record<string, string>; variants: Record<string, Record<string, string>> };
-  const c = variant === 'default' ? team.colors : team.variants[variant];
+  const c = teamColorsFor(variant);
   return [c.kedem, c.hostile, c.neutral];
+}
+
+/**
+ * A `resolveColor`-shaped function -- the shape `RendererOptions.resolveColor`
+ * takes, `(key: string) => string` -- for one colour-vision variant. Both
+ * renderer backends ask for a team colour by STRING KEY rather than by
+ * reading `teamColors` directly, in several places that are not the unit
+ * body tint `teamColors` itself covers: the occlusion-silhouette outline
+ * (`packages/render/src/three/units/silhouette.ts`'s
+ * `SILHOUETTE_COLOR_KEY_BY_SIDE`, which feeds every billboard
+ * `UnitInstancer`'s own shader uniform AND the mesh path's shared
+ * silhouette materials), the HP bar fill (`hpBarColorKey`), the
+ * objective-zone tint (`objectiveZoneColorKey`), and the min-range ring. A
+ * plain `paletteColor` passed as `resolveColor` resolves `'team.hostile'`
+ * to the DEFAULT hex regardless of the player's setting, which is exactly
+ * the bug this function closes -- Task 12's `teamColors` tuple alone was
+ * not enough, because most of the renderer's own team-coloured draws never
+ * read that tuple.
+ *
+ * The four `team.*` keys route through `variant`'s own entry (matching
+ * `paletteTeamColors` plus `hostile_text`, which nothing currently calls
+ * `resolveColor` for but is included for the same reason the palette
+ * declares it: a caller that starts asking for readable red text on a
+ * variant should get that variant's own readable red, not the default's).
+ * Every other key falls through to the plain `paletteColor`, unaffected by
+ * the setting -- exactly `paletteColor`'s own current behaviour for
+ * `variant === 'default'`.
+ */
+export function variantAwareResolver(variant: ColorVisionVariant): (key: string) => string {
+  const team = teamColorsFor(variant);
+  return (key: string): string => {
+    if (key === 'team.kedem') return team.kedem;
+    if (key === 'team.hostile') return team.hostile;
+    if (key === 'team.neutral') return team.neutral;
+    if (key === 'team.hostile_text') return team.hostile_text;
+    return paletteColor(key);
+  };
 }
 
 // --- mission-text locale overlay --------------------------------------------

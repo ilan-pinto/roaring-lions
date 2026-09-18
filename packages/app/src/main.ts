@@ -57,6 +57,7 @@ import {
   DECOR,
   paletteColor,
   paletteTeamColors,
+  variantAwareResolver,
   audioManifest,
   vfxEmitters,
   type MapJson,
@@ -1488,14 +1489,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // could not import this function-local declaration, and this function could
   // not import a test file, so each kept its own copy until both moved to a
   // shared module neither of those constraints applies to).
+  // Task 12: read once here (construction-time, like the renderer backend
+  // choice) rather than live -- a variant switched mid-mission takes effect
+  // from the next one, which the settings hint says explicitly. Both
+  // `teamColors` (the minimap's own tuple) and `resolveColor` below (what
+  // the renderer -- either backend -- asks for a palette key by STRING) have
+  // to agree on this same value, or the silhouette outline, the HP bars, the
+  // objective-zone tints and the min-range ring -- every one of which asks
+  // `resolveColor('team.hostile')`/`'team.kedem'`/`'team.neutral'` rather
+  // than reading `teamColors` directly -- would keep drawing the default
+  // palette regardless of the setting.
+  const cvdVariant = req.settings.get().accessibility.colorVision;
   const opts: RendererOptions = {
     background: paletteColor('shadow.1'),
-    // Task 12: the map and the minimap's team colours follow the player's
-    // colour-vision setting, read once here (construction-time, like the
-    // renderer backend choice) rather than live -- a variant switched
-    // mid-mission takes effect from the next one, which the settings hint
-    // says explicitly.
-    teamColors: paletteTeamColors(req.settings.get().accessibility.colorVision),
+    teamColors: paletteTeamColors(cvdVariant),
     hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],
     infantryColors: [paletteColor('olive.0'), paletteColor('dust.0'), paletteColor('limestone.1')],
     groupColors: [
@@ -1518,7 +1525,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     flashColor: paletteColor('vfx.fire'),
     nearMissColor: paletteColor('dust.0'),
     interceptColor: paletteColor('vfx.interceptor'),
-    resolveColor: paletteColor,
+    // `variantAwareResolver` (@lions/data) is `paletteColor` for every key
+    // except the four `team.*` ones, which it routes through this same
+    // `cvdVariant` -- the silhouette outline (`silhouette.ts`'s
+    // `SILHOUETTE_COLOR_KEY_BY_SIDE`, every billboard `UnitInstancer`'s
+    // `uTeam` and the mesh path's shared materials), the HP bar
+    // (`hpBarColorKey`), the objective-zone tint (`objectiveZoneColorKey`)
+    // and the min-range ring all ask for a palette key by name rather than
+    // reading `teamColors` above, so a bare `paletteColor` here would leave
+    // every one of them on the default palette no matter what the player
+    // picked.
+    resolveColor: variantAwareResolver(cvdVariant),
     // The ground albedos, served out of the repo-root `assets/` publicDir
     // like every sprite sheet and font. Three-only and fail-soft: Pixi
     // ignores the fields and the three ground draws its flat palette tone if
