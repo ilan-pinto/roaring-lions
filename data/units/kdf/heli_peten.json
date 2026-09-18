@@ -4,7 +4,7 @@
   "faction": "kdf",
   "role": "gunship",
   "cost": { "logistics": 402, "build_time_s": 42, "population": 2 },
-  "unlock": { "roe_rating_min": 65, "price": 460 },
+  "unlock": { "roe_rating_min": 82, "price": 460 },
   "hull": {
     "hp": 640,
     "armor": { "front": 45, "side": 28, "rear": 20 },

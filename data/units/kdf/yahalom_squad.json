@@ -54,7 +54,7 @@
     }
   ],
   "unlock": {
-    "roe_rating_min": 55,
+    "roe_rating_min": 75,
     "price": 340
   },
   "upgrades": {

@@ -51,6 +51,13 @@ const missionStars = new Map<string, Stars>();
  *  the same `label === id` guard as `missionStars`, so probes and controls never count. */
 const missionCredits = new Map<string, number>();
 
+/** Each mission's own winning-plan Conduct score, recorded under the same `label === id`
+ *  guard as `missionStars`/`missionCredits`. WP-G-E1 (2026-09-18): this feeds
+ *  `conductLedgerAfter` below, the Conduct-floor twin of `syntheticLedgerAfter` -- before
+ *  this, `missionResults`'s own `roe` field was hardcoded to 0, which was harmless only
+ *  because nothing walked the nine `roe_rating_min` gates against the real ladder yet. */
+const missionRoe = new Map<string, number>();
+
 /** Brigade economy Task 5: everything a plain `label === id` VICTORY run needs to be
  *  replayed with every KDF type patched to its own maximum tier. Recorded under the
  *  same guard as `missionStars`/`missionCredits` above -- a control, a "(no orders)"
@@ -268,6 +275,7 @@ function run(
   if (expect === 'victory' && label === id) {
     missionStars.set(id, rt.stars);
     missionCredits.set(id, credits);
+    missionRoe.set(id, rt.roeScore);
     // Brigade economy Task 5: record this same plain victory for the max-tier
     // replay pass below. `tiers === undefined` is belt-and-suspenders -- a max-tier
     // replay always passes a label distinct from `id` (see `MaxTierProbe`'s own
@@ -2349,7 +2357,9 @@ const missionResults: [string, MissionResult][] = missionOrder.map((missionId) =
   if (stars === undefined) {
     console.log(`gate ladder: no recorded winning plan for ${missionId} (contributes 0 stars)`);
   }
-  return [missionId, { stars: stars ?? 0, roe: 0, ticks: 0, lost: 0 }];
+  // WP-G-E1: this used to hardcode `roe: 0` -- harmless while nothing read it, but
+  // `conductLedgerAfter` below needs the real recorded Conduct score for each mission.
+  return [missionId, { stars: stars ?? 0, roe: missionRoe.get(missionId) ?? 0, ticks: 0, lost: 0 }];
 });
 
 /** The synthetic `campaign.mission_results` ledger a real playthrough would
@@ -2363,6 +2373,26 @@ function syntheticLedgerAfter(count: number): LedgerData {
     results[missionId] = result;
   }
   return { 'campaign.mission_results': results };
+}
+
+/**
+ * The Conduct twin of `syntheticLedgerAfter`: the synthetic `roe.mission_ratings` ledger
+ * a real playthrough would hold after clearing the first `count` missions of
+ * `missionOrder` -- WP-G-E1 (2026-09-18). `conductAtLeast`/`unlockReason`'s `roeMin` check
+ * reads `roe.mission_ratings` only, never `campaign.mission_results`, so the star-gate
+ * walk above cannot exercise the nine Conduct-gated units at all; this is the missing
+ * half. Same shape, same reasoning: an empty object at `count === 0` reads as "no
+ * missions rated yet" (`ratings(ledger)` sees a non-null map with zero keys and falls
+ * through to the legacy `roe.cumulative_rating` check, which is absent here), so a
+ * Conduct gate is always CLOSED before the first mission regardless of its floor.
+ */
+function conductLedgerAfter(count: number): LedgerData {
+  const ratings: Record<string, number> = {};
+  for (let i = 0; i < count; i++) {
+    const [missionId, result] = missionResults[i];
+    ratings[missionId] = result.roe;
+  }
+  return { 'roe.mission_ratings': ratings };
 }
 
 interface GateSpec {
@@ -2399,6 +2429,73 @@ for (const gate of GATES) {
   if (closedReason === null) {
     console.error(
       `gate ${gate.unit}: FAILED — expected CLOSED (< ${gate.starsMin} stars) after mission ${closedAfter}, got ${closedStars} stars`
+    );
+    process.exitCode = 1;
+  }
+}
+
+// --- Task 7b: the nine Conduct-gated units, walked the same way ------------
+//
+// WP-G-E1 (2026-09-18, GH-173): the lead raised these nine `roe_rating_min` floors
+// from 35-65 to 70-90 so they would spread across a well-played campaign instead of
+// clearing en masse after mission 1 (docs/campaign/economy/prices.md §3.2 found
+// exactly that at the old floors -- every winning plan scores Conduct >= 75, so even
+// the highest old floor, 65, was already open the moment any credits existed at all).
+//
+// Measured here, walking the REAL per-mission Conduct scores above rather than the
+// old finding's numbers (which predate several map/plan fixes and a mission-order
+// change): raising the ceiling to 90 does not change this outcome. `beit_sahwan_breach`
+// -- mission 1, unconditionally -- scores Conduct 97 on its own, so the average after
+// mission 1 IS 97 (a single data point), which already clears every floor <= 90. The
+// campaign average never drops below 93.5 for the rest of the ladder either (its low
+// point, mission 26). So EVERY ONE of the nine gates below still opens after mission 1
+// -- `opensAfter: 1` for all nine, asserted below -- and no floor inside the lead's
+// mandated 70-90 band can delay that on this ladder: doing so would require a floor
+// above 97 (mission 1's own score), outside the mandated range, or a change to mission
+// content, outside this work package's scope (unit JSON + one doc + test pins only).
+// The floors still carry real meaning: they raise the bar from "any winning plan
+// clears it" to "only a genuinely clean one does", which matters for a realistic
+// player this optimal-play harness cannot model (prices.md §9 finding 1) -- it is
+// the VALUE of the floor, not its opening mission on this ladder, that moved.
+interface ConductGateSpec {
+  /** The Conduct-gated unit this line names in the printout. */
+  unit: string;
+  roeMin: number;
+  /** 1-based position in `missionOrder` where the measured ladder opens this gate.
+   *  All nine read 1 -- see the comment above for why no floor in [70, 90] can move it. */
+  opensAfter: number;
+}
+
+const CONDUCT_GATES: ConductGateSpec[] = [
+  { unit: 'recon_drone', roeMin: 70, opensAfter: 1 },
+  { unit: 'attack_drone', roeMin: 72, opensAfter: 1 },
+  { unit: 'yahalom_squad', roeMin: 75, opensAfter: 1 },
+  { unit: 'demo_squad', roeMin: 77, opensAfter: 1 },
+  { unit: 'sniper_team', roeMin: 80, opensAfter: 1 },
+  { unit: 'heli_peten', roeMin: 82, opensAfter: 1 },
+  { unit: 'ifv_namer', roeMin: 85, opensAfter: 1 },
+  { unit: 'dozer_d9', roeMin: 87, opensAfter: 1 },
+  { unit: 'mbt_lavi', roeMin: 90, opensAfter: 1 },
+];
+
+for (const gate of CONDUCT_GATES) {
+  const openLedger = conductLedgerAfter(gate.opensAfter);
+  const openReason = unlockReason({ roeMin: gate.roeMin }, openLedger);
+  console.log(`gate ${gate.unit}: OPEN after mission ${gate.opensAfter} (Conduct floor ${gate.roeMin})`);
+  if (openReason !== null) {
+    console.error(
+      `gate ${gate.unit}: FAILED — expected OPEN (avg Conduct >= ${gate.roeMin}) after mission ${gate.opensAfter}, got "${openReason}"`
+    );
+    process.exitCode = 1;
+  }
+
+  const closedAfter = gate.opensAfter - 1;
+  const closedLedger = conductLedgerAfter(closedAfter);
+  const closedReason = unlockReason({ roeMin: gate.roeMin }, closedLedger);
+  console.log(`gate ${gate.unit}: CLOSED after mission ${closedAfter} (Conduct floor ${gate.roeMin})`);
+  if (closedReason === null) {
+    console.error(
+      `gate ${gate.unit}: FAILED — expected CLOSED (avg Conduct < ${gate.roeMin}) after mission ${closedAfter}, got open`
     );
     process.exitCode = 1;
   }

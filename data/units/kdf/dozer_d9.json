@@ -4,7 +4,7 @@
   "faction": "kdf",
   "role": "engineer",
   "cost": { "logistics": 586, "build_time_s": 26, "population": 1 },
-  "unlock": { "roe_rating_min": 60, "price": 560 },
+  "unlock": { "roe_rating_min": 87, "price": 560 },
   "hull": {
     "hp": 2400,
     "armor": { "front": 240, "side": 170, "rear": 110 },
