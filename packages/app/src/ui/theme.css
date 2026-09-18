@@ -1593,6 +1593,14 @@ body {
    hardware (ANGLE/Metal, M3 Pro) does not reproduce it, so nothing a player
    sees was ever wrong — but the visual gate captures on SwiftShader, and a
    gate that cannot see the frame is worse than no gate. */
+/* The frame is the 1px hairline below: under validate:ui's px threshold, so
+   it carries no px-ok tag. Since Task 10 the box is a CONTROL -- click to
+   jump, drag to pan, right-click to order, alt-click to ping -- which is what
+   the two properties beside it are for. The crosshair is the affordance that
+   says so, and touch-action none is what keeps a drag alive: without it a
+   pointer drag on a touch or pen device is taken over by the browser's own
+   scroll gesture, which fires pointercancel and stops delivering the
+   pointermove events the pan is made of. */
 .rl-minimap {
   position: absolute;
   right: var(--s2);
@@ -1600,6 +1608,8 @@ body {
   width: var(--minimap);
   height: var(--minimap);
   border: 1px solid var(--panel-frame);
+  cursor: crosshair;
+  touch-action: none;
   z-index: 5;
 }
 

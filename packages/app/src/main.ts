@@ -94,8 +94,10 @@ import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
+  issueOrder,
   resolvePointer,
   resolveKeyVerb,
+  type OrderSink,
   type PlayerIntent,
   type IntentWorld,
 } from './input/intents';
@@ -2570,6 +2572,40 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A thunk: objectives complete and drop off mid-mission, and a sandbox
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
+    // The three player gestures (Task 10). FORWARD REFERENCES, deliberately
+    // and not by accident: `orderSink`, `intentWorld` and `minimap` itself
+    // are all declared further down this same function, and these three
+    // closures name them. That is safe because none of them RUNS until a
+    // pointer event, which cannot be delivered before `bootBattlefield`
+    // returns -- by which time every one is initialised. The options object
+    // is built here rather than after the instance, and `minimap` is a
+    // `const` rather than a `let`, because moving this mount below
+    // `intentWorld` (400 lines down, among the input listeners) would put the
+    // one piece of body-mounted UI somewhere nobody would look for it.
+    input: {
+      jumpTo: (x, y) => {
+        // `boxToTile` and `screenToWorld` both answer in TILE space, which is
+        // what `camera.x`/`camera.y` are measured in (`project.ts` feeds them
+        // straight to `isoX`/`isoY`), so there is no conversion here and
+        // there must not be one.
+        renderer.camera.x = x;
+        renderer.camera.y = y;
+      },
+      // The SAME resolver AND the same carrying-out as the canvas
+      // contextmenu below: one `issueOrder`, called twice. A minimap order
+      // that resolved differently from the identical click on the field
+      // would be two answers to one question, and the one that would drift
+      // first is the protected-structure refusal -- invisible on open ground
+      // and only reported in the debrief.
+      order: (x, y, mods) => issueOrder(intentWorld, orderSink, mySelection(), x, y, mods),
+      // Local and silent to the sim (R-10): a mark on the minimap and a
+      // marker on the field, nothing queued, nothing dispatched, no intent
+      // kind. There is no second player to signal.
+      ping: (x, y) => {
+        minimap.ping(x, y, performance.now());
+        renderer.addOrderMarker(x, y);
+      },
+    },
   });
   // Also on the body, and it carries its own pointer listeners and canvas.
   onDispose(() => minimap.destroy());
@@ -2772,6 +2808,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const dispatch = (intent: PlayerIntent): void => {
     applyIntent(sim, intent);
     for (const fn of intentListeners) fn(intent);
+  };
+  /** Whose the order is: the living side-0 units currently selected. One
+   *  reading, so the minimap and the field cannot disagree about it either. */
+  const mySelection = (): number[] =>
+    renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+  /** Where a resolved right-click's three effects land. Built once and passed
+   *  to `issueOrder` by both pointing surfaces. */
+  const orderSink: OrderSink = {
+    dispatch,
+    note: (text, tone) => hud.note(text, tone),
+    marker: (x, y) => renderer.addOrderMarker(x, y),
   };
 
   // The tutorial gets read-only lookups, never the sim itself — it must not be
@@ -2999,28 +3046,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ev.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const w = renderer.screenToWorld(ev.clientX - rect.left, ev.clientY - rect.top);
-    const mine = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
-    // armed is always null here: a right-click issues an ordinary order and
-    // must never spend an armed support call — only pointerup's left-click
-    // can do that. Passing anything else would let a right-click made while
-    // a call is armed silently consume it instead of giving the move it
-    // looks like.
+    // `issueOrder` rather than a resolve-and-dispatch written out here: since
+    // Task 10 the minimap issues the same order from the same function, and
+    // this call and that one are the whole of it.
+    //
+    // It passes `armed: null` for both of us, and that is not an omission: a
+    // right-click issues an ordinary order and must never spend an armed
+    // support call — only pointerup's left-click can do that.
     // Alt held means the player is deliberately confirming fire on a
     // protected structure. Ctrl is not it: on macOS, Ctrl+left-click fires
     // this same contextmenu with ctrlKey true, and ctrl-click is the
     // standard Mac idiom for opening a context menu — that click already
     // means "confirmed attack," not "let me reconsider."
-    const res = resolvePointer(intentWorld, {
-      ids: mine,
-      x: w.x,
-      y: w.y,
+    issueOrder(intentWorld, orderSink, mySelection(), w.x, w.y, {
       append: ev.shiftKey,
-      armed: null,
       confirm: ev.altKey,
     });
-    for (const intent of res.intents) dispatch(intent);
-    if (res.note) hud.note(res.note.text, res.note.tone);
-    if (res.marker) renderer.addOrderMarker(w.x, w.y);
   });
   // The keyboard, as data (Task 5): `resolveKey` is the one place a raw
   // `KeyboardEvent` becomes an action id, and everything below dispatches on
