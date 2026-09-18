@@ -53,8 +53,10 @@ describe('CREDITS', () => {
   });
   it('states the licences the repository states', () => {
     const licence = readFileSync(`${ROOT}LICENSE`, 'utf8');
-    expect(licence.startsWith('MIT License')).toBe(true);
-    expect(CREDITS.codeLicence).toContain('MIT');
+    expect(licence.startsWith('# PolyForm Noncommercial License 1.0.0')).toBe(true);
+    expect(CREDITS.codeLicence).toContain('PolyForm Noncommercial 1.0.0');
+    expect(licence).toContain('Required Notice: Copyright Ilan Pinto');
+    expect(licence).toContain('CLA.md');
     expect(licence).toContain(CREDITS.artLicence);
   });
 });

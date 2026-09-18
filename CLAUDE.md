@@ -6,7 +6,7 @@ Working instructions for this repository. Read `docs/GDD.md` for *what the game 
 
 ## Project
 
-**Roaring Lions** — open-source dimetric RTS in TypeScript. Deterministic simulation, data-driven content, realistic combat resolution.
+**Roaring Lions** — source-available dimetric RTS in TypeScript. Deterministic simulation, data-driven content, realistic combat resolution.
 
 Two renderer backends live behind one interface. **three.js is the default as of
 Phase D (2026-08-30)**; PixiJS still ships and is reachable through
