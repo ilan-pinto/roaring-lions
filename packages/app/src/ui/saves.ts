@@ -14,7 +14,7 @@
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import type { StorageLike } from '../brigade-account';
-import { deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive, type SlotMeta } from '../profile';
+import { SAVE_ERROR_NOT_A_SAVE, deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive, type SlotMeta } from '../profile';
 import { confirmDialog } from './confirm';
 import { panel } from './panel';
 import { stagger } from './motion';
@@ -46,6 +46,29 @@ function randomId(): string {
 }
 
 const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+/**
+ * Every error this screen can show, as catalogue text.
+ *
+ * I8: `profile.ts` throws a catalogue KEY for the one refusal it can name
+ * (`SAVE_ERROR_NOT_A_SAVE`); anything else -- a `QuotaExceededError`, a Safari
+ * private-window refusal, a `SecurityError` from a blocked `localStorage` --
+ * arrives as a browser-authored English sentence that no locale covers and no
+ * player can act on, so it is replaced by one generic line rather than printed
+ * raw. The console still gets the original, because the generic line is for
+ * the player and the stack is for whoever is debugging.
+ *
+ * Matched against a SET rather than by `instanceof` on a custom class so the
+ * thrown value stays a plain `Error` and `profile.ts` needs no dependency on
+ * this file.
+ */
+const CODED = new Set<string>([SAVE_ERROR_NOT_A_SAVE]);
+
+function errorText(err: unknown): string {
+  if (err instanceof Error && CODED.has(err.message)) return t(err.message);
+  console.error('saves:', err);
+  return t('saves.error.storage');
+}
 
 function slotRow(
   meta: SlotMeta,
@@ -127,11 +150,23 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
               title: t('saves.load.confirm.title'),
               body: t('saves.load.confirm.body'),
               confirm: t('saves.load.confirm.action'),
-            }).then((ok) => {
+            }).answer.then((ok) => {
               if (!ok) return;
               const slot = loadSlot(deps.store, meta.id);
               if (!slot) return;
-              writeActive(deps.store, slot);
+              // I2: `writeActive` writes three keys in sequence with no
+              // transaction available to it, so a refusal on the second leaves
+              // the loaded ledger married to the OLD brigade account. Before
+              // this the throw became an unhandled rejection inside the
+              // `.then()`, the list re-rendered as if the load had worked, and
+              // the `role="status"` line stayed empty -- the player's campaign
+              // was half replaced and nothing said so.
+              try {
+                writeActive(deps.store, slot);
+              } catch (err) {
+                say(errorText(err));
+                return;
+              }
               say('');
               renderList();
               deps.onChanged();
@@ -148,9 +183,14 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
               body: t('saves.delete.confirm.body', { name: meta.name }),
               confirm: t('saves.delete.confirm.action'),
               danger: true,
-            }).then((ok) => {
+            }).answer.then((ok) => {
               if (!ok) return;
-              deleteSlot(deps.store, meta.id);
+              try {
+                deleteSlot(deps.store, meta.id);
+              } catch (err) {
+                say(errorText(err));
+                return;
+              }
               say('');
               renderList();
               deps.onChanged();
@@ -178,7 +218,15 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const name = nameInput.value.trim() || defaultName();
-    saveSlot(deps.store, randomId(), name, readActive(deps.store), deps.build, deps.now());
+    // Same hole as `onLoad` above, one level down: `saveSlot` -> `writeAll` ->
+    // `setItem`, and the saves blob is the biggest thing this app writes, so
+    // it is the likeliest of the three to be refused.
+    try {
+      saveSlot(deps.store, randomId(), name, readActive(deps.store), deps.build, deps.now());
+    } catch (err) {
+      say(errorText(err));
+      return;
+    }
     say('');
     renderList();
     nameInput.value = defaultName();
@@ -208,7 +256,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
         renderList();
         deps.onChanged();
       } catch (err) {
-        say(err instanceof Error ? err.message : String(err));
+        say(errorText(err));
       }
     });
   });

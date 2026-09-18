@@ -21,6 +21,8 @@
  *   base-relative paths and legacy query URLs alike, and normalises.
  */
 
+import { closeOpenDialog } from '../ui/confirm';
+
 export type Disposer = () => void;
 
 export interface RouteRequest {
@@ -141,6 +143,27 @@ function queryString(query: URLSearchParams): string {
     .join('&');
 }
 
+/**
+ * Query keys an in-app navigation carries forward when the target does not name
+ * them itself.
+ *
+ * Minor 12 (final review): `routes.*` hrefs carry no query, and `navigate` took
+ * the href's query wholesale, so the FIRST click inside the app dropped
+ * `?pseudo=1` and `?lang=` from the address bar. The catalogue is set once at
+ * boot and stays put for the document's life, so the walk still worked and
+ * nothing looked wrong -- until a reload, which came back in English and
+ * undercut `main.ts`'s own claim that "a reload keeps carrying them". A
+ * capture pass that reloads between shots is exactly the case this breaks.
+ *
+ * Only these two, and only when the TARGET is silent: a link that names
+ * `?lang=he` means it, and must not be overruled by the URL it was clicked
+ * from. `fresh`, `renderer` and the sandbox flags are deliberately NOT here --
+ * `fresh` is a one-shot landing instruction (`start({ drop })` strips it),
+ * `renderer` persists per origin in `localStorage` instead, and a sandbox flag
+ * belongs to one map's URL rather than to the session.
+ */
+const STICKY_QUERY_KEYS = ['lang', 'pseudo'] as const;
+
 interface Mounted {
   req: RouteRequest;
   dispose: Disposer;
@@ -212,6 +235,13 @@ export class Router {
     const legacy = legacyRedirect(url.search);
     const path = legacy ? legacy.path : stripBase(this.base, url.pathname);
     const query = legacy ? legacy.query : new URLSearchParams(url.search);
+    // Before `same` is computed, so a re-navigation to the location we are
+    // already on still compares equal rather than looking like a change.
+    const here = new URLSearchParams(window.location.search);
+    for (const k of STICKY_QUERY_KEYS) {
+      const v = here.get(k);
+      if (v !== null && !query.has(k)) query.set(k, v);
+    }
     const target = this.href(path, query);
     const same = this.mounted !== null && this.mounted.req.path === path && this.mounted.req.query.toString() === query.toString();
     if (same && !opts.force) return this.pending;
@@ -234,6 +264,16 @@ export class Router {
   }
 
   private unmount(): void {
+    // A confirm dialog is a screen's, but it is not a screen's CHILD: it mounts
+    // on the stage (or on document.body) as a sibling, so `replaceChildren()`
+    // below removes its node while its two `window` keydown listeners -- one of
+    // them a capture-phase guard that swallows every game key -- stay
+    // registered for the life of the page. The screen's own disposer cannot
+    // close it because the screen never had a handle on it. This is C1 in the
+    // final review, and it is created BY the router: before it, a confirm could
+    // not be navigated away from without a page load. See
+    // `ui/confirm.ts`'s `closeOpenDialog`.
+    closeOpenDialog();
     // A mount still in flight (never reached `this.mounted`) is aborted here
     // too, not just the currently-mounted screen -- otherwise dispose() (which
     // calls this) or a navigation arriving mid-mount would leave that mount's

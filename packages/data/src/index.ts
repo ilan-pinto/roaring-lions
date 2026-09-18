@@ -371,7 +371,15 @@ export type ColorVisionVariant = 'default' | 'deuteranopia' | 'protanopia' | 'tr
  *  variant. */
 function teamColorsFor(variant: ColorVisionVariant): Record<string, string> {
   const team = palette.reserved.team as { colors: Record<string, string>; variants: Record<string, Record<string, string>> };
-  return variant === 'default' ? team.colors : team.variants[variant];
+  // Minor 18 (final review): `team.variants[variant]` is an index into JSON,
+  // not into a type -- a variant the palette has not grown yet reads
+  // `undefined`, and the caller's `.kedem` then throws. Unreachable through the
+  // typed path (`main.ts` passes a real `ColorVision`), but this is data on
+  // disk and the union is a hand-kept mirror of it, so the two CAN part. The
+  // default set is the honest answer to "this variant does not exist": the
+  // colours the game shipped with, rather than a crash on a screen the player
+  // reached by turning an accessibility setting on.
+  return (variant === 'default' ? team.colors : team.variants[variant]) ?? team.colors;
 }
 
 /**

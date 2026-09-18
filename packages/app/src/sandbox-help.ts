@@ -141,11 +141,18 @@ export function readFlags(params: URLSearchParams): Record<SandboxFlagName, bool
 /** The LEGACY launch URL for one sandbox pick: a map, plus whichever extras
  *  are on.
  *
- *  The picker builds `routes.sandbox` (`shell/links.ts`) now — a real path,
- *  `/free-play/<map>?tunnel&sur`. This stays because `?sandbox=` is still a URL
- *  the app accepts: `legacyRedirect` (`shell/router.ts`) turns one into that
- *  same path on boot and on click, so a bookmark, a tool and this documented
- *  spelling all keep working, and it is the form a dev types by hand.
+ *  **No production caller** since Task 1 -- the picker builds `routes.sandbox`
+ *  (`shell/links.ts`), a real path, `/free-play/<map>?tunnel&sur`. Minor 2 in
+ *  the final review asked for this to be kept or dropped DELIBERATELY rather
+ *  than left ambiguous, and it is kept, for a reason the tests make load-
+ *  bearing: `?sandbox=` is still a URL the app accepts (`legacyRedirect`,
+ *  `shell/router.ts`, turns one into that path on boot and on click), it is
+ *  the spelling CLAUDE.md documents and a dev types by hand, and
+ *  `sandbox-help.test.ts` uses it as the generator that feeds `unknownParams`
+ *  -- i.e. as the executable statement of what a legacy sandbox URL looks
+ *  like. `shell/links.test.ts` pins `routes.sandbox` against it by name, so
+ *  the new path spelling and the old query spelling cannot drift apart in
+ *  which flags they emit or in what order.
  *
  *  The inverse of `readFlags`, and built by iterating the same table, so it
  *  cannot spell a flag in a form the parser does not accept. Flags are appended

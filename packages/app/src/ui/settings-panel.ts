@@ -59,12 +59,24 @@ export interface SettingsDeps {
   onChange(fn: (s: Settings) => void): Disposer;
 }
 
-function row(table: HTMLElement, label: string, control: HTMLElement, hint?: string): HTMLElement {
+/**
+ * One labelled row.
+ *
+ * Minor 14 (final review): the id used to be
+ * `control.getAttribute('name') ?? Math.random()...`, and the fallback was
+ * dead -- every control routed through here sets a `name`. It was also worse
+ * than dead: a random id changes on every render, so a `label for=` written
+ * against one mount cannot be asserted about, and two mounts of this panel
+ * (the settings screen and the pause menu's Settings tab, which can both exist
+ * in one document) would disagree about the same row. The type now REQUIRES
+ * the name, so the compiler enforces what the fallback was papering over.
+ */
+function row(table: HTMLElement, label: string, control: HTMLElement & { name: string }, hint?: string): HTMLElement {
   const r = document.createElement('div');
   r.className = 'rl-settings__row';
   const l = document.createElement('label');
   l.textContent = label;
-  const id = `set-${control.getAttribute('name') ?? Math.random().toString(36).slice(2)}`;
+  const id = `set-${control.name}`;
   control.id = id;
   l.htmlFor = id;
   r.appendChild(l);
@@ -126,6 +138,8 @@ function section(table: HTMLElement, title: string): void {
 }
 
 export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTMLElement; dispose: Disposer } {
+  /** Everything this mount has to release. Drained by `dispose` below. */
+  const cleanup: Disposer[] = [];
   const p = panel({ rank: 'inspect', title: t('settings.title') });
   p.el.classList.add('rl-settings');
   const table = document.createElement('div');
@@ -180,6 +194,22 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
         }
       })();
     });
+    // Minor 1 (final review): this checkbox was painted once from `fs.active()`
+    // and never again, so leaving fullscreen with F11 or Escape -- which this
+    // panel is not told about and which writes nothing through `deps.set` --
+    // left it ticked while the window was not fullscreen. `fullscreenchange`
+    // is the browser's own notification and the only one that fires for those
+    // two; `deps.onChange` covers the other direction the file header claims
+    // (a SECOND mount of this panel reacting to a change made through the
+    // first, without polling), which until now this file did not actually
+    // subscribe to at all.
+    const repaintFs = (): void => {
+      cb.checked = fs.active();
+    };
+    document.addEventListener('fullscreenchange', repaintFs);
+    cleanup.push(() => document.removeEventListener('fullscreenchange', repaintFs));
+    cleanup.push(deps.onChange(repaintFs));
+    cleanup.push(() => clearTimeout(hintTimer));
   }
   row(
     table,
@@ -344,6 +374,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
       // pause menu mid-capture), answering to a panel that is no longer on
       // screen.
       deps.keymap?.dispose();
+      for (const f of cleanup.splice(0)) f();
       p.el.remove();
     },
   };

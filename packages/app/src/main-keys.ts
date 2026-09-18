@@ -39,3 +39,24 @@ export function loadLedger(store: StorageLike | null): LedgerData {
 export function saveLedger(store: StorageLike | null, ledger: LedgerData): void {
   store?.setItem(LEDGER_KEY, JSON.stringify(ledger));
 }
+
+/**
+ * The tutorial flag, read ONE way.
+ *
+ * Minor 4 (final review): it was read with two different predicates --
+ * `getItem(...) === '1'` in `profile.ts` and `!== null` / `=== null` at three
+ * places in `main.ts`. Inert today, because `'1'` is the only value ever
+ * written; not inert if anything ever writes another, in which case a slot
+ * would record `tutorialDone: false` for a player the game itself treats as
+ * done, and the two halves would disagree inside one save file. The writer is
+ * `markTutorialDone` below, so the value and the test for it are one pair.
+ */
+export function tutorialDone(store: StorageLike | null): boolean {
+  return store?.getItem(TUTORIAL_DONE_KEY) === '1';
+}
+
+/** The only writer of `TUTORIAL_DONE_KEY`'s truthy value, and the reason
+ *  `tutorialDone` can compare against a literal. */
+export function markTutorialDone(store: StorageLike | null): void {
+  store?.setItem(TUTORIAL_DONE_KEY, '1');
+}

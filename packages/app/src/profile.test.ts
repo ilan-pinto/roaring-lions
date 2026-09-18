@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ACCOUNT_KEY, emptyAccount } from './brigade-account';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from './main-keys';
-import { SAVES_KEY, deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive } from './profile';
+import { SAVES_KEY, SAVE_ERROR_NOT_A_SAVE, deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive } from './profile';
 
 function memStore() {
   const map = new Map<string, string>();
@@ -52,8 +52,13 @@ describe('profile slots', () => {
     const s = memStore();
     const slot = saveSlot(s, 'a', 'X', { ledger, account, tutorialDone: false }, '0.68.0', 5);
     expect(importSlot(exportSlot(slot))).toEqual(slot);
-    expect(() => importSlot('{"hello":1}')).toThrow('not a Roaring Lions save');
-    expect(() => importSlot('nope')).toThrow('not a Roaring Lions save');
+    // I8: the thrown value is a catalogue KEY, not a sentence -- `ui/saves.ts`
+    // resolves it through `t()`. Asserted against the exported constant AND
+    // against its literal spelling, because the constant alone would go on
+    // passing if the key were renamed out from under `en.json`.
+    expect(() => importSlot('{"hello":1}')).toThrow(SAVE_ERROR_NOT_A_SAVE);
+    expect(() => importSlot('nope')).toThrow(SAVE_ERROR_NOT_A_SAVE);
+    expect(SAVE_ERROR_NOT_A_SAVE).toBe('saves.error.notASave');
   });
   it('import migrates an old account shape through migrateAccount and drops unknown ledger keys never', () => {
     const raw = JSON.stringify({ version: 1, id: 'z', name: 'Z', savedAt: 1, build: '0.60.0', ledger: { 'campaign.completed_missions': [], 'future.key': 1 }, account: { version: 1, balance: 3 }, tutorialDone: false });

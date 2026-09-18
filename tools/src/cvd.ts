@@ -87,6 +87,18 @@ function labF(t: number): number {
   return t > delta ** 3 ? Math.cbrt(t) : t / (3 * delta ** 2) + 4 / 29;
 }
 
+/**
+ * LINEAR RGB (what `simulate` returns) to CIELAB (D65).
+ *
+ * Exported for `cvd.test.ts`'s grey check, which needs to compare a simulated
+ * colour against a CIELAB triple computed BY HAND rather than against another
+ * simulated colour -- see the comment on that test for what the previous
+ * version of it was actually asserting.
+ */
+export function toLab(rgb: readonly [number, number, number]): readonly [number, number, number] {
+  return xyzToLab(rgbToXyz(rgb));
+}
+
 function xyzToLab([x, y, z]: readonly [number, number, number]): readonly [number, number, number] {
   const fx = labF(x / D65.x);
   const fy = labF(y / D65.y);

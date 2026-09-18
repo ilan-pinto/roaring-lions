@@ -573,9 +573,26 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         const owned = tiers[trackName] ?? 0;
         // Display only: `trackName` itself stays the raw JSON key everywhere
         // it is used as a lookup or passed to a callback (nextTierPrice,
-        // onBuyUpgrade) -- only the text a player reads gets underscores
-        // turned into spaces.
-        const trackLabel = trackName.replace(/_/g, ' ');
+        // onBuyUpgrade) -- only the text a player reads is translated.
+        //
+        // Found by the I5 pseudo pass (final review): this heading was the
+        // raw key with underscores turned to spaces, so the garage's three
+        // track titles read "ARMOUR" / "FIREPOWER" / "SENSORS" in every
+        // locale and came back UNBRACKETED under `?pseudo=1` -- a chrome
+        // string that never went through `t()`, on the phase's newest and most
+        // text-dense screen. `validate_i18n.mjs` cannot see it: the value
+        // reaches the sink through a variable, which is blind spot #2 its own
+        // header names.
+        //
+        // The humanised key remains the fallback rather than printing the raw
+        // key, because a track a content author adds tomorrow should read as
+        // an English word on the day it ships and not as `t()`'s
+        // key-as-its-own-text. `trackLabel` therefore degrades exactly as it
+        // used to.
+        const trackKey = `garage.track.${trackName}`;
+        const humanised = trackName.replace(/_/g, ' ');
+        const translated = t(trackKey);
+        const trackLabel = translated === trackKey ? humanised : translated;
         const trackEl = el('div', 'rl-garage__track');
         trackEl.dataset.track = trackName;
         trackEl.appendChild(el('h3', 'rl-garage__track-name', trackLabel));

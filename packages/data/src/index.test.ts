@@ -50,3 +50,22 @@ describe('variantAwareResolver', () => {
     }
   });
 });
+
+// Minor 18 (final review): `teamColorsFor` indexed `team.variants[variant]`
+// and the caller then read `.kedem` off the result. That is an index into JSON
+// on disk, not into a type -- a variant the palette has not grown yet reads
+// `undefined` and the read throws. Unreachable through the typed path today,
+// which is why the cast is deliberate here: the point is what happens when the
+// union and the file part company, and the only way to ask that question is to
+// widen past the union the way a stale palette would.
+describe('an unknown colour-vision variant', () => {
+  it('falls back to the default team colours instead of throwing', () => {
+    const unknown = 'monochromacy' as Parameters<typeof paletteTeamColors>[0];
+    expect(() => paletteTeamColors(unknown)).not.toThrow();
+    expect(paletteTeamColors(unknown)).toEqual(paletteTeamColors('default'));
+    const resolve = variantAwareResolver(unknown);
+    for (const key of ['team.kedem', 'team.hostile', 'team.neutral', 'team.hostile_text']) {
+      expect(resolve(key)).toBe(paletteColor(key));
+    }
+  });
+});

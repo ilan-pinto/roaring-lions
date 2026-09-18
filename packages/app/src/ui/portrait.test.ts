@@ -216,6 +216,43 @@ describe('unitPlate', () => {
   });
 });
 
+// Minor 8 (final review): nothing pinned "every KDF unit has a plate". All 17
+// are covered today and a missing one degrades quietly to the reserved hatch,
+// which is exactly the `SPRITE_MAP` failure mode CLAUDE.md names -- "art
+// existing is not art drawing", and here, art NOT existing and nothing saying
+// so. The garage's whole bay is this picture.
+//
+// Read off disk rather than through `unitPlate`'s glob, because the question is
+// about the shipped FILES: a manifest entry whose JPEG never landed passes a
+// glob-free check and fails the player.
+describe('unit plate coverage', () => {
+  it('every KDF unit has a plate entry and a file on disk', () => {
+    const dir = path.join(__dirname, '../../../../assets/ui/plates/units');
+    const manifest = (
+      JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as {
+        plates: Record<string, { file: string; width: number; height: number; extent: [number, number] }>;
+      }
+    ).plates;
+    // The roster read from the CONTENT directory, not from a bundled
+    // catalogue: "every KDF unit" means every file a content author dropped in
+    // `data/units/kdf/`, and a unit added there is exactly the case this test
+    // exists to catch on the day it ships without a plate.
+    const unitDir = path.join(__dirname, '../../../../data/units/kdf');
+    const kdf = fs
+      .readdirSync(unitDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => (JSON.parse(fs.readFileSync(path.join(unitDir, f), 'utf8')) as { id: string }).id);
+    // Vacuity guard: an empty roster would make every loop below pass.
+    expect(kdf.length).toBeGreaterThan(10);
+
+    const missing = kdf.filter((id) => manifest[id] === undefined);
+    expect(missing, `KDF units with no plate: ${missing.join(', ')}`).toEqual([]);
+
+    const noFile = kdf.filter((id) => !fs.existsSync(path.join(dir, manifest[id].file)));
+    expect(noFile, `plates named in the manifest but not on disk: ${noFile.join(', ')}`).toEqual([]);
+  });
+});
+
 describe('unit icon manifest pin', () => {
   // The Python picker in `tools/crop_unit_icons.py` reimplements
   // `portraitFile`'s exact rule rather than sharing code with it (there is no

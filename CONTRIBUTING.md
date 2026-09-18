@@ -9,7 +9,14 @@ Read `docs/GDD.md` before proposing design changes, and `CLAUDE.md` before writi
 ## Licensing and sign-off
 
 - Code: **MIT**
-- Art and data: **CC BY-SA 4.0**
+- Art and data (`data/`, `art/`, `assets/`): **all rights reserved** — changed
+  2026-08-30 ahead of a planned commercial release, and it was CC BY-SA 4.0
+  before that. That matters in one direction only: a Creative Commons grant is
+  **irrevocable for copies already obtained**, so everything published under it
+  up to that date stays licensed under it to whoever took a copy. The change
+  stops adding to that set; it cannot undo it. See `data/LICENSE.md` and
+  `docs/ART_PIPELINE.md` §8 — the project lead can reverse this decision, but
+  not retroactively.
 - All commits require a **DCO sign-off** (`git commit -s`)
 
 By contributing you confirm you have the right to license the work under these terms. **Do not submit assets from paid packs.** Most commercial packs — Synty POLYGON among them — forbid redistributing source assets in a public repository, regardless of whether you own a license. If you cannot point to explicit redistribution rights, it cannot go in.

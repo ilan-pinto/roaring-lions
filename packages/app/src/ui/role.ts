@@ -74,12 +74,17 @@ const ROLE_KEYS: Readonly<Record<string, string>> = {
  * role any shipped KDF unit declares against this table.
  *
  * Each property is a GETTER that calls `t()` on ACCESS, not a value resolved once
- * at module load -- unlike `grade-copy.ts`'s eager trade (that module's own consumer
- * is a non-screen caller out of this batch's scope that needs a plain array), this
- * table's only readers are `roleLabel` below and, through it, the brigade screen,
- * both of which run well after boot's `setCatalogue` -- so there is no reason to
- * give up locale-switching (`?pseudo=1` included) for it. Caught by the pseudo pass:
- * an eager version left every role label as plain English on the brigade screen. */
+ * at module load: `main.ts`'s boot sets the active catalogue -- `?pseudo=1` and
+ * `?lang=` included -- well after every module's top-level code has run, so a
+ * value resolved at import time can never see a locale picked after it. Caught by
+ * the pseudo pass: an eager version left every role label as plain English on the
+ * brigade screen.
+ *
+ * Minor 3 (final review): this comment used to contrast the getters with
+ * "`grade-copy.ts`'s eager trade". That trade is gone -- Task 10's fix round made
+ * grade-copy's tables the `tierName`/`tierLine` accessors for exactly this reason,
+ * so the two modules agree now and the contrast described a file that no longer
+ * exists in that shape. */
 export const ROLE_LABEL: Record<string, string> = {};
 for (const [role, key] of Object.entries(ROLE_KEYS)) {
   Object.defineProperty(ROLE_LABEL, role, { get: () => t(key), enumerable: true });

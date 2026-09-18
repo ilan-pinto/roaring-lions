@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { t } from '../i18n/t';
 import { showBrigade, type BrigadeOptions } from './brigade';
 
 // No mission is ever gated behind `afterMission` in this fixture set, so the
@@ -509,7 +510,11 @@ describe('showBrigade — the board', () => {
     );
     expect(armourBtn?.textContent).toBe('Buy tier 2 · 300');
     expect(armourBtn?.disabled).toBe(false);
-    expect(armourBtn?.getAttribute('aria-label')).toBe('buy Rifle Squad armour tier 2 for 300 credits');
+    // I5's pseudo pass: the track title is catalogue text now
+    // (`garage.track.armour`), not the raw JSON key humanised -- and the Buy
+    // control's aria-label reads the same label the heading does, so the two
+    // cannot say different words for one track.
+    expect(armourBtn?.getAttribute('aria-label')).toBe('buy Rifle Squad Armour tier 2 for 300 credits');
     // Exactly one control per track, and it is on the next rung up.
     expect(host.querySelectorAll('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')).toHaveLength(1);
     expect(armourBtn?.closest('.rl-garage__rung')?.getAttribute('data-tier')).toBe('2');
@@ -677,5 +682,47 @@ describe('the garage type floor', () => {
     // A scan that matched no rule at all would report zero offenders forever.
     expect(seen).toBeGreaterThan(10);
     expect(offenders).toEqual([]);
+  });
+
+});
+// I5's pseudo pass (final review). The garage's three track headings were the
+// raw JSON key with underscores turned to spaces -- "ARMOUR", "FIREPOWER",
+// "SENSORS" -- so they stayed English in every locale and came back
+// UNBRACKETED under `?pseudo=1`, on the newest and most text-dense screen in
+// the phase. `validate_i18n.mjs` cannot see it: the value reaches the sink
+// through a variable, blind spot #2 in that validator's own header, which is
+// why a human looking at a pseudo capture is still the instrument that found
+// it.
+describe('the garage track headings', () => {
+  it('are catalogue text, not the raw upgrade key', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, owned: {}, credits: 0 });
+    const heads = [...host.querySelectorAll('.rl-garage__track')].map((el) => ({
+      key: el.getAttribute('data-track'),
+      text: el.querySelector('.rl-garage__track-name')?.textContent ?? '',
+    }));
+    expect(heads.length).toBeGreaterThan(0); // vacuity guard: a unit with no tracks proves nothing
+    for (const h of heads) {
+      expect(h.text).not.toBe(h.key);
+      expect(h.text).toBe(t(`garage.track.${h.key ?? ''}`));
+    }
+    // The three that ship, spelled out -- so a catalogue entry quietly renamed
+    // or deleted (which `t()` answers with the key itself) is caught by name
+    // rather than by the loop above agreeing with itself.
+    expect(heads.map((h) => h.text)).toContain('Armour');
+  });
+
+  it('falls back to the humanised key for a track the catalogue has not caught up with', () => {
+    const host = mount({
+      units: [{ ...units[0], upgrades: { fire_control: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } } }],
+      ledger: {},
+      possibleStars: 78,
+      owned: {},
+      credits: 0,
+    });
+    const head = host.querySelector('.rl-garage__track[data-track="fire_control"] .rl-garage__track-name');
+    // Not `garage.track.fire_control` -- `t()` returns a missing key as itself,
+    // and a heading reading like a dotted identifier is worse than an English
+    // word a translator has not reached yet.
+    expect(head?.textContent).toBe('fire control');
   });
 });

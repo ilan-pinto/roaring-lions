@@ -71,6 +71,10 @@ const RESOLUTIONS = arg('res', '1400x900,1920x1080,2560x1440')
     return { width: w, height: h };
   });
 
+/** Counted across the whole run and printed at the end -- a per-shot line is
+ *  easy to scroll past in 51 frames' worth of output. */
+let OVERFLOW_TOTAL = 0;
+
 interface LionsWindow extends Window {
   __lions?: {
     sim: { queueCommand(c: unknown): void; tick: number; debugKill(id: number): void };
@@ -81,10 +85,63 @@ interface LionsWindow extends Window {
   };
 }
 
+/**
+ * Every element inside the shell's own chrome whose content is wider than the
+ * box drawn for it.
+ *
+ * I5 (final review): until this, `shoot.ts` wrote PNGs and NOTHING measured
+ * clipping -- so "the pseudo-localised capture pass shows no clipped chrome
+ * string", a Phase 1 acceptance item, rested entirely on somebody looking at
+ * 51 frames and nobody in the ledger recording that they had. A human still
+ * has to look (a string can be wrong without overflowing, and an ellipsis can
+ * be the intended design), but the mechanical half of the question is
+ * mechanical and should be asked mechanically.
+ *
+ * **A printed report, not a gate, deliberately.** A threshold on "how much
+ * overflow is acceptable" would be a fitted number of exactly the kind
+ * CLAUDE.md warns about -- several of these are intentional (`text-overflow:
+ * ellipsis` is a design decision, and a scroll container is SUPPOSED to be
+ * wider than its viewport). What the probe is for is the case nobody thought
+ * about: a row that overflowed only under a 40%-padded locale, on a screen
+ * nobody happened to open.
+ *
+ * `+1` because `scrollWidth`/`clientWidth` are integers rounded from
+ * fractional layout, so a sub-pixel box reports a 1px "overflow" that is not
+ * one. Scoped to `.rl-menu`, `.rl-panel` and `.rl-garage` (the review's list):
+ * the canvas and the HUD's own strip are drawn, not laid out, and would report
+ * noise forever.
+ */
+async function overflows(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const roots = document.querySelectorAll('.rl-menu, .rl-panel, .rl-garage');
+    const hits: string[] = [];
+    const seen = new Set<Element>();
+    for (const root of roots) {
+      for (const el of [root, ...root.querySelectorAll('*')]) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        if (!(el instanceof HTMLElement)) continue;
+        if (el.scrollWidth <= el.clientWidth + 1) continue;
+        // A selector a reader can paste into devtools, plus the numbers and
+        // the first of the text, which is what makes a hit actionable rather
+        // than a coordinate.
+        const cls = el.className.toString().trim().split(/\s+/).filter(Boolean).slice(0, 3).join('.');
+        const sel = `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ''}`;
+        const text = (el.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 48);
+        hits.push(`${sel} ${el.scrollWidth}>${el.clientWidth} "${text}"`);
+      }
+    }
+    return hits;
+  });
+}
+
 async function shot(page: Page, dir: string, name: string): Promise<void> {
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(dir, `${name}.png`) });
-  console.log(`  ${name}`);
+  const over = await overflows(page);
+  console.log(`  ${name}${over.length > 0 ? `  [overflow x${over.length}]` : ''}`);
+  for (const line of over) console.log(`      ! ${line}`);
+  OVERFLOW_TOTAL += over.length;
 }
 
 async function settle(page: Page, ms: number): Promise<void> {
@@ -180,7 +237,16 @@ try {
       // Task 13: the router lands on the PATH now, not the old `?campaign`
       // query -- the redirect from that query is still live (router.ts), but
       // `onBack` navigates straight to `routes.campaign()`.
-      const ok = landedUrl === `${BASE}/campaign`;
+      //
+      // The PATH, plus the sticky query rather than an exact string: since
+      // Minor 12 (final review) `Router.navigate` carries `?pseudo=1` and
+      // `?lang=` forward when the target does not name them, so under
+      // `--pseudo` this lands on `/campaign?pseudo=1` -- which is the point of
+      // that fix, not a miss. An exact-string check called it UNEXPECTED on
+      // every pseudo run, which is how a diagnostic that cries wolf stops
+      // being read at all. Carrying the flag is now part of what it asserts.
+      const landed = new URL(landedUrl);
+      const ok = landed.origin === BASE && landed.pathname === '/campaign' && landed.searchParams.has('pseudo') === PSEUDO;
       console.log(`  escape-from-briefing -> ${landedUrl} (${ok ? 'OK' : 'UNEXPECTED'})`);
       await backCtx.close();
     }
@@ -299,3 +365,8 @@ try {
   stopDevServer(devServer, TAG);
 }
 console.log(`\ndone -> ${OUT}`);
+// The probe's own bottom line. Stated even at zero, because "no overflow was
+// reported" and "the probe never ran" look identical in a log that only speaks
+// up on a hit -- the failure mode CLAUDE.md names for every check that can
+// return an empty answer in zero milliseconds.
+console.log(`overflow probe: ${OVERFLOW_TOTAL} element(s) wider than their own box, across every shot above`);

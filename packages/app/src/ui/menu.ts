@@ -193,7 +193,7 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
       body: t('menu.newCampaign.confirm.body'),
       confirm: t('menu.newCampaign.confirm.action'),
       danger: true,
-    }).then((ok) => {
+    }).answer.then((ok) => {
       if (ok) opts.newCampaign?.();
     });
   });
@@ -370,13 +370,12 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
  *
  *  Neither list is written here. The maps are `@lions/data`'s own enumeration
  *  and the flags are `SANDBOX_FLAGS`, which is also what `main.ts` parses,
- *  what the boot banner prints, and what `unknownParams` checks against; the
- *  URL itself is built by `sandboxUrl` from that same table. A copy of either
- *  list in this file could drift from the thing that actually runs, and the
- *  screen would then offer a map that does not load or a flag that does
- *  nothing -- which is exactly the silence this whole subsystem was built to
- *  remove. The URL is built by `routes.sandbox` (`shell/links.ts`), which
- *  iterates that same `SANDBOX_FLAGS` table.
+ *  what the boot banner prints, and what `unknownParams` checks against. A
+ *  copy of either list in this file could drift from the thing that actually
+ *  runs, and the screen would then offer a map that does not load or a flag
+ *  that does nothing -- which is exactly the silence this whole subsystem was
+ *  built to remove. The URL is built by `routes.sandbox` (`shell/links.ts`),
+ *  which iterates that same `SANDBOX_FLAGS` table.
  *
  *  The map entries stay real anchors with real hrefs, rewritten as the flag
  *  boxes change, so middle-click, copy-link and the browser's own history all

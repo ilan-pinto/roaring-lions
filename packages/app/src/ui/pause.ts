@@ -62,13 +62,20 @@
  * calls `stopPropagation`/`stopImmediatePropagation` before branching on
  * `ev.key === 'Escape'`, so nothing needed to change there.
  */
+import type { ObjectiveStatus } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
+import { objectiveStatusLabel } from './objective-status';
 import { panel } from './panel';
 import { settingsPanel, type SettingsDeps } from './settings-panel';
 
 export interface PauseDeps {
-  objectives(): readonly { text: string; primary: boolean; status: string }[];
+  /** `MissionRuntime.objectiveList`'s own shape, narrowed to what this menu
+   *  draws. `status` is the sim's `ObjectiveStatus` union rather than a bare
+   *  `string` (I10): `objectiveStatusLabel` maps it to catalogue text, and a
+   *  fourth status the sim adds should be a compile error here rather than a
+   *  key that renders as itself. */
+  objectives(): readonly { text: string; primary: boolean; status: ObjectiveStatus }[];
   onResume(): void;
   /** The caller confirms before actually restarting. */
   onRestart(): void;
@@ -147,7 +154,11 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
     text.textContent = o.text;
     const status = document.createElement('span');
     status.className = 'rl-pause__obj-status';
-    status.textContent = o.status;
+    // I10: `o.status` is the SIM's enum ('active' | 'complete' | 'failed').
+    // Printed raw it stayed English in every locale and read unbracketed under
+    // `?pseudo=1`. `objectiveStatusLabel` is shared with `main.ts`'s HUD notice
+    // so the two cannot drift apart.
+    status.textContent = objectiveStatusLabel(o.status);
     li.append(text, status);
     list.appendChild(li);
   }

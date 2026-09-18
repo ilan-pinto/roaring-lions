@@ -75,11 +75,12 @@ import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
-import { confirmDialog, isDialogOpen } from './ui/confirm';
+import { closeOpenDialog, confirmDialog, isDialogOpen } from './ui/confirm';
+import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, resolveKey } from './input/keymap';
+import { bindingsFrom, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey } from './input/keymap';
 import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
 import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -166,7 +167,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { LEDGER_KEY, TUTORIAL_DONE_KEY, loadLedger, saveLedger } from './main-keys';
+import { LEDGER_KEY, TUTORIAL_DONE_KEY, loadLedger, markTutorialDone, saveLedger, tutorialDone } from './main-keys';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
@@ -348,9 +349,15 @@ function describeMissionEvent(
     case 'objective': {
       const def = mission.objectives.find((o) => o.id === e.id);
       const label = def?.text ?? e.id;
+      // I10: the status word goes through the catalogue (shared with the
+      // pause menu's objective list), not `e.status.toUpperCase()`.
+      // Minor 6: `label` reaches an `innerHTML` sink -- `hud.note` ->
+      // `hud.ts`'s notice row -- and its author is mission DATA, now including
+      // a translator's `data/locales/<lang>/missions.json` overlay. The
+      // `trigger` branch below has always escaped its label; this one did not.
       return e.status === 'complete'
-        ? [t('mission.notice.objectiveComplete', { label }), 'good']
-        : [t('mission.notice.objectiveStatus', { status: e.status.toUpperCase(), label }), 'bad'];
+        ? [t('mission.notice.objectiveComplete', { label: escapeHtml(label) }), 'good']
+        : [t('mission.notice.objectiveStatus', { status: objectiveStatusShout(e.status), label: escapeHtml(label) }), 'bad'];
     }
     case 'trigger': {
       const label = triggerLabel(mission, e.id);
@@ -539,8 +546,14 @@ function accountState(): {
  * 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
  */
 function purgeCampaign(): void {
-  window.localStorage.removeItem(LEDGER_KEY);
-  window.localStorage.removeItem(TUTORIAL_DONE_KEY);
+  // Minor 5: through `safeStorage()`, not the global. `window.localStorage` can
+  // throw on the PROPERTY ACCESS itself in a private window or with site data
+  // blocked (that function's own doc comment), and this one runs on the `fresh`
+  // landing -- so a player in that state met a thrown boot error instead of a
+  // menu, for a store that has nothing in it to purge.
+  const store = safeStorage();
+  store?.removeItem(LEDGER_KEY);
+  store?.removeItem(TUTORIAL_DONE_KEY);
 }
 
 // Which sheet a unit uses -- facing convention, frame counts, clip list and
@@ -800,14 +813,18 @@ async function main(): Promise<void> {
   /** The landing. The one screen that defines no `window.__lions`. */
   function mountMenu(host: HTMLElement): Disposer {
     const worldData = parseWorld(world);
-    const tutorialDone = window.localStorage.getItem(TUTORIAL_DONE_KEY) !== null;
+    // Minor 4 + Minor 5: one predicate (`main-keys.ts`), through `safeStorage()`.
+    // This runs on every menu MOUNT now rather than once per page load, so a
+    // store whose property access throws would have thrown on every return to
+    // the menu.
+    const tutorialIsDone = tutorialDone(safeStorage());
     // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
     // been played, else the first open mission of wherever the map is live.
     // Null once every authored mission is done, which is `continue: undefined`
     // below -- the first nav item reverts to the plain "Campaign" link.
     const target = continueTarget(worldData, loadLedger(safeStorage()), {
       id: 'beit_sahwan_0_tutorial',
-      done: tutorialDone,
+      done: tutorialIsDone,
     });
     return showMenu(host, {
       base: BASE,
@@ -817,7 +834,7 @@ async function main(): Promise<void> {
       tutorial: {
         id: 'beit_sahwan_0_tutorial',
         name: missions.beit_sahwan_0_tutorial.name ?? 'Tutorial',
-        done: tutorialDone,
+        done: tutorialIsDone,
       },
       continue: target
         ? {
@@ -2348,7 +2365,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           body: t('pause.restart.confirm.body'),
           confirm: t('pause.restart.confirm.action'),
           danger: true,
-        }).then((ok) => {
+        }).answer.then((ok) => {
           if (ok) req.restart();
         });
       },
@@ -2360,7 +2377,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           body: t('hud.leave.confirm.body'),
           confirm: t('hud.leave.confirm.action'),
           danger: true,
-        }).then((ok) => {
+        }).answer.then((ok) => {
           if (ok) req.navigate(routes.campaign());
         });
       },
@@ -2380,6 +2397,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // its capture-phase keydown guard) on `document.body` under whatever screen
   // the router mounts next.
   onDispose(() => pauseHandle?.close());
+  // ...and its own confirm dialogs, which mount on `document.body` (the HUD's
+  // leave button, and the pause menu's Restart/Quit) rather than on the stage,
+  // so the router never clears them. Without this a battlefield left while one
+  // was up would leave the scrim sitting over the next screen, still listening
+  // -- the visible half of C1. Idempotent and safe if the router already closed
+  // it on its way through `unmount()`.
+  onDispose(() => closeOpenDialog());
   // The minimap (GH-153). Mounted here rather than inside the Hud because it
   // needs three things the Hud deliberately does not carry -- the parsed map,
   // the renderer, and this map's terrain tones -- and threading all three
@@ -2620,7 +2644,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (
     mission &&
     stepList &&
-    (tutorialReplay || window.localStorage.getItem(TUTORIAL_DONE_KEY) === null)
+    (tutorialReplay || !tutorialDone(safeStorage()))
   ) {
     tut = initTutorial(stepList.steps, performance.now());
     tutPanel = tutorialPanel(document.body, {
@@ -2834,6 +2858,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // `resolveKey` is the one place a raw event becomes an action id now,
     // and this switch is the one place an action id becomes a call.
     const action = resolveKey(bindings, ev);
+    // I1 (final review): ONE guard for the whole handler, not one per case.
+    // With a modal up, the only key this listener may still act on is a camera
+    // pan -- see `passesThroughModal` for why that one is not a game verb, and
+    // for what Tab was doing behind an open dialog before this line existed.
+    // It covers the control-group digits below the switch too, which are not a
+    // `case` at all and so could never have been guarded case by case.
+    //
+    // This is a SECOND line of defence, deliberately: both modals already
+    // `stopPropagation()` in the capture phase, so in the normal course this
+    // listener never runs at all while one is open. What it defends against is
+    // the abnormal course -- a modal whose listener is missing (C1) or one that
+    // passes a key through on purpose (Tab, Enter, Escape, and the pause menu's
+    // pan exemption).
+    if (isDialogOpen() && !passesThroughModal(action)) return;
     switch (action) {
       case 'halt':
         // The four bound verbs go through `orders`, which is the very object
@@ -2911,6 +2949,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // Resuming stays exclusively the modal's own job (its bubble Escape
         // handler and its Resume button, both calling `resume` -- see the
         // comment above `pause`).
+        //
+        // The `isDialogOpen()` here is subsumed by the handler-wide guard at
+        // the top (Escape resolves to `pause`, which is not a pan, so the
+        // listener has already returned). It is kept rather than deleted
+        // because it is this case's own stated contract -- the game only OPENS
+        // the menu, and only when nothing else owns Escape -- and
+        // `pause.test.ts`'s stand-in mirrors this exact expression. Two reads
+        // of one predicate, not two predicates.
         if (!paused && !isDialogOpen() && !missionEnded) pause();
         break;
       case 'panUp':
@@ -3245,7 +3291,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.clearTutorialFocus();
         }
         if (tut.done) {
-          window.localStorage.setItem(TUTORIAL_DONE_KEY, '1');
+          markTutorialDone(safeStorage());
           hud.note(t('main.note.tutorialComplete'), 'good');
           if (stepList?.completes !== undefined) runtime.completeObjective(stepList.completes);
           tut = null;

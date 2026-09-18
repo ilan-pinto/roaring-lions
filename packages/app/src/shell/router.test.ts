@@ -351,4 +351,53 @@ describe('Router transition', () => {
     expect(stage.classList.contains('rl-stage--leave')).toBe(false);
     expect(stage.querySelector('[data-screen="campaign"]')).not.toBeNull();
   });
+
+  // Minor 12 (final review): `routes.*` hrefs carry no query, and `navigate`
+  // took the href's query wholesale -- so the first in-app click dropped
+  // `?pseudo=1` / `?lang=` out of the address bar. The catalogue is set once at
+  // boot and stays for the document's life, so nothing LOOKED wrong; a reload
+  // after that click came back in English, which is precisely what
+  // `main.ts:770`'s "a reload keeps carrying them" promises it will not.
+  it('carries ?pseudo and ?lang through an in-app navigation that does not name them', async () => {
+    const { router } = makeRouter({ start: '/?pseudo=1&lang=he' });
+    await router.start();
+    await router.navigate('/campaign');
+    expect(window.location.pathname).toBe('/campaign');
+    expect(new URLSearchParams(window.location.search).get('pseudo')).toBe('1');
+    expect(new URLSearchParams(window.location.search).get('lang')).toBe('he');
+    // ...and again, so it survives more than one hop rather than being a
+    // property of the very first navigation off the landing URL.
+    await router.navigate('/mission/x');
+    expect(new URLSearchParams(window.location.search).get('pseudo')).toBe('1');
+    router.dispose();
+  });
+
+  it('lets the target override a carried key, and carries nothing the location does not have', async () => {
+    const { router } = makeRouter({ start: '/?lang=he' });
+    await router.start();
+    // A link that NAMES the key means it -- the URL it was clicked from does
+    // not get to overrule it.
+    await router.navigate('/campaign?lang=en');
+    expect(new URLSearchParams(window.location.search).get('lang')).toBe('en');
+    expect(new URLSearchParams(window.location.search).has('pseudo')).toBe(false);
+    router.dispose();
+  });
+
+  it('carries nothing sticky when the landing URL had none, and does not invent a query', async () => {
+    const { router } = makeRouter({ start: '/?renderer=pixi' });
+    await router.start();
+    await router.navigate('/campaign');
+    expect(window.location.search).toBe('');
+    router.dispose();
+  });
+
+  it('a repeat navigation to the same place with a carried key is still a no-op', async () => {
+    const { router, log } = makeRouter({ start: '/?pseudo=1' });
+    await router.start();
+    await router.navigate('/campaign');
+    const after = log.length;
+    await router.navigate('/campaign');
+    expect(log.length).toBe(after); // the carried key did not make it look like a change
+    router.dispose();
+  });
 });

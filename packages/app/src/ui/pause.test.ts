@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bindingsFrom, type Bindings } from '../input/keymap';
+import { bindingsFrom, passesThroughModal, resolveKey, type Bindings } from '../input/keymap';
 import { DEFAULT_SETTINGS } from '../settings';
 import { LOCALES } from '../i18n/locales';
 import { confirmDialog, isDialogOpen } from './confirm';
@@ -10,8 +10,8 @@ import { keymapRows } from './settings-keymap';
 function deps() {
   return {
     objectives: () => [
-      { text: 'Take the crossroads', primary: true, status: 'active' },
-      { text: 'Lose no one', primary: false, status: 'active' },
+      { text: 'Take the crossroads', primary: true, status: 'active' as const },
+      { text: 'Lose no one', primary: false, status: 'failed' as const },
     ],
     onResume: vi.fn(),
     onRestart: vi.fn(),
@@ -28,8 +28,9 @@ function deps() {
     },
     build: '0.68.0',
     // No test here exercises panning by default -- see the dedicated
-    // isPanKey test below, which supplies its own.
-    isPanKey: () => false,
+    // isPanKey test below, which supplies its own. Typed with the parameter
+    // so a test that overwrites it with a real predicate still typechecks.
+    isPanKey: ((): boolean => false) as (ev: KeyboardEvent) => boolean,
   };
 }
 
@@ -46,6 +47,13 @@ describe('pauseMenu', () => {
     expect(dlg?.getAttribute('aria-modal')).toBe('true');
     expect(dlg?.textContent).toContain('Take the crossroads');
     expect(document.activeElement?.textContent).toBe('Resume');
+    // I10: the status column is catalogue text, not the sim's own enum word.
+    // Asserting "not the enum" is what catches a regression to
+    // `status.textContent = o.status`; the English spelling alone would not.
+    const words = [...(dlg?.querySelectorAll('.rl-pause__obj-status') ?? [])].map((e) => e.textContent);
+    expect(words).toEqual(['In progress', 'Failed']);
+    expect(words).not.toContain('active');
+    expect(words).not.toContain('failed');
   });
   it('Escape and Resume both resume; nothing else leaks to the game', () => {
     const d = deps();
@@ -126,7 +134,7 @@ describe('pauseMenu', () => {
     };
     window.addEventListener('keydown', gameVerbListener);
     try {
-      const p = confirmDialog(document.body, { title: 'Restart the mission?', body: 'b', confirm: 'Restart', danger: true });
+      const p = confirmDialog(document.body, { title: 'Restart the mission?', body: 'b', confirm: 'Restart', danger: true }).answer;
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
       expect(seen).toEqual([]);
 
@@ -213,19 +221,33 @@ describe('pauseMenu', () => {
   // a stand-in for the FIXED shape,
   // `case 'pause': if (!paused && !isDialogOpen() && !missionEnded) pause();`,
   // registered before the pause menu opens, exactly like the real one.
+  //
+  // Minor 16 (final review): this stand-in used to carry only the
+  // `isDialogOpen()` third of that condition, so it mirrored one clause of
+  // three and the comment above overstated it. `paused` and `missionEnded` are
+  // real local state here now, and `paused` is driven by the menu's own
+  // `onResume` the way `bootBattlefield`'s is -- so an Escape that reaches the
+  // game while the menu is already up is refused for the same two reasons the
+  // real handler refuses it.
   it('the game only OPENS the pause menu: Escape belongs to whichever dialog is open, so cancelling a stacked confirm neither resumes the game nor leaks to it', async () => {
     const d = deps();
     const spy = vi.fn();
+    let paused = false;
+    const missionEnded = false;
+    d.onResume.mockImplementation(() => {
+      paused = false;
+    });
     const gameKeydown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' && !isDialogOpen()) spy();
+      if (e.key === 'Escape' && !paused && !isDialogOpen() && !missionEnded) spy();
     };
     window.addEventListener('keydown', gameKeydown);
     try {
       pauseMenu(document.body, d);
+      paused = true;
       (document.querySelector('.rl-pause button[data-act="restart"]') as HTMLButtonElement).click();
       expect(d.onRestart).toHaveBeenCalledTimes(1);
       // main.ts's real onRestart opens exactly this, stacked over the pause modal.
-      const p = confirmDialog(document.body, { title: 'Restart the mission?', body: 'b', confirm: 'Restart', danger: true });
+      const p = confirmDialog(document.body, { title: 'Restart the mission?', body: 'b', confirm: 'Restart', danger: true }).answer;
 
       // Escape cancels the CONFIRM -- the pause menu underneath is untouched,
       // the game never sees it (a dialog was open throughout), and the pause
@@ -253,10 +275,97 @@ describe('pauseMenu', () => {
     };
     window.addEventListener('keydown', gameKeydown);
     try {
-      const p = confirmDialog(document.body, { title: 'Leave the mission?', body: 'b', confirm: 'Leave', danger: true });
+      const p = confirmDialog(document.body, { title: 'Leave the mission?', body: 'b', confirm: 'Leave', danger: true }).answer;
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       await expect(p).resolves.toBe(false);
       expect(spy).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', gameKeydown);
+    }
+  });
+
+  // I1 (final review). Both modals deliberately let Tab through so the
+  // browser's native focus traversal works inside the dialog -- and `main.ts`
+  // binds Tab to `cycleChips`, so before the handler-wide guard a Tab pressed
+  // in the pause menu ran `hud.cycleChipFocus()`, moved the lime focus frame
+  // along the HUD chips BEHIND the modal, and then `preventDefault()`ed the
+  // very focus move the dialog had passed Tab through for.
+  //
+  // `gameKeydown` mirrors `main.ts`'s handler exactly: `resolveKey`, then the
+  // one guard, then the `cycleChips` case -- and it imports
+  // `passesThroughModal` rather than restating it, so a mutation of the real
+  // predicate turns this red. Both directions were falsified by hand: forcing
+  // it to `true` lets Tab through and fails the first half; forcing it to
+  // `false` blocks the pan and fails the second.
+  //
+  // jsdom implements no Tab traversal, so `document.activeElement` cannot say
+  // whether focus MOVED. What it can say -- and what the defect actually was
+  // -- is whether the game cancelled the browser's default action, so
+  // `defaultPrevented` is the reading.
+  it('Tab does not reach the game through the open modal, while a pan key still does', () => {
+    const bindings = bindingsFrom({});
+    const d = deps();
+    d.isPanKey = (ev: KeyboardEvent) => passesThroughModal(resolveKey(bindings, ev));
+    const cycleChipFocus = vi.fn(() => true);
+    const acted: string[] = [];
+    const gameKeydown = (ev: KeyboardEvent): void => {
+      const action = resolveKey(bindings, ev);
+      if (isDialogOpen() && !passesThroughModal(action)) return;
+      if (action === 'cycleChips') {
+        if (cycleChipFocus()) ev.preventDefault();
+        return;
+      }
+      if (action !== null) acted.push(action);
+    };
+    window.addEventListener('keydown', gameKeydown);
+    try {
+      // Negative control first, with nothing open: Tab IS the game's key.
+      const before = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      document.body.dispatchEvent(before);
+      expect(cycleChipFocus).toHaveBeenCalledTimes(1);
+      expect(before.defaultPrevented).toBe(true);
+
+      pauseMenu(document.body, d);
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      document.body.dispatchEvent(tab);
+      expect(cycleChipFocus).toHaveBeenCalledTimes(1); // still 1: the modal's Tab is the modal's
+      expect(tab.defaultPrevented).toBe(false);
+      expect(document.activeElement?.closest('.rl-pause')).not.toBeNull();
+
+      // A game verb the modal passes NOTHING of: blocked twice over.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', bubbles: true }));
+      expect(acted).toEqual([]);
+
+      // ...but the camera still pans, which is the pause menu's own deliberate
+      // exemption (`isPanKey`) and the only thing `passesThroughModal` allows.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true }));
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(acted).toEqual(['panUp', 'panRight']);
+    } finally {
+      window.removeEventListener('keydown', gameKeydown);
+    }
+  });
+
+  // The same guard, over a bare confirm rather than the pause menu -- where
+  // the pan exemption does NOT apply, because `confirm.ts` stops pan keys in
+  // the capture phase (a player answering "leave the mission?" is not looking
+  // around). Two independent reasons to refuse, and the test proves the outer
+  // one by reading the game's own record rather than the dialog's.
+  it('a game verb pressed under a bare confirm reaches no action', () => {
+    const bindings = bindingsFrom({});
+    const acted: string[] = [];
+    const gameKeydown = (ev: KeyboardEvent): void => {
+      const action = resolveKey(bindings, ev);
+      if (isDialogOpen() && !passesThroughModal(action)) return;
+      if (action !== null) acted.push(action);
+    };
+    window.addEventListener('keydown', gameKeydown);
+    try {
+      void confirmDialog(document.body, { title: 'Leave the mission?', body: 'b', confirm: 'Leave', danger: true });
+      for (const key of ['h', 'f', 'o', 'g', 'u', 'b', 'm', 'Tab']) {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      }
+      expect(acted).toEqual([]);
     } finally {
       window.removeEventListener('keydown', gameKeydown);
     }

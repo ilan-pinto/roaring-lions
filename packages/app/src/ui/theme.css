@@ -3396,7 +3396,18 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-settings__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  /* I6 (final review): the control column was `auto`, so a `<select>`'s
+     intrinsic width is its longest OPTION and the control pushed the label
+     column until it wrapped -- "Render quality" went to two lines in English
+     at 1920, and under the pseudo-locale (which pads ~40%) the select grew
+     past the label column entirely and drew OVER the first line of its own
+     label. `max-content` capped by `minmax(0, ...)` lets the control shrink
+     instead of push; `minmax(8rem, 1fr)` keeps the label a floor it cannot be
+     squeezed below. The three quality strings were shortened to the preset
+     name in the same pass, with the descriptions moved into this row's own
+     hint -- both halves, because either alone leaves the other locale's worst
+     case unfixed. */
+  grid-template-columns: minmax(8rem, 1fr) minmax(0, max-content);
   align-items: center;
   gap: var(--s2);
   padding-block: var(--s2);
@@ -3412,10 +3423,22 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-settings__control {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--s1);
+  /* Minor 11: this was `column`, which stacked a keymap row's `<kbd>` ABOVE
+     its "Change" button and left the action's label floating between two
+     stacked controls. A wrapping ROW puts the keycap beside the button, which
+     is what the row reads as, while `.rl-settings__hint`'s `flex-basis: 100%`
+     below keeps every hint on its own line under the control it explains --
+     so a select-plus-hint row looks exactly as it did. */
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s1) var(--s2);
   text-align: right;
+  /* Part of I6: the grid track can now shrink, so the contents must be
+     allowed to as well -- a flex item's default `min-width: auto` would
+     otherwise refuse and put the overflow back. */
+  min-width: 0;
+  max-width: 100%;
 }
 .rl-settings__control select {
   background: var(--panel-bg-solid);
@@ -3424,6 +3447,12 @@ button.rl-menu__item[data-kind='aside'] {
   font-family: var(--font-mono);
   font-size: var(--t-s);
   padding: var(--s1) var(--s2);
+  /* I6: ellipsise rather than push. A `<select>`'s closed display is the one
+     place `text-overflow` applies to a replaced element in Chromium, which is
+     the browser the capture pass photographs. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rl-settings__control input[type='range'] {
   width: min(10rem, 40vw);
@@ -3431,6 +3460,10 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-settings__hint {
   color: var(--ink-mute);
   font-size: var(--t-s);
+  /* Its own line under the control, now that `.rl-settings__control` is a
+     wrapping row (Minor 11). Inert where a hint is NOT a flex child -- the
+     panel foot and the settings screen's build line both use this class. */
+  flex-basis: 100%;
 }
 /* The keycap in a Task 5 keymap row (ui/settings-keymap.ts) -- the same
    frame-and-mono-face `.rl-settings__control select` already wears, since

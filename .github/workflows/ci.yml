@@ -194,6 +194,29 @@ jobs:
             exit 0
           fi
           exit $code
+      # I9 (final review). The branch's headline claim -- a battlefield can be
+      # LEFT cleanly, in one JS realm, with no page reload -- is proved by
+      # exactly one instrument, and until this it ran only when somebody
+      # remembered to type it. That is the shape CLAUDE.md already records for
+      # `playtest.ts`: "the gate was a manual `npx tsx` script wired into
+      # neither `pnpm test` nor CI, which is why 'all gates green' could be said
+      # truthfully while this one was red."
+      #
+      # Here rather than in `gates` because it drives a real browser: this job
+      # already installs Playwright and has the cache warm for it, and `gates`
+      # has neither. It boots its OWN dev server on :5177 (the baseline gate
+      # above uses :5175, so the two never contend) and kills its process
+      # GROUP on the way out.
+      #
+      # Cost, measured on this branch before wiring it up: **73.1-73.5 s** wall
+      # clock, three consecutive runs on one machine (macOS, warm pnpm cache),
+      # dev-server boot included. That is roughly twice the baseline gate's
+      # 39-40 s and it is paid on every PR deliberately -- it is the only check
+      # that can catch a battlefield that does not release its realm, and the
+      # failure it guards against is invisible until a player has played two
+      # missions in one tab.
+      - name: one realm, no reload -- the router's own walk
+        run: pnpm ui:routes
       # Uploaded on failure AND on success: the diff image is what a triager
       # actually needs, and `combat` is captured but never gated, so its frame
       # is only ever reachable here.

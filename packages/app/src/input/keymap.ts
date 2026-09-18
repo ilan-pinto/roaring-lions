@@ -97,6 +97,36 @@ export function resolveKey(b: Bindings, ev: { key: string; ctrlKey: boolean; met
   return null;
 }
 
+/**
+ * May this action still reach the game while a modal -- a confirm, or the pause
+ * menu -- is open?
+ *
+ * Only the four camera pans, and they are not a game verb at all: panning
+ * writes `renderer.camera.x/y` and nothing else. It dispatches no intent,
+ * touches no sim state, and stays correct under invariant 4 whether or not a
+ * modal is up. `ui/pause.ts` already exempts them from its own capture guard
+ * for that reason ("a modal over a world that keeps drawing while the sim
+ * stops"); this is the same rule stated once, in a place both halves can read.
+ *
+ * I1 (final review): `main.ts`'s bubble keydown listener guarded only
+ * `case 'pause'`. Everything else -- halt, select-all, overlay, load/unload,
+ * smoke, reinforcements, mute and the control-group digits -- was protected
+ * solely by the modals' own capture-phase `stopPropagation()`, which is to say
+ * by exactly the listener C1 showed can go missing. Tab was worse than
+ * unprotected: both modals deliberately PASS Tab through so the browser's
+ * native focus traversal works inside the dialog, and `main.ts` bound Tab to
+ * `cycleChips` -- so a Tab pressed in the pause menu walked the lime focus
+ * frame along the HUD chips BEHIND the modal and then `preventDefault()`ed the
+ * focus move the dialog needed. The `aria-modal="true"` both dialogs claim was
+ * false for the one key a keyboard player needs most.
+ *
+ * Defence in depth rather than a second copy of the modal's guard: this one
+ * holds whether or not the modal's listener is alive.
+ */
+export function passesThroughModal(action: Action | null): boolean {
+  return action === 'panUp' || action === 'panDown' || action === 'panLeft' || action === 'panRight';
+}
+
 export function rebind(b: Bindings, action: Action, key: string): { ok: true; bindings: Bindings } | { ok: false; takenBy: Action } {
   const k = norm(key);
   const s = spec(action);

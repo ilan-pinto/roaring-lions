@@ -349,7 +349,7 @@ export class Hud {
         body: t('hud.leave.confirm.body'),
         confirm: t('hud.leave.confirm.action'),
         danger: true,
-      }).then((ok) => {
+      }).answer.then((ok) => {
         if (ok) deps.leave?.();
       });
     });
