@@ -3,6 +3,9 @@
   "trigger": "impact_terrain",
   "layer": "above_units",
   "budget_priority": 7,
+  "hit_stop_ms": 40,
+  "screen_shake": { "amplitude_px": 5, "duration_ms": 300, "falloff_tiles": 10 },
+  "light": { "color": "vfx.fire", "intensity": 2.0, "radius_tiles": 4, "decay_ms": 380 },
   "particles": [
     {
       "sprite": "soft_dot",
@@ -43,6 +46,20 @@
       "size_over_life": [0.5, 2.2],
       "color_over_life": ["dust.2", "dust.4"],
       "alpha_over_life": [0.75, 0.0]
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [3, 5],
+      "lifetime_ms": [3200, 4800],
+      "speed_tiles_s": [0.3, 0.9],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -0.3,
+      "drag": 0.5,
+      "size_px": [16, 28],
+      "size_over_life": [0.5, 1.4, 2.2],
+      "color_over_life": ["gunmetal.3", "gunmetal.2", "gunmetal.0"],
+      "alpha_over_life": [0.85, 0.6, 0.0],
+      "mesh_plume": true
     }
   ]
 }
