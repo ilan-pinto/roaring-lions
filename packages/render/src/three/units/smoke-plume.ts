@@ -189,6 +189,21 @@
  * the hard-target gate and the power-from-max-HP scaling; nothing about
  * either manager itself changed to support a second call site, matching
  * this recipe's own "one pool, not one per trigger" shape.
+ *
+ * ## The twenty-second column (WP-A1.2) shares this pool, and its ceiling is
+ * the same one
+ *
+ * `BLAST_SMOKE_DURATION_MS` (20s) is a caller of the SAME `SmokePlumeManager`
+ * via `spawn`'s optional `riseMs`/`fadeMs`, not a new pool -- `SMOKE_PLUME_
+ * CAPACITY` (16) and `spawn`'s oldest-evicted eviction rule are both
+ * unchanged. A plume that lives five times as long occupies its pool slot
+ * five times as long, so a twenty-second life means AT MOST SIXTEEN such
+ * columns can be alive at once: a mission that kills a seventeenth vehicle
+ * inside the same twenty seconds drops the FIRST column early rather than
+ * refusing the seventeenth. That is the pool doing exactly what it has
+ * always done, not a limitation this task introduced -- written down here
+ * so a column that vanishes early in a heavy engagement reads as "the pool
+ * did its job," not as a defect to chase.
  */
 import * as THREE from 'three';
 import { gltfLoader } from './gltf-loader';
@@ -267,6 +282,55 @@ export const SMOKE_PLUME_BASE_SCALE = 0.8;
  * detonation.
  */
 export const SMOKE_PLUME_DEFAULT_DURATION_MS = 4000;
+
+/**
+ * WP-A1.2's own blast-package smoke column's total lifetime, in ms -- the
+ * "twenty-second smoke column" its task brief asks for, five times
+ * `SMOKE_PLUME_DEFAULT_DURATION_MS`. Exists as its own named constant rather
+ * than a bare `20_000` at each call site because Decision R-I
+ * (`docs/superpowers/specs/2026-09-19-art-blast-design.md`) is precisely the
+ * warning that this number cannot travel alone: `step()`'s
+ * `progress = ageMs / durationMs` feeds `smokePlumeRiseEnvelope`,
+ * `smokePlumeOpacity` AND `smokePlumeSpread` alike, so bumping only this one
+ * would silently stretch `SMOKE_PLUME_RISE_FRACTION` (0.15) into a
+ * three-second climb and `SMOKE_PLUME_FADE_FRACTION` (0.35) into a
+ * seven-second fade -- the column would inflate in slow motion, the same
+ * class of defect as the plume that used to retract into the ground (this
+ * file's own "It shipped OPAQUE" section). `BLAST_SMOKE_RISE_MS` and
+ * `BLAST_SMOKE_FADE_MS` exist so this duration can change without dragging
+ * either window along with it; `SmokePlumeManager.spawn`'s optional
+ * `riseMs`/`fadeMs` parameters are how a caller supplies all three together.
+ */
+export const BLAST_SMOKE_DURATION_MS = 20_000;
+
+/**
+ * WP-A1.2's blast-package smoke column's own RISE window, in ms -- an
+ * ABSOLUTE duration, not a fraction of `BLAST_SMOKE_DURATION_MS` (see that
+ * constant's own doc comment for why a fraction would be wrong here). Equal
+ * to what `SMOKE_PLUME_RISE_FRACTION` already produces at the SHIPPED 4s
+ * duration (`SMOKE_PLUME_RISE_FRACTION * SMOKE_PLUME_DEFAULT_DURATION_MS` =
+ * 600), so a twenty-second column climbs at the same visible SPEED a
+ * four-second one already does, rather than a speed scaled to its own
+ * longer life. Changing this changes how fast every blast-package column
+ * visibly climbs; it does not touch a `SmokePlumeManager.spawn` call that
+ * omits `riseMs`, which keeps using `SMOKE_PLUME_RISE_FRACTION` of its own
+ * `durationMs` exactly as before this constant existed.
+ */
+export const BLAST_SMOKE_RISE_MS = 600;
+
+/**
+ * WP-A1.2's blast-package smoke column's own FADE window, in ms -- also
+ * absolute, for the same reason as `BLAST_SMOKE_RISE_MS`. Deliberately NOT
+ * `SMOKE_PLUME_FADE_FRACTION * BLAST_SMOKE_DURATION_MS` (7,000ms): a column
+ * that spends the last third of a twenty-second life visibly dissolving is
+ * one the player watches leave for seven seconds, which reads as the smoke
+ * dying rather than the fight moving on. 5,000ms instead leaves roughly
+ * fourteen seconds of full-density hold between the rise ending and the
+ * fade beginning -- what "a twenty-second smoke column" is actually asking
+ * for. Changing this changes how long a blast-package column holds at full
+ * density before it starts to leave.
+ */
+export const BLAST_SMOKE_FADE_MS = 5_000;
 
 /**
  * Fraction of a plume's own life spent RISING from nothing to its nominal
@@ -395,11 +459,21 @@ export const SMOKE_PLUME_YAW_DRIFT_TURNS = 0.125;
  * (`smokePlumeFootprintScale`) the whole shape ran backwards at once. Smoke
  * leaves by thinning, so leaving is now `smokePlumeOpacity`'s job and this
  * function is monotone non-decreasing for its whole domain.
+ *
+ * `riseFraction` defaults to `SMOKE_PLUME_RISE_FRACTION`, so every existing
+ * caller that omits it is byte-identical to before this parameter existed.
+ * It exists for Decision R-I (`BLAST_SMOKE_DURATION_MS`'s own doc comment):
+ * a caller with a much longer `durationMs` supplies its OWN absolute rise
+ * window converted to a fraction of that duration, rather than inheriting
+ * the default fraction unscaled and climbing in slow motion.
  */
-export function smokePlumeRiseEnvelope(progress: number): number {
+export function smokePlumeRiseEnvelope(
+  progress: number,
+  riseFraction: number = SMOKE_PLUME_RISE_FRACTION
+): number {
   const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
-  if (p < SMOKE_PLUME_RISE_FRACTION) return p / SMOKE_PLUME_RISE_FRACTION;
-  return 1 + SMOKE_PLUME_CLIMB * ((p - SMOKE_PLUME_RISE_FRACTION) / (1 - SMOKE_PLUME_RISE_FRACTION));
+  if (p < riseFraction) return p / riseFraction;
+  return 1 + SMOKE_PLUME_CLIMB * ((p - riseFraction) / (1 - riseFraction));
 }
 
 /**
@@ -418,13 +492,21 @@ export function smokePlumeRiseEnvelope(progress: number): number {
  * The fade is smoothstepped rather than linear so the last visible frames
  * thin out instead of stepping off; the rise is linear so it matches the
  * height ramp exactly and the two cannot disagree about when "risen" is.
+ *
+ * `riseFraction`/`fadeFraction` default to `SMOKE_PLUME_RISE_FRACTION`/
+ * `SMOKE_PLUME_FADE_FRACTION`, the identical byte-identical-default contract
+ * `smokePlumeRiseEnvelope` carries, and for the same Decision R-I reason.
  */
-export function smokePlumeOpacity(progress: number): number {
+export function smokePlumeOpacity(
+  progress: number,
+  riseFraction: number = SMOKE_PLUME_RISE_FRACTION,
+  fadeFraction: number = SMOKE_PLUME_FADE_FRACTION
+): number {
   const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
-  if (p < SMOKE_PLUME_RISE_FRACTION) return p / SMOKE_PLUME_RISE_FRACTION;
-  const fadeStart = 1 - SMOKE_PLUME_FADE_FRACTION;
+  if (p < riseFraction) return p / riseFraction;
+  const fadeStart = 1 - fadeFraction;
   if (p <= fadeStart) return 1;
-  const t = (1 - p) / SMOKE_PLUME_FADE_FRACTION;
+  const t = (1 - p) / fadeFraction;
   return t * t * (3 - 2 * t);
 }
 
@@ -476,6 +558,14 @@ export function smokePlumeZoneOffset(role: SmokePlumeRole, progress: number): re
 export function smokePlumeYawTurns(seedTurns: number, progress: number): number {
   const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
   return seedTurns + SMOKE_PLUME_YAW_DRIFT_TURNS * p;
+}
+
+/** Clamps `v` into `[0, 1]` -- shared by `SmokePlumeManager.spawn`'s
+ *  `riseMs`/`fadeMs` -> `riseFraction`/`fadeFraction` conversion, since an
+ *  authored window outside `[0, durationMs]` should not silently produce an
+ *  envelope that reads past either end rather than being clamped to it. */
+function clampUnit(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 /** One loaded `art/meshes/vfx/smoke_plume.glb`, kept as the source geometry
@@ -533,7 +623,13 @@ export async function loadSmokePlumeTemplate(glbUrl: string): Promise<SmokePlume
  *  file's own top comment), so `yawTurns` here visibly varies which way the
  *  column's own long axis points from spawn to spawn -- still never
  *  sim-derived, the caller is expected to derive it from the presentation
- *  PRNG/hash exactly like every other scatter effect in this renderer. */
+ *  PRNG/hash exactly like every other scatter effect in this renderer.
+ *
+ *  `riseFraction`/`fadeFraction` are THIS plume's own envelope shape,
+ *  resolved once at `spawn()` time from its own `durationMs` (Decision R-I)
+ *  rather than read from the module-level constants at `step()` time -- so
+ *  a short collapse plume and a long blast-package column can be alive in
+ *  the same pool at once, each climbing and fading on its own clock. */
 interface ActiveSmokePlume {
   x: number;
   y: number;
@@ -542,6 +638,8 @@ interface ActiveSmokePlume {
   power: number;
   ageMs: number;
   durationMs: number;
+  riseFraction: number;
+  fadeFraction: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -826,11 +924,37 @@ export class SmokePlumeManager {
    * below zero duration, matching every other manager's identical guard.
    * Over capacity, drops the OLDEST active plume first, the same eviction
    * rule every other pooled manager in this backend uses.
+   *
+   * `riseMs`/`fadeMs` are OPTIONAL absolute windows (Decision R-I) -- omit
+   * either and this plume uses `SMOKE_PLUME_RISE_FRACTION`/
+   * `SMOKE_PLUME_FADE_FRACTION` of its own `durationMs`, exactly as every
+   * caller before this parameter existed did, which is what makes every
+   * existing call site (a building collapse, a vehicle death) byte-identical
+   * to before this task. Converted to fractions of `durationMs` once, here,
+   * rather than carried as raw ms, because `step()`'s `progress` is already
+   * a fraction and the envelope functions take fractions, not ms. Both
+   * fractions are clamped into `[0, 1]` and the fade is additionally capped
+   * to `1 - riseFraction`, so a rise cannot be asked to overlap its own
+   * fade -- a plume that never finishes rising before it starts leaving
+   * would never reach full opacity, which reads as a bug in the art rather
+   * than a deliberate effect.
    */
-  spawn(x: number, y: number, z: number, yawTurns: number, power: number, durationMs: number): void {
+  spawn(
+    x: number,
+    y: number,
+    z: number,
+    yawTurns: number,
+    power: number,
+    durationMs: number,
+    riseMs?: number,
+    fadeMs?: number
+  ): void {
     if (durationMs <= 0) return;
     if (this.active.length >= this.capacity) this.active.shift();
-    this.active.push({ x, y, z, yawTurns, power, ageMs: 0, durationMs });
+    const riseFraction = clampUnit(riseMs === undefined ? SMOKE_PLUME_RISE_FRACTION : riseMs / durationMs);
+    const rawFadeFraction = fadeMs === undefined ? SMOKE_PLUME_FADE_FRACTION : fadeMs / durationMs;
+    const fadeFraction = clampUnit(Math.min(rawFadeFraction, 1 - riseFraction));
+    this.active.push({ x, y, z, yawTurns, power, ageMs: 0, durationMs, riseFraction, fadeFraction });
   }
 
   /**
@@ -868,9 +992,9 @@ export class SmokePlumeManager {
       const p = this.active[i];
       const progress = p.ageMs / p.durationMs;
       const magnitude = SMOKE_PLUME_BASE_SCALE * muzzleFlashPowerScale(p.power);
-      const heightScale = magnitude * smokePlumeRiseEnvelope(progress);
+      const heightScale = magnitude * smokePlumeRiseEnvelope(progress, p.riseFraction);
       const footprintScale = magnitude * smokePlumeSpread(progress);
-      const opacity = smokePlumeOpacity(progress);
+      const opacity = smokePlumeOpacity(progress, p.riseFraction, p.fadeFraction);
       this.scratchQuat.setFromAxisAngle(Y_AXIS, smokePlumeYawTurns(p.yawTurns, progress) * Math.PI * 2);
       this.scratchScale.set(footprintScale, heightScale, footprintScale);
       for (const role of SMOKE_PLUME_ROLES) {

@@ -20,6 +20,9 @@ import {
   SMOKE_PLUME_DENSITY,
   SMOKE_PLUME_EDGE_SOFTNESS,
   SMOKE_PLUME_TOP_DENSITY,
+  BLAST_SMOKE_DURATION_MS,
+  BLAST_SMOKE_FADE_MS,
+  BLAST_SMOKE_RISE_MS,
   createSmokePlumeMaterial,
   smokePlumeMeshHeight,
   smokePlumeRiseEnvelope,
@@ -422,5 +425,60 @@ describe('SmokePlumeManager', () => {
   it('dispose() on a manager that never loaded does not throw', () => {
     const mgr = new SmokePlumeManager();
     expect(() => mgr.dispose()).not.toThrow();
+  });
+});
+
+describe('an absolute rise and fade window (R-I)', () => {
+  // The defect this exists to prevent, stated as a test rather than as prose:
+  // a 20 s column built by scaling durationMs alone climbs for 3.0 s.
+  it('a 20 s column still reaches full height in 600 ms, not 3 s', () => {
+    const riseFraction = BLAST_SMOKE_RISE_MS / BLAST_SMOKE_DURATION_MS;
+    const at = (ms: number) => smokePlumeRiseEnvelope(ms / BLAST_SMOKE_DURATION_MS, riseFraction);
+    expect(at(0)).toBe(0);
+    expect(at(300)).toBeCloseTo(0.5, 6);
+    expect(at(600)).toBeCloseTo(1, 6);
+    // and the naive version really is three times slower, which is the whole
+    // argument for this parameter existing
+    expect(smokePlumeRiseEnvelope(600 / BLAST_SMOKE_DURATION_MS)).toBeCloseTo(0.2, 6);
+  });
+
+  it('a 20 s column holds for most of its life and leaves over the last 5 s', () => {
+    const fadeFraction = BLAST_SMOKE_FADE_MS / BLAST_SMOKE_DURATION_MS;
+    const riseFraction = BLAST_SMOKE_RISE_MS / BLAST_SMOKE_DURATION_MS;
+    const alpha = (ms: number) => smokePlumeOpacity(ms / BLAST_SMOKE_DURATION_MS, riseFraction, fadeFraction);
+    expect(alpha(600)).toBeCloseTo(1, 6);
+    expect(alpha(14_000)).toBeCloseTo(1, 6);
+    expect(alpha(15_000)).toBeCloseTo(1, 6);
+    expect(alpha(17_500)).toBeLessThan(1);
+    expect(alpha(17_500)).toBeGreaterThan(0);
+    expect(alpha(20_000)).toBe(0);
+  });
+
+  // The whole point of a defaulted parameter: the shipped 4 s plume must be
+  // bit-identical, or this task has changed a building collapse.
+  it('is bit-identical to today when the windows are not supplied', () => {
+    for (let p = 0; p <= 1.0001; p += 0.01) {
+      expect(smokePlumeRiseEnvelope(p, SMOKE_PLUME_RISE_FRACTION)).toBe(smokePlumeRiseEnvelope(p));
+      expect(smokePlumeOpacity(p, SMOKE_PLUME_RISE_FRACTION, SMOKE_PLUME_FADE_FRACTION)).toBe(
+        smokePlumeOpacity(p)
+      );
+    }
+  });
+
+  it('the blast column is five times the shipped default and the constants say so', () => {
+    expect(BLAST_SMOKE_DURATION_MS).toBe(5 * SMOKE_PLUME_DEFAULT_DURATION_MS);
+    expect(BLAST_SMOKE_RISE_MS).toBe(SMOKE_PLUME_RISE_FRACTION * SMOKE_PLUME_DEFAULT_DURATION_MS);
+  });
+});
+
+describe('SmokePlumeManager carries the windows per plume', () => {
+  it('a blast plume and a collapse plume can be alive at once with different envelopes', () => {
+    const m = new SmokePlumeManager();
+    m.spawn(0, 0, 0, 0, 1, SMOKE_PLUME_DEFAULT_DURATION_MS);
+    m.spawn(5, 0, 5, 0, 1, BLAST_SMOKE_DURATION_MS, BLAST_SMOKE_RISE_MS, BLAST_SMOKE_FADE_MS);
+    expect(m.liveCount).toBe(2);
+    m.step(SMOKE_PLUME_DEFAULT_DURATION_MS);
+    // the collapse plume has retired; the blast column has sixteen seconds left
+    expect(m.liveCount).toBe(1);
   });
 });
