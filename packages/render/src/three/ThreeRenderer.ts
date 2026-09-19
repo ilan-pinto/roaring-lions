@@ -125,8 +125,32 @@ import {
   explosionBurstPowerFromFootprint,
   explosionBurstPowerFromMaxHp,
 } from './units/explosion-burst';
-import { SmokePlumeManager, SMOKE_PLUME_DEFAULT_DURATION_MS } from './units/smoke-plume';
+import {
+  SmokePlumeManager,
+  SMOKE_PLUME_DEFAULT_DURATION_MS,
+  BLAST_SMOKE_DURATION_MS,
+  BLAST_SMOKE_RISE_MS,
+  BLAST_SMOKE_FADE_MS,
+} from './units/smoke-plume';
 import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
+import { ScorchDecalMesh, SCORCH_CAPACITY } from './scorch-decals';
+import {
+  BLAST_EMITTER_ID,
+  SHELL_IMPACT_EMITTER_ID,
+  blastLightSpec,
+  blastShake,
+  blastHitStopMs,
+} from './blast-spec';
+import {
+  initShakeState,
+  pushShake,
+  stepShake,
+  shakeOffsetPx,
+  requestHitStop,
+  stepHitStop,
+  type ShakeState,
+  type HitStopState,
+} from './blast-shake';
 import { buildGround, groundAlbedoSlotsUsed } from './terrain/ground';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
 import { buildScatter } from './terrain/scatter';
@@ -238,6 +262,7 @@ import {
   instantiateVehicleMesh,
   disposeVehicleMeshEntity,
   disposeVehicleMeshTemplate,
+  vehicleShroudBounds,
   type VehicleMeshTemplate,
   type VehicleMeshEntity,
 } from './units/mesh-vehicle';
@@ -1042,6 +1067,53 @@ export class ThreeRenderer implements Renderer {
    *  have nothing left to hide. Its three palette colours still arrive with
    *  `useEmitters`, the same two-phase shape every other manager here uses. */
   private readonly collapseShrouds = new CollapseShroudManager();
+  /**
+   * The persistent scorch marks a blast leaves on the ground
+   * (`../scorch-decals.ts`) -- one `THREE.Mesh` and one ring buffer for the
+   * whole map, `SCORCH_CAPACITY` marks, oldest slot overwritten once full.
+   *
+   * Built in the constructor rather than initialised here because its colour
+   * is resolved through `overlayColor` (the same "colour is looked up, never
+   * computed" rule `trailMesh`/`vehicleTrackMesh` follow one field group
+   * down), and `this.opts` is a parameter property -- available in the
+   * constructor body, not at field-initialiser time.
+   *
+   * It takes no `step()`: a mark never moves, never fades and has no TTL, so
+   * the only per-frame cost it could have is one it does not pay.
+   */
+  private readonly scorchDecals: ScorchDecalMesh;
+  /**
+   * Every live screen shake, as the pure model's own immutable state
+   * (`./blast-shake.ts`). Written at the two dispatch sites (a vehicle kill,
+   * a shell landing), aged once in `frame()`, and READ only by
+   * `threeCamera()` -- which offsets a COPY of `this.camera`, never
+   * `this.camera` itself (R-K; see that method's own comment).
+   */
+  private shakeState: ShakeState = initShakeState();
+  /**
+   * How much PRESENTATION time is still being withheld (R-J). Requested at
+   * the same two dispatch sites, drained at the top of `frame()`, and read
+   * by nothing else. The sim keeps ticking in `main.ts` underneath and never
+   * learns this exists (invariant 4); what freezes is the interpolation
+   * fraction and every elapsed-time clock `frame()` hands downstream.
+   */
+  private hitStop: HitStopState = { remainingMs: 0 };
+  /**
+   * The interpolation fraction the last UNFROZEN frame drew at, re-handed to
+   * every consumer for the length of a hit-stop. Without it the freeze would
+   * hold the clocks but let the world creep forward on the alpha
+   * `main.ts` keeps advancing, which is the one thing the freeze exists to
+   * stop.
+   */
+  private lastAlpha = 0;
+  /**
+   * `setDebugLayerVisible('blast-light', false)` -- a FLAG, not a write to
+   * the lights, for exactly the reason `unitsDebugHidden` below is one:
+   * `FlashLightManager.step` rewrites every pooled light's intensity on
+   * every frame, so a one-shot write would be undone by the very repaint
+   * the gate photographs. See `./debug-layers.ts`'s own entry for it.
+   */
+  private flashLightsDebugHidden = false;
   /** Structure index -> ms of standing-mesh hold still owed, counted down by
    *  `stepCollapseShrouds`. While an entry is present and positive,
    *  `updateBuildingMeshes` leaves the STANDING clone in the scene even
@@ -1273,6 +1345,18 @@ export class ThreeRenderer implements Renderer {
    * `updateMeshUnits`' loop to guess which shape each entry needs.
    */
   private readonly vehicleMeshTemplates = new Map<string, VehicleMeshTemplate>();
+  /** Unit type id -> the world-space extents of its LIVING vehicle body
+   *  (`x`/`y`/`z` = width/height/depth in tiles), measured off the loaded
+   *  template in `loadVehicleMesh` -- the exact counterpart of
+   *  `buildingMeshBounds` above, filled at the same moment its own map is
+   *  and recomputed on a reload rather than carried on the template, so a
+   *  re-export cannot leave a stale size behind.
+   *
+   *  `vehicleShroudBounds` excludes the `death_root` subtree (R-O): a
+   *  wreck's parts are displaced OUTWARD by the wreck recipe, so measuring
+   *  the whole clone would size the shroud from scattered debris rather than
+   *  from the body it has to cover. */
+  private readonly vehicleMeshBounds = new Map<string, THREE.Vector3>();
   /** One `VehicleMeshEntity` per living entity of a vehicle-mesh-enabled
    *  type, keyed by entity id -- pooled across frames like `meshUnitEntities`.
    *  On death it is handed to `vehicleDying` when its template carries the
@@ -1695,6 +1779,13 @@ export class ThreeRenderer implements Renderer {
     // same material. See vehicle-tracks.ts's own top comment for the full
     // palette/fog/pool-sizing account.
     this.vehicleTrackMesh = new VehicleTrackMesh(TRACK_POOL_CAPACITY, opts.terrainTones.rut);
+    // Same "resolve the palette-key colour once, at construction" pattern as
+    // the two meshes above. `shadow.0` is the darkest-but-one shadow tone,
+    // which is what `scorch-decals.ts` names as its own fallback -- passed
+    // through `overlayColor` here so a caller that supplied a resolver gets
+    // the real palette entry and one that did not (this backend's own tests)
+    // still gets an on-palette hex rather than magenta.
+    this.scorchDecals = new ScorchDecalMesh(SCORCH_CAPACITY, this.overlayColor('shadow.0', '#23241F'));
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
     // budget this multiplies, and the "+ 8192" headroom for the handful of
@@ -1833,6 +1924,13 @@ export class ThreeRenderer implements Renderer {
     // "scene-graph position is cosmetic here, renderOrder plus real depth
     // does the real work" reason -- see vehicle-tracks.ts's own top comment.
     this.scene.add(this.vehicleTrackMesh.mesh);
+    // The scorch marks draw in the same WORLD band as the tracks just above
+    // and lie on the same ground plane, so they are grouped with them for
+    // the same reader's-eye reason -- scene-graph position carries no
+    // draw-order meaning in this backend (`renderOrder` plus the real depth
+    // buffer does). Added here once and never removed: the pool is fixed and
+    // the mesh outlives every mark in it.
+    this.scene.add(this.scorchDecals.mesh);
     // `SMOKE_RENDER_ORDER` sits above the overlay tier -- see
     // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
     // here for the identical reason it is for `trailMesh` (three.js
@@ -2135,6 +2233,9 @@ export class ThreeRenderer implements Renderer {
     this.explosionBursts.dispose();
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
+    // Same "added once in the constructor, no scene.remove needed" shape as
+    // the FX batches above -- one geometry and one ShaderMaterial.
+    this.scorchDecals.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -2264,6 +2365,30 @@ export class ThreeRenderer implements Renderer {
    *  below does the same, so this gate governs only the GPU rebuild, not a
    *  separate computation. */
   frame(alpha: number, dtMs: number): void {
+    // R-J/R-D: a PRESENTATION pause, and the FIRST thing this method does so
+    // that every clock below it is fed the held value rather than half of
+    // them. The sim keeps ticking in `main.ts` underneath -- this holds the
+    // interpolation fraction and stops every presentation clock for the
+    // window, then releases. `frameDtMs`'s own ceiling is the precedent:
+    // clamp at the boundary, not deep inside a subsystem.
+    //
+    // Nothing here reaches the sim, and nothing here is read back by it
+    // (invariant 4). On release a unit resumes from wherever the sim has got
+    // to -- at the schema's own 70 ms ceiling that is under a tenth of a
+    // tile at infantry speed, which the acceptance drive checks rather than
+    // assumes.
+    const stop = stepHitStop(this.hitStop, dtMs);
+    this.hitStop = stop.state;
+    if (stop.frozen) {
+      alpha = this.lastAlpha;
+      dtMs = 0;
+    } else {
+      this.lastAlpha = alpha;
+    }
+    // AFTER the freeze, on the same withheld `dtMs`: a shake that aged
+    // through a hit-stop would spend a sixth of its own life during the
+    // frames it is not being drawn on.
+    this.shakeState = stepShake(this.shakeState, dtMs);
     this.drainTimers(this.frameDtSeconds(dtMs));
     if (this.terrainDirty) {
       this.rebuildTerrain();
@@ -2288,6 +2413,11 @@ export class ThreeRenderer implements Renderer {
     // (`dtMs`, not a sim tick), the same footing `updateFx`'s own particle/
     // tracer stepping already stands on.
     this.flashLights.step(dtMs);
+    // AFTER the step that wrote them -- see `flashLightsDebugHidden` and
+    // `debug-layers.ts`'s own `blast-light` entry. Costs one branch a frame
+    // in shipping code and is the only thing that makes the toggle a
+    // measurement rather than the false green `units` once produced.
+    if (this.flashLightsDebugHidden) this.zeroFlashLights();
     this.updateOverlays(alpha);
     if (this.shroudDirty) {
       this.shroud.update(this.fog);
@@ -2470,7 +2600,34 @@ export class ThreeRenderer implements Renderer {
           if (this.fogPass) this.fogPass.uniforms.uRevealAll.value = reveal ? 1 : 0;
           return this.fogPass === null || was === reveal ? 0 : 1;
         }
+      case 'scorch':
+        // An ordinary `visible` flag, `skirt`'s shape: the mesh is added once
+        // in the constructor and nothing per-frame writes its visibility --
+        // a mark is written once at `stamp()` and never touched again
+        // (`scorch-decals.ts`'s own "No TTL"), so there is no `step()` to
+        // undo this the way `flashLights.step` would undo the layer below.
+        return setObjectsVisible(visible, this.scorchDecals.mesh);
+      case 'blast-light':
+        // The second layer that CANNOT be a plain write, `units`' shape and
+        // for the identical reason: `flashLights.step` rewrites every pooled
+        // light's `intensity` on EVERY frame -- that IS its decay curve --
+        // so a one-shot zeroing would be undone by the very repaint the gate
+        // takes its second photograph on. The flag is what `frame()`
+        // consults after stepping, which is the only point at which the
+        // pool's values are final for the frame.
+        this.flashLightsDebugHidden = !visible;
+        if (this.flashLightsDebugHidden) this.zeroFlashLights();
+        return this.flashLights.lights.length;
     }
+  }
+
+  /** Drives every pooled blast/muzzle light to zero intensity -- the
+   *  `blast-light` debug layer's whole effect, applied both at the moment
+   *  the layer is hidden (so a caller that never repaints still sees it) and
+   *  again in `frame()` after `flashLights.step` has rewritten them. See
+   *  `flashLightsDebugHidden`' own field doc comment. */
+  private zeroFlashLights(): void {
+    for (const light of this.flashLights.lights) light.intensity = 0;
   }
 
   /** Backs `setDebugLayerVisible('ground-albedo', ...)`. Idempotent in both
@@ -2793,7 +2950,14 @@ export class ThreeRenderer implements Renderer {
         // isotropic, `isSoft: true`, non-tracked/wheeled/single unit type on
         // the roster (civilians included) is absent from both.
         const isVehicleKill = !deadType.isSoft || trackKindFor(deadType.id) !== null;
-        if (isVehicleKill && (this.explosionBursts.ready || this.smokePlumes.ready)) {
+        // The readiness of the two MESH pools is no longer the gate on this
+        // block, only on their own two spawns below (which already carry it,
+        // unchanged). Everything the blast package adds -- the light, the
+        // shake, the freeze, the scorch, the shroud -- is procedural or
+        // pooled from the constructor, so gating it on a GLB that may never
+        // load would have made a blast a mesh-path privilege and left
+        // `&nomesh` with the same silent kill it had before.
+        if (isVehicleKill) {
           const dx = this.curX[e.entity];
           const dy = this.curY[e.entity];
           const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, dx, dy);
@@ -2813,8 +2977,48 @@ export class ThreeRenderer implements Renderer {
           // live (this task's report) that pairing the two here reads the
           // same way it does for a building collapse, not merely assumed.
           if (this.smokePlumes.ready) {
-            this.smokePlumes.spawn(dx, worldY, dy, killYawTurns, killPower, SMOKE_PLUME_DEFAULT_DURATION_MS);
+            // R-I: the blast window, not the default one. A burning hull is
+            // the one thing on this map that is still smoking twenty seconds
+            // later, and `SMOKE_PLUME_DEFAULT_DURATION_MS` (4 s) is sized for
+            // a building collapse's dust. The rise and fade are absolute
+            // rather than fractions of that longer life, or a column would
+            // take three seconds to appear and five to leave.
+            this.smokePlumes.spawn(
+              dx,
+              worldY,
+              dy,
+              killYawTurns,
+              killPower,
+              BLAST_SMOKE_DURATION_MS,
+              BLAST_SMOKE_RISE_MS,
+              BLAST_SMOKE_FADE_MS
+            );
           }
+          // R-B: the orphaned `catastrophic_kill` emitter, adopted rather
+          // than duplicated -- it has declared `light`, `screen_shake` and
+          // `hit_stop_ms` since the schema was written and nothing has ever
+          // read them. No sim-side classification: `destroyed` carries no
+          // catastrophic-vs-ordinary flag and adding one would put a
+          // presentation distinction inside the tick (invariant 4). Every
+          // one of the four calls is a silent no-op when the emitter never
+          // declared its block (`blast-spec.ts`'s own null/zero rule), so an
+          // un-`useEmitters`'d renderer spawns nothing rather than a
+          // light/shake/freeze built from defaults nobody authored.
+          const blast = this.emitterLibrary.byName(BLAST_EMITTER_ID);
+          const blastLight = blastLightSpec(blast, killPower);
+          if (blastLight) {
+            this.flashLights.spawn(
+              dx,
+              dy,
+              worldY,
+              blastLight,
+              this.overlayColor(blastLight.color ?? 'vfx.fire', '#FFB43C')
+            );
+          }
+          this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
+          this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(blast, killPower));
+          this.scorchDecals.stamp(dx, dy, worldY, killPower);
+          this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
         }
       } else if (e.kind === 'structureHit') {
         // Task B3.10: the quantisation that makes this survivable at
@@ -3867,6 +4071,14 @@ export class ThreeRenderer implements Renderer {
       disposeVehicleMeshTemplate(previous);
     }
     this.vehicleMeshTemplates.set(unitTypeId, template);
+    // Measured here, from the template just built, exactly as
+    // `loadBuildingMesh` measures its own -- recomputed on every reload and
+    // never carried on the template, so a re-export cannot leave a stale
+    // size behind for `beginVehicleCollapseShroud` to size a cloud from.
+    // `vehicleShroudBounds` excludes the `death_root` subtree (R-O): the
+    // wreck recipe displaces those parts OUTWARD, so measuring the whole
+    // clone would size the shroud from scattered debris.
+    this.vehicleMeshBounds.set(unitTypeId, vehicleShroudBounds(template.root));
   }
 
   /**
@@ -4383,7 +4595,34 @@ export class ThreeRenderer implements Renderer {
    *  instance, because `RenderPass` (and Task 13's AO pass) holds the one it
    *  was built with. See the field's own doc comment. */
   private threeCamera(): THREE.OrthographicCamera {
-    return updateDimetricCamera(this.camera, { width: this.width, height: this.height }, this.viewCamera);
+    // R-K: a COPY. `this.camera` is the object `packages/app` owns and writes
+    // every frame for panning and edge-pan; a shake written into it would
+    // fight those writes and leak presentation state across the api.ts seam.
+    // The consequence is deliberate: in-scene overlays (band 4) shake with
+    // the world because they are scene objects, while `worldToScreen` and
+    // `screenToWorldThree` stay unshaken -- so no DOM element jitters, and a
+    // click during a shake lands on the tile the player aimed at.
+    //
+    // `shakeOffsetPx` answers in PIXELS (the schema's `amplitude_px`), and
+    // this camera is described in TILES, so the offset is divided by the
+    // on-screen size of a tile -- which is `TILE_W`/`TILE_H` times the zoom,
+    // exactly what `worldToScreen` multiplies by. A shake is therefore the
+    // same number of pixels at every zoom rather than the same number of
+    // tiles.
+    //
+    // The identity branch is not an optimisation: it returns `this.camera`
+    // itself on every frame with nothing live, so the steady state allocates
+    // nothing at all.
+    const { dx, dy } = shakeOffsetPx(this.shakeState, this.camera.x, this.camera.y);
+    const shaken: Camera =
+      dx === 0 && dy === 0
+        ? this.camera
+        : {
+            ...this.camera,
+            x: this.camera.x + dx / (TILE_W * this.camera.zoom),
+            y: this.camera.y + dy / (TILE_H * this.camera.zoom),
+          };
+    return updateDimetricCamera(shaken, { width: this.width, height: this.height }, this.viewCamera);
   }
 
   /** Wall-clock MILLISECONDS since the previous frame, clamped exactly the
@@ -5752,9 +5991,38 @@ export class ThreeRenderer implements Renderer {
    */
   private spawnShellImpactFx(s: ShellModel): void {
     const power = SHELL_PROFILES[s.kind].impactPower;
+    // The one gate on this whole method, unchanged: `impactPower` is 0 for
+    // `bolt` and `missile`, so direct fire never detonates on landing. A
+    // `bolt` cannot even reach here today (`shellHasLanded` runs over
+    // `this.shells`, the indirect list) -- this is what keeps that true if
+    // the two lists are ever merged.
     if (power <= 0) return;
     const yawTurns = tileHash(Math.floor(s.tx), Math.floor(s.ty));
-    this.spawnCollapseFx('shell_impact', s.tx, s.ty, power, yawTurns);
+    this.spawnCollapseFx(SHELL_IMPACT_EMITTER_ID, s.tx, s.ty, power, yawTurns);
+    // R-Q/G0 #14: the mortar/Grad half of the blast, at the ROUND's own
+    // power (0.3 mortar, 0.45 rocket) rather than a kill's. Same four calls
+    // as the vehicle-kill branch and the same silent no-ops when the emitter
+    // declares nothing -- `shell_impact.json` declares all three blocks one
+    // notch below `catastrophic_kill.json`'s, because a bomb crater is not a
+    // burning hull.
+    //
+    // Deliberately NO shroud: there is no mesh swap to hide at an impact,
+    // and a building-sized dust cloud with nothing under it is decoration
+    // this package was not asked for.
+    //
+    // This runs whether or not `spawnCollapseFx` found anything to spawn:
+    // that method short-circuits on a renderer with no `ParticleSystem` yet,
+    // which is a fact about the particle pool and not about whether the
+    // ground was scorched.
+    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, s.tx, s.ty);
+    const em = this.emitterLibrary.byName(SHELL_IMPACT_EMITTER_ID);
+    const light = blastLightSpec(em, power);
+    if (light) {
+      this.flashLights.spawn(s.tx, s.ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C'));
+    }
+    this.shakeState = pushShake(this.shakeState, blastShake(em, power), s.tx, s.ty);
+    this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
+    this.scorchDecals.stamp(s.tx, s.ty, worldY, power);
   }
 
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
@@ -6902,6 +7170,45 @@ export class ThreeRenderer implements Renderer {
     if (bounds && this.buildingMeshIdleEntities.has(structure)) {
       this.buildingMeshSwapHold.set(structure, COLLAPSE_SHROUD_SWAP_DELAY_MS);
     }
+  }
+
+  /**
+   * The vehicle counterpart of `beginCollapseShroud` above -- the dust cloud
+   * that covers a killed vehicle at the instant it dies, so the
+   * living-mesh -> wreck-mesh reveal happens hidden inside it.
+   *
+   * Two things differ from the building version, and both are decisions
+   * rather than omissions.
+   *
+   * **NO SWAP-HOLD (R-S).** `beginCollapseShroud` sets
+   * `buildingMeshSwapHold` because a building's wreck swap is INSTANTANEOUS
+   * -- `updateBuildingMeshes` would otherwise exchange the two clones on the
+   * very next frame, in plain sight. A vehicle's is not: `stepVehicleDeath`
+   * holds the living body through `MESH_DEATH_SECONDS` (400 ms) before it
+   * reveals the `death_root`. Spawned here at the kill instant, the shroud
+   * has bloomed by `COLLAPSE_SHROUD_DURATION_MS *
+   * COLLAPSE_SHROUD_BLOOM_FRACTION` (192 ms) and still holds full density to
+   * `* COLLAPSE_SHROUD_HOLD_FRACTION` (840 ms), so the reveal lands inside
+   * the dense window with nothing to add. That containment is pinned as a
+   * TEST rather than asserted here --
+   * `units/mesh-vehicle.test.ts`'s "the vehicle needs no swap-hold (R-S)",
+   * which derives both ends from the constants so a later retune of either
+   * side fails loudly instead of silently uncovering the swap.
+   *
+   * **No shroud at all without measured bounds.** A type whose GLB has not
+   * loaded (`&nomesh`, or any frame before the fetch resolves) has no mesh
+   * swap to hide and no body to size a cloud from, and
+   * `CollapseShroudManager.spawn` would refuse a zero-sized one anyway. The
+   * rest of the blast still fires; only the cover it was covering is absent.
+   */
+  private beginVehicleCollapseShroud(typeId: string, x: number, y: number, worldY: number): void {
+    const bounds = this.vehicleMeshBounds.get(typeId);
+    if (!bounds) return;
+    // `x`/`y` (the death tile) as the scatter seed rather than the entity id:
+    // stable across a replay, never a clock, never sim state that could feed
+    // back -- the same presentation-hash rule `killYawTurns` at the call site
+    // follows. `tileHash` is the project's own, already used for exactly this.
+    this.collapseShrouds.spawn(x, worldY, y, bounds.x, bounds.z, bounds.y, tileHash(Math.floor(x), Math.floor(y)));
   }
 
   /**
