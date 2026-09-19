@@ -3641,7 +3641,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                     name: nextJson?.name ?? nextMissionId,
                     villainLine:
                       region && villain?.lines
-                        ? villain.lines[villainState(region, updatedLedger, (id) => (missions as Record<string, MissionJson | undefined>)[id])]
+                        ? villain.lines[villainState(region, updatedLedger, (id) => (missions as Record<string, MissionJson | undefined>)[id], villain.ends_at)]
                         : undefined,
                   }
                 : undefined,

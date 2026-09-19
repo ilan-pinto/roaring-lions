@@ -314,6 +314,12 @@ export interface CommanderVillain {
   name?: string;
   /** One line per `VillainState`, for the board under the front's card. */
   lines?: { at_large: string; captured: string; killed: string };
+  /** The mission that ENDS this villain, when it is not the region's
+   *  chronologically last one -- see `villainState`. Authoring spelling kept
+   *  as-is (like `lines.at_large` beside it, and unlike `CommanderRank`'s
+   *  `until_mission`), because this type is the JSON shape and the runtime
+   *  shape at once: `parseCommander` spreads a villain entry unchanged. */
+  ends_at?: string;
 }
 
 export interface CommanderData {
@@ -571,15 +577,26 @@ export function promotionAfter(
 
 export type VillainState = 'at_large' | 'captured' | 'killed';
 
-/** A front's villain is at large until the front's last authored mission is complete, then
- *  captured if that mission's primaries include a `capture`, otherwise killed. */
+/** A front's villain is at large until the mission that ENDS him is complete, then
+ *  captured if that mission's primaries include a `capture`, otherwise killed.
+ *
+ *  `endsAt` is the villain's own `ends_at` (data/campaign/commander.json). Without it
+ *  this falls back to the region's chronologically last mission, which is right for
+ *  Sur and Naharin -- their villains die at the crest and at the gate, both region-final
+ *  -- and wrong for the Marj: Nadir Sahim is taken at `beit_sahwan_4_subterranean`,
+ *  mission 5 of 26, and Khan Rafid and Deir Amun were added to the front afterwards.
+ *  khan_rafid/design.md O-KR2 decided his ending does not move to follow them, so the
+ *  algorithm has to. A pointer rather than an authored state, so that re-staging that
+ *  mission re-decides the card instead of leaving two answers in two files. */
 export function villainState(
   region: WorldRegion,
   ledger: LedgerData | undefined,
-  missionOf: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined
+  missionOf: (id: string) => { objectives: readonly { type: string; primary: boolean }[] } | undefined,
+  endsAt?: string
 ): VillainState {
   const towns = region.towns.filter((t) => t.missions.length > 0);
-  const last = towns.length > 0 ? towns[towns.length - 1].missions[towns[towns.length - 1].missions.length - 1] : undefined;
+  const regionLast = towns.length > 0 ? towns[towns.length - 1].missions[towns[towns.length - 1].missions.length - 1] : undefined;
+  const last = endsAt ?? regionLast;
   if (last === undefined || !completed(ledger).has(last)) return 'at_large';
   const m = missionOf(last);
   return m?.objectives.some((o) => o.primary && o.type === 'capture') ? 'captured' : 'killed';

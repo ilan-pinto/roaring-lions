@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { missions } from '@lions/data';
+
 import worldJson from '../../../data/campaign/world.json';
 import commanderJson from '../../../data/campaign/commander.json';
 import type { LedgerData, MissionJson } from '@lions/sim';
@@ -496,6 +498,39 @@ describe('villainState', () => {
     const done = { 'campaign.completed_missions': [last] };
     expect(villainState(marj, done, () => ({ objectives: [{ type: 'capture', primary: true }] }))).toBe('captured');
     expect(villainState(marj, done, () => ({ objectives: [{ type: 'eliminate_hvt', primary: true }] }))).toBe('killed');
+  });
+
+  // The defect. Marj's villain ends at Beit Sahwan IV -- mission 5 of 26 -- because
+  // Khan Rafid and Deir Amun were added to the front after his ending shipped, and
+  // khan_rafid/design.md O-KR2 decided his ending would not move to follow them.
+  // Without the pointer the board reads the wrong mission's primaries entirely.
+  it('reads the mission the villain ends at, not the region\'s last, when one is named', () => {
+    const ends = 'beit_sahwan_4_subterranean';
+    const objectivesOf = (id: string) =>
+      id === ends
+        ? { objectives: [{ type: 'capture', primary: true }, { type: 'collapse', primary: true }] }
+        : { objectives: [{ type: 'eliminate_hvt', primary: true }] };
+    const doneEnds = { 'campaign.completed_missions': [ends] };
+    expect(villainState(marj, doneEnds, objectivesOf, ends)).toBe('captured');
+    // ...and the region's own last mission being done is neither necessary nor sufficient.
+    expect(villainState(marj, { 'campaign.completed_missions': [last] }, objectivesOf, ends)).toBe('at_large');
+  });
+
+  it('names a mission that exists', () => {
+    // An ends_at nobody can complete would read at_large forever, silently. Every
+    // authored pointer must be a mission world.json actually lists. On its own this
+    // check is vacuous when no villain names one -- what stops that being a silent
+    // hole is the spec below, which fails the moment marj's pointer goes missing.
+    const listed = new Set(world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions)));
+    for (const [regionId, v] of Object.entries(commander.villains ?? {})) {
+      if (v.ends_at !== undefined) expect(listed.has(v.ends_at), `${regionId}.ends_at`).toBe(true);
+    }
+  });
+
+  it('is what the shipped data says: Sahim is taken at the shaft head', () => {
+    const done = { 'campaign.completed_missions': ['beit_sahwan_4_subterranean'] };
+    const missionOf = (id: string) => (missions as Record<string, MissionJson | undefined>)[id];
+    expect(villainState(marj, done, missionOf, commander.villains!.marj!.ends_at)).toBe('captured');
   });
 });
 
