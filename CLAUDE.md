@@ -770,10 +770,14 @@ yours; each one records what the next phase inherits.
   perfectly healthy tree. What witnesses them instead is `pnpm blast:capture`
   (`tools/src/perf/blast-captures.ts`), which runs the SAME toggle A/B on a
   frame 200 ms after a detonation and holds it to floors derived the same way
-  (a third of a measured signal, with the sample size beside it) — and which
-  is RED on `blast-light` today, for a real reason recorded under "Mesh units".
-  A gated `blast` scenario here is the thing that would let this gate see the
-  package at all, and it does not exist yet.
+  (a third of a measured signal, with the sample size beside it). It has
+  already earned itself: `blast-light` read **0 px / 0.0000** on every kill
+  subject and the cause was an emitter nobody had registered — see "Mesh
+  units". The rung is PER LAYER there and that is measured too: a light lives
+  500 ms and must be caught at 200, while a scorch mark spends its first second
+  under the fireball and reads 0 px / 0.3423 at 200 against 7251 px / 1.4411 at
+  2000. A gated `blast` scenario here is the thing that would let this gate see
+  the package at all, and it does not exist yet.
   Both documented defects now exit **1** with an
   empty baseline directory: erasing every decor object (`decor-place.ts`'s
   `familyFor` → `return null`) drives the `decor` toggle to 0 px / 0.0000 on all
@@ -1449,20 +1453,32 @@ it compares `window.localStorage.length` before and after, and both are
   `SHELL_PROFILES[kind].impactPower`. The vehicle-kill branch's outer
   mesh-readiness guard was removed to do it, so the blast fires on `&nomesh` too
   — with no shroud there, because there are no bounds to size one from.
-  **Three of those five are inert on a vehicle kill as this is written, and it is
-  the `SPRITE_MAP` failure again.** `blastLightSpec`/`blastShake`/`blastHitStopMs`
-  all resolve through `emitterLibrary.byName('catastrophic_kill')`, and
-  `data/vfx/catastrophic_kill.json` is **not imported into
-  `packages/data/src/index.ts`'s `vfxEmitters`** — so `byName` answers `null`,
-  each of the three takes its own documented "nothing to scale" path, and only the
-  scorch and the shroud (the two unconditional calls) actually happen. Measured on
-  the real app, not reasoned: a hand-ticked kill on `beit_sahwan_outskirts` reads
-  `hitStop.remainingMs` 0.0 and a shake offset of 0.000 px at every frame from 0
-  to 600 ms, the `blast-light` toggle moves **0 px / 0.0000**, and the FX clock
-  takes every millisecond it is handed (`pnpm blast:capture`'s per-frame probe).
-  The mortar half works, because `shell_impact` IS in that list — same code, same
-  frame, 14308 px / 5.4267. The unit suite cannot see it: it calls `useEmitters`
-  with the two JSON files directly. The fix is one import and one array entry.
+  **Three of those five shipped INERT on this branch, and the way that happened
+  is the `SPRITE_MAP` failure in a second place.**
+  `blastLightSpec`/`blastShake`/`blastHitStopMs` all resolve through
+  `emitterLibrary.byName('catastrophic_kill')`, and
+  `data/vfx/catastrophic_kill.json` was **never imported into
+  `packages/data/src/index.ts`'s `vfxEmitters`** — so `byName` answered `null`,
+  each of the three took its own documented "nothing to scale" path, and only the
+  scorch and the shroud (the two unconditional calls) ever ran. The file shipped,
+  validated against the schema, and was read by name from `ThreeRenderer`.
+  Nothing could catch it: `validate:data` walks the FILES,
+  `ThreeRenderer.blast.test.ts` calls `useEmitters` with the JSON directly (which
+  is better than mocking, and is exactly why that suite could not see this), and
+  `vfxEmitters` was a hand-kept list. Measured rather than reasoned, by
+  `pnpm blast:capture`: a hand-ticked kill read `hitStop.remainingMs` 0.0 and a
+  shake offset of 0.000 px at every frame from 0 to 600 ms, and the `blast-light`
+  toggle moved **0 px / 0.0000** — against the mortar's 14224 px / 5.4091 through
+  the same code on the same frame, because `shell_impact` WAS in the list.
+  **Fixed, and the array is pinned to the directory now**: `index.test.ts` reads
+  `data/vfx/*.json` at test time and requires the registered ids to equal them
+  exactly, so a file that ships without being registered is a red spec rather
+  than an effect nobody can see. Registered, the same kill reads **42119 px /
+  11.1762**, holds four frames of hit-stop with the FX clock at 0.0, and peaks at
+  **7.971 px of shake** against an authored 9 (the 16 ms sampling grid never
+  lands on the continuous 8.79 px peak). Read at test time rather than made an
+  import glob on purpose: a glob would derive the array from the directory and
+  make the check vacuous.
   Four things about the wreck itself are worth knowing before touching any of it.
   **The recipe is fractions of each vehicle's OWN measured bounds**, tuned
   2026-09-15 against an eleven-pair screenshot sheet
