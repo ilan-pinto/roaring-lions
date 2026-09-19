@@ -1197,6 +1197,19 @@ run(
     const eitan = ids('apc_eitan');
 
     at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(38, 25) }));
+    // find_the_west_lane (carrying secondary): kr_lane_west (an rpg_team) sits at
+    // [13,20], an ambush that only springs -- and only ever shows the RANGE it
+    // would need for that -- within 3 tiles, and closing that distance with a
+    // wheeled carrier is exactly the risk the mission's own briefing describes.
+    // Its weapon (`rpg7`) can only ever target `ground`, though, so the drone can
+    // simply fly over it -- an ambush spring that can't touch what it's aimed at
+    // costs nothing. One extra leg, fired while the drone is still inbound to the
+    // ATGM bank (well before it arrives at [38,25]), swings it over [13,20] and
+    // back onto its original schedule: `at(22, ...)` below is untouched, and it
+    // still reaches the alley row on time to finish `find_the_watch`. Measured
+    // robust across a 2+ second window (t=8.4-10.5) for this leg alone; outside
+    // it the drone is shot down before finishing the three kr_watch posts.
+    at(9, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(13, 20) }));
     at(22, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 11) }));
 
     at(0, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(18, 20) }));
@@ -1207,7 +1220,8 @@ run(
   },
   {},
   'victory',
-  'khan_rafid_1_recon'
+  'khan_rafid_1_recon',
+  3
 );
 
 run('khan_rafid_2_foothold', () => {}, {}, 'defeat', 'khan_rafid_2_foothold (passive control)');
@@ -2467,9 +2481,17 @@ interface GateSpec {
   opensAfter: number;
 }
 
+// Re-pinned (WP-G-E3 Task 3): `khan_rafid_1_recon` (mission order 6) reaches
+// 3 stars now, and its own extra star pulls `scout_shachaf`'s running total
+// past its 30-star floor one mission earlier (mission 14's cumulative reads
+// 30, where it read 29 before) -- `breach_team` and `apc_kipod` are
+// unaffected, since mission 6 sits before the first and mission 14 sits well
+// clear of the second (measured from the printed lines, not predicted).
+// `beit_sahwan_1_recon`'s own promotion is NOT included here -- see the
+// task report: its max-tier replay cannot reach hvt_seen honestly (BLOCKED).
 const GATES: GateSpec[] = [
   { unit: 'breach_team', starsMin: 12, opensAfter: 6 },
-  { unit: 'scout_shachaf', starsMin: 30, opensAfter: 15 },
+  { unit: 'scout_shachaf', starsMin: 30, opensAfter: 14 },
   { unit: 'apc_kipod', starsMin: 44, opensAfter: 21 },
 ];
 
@@ -2609,7 +2631,16 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // starsMin (44) one mission earlier (44 stars after mission 21 where it read 42
 // before), so `opensAfter` re-pins 22 -> 21; `breach_team` and `scout_shachaf`
 // are unaffected (their own gates fall well clear of mission 4's own position).
-const LADDER_CREDITS = 5530;
+// Re-pinned 2026-09-19 (WP-G-E3 Task 3): 5530 -> 5580 (+50). `khan_rafid_1_recon`
+// now completes `find_the_west_lane` (a carrying secondary), moving its own
+// grade 2 -> 3 stars: +40 `carryingComplete`, plus +10 `unitHome` because the
+// drone survives its detour this time (roster out 5 -> 6) where the old plan's
+// drone was shot down at the alley row before the mission ended. `GATES`'
+// `scout_shachaf` line moves with it (15 -> 14, see above); `breach_team` and
+// `apc_kipod` are unaffected. `beit_sahwan_1_recon` is untouched in this
+// commit -- its plan still reads 2 stars, `hvt_seen=a` -- see the task report
+// for why (BLOCKED, not a deferral).
+const LADDER_CREDITS = 5580;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
