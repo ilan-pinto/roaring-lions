@@ -112,17 +112,41 @@ curve).
 ### 3.1 Star gates (breach_team, scout_shachaf, apc_kipod)
 
 Pinned by `playtest.ts`'s own `GATES` assertion and cross-checked against
-`docs/campaign/special_units/design.md` §2's ★★★-lead column:
+`docs/campaign/special_units/design.md` §2's measured-ladder column.
 
-| unit | `stars_min` | ★★ opens after mission | ★★★ opens after mission |
+**Corrected, WP-G-E3 (2026-09-19).** The "★★★ opens after mission" column below used to
+read 4/10/15 — `stars_min ÷ 3`, which describes a campaign where every mission is ★★★
+from mission one. It is a naive bound, not a re-derivation: at the time it was written
+only `qarn_hadid_1_recon` was actually run at three stars, so no real ladder crossing had
+ever been measured. WP-G-E3 promoted six more recon and clearance plans to ★★★
+(`beit_sahwan_1_recon`, `beit_sahwan_3_clearance`, `khan_rafid_1_recon`,
+`deir_amun_1_recon`, `umm_zeitoun_1_recon`, `umm_zeitoun_3_clearance`), and the column
+now carries the measured crossing point instead — `GATES.opensAfter` read off
+`playtest.ts`'s own printed `gate <unit>: OPEN after mission N at M stars` line, the
+final pin for this package:
+
+| unit | `stars_min` | ★★ opens after mission | ★★★ opens after mission (measured, WP-G-E3) |
 |---|---|---|---|
-| breach_team | 12 | 6 | 4 |
-| scout_shachaf | 30 | 15 | 10 |
-| apc_kipod | 44 | 22 | 15 |
+| breach_team | 12 | 6 | 5 (12 stars) |
+| scout_shachaf | 30 | 15 | 13 (30 stars) |
+| apc_kipod | 44 | 22 | 19 (44 stars) |
 
 These are genuinely staggered through the campaign — the star-gate mechanism is the one
 place in this catalogue where "buy early" has real room to work, because the free path
 takes many missions of ★★ or ★★★ play to reach.
+
+**§3's `LADDER_CREDITS` figure, per R-4.** `playtest.ts`'s pinned optimal-ladder total is
+**5849** as of this package (was 5751 at the end of WP-G-E3's Task 4, and 5544 when §2's
+cumulative table below was written on 2026-09-16). The six star promotions above each pay
+`creditsFor`'s `carryingSecondary` weight (40) for completing a secondary that used to
+sit incomplete, plus real carry-over drift into missions that share a chained ledger
+(`umm_zeitoun_2_buildup` inherits a differently-composed survivor set from
+`umm_zeitoun_1_recon`'s new route) — the full accounting is in `playtest.ts`'s own
+`LADDER_CREDITS` comment. §2's cumulative table, §3.4's cumulative affordability figures
+and §5–§8's price analysis below were derived against the 2026-09-16 ladder (5544 ★★ /
+5784 ★★★) and are **not re-walked here** — reconciling them against the post-WP-G-E3
+ladder is a separate, larger undertaking than this task's scope (a `playtest`-only content
+fix), and is left as a finding rather than silently patched number by number.
 
 ### 3.2 Conduct gates (the other nine units) — a load-bearing finding
 
@@ -379,8 +403,10 @@ both the half-budget and full-budget readings (7/12 and 10/12 both ways, above).
 "half vs. most" contrast the task asks for is not something a 4.3% larger pool can
 produce on its own — it comes from **which of the two readings (half-budget vs.
 full-budget) applies**, not from which star grade the player achieved. The star grade
-does matter, but through a different channel: a ★★★ player's star gates open 2-7
-missions earlier (§3.1), so by a given point in the campaign more of the catalogue is
+does matter, but through a different channel: a ★★★ player's star gates open 1-3
+missions earlier, measured (§3.1; this reading used to say "2-7", which divided the star
+requirement by three and describes a campaign where every mission is ★★★ from mission
+one, not the real ladder), so by a given point in the campaign more of the catalogue is
 already open for free, which is a real "most of the twelve, one way or another" story —
 just not one this budget arithmetic captures on its own. Recorded here rather than
 folded into the numbers, since inventing a second free variable to make the count track

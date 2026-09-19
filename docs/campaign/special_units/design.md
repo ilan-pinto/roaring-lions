@@ -39,18 +39,29 @@ the 0.7 mortar already shipped).
 `data/missions/*.json` holds 27 missions, of which `beit_sahwan_0_tutorial` produces no result — **26
 gradable, 78 stars ceiling**. Campaign order from `data/campaign/world.json`: Marj = 1–11 (Beit Sahwan 5, Khan
 Rafid 3, Deir Amun 3), Sur = 12–21 (Tel Marum 3, Qarn Hadid 3, Umm Zeitoun 4), Naharin = 22–26 (Wadi Halam 5).
-`pnpm playtest`, run this session: **26 winning plans, 25 at two stars and `qarn_hadid_1_recon` at three** —
-53 of 78 cumulative. (`beit_sahwan_3_clearance` reports 2; its `picture` flag was pulled on 2026-09-11.)
+`pnpm playtest`, re-run at the end of WP-G-E3 (2026-09-19, the content-fixes package that gave five
+capped recon plans a reachable ★★★): **26 winning plans, 19 at two stars and seven at three**
+(`qarn_hadid_1_recon`, `beit_sahwan_1_recon`, `beit_sahwan_3_clearance`, `khan_rafid_1_recon`,
+`deir_amun_1_recon`, `umm_zeitoun_1_recon`, `umm_zeitoun_3_clearance`) — 59 of 78 cumulative. The
+"25 at two stars and `qarn_hadid_1_recon` at three" reading this section used to carry was the state
+before that package; six missions moved since.
 
-| gate | ★★ reaches it (2/mission) | ★★★ reaches it (3/mission) | shipped optimal ladder | ★★★ lead |
+| gate | ★★ ceiling (2/mission, naive floor) | ★★★ bound (3/mission, naive — `stars_min ÷ 3`) | measured ladder (WP-G-E3, final) | measured ★★★ lead |
 |---|---|---|---|---|
-| **12** Tzinah | mission 6, `khan_rafid_1_recon` | mission 4, `beit_sahwan_3_clearance` | mission 6 (12) | 2 missions |
-| **30** Shachaf | mission 15, `qarn_hadid_1_recon` | mission 10, `deir_amun_2_foothold` | mission 15 (31) | 5 missions |
-| **44** Kipod | mission 22, `wadi_halam_1_fords` | mission 15, `qarn_hadid_1_recon` | mission 22 (45) | 7 missions |
+| **12** Tzinah | mission 6, `khan_rafid_1_recon` | mission 4 (bound) | mission 5 (12 stars) | 1 mission |
+| **30** Shachaf | mission 15, `qarn_hadid_1_recon` | mission 10 (bound) | mission 13 (30 stars) | 2 missions |
+| **44** Kipod | mission 22, `wadi_halam_1_fords` | mission 15 (bound) | mission 19 (44 stars) | 3 missions |
 
-Each ★★ opening leaves missions in its own act to spend it in: 5 Marj after 12, 6 Sur after 30, 4 Naharin
-after 44. The ★★★ lead widens 2 → 5 → 7, the right shape for a reward. All three open at the exact mission the
-*shipped optimal ladder* reaches them, so `pnpm playtest` can assert the gate opens with no re-tuning. **The
+The naive bound column divides the star requirement by three, which describes a campaign where
+*every* mission is ★★★ from mission one — not this one, where nineteen of twenty-six still cap at
+★★. The "measured ladder" column is `tools/src/backtest/playtest.ts`'s own `GATES.opensAfter`
+(5/13/19), read off the harness's printed `gate <unit>: OPEN after mission N at M stars` line, never
+computed from this table. Each ★★ opening leaves missions in its own act to spend it in: 5 Marj
+after 12, 6 Sur after 30, 4 Naharin after 44. **The ★★★ lead widens 1 → 2 → 3** (mission 6 minus
+mission 5, 15 minus 13, 22 minus 19) — the measured shape of the reward on the real ladder this
+package produces, not the "2 → 5 → 7" a campaign of nothing but ★★★ runs would naively imply. All
+three still open at the exact mission the *measured ladder* reaches them, so `pnpm playtest` can
+assert the gate opens with no re-tuning. **The
 spec's provisional 55 is unreachable and must not ship:** a pure ★★ ceiling is 2 × 26 = 52, and a pure ★
 ceiling is 26, so 30 and 44 are closed to a careless winner — intended, and the lead's to confirm (§9.1). A
 1.7-star average reaches 44 only at mission 26, so the Kipod is for ★★-consistent play.

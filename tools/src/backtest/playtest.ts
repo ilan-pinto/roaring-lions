@@ -2186,23 +2186,51 @@ const ledUZ1 = run(
     // whole way there.
     at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
     at(45, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(40.5, 31.5) }));
+    // `find_the_missile_team` is the one target this route never crosses --
+    // its own briefing line says the drone gets one look at that envelope,
+    // and every other waypoint above is built to stay outside it. Measured
+    // with a two-body sim (this session, `manpad_team` isolated against
+    // `recon_drone`): from due south at (30.5,29.5) -- 7.0 tiles, well inside
+    // `uz_manpad_basin`'s 13-tile reach and its 12-tile sight alike -- OUR
+    // side reaches IDENTIFIED_AT at 3.7s (`optics 2.0 x signature 0.4` beats
+    // the reverse pairing, `optics 1.2 x signature 0.3`, which does not cross
+    // it until 8.2s against a STATIONARY target), so a body that turns south
+    // six seconds after arriving is already reading the post while the
+    // manpad's own contact is still short of a firing solution. Measured
+    // full-plan, not just isolated: a longer hold (dwelling past 8.2s, or
+    // retreating slowly enough that `MOTION_SIG` -- movement raises a unit's
+    // own signature 1.5x -- hands the manpad the rest of the way there) gets
+    // the drone killed at ~25-30s instead, which is the design's own "for its
+    // life" reading and not this leg's. This is the one waypoint of the
+    // route that trades the standoff discipline above for the one crossing
+    // the mission's own briefing promises.
+    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30.5, 29.5) }));
+    at(76, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
     // Only the crest is left. Loop back through the same southern corridor
-    // and up the far-western column (x~5), which measures outside
-    // `manpad_north`'s 13-tile envelope for its entire length -- the reverse
-    // of the design draft's own approach (straight through the envelope, at
-    // a station 4-9 tiles from it), which is what cost the drone its life in
-    // every earlier attempt this session. The overlook at (4,6) sees the
-    // crest at ~11 tiles and sits ~18 tiles from `manpad_north` -- safe
-    // rather than sacrificial, and identification is permanent once banked
-    // either way.
-    at(70, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 42) }));
-    at(90, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) }));
-    at(105, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(5, 25) }));
-    at(120, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
+    // and up the far-western column, which measures outside `manpad_north`'s
+    // 13-tile envelope for its entire length -- the reverse of the design
+    // draft's own approach (straight through the envelope, at a station 4-9
+    // tiles from it), which is what cost the drone its life in every earlier
+    // attempt this session. The overlook at (4,6) sees the crest at ~11 tiles
+    // and sits ~18 tiles from `manpad_north` -- safe rather than sacrificial,
+    // and identification is permanent once banked either way.
+    //
+    // The column itself is x~3, not x~5: `uz_eye_west`'s own rifle
+    // (`sarim_rifles`, range 8, `can_target: ["ground","air"]`, rof_per_min
+    // 320) sits at [10.5,23.5], and a two-body measurement (this session)
+    // found (5,25) -- 5.7 tiles, the manpad detour's old return column --
+    // kills a STATIONARY drone at 10.75s where (3,25), 7.65 tiles, buys
+    // 19.55s. The whole detour above delays this leg's own arrival past
+    // where the shipped route used to reach it, so the extra margin is what
+    // keeps this waypoint honest rather than merely lucky on the clock.
+    at(110, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) }));
+    at(125, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(3, 25) }));
+    at(133, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
   },
   ledTelMarum3,
   'victory',
-  'umm_zeitoun_1_recon'
+  'umm_zeitoun_1_recon',
+  3
 );
 
 // Umm Zeitoun II -- The Long Look: hold the crest line while a demolition
@@ -2299,6 +2327,19 @@ const ummZeitoun3Plan: Plan = (sim, _rt, ids, at) => {
   // finding: cannon_30/gun_120/spike_atgm/mortar_60 all arm it; rifles and
   // rws_50 do not).
   const hamlet = [...hamletInfantry, ...apcs.slice(1)];
+  // `find_adhal`: the drone this plan otherwise never orders. `umm_zeitoun_3`
+  // shares its northern terrain byte-for-byte with `umm_zeitoun` (only the
+  // hamlet rows differ, y=18-28), so the same overlook UZ I already uses for
+  // the crest post reads `uz_hvt_lantern` too -- measured with a two-body sim
+  // this session, (4,6) sits 9.51 tiles out, OUTSIDE the lantern's own 9-tile
+  // sight, so it can never so much as suspect the drone back. The route runs
+  // west and stays there (x<=10) for its whole length, clear of the hamlet
+  // zone [19,24,9,5] whose `zone_entered` trigger this plan's own `west`/
+  // `east`/`hamlet` groups are what is meant to spring, and clear of
+  // `uz_eye_west` [10.5,23.5] by the same 7.65-tile standoff UZ I's own
+  // route uses south of it -- by the time the drone passes, `west`'s attackMove
+  // is already closing on that post regardless.
+  const drone = ids('recon_drone');
   at(1, () => {
     sim.queueCommand({ kind: 'attackMove', ids: west, ...M(12, 24) });
     sim.queueCommand({ kind: 'attackMove', ids: east, ...M(35, 24) });
@@ -2306,7 +2347,10 @@ const ummZeitoun3Plan: Plan = (sim, _rt, ids, at) => {
     // the moment either body crosses in, walking both garrisoned riflemen
     // out of their houses and into the open street at `hamlet_square`.
     sim.queueCommand({ kind: 'attackMove', ids: hamlet, ...M(24, 26) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(10, 40) });
   });
+  at(15, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(3, 25) }));
+  at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(4, 6) }));
   // Re-press both flanks once the first contact clears -- attackMove halts
   // on a live fight rather than closing the last few tiles to the post
   // itself.
@@ -2325,7 +2369,8 @@ const ledUZ3 = run(
   ummZeitoun3Plan,
   ledUZ2In,
   'victory',
-  'umm_zeitoun_3_clearance'
+  'umm_zeitoun_3_clearance',
+  3
 );
 
 // F1 / ruling R2(b): gate-open probe -- scout_shachaf (stars_min 30) reached via
@@ -2581,10 +2626,23 @@ interface GateSpec {
 // falls before its own checkpoint at mission 20) but 43 stars at mission 19
 // is still short of its 44-star floor, so `opensAfter` stays 20 -- only the
 // totals moved there, same shape as `scout_shachaf` not moving again above.
+// Re-pinned a final time (WP-G-E3 Task 5): `umm_zeitoun_1_recon` (mission
+// order 18) and `umm_zeitoun_3_clearance` (mission order 20) both reach 3
+// stars. `breach_team` (checkpoint at mission 5) and `scout_shachaf`
+// (checkpoint at mission 13) both fall well before mission 18 and are
+// untouched. `apc_kipod` moves again: mission 18's own promotion applies
+// from mission 18 onward, so mission 19's cumulative -- one mission before
+// mission 20's own promotion ever applies -- already carries that one extra
+// star (43 -> 44), crossing the 44-star floor a mission earlier than before
+// (`opensAfter` 20 -> 19); mission 20's printed total carries BOTH
+// promotions (45 -> 47) but that mission was already past its own checkpoint
+// under the old pin, so only the totals move there, same shape as
+// `scout_shachaf` and `apc_kipod` not moving again in the two blocks above.
+// This is the final triple for WP-G-E3.
 const GATES: GateSpec[] = [
   { unit: 'breach_team', starsMin: 12, opensAfter: 5 },
   { unit: 'scout_shachaf', starsMin: 30, opensAfter: 13 },
-  { unit: 'apc_kipod', starsMin: 44, opensAfter: 20 },
+  { unit: 'apc_kipod', starsMin: 44, opensAfter: 19 },
 ];
 
 for (const gate of GATES) {
@@ -2756,7 +2814,31 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // sees the extra star. `apc_kipod`'s printed totals both move (+1: 45/43,
 // were 44/42) since mission 9 falls before its checkpoint at mission 20, but
 // 43 is still short of its 44-star floor, so `opensAfter` stays 20.
-const LADDER_CREDITS = 5751;
+// Re-pinned a final time 2026-09-19 (WP-G-E3 Task 5): 5751 -> 5849 (+98),
+// three terms, each read off `rt.startingCount`/`rt.startingHome` rather than
+// guessed from the printed `roster out` line (which is the CUMULATIVE pool
+// across the whole chain, not this mission's own starting force -- see
+// "roster.surviving_units is CUMULATIVE" in CLAUDE.md's known scaling debts).
+// (i) `umm_zeitoun_1_recon` itself: +40, a clean `carryingComplete` --
+// `find_the_missile_team` completes, ROE stays 100 and home stays 7 of 7, so
+// nothing else moves (credits 200 -> 240). (ii) `umm_zeitoun_2_buildup`,
+// fed by `ledUZ1`: +20, entirely `unitHome` -- its OWN grade stays 2 stars
+// and its ROE stays 98, but two more of UZ1's now-differently-composed
+// survivors come home through UZ2's fight (`startingHome` 7 -> 9 of the same
+// `startingCount` 10), a carry-over side effect of UZ1's route rather than a
+// second star (credits 198 -> 218). (iii) `umm_zeitoun_3_clearance` itself:
+// +38 -- `find_adhal` completes for a clean +40 `carryingComplete`, partly
+// offset by -2 `conductPoint` (ROE 89 -> 87, both far above the 65 floor;
+// `unitHome` is unchanged at 7 of 7, since two more starting-force units are
+// FIELDED this time -- `startingCount` 10 -> 12, likely UZ2's own carry-over
+// reaching UZ3's `from_ledger` draw in turn -- and just as many of the extra
+// two are lost, credits 194 -> 232). 40 + 20 + 38 = 98, matching the measured
+// ladder delta. `umm_zeitoun_4_clearance`, fed by `ledUZ3`, is credit-neutral
+// (`startingCount`/`startingHome` both unchanged at 12/11, credits 237 both
+// times) even though its own printed `roster out` moves (28 -> 30) purely
+// from the larger cumulative pool passing through. `GATES`' `apc_kipod` line
+// moves with it (see above); `breach_team` and `scout_shachaf` do not.
+const LADDER_CREDITS = 5849;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
