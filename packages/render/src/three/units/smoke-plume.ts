@@ -324,11 +324,11 @@ export const BLAST_SMOKE_RISE_MS = 600;
  * `SMOKE_PLUME_FADE_FRACTION * BLAST_SMOKE_DURATION_MS` (7,000ms): a column
  * that spends the last third of a twenty-second life visibly dissolving is
  * one the player watches leave for seven seconds, which reads as the smoke
- * dying rather than the fight moving on. 5,000ms instead leaves roughly
- * fourteen seconds of full-density hold between the rise ending and the
- * fade beginning -- what "a twenty-second smoke column" is actually asking
- * for. Changing this changes how long a blast-package column holds at full
- * density before it starts to leave.
+ * dying rather than the fight moving on. 5,000ms instead leaves exactly
+ * 14.4 seconds of full-density hold between the rise ending and the fade
+ * beginning (20,000 - 600 - 5,000 = 14,400ms) -- what "a twenty-second smoke
+ * column" is actually asking for. Changing this changes how long a
+ * blast-package column holds at full density before it starts to leave.
  */
 export const BLAST_SMOKE_FADE_MS = 5_000;
 
@@ -518,6 +518,22 @@ export function smokePlumeOpacity(
  * longer have the same shape and deriving one from the other is exactly how
  * the footprint ended up running backwards for the last quarter of every
  * plume's life.
+ *
+ * R-I named this function alongside `smokePlumeRiseEnvelope` and
+ * `smokePlumeOpacity` as feeding off the same `progress`, but only those two
+ * gained an optional fraction parameter (`riseFraction`/`fadeFraction`) so
+ * the blast package's absolute `riseMs`/`fadeMs` windows could hold steady
+ * while `BLAST_SMOKE_DURATION_MS` stretched the column to twenty seconds.
+ * This one deliberately did NOT: a spread has no window to hold steady in
+ * the first place, since it is not a phase bounded by two edges of the life
+ * the way a rise or a fade is -- it is a single monotone widen across the
+ * WHOLE life, by design (see the widen note above). A twenty-second blast
+ * column is therefore meant to widen for the full twenty seconds, at
+ * whatever rate that implies, rather than snapping to its `SMOKE_PLUME_
+ * DEFAULT_DURATION_MS`-sized widen and holding -- there is no "the widen
+ * finished early and the rest is flat" reading of a spreading plume the way
+ * there is a "the rise finished early and the rest is a hold" reading of a
+ * climbing one.
  */
 export function smokePlumeSpread(progress: number): number {
   const p = progress < 0 ? 0 : progress > 1 ? 1 : progress;
