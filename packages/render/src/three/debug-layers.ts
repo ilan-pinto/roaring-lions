@@ -138,6 +138,35 @@
  * caller always runs on the mesh path, so that gap is recorded rather than
  * closed.
  *
+ * TWO MORE FOR THE BLAST PACKAGE (2026-09-19, R-M), one following each of
+ * the two rules above -- which is the whole reason they are described
+ * together rather than as one name:
+ *
+ * - `scorch`      the persistent scorch decal mesh (`../scorch-decals.ts`),
+ *                 a plain `visible` on the one `THREE.Mesh` the whole pool
+ *                 draws through. It follows the `overlays`/`skirt` rule:
+ *                 checked directly, nothing in `frame()` ever writes
+ *                 `scorchDecals.mesh.visible` -- a mark is written once at
+ *                 `stamp()` and never touched again (that class's own "No
+ *                 TTL" comment), so there is no per-frame path to undo it.
+ * - `blast-light` the eight pooled `THREE.PointLight`s
+ *                 (`../flash-light.ts`), driven to intensity 0. It follows
+ *                 the `units` rule, and it MUST: `FlashLightManager.step`
+ *                 rewrites `light.intensity` for every slot on EVERY frame
+ *                 (that is the whole of its decay curve), so a one-shot
+ *                 write here would be undone by the very repaint the gate
+ *                 takes its second photograph on -- the identical false
+ *                 green the paragraph above records for `units`, arrived at
+ *                 for the identical reason. It is therefore a FLAG
+ *                 (`ThreeRenderer.flashLightsDebugHidden`) that the
+ *                 per-frame call consults, not a write to the lights.
+ *
+ * Neither gets a `layerChecks` entry in `tools/src/golden-diff/baseline.ts`,
+ * and that is deliberate (R-M): no gated scenario contains a blast, so a
+ * check there would measure an empty pool and read 0 px on a healthy tree.
+ * The blast harness (`tools/src/perf/blast-captures.ts`) is where these two
+ * are exercised, against a scene that actually has one in it.
+ *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
  * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
@@ -175,6 +204,8 @@ export const DEBUG_LAYERS = [
   'skirt',
   'overlays',
   'fog',
+  'scorch',
+  'blast-light',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

@@ -88,6 +88,15 @@ function internals(r: ThreeRenderer): {
   return r as unknown as ReturnType<typeof internals>;
 }
 
+/** The blast package's own private fields, reached the same way `internals`
+ *  above reaches the terrain's -- kept separate so `internals`' own list
+ *  stays the terrain/post-chain one it has always been. */
+function blastInternals(r: ThreeRenderer): {
+  scorchDecals: { mesh: THREE.Mesh };
+} {
+  return r as unknown as ReturnType<typeof blastInternals>;
+}
+
 describe('DEBUG_LAYERS', () => {
   it('rejects a name it does not know, loudly and by name', () => {
     // The distinction this preserves: an unknown name must NOT return 0
@@ -319,6 +328,38 @@ describe('DEBUG_LAYERS', () => {
     r.setDebugLayerVisible('ground-albedo', false);
     r.setDebugLayerVisible('ground-albedo', true);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0.7);
+    r.dispose();
+  });
+
+  it('names the two blast layers, so a typo throws instead of reading as a layer that draws nothing', () => {
+    // Both subjects only exist once Task 7 wires them, which is why the
+    // names land in the same commit as the things they hide -- a
+    // `DEBUG_LAYERS` entry whose `switch` arm draws nothing is exactly the
+    // false green this module's own header is about.
+    expect(DEBUG_LAYERS).toContain('scorch');
+    expect(DEBUG_LAYERS).toContain('blast-light');
+    expect(isDebugLayer('scorch')).toBe(true);
+    expect(isDebugLayer('blast-light')).toBe(true);
+    expect(unknownDebugLayerMessage('scorchh')).toContain('scorch');
+  });
+
+  it('hides the scorch decal mesh with a plain visible flag', () => {
+    // `overlays`/`skirt`'s rule: nothing in `frame()` ever writes
+    // `scorchDecals.mesh.visible` -- a mark is written once at `stamp()` and
+    // never touched again -- so a plain toggle holds across the gate's
+    // repaint. Its sibling `blast-light` follows the OTHER rule and is
+    // pinned in `ThreeRenderer.blast.test.ts` instead, because proving that
+    // one needs a live flash in the pool: with an empty pool
+    // `FlashLightManager.step` writes 0 to every slot anyway, so a toggle
+    // test on a quiet scene passes whether the flag is consulted or not.
+    // (Measured -- deleting the `frame()` consult left an earlier version of
+    // this test green.)
+    const r = makeRenderer();
+    const b = blastInternals(r);
+    expect(r.setDebugLayerVisible('scorch', false)).toBe(1);
+    expect(b.scorchDecals.mesh.visible).toBe(false);
+    expect(r.setDebugLayerVisible('scorch', true)).toBe(1);
+    expect(b.scorchDecals.mesh.visible).toBe(true);
     r.dispose();
   });
 });
