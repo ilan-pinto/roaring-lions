@@ -51,6 +51,7 @@ import { buildVehicleMeshTemplate, vehicleShroudBounds, type VehicleMeshTemplate
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import catastrophic from '../../../../data/vfx/catastrophic_kill.json';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
+import { shakeOffsetPx, initShakeState, type ShakeState } from './blast-shake';
 import type { EmitterSpec } from '../vfx/emitters';
 
 vi.mock('three', async (importOriginal) => {
@@ -155,7 +156,10 @@ interface BlastPrivate {
   collapseShrouds: { liveCount: number };
   vehicleMeshBounds: Map<string, THREE.Vector3>;
   hitStop: { remainingMs: number };
-  shakeState: { live: readonly { ageMs: number }[] };
+  shakeState: ShakeState;
+  cameraShiftedByPx(dx: number, dy: number): { x: number; y: number; zoom: number };
+  cssWidth: number;
+  cssHeight: number;
   smokeClockMs: number;
   lastAlpha: number;
   updateOverlays(alpha: number): void;
@@ -190,6 +194,17 @@ function worldWithTank(): { sim: Sim; renderer: ThreeRenderer; tankId: number; r
     [catastrophic as unknown as EmitterSpec, shellImpact as unknown as EmitterSpec],
     (key) => (key.startsWith('#') ? key : '#FFB43C')
   );
+  // A VIEWPORT. `init()` is what normally fills `cssWidth`/`cssHeight` (from
+  // a real host element, which this headless suite has none of), and they
+  // start at 0 -- which makes `dimetricCamera`'s frustum half-extents 0, the
+  // projection matrix degenerate and EVERY `worldToScreen` answer `NaN`. That
+  // is not a loud failure: `expect(a).toEqual(b)` treats `NaN` as equal to
+  // `NaN`, so an assertion that "the projection did not move" passes on a
+  // projection that never worked. 1400x900 is the visual gate's own capture
+  // size (`tools/src/golden-diff/baseline.ts`).
+  const priv = renderer as unknown as BlastPrivate;
+  priv.cssWidth = 1400;
+  priv.cssHeight = 900;
   renderer.snapshot();
   renderer.snapshot();
   return { sim, renderer, tankId, riflemanId };
@@ -311,6 +326,9 @@ describe('the shake is applied to the view camera and nowhere else (R-K)', () =>
     const priv = renderer as unknown as BlastPrivate;
     const before = { ...renderer.camera };
     const screenBefore = renderer.worldToScreen(10, 10);
+    // A real number, not `NaN` -- see `worldWithTank`'s viewport comment for
+    // what this guards, and why `toEqual` alone could not.
+    expect(Number.isFinite(screenBefore.x)).toBe(true);
     const unshaken = priv.threeCamera().position.clone();
 
     kill(sim, renderer, tankId);
@@ -495,4 +513,97 @@ describe("the blast-light toggle is a flag `frame()` consults, not a one-shot wr
     expect(priv.flashLights.lights.some((l) => l.intensity > 0)).toBe(true);
     renderer.dispose();
   });
+});
+
+describe('the shake offset goes through the dimetric inverse (fix round 1)', () => {
+  /**
+   * The projection mixes both axes -- `worldToScreen` is
+   * `x = (wx - wy) * TILE_W / 2`, `y = (wx + wy) * TILE_H / 2` -- so the
+   * inverse of a screen offset is NOT `dx / TILE_W`, `dy / TILE_H`. This is
+   * the round trip that says so in numbers: displace the camera by what the
+   * renderer thinks N screen pixels are worth, project that displacement
+   * back through the renderer's OWN `worldToScreen`, and require N back.
+   *
+   * `worldToScreen` is projected against the UNSHAKEN `this.camera` (the
+   * shaken copy never reaches it -- R-K), so the base point is the viewport
+   * centre and the difference is the pure screen displacement.
+   */
+  function screenDisplacement(
+    renderer: ThreeRenderer,
+    shifted: { x: number; y: number }
+  ): { x: number; y: number } {
+    const centre = renderer.worldToScreen(renderer.camera.x, renderer.camera.y);
+    const moved = renderer.worldToScreen(shifted.x, shifted.y);
+    return { x: moved.x - centre.x, y: moved.y - centre.y };
+  }
+
+  // Both ends of `main.ts`'s own 0.35-2.5 zoom clamp: the defect was
+  // zoom-INVARIANT (0.64x and ~34 degrees off at every zoom), so a test at
+  // one zoom would have caught it -- but a future per-axis-in-pixels mistake
+  // would not be, and this is the cheap way to keep both closed.
+  for (const zoom of [0.35, 2.5]) {
+    // A pure screen-x offset and a pure screen-y one. Neither is reachable
+    // through the shake MODEL -- `SHAKE_DIR_X`/`SHAKE_DIR_Y` pin every jolt
+    // to the screen's 45-degree diagonal, where an axis-swapping error is
+    // partly disguised by the symmetry of `dx === dy`. These go straight at
+    // the conversion, which is where the defect lived.
+    it(`maps a pure screen-x offset back to itself at zoom ${zoom}`, () => {
+      const { renderer } = worldWithTank();
+      const priv = renderer as unknown as BlastPrivate;
+      renderer.camera.zoom = zoom;
+
+      const d = screenDisplacement(renderer, priv.cameraShiftedByPx(9, 0));
+
+      expect(d.x).toBeCloseTo(9, 2);
+      expect(d.y).toBeCloseTo(0, 2);
+      renderer.dispose();
+    });
+
+    it(`maps a pure screen-y offset back to itself at zoom ${zoom}`, () => {
+      const { renderer } = worldWithTank();
+      const priv = renderer as unknown as BlastPrivate;
+      renderer.camera.zoom = zoom;
+
+      const d = screenDisplacement(renderer, priv.cameraShiftedByPx(0, 9));
+
+      expect(d.x).toBeCloseTo(0, 2);
+      expect(d.y).toBeCloseTo(9, 2);
+      renderer.dispose();
+    });
+
+    it(`puts a real shake on screen at its own amplitude at zoom ${zoom}`, () => {
+      // The integrated path, through the real `threeCamera()` rather than
+      // the conversion alone. `updateDimetricCamera` sets
+      // `position = (cam.x, 0, cam.y) + VIEW_DIRECTION * CAMERA_DISTANCE`
+      // with both terms constant, so the DIFFERENCE between a shaken and an
+      // unshaken view camera's position is exactly the camera copy's own
+      // world delta -- readable without a second accessor.
+      const { sim, renderer, tankId } = worldWithTank();
+      const priv = renderer as unknown as BlastPrivate;
+      kill(sim, renderer, tankId);
+      // Past the 70 ms freeze, which withholds presentation time from the
+      // shake as well -- and the oscillation is a sine, so the offset is
+      // exactly 0 until it has aged. Without this the assertion would hold
+      // trivially at 0 and could not fail.
+      for (let i = 0; i < 6; i++) renderer.frame(1, 16);
+      renderer.camera.zoom = zoom;
+
+      const offset = shakeOffsetPx(priv.shakeState, renderer.camera.x, renderer.camera.y);
+      expect(Math.abs(offset.dx)).toBeGreaterThan(0.1); // the input that makes this able to fail
+      const shakenPos = priv.threeCamera().position.clone();
+      const live = priv.shakeState;
+      priv.shakeState = initShakeState();
+      const restPos = priv.threeCamera().position.clone();
+      priv.shakeState = live;
+
+      const d = screenDisplacement(renderer, {
+        x: renderer.camera.x + (shakenPos.x - restPos.x),
+        y: renderer.camera.y + (shakenPos.z - restPos.z),
+      });
+
+      expect(d.x).toBeCloseTo(offset.dx, 2);
+      expect(d.y).toBeCloseTo(offset.dy, 2);
+      renderer.dispose();
+    });
+  }
 });
