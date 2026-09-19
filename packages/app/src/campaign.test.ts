@@ -516,14 +516,21 @@ describe('villainState', () => {
     expect(villainState(marj, { 'campaign.completed_missions': [last] }, objectivesOf, ends)).toBe('at_large');
   });
 
-  it('names a mission that exists', () => {
+  it('names a mission that exists in its own region', () => {
     // An ends_at nobody can complete would read at_large forever, silently. Every
-    // authored pointer must be a mission world.json actually lists. On its own this
-    // check is vacuous when no villain names one -- what stops that being a silent
-    // hole is the spec below, which fails the moment marj's pointer goes missing.
-    const listed = new Set(world.regions.flatMap((r) => r.towns.flatMap((t) => t.missions)));
+    // authored pointer must be a mission world.json actually lists -- IN THE
+    // VILLAIN'S OWN REGION, not merely somewhere in the world: `listed` built from
+    // every region's missions flattened together would pass a pointer that strayed
+    // into a different front's town, since that id is still a real mission
+    // somewhere -- and villainState would then read a wholly unrelated front's
+    // primaries for this villain. On its own this check is vacuous when no villain
+    // names one -- what stops that being a silent hole is the spec below, which
+    // fails the moment marj's pointer goes missing.
     for (const [regionId, v] of Object.entries(commander.villains ?? {})) {
-      if (v.ends_at !== undefined) expect(listed.has(v.ends_at), `${regionId}.ends_at`).toBe(true);
+      if (v.ends_at === undefined) continue;
+      const region = world.regions.find((r) => r.id === regionId);
+      const listed = new Set(region?.towns.flatMap((t) => t.missions) ?? []);
+      expect(listed.has(v.ends_at), `${regionId}.ends_at`).toBe(true);
     }
   });
 

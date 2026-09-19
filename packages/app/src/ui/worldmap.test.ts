@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
 import commanderJson from '../../../../data/campaign/commander.json';
-import type { LedgerData } from '@lions/sim';
+import type { LedgerData, MissionJson } from '@lions/sim';
+import { missions } from '@lions/data';
 import { parseCommander, parseCountries, parseWorld, type CommanderData } from '../campaign';
 import { worldMap } from './worldmap';
 import { showCampaign, showMenu } from './menu';
@@ -270,6 +271,23 @@ describe("the board's motivation surfaces", () => {
     expect(card.textContent).toContain('Nadir Sahim');
     expect(card.getAttribute('data-state')).toBe('at_large');
     expect(card.textContent).toContain('The digger.');
+  });
+
+  // The villain's `ends_at` pointer is what makes the card read the RIGHT
+  // mission's primaries (see campaign.ts's villainState doc and its own
+  // "is what the shipped data says" spec) -- this is that same fact read
+  // through the rendered card rather than the bare function, with the real
+  // catalogue lookup instead of a stub.
+  it('reads the shipped villain state through the card -- Sahim taken at the shaft head', () => {
+    const missionOf = (id: string) => (missions as Record<string, MissionJson | undefined>)[id];
+    const el = render(
+      { 'campaign.completed_missions': ['beit_sahwan_4_subterranean'] },
+      parseCommander(commanderJson),
+      missionOf
+    );
+    const card = el.querySelector('[data-villain="marj"]')!;
+    expect(card.getAttribute('data-state')).toBe('captured');
+    expect(card.textContent).toContain('Taken at the shaft head');
   });
 
   it('keeps the account of the taken under the cards', () => {
