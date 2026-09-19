@@ -603,7 +603,8 @@ const led3 = run(
   // The app's persistent merge, not `led2` alone -- see the block above.
   { ...led1, ...led2 },
   'victory',
-  'beit_sahwan_3_clearance'
+  'beit_sahwan_3_clearance',
+  3
 );
 
 // --- Naharin: Wadi Halam ------------------------------------------------------
@@ -2469,7 +2470,7 @@ interface GateSpec {
 const GATES: GateSpec[] = [
   { unit: 'breach_team', starsMin: 12, opensAfter: 6 },
   { unit: 'scout_shachaf', starsMin: 30, opensAfter: 15 },
-  { unit: 'apc_kipod', starsMin: 44, opensAfter: 22 },
+  { unit: 'apc_kipod', starsMin: 44, opensAfter: 21 },
 ];
 
 for (const gate of GATES) {
@@ -2597,7 +2598,18 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // ROE 100 -> 89 and roster out 24 -> 22, worth -31 credits, and IV inherits the
 // two-unit-smaller roster for -10 more. -41 total, both from carry-over fidelity
 // rather than from a plan change (neither plan was touched).
-const LADDER_CREDITS = 5490;
+// Re-pinned 2026-09-19 (WP-G-E3 Task 2): 5490 -> 5530 (+40, exactly
+// `carryingComplete`). Beit Sahwan III's `picture` now flags `carries: true`,
+// so III's own grade moves 2 -> 3 stars and its plain-run credits 209 -> 249;
+// `beit_sahwan_4_subterranean` (mission 5, the only mission that reads III's
+// output) is byte-identical before and after (VICTORY 2.1 min, ROE 98, stars 2,
+// roster out 23, credits 178) -- the flag changes what III is CREDITED for, not
+// what it produces, so nothing downstream moves. `GATES`' `apc_kipod` line moves
+// with it: mission 4's extra star pulls the campaign's running total past its
+// starsMin (44) one mission earlier (44 stars after mission 21 where it read 42
+// before), so `opensAfter` re-pins 22 -> 21; `breach_team` and `scout_shachaf`
+// are unaffected (their own gates fall well clear of mission 4's own position).
+const LADDER_CREDITS = 5530;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
