@@ -428,9 +428,35 @@ const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
     ...ids('at_team'),
   ];
   at(0, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(16, 22) });
     sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 8) });
   });
+  // hvt_seen (carrying secondary): bs_hvt_atgm sits at the map's east edge
+  // (38.5,22.5), and the direct bearing from the drone's local-recon standoff
+  // passes within ~2 tiles of bs_cell_north_east -- a rifle garrison
+  // (small_arms, can_target air) close enough to spring an instant kill on a
+  // 120-hp, unarmoured drone, measured. Once the local recon at (21,8) is
+  // done (track_north -- find_the_column -- identifies at ~17s), two legs
+  // send it east along y=8 first, clearing north_east by 7+ tiles, then south
+  // at x=40 to the ATGM's own longitude: the whole transit stays outside
+  // every garrison's engagement envelope.
+  at(18, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(40, 8) }));
+  at(24, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(40, 22) }));
+  // The screen holds at its start line rather than advancing at t=0. A real
+  // player who wants the HVT photo does not spend the same six-count
+  // `picture` on a faster-sighted screen before the drone gets there --
+  // measured, the screen's own attackMove into (16,22) plus its upgraded
+  // max-tier sensors let apc_eitan identify bs_ambush_market_lane on its own
+  // sight alone at ~23s, which used to close `picture` before the drone ever
+  // reached the ATGM. Holding for 32s (the drone identifies the ATGM at
+  // ~30.4s, both tiers) costs nothing: `picture`'s own count of 6 is already
+  // satisfied by the drone's own route -- both `hunters` technicals converge
+  // on the player's start the moment first_contact fires and cross its
+  // outbound leg, then north_block, track_north and the ATGM itself complete
+  // the six -- so the screen advancing at all is flavour once this is
+  // reached, not a requirement. Robust from t=26 through the screen never
+  // advancing at all (tested to t=9999) at both tiers; 32 leaves margin on
+  // both sides rather than sitting on the edge.
+  at(32, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(16, 22) }));
   at(60, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 30) }));
   at(150, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(26, 40) }));
   // Recon in force: the screen advances and fights for the rest of the
@@ -438,7 +464,7 @@ const led1 = run('beit_sahwan_1_recon', (sim, _rt, ids, at) => {
   at(240, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(22, 24) }));
   at(300, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(30, 18) }));
   at(480, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(27, 20) }));
-}, led0);
+}, led0, 'victory', 'beit_sahwan_1_recon', 3);
 
 // II — Foothold: dig in on the assembly area, buy a squad when affordable.
 const led2 = run(
@@ -2481,18 +2507,24 @@ interface GateSpec {
   opensAfter: number;
 }
 
-// Re-pinned (WP-G-E3 Task 3): `khan_rafid_1_recon` (mission order 6) reaches
-// 3 stars now, and its own extra star pulls `scout_shachaf`'s running total
-// past its 30-star floor one mission earlier (mission 14's cumulative reads
-// 30, where it read 29 before) -- `breach_team` and `apc_kipod` are
-// unaffected, since mission 6 sits before the first and mission 14 sits well
-// clear of the second (measured from the printed lines, not predicted).
-// `beit_sahwan_1_recon`'s own promotion is NOT included here -- see the
-// task report: its max-tier replay cannot reach hvt_seen honestly (BLOCKED).
+// Re-pinned twice (WP-G-E3 Task 3), both times from the printed line.
+// First: `khan_rafid_1_recon` (mission order 6) reached 3 stars, pulling
+// `scout_shachaf`'s running total past its 30-star floor one mission earlier
+// (15 -> 14: cumulative at mission 14 went 29 -> 30). Second, on the
+// controller's ruling that the screen's own order timing is the plan's to
+// change: `beit_sahwan_1_recon` (mission order 2, BEFORE khan_rafid_1_recon)
+// also reaches 3 stars, and its own extra star propagates through every
+// later checkpoint. `breach_team`'s cumulative at mission 5 moved 11 -> 12,
+// crossing its 12-star floor one mission sooner (opensAfter 6 -> 5); the same
+// shape moves `apc_kipod` (43 -> 44 at mission 20, opensAfter 21 -> 20).
+// `scout_shachaf`'s own crossing point does NOT move again: mission 13's
+// cumulative (now 29, was 28) is still below its 30-star floor and mission
+// 14's (now 31, was 30) is still above it, so `opensAfter` stays 14 -- only
+// the printed totals moved, re-measured rather than assumed.
 const GATES: GateSpec[] = [
-  { unit: 'breach_team', starsMin: 12, opensAfter: 6 },
+  { unit: 'breach_team', starsMin: 12, opensAfter: 5 },
   { unit: 'scout_shachaf', starsMin: 30, opensAfter: 14 },
-  { unit: 'apc_kipod', starsMin: 44, opensAfter: 21 },
+  { unit: 'apc_kipod', starsMin: 44, opensAfter: 20 },
 ];
 
 for (const gate of GATES) {
@@ -2631,16 +2663,28 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // starsMin (44) one mission earlier (44 stars after mission 21 where it read 42
 // before), so `opensAfter` re-pins 22 -> 21; `breach_team` and `scout_shachaf`
 // are unaffected (their own gates fall well clear of mission 4's own position).
-// Re-pinned 2026-09-19 (WP-G-E3 Task 3): 5530 -> 5580 (+50). `khan_rafid_1_recon`
-// now completes `find_the_west_lane` (a carrying secondary), moving its own
-// grade 2 -> 3 stars: +40 `carryingComplete`, plus +10 `unitHome` because the
-// drone survives its detour this time (roster out 5 -> 6) where the old plan's
+// Re-pinned twice 2026-09-19 (WP-G-E3 Task 3), both from the printed line.
+// First: 5530 -> 5580 (+50). `khan_rafid_1_recon` now completes
+// `find_the_west_lane` (a carrying secondary), moving its own grade 2 -> 3
+// stars: +40 `carryingComplete`, plus +10 `unitHome` because the drone
+// survives its detour this time (roster out 5 -> 6) where the old plan's
 // drone was shot down at the alley row before the mission ended. `GATES`'
-// `scout_shachaf` line moves with it (15 -> 14, see above); `breach_team` and
-// `apc_kipod` are unaffected. `beit_sahwan_1_recon` is untouched in this
-// commit -- its plan still reads 2 stars, `hvt_seen=a` -- see the task report
-// for why (BLOCKED, not a deferral).
-const LADDER_CREDITS = 5580;
+// `scout_shachaf` line moved with it (15 -> 14, see above).
+// Second, on the controller's ruling that the screen's own order timing is
+// the plan's to change: 5580 -> 5661 (+81). `beit_sahwan_1_recon` now
+// completes `hvt_seen` too, moving its own grade 2 -> 3 stars: a clean +40
+// `carryingComplete` (credits 260 -> 300, ROE and roster out both unchanged
+// at 100 / 19 -- no home/conduct drift on the mission itself). The other
+// +41 is carry-over, not a second star: `led1` (this mission's own surviving
+// roster) feeds `beit_sahwan_3_clearance` two missions later, and holding
+// the screen for 32s changes exactly which units are alive and where when
+// III's own placements spawn -- III's run goes ROE 89 -> 100 and roster out
+// 22 -> 24 (credits 249 -> 280, +31), and `beit_sahwan_4_subterranean`
+// inherits III's now-larger roster in turn (credits 178 -> 188, +10).
+// 40 + 31 + 10 = 81, matching the measured ladder delta. `GATES`'
+// `breach_team` and `apc_kipod` lines move with it (see above); `scout_shachaf`
+// does not move again.
+const LADDER_CREDITS = 5661;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
