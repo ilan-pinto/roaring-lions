@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-18 (Phase 2 executing) · main: 89e60848 (v0.72.0 + the Phase 2 plan) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 0 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M4 (3–6), gate issues #164–#169, package issues #170–#191
+Updated: 2026-09-18 (Phase 2 executing) · main: 89e60848 (v0.72.0 + the Phase 2 plan) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 0 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,8 +8,8 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | S2a + S2b #170 #171 (renderer half) | — (next branch off main when A1.2 lands) | spec §6 Phase 2 Tasks 15–16 in `docs/superpowers/plans/2026-09-18-shell-upgrade-phase-2.md` | idle: Tasks 1–14 LANDED 19 Sep (PR #197 → 8596bc37, visual job green, no bless) | when WP-A1.2 #172 is on main: new worktree off main, merge nothing, run Tasks 15 (annulus range rings) and 16 (minimap on the lit ground) subagent-driven, one PR; then S3e #178 app half |
-| B (render · art · data) | — | — | — | a second session is being opened (handoff prompt given 2026-09-18) | A1.2 #172 the blast: before-captures → spec → plan → SDD → PR; then E2–E4 #174–#176; then A1.3 #177 when Lane A is off ThreeRenderer.ts |
+| A (packages/app) | S3e #178 app half (plan only) | `docs/shell-phase-3-plan` · `.claude/worktrees/ep-s3-plan` | spec §6 Phase 3 · brief `s3e-brief.md` (session scratchpad) | 19 Sep: research brief in progress → plan written by an opus agent → docs PR; execution waits for Stage 2 / G1 symbol sheet | Tasks 15–16 of the Phase 2 plan the moment A1.2 lands (new worktree off main) |
+| B (render · art · data) | A1.2 #172 the blast · G-E3 #175 content fixes (parallel, no shared file) | `feat/art-blast` · `.claude/worktrees/ep-a12` · `feat/gamification-e3` · `.claude/worktrees/ep-e3` | spec `docs/superpowers/specs/2026-09-19-art-blast-design.md` + plan `2026-09-19-art-blast.md` (on the branch) · plan `2026-09-19-gamification-e3.md` (on the branch) · SDD ledgers in each worktree's `.superpowers/sdd/` | 20 Sep: this session runs Lane B too. Blast: 7 of 8 tasks done (Task 7 in a fix round: the shake's dimetric inverse); E3: 4 of 6 done (Task 5 Umm Zeitoun + docs in progress); every review so far clean or closed in one round | blast Task 8 after-captures → final review → one PR; E3 Task 6 `captured` (option B) → final review → one PR; merge one at a time; then E2 #174 + E4 #176 behind the LedgerStore ruling (§6) |
 | C (packages/sim) | — | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
@@ -17,10 +17,11 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 - A: S2b #171 renderer half (Tasks 15–16, after A1.2 #172) → S3e #178 app half → S3e scene host (after A1.3 lands) → S3a #180 → S-F #184, A4 #186
 - B: A1.2 #172 blast → G-E1..E4 #173–#176 → A1.3 #177 vehicle weight → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 → A3.2 #185
 - C: G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
+- D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
 
 ## 3. Gates — open decisions, defaults, dates, answers
 
-G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · G2 #166 · G3 #167 · G4 #168 · G5 #169. Answers are copied here with the date, then the issue is closed.
+G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · G2 #166 · G3 #167 · G4 #168 · G5 #169 · G7 #199. Answers are copied here with the date, then the issue is closed.
 
 | Gate | # | Question (short) | Default | Due | Answer · date |
 |---|---|---|---|---|---|
@@ -44,9 +45,11 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 | G3 | — | Economy shape (intel by doing, held-line income, production, population, starting_force) + skirmish fun criteria | as on the plan page | 30 Oct | — |
 | G4 | — | Skirmish go/no-go from five games | — | 14 Dec | — |
 | G5 | — | Transport, input delay, co-op rules | Colyseus relay · 3 ticks · shared Conduct/grade/credits | 5 Feb 2027 | — |
+| G7 | #199 | What does the sold currency buy? Brigade credits buy units, upgrade tiers and E5 today; the roadmap's Phase 4 forbids selling a competitive advantage | TWO currencies: brigade credits stay earned-only and are never sold; a new cosmetic currency ("marks") is what Steam Wallet sells, spending only on liveries, badges and operation passes | 30 Oct | — |
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-19 · shell Phase 3 app-half PLAN (WP-S3e #178, docs only) · PR #198 → 8faccb1b · 12 tasks, 2 gated on G1 · five G1 questions posted on #165 · execution in Stage 2 after Phase 2's Tasks 15–16
 - 2026-09-19 · shell Phase 2 Tasks 1–14 (S2a #170 + the app half of S2b #171) · PR #197 → 8596bc37 · 23 commits, 14 tasks, 7 fix rounds each closed in one round, final review + one fix wave · v0.73.0 · visual job GREEN, all four gated scenarios PASS against the Phase 0 baseline (the plan's hideHudExceptCanvas claim was wrong — the HUD IS in the frame — but the picture held) · no bless · deferred: Tasks 15–16 wait for A1.2; keyboard focus on the strip resets every 250 ms (Phase 3)
 - 2026-09-18 · shell Phase 2 plan · PR #196 → 89e60848 · v0.72.0 cut at ef74d77a (the version job raced on three merges; two duplicate runs failed harmlessly)
 - 2026-09-18 · blurbs (G0 #5) · PR #195 → 5bc04533 · no bless
@@ -65,6 +68,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 ## 5. Deferred and parked — reason and date
 
 - Phase I paid path · until the account is server-held (E6) · 2026-09-15
+- Posture change to free-to-play + Steam Wallet microtransactions (the lead's roadmap, 19 Sep): the August commercial plan's "Early Access at a price" is retired, its PPP pricing tiers and Early Access window void, its 7k wishlist floor still standing; ST5 #204, ST6 #205 and ST7 #206 are UNSCHEDULED until G7 #199 answers on 30 Oct, and G6 un-parks only when ST5+ST6 make the account server-held · 2026-09-19
 - Shell Phase 4 platform (Steam Deck, controller) · product track · G2
 - Shell deferred minors 9/10/13/15/17/20 and twelve task minors · spec §10 · 2026-09-18
 - Art Phase 1 follow-ups: RPG-team Meshy importer WIP; mortar team dies by a 150 ms blend; civilians never show `down` · 2026-09-17
@@ -81,6 +85,13 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - Cross-OS visual equivalence never diffed · per-environment baselines stay · any bless
 - Playtest harness is single-seed (424242) · a second seed flips three lines · Stage 4 re-pins
 - `vehicle` thresholds calibrated against the old noise, not re-derived at the new zero floor · a decision · any bless of `vehicle`
+- WP-G-E2 #174 and WP-G-E4 #176 must read and write the brigade account and the campaign ledger through ONE adapter (the future `LedgerStore` seam), never `localStorage` directly, or ST6 #205 reopens both screens · a ruling in both plans; S3e #178's `DeployRosterView` is already that seam · now, both about to start
+- WP-G-E5 #181 sells units for brigade credits and cannot start before G7 #199 answers what the sold currency buys · Stage 3 lane B · 30 Oct
+- The F2P posture voids the August commercial plan's PPP pricing and Early Access assumptions · that plan needs a rewrite before ST4 #203 writes store copy · Stage 4
+- A backend is a new cost centre with NO OWNER: hosting, secrets, GDPR for EU players, Valve's MTX compliance · lane D #204–#206 · Stage 5
+- Valve's 30% share plus payment fraud means the credit packages are priced LAST, after the cosmetic catalogue exists · ST7 #206 · Stage 6
+- Licence is COMPATIBLE and needs no change: PolyForm Noncommercial (code) + art and data all rights reserved already reserves commercialisation to the lead · WP-L1 #192 · recorded 2026-09-19
+- Shell spec "Phase 4 — platform (not scheduled)" is now ST2 #201 + ST3 #202; G0 #4 (Pixi, one mission per tab) is moot under a desktop wrapper and G2's Pixi retirement gains a reason (a second renderer is a second binary's download) · G2 #166 · 30 Oct
 
 ## 7. Protocols — never edited casually
 
