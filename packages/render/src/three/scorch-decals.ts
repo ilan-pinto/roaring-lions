@@ -111,9 +111,34 @@ import { WORLD_RENDER_ORDER } from './units/render-order';
  *  see this file's top comment for why 256 matches `MAX_MESH_WRECKS`. */
 export const SCORCH_CAPACITY = 256;
 
-/** Fixed alpha every scorch mark draws at -- a single flat value, no
- *  graduated fade, matching `TRACK_OPACITY`'s own shape. */
+/** Peak alpha, at the centre of a mark. The edge falls to zero -- see
+ *  `SCORCH_EDGE_INNER`. */
 export const SCORCH_OPACITY = 0.45;
+
+/**
+ * Where the radial fade starts, as a fraction of the mark's own radius: solid
+ * inside it, `smoothstep` to nothing between it and 1.0.
+ *
+ * **The mark was a hard-edged square until this, and the photographs are what
+ * settled it.** This module's own header used to argue that "a scorch mark
+ * radiates from a point and reads as round either way", so the quad needed no
+ * facing -- true about the FACING and false about the SHAPE. Photographed at
+ * `f75e5dbf` through `pnpm blast:capture`, a full-power mark on bare sand
+ * (`mortar_team` at 4 s, `blast_nomesh` at 200 ms) read as a flat translucent
+ * rhombus with knife-sharp tile-aligned edges and uniform opacity -- a decal
+ * laid on the ground rather than ground that has been burned.
+ *
+ * The fade is radial rather than per-axis, so the visible mark is the CIRCLE
+ * inscribed in the quad: the corners sit at `length((1,1)) = 1.414`, past the
+ * fade's own 1.0, and draw nothing at all. That keeps `scorchRadiusTiles`'
+ * answer meaning exactly what it says -- the radius of the mark a player sees
+ * -- where before it was the half-width of a square 27% larger in area.
+ *
+ * 0.55 rather than a harder number: at full power that is 0.72 tiles of solid
+ * mark and 0.88 tiles of fade, and a burn edge that is most of the mark is
+ * what makes it read as scorching instead of as a disc.
+ */
+export const SCORCH_EDGE_INNER = 0.55;
 
 /** `scorchRadiusTiles(1)`'s result -- the mark a full-power detonation (a
  *  burning hull, not a weak mortar round) leaves. */
@@ -177,6 +202,42 @@ export function writeScorchVertices(
   out[base + 17] = z1;
 }
 
+/**
+ * Writes one mark's 6 per-vertex OFFSETS into `out` at ring `slot`
+ * (`out[slot*12 .. slot*12+11]`, two floats per vertex): each corner's
+ * position in units of the mark's own radius, so every mark writes the SAME
+ * twelve numbers regardless of where or how large it is.
+ *
+ * This is what makes the fade radial rather than per-axis. Interpolated across
+ * the quad it gives the fragment shader a vector from the mark's centre whose
+ * LENGTH is 0 at the centre, 1.0 on the inscribed circle and 1.414 at a
+ * corner -- one `length()` and one `smoothstep` in the shader, no texture, no
+ * extra draw call, and 24 bytes per mark (6.1 KiB across the whole 256-slot
+ * pool) of extra buffer.
+ *
+ * The corner ORDER matches `writeScorchVertices` exactly, and it has to: the
+ * two arrays are read as one vertex stream, so an offset written against a
+ * different winding would fade the mark about a point that is not its centre
+ * -- which at these opacities looks like a slightly lopsided mark rather than
+ * like a bug. `scorch-decals.test.ts` pins them against each other.
+ */
+export function writeScorchOffsets(out: Float32Array, slot: number): void {
+  const base = slot * 12;
+  // (x0,z0) (x1,z0) (x1,z1) -- then (x0,z0) (x1,z1) (x0,z1).
+  out[base] = -1;
+  out[base + 1] = -1;
+  out[base + 2] = 1;
+  out[base + 3] = -1;
+  out[base + 4] = 1;
+  out[base + 5] = 1;
+  out[base + 6] = -1;
+  out[base + 7] = -1;
+  out[base + 8] = 1;
+  out[base + 9] = 1;
+  out[base + 10] = -1;
+  out[base + 11] = 1;
+}
+
 // ---------------------------------------------------------------------------
 // GPU-facing: everything below touches THREE.* GPU-side construction
 // (BufferGeometry, Mesh, ShaderMaterial). Constructed and inspected under
@@ -206,17 +267,31 @@ export function createScorchMaterial(color: string): THREE.ShaderMaterial {
     uniforms: {
       uColor: { value: new THREE.Vector3(r, g, b) },
       uOpacity: { value: SCORCH_OPACITY },
+      uEdgeInner: { value: SCORCH_EDGE_INNER },
     },
     vertexShader: /* glsl */ `
+      attribute vec2 aOffset;
+      varying vec2 vOffset;
       void main() {
+        vOffset = aOffset;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
+    // The radial fade (see `SCORCH_EDGE_INNER`). \`length(vOffset)\` is the
+    // distance from the mark's centre in units of its own radius, so the
+    // visible mark is the CIRCLE inscribed in the quad and the four corners
+    // (1.414) draw nothing. One length and one smoothstep; no texture, no
+    // second draw call, and the same single flat colour as before.
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
       uniform float uOpacity;
+      uniform float uEdgeInner;
+      varying vec2 vOffset;
       void main() {
-        gl_FragColor = vec4(uColor, uOpacity);
+        float d = length(vOffset);
+        float fade = 1.0 - smoothstep(uEdgeInner, 1.0, d);
+        if (fade <= 0.0) discard;
+        gl_FragColor = vec4(uColor, uOpacity * fade);
       }
     `,
     transparent: true,
@@ -244,6 +319,11 @@ export function createScorchMaterial(color: string): THREE.ShaderMaterial {
 export class ScorchDecalMesh {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private readonly positionAttr: THREE.BufferAttribute;
+  /** The radial-fade attribute. Written ONCE per slot, at construction --
+   *  every mark's offsets are the same twelve numbers (see
+   *  `writeScorchOffsets`), so `stamp()` never touches this and it never needs
+   *  a `needsUpdate` of its own. */
+  private readonly offsetAttr: THREE.BufferAttribute;
   private readonly capacityValue: number;
   private writeCursor = 0;
   /** `min(total marks ever stamped, capacity)` -- the drawn prefix before
@@ -266,6 +346,15 @@ export class ScorchDecalMesh {
     this.positionAttr = new THREE.BufferAttribute(new Float32Array(capacity * 6 * 3), 3);
     this.positionAttr.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('position', this.positionAttr);
+    // STATIC, and filled here rather than in `stamp()`: a mark's offsets are
+    // its corners in units of its OWN radius, which is the same twelve numbers
+    // for every mark at every size and every position. Writing them per stamp
+    // would upload a buffer nothing had changed.
+    this.offsetAttr = new THREE.BufferAttribute(new Float32Array(capacity * 6 * 2), 2);
+    for (let slot = 0; slot < capacity; slot++) {
+      writeScorchOffsets(this.offsetAttr.array as Float32Array, slot);
+    }
+    geometry.setAttribute('aOffset', this.offsetAttr);
     geometry.setDrawRange(0, 0);
 
     this.mesh = new THREE.Mesh(geometry, createScorchMaterial(color));

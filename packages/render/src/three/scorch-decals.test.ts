@@ -15,10 +15,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   SCORCH_CAPACITY,
+  SCORCH_EDGE_INNER,
   SCORCH_OPACITY,
   ScorchDecalMesh,
   createScorchMaterial,
   scorchRadiusTiles,
+  writeScorchOffsets,
   writeScorchVertices,
 } from './scorch-decals';
 import { MAX_MESH_WRECKS } from './units/mesh-death';
@@ -93,5 +95,96 @@ describe('createScorchMaterial', () => {
     const mat = createScorchMaterial('#808080');
     expect(mat.uniforms.uColor.value.x).toBeLessThan(0.5);
     expect(mat.uniforms.uColor.value.x).toBeGreaterThan(0.1);
+  });
+});
+
+describe('the radial fade (I1)', () => {
+  // The mark was a hard-edged square until this, photographed at `f75e5dbf`
+  // through `pnpm blast:capture`: a flat translucent rhombus with knife-sharp
+  // tile-aligned edges and uniform opacity, on bare sand (`mortar_team` at
+  // 4 s) and under a wreck (`mbt_lavi` at 4 s) alike. What makes it round and
+  // soft is one per-vertex attribute and one `smoothstep`, so both halves are
+  // pinned: an attribute nothing writes and a shader that ignores it are two
+  // different silent failures.
+
+  it('writes each corner at unit distance per axis, so the centre is the origin', () => {
+    const out = new Float32Array(6 * 2);
+    writeScorchOffsets(out, 0);
+    // Six vertices, two floats each; every component is exactly +/-1.
+    for (const v of out) expect(Math.abs(v)).toBe(1);
+    // The interpolated centre of the quad is the MEAN of its corners, and it
+    // has to be (0, 0) or the fade is about a point that is not the mark's
+    // centre. Each triangle is weighted equally by being written whole.
+    let sx = 0;
+    let sy = 0;
+    for (let i = 0; i < out.length; i += 2) {
+      sx += out[i];
+      sy += out[i + 1];
+    }
+    expect(sx).toBe(0);
+    expect(sy).toBe(0);
+  });
+
+  it('orders its corners exactly as writeScorchVertices does', () => {
+    // The two arrays are read as ONE vertex stream. An offset written against
+    // a different winding fades the mark about a point that is not its centre,
+    // which at these opacities photographs as a slightly lopsided mark rather
+    // than as a bug -- so the order is pinned rather than trusted.
+    const pos = new Float32Array(6 * 3);
+    const off = new Float32Array(6 * 2);
+    const cx = 10;
+    const cy = 12;
+    const radius = 2;
+    writeScorchVertices(pos, 0, cx, cy, 0, radius);
+    writeScorchOffsets(off, 0);
+    for (let v = 0; v < 6; v++) {
+      expect(pos[v * 3], `vertex ${v} x`).toBeCloseTo(cx + off[v * 2] * radius, 6);
+      expect(pos[v * 3 + 2], `vertex ${v} z`).toBeCloseTo(cy + off[v * 2 + 1] * radius, 6);
+    }
+  });
+
+  it('writes exactly one mark of offsets into its own slot and touches no other', () => {
+    const out = new Float32Array(SCORCH_CAPACITY * 6 * 2);
+    writeScorchOffsets(out, 3);
+    const slotStart = 3 * 6 * 2;
+    expect(out.slice(0, slotStart).every((v) => v === 0)).toBe(true);
+    expect(out.slice(slotStart, slotStart + 12).every((v) => v !== 0)).toBe(true);
+    expect(out.slice(slotStart + 12).every((v) => v === 0)).toBe(true);
+  });
+
+  it('gives the mesh an aOffset attribute, filled for every slot at construction', () => {
+    // Filled once, never per stamp: a mark's offsets are the same twelve
+    // numbers at every size and position, so a per-stamp write would upload a
+    // buffer nothing had changed. A pool whose later slots were left at zero
+    // would draw those marks at full alpha everywhere (length((0,0)) = 0), i.e.
+    // as the hard square this fix removes -- for every mark past the first.
+    const pool = new ScorchDecalMesh(4);
+    const attr = pool.mesh.geometry.getAttribute('aOffset');
+    expect(attr).toBeDefined();
+    expect(attr.itemSize).toBe(2);
+    expect(attr.count).toBe(4 * 6);
+    const arr = attr.array as Float32Array;
+    for (const v of arr) expect(Math.abs(v)).toBe(1);
+  });
+
+  it('fades the alpha off with distance from the centre, in the shader', () => {
+    const mat = createScorchMaterial('#3A3C33');
+    expect(mat.uniforms.uEdgeInner.value).toBe(SCORCH_EDGE_INNER);
+    expect(mat.vertexShader).toContain('aOffset');
+    expect(mat.fragmentShader).toContain('length(vOffset)');
+    expect(mat.fragmentShader).toContain('smoothstep(uEdgeInner, 1.0, d)');
+    // The alpha that reaches the frame buffer is the product, never the flat
+    // uniform: a shader that read `uOpacity` alone would pass every check
+    // above and still draw the square.
+    expect(mat.fragmentShader).toContain('uOpacity * fade');
+  });
+
+  it('fades to nothing before the corners, so the visible mark is a circle', () => {
+    // length((1,1)) is 1.414, past the fade's own 1.0 -- which is what makes
+    // `scorchRadiusTiles` the radius of the mark a player SEES rather than the
+    // half-width of a square 27% larger in area.
+    expect(SCORCH_EDGE_INNER).toBeGreaterThan(0);
+    expect(SCORCH_EDGE_INNER).toBeLessThan(1);
+    expect(Math.hypot(1, 1)).toBeGreaterThan(1);
   });
 });
