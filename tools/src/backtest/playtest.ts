@@ -1439,10 +1439,56 @@ run('deir_amun_1_recon', () => {}, {}, 'defeat', 'deir_amun_1_recon (passive con
 // guards die to the escort's own weapons well before the charge starts.
 // `find_the_crew` needs all three `da_diggers`-tagged units identified,
 // including the one placed near the hamlet lane rather than at the mouth --
-// the drone banks that one, then the digging chief and the west gap gun, in
-// one sweep, before it is eventually shot down (a `locate` target latches
-// once identified and does not un-identify, mission.ts:1150). Measured:
-// VICTORY in 1.02 min, ROE 100.
+// the escort's own advance on (9,18) identifies the other two.
+//
+// The two carrying secondaries are both owed to the drone, and both are a
+// STANDOFF problem, not a route problem: flying directly onto either target
+// (the shipped plan's own shape) puts the drone inside a threat's weapon
+// range for exactly as long as it takes to identify, and that dwell is what
+// kills it -- the plain run reads `find_the_chief=a find_the_gap_gun=a`, the
+// max-tier replay of the SAME orders reads `find_the_chief=c` on hp alone
+// (150 vs 120), never the gap gun. Two threats, not one, sit on this route:
+// `militia_cell` at (21,22) (`da_diggers`, weapon range/sight 7 tiles, both
+// ground and air), and a SECOND ambush the shipped plan never accounted for
+// -- two `militia_cell` sit `in_tunnel: "da_tn_lane"`, pre-dug, vent at
+// (27,18), one tile from the digging chief's own spoil at (28,17)
+// (data/maps/deir_amun.json's tunnels). A pre-dug vent starts OPEN
+// (sim.ts:1408), and `stepSurfacing` springs it the instant anything
+// friendly closes inside the militia's own EFFECTIVE range from the vent --
+// 5.5 tiles, not the full 7 (`hasTargetFrom` gates on `effectiveRangeSq`,
+// sim.ts:2858-2872) -- so approaching the chief at all wakes two rifles at
+// point-blank range. The west gap gun itself costs nothing: `rpg_team`'s
+// `rpg7` declares `can_target: ["ground"]` only
+// (data/units/enemy/rpg_team.json), so it can spring on the drone
+// (`checkAmbushSpring` reads raw proximity, not weapon compatibility) and
+// never actually fire on it -- closing to identify it is free.
+//
+// The plan: identify the militia from (21,30), 8 tiles down the open column
+// at x=21 (both `h` clusters that block the row sit at x=18-20 and x=22-24,
+// never at the militia's own x=21) -- outside its 7-tile envelope, so the
+// drone takes zero fire. Identify the chief from (28,25), 7.07 tiles from
+// the vent -- outside the 5.5-tile spring range, so the vent stays shut.
+// Then loop the vent's whole danger circle rather than cut back through it:
+// east to (34,25) and (34,11) (a comfortable 7+ tiles off the vent the
+// entire climb, past a warehouse block that sits further west), then west
+// along the open row at y=11 to (18,11), closing on the gap gun directly --
+// safe by the weapon fact above. Measured against the un-shifted escort:
+// zero drone HP lost, all four `locate`/`collapse` targets identified.
+//
+// The escort/engineers/charge are the SAME orders the un-shifted plan used
+// to complete `bring_down_the_west` -- shifted fifteen seconds later on
+// their own clock, not restructured, because the drone's honest route needs
+// the mission whole past the point the un-shifted timing ends it (~36s) and
+// `chargeTunnel` issued while the squad is mid-approach (rather than at the
+// same relative offset from ITS OWN start) drops the order entirely: tested
+// by hand at +22s on the unshifted clock, the squad drifts off the route
+// under fire from the militia group's own counter-commit and the charge
+// never fires, reading DEFEAT on the 240s `bring_down_the_west` deadline.
+// The shift reproduces the escort's own approach tick-for-tick, fifteen
+// seconds later, and the charge lands exactly as it always did. Measured:
+// VICTORY in 0.9 min, ROE 100, roster out 6 (up from 5 -- the drone finds
+// both men and comes home, where the shipped plan spent it as the third
+// star's price).
 run(
   'deir_amun_1_recon',
   (sim, _rt, ids, at) => {
@@ -1453,20 +1499,25 @@ run(
     const eitan = ids('apc_eitan');
     const escort = [...inf, ...at_team, ...eitan];
 
-    // Drone sweeps the hamlet lane for the far da_diggers militia and the
-    // digging chief, then the west gap for the rocket team.
-    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 22) }));
-    at(15, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 17) }));
-    at(28, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(18, 11) }));
+    // Drone: militia standoff, then the chief's standoff, then loop the
+    // vent's danger circle to close on the gap gun. See the comment above
+    // for why each stop is placed exactly there.
+    at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 30) }));
+    at(13, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 25) }));
+    at(27, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(34, 25) }));
+    at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(34, 11) }));
+    at(37, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(18, 11) }));
 
-    // Escort and engineers go down the gully bed together toward the west route.
-    at(0, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(9, 18) }));
-    at(0, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(9, 18) }));
-    at(30, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 0 }));
+    // Escort and engineers go down the gully bed together toward the west
+    // route -- the un-shifted plan's own orders, fifteen seconds later.
+    at(15, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(9, 18) }));
+    at(15, () => sim.queueCommand({ kind: 'move', ids: yahalom, ...M(9, 18) }));
+    at(45, () => sim.queueCommand({ kind: 'chargeTunnel', ids: yahalom, tunnel: 0 }));
   },
   {},
   'victory',
-  'deir_amun_1_recon'
+  'deir_amun_1_recon',
+  3
 );
 
 run('deir_amun_2_foothold', () => {}, {}, 'defeat', 'deir_amun_2_foothold (passive control)');
@@ -2521,9 +2572,18 @@ interface GateSpec {
 // cumulative (now 29, was 28) is still below its 30-star floor and mission
 // 14's (now 31, was 30) is still above it, so `opensAfter` stays 14 -- only
 // the printed totals moved, re-measured rather than assumed.
+// Re-pinned again (WP-G-E3 Task 4): `deir_amun_1_recon` (mission order 9,
+// BEFORE `scout_shachaf`'s own checkpoint at mission 13/14) reaches 3 stars,
+// pulling the running total past the 30-star floor one mission earlier again
+// (14 -> 13: cumulative at mission 13 went 29 -> 30, so 13 is CLOSED no
+// longer). `breach_team`'s own checkpoint (mission 5) falls before mission 9
+// and is untouched. `apc_kipod`'s printed totals both move (+1, mission 9
+// falls before its own checkpoint at mission 20) but 43 stars at mission 19
+// is still short of its 44-star floor, so `opensAfter` stays 20 -- only the
+// totals moved there, same shape as `scout_shachaf` not moving again above.
 const GATES: GateSpec[] = [
   { unit: 'breach_team', starsMin: 12, opensAfter: 5 },
-  { unit: 'scout_shachaf', starsMin: 30, opensAfter: 14 },
+  { unit: 'scout_shachaf', starsMin: 30, opensAfter: 13 },
   { unit: 'apc_kipod', starsMin: 44, opensAfter: 20 },
 ];
 
@@ -2684,7 +2744,19 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 40 + 31 + 10 = 81, matching the measured ladder delta. `GATES`'
 // `breach_team` and `apc_kipod` lines move with it (see above); `scout_shachaf`
 // does not move again.
-const LADDER_CREDITS = 5661;
+// Re-pinned 2026-09-19 (WP-G-E3 Task 4): 5661 -> 5751 (+90, a clean
+// `carryingComplete`). `deir_amun_1_recon` now completes both `find_the_chief`
+// and `find_the_gap_gun`, moving its own grade 2 -> 3 stars: credits 180 -> 270.
+// Deir Amun I's own ledger is not threaded into `deir_amun_2_foothold` in this
+// harness (see the plan's own comment -- the `{}` fidelity gap is deliberately
+// left open, per the task brief), so nothing downstream moves: no carry-over
+// term, unlike Tasks 2 and 3. `GATES`' `scout_shachaf` line moves with it
+// (14 -> 13, see above). `breach_team`'s `opensAfter` is untouched -- mission
+// 9 falls after its own checkpoint at mission 5, so that cumulative never
+// sees the extra star. `apc_kipod`'s printed totals both move (+1: 45/43,
+// were 44/42) since mission 9 falls before its checkpoint at mission 20, but
+// 43 is still short of its 44-star floor, so `opensAfter` stays 20.
+const LADDER_CREDITS = 5751;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
