@@ -760,7 +760,21 @@ yours; each one records what the next phase inherits.
   was one flat colour, the sand tile landed, and the answer became a permanent
   0.2330 against a `<0.95` budget. **A reference-free check that asks about
   appearance can be blinded by content added later; one that asks whether a
-  layer contributes cannot.** Both documented defects now exit **1** with an
+  layer contributes cannot.**
+  **`DEBUG_LAYERS` carries two more names than this gate judges, and the reason
+  is that no gated scenario contains a blast.** `scorch` and `blast-light`
+  (WP-A1.2) name the ground mark and the pooled `FlashLightManager` that a
+  vehicle kill and a shell impact throw; `vehicle` parks the sandbox force at
+  tick 140 with nothing dying and no round in the air, and `combat` is
+  `gated: false` — so a `layerChecks` entry for either would read 0 px on a
+  perfectly healthy tree. What witnesses them instead is `pnpm blast:capture`
+  (`tools/src/perf/blast-captures.ts`), which runs the SAME toggle A/B on a
+  frame 200 ms after a detonation and holds it to floors derived the same way
+  (a third of a measured signal, with the sample size beside it) — and which
+  is RED on `blast-light` today, for a real reason recorded under "Mesh units".
+  A gated `blast` scenario here is the thing that would let this gate see the
+  package at all, and it does not exist yet.
+  Both documented defects now exit **1** with an
   empty baseline directory: erasing every decor object (`decor-place.ts`'s
   `familyFor` → `return null`) drives the `decor` toggle to 0 px / 0.0000 on all
   three scenarios (floors 4700/0.4, 300/0.15, 12800/0.92), and the scatter
@@ -1425,7 +1439,31 @@ it compares `window.localStorage.length` before and after, and both are
   eleven files grew by **+1892…+3220 bytes** rather than by a copy of a 1.6–3.4
   MiB buffer. The pass is idempotent and re-runnable after a re-export; the Draco
   mirror is re-encoded in the same commit.
-  Four things about it are worth knowing before touching any of it.
+  **And since WP-A1.2 the swap is not the whole event any more.** A vehicle kill
+  now dispatches a BLAST beside the wreck (`docs/superpowers/specs/2026-09-19-art-blast-design.md`):
+  a pooled point light, a screen shake applied to a COPY of the camera in
+  `threeCamera()`, a hit-stop inside `frame()`, a `CollapseShroudManager` cloud
+  sized from the vehicle's own measured mesh bounds that covers the living-body →
+  wreck swap, and a `ScorchDecalMesh` mark that is permanent for the mission. A
+  mortar or Grad landing gets the same four minus the shroud, at
+  `SHELL_PROFILES[kind].impactPower`. The vehicle-kill branch's outer
+  mesh-readiness guard was removed to do it, so the blast fires on `&nomesh` too
+  — with no shroud there, because there are no bounds to size one from.
+  **Three of those five are inert on a vehicle kill as this is written, and it is
+  the `SPRITE_MAP` failure again.** `blastLightSpec`/`blastShake`/`blastHitStopMs`
+  all resolve through `emitterLibrary.byName('catastrophic_kill')`, and
+  `data/vfx/catastrophic_kill.json` is **not imported into
+  `packages/data/src/index.ts`'s `vfxEmitters`** — so `byName` answers `null`,
+  each of the three takes its own documented "nothing to scale" path, and only the
+  scorch and the shroud (the two unconditional calls) actually happen. Measured on
+  the real app, not reasoned: a hand-ticked kill on `beit_sahwan_outskirts` reads
+  `hitStop.remainingMs` 0.0 and a shake offset of 0.000 px at every frame from 0
+  to 600 ms, the `blast-light` toggle moves **0 px / 0.0000**, and the FX clock
+  takes every millisecond it is handed (`pnpm blast:capture`'s per-frame probe).
+  The mortar half works, because `shell_impact` IS in that list — same code, same
+  frame, 14308 px / 5.4267. The unit suite cannot see it: it calls `useEmitters`
+  with the two JSON files directly. The fix is one import and one array entry.
+  Four things about the wreck itself are worth knowing before touching any of it.
   **The recipe is fractions of each vehicle's OWN measured bounds**, tuned
   2026-09-15 against an eleven-pair screenshot sheet
   (`tools/src/perf/wreck-captures.ts`) and recorded beside each constant. Two of
