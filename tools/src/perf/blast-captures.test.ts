@@ -8,6 +8,7 @@ import {
   LAYER_FLOORS,
   SAMPLE_MS,
   SHORT_LADDER_MS,
+  floorLine,
   layerVerdict,
   readingAccepted,
   subjectVotesOn,
@@ -230,6 +231,28 @@ describe('the toggle A/B votes now (R-M)', () => {
     const v = layerVerdict('ground-albedo', { diffPixels: 999_999, meanAbsChannelDelta: 99 });
     expect(v.ok).toBe(false);
     expect(v.reasons.join(' ')).toMatch(/no floor/);
+  });
+
+  it('names the tone column rather than printing a bare "0 px" for a zero-pixel floor', () => {
+    // `LAYER_FLOORS.scorch.minDiffPixels` is 0 by decision (see its own
+    // comment), and the sheet's banner three lines above this listing says
+    // "a zero is a FAILURE here" -- a bare `0 px` beside a floor that is
+    // *supposed* to be zero reads as the opposite of what the banner claims.
+    // The "a third of 0 px" clause further along the SAME line is a report of
+    // the historical MEASUREMENT, not the floor, so it is deliberately left
+    // alone -- only the floor's own leading number is replaced.
+    expect(LAYER_FLOORS.scorch.minDiffPixels).toBe(0);
+    const line = floorLine('scorch', LAYER_FLOORS.scorch);
+    expect(line).not.toContain('scorch`: 0 px');
+    expect(line).toContain('pixel count does not gate this layer -- the tone column votes');
+  });
+
+  it('still prints the plain pixel count for a floor that gates on it', () => {
+    const f = LAYER_FLOORS['blast-light'];
+    expect(f.minDiffPixels).toBeGreaterThan(0);
+    const line = floorLine('blast-light', f);
+    expect(line).toContain(`${f.minDiffPixels} px`);
+    expect(line).not.toContain('does not gate this layer');
   });
 });
 

@@ -2,7 +2,39 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { paletteColor, paletteTeamColors, variantAwareResolver, vfxEmitters } from './index';
+import {
+  maps,
+  missions,
+  paletteColor,
+  paletteTeamColors,
+  tutorials,
+  units,
+  variantAwareResolver,
+  vfxEmitters,
+} from './index';
+
+const DATA_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data');
+
+/**
+ * The vfx sweep generalised (fix wave item 3): reads every `.json` file
+ * under `dir` (recursively, since `data/units/` splits into `kdf/` and
+ * `enemy/` subdirectories plus one flat file), pulls each one's own `id`
+ * field, and returns the sorted list -- the same "read the directory back"
+ * technique `vfxEmitters is pinned to the directory it comes from` above
+ * uses, so a file that ships without being registered in `index.ts`'s
+ * hand-kept import list is a red spec rather than an effect nobody can see.
+ * Verified to apply cleanly: every file under `data/maps/`, `data/missions/`,
+ * `data/units/` and `data/tutorial/` carries an `id` equal to its own
+ * filename (checked by hand before writing this, 2026-09-20) -- unlike
+ * `data/campaign/`, which has no such scheme at all (`commander.json` and
+ * `names.json` carry no `id`, and `world.json`'s `id` is the campaign's own
+ * id, `sahar_basin`, not a match for its filename `world`) and is swept
+ * separately below, by filename against `index.ts`'s own import lines.
+ */
+function idsOnDisk(dir: string): string[] {
+  const files = (readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.json'));
+  return files.map((f) => JSON.parse(readFileSync(path.join(dir, f), 'utf8')).id as string).sort();
+}
 
 // Task 12 fix round 1: `variantAwareResolver` is what closes the gap
 // `paletteTeamColors` alone left open -- most of the renderer's team-coloured
@@ -118,5 +150,79 @@ describe('vfxEmitters is pinned to the directory it comes from', () => {
     expect(blast?.light).toBeDefined();
     expect(blast?.screen_shake).toBeDefined();
     expect(blast?.hit_stop_ms).toBeDefined();
+  });
+});
+
+// Fix wave item 3: the vfx sweep above generalised to every other hand-kept
+// import list in this file. `maps`/`missions`/`units`/`tutorials` are all
+// shaped as an object KEYED BY id, unlike `vfxEmitters`'s array of objects
+// each carrying its own `.id` -- so each sweep below compares
+// `Object.keys(...)` against the directory instead of mapping `.id` off the
+// registered values, but the underlying question and the directory-read
+// technique are identical.
+
+describe('maps is pinned to the directory it comes from', () => {
+  const mapsDir = path.join(DATA_ROOT, 'maps');
+
+  it('carries every map file on disk, by id', () => {
+    const onDisk = idsOnDisk(mapsDir);
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(Object.keys(maps).sort()).toEqual(onDisk);
+  });
+});
+
+describe('missions is pinned to the directory it comes from', () => {
+  const missionsDir = path.join(DATA_ROOT, 'missions');
+
+  it('carries every mission file on disk, by id', () => {
+    const onDisk = idsOnDisk(missionsDir);
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(Object.keys(missions).sort()).toEqual(onDisk);
+  });
+});
+
+describe('units is pinned to the directory it comes from', () => {
+  const unitsDir = path.join(DATA_ROOT, 'units');
+
+  it('carries every unit file on disk, by id, including the kdf/ and enemy/ subdirectories', () => {
+    const onDisk = idsOnDisk(unitsDir);
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(Object.keys(units).sort()).toEqual(onDisk);
+  });
+});
+
+describe('tutorials is pinned to the directory it comes from', () => {
+  const tutorialDir = path.join(DATA_ROOT, 'tutorial');
+
+  it('carries every tutorial file on disk, by id', () => {
+    const onDisk = idsOnDisk(tutorialDir);
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(Object.keys(tutorials).sort()).toEqual(onDisk);
+  });
+});
+
+describe('campaign data files are all imported by index.ts', () => {
+  // `data/campaign/` is not a single id-keyed collection like the four
+  // sweeps above -- `world`/`countries`/`commander`/`names` are four
+  // independent named exports, one per file, and there is no shared id
+  // scheme to compare against: `commander.json` and `names.json` carry no
+  // `id` field at all, and `world.json`'s own `id` ("sahar_basin") names the
+  // campaign, not the file. So this sweep asks the one question that still
+  // generalises -- is every file physically on disk referenced by an import
+  // in `index.ts` -- the same failure mode (a file that ships but is never
+  // wired in, exactly how `catastrophic_kill.json` shipped unregistered) the
+  // other four sweeps catch by id instead.
+  const campaignDir = path.join(DATA_ROOT, 'campaign');
+  const indexSrc = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'index.ts'),
+    'utf8'
+  );
+
+  it('imports every campaign JSON file on disk', () => {
+    const onDisk = readdirSync(campaignDir).filter((f) => f.endsWith('.json'));
+    expect(onDisk.length).toBeGreaterThan(0);
+    for (const f of onDisk) {
+      expect(indexSrc, `index.ts imports data/campaign/${f}`).toContain(`data/campaign/${f}`);
+    }
   });
 });
