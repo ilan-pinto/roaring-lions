@@ -480,17 +480,69 @@ const led2 = run(
 // y=16 to the ATGM rather than across the clinic. Same objectives, and it
 // finishes faster and with more of the roster alive than the shelling did.
 //
-// `picture` is a plain secondary and deliberately NOT `carries: true`, so this
-// mission caps at two stars. The flag would have to mean something: a carrying
-// secondary is one a later mission reads, and III produced no
-// `intel.marked_positions` for IV to read. Closing that by adding the key to
-// III's contract was tried and MEASURED on 2026-09-11 -- it hands IV the union
-// of III's marked tags at t=0, and IV's own plan goes from `VICTORY in 2.1 min,
-// ROE 98` to `ONGOING in 20.0 min` with `take_the_shaft_head` never taken and
-// the whole roster dead (`roster out 0`). Pre-marked positions change which
-// enemies IV's force engages and when, and the scripted plan is not written for
-// that fight. So the carry-over stays closed and the claim comes off the flag
-// rather than the flag standing on a claim nothing honours.
+// III PRODUCES `intel.marked_positions` since 2026-09-19 (WP-G-E3 Task 1), and
+// this run receives the merged `{ ...led1, ...led2 }` rather than `led2` alone.
+// Both halves are needed and neither is cosmetic.
+//
+// The ledger argument first. III declares `requires: intel.marked_positions`,
+// and `led2` does not carry the key -- Beit Sahwan II does not declare it, and
+// `run` returns only what a mission DECLARES. So the harness was handing a
+// mission that asks for intel an EMPTY set, where the app merges every mission's
+// output into one persistent ledger (main.ts:1022) and III would really receive
+// I's marks. Merging here is fidelity, and it is also what keeps the produces
+// key from being destructive: `led4In` below is an object SPREAD, so the moment
+// `led3` carries `intel.marked_positions` it REPLACES led1's value instead of
+// unioning with it. Measured 2026-09-19 with a scratch log of
+// `led4In['intel.marked_positions']` against IV's own eight tags:
+//
+//   baseline (no produces key)     IV pre-marked: market_lane, north_block, track_north
+//   produces key, led2 ledger      IV pre-marked: market_lane, north_block       <- track_north LOST
+//   produces key, {led1,led2}      IV pre-marked: market_lane, north_block, track_north
+//
+// So the failure mode of the naive wiring is LESS pre-marking, not more -- the
+// opposite of what 2026-09-11 suggested. `mission.ts:1961` unions `this.marked`
+// with `this.markedThisMission`, so once III is given I's marks its produced set
+// is a superset of I's and IV's inherited three are exactly as before.
+//
+// **The 2026-09-11 experiment does not reproduce, and it was not re-run.** It
+// recorded IV going from `VICTORY in 2.1 min, ROE 98` to `ONGOING in 20.0 min`
+// with `roster out 0`. Two things changed under it since: Beit Sahwan I gained
+// the `bs_track_north` companion placement, and IV's plan was rebuilt around the
+// two structural faults that exposed (the Namer out of `escort`, east's north
+// charge held to t=68) -- both written up in the `led4In` block below. Measured
+// 2026-09-19 on today's JSON, with the produces key and the merged ledger both
+// in, IV reads:
+//
+//   before: VICTORY in 2.1 min, ROE 98, stars 2, all five objectives c, roster out 25
+//   after:  VICTORY in 2.1 min, ROE 98, stars 2, all five objectives c, roster out 23
+//
+// Result, clock, Conduct, stars and every objective are unmoved; `roster out`
+// follows III's own roster shrinking upstream (24 -> 22), not IV degrading. IV's
+// plan therefore needed NO hardening and none was added.
+//
+// III's own line does move, and that is the mission finally getting what its
+// `requires` asks for: `VICTORY in 1.1 min, ROE 100, roster out 24, credits 240`
+// -> `VICTORY in 2.3 min, ROE 89, roster out 22, credits 209`. Its hostile
+// placements now spawn pre-marked, so `spawnPlacement`'s `preMarked` branch skips
+// `setAmbush` (mission.ts) and they fight at their full weapon range from tick
+// zero instead of holding to the 3 tiles their stance authors. 1.1 min was the
+// figure an empty intel set bought; 2.3 (0.33 of `target_minutes` 7) is the one a
+// real campaign hands this mission. `picture` is still a plain secondary here --
+// the `carries: true` flag is the NEXT commit, deliberately separated so this
+// ledger change moves no star (WP-G-E3 ruling R-10).
+//
+// One honest limit, constructed and run rather than reasoned: **this harness
+// cannot fail on the `produces` key by itself.** Reverting it while keeping the
+// merged ledger leaves every printed line byte-identical and exits 0, because
+// `main.ts:3505` merges a produced ledger with the same SPREAD `led4In` uses --
+// so with III declaring nothing, led1's marks simply persist, and IV's own three
+// tags are reachable either way. What the key really buys is III's OWN sightings
+// (bs_cell_south, bs_mortar_pit, bs_aa_gun_truck, bs_charge_centre,
+// bs_loiter_munition, bs_cell_centre, bs_cell_north_east) reaching the persistent
+// ledger at all -- which is what makes a `carries: true` on `picture` a claim
+// with something behind it, and which no mission downstream reads yet. Reverting
+// the LEDGER ARGUMENT does go red (`credit ladder: FAILED -- expected 5490, got
+// 5531`), and that is the falsification this commit was seen to fail on.
 const led3 = run(
   'beit_sahwan_3_clearance',
   (sim, _rt, ids, at) => {
@@ -548,7 +600,8 @@ const led3 = run(
       sim.queueCommand({ kind: 'attackMove', ids: armor, ...M(38, 22) });
     });
   },
-  led2,
+  // The app's persistent merge, not `led2` alone -- see the block above.
+  { ...led1, ...led2 },
   'victory',
   'beit_sahwan_3_clearance'
 );
@@ -924,6 +977,16 @@ run('beit_sahwan_4_subterranean', () => {}, {}, 'defeat', 'beit_sahwan_4_subterr
 // mission's two inherited tags (bs_cell_north_block, bs_ambush_market_lane) arrive
 // pre-revealed the way the design says they should. The no-orders control keeps `{}`:
 // a passive run should not double as a carry-over test.
+//
+// This is a SPREAD, not a union, and since 2026-09-19 that matters: III declares
+// `intel.marked_positions` in its own `produces` now, so `led3`'s value REPLACES
+// led1's here rather than merging with it. What makes that safe is that III is run
+// on `{ ...led1, ...led2 }` (see its own block above) -- `mission.ts:1961` unions
+// what came in with what III saw, so `led3`'s set is a superset of led1's and IV's
+// third inherited tag, bs_track_north, survives the replacement. Run III on `led2`
+// alone and it does not: measured 2026-09-19, IV's pre-marked set drops from three
+// tags to two. If a fourth Beit Sahwan mission ever lands between these, thread its
+// ledger the same way rather than trusting the spread.
 const led4In = { ...led1, ...led2, ...led3 };
 
 // Diagnosis (walk_mission.ts + a scratch instrumented run) turned up something
@@ -2526,7 +2589,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // `khan_rafid_1_recon`'s fix (jeep's gate-transit route) changed nothing
 // about its own outcome -- VICTORY 0.5 min, ROE 100, stars 2, credits 260,
 // byte-identical to before -- so it contributes no change here.
-const LADDER_CREDITS = 5531;
+// Re-pinned 2026-09-19 (WP-G-E3 Task 1): 5531 -> 5490. No star moved and no
+// weight changed -- the three GATES lines are still 6 / 15 / 22. Beit Sahwan III
+// now declares `intel.marked_positions` in `produces` and is run on the merged
+// `{ ...led1, ...led2 }` ledger the app would really hand it, so its own hostile
+// placements spawn pre-marked and fight at full range from tick zero: III goes
+// ROE 100 -> 89 and roster out 24 -> 22, worth -31 credits, and IV inherits the
+// two-unit-smaller roster for -10 more. -41 total, both from carry-over fidelity
+// rather than from a plan change (neither plan was touched).
+const LADDER_CREDITS = 5490;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
