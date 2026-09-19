@@ -57,6 +57,17 @@
  * nothing is live -- `stepShake` short-circuits on an empty `live` array --
  * so the steady-state (no active blast) frame costs nothing beyond the
  * early-return check.
+ *
+ * Fix round 1 (review C1/I2/I3): both `stepShake` and `stepHitStop` clamp
+ * `dtMs` to `>= 0` before using it -- a negative delta must never rejuvenate
+ * a live shake's age or resurrect a drained hit-stop (see each function's
+ * own doc comment for the arithmetic). And `shakeOffsetPx`'s per-call loop
+ * was already, by construction, a fresh MAX over every currently-live
+ * source rather than a cached "loudest so far" -- so when the loudest
+ * source retires (dropped by `stepShake`), the next call correctly falls
+ * through to whichever source is now strongest, never to zero and never to
+ * a sum. `blast-shake.test.ts` specifies this with two sources of different
+ * durations pushed at different times.
  */
 import type { ScaledShake } from './blast-spec';
 
@@ -123,12 +134,20 @@ export function pushShake(s: ShakeState, shake: ScaledShake | null, wx: number, 
  * `durationMs` -- retirement, not a caller-visible zero: a fully-decayed
  * shake is not kept around at zero strength. Short-circuits (no allocation)
  * when nothing is live, which is the steady-state frame.
+ *
+ * `dtMs` is clamped to `>= 0` (I2): a negative delta -- a clock glitch, or a
+ * caller composing this with something that can go backwards -- must never
+ * REJUVENATE a live shake by shrinking its age. Without the clamp,
+ * `shakeOffsetPx`'s `decay = max(0, 1 - ageMs/durationMs)` has no upper
+ * bound either, so a negative age drives decay above 1 and the shake reads
+ * LOUDER than it was ever authored, not merely wrong-aged.
  */
 export function stepShake(s: ShakeState, dtMs: number): ShakeState {
   if (s.live.length === 0) return s;
+  const dt = Math.max(0, dtMs);
   const live: LiveShake[] = [];
   for (const shake of s.live) {
-    const ageMs = shake.ageMs + dtMs;
+    const ageMs = shake.ageMs + dt;
     if (ageMs < shake.durationMs) live.push({ ...shake, ageMs });
   }
   return { live };
@@ -182,8 +201,15 @@ export function requestHitStop(s: HitStopState, ms: number): HitStopState {
  * the frame just stepped should still be held (`frozen`). Neither allocates
  * a pool nor branches on history -- one scalar in, one scalar and one
  * boolean out.
+ *
+ * `dtMs` is clamped to `>= 0` (I2): without it, `s.remainingMs - dtMs` with
+ * a negative `dtMs` SUBTRACTS a negative, i.e. ADDS -- `stepHitStop({
+ * remainingMs: 0 }, -500)` would resurrect an already-drained hit-stop to
+ * `{ remainingMs: 500, frozen: true }`, reviving a freeze that had already
+ * released.
  */
 export function stepHitStop(s: HitStopState, dtMs: number): { state: HitStopState; frozen: boolean } {
-  const remainingMs = Math.max(0, s.remainingMs - dtMs);
+  const dt = Math.max(0, dtMs);
+  const remainingMs = Math.max(0, s.remainingMs - dt);
   return { state: { remainingMs }, frozen: remainingMs > 0 };
 }
