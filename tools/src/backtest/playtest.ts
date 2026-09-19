@@ -115,9 +115,14 @@ function run(
    *  it clears it by is the MARGIN against that mission's own floor (`fail_below + 20`,
    *  or 70 where none is declared) -- never the raw Conduct, since a mission declaring
    *  `fail_below: 40` sets its ★★ bar at 60 and not at 70. Measured 2026-09-11 over 26
-   *  winning plans: the tightest are `deir_amun_2_foothold` (+10, Conduct 70 against a
+   *  winning plans: the tightest were `deir_amun_2_foothold` (+10, Conduct 70 against a
    *  floor of 60) and `umm_zeitoun_3_clearance` (+11, 76 against 65); every other plan
-   *  is +16 or better. A control that loses gets 0 by construction, so the defaults
+   *  was +16 or better. Both have since widened -- HEAD reads `deir_amun_2_foothold`
+   *  at +15 (ROE 75 against 60) and `umm_zeitoun_3_clearance` at +22 (87 against 65) --
+   *  and later towns landed two that are tighter still: `khan_rafid_3_clearance` (+6,
+   *  Conduct 76 against a floor of 70) and `qarn_hadid_3_clearance` (+12, 77 against
+   *  65) are the tightest on HEAD; every other plan is +15 or better. A control that
+   *  loses gets 0 by construction, so the defaults
    *  assert the gradient with no per-plan edits. Pass 3 only where the plan completes
    *  every carrying secondary. */
   expectStar: 0 | 1 | 2 | 3 = expect === 'victory' ? 2 : 0,
@@ -530,6 +535,11 @@ const led2 = run(
 // with `this.markedThisMission`, so once III is given I's marks its produced set
 // is a superset of I's and IV's inherited three are exactly as before.
 //
+// **Measured at Task 1 and SUPERSEDED by Task 3's screen hold.** The two
+// before/after readings below (IV's roster count, III's own line) describe
+// the state right after this commit landed, not HEAD -- Task 3's screen
+// hold reverted the drift. HEAD's own line is added beneath each one.
+//
 // **The 2026-09-11 experiment does not reproduce, and it was not re-run.** It
 // recorded IV going from `VICTORY in 2.1 min, ROE 98` to `ONGOING in 20.0 min`
 // with `roster out 0`. Two things changed under it since: Beit Sahwan I gained
@@ -541,6 +551,7 @@ const led2 = run(
 //
 //   before: VICTORY in 2.1 min, ROE 98, stars 2, all five objectives c, roster out 25
 //   after:  VICTORY in 2.1 min, ROE 98, stars 2, all five objectives c, roster out 23
+//   HEAD (post Task 3):  VICTORY in 2.1 min, ROE 98, stars 2, roster out 25, credits 188
 //
 // Result, clock, Conduct, stars and every objective are unmoved; `roster out`
 // follows III's own roster shrinking upstream (24 -> 22), not IV degrading. IV's
@@ -556,6 +567,7 @@ const led2 = run(
 // real campaign hands this mission. `picture` is still a plain secondary here --
 // the `carries: true` flag is the NEXT commit, deliberately separated so this
 // ledger change moves no star (WP-G-E3 ruling R-10).
+//   HEAD (post Task 3): VICTORY in 1.1 min, ROE 100, stars 3, roster out 24, credits 280
 //
 // One honest limit, constructed and run rather than reasoned: **this harness
 // cannot fail on the `produces` key by itself.** Reverting it while keeping the
@@ -568,7 +580,8 @@ const led2 = run(
 // ledger at all -- which is what makes a `carries: true` on `picture` a claim
 // with something behind it, and which no mission downstream reads yet. Reverting
 // the LEDGER ARGUMENT does go red (`credit ladder: FAILED -- expected 5490, got
-// 5531`), and that is the falsification this commit was seen to fail on.
+// 5531`), and that is the falsification Task 1's commit was seen to fail on --
+// it is not reproducible on HEAD, whose credit ladder now reads 5849.
 const led3 = run(
   'beit_sahwan_3_clearance',
   (sim, _rt, ids, at) => {
@@ -2603,6 +2616,11 @@ interface GateSpec {
   opensAfter: number;
 }
 
+// Task 2 (WP-G-E3) already re-pinned `apc_kipod` once, before any of the three
+// re-pins below: Beit Sahwan III's `carries: true` flag (mission order 4) earned
+// it a third star, pulling the ladder's cumulative past 44 one mission earlier and
+// moving `opensAfter` 22 -> 21 (`breach_team` and `scout_shachaf` fall well clear
+// of mission 4 and are untouched) -- that 21 is where the first re-pin below starts.
 // Re-pinned twice (WP-G-E3 Task 3), both times from the printed line.
 // First: `khan_rafid_1_recon` (mission order 6) reached 3 stars, pulling
 // `scout_shachaf`'s running total past its 30-star floor one mission earlier
