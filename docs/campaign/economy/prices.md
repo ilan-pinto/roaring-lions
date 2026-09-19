@@ -349,6 +349,17 @@ the free path by that many missions. Notes:
   early on ★★, a smaller but still positive 0-2 missions early on ★★★ (a stronger
   player earns stars faster, so the free path catches up faster too — `breach_team`
   actually ties its own ★★★ gate exactly, buying it earns nothing for a 3-star player).
+  **The ★★★ half of this bullet is stale, WP-G-E3 (2026-09-19) — the same claim §7
+  corrects below.** It reads this table's `gate opens (★★★)` column at the OLD
+  `stars_min ÷ 3` figures (4 / 10 / 15); §3.1 now measures the real crossing at
+  5 / 13 / 19 (`gate breach_team: OPEN after mission 5`, `scout_shachaf: … 13`,
+  `apc_kipod: … 19`). Against the unchanged `affordable at (★★★)` column (4 / 8 / 14)
+  that widens the ★★★ margin to roughly +1 to +5, not 0-2, and `breach_team` no
+  longer ties its own gate exactly (5 - 4 = +1). The ★★ half is unaffected — it
+  already reads §3.1's own ★★ column (6 / 15 / 22) unchanged. A full re-derivation of
+  this table's `gate opens`/`margin` columns against the post-WP-G-E3 ladder is the
+  same larger undertaking §3.1 defers (this section was derived against the
+  2026-09-16 ladder and is not re-walked here).
 
 ## 6. The cap check (§4.2: no mission pays more than a fifth of the cheapest star-gated
 unit's price)
