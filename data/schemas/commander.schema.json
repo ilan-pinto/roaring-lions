@@ -123,6 +123,11 @@
           "minLength": 1,
           "description": "The villain's name in the towns' own fictional register (storyline.md G18), for the campaign board's villain-state line. The in-mission commander bar's `enemy` line still never looks this up -- it stays the HUD's own literal word."
         },
+        "ends_at": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The mission that ends this villain, when it is not the region's chronologically last one. Its primaries decide the card: a `capture` primary reads `captured`, anything else reads `killed`, and the villain is `at_large` until it is complete. Omit where the region's last mission IS the ending -- Sur's and Naharin's are."
+        },
         "lines": {
           "type": "object",
           "required": ["at_large", "captured", "killed"],

@@ -282,7 +282,7 @@ export function regionCard(
 
   const villain = opts.commander?.villains?.[region.id];
   if (villain && opts.missionOf) {
-    const state = villainState(region, opts.ledger, opts.missionOf);
+    const state = villainState(region, opts.ledger, opts.missionOf, villain.ends_at);
     const box = el('div', 'rl-world__villain');
     box.dataset.villain = region.id;
     box.dataset.state = state;

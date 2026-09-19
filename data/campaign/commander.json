@@ -21,6 +21,7 @@
   "villains": {
     "marj": {
       "portrait": "nadir_sahim.png", "name": "Nadir Sahim",
+      "ends_at": "beit_sahwan_4_subterranean",
       "lines": {
         "at_large": "The digger. Four years under the Marj, and still under it.",
         "captured": "Taken at the shaft head with his hands empty.",
