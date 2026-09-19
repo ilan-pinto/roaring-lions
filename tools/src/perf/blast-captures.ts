@@ -236,10 +236,13 @@ export const SHORT_LADDER_MS: readonly number[] = [0, 200, 400, 600, 1000, 2000,
  * through the freeze), and a sheet that stopped at 100 ms would photograph a
  * held frame with no jolt in it and read as broken. It runs to 1000 ms because
  * the authored `duration_ms` is 420 and the whole claim is that the jolt
- * happens AFTER the hold and is over well inside a second.
+ * happens AFTER the hold and is over well inside a second. The last rung is
+ * 2000 and is not about the jolt at all: `scorch`'s own toggle rung is there
+ * (`LayerFloor.toggleAtMs`), because a mark photographed while a fireball sits
+ * on it is not a measurement of the mark.
  */
 export const JOLT_LADDER_MS: readonly number[] = [
-  0, 16, 32, 48, 64, 80, 96, 112, 144, 192, 256, 320, 400, 480, 600, 1000,
+  0, 16, 32, 48, 64, 80, 96, 112, 144, 192, 256, 320, 400, 480, 600, 1000, 2000,
 ];
 
 /**
@@ -268,12 +271,11 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     mode: 'kill',
     x: 18,
     y: 3,
-    abstains: ['scorch'],
     why:
-      "wheeled, and a different wreck recipe from the Lavi's. ABSTAINS from `scorch`: hp 1600 " +
-      'gives power 0.533 and `scorchRadiusTiles` its square root, so the mark is 1.17 tiles of ' +
-      "radius against the Lavi's 1.6 -- and at the 200 ms toggle rung the shroud and the " +
-      'fireball cover almost all of it, measured 0 px / 0.1550 where the Lavi reads 12326 / 2.6119',
+      "wheeled, and a different wreck recipe from the Lavi's. The WEAKEST `scorch` witness in " +
+      'the set and deliberately still a voting one: hp 1600 gives power 0.533 and ' +
+      '`scorchRadiusTiles` its square root, so the mark is 1.17 tiles of radius against the ' +
+      "Lavi's 1.6, and its own wreck covers most of that -- which is what sets that layer's floor",
   },
   {
     id: 'mortar_team',
@@ -367,17 +369,15 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     y: 3,
     flags: ['nomesh'],
     ladderMs: SHORT_LADDER_MS,
-    abstains: ['scorch'],
     why:
       "Task 7 removed the vehicle-kill branch's outer mesh-readiness guard, so a blast fires on " +
       'the billboard path now -- light, shake, hit-stop and scorch, and NO shroud, because a ' +
-      'shroud is sized from measured mesh bounds there are none of here. ABSTAINS from `scorch` ' +
-      'for the opposite reason to `apc_eitan`: the mark is the LARGEST in the set here (nothing ' +
-      'covers it -- the fireball and the plume are both GLBs `&nomesh` never fetches), and ' +
-      'hiding it moves 65293 pixels by up to 30/255, which pixelmatch at its 0.1 perceptual ' +
-      'threshold counts as **0**. `meanAbsChannelDelta` reads 4.9232, the highest anywhere in ' +
-      "the sheet. This is the gate's own documented blind spot -- a wide area moving by one " +
-      'palette step -- and it is why magnitude is the primary metric here as it is there',
+      'shroud is sized from measured mesh bounds there are none of here. Also the STRONGEST ' +
+      '`scorch` witness in the set, and the subject that proved the pixel count is the wrong ' +
+      'metric for this layer: nothing covers the mark here (the fireball and the plume are both ' +
+      'GLBs `&nomesh` never fetches), hiding it moves 65293 pixels by up to 30/255, and ' +
+      "pixelmatch at its 0.1 perceptual threshold counts **0** of them. That is the gate's own " +
+      'documented blind spot -- a wide area moving by one palette step -- met head on',
   },
 ];
 
@@ -449,6 +449,23 @@ export interface LayerFloor {
   readonly minDiffPixels: number;
   readonly minMeanAbsChannelDelta: number;
   readonly measured: LayerSignal;
+  /**
+   * The rung this layer's A/B is run at, in ms after the trigger.
+   *
+   * **Per layer, because one rung cannot witness both, and that is measured.**
+   * A blast light lives 500 ms, so it has to be photographed early. A scorch
+   * mark is permanent and, for the first second or so, almost entirely COVERED
+   * by the fireball and the collapse shroud sitting on top of it -- at 200 ms
+   * the `scorch` toggle reads 0 px / 0.3423 on `mbt_lavi` and 37-89 px / 0.23
+   * on `mortar_team`, against 42119 px / 11.18 for `blast-light` on the same
+   * frame. (It read 12326 px there before the radial fade landed, and the
+   * difference is the square's CORNERS: they reached 1.414x the radius, well
+   * outside the shroud, and were most of the old signal. A rounder mark is a
+   * worse witness at 200 ms and a better mark.)
+   *
+   * A ladder that does not carry this exact rung uses its first rung past it.
+   */
+  readonly toggleAtMs: number;
   readonly rationale: string;
 }
 
@@ -477,43 +494,58 @@ export interface LayerFloor {
  */
 export const LAYER_FLOORS = {
   scorch: {
-    minDiffPixels: 2500,
-    minMeanAbsChannelDelta: 0.38,
-    measured: { minDiffPixels: 7274, minMeanAbsChannelDelta: 1.1265, runs: 3 },
+    // ZERO, and it is a decision with a precedent rather than a gap.
+    // `baseline.ts`'s own `relief`/`ground-albedo` check does the same and
+    // gives the reason: "a third of EIGHT pixels is not a floor". Measured
+    // here over 3 runs at the 2000 ms rung, `mbt_lavi` reads 0 px / 0.5818 and
+    // `apc_eitan` 0 px / 0.2092-0.2273 while both move a WIDE area by a modest
+    // amount -- the mark sits under a wreck, and pixelmatch's 0.1 perceptual
+    // threshold discards the whole of it. `blast_nomesh` is the proof by
+    // extreme: the largest, least obstructed mark in the set moves 65293
+    // pixels by up to 30/255 and pixelmatch counts 0. The magnitude IS the
+    // check for this layer, exactly as it is there, and the falsification is
+    // unaffected -- a stamp that stops writing reads 0.0000.
+    minDiffPixels: 0,
+    minMeanAbsChannelDelta: 0.07,
+    measured: { minDiffPixels: 0, minMeanAbsChannelDelta: 0.2092, runs: 3 },
+    toggleAtMs: 2000,
     rationale:
       'Calibrated 2026-09-20 over 3 runs on darwin-arm64, ANGLE/SwiftShader, 1400x900 at ' +
-      'deviceScaleFactor 1, on the 600x400 ladder crop at zoom 2.5 and the 200 ms rung. The two ' +
-      'voting comparison subjects read `mbt_lavi` 12326 / 2.6119, 11964 / 2.4749, 12326 / 2.6119 ' +
-      'and `mortar_team` 7287 / 1.1295, 7329 / 1.1312, 7274 / 1.1265; the floor is a third of the ' +
-      'smallest of those six (7274 px / 1.1265), rounded up to a tidy number. The three ' +
-      'after-set subjects clear it on their single run each -- `scorch_tel_ridge` 10238 / 2.0424, ' +
-      '`blast_in_firefight` 5869 / 1.4614, `scorch_qarn_shoulder` 4563 / 1.3147. The spread is ' +
-      'NOT rasteriser noise: it tracks `lastFrameMs`, which the harness measures per run ' +
-      '(91.30-97.80 ms here) and which decides how many 16 ms frames the ladder takes to reach ' +
-      'the same nominal age. Two subjects abstain and both carry their numbers on the subject ' +
-      'itself -- see `apc_eitan` (covered by its own shroud) and `blast_nomesh` (65293 pixels ' +
-      "moving by up to 30/255, which pixelmatch's 0.1 threshold counts as zero).",
+      'deviceScaleFactor 1, on the 600x400 ladder crop at zoom 2.5, at the 2000 ms rung. ' +
+      '`mbt_lavi` 0 px / 0.5818 (bit-identical on all three), `apc_eitan` 0 / 0.2273, 0.2273, ' +
+      '0.2092, `mortar_team` 7251 / 1.4411 (bit-identical). The floor is a third of the ' +
+      'smallest MAGNITUDE; see `minDiffPixels` above for why the pixel count is not gated. ' +
+      '`apc_eitan` sets it: hp 1600 gives power 0.533 and the radius its square root, so its ' +
+      'mark is 1.17 tiles against the Lavi\'s 1.6 and its own wreck covers most of that. ' +
+      '**The rung moved from 200 ms to 2000 ms in this round and the reason is measured.** At ' +
+      '200 ms the fireball and the collapse shroud sit on top of the mark: it read 0 px / ' +
+      '0.3423 there against 0.5818 here on `mbt_lavi`, and 37-89 px / 0.23 against 7251 / 1.4411 ' +
+      'on `mortar_team` -- a 6x magnitude loss and a 100x pixel loss for photographing a ground ' +
+      'mark while something is burning on top of it. The smallest SINGLE-run reading anywhere in ' +
+      'the set is `scorch_qarn_shoulder`\'s 0.2020 (one run), and 0.07 is a third of that too ' +
+      '(0.0673), so the floor holds against the weakest witness measured rather than only ' +
+      'against the weakest one measured three times. (Before the radial fade landed the same ' +
+      '200 ms rung read 12326 px on `mbt_lavi`. That was the SQUARE\'s corners, which reached ' +
+      '1.414x the radius and stuck out well past the shroud. A rounder mark is a worse witness ' +
+      'at 200 ms and a better mark.)',
   },
   'blast-light': {
-    minDiffPixels: 4800,
-    minMeanAbsChannelDelta: 1.81,
-    measured: { minDiffPixels: 14224, minMeanAbsChannelDelta: 5.4091, runs: 3 },
+    minDiffPixels: 1750,
+    minMeanAbsChannelDelta: 1.75,
+    measured: { minDiffPixels: 5169, minMeanAbsChannelDelta: 5.2263, runs: 3 },
+    toggleAtMs: 200,
     rationale:
-      'Calibrated 2026-09-20 over the same 3 runs and the same conditions as `scorch` above, but ' +
-      'from ONE subject: `mortar_team` reads 14308 / 5.4267, 14315 / 5.4340, 14224 / 5.4091 and ' +
-      'is the only subject in the set that produces a blast light at all on this tree. The floor ' +
-      'is a third of the smallest, rounded up. **The reason no vehicle kill contributes a ' +
-      'reading is a defect, not a framing problem**: `blastLightSpec`/`blastShake`/ ' +
-      "`blastHitStopMs` resolve through `emitterLibrary.byName('catastrophic_kill')`, and " +
-      "`data/vfx/catastrophic_kill.json` is not imported into `packages/data/src/index.ts`'s " +
-      '`vfxEmitters`, so that call answers null and the light, the shake and the hit-stop are all ' +
-      'silent no-ops on a kill. Every kill subject therefore VOTES on this layer and FAILS, ' +
-      'which is the correct reading of a package three fifths of which does not run -- do not ' +
-      'lower this floor or add an abstention to clear the red. Two consequences to carry: the ' +
-      'floor has never been verified against a working kill (it is derived from a 2.0-intensity, ' +
-      "4-tile light where a kill authors 3.5 and 7), so re-derive it from a kill's own reading " +
-      'once the import lands; and `scorch_qarn_shoulder` abstains for an unrelated, measured ' +
-      'reason of its own.',
+      'Calibrated 2026-09-20 over the same 3 runs and conditions as `scorch` above, at the ' +
+      '200 ms rung -- inside the emitter\'s own `decay_ms` (500 for a kill, 380 for an impact), ' +
+      'which is why this layer cannot share the scorch\'s rung. `mbt_lavi` 42119 px / 11.1762 ' +
+      '(bit-identical on all three), `apc_eitan` 5169 / 6.0333, 5169 / 6.0333, 11540 / 6.6842, ' +
+      '`mortar_team` 14174 / 5.3246, 14138 / 5.2582, 13816 / 5.2263. The floor is a third of ' +
+      'the smallest of each column, which is `apc_eitan` on pixels and `mortar_team` on ' +
+      'magnitude. `apc_eitan` swings 2.2x between runs on pixel count while its magnitude moves ' +
+      '11%, which is the same `lastFrameMs` sensitivity every number here has -- it is why the ' +
+      'floor is a third of the smallest rather than a band around a mean. **This layer read 0 ' +
+      'px / 0.0000 on every kill subject until `catastrophic_kill` was registered in ' +
+      '`vfxEmitters`**; these are the first readings of a working kill light.',
   },
 } satisfies Record<string, LayerFloor>;
 
@@ -615,10 +647,17 @@ const CLOSE_CROP_LIFT_PX = 50;
  *  the raw and clamped frame clocks agree on every rung this harness drives
  *  itself. */
 const FRAME_MS = 16;
-/** The rung the R-M toggle A/B is performed at: inside the 450 ms fireball,
- *  and past the first frame, so a light and a scorch would both be at
- *  strength. */
-const TOGGLE_AT_MS = 200;
+/**
+ * The rung each layer's A/B is run at, resolved against a subject's own
+ * ladder: the first rung at or past that layer's `toggleAtMs`, and the last
+ * rung if the ladder ends before it. Never simply "the last rung" -- on the
+ * jolt ladder that would run `blast-light`'s A/B at 1000 ms, where a 500 ms
+ * light has retired and a zero would mean nothing at all.
+ */
+function toggleRungFor(layer: string, ladder: readonly number[]): number {
+  const want = (LAYER_FLOORS as Record<string, LayerFloor>)[layer]?.toggleAtMs ?? 0;
+  return ladder.find((m) => m >= want) ?? ladder[ladder.length - 1];
+}
 /** R-M. Derived from `LAYER_FLOORS` rather than written twice, so a layer
  *  toggled but unfloored -- or floored but never toggled -- is not
  *  expressible. `setDebugLayerVisible` throws on an unknown name BY DESIGN
@@ -824,6 +863,7 @@ async function main(): Promise<void> {
   // One page per (map, flags, isolation) group, in the order the subject list
   // declares them, so the three comparison subjects still share exactly the
   // one page and the one settle the before-set was taken through.
+  const skipped: string[] = [];
   const groups = new Map<string, BlastSubject[]>();
   for (const s of wanted) {
     const key = groupKey(s);
@@ -934,6 +974,48 @@ async function main(): Promise<void> {
             : '.')
       );
 
+      // A RUN WHOSE TRIGGER OVERSHOOTS A TOGGLE RUNG IS NOT A MEASUREMENT.
+      // `step(1)` latches whatever the last live frame cost, and it is not
+      // under this harness's control: measured 25.90 ms, 90.70, 91.70, 936.70
+      // and once **1876.70** on the same machine in one sitting. At 1876.70 a
+      // kill's 500 ms `blast-light` is long retired before rung zero, and the
+      // A/B reads 0 px / 0.0000 -- indistinguishable, in the sheet, from a
+      // light that never spawned. That run happened, it read exactly that, and
+      // the only thing that stopped it being recorded as a renderer failure
+      // was somebody noticing the jump in the log.
+      //
+      // So it is refused BEFORE the captures are spent, naming the number.
+      // `handTick` subjects are exempt because they never go through `step(1)`
+      // at all, and an abstaining (subject, layer) pair is exempt because it is
+      // not being measured either way. This is the gate's own exit-3 rule --
+      // "nothing was COMPARED" must never read as a pass -- applied here.
+      const overshot = subjects
+        .filter((s) => s.mode === 'kill' && s.handTick !== true)
+        .flatMap((s) =>
+          LAYERS.filter(
+            (l) => subjectVotesOn(s, l) && stepJumpMs > toggleRungFor(l, s.ladderMs ?? SAMPLE_MS)
+          ).map((l) => `${s.id}/${l} (rung ${toggleRungFor(l, s.ladderMs ?? SAMPLE_MS)} ms)`)
+        );
+      if (overshot.length > 0) {
+        // SKIPPED AND RECORDED, never thrown. `guardCapture`'s own lesson
+        // (`capture-guard.ts`): the first Linux bless threw on one scenario's
+        // capture and discarded four baselines already written to disk. This
+        // group's pictures are unusable -- rung zero is already `stepJumpMs`
+        // old -- but the other groups' are not, so the run continues and fails
+        // at the end.
+        const message =
+          `${key}: SKIPPED. step(1) latched a ${stepJumpMs.toFixed(2)} ms frame, past the toggle rung ` +
+          `of ${overshot.join(', ')} -- the trigger has already aged the effect past the frame the A/B ` +
+          'photographs, so a zero there would measure this harness rather than the renderer. Re-run ' +
+          '(the jump is a machine-load artefact: 25.90 to 1876.70 ms measured on one machine in one ' +
+          'sitting), or give the subject `handTick`, which never goes through `step(1)` at all.';
+        console.error(`  ${message}`);
+        notes.push(message);
+        skipped.push(key);
+        await page.close();
+        continue;
+      }
+
       // Everything that needs a GLB is spawned up front so one wait covers it.
       // The bait is NOT: a hostile on the field from tick zero would be shot at
       // (and would walk into) every other subject's frame for the whole run --
@@ -961,11 +1043,9 @@ async function main(): Promise<void> {
         // purpose; the real FX age is read back per rung from `smokeClockMs`
         // (`fxAgeMs`), and the gap between the two columns is the freeze.
         const ladder = p.subject.ladderMs ?? SAMPLE_MS;
-        // The toggle rung: `TOGGLE_AT_MS` where the ladder has it, otherwise the
-        // first rung past it. Never "the last rung" -- on the jolt ladder that
-        // would run the A/B at 1000 ms, where the 500 ms light has retired and
-        // a zero would mean nothing at all.
-        const toggleAt = ladder.find((m) => m >= TOGGLE_AT_MS) ?? ladder[ladder.length - 1];
+        // One rung per LAYER, not one per subject -- see `LayerFloor.toggleAtMs`.
+        const rungFor = new Map<string, number>(LAYERS.map((l) => [l, toggleRungFor(l, ladder)]));
+        const lastRung = Math.max(...rungFor.values());
         const probeOut: ProbeSample[] = [];
         let ageMs = trigger.ageMs;
         for (const ms of ladder) {
@@ -979,20 +1059,23 @@ async function main(): Promise<void> {
             probeOut.push(...samples);
             ageMs = ms;
           }
+          const due = LAYERS.filter((l) => rungFor.get(l) === ms);
           if (togglesOnly) {
-            if (ms < toggleAt) continue;
-            const rect = await frameCrop(page, p.subject);
-            await runLayerToggles(page, p.subject, label, out, rect, layerReadings, {
-              REPAINT_SCRIPT,
-              layerToggleScript,
-              computeDiff,
-            });
-            break;
+            if (due.length > 0) {
+              const rect = await frameCrop(page, p.subject);
+              await runLayerToggles(page, p.subject, due, label, out, rect, layerReadings, {
+                REPAINT_SCRIPT,
+                layerToggleScript,
+                computeDiff,
+              });
+            }
+            if (ms >= lastRung) break;
+            continue;
           }
           const fxAgeMs = await readFxAge(page, trigger.fxBaseMs);
           const rect = await shoot(page, p.subject, ms, ageMs, fxAgeMs, label, out, cells);
-          if (ms === toggleAt) {
-            await runLayerToggles(page, p.subject, label, out, rect, layerReadings, {
+          if (due.length > 0) {
+            await runLayerToggles(page, p.subject, due, label, out, rect, layerReadings, {
               REPAINT_SCRIPT,
               layerToggleScript,
               computeDiff,
@@ -1019,6 +1102,10 @@ async function main(): Promise<void> {
   // after the sheet is written, never instead of it -- a run that measured
   // something and then exited without recording it would be worse than one
   // that measured nothing.
+  if (skipped.length > 0) {
+    console.error(`\n${skipped.length} group(s) skipped as unmeasurable: ${skipped.join(', ')}`);
+    process.exitCode = 1;
+  }
   const failed = layerReadings.filter((r) => r.ok === false);
   if (failed.length > 0) {
     console.error(
@@ -1494,6 +1581,7 @@ async function frameCrop(page: import('playwright').Page, subject: BlastSubject)
 async function runLayerToggles(
   page: import('playwright').Page,
   subject: BlastSubject,
+  layers: readonly string[],
   label: string,
   out: string,
   rect: Rect,
@@ -1511,10 +1599,13 @@ async function runLayerToggles(
   const dir = path.join(out, 'toggles');
   fs.mkdirSync(dir, { recursive: true });
   const clip = { x: rect.x, y: rect.y, width: rect.w, height: rect.h };
-  const shown = path.join(dir, `${subject.id}-shown-${label}.png`);
+  // Named per LAYER GROUP, because the two layers are now photographed at
+  // different rungs and one `-shown-` file would be overwritten by the second.
+  const tag = layers.join('+');
+  const shown = path.join(dir, `${subject.id}-${tag}-shown-${label}.png`);
   await page.evaluate(api.REPAINT_SCRIPT);
   await page.screenshot({ path: shown, clip });
-  for (const layer of LAYERS) {
+  for (const layer of layers) {
     const hidden = path.join(dir, `${subject.id}-${layer}-hidden-${label}.png`);
     try {
       await page.evaluate(api.layerToggleScript(layer, false));
@@ -1599,7 +1690,7 @@ function writeIndex(
   ];
   const layerLines = [
     ``,
-    `## Layer toggles (R-M), at ${TOGGLE_AT_MS} ms`,
+    `## Layer toggles (R-M)`,
     ``,
     `A zero is a FAILURE here, not a note: a layer that resolves to no objects`,
     `produces a zero delta, and a check that passed on zero would read a deleted`,
@@ -1618,9 +1709,9 @@ function writeIndex(
     ``,
     ...Object.entries(LAYER_FLOORS).map(
       ([layer, f]) =>
-        `- \`${layer}\`: ${f.minDiffPixels} px / ${f.minMeanAbsChannelDelta} ` +
-        `(a third of ${f.measured.minDiffPixels} px / ${f.measured.minMeanAbsChannelDelta} over ` +
-        `${f.measured.runs} runs)`
+        `- \`${layer}\`: ${f.minDiffPixels} px / ${f.minMeanAbsChannelDelta} at the ` +
+        `${f.toggleAtMs} ms rung (a third of ${f.measured.minDiffPixels} px / ` +
+        `${f.measured.minMeanAbsChannelDelta} over ${f.measured.runs} runs)`
     ),
   ];
   const probeLines =

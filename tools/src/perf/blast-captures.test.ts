@@ -153,9 +153,31 @@ describe('the toggle A/B votes now (R-M)', () => {
   });
 
   it('fails on EITHER metric, not only their conjunction', () => {
-    const f = LAYER_FLOORS.scorch;
-    expect(layerVerdict('scorch', { diffPixels: f.minDiffPixels * 3, meanAbsChannelDelta: 0 }).ok).toBe(false);
-    expect(layerVerdict('scorch', { diffPixels: 0, meanAbsChannelDelta: f.minMeanAbsChannelDelta * 3 }).ok).toBe(false);
+    // On `blast-light`, whose two floors are both positive. `scorch` cannot
+    // express this case at all -- its pixel floor is 0 on purpose (see the
+    // next spec), so a reading with 0 pixels clears that half by definition.
+    const f = LAYER_FLOORS['blast-light'];
+    expect(layerVerdict('blast-light', { diffPixels: f.minDiffPixels * 3, meanAbsChannelDelta: 0 }).ok).toBe(
+      false
+    );
+    expect(
+      layerVerdict('blast-light', { diffPixels: 0, meanAbsChannelDelta: f.minMeanAbsChannelDelta * 3 }).ok
+    ).toBe(false);
+  });
+
+  it('lets a layer gate on magnitude alone, and only when its own signal says so', () => {
+    // `baseline.ts`'s `relief`/`ground-albedo` precedent: "EIGHT pixels: a
+    // third of that is not a floor". A `minDiffPixels` of 0 is a DECISION, so
+    // it is allowed only where the measured pixel signal is itself 0 -- a
+    // layer that moves pixels and gates on none of them would be a check
+    // quietly giving up half of itself.
+    for (const [layer, f] of Object.entries(LAYER_FLOORS)) {
+      if (f.minDiffPixels > 0) continue;
+      expect(f.measured.minDiffPixels, `${layer}: gates on magnitude alone`).toBe(0);
+      expect(f.minMeanAbsChannelDelta, `${layer}: magnitude floor carries the whole check`).toBeGreaterThan(0);
+    }
+    // And a zero reading still fails, which is the whole point.
+    expect(layerVerdict('scorch', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
   });
 
   it('records a sample size beside every floor, because a range with no n is an anecdote', () => {
@@ -176,10 +198,13 @@ describe('the toggle A/B votes now (R-M)', () => {
         `${layer}: magnitude floor vs a third of ${f.measured.minMeanAbsChannelDelta}`
       ).toBeGreaterThanOrEqual(f.measured.minMeanAbsChannelDelta / 3);
       // And never AT the signal: a floor that rides its own measurement goes
-      // red on the first quiet run rather than on the first regression.
-      expect(f.minDiffPixels, `${layer}: px floor is not the signal itself`).toBeLessThan(
-        f.measured.minDiffPixels
-      );
+      // red on the first quiet run rather than on the first regression. The
+      // magnitude always; the pixel count only where it is gated at all.
+      if (f.minDiffPixels > 0) {
+        expect(f.minDiffPixels, `${layer}: px floor is not the signal itself`).toBeLessThan(
+          f.measured.minDiffPixels
+        );
+      }
       expect(f.minMeanAbsChannelDelta).toBeLessThan(f.measured.minMeanAbsChannelDelta);
     }
   });
@@ -252,6 +277,43 @@ describe('abstaining from a layer is a named, self-cleaning exemption', () => {
     for (const layer of Object.keys(LAYER_FLOORS)) {
       const voters = BLAST_SUBJECTS.filter((s) => subjectVotesOn(s, layer));
       expect(voters.length, `layer "${layer}" has no voting subject`).toBeGreaterThan(0);
+    }
+  });
+});
+
+
+describe('each layer is photographed where it is a witness (fix round 1)', () => {
+  // One rung cannot serve both, and that is measured rather than assumed. A
+  // blast light lives 500 ms and has to be caught early; a scorch mark is
+  // permanent and, for the first second, sits UNDER the fireball and the
+  // collapse shroud -- it read 0 px / 0.3423 at 200 ms on `mbt_lavi` against
+  // 0.5818 at 2000, and 37-89 px / 0.23 against 7251 px / 1.4411 on
+  // `mortar_team`.
+  it('catches every light inside its own decay window', () => {
+    // `catastrophic_kill.light.decay_ms` is 500 and `shell_impact`'s is 380.
+    expect(LAYER_FLOORS['blast-light'].toggleAtMs).toBeGreaterThan(0);
+    expect(LAYER_FLOORS['blast-light'].toggleAtMs).toBeLessThan(380);
+  });
+
+  it('photographs the scorch after the fireball that covers it', () => {
+    // EXPLOSION_BURST_DEFAULT_DURATION_MS is 450 and the collapse shroud holds
+    // full density to 840 ms.
+    expect(LAYER_FLOORS.scorch.toggleAtMs).toBeGreaterThan(840);
+  });
+
+  it('gives every ladder a rung for every layer', () => {
+    // `toggleRungFor` falls back to a ladder's LAST rung, which is a real
+    // answer only if the ladder reaches far enough. A ladder that ended before
+    // a layer's rung would photograph that layer wherever it happened to stop.
+    for (const s of BLAST_SUBJECTS) {
+      const ladder = s.ladderMs ?? SAMPLE_MS;
+      for (const [layer, f] of Object.entries(LAYER_FLOORS)) {
+        if (!subjectVotesOn(s, layer)) continue;
+        expect(
+          ladder[ladder.length - 1],
+          `subject "${s.id}" ladder ends before layer "${layer}"'s ${f.toggleAtMs} ms rung`
+        ).toBeGreaterThanOrEqual(f.toggleAtMs);
+      }
     }
   });
 });
