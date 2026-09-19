@@ -125,6 +125,7 @@ import manpadTeam from '../../../data/units/enemy/manpad_team.json';
 import recoillessTeam from '../../../data/units/enemy/recoilless_team.json';
 import civilians from '../../../data/units/civilians.json';
 
+import catastrophicKill from '../../../data/vfx/catastrophic_kill.json';
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
 import fireAutocannon from '../../../data/vfx/fire_autocannon.json';
 import fireHeat from '../../../data/vfx/fire_heat.json';
@@ -326,8 +327,21 @@ export type UnitId = keyof typeof units;
  * `three/units/vehicle-fx.ts`'s top comment. Three-only: `renderer.ts` never
  * looks either vehicle emitter up, by design (VFX now live in three; see
  * CLAUDE.md's "VFX are exempt from this diff as of 2026-08-30").
+ * `catastrophic_kill` is looked up by name too, off a `destroyed` event
+ * whose type is a vehicle: the blast's light, screen shake and hit-stop
+ * (WP-A1.2). It was the ONE file in `data/vfx/` this array did not carry,
+ * and because `blastLightSpec`/`blastShake`/`blastHitStopMs` each answer
+ * `null`/`0` for a missing emitter by design, three fifths of that package
+ * were silently inert on every vehicle kill in the shipping app while every
+ * unit test passed -- those call `useEmitters` with the JSON directly. The
+ * toggle A/B in `tools/src/perf/blast-captures.ts` measured it at 0 px /
+ * 0.0000 against the mortar's 14224 px / 5.4091 through the same code on
+ * the same frame. `index.test.ts` now pins this array against the
+ * DIRECTORY, so a file that ships without being registered is a red spec
+ * rather than an effect nobody can see.
  */
 export const vfxEmitters = [
+  catastrophicKill,
   fireSmallArms,
   fireHmg,
   fireAutocannon,
