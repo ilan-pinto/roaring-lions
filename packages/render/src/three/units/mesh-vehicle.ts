@@ -454,11 +454,16 @@ export function buildVehicleMeshTemplate(
  *
  * A template with no live geometry at all (the death root only, or an empty
  * root) leaves the `Box3` at its default empty state, whose `getSize` is
- * three.js's `-Infinity` sentinel rather than zero -- `collapse-shroud.ts`'s
- * spawn guard (`width <= 0 && depth <= 0 && height <= 0`) would let that
- * slip straight through, since `-Infinity <= 0` is true but the intent
- * ("nothing to shroud") is not what the comparison reads. `isEmpty()` is
- * checked explicitly so this returns a real zero vector instead.
+ * three.js's `-Infinity` sentinel rather than zero. Fix wave (final review):
+ * the claim that used to live here -- that an unguarded `-Infinity` would
+ * "slip past" `collapse-shroud.ts`'s spawn guard (`width <= 0 && depth <= 0
+ * && height <= 0`) -- was backwards. `-Infinity <= 0` is true, so that guard
+ * would already bail CORRECTLY on a `-Infinity` component, exactly the
+ * "nothing to shroud" outcome intended; there was never a leak for
+ * `isEmpty()` to close. The explicit `isEmpty()` check stays anyway, not as
+ * a fix for that guard but as a legible contract of its own: this function
+ * returns a real zero vector rather than a `-Infinity` sentinel a caller
+ * would have to already know to treat as zero.
  *
  * `Box3.expandByObject(child)` refreshes `child`'s OWN world matrix from its
  * PARENT's (`child.updateWorldMatrix(false, false)`, internally) but never

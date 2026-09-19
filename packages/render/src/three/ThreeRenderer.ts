@@ -2377,6 +2377,13 @@ export class ThreeRenderer implements Renderer {
     // to -- at the schema's own 70 ms ceiling that is under a tenth of a
     // tile at infantry speed, which the acceptance drive checks rather than
     // assumes.
+    //
+    // Deliberately the UNCLAMPED `dtMs` here, not `frameDtMs(dtMs)` -- the
+    // spec's own R-J text reads as "after the clamp", but draining a long
+    // stall in one real step is the CONSERVATIVE direction: it releases an
+    // already-running hit-stop (and ages a live shake) early rather than
+    // stretching either one out over the extra virtual frames a clamp would
+    // manufacture once a backgrounded tab resumes.
     const stop = stepHitStop(this.hitStop, dtMs);
     this.hitStop = stop.state;
     if (stop.frozen) {
