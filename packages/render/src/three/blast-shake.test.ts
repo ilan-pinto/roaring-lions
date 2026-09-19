@@ -43,9 +43,36 @@ describe('a non-positive falloff_tiles', () => {
   // Minor: a source whose falloff_tiles is 0 (or negative) never contributes,
   // even sampled at its own origin -- there is no "always full strength, no
   // falloff" reading of a zero radius, so it is inert rather than infinite.
+  //
+  // DISCLOSED SURVIVOR (CLAUDE.md: "disclose the survivor" rather than paper
+  // over it): this spec cannot falsify the `falloffTiles <= 0` early-continue
+  // in `shakeOffsetPx` by itself. Sampled at age 0, `oscillation` is already
+  // `sin(0) = 0`, which zeroes the result regardless of what `falloff`
+  // computed to. And resampling at a nonzero age AND a nonzero distance (see
+  // the spec below) does not close that gap either: with `falloffTiles`
+  // exactly 0 and `dist > 0`, `dist / falloffTiles` is IEEE754 `+Infinity`,
+  // so `1 - Infinity` is `-Infinity`, which the very next line's own
+  // `falloff <= 0` check already discards. No mutation of the guard ALONE
+  // turns either spec red -- the division degrades to the same answer with
+  // or without it.
   it('makes the source permanently inert, even at its own origin', () => {
     const s = pushShake(initShakeState(), { ...SHAKE, falloffTiles: 0 }, 0, 0);
     expect(shakeOffsetPx(s, 0, 0)).toEqual({ dx: 0, dy: 0 });
+  });
+
+  // What a resample at a nonzero age and distance DOES prove, since it
+  // cannot falsify the guard above: that the source is genuinely still LIVE
+  // (not already retired by `stepShake`) at the moment it is sampled, so
+  // "contributes nothing" is `shakeOffsetPx` judging a real inert source
+  // rather than `shakeOffsetPx` seeing an empty `live` array. Asserting
+  // `s.live` directly is what makes this falsifiable: a `durationMs` too
+  // short to survive the 10ms step (mutate `SHAKE.durationMs` down to, say,
+  // 5) retires the source before it is sampled, and `toHaveLength(1)` goes
+  // red where the offset assertion alone would still read zero either way.
+  it('stays live but contributes nothing, resampled away from origin after ageing', () => {
+    const s = stepShake(pushShake(initShakeState(), { ...SHAKE, falloffTiles: 0 }, 0, 0), 10);
+    expect(s.live).toHaveLength(1);
+    expect(shakeOffsetPx(s, 3, 3)).toEqual({ dx: 0, dy: 0 });
   });
 });
 

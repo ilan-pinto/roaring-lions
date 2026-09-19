@@ -549,6 +549,29 @@ export const LAYER_FLOORS = {
   },
 } satisfies Record<string, LayerFloor>;
 
+/**
+ * One line of the "Floors in force" listing printed at the end of every
+ * sheet -- factored out so the phrasing can be asserted directly rather than
+ * read back out of a whole rendered document.
+ *
+ * `minDiffPixels === 0` is a stated DECISION (see `LAYER_FLOORS.scorch`'s own
+ * comment), not an unset floor, so printing the bare `0 px` beside it reads as
+ * a check that gates on nothing at all -- three lines under a banner that
+ * says "a zero is a FAILURE here". This spells out which column actually
+ * carries the floor instead of leaving that zero to be misread.
+ */
+export function floorLine(layer: string, f: LayerFloor): string {
+  const px =
+    f.minDiffPixels === 0
+      ? 'pixel count does not gate this layer -- the tone column votes'
+      : `${f.minDiffPixels} px`;
+  return (
+    `- \`${layer}\`: ${px} / ${f.minMeanAbsChannelDelta} at the ` +
+    `${f.toggleAtMs} ms rung (a third of ${f.measured.minDiffPixels} px / ` +
+    `${f.measured.minMeanAbsChannelDelta} over ${f.measured.runs} runs)`
+  );
+}
+
 /** The two numbers a toggle A/B produces, whatever produced them. */
 export interface LayerReadingNumbers {
   readonly diffPixels: number;
@@ -1707,12 +1730,7 @@ function writeIndex(
     ``,
     `Floors in force:`,
     ``,
-    ...Object.entries(LAYER_FLOORS).map(
-      ([layer, f]) =>
-        `- \`${layer}\`: ${f.minDiffPixels} px / ${f.minMeanAbsChannelDelta} at the ` +
-        `${f.toggleAtMs} ms rung (a third of ${f.measured.minDiffPixels} px / ` +
-        `${f.measured.minMeanAbsChannelDelta} over ${f.measured.runs} runs)`
-    ),
+    ...Object.entries(LAYER_FLOORS).map(([layer, f]) => floorLine(layer, f)),
   ];
   const probeLines =
     Object.keys(probes).length === 0
