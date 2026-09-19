@@ -4603,26 +4603,59 @@ export class ThreeRenderer implements Renderer {
     // `screenToWorldThree` stay unshaken -- so no DOM element jitters, and a
     // click during a shake lands on the tile the player aimed at.
     //
-    // `shakeOffsetPx` answers in PIXELS (the schema's `amplitude_px`), and
-    // this camera is described in TILES, so the offset is divided by the
-    // on-screen size of a tile -- which is `TILE_W`/`TILE_H` times the zoom,
-    // exactly what `worldToScreen` multiplies by. A shake is therefore the
-    // same number of pixels at every zoom rather than the same number of
-    // tiles.
-    //
-    // The identity branch is not an optimisation: it returns `this.camera`
-    // itself on every frame with nothing live, so the steady state allocates
-    // nothing at all.
+    // `shakeOffsetPx` answers in SCREEN PIXELS (the schema's `amplitude_px`)
+    // and this camera is described in TILES, so the offset has to go through
+    // the projection's INVERSE -- see `cameraShiftedByPx` below, and read its
+    // comment before changing either.
     const { dx, dy } = shakeOffsetPx(this.shakeState, this.camera.x, this.camera.y);
-    const shaken: Camera =
-      dx === 0 && dy === 0
-        ? this.camera
-        : {
-            ...this.camera,
-            x: this.camera.x + dx / (TILE_W * this.camera.zoom),
-            y: this.camera.y + dy / (TILE_H * this.camera.zoom),
-          };
-    return updateDimetricCamera(shaken, { width: this.width, height: this.height }, this.viewCamera);
+    return updateDimetricCamera(
+      this.cameraShiftedByPx(dx, dy),
+      { width: this.width, height: this.height },
+      this.viewCamera
+    );
+  }
+
+  /**
+   * `this.camera`, displaced so the view moves by exactly `(dx, dy)` SCREEN
+   * PIXELS at the current zoom -- and never `this.camera` itself (R-K, see
+   * `threeCamera` above).
+   *
+   * **This is the dimetric projection's inverse, not a per-axis division,
+   * and the difference is not small.** `worldToScreen` is
+   * `x = (wx - wy) * TILE_W / 2`, `y = (wx + wy) * TILE_H / 2` (`project.ts`'s
+   * `isoX`/`isoY`), so BOTH screen axes depend on BOTH world axes. Dividing
+   * `dx` by `TILE_W * zoom` and `dy` by `TILE_H * zoom` -- which an earlier
+   * version of this method did, claiming it was "exactly what `worldToScreen`
+   * multiplies by" -- inverts a projection that does not exist: it is the
+   * inverse of `x = wx * TILE_W`, `y = wy * TILE_H`. Projecting the result
+   * back through `worldToScreen` returns roughly 0.64x the authored
+   * magnitude, rotated about 34 degrees, at every zoom. An authored 9 px peak
+   * landed as ~5.7 px along the wrong axis.
+   *
+   * The arithmetic here is `screenToWorldFlat`'s own last line
+   * (`project.ts`), applied to a DELTA rather than to an absolute point:
+   * undo the zoom to get unscaled iso offsets, then
+   * `wx = sx / TILE_W + sy / TILE_H`, `wy = sy / TILE_H - sx / TILE_W`.
+   * Substituting back gives `isoX(wx, wy) === sx` and `isoY(wx, wy) === sy`
+   * exactly, which is the round-trip `ThreeRenderer.blast.test.ts` asserts to
+   * 0.01 px at both ends of `main.ts`'s 0.35-2.5 zoom clamp. It is not
+   * `screenToWorldFlat` itself because that function adds the viewport centre
+   * and the camera's own iso position, both of which cancel in a difference
+   * and neither of which this caller has a use for.
+   *
+   * The identity branch is not an optimisation: it returns `this.camera`
+   * itself on every frame with nothing live, so the steady state allocates
+   * nothing at all.
+   */
+  private cameraShiftedByPx(dx: number, dy: number): Camera {
+    if (dx === 0 && dy === 0) return this.camera;
+    const sx = dx / this.camera.zoom;
+    const sy = dy / this.camera.zoom;
+    return {
+      ...this.camera,
+      x: this.camera.x + sx / TILE_W + sy / TILE_H,
+      y: this.camera.y + sy / TILE_H - sx / TILE_W,
+    };
   }
 
   /** Wall-clock MILLISECONDS since the previous frame, clamped exactly the
