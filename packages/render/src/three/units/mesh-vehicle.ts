@@ -434,6 +434,51 @@ export function buildVehicleMeshTemplate(
   };
 }
 
+/**
+ * The world-unit size of a vehicle template's LIVE body only -- mirrors
+ * `ThreeRenderer.loadBuildingMesh`'s own rule for `buildingMeshBounds`
+ * ("Measured off the STANDING template only -- a wreck is by definition
+ * shorter[/larger], and the shroud has to cover the building that was there,
+ * not the pile that replaces it"), applied to the vehicle side of R-O: a
+ * plain `new THREE.Box3().setFromObject(template.root)` walks EVERY child,
+ * `VEHICLE_DEATH_ROOT_NAME` included, and the wreck pass's death pose is
+ * larger than the living hull in every axis -- so an unfiltered bounds call
+ * sizes the shroud from the pile, not the vehicle that was there.
+ *
+ * Walks only `root.children` (the death root is always a direct child, never
+ * nested -- see this module's own top comment on the wreck pass's shape) and
+ * unions everything else with `expandByObject`, which reads each object's
+ * WORLD matrix and therefore already carries the root's own scale
+ * (`MESH_SCALE` included) -- the result is in world (tile) units with
+ * nothing left to convert, exactly like `buildingMeshBounds`.
+ *
+ * A template with no live geometry at all (the death root only, or an empty
+ * root) leaves the `Box3` at its default empty state, whose `getSize` is
+ * three.js's `-Infinity` sentinel rather than zero -- `collapse-shroud.ts`'s
+ * spawn guard (`width <= 0 && depth <= 0 && height <= 0`) would let that
+ * slip straight through, since `-Infinity <= 0` is true but the intent
+ * ("nothing to shroud") is not what the comparison reads. `isEmpty()` is
+ * checked explicitly so this returns a real zero vector instead.
+ *
+ * `Box3.expandByObject(child)` refreshes `child`'s OWN world matrix from its
+ * PARENT's (`child.updateWorldMatrix(false, false)`, internally) but never
+ * recomputes that parent -- fine for `setFromObject(root)`, which is called
+ * ON the root and therefore refreshes it first, but wrong here, where the
+ * root itself is skipped so its death-root child can be excluded. Without
+ * the explicit `root.updateWorldMatrix(true, false)` below, `root.matrixWorld`
+ * can still be its construction-time identity even after `root.scale` has
+ * been set, and every child would measure at the UNSCALED size.
+ */
+export function vehicleShroudBounds(root: THREE.Object3D): THREE.Vector3 {
+  root.updateWorldMatrix(true, false);
+  const box = new THREE.Box3();
+  for (const child of root.children) {
+    if (child.name === VEHICLE_DEATH_ROOT_NAME) continue;
+    box.expandByObject(child);
+  }
+  return box.isEmpty() ? new THREE.Vector3(0, 0, 0) : box.getSize(new THREE.Vector3());
+}
+
 /** Fetches and parses `glbUrl`, then builds a `VehicleMeshTemplate` --
  *  mirrors `mesh-unit.ts`'s `loadMeshUnitTemplate` exactly, minus the
  *  faction parameter (vehicles have none, see this module's top comment).

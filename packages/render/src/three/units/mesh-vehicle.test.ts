@@ -7,12 +7,19 @@ import {
   disposeVehicleMeshEntity,
   disposeVehicleMeshTemplate,
   VEHICLE_DEATH_ROOT_NAME,
+  vehicleShroudBounds,
 } from './mesh-vehicle';
 import { applyMeshClip } from './mesh-clip';
 import { MESH_SCALE } from './mesh-anim';
 import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
 import { liftTone } from '../world-materials';
 import { rampForVehicleRole } from './vehicle-mesh-role';
+import { MESH_DEATH_SECONDS } from './mesh-death';
+import {
+  COLLAPSE_SHROUD_BLOOM_FRACTION,
+  COLLAPSE_SHROUD_DURATION_MS,
+  COLLAPSE_SHROUD_HOLD_FRACTION,
+} from './collapse-shroud';
 
 describe('buildVehicleMeshTemplate', () => {
   it('assigns one lit standard material per mesh, from the vehicle-specific ramp table, shadows on', async () => {
@@ -352,5 +359,56 @@ describe('rigid-mesh-fixture deathRoot', () => {
     await expect(
       parseRigidFixture({ parts: [{ nodeName: 'hull_hull' }], deathRoot: { parts: ['nope'] } })
     ).rejects.toThrow(/not one of the parts/);
+  });
+});
+
+/** A live body 2 x 1 x 4, plus a death root deliberately LARGER in every
+ *  axis -- the shape that makes the two answers distinguishable. */
+function templateRoot(): THREE.Object3D {
+  const root = new THREE.Group();
+  const live = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 4));
+  live.name = 'hull';
+  const dead = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 9));
+  dead.name = VEHICLE_DEATH_ROOT_NAME;
+  root.add(live, dead);
+  return root;
+}
+
+describe('vehicleShroudBounds (R-O)', () => {
+  it('measures the LIVE body and never the death root', () => {
+    const size = vehicleShroudBounds(templateRoot());
+    expect(size.x).toBeCloseTo(2, 6);
+    expect(size.y).toBeCloseTo(1, 6);
+    expect(size.z).toBeCloseTo(4, 6);
+  });
+
+  it('carries the root\'s own scale, so the answer is in world tiles already', () => {
+    const root = templateRoot();
+    root.scale.setScalar(3);
+    const size = vehicleShroudBounds(root);
+    expect(size.x).toBeCloseTo(6, 6);
+  });
+
+  it('answers a zero size for a template with no live geometry, rather than throwing', () => {
+    const root = new THREE.Group();
+    const dead = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 9));
+    dead.name = VEHICLE_DEATH_ROOT_NAME;
+    root.add(dead);
+    const size = vehicleShroudBounds(root);
+    expect(size.x).toBe(0);
+    expect(size.y).toBe(0);
+    expect(size.z).toBe(0);
+  });
+});
+
+describe('the vehicle needs no swap-hold (R-S)', () => {
+  // Derived from the constants, not restated: if anyone retunes the fade or
+  // the shroud, this is what tells them the reveal has fallen out of cover.
+  it('the wreck reveal lands inside the shroud\'s dense window', () => {
+    const revealMs = MESH_DEATH_SECONDS * 1000;
+    const bloomEndMs = COLLAPSE_SHROUD_DURATION_MS * COLLAPSE_SHROUD_BLOOM_FRACTION;
+    const holdEndMs = COLLAPSE_SHROUD_DURATION_MS * COLLAPSE_SHROUD_HOLD_FRACTION;
+    expect(revealMs).toBeGreaterThan(bloomEndMs);
+    expect(revealMs).toBeLessThan(holdEndMs);
   });
 });
