@@ -8,6 +8,7 @@ import { objectiveZonesFor } from './objective-zones';
 import { assignNames, nameKind, type NameKind, type NamesJson } from './names';
 import { SLOTS_ISSUED_KEY, issueSlots, reattachSlots } from './roster-slots';
 import { splitRoster } from './roster-cap';
+import { appendLost, fillVacancies, lostRecordFor } from './roster-lost';
 import {
   Sim,
   fx,
@@ -178,7 +179,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, type CampaignLedger } from './ledger-store';
+import { browserLedgerStore, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
@@ -1487,6 +1488,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** Every Conduct deduction this mission, for the debrief. The sim keeps no
    *  presentation log; the events are the record. */
   const deductions: { penalty: number; reason: string }[] = [];
+  /** The memorial half of this mission's service records (WP-G-E4), captured
+   *  one `unitLost` event at a time and appended to `roster.lost` on victory
+   *  only -- a defeat writes nothing to the ledger at all (M4, no ironman),
+   *  so a lost unit on a losing run is not memorialised: the run did not
+   *  happen as far as the campaign is concerned. */
+  const lostThisMission: LostRecord[] = [];
   /**
    * `&civ`: where the crowd is walked to, and the ground that counts as out.
    *
@@ -3500,6 +3507,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       for (const me of missionEvents) {
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
+        // The memorial half of the service record (WP-G-E4). `unitLost` is already
+        // side-0-only (mission.ts:1018) and `entityRoster` is only ever added to, so the
+        // dead unit's ledger entry is still readable here -- which is the whole reason
+        // this can be a read at the event rather than a diff after checkEnd.
+        if (me.kind === 'unitLost' && runtime) {
+          const record = lostRecordFor(runtime.rosterEntryOf(me.entity), me.unit, mission.id, me.tick);
+          if (record) lostThisMission.push(record);
+        }
         const described = describeMissionEvent(me, mission, narratedRoeReasons);
         if (described) hud.note(described[0], described[1]);
         // The story voice (GDD §11): the commander bar is the one surface for
@@ -3550,9 +3565,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               // slot back; step 6 numbers whatever is left -- a body new this
               // mission, or a whole pre-change save on its first write after
               // upgrade. Both halves of that asymmetry are pinned against a real
-              // Sim in tools/src/roster-carry.test.ts. Task 5's memorial and
-              // vacancy passes land between these two lines.
-              const carried = issueSlots(reattachSlots(rosterIn, before), updatedLedger[SLOTS_ISSUED_KEY] ?? 0);
+              // Sim in tools/src/roster-carry.test.ts.
+              //
+              // Steps 4 and 5 (WP-G-E4, the memorial and the vacancy) land
+              // between reattachment and issuance, in that order: losses are
+              // appended BEFORE vacancies are filled, so a slot vacated THIS
+              // mission can be filled THIS mission. The alternative -- a
+              // one-mission delay -- would read as the replacement forgetting
+              // who it replaced.
+              const lost = appendLost(updatedLedger['roster.lost'] ?? [], lostThisMission);
+              updatedLedger['roster.lost'] = lost;
+              const filled = fillVacancies(reattachSlots(rosterIn, before), lost, updatedLedger['roster.reserve'] ?? []);
+              const carried = issueSlots(filled, updatedLedger[SLOTS_ISSUED_KEY] ?? 0);
               updatedLedger[SLOTS_ISSUED_KEY] = carried.issued;
               const named = assignNames(carried.roster, issuedIn, (typeId) => nameKind(unitFor(typeId), names as NamesJson), names as NamesJson);
               // The cap (WP-G-E2). Computed over the WHOLE brigade -- active plus whatever is
