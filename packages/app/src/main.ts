@@ -7,6 +7,7 @@
 import { objectiveZonesFor } from './objective-zones';
 import { assignNames, nameKind, type NameKind, type NamesJson } from './names';
 import { SLOTS_ISSUED_KEY, issueSlots, reattachSlots } from './roster-slots';
+import { splitRoster } from './roster-cap';
 import {
   Sim,
   fx,
@@ -3597,7 +3598,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               const carried = issueSlots(reattachSlots(rosterIn, before), updatedLedger[SLOTS_ISSUED_KEY] ?? 0);
               updatedLedger[SLOTS_ISSUED_KEY] = carried.issued;
               const named = assignNames(carried.roster, issuedIn, (typeId) => nameKind(unitFor(typeId), names as NamesJson), names as NamesJson);
-              updatedLedger['roster.surviving_units'] = named.roster;
+              // The cap (WP-G-E2). Computed over the WHOLE brigade -- active plus whatever is
+              // already stood down -- on every write, which is what lets a stood-down unit come
+              // back when losses make room, and what makes the migration for an existing save
+              // a normal write rather than a special path. Nothing is deleted: the two arrays'
+              // lengths always sum to what went in.
+              const split = splitRoster(named.roster, updatedLedger['roster.reserve'] ?? []);
+              updatedLedger['roster.surviving_units'] = split.active;
+              updatedLedger['roster.reserve'] = split.reserve;
               updatedLedger['campaign.names_issued'] = named.issued;
             }
             ledgerStore.writeLedger(updatedLedger);

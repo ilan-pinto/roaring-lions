@@ -39,4 +39,63 @@
  *
  * Task 4 adds `splitRoster` (the eviction order) to this same file.
  */
+import type { RosterEntry } from './ledger-store';
+
 export const ROSTER_CAP = 150;
+
+/**
+ * R-4's total order, exported for its own spec: **veterancy descending, then
+ * `missions` descending, then `kills` descending, then `slot` ascending.**
+ * Veterans stay; among equals, newest-in falls first -- and `slot` is what
+ * makes "newest" exact rather than a sentiment, because array order is not a
+ * chronology (`checkEnd` writes fielded survivors first and the unfielded
+ * pool after, `mission.ts:1874-1887`).
+ *
+ * `veterancy ?? 0`, `missions ?? 0`, `kills ?? 0` on every read: `missions`
+ * and `kills` are optional on `LedgerRosterEntry` and a pre-change entry can
+ * be missing either, or in a save written before this package existed, both.
+ *
+ * `slot` is the one field this comparator cannot default (GH-174): by
+ * `main.ts`'s R-13 pipeline, every entry that reaches `splitRoster` has
+ * already passed through `reattachSlots`/`issueSlots` (steps 3 and 6), so a
+ * missing `slot` here is not a save-compatibility case to shrug at -- it is a
+ * defect upstream. Removing `slot` from this comparator (falsified below)
+ * does not throw; it makes the order depend on `Array.prototype.sort`'s
+ * stability over whatever order the entries arrived in, which is exactly the
+ * silent nondeterminism a total order exists to rule out.
+ */
+export function rosterOrder(a: RosterEntry, b: RosterEntry): number {
+  return (
+    (b.veterancy ?? 0) - (a.veterancy ?? 0) ||
+    (b.missions ?? 0) - (a.missions ?? 0) ||
+    (b.kills ?? 0) - (a.kills ?? 0) ||
+    (a.slot ?? 0) - (b.slot ?? 0)
+  );
+}
+
+/**
+ * The cap, the reserve and the one-time backfill (WP-G-E2, GH-174). Takes the
+ * WHOLE brigade -- `active` plus whatever is already `reserve` -- sorts it by
+ * `rosterOrder` (never in place: both input arrays are the ledger's own, and
+ * `main.ts` still holds them after this call returns), and slices at `cap`.
+ *
+ * **Recomputed from the whole population on every write.** That is what lets
+ * a reserve entry come back once losses drop the active list below the cap
+ * (R-4) -- the same function, one input, no separate "recall" path -- and
+ * what makes the migration for a pre-change save (R-7) an ordinary write
+ * rather than a special one: an absent `roster.reserve` reads as `[]` at the
+ * call site and the first `missionEnd` write is what splits an oversized
+ * roster, never a load.
+ *
+ * Length-preserving over its two inputs, always (GH-174: overflow is never
+ * deleted) -- `active.length + reserve.length` in equals
+ * `got.active.length + got.reserve.length` out, for any split.
+ */
+export function splitRoster(
+  active: readonly RosterEntry[],
+  reserve: readonly RosterEntry[],
+  cap: number = ROSTER_CAP,
+): { active: RosterEntry[]; reserve: RosterEntry[] } {
+  const sorted = [...active, ...reserve].sort(rosterOrder);
+  return { active: sorted.slice(0, cap), reserve: sorted.slice(cap) };
+}
