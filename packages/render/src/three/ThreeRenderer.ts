@@ -2758,9 +2758,17 @@ export class ThreeRenderer implements Renderer {
    * its own fog rule, so a unit baked into the ground would be a second,
    * permanent, unfogged copy of the roster. `units` MUST go through that
    * seam and not a bare `visible` write: the per-frame path re-asserts fog
-   * visibility on every mesh entity (`debug-layers.ts`). Decor and buildings
-   * deliberately stay -- the boulder field and the town are ground the
-   * player plans around, and the painted terrain drew both.
+   * visibility on every mesh entity (`debug-layers.ts`). Both are restored
+   * to what they WERE rather than to `true`, so a debug harness that hid one
+   * on purpose does not get it back from a minimap capture.
+   *
+   * **Decor and buildings deliberately stay** -- the boulder field and the
+   * town are ground the player plans around, and the painted terrain drew
+   * both. The buildings have to be STOOD UP first, which is what the
+   * `updateBuildingMeshes()` call in the body is for: `frame()` makes it
+   * AFTER this capture runs at boot, and `composeTerrain` skips the palette
+   * box for any structure whose art has loaded, so without it a photographed
+   * town is its `underBuilding` pads and nothing else.
    *
    * **A render target, not the canvas.** `preserveDrawingBuffer` stays off
    * (CLAUDE.md) and the drawing buffer reads back black; a
@@ -2822,10 +2830,41 @@ export class ThreeRenderer implements Renderer {
     const encoded = new THREE.WebGLRenderTarget(size, size);
     const output = new OutputPass();
     const wasTarget = this.renderer.getRenderTarget();
+    // What each layer's visibility was BEFORE this call, so the restore puts
+    // back what it found rather than writing `true` at both. A debug harness
+    // that switched a layer off on purpose -- the visual gate's toggle A/B,
+    // `plate-capture.ts` -- must not have it switched back on by a minimap
+    // photograph that happened to run in between. Read off the same two
+    // pieces of state `setDebugLayerVisible` itself writes, so there is no
+    // third place recording what is hidden.
+    const unitsWereVisible = !this.unitsDebugHidden;
+    const overlaysWereVisible = this.overlayBatch.mesh.visible;
     try {
-      this.setDebugLayerVisible('units', false);
-      this.setDebugLayerVisible('overlays', false);
+      // The buildings, before the photograph and not after it. `frame()`
+      // stands a loaded building mesh up in `updateBuildingMeshes`, which
+      // runs AFTER this capture does at boot -- and `composeTerrain` skips
+      // the palette box for any structure whose art has loaded
+      // (`hasArt`). So without this call a photographed town is its
+      // `underBuilding` pads and nothing else: no buildings, and no
+      // building shadows on the ground beside them. Idempotent for a living
+      // structure (it only instantiates a clone it does not already have),
+      // so `frame()`'s own call a moment later finds the work done. A type
+      // whose GLB has not arrived yet keeps the palette box `composeTerrain`
+      // already gave it, exactly as it does on the field.
+      //
+      // `updateStructures` is deliberately NOT called beside it: a
+      // structure billboard is a static quad built to face the DIMETRIC
+      // camera (`units/structures.ts`), so from straight above it is
+      // edge-on. On the mesh path -- the default, and every shipped
+      // building type has a GLB -- that path is forced to an empty
+      // placement list anyway.
+      this.updateBuildingMeshes();
       try {
+        // Inside the try, not above it: hiding is two calls, and a throw
+        // from the second would otherwise leave the first one's layer
+        // hidden for the rest of the mission.
+        this.setDebugLayerVisible('units', false);
+        this.setDebugLayerVisible('overlays', false);
         this.renderer.setRenderTarget(linear);
         // Explicit rather than trusting `autoClear`, which the post chain's
         // own `RenderPass` turns off and on around itself.
@@ -2850,9 +2889,10 @@ export class ThreeRenderer implements Renderer {
         // Restored whatever happened above: a capture that threw with the
         // units switched off would take every unit off the battlefield for
         // the rest of the mission, which is far worse than a minimap with
-        // no photograph.
-        this.setDebugLayerVisible('overlays', true);
-        this.setDebugLayerVisible('units', true);
+        // no photograph. To what they WERE, not to `true` -- see
+        // `unitsWereVisible` above.
+        this.setDebugLayerVisible('overlays', overlaysWereVisible);
+        this.setDebugLayerVisible('units', unitsWereVisible);
       }
 
       const pixels = new Uint8Array(size * size * 4);
