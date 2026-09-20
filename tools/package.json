@@ -18,6 +18,7 @@
     "ui:shots": "tsx src/ui-review/shoot.ts",
     "ui:routes": "tsx src/ui-review/routes-check.ts",
     "blast:capture": "tsx src/perf/blast-captures.ts",
+    "weight:capture": "tsx src/perf/weight-captures.ts",
     "plate:capture": "tsx src/perf/plate-capture.ts",
     "plates:units": "tsx src/perf/unit-plates.ts",
     "gait:meshes": "tsx src/meshes/gait-pass.ts",
