@@ -698,7 +698,12 @@ yours; each one records what the next phase inherits.
   could no longer fire on the defect class it was built for, or on anything, while printing PASS.
   What replaced it is the visible-toggle A/B — see the visual-gate bullet below.
 - **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
-  therefore returns black — that is correct, not a broken renderer.
+  therefore returns black — that is correct, not a broken renderer. The
+  sanctioned way to photograph the scene from inside the renderer is a RENDER
+  TARGET readback (`ThreeRenderer.photographGround`, shell Phase 2 Task 15:
+  render into a `WebGLRenderTarget`, resolve it through three's own
+  `OutputPass`, and `readRenderTargetPixels` it) — a different buffer, always
+  readable, and it needs no `preserveDrawingBuffer` at all.
 - **The visual gate is three-vs-three against a committed baseline**:
   `pnpm golden-baseline` (`tools/src/ci/three-baseline-gate.ts`). Playwright
   captures three.js at a fixed scenario/tick/camera and diffs it against a PNG

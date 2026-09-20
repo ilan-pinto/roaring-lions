@@ -747,3 +747,115 @@ exactly (every new renderer parameter defaults to the constant that existed befo
 golden deltas were measured unmoved at High. Phase 1 touches no world material, no light, no
 pass and no scenario. **The baseline this phase leaves behind is still Phase 0's** (`495c1a4`),
 and the next phase should read a red `visual` job as a real regression rather than as drift.
+
+### Phase 2's deviations
+
+The plan's twelve rulings (R-1 … R-12,
+`docs/superpowers/plans/2026-09-18-shell-upgrade-phase-2.md`), written in here as
+D-28 … D-39 as that plan's own landing step requires, with what the executing sessions
+measured folded in. Phase 2 landed in two parts: Tasks 1–14 as PR #197 (`8596bc37`) and
+Tasks 15–16 as the second landing on `feat/shell-phase-2-render`.
+
+**D-28 — the tutorial's ECONOMY step is deferred; only the hover step shipped (R-1).**
+`data/missions/beit_sahwan_0_tutorial.json` declares no `resources` block at all, so
+`MissionView.logistics`/`intel` are `undefined`, the strip prints neither field and the
+production dock has nothing to spend — a step awaiting a `built` event on a mission that
+can build nothing stalls the tutorial silently. Scheduled with the mission economy.
+
+**D-29 — the control-group BAR is a surface over the groups that already existed, not a
+new mechanism (R-2).** `main.ts` already assigned on Ctrl/Cmd+digit, recalled on the bare
+digit, stamped `renderer.unitGroup[i]` and centred on a double-tap; the bar reads that
+same `Map` and a chip click runs the identical recall path rather than a second copy of
+it. The digits stay outside `ACTIONS` and remain unassignable as bindings.
+
+**D-30 — "the key on every order button" was already shipped by Phase 1; Phase 2 owed the
+TOOLTIP (R-3).** `hud.ts` renders the live binding on all five buttons through
+`main.ts`'s `keyFor`, so a rebind is already honoured. Recorded so the next reader does
+not implement it a second time; what Task 7 added is the shared tooltip, in place of a
+`btn.title` that repeated the label.
+
+**D-31 — "under attack" is derived app-side from `SimEvent`s; only "unit lost" is a sim
+change (R-4).** `ui/alerts.ts` reads `fire`/`impact` whose `target` is a side-0 entity
+out of the array `main.ts` already hands the renderer and the audio, with no sim change;
+putting the per-entity cooldown in the sim would move a HUD cadence decision inside the
+tick. `nearMiss` is excluded because it names no target. The one thing the app genuinely
+cannot derive is a loss — `destroyed` carries `{entity, by}` and no side or type — so
+Task 1 raised `unitLost` properly, and the golden hash did not move.
+
+**D-32 — the range-ring fill is DERIVED from the resolved team hex at draw time, not a new
+`data/palette.json` entry (R-5).** G0 decision #3 (issue #164) says a new colour "rides
+through the existing team-colour resolver and makes no accessibility claim"; a palette
+entry would need four rows (`reserved.team.colors` plus three `reserved.team.variants.*`
+blocks) and choosing three variant values IS an accessibility claim. `desaturateHex` in
+`overlay-geometry.ts` is applied to `this.opts.teamColors[side]`, which `main.ts` already
+resolves per CVD variant, so the variant follows the setting for free.
+
+**D-33 — the minimap's lit ground could not be done inside `packages/app`, so it landed as
+Task 15 beside the rings (R-6).** `Minimap.paintTerrain` builds its own 1px-per-tile
+canvas from `blocked`/`boulder`/`cover`; the lit albedo is the three.js ground mesh's
+material, and `Renderer` had no seam that hands a rendered texture to the app. It took a
+new optional `captureGroundAlbedo(sizePx): ImageData | null` on the interface and a render
+target inside `ThreeRenderer` — which is why it waited for WP-A1.2, and why Task 10
+shipped every other minimap item against the painted terrain. Three consequences worth
+carrying: the photograph is a `WebGLRenderTarget` readback resolved through three's own
+`OutputPass` (`preserveDrawingBuffer` stays off and is unaffected — CLAUDE.md now says so);
+it stands the buildings up first, because `composeTerrain` stops drawing the palette box
+for a structure whose art has loaded while `updateBuildingMeshes` runs after this capture
+at boot; and the answer is IDENTITY-STABLE, which is what lets the minimap ask on each of
+its 4 Hz redraws for the cost of a reference compare and so not lose the race against the
+six fire-and-forget ground-texture loads. On `?renderer=pixi` the method is absent, the ask
+answers null, and the painted terrain is what shipped.
+
+**D-34 — the in-mission objective tracker is ONE component mounted three ways (R-7).**
+`ui/objectives.ts` exports one `objectivesPanel(host, deps)` in `settingsPanel`'s exact
+shape; the briefing mounts it, and the strip's `+N` and the pause menu's Objectives tab
+open the same component. `ui/pause.ts`'s own `<ol>` was deleted rather than left beside
+it, so the list exists once.
+
+**D-35 — a secondary's reward is STATED from the rule that already pays it, never authored
+(R-8).** Nothing in `mission.schema.json` carries a reward field and none was added.
+`ui/objective-reward.ts` reads `CREDIT_WEIGHTS.carryingSecondary` and `grade.ts`'s third
+star and says so in words, naming credits only when `mission.ledger.produces.length > 0` —
+the same gate `main.ts` puts on `payMission`, because the tutorial produces nothing and is
+paid nothing.
+
+**D-36 — edge pan and zoom-to-cursor shipped WITH their settings rows, and `cameraSpeed` is
+reused (R-9).** This discharges D-12's "a setting for a feature that does not exist is a
+lie": `Settings.controls` gained `edgePan` and `zoomToCursor` alongside the two rows in
+`settings-panel.ts` and the behaviour, in one commit. Edge pan reuses `cameraSpeed` rather
+than adding a second speed number the player has never met.
+
+**D-37 — the minimap's ping is LOCAL, silent to the sim, and not a command (R-10).** A
+fading mark on the minimap plus a world marker through the existing
+`renderer.addOrderMarker`: no `PlayerIntent` kind, no `Command`, no `MissionEvent`, no
+network. There is no second player to signal (networking is §8, out of scope), so a ping
+that queued anything would be a mechanism with no receiver. Drawn from a local array on a
+wall-clock fade, which cannot touch determinism.
+
+**D-38 — a squad wipe coalesces per TICK and per unit TYPE, app-side (R-11).**
+`alertsForTick` takes the whole `MissionEvent[]` and returns the whole answer, so nothing
+tick-scoped is threaded through `main.ts`: three riflemen lost in one tick read as one line
+with a count of three, a rifleman and a tank as two. `ui/mission-notice.ts`'s statement
+that `removed` and `evacuated` emit one line each is unchanged — the coalescing is on the
+new `unitLost` kind only.
+
+**D-39 — the range rings' "designed arc" is the fill's outer BOUNDARY, not a facing sector
+(R-12), and three of the brief's own numbers were overturned by measurement.** A sector
+centred on the unit's heading would draw a rule the model does not have: `selectTarget`
+gates a shot on identification and range and never on bearing, and no weapon in
+`data/units/` declares a traverse limit, so a player who believed it would manoeuvre
+against a constraint that does not exist. The shape is a filled annulus from minimum to
+effective range with its outer edge drawn as a brighter arc. The three measured
+departures, each disclosed rather than quietly taken: **`RANGE_FILL_DESATURATE` is 0.85,
+not the brief's 0.6** — at 0.6, 7 of the 12 team colours (default plus three CVD variants)
+miss the brief's OWN `< 0.35` chroma budget, worst `#F0E442` at 0.5520, and 0.80 still
+misses at 0.3535 against 0.2826 at 0.85, so the brief's budget outranks the brief's
+number; **`RANGE_FILL_ALPHA` (0.14) is a TOTAL that `rangeFillAlphaFor(N)` inverts**, `a =
+1 - (1 - 0.14)^(1/N)`, because six flat 0.14 annuli composite to 0.596 and the HUD
+photographed washed grey — the inversion is the only way a fill holds the same overlap for
+any N, and the constant's honest reading is "at most 0.14, equal only under full overlap";
+and **`MAX_RANGE_HOOP_ALPHA` is 0.22, the brief's own figure**, a correction of a 0.28 that
+shipped undisclosed in the first commit and read louder than intended once the fill's tint
+sat under it. No baseline was expected to move: every gated scenario captures with
+`selection.length === 0` and `rangeRingPreview === -1`, which is now written down as a
+precondition in `tools/src/golden-diff/baseline.ts`.
