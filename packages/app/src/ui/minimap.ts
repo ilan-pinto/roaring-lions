@@ -151,10 +151,22 @@ export interface MinimapDeps {
    * looking at, rather than this file's 1px-per-tile reconstruction of it
    * from `blocked`/`boulder`/`cover`.
    *
-   * A thunk that is called exactly ONCE, from the constructor, and never
-   * again: the ground does not change over a mission (a destroyed building
-   * moves a handful of tiles and would cost a full GPU readback per redraw
-   * to track), and a photograph is a per-map cost, not a per-frame one.
+   * A thunk called on EVERY redraw -- 4 Hz, `onTick` -- and that is not the
+   * same as photographing on every redraw. The renderer's answer is
+   * identity-stable (`Renderer.captureGroundAlbedo`): it hands back the same
+   * `ImageData` until something has actually changed what a photograph of
+   * this ground would look like, so the steady state here is one reference
+   * compare and the blit source is rebuilt only when the object changes.
+   *
+   * It used to be called exactly once, from the constructor, and the defect
+   * that closed was a race rather than a preference. The renderer fires six
+   * ground-albedo texture loads fire-and-forget at map load and does not
+   * await them; the minimap mounts right after the deploy gate, which on a
+   * sandbox or the tutorial is immediately. A single ask could therefore
+   * photograph ground whose textures had not landed and show those slots'
+   * flat palette tone for the whole mission -- quietly, since that picture is
+   * still lit, shaded and elevation-correct, just not the one the player is
+   * looking at.
    *
    * Optional, and `null` is a first-class answer rather than a failure:
    * `?renderer=pixi` has no ground mesh to photograph and implements
@@ -595,13 +607,24 @@ const PING_DOT = 2;
 export class Minimap {
   private readonly el: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
-  /** The ground, built once: the renderer's photograph of the lit terrain
-   *  where there is one, otherwise `paintTerrain`'s one-pixel-per-tile
-   *  reconstruction. */
-  private readonly terrain: HTMLCanvasElement;
+  /** The ground currently being blitted: the renderer's photograph of the
+   *  lit terrain where there is one, otherwise `paintTerrain`'s
+   *  one-pixel-per-tile reconstruction. Rebuilt only when the renderer hands
+   *  back a DIFFERENT image -- see `refreshTerrain`. */
+  private terrain: HTMLCanvasElement;
   /** Which of the two `terrain` is. Read by `draw` for one thing only --
    *  whether to smooth the blit -- and the two want opposite answers. */
-  private readonly terrainIsPhotograph: boolean;
+  private terrainIsPhotograph: boolean;
+  /** The `ImageData` `terrain` was built from, by IDENTITY rather than by
+   *  contents, or null when `terrain` is the painted fallback. This is the
+   *  whole of the freshness test: comparing pixels would cost more than the
+   *  blit it is trying to avoid, and the renderer already promises the same
+   *  object until its own picture changes. */
+  private terrainFrom: ImageData | null = null;
+  /** The painted fallback, built at most once and kept. Without it a mission
+   *  on `?renderer=pixi` -- where every ask answers null -- would repaint
+   *  2,304 tiles four times a second for a picture that cannot change. */
+  private painted: HTMLCanvasElement | null = null;
   private readonly proj: MinimapProjection;
   private readonly chrome: ChromeColors;
   private readonly seenMarkers = new Set<string>();
@@ -663,14 +686,16 @@ export class Minimap {
     if (!ctx) throw new Error('minimap: no 2D context');
     this.ctx = ctx;
 
-    // ONCE, here, and never again -- see `MinimapDeps.groundImage`. Asking
-    // on every redraw would put a GPU readback on a 4 Hz timer for a picture
-    // that cannot change; asking lazily on the first draw would be the same
-    // single call one frame later and one more piece of state to reason
-    // about.
+    // The first ask, spelled out here rather than left to `refreshTerrain`
+    // below, because `terrain` and `terrainIsPhotograph` have to be
+    // definitely assigned by the end of this constructor and the compiler
+    // cannot see that through a method call. `draw()` asks again immediately
+    // and gets the same object back, so the second ask is one reference
+    // compare, not a second photograph.
     const photo = deps.groundImage?.() ?? null;
+    this.terrainFrom = photo;
     this.terrainIsPhotograph = photo !== null;
-    this.terrain = photo === null ? this.paintTerrain() : photographedTerrain(photo);
+    this.terrain = this.groundFor(photo);
     this.draw();
   }
 
@@ -888,12 +913,55 @@ export class Minimap {
     return c;
   }
 
+  /**
+   * The canvas to blit for the image the renderer answered with, building
+   * whichever of the two grounds that is.
+   *
+   * The painted fallback is cached and the photograph is not, and the
+   * asymmetry is the point: there is exactly one painted ground for a map,
+   * while a new `ImageData` means the renderer has a new picture and the old
+   * canvas is the thing being replaced.
+   */
+  private groundFor(photo: ImageData | null): HTMLCanvasElement {
+    if (photo !== null) return photographedTerrain(photo);
+    this.painted ??= this.paintTerrain();
+    return this.painted;
+  }
+
+  /**
+   * Ask the renderer for its ground, and rebuild the blit source only if the
+   * answer is a different object.
+   *
+   * Called once per redraw. The comparison is IDENTITY and the renderer
+   * promises it (`Renderer.captureGroundAlbedo`): the same `ImageData` comes
+   * back until the terrain is rebuilt or a ground texture lands, so the
+   * steady-state cost of asking four times a second is a reference compare.
+   * `null === null` short-circuits the same way, so a Pixi mission -- which
+   * answers null forever -- never re-enters `groundFor` at all.
+   *
+   * A null answer AFTER a photograph deliberately falls back rather than
+   * keeping the last picture: null means the backend cannot photograph this
+   * ground, and showing a stale photograph of ground it has disowned is the
+   * failure this whole seam was re-plumbed to stop.
+   */
+  private refreshTerrain(): void {
+    const photo = this.deps.groundImage?.() ?? null;
+    if (photo === this.terrainFrom) return;
+    this.terrainFrom = photo;
+    this.terrainIsPhotograph = photo !== null;
+    this.terrain = this.groundFor(photo);
+  }
+
   /** `nowMs` defaults so the constructor's first paint needs no clock of its
    *  own; `onTick` passes the frame's. Wall time, never ticks -- see
    *  `FLASH_MS`. */
   private draw(nowMs: number = performance.now()): void {
     const { ctx, proj } = this;
     const s = MINIMAP_SIZE;
+    // Before anything is laid down: the ground is the bottom of the stack,
+    // and a refresh after the blit would show the new picture one redraw
+    // late for no gain.
+    this.refreshTerrain();
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, s, s);
 

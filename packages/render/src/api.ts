@@ -322,6 +322,17 @@ export interface Renderer {
    * flips them (`minimap.ts`'s `flipRows`), because a pure function over a
    * byte array is testable and a GL readback is not.
    *
+   * **The answer is IDENTITY-STABLE, and callers are expected to lean on
+   * it.** Two asks with nothing in between return the SAME object; the
+   * backend returns a different one only when something has actually changed
+   * what a photograph of this ground would look like (the terrain rebuilt, a
+   * ground texture arriving after the last capture). So the caller asks as
+   * often as it redraws and does its expensive work -- a blit, an upload --
+   * only on a reference change. That is deliberately a PULL: the alternative
+   * is the renderer calling into the HUD, which inverts the dependency
+   * direction for a decoration. A backend that cannot promise identity must
+   * say so here rather than let a caller poll it into a readback per frame.
+   *
    * Returns null before the terrain exists, and on a backend that has no
    * ground mesh to photograph. Optional on the interface: `renderer.ts` is
    * frozen and implements nothing, so `?renderer=pixi` keeps the painted

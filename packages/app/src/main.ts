@@ -2575,6 +2575,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `tones` and `teamColors` come straight off `opts`: the minimap paints the
   // ground and the sides in the colours the battlefield itself is painted in,
   // by construction rather than by a second lookup that could drift.
+  // The flip's memo, so this thunk is as identity-stable as the renderer it
+  // wraps. `flipRows` allocates, and a fresh `ImageData` every ask would tell
+  // the minimap the picture had changed on every redraw and make it rebuild
+  // its blit canvas four times a second forever. Keyed on the renderer's own
+  // object identity, which is the freshness signal it promises
+  // (`Renderer.captureGroundAlbedo`) -- not on the pixels, which would cost
+  // more to compare than the work being avoided.
+  let lastShot: ImageData | null = null;
+  let lastFlipped: ImageData | null = null;
   const minimap = new Minimap(document.body, {
     sim,
     map,
@@ -2584,8 +2593,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A thunk: objectives complete and drop off mid-mission, and a sandbox
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
-    // The map's own lit ground, photographed once (Task 15). Called exactly
-    // once, by the constructor below.
+    // The map's own lit ground, photographed by the renderer (Task 15).
+    // Called on every one of the minimap's 4 Hz redraws, which is NOT a
+    // photograph per redraw: `captureGroundAlbedo` answers from its own memo
+    // and hands back the same object until its picture changes, and the two
+    // memos here make this wrapper do the same. What that buys is the race
+    // against `loadGroundTexture`'s six fire-and-forget loads -- a tile that
+    // lands after the first capture invalidates it, the next redraw gets a
+    // new object, and the minimap re-blits once.
     //
     // `?.` and `?? null` are the whole of the fallback and are not defensive
     // padding: `captureGroundAlbedo` is OPTIONAL on `Renderer` because
@@ -2603,7 +2618,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     groundImage: () => {
       const shot = renderer.captureGroundAlbedo?.(MINIMAP_SIZE) ?? null;
       if (shot === null) return null;
-      return new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height);
+      if (shot === lastShot && lastFlipped !== null) return lastFlipped;
+      lastShot = shot;
+      lastFlipped = new ImageData(
+        flipRows(shot.data, shot.width, shot.height),
+        shot.width,
+        shot.height
+      );
+      return lastFlipped;
     },
     // The three player gestures (Task 10). FORWARD REFERENCES, deliberately
     // and not by accident: `orderSink`, `intentWorld` and `minimap` itself
@@ -4057,14 +4079,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let bestF = 0.5 * 0.5;
   for (let i = 0; i < sim.entityCount; i++) {
     if (sim.state.alive[i] === 0 || sim.state.side[i] !== 0) continue;
-    if (renderer.selection.includes(i)) continue;
     const ex = fx.toNumber(sim.state.posX[i]);
     const ey = fx.toNumber(sim.state.posY[i]);
     if (!renderer.isVisible(ex, ey)) continue;
     const dx = ex - hw.x;
     const dy = ey - hw.y;
     const d = dx * dx + dy * dy;
-    if (d < bestF) {
+    // The selection test sits INSIDE the distance test, not above it. It is a
+    // linear scan of an array the player can fill with the whole roster, and
+    // the outer loop runs over every living side-0 entity every frame; the
+    // half-tile radius rejects all but a handful before it, so only those few
+    // ever pay for it. Same answer, since neither test can change the other's.
+    if (d < bestF && !renderer.selection.includes(i)) {
       bestF = d;
       hf = i;
     }
