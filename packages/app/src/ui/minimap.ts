@@ -54,8 +54,14 @@
 // --- 3. Cost. ------------------------------------------------------------
 //
 // Terrain is 2,304 tiles on every shipped map and it does not change, so it is
-// painted ONCE into an offscreen canvas at one pixel per tile and blitted
-// (unsmoothed) on each redraw. Per redraw the work is one `drawImage`, four
+// built ONCE into an offscreen canvas and blitted on each redraw. Since
+// Task 15 there are two ways it is built and the choice is made once, in the
+// constructor: the renderer's own photograph of the lit, textured ground
+// (`Renderer.captureGroundAlbedo`, 210px, smoothed) where the backend can
+// take one, and otherwise `paintTerrain`'s one-pixel-per-tile reconstruction
+// from `blocked`/`boulder`/`cover` (48px, unsmoothed) -- which is what
+// `?renderer=pixi` gets, and what shipped.
+// Per redraw the work is one `drawImage`, four
 // `screenToWorld` calls, one pass over living entities, and a handful of
 // diamonds -- and the whole thing happens at 4 Hz, on the HUD's own cadence.
 //
@@ -139,6 +145,24 @@ export interface MinimapDeps {
    *  inert and swallows its events exactly as it did before Task 10, which is
    *  also what every test that predates this mounts. */
   input?: MinimapInput;
+  /**
+   * The map's own lit ground, photographed once by the renderer (Task 15,
+   * `Renderer.captureGroundAlbedo`) -- the SAME surface the player is
+   * looking at, rather than this file's 1px-per-tile reconstruction of it
+   * from `blocked`/`boulder`/`cover`.
+   *
+   * A thunk that is called exactly ONCE, from the constructor, and never
+   * again: the ground does not change over a mission (a destroyed building
+   * moves a handful of tiles and would cost a full GPU readback per redraw
+   * to track), and a photograph is a per-map cost, not a per-frame one.
+   *
+   * Optional, and `null` is a first-class answer rather than a failure:
+   * `?renderer=pixi` has no ground mesh to photograph and implements
+   * nothing, so it falls back to `paintTerrain` -- which is not a
+   * degradation, it is exactly what shipped. Every test that predates this
+   * mounts without it and takes that same path.
+   */
+  groundImage?: () => ImageData | null;
 }
 
 /**
@@ -273,6 +297,69 @@ export function boxToTile(
     x: clamp((bx - p.ox) / p.scale, w),
     y: clamp((by - p.oy) / p.scale, h),
   };
+}
+
+/**
+ * Turn a WebGL read-back the right way up: reverse the ROW order, leaving
+ * every row's pixels exactly where they were.
+ *
+ * WebGL's framebuffer origin is the bottom-left and a 2D canvas's is the
+ * top-left, so `readRenderTargetPixels` hands back the last row first. The
+ * flip is here, on the app side, and deliberately not inside the renderer's
+ * GL method: `preserveDrawingBuffer` is off and canvas readback is black by
+ * design (CLAUDE.md), so there is no way to assert the row order of a real
+ * capture from a test at all -- while a pure function over a
+ * `Uint8ClampedArray` is two assertions. The failure this buys is worth
+ * catching by name: an upside-down minimap is still a picture that looks
+ * like a map.
+ *
+ * A fresh buffer rather than an in-place swap. It is called once per map,
+ * the source is the renderer's own read-back array with no other reader,
+ * and an in-place version would be an involution that is only correct for
+ * an even row count.
+ *
+ * The backing buffer is spelled out on the way OUT and left open on the way
+ * in. TypeScript 5.7 made the typed arrays generic in it, and `ImageData`'s
+ * constructor takes a plain `ArrayBuffer` only -- so a bare
+ * `Uint8ClampedArray` return (which means `ArrayBufferLike`, and therefore
+ * admits `SharedArrayBuffer`) is rejected at the one call site in `main.ts`.
+ * A freshly allocated array always has a plain buffer; saying so is what
+ * lets the caller hand the result straight to `new ImageData`.
+ */
+export function flipRows(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number
+): Uint8ClampedArray<ArrayBuffer> {
+  const stride = width * 4;
+  const out = new Uint8ClampedArray(data.length);
+  for (let y = 0; y < height; y++) {
+    out.set(data.subarray(y * stride, (y + 1) * stride), (height - 1 - y) * stride);
+  }
+  return out;
+}
+
+/**
+ * The renderer's photograph, on a canvas `drawImage` will take.
+ *
+ * `ImageData` crosses the `api.ts` seam because it is the one shape that
+ * needs neither side to know about the other's rendering stack -- but it is
+ * not itself drawable, so it is blitted onto an offscreen canvas here, once,
+ * exactly as `paintTerrain` builds one. Both label themselves in
+ * `dataset.source`: an offscreen canvas is never in the document, so the
+ * label costs nothing and is how a test reads back WHICH ground was blitted
+ * rather than recomputing which one should have been (the same move
+ * `__lions.cursorKey()` makes against `canvas.dataset.cursor`).
+ */
+function photographedTerrain(img: ImageData): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  c.dataset.source = 'ground-albedo';
+  const g = c.getContext('2d');
+  if (!g) throw new Error('minimap: no 2D context for the photographed ground');
+  g.putImageData(img, 0, 0);
+  return c;
 }
 
 /**
@@ -508,8 +595,13 @@ const PING_DOT = 2;
 export class Minimap {
   private readonly el: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
-  /** One pixel per tile, painted once. */
+  /** The ground, built once: the renderer's photograph of the lit terrain
+   *  where there is one, otherwise `paintTerrain`'s one-pixel-per-tile
+   *  reconstruction. */
   private readonly terrain: HTMLCanvasElement;
+  /** Which of the two `terrain` is. Read by `draw` for one thing only --
+   *  whether to smooth the blit -- and the two want opposite answers. */
+  private readonly terrainIsPhotograph: boolean;
   private readonly proj: MinimapProjection;
   private readonly chrome: ChromeColors;
   private readonly seenMarkers = new Set<string>();
@@ -571,7 +663,14 @@ export class Minimap {
     if (!ctx) throw new Error('minimap: no 2D context');
     this.ctx = ctx;
 
-    this.terrain = this.paintTerrain();
+    // ONCE, here, and never again -- see `MinimapDeps.groundImage`. Asking
+    // on every redraw would put a GPU readback on a 4 Hz timer for a picture
+    // that cannot change; asking lazily on the first draw would be the same
+    // single call one frame later and one more piece of state to reason
+    // about.
+    const photo = deps.groundImage?.() ?? null;
+    this.terrainIsPhotograph = photo !== null;
+    this.terrain = photo === null ? this.paintTerrain() : photographedTerrain(photo);
     this.draw();
   }
 
@@ -768,6 +867,8 @@ export class Minimap {
     const c = document.createElement('canvas');
     c.width = map.width;
     c.height = map.height;
+    // See `photographedTerrain` for why both grounds label themselves.
+    c.dataset.source = 'painted';
     const g = c.getContext('2d');
     if (!g) throw new Error('minimap: no 2D context for the terrain layer');
     g.fillStyle = tones.open;
@@ -799,10 +900,21 @@ export class Minimap {
     ctx.fillStyle = this.chrome.ground;
     ctx.fillRect(0, 0, s, s);
 
-    // Nearest-neighbour: a 48px source blown up 4.375x should read as tiles,
-    // not as a blur of them.
+    // Nearest-neighbour for the PAINTED ground: a 48px source blown up 4.375x
+    // should read as tiles, not as a blur of them.
     //
-    // Desaturated, and on the TERRAIN ONLY. The spec puts `saturate(.4)` on
+    // And the opposite for the photograph, which is the one thing Task 15
+    // reconsidered rather than inherited. `captureGroundAlbedo` renders at
+    // MINIMAP_SIZE, so its source is already at the box's own scale (210px
+    // into a 210px box, 1.0x on every shipped map) -- there is no blow-up
+    // for nearest-neighbour to keep crisp, and refusing to interpolate a
+    // near-1:1 resample only re-aliases an image that already landed right.
+    // The letterbox scale on a non-square map is fractional, which is
+    // exactly where the difference shows.
+    //
+    // Desaturated, and on the TERRAIN ONLY. Unchanged by Task 15, and it
+    // matters more now rather than less: a photograph of lit ground carries
+    // far more colour than a flat palette tone did. The spec puts `saturate(.4)` on
     // the whole box, marks included, because its minimap is a placeholder
     // screenshot with the dots laid over it; doing that for real would wash
     // out the four colours the minimap exists to report. Applying it here
@@ -811,7 +923,7 @@ export class Minimap {
     // diamond standing on Beit Sahwan's town block was nearly indistinguishable
     // from the building tone underneath it, which is exactly the reading a
     // player needs and the one place the map must not compete.
-    ctx.imageSmoothingEnabled = false;
+    ctx.imageSmoothingEnabled = this.terrainIsPhotograph;
     ctx.filter = 'saturate(0.4)';
     ctx.drawImage(
       this.terrain,
