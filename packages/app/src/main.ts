@@ -6,6 +6,7 @@
 
 import { objectiveZonesFor } from './objective-zones';
 import { assignNames, nameKind, type NameKind, type NamesJson } from './names';
+import { SLOTS_ISSUED_KEY, issueSlots, reattachSlots } from './roster-slots';
 import {
   Sim,
   fx,
@@ -3533,7 +3534,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 task: 0,
                 ...updatedLedger['campaign.names_issued'],
               };
-              const named = assignNames(rosterIn, issuedIn, (typeId) => nameKind(unitFor(typeId), names as NamesJson), names as NamesJson);
+              // R-13's pipeline, step 1: the roster this mission was sent IN.
+              // Read off `ledger` and never off `updatedLedger`, which already
+              // holds what `checkEnd` produced -- the whole point is to compare
+              // the two. It is also the callsign set the PREVIOUS save wrote,
+              // which is the set `reattachSlots` matches against and the one
+              // `assignNames` is about to extend.
+              const before = ledger['roster.surviving_units'] ?? [];
+              // R-13 steps 3 and 6, in that order and with `assignNames` after
+              // both: `slot` first and `name` after, because identity is what a
+              // unit IS and the callsign is what it is CALLED. `checkEnd`
+              // rebuilds a FIELDED survivor's entry field by field and copies
+              // only `name` (mission.ts:1874-1883), so step 3 is what puts the
+              // slot back; step 6 numbers whatever is left -- a body new this
+              // mission, or a whole pre-change save on its first write after
+              // upgrade. Both halves of that asymmetry are pinned against a real
+              // Sim in tools/src/roster-carry.test.ts. Task 5's memorial and
+              // vacancy passes land between these two lines.
+              const carried = issueSlots(reattachSlots(rosterIn, before), updatedLedger[SLOTS_ISSUED_KEY] ?? 0);
+              updatedLedger[SLOTS_ISSUED_KEY] = carried.issued;
+              const named = assignNames(carried.roster, issuedIn, (typeId) => nameKind(unitFor(typeId), names as NamesJson), names as NamesJson);
               updatedLedger['roster.surviving_units'] = named.roster;
               updatedLedger['campaign.names_issued'] = named.issued;
             }
