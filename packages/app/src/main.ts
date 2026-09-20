@@ -4036,6 +4036,36 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
   renderer.hoverEntity = he;
 
+  // The FRIENDLY hover, for the range-ring preview (shell Phase 2 Task 16).
+  // Its own field, never `hoverEntity`: that one is the HOSTILE hover and the
+  // cursor hinting and the projected-fire panel both read it, so writing a
+  // friendly id there would put a fire solution on the player's own squad.
+  //
+  // Same half-tile generosity as the enemy scan above, and the same
+  // `renderer.isVisible` gate -- a unit the fog is hiding must not draw a
+  // range envelope either, which for a side-0 unit only ever matters to a
+  // spectator or a replay. A unit ALREADY in the selection is excluded here
+  // rather than in the renderer as well: a selected unit draws its envelope
+  // at full strength, and a preview over the top of that would be the same
+  // shape drawn twice.
+  let hf = -1;
+  let bestF = 0.5 * 0.5;
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (sim.state.alive[i] === 0 || sim.state.side[i] !== 0) continue;
+    if (renderer.selection.includes(i)) continue;
+    const ex = fx.toNumber(sim.state.posX[i]);
+    const ey = fx.toNumber(sim.state.posY[i]);
+    if (!renderer.isVisible(ex, ey)) continue;
+    const dx = ex - hw.x;
+    const dy = ey - hw.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestF) {
+      bestF = d;
+      hf = i;
+    }
+  }
+  renderer.rangeRingPreview = hf;
+
   // Teach the hover, but only on a real change: `updateHover` runs every
   // frame, and an unchanged hover is not a new thing the player did.
   if (tut && (he !== lastHoverEntity || hs !== lastHoverStructure)) {

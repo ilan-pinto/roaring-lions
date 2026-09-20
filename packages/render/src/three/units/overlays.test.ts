@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import paletteJson from '../../../../../data/palette.json';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
+import { desaturateHex, RANGE_FILL_DESATURATE } from './overlay-geometry';
 import {
   unitOverlayRadiusPx,
   hpBarColorKey,
@@ -29,6 +30,7 @@ import {
   ROUTE_NODE_RADIUS_PX,
   ROUTE_NODE_ALPHA,
   cachedHexToLinear,
+  cachedDesaturate,
   HP_BG_COLOR_KEY,
   SUPPRESSION_COLOR_KEY,
   OVERLAY_ACCENT_COLOR_KEY,
@@ -477,5 +479,30 @@ describe('ChevronBatch construction', () => {
   it('starts with an empty draw range -- nothing pushed yet, nothing drawn', () => {
     const batch = new ChevronBatch(16, '#E8C33A');
     expect(batch.mesh.geometry.drawRange.count).toBe(0);
+  });
+});
+
+describe('cachedDesaturate', () => {
+  it('agrees with the pure function it memoises, on every shipped team colour', () => {
+    const team = (paletteJson as { reserved: { team: { colors: Record<string, string>; variants: Record<string, Record<string, string>> } } }).reserved.team;
+    const hexes = [team.colors, ...Object.values(team.variants)].flatMap((b) =>
+      ['kedem', 'hostile', 'neutral'].map((k) => b[k])
+    );
+    for (const hex of hexes) {
+      for (const amount of [0, 0.5, RANGE_FILL_DESATURATE, 1]) {
+        expect(cachedDesaturate(hex, amount)).toBe(desaturateHex(hex, amount));
+      }
+    }
+  });
+
+  // The cache exists to stop `ThreeRenderer`'s ring block building a string
+  // per drawn envelope per frame, so a second call must not pay for a second
+  // one -- and, since the key carries the amount, two amounts of the same hex
+  // must not collide into one entry.
+  it('returns the identical string on a repeat call, and does not collide across amounts', () => {
+    const first = cachedDesaturate('#2F6FD9', RANGE_FILL_DESATURATE);
+    expect(cachedDesaturate('#2F6FD9', RANGE_FILL_DESATURATE)).toBe(first);
+    expect(cachedDesaturate('#2F6FD9', 0)).not.toBe(first);
+    expect(cachedDesaturate('#2F6FD9', 0)).toBe('#2f6fd9');
   });
 });
