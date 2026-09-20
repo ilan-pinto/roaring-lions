@@ -348,9 +348,22 @@ export interface Renderer {
   readonly camera: Camera;
   selection: number[];
   readonly unitGroup: Uint8Array;
+  /** The HOSTILE hover: the nearest living side-1 entity under the cursor,
+   *  or -1. The cursor hinting and the projected-fire panel both read it, so
+   *  a friendly id must never be written here -- the friendly range-ring
+   *  preview has its own field below. */
   hoverEntity: number;
   hoverStructure: number;
   hoverCanGarrison: boolean;
+  /** The FRIENDLY hover, for the range-ring preview (shell Phase 2 Task 16):
+   *  a living side-0 entity under the cursor that is not already selected, or
+   *  -1. A backend draws that unit's range envelope at reduced strength, so a
+   *  player can read a weapon's reach without committing a selection.
+   *
+   *  Optional on the seam because `renderer.ts` is frozen: the Pixi backend
+   *  has no range-envelope redesign and ignores this, exactly as it ignores
+   *  `objectiveZones` above. `main.ts` writes it unconditionally. */
+  rangeRingPreview?: number;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
   /** Every active objective that is about a piece of ground, not only the

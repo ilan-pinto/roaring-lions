@@ -272,6 +272,13 @@ export const OVERLAY_RING_SEGMENTS = 16;
  * reader does not go looking for a sign bug that has no visible effect --
  * and so a future PARTIAL arc (which would not have this symmetry) knows
  * which convention it is extending.
+ *
+ * That future arrived as `pushEllipseAnnulusFillPx` below (Task 16, the
+ * range-ring fill) and it did NOT need the partial case after all: R-12
+ * settled the "designed arc" as the fill's outer BOUNDARY rather than a
+ * facing sector, so the annulus is a full 0..2*PI sweep and inherits this
+ * same y-down winding, symmetry and all. A genuinely partial sweep is still
+ * unwritten, and this paragraph is still what it would be extending.
  */
 export function pushEllipseFanPx(
   soup: TriangleSoup,
@@ -292,14 +299,65 @@ export function pushEllipseFanPx(
 }
 
 /**
+ * A filled ANNULUS -- `segments` quads between an inner ellipse
+ * `(rIn, uIn)` and an outer one `(rOut, uOut)`, both centred on `anchor`'s
+ * own local origin. The general shape `pushEllipseRingPx` below is now a
+ * special case of: a stroke is an annulus whose two radii straddle one
+ * nominal radius by half the stroke width.
+ *
+ * Shell Phase 2, Task 16: the range rings draw as one filled band from a
+ * weapon's minimum range to its effective range instead of three competing
+ * hoops (spec S6, ruling R-12 -- the "designed arc" is that fill's outer
+ * BOUNDARY, never a facing sector, because `selectTarget` gates a shot on
+ * identification and range and never on bearing, and no weapon in
+ * `data/units/` declares a traverse limit).
+ *
+ * **A zero inner radius is a disc**, deliberately and without a branch: at
+ * `rIn === uIn === 0` every inner point collapses onto the local origin, so
+ * the first triangle of each segment is the fan triangle `pushEllipseFanPx`
+ * would write and the second has zero area and rasterizes nothing. That is
+ * what lets the ring block hand `Math.sqrt(minRangeSq)` straight in --
+ * most weapons have no minimum range, and a mortar's is the only case where
+ * the hole is real.
+ *
+ * Same angle convention as `pushEllipseFanPx` (its own doc comment has the
+ * full reasoning): wound through `pushTrianglePx`'s y-down input, invisible
+ * in the rendered shape either way for the identical point-symmetry reason.
+ */
+export function pushEllipseAnnulusFillPx(
+  soup: TriangleSoup,
+  anchor: readonly [number, number, number],
+  rIn: number,
+  uIn: number,
+  rOut: number,
+  uOut: number,
+  color: OverlayColor,
+  alpha: number,
+  segments: number = OVERLAY_RING_SEGMENTS
+): void {
+  for (let i = 0; i < segments; i++) {
+    const t0 = (i / segments) * Math.PI * 2;
+    const t1 = ((i + 1) / segments) * Math.PI * 2;
+    const in0: [number, number] = [Math.cos(t0) * rIn, Math.sin(t0) * uIn];
+    const out0: [number, number] = [Math.cos(t0) * rOut, Math.sin(t0) * uOut];
+    const in1: [number, number] = [Math.cos(t1) * rIn, Math.sin(t1) * uIn];
+    const out1: [number, number] = [Math.cos(t1) * rOut, Math.sin(t1) * uOut];
+    pushTrianglePx(soup, anchor, [in0, out0, out1], color, alpha);
+    pushTrianglePx(soup, anchor, [in0, out1, in1], color, alpha);
+  }
+}
+
+/**
  * A stroked ellipse -- an annulus of `segments` quads around `anchor`'s own
  * local origin, `strokeWidthPx` wide, split evenly inside and outside
  * `(rightR, upR)`. Pixi's `g.ellipse(...).stroke({width, ...})` (or
  * `g.circle(...).stroke(...)` when `rightR === upR`).
  *
- * Same angle convention as `pushEllipseFanPx` (its own doc comment has the
- * full reasoning): wound through `pushTrianglePx`'s y-down input, invisible
- * in the rendered ring either way for the identical point-symmetry reason.
+ * One line, into `pushEllipseAnnulusFillPx` above, since Task 16 gave that
+ * shape a second caller: one piece of geometry, two callers, so a change to
+ * the annulus that drifts from the stroke turns every ring test in
+ * `overlay-geometry.test.ts` red rather than quietly changing what a
+ * selection ring or a charge ring looks like.
  */
 export function pushEllipseRingPx(
   soup: TriangleSoup,
@@ -312,21 +370,161 @@ export function pushEllipseRingPx(
   segments: number = OVERLAY_RING_SEGMENTS
 ): void {
   const half = strokeWidthPx / 2;
-  const rIn = Math.max(0, rightR - half);
-  const rOut = rightR + half;
-  const uIn = Math.max(0, upR - half);
-  const uOut = upR + half;
-  for (let i = 0; i < segments; i++) {
-    const t0 = (i / segments) * Math.PI * 2;
-    const t1 = ((i + 1) / segments) * Math.PI * 2;
-    const in0: [number, number] = [Math.cos(t0) * rIn, Math.sin(t0) * uIn];
-    const out0: [number, number] = [Math.cos(t0) * rOut, Math.sin(t0) * uOut];
-    const in1: [number, number] = [Math.cos(t1) * rIn, Math.sin(t1) * uIn];
-    const out1: [number, number] = [Math.cos(t1) * rOut, Math.sin(t1) * uOut];
-    pushTrianglePx(soup, anchor, [in0, out0, out1], color, alpha);
-    pushTrianglePx(soup, anchor, [in0, out1, in1], color, alpha);
-  }
+  pushEllipseAnnulusFillPx(
+    soup,
+    anchor,
+    Math.max(0, rightR - half),
+    Math.max(0, upR - half),
+    rightR + half,
+    upR + half,
+    color,
+    alpha,
+    segments
+  );
 }
+
+// ---------------------------------------------------------------------------
+// Colour, for the range-ring fill. Plain sRGB-byte arithmetic with no `THREE`
+// import, which is what keeps this module the node-testable pure half (see
+// this file's own top comment).
+//
+// Ruling R-5 (shell Phase 2): the fill is DERIVED from the resolved team hex
+// at draw time rather than being a new `data/palette.json` entry. G0 decision
+// #3 keeps the colour-vision variants and says a new colour "rides through
+// the existing team-colour resolver and makes no accessibility claim" -- and
+// a palette entry would need FOUR rows (`reserved.team.colors` plus the three
+// `reserved.team.variants.*` blocks), so choosing three variant values would
+// be exactly that claim. One helper over `this.opts.teamColors[side]`, which
+// `main.ts` already resolves per variant through `paletteTeamColors`, and the
+// accessibility setting follows for free.
+// ---------------------------------------------------------------------------
+
+function clampByte(v: number): number {
+  return Math.max(0, Math.min(255, Math.round(v)));
+}
+
+function hexToBytes(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function bytesToHex(r: number, g: number, b: number): string {
+  return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+/**
+ * Drains colour out of `hex` toward grey while HOLDING its luminance.
+ * `amount` 0 returns the same colour (lower-cased), 1 returns the neutral
+ * grey of the same brightness.
+ *
+ * Each channel is lerped toward the colour's own Rec.709 luma. That the
+ * luma is preserved exactly is arithmetic rather than a tuning choice: the
+ * three weights sum to 1, so the new luma is `L + amount * (L - L)`. It
+ * matters because the alternative -- lerping toward a fixed mid-grey --
+ * would darken the yellow team colour and lighten the blue one, and the fill
+ * is drawn at low alpha over terrain whose own brightness varies, where a
+ * shift in lightness reads as a different shape rather than a different hue.
+ */
+export function desaturateHex(hex: string, amount: number): string {
+  const [r, g, b] = hexToBytes(hex);
+  const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const drain = (c: number): number => clampByte(c + (luma - c) * amount);
+  return bytesToHex(drain(r), drain(g), drain(b));
+}
+
+/**
+ * HSL saturation, 0..1 -- the instrument spec S6's acceptance clause (c)
+ * ("the capture pass at zoom 2.5 shows no saturated ring fill") is measured
+ * with, so that clause is a number in a test rather than a look at a picture.
+ *
+ * HSL rather than HSV on purpose: HSV would report the pale yellow variant
+ * `#F0E442` as far less saturated than it reads on screen, because HSV
+ * divides by the brightest channel and that channel is nearly 255. HSL
+ * divides by how much room the colour has left at its own lightness, which
+ * is the harsher and more honest question for a fill drawn over ground.
+ */
+export function hexSaturation(hex: string): number {
+  const [r, g, b] = hexToBytes(hex);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) return 0;
+  const denom = 255 - Math.abs(max + min - 255);
+  return denom === 0 ? 0 : (max - min) / denom;
+}
+
+/**
+ * How far the range-ring fill is drained from the team hue.
+ *
+ * **Measured, not chosen.** The task brief proposed 0.6, and at 0.6 SEVEN of
+ * the twelve shipped team colours (five distinct hexes) miss the 0.35
+ * saturation budget the same brief sets -- seen red, by running it: default
+ * `neutral` `#E8C33A` 0.4321, deuteranopia and protanopia `kedem` `#0072B2`
+ * 0.3838, their `hostile` `#D55E00` 0.3846, and worst their `neutral`
+ * `#F0E442` at **0.5520**. 0.80 still misses, at 0.3535. At 0.85 all twelve
+ * clear it -- worst 0.2826, next-worst 0.1884, and the two colours a range
+ * ring can actually draw in (`kedem`, `hostile`) sit at 0.1193-0.1444.
+ *
+ * Why `#F0E442` is the hard one, since it is not obviously the loudest of
+ * the twelve: HSL saturation divides the channel spread by how much room the
+ * colour has left at its own lightness, and a pale yellow has very little.
+ * That is the instrument being harsh in the right direction, not a defect in
+ * it (see `hexSaturation`). It is also a colour no range ring can ever draw
+ * in -- `neutral` is side 2, civilians, who carry no weapons -- and it is
+ * still held to the budget on purpose, because the point of reading all
+ * twelve off disk is that a variant added later is covered the day it lands.
+ *
+ * The budget was NOT widened to admit 0.6. The brief's own reason for reading
+ * all twelve off `data/palette.json` is that "a variant with a colour this
+ * ruling cannot desaturate fails here rather than on screen" -- so the ruling
+ * is what gave way, which is also the direction acceptance clause (c) wants:
+ * a fill that is drained further is never the defect that clause names.
+ */
+export const RANGE_FILL_DESATURATE = 0.85;
+
+/**
+ * How strong the range-ring fill reads in TOTAL, over ground every selected
+ * unit can reach -- not the alpha any one unit's annulus is drawn at. See
+ * `rangeFillAlphaFor` for why those are different numbers.
+ */
+export const RANGE_FILL_ALPHA = 0.14;
+
+/**
+ * The alpha ONE unit's range fill is drawn at, given how many units are
+ * drawing one, so that the total where they all overlap is always
+ * `RANGE_FILL_ALPHA`.
+ *
+ * **This is the difference between a fill and a stroke, and it was
+ * photographed before it was reasoned about.** The three hoops this replaces
+ * were strokes: thin lines, so six selected units cost six thin lines and
+ * overlapping them cost nothing. A FILL compounds. Six annuli at a flat 0.14
+ * composite to `1 - 0.86^6 = 0.596` -- and at zoom 2.5 an effective-range
+ * annulus covers most of the frame, so `pnpm ui:shots`' own
+ * `09-hud-zoom2.5` (six units selected, the state that exists for exactly
+ * this) came back with the sand, the camouflage and the trees all washed to
+ * one blue-grey. Correct by every test in this file and plainly wrong on
+ * screen.
+ *
+ * So the constant above is declared as the TOTAL and this inverts the `over`
+ * compositing that produces it: N layers of alpha `a` leave `(1 - a)^N` of
+ * the background, so `a = 1 - (1 - RANGE_FILL_ALPHA)^(1/N)` makes the
+ * overlap read at `RANGE_FILL_ALPHA` for any N. One unit draws at 0.140, six
+ * at 0.025, twelve at 0.012.
+ *
+ * What that trades away, stated rather than hidden: ground only ONE unit of
+ * a large selection can reach is drawn very faintly. That is the right way
+ * round for this shape -- the fill is an area hint and the ARC is the edge a
+ * distance is read off, and the arc is a stroke drawn at full strength
+ * whatever N is, exactly like the hoops it inherits from.
+ */
+export function rangeFillAlphaFor(drawing: number): number {
+  if (drawing <= 1) return RANGE_FILL_ALPHA;
+  return 1 - Math.pow(1 - RANGE_FILL_ALPHA, 1 / drawing);
+}
+
+/** The fill's outer BOUNDARY -- "reach fades out at this line" (R-12).
+ *  Brighter than the fill it bounds, and the one edge of the shape the
+ *  player is meant to read a distance off. */
+export const RANGE_ARC_ALPHA = 0.55;
 
 // ---------------------------------------------------------------------------
 // The objective zone: the one overlay in this file that is NOT expressed as

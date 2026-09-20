@@ -313,7 +313,13 @@ import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
-import { billboardPoint, objectiveZoneCorners } from './units/overlay-geometry';
+import {
+  billboardPoint,
+  objectiveZoneCorners,
+  RANGE_FILL_DESATURATE,
+  rangeFillAlphaFor,
+  RANGE_ARC_ALPHA,
+} from './units/overlay-geometry';
 import {
   OverlayBatch,
   NumeralBatch,
@@ -350,6 +356,7 @@ import {
   CHARGE_RING_FILL_COLOR_KEY,
   CHARGE_RING_FILL_FALLBACK_COLOR,
   tileRadiusToEllipsePx,
+  cachedDesaturate,
 } from './units/overlays';
 
 /** Where a unit type's sheets live, as the app named them. */
@@ -636,6 +643,21 @@ const VEHICLE_EXHAUST_MAGNITUDE = 0.4;
  */
 const OVERLAY_VERTICES_PER_ENTITY = 200;
 
+/** The maximum-reach hoop's alpha -- the one band of the range envelope
+ *  Task 16 did NOT redesign. It is the faintest thing in the shape on
+ *  purpose: maximum range is where a weapon can still reach and is no longer
+ *  expected to hit, so it is a boundary worth seeing and not worth reading a
+ *  distance off, which is the effective-range arc's job. Carried at its
+ *  pre-Task-16 value. */
+const MAX_RANGE_HOOP_ALPHA = 0.28;
+
+/** How strong a HOVER preview's envelope is, as a fraction of the same
+ *  unit's envelope when it is selected. One multiplier over all three bands
+ *  rather than three more tuned numbers: a preview is the same shape, said
+ *  more quietly, and a selected unit must always be the louder of the two
+ *  when the cursor is resting on one of its own. */
+const PREVIEW_ENVELOPE_STRENGTH = 0.6;
+
 export class ThreeRenderer implements Renderer {
   readonly camera: Camera = { x: 24, y: 24, zoom: 1 };
   selection: number[] = [];
@@ -643,6 +665,10 @@ export class ThreeRenderer implements Renderer {
   hoverEntity = -1;
   hoverStructure = -1;
   hoverCanGarrison = false;
+  /** The friendly hover the range-ring preview draws for -- see `api.ts`'s
+   *  own comment for why this is NOT `hoverEntity`, which stays the hostile
+   *  hover the cursor hinting and the projected-fire panel read. */
+  rangeRingPreview = -1;
   objectiveZone: readonly number[] | null = null;
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
@@ -6322,6 +6348,21 @@ export class ThreeRenderer implements Renderer {
    *  handful of `resolveColor`-through-a-ring-colour call sites already use
    *  (e.g. its tutorial-focus-ring block, `this.opts.resolveColor ? this
    *  .opts.resolveColor('vfx.tracer') : '#B8FF5A'`), not a new pattern. */
+  /**
+   * Whether entity `i` gets a range envelope at all: alive, and carrying at
+   * least one weapon to have a range.
+   *
+   * One predicate rather than the same two conditions written twice, because
+   * the ring block both COUNTS the envelopes it is about to draw (to pick the
+   * fill's per-unit alpha) and then draws them. Counting by one rule and
+   * drawing by another would make the fill quietly wrong whenever a selection
+   * held a corpse or an unarmed unit -- and it would look like a tuning
+   * problem rather than a mismatch.
+   */
+  private drawsEnvelope(i: number): boolean {
+    return this.sim.state.alive[i] !== 0 && this.sim.unitTypes[this.sim.state.typeIdx[i]].weapons.length > 0;
+  }
+
   private overlayColor(key: string, fallback: string): string {
     return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
   }
@@ -6663,31 +6704,100 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Weapon envelopes for the selection (GDD S5.8): solid ring at
-    // effective range where accuracy holds up, faint ring at maximum reach,
-    // and an inner ring for weapons with a minimum range (mortars can't
-    // shoot close). `tileRadiusToEllipsePx` (units/overlays.ts) is Pixi's
-    // own `ring()` closure -- `tiles * TILE_W * ISO_K, tiles * TILE_H *
-    // ISO_K` -- pulled out once so this, the shepherd radius below, and the
-    // tutorial focus ring above all share the identical formula.
-    for (const i of this.selection) {
-      if (st.alive[i] === 0) continue;
-      const type = this.sim.unitTypes[st.typeIdx[i]];
-      if (type.weapons.length === 0) continue;
-      const ux = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-      const uy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      const groundYe = groundWorldY(elevation, width, height, ux, uy);
-      const envelopeAnchor: [number, number, number] = [ux, groundYe, uy];
-      const ring = (tiles: number, colorHex: string, widthPx: number, a: number): void => {
-        if (tiles <= 0) return;
-        const { rightR, upR } = tileRadiusToEllipsePx(tiles, TILE_W, TILE_H);
-        this.overlayBatch.ellipseRing(envelopeAnchor, rightR, upR, widthPx, colorHex, a);
+    // Weapon envelopes (GDD S5.8), redrawn for shell Phase 2 Task 16 as ONE
+    // readable shape instead of three competing hoops.
+    //
+    // What shipped until 2026-09-20 was three strokes per selected unit --
+    // maximum range at alpha 0.28, effective at 0.5, and the minimum-range
+    // hoop in HOSTILE RED at 0.35 -- so six units selected drew eighteen
+    // hoops with nothing in the picture saying which belonged to which unit,
+    // and the red inner ring read as an enemy's envelope rather than as this
+    // unit's own dead ground.
+    //
+    // It is now a filled ANNULUS from minimum range to effective range in the
+    // desaturated team hue, its outer edge drawn as a brighter arc -- "reach
+    // fades out at this line" -- with the maximum-range hoop kept as today's
+    // faint stroke. The inner red ring is deleted: its job is now the HOLE in
+    // the annulus, which cannot be mistaken for anyone else's ring.
+    //
+    // **It is not a facing sector**, and ruling R-12 has the reason: S6's
+    // "designed arc" reads most naturally as a sector on the unit's heading,
+    // and that would draw a rule the model does not have. `selectTarget`
+    // gates a shot on identification and range and NEVER on bearing, and no
+    // weapon in `data/units/` declares a traverse limit -- so a sector would
+    // tell the player "this unit can only shoot this way", which is false,
+    // and a player who believed it would manoeuvre against a constraint that
+    // does not exist.
+    //
+    // The colour is DERIVED from the resolved team hex rather than being a
+    // new palette row (ruling R-5, G0 decision #3): `this.opts.teamColors` is
+    // already per colour-vision variant, so the variant follows for free and
+    // no accessibility claim is made for three values nobody measured.
+    //
+    // `tileRadiusToEllipsePx` (units/overlays.ts) is Pixi's own `ring()`
+    // closure -- `tiles * TILE_W * ISO_K, tiles * TILE_H * ISO_K` -- pulled
+    // out once so this, the shepherd radius below, and the tutorial focus
+    // ring above all share the identical formula.
+    //
+    // The loop runs over the selection and then, at reduced strength, once
+    // more for `rangeRingPreview` -- the friendly unit under the cursor,
+    // written by `main.ts`'s `updateHover`. That is a SEPARATE field from
+    // `hoverEntity`, which stays the hostile hover the cursor hinting and the
+    // projected-fire panel read (api.ts has both comments). It is skipped
+    // when it is already in the selection, which draws at full strength.
+    {
+      const preview = this.rangeRingPreview;
+      const previewDraws =
+        preview >= 0 && preview < n && !this.selection.includes(preview) && this.drawsEnvelope(preview);
+      // How many envelopes this frame will actually draw -- NOT
+      // `selection.length`, which counts the dead and the unarmed. It decides
+      // the fill's per-unit alpha (`rangeFillAlphaFor`'s own doc comment has
+      // the photograph that made this necessary), so counting high would make
+      // the whole shape fainter than it declares. Counted in a loop rather
+      // than with a `filter`, because this runs every frame and the rest of
+      // this method allocates nothing per entity either.
+      let drawing = previewDraws ? 1 : 0;
+      for (const i of this.selection) if (this.drawsEnvelope(i)) drawing++;
+      const fillAlpha = rangeFillAlphaFor(drawing);
+      const drawEnvelope = (i: number, previewing: boolean): void => {
+        if (!this.drawsEnvelope(i)) return;
+        const type = this.sim.unitTypes[st.typeIdx[i]];
+        const ux = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+        const uy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+        const groundYe = groundWorldY(elevation, width, height, ux, uy);
+        const envelopeAnchor: [number, number, number] = [ux, groundYe, uy];
+        const ring = (tiles: number, colorHex: string, widthPx: number, a: number): void => {
+          if (tiles <= 0) return;
+          const { rightR, upR } = tileRadiusToEllipsePx(tiles, TILE_W, TILE_H);
+          this.overlayBatch.ellipseRing(envelopeAnchor, rightR, upR, widthPx, colorHex, a);
+        };
+        const w0 = type.weapons[0];
+        const fillHex = cachedDesaturate(this.opts.teamColors[st.side[i]], RANGE_FILL_DESATURATE);
+        // A preview is a hint at a unit the player has not committed to, so
+        // every band of it is drawn at the same fraction of its own strength
+        // rather than at a second set of tuned numbers.
+        const strength = previewing ? PREVIEW_ENVELOPE_STRENGTH : 1;
+        const effTiles = fx.toNumber(w0.effectiveRange);
+        if (effTiles > 0) {
+          const outer = tileRadiusToEllipsePx(effTiles, TILE_W, TILE_H);
+          // `minRangeSq` is 0 for every weapon but a mortar's, and a zero
+          // inner radius is a disc -- so this needs no branch.
+          const inner = tileRadiusToEllipsePx(Math.sqrt(fx.toNumber(w0.minRangeSq)), TILE_W, TILE_H);
+          this.overlayBatch.ellipseAnnulusFill(
+            envelopeAnchor,
+            inner.rightR,
+            inner.upR,
+            outer.rightR,
+            outer.upR,
+            fillHex,
+            fillAlpha * strength
+          );
+          this.overlayBatch.ellipseRing(envelopeAnchor, outer.rightR, outer.upR, 1.5, fillHex, RANGE_ARC_ALPHA * strength);
+        }
+        ring(fx.toNumber(w0.range), fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
       };
-      const w0 = type.weapons[0];
-      const teamColor = this.opts.teamColors[st.side[i]];
-      ring(fx.toNumber(w0.range), teamColor, 1, 0.28);
-      ring(fx.toNumber(w0.effectiveRange), teamColor, 1.5, 0.5);
-      ring(Math.sqrt(fx.toNumber(w0.minRangeSq)), this.overlayColor('team.hostile', '#D93A2B'), 1, 0.35);
+      for (const i of this.selection) drawEnvelope(i, false);
+      if (previewDraws) drawEnvelope(preview, true);
     }
 
     // Shepherd radius: when a player unit is selected, highlight nearby
