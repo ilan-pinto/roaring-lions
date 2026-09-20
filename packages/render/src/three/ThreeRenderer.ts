@@ -644,12 +644,20 @@ const VEHICLE_EXHAUST_MAGNITUDE = 0.4;
 const OVERLAY_VERTICES_PER_ENTITY = 200;
 
 /** The maximum-reach hoop's alpha -- the one band of the range envelope
- *  Task 16 did NOT redesign. It is the faintest thing in the shape on
+ *  Task 16 kept as a stroke. It is the faintest thing in the shape on
  *  purpose: maximum range is where a weapon can still reach and is no longer
  *  expected to hit, so it is a boundary worth seeing and not worth reading a
- *  distance off, which is the effective-range arc's job. Carried at its
- *  pre-Task-16 value. */
-const MAX_RANGE_HOOP_ALPHA = 0.28;
+ *  distance off, which is the effective-range arc's job.
+ *
+ *  **0.22, not the 0.28 it drew at before Task 16.** The first cut of this
+ *  work carried the old number forward on the grounds that this band was not
+ *  being redesigned, which was wrong by omission: the hoop no longer sits on
+ *  bare ground. The fill's tint now runs underneath it out to effective
+ *  range, so the same alpha reads louder than it used to against a lighter
+ *  neighbour -- and the brief's own Step 3 had specified 0.22 for exactly
+ *  that reason, designed together with the fill rather than beside it.
+ *  Nothing measured contradicts it. */
+const MAX_RANGE_HOOP_ALPHA = 0.22;
 
 /** How strong a HOVER preview's envelope is, as a fraction of the same
  *  unit's envelope when it is selected. One multiplier over all three bands
@@ -6348,23 +6356,32 @@ export class ThreeRenderer implements Renderer {
    *  handful of `resolveColor`-through-a-ring-colour call sites already use
    *  (e.g. its tutorial-focus-ring block, `this.opts.resolveColor ? this
    *  .opts.resolveColor('vfx.tracer') : '#B8FF5A'`), not a new pattern. */
-  /**
-   * Whether entity `i` gets a range envelope at all: alive, and carrying at
-   * least one weapon to have a range.
-   *
-   * One predicate rather than the same two conditions written twice, because
-   * the ring block both COUNTS the envelopes it is about to draw (to pick the
-   * fill's per-unit alpha) and then draws them. Counting by one rule and
-   * drawing by another would make the fill quietly wrong whenever a selection
-   * held a corpse or an unarmed unit -- and it would look like a tuning
-   * problem rather than a mismatch.
-   */
-  private drawsEnvelope(i: number): boolean {
-    return this.sim.state.alive[i] !== 0 && this.sim.unitTypes[this.sim.state.typeIdx[i]].weapons.length > 0;
-  }
-
   private overlayColor(key: string, fallback: string): string {
     return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
+  }
+
+  /**
+   * Whether entity `i` gets a range envelope FILL at all: alive, carrying a
+   * weapon, and that weapon having an effective range to fill out to.
+   *
+   * ONE predicate rather than the same conditions written twice, because the
+   * ring block both COUNTS the envelopes it is about to draw -- which is what
+   * picks the fill's per-unit alpha (`rangeFillAlphaFor`) -- and then draws
+   * them. Counting by one rule and drawing by another dims every other unit's
+   * fill by the share of a unit that then contributes none, and it would read
+   * as a tuning problem rather than as a mismatch.
+   *
+   * The effective-range clause is in here for that reason and not because
+   * anything shipped needs it: all 29 `weapons[0]` in `data/units/` declare a
+   * non-zero `effectiveRange` today, so this moves no pixel. It is the third
+   * condition the DRAW side already had, brought to the side that counts.
+   */
+  private drawsEnvelope(i: number): boolean {
+    const st = this.sim.state;
+    if (st.alive[i] === 0) return false;
+    const type = this.sim.unitTypes[st.typeIdx[i]];
+    if (type.weapons.length === 0) return false;
+    return fx.toNumber(type.weapons[0].effectiveRange) > 0;
   }
 
   /** The shared occlusion-silhouette material for `side` -- one of three for
@@ -6777,23 +6794,22 @@ export class ThreeRenderer implements Renderer {
         // every band of it is drawn at the same fraction of its own strength
         // rather than at a second set of tuned numbers.
         const strength = previewing ? PREVIEW_ENVELOPE_STRENGTH : 1;
-        const effTiles = fx.toNumber(w0.effectiveRange);
-        if (effTiles > 0) {
-          const outer = tileRadiusToEllipsePx(effTiles, TILE_W, TILE_H);
-          // `minRangeSq` is 0 for every weapon but a mortar's, and a zero
-          // inner radius is a disc -- so this needs no branch.
-          const inner = tileRadiusToEllipsePx(Math.sqrt(fx.toNumber(w0.minRangeSq)), TILE_W, TILE_H);
-          this.overlayBatch.ellipseAnnulusFill(
-            envelopeAnchor,
-            inner.rightR,
-            inner.upR,
-            outer.rightR,
-            outer.upR,
-            fillHex,
-            fillAlpha * strength
-          );
-          this.overlayBatch.ellipseRing(envelopeAnchor, outer.rightR, outer.upR, 1.5, fillHex, RANGE_ARC_ALPHA * strength);
-        }
+        // `drawsEnvelope` has already established a non-zero effective range
+        // -- it is the same predicate the count above used, on purpose.
+        const outer = tileRadiusToEllipsePx(fx.toNumber(w0.effectiveRange), TILE_W, TILE_H);
+        // `minRangeSq` is 0 for every weapon but a mortar's, and a zero
+        // inner radius is a disc -- so this needs no branch.
+        const inner = tileRadiusToEllipsePx(Math.sqrt(fx.toNumber(w0.minRangeSq)), TILE_W, TILE_H);
+        this.overlayBatch.ellipseAnnulusFill(
+          envelopeAnchor,
+          inner.rightR,
+          inner.upR,
+          outer.rightR,
+          outer.upR,
+          fillHex,
+          fillAlpha * strength
+        );
+        this.overlayBatch.ellipseRing(envelopeAnchor, outer.rightR, outer.upR, 1.5, fillHex, RANGE_ARC_ALPHA * strength);
         ring(fx.toNumber(w0.range), fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
       };
       for (const i of this.selection) drawEnvelope(i, false);
