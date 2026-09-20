@@ -4044,10 +4044,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Same half-tile generosity as the enemy scan above, and the same
   // `renderer.isVisible` gate -- a unit the fog is hiding must not draw a
   // range envelope either, which for a side-0 unit only ever matters to a
-  // spectator or a replay. A unit ALREADY in the selection is excluded here
-  // rather than in the renderer as well: a selected unit draws its envelope
-  // at full strength, and a preview over the top of that would be the same
-  // shape drawn twice.
+  // spectator or a replay.
+  //
+  // A unit ALREADY in the selection is excluded, because a selected unit
+  // draws its envelope at full strength and a preview over the top would be
+  // the same shape drawn twice. BOTH sides check that, deliberately: here, so
+  // the field never names a unit the preview does not mean; and again in
+  // `ThreeRenderer`'s ring block, because the selection can change between
+  // this write and the next frame that reads it -- `updateHover` runs per
+  // frame but a click sets the selection whenever it lands.
   let hf = -1;
   let bestF = 0.5 * 0.5;
   for (let i = 0; i < sim.entityCount; i++) {

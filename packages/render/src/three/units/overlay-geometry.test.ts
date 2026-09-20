@@ -549,17 +549,26 @@ describe('desaturateHex', () => {
       const n = parseInt(hex.slice(1), 16);
       return 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
     };
-    // Precision 0 (within 0.5), not the brief's 1 (within 0.05): luma is held
-    // EXACTLY in real arithmetic -- the three Rec.709 weights sum to 1, so the
-    // drained luma is `L + amount * (L - L)` -- and the whole residual is the
-    // rounding of three channels back to bytes, which is bounded by half a
-    // byte. `#D93A2B` at 0.6 lands 0.2402 out, under a floor no implementation
-    // of this signature could beat. The check is still decisive about the
-    // thing it guards: lerping toward a fixed mid-grey instead moves this hex
-    // 22.4 points, and 0.5 sits nowhere near that.
+    // `<= 0.5`, and NOT `toBeCloseTo(_, 0)`, which is `< 0.5` strictly.
+    //
+    // Luma is held EXACTLY in real arithmetic -- the three Rec.709 weights sum
+    // to 1, so the drained luma is `L + amount * (L - L)`. The whole residual
+    // is the rounding of three channels back to bytes, and its arithmetic
+    // maximum is exactly 0.5: the weights sum to 1 and each channel can be up
+    // to half a byte out, so `sum(w_i * 0.5) = 0.5`. The worst residual across
+    // the shipped palette is already 0.4874 (`#D55E00` at amount 1), leaving
+    // 0.0126 of headroom -- and that bound is REACHABLE rather than merely
+    // arithmetic: sweeping 400,000 random colours finds `#dc0f00` at 0.6
+    // sitting at exactly 0.500000. So a strict `<` here is a false red
+    // waiting for whichever colour a future variant adds. The brief's own
+    // `toBeCloseTo(_, 1)` (0.05) was under the quantisation floor entirely
+    // and could not pass at all.
+    //
+    // It is still decisive about the thing it guards: lerping toward a fixed
+    // mid-grey instead moves `#D93A2B` by 22.4, nowhere near 0.5.
     for (const hex of ['#D93A2B', ...teamHexesFromPalette()]) {
       for (const amount of [0.25, 0.6, RANGE_FILL_DESATURATE, 1]) {
-        expect(luma(desaturateHex(hex, amount))).toBeCloseTo(luma(hex), 0);
+        expect(Math.abs(luma(desaturateHex(hex, amount)) - luma(hex))).toBeLessThanOrEqual(0.5);
       }
     }
   });
