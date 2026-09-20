@@ -60,6 +60,11 @@ let coverage: Uint8Array | null = null;
 /** The square the current render target was made at, taken from
  *  `setRenderTarget` rather than guessed. */
 let targetSize = 0;
+/** Ground-albedo texture loads the fake loader has accepted and not yet
+ *  completed. Calling one is "this tile just arrived over the network",
+ *  which is the only way to reproduce the boot race from a test: `init()`
+ *  fires six of these and awaits none of them. */
+let pendingTextures: (() => void)[] = [];
 
 /**
  * One byte per pixel: how many VISIBLE meshes' world bounding boxes project
@@ -175,10 +180,19 @@ vi.mock('three', async (importOriginal) => {
     setPixelRatio(): void {}
     dispose(): void {}
   }
+  /**
+   * Records each load rather than completing it, so a test can land a texture
+   * at a chosen moment -- specifically AFTER a photograph has already been
+   * taken, which is the real boot order this file's newest pair is about:
+   * `init()` fires these six and does not await them.
+   *
+   * Deferring is safe for every other test here because `makeOpts()` declares
+   * no texture URL at all, so nothing is queued unless a test asks for it.
+   */
   class FakeTextureLoader {
     load(_url: string, onLoad: (t: THREE.Texture) => void): THREE.Texture {
       const tex = new actual.Texture();
-      onLoad(tex);
+      pendingTextures.push(() => onLoad(tex));
       return tex;
     }
   }
@@ -228,6 +242,27 @@ function makeRenderer(): ThreeRenderer {
 }
 
 const TOWN_TILES = 8 * 8;
+
+/**
+ * A renderer whose open-ground slot has a texture URL, with
+ * `loadGroundTexture` already run so the load is queued in `pendingTextures`
+ * and lands only when a test says so.
+ *
+ * The private method is called directly rather than through `init(host)`:
+ * `init` is the async method that wants a live GL context and a DOM host,
+ * neither of which exists under `environment: 'node'`, and everything this
+ * pair is about happens between that one call and the first capture. The URL
+ * has to name a row of `GROUND_ALBEDOS` (`terrain/mesh.ts`) or the loader
+ * refuses it before any fetch, which would queue nothing.
+ */
+function makeTexturedRenderer(): ThreeRenderer {
+  const r = new ThreeRenderer(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), {
+    ...makeOpts(),
+    groundTextureUrl: 'https://example.test/assets/desert_sand_tile.jpg',
+  });
+  (r as unknown as { loadGroundTexture(): void }).loadGroundTexture();
+  return r;
+}
 
 /**
  * A renderer over a map with ONE structure whose building mesh has
@@ -284,7 +319,24 @@ beforeEach(() => {
   throwOnRender = false;
   coverage = null;
   targetSize = 0;
+  pendingTextures = [];
 });
+
+/**
+ * A capture, narrowed to non-null.
+ *
+ * The assertion is what fails the test, by name and at the line that took
+ * the picture; the throw exists only to narrow the type for the comparisons
+ * below. A `!` would do neither -- it would read as "this cannot be null"
+ * where the whole point of this method is that it CAN be, and a regression
+ * would surface as a TypeError on a property access several lines away from
+ * the capture that actually failed.
+ */
+function shot(img: ImageData | null): ImageData {
+  expect(img).not.toBeNull();
+  if (img === null) throw new Error('captureGroundAlbedo returned null');
+  return img;
+}
 
 /** How many pixels of two captures of the same map differ at all. */
 function pixelDelta(a: ImageData, b: ImageData): number {
@@ -364,8 +416,7 @@ describe('ThreeRenderer.captureGroundAlbedo', () => {
     // its `underBuilding` pads: no buildings, and no building shadows.
     const { renderer: r } = makeTownRenderer();
 
-    const withBuilding = r.captureGroundAlbedo(64);
-    expect(withBuilding).not.toBeNull();
+    const withBuilding = shot(r.captureGroundAlbedo(64));
     // The direct statement: the capture itself put the clone in the scene.
     expect(buildingRoots(r).size).toBe(1);
 
@@ -376,9 +427,8 @@ describe('ThreeRenderer.captureGroundAlbedo', () => {
     // picture. Without this the test could pass on a terrain rebuild that
     // is merely nondeterministic.
     r.setDecor(new Uint8Array(TOWN_TILES));
-    const again = r.captureGroundAlbedo(64);
-    expect(again).not.toBeNull();
-    expect(pixelDelta(withBuilding!, again!)).toBe(0);
+    const again = shot(r.captureGroundAlbedo(64));
+    expect(pixelDelta(withBuilding, again)).toBe(0);
 
     // Now the same capture with the building hidden.
     // `updateBuildingMeshes` only INSTANTIATES a clone it does not already
@@ -386,10 +436,9 @@ describe('ThreeRenderer.captureGroundAlbedo', () => {
     const root = [...buildingRoots(r).values()][0];
     root.visible = false;
     r.setDecor(new Uint8Array(TOWN_TILES));
-    const withoutBuilding = r.captureGroundAlbedo(64);
-    expect(withoutBuilding).not.toBeNull();
+    const withoutBuilding = shot(r.captureGroundAlbedo(64));
 
-    const delta = pixelDelta(again!, withoutBuilding!);
+    const delta = pixelDelta(again, withoutBuilding);
     expect(delta).toBeGreaterThan(0);
     // And it is the BUILDING that moved, not the whole frame: a 2x2x2 box
     // on an 8x8 map cannot reach most of the picture, so a delta that did
@@ -466,6 +515,48 @@ describe('ThreeRenderer.captureGroundAlbedo', () => {
     r.captureGroundAlbedo(64);
     expect(renderCalls).toBeGreaterThan(afterResize);
 
+    r.dispose();
+  });
+
+  it('answers with the SAME object twice, so a caller can poll it by identity', () => {
+    // The seam's freshness signal is object identity (`api.ts`), and the
+    // minimap leans on it: it asks on each of its 4 Hz redraws and re-blits
+    // only when the answer is a different object. A capture that returned a
+    // fresh `ImageData` every time would still be CORRECT and would make
+    // that caller rebuild its blit canvas four times a second forever, with
+    // nothing to show for it and no test pointing at the cause.
+    const r = makeRenderer();
+    const first = shot(r.captureGroundAlbedo(48));
+    const second = shot(r.captureGroundAlbedo(48));
+    expect(second).toBe(first);
+    r.dispose();
+  });
+
+  it('a ground texture that lands after the photograph makes the NEXT ask a new picture', () => {
+    // The race this closes. `init()` fires six `TextureLoader.load` calls
+    // fire-and-forget and awaits none of them, while `main.ts` mounts the
+    // minimap right after the deploy gate -- which on a sandbox or the
+    // tutorial is immediately. A tile arriving after the capture writes the
+    // material's uniforms and nothing else, so before this the photograph
+    // kept that slot's flat palette tone for the whole mission: still lit,
+    // still shaded, still elevation-correct, and not the ground the player
+    // is looking at.
+    const r = makeTexturedRenderer();
+    const before = shot(r.captureGroundAlbedo(48));
+    const afterFirst = renderCalls;
+    // Identity-stable while nothing has changed -- the control, so the
+    // assertion below is about the texture and not about the memo being
+    // broken in general.
+    expect(r.captureGroundAlbedo(48)).toBe(before);
+    expect(renderCalls).toBe(afterFirst);
+
+    // The tile arrives, late.
+    expect(pendingTextures.length).toBe(1);
+    for (const land of pendingTextures) land();
+
+    const after = shot(r.captureGroundAlbedo(48));
+    expect(after).not.toBe(before);
+    expect(renderCalls).toBeGreaterThan(afterFirst);
     r.dispose();
   });
 });

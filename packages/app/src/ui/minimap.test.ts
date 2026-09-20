@@ -98,6 +98,15 @@ interface DrawImage {
    *  wiring. Every op carries it, so a blit from a canvas that never
    *  labelled itself reads 'unknown' rather than silently matching. */
   source: string;
+  /** WHICH canvas OBJECT, as a small stable number the recorder mints per
+   *  source it has seen. `source` says which of the two grounds was blitted
+   *  and cannot say whether the minimap threw one away and built another --
+   *  two photographs both label themselves `ground-albedo`. That is exactly
+   *  the question the per-redraw ask raises: a minimap that rebuilt its blit
+   *  canvas four times a second would draw a correct picture and still be
+   *  the defect. A number rather than the element itself, so a failure reads
+   *  `2 !== 1` instead of two pages of DOM. */
+  srcId: number;
 }
 type Op = FillRect | StrokePath | FillPath | DrawImage;
 
@@ -137,6 +146,19 @@ const realGetContext = HTMLCanvasElement.prototype.getContext;
 
 function installContext(): Recorder {
   const ops: Op[] = [];
+  // Object identity, minted on first sight and stable thereafter. A WeakMap
+  // so a canvas the minimap has discarded is not held alive by the recorder,
+  // which is the whole point of the per-redraw ask being cheap.
+  const ids = new WeakMap<object, number>();
+  let nextId = 0;
+  const idOf = (src: unknown): number => {
+    if (typeof src !== 'object' || src === null) return -1;
+    const known = ids.get(src);
+    if (known !== undefined) return known;
+    nextId += 1;
+    ids.set(src, nextId);
+    return nextId;
+  };
   let path: [number, number][] = [];
   const saved: { fillStyle: string; strokeStyle: string; lineWidth: number; globalAlpha: number }[] = [];
   const ctx = {
@@ -177,6 +199,7 @@ function installContext(): Recorder {
         filter: String(this.filter),
         smoothing: Boolean(this.imageSmoothingEnabled),
         source: src instanceof HTMLCanvasElement ? (src.dataset.source ?? 'unknown') : 'unknown',
+        srcId: idOf(src),
       });
     },
     // jsdom has no canvas backend, so this is where the renderer's photograph
@@ -633,11 +656,13 @@ describe('mount', () => {
       kind: 'drawImage',
       filter: 'saturate(0.4)',
       smoothing: false,
-      // Task 15 (R-F1): the recorder's op grew a field, so this exact-match
-      // grew with it. Nothing about the behaviour asserted here moved --
-      // this mount supplies no `groundImage`, which is the Pixi path and
-      // what shipped.
+      // Task 15 (R-F1), then the landing-2 fix wave: the recorder's op has
+      // grown two fields and this exact-match grew with them. Nothing about
+      // the behaviour asserted here moved -- this mount supplies no
+      // `groundImage`, which is the Pixi path and what shipped.
       source: 'painted',
+      // The first canvas the recorder saw in this test's own context.
+      srcId: 1,
     });
     const marks = [...dotsOf('blue'), ...dotsOf('red'), ...recorder.strokes()];
     expect(marks.length).toBeGreaterThan(0);
@@ -1172,7 +1197,15 @@ describe('the lit ground', () => {
     expect(recorder.images().at(-1)?.source).toBe('painted');
   });
 
-  it('asks once, not every redraw', () => {
+  it('asks again on every redraw, so a texture that lands late is not missed', () => {
+    // This used to assert `calls === 1`, and the single ask was the defect.
+    // The renderer fires six ground-albedo texture loads at map load and
+    // awaits none of them, while the minimap mounts right after the deploy
+    // gate -- immediately, on a sandbox or the tutorial. A photograph taken
+    // before those land shows the flat palette tone for the whole mission,
+    // and with one ask there is no second chance. Asking is cheap by
+    // contract: the renderer's answer is identity-stable, so the ask below
+    // is a reference compare and not a readback.
     let calls = 0;
     const { minimap } = mount(() => true, {
       groundImage: () => {
@@ -1180,8 +1213,52 @@ describe('the lit ground', () => {
         return null;
       },
     });
-    for (let i = 0; i < 40; i++) minimap.onTick();
-    expect(calls).toBe(1);
+    const atMount = calls;
+    expect(atMount).toBeGreaterThan(0);
+    // 4 Hz: `onTick` redraws on every fifth tick.
+    for (let i = 0; i < 20; i++) minimap.onTick();
+    expect(calls).toBe(atMount + 4);
+  });
+
+  it('re-blits only when the image identity changes, never when it is the same object', () => {
+    // Both halves in one test on purpose: they are one property, and the two
+    // failures are each other's mirror. Asking once makes the first
+    // assertion fail (the late image never arrives); rebuilding on every
+    // redraw makes the second fail (a new canvas four times a second, for a
+    // picture that did not change).
+    const first = new ImageData(new Uint8ClampedArray(48 * 48 * 4).fill(200), 48, 48);
+    const second = new ImageData(new Uint8ClampedArray(48 * 48 * 4).fill(90), 48, 48);
+    let current = first;
+    const { minimap } = mount(() => true, { groundImage: () => current });
+    // `onTick` redraws on every FIFTH tick (4 Hz), so one redraw is five
+    // calls. Calling it once and expecting a picture is the trap this
+    // helper exists to avoid -- four of the five are early returns.
+    const redraw = (): void => {
+      for (let i = 0; i < 5; i++) minimap.onTick();
+    };
+
+    recorder.ops.length = 0;
+    redraw();
+    const a = recorder.images().at(-1);
+    redraw();
+    const b = recorder.images().at(-1);
+    expect(a?.source).toBe('ground-albedo');
+    // Same `ImageData` object -> the same canvas, not a fresh one that
+    // happens to look identical.
+    expect(b?.srcId).toBe(a?.srcId);
+
+    // A ground texture lands, the renderer's memo is dropped, and the next
+    // ask answers with a different object.
+    current = second;
+    redraw();
+    const c = recorder.images().at(-1);
+    expect(c?.source).toBe('ground-albedo');
+    expect(c?.srcId).not.toBe(a?.srcId);
+
+    // And it STAYS the new one -- a rebuild per redraw would show up here
+    // too, one redraw later.
+    redraw();
+    expect(recorder.images().at(-1)?.srcId).toBe(c?.srcId);
   });
 
   it('smooths the photograph and not the painted tiles', () => {

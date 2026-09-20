@@ -954,6 +954,27 @@ export class ThreeRenderer implements Renderer {
   private groundPhotoPx = 0;
 
   /**
+   * Throw the memo away, so the NEXT `captureGroundAlbedo` photographs again.
+   *
+   * Three callers, and they are the whole set of things that can change what
+   * a photograph of this ground would look like: the terrain rebuild in
+   * `frame()`, the same rebuild reached from inside a capture, and a ground
+   * albedo texture arriving from `loadGroundTexture` after a capture already
+   * ran. One name rather than three `this.groundPhoto = null` lines, because
+   * the failure this closes is a fourth invalidating event nobody wired up.
+   *
+   * It does NOT push anything at the minimap. The seam is a pull: the app
+   * asks on each of its own redraws and compares the returned object by
+   * IDENTITY, which works precisely because `captureGroundAlbedo` hands back
+   * the same `ImageData` until this runs. A renderer that called into the
+   * HUD would be the dependency direction inverted for a decoration.
+   */
+  private invalidateGroundPhoto(): void {
+    this.groundPhoto = null;
+    this.groundPhotoPx = 0;
+  }
+
+  /**
    * Fetches the six ground albedo tiles `RendererOptions` names -- open
    * ground, `^` ridge, `r` road, cover, `o` grove, `n` knoll -- and, as each arrives,
    * switches its own slot on. Each is independent: a rock tile that 404s
@@ -1043,6 +1064,17 @@ export class ThreeRenderer implements Renderer {
               albedo.tiles
             );
           }
+          // The minimap's photograph is of ground that did not have this
+          // texture on it, so it is dropped here for the same reason the
+          // terrain rebuild drops it -- see `invalidateGroundPhoto`. These
+          // six loads are fire-and-forget and `init()` does not await them,
+          // so a capture taken at map load RACES them: on a sandbox or the
+          // tutorial, where nothing holds the player at a briefing, the
+          // photograph can be taken before some tiles land and would
+          // otherwise show those slots' flat palette tone for the whole
+          // mission, quietly and forever. Bounded at six extra captures per
+          // map, at boot, before any fight.
+          this.invalidateGroundPhoto();
         },
         undefined,
         (err) => {
@@ -2456,7 +2488,7 @@ export class ThreeRenderer implements Renderer {
       // is dropped here rather than patched. A rebuild is a destroyed
       // building or a first build, both of which change the picture; a
       // photograph nobody invalidated would outlive its own subject.
-      this.groundPhoto = null;
+      this.invalidateGroundPhoto();
     }
     this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
@@ -2722,10 +2754,18 @@ export class ThreeRenderer implements Renderer {
    * (`../api.ts`'s `captureGroundAlbedo`, spec section 6, plan R-6).
    *
    * Memoised per map and per requested size: the ground does not change over
-   * a mission except when it is rebuilt, and the terrain-dirty block in
-   * `frame()` drops the memo when it is. One caller asking once is the
-   * expected shape; asking again is answered from the field rather than from
-   * the GPU.
+   * a mission except when it is rebuilt or re-textured, and
+   * `invalidateGroundPhoto` drops the memo when either happens. Asking again
+   * is answered from the field rather than from the GPU.
+   *
+   * **The memo is also the seam's freshness signal, and that is why the
+   * return is IDENTITY-STABLE.** The app asks on each of its own redraws and
+   * re-blits only when the object it gets back is not the one it already
+   * has, so two asks with nothing in between must be the same `ImageData`
+   * and an ask after an invalidation must not be. That is what makes a
+   * per-redraw ask cost one reference compare instead of a readback, and it
+   * is what closes the race against `loadGroundTexture`'s six
+   * fire-and-forget loads without the renderer knowing the HUD exists.
    *
    * **It builds the terrain if the terrain is not built yet, through the
    * SAME gate `frame()` uses.** `rebuildTerrain` is lazy -- nothing exists
@@ -2756,7 +2796,7 @@ export class ThreeRenderer implements Renderer {
       // The same gate `frame()` uses, not a second builder -- see above.
       this.rebuildTerrain();
       this.terrainDirty = false;
-      this.groundPhoto = null;
+      this.invalidateGroundPhoto();
     }
     if (this.groundPhoto !== null && this.groundPhotoPx === size) return this.groundPhoto;
     if (this.terrainMesh === null) return null;
