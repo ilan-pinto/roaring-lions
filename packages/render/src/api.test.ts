@@ -37,3 +37,41 @@ describe('Renderer projection contract', () => {
     expect(r.height).toBe(600);
   });
 });
+
+/**
+ * The optional half of the seam, which is where a FROZEN backend lives.
+ *
+ * `renderer.ts` (Pixi) is frozen and cannot grow a member, so anything only
+ * the three.js backend can answer arrives on this interface as optional and
+ * the app carries the fallback. That optionality is a compile-time property
+ * with no runtime shadow, so the check below is half a TYPE assertion -- the
+ * annotated literal compiles only while the member is optional, and making
+ * it required is what turns this file red under `pnpm typecheck` -- and half
+ * a runtime one, exercising the exact `?.() ?? null` shape `main.ts` uses so
+ * that "the app falls back" is asserted rather than assumed.
+ */
+describe('Renderer optional members', () => {
+  it('lets a frozen backend implement captureGroundAlbedo not at all', () => {
+    // No `captureGroundAlbedo` key. This annotation is the assertion: if the
+    // member were required, `tsc` would reject the literal here.
+    const frozenBackend: Pick<Renderer, 'width' | 'height' | 'captureGroundAlbedo'> = {
+      width: 800,
+      height: 600,
+    };
+    expect(frozenBackend.captureGroundAlbedo).toBeUndefined();
+    // What `main.ts` actually writes, and what makes the Pixi minimap keep
+    // the painted terrain rather than throw.
+    expect(frozenBackend.captureGroundAlbedo?.(210) ?? null).toBeNull();
+  });
+
+  it('types the photograph as ImageData a 2D context can take, or null', () => {
+    // A backend that DOES implement it. The annotation is again the
+    // assertion: a signature that drifted -- a different argument, a texture
+    // or a canvas in place of `ImageData`, a return that cannot be null --
+    // fails to typecheck here rather than at the one call site in `main.ts`.
+    const threeLike: Pick<Renderer, 'captureGroundAlbedo'> = {
+      captureGroundAlbedo: (sizePx: number): ImageData | null => (sizePx > 0 ? null : null),
+    };
+    expect(threeLike.captureGroundAlbedo?.(210)).toBeNull();
+  });
+});

@@ -301,6 +301,39 @@ export interface Renderer {
    *  Box-select is a projection question, so only the renderer can answer it. */
   unitsInScreenRect(x0: number, y0: number, x1: number, y1: number): number[];
 
+  /**
+   * A top-down photograph of THIS map's ground, rendered once, for the
+   * minimap. `sizePx` is the square the caller wants; the backend fits the
+   * map's own tile extent into it, matching `minimapProjection`'s letterbox.
+   *
+   * Precisely: the returned square holds the map's tile extent and nothing
+   * else -- the frustum is exactly `[0, mapWidth] x [0, mapHeight]`, so a
+   * non-square map arrives STRETCHED to fill the square and the caller's own
+   * `minimapProjection` un-stretches it by blitting into `w * scale` by
+   * `h * scale` at `(ox, oy)`. Letterboxing here as well would apply it
+   * twice. On every shipped map (48x48) the distinction is a no-op; it is
+   * written down because the one thing a minimap must never do is draw a
+   * non-square map stretched in one axis.
+   *
+   * `ImageData` rather than a texture or a canvas: it is the one shape that
+   * crosses this seam without either side learning about the other's
+   * rendering stack, and it is exactly what a 2D `putImageData` takes. Its
+   * rows arrive in the GL convention -- bottom row first -- and the app
+   * flips them (`minimap.ts`'s `flipRows`), because a pure function over a
+   * byte array is testable and a GL readback is not.
+   *
+   * Returns null before the terrain exists, and on a backend that has no
+   * ground mesh to photograph. Optional on the interface: `renderer.ts` is
+   * frozen and implements nothing, so `?renderer=pixi` keeps the painted
+   * terrain, which is not a degradation -- it is what shipped.
+   *
+   * NOTE for anyone reading the `preserveDrawingBuffer` rule (CLAUDE.md, "the
+   * three.js backend"): that rule is about the DRAWING BUFFER and stays off.
+   * This reads a `WebGLRenderTarget` with `readRenderTargetPixels`, which is a
+   * different buffer, is always readable, and is unaffected by it.
+   */
+  captureGroundAlbedo?(sizePx: number): ImageData | null;
+
   // --- world data pushed in
   setElevation(elevation: Uint8Array): void;
   setDecor(decor: Uint8Array): void;

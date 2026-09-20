@@ -112,11 +112,20 @@ import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type Parti
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
-import { updateDimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
+import {
+  updateDimetricCamera,
+  worldToScreenThree,
+  screenToWorldThree,
+  CAMERA_NEAR,
+  CAMERA_FAR,
+} from './camera';
 import { createSceneLights, type SceneLights } from './lighting';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
+// The ONE piece of the post chain `captureGroundAlbedo` needs -- see that
+// method for why a render target cannot simply be read back raw.
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
@@ -900,6 +909,15 @@ export class ThreeRenderer implements Renderer {
    *  a live rendering concern -- it is null in every frame the gate is not
    *  driving. */
   private groundAlbedoStrengths: number[] | null = null;
+  /** The minimap's photograph of this map's ground, kept so the answer is
+   *  computed once per map rather than once per caller -- see
+   *  `captureGroundAlbedo`. Dropped whenever the terrain is rebuilt, so a
+   *  stale picture of a ground that has since changed can never be handed
+   *  out. `null` means "not taken", never "cannot be taken". */
+  private groundPhoto: ImageData | null = null;
+  /** The square `groundPhoto` was taken at. A caller asking for a different
+   *  size gets a fresh photograph rather than a resampled one. */
+  private groundPhotoPx = 0;
 
   /**
    * Fetches the six ground albedo tiles `RendererOptions` names -- open
@@ -2400,6 +2418,11 @@ export class ThreeRenderer implements Renderer {
     if (this.terrainDirty) {
       this.rebuildTerrain();
       this.terrainDirty = false;
+      // The minimap's photograph is of the ground that just went away, so it
+      // is dropped here rather than patched. A rebuild is a destroyed
+      // building or a first build, both of which change the picture; a
+      // photograph nobody invalidated would outlive its own subject.
+      this.groundPhoto = null;
     }
     this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
@@ -2658,6 +2681,195 @@ export class ThreeRenderer implements Renderer {
     });
     this.groundAlbedoStrengths = null;
     return GROUND_SLOTS.length;
+  }
+
+  /**
+   * A top-down photograph of this map's ground, for the minimap
+   * (`../api.ts`'s `captureGroundAlbedo`, spec section 6, plan R-6).
+   *
+   * Memoised per map and per requested size: the ground does not change over
+   * a mission except when it is rebuilt, and the terrain-dirty block in
+   * `frame()` drops the memo when it is. One caller asking once is the
+   * expected shape; asking again is answered from the field rather than from
+   * the GPU.
+   *
+   * **It builds the terrain if the terrain is not built yet, through the
+   * SAME gate `frame()` uses.** `rebuildTerrain` is lazy -- nothing exists
+   * until the first `frame()` -- and `main.ts` mounts the minimap
+   * (`bootBattlefield`, right after the deploy gate) some 1500 lines BEFORE
+   * its first `renderer.frame(1, lastFrameMs)` call, GH-141's
+   * one-real-frame-before-the-loop. A capture that merely read
+   * `this.terrainMesh` would therefore answer null at exactly the one moment
+   * the app asks, the minimap would keep its painted terrain for the whole
+   * mission, and nothing would look broken. Building here rather than
+   * duplicating a builder is what makes the photograph and the frame the
+   * same ground by construction.
+   *
+   * Returns null rather than throwing on anything it cannot do: a HUD
+   * decoration must not be able to take the battlefield down.
+   */
+  captureGroundAlbedo(sizePx: number): ImageData | null {
+    if (!Number.isFinite(sizePx) || sizePx < 1) return null;
+    const size = Math.floor(sizePx);
+    // The dirty gate comes BEFORE the memo and that order is load-bearing,
+    // not tidiness. `frame()` drops the memo when it rebuilds, but
+    // `setDecor`/`setElevation` only mark the terrain dirty -- so between
+    // one of those and the next frame the memo describes ground that is
+    // already superseded, and consulting it first would hand out a
+    // photograph of a map that no longer exists. The size guard stays above
+    // both: a caller asking for no pixels must not trigger a terrain build.
+    if (this.terrainDirty) {
+      // The same gate `frame()` uses, not a second builder -- see above.
+      this.rebuildTerrain();
+      this.terrainDirty = false;
+      this.groundPhoto = null;
+    }
+    if (this.groundPhoto !== null && this.groundPhotoPx === size) return this.groundPhoto;
+    if (this.terrainMesh === null) return null;
+    this.groundPhoto = this.photographGround(size);
+    this.groundPhotoPx = this.groundPhoto === null ? 0 : size;
+    return this.groundPhoto;
+  }
+
+  /**
+   * `captureGroundAlbedo`'s GL half: one orthographic render of the world
+   * from straight above, read back as bytes.
+   *
+   * Five things here were decided rather than inherited.
+   *
+   * **The frustum is exactly the map's tile extent**, `[0, w] x [0, h]`,
+   * centred on the map -- so the result lands on `minimapProjection`'s own
+   * linear tile-to-pixel mapping with no second convention to keep in step.
+   * A non-square map comes back stretched to fill the square and the
+   * minimap's own blit un-stretches it; see `api.ts` for why letterboxing
+   * here as well would apply it twice.
+   *
+   * **`up` is -Z, not the default +Y.** Looking straight down, the default
+   * up vector is parallel to the view direction and `lookAt` degenerates.
+   * -Z puts world +X across the image and world +Z down it, which is tile
+   * (0,0) at the top-left -- the minimap's own convention, and the camera
+   * basis is the whole of why the flip below is a row reversal and nothing
+   * more.
+   *
+   * **`units` and `overlays` are hidden for this one render and restored
+   * after** -- through `setDebugLayerVisible`, the seam that already names
+   * them, rather than a second list of scene objects that could drift from
+   * it. The minimap draws its own dots and diamonds from `sim.state` under
+   * its own fog rule, so a unit baked into the ground would be a second,
+   * permanent, unfogged copy of the roster. `units` MUST go through that
+   * seam and not a bare `visible` write: the per-frame path re-asserts fog
+   * visibility on every mesh entity (`debug-layers.ts`). Decor and buildings
+   * deliberately stay -- the boulder field and the town are ground the
+   * player plans around, and the painted terrain drew both.
+   *
+   * **A render target, not the canvas.** `preserveDrawingBuffer` stays off
+   * (CLAUDE.md) and the drawing buffer reads back black; a
+   * `WebGLRenderTarget` is a different buffer and is always readable. It
+   * also means this never disturbs what is on screen: the target is bound
+   * and unbound inside this call, and the next `frame()` reconfigures the
+   * view camera from scratch anyway.
+   *
+   * **Two targets and an `OutputPass`, not one target read raw.** three.js
+   * applies `outputColorSpace` and tone mapping only when rendering to the
+   * DEFAULT framebuffer -- rendering into a render target is forced to the
+   * linear working space with tone mapping off (`WebGLPrograms.getParameters`,
+   * three 0.170). Reading that back as bytes and handing it to a 2D canvas
+   * would present linear values as if they were sRGB, which is not a subtle
+   * shift: it is the same ground several stops darker and flatter. So the
+   * scene renders into a HalfFloat target exactly as `post-chain.ts` does,
+   * and three's own `OutputPass` -- the same class the live chain uses, not
+   * a reimplementation of ACES -- resolves it into the byte target this
+   * reads. What is NOT reproduced is the rest of the chain: no fog-of-war
+   * pass (the minimap's terrain is deliberately unfogged, and at map load
+   * every tile is unseen, so the honest picture would be a black square), no
+   * GTAO, no vignette, no SMAA.
+   */
+  private photographGround(size: number): ImageData | null {
+    const w = this.sim.width;
+    const h = this.sim.height;
+    if (w < 1 || h < 1) return null;
+
+    const camera = new THREE.OrthographicCamera(
+      -w / 2,
+      w / 2,
+      h / 2,
+      -h / 2,
+      CAMERA_NEAR,
+      CAMERA_FAR
+    );
+    // High enough that the whole scene sits inside [near, far] and low
+    // enough that it stays there: the terrain tops out around 2.3 world
+    // units (9 elevation levels at 10 px each through
+    // `WORLD_Y_PER_LIFT_PIXEL`) and a roof under 8, so from 120 up every
+    // depth falls in [112, 120] against `CAMERA_NEAR`/`CAMERA_FAR`'s
+    // [1, 300]. 120 is `camera.ts`'s own `CAMERA_DISTANCE`, spelled out
+    // rather than imported because that module keeps it private -- the two
+    // numbers it IS given are imported, so only this one can drift, and it
+    // can only drift into a clipped photograph rather than a wrong one.
+    const above = 120;
+    camera.position.set(w / 2, above, h / 2);
+    camera.up.set(0, 0, -1);
+    camera.lookAt(w / 2, 0, h / 2);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+
+    // HalfFloat for the scene pass, exactly as `post-chain.ts`'s own target
+    // is and for the same reason: the scene renders linear and unclamped, so
+    // an 8-bit intermediate would crush the highlights before tone mapping
+    // ever saw them. The second target is bytes, because that is what comes
+    // back.
+    const linear = new THREE.WebGLRenderTarget(size, size, { type: THREE.HalfFloatType });
+    const encoded = new THREE.WebGLRenderTarget(size, size);
+    const output = new OutputPass();
+    const wasTarget = this.renderer.getRenderTarget();
+    try {
+      this.setDebugLayerVisible('units', false);
+      this.setDebugLayerVisible('overlays', false);
+      try {
+        this.renderer.setRenderTarget(linear);
+        // Explicit rather than trusting `autoClear`, which the post chain's
+        // own `RenderPass` turns off and on around itself.
+        this.renderer.clear();
+        this.renderer.render(this.scene, camera);
+        // `renderToScreen` is false by default, so this draws its full-screen
+        // quad into `encoded` -- tone-mapped and sRGB-encoded by its own
+        // defines, which it reads off this renderer's `toneMapping` and
+        // `outputColorSpace`.
+        // `deltaTime`/`maskActive` are in the `Pass` signature and unread by
+        // this pass; 0 and false are what `EffectComposer` hands a pass with
+        // no clock of its own.
+        // `OutputPass` binds `encoded` itself but does NOT clear it
+        // (`Pass.clear` is false by default), and its full-screen quad
+        // depth-tests like any other material. A render target's depth
+        // attachment has no defined initial contents, so the quad is given
+        // a cleared buffer to draw against rather than a driver's goodwill.
+        this.renderer.setRenderTarget(encoded);
+        this.renderer.clear();
+        output.render(this.renderer, encoded, linear, 0, false);
+      } finally {
+        // Restored whatever happened above: a capture that threw with the
+        // units switched off would take every unit off the battlefield for
+        // the rest of the mission, which is far worse than a minimap with
+        // no photograph.
+        this.setDebugLayerVisible('overlays', true);
+        this.setDebugLayerVisible('units', true);
+      }
+
+      const pixels = new Uint8Array(size * size * 4);
+      this.renderer.readRenderTargetPixels(encoded, 0, 0, size, size, pixels);
+      // The rows are bottom-up here (GL's origin) and the app flips them --
+      // `minimap.ts`'s `flipRows`, which is pure and has the two tests this
+      // method cannot have.
+      return new ImageData(new Uint8ClampedArray(pixels.buffer), size, size);
+    } catch (err) {
+      console.warn('[lions] ground albedo capture failed; the minimap keeps its painted terrain:', err);
+      return null;
+    } finally {
+      this.renderer.setRenderTarget(wasTarget);
+      output.dispose();
+      encoded.dispose();
+      linear.dispose();
+    }
   }
 
   /**

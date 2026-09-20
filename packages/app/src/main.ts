@@ -70,7 +70,7 @@ import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
-import { Minimap, objectivePoint } from './ui/minimap';
+import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
@@ -2584,6 +2584,27 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A thunk: objectives complete and drop off mid-mission, and a sandbox
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
+    // The map's own lit ground, photographed once (Task 15). Called exactly
+    // once, by the constructor below.
+    //
+    // `?.` and `?? null` are the whole of the fallback and are not defensive
+    // padding: `captureGroundAlbedo` is OPTIONAL on `Renderer` because
+    // `renderer.ts` is frozen, so on `?renderer=pixi` this expression is
+    // `undefined ?? null` and the minimap paints its own terrain -- which is
+    // not a degradation, it is exactly what shipped. `renderer` is held here
+    // as a `Renderer`, never as a backend, so the compiler is what keeps
+    // this honest rather than a grep.
+    //
+    // The flip is here rather than in the renderer: the photograph comes
+    // back in GL's row order (bottom row first) and `flipRows` is a pure
+    // function with its own tests, where a GL readback is untestable --
+    // canvas readback is black by design and `preserveDrawingBuffer` stays
+    // off.
+    groundImage: () => {
+      const shot = renderer.captureGroundAlbedo?.(MINIMAP_SIZE) ?? null;
+      if (shot === null) return null;
+      return new ImageData(flipRows(shot.data, shot.width, shot.height), shot.width, shot.height);
+    },
     // The three player gestures (Task 10). FORWARD REFERENCES, deliberately
     // and not by accident: `orderSink`, `intentWorld` and `minimap` itself
     // are all declared further down this same function, and these three
