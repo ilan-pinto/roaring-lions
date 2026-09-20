@@ -29,6 +29,13 @@ import {
   applyUpgrades,
   maxTiers,
 } from '@lions/data';
+// `tools` importing a pure module out of `packages/app` is the established
+// pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
+// `packages/app/src/mesh-catalogue` the same way): `roster-cap.ts` is the one
+// public source of `ROSTER_CAP`, imported here (Task 2), by the split (Task
+// 4), by the brigade sentence (Task 6) and by `deployRosterView` when it
+// exists (R-12).
+import { ROSTER_CAP } from '../../../packages/app/src/roster-cap';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
 
@@ -57,6 +64,12 @@ const missionCredits = new Map<string, number>();
  *  this, `missionResults`'s own `roe` field was hardcoded to 0, which was harmless only
  *  because nothing walked the nine `roe_rating_min` gates against the real ladder yet. */
 const missionRoe = new Map<string, number>();
+
+/** This mission's own produced roster length, for the per-chain totals below
+ *  (WP-G-E2 Task 2). Same `label === id` + `expect === 'victory'` guard as
+ *  `missionStars`, so a control's defeat (which writes nothing to a real
+ *  ledger anyway) and a gate-open or max-tier probe can never contribute. */
+const missionRosterOut = new Map<string, number>();
 
 /** Brigade economy Task 5: everything a plain `label === id` VICTORY run needs to be
  *  replayed with every KDF type patched to its own maximum tier. Recorded under the
@@ -281,6 +294,10 @@ function run(
     missionStars.set(id, rt.stars);
     missionCredits.set(id, credits);
     missionRoe.set(id, rt.roeScore);
+    // WP-G-E2 Task 2: fed into the per-chain `roster total` lines beside
+    // `missionOrder` below -- see the `roster cap:` comment block near
+    // `LADDER_CREDITS` for why this number is honest.
+    missionRosterOut.set(id, (produced['roster.surviving_units'] ?? []).length);
     // Brigade economy Task 5: record this same plain victory for the max-tier
     // replay pass below. `tiers === undefined` is belt-and-suspenders -- a max-tier
     // replay always passes a label distinct from `id` (see `MaxTierProbe`'s own
@@ -2560,6 +2577,40 @@ for (const region of world.regions) {
   }
 }
 
+/**
+ * WP-G-E2 Task 2 (R-3, R-10): the roster ladder, measured per town chain,
+ * over the same region -> town walk `missionOrder` above performs.
+ * `roster.surviving_units` only ever appends (CLAUDE.md, "known scaling
+ * debts" -- it is CUMULATIVE), so the largest `roster out` a chain's own
+ * winning plan reaches is the honest measure of how far one continuous
+ * playthrough through that chain could grow it. This is deliberately NOT a
+ * campaign-wide total: the chained `led…` ledgers above do not thread one
+ * ledger through all 26 missions (`missionStars`' own comment, and R-10), so
+ * no run here ever accumulates a whole campaign's roster -- only the largest
+ * SINGLE CHAIN, which is the most this instrument honestly knows.
+ *
+ * `rosterMax`/`rosterMaxMissionId` are read again below, beside
+ * `LADDER_CREDITS`, where the `ROSTER_MAX` pin and the `ROSTER_CAP`
+ * cross-check live.
+ */
+let rosterMax = -1;
+let rosterMaxMissionId = '';
+for (const region of world.regions) {
+  for (const town of region.towns) {
+    let chainMax = -1;
+    for (const missionId of town.missions) {
+      const out = missionRosterOut.get(missionId);
+      if (out === undefined) continue;
+      if (out > chainMax) chainMax = out;
+      if (out > rosterMax) {
+        rosterMax = out;
+        rosterMaxMissionId = missionId;
+      }
+    }
+    console.log(`roster total: ${town.name} max ${Math.max(chainMax, 0)} over ${town.missions.length} missions`);
+  }
+}
+
 /** `missionOrder`, paired with each mission's own recorded grade. A mission
  *  with no recorded winning plan contributes 0 stars and is named here, once,
  *  rather than silently dropped -- only the tutorial (which is not itself a
@@ -2860,5 +2911,43 @@ const LADDER_CREDITS = 5849;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
+  process.exitCode = 1;
+}
+
+// --- WP-G-E2 Task 2: the roster ladder's maximum, pinned beside the credit
+// ladder above -------------------------------------------------------------
+//
+// `rosterMax`/`rosterMaxMissionId` were computed beside `missionOrder`'s own
+// region -> town walk, printing one `roster total:` line per chain (R-3,
+// R-10). The pin and the cap cross-check live here, in the same idiom as
+// `LADDER_CREDITS` immediately above: a `!==` check, a `console.error`, and
+// `process.exitCode = 1`.
+/** The largest `roster out` any winning plan produces, over every town chain.
+ *  Measured 2026-09-20 at a567b892: 30, at `umm_zeitoun_4_clearance`. Per chain:
+ *  Beit Sahwan 25 / Wadi Halam 14 / Khan Rafid 11 / Deir Amun 12 / Tel Marum 10 /
+ *  Qarn Hadid 24 / Umm Zeitoun 30.
+ *
+ *  This is NOT a campaign-wide total and must not be read as one: the harness's
+ *  chained ledgers do not thread one ledger through all 26 missions (see
+ *  `missionStars`' own comment above), so no run here ever accumulates a whole
+ *  campaign's roster. It is the largest SINGLE CHAIN, which is the most the
+ *  instrument honestly knows. */
+const ROSTER_MAX = 30;
+console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
+if (rosterMax !== ROSTER_MAX) {
+  console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
+  process.exitCode = 1;
+}
+// Two facts that make this measurement honest, recorded here rather than
+// merely asserted: a defeat writes nothing to the real ledger -- `main.ts`
+// gates the whole campaign write on `me.result === 'victory'` -- so a
+// control's `roster out` can never be mistaken for a campaign's roster; and
+// this harness reads `produced` straight out of `missionEnd`, before any
+// app-side post-processing (`main.ts`'s `missionEnd` seam runs `assignNames`
+// and, from Task 4 on, `splitRoster` on top of exactly this ledger), so
+// nothing Tasks 3-8 add in `packages/app` can move the numbers pinned above.
+console.log(`roster cap: ${ROSTER_CAP} (max ${rosterMax}, margin ${(ROSTER_CAP / rosterMax).toFixed(1)}x)`);
+if (rosterMax >= ROSTER_CAP) {
+  console.error(`roster cap: FAILED — the measured maximum ${rosterMax} has reached the cap ${ROSTER_CAP}`);
   process.exitCode = 1;
 }
