@@ -53,9 +53,22 @@ export interface ConfirmOptions {
  * `onCaptureKey`; this function's job is only to keep `main.ts`'s
  * handler-wide guard refusing `pause` AND `keysOverlay` while the card is
  * open, the same way it already refuses everything else.
+ *
+ * Task 5: `.rl-outcome` (the held victory/defeat moment, `ui/outcome-
+ * moment.ts`) joined the selector for the identical reason `.rl-keys` did.
+ * Its own capture-phase guard already `stopPropagation()`s every OTHER key
+ * before it ever reaches `main.ts`, but `Tab` is deliberately left alone
+ * there -- moving focus inside the trap is `focusTrap`'s job, not that
+ * guard's, the same carve-out this file's own `onCaptureKey` makes below --
+ * so a `Tab` press still bubbles all the way back to `main.ts`'s
+ * handler-wide guard (`isDialogOpen() && !passesThroughModal(action)`,
+ * `main.ts:3252`, which names itself "a second line of defence" for exactly
+ * this: a key a modal passes through on purpose). That guard has to know
+ * this moment counts as a dialog too, or a `Tab` reaching it while the
+ * outcome moment is up would fall through to whatever `main.ts` binds it to.
  */
 export function isDialogOpen(doc: Document = document): boolean {
-  return doc.querySelector('.rl-confirm, .rl-pause, .rl-keys') !== null;
+  return doc.querySelector('.rl-confirm, .rl-pause, .rl-keys, .rl-outcome') !== null;
 }
 
 /** What `confirmDialog` hands back: the player's answer, and a way to take the
