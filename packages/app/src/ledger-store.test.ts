@@ -200,13 +200,23 @@ describe('LedgerStore — one method, one spec', () => {
   // getItem, no setItem, no length (CLAUDE.md). `browserLedgerStore` must survive
   // that, not merely a property access that throws.
   it('browserLedgerStore survives a storage object with no methods', () => {
-    // Pinned rather than assumed: if jsdom ever grows a real Storage here, the
-    // case below stops testing the bare-`{}` guard and this line says so.
-    expect(typeof (window.localStorage as Partial<Storage>).getItem).toBe('undefined');
-    const store = browserLedgerStore();
-    expect(store.available).toBe(false);
-    expect(() => store.readLedger()).not.toThrow();
-    expect(() => store.writeLedger({})).not.toThrow();
+    // The bare `{}` is installed here rather than assumed from the environment.
+    // What `window.localStorage` is under vitest's jsdom depends on the Node
+    // version: Node 25's own web-storage global shadows jsdom's and reads as a
+    // method-less object, while CI's Node 22 gets jsdom's real Storage. Pinning
+    // the environment made this spec pass locally and fail on CI (PR GH-211).
+    const own = Object.getOwnPropertyDescriptor(window, 'localStorage');
+    Object.defineProperty(window, 'localStorage', { value: {}, configurable: true });
+    try {
+      expect(typeof (window.localStorage as Partial<Storage>).getItem).toBe('undefined');
+      const store = browserLedgerStore();
+      expect(store.available).toBe(false);
+      expect(() => store.readLedger()).not.toThrow();
+      expect(() => store.writeLedger({})).not.toThrow();
+    } finally {
+      if (own) Object.defineProperty(window, 'localStorage', own);
+      else delete (window as { localStorage?: unknown }).localStorage;
+    }
   });
 });
 
