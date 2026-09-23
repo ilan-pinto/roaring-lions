@@ -1403,6 +1403,36 @@ describe('victory banner', () => {
   });
 });
 
+// Final review of shell-upgrade Phase 3, ruling 9. At a mission's end the
+// player used to be told the outcome three times in three wordings: the
+// held moment ("Objective secured", `ui/outcome-moment.ts`), this banner
+// behind it ("Mission accomplished", still up once the moment had gone) and
+// the end screen under both ("Town is quiet"). The moment is the verdict, so
+// `main.ts` stands this banner down the moment it mounts one. The two tests
+// above are the path where no moment shows, and there the banner is kept.
+describe('the end banner stands down for the outcome moment', () => {
+  it('never goes up once the moment has the verdict', () => {
+    const m = mission();
+    const r = rig(m);
+    r.hud.suppressEndBanner();
+    m.result = 'victory';
+    m.aftermath = 'The town is quiet tonight.';
+    for (let i = 0; i < 5; i++) r.tick();
+    const banner = r.host.querySelector<HTMLElement>('.rl-bigbanner');
+    expect(banner?.style.display).toBe('none');
+    expect(banner?.textContent).toBe('');
+  });
+
+  it('takes down one that a tick already put up', () => {
+    const r = rig(mission({ result: 'defeat' }));
+    const banner = r.host.querySelector<HTMLElement>('.rl-bigbanner');
+    expect(banner?.style.display, 'premise: the banner went up').toBe('block');
+    r.hud.suppressEndBanner();
+    r.tick();
+    expect(banner?.style.display).toBe('none');
+  });
+});
+
 /** The HUD mounts on `document.body` in the real app, not on the stage the
  *  router clears -- so leaving a mission softly means the HUD has to take
  *  itself off. These two mount on the body deliberately, rather than through
@@ -1750,6 +1780,91 @@ describe('the strip and the feed show what a mission authored as text', () => {
     expect(line?.querySelector('i')).toBeNull();
     expect(line?.textContent).toContain('<i>Doobi</i>');
     expect(line?.querySelector('b')?.textContent).toBe('lost');
+  });
+});
+
+// Final review of shell-upgrade Phase 3, ruling 5. Task 10 escaped what a
+// MISSION authors; a unit's display NAME comes from the catalogue
+// (`data/units/*.json`) and still reached `innerHTML` raw at five sinks: the
+// projected-fire row and its target, the selection chip, the chip's tooltip
+// and the single-unit card. No shipped name carries `<` or `&`, so nothing a
+// player could see was wrong -- but a name is data, the unit schema does not
+// forbid either character, and a locale overlay for unit names is the named
+// next step (CLAUDE.md, "Unit names ... have no overlay yet"). Each name
+// below renders WRONG unescaped: an entity that decodes and a tag that opens
+// (pre-flight M7's rule -- a bare `&` shows literally and would pass anyway).
+describe('catalogue names reach the HUD as text', () => {
+  const OURS = 'Fish &amp; <i>Chips</i>';
+  const THEIRS = 'Cell &lt;7&gt; <b>Nord</b>';
+
+  /** Two of ours (a chip needs two), one of theirs three tiles off. */
+  function namedWorld(): { sim: Sim; ours: number[]; theirs: number } {
+    const sim = new Sim({ seed: 1, width: 16, height: 16, capacity: 8 });
+    const base = units.inf_squad as unknown as UnitTypeJson;
+    const oursT = sim.addUnitType({ ...base, id: 'x_ours', name: OURS });
+    const theirsT = sim.addUnitType({ ...base, id: 'x_theirs', name: THEIRS });
+    const ours = [sim.spawn(oursT, 0, fx.from(2), fx.from(2)), sim.spawn(oursT, 0, fx.from(2), fx.from(3))];
+    const theirs = sim.spawn(theirsT, 1, fx.from(5), fx.from(2));
+    return { sim, ours, theirs };
+  }
+
+  function namedHud(sim: Sim, sel: () => number[], hover = -1): HTMLElement {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const hud = new Hud(host, {
+      sim,
+      getSelection: sel,
+      getMission: () => null,
+      hoverStructure: () => -1,
+      hoverEntity: () => hover,
+      gameVersion: '0.1',
+      commander: TEST_COMMANDER,
+    });
+    // One content tick: `onTick` renders on every fifth call.
+    for (let i = 0; i < 5; i++) hud.onTick();
+    return host;
+  }
+
+  it('the selection chip', () => {
+    const w = namedWorld();
+    const host = namedHud(w.sim, () => w.ours);
+    const name = host.querySelector('.rl-chip__name > span:not(.rl-badge)');
+    expect(name?.querySelector('i')).toBeNull();
+    expect(name?.textContent).toBe(OURS);
+  });
+
+  it('the chip\'s tooltip', () => {
+    const w = namedWorld();
+    const host = namedHud(w.sim, () => w.ours);
+    host.querySelector('.rl-chip__name > span')?.dispatchEvent(new Event('mouseover', { bubbles: true }));
+    const tip = host.querySelector<HTMLElement>('.rl-tip');
+    expect(tip?.hidden).toBe(false);
+    expect(tip?.querySelector('i')).toBeNull();
+    expect(tip?.textContent).toContain(OURS);
+    closeTip();
+  });
+
+  it('the single-unit card', () => {
+    const w = namedWorld();
+    const host = namedHud(w.sim, () => [w.ours[0]]);
+    const name = host.querySelector('.rl-card__name');
+    expect(name?.querySelector('i')).toBeNull();
+    expect(name?.textContent).toBe(OURS);
+  });
+
+  it('the projected-fire row and its target', () => {
+    const w = namedWorld();
+    // Tick until the shooter has identified the target -- the row is drawn
+    // only for a shot, never for `unidentified`.
+    for (let t = 0; t < 200 && w.sim.projectHit(w.ours[0], w.theirs).kind !== 'shot'; t++) w.sim.tick();
+    expect(w.sim.projectHit(w.ours[0], w.theirs).kind, 'premise: a shot to draw a row for').toBe('shot');
+    const host = namedHud(w.sim, () => [w.ours[0]], w.theirs);
+    const fire = host.querySelector<HTMLElement>('.rl-fire');
+    expect(fire?.style.display).not.toBe('none');
+    expect(fire?.querySelector('i')).toBeNull();
+    expect(fire?.querySelector('.rl-label b')).toBeNull();
+    expect(fire?.querySelector('.rl-label')?.textContent).toContain(THEIRS);
+    expect(fire?.textContent).toContain(OURS);
   });
 });
 

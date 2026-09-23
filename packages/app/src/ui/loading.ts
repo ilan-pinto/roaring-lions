@@ -414,10 +414,6 @@ export function showLoading(
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
-  // The screen is the only thing on the field while it is up, so it is the
-  // live region: a player on a screen reader gets the count without polling.
-  wrap.setAttribute('role', 'status');
-  wrap.setAttribute('aria-live', 'polite');
 
   const box = document.createElement('div');
   box.className = 'rl-loading__box';
@@ -438,6 +434,14 @@ export function showLoading(
 
   const count = document.createElement('div');
   count.className = 'rl-loading__count';
+  // The live region is the COUNT, not the screen (final review, ruling 8): a
+  // player on a screen reader gets the progress without polling, and it is
+  // the one thing here that changes on its own. The whole screen used to be
+  // the region, and `status` is atomic -- so every deploy-row toggle, which
+  // rewrites `aria-pressed` and the slot and reserve lines, re-read it. A
+  // pressed row already announces its own state through `aria-pressed`.
+  count.setAttribute('role', 'status');
+  count.setAttribute('aria-live', 'polite');
 
   const holds = briefingHoldsDeployment(briefing);
 

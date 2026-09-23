@@ -43,6 +43,7 @@ import {
   TICKS_PER_SECOND,
   type LedgerData,
   type MissionContext,
+  type MissionEvent,
   type MissionJson,
   type TunnelRouteJson,
 } from '@lions/sim';
@@ -84,8 +85,13 @@ export interface MissionWorld {
    * Throws past `maxTicks` rather than answering `{}`: a mission that never
    * ends would otherwise hand the caller an empty ledger that reads exactly
    * like one in which every unit was deleted.
+   *
+   * `onEvent`, when given, sees every `MissionEvent` the runtime emits, in
+   * order, the way `main.ts`'s tick loop does -- which is how a caller
+   * collects what only an event carries, such as `unitLost`'s tick for a
+   * memorial record (`lostRecordFor`), without a second copy of this loop.
    */
-  runToEnd(maxTicks?: number): LedgerData;
+  runToEnd(maxTicks?: number, onEvent?: (me: MissionEvent) => void): LedgerData;
 }
 
 /** Builds `missionId`'s map and `Sim` the way the app does, with no runtime
@@ -149,10 +155,11 @@ export function missionWorld(missionId: string, ledger: LedgerData, seed: number
   const runtime = new MissionRuntime(sim, mission, context(ledger));
   runtime.start();
 
-  const runToEnd = (maxTicks: number = HARNESS_MAX_TICKS): LedgerData => {
+  const runToEnd = (maxTicks: number = HARNESS_MAX_TICKS, onEvent?: (me: MissionEvent) => void): LedgerData => {
     let produced: LedgerData = {};
     for (let t = 0; t < maxTicks; t++) {
       for (const me of runtime.step(sim.tick())) {
+        onEvent?.(me);
         if (me.kind === 'missionEnd') produced = me.ledger;
       }
       if (runtime.result !== 'ongoing') return produced;

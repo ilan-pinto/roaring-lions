@@ -289,15 +289,19 @@ export class ReinforcementDock {
   // the two never need to agree about where either draws.
   // ------------------------------------------------------------------
 
+  // `bindTip` sets this as `innerHTML`, and the name, the blurb and the tags
+  // are all catalogue data (`data/units/*.json`, and `doctrineTags` over it)
+  // with no schema rule against `<` or `&` -- so each goes through the one
+  // escaper, the way the tile's own notes already did (final review, ruling 5).
   private unitTipHtml(unit: BuildableUnit): string {
     const blurb =
-      unit.blurb === undefined ? '' : `<div class="rl-tip__blurb">${unit.blurb}</div>`;
+      unit.blurb === undefined ? '' : `<div class="rl-tip__blurb">${escapeHtml(unit.blurb)}</div>`;
     return (
       `<div class="rl-tip__head">` +
-      `<span class="rl-tip__name">${unit.name}</span>` +
+      `<span class="rl-tip__name">${escapeHtml(unit.name)}</span>` +
       `<span class="rl-tip__cost">${unit.logistics} · ${unit.buildTimeS}s</span>` +
       `</div>` +
-      `<div class="rl-tip__tags">${roleBadgeSvg(unit.bucket, 8)} ${unit.tags.join(' · ')}</div>` +
+      `<div class="rl-tip__tags">${roleBadgeSvg(unit.bucket, 8)} ${unit.tags.map(escapeHtml).join(' · ')}</div>` +
       blurb
     );
   }

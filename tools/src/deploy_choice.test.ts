@@ -30,8 +30,12 @@
 // a fielded body that comes home under its own name -- is
 // `roster-carry.test.ts`'s.
 import { describe, expect, it } from 'vitest';
-import { missions } from '@lions/data';
+import { missions, names as namesJson, units } from '@lions/data';
 import type { LedgerData, LedgerRosterEntry, MissionJson, Sim } from '@lions/sim';
+import type { CampaignLedger, LostRecord, RosterEntry } from '../../packages/app/src/ledger-store';
+import { nameKind, type NamesJson } from '../../packages/app/src/names';
+import { applyRosterCarryover, type RosterCarryoverDeps } from '../../packages/app/src/roster-carryover';
+import { lostRecordFor } from '../../packages/app/src/roster-lost';
 import { deployRosterView, type DeployRosterView } from '../../packages/app/src/ui/deploy-roster';
 import {
   defaultSelection,
@@ -43,23 +47,31 @@ import {
   type DeploySelection,
 } from '../../packages/app/src/ui/deploy-select';
 import { startMission } from '../../packages/app/src/mission-start';
-import { missionStage, missionWorld, type MissionWorld } from './mission-harness';
+import { HARNESS_MAX_TICKS, missionStage, missionWorld, type MissionWorld } from './mission-harness';
 
 const MISSION_ID = 'beit_sahwan_2_foothold';
 /** The mission JSON the runtime runs -- the same object `missionWorld` hands it. */
 const MISSION = missions[MISSION_ID] as unknown as MissionJson;
 
-const POOL: readonly LedgerRosterEntry[] = [
-  { type: 'inf_squad', veterancy: 2, name: '1-1 Erez', missions: 4, kills: 7 },
-  { type: 'inf_squad', veterancy: 0, name: '1-2 Dekel', missions: 1, kills: 0 },
-  { type: 'inf_squad', veterancy: 3, name: '1-3 Nachshon', missions: 9, kills: 21 },
-  { type: 'at_team', veterancy: 1, name: '2-1 Gachelet', missions: 3, kills: 5 },
+/** Slotted, the way every entry of a campaign that has won a mission since
+ *  WP-G-E4 is (`roster-slots.ts`): a slot is the identity the memorial and
+ *  the cap's eviction order key on, and the one field a benched entry has
+ *  that a name-and-type rebuild would not give back (final review, ruling
+ *  11). Every assertion below that says "unchanged" therefore says "in its
+ *  own slot" too. */
+const POOL: readonly RosterEntry[] = [
+  { type: 'inf_squad', veterancy: 2, name: '1-1 Erez', missions: 4, kills: 7, slot: 0 },
+  { type: 'inf_squad', veterancy: 0, name: '1-2 Dekel', missions: 1, kills: 0, slot: 1 },
+  { type: 'inf_squad', veterancy: 3, name: '1-3 Nachshon', missions: 9, kills: 21, slot: 2 },
+  { type: 'at_team', veterancy: 1, name: '2-1 Gachelet', missions: 3, kills: 5, slot: 3 },
 ];
 
 /** A fresh campaign ledger per call: the runtime copies the pool array at
  *  construction, but a test that shared one ledger object across worlds
- *  could still pass on a mutation the next world happened to repair. */
-const campaign = (): LedgerData => ({ 'roster.surviving_units': [...POOL] });
+ *  could still pass on a mutation the next world happened to repair. The
+ *  slot counter sits past every slot in `POOL`, as a real save's does, so a
+ *  body the victory write slots fresh cannot collide with one by accident. */
+const campaign = (): CampaignLedger => ({ 'roster.surviving_units': [...POOL], 'campaign.slots_issued': POOL.length });
 
 const view = (): DeployRosterView => {
   const v = deployRosterView(MISSION, campaign(), (id) => id);
@@ -90,10 +102,29 @@ function field(ledger: LedgerData): Fielded {
 
 const namesOnMap = (ledger: LedgerData): string[] => [...field(ledger).byName.keys()].sort();
 
+/** `main.ts`'s own `applyRosterCarryover` deps, over the real unit catalogue
+ *  and callsign tables -- the same construction `roster-carryover.test.ts`
+ *  uses. */
+const carryoverDeps: RosterCarryoverDeps = {
+  kindOf: (typeId) => {
+    const u = units[typeId as keyof typeof units] as { id: string; role: string } | undefined;
+    return nameKind(u ?? { id: typeId, role: 'infantry' }, namesJson as NamesJson);
+  },
+  names: namesJson as NamesJson,
+  displayName: (typeId) => (units[typeId as keyof typeof units] as { name?: string } | undefined)?.name ?? typeId,
+};
+
 const nameOf = (e: LedgerRosterEntry): string => {
   if (e.name === undefined) throw new Error('fixture: every POOL entry is named');
   return e.name;
 };
+
+/** For every test here that runs a headless mission to its end (`runToEnd`).
+ *  That is legitimately long -- thousands of real sim ticks -- and it measured
+ *  7.7 s under a loaded `pnpm test` against vitest's 5 s default, which is a
+ *  timeout on a machine that is busy, not a hang. A hang is `runToEnd`'s own
+ *  job to report: it throws past its twenty-minute tick ceiling. */
+const RUNS_TO_END = { timeout: 30_000 };
 
 describe('the deploy choice, against the real spawner', () => {
   it('an untouched screen hands the runtime the ledger itself, and fields the default force', () => {
@@ -122,7 +153,7 @@ describe('the deploy choice, against the real spawner', () => {
     expect(namesOnMap(deployedLedger(campaign(), sel))).toEqual(['1-2 Dekel', '1-3 Nachshon', '2-1 Gachelet']);
   });
 
-  it('the benched veteran is still in the ledger the mission produces, unchanged', () => {
+  it('the benched veteran is still in the ledger the mission produces, unchanged', RUNS_TO_END, () => {
     const sel = benchErezFieldNachshon(view());
     const { world, byName } = field(deployedLedger(campaign(), sel));
     expect(byName.has('1-1 Erez'), 'the benched squad was fielded anyway').toBe(false);
@@ -137,7 +168,7 @@ describe('the deploy choice, against the real spawner', () => {
   // which is `>= 1` and stays green on the very data loss this file exists
   // for. This asserts the invariant itself, for EVERY selection the screen
   // would let the player deploy, not only the worked example above.
-  it('for every deployable choice: fields exactly the chosen, returns every benched entry unchanged, loses nobody who did not die', () => {
+  it('for every deployable choice: fields exactly the chosen, returns every benched entry unchanged, loses nobody who did not die', RUNS_TO_END, () => {
     const v = view();
     const eligible = v.eligible.map((e) => e.poolIndex);
     const deployable: DeploySelection[] = [];
@@ -173,6 +204,47 @@ describe('the deploy choice, against the real spawner', () => {
         expect(home.length === 1 || died, `${label}: ${name} is missing from the ledger and did not die`).toBe(true);
       });
     }
+  });
+
+  // Final review, ruling 11. The two tests above pin a benched entry as the
+  // RUNTIME hands it back; what the campaign keeps is that roster after the
+  // victory write. This is that write, end to end: `applyRosterCarryover`,
+  // the function `main.ts` calls on `missionEnd`, handed what `main.ts` hands
+  // it -- the ledger the mission was sent IN with as `before` (never the
+  // permuted copy the runtime read), the produced ledger, and this mission's
+  // memorial records collected off `unitLost` exactly as `main.ts` collects
+  // them (`lostRecordFor` over `rosterEntryOf`). Every body fielded on this
+  // seed dies, so the memorial list is real and the write has vacated slots
+  // to hand out; the benched veteran's must not be one of them.
+  //
+  // Two halves, because they catch different breaks. Stripping `slot` in
+  // `deployedLedger` goes red on the FIRST half (the runtime hands the entry
+  // back slotless) and not the second: `reattachSlots` gives a NAMED entry its
+  // slot back by name from `before`, so the write would quietly repair it --
+  // seen both ways. The second half is the write's own: making `issueSlots`
+  // re-slot an already-slotted entry goes red there and not in the first.
+  it('after a win, the victory write keeps a benched slotted veteran in its own slot', RUNS_TO_END, () => {
+    const before = campaign();
+    const { world } = field(deployedLedger(before, benchErezFieldNachshon(view())));
+    const lost: LostRecord[] = [];
+    const produced = world.runToEnd(HARNESS_MAX_TICKS, (me) => {
+      if (me.kind !== 'unitLost') return;
+      const record = lostRecordFor(world.runtime.rosterEntryOf(me.entity), me.unit, MISSION_ID, me.tick);
+      if (record) lost.push(record);
+    });
+    expect(world.runtime.result, 'premise: the passive run of this mission is a win').toBe('victory');
+
+    const erez = POOL[0];
+    // The runtime hands the benched entry back whole, slot included ...
+    expect(produced['roster.surviving_units']?.find((r) => r.name === nameOf(erez))).toEqual(erez);
+    expect(lost.length, 'premise: the fielded veterans died, so there are vacated slots').toBeGreaterThan(0);
+
+    const { ledger: next } = applyRosterCarryover(before, produced, lost, carryoverDeps);
+    const kept: RosterEntry[] = [...(next['roster.surviving_units'] ?? []), ...(next['roster.reserve'] ?? [])];
+    // ... and the victory write keeps it: once, field for field, in slot 0 ...
+    expect(kept.filter((r) => r.name === nameOf(erez))).toEqual([erez]);
+    // ... and hands that slot to nobody else.
+    expect(kept.filter((r) => r.slot === erez.slot).map((r) => r.name)).toEqual([nameOf(erez)]);
   });
 
   it('never invents a roster: a campaign with none yet is not a gutted one', () => {
