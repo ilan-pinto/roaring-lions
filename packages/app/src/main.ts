@@ -8,7 +8,7 @@ import { objectiveZonesFor } from './objective-zones';
 import { assignNames, nameKind, type NameKind, type NamesJson } from './names';
 import { SLOTS_ISSUED_KEY, issueSlots, reattachSlots } from './roster-slots';
 import { splitRoster } from './roster-cap';
-import { appendLost, fillVacancies, lostRecordFor } from './roster-lost';
+import { appendLost, fillVacancies, lostRecordFor, predecessorOf } from './roster-lost';
 import {
   Sim,
   fx,
@@ -3533,6 +3533,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.clearTutorialFocus();
           const updatedLedger = { ...ledger, ...me.ledger };
           let payout: ReturnType<typeof payMission> | null = null;
+          // Task 7's two memorial rows (WP-G-E4). Default empty, like `payout`
+          // above: a defeat writes nothing to the ledger (M4, no ironman), so
+          // `lostThisMission`'s records are discarded with the rest of the run
+          // and the debrief must not claim a replacement that was never
+          // written (R-11).
+          let lostNamed: { name?: string; type: string }[] = [];
+          let replacements: { name: string; predecessor: string }[] = [];
           if (me.result === 'victory') {
             // Names are issued here, on the victory path only -- a defeat writes
             // nothing to the ledger at all (see the comment above LEDGER_KEY), so
@@ -3575,10 +3582,44 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               // who it replaced.
               const lost = appendLost(updatedLedger['roster.lost'] ?? [], lostThisMission);
               updatedLedger['roster.lost'] = lost;
-              const filled = fillVacancies(reattachSlots(rosterIn, before), lost, updatedLedger['roster.reserve'] ?? []);
+              const reattached = reattachSlots(rosterIn, before);
+              const filled = fillVacancies(reattached, lost, updatedLedger['roster.reserve'] ?? []);
+              // Task 7: a replacement is an entry `fillVacancies` just handed a
+              // vacant slot -- slotless in `reattached`, slotted in `filled`.
+              // Nothing new is flagged (R-6): this is the same derivation
+              // `fillVacancies` itself makes, read back by comparing its own
+              // input and output at the same index. Index correspondence
+              // survives `issueSlots`/`assignNames` below (both `.map`, same
+              // order, same length), so the indices found here are read again
+              // once `assignNames` has named the (possibly brand-new) body.
+              const replacedSlots: { i: number; slot: number }[] = [];
+              for (let i = 0; i < filled.length; i++) {
+                const gained = filled[i].slot;
+                if (reattached[i].slot === undefined && gained !== undefined) replacedSlots.push({ i, slot: gained });
+              }
               const carried = issueSlots(filled, updatedLedger[SLOTS_ISSUED_KEY] ?? 0);
               updatedLedger[SLOTS_ISSUED_KEY] = carried.issued;
               const named = assignNames(carried.roster, issuedIn, (typeId) => nameKind(unitFor(typeId), names as NamesJson), names as NamesJson);
+              // The same lookup `alertWorld.unitName` uses (spec §4.7's own
+              // convention), so a feed line, a briefing line and this row all
+              // name a unit the same way. `lostThisMission`'s own `type` is the
+              // sim's raw type id (`unitLost`'s `unit` field), never a display
+              // name.
+              lostNamed = lostThisMission.map((r) => ({
+                ...(r.name !== undefined ? { name: r.name } : {}),
+                type: units[r.type as keyof typeof units]?.name ?? r.type,
+              }));
+              // `named.roster[i]` is `filled[i]`'s own entry, carried through
+              // `issueSlots` (slot already set, untouched) and `assignNames`
+              // (which has just given a nameless replacement its callsign) --
+              // same index, same body. `predecessorOf` reads the just-appended
+              // `lost`, so the record this replacement's own death vacated is
+              // always the one found.
+              replacements = replacedSlots.map(({ i, slot }) => {
+                const predecessor = predecessorOf(lost, slot);
+                const body = named.roster[i];
+                return { name: body.name ?? body.type, predecessor: predecessor ? (predecessor.name ?? predecessor.type) : '' };
+              });
               // The cap (WP-G-E2). Computed over the WHOLE brigade -- active plus whatever is
               // already stood down -- on every write, which is what lets a stood-down unit come
               // back when losses make room, and what makes the migration for an existing save
@@ -3657,6 +3698,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               ticks: sim.tickCount,
               targetMinutes: (mission as { target_minutes?: number }).target_minutes,
               lost: Object.entries(runtime.lostByType()).map(([type, count]) => ({ type, count })),
+              // WP-G-E4, Task 7 (R-11): the aggregate above stays the total --
+              // it counts every dead player entity, including a fresh remnant
+              // that never reached the roster and has no service record.
+              // These two are computed only on the victory branch above and
+              // default to empty on a defeat, where nothing was written.
+              lostNamed,
+              replacements,
               secondaries: runtime.objectiveList
                 .filter((o) => !o.primary)
                 .map((o) => ({ text: o.text, complete: o.status === 'complete', carries: o.carries })),

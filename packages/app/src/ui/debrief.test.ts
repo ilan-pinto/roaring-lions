@@ -146,3 +146,48 @@ describe('showDebrief', () => {
     expect([...host.querySelectorAll('.rl-endnav a')].some((a) => a.textContent === 'menu' && a.getAttribute('href') === '/')).toBe(true);
   });
 });
+
+describe('the memorial half of the service record', () => {
+  let host: HTMLElement;
+  const mount = (over: Partial<DebriefOptions>): void => {
+    host = document.createElement('div');
+    showDebrief(host, base(over));
+  };
+
+  // R-11: the named list is a SUBSET of the count. A fresh remnant killed on the
+  // mission it spawned in has no service record to print, and a player who reads
+  // "3 rifle squads" above "Barkai, Dekel" has not found a bug.
+  it('keeps the aggregate as the total and names the roster units beside it', () => {
+    mount({
+      lost: [{ type: 'Rifle squad', count: 3 }],
+      lostNamed: [{ name: 'Barkai', type: 'Rifle squad' }, { name: 'Dekel', type: 'Rifle squad' }],
+    });
+    expect(text(host, '.rl-debrief__lost')).toContain('×3');
+    expect(text(host, '.rl-debrief__lostNamed')).toContain('Barkai');
+    expect(text(host, '.rl-debrief__lostNamed')).toContain('Dekel');
+  });
+
+  it('says who took a vacant place', () => {
+    mount({ replacements: [{ name: 'Gilad', predecessor: 'Barkai' }] });
+    expect(text(host, '.rl-debrief__replaced')).toContain('Gilad');
+    expect(text(host, '.rl-debrief__replaced')).toContain('Barkai');
+  });
+
+  // The zero paths, both of them. The existing "nobody" row must not regress,
+  // and two rows that print an empty value are two rows of visual noise on the
+  // screen a player sees most often.
+  it('renders the existing nobody row unchanged and omits both new rows when empty', () => {
+    mount({ lost: [], lostNamed: [], replacements: [] });
+    expect(text(host, '.rl-debrief__lost')).toBe('nobody');
+    expect(host.querySelector('.rl-debrief__lostNamed')).toBe(null);
+    expect(host.querySelector('.rl-debrief__replaced')).toBe(null);
+  });
+
+  // A loss with no callsign is possible on a save written before names shipped.
+  // It must read as a unit, never as "undefined".
+  it('falls back to the type for a lost unit with no callsign', () => {
+    mount({ lost: [{ type: 'Mortar team', count: 1 }], lostNamed: [{ type: 'Mortar team' }] });
+    expect(text(host, '.rl-debrief__lostNamed')).toContain('Mortar team');
+    expect(text(host, '.rl-debrief__lostNamed')).not.toContain('undefined');
+  });
+});
