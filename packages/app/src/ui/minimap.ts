@@ -70,6 +70,7 @@
 
 import { unitIsObserved, type TerrainTones } from '@lions/render';
 import { fx, type Sim } from '@lions/sim';
+import { paintMapTerrain } from './map-preview';
 
 /**
  * The box, in CSS pixels. theme.css sizes `.rl-minimap` from the `--minimap`
@@ -881,35 +882,18 @@ export class Minimap {
   };
 
   /**
-   * The ground, once. Cover tiers read as the graining they are on the field;
-   * `blocked` covers both buildings and rock ridge; `boulder` gets the rock
-   * tone because it is rock, and because on `tel_marum` the boulder corridor
-   * is a piece of terrain the player has to plan around and therefore has to
-   * be able to see from the minimap.
+   * The ground, once -- painted by `map-preview.ts`'s `paintMapTerrain`, the
+   * one copy of the tile loop (shell-upgrade Phase 3, Task 3: the deploy
+   * screen draws the same ground before any `Sim` exists, so the loop moved
+   * out of this class rather than being copied beside it). What stays here is
+   * what is the minimap's own: the `'painted'` label and the throw, because
+   * unlike the deploy screen's preview this canvas cannot go without it.
    */
   private paintTerrain(): HTMLCanvasElement {
-    const { map, tones } = this.deps;
-    const c = document.createElement('canvas');
-    c.width = map.width;
-    c.height = map.height;
+    const c = paintMapTerrain(this.deps.map, this.deps.tones);
+    if (c === null) throw new Error('minimap: no 2D context for the terrain layer');
     // See `photographedTerrain` for why both grounds label themselves.
     c.dataset.source = 'painted';
-    const g = c.getContext('2d');
-    if (!g) throw new Error('minimap: no 2D context for the terrain layer');
-    g.fillStyle = tones.open;
-    g.fillRect(0, 0, map.width, map.height);
-    for (let y = 0; y < map.height; y++) {
-      for (let x = 0; x < map.width; x++) {
-        const i = y * map.width + x;
-        let tone: string | null = null;
-        if (map.blocked[i] !== 0) tone = tones.blocked;
-        else if (map.boulder[i] !== 0) tone = tones.rock;
-        else if (map.cover[i] > 0) tone = tones.cover[Math.min(map.cover[i], 3) - 1];
-        if (tone === null) continue;
-        g.fillStyle = tone;
-        g.fillRect(x, y, 1, 1);
-      }
-    }
     return c;
   }
 
