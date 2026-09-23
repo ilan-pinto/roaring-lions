@@ -222,6 +222,19 @@ import {
 } from './units/fx';
 import { nextVehicleMoving, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
+  hullCornerOffsets,
+  makeVehicleWeightArrays,
+  stepVehicleWeight,
+  terrainPitchRad,
+  terrainRollRad,
+  MAX_DRAWN_OFFSET_TILES,
+  type HullCorners,
+  type VehicleWeightArrays,
+  type VehicleWeightInput,
+  type VehicleWeightParams,
+} from './units/vehicle-weight';
+import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
+import {
   StructureInstancer,
   loadStructureFrame,
   structureBillboardGeometry,
@@ -448,11 +461,29 @@ const FLINCH_SECONDS = 0.18;
 const MESH_HULL_RECOIL_TILES = 0.16;
 /** Hull nose-up pitch at full `recoilPower`, radians (~3.4 deg) -- the tank
  *  visibly rocks back onto its rear road wheels under the main gun, not just
- *  translates. Applied to `root.rotation.x`, which three.js's default 'XYZ'
- *  Euler order evaluates in the object's OWN local frame before `rotation.y`
- *  (yaw) is composed -- so this reads as a local pitch regardless of which
- *  way the hull is currently facing, not a world-axis tilt that would look
- *  like a roll from some headings. */
+ *  translates.
+ *
+ *  Since WP-A1.3 (R-K) this is one more term in the hull's PITCH SUM
+ *  (terrain + weight + recoil), composed in the hull's own frame by
+ *  `updateVehicleMeshes`: yaw, then pitch about the hull's lateral axis
+ *  (mesh-local Z), then roll about its longitudinal axis (mesh-local X). So
+ *  it lifts the nose by the same amount whichever way the hull faces.
+ *
+ *  What it did before, measured, and what this comment used to claim the
+ *  opposite of: it was written to `root.rotation.x` with the yaw on
+ *  `rotation.y`, and three.js's default 'XYZ' order composes that as
+ *  `Rx(pitch) * Ry(yaw)` -- the tilt taken about the WORLD X axis AFTER the
+ *  yaw, not about the hull's own. At full power the nose lift (the world Y
+ *  of the hull's unit forward vector) was 0.00000 at facings 0 and 0.5 --
+ *  the whole 3.4 deg went into a roll -- -0.05996 at facing 0.25 (nose
+ *  DOWN) and +0.05996 at facing 0.75. Nobody saw it because it is 3.4 deg
+ *  for 0.4 s on a one-shot.
+ *
+ *  Still pitch only, and still nose-UP whatever bearing the round left on:
+ *  a turret fired over the side rocks the hull back along its own length
+ *  rather than rolling it. That is the recoil's shipped intent kept, now in
+ *  the right frame; decomposing it by the shot's bearing would be a new
+ *  behaviour, not this fix. */
 const MESH_HULL_PITCH_RAD = 0.06;
 /** The turret's own kick, independent of the hull -- the barrel visibly
  *  recedes into the mantlet along whatever bearing it is CURRENTLY aimed
@@ -1284,6 +1315,53 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly rotorPhase: Float64Array;
   /**
+   * WP-A1.3: per-entity hull WEIGHT state for a mesh vehicle --
+   * `units/vehicle-weight.ts`'s `VehicleWeightArrays`: the smoothed speed
+   * ramp, the heading's two smoothing stages, the lag offset and the settle
+   * spring, with its own `seeded` companion (R-N) so an entity's first frame
+   * seeds from its current speed and heading instead of reading a zero-filled
+   * slot as a vehicle that materialised at full speed. Mutated in place by
+   * `stepVehicleWeight` from `updateVehicleMeshes`, on the FRAME clock
+   * (`frameDtSeconds`), never the sim's; nothing here is ever read back by
+   * the sim (invariant 4).
+   *
+   * Sized for every entity like `rotorPhase` above, and meaningless -- never
+   * stepped -- for a type with no vehicle mesh template, and for an `isAir`
+   * one: a helicopter conforming to the ground under it would be a bug with
+   * a straight face. A dead entity leaves `vehicleMeshEntities` in the frame
+   * `alive` goes to 0, so its slot simply stops being stepped (R-F, R-N).
+   */
+  private readonly vehicleWeight: VehicleWeightArrays;
+  /** The weight model's `accelFraction` from the most recent frame, per
+   *  entity -- +1 pulling away, -1 braking, 0 otherwise -- written by
+   *  `updateVehicleMeshes` and read by `updateVehicleAmbientFx`'s dust
+   *  cadence (`vehicleDustIntervalMs`), which runs straight after it in
+   *  `frame()`. Stays 0 for anything the weight model does not step (a
+   *  billboard vehicle, `&nomesh`, an air type), which is exactly the
+   *  speed-only cadence. */
+  private readonly vehicleWeightAccel: Float64Array;
+  /** The ONE input object every `stepVehicleWeight` call is handed, refilled
+   *  per vehicle: the per-vehicle, per-frame call allocates nothing. */
+  private readonly vehicleWeightInput: VehicleWeightInput;
+  /** Scratch for `hullCornerOffsets`, for the same reason. */
+  private readonly vehicleHullCorners: HullCorners = {
+    frontX: 0,
+    frontY: 0,
+    rearX: 0,
+    rearY: 0,
+    leftX: 0,
+    leftY: 0,
+    rightX: 0,
+    rightY: 0,
+  };
+  /** `vehicleWeightParamsFor(type.id, type.role)`, resolved once per unit
+   *  type rather than per frame -- a type that authors a `mobility.weight`
+   *  block gets a fresh object from that resolver on every call. */
+  private readonly vehicleWeightParams = new Map<string, VehicleWeightParams>();
+  /** Scratch for `debugVehicleTransform`'s decomposition of what
+   *  `updateVehicleMeshes` wrote. */
+  private readonly scratchHullEuler = new THREE.Euler();
+  /**
    * Task B3.6: the TURRET's own one-shot firing latch -- deliberately a
    * SEPARATE timer from `firingTimer` above, not a second read of it. Every
    * shipped hull sheet with turret art (TNK/EITAN/NAMER/GUNTRUCK/TECH)
@@ -1838,6 +1916,28 @@ export class ThreeRenderer implements Renderer {
     this.turretVel = new Float64Array(n);
     this.turretSeeded = new Uint8Array(n);
     this.rotorPhase = new Float64Array(n);
+    this.vehicleWeight = makeVehicleWeightArrays(n);
+    this.vehicleWeightAccel = new Float64Array(n);
+    // Every field is overwritten per vehicle before each call; these values
+    // are never read.
+    this.vehicleWeightInput = {
+      entityId: 0,
+      speedTilesS: 0,
+      cruiseTilesS: 0,
+      headingTurns: 0,
+      turnRateTurnsS: 0,
+      trueX: 0,
+      trueY: 0,
+      dtSeconds: 0,
+      params: {
+        maxPitchRad: 0,
+        maxRollRad: 0,
+        accelSeconds: 0,
+        settleSeconds: 0,
+        settleDamping: 0,
+        lagTiles: 0,
+      },
+    };
     this.turretFiringTimer = new Float64Array(n);
     this.vehicleMoving = new Uint8Array(n);
     this.vehicleDustAccumMs = new Float64Array(n);
@@ -5627,14 +5727,13 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(entity.root);
       }
 
-      let wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-      let wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      // Ground height is sampled from the un-recoiled position, exactly like
-      // `entityFrame`'s own recoil block on the billboard path -- recoil
-      // travels at most a few hundredths of a tile, so re-sampling terrain
-      // height from the offset position could only ever matter exactly at a
-      // terrace edge, and neither path attempts it there.
-      //
+      // The INTERPOLATED position, not the tick-exact `curX`/`curY`: the
+      // weight model's lag returns `trueX + lag`, so a tick-exact input would
+      // step every moving hull at 20 Hz (0.055 tiles a step for a Lavi, 0.145
+      // for a jeep). Everything R-C bounds is therefore measured against THIS
+      // point -- see the composition below.
+      const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       // Air lift: `heli_peten` is this path's first `isAir` type, so this is
       // the first read of `type.isAir` here -- reused verbatim from the
       // billboard path (`frame-state.ts`'s own `AIR_LIFT_PX` doc comment),
@@ -5644,7 +5743,6 @@ export class ThreeRenderer implements Renderer {
       // `groundWorldY` directly, independent of mesh-vs-billboard body
       // representation, so it already draws under a mesh-drawn air unit.
       const airLift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
-      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy) + airLift;
       const facingNorm = fx.toNumber(st.facing[i]);
 
       // Hull recoil: a genuine world-space shove opposite the bearing the
@@ -5652,8 +5750,12 @@ export class ThreeRenderer implements Renderer {
       // `MESH_HULL_RECOIL_TILES`'s own doc comment for units and scaling.
       // `recoilT`/`recoilDir`/`recoilPower` are drained/latched once a frame
       // by `drainTimers`/`onFire`, identically to the billboard path; this is
-      // simply the first reader of them for a mesh-enabled type.
-      let hullPitch = 0;
+      // simply the first reader of them for a mesh-enabled type. Held as an
+      // OFFSET and a PITCH TERM rather than written: both join the weight's
+      // own below and the object is written once (R-K).
+      let shoveX = 0;
+      let shoveY = 0;
+      let recoilPitch = 0;
       if (this.recoilT[i] > 0) {
         const k = this.recoilT[i] * this.recoilT[i]; // ease-out: hardest at the shot
         const power = this.recoilPower[i];
@@ -5663,18 +5765,130 @@ export class ThreeRenderer implements Renderer {
         // (`EntityFrame`'s own top comment) -- no `screenOffsetToWorld`
         // detour needed, unlike the billboard path, which only ever had a
         // screen-space nudge to offset.
-        wx -= Math.cos(a) * kick;
-        wy -= Math.sin(a) * kick;
-        hullPitch = MESH_HULL_PITCH_RAD * power * k;
+        shoveX = -Math.cos(a) * kick;
+        shoveY = -Math.sin(a) * kick;
+        recoilPitch = MESH_HULL_PITCH_RAD * power * k;
       }
-      entity.root.position.set(wx, worldY, wy);
-      // XYZ Euler order composes local X (pitch) before Y (yaw) -- see
-      // `MESH_HULL_PITCH_RAD`'s own doc comment for why that makes this a
-      // local-frame pitch rather than a world-axis tilt.
-      entity.root.rotation.x = hullPitch;
-      entity.root.rotation.y = meshYawFromFacing(facingNorm);
+
+      // WP-A1.3, the hull's weight: the dynamic half (lag, squat/dive, turn
+      // lean -- `stepVehicleWeight`) and the terrain conform (four ground
+      // samples under the hull's own footprint). Ground vehicles only: an air
+      // type keeps the identity here, since a helicopter conforming to the
+      // ground under it would be a bug with a straight face. `moto_rpg` never
+      // reaches this loop at all -- it ships as an infantry GLB.
+      //
+      // Inputs, and what each is measured against:
+      //  - position: the interpolated `wx`/`wy` above.
+      //  - speed: TICK-EXACT (`entitySpeed`, the last tick's delta times
+      //    `SIM_HZ`), deliberately not re-derived from the interpolated
+      //    positions: the ramp chases a constant target and reads exactly 0
+      //    pitch at cruise, where differentiating interpolated positions would
+      //    add seam noise at every tick boundary.
+      //  - cruise and turn rate: off the sim's own `UnitType`
+      //    (`stepPerTick`, `turnPerTick`, times `SIM_HZ`), never the JSON --
+      //    `rocket_battery` authors no `turn_rate_deg_s` and the sim defaults
+      //    it, and this has to agree with the rate `turnToward` really used.
+      //  - dt: `frameDtSeconds(dtMs)` passed straight through. During a
+      //    blast's hit-stop `frame()` hands this method 0, and the model's own
+      //    contract is that 0 is an exact no-op on its state -- so no floor is
+      //    substituted here, ever.
+      //
+      // R-C's "exactly 0 when stationary" is measured against `wx`/`wy`, and
+      // it is also exact against the sim: `entitySpeed[i] === 0` means the
+      // last tick did not move the unit, so `prevX === curX` and the
+      // interpolation IS the sim position for every alpha; the model forces
+      // its lag to exactly zero on that frame. While moving, the drawn hull
+      // sits within `MAX_DRAWN_OFFSET_TILES` of `wx`/`wy` -- and interpolation
+      // alone already puts `wx`/`wy` up to `speed / SIM_HZ` tiles behind the
+      // sim's `posX`/`posY` (0.17 at 3.4 tiles/s), which picking has always
+      // read and still does.
+      let drawX = wx;
+      let drawY = wy;
+      let pitch = recoilPitch;
+      let roll = 0;
+      if (!type.isAir) {
+        let params = this.vehicleWeightParams.get(type.id);
+        if (params === undefined) {
+          params = vehicleWeightParamsFor(type.id, type.role);
+          this.vehicleWeightParams.set(type.id, params);
+        }
+        const input = this.vehicleWeightInput;
+        input.entityId = i;
+        input.speedTilesS = this.entitySpeed[i];
+        input.cruiseTilesS = fx.toNumber(type.stepPerTick) * SIM_HZ;
+        input.headingTurns = facingNorm;
+        input.turnRateTurnsS = fx.toNumber(type.turnPerTick) * SIM_HZ;
+        input.trueX = wx;
+        input.trueY = wy;
+        input.dtSeconds = dtSeconds;
+        input.params = params;
+        const weight = stepVehicleWeight(this.vehicleWeight, input);
+        drawX = weight.drawX;
+        drawY = weight.drawY;
+        pitch += weight.pitchRad;
+        roll += weight.rollRad;
+        this.vehicleWeightAccel[i] = weight.accelFraction;
+
+        // The terrain half, at the DRAWN centre (the hull stands on the ground
+        // it is drawn over). A missing footprint SKIPS it rather than taking a
+        // default: a wrong footprint tilts the wrong way, a skipped one draws
+        // what shipped before this package. `vehicleMeshBounds` is the live
+        // body's measured size in tiles in the template root's frame -- `x`
+        // along the hull's forward axis, `z` across it.
+        const bounds = this.vehicleMeshBounds.get(type.id);
+        if (bounds !== undefined && bounds.x > 0 && bounds.z > 0) {
+          const c = hullCornerOffsets(facingNorm, bounds.x / 2, bounds.z / 2, this.vehicleHullCorners);
+          const el = this.retained.elevation;
+          const mw = this.sim.width;
+          const mh = this.sim.height;
+          const front = groundWorldY(el, mw, mh, drawX + c.frontX, drawY + c.frontY);
+          const rear = groundWorldY(el, mw, mh, drawX + c.rearX, drawY + c.rearY);
+          const left = groundWorldY(el, mw, mh, drawX + c.leftX, drawY + c.leftY);
+          const right = groundWorldY(el, mw, mh, drawX + c.rightX, drawY + c.rightY);
+          pitch += terrainPitchRad(front, rear, bounds.x);
+          roll += terrainRollRad(left, right, bounds.z);
+        }
+      }
+      // The hull's own height: the ground under its drawn centre, sampled
+      // BEFORE the recoil shove, exactly like `entityFrame`'s own recoil block
+      // on the billboard path -- recoil travels a fraction of a tile, so
+      // re-sampling terrain from the offset position could only ever matter
+      // exactly at a terrace edge.
+      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, drawX, drawY) + airLift;
+
+      // R-C / R-K: the lag and the recoil shove write the same position, so
+      // their SUM is clamped once, here, against the 0.25-tile budget --
+      // never two clamps that can add past it. The parameter tables keep the
+      // lag inside `MAX_LAG_TILES` (0.25 - the recoil's 0.16), so this binds
+      // only on a table that broke that budget.
+      let offX = drawX - wx + shoveX;
+      let offY = drawY - wy + shoveY;
+      const offLen = Math.sqrt(offX * offX + offY * offY);
+      if (offLen > MAX_DRAWN_OFFSET_TILES) {
+        const k = MAX_DRAWN_OFFSET_TILES / offLen;
+        offX *= k;
+        offY *= k;
+      }
+      const px = wx + offX;
+      const py = wy + offY;
+      entity.root.position.set(px, worldY, py);
+      // One write, in the hull's own frame (R-K). Euler order 'YZX' is
+      // `Ry(yaw) * Rz(pitch) * Rx(-roll)`: the yaw first, then PITCH about the
+      // hull's own lateral axis (mesh-local Z; +pitch lifts local +X, the
+      // nose), then ROLL about its own longitudinal axis (mesh-local X, the
+      // forward axis under the mesh contract).
+      //
+      // The roll's minus sign is load-bearing. `terrainRollRad` and the
+      // dynamics agree that positive roll LOWERS the corner
+      // `hullCornerOffsets` names `right` -- which is mesh-local -Z, the
+      // hull's PHYSICAL LEFT (forward +X x up +Y = +Z is the physical right,
+      // and at facing 0 `hullCornerOffsets(...).left` is world +Z). A positive
+      // rotation about local +X lowers +Z, so "+roll about the forward axis"
+      // would tip the hull INTO the hillside and lean it INTO a turn.
+      // `ThreeRenderer.vehicle-weight.test.ts` pins the sign in world space.
+      entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], wx, wy, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsObserved(st.side[i], px, py, this.fogVisibleAt);
 
       if (entity.turretPivot) {
         const target = this.resolveTurretTarget(i);
@@ -5822,6 +6036,50 @@ export class ThreeRenderer implements Renderer {
       }
     }
     this.stepVehicleDeaths(dtSeconds);
+  }
+
+  /**
+   * WP-A1.3 (R-Q): what `updateVehicleMeshes` last WROTE onto a living mesh
+   * vehicle -- its drawn position in tiles (`x` is world X, `y` is world Z,
+   * the game's own axes; recoil shove and weight lag both included) and its
+   * pitch and roll in degrees, decomposed back out of `root.quaternion`
+   * with the same 'YZX' order the write used (positive pitch nose-up,
+   * positive roll lowering the hull's physical left, the corner
+   * `hullCornerOffsets` names `right`). `simSpeed` is the sim's own measured
+   * speed the model was fed (`entitySpeed`); `smoothedSpeed` is the model's
+   * ramp.
+   *
+   * A READ, never a recomputation, for the reason `cursorKey()` reads
+   * `canvas.dataset.cursor`: the failure worth catching is a model whose
+   * arithmetic is right and whose wiring is not, and recomputing would agree
+   * with the arithmetic and say nothing. `null` for an entity with no live
+   * vehicle mesh entity -- never spawned on the mesh path, not loaded yet, or
+   * dead (a dying vehicle leaves `vehicleMeshEntities` in the frame `alive`
+   * goes to 0). Debug only: it allocates its answer, and nothing in
+   * `frame()` calls it. Not on `api.ts`; the capture harness reaches it
+   * through `window.__lions.renderer`, which is this concrete class.
+   */
+  debugVehicleTransform(entityId: number): {
+    x: number;
+    y: number;
+    pitchDeg: number;
+    rollDeg: number;
+    simSpeed: number;
+    smoothedSpeed: number;
+  } | null {
+    const entity = this.vehicleMeshEntities.get(entityId);
+    if (entity === undefined) return null;
+    const e = this.scratchHullEuler.setFromQuaternion(entity.root.quaternion, 'YZX');
+    const toDeg = 180 / Math.PI;
+    return {
+      x: entity.root.position.x,
+      y: entity.root.position.z,
+      // `+ 0` turns a -0 into the +0 an exact flat-ground check compares with.
+      pitchDeg: e.z * toDeg + 0,
+      rollDeg: -e.x * toDeg + 0,
+      simSpeed: this.entitySpeed[entityId],
+      smoothedSpeed: this.vehicleWeight.smoothedSpeed[entityId],
+    };
   }
 
   /**

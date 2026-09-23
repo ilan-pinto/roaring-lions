@@ -44,6 +44,18 @@ describe('the four footprint corners', () => {
       expect(c.frontX * c.leftX + c.frontY * c.leftY).toBeCloseTo(0, 6);
     }
   });
+
+  // Task 6: the renderer calls this once per vehicle per frame, so it hands
+  // in one scratch object and must get THAT object back, rewritten -- with
+  // exactly the numbers a fresh call returns, whatever it held before.
+  it('writes into a caller-owned object instead of allocating, when given one', () => {
+    const out = hullCornerOffsets(0.9, 5, 5);
+    for (const t of [0, 0.3, 0.61]) {
+      const got = hullCornerOffsets(t, 0.6, 0.25, out);
+      expect(got).toBe(out);
+      expect(got).toEqual(hullCornerOffsets(t, 0.6, 0.25));
+    }
+  });
 });
 
 describe('terrain pitch and roll', () => {
