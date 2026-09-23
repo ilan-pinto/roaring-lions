@@ -1075,6 +1075,74 @@ describe('the single-unit card', () => {
   });
 });
 
+describe('the card\'s service record — whose place this is', () => {
+  it('names the predecessor when this unit took a vacant slot', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) =>
+          id === world.namer ? { type: 'inf_squad', veterancy: 1, name: 'Gilad', missions: 1, kills: 0, slot: 7 } : undefined,
+        predecessorOf: (slot) => (slot === 7 ? { name: 'Barkai', type: 'inf_squad', missionName: 'Foothold' } : undefined),
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__replaces')?.textContent).toContain('Barkai');
+  });
+
+  // Do not regress the plain record line: a unit that has always held its own
+  // place is the common case and must gain nothing.
+  it('shows nothing extra for a unit whose slot has no history', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) =>
+          id === world.namer ? { type: 'inf_squad', veterancy: 0, name: 'Gilad', missions: 1, kills: 0, slot: 7 } : undefined,
+        predecessorOf: () => undefined,
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__replaces')).toBeNull();
+    expect(card.querySelector('.rl-card__record')?.textContent).toBe('1 mission · 0 kills');
+  });
+
+  // A fresh spawn has no ledger entry at all (`drawn = [null]`, mission.ts:1264),
+  // so there is no slot to look up and the lookup must not be attempted with
+  // `undefined`.
+  it('shows nothing for a fresh spawn with no roster entry', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: () => undefined,
+        predecessorOf: () => {
+          throw new Error('must not be called');
+        },
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__replaces')).toBeNull();
+  });
+
+  it('escapes a predecessor\'s name like every other name on the card', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) => (id === world.namer ? { type: 'inf_squad', veterancy: 0, slot: 7 } : undefined),
+        predecessorOf: () => ({ name: '<img src=x onerror=1>', type: 'inf_squad' }),
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__replaces img')).toBeNull();
+  });
+});
+
 describe('unit art the pipeline has not produced', () => {
   it('draws the reserved hatch with the role mark, never an empty box', () => {
     // `civilians` is the one shipped type absent from SPRITE_MAP, and a left
