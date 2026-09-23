@@ -283,6 +283,41 @@
           ],
           "default": "ground",
           "description": "Where the unit moves. `air` flies: it ignores terrain blocking and is engageable only by weapons whose can_target includes \"air\". Absent means ground, so every existing unit is unchanged."
+        },
+        "weight": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Presentation only. How the DRAWN hull leans, lags and settles; read by the three.js renderer (packages/render/src/three/units/vehicle-weight-params.ts) and by nothing in the sim -- packages/sim never reads this block, and no engine change is needed to add a unit here. Absent means the role default. `mass_class` is the cheap authoring surface; the four numbers below are an escape hatch for a unit the class gets wrong, and an explicit number overrides the class on that one axis only.",
+          "properties": {
+            "mass_class": {
+              "enum": ["light", "medium", "heavy"],
+              "description": "Selects a whole parameter set from the renderer's mass-class table. Overridden per-axis by any of the four numbers below."
+            },
+            "pitch_deg": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 6,
+              "description": "Nose-up pitch a standing start draws, degrees. Capped just above the hull recoil's own 3.4 degrees (MESH_HULL_PITCH_RAD) -- a weight lean must read as smaller than a gun's recoil, not compete with it."
+            },
+            "roll_deg": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 6,
+              "description": "Roll at the unit's own full turn rate, degrees."
+            },
+            "lag_tiles": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 0.09,
+              "description": "How far the drawn hull trails the sim at cruise, tiles. Capped at 0.09 -- the combined drawn-vs-sim offset budget is 0.25 tiles (MAX_DRAWN_OFFSET_TILES) and the hull recoil already spends 0.16 of it, so this ceiling makes it impossible to author a value that breaks that bound even if the renderer's own clamp were removed."
+            },
+            "settle_s": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1.5,
+              "description": "The settle spring's 2% settling time, seconds."
+            }
+          }
         }
       }
     },
