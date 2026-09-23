@@ -146,6 +146,32 @@ export interface LedgerStore {
 }
 
 /**
+ * The three app-only keys, checked at the door. `loadLedger`'s
+ * `JSON.parse(...) as LedgerData` is a cast, not a check, so a hand-edited save
+ * used to reach the victory write as whatever it said -- `"roster.lost": {}`
+ * throws inside `appendLost`'s spread, and a fractional or string
+ * `campaign.slots_issued` would number slots `2.5` or `"71"`. A malformed key is
+ * dropped to ABSENT, which is exactly the shape a pre-change save has (R-7), so
+ * everything downstream already handles it. Only the container is checked --
+ * an array, an integer -- not each record inside it: the sim's own keys have
+ * never been checked on read either, and a per-record schema here would be a
+ * second validator for one door. A well-formed ledger comes back as the same
+ * object, untouched.
+ */
+function dropMalformed(ledger: CampaignLedger): CampaignLedger {
+  if (ledger === null || typeof ledger !== 'object') return ledger;
+  const lostOk = ledger['roster.lost'] === undefined || Array.isArray(ledger['roster.lost']);
+  const reserveOk = ledger['roster.reserve'] === undefined || Array.isArray(ledger['roster.reserve']);
+  const issuedOk = ledger['campaign.slots_issued'] === undefined || Number.isInteger(ledger['campaign.slots_issued']);
+  if (lostOk && reserveOk && issuedOk) return ledger;
+  const out: CampaignLedger = { ...ledger };
+  if (!lostOk) delete out['roster.lost'];
+  if (!reserveOk) delete out['roster.reserve'];
+  if (!issuedOk) delete out['campaign.slots_issued'];
+  return out;
+}
+
+/**
  * The whole implementation, over anything shaped like `Storage`. `null` is the
  * blocked store. Both `browserLedgerStore` and `memoryLedgerStore` are this
  * function with a different backend, which is what keeps the test double from
@@ -154,7 +180,7 @@ export interface LedgerStore {
 function overStorage(store: StorageLike | null): LedgerStore {
   return {
     available: store !== null,
-    readLedger: (): CampaignLedger => loadLedger(store),
+    readLedger: (): CampaignLedger => dropMalformed(loadLedger(store)),
     writeLedger: (l: CampaignLedger): void => {
       if (store) saveLedger(store, l);
     },
@@ -234,7 +260,11 @@ export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}): M
 }
 
 /** The unavailable variant: what every call site gets in a private window with
- *  site data blocked. Test-only, like its parent. */
+ *  site data blocked. Test-only, like its parent. Its `map` is a fresh Map that
+ *  is DISCONNECTED from the store -- there is no backend behind a blocked store,
+ *  so no read ever consults it and no write ever reaches it, and a spec that
+ *  seeds it or reads it back is testing nothing. It exists only so the type
+ *  matches `MemoryLedgerStore`. */
 memoryLedgerStore.blocked = function blockedMemoryLedgerStore(): MemoryLedgerStore {
   return { ...overStorage(null), raw: () => null, map: new Map<string, string>() };
 };

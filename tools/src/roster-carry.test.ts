@@ -92,7 +92,10 @@ function runMission(): RoundTrip {
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
 
   // The app's own widened entries, handed to a runtime typed to `@lions/sim`'s
-  // narrower one. That assignment compiling at all is the first half of fact 1.
+  // narrower one. That this compiles proves nothing -- a subtype is always
+  // assignable to its supertype. The evidence for fact 1 is OBJECT IDENTITY:
+  // `rosterEntryOf` hands back the very object put in here, so a field the sim
+  // has never heard of is still on it (`trip.live?.slot` below reads 42).
   const roster: RosterEntry[] = [{ ...FIELDED }, { ...POOLED }];
   const ledger: LedgerData = { 'roster.surviving_units': roster };
   const rt = new MissionRuntime(sim, mission, {

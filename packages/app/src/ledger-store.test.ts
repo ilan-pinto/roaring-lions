@@ -58,7 +58,11 @@ describe('LedgerStore — one method, one spec', () => {
   });
 
   // The three new keys are the reason this module exists (R-1): they are app-only,
-  // `@lions/sim`'s LedgerData does not declare them, and this is the one cast.
+  // and `@lions/sim`'s LedgerData does not declare them. There is no cast here:
+  // `readLedger` widens `loadLedger`'s `LedgerData` to `CampaignLedger` by plain
+  // assignment (every added key is optional). The one cast on the read path is
+  // `main-keys.ts`'s `JSON.parse(...) as LedgerData`, which checks nothing --
+  // which is why the malformed-key specs below exist.
   it('carries the three app-only keys through a round trip untouched', () => {
     const store = memoryLedgerStore();
     const led: CampaignLedger = {
@@ -71,6 +75,45 @@ describe('LedgerStore — one method, one spec', () => {
     };
     store.writeLedger(led);
     expect(store.readLedger()).toEqual(led);
+  });
+
+  // Final review, minors. `JSON.parse(...) as LedgerData` is a cast, not a check,
+  // so a hand-edited save reached the victory write as whatever it said:
+  // `"roster.lost": {}` throws inside `appendLost`'s spread, and a fractional or
+  // string counter would issue fractional or concatenated slot ids. Each
+  // malformed app-only key reads as ABSENT -- the shape a pre-change save has
+  // (R-7), which everything downstream already handles -- and every other key
+  // is left exactly as stored.
+  describe('readLedger drops a malformed app-only key to absent', () => {
+    const read = (ledger: Record<string, unknown>): CampaignLedger =>
+      memoryLedgerStore({ [LEDGER_KEY]: JSON.stringify(ledger) }).readLedger();
+    const kept = { 'roster.surviving_units': [{ type: 'inf_squad', veterancy: 0, name: 'Barkai', slot: 0 }], 'campaign.slots_issued': 1 };
+
+    it('a hand-edited "roster.lost": {}', () => {
+      const got = read({ ...kept, 'roster.lost': {} });
+      expect(got).not.toHaveProperty('roster.lost');
+      expect(got).toEqual(kept);
+    });
+
+    it('a non-array roster.lost of any other shape', () => {
+      for (const bad of ['x', 3, null, { 0: { slot: 1 } }]) expect(read({ 'roster.lost': bad })).toEqual({});
+    });
+
+    it('a non-array roster.reserve', () => {
+      for (const bad of [{}, 'x', 3, null]) expect(read({ ...kept, 'roster.reserve': bad })).toEqual(kept);
+    });
+
+    it('a non-integer campaign.slots_issued', () => {
+      for (const bad of [2.5, '7', null, [], {}]) {
+        const got = read({ 'roster.lost': [], 'campaign.slots_issued': bad });
+        expect(got, String(bad)).toEqual({ 'roster.lost': [] });
+      }
+    });
+
+    it('keeps all three when they are well formed', () => {
+      const store = memoryLedgerStore({ [LEDGER_KEY]: JSON.stringify({ ...kept, 'roster.lost': [], 'roster.reserve': [] }) });
+      expect(store.readLedger()).toEqual({ ...kept, 'roster.lost': [], 'roster.reserve': [] });
+    });
   });
 
   // `purgeCampaign`'s half of "New campaign". Separate from `writeLedger({})`

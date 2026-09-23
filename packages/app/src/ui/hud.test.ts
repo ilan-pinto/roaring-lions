@@ -1083,7 +1083,7 @@ describe('the card\'s service record — whose place this is', () => {
       {
         rosterEntryOf: (id) =>
           id === world.namer ? { type: 'inf_squad', veterancy: 1, name: 'Gilad', missions: 1, kills: 0, slot: 7 } : undefined,
-        predecessorOf: (slot) => (slot === 7 ? { name: 'Barkai', type: 'inf_squad', missionName: 'Foothold' } : undefined),
+        predecessorOf: (slot) => (slot === 7 ? { name: 'Barkai', type: 'inf_squad' } : undefined),
       },
       world
     );

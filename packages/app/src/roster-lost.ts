@@ -25,7 +25,9 @@
  * leave vacant -- a memorial for it would be a memorial for nobody.
  * `lostByType()`'s aggregate (`mission.ts:741-749`) still counts every dead
  * player entity regardless, and Task 7 keeps that aggregate as the total
- * beside the named list, unchanged.
+ * beside the named list, unchanged. A save written before this branch has no
+ * slots during its first mission, so that mission's deaths leave no memorial
+ * -- a documented gap (plan R-7), closed by that mission's own victory write.
  *
  * ## A vacancy is derived, never flagged (R-6)
  *

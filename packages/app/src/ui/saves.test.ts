@@ -23,8 +23,11 @@ const memStore = memoryLedgerStore;
  * carrying the same name is enough here, because nothing in the code under test
  * inspects the type -- and that is the point: it must not have to.
  *
- * Counts the same events the old `setItem` spy did: every write this screen can
- * reach goes through exactly one of these four.
+ * Counts every call to one of these four, which includes one kind of event the
+ * old `setItem` spy never saw: `setTutorialDone(false)` is a REMOVAL
+ * (`removeItem`), so the spy did not count it and this does. Every write this
+ * screen can reach goes through exactly one of the four, so an `N` here is the
+ * Nth such call, not the Nth `setItem`.
  */
 function quotaStore(failOnWrite: number): LedgerStore {
   const base = memoryLedgerStore();

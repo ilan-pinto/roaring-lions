@@ -180,12 +180,13 @@ export interface HudDeps {
   /** The memorial record for whoever last held this slot before it was
    *  refilled (WP-G-E4, R-6), or `undefined` if the slot has never been lost --
    *  the common case, and a fresh spawn's absent `entry.slot` never calls this
-   *  at all. A closure over the ledger's `roster.lost`, not a snapshot, for the
-   *  same reason `rosterEntryOf` above is one: the ledger `main.ts` holds is
-   *  rebound at mission end. `type` already carries a resolved display name
+   *  at all. It reads the ledger `main.ts` booted this battlefield with -- a
+   *  `const`, never rebound -- which is the right one mid-mission: this
+   *  mission's own losses reach `roster.lost` only through the victory write
+   *  at mission end. `type` already carries a resolved display name
    *  (the same lookup `units[type]?.name ?? type` the debrief uses) -- never a
    *  raw sim type id -- so `cardHtml`'s own fallback never has to resolve one. */
-  predecessorOf?: (slot: number) => { name?: string; type: string; missionName?: string } | undefined;
+  predecessorOf?: (slot: number) => { name?: string; type: string } | undefined;
   /** Narrow the selection to one chip's sub-group. */
   setSelection?: (ids: number[]) => void;
   /** Game speed as a multiplier: 0 paused, 1 normal, 2 double. The strip owns

@@ -1,6 +1,6 @@
 // packages/app/src/roster-cap.ts
 /**
- * The roster and reserve cap (WP-G-E2, gate G0 #12: "measure first; cap
+ * The roster and reserve cap (WP-G-E2, gate G0 / GH-12: "measure first; cap
  * above a ★★★ campaign; reserve list").
  *
  * `roster.surviving_units` only ever appends (CLAUDE.md, "known scaling
@@ -46,10 +46,13 @@ export const ROSTER_CAP = 150;
 /**
  * R-4's total order, exported for its own spec: **veterancy descending, then
  * `missions` descending, then `kills` descending, then `slot` ascending.**
- * Veterans stay; among equals, newest-in falls first -- and `slot` is what
- * makes "newest" exact rather than a sentiment, because array order is not a
- * chronology (`checkEnd` writes fielded survivors first and the unfielded
- * pool after, `mission.ts:1874-1887`).
+ * Veterans stay; among equals, the newest PLACE falls first. `slot` is the
+ * tiebreak because array order is not a chronology (`checkEnd` writes fielded
+ * survivors first and the unfielded pool after, `mission.ts:1874-1887`) and
+ * the slot counter is. But since Task 5 a replacement INHERITS the lost
+ * slot's number (`fillVacancies`), so what `slot` ascending ranks is the age
+ * of the place in the order of battle, not of the body standing in it: a
+ * rookie in a founding member's place outranks a rookie on a fresh slot.
  *
  * `veterancy ?? 0`, `missions ?? 0`, `kills ?? 0` on every read: `missions`
  * and `kills` are optional on `LedgerRosterEntry` and a pre-change entry can
