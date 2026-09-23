@@ -1141,6 +1141,31 @@ describe('the card\'s service record — whose place this is', () => {
     const card = r.host.querySelector<HTMLElement>('.rl-card')!;
     expect(card.querySelector('.rl-card__replaces img')).toBeNull();
   });
+
+  // jsdom computes no stylesheet, so -- the same disk-read shape "the chip
+  // name slot" below uses for its own rule -- this reads `theme.css` back off
+  // disk rather than asking a computed style for a rule no rendering engine
+  // here applies.
+  //
+  // Falsified by hand: dropping `.rl-card__replaces` from the grouped
+  // selector (leaving `.rl-card__record` alone) turns this red.
+  it('sizes the replaces line the same as the record line above it', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
+    let found = false;
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selectors = rule[1]
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim());
+      if (!selectors.includes('.rl-card__replaces')) continue;
+      found = true;
+      const fontSize = /font-size\s*:\s*([^;]+);/.exec(rule[2]);
+      expect(fontSize?.[1].trim()).toBe('var(--t-s)');
+    }
+    // A selector that stopped matching (a rename, a merge into another rule)
+    // would otherwise report zero offenders forever.
+    expect(found).toBe(true);
+  });
 });
 
 describe('unit art the pipeline has not produced', () => {
