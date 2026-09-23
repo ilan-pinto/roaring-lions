@@ -27,6 +27,18 @@
  * something no combat outcome depends on is exactly the failure that doc
  * comment already rules out for the cigarette effects this one is modelled
  * on.
+ *
+ * WP-A1.3 Task 5 adds one more pure function to this split:
+ * `vehicleDustIntervalMs` makes the dust spawn CADENCE a function of speed --
+ * the magnitude ramp above (`vehicleDustMagnitude`) is untouched, and sizes
+ * and populates each puff exactly as before -- and shortens the cadence
+ * further under a launch surge while the vehicle is actively accelerating.
+ * Dust stays TIME-based on purpose, unlike `vehicle-tracks.ts`'s
+ * distance-based tyre marks: a tyre mark is a mark on the ground, and a
+ * fixed time would leave gaps at speed and clumps at a crawl, but dust is
+ * thrown by the engine -- a vehicle spinning its wheels at a standstill
+ * throws dust while covering no ground at all, and a distance rule would
+ * give it none.
  */
 
 /**
@@ -89,6 +101,88 @@ export const VEHICLE_DUST_FULL_SPEED_TILES_S = 1.0;
 export function vehicleDustMagnitude(speedTilesS: number): number {
   const m = speedTilesS / VEHICLE_DUST_FULL_SPEED_TILES_S;
   return m < 0 ? 0 : m > 1 ? 1 : m;
+}
+
+/**
+ * The reference spawn interval today's shipped
+ * `ThreeRenderer.updateVehicleAmbientFx` fires vehicle dust on, in ms.
+ * Mirrored here rather than imported -- that private constant stays put in
+ * `ThreeRenderer.ts` until Task 6's wiring retargets its call site onto
+ * `vehicleDustIntervalMs` below, and this task's own scope is this file
+ * alone. The two must read the same value until then, or
+ * `vehicleDustIntervalMs`'s reference-speed result stops matching what
+ * ships and the `vehicle` golden frame moves for no authored reason.
+ */
+export const VEHICLE_DUST_INTERVAL_MS = 250;
+
+/**
+ * Floor under `vehicleDustIntervalMs`'s result, comfortably (50%) above
+ * `FRAME_DT_CEILING_MS` (100, `ThreeRenderer.ts`). That ceiling is the most
+ * a single frame's clamped `dt` can add to the spawn accumulator, and the
+ * accumulator spends at most one interval's worth of credit per call (an
+ * `if`, never a `while` -- see `updateVehicleAmbientFx`'s own "the ceiling
+ * is load-bearing" section). An interval at or below that ceiling would let
+ * one long, clamped frame cross it twice, and a `while` loop patched in to
+ * cope would spend the backlog one puff per CALL exactly the way the
+ * 2026-09-18 emission-backlog defect did (CLAUDE.md's "vehicle repaint
+ * drift") -- for the fastest vehicles in the roster, which are exactly the
+ * ones this module now speeds the cadence for.
+ */
+export const VEHICLE_DUST_MIN_INTERVAL_MS = 150;
+
+/**
+ * The most `vehicleDustIntervalMs` shortens its result by, ms, under full
+ * launch acceleration (`accelFraction` at its clamped maximum of 1). Sized
+ * against the reference interval above: at cruise (`accelFraction` 0) the
+ * roster's slowest vehicle (`mbt_lavi`, 1.1 tiles/s) already reads roughly
+ * 227 ms, so a surge this size visibly thickens the plume the instant it
+ * pulls away, without outrunning the floor at every other speed in the
+ * roster the way a larger one would.
+ */
+export const VEHICLE_DUST_LAUNCH_SURGE = 90;
+
+/**
+ * Smallest speed `vehicleDustIntervalMs` divides by. Guards a
+ * `speedTilesS === 0` call against a division by zero rather than assuming
+ * one never arrives -- `nextVehicleMoving` never routes a genuine standstill
+ * into the dust branch in practice (`vehicleDustMagnitude`'s own comment
+ * says the same for the magnitude ramp), but this module has no way to
+ * enforce that from the caller's side.
+ */
+const MIN_DUST_SPEED_TILES_S = 1e-3;
+
+/**
+ * How often a moving vehicle's dust should spawn, in ms, given its ground
+ * speed and how hard it is currently accelerating.
+ *
+ * The shipped `VEHICLE_DUST_INTERVAL_MS` scaled by
+ * `VEHICLE_DUST_FULL_SPEED_TILES_S / speed`, so a vehicle at the reference
+ * speed gets exactly today's cadence, a slower one gets a longer interval
+ * (less frequent dust), and a faster one a shorter one -- a crawling
+ * `mbt_lavi` (1.1 tiles/s) and a sprinting `technical` (2.6) no longer dust
+ * at the identical fixed rate `updateVehicleAmbientFx` gave them. Shortened
+ * further by up to `VEHICLE_DUST_LAUNCH_SURGE` while the vehicle is
+ * actively pulling away: the moment a vehicle breaks traction is the moment
+ * it throws the most dust, and Task 3's weight model
+ * (`vehicle-weight.ts`'s `VehicleWeightOutput.accelFraction`) is the first
+ * time this renderer has had an acceleration signal to hang that on.
+ * Floored at `VEHICLE_DUST_MIN_INTERVAL_MS` so the result never asks the
+ * frame-clamped accumulator for an interval it cannot deliver singly.
+ *
+ * `accelFraction` is Task 3's own signal verbatim: +1 pulling away, -1
+ * braking, 0 at cruise. Only the positive half shortens the interval here
+ * -- braking is clamped to the same 0 cruise reads, not inverted into a
+ * surge of its own, real wheelspin belongs to launching, not stopping. The
+ * clamp to [0, 1] runs before anything else in this function, so an input
+ * outside that range from some future caller cannot invert the curve
+ * either.
+ */
+export function vehicleDustIntervalMs(speedTilesS: number, accelFraction: number): number {
+  const accel = accelFraction < 0 ? 0 : accelFraction > 1 ? 1 : accelFraction;
+  const speed = speedTilesS > MIN_DUST_SPEED_TILES_S ? speedTilesS : MIN_DUST_SPEED_TILES_S;
+  const scaled = VEHICLE_DUST_INTERVAL_MS * (VEHICLE_DUST_FULL_SPEED_TILES_S / speed);
+  const surged = scaled - accel * VEHICLE_DUST_LAUNCH_SURGE;
+  return surged < VEHICLE_DUST_MIN_INTERVAL_MS ? VEHICLE_DUST_MIN_INTERVAL_MS : surged;
 }
 
 /** World spawn point and emission bearing for a vehicle's ambient FX. */
