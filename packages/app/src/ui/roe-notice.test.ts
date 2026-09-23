@@ -64,6 +64,18 @@ describe('roeNotice', () => {
     expect(html).not.toContain(protectedZoneHint());
   });
 
+  // Shell upgrade Phase 3, Task 10, fix round 1. `reason` carries a zone name
+  // (`fire into protected structure (${zoneName})`, mission.ts), and a zone
+  // name has no pattern in either schema -- so it reached `hud.note`'s
+  // `innerHTML` raw. It is escaped where the catalogue puts it in; the
+  // protected-zone test still reads the reason as authored.
+  it('shows a zone name the mission authored as text, and still recognises the zone', () => {
+    const [html] = roeNotice(5, "fire into protected structure (<i>St. Anne's</i>)", 95, 40, true);
+    expect(html).toContain('(fire into protected structure (&lt;i&gt;St. Anne&#39;s&lt;/i&gt;))');
+    expect(html).not.toContain('<i>');
+    expect(html).toContain(protectedZoneHint());
+  });
+
   it('never attaches zone advice to a reason that is not about a zone', () => {
     const [html] = roeNotice(8, 'civilian casualties', 95, 40, true);
     expect(html).not.toContain(protectedZoneHint());

@@ -22,6 +22,7 @@
  * follow.
  */
 import { t } from '../i18n/t';
+import { escapeHtml } from './escape-html';
 import type { Tone } from './hud';
 
 /**
@@ -74,7 +75,12 @@ export function roeNotice(
   failBelow: number | undefined,
   first: boolean
 ): [string, Tone] {
-  const head = t('roe.notice.head', { penalty, reason, score });
+  // `reason` can name a ZONE (`fire into protected structure (${zoneName})`,
+  // mission.ts), and a zone name has no pattern in either schema -- so it is
+  // escaped on its way into the catalogue's markup, which `hud.note` sets as
+  // `innerHTML` (shell upgrade Phase 3, Task 10, fix round 1). The raw string
+  // is still what `isProtectedZoneReason` reads below.
+  const head = t('roe.notice.head', { penalty, reason: escapeHtml(reason), score });
 
   // Already below the floor. The mission is lost whatever else is on screen,
   // and saying so plainly beats leaving the player to infer it from a number.
