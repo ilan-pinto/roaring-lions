@@ -17,8 +17,12 @@
  *
  * Two properties a later reader will otherwise get wrong:
  *
- * **Positive pitch is nose-up and positive roll drops the right side.**
- * Chosen to match `MESH_HULL_PITCH_RAD`'s own recoil sign -- the recoil
+ * **Positive pitch is nose-up and positive roll drops the right side** --
+ * the corner `hullCornerOffsets` below NAMES `right`, which is the hull's
+ * PHYSICAL LEFT: under the mesh contract (+X forward, +Y up) forward x up is
+ * +Z, the physical right, and at facing 0 the corner named `left` is world
+ * +Z. Compose by the corner, not by the word (`ThreeRenderer` rotates by
+ * `-roll` about mesh-local X for exactly this reason). Chosen to match `MESH_HULL_PITCH_RAD`'s own recoil sign -- the recoil
  * rocks a tank back onto its rear road wheels, which that constant treats
  * as positive. (That constant used to be written to `root.rotation.x` under
  * yaw, which three.js's XYZ order makes a WORLD-axis tilt, not the local
@@ -29,7 +33,8 @@
  * sign is otherwise a coin flip that looks fine on a screenshot of a
  * symmetric hull, which is exactly why it is stated rather than left to be
  * inferred: ground falling away to the right (the right corner sampling
- * LOWER than the left) reads positive, i.e. the right side drops.
+ * LOWER than the left) reads positive, i.e. the right side drops -- the
+ * `right` CORNER, which is the physical left side of the hull.
  *
  * **The span is a parameter, not a constant, because a longer hull tilts
  * less on the same step in the ground** -- the angle is `atan(delta / span)`,
