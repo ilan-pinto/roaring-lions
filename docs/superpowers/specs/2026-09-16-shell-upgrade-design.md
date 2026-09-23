@@ -613,9 +613,11 @@ and 2560 side by side against several trial widths and picking the one that read
 column rather than an accident of `28.75rem`'s arithmetic — that the result (29.75%) lands close to
 28% is a consequence of the capture, not a target aimed at. The diorama host §6 Phase 3's "scene
 host" bullet describes sitting behind this column is still unbuilt on this branch (a separate
-render-lane plan, gated on WP-A1.3, per R-1 of the Phase 3 app-half plan) — see
-`.superpowers/sdd/2026-09-19-shell-upgrade-phase-3-app/task-7-report.md` for the full capture and
-the discarded wider-restructure candidate.
+render-lane plan, gated on WP-A1.3, per R-1 of the Phase 3 app-half plan). The rule, the
+capture and the measurement are commit `9bc93e22`; the test that pins the value
+(`--menu-col-wide: min(34rem, 82vw)`, red on `36rem`) is `600b3910`. The candidate discarded there —
+restructuring `.rl-menu` into a grid beside its banner — was rejected because the scene host it
+would compose against does not exist yet.
 
 **D-9 — `confirmDialog` takes a host and an options object, not `(text, danger)` (Task 6).**
 Shipped as `confirmDialog(host, { title, body, confirm, danger? })` in `ui/confirm.ts`: the
@@ -875,3 +877,62 @@ shipped undisclosed in the first commit and read louder than intended once the f
 sat under it. No baseline was expected to move: every gated scenario captures with
 `selection.length === 0` and `rangeRingPreview === -1`, which is now written down as a
 precondition in `tools/src/golden-diff/baseline.ts`.
+
+### Phase 3's deviations (app half)
+
+The app-half plan's twelve rulings (R-1 … R-12,
+`docs/superpowers/plans/2026-09-19-shell-upgrade-phase-3-app.md`) as D-40 … D-51, R-n to
+D-(n+39), as that plan's landing step requires: one entry each, from the ruling and what shipped
+on `feat/shell-phase-3-app` (Tasks 1–10 and the final review's fix wave), saying where the shipped
+behaviour departs from the ruling.
+
+**D-40 — this landing is the app half only (R-1).** Five of §6 Phase 3's eight bullets; the scene
+host (after WP-A1.3, GH-177), the lit board and basin, and the art pass (D-20) are other lanes'.
+`packages/sim` and `packages/render` are untouched; D-44 names the one render-side debt created.
+
+**D-41 — entry conditions, not dates (R-2).** Opened 2026-09-23, before Stage 2's date, because
+Phase 2 Tasks 15–16 were on `main`; paused for `feat/gamification-e2e4` (PR #211) and resumed.
+Tasks 11–12 wait on G1 (GH-165) and are not in this landing.
+
+**D-42 — deploy permutes the pool, never filters it (R-3).** As ruled (`permutePool`,
+`deployedLedger`). Departure: the first `permutePool` reordered interleaved pools under the default
+selection (32,514 of 39,360 cases); it is position-preserving now, verified over 335,923 cases, and
+`deploy_choice.test.ts` pins a benched slotted veteran through the victory write end to end.
+
+**D-43 — one adapter, one copy of the draw (R-4).** As ruled (`DeployRosterView`, `drawFromPool`).
+Departures: `cap` is `ROSTER_CAP`, not `null`, because WP-G-E2 landed first, and the screen does not
+read it; `benchable` shipped as `undrawable`.
+
+**D-44 — the runtime is built after deploy (R-5).** As ruled (`startMission`); the permuted pool is
+in memory only, so a quit or defeat never reorders the save. Departure: the spawn now follows
+`renderer.init()`, which drew the force at (0, 0) and left full shroud until tick 3; the app
+re-seeds with three `snapshot()` calls, and `Renderer.reseed()` (with the recorded
+`StructureInstancer` miss under `&nomesh`) is owed after WP-A1.3 lands.
+
+**D-45 — the outcome moment is presentation, after the ledger write (R-6).** As ruled, with a
+2600 ms hold, z-index 55 and no fade-out for the lead to judge. Departures from the fix wave: an
+autorepeat no longer skips it, and the HUD's end banner is suppressed while it shows — which also
+drops `aftermath`, drawn only by that banner, on the four missions that author it.
+
+**D-46 — 1280 is a fit floor and D-8 has its number (R-7).** As ruled: two breakpoints,
+`--menu-col-wide: min(34rem, 82vw)`, 29.75% of 2560 and 32.58% of 1920.
+
+**D-47 — a pin's hover previews the click and never navigates (R-8).** As ruled, click and hover
+answered by one `pickOutcome`. Departure: a locked or empty pin's ring also brightens on hover
+(unasked, reversible). The hand drive is owed before the PR.
+
+**D-48 — the Phase 2 leftovers went to Tasks 8 and 10 (R-9).** As ruled, and each grew: the focus
+trap keeps a stack so nested traps stop fighting over Tab; there were three raw sinks and three
+escapers, now one `escapeHtml`; the strip skips an unchanged rebuild. The fix wave added catalogue
+unit names at five HUD sinks and the dock tip, and pseudo-locale entities.
+
+**D-49 — the dingbat check is a named list (R-10); not landed.** Gated on G1. Landed: the `★`
+exception and its current sites in the plan's Task 11 and G1 questions, including
+`campaign.ts:473`, which the plan's inventory missed.
+
+**D-50 — `ROLE_GLYPH` is deleted, not redrawn (R-11); not landed.** Still at `ui/role.ts:42`,
+imported only by its own test, until gated Task 12.
+
+**D-51 — victory is photographed, and the defeat capture skips the moment (R-12).** As ruled:
+`24-outcome-victory` by waypoint on `beit_sahwan_1_recon`, with an `OutcomeMomentDismissedError`
+guard after each outcome shot. Owed before merge: both PNGs from a quiet run.

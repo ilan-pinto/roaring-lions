@@ -1481,6 +1481,17 @@ The geometry's DNA is `ui/mark.ts`'s `chevron(x)` (`mark.ts:10-12`, `M${x} 2 L${
 
 The check is the acceptance clause made mechanical (R-10): an exported `dingbatFailures(file, src)` in `tools/validate_ui_palette.mjs`, over a **named list**, not a Unicode range — `°` in the board's bearing readout and `·` in a dozen separators are typography, and a range would eat both.
 
+**The `★` exception, and where it stands** (added by the final review's fix wave, ruling 7). `★` is NOT on the named list: it is a repeated countable mark (`'★'.repeat(n)`), not an icon, so the list's comment must name it as an approved exception — with its sites, so the next reader can tell a decision from an oversight — unless G1 answers otherwise (see "Open questions for G1"). Every site that renders one, re-verified on `feat/shell-phase-3-app` at `4397e7c7`:
+
+- `packages/app/src/ui/loading.ts:166-176` — `commendation()`, the one `★` site in that file (its doc comment at 166-172, the glyph at 176), serving both the brought panel's rows and the deploy spread's rows;
+- `packages/app/src/ui/hud.ts:1752` — the single-unit card's veterancy stripe (1737 before the fix wave added `suppressEndBanner` above it);
+- `packages/app/src/ui/debrief.ts:74` — a won mission's stars; `debrief.ts:167` — a promotion's stars;
+- `packages/app/src/ui/worldmap.ts:210` — a town pin's earned/possible stars; `worldmap.ts:317` — the ledger line's veteran count;
+- `packages/app/src/ui/worldmap3d.ts:301` — the diorama pin's earned/possible stars;
+- `packages/app/src/campaign.ts:473` — `campaignSummary`'s veteran count, which reaches the strip's campaign tooltip through `main.ts`'s `getMission`. Found by the re-verification, not in the fix wave's list, and inside `validate_ui_palette.mjs`'s scan root (`packages/app/src`), so the check will see it.
+
+Three more `★` in `packages/app/src` are prose inside comments and render nothing (`roster-cap.ts:4`, `campaign.ts:494`, `gate-sentence.ts:92`); test files are outside the scan. If the list's check reads comments, it must skip these rather than fail on them.
+
 **Files:**
 - Create: `packages/app/src/ui/symbol.ts`
 - Modify: `tools/validate_ui_palette.mjs`, `packages/app/src/ui/theme.css`
@@ -1685,7 +1696,7 @@ Each of these is Phase 3 work and none of it is in this plan. Named with its own
 | `ui/production.ts:80` | `✸` | `strike` support action in the dock | **Draw it** |
 | `ui/worldmap3d.ts:296-297` | `↺` `↻` | The diorama's two rotate buttons | **Draw them** — they are the only controls on that screen and they are the one place the board's own weight is visible |
 | `ui/role.ts:42-50` | `✹ ⬡ ✈ ✛ ▤ ▲ ■` | `ROLE_GLYPH`, a dead second role table | **Delete, do not draw** (R-11) — its only importer is its own test |
-| `campaign.ts:467`, `debrief.ts:65, :136`, `hud.ts:1590`, `loading.ts:350`, `worldmap.ts:210, :317`, `worldmap3d.ts:272` | `★` | Veterancy stripes and mission stars, eight sites | **Named exception, not drawn** — it is a repeated countable mark (`'★'.repeat(n)`), not an icon, and a drawn sprite repeated nine times is a different problem. But it must be NAMED, because the acceptance sentence is absolute and an unnamed survivor reads as an oversight |
+| `loading.ts:166-176`, `hud.ts:1752`, `debrief.ts:74, :167`, `worldmap.ts:210, :317`, `worldmap3d.ts:301`, `campaign.ts:473` — **re-verified at `4397e7c7`** (the rest of this table is still as taken at `1e584bfa`) | `★` | Veterancy stripes and mission stars, eight sites | **Named exception, not drawn** — it is a repeated countable mark (`'★'.repeat(n)`), not an icon, and a drawn sprite repeated nine times is a different problem. But it must be NAMED, because the acceptance sentence is absolute and an unnamed survivor reads as an oversight. The list with what each site draws is in Task 11's "The `★` exception" |
 
 So the question in one line: **does the sheet cover the six utility marks in rows 1–5 (bringing it to eighteen), and is `★` an approved exception?** The plan's default if G1 answers nothing: draw the six, name `★` as the exception, delete `ROLE_GLYPH`.
 
