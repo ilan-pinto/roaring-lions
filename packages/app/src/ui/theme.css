@@ -2478,6 +2478,32 @@ body {
   color: var(--ink);
   text-align: center;
 }
+/* D-8 (composed layouts, Task 7 -- spec Deviations, D-8): the plain button
+   list reads well at 28.75rem on a laptop and leaves most of a 1920 or 2560
+   frame empty, with nothing behind it to compose against yet -- the "scene
+   host" §6 Phase 3 describes sitting behind this column is a separate
+   render-lane plan gated on WP-A1.3 (R-1) and does not exist on this
+   branch. Composed with what already ships instead: the column widens at
+   the SAME two breakpoints that already set the scale, under its own named
+   token (--menu-col-wide) rather than folded silently into --menu-col, so
+   D-8's number is a value a reader can find rather than a comment's
+   arithmetic. `:not(:has(.rl-world))` keeps the campaign board out -- its
+   header/footer deliberately stay at the narrow --menu-col inside the
+   112.5rem frame (comment below), and widening that too was captured and
+   rejected (task-7-report.md); the garage never carries the `.rl-menu`
+   class at all, so it needs no exclusion.
+   Measured at 2560, where --ui-scale is 1.4 (theme.css:295): the root's
+   16-pixel-per-rem base times that scale is 22.4 per rem, so 34rem comes to
+   761.6 of 2560, 29.75% -- the figure D-8 asks Phase 3's acceptance to set.
+   (Phase 0's own retired 28% target is nearly matched here as a
+   consequence of the capture, not a target aimed at -- see D-8 in the
+   spec's Deviations.) */
+@media (min-width: 1900px) { /* px-ok */
+  .rl-menu:not(:has(.rl-world)) {
+    --menu-col-wide: min(34rem, 82vw);
+    --menu-col: var(--menu-col-wide);
+  }
+}
 /* The one documented exception to the column: a menu holding the campaign
    map needs real width, or the map is squeezed to a fraction of the screen
    instead of growing with it. `.rl-world__board` no longer caps its own
@@ -3334,6 +3360,31 @@ button.rl-menu__item[data-kind='aside'] {
   }
   .rl-loading__box--spread > .rl-loading__deploy {
     justify-self: start;
+  }
+}
+/* Composed layouts (Task 7), the wide half of the query above's own
+   forward note. Captured at 1920 and 2560 on the previous rule alone: the
+   68rem cap left roughly a sixth of the frame empty on EACH side at 1920
+   (about 335 of the frame's own units of dead margin per side) and roughly
+   a fifth at 2560 (about 518 per side), all of it outside the box rather
+   than inside a column that could use it -- growing `.rl-loading__orders`
+   past its own 62ch reading measure (`.rl-loading__brief`) would only move
+   that same emptiness inside the box instead of removing it. Reusing
+   `.rl-loading__box--brief`'s own 42.5rem prose figure for the left column
+   keeps the read comfortable at every width above the previous rule's own
+   floor and hands every rem the wider cap buys to the right column
+   instead, which is where it is spendable: a roomier roster list and, one
+   rule down, a bigger ground preview. `min(90rem, 88vw)` occupies 86.25% of
+   the 1920 frame (up from 65.2%) and 78.75% of the 2560 frame (up from
+   59.5%) -- wide without touching the 1280 fit floor, which this query
+   sits well above and does not alter. */
+@media (min-width: 1900px) { /* px-ok */
+  .rl-loading__box--spread {
+    width: min(90rem, 88vw);
+    grid-template-columns: minmax(0, 42.5rem) minmax(0, 1fr);
+  }
+  .rl-deploy__ground {
+    width: min(100%, 22rem);
   }
 }
 
