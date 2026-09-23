@@ -32,6 +32,22 @@
  * trap's whole job is cycling focus, and every other key (and every OTHER
  * effect of Tab, such as a caller's own capture guard or the game's bubble
  * listener) is left exactly as untouched as it was before this existed.
+ *
+ * Fix round 1: STACKED traps. A confirm opened from the pause menu's own
+ * Restart/Quit button installs a second trap while the first (pause's) is
+ * still live -- both are capture-phase listeners on `window`, both fire on
+ * the same keypress, and neither stops propagation. Without arbitration,
+ * pause's trap (registered first) sees focus land inside confirm's root,
+ * decides that is "escaped" from ITS OWN point of view, and pulls it back
+ * into the pause panel; confirm's trap then sees focus outside ITS root and
+ * resets it again -- a keyboard user can never Tab from Cancel to Yes. A
+ * module-level `stack` of installation tokens fixes this: only the
+ * INNERMOST live trap (the last one installed that has not yet disposed)
+ * acts on a keypress, and every other trap's listener returns without
+ * reading `root` or touching focus at all. The disposer removes its own
+ * token from wherever it sits in `stack`, not only from the top, so
+ * disposing an OUTER trap while an inner one is still open cannot strand a
+ * dead entry above the inner trap's own token and silence it.
  */
 import type { Disposer } from '../shell/router';
 
@@ -50,13 +66,30 @@ function focusablesIn(root: HTMLElement): HTMLElement[] {
   });
 }
 
+/** Installation order of every currently-live trap, oldest first. Each entry
+ *  is a private token (never anything but `===`-compared), not a root or a
+ *  listener -- the stack only ever answers "is this ME the innermost one?"
+ *  and "take me out, wherever I am." Module-level and shared by every
+ *  `focusTrap` call in the document, which is the point: a confirm opened
+ *  over the pause menu and the pause menu itself are two calls into the same
+ *  module, and only coordination at that level can arbitrate between them. */
+const stack: object[] = [];
+
 /**
  * Installs the trap on `root` and returns its disposer. The disposer takes
- * the `window` listener off and is safe to call more than once.
+ * the `window` listener off, removes this trap's own token from `stack`
+ * wherever it is, and is safe to call more than once.
  */
 export function focusTrap(root: HTMLElement): Disposer {
+  const token = {};
+  stack.push(token);
   const onKey = (e: KeyboardEvent): void => {
     if (e.key !== 'Tab') return;
+    // Only the innermost (most recently installed, still-live) trap acts.
+    // A stacked dialog's own trap is pushed AFTER this one, so as long as it
+    // is open this trap's token is not the top and this listener is a no-op
+    // -- it does not even read `root` or `document.activeElement`.
+    if (stack[stack.length - 1] !== token) return;
     const list = focusablesIn(root);
     if (list.length === 0) return;
     const active = document.activeElement;
@@ -75,5 +108,10 @@ export function focusTrap(root: HTMLElement): Disposer {
     if (disposed) return;
     disposed = true;
     window.removeEventListener('keydown', onKey, true);
+    // Removed from wherever it sits, not popped -- an out-of-order dispose
+    // (the OUTER trap closing while an inner one is still open) must not
+    // remove the wrong entry and desync who counts as innermost.
+    const at = stack.indexOf(token);
+    if (at !== -1) stack.splice(at, 1);
   };
 }
