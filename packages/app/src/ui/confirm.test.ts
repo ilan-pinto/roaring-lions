@@ -27,6 +27,20 @@ describe('isDialogOpen', () => {
     document.body.appendChild(scrim);
     expect(isDialogOpen()).toBe(true);
   });
+
+  // Task 5: without this, `main.ts`'s handler-wide guard never learns the
+  // victory/defeat moment is up, and a `Tab` -- the one key that moment's
+  // own capture guard deliberately lets bubble through, since moving focus
+  // inside the trap is `focusTrap`'s job -- would fall through to whatever
+  // `main.ts` binds it to instead of being refused the way every other key
+  // already is while a dialog is open.
+  it('is true with a bare .rl-outcome', () => {
+    expect(isDialogOpen()).toBe(false);
+    const scrim = document.createElement('div');
+    scrim.className = 'rl-outcome';
+    document.body.appendChild(scrim);
+    expect(isDialogOpen()).toBe(true);
+  });
 });
 
 describe('confirmDialog', () => {

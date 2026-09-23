@@ -119,6 +119,9 @@
   "menu.end.debrief": "debrief",
   "menu.end.next": "next mission →",
   "menu.end.replay": "{result, select, victory {replay} other {try again}}",
+  "outcome.victory": "Objective secured",
+  "outcome.defeat": "Attempt failed",
+  "outcome.skip": "Continue",
 
   "brigade.art.noSprite": "{id} — no sprite sheet",
 

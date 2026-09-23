@@ -813,6 +813,63 @@ body {
 }
 
 /* ====================================================================== */
+/* Outcome moment (ui/outcome-moment.ts) — the held victory/defeat beat    */
+/* ====================================================================== */
+
+/* Unlike `.rl-confirm`/`.rl-pause`/`.rl-keys`, which dim a battlefield the
+   player can still half-see behind them, this REPLACES the screen -- the
+   held moment is the whole point, not an interruption over something else
+   worth glancing at. `--panel-bg-solid` (`.rl-loading`'s own opaque
+   takeover) is the base rather than `--scrim` for that reason; color-mixed
+   with transparent rather than used bare so the takeover reads as a
+   deliberate wash rather than a flat fill -- no new palette row, no literal. */
+.rl-outcome {
+  position: fixed;
+  inset: 0;
+  /* Above the confirm/pause/keys scrims (50): this moment is shown only
+     once nothing else should be open, and it must win if anything is. */
+  z-index: 55;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  --outcome-scrim: color-mix(in srgb, var(--panel-bg-solid) 90%, transparent);
+  background: var(--outcome-scrim);
+}
+.rl-outcome__panel {
+  position: relative;
+  pointer-events: auto;
+  width: min(30rem, 92vw);
+}
+/* The verdict is the one thing on screen; it wears the same display face
+   `.rl-loading__name` and `.rl-titlecard__title` do, at the same size,
+   rather than `.rl-panel__title`'s ordinary band-label weight -- the exact
+   scoped-override shape `.rl-tutorial .rl-panel__title` already uses for
+   the same reason (a panel reused somewhere it has to read as a headline). */
+.rl-outcome__panel .rl-panel__title {
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+}
+.rl-outcome__line {
+  margin: var(--s3) 0 0;
+  font-size: var(--t-m);
+  color: var(--ink-dim);
+}
+.rl-outcome__skip {
+  margin-top: var(--s4);
+}
+/* The outcome is named in the DOM (`data-outcome`), not only in colour --
+   this is the second half of that, a border tint rather than a repainted
+   band so `--band-ink`'s contrast (tuned for `--band-alert`) is never asked
+   to sit on `--good`/`--bad` instead. Mirrors `.rl-bigbanner[data-result=…]`,
+   the existing precedent for exactly this. */
+.rl-outcome[data-outcome='victory'] .rl-outcome__panel .rl-panel__body {
+  border-color: var(--good);
+}
+.rl-outcome[data-outcome='defeat'] .rl-outcome__panel .rl-panel__body {
+  border-color: var(--bad);
+}
+
+/* ====================================================================== */
 /* Pause (ui/pause.ts) — Escape's target while a battlefield is running    */
 /* ====================================================================== */
 
