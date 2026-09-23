@@ -45,9 +45,16 @@ describe('rosterOrder — veterans stay, newest-in falls first (R-4)', () => {
 });
 
 describe('splitRoster', () => {
-  it('leaves a roster under the cap alone and reports an empty reserve', () => {
-    const got = splitRoster(many(10), [], ROSTER_CAP);
-    expect(got.active).toHaveLength(10);
+  // Final review, Important 2. ORDER is gameplay: `spawnPlacement` draws the FIRST
+  // entry of a type in pool order (`mission.ts:1262`), so a split that re-sorted
+  // the active list would field a campaign's most veteran unit of each type first
+  // on every victory -- a design change nobody declared, and one `pnpm playtest`
+  // cannot see because the harness never runs this seam. The input is deliberately
+  // NOT in `rosterOrder`, or a sort would hand it back unchanged and pass.
+  it('leaves a roster under the cap alone -- same entries, same order -- and reports an empty reserve', () => {
+    const input = [e(5), e(2, { veterancy: 2 }), e(9), e(1, { kills: 4 })];
+    const got = splitRoster(input, [], ROSTER_CAP);
+    expect(got.active).toEqual(input);
     expect(got.reserve).toHaveLength(0);
   });
 
@@ -60,9 +67,10 @@ describe('splitRoster', () => {
     expect(splitRoster(many(11), [], 5).reserve).toHaveLength(6);
   });
 
-  it('stands down the newest and keeps the veterans', () => {
+  // `rosterOrder` decides WHO stays; the kept entries keep their input order.
+  it('stands down the newest and keeps the veterans, in the order they came in', () => {
     const got = splitRoster([e(1), e(2), e(3, { veterancy: 3 })], [], 2);
-    expect(got.active.map((r) => r.slot)).toEqual([3, 1]);
+    expect(got.active.map((r) => r.slot)).toEqual([1, 3]);
     expect(got.reserve.map((r) => r.slot)).toEqual([2]);
   });
 
@@ -76,10 +84,11 @@ describe('splitRoster', () => {
 
   // R-4: the split reads the WHOLE brigade, so "never deleted" also means "never
   // permanently benched". A veteran standing down while the active list is full
-  // comes back the moment losses make room.
-  it('recalls from reserve when the active list has fallen below the cap', () => {
+  // comes back the moment losses make room -- at the END of the active list, so
+  // the entries that never left keep the places in the draw order they had.
+  it('recalls from reserve when the active list has fallen below the cap, appended last', () => {
     const got = splitRoster([e(1), e(2)], [e(3, { veterancy: 2 })], 3);
-    expect(got.active.map((r) => r.slot)).toEqual([3, 1, 2]);
+    expect(got.active.map((r) => r.slot)).toEqual([1, 2, 3]);
     expect(got.reserve).toHaveLength(0);
   });
 

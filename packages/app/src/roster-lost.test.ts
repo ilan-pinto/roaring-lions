@@ -99,6 +99,44 @@ describe('predecessorOf', () => {
   });
 });
 
+// Final review, Important 1. `tick` is the sim's tick count WITHIN one mission and
+// restarts at 0 every time a mission boots, so it orders two deaths in the same
+// mission and says nothing about two deaths in different ones. `roster.lost` is
+// append-only (`appendLost`), so its ARRAY ORDER is the history. Every case here
+// puts the OLDER loss at the HIGHER tick: a long first mission, then a death early
+// in a short second one.
+describe('recency is array order, never tick — tick restarts every mission', () => {
+  it('predecessorOf answers with the last record for the slot, whatever its tick', () => {
+    const lost = [
+      rec(7, { name: 'Barkai', missionId: 'beit_sahwan_2_foothold', tick: 5000 }),
+      rec(7, { name: 'Dekel', missionId: 'beit_sahwan_3_clearance', tick: 100 }),
+    ];
+    expect(predecessorOf(lost, 7)?.name).toBe('Dekel');
+  });
+
+  it('fillVacancies offers the most recent vacancy first, whatever its tick', () => {
+    const lost = [
+      rec(7, { name: 'Barkai', missionId: 'beit_sahwan_2_foothold', tick: 5000 }),
+      rec(8, { name: 'Dekel', missionId: 'beit_sahwan_3_clearance', tick: 100 }),
+    ];
+    expect(fillVacancies([e({ type: 'inf_squad' })], lost, []).map((r) => r.slot)).toEqual([8]);
+    expect(fillVacancies([e({ type: 'inf_squad' }), e({ type: 'inf_squad' })], lost, []).map((r) => r.slot)).toEqual([8, 7]);
+  });
+
+  // The half that `bySlot` decides: a slot lost twice is represented by its LAST
+  // record, so its place in the queue is that record's place. Slot 7 was lost in
+  // the first mission (tick 9000), refilled, and lost again in the third (tick
+  // 100); slot 8 was lost in the second. The newest vacancy is slot 7's.
+  it('ranks a slot lost twice by its last loss, not its first', () => {
+    const lost = [
+      rec(7, { name: 'Barkai', missionId: 'm1', tick: 9000 }),
+      rec(8, { name: 'Nachshon', missionId: 'm2', tick: 500 }),
+      rec(7, { name: 'Dekel', missionId: 'm3', tick: 100 }),
+    ];
+    expect(fillVacancies([e({ type: 'inf_squad' })], lost, []).map((r) => r.slot)).toEqual([7]);
+  });
+});
+
 // A parked finding from Task 3's review: `reattachSlots(out, before)` takes two
 // POSITIONAL `readonly RosterEntry[]` arguments, so a swap type-checks silently,
 // and reading `before` off the POST-mission ledger (instead of the one the
