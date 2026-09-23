@@ -479,8 +479,21 @@ body {
   transition: opacity 160ms ease-out;
 }
 .rl-world--3d .rl-world__town[data-placed='1'] { opacity: 1; }
-.rl-world--3d .rl-world__town:has(.rl-world__townlink):hover {
+/* `[data-hover='1']` (Task 9, `worldmap3d.ts`) is the keyboard twin of
+   `:hover` -- a real Tab has no CSS pseudo-class of its own here, so the
+   affordance a mouse gets from `:hover` has to be reachable from JS too. */
+.rl-world--3d .rl-world__town:has(.rl-world__townlink):hover,
+.rl-world--3d .rl-world__town:has(.rl-world__townlink)[data-hover='1'] {
   transform: translate(0.875rem, calc(-50% + var(--dy, 0px))) scale(1.08);
+}
+/* A locked or empty pin has no link to move under the cursor -- same rule
+   as the flat board's twin comment above: only a town you can actually
+   open moves. Its hover preview is real all the same (the single most
+   useful preview on this screen, per Task 9), so the ring brightens
+   instead of staying inert. */
+.rl-world--3d .rl-world__town:not(:has(.rl-world__townlink))[data-hover='1']::after {
+  border-color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 /* The leader's horizontal anchor for THIS board -- beside the pin, not
    centred on it, so the generic rule's 50% is wrong here. Every other leader
