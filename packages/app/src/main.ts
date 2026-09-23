@@ -91,6 +91,7 @@ import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
+import { focusTrap } from './ui/focus-trap';
 import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
@@ -2360,11 +2361,25 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // resolved the strip's own button vanished and nothing could close it.
   let objectivesHandle: { el: HTMLElement; refresh(): void; dispose: Disposer } | null = null;
   let objectivesOpen = false;
+  // Task 8 (R-9, P19): a fourth overlay `focusTrap` closes, and the one whose
+  // wiring point is NOT "at mount" -- `objectivesHandle` above is built once
+  // and toggled with `.hidden` from then on, so a trap installed alongside
+  // it would stay live (and keep capturing Tab) for the rest of the mission
+  // after the tracker's first open. Installed in `openObjectives`, disposed
+  // in `closeObjectives`, so it exists only while the panel is actually
+  // visible -- and the `onDispose` below is a safety net for a soft leave
+  // that tears the whole battlefield down while the tracker happens to be
+  // open, so this `window` listener can never outlive the mission that
+  // created it.
+  let objectivesTrapDispose: Disposer | null = null;
+  onDispose(() => objectivesTrapDispose?.());
   const closeObjectives = (): void => {
     if (!objectivesOpen) return;
     objectivesOpen = false;
     if (objectivesHandle) objectivesHandle.el.hidden = true;
     hud.setObjectivesOpen(false);
+    objectivesTrapDispose?.();
+    objectivesTrapDispose = null;
   };
   const openObjectives = (): void => {
     if (!objectivesHandle) {
@@ -2385,6 +2400,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     objectivesOpen = true;
     objectivesHandle.el.hidden = false;
+    objectivesTrapDispose = focusTrap(objectivesHandle.el);
     // Refreshed on the way IN, not the way out -- a closed tracker never
     // paints again until it is reopened, and the tick loop below only calls
     // `refresh()` again while `objectivesOpen` stays true.

@@ -13,6 +13,7 @@
 // band is `.rl-panel__band`, which `panel()` already builds.
 
 import { t } from '../i18n/t';
+import { focusTrap } from './focus-trap';
 import { panel } from './panel';
 
 export interface ConfirmOptions {
@@ -140,6 +141,11 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): ConfirmH
 
     const p = panel({ rank: opts.danger ? 'alert' : 'inspect', title: opts.title });
     p.el.classList.add('rl-confirm__panel');
+    // Installed here, right after `opener` is captured above and before the
+    // body/buttons are appended: it queries `p.el` for its own focusable
+    // descendants at KEYPRESS time, not now, so the two buttons appended
+    // below are covered with no ordering requirement on this line at all.
+    const disposeTrap = focusTrap(p.el);
 
     const body = document.createElement('p');
     body.className = 'rl-confirm__body';
@@ -173,6 +179,7 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): ConfirmH
       if (openCancel === cancel) openCancel = null;
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('keydown', onCaptureKey, true);
+      disposeTrap();
       scrim.remove();
       opener?.focus();
       resolve(v);
@@ -200,9 +207,10 @@ export function confirmDialog(host: HTMLElement, opts: ConfirmOptions): ConfirmH
     // dialog's OWN cancel (`onKey` above, a bubble listener on the same
     // target -- stopping propagation for Escape too would block it from
     // ever reaching itself), Enter activates whichever button has focus,
-    // and Tab/Shift+Tab (both carry `key === 'Tab'`) are the browser's
-    // native focus movement, which nothing here traps (Minor 10 -- a
-    // separate, already-recorded gap).
+    // and Tab/Shift+Tab (both carry `key === 'Tab'`) are `focusTrap`'s job
+    // now (installed above, right after the panel is built), not this
+    // guard's -- it only cycles focus within the panel and does nothing
+    // else, so this guard has nothing left to add.
     const onCaptureKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape' || e.key === 'Enter' || e.key === 'Tab') return;
       e.stopPropagation();

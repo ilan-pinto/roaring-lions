@@ -28,10 +28,17 @@
  * binding (read live, so a rebind still closes it). No pan-key exemption --
  * this is a reference card over a mission, not `pause.ts`'s "modal over a
  * world that keeps drawing while the sim stops".
+ *
+ * Task 8 (R-9): Tab used to fall straight through the guard above with
+ * nothing catching it -- the browser has no native tab order to fall back
+ * on either, since this is a plain `<div>` scrim, not a `<dialog>`. `focusTrap`
+ * (installed right after the panel is built, below) is what actually cycles
+ * focus within the card now.
  */
 import { ACTIONS, keyLabel, resolveKey, type Bindings } from '../input/keymap';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
+import { focusTrap } from './focus-trap';
 import { panel } from './panel';
 
 export interface KeysOverlayDeps {
@@ -80,6 +87,11 @@ export function showKeysOverlay(host: HTMLElement, deps: KeysOverlayDeps): Dispo
 
   const p = panel({ rank: 'inspect', title: t('keys.title') });
   p.el.classList.add('rl-keys__panel');
+  // Installed here, before the close button and the row list exist: it
+  // queries `p.el` for its own focusable descendants at KEYPRESS time, not
+  // now, so every row appended below is covered with no ordering requirement
+  // on this line.
+  const disposeTrap = focusTrap(p.el);
 
   const close = document.createElement('button');
   close.type = 'button';
@@ -95,16 +107,27 @@ export function showKeysOverlay(host: HTMLElement, deps: KeysOverlayDeps): Dispo
   const bindings = deps.bindings();
   for (const a of ACTIONS) {
     const key = keyLabel(bindings[a.id]);
-    const cap = a.modifier === 'ctrl' ? `${t('keymap.modifier.ctrl')}${key}` : key;
+    // One catalogue call for the WHOLE keycap, not a modifier fragment
+    // resolved through `t()` on its own and then glued to a bare, untranslated
+    // key: `keymap.modifier.ctrl` ("Ctrl + ") is `settings-keymap.ts`'s own
+    // key and stays exactly that for its caller, but composing THIS keycap
+    // that way is the concatenation-around-`t()` shape the i18n validator's
+    // sink-adjacent regex cannot see -- under the pseudo-locale the modifier
+    // half comes back bracketed and the key half does not, so the two read as
+    // separate words glued together. `keymap.cap.ctrl` takes the key as its
+    // own `{key}` param, so the whole string is formatted and then
+    // pseudo-transformed as ONE unit.
+    const cap = a.modifier === 'ctrl' ? t('keymap.cap.ctrl', { key }) : key;
     row(list, a.label, cap, { action: a.id });
   }
   for (const u of UNBOUND_KEYS) {
     row(list, u.label, t(u.keys), { fixed: true });
   }
 
-  // Minor (fix round 1): remembered on show, restored on close/dispose when
-  // still connected -- a full focus trap is deferred, this is just "give the
-  // keyboard back to whatever had it". Mirrors `confirmDialog`'s `opener`.
+  // Remembered on show, restored on close/dispose when still connected.
+  // Mirrors `confirmDialog`'s `opener`. `focusTrap` above now owns
+  // Tab/Shift+Tab while the card is open; this is only what hands the
+  // keyboard back once it closes.
   const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
   scrim.appendChild(p.el);
@@ -135,13 +158,13 @@ export function showKeysOverlay(host: HTMLElement, deps: KeysOverlayDeps): Dispo
   };
   // See `pause.ts`'s `onCaptureKey` for the phase reasoning this mirrors.
   // Escape and Tab pass through untouched (Escape is this dialog's own
-  // cancel above, a bubble listener on the same target; Tab is the browser's
-  // native focus movement, which nothing here traps), and so does the
-  // overlay's own binding, which needs to reach `onKey` above to close it.
-  // Every other key -- game verbs, the control-group digits, everything --
-  // is swallowed: unlike `pause.ts` there is no pan-key exemption, because
-  // this is a reference card over a mission, not a modal over a world that
-  // keeps drawing while the sim stops.
+  // cancel above, a bubble listener on the same target; Tab is `focusTrap`'s
+  // job now, not this guard's), and so does the overlay's own binding, which
+  // needs to reach `onKey` above to close it. Every other key -- game verbs,
+  // the control-group digits, everything -- is swallowed: unlike `pause.ts`
+  // there is no pan-key exemption, because this is a reference card over a
+  // mission, not a modal over a world that keeps drawing while the sim
+  // stops.
   const onCaptureKey = (ev: KeyboardEvent): void => {
     if (ev.key === 'Escape' || ev.key === 'Tab' || isOwnKey(ev)) return;
     ev.stopPropagation();
@@ -156,6 +179,7 @@ export function showKeysOverlay(host: HTMLElement, deps: KeysOverlayDeps): Dispo
   return () => {
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('keydown', onCaptureKey, true);
+    disposeTrap();
     scrim.removeEventListener('click', onScrimClick);
     scrim.remove();
     if (opener?.isConnected) opener.focus();
