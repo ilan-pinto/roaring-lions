@@ -62,6 +62,7 @@
  * `.rl-outcome` has to join `isDialogOpen()`'s selector (see `confirm.ts`'s
  * updated doc comment).
  */
+import type { MissionJson } from '@lions/sim';
 import { t } from '../i18n/t';
 import { focusTrap } from './focus-trap';
 import { panel } from './panel';
@@ -74,6 +75,13 @@ export interface OutcomeMomentOptions {
   /** The mission's own closing sentence, if it has one (GDD §11's story
    *  voice) -- entirely absent, not an empty paragraph, when it does not. */
   line?: string;
+  /** The mission's `aftermath` -- the victory narration a mission may
+   *  author, drawn directly under the verdict, as text. The HUD's end banner
+   *  used to be the only thing that showed it, and it stands down for this
+   *  moment (final review, ruling 9, and its correction), so this is now its
+   *  one place. Absent, not an empty paragraph, when there is none. It buys
+   *  no hold of its own: `holdMs` is still the whole hold. */
+  aftermath?: string;
   holdMs?: number;
 }
 
@@ -94,6 +102,35 @@ export interface OutcomeMoment {
  *  count), because this single beat is the one the whole mission was for. */
 export const OUTCOME_HOLD_MS = 2600;
 
+/**
+ * What the moment says when `mission` has just ended in `result`: the one
+ * place `main.ts`'s `missionEnd` handler gets the moment's options from, so
+ * the choice is testable without booting `main.ts`, which no test can load.
+ *
+ * - `title`: the verdict, from the catalogue.
+ * - `line`: the mission's own outcome-specific closing sentence
+ *   (`debrief.victory`/`debrief.defeat`), the same `say` the end screen
+ *   quotes after this.
+ * - `aftermath`: victory only, and only when authored -- exactly the rule the
+ *   HUD banner drew it under (`mission.ts`'s own doc comment: "Shown on the
+ *   victory banner").
+ *
+ * No `holdMs`: the hold is `OUTCOME_HOLD_MS` whatever the text.
+ */
+export function outcomeMomentOptions(
+  result: 'victory' | 'defeat',
+  mission: Pick<MissionJson, 'aftermath' | 'debrief'>
+): OutcomeMomentOptions {
+  const say = result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
+  const aftermath = result === 'victory' ? mission.aftermath : undefined;
+  return {
+    outcome: result,
+    title: t(result === 'victory' ? 'outcome.victory' : 'outcome.defeat'),
+    ...(say !== undefined ? { line: say.text } : {}),
+    ...(aftermath ? { aftermath } : {}),
+  };
+}
+
 export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): OutcomeMoment {
   const el = document.createElement('div');
   el.className = 'rl-outcome rl-enter';
@@ -103,6 +140,16 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
 
   const p = panel({ rank: 'alert', title: o.title });
   p.el.classList.add('rl-outcome__panel');
+
+  // Narration first, directly under the verdict -- the order the banner
+  // drew it in -- then the speaker's own closing line. `textContent`, never
+  // markup: it is mission data.
+  if (o.aftermath !== undefined) {
+    const aftermath = document.createElement('p');
+    aftermath.className = 'rl-outcome__aftermath';
+    aftermath.textContent = o.aftermath;
+    p.body.appendChild(aftermath);
+  }
 
   if (o.line !== undefined) {
     const line = document.createElement('p');

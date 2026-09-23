@@ -83,9 +83,15 @@ function runMission(): RoundTrip {
   return { live, produced, result: rt.result, aliveAtEnd: fielded >= 0 && sim.state.alive[fielded] === 1 };
 }
 
+// 30 s, the same budget every other headless run-to-end test here carries
+// as `{ timeout: 30_000 }`: a mission run to its end is legitimately long --
+// thousands of real sim ticks -- and a run of this kind measured 7.7 s under
+// a loaded `pnpm test`. The run lives in this hook rather than in a test, so
+// the budget goes on the hook (whose own default is 10 s); a hook takes it as
+// a number, not an options object. A hang is `runToEnd`'s own to report.
 beforeAll(() => {
   trip = runMission();
-});
+}, 30_000);
 
 describe('a slot survives the sim it was never declared to', () => {
   it('is readable through rosterEntryOf on a fielded unit, and dropped by checkEnd', () => {

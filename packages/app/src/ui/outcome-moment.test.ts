@@ -1,8 +1,11 @@
 // packages/app/src/ui/outcome-moment.test.ts
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { applyMissionLocale, missions } from '@lions/data';
+import type { MissionJson } from '@lions/sim';
+import { t } from '../i18n/t';
 import { isDialogOpen } from './confirm';
-import { OUTCOME_HOLD_MS, outcomeMoment } from './outcome-moment';
+import { OUTCOME_HOLD_MS, outcomeMoment, outcomeMomentOptions } from './outcome-moment';
 
 let host: HTMLElement;
 beforeEach(() => {
@@ -178,6 +181,88 @@ describe('outcomeMoment', () => {
     const b = outcomeMoment(host, { outcome: 'victory', title: 'x' });
     expect(b.el.querySelector('.rl-outcome__line')).toBeNull();
     b.dismiss();
+  });
+
+  // Final review, ruling 9's correction. The HUD's end banner stood down for
+  // this moment, and it was the only thing that drew a mission's `aftermath`
+  // -- the victory narration four arc finales author. So the moment carries
+  // it, directly under the verdict, as TEXT: an authored `<b>` shows as the
+  // characters it is, never as markup.
+  it('carries the aftermath under the verdict as text, and omits the element when there is none', () => {
+    const a = outcomeMoment(host, {
+      outcome: 'victory',
+      title: 'x',
+      line: 'The town is ours.',
+      aftermath: 'The corridor is <b>cut</b>.',
+    });
+    const after = a.el.querySelector('.rl-outcome__aftermath');
+    expect(after?.textContent).toBe('The corridor is <b>cut</b>.');
+    expect(after?.querySelector('b')).toBeNull();
+    // First in the body: directly under the verdict, above the closing line.
+    expect(a.el.querySelector('.rl-panel__body')?.firstElementChild).toBe(after);
+    a.dismiss();
+    const b = outcomeMoment(host, { outcome: 'victory', title: 'x', line: 'The town is ours.' });
+    expect(b.el.querySelector('.rl-outcome__aftermath')).toBeNull();
+    b.dismiss();
+  });
+
+  // The aftermath is a paragraph, and it must not buy itself a longer hold
+  // (or a shorter one) -- nor stop the reduced-motion path keeping the whole
+  // hold. Both ends of the window, the way the reduced-motion test above
+  // pins them, at the shipped `OUTCOME_HOLD_MS`.
+  it('an aftermath neither shortens nor lengthens the hold, reduced motion or not', async () => {
+    for (const motion of ['full', 'reduce'] as const) {
+      if (motion === 'reduce') document.documentElement.dataset.motion = 'reduce';
+      const m = outcomeMoment(host, { outcome: 'victory', title: 'x', aftermath: 'The corridor is cut.' });
+      try {
+        expect(m.el.querySelector('.rl-outcome__aftermath'), `${motion}: the aftermath is shown`).not.toBeNull();
+        let settled = false;
+        void m.done.then(() => {
+          settled = true;
+        });
+        vi.advanceTimersByTime(OUTCOME_HOLD_MS - 1);
+        await Promise.resolve();
+        expect(settled, `${motion}: settled early`).toBe(false);
+        vi.advanceTimersByTime(2);
+        await Promise.resolve();
+        expect(settled, `${motion}: never settled`).toBe(true);
+      } finally {
+        m.dismiss();
+        delete document.documentElement.dataset.motion;
+      }
+    }
+  });
+
+  // The same path `main.ts` takes, from a shipped finale's own JSON:
+  // `applyMissionLocale` (with no overlay, as for `en`), then
+  // `outcomeMomentOptions`, which is the whole of what the `missionEnd`
+  // handler hands `outcomeMoment` -- `main.ts` boots on import and no test
+  // can load it, so the choice of what the moment says lives in this helper.
+  // `wadi_halam_5_depot` closes the Wadi Halam arc.
+  it('a finale’s aftermath reaches the moment through the options main.ts builds', () => {
+    const raw = (missions as Record<string, MissionJson | undefined>).wadi_halam_5_depot;
+    if (raw === undefined) throw new Error('fixture: wadi_halam_5_depot is gone');
+    const mission = applyMissionLocale(raw, null);
+    expect(mission.aftermath, 'premise: the finale authors an aftermath').toMatch(/^The corridor is cut\./);
+
+    const won = outcomeMomentOptions('victory', mission);
+    expect(won).toEqual({
+      outcome: 'victory',
+      title: t('outcome.victory'),
+      line: mission.debrief?.victory?.text,
+      aftermath: mission.aftermath,
+    });
+    // No hold of its own: the moment keeps `OUTCOME_HOLD_MS`.
+    expect('holdMs' in won).toBe(false);
+    const m = outcomeMoment(host, won);
+    expect(m.el.querySelector('.rl-outcome__aftermath')?.textContent).toBe(mission.aftermath);
+    m.dismiss();
+
+    // Victory narration, exactly as the banner drew it: never on a defeat.
+    const lost = outcomeMomentOptions('defeat', mission);
+    expect('aftermath' in lost).toBe(false);
+    expect(lost.title).toBe(t('outcome.defeat'));
+    expect(lost.line).toBe(mission.debrief?.defeat?.text);
   });
 
   // Binding scan (M4): the brief's own draft focuses the ONE focusable
