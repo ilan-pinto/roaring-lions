@@ -9,8 +9,11 @@ import {
   VEHICLE_MOVE_ON_SPEED_TILES_S,
   VEHICLE_MOVE_OFF_SPEED_TILES_S,
   VEHICLE_DUST_FULL_SPEED_TILES_S,
+  VEHICLE_DUST_INTERVAL_MS,
+  VEHICLE_DUST_MIN_INTERVAL_MS,
   nextVehicleMoving,
   vehicleDustMagnitude,
+  vehicleDustIntervalMs,
   vehicleFxAnchor,
 } from './vehicle-fx';
 
@@ -94,5 +97,56 @@ describe('vehicleFxAnchor', () => {
     const far = vehicleFxAnchor(0, 0, 0, 2);
     expect(far.x).toBeLessThan(near.x); // further behind (more negative x) facing east
     expect(far.dirTurns).toBeCloseTo(near.dirTurns);
+  });
+});
+
+describe('the dust cadence follows the speed (R-O)', () => {
+  // The defect, stated as a test: before this, these two were equal.
+  it('lays dust faster the faster the vehicle goes', () => {
+    const crawl = vehicleDustIntervalMs(1.1, 0); // mbt_lavi at cruise
+    const sprint = vehicleDustIntervalMs(2.6, 0); // technical at cruise
+    expect(sprint).toBeLessThan(crawl);
+  });
+
+  it('is monotone across the whole roster range', () => {
+    let previous = Infinity;
+    for (const s of [0.2, 0.5, 1.0, 1.3, 1.8, 2.0, 2.6, 3.4]) {
+      const ms = vehicleDustIntervalMs(s, 0);
+      expect(ms).toBeLessThanOrEqual(previous);
+      previous = ms;
+    }
+  });
+
+  // Today's behaviour, kept exactly at today's reference speed, so the
+  // existing ambient-FX suite and the `vehicle` golden frame both stay put.
+  it('equals the shipped constant at the reference speed', () => {
+    expect(vehicleDustIntervalMs(VEHICLE_DUST_FULL_SPEED_TILES_S, 0)).toBeCloseTo(
+      VEHICLE_DUST_INTERVAL_MS,
+      6
+    );
+  });
+
+  // FRAME_DT_CEILING_MS is 100 and the accumulator gains at most that per
+  // frame. An interval under it means one frame can cross it more than once,
+  // and a `while` loop there is how the 2026-09-18 emission backlog spent
+  // itself one puff per CALL. The floor is what keeps the spend single.
+  it('never asks for an interval the frame clamp cannot deliver singly', () => {
+    for (const s of [0.2, 1.0, 2.6, 3.4, 99]) {
+      expect(vehicleDustIntervalMs(s, 1)).toBeGreaterThan(100);
+    }
+    expect(VEHICLE_DUST_MIN_INTERVAL_MS).toBeGreaterThan(100);
+  });
+
+  // The launch surge: the moment a vehicle breaks traction is the moment it
+  // throws the most dust, and this is the first time the renderer has had an
+  // acceleration signal to hang that on (Task 3's model).
+  it('throws more dust under acceleration than at the same speed cruising', () => {
+    expect(vehicleDustIntervalMs(1.1, 1)).toBeLessThan(vehicleDustIntervalMs(1.1, 0));
+  });
+
+  it('ignores an out-of-range acceleration fraction rather than inverting on it', () => {
+    expect(vehicleDustIntervalMs(1.1, 5)).toBeGreaterThan(0);
+    expect(vehicleDustIntervalMs(1.1, -5)).toBeGreaterThan(0);
+    expect(vehicleDustIntervalMs(1.1, -5)).toBeLessThanOrEqual(vehicleDustIntervalMs(1.1, 0));
   });
 });
