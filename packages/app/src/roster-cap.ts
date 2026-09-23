@@ -75,9 +75,21 @@ export function rosterOrder(a: RosterEntry, b: RosterEntry): number {
 
 /**
  * The cap, the reserve and the one-time backfill (WP-G-E2, GH-174). Takes the
- * WHOLE brigade -- `active` plus whatever is already `reserve` -- sorts it by
+ * WHOLE brigade -- `active` plus whatever is already `reserve` -- ranks it by
  * `rosterOrder` (never in place: both input arrays are the ledger's own, and
- * `main.ts` still holds them after this call returns), and slices at `cap`.
+ * `main.ts` still holds them after this call returns), and keeps the first
+ * `cap` of that ranking.
+ *
+ * **The ranking decides WHO stays, never the order they stand in.** The kept
+ * entries come back in their INPUT order -- `active`'s first, then any
+ * recalled `reserve` entries after them -- because pool order is gameplay:
+ * `spawnPlacement` draws the first entry of each type in pool order
+ * (`mission.ts:1262`), so re-sorting the active list would field the most
+ * veteran unit of every type first on every victory, a change `pnpm playtest`
+ * cannot see (it never runs this seam; final review, Important 2). A cap that
+ * does not bind therefore changes nothing at all. The reserve comes back in
+ * ranking order, which is the order its entries would be recalled in; nothing
+ * draws from it, so its order is a record and not a mechanic.
  *
  * **Recomputed from the whole population on every write.** That is what lets
  * a reserve entry come back once losses drop the active list below the cap
@@ -89,13 +101,22 @@ export function rosterOrder(a: RosterEntry, b: RosterEntry): number {
  *
  * Length-preserving over its two inputs, always (GH-174: overflow is never
  * deleted) -- `active.length + reserve.length` in equals
- * `got.active.length + got.reserve.length` out, for any split.
+ * `got.active.length + got.reserve.length` out, for any split. Membership is
+ * decided by POSITION in the combined input, not by object identity, so an
+ * object that somehow appears twice is still counted twice.
  */
 export function splitRoster(
   active: readonly RosterEntry[],
   reserve: readonly RosterEntry[],
   cap: number = ROSTER_CAP,
 ): { active: RosterEntry[]; reserve: RosterEntry[] } {
-  const sorted = [...active, ...reserve].sort(rosterOrder);
-  return { active: sorted.slice(0, cap), reserve: sorted.slice(cap) };
+  const all = [...active, ...reserve];
+  // `sort` is stable, so ranking indices by `rosterOrder` ranks the entries
+  // exactly as sorting the entries themselves would.
+  const ranked = all.map((_, i) => i).sort((i, j) => rosterOrder(all[i], all[j]));
+  const kept = new Set(ranked.slice(0, cap));
+  return {
+    active: all.filter((_, i) => kept.has(i)),
+    reserve: ranked.slice(cap).map((i) => all[i]),
+  };
 }

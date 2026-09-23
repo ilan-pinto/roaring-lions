@@ -95,13 +95,20 @@ export function appendLost(lost: readonly LostRecord[], fresh: readonly LostReco
  * own, in the same order and the same length -- `reserve` is never returned
  * or altered.
  *
+ * **Recency is ARRAY ORDER, never `tick`.** `roster.lost` is append-only
+ * (`appendLost`), so a later record is a later loss; `tick` is the sim's
+ * count WITHIN one mission and restarts at 0 every time a mission boots, so a
+ * death late in a long mission carries a higher tick than a death early in
+ * the next one. Ordering by it offered the older vacancy first (final review,
+ * Important 1).
+ *
  * A vacancy is one per SLOT, not one per memorial record: a slot lost twice
- * with no refill in between is still a single place, and the most recent of
- * its unheld chapters is the one offered (`predecessorOf`'s own rule, applied
- * here to decide ordering rather than to answer a query). Vacancies are then
- * offered newest-first, and each is consumed by the first still-slotless
- * entry of its type in `roster`'s own order -- so a body can take at most one
- * vacancy, and a vacancy can be given to at most one body.
+ * with no refill in between is still a single place, and its LAST unheld
+ * record is the one offered (`predecessorOf`'s own rule, applied here to
+ * decide ordering rather than to answer a query). Vacancies are then offered
+ * newest-first, and each is consumed by the first still-slotless entry of its
+ * type in `roster`'s own order -- so a body can take at most one vacancy, and
+ * a vacancy can be given to at most one body.
  */
 export function fillVacancies(
   roster: readonly RosterEntry[],
@@ -112,13 +119,16 @@ export function fillVacancies(
   for (const entry of roster) if (entry.slot !== undefined) held.add(entry.slot);
   for (const entry of reserve) if (entry.slot !== undefined) held.add(entry.slot);
 
-  const bySlot = new Map<number, LostRecord>();
-  for (const record of lost) {
-    if (held.has(record.slot)) continue;
-    const current = bySlot.get(record.slot);
-    if (current === undefined || record.tick > current.tick) bySlot.set(record.slot, record);
+  // Walked from the END, so the first record met for a slot is its last, and
+  // the list comes out newest-first with no sort at all.
+  const offered = new Set<number>();
+  const vacancies: LostRecord[] = [];
+  for (let i = lost.length - 1; i >= 0; i--) {
+    const record = lost[i];
+    if (held.has(record.slot) || offered.has(record.slot)) continue;
+    offered.add(record.slot);
+    vacancies.push(record);
   }
-  const vacancies = [...bySlot.values()].sort((a, b) => b.tick - a.tick);
 
   const out = roster.map((entry) => ({ ...entry }));
   for (const vacancy of vacancies) {
@@ -133,15 +143,11 @@ export function fillVacancies(
 }
 
 /** The most recent chapter of a slot's history, or `undefined` if that slot
- *  has never been lost. Ties (impossible today -- `tick` is the sim's own
- *  monotone clock and two deaths cannot share both a slot and a tick) would
- *  resolve to whichever the scan sees last; nothing in this repository can
- *  construct that state. */
+ *  has never been lost: the LAST record for it in `roster.lost`, which is
+ *  append-only and therefore in the order the losses happened. Not the
+ *  highest `tick` -- `tick` restarts at 0 every mission, so it orders two
+ *  deaths inside one mission and nothing across two. */
 export function predecessorOf(lost: readonly LostRecord[], slot: number): LostRecord | undefined {
-  let result: LostRecord | undefined;
-  for (const record of lost) {
-    if (record.slot !== slot) continue;
-    if (result === undefined || record.tick >= result.tick) result = record;
-  }
-  return result;
+  for (let i = lost.length - 1; i >= 0; i--) if (lost[i].slot === slot) return lost[i];
+  return undefined;
 }
