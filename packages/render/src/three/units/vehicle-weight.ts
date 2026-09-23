@@ -210,7 +210,17 @@ export function terrainRollRad(leftGroundY: number, rightGroundY: number, widthW
  * and what makes a stop dive, pass level once and come to rest. It is not a
  * bounce: at cruise its rest point is zero and it sits there, exactly.
  * `settleSeconds` is its 2% settling time (`omega = 4 / (zeta * settleSeconds)`)
- * and `settleDamping` its damping ratio.
+ * and `settleDamping` its damping ratio, never below 0.5.
+ *
+ * **`maxPitchRad` is the pitch a standing start DRAWS**, not the rest point.
+ * A spring pulled toward a rest point for `accelSeconds` and then released
+ * peaks wherever its other two numbers put it -- measured before this rule,
+ * a light table drew 0.446 of its authored pitch and the heavy one overshot
+ * and sat on the output clamp for ten frames. So the rest point is scaled by
+ * `1 / launchPeak(...)`, the spring's own closed-form peak for exactly that
+ * launch, and a standing start peaks at the authored number with the clamp
+ * idle. A smaller speed change (a pin, an arrival) is a shorter pulse and
+ * draws proportionately less.
  *
  * **Roll needs no constant, because the sim already rate-limits yaw.**
  * `turnToward` clamps every facing change to `turnPerTick`, from each unit's
@@ -229,6 +239,20 @@ export function terrainRollRad(leftGroundY: number, rightGroundY: number, widthW
  * `(sin, -cos)` of the heading, which at facing 0 is game -y, world -Z: with
  * world Y up, that is the hull's PHYSICAL left. Compose by the corner, not by
  * the name.) Flipping `ROLL_TO_OUTSIDE` leans into the turn instead.
+ *
+ * **The heading is a staircase, so the yaw rate takes two stages.** `facing`
+ * changes once per 20 Hz tick: the heading this model sees is three frames
+ * flat and then a step. A yaw rate read off one first-order stage jumps on
+ * every step -- measured at half the turn rate, 4.8% of max roll peak to peak
+ * on the heavy table and 27.6% on the ceiling one, each jump landing in a
+ * single frame. So the heading passes through two equal first-order stages
+ * (`smoothedHeading`, then `smoothedYawRate`, which is the first stage's
+ * derivative low-passed), each `accelSeconds / 2` but never faster than two
+ * sim ticks -- a stage no slower than the step it smooths passes most of the
+ * step straight through. After: 0.5% on the heavy table and 1.4% at the
+ * floor. The roll is read from the second stage's STATE, never
+ * from the current input, so a frozen frame draws exactly the roll it drew
+ * before even while the sim turns the unit underneath the hit-stop.
  *
  * **The heading wrap is not optional.** Facing is 0..1 turns and wraps, so a
  * yaw rate computed without the `stepTurretFacing` +/-0.5 adjustment reads a
@@ -296,7 +320,11 @@ export interface VehicleWeightOutput {
  *  before the next call, or pass your own. */
 export interface VehicleWeightArrays {
   smoothedSpeed: Float64Array;
+  /** The heading's first smoothing stage, 0..1 turns. */
   smoothedHeading: Float64Array;
+  /** The second stage: the first stage's derivative, low-passed, turns/s.
+   *  The roll is read from this -- the spec's `roll` state. */
+  smoothedYawRate: Float64Array;
   lagX: Float64Array;
   lagY: Float64Array;
   settle: Float64Array;
@@ -335,10 +363,20 @@ const MAX_STEP_SECONDS = 0.1;
  *  slot, is hundreds of tiles a second. Such a sample holds the ramp where it
  *  is. 1.5 clears the Q16.16 rounding by three orders of magnitude. */
 const OVERSPEED_CEILING = 1.5;
-/** Sanitising range for `settleDamping`, well outside anything authored: at 0
- *  the spring would never come to rest, and a negative ratio grows. */
-const SETTLE_DAMPING_MIN = 0.2;
+/** Sanitising range for `settleDamping`. At 0 the spring would never come to
+ *  rest and a negative ratio grows; the floor is 0.5 rather than anything
+ *  lower because 0.2 was measured ringing through fourteen zero-crossings and
+ *  counter-pitching 50.7% of max on a stop. At 0.5 the second overshoot is
+ *  2.7% of the first, under anything visible. */
+const SETTLE_DAMPING_MIN = 0.5;
 const SETTLE_DAMPING_MAX = 4;
+/** The sim's tick period, `1 / SIM_HZ`: the step of the heading staircase. */
+const HEADING_STEP_SECONDS = 1 / 20;
+/** The floor under each heading stage's time constant: two steps. Measured at
+ *  half the turn rate on the fastest swept table, a floor of one step leaves
+ *  5.8% of max roll as 20 Hz ripple, one and a half 2.6%, two 1.4% -- and two
+ *  still leans the fastest table to 90% in 400 ms at its full turn rate. */
+const HEADING_STAGE_MIN_SECONDS = 2 * HEADING_STEP_SECONDS;
 /** Below this `settleSeconds` the spring is treated as rigid, rather than
  *  letting `omega` overflow. */
 const SETTLE_SECONDS_MIN = 1e-3;
@@ -354,6 +392,7 @@ export function makeVehicleWeightArrays(n: number): VehicleWeightArrays {
   return {
     smoothedSpeed: new Float64Array(n),
     smoothedHeading: new Float64Array(n),
+    smoothedYawRate: new Float64Array(n),
     lagX: new Float64Array(n),
     lagY: new Float64Array(n),
     settle: new Float64Array(n),
@@ -376,10 +415,10 @@ function clampUnit(x: number): number {
  * Advances entity `i`'s settle spring by `h` seconds toward the rest point
  * `rest`, in closed form: exact for a rest point held constant over `h`, so
  * the result does not depend on how `h` was divided into frames. Under-,
- * critically and over-damped share one expression through `c` and `s`
- * (`cos`/`sin(bh)/b`, their `h`-limit, or `cosh`/`sinh(ch)/c`); the
+ * critically and over-damped share one expression through `basisC` and
+ * `basisS` (`cos`/`sin(bh)/b`, their `h`-limit, or `cosh`/`sinh(ch)/c`); the
  * over-damped pair is formed from two decaying exponentials so it cannot
- * overflow however stiff the spring.
+ * overflow however stiff the spring. `launchPeak` reads the same two.
  */
 function propagateSettle(
   arrays: VehicleWeightArrays,
@@ -392,26 +431,73 @@ function propagateSettle(
   const x0 = arrays.settle[i] - rest;
   const v0 = arrays.settleVel[i];
   const a = zeta * omega;
-  let c: number;
-  let s: number;
-  if (zeta < 1 - 1e-6) {
-    const b = omega * Math.sqrt(1 - zeta * zeta);
-    const e = Math.exp(-a * h);
-    c = e * Math.cos(b * h);
-    s = (e * Math.sin(b * h)) / b;
-  } else if (zeta > 1 + 1e-6) {
-    const q = omega * Math.sqrt(zeta * zeta - 1);
-    const slow = Math.exp(-(a - q) * h);
-    const fast = Math.exp(-(a + q) * h);
-    c = (slow + fast) / 2;
-    s = (slow - fast) / (2 * q);
-  } else {
-    const e = Math.exp(-a * h);
-    c = e;
-    s = e * h;
-  }
+  const c = basisC(h, omega, zeta);
+  const s = basisS(h, omega, zeta);
   arrays.settle[i] = rest + x0 * c + (v0 + a * x0) * s;
   arrays.settleVel[i] = v0 * c - (a * v0 + omega * omega * x0) * s;
+}
+
+/** The free spring's two basis functions over `h` seconds, `C` and `S`, in
+ *  the one expression `propagateSettle` steps by: position `x0 C + (v0 + a x0) S`,
+ *  velocity `v0 C - (a v0 + omega^2 x0) S`. */
+function basisC(h: number, omega: number, zeta: number): number {
+  const a = zeta * omega;
+  if (zeta < 1 - 1e-6) return Math.exp(-a * h) * Math.cos(omega * Math.sqrt(1 - zeta * zeta) * h);
+  if (zeta > 1 + 1e-6) {
+    const q = omega * Math.sqrt(zeta * zeta - 1);
+    return (Math.exp(-(a - q) * h) + Math.exp(-(a + q) * h)) / 2;
+  }
+  return Math.exp(-a * h);
+}
+function basisS(h: number, omega: number, zeta: number): number {
+  const a = zeta * omega;
+  if (zeta < 1 - 1e-6) {
+    const b = omega * Math.sqrt(1 - zeta * zeta);
+    return (Math.exp(-a * h) * Math.sin(b * h)) / b;
+  }
+  if (zeta > 1 + 1e-6) {
+    const q = omega * Math.sqrt(zeta * zeta - 1);
+    return (Math.exp(-(a - q) * h) - Math.exp(-(a + q) * h)) / (2 * q);
+  }
+  return Math.exp(-a * h) * h;
+}
+
+/**
+ * The peak the settle spring reaches, per unit of rest point, when a standing
+ * start holds that rest point for `rampSeconds` (the whole 0 -> cruise ramp)
+ * and then releases it -- in closed form, so `maxPitchRad` can be made the
+ * number that is drawn. Two cases. An underdamped spring whose ramp outlasts
+ * its first peak (`pi / b`) peaks there, at `1 + exp(-a pi / b)`, the step
+ * response's own overshoot. Otherwise the spring is still rising when the
+ * ramp ends, and it coasts on toward 0 from that state until its velocity
+ * crosses zero: `tan(b t) = v b / k` underdamped, `t = v / k` critical, and
+ * `exp(-2 q t) = (k - v q) / (k + v q)` overdamped, with `k = a v + omega^2 x`.
+ * Only evaluated on a frame the ramp is running.
+ */
+function launchPeak(rampSeconds: number, omega: number, zeta: number): number {
+  const a = zeta * omega;
+  if (zeta < 1 - 1e-6) {
+    const firstPeak = Math.PI / (omega * Math.sqrt(1 - zeta * zeta));
+    if (rampSeconds >= firstPeak) return 1 + Math.exp(-a * firstPeak);
+  }
+  // Released from (x, v): the ramp began at rest one unit below its rest point.
+  const c = basisC(rampSeconds, omega, zeta);
+  const sb = basisS(rampSeconds, omega, zeta);
+  const x = 1 - c - a * sb;
+  const v = omega * omega * sb;
+  if (!(v > 0)) return x;
+  const k = a * v + omega * omega * x;
+  let t: number;
+  if (zeta < 1 - 1e-6) {
+    const b = omega * Math.sqrt(1 - zeta * zeta);
+    t = Math.atan2(v * b, k) / b;
+  } else if (zeta > 1 + 1e-6) {
+    const q = omega * Math.sqrt(zeta * zeta - 1);
+    t = -Math.log((k - v * q) / (k + v * q)) / (2 * q);
+  } else {
+    t = v / k;
+  }
+  return x * basisC(t, omega, zeta) + (v + a * x) * basisS(t, omega, zeta);
 }
 
 function writeIdentity(out: VehicleWeightOutput, trueX: number, trueY: number): VehicleWeightOutput {
@@ -466,7 +552,9 @@ export function stepVehicleWeight(
   // nothing in flight, and draws the identity.
   if (
     arrays.seeded[i] === 0 ||
-    !Number.isFinite(smoothedSpeed[i] + smoothedHeading[i] + lagX[i] + lagY[i] + settle[i] + settleVel[i])
+    !Number.isFinite(
+      smoothedSpeed[i] + smoothedHeading[i] + arrays.smoothedYawRate[i] + lagX[i] + lagY[i] + settle[i] + settleVel[i]
+    )
   ) {
     if (!headingKnown) {
       arrays.seeded[i] = 0;
@@ -474,6 +562,7 @@ export function stepVehicleWeight(
     }
     smoothedSpeed[i] = isMotion ? Math.min(rawSpeed, cruise) + 0 : 0;
     smoothedHeading[i] = heading;
+    arrays.smoothedYawRate[i] = 0;
     lagX[i] = 0;
     lagY[i] = 0;
     settle[i] = 0;
@@ -498,7 +587,7 @@ export function stepVehicleWeight(
   const landIn = dir === 0 || tau === 0 ? 0 : (Math.abs(gap) / cruise) * tau;
   const ramping = landIn > dt ? dt : landIn;
   const landed = landIn <= dt;
-  const s1 = landed ? target : s0 + (dir * cruise * dt) / tau;
+  const s1 = dt === 0 ? s0 : landed ? target : s0 + (dir * cruise * dt) / tau;
   smoothedSpeed[i] = s1;
   const accelNow = landed ? 0 : dir;
 
@@ -515,7 +604,12 @@ export function stepVehicleWeight(
   const settleSecondsIn = params.settleSeconds;
   if (settleSecondsIn > 0 && settleSecondsIn < Infinity) {
     const omega = 4 / (zeta * Math.max(settleSecondsIn, SETTLE_SECONDS_MIN));
-    if (ramping > 0) propagateSettle(arrays, i, dir * maxPitch, ramping, omega, zeta);
+    if (ramping > 0) {
+      // Scaled so a standing start DRAWS maxPitch: see the header.
+      const peak = launchPeak(tau, omega, zeta);
+      const gain = peak > 1e-12 ? 1 / peak : 1;
+      propagateSettle(arrays, i, dir * maxPitch * gain, ramping, omega, zeta);
+    }
     if (dt - ramping > 0 && (settle[i] !== 0 || settleVel[i] !== 0)) {
       propagateSettle(arrays, i, 0, dt - ramping, omega, zeta);
     }
@@ -523,7 +617,7 @@ export function stepVehicleWeight(
       settle[i] = 0;
       settleVel[i] = 0;
     }
-  } else {
+  } else if (dt > 0) {
     // No spring authored: the pitch IS the rest point (and will step).
     settle[i] = accelNow * maxPitch;
     settleVel[i] = 0;
@@ -531,23 +625,36 @@ export function stepVehicleWeight(
   const p = settle[i];
   const pitch = p > maxPitch ? maxPitch : p < -maxPitch ? -maxPitch : p;
 
-  // 4. Roll, from the smoothed heading's own derivative. The filter is solved
-  // in closed form as "how far behind the input it sits": `behind` decays by
-  // exp(-dt / tau), and the derivative of the smoothed heading is behind/tau.
+  // 4. Roll, from the heading's second smoothing stage. Both stages share one
+  // time constant and are solved together in closed form over the frame with
+  // the input heading held: `behind` (the input minus stage one) decays by
+  // e = exp(-dt / tauHeading), and stage two -- stage one's derivative,
+  // low-passed -- goes (yaw0 + behind0 dt / tauHeading^2) e. The roll reads
+  // stage two's STATE and nothing else, so a frozen frame holds it exactly.
+  const tauHeading = tau / 2 > HEADING_STAGE_MIN_SECONDS ? tau / 2 : HEADING_STAGE_MIN_SECONDS;
   const speedShare = s1 >= cruise ? 1 : s1 / cruise;
-  let yawRate = 0; // turns/s
-  if (headingKnown) {
-    let delta = heading - smoothedHeading[i];
-    if (delta > 0.5) delta -= 1;
-    if (delta < -0.5) delta += 1;
-    let behind = tau > 0 ? delta * Math.exp(-dt / tau) : 0;
-    if (Math.abs(behind) < REST_EPSILON) behind = 0;
-    if (dt > 0) {
+  const smoothedYawRate = arrays.smoothedYawRate;
+  if (dt > 0) {
+    let behind0 = 0;
+    if (headingKnown) {
+      behind0 = heading - smoothedHeading[i];
+      if (behind0 > 0.5) behind0 -= 1;
+      if (behind0 < -0.5) behind0 += 1;
+    }
+    const e = Math.exp(-dt / tauHeading);
+    let behind = behind0 * e;
+    let yaw = (smoothedYawRate[i] + (behind0 * dt) / (tauHeading * tauHeading)) * e;
+    if (Math.abs(behind) < REST_EPSILON && Math.abs(yaw) < REST_EPSILON) {
+      behind = 0;
+      yaw = 0;
+    }
+    if (headingKnown) {
       const h = heading - behind;
       smoothedHeading[i] = h - Math.floor(h);
     }
-    yawRate = tau > 0 ? behind / tau : 0;
+    smoothedYawRate[i] = yaw;
   }
+  const yawRate = smoothedYawRate[i]; // turns/s
   const turnRate = input.turnRateTurnsS;
   const roll =
     turnRate > 0 && turnRate < Infinity
