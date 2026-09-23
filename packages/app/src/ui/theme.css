@@ -1949,7 +1949,7 @@ body {
   text-transform: uppercase;
 }
 .rl-card__callsign { color: var(--commend); font-weight: 600; }
-.rl-card__record { font-size: var(--t-s); }
+.rl-card__record, .rl-card__replaces { font-size: var(--t-s); }
 .rl-card__hp {
   margin-left: auto;
   white-space: nowrap;
