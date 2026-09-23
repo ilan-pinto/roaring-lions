@@ -50,6 +50,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
+import { assertOutcomeStillPresent } from './outcome-guard';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -481,8 +482,21 @@ try {
     // dialog in FRONT of the end screen. Photograph it FIRST, then skip it --
     // without the skip the `.rl-endnav` wait below times out, which is how
     // this line was found.
-    await page.waitForSelector('.rl-outcome', { timeout: 15000 });
+    await page.waitForSelector('.rl-outcome[data-outcome="defeat"]', { timeout: 15000 });
     await shot(page, dir, '25-outcome-defeat');
+    // Fix round 1 (Task 6 review): `shot()` alone never checked that the
+    // moment was STILL the thing on screen by the time its pixels were
+    // rasterised. Under load, a real run captured this PNG after the
+    // moment's 2600ms hold had already elapsed and `showEndScreen` had
+    // already replaced it -- `outcome-guard.ts`'s header carries the full
+    // account. `outcomeMoment` has no intermediate "dismissing" state to
+    // check separately (its own header: `dismiss()` removes the node
+    // SYNCHRONOUSLY, unlike `titleCard`'s fade) -- presence is the whole
+    // check, and its absence here means the PNG just taken is mislabelled.
+    assertOutcomeStillPresent(
+      (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
+      '25-outcome-defeat'
+    );
     await page.click('.rl-outcome__skip');
     // `.rl-endnav` rather than a single `.rl-end` class: `showEndScreen`
     // (`ui/menu.ts`) builds its root from the shared `panel()` helper
@@ -559,6 +573,13 @@ try {
       }, PLAN);
       await winPage.waitForSelector('.rl-outcome[data-outcome="victory"]', { timeout: 15000 });
       await shot(winPage, dir, '24-outcome-victory');
+      // Fix round 1 (Task 6 review): same guard as the defeat capture above
+      // -- see its comment and `outcome-guard.ts`'s header for the failure
+      // this closes.
+      assertOutcomeStillPresent(
+        (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
+        '24-outcome-victory'
+      );
       await winCtx.close();
     }
   }
