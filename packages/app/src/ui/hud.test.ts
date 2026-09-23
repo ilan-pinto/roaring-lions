@@ -1562,6 +1562,27 @@ describe('top strip: the objectives control', () => {
   // the strip -- and since the button is rebuilt at 4 Hz, the attribute has
   // to be read back from `Hud`'s own stored flag on every rebuild rather
   // than written once and left to survive.
+  // Fix round 1 (review, minor): a button keeps focus after the click that
+  // pressed it, and Space is `jumpToAlert` -- which yields to a focused button
+  // (`shouldYieldSpace`), so after one mouse click Space toggled the tracker
+  // instead of jumping. A mouse click lets go (`detail > 0`, the same rule
+  // the dock's tiles follow); Enter or Space on a focused button arrives as a
+  // click with `detail` 0 and keeps it, so the keyboard stays where it was.
+  it('lets go of the objectives button after a mouse click, and keeps it after a key press', () => {
+    const opened: number[] = [];
+    const { host } = rig(mission(), { openObjectives: () => opened.push(1) });
+    const btn = (): HTMLButtonElement | null => host.querySelector('.rl-strip__more');
+    btn()?.focus(); // what the mousedown before a real click does
+    btn()?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    expect(opened).toEqual([1]);
+    expect(document.activeElement).not.toBe(btn());
+
+    btn()?.focus();
+    btn()?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    expect(opened).toEqual([1, 1]);
+    expect(document.activeElement).toBe(btn());
+  });
+
   it('setObjectivesOpen mirrors onto the button\'s own aria-expanded, both ways', () => {
     const { hud, host } = rig(mission());
     hud.onTick();
@@ -1746,7 +1767,8 @@ describe('the strip does not eat the keyboard', () => {
   };
 
   it('keeps focus on the same field, objective or control across rebuilds', () => {
-    const r = rig(mission({ roe: 80, logistics: 410, intel: 40 }));
+    const m = mission({ roe: 80, logistics: 410, intel: 40 });
+    const r = rig(m);
     for (const sel of [
       '[data-tip="conduct"]',
       '[data-tip="logistics"]',
@@ -1757,8 +1779,13 @@ describe('the strip does not eat the keyboard', () => {
       const before = r.host.querySelector<HTMLElement>(sel);
       before?.focus();
       expect(document.activeElement, `${sel} takes focus at all`).toBe(before);
-      rebuild(r);
-      rebuild(r);
+      // Both runs must have something new to draw, or (fix round 1) the
+      // rebuild keeps the node it has and this would prove nothing.
+      for (let i = 0; i < 2; i++) {
+        m.roe = (m.roe ?? 80) - 1;
+        m.logistics = (m.logistics ?? 410) + 1;
+        rebuild(r);
+      }
       const after = r.host.querySelector<HTMLElement>(sel);
       // Not the same node: the rebuild really happened, so this cannot pass
       // by the strip simply not having been touched.
@@ -1834,10 +1861,123 @@ describe('the strip does not eat the keyboard', () => {
     outside.tabIndex = 0;
     outside.dataset.tip = 'conduct';
     document.body.appendChild(outside);
-    outside.focus();
+    try {
+      outside.focus();
+      rebuild(r);
+      rebuild(r);
+      expect(document.activeElement).toBe(outside);
+    } finally {
+      outside.remove();
+    }
+  });
+
+  // Fix round 1 (review, Important). The restore's `focus()` fires `focusin`,
+  // and the strip's delegated tip opens on `focusin` -- so a field the MOUSE
+  // had clicked (it has `tabindex`, so a click focuses it) re-opened its tip
+  // on every rebuild after the pointer left, and kept it open until the
+  // player clicked the battlefield. Two answers: a rebuild with nothing new
+  // to draw keeps the node it already has, and one that does replace it hands
+  // focus over without opening a tip the old node did not have open.
+  const tip = (r: Rig): HTMLElement | null => r.host.querySelector<HTMLElement>('.rl-tip');
+  const pointerLeaves = (el: HTMLElement | null): void => {
+    el?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+  };
+
+  it('does not re-open a tip the pointer closed, when nothing changed', () => {
+    const r = rig(mission({ roe: 80 }));
+    const conduct = r.host.querySelector<HTMLElement>('[data-tip="conduct"]');
+    conduct?.focus();
+    pointerLeaves(conduct);
     rebuild(r);
     rebuild(r);
-    expect(document.activeElement).toBe(outside);
-    outside.remove();
+    expect(tip(r)?.hidden).toBe(true);
+  });
+
+  it('keeps the very node, not a copy, when a rebuild has nothing new to draw', () => {
+    const m = mission({ roe: 80, logistics: 410, intel: 40 });
+    const r = rig(m);
+    const conduct = r.host.querySelector<HTMLElement>('[data-tip="conduct"]');
+    conduct?.focus();
+    rebuild(r);
+    rebuild(r);
+    expect(r.host.querySelector('[data-tip="conduct"]')).toBe(conduct);
+    expect(document.activeElement).toBe(conduct);
+    // The two runs are judged separately: new logistics repaints the right
+    // half and leaves the left half's nodes -- and the focus on one -- alone.
+    m.logistics = 411;
+    rebuild(r);
+    expect(r.host.querySelector('[data-tip="logistics"]')?.textContent).toContain('411');
+    expect(r.host.querySelector('[data-tip="conduct"]')).toBe(conduct);
+  });
+
+  it('does not re-open a tip the pointer closed, when the field did change', () => {
+    const m = mission({ roe: 80 });
+    const r = rig(m);
+    const conduct = r.host.querySelector<HTMLElement>('[data-tip="conduct"]');
+    conduct?.focus();
+    pointerLeaves(conduct);
+    expect(tip(r)?.hidden).toBe(true);
+    m.roe = 79;
+    rebuild(r);
+    m.roe = 78;
+    rebuild(r);
+    const now = r.host.querySelector<HTMLElement>('[data-tip="conduct"]');
+    expect(now).not.toBe(conduct);
+    expect(document.activeElement).toBe(now);
+    expect(tip(r)?.hidden).toBe(true);
+    // Quiet for the restore only: the player's own next hover still opens it.
+    // A quiet flag left set would leave every strip tip dead for the mission.
+    now?.dispatchEvent(new Event('mouseover', { bubbles: true }));
+    expect(tip(r)?.hidden).toBe(false);
+  });
+
+  // The other half of the same rule: a tip that WAS open on the focused field
+  // follows it to the new node. jsdom fires no `focusout` when `innerHTML`
+  // removes the focused node, and some engines do -- which closes the tip
+  // before the successor is focused, so `refreshStripTip` has nothing left to
+  // re-point and only the restore itself can put it back. The wrapper below
+  // installs that engine behaviour for the length of the test.
+  it('carries a tip that was open over to the new node, even where removal fires focusout', () => {
+    const m = mission({ roe: 80 });
+    const r = rig(m);
+    withFocusoutOnRemoval(() => {
+      r.host.querySelector<HTMLElement>('[data-tip="conduct"]')?.focus();
+      expect(tip(r)?.hidden).toBe(false);
+      m.roe = 79;
+      rebuild(r);
+    });
+    const now = r.host.querySelector<HTMLElement>('[data-tip="conduct"]');
+    expect(document.activeElement).toBe(now);
+    expect(tip(r)?.hidden).toBe(false);
+    expect(now?.getAttribute('aria-describedby')).toBe(tip(r)?.id);
   });
 });
+
+/** For the length of `body`, fire `focusout` on the focused element whenever
+ *  an `innerHTML` write is about to remove it -- what some engines do and
+ *  jsdom does not. Restores the real accessor however `body` exits. */
+function withFocusoutOnRemoval(body: () => void): void {
+  const real = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+  const get = real?.get;
+  const set = real?.set;
+  if (!real || !get || !set) throw new Error('no innerHTML accessor on Element.prototype');
+  Object.defineProperty(Element.prototype, 'innerHTML', {
+    configurable: true,
+    enumerable: real.enumerable,
+    get(this: Element): string {
+      return get.call(this);
+    },
+    set(this: Element, html: string) {
+      const active = document.activeElement;
+      if (active !== null && active !== this && this.contains(active)) {
+        active.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }));
+      }
+      set.call(this, html);
+    },
+  });
+  try {
+    body();
+  } finally {
+    Object.defineProperty(Element.prototype, 'innerHTML', real);
+  }
+}

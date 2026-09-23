@@ -340,6 +340,20 @@ export class Hud {
   private lastStatus = new Map<string, string>();
   private lastRoe: number | null = null;
 
+  /** The markup `renderStrip` last wrote into `stripBody` and `stripInfo`.
+   *  A run whose new markup is identical is not rewritten, so its nodes --
+   *  and the keyboard focus or open tip on one of them -- survive the 4 Hz
+   *  rebuild untouched (Task 10, fix round 1). Null until the first paint. */
+  private paintedStripBody: string | null = null;
+  private paintedStripInfo: string | null = null;
+
+  /** True only for the length of the `focus()` call that hands focus to a
+   *  rebuilt node whose predecessor had NO tip open. That call fires
+   *  `focusin`, which the strip's delegated tip opens on; the resolver
+   *  answers null while this is set, so a restore never opens a tip by
+   *  itself -- only the player's own hover or focus does. */
+  private stripTipQuiet = false;
+
   /** Everything this HUD put directly on `host`, in append order, so
    *  `destroy()` has one list to walk rather than a hand-kept set of field
    *  names that goes stale the next time a pane is added. Filled at the single
@@ -430,8 +444,15 @@ export class Hud {
     // the listener outlives every rebuild the button underneath it goes
     // through.
     this.strip.addEventListener('click', (ev) => {
-      const btn = (ev.target as HTMLElement | null)?.closest('[data-open-objectives]');
+      const btn = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-open-objectives]');
       if (!btn) return;
+      // A MOUSE click lets go of the button (`detail` counts clicks; Enter or
+      // Space on a focused button arrives as a click with `detail` 0). Left
+      // focused, it takes Space -- `jumpToAlert` yields to a focused button
+      // (`shouldYieldSpace`) -- and the next Space toggles the tracker
+      // instead of jumping. The same "keep the keyboard on the battlefield"
+      // rule the dock's tiles and the speed chips follow (Task 10, fix round 1).
+      if (ev.detail > 0) btn.blur();
       this.deps.openObjectives?.();
     });
 
@@ -442,9 +463,11 @@ export class Hud {
     // element itself (`host` below): it is a node this HUD owns and removes
     // in `destroy()`, not `document.body`, which is what `host` (the
     // constructor parameter) actually is in the real app.
-    const stripTip = bindDelegatedTip(this.strip, (target) => this.stripTipHtml(target.dataset.tip), {
-      host: this.strip,
-    });
+    const stripTip = bindDelegatedTip(
+      this.strip,
+      (target) => (this.stripTipQuiet ? null : this.stripTipHtml(target.dataset.tip)),
+      { host: this.strip }
+    );
     this.tipDisposers.push(stripTip.dispose);
     this.refreshStripTip = stripTip.refresh;
 
@@ -883,12 +906,15 @@ export class Hud {
    *  `html` is set as `innerHTML`, and it is HTML on purpose: callers pass a
    *  `t()` result whose catalogue markup (`<b>…</b>`) is meant to render. So
    *  every value a caller interpolates that the catalogue did not write -- an
-   *  objective's `text`, a trigger's `label`, a unit's or a mission's `name`
-   *  -- goes through `escapeHtml` (`escape-html.ts`) before it reaches `t()`,
-   *  never after: `describeMissionEvent` in `main.ts`, `alertNotice`
-   *  (`mission-notice.ts`) and the dock's notes (`production.ts`) all do.
-   *  Schema-constrained ids (`^[a-z0-9_]+$`) cannot carry markup and are
-   *  interpolated as they are. */
+   *  objective's `text`, a trigger's `label`, a unit's or a mission's `name`,
+   *  a zone's name inside an ROE reason -- goes through `escapeHtml`
+   *  (`escape-html.ts`) before it reaches `t()`, never after:
+   *  `describeMissionEvent` in `main.ts`, `alertNotice` (`mission-notice.ts`),
+   *  `roeNotice` (`roe-notice.ts`) and the dock's notes (`production.ts`) all
+   *  do. What is interpolated unescaped is only a unit-type or structure id
+   *  (`e.unit`, the art- and mesh-failed ids), which `unit.schema.json` and
+   *  `structure.schema.json` pin to `^[a-z0-9_]+$` -- not every id is so
+   *  constrained (a map zone's name is not), so this is a list, not a rule. */
   note(html: string, tone: Tone = 'live'): void {
     const el = document.createElement('div');
     // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
@@ -1126,17 +1152,48 @@ export class Hud {
     // nothing: focus falls to <body>, the same place the keyboard goes when
     // any control it was on is removed, rather than onto a neighbour the
     // player never chose.
+    //
+    // Fix round 1 (review). Two more rules, both because the restore's
+    // `focus()` fires `focusin` and the strip's delegated tip OPENS on
+    // `focusin`. First, a run whose markup has not changed is not rewritten
+    // at all: the common rebuild keeps the very node, so there is no focus
+    // move, no tip, and nothing for a screen reader to announce again four
+    // times a second. Second, when a run is rewritten, the successor is
+    // focused QUIETLY unless the old node had its tip open (it carried
+    // `aria-describedby`) -- a field the mouse clicked has focus but no tip
+    // once the pointer has gone, and a restore must not open one. The check
+    // is read BEFORE the swap on purpose: an engine that fires `focusout` as
+    // the node is removed closes the tip mid-swap, so afterwards neither the
+    // tip nor `refreshStripTip` would still know it had been open.
+    const bodyHtml = rows.join('');
+    const infoHtml = info.join('');
+    const bodyStale = bodyHtml !== this.paintedStripBody;
+    const infoStale = infoHtml !== this.paintedStripInfo;
     const active = document.activeElement;
-    const refocus =
-      active !== null && (this.stripBody.contains(active) || this.stripInfo.contains(active))
-        ? stripFocusSelector(active)
-        : null;
-    this.stripBody.innerHTML = rows.join('');
-    this.stripInfo.innerHTML = info.join('');
+    const holding = active !== null && (this.stripBody.contains(active) || this.stripInfo.contains(active));
+    const refocus = holding ? stripFocusSelector(active) : null;
+    const tipWasOpen = holding && active.hasAttribute('aria-describedby');
+    if (bodyStale) {
+      this.stripBody.innerHTML = bodyHtml;
+      this.paintedStripBody = bodyHtml;
+    }
+    if (infoStale) {
+      this.stripInfo.innerHTML = infoHtml;
+      this.paintedStripInfo = infoHtml;
+    }
+    // When the focused node's own run was NOT rewritten, the lookup finds
+    // that same node, and focusing the node that already has focus is a no-op
+    // (the HTML focusing steps return early: no event, no tip), so there is no
+    // separate "was it replaced" test to get wrong.
     if (refocus !== null) {
       const successor =
         this.stripBody.querySelector<HTMLElement>(refocus) ?? this.stripInfo.querySelector<HTMLElement>(refocus);
-      successor?.focus({ preventScroll: true });
+      this.stripTipQuiet = !tipWasOpen;
+      try {
+        successor?.focus({ preventScroll: true });
+      } finally {
+        this.stripTipQuiet = false;
+      }
     }
     this.punctuate(m);
   }
