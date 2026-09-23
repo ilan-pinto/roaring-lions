@@ -31,7 +31,7 @@
 // `roster-carry.test.ts`'s.
 import { describe, expect, it } from 'vitest';
 import { missions } from '@lions/data';
-import type { LedgerData, LedgerRosterEntry, MissionJson } from '@lions/sim';
+import type { LedgerData, LedgerRosterEntry, MissionJson, Sim } from '@lions/sim';
 import { deployRosterView, type DeployRosterView } from '../../packages/app/src/ui/deploy-roster';
 import {
   defaultSelection,
@@ -42,7 +42,8 @@ import {
   toggleEntry,
   type DeploySelection,
 } from '../../packages/app/src/ui/deploy-select';
-import { missionWorld, type MissionWorld } from './mission-harness';
+import { startMission } from '../../packages/app/src/mission-start';
+import { missionStage, missionWorld, type MissionWorld } from './mission-harness';
 
 const MISSION_ID = 'beit_sahwan_2_foothold';
 /** The mission JSON the runtime runs -- the same object `missionWorld` hands it. */
@@ -195,5 +196,108 @@ describe('the deploy choice, against the real spawner', () => {
     expect(out).toBe(fresh);
     expect('roster.surviving_units' in out).toBe(false);
     expect(squads(out)).toBe(2);
+  });
+});
+
+// --------------------------------------------------- the renderer re-seed
+//
+// Task 4 review, fix round 1. Moving the runtime past the deploy screen put
+// the spawn AFTER `renderer.init()`, and both backends' `init()` end by
+// snapshotting `sim.state` twice to seed their interpolation and their fog --
+// from what is now an empty sim. `startMission` (`mission-start.ts`) is the
+// function `main.ts` builds the runtime through, and it re-seeds the renderer
+// after the spawn. This drives it through the same deploy path as everything
+// above, with a stand-in renderer, and goes red if the re-seed is skipped or
+// cut short.
+
+/** Living side-0 units: what both backends' fog reveals from. */
+const livingSide0 = (sim: Sim): number => {
+  let n = 0;
+  for (let id = 0; id < sim.entityCount; id++) if (sim.state.alive[id] === 1 && sim.state.side[id] === 0) n++;
+  return n;
+};
+
+/**
+ * A stand-in for exactly the renderer state the re-seed is coupled to, modelled
+ * on both backends' `snapshot()` (`ThreeRenderer.ts:3062-3080`,
+ * `renderer.ts:730-751`) and nothing else: `prev`/`cur` position copies taken
+ * from `sim.state` on every call, a "moved" flag standing in for the speed
+ * those copies imply, and the fog gate that refreshes on every call where
+ * `fogTick++ % 4 === 0`, recording how many living side-0 units the refresh
+ * saw. Its numbers are literals of its own, never imported from the module
+ * under test, so a change to `RESEED_SNAPSHOTS` cannot move both sides at once.
+ */
+class SeedRecorder {
+  calls = 0;
+  private fogTick = 0;
+  /** Living side-0 units the fog saw at each refresh, in order. */
+  readonly fogRefreshes: number[] = [];
+  readonly prevX: Int32Array;
+  readonly prevY: Int32Array;
+  readonly curX: Int32Array;
+  readonly curY: Int32Array;
+  constructor(private readonly sim: Sim) {
+    const n = sim.state.posX.length;
+    this.prevX = new Int32Array(n);
+    this.prevY = new Int32Array(n);
+    this.curX = new Int32Array(n);
+    this.curY = new Int32Array(n);
+  }
+  /** What both backends' `init()` end with (`ThreeRenderer.ts:2149-2150`,
+   *  `renderer.ts:557-558`). */
+  init(): void {
+    this.snapshot();
+    this.snapshot();
+  }
+  snapshot(): void {
+    this.calls++;
+    if (this.fogTick++ % 4 === 0) this.fogRefreshes.push(livingSide0(this.sim));
+    this.prevX.set(this.curX);
+    this.prevY.set(this.curY);
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      this.curX[i] = this.sim.state.posX[i];
+      this.curY[i] = this.sim.state.posY[i];
+    }
+  }
+  moved(id: number): boolean {
+    return this.curX[id] !== this.prevX[id] || this.curY[id] !== this.prevY[id];
+  }
+}
+
+describe('the renderer is re-seeded from the force that just spawned', () => {
+  it('after the deploy path: every unit at its spawn, still, and the latest fog refresh saw the whole force', () => {
+    const stage = missionStage(MISSION_ID);
+    const r = new SeedRecorder(stage.sim);
+    // `main.ts`'s order since Task 4: `renderer.init()` first, on a sim with
+    // nothing in it yet...
+    r.init();
+    expect(r.fogRefreshes, 'premise: init() seeds the fog from an empty sim').toEqual([0]);
+    // ...then the deploy choice, the spawn and the re-seed, in one call.
+    const sel = benchErezFieldNachshon(view());
+    startMission(stage.sim, stage.mission, stage.context(deployedLedger(campaign(), sel)), r);
+
+    const { sim } = stage;
+    const force: number[] = [];
+    for (let id = 0; id < sim.entityCount; id++) if (sim.state.alive[id] === 1 && sim.state.side[id] === 0) force.push(id);
+    expect(force.length, 'the mission fielded no force at all').toBeGreaterThan(0);
+
+    // Two from init(), three from the re-seed: the least that lands a fog
+    // refresh after the spawn (see the fog check below).
+    expect(r.calls).toBe(5);
+    for (const id of force) {
+      // Seeded from the spawn, not the zero-fill: drawn at world (0, 0)
+      // otherwise until tick 1.
+      expect([r.curX[id], r.curY[id]], `unit ${id} is not where it spawned`).toEqual([
+        sim.state.posX[id],
+        sim.state.posY[id],
+      ]);
+      expect(r.curX[id] !== 0 || r.curY[id] !== 0, `unit ${id} is drawn at world (0, 0)`).toBe(true);
+      // prev == cur: the first frame lerps nothing in and reads no speed, so
+      // no vehicle throws a dust burst off a spike from (0, 0).
+      expect(r.moved(id), `unit ${id} still carries the jump from (0, 0)`).toBe(false);
+    }
+    // The fog's LATEST refresh was taken with the force on the map, so the
+    // first frame is not full shroud.
+    expect(r.fogRefreshes.at(-1), 'the fog was last refreshed before the force existed').toBe(force.length);
   });
 });

@@ -42,6 +42,7 @@ import {
   Sim,
   TICKS_PER_SECOND,
   type LedgerData,
+  type MissionContext,
   type MissionJson,
   type TunnelRouteJson,
 } from '@lions/sim';
@@ -52,6 +53,19 @@ export const HARNESS_SEED = 424242;
 /** Twenty minutes of ticks: the ceiling `playtest.ts` gives every mission. A
  *  runtime still `ongoing` past it is a hang, not a result, and throws. */
 export const HARNESS_MAX_TICKS = 20 * 60 * TICKS_PER_SECOND;
+
+/** Everything a mission needs BEFORE its runtime exists: the map, a `Sim`
+ *  with the map's terrain, buildings, tunnels and unit types registered, and
+ *  the `MissionContext` a runtime would be built with for a given ledger. What
+ *  `missionWorld` builds on, and what a test uses when it has to build the
+ *  runtime itself -- through the app's own `startMission`, say, which is how
+ *  `main.ts` builds it since the runtime moved past the deploy screen. */
+export interface MissionStage {
+  readonly mission: MissionJson;
+  readonly map: ParsedMap;
+  readonly sim: Sim;
+  context(ledger: LedgerData): MissionContext;
+}
 
 export interface MissionWorld {
   /** The mission JSON the runtime was built from -- read it rather than
@@ -74,14 +88,9 @@ export interface MissionWorld {
   runToEnd(maxTicks?: number): LedgerData;
 }
 
-/**
- * Builds `missionId` on its own map and starts it with `ledger` as the
- * campaign state it reads on entry (`ledger.requires`). The ledger is handed
- * to the runtime as given -- the runtime copies its roster pool at
- * construction (`mission.ts:550`), so what the caller passes IS the pool the
- * spawner draws from, in that order.
- */
-export function missionWorld(missionId: string, ledger: LedgerData, seed: number = HARNESS_SEED): MissionWorld {
+/** Builds `missionId`'s map and `Sim` the way the app does, with no runtime
+ *  yet. See `MissionStage`. */
+export function missionStage(missionId: string, seed: number = HARNESS_SEED): MissionStage {
   const found = (missions as Record<string, unknown>)[missionId];
   if (found === undefined) throw new Error(`unknown mission ${missionId}`);
   const mission = found as MissionJson;
@@ -113,7 +122,7 @@ export function missionWorld(missionId: string, ledger: LedgerData, seed: number
   const typeOf = new Map<string, number>();
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as Parameters<typeof sim.addUnitType>[0]));
 
-  const runtime = new MissionRuntime(sim, mission, {
+  const context = (ledger: LedgerData): MissionContext => ({
     typeIdOf: (id) => {
       const t = typeOf.get(id);
       if (t === undefined) throw new Error(`mission ${missionId} references unknown unit ${id}`);
@@ -125,6 +134,19 @@ export function missionWorld(missionId: string, ledger: LedgerData, seed: number
     ledger,
     unitInfo: () => null,
   });
+  return { mission, map, sim, context };
+}
+
+/**
+ * Builds `missionId` on its own map and starts it with `ledger` as the
+ * campaign state it reads on entry (`ledger.requires`). The ledger is handed
+ * to the runtime as given -- the runtime copies its roster pool at
+ * construction (`mission.ts:550`), so what the caller passes IS the pool the
+ * spawner draws from, in that order.
+ */
+export function missionWorld(missionId: string, ledger: LedgerData, seed: number = HARNESS_SEED): MissionWorld {
+  const { mission, map, sim, context } = missionStage(missionId, seed);
+  const runtime = new MissionRuntime(sim, mission, context(ledger));
   runtime.start();
 
   const runToEnd = (maxTicks: number = HARNESS_MAX_TICKS): LedgerData => {

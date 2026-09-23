@@ -92,6 +92,7 @@ import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
+import { startMission } from './mission-start';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
 import { focusTrap } from './ui/focus-trap';
 import { showKeysOverlay } from './ui/keys-overlay';
@@ -1515,9 +1516,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * `start()` spawns the starting force at once, so it cannot be built before
    * the deploy screen has been answered -- it is built right after
    * `loading.done()` below, from the ledger the player's choice permuted.
-   * Nothing between here and there reads it: the renderers take only the
-   * sim's fixed shape, and the loading bar's workload is derived from the
-   * mission JSON (`missionUnitTypes`), not from anything the runtime spawns.
+   * Nothing between here and there reads the RUNTIME, and the loading bar's
+   * workload is derived from the mission JSON (`missionUnitTypes`), not from
+   * anything the runtime spawns. The renderers are another matter:
+   * `renderer.init()` below ends by snapshotting `sim.state` twice to seed its
+   * interpolation and its fog, and on a mission it now does that on a sim with
+   * no units in it. `startMission` (`mission-start.ts`) re-seeds it after the
+   * spawn; see `RESEED_SNAPSHOTS` for the three renderer internals that
+   * couples to. The sandbox spawns in the `else` branch below, BEFORE
+   * `init()`, so its seeding is what it always was.
    */
   let runtime: MissionRuntime | null = null;
   /** The force `MissionRuntime` and the deploy panel (`broughtFor`) actually see:
@@ -2203,11 +2210,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the victory write read it as the roster this mission was sent in with,
   // and a player who quits after deploying leaves the save exactly as it was.
   //
+  // `startMission` (`mission-start.ts`) also RE-SEEDS the renderer, and that is
+  // not optional: `renderer.init()` above ran on a sim with no units in it yet,
+  // and its two seeding snapshots would otherwise leave the whole force drawn
+  // at world (0, 0) until tick 1, a dust burst off every vehicle as it lerped
+  // out, and the map under full shroud until tick 3. The sandbox branch spawns
+  // before `init()` and needs none of this.
+  //
   // Wrapped like the await above it: this used to throw before the renderer
   // existed, and now runs after it, so a malformed mission must not strand one.
   if (resolvedMission) {
     try {
-      runtime = new MissionRuntime(sim, resolvedMission, {
+      runtime = startMission(sim, resolvedMission, {
         typeIdOf: (id) => {
           const t = typeOf.get(id);
           if (t === undefined) throw new Error(`mission references unknown unit ${id}`);
@@ -2226,8 +2240,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             unlock: kdfUnlockGate(u, boughtUnits),
           };
         },
-      });
-      runtime.start();
+      }, renderer);
     } catch (err) {
       teardown();
       throw err;
@@ -4307,11 +4320,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // asking, `__lions.step(n)` still means exactly n ticks from here, and this
   // is presentation-only: nothing about sim state changes, only what has
   // already been painted once before anything can observe it unpainted.
-  // `renderer.init()` (`ThreeRenderer.init()`'s own comment) has already run
-  // `snapshot()` twice, seeding prevX == curX from the sim's real starting
-  // positions -- alpha is irrelevant here as a result, but `1` matches
-  // `__lions.step()`'s own call for the same reason: on a still frame,
-  // prevX + (curX - prevX) * alpha reduces to curX regardless.
+  // prevX == curX already holds the force's real starting positions: for a
+  // sandbox, from `renderer.init()`'s own two snapshots (`ThreeRenderer.init()`'s
+  // comment), which ran after `sandboxSpawns`; for a mission, from
+  // `startMission`'s `reseedAfterSpawn` (`mission-start.ts`), because on that
+  // path `init()` ran before the runtime existed and seeded from an empty sim.
+  // Alpha is irrelevant here as a result, but `1` matches `__lions.step()`'s own
+  // call for the same reason: on a still frame, prevX + (curX - prevX) * alpha
+  // reduces to curX regardless.
   renderer.frame(1, lastFrameMs);
 
   // Task 6: the accumulator is `shell/clock.ts`'s pure `Clock`, so "paused"
