@@ -222,17 +222,15 @@ import {
 } from './units/fx';
 import { nextVehicleMoving, vehicleDustIntervalMs, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
-  hullCornerOffsets,
   makeVehicleWeightArrays,
   stepVehicleWeight,
-  terrainPitchRad,
-  terrainRollRad,
   MAX_DRAWN_OFFSET_TILES,
   type HullCorners,
   type VehicleWeightArrays,
   type VehicleWeightInput,
   type VehicleWeightParams,
 } from './units/vehicle-weight';
+import { conformHull, type HullConform, type HullConformInput } from './units/vehicle-conform';
 import { vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import {
   StructureInstancer,
@@ -1351,7 +1349,23 @@ export class ThreeRenderer implements Renderer {
   /** The ONE input object every `stepVehicleWeight` call is handed, refilled
    *  per vehicle: the per-vehicle, per-frame call allocates nothing. */
   private readonly vehicleWeightInput: VehicleWeightInput;
-  /** Scratch for `hullCornerOffsets`, for the same reason. */
+  /** The ONE input `conformHull` (`units/vehicle-conform.ts`) is handed,
+   *  refilled per vehicle, and its written-in-place answer. Every field is
+   *  overwritten before each call; the initial values are never read. */
+  private readonly hullConformInput: HullConformInput = {
+    elevation: null,
+    blocked: new Uint8Array(0),
+    mapWidth: 0,
+    mapHeight: 0,
+    centreX: 0,
+    centreY: 0,
+    centreGroundY: 0,
+    facingNorm: 0,
+    lengthTiles: 0,
+    widthTiles: 0,
+  };
+  private readonly hullConform: HullConform = { pitchRad: 0, rollRad: 0 };
+  /** Scratch for `hullCornerOffsets` inside `conformHull`, for the same reason. */
   private readonly vehicleHullCorners: HullCorners = {
     frontX: 0,
     frontY: 0,
@@ -5879,32 +5893,42 @@ export class ThreeRenderer implements Renderer {
         roll += weight.rollRad;
         this.vehicleWeightAccel[i] = weight.accelFraction;
 
-        // The terrain half, at the DRAWN centre (the hull stands on the ground
-        // it is drawn over). A missing footprint SKIPS it rather than taking a
-        // default: a wrong footprint tilts the wrong way, a skipped one draws
-        // what shipped before this package. `vehicleMeshBounds` is the live
-        // body's measured size in tiles in the template root's frame -- `x`
-        // along the hull's forward axis, `z` across it.
-        const bounds = this.vehicleMeshBounds.get(type.id);
-        if (bounds !== undefined && bounds.x > 0 && bounds.z > 0) {
-          const c = hullCornerOffsets(facingNorm, bounds.x / 2, bounds.z / 2, this.vehicleHullCorners);
-          const el = this.retained.elevation;
-          const mw = this.sim.width;
-          const mh = this.sim.height;
-          const front = groundWorldY(el, mw, mh, drawX + c.frontX, drawY + c.frontY);
-          const rear = groundWorldY(el, mw, mh, drawX + c.rearX, drawY + c.rearY);
-          const left = groundWorldY(el, mw, mh, drawX + c.leftX, drawY + c.leftY);
-          const right = groundWorldY(el, mw, mh, drawX + c.rightX, drawY + c.rightY);
-          pitch += terrainPitchRad(front, rear, bounds.x);
-          roll += terrainRollRad(left, right, bounds.z);
-        }
       }
       // The hull's own height: the ground under its drawn centre, sampled
       // BEFORE the recoil shove, exactly like `entityFrame`'s own recoil block
       // on the billboard path -- recoil travels a fraction of a tile, so
       // re-sampling terrain from the offset position could only ever matter
       // exactly at a terrace edge.
-      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, drawX, drawY) + airLift;
+      const centreGroundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, drawX, drawY);
+      const worldY = centreGroundY + airLift;
+
+      // The terrain half, ground vehicles only, at the DRAWN centre (the hull
+      // stands on the ground it is drawn over) -- `units/vehicle-conform.ts`.
+      // A corner over a blocked tile or off the map stands at the centre's own
+      // height instead of on a ridge top or at 0; every other corner is on
+      // the smooth surface the units stand on. A missing footprint SKIPS the
+      // whole half rather than taking a default: a wrong footprint tilts the
+      // wrong way, a skipped one draws what shipped before this package.
+      // `vehicleMeshBounds` is the live body's measured size in tiles in the
+      // template root's frame -- `x` along the hull's forward axis, `z`
+      // across it.
+      const bounds = type.isAir ? undefined : this.vehicleMeshBounds.get(type.id);
+      if (bounds !== undefined && bounds.x > 0 && bounds.z > 0) {
+        const input = this.hullConformInput;
+        input.elevation = this.retained.elevation;
+        input.blocked = this.sim.blocked;
+        input.mapWidth = this.sim.width;
+        input.mapHeight = this.sim.height;
+        input.centreX = drawX;
+        input.centreY = drawY;
+        input.centreGroundY = centreGroundY;
+        input.facingNorm = facingNorm;
+        input.lengthTiles = bounds.x;
+        input.widthTiles = bounds.z;
+        const conform = conformHull(input, this.vehicleHullCorners, this.hullConform);
+        pitch += conform.pitchRad;
+        roll += conform.rollRad;
+      }
 
       // R-C / R-K: the lag and the recoil shove write the same position, so
       // their SUM is clamped once, here, against the 0.25-tile budget --
