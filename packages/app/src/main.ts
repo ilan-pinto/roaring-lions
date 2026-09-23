@@ -99,7 +99,8 @@ import { focusTrap } from './ui/focus-trap';
 import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
-import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
+import { escapeHtml } from './ui/escape-html';
+import { alertNotice, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -3646,7 +3647,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       );
       alertState = nextAlerts;
       for (const a of alerts) {
-        if (a.line) hud.note(t(a.line.key, a.line.params), a.line.tone);
+        // `alertNotice` escapes the unit NAME `alert.unitLost` interpolates
+        // (shell upgrade Phase 3, Task 10); this was `t(key, params)`, raw.
+        if (a.line) hud.note(...alertNotice(a.line));
         if (a.sound) audio.playUi(a.sound);
         if (a.at) {
           minimap.flash([a.at], performance.now());

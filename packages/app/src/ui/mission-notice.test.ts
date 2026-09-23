@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeHtml, evacuatedNotice, removedNotice, triggerLabel } from './mission-notice';
+import { alertNotice, evacuatedNotice, removedNotice, triggerLabel } from './mission-notice';
 
 describe('removedNotice', () => {
   it('reads "taken (n)" for a civilian (side 2)', () => {
@@ -53,8 +53,24 @@ describe('triggerLabel', () => {
   it('is null for an unknown id', () => expect(triggerLabel(mission, 'nope')).toBeNull());
 });
 
-describe('escapeHtml', () => {
-  it('escapes all five reserved characters', () => {
-    expect(escapeHtml(`<b>&"'`)).toBe('&lt;b&gt;&amp;&quot;&#39;');
+// Shell upgrade Phase 3, Task 10. `escapeHtml` moved to `escape-html.ts`,
+// taking its five-entity pin with it; what stays here is the wording that
+// uses it. `alertsForTick` hands back a key and params and never calls `t()`;
+// this is where they become feed HTML, and the unit NAME in `alert.unitLost`
+// is free text from `data/units/*.json`.
+describe('alertNotice', () => {
+  it('escapes the unit name it interpolates and keeps the catalogue markup', () => {
+    const [html, tone] = alertNotice({ key: 'alert.unitLost', params: { name: '<i>Doobi</i>', n: 1 }, tone: 'bad' });
+    expect(html).toBe('<b>lost</b> — &lt;i&gt;Doobi&lt;/i&gt;');
+    expect(tone).toBe('bad');
+  });
+
+  // The plural branch substitutes `#` for the count -- in the TEMPLATE, before
+  // `{name}` goes in, so the `#` of an escaped apostrophe (`&#39;`) is not
+  // mistaken for one. A formatter that substituted afterwards would print
+  // `&239;` here.
+  it('passes the count through as a number, and an escaped apostrophe survives the plural', () => {
+    const [html] = alertNotice({ key: 'alert.unitLost', params: { name: "Sahim's squad", n: 2 }, tone: 'bad' });
+    expect(html).toBe('<b>lost</b> — Sahim&#39;s squad (2)');
   });
 });
