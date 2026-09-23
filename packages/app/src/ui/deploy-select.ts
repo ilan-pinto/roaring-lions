@@ -33,6 +33,24 @@ export interface DeploySelection {
   readonly chosen: ReadonlySet<number>;
 }
 
+/** `sel.chosen` is an open `ReadonlySet<number>`, not a value this module
+ *  minted -- a stale selection carried over from a longer pool (a previous
+ *  mission's roster, before losses shrank it) or a UI bug can hand either
+ *  function here an index that is negative, fractional, or past the end of
+ *  `pool`. Both `permutePool` and `toggleEntry` filter through this before
+ *  touching `pool` by index: an out-of-range value is dropped, never
+ *  thrown on, and dropping it changes nothing else -- the entry it would
+ *  have named simply keeps its default (unchosen) treatment. (Code review,
+ *  fix round 1: `permutePool(pool, { chosen: new Set([99]) })` used to throw
+ *  reading `pool[99].type`.) */
+function sanitizeChosen(chosen: ReadonlySet<number>, length: number): Set<number> {
+  const valid = new Set<number>();
+  for (const idx of chosen) {
+    if (Number.isInteger(idx) && idx >= 0 && idx < length) valid.add(idx);
+  }
+  return valid;
+}
+
 /** Every pool entry the view classified, restored to pool order. `eligible`
  *  and `undrawable` between them cover the whole original pool exactly once
  *  (`deployRosterView`'s single `pool.forEach`), so sorting the two lists
@@ -85,21 +103,25 @@ export function slotsLeft(view: DeployRosterView, sel: DeploySelection, type: st
  * exceed them would be authoring `starting_force` from the UI. An index no
  * placement can draw at all -- absent from `view.eligible` -- is refused the
  * same way. Both refusals return the SAME `sel` reference, not an equal
- * copy, so a caller can tell "nothing changed" without a deep comparison,
- * and every acceptance builds a fresh `Set` rather than mutating `sel.chosen`.
+ * copy, so a caller can tell "nothing changed" without a deep comparison.
+ *
+ * `sel.chosen` is sanitized (see `sanitizeChosen`) before it is read for
+ * anything but the refusal checks above, so a stale or out-of-range index
+ * riding along in `sel` never survives into the returned selection, and
+ * every acceptance builds a fresh `Set` rather than mutating `sel.chosen`.
  */
 export function toggleEntry(view: DeployRosterView, sel: DeploySelection, poolIndex: number): DeploySelection {
   const entry = view.eligible.find((e) => e.poolIndex === poolIndex);
   if (entry === undefined) return sel;
 
-  if (sel.chosen.has(poolIndex)) {
-    const chosen = new Set(sel.chosen);
+  const chosen = sanitizeChosen(sel.chosen, view.eligible.length + view.undrawable.length);
+
+  if (chosen.has(poolIndex)) {
     chosen.delete(poolIndex);
     return { chosen };
   }
 
-  if (slotsLeft(view, sel, entry.type) <= 0) return sel;
-  const chosen = new Set(sel.chosen);
+  if (slotsLeft(view, { chosen }, entry.type) <= 0) return sel;
   chosen.add(poolIndex);
   return { chosen };
 }
@@ -133,16 +155,42 @@ export function isComplete(view: DeployRosterView, sel: DeploySelection): boolea
  * existing per-type "first in pool order" rule draws exactly the chosen
  * bodies.
  *
- * No `view` parameter (pre-flight scan P1: the brief's own Step 2 text names
- * "the view has demand for" a type, but the produced signature takes none).
- * A type counts as demanded here if `sel.chosen` holds at least one of its
- * indices, which is exactly the set of types a view's `demand` would name --
- * `sel.chosen` only ever holds indices `defaultSelection`/`toggleEntry`
- * admitted through `view.eligible`, and eligibility IS demand. For each such
- * type, in the order it first appears in `pool`: its chosen entries in pool
- * order, then its unchosen entries in pool order. Every other entry -- a
- * type nobody chose any of, demanded or not -- keeps its original relative
- * order and follows after every chosen type's group.
+ * **The method (fix round 1 rewrite).** Every pool position belongs to
+ * exactly one type, so group the positions themselves by type first --
+ * `positionsOf(type)`, ascending, the SAME slots that type already owns in
+ * `pool`. A type nobody chose any of keeps its positions untouched (its
+ * entries are copied straight from `pool`, in place). A type `sel.chosen`
+ * touches gets its own entries reordered -- chosen ones (pool order) before
+ * unchosen ones (pool order) -- and that reordered list is written back
+ * into that SAME set of positions, in order. Because a type's entries only
+ * ever move among that type's own positions, this is a permutation by
+ * construction: it can no more duplicate or lose an entry than a bag of
+ * marbles sorted by colour can, and no `view` parameter is needed (pre-flight
+ * scan P1) -- "the view has demand for a type" and "`sel.chosen` holds at
+ * least one of that type's indices" are the same set, because `sel.chosen`
+ * only ever admits indices through `view.eligible`.
+ *
+ * **Why this reorders correctly and not merely plausibly.** For the DEFAULT
+ * selection, `defaultSelection` always chooses exactly the earliest
+ * `demand(type)` entries of a type in pool order (or all of them, if the
+ * pool has fewer) -- so "chosen before unchosen, in pool order" reproduces
+ * that type's original order exactly, and since every other type's
+ * positions are untouched, the WHOLE array comes back byte-identical to
+ * `pool`, even when types are interleaved rather than grouped. (The
+ * earlier append-by-type-group implementation did not have this property:
+ * for `pool = [A0, B0, A1, B1]` with both types demanded one each, it
+ * returned `[A0, A1, B0, B1]` for the default selection -- a valid
+ * permutation, but not the identity, because it moved every A ahead of
+ * every B. The property test below is what caught this.) For any OTHER
+ * selection, the same argument shows `drawFromPool` -- which always takes a
+ * type's entries in ascending array-position order -- draws that type's
+ * chosen entries before any unchosen ones, because chosen entries occupy
+ * that type's earliest positions by construction.
+ *
+ * **Bounds.** `sel.chosen` is sanitized first (see `sanitizeChosen`): an
+ * index outside `[0, pool.length)` is dropped rather than read, so a stale
+ * selection built against a longer pool degrades to the default order for
+ * the entries it can no longer address, instead of throwing.
  *
  * Returns a fresh, MUTABLE array (pre-flight scan P5/E11): a `readonly T[]`
  * does not assign into `LedgerData['roster.surviving_units']`
@@ -155,31 +203,26 @@ export function isComplete(view: DeployRosterView, sel: DeploySelection): boolea
  * ledger regardless of which array object they arrived in.
  */
 export function permutePool<T extends LedgerRosterEntry>(pool: readonly T[], sel: DeploySelection): T[] {
-  const chosenTypes: string[] = [];
-  const isChosenType = new Set<string>();
-  for (const idx of sel.chosen) {
-    const type = pool[idx].type;
-    if (!isChosenType.has(type)) {
-      isChosenType.add(type);
-      chosenTypes.push(type);
-    }
-  }
-  // Order by first appearance in `pool`, not by `Set` insertion order (the
-  // order entries were chosen in), which has no relation to pool position.
-  chosenTypes.sort((a, b) => pool.findIndex((e) => e.type === a) - pool.findIndex((e) => e.type === b));
+  const chosen = sanitizeChosen(sel.chosen, pool.length);
 
-  const out: T[] = [];
-  for (const type of chosenTypes) {
-    const chosen: T[] = [];
-    const unchosen: T[] = [];
-    pool.forEach((entry, i) => {
-      if (entry.type !== type) return;
-      (sel.chosen.has(i) ? chosen : unchosen).push(entry);
+  const positionsByType = new Map<string, number[]>();
+  pool.forEach((entry, i) => {
+    const positions = positionsByType.get(entry.type);
+    if (positions) positions.push(i);
+    else positionsByType.set(entry.type, [i]);
+  });
+
+  const out: T[] = pool.slice();
+  for (const positions of positionsByType.values()) {
+    if (!positions.some((i) => chosen.has(i))) continue; // untouched type -- its positions keep `pool`'s own entries
+
+    const chosenEntries: T[] = [];
+    const unchosenEntries: T[] = [];
+    for (const i of positions) (chosen.has(i) ? chosenEntries : unchosenEntries).push(pool[i]);
+    const reordered = [...chosenEntries, ...unchosenEntries];
+    positions.forEach((pos, k) => {
+      out[pos] = reordered[k];
     });
-    out.push(...chosen, ...unchosen);
-  }
-  for (const entry of pool) {
-    if (!isChosenType.has(entry.type)) out.push(entry);
   }
   return out;
 }
