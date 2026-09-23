@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A vehicle stops gliding. It squats when it pulls away, leans into a turn, stands on the ground it is actually crossing, settles when it halts, and throws dust at a rate that follows how fast it is going. All of it presentation: a per-vehicle smoothed state in the renderer driven by the frame clock, with the sim's 20 Hz step function as its only input and nothing read back.
+**Goal:** A vehicle stops gliding. It squats when it pulls away, rolls to the outside of a turn, stands on the ground it is actually crossing, settles when it halts, and throws dust at a rate that follows how fast it is going. All of it presentation: a per-vehicle smoothed state in the renderer driven by the frame clock, with the sim's 20 Hz step function as its only input and nothing read back.
 
 **Architecture:** Almost all of it is pure. `three/units/vehicle-weight.ts` is a new module with no `three` and no `Sim` import — four-corner terrain tilt with no history, and a per-entity smoothed speed/heading filter shaped exactly like `stepTurretFacing` (`three/units/frame-state.ts:436`). `three/units/vehicle-weight-params.ts` resolves the authored `mobility.weight` block against role defaults. `three/units/vehicle-fx.ts` gains a speed-driven dust interval. `ThreeRenderer.ts` is touched exactly once, in one task, in three adjacent regions (Ruling R-E), and that task is LAST. `packages/sim` is untouched; `packages/app` is untouched; `packages/render/src/renderer.ts` stays byte-identical to `main`.
 
@@ -604,7 +604,7 @@ describe('roll from the sim\'s own rate-limited yaw (R-L)', () => {
     expect(peak).toBeLessThanOrEqual(HEAVY.maxRollRad + 1e-9);
   });
 
-  it('leans into the turn, and the other way for the other turn', () => {
+  it('leans one way for one turn, and the other way for the other', () => {
     const left = makeVehicleWeightArrays(1);
     const right = makeVehicleWeightArrays(1);
     const perFrame = (60 / 360) / 60;
