@@ -18,11 +18,13 @@
  * Two properties a later reader will otherwise get wrong:
  *
  * **Positive pitch is nose-up and positive roll drops the right side.**
- * Chosen to match `MESH_HULL_PITCH_RAD`'s own recoil sign
- * (`ThreeRenderer.ts:440`, applied at `ThreeRenderer.ts:5342-5348` as
- * `entity.root.rotation.x`, XYZ Euler order, local pitch before yaw) -- the
- * recoil rocks a tank back onto its rear road wheels, which that constant
- * treats as positive. Ground rising ahead of the hull tilts it the same
+ * Chosen to match `MESH_HULL_PITCH_RAD`'s own recoil sign -- the recoil
+ * rocks a tank back onto its rear road wheels, which that constant treats
+ * as positive. (That constant used to be written to `root.rotation.x` under
+ * yaw, which three.js's XYZ order makes a WORLD-axis tilt, not the local
+ * pitch its comment claimed; since WP-A1.3 Task 6 `ThreeRenderer`'s
+ * `updateVehicleMeshes` sums it with everything here and composes the lot in
+ * the hull's own frame.) Ground rising ahead of the hull tilts it the same
  * direction a recoiling gun does, so it reads positive here too. Roll's
  * sign is otherwise a coin flip that looks fine on a screenshot of a
  * symmetric hull, which is exactly why it is stated rather than left to be
@@ -95,11 +97,18 @@ export interface HullCorners {
  * keeps `front . left == 0` at every heading by construction (a rotated pair
  * of perpendicular unit vectors stays perpendicular), not merely at the two
  * axis-aligned headings a less thorough test would check.
+ *
+ * `out`, when given, is written in place and returned, and nothing is
+ * allocated -- the per-vehicle, per-frame caller (`ThreeRenderer`'s
+ * `updateVehicleMeshes`) keeps one scratch object for exactly that, the same
+ * shape `stepVehicleWeight`'s own `out` has. Omitted, a fresh object is
+ * returned, as before.
  */
 export function hullCornerOffsets(
   facingNorm: number,
   halfLengthTiles: number,
-  halfWidthTiles: number
+  halfWidthTiles: number,
+  out?: HullCorners
 ): HullCorners {
   const facingRad = facingNorm * Math.PI * 2;
   const cos = Math.cos(facingRad);
@@ -108,16 +117,16 @@ export function hullCornerOffsets(
   const frontY = sin * halfLengthTiles;
   const leftX = -sin * halfWidthTiles;
   const leftY = cos * halfWidthTiles;
-  return {
-    frontX,
-    frontY,
-    rearX: -frontX,
-    rearY: -frontY,
-    leftX,
-    leftY,
-    rightX: -leftX,
-    rightY: -leftY,
-  };
+  const result = out ?? { frontX: 0, frontY: 0, rearX: 0, rearY: 0, leftX: 0, leftY: 0, rightX: 0, rightY: 0 };
+  result.frontX = frontX;
+  result.frontY = frontY;
+  result.rearX = -frontX;
+  result.rearY = -frontY;
+  result.leftX = leftX;
+  result.leftY = leftY;
+  result.rightX = -leftX;
+  result.rightY = -leftY;
+  return result;
 }
 
 /**
