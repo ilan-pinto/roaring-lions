@@ -1276,6 +1276,42 @@ describe('the lit ground', () => {
   });
 });
 
+// --- the painted ground, after the extraction ------------------------------
+//
+// Shell-upgrade Phase 3, Task 3 moved the painter out to `map-preview.ts`'s
+// `paintMapTerrain` so the deploy screen can draw the same ground with no
+// `Sim` to build a `Minimap` around -- one loop, two callers. This is the
+// proof that the CLASS still paints what it painted, stated in the tiles
+// themselves rather than as "a canvas labelled 'painted' was blitted", which
+// the tests above already say and which a wrapper returning a blank canvas
+// would satisfy too.
+
+describe('the painted ground, after the extraction', () => {
+  it('still lays down open ground, then the cover, the boulder and the building in their own tones', () => {
+    const boulder = new Uint8Array(W * W);
+    boulder[31 * W + 30] = 1;
+    mount(() => true, { map: makeMap({ boulder }) });
+
+    const tones = new Set(['open', 'blocked', 'rock', 'c1', 'c2', 'c3']);
+    const terrain = recorder
+      .fills()
+      .filter((f) => tones.has(f.style))
+      .map(({ style, x, y, w, h }) => ({ style, x, y, w, h }));
+    const building: { style: string; x: number; y: number; w: number; h: number }[] = [];
+    for (let y = 20; y < 23; y++) for (let x = 20; x < 23; x++) building.push({ style: 'blocked', x, y, w: 1, h: 1 });
+
+    // Row-major, exactly as the loop walks: the open base first, then the
+    // cover-2 tile at (5,5), the building's nine tiles, the boulder at (30,31).
+    expect(terrain).toEqual([
+      { style: 'open', x: 0, y: 0, w: W, h: W },
+      { style: 'c2', x: 5, y: 5, w: 1, h: 1 },
+      ...building,
+      { style: 'rock', x: 30, y: 31, w: 1, h: 1 },
+    ]);
+    expect(recorder.images().at(-1)?.source).toBe('painted');
+  });
+});
+
 // --- flipRows -------------------------------------------------------------
 //
 // WebGL's framebuffer origin is the BOTTOM-left and a 2D canvas's is the
