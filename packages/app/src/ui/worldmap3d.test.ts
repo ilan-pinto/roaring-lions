@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
 import { parseCountries, parseWorld } from '../campaign';
+import { t } from '../i18n/t';
 import { RENDERER_STORAGE_KEY } from '../renderer-choice';
 import { showCampaign } from './menu';
 import {
@@ -17,6 +18,7 @@ import {
 
 const world = parseWorld(worldJson);
 const countries = parseCountries(countriesJson);
+const HINT = t('world3d.hint');
 
 /** A stand-in for the real three.js view. Captures what the screen handed it
  *  and lets a test drive `onPick`/`onFrame` the way a pointer would. */
@@ -32,6 +34,11 @@ interface FakeView extends MountedView {
   /** What this screen handed the renderer for the Draco decoder. Recorded
    *  because it once handed it nothing -- see the test at the bottom. */
   dracoDecoderPath: string | undefined;
+  /** Mutable so a test can set what the cursor is "over" before calling
+   *  `frame()` -- the real view's own `hovered` getter (Task 9), stood in
+   *  as a plain field rather than an accessor because `MountedView` only
+   *  cares about the read, and a test never needs to observe a write. */
+  hovered: string | null;
 }
 
 const fakeMount = (): { mount: MountWorldView; view: () => FakeView } => {
@@ -47,6 +54,7 @@ const fakeMount = (): { mount: MountWorldView; view: () => FakeView } => {
       nudges: [],
       resets: 0,
       disposed: 0,
+      hovered: null,
       nudge: (d) => v.nudges.push(d),
       reset: () => {
         v.resets++;
@@ -360,6 +368,129 @@ describe('the town pins', () => {
     expect((s.el.querySelector('[data-town="beit_sahwan"]') as HTMLElement).dataset.status).toBe(
       'done'
     );
+  });
+});
+
+/**
+ * Task 9 -- R-8. The flat board has had `mouseenter`/`mouseleave`/
+ * `focusin`/`focusout` toggling `data-hover` since Phase 1; the diorama's
+ * pins had no pointer listener at all and `speak()` fired only on click. A
+ * hover previews the sentence a click would say without doing what the
+ * click does -- `point()` and, above all, `navigate()`: a hover that
+ * navigated would make the board unusable.
+ *
+ * `tel_marum` is used throughout because it is already pinned locked with
+ * no link ("gives a locked region's town no link", above) -- exactly the
+ * pin whose hover preview is the most useful there is, and the one a real
+ * Tab could never have reached before this task gave it `tabindex="0"`.
+ */
+describe('a hovered pin previews, and never navigates', () => {
+  it('marks itself and previews the reason, without navigating', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    const pin = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
+    expect(pin?.querySelector('a')).toBe(null); // locked: no link to hover-test against
+    pin?.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(pin?.dataset.hover).toBe('1');
+    expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
+    expect(tone(s.el)).toBe('bad');
+    expect(s.went).toEqual([]);
+    pin?.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(pin?.dataset.hover).toBeUndefined();
+  });
+
+  it('leaving a pin puts the hint back rather than leaving the last preview up', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    const pin = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
+    pin?.dispatchEvent(new MouseEvent('mouseenter'));
+    pin?.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(say(s.el)).toBe(HINT);
+  });
+
+  // Keyboard parity, the rule Phase 4 depends on: no hover-only affordance.
+  // Reachable for real now -- the locked pin's `<span>` carries
+  // `tabindex="0"` precisely so a Tab lands here at all.
+  it('focus previews exactly as hover does', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    const pin = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
+    const span = pin?.querySelector('span.rl-world__townname');
+    expect(span?.getAttribute('tabindex')).toBe('0');
+    pin?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(pin?.dataset.hover).toBe('1');
+    expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
+    pin?.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    expect(pin?.dataset.hover).toBeUndefined();
+    expect(say(s.el)).toBe(HINT);
+  });
+
+  // A click's own sentence is a commitment and must survive a hover that
+  // happened moments earlier -- and must not be re-said with the hover's
+  // OWN wording ("opens"/"locked:") in place of the click's ("opening"/the
+  // bare reason).
+  it('a click still says the click sentence, not the preview', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    const pin = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
+    pin?.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
+    s.view().pick('sur');
+    expect(say(s.el)).toBe('Sur — Clear an earlier mission first');
+    expect(say(s.el)).not.toContain('locked:');
+  });
+});
+
+/**
+ * The ground half of Task 9: the view's own `hovered` getter, read inside
+ * `onFrame` -- the only place this screen learns what is under the cursor,
+ * since the canvas has no per-region DOM node of its own.
+ */
+describe('the ground previews what a click there would say', () => {
+  it('previews the region under the cursor as it turns', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    s.view().hovered = 'sur';
+    s.view().frame([], 0);
+    expect(say(s.el)).toBe('Sur — locked: Clear an earlier mission first');
+    expect(tone(s.el)).toBe('bad');
+  });
+
+  // A click's own sentence must survive the very next frame, even though
+  // `onFrame` runs every frame and the cursor is still over the same ground
+  // it was before the click -- the debounce is what makes that true, not
+  // luck. Without it this test is indistinguishable from the previous
+  // describe block's "a click still says the click sentence" -- this one
+  // exercises the GROUND path (`onFrame`/`hovered`), not the pin path.
+  it('does not re-speak on a frame where the hovered region has not changed', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    s.view().hovered = 'sur';
+    s.view().frame([], 0);
+    s.view().pick('marj'); // a click's own sentence, region-level
+    s.view().hovered = 'sur'; // unchanged from the last frame
+    s.view().frame([], 1);
+    // The click sentence with no mission catalogue is the region name alone.
+    expect(say(s.el)).toBe('The Marj Strip');
+  });
+
+  it('leaving the ground entirely restores the hint', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    s.view().hovered = 'sur';
+    s.view().frame([], 0);
+    s.view().hovered = null;
+    s.view().frame([], 0);
+    expect(say(s.el)).toBe(HINT);
+  });
+
+  it('says so for ground the GLB carries and world.json does not', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    s.view().hovered = 'nowhere';
+    s.view().frame([], 0);
+    expect(say(s.el)).toBe('nowhere — no campaign here');
+    expect(tone(s.el)).toBe('info');
   });
 });
 

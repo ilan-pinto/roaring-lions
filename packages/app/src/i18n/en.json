@@ -224,6 +224,11 @@
   "world3d.say.empty": "{region} — no operations authored yet",
   "world3d.say.cleared": "{region} — cleared",
   "world3d.say.opening": "{region} — opening {mission}",
+  "world3d.hover.unmapped": "{id} — no campaign here",
+  "world3d.hover.locked": "{region} — locked: {reason}",
+  "world3d.hover.empty": "{region} — nothing to open yet",
+  "world3d.hover.cleared": "{region} — already cleared",
+  "world3d.hover.opening": "{region} — opens {mission}",
 
   "grade.tier.1": "Entered in the log",
   "grade.tier.1.line": "It is in the log. That is what the log is for.",

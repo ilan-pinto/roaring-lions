@@ -69,6 +69,7 @@ import {
 import { nudgeLabels, type LabelBox } from './label-layout';
 import type { RendererChoice } from '../renderer-choice';
 import { ledgerLine, regionCard } from './worldmap';
+import { hoverLine, pickOutcome, type PinStatus } from './pin-hover';
 
 /** Which board the campaign screen draws. */
 export type CampaignBoardKind = 'diorama' | 'flat';
@@ -98,6 +99,12 @@ export interface MountedView {
   nudge(deltaDegrees: number): void;
   reset(): void;
   dispose(): void;
+  /** The region under the cursor right now -- the same id a click there
+   *  would resolve through `onPick`, or `null` off the ground entirely.
+   *  Read from `onFrame` (below) to preview it, never polled on its own:
+   *  the ground is one canvas with no per-region DOM node of its own, so
+   *  this is the only thing that knows what a hover is currently over. */
+  readonly hovered: string | null;
 }
 
 export type MountWorldView = (
@@ -239,6 +246,20 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     if (p.status === 'live' && nextOf(region) !== null) clickable.add(region.id);
   }
 
+  // --- the line that answers a click (built here; appended to `wrap` below,
+  // in its original visual position, once the stage and rotate controls are
+  // in the DOM) -- declared before the town pins so their hover listeners
+  // can call `speak` directly rather than through a forward reference.
+  const HINT = t('world3d.hint');
+  const say = el('p', 'rl-world__say', HINT);
+  say.setAttribute('role', 'status');
+  say.setAttribute('aria-live', 'polite');
+  say.dataset.tone = 'hint';
+  const speak = (text: string, tone: 'hint' | 'good' | 'bad' | 'info'): void => {
+    say.textContent = text;
+    say.dataset.tone = tone;
+  };
+
   // --- the town pins ------------------------------------------------------
   const pinFor = new Map<string, HTMLElement>();
   for (const region of world.regions) {
@@ -252,8 +273,9 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       // comment has the argument: a region can be live while most of its
       // towns have nothing authored, and stamping the region status on an
       // empty town is a false completion signal.
-      marker.dataset.status =
+      const pinStatus: PinStatus =
         total > 0 && done === total ? 'done' : total === 0 ? 'empty' : p.status;
+      marker.dataset.status = pinStatus;
       // Nothing is placed until the board has drawn a frame. A pin at 0,0 in
       // the corner reads as a bug, so it is hidden until it has a position.
       marker.dataset.placed = '0';
@@ -266,11 +288,51 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
         a.textContent = label;
         marker.appendChild(a);
       } else {
-        marker.appendChild(el('span', 'rl-world__townname', label));
+        // No link -- but its hover preview is still worth having: a locked
+        // pin's own reason is the single most useful preview on this screen.
+        // `tabindex` is what lets a real Tab reach it at all, since a plain
+        // <span> is not otherwise focusable (spec §6 Phase 4: no hover-only
+        // affordance without a keyboard path).
+        const name = el('span', 'rl-world__townname', label);
+        name.tabIndex = 0;
+        marker.appendChild(name);
       }
       if (stars.possible > 0) {
         marker.appendChild(el('span', 'rl-world__stars', ` ${stars.earned}/${stars.possible}★`));
       }
+
+      // --- hover/focus preview: what THIS pin's own link would say -----
+      // Never `point()`, never `navigate()` -- the `opening` outcome
+      // navigates on click, and a hover that navigated would make the board
+      // unusable. Gated on "the pin exists", broader than the `<a>` above:
+      // a locked or empty pin has no link and the most useful preview of
+      // all. `mouseenter`/`mouseleave`/`focusin`/`focusout` is the flat
+      // board's own four-listener pattern (`worldmap.ts`), so a keyboard
+      // Tab previews exactly what a mouse hover does.
+      const previewThisPin = (): void => {
+        const line = hoverLine({
+          status: pinStatus,
+          regionName: town.name,
+          lockedBecause: p.lockedBecause ?? undefined,
+          nextMissionName: next !== null ? (missionName(next) ?? town.name) : undefined,
+        });
+        speak(t(line.key, line.params), line.tone);
+      };
+      const leaveThisPin = (): void => {
+        delete marker.dataset.hover;
+        speak(HINT, 'hint');
+      };
+      marker.addEventListener('mouseenter', () => {
+        marker.dataset.hover = '1';
+        previewThisPin();
+      });
+      marker.addEventListener('mouseleave', leaveThisPin);
+      marker.addEventListener('focusin', () => {
+        marker.dataset.hover = '1';
+        previewThisPin();
+      });
+      marker.addEventListener('focusout', leaveThisPin);
+
       pins.appendChild(marker);
       pinFor.set(town.id, marker);
     }
@@ -299,12 +361,9 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   stage.appendChild(spin);
   wrap.appendChild(stage);
 
-  // --- the line that answers a click --------------------------------------
-  const HINT = t('world3d.hint');
-  const say = el('p', 'rl-world__say', HINT);
-  say.setAttribute('role', 'status');
-  say.setAttribute('aria-live', 'polite');
-  say.dataset.tone = 'hint';
+  // `say` was declared above the town pins; appended here, in its original
+  // visual position, once the stage and rotate controls are already in the
+  // DOM.
   wrap.appendChild(say);
 
   // --- the cards, identical to the flat board's ---------------------------
@@ -323,10 +382,6 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   wrap.appendChild(cards);
   wrap.appendChild(ledgerLine(ledger, world));
 
-  const speak = (text: string, tone: 'hint' | 'good' | 'bad' | 'info'): void => {
-    say.textContent = text;
-    say.dataset.tone = tone;
-  };
   const point = (regionId: string | null): void => {
     for (const [id, card] of cardFor) {
       if (id === regionId) card.dataset.said = '1';
@@ -359,25 +414,64 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     }
     point(region.id);
     const p = regionProgress(region, ledger, missionName);
-    if (p.status === 'locked') {
+    const next = nextOf(region);
+    // The one branch a hover preview resolves through too (`pin-hover.ts`) --
+    // written once rather than as this function's own copy of the same
+    // if-chain (pre-flight scan M11).
+    const outcome = pickOutcome(p.status, next !== null);
+    if (outcome === 'locked') {
       speak(t('world3d.say.locked', { region: region.name, reason: p.lockedBecause ?? t('world3d.locked.fallback') }), 'bad');
       return;
     }
-    if (p.status === 'empty') {
+    if (outcome === 'empty') {
       speak(t('world3d.say.empty', { region: region.name }), 'info');
       return;
     }
-    const next = nextOf(region);
     if (next === null) {
+      // `outcome` is `'cleared'` here -- the check is on `next` rather than
+      // on `outcome` because only this one narrows its type for the
+      // `navigate` call below, with no non-null assertion needed.
       speak(t('world3d.say.cleared', { region: region.name }), 'good');
       return;
     }
-    // Names the mission, never its id -- the same rule as the locked-region
-    // sentence just above. A catalogue with no title for `next` still says
-    // something real (the region alone) rather than falling through to the id.
+    // `outcome` is `'opening'` here. Names the mission, never its id -- the
+    // same rule as the locked-region sentence just above. A catalogue with
+    // no title for `next` still says something real (the region alone)
+    // rather than falling through to the id.
     const nextName = missionName(next);
     speak(nextName ? t('world3d.say.opening', { region: region.name, mission: nextName }) : region.name, 'good');
     navigate(opts.href(next));
+  };
+
+  // --- the ground's own preview: what a click at the cursor would say -----
+  // Read from `view.hovered` (below) inside `onFrame`, the only place this
+  // screen learns what is currently under the cursor -- the ground is one
+  // canvas with no per-region DOM node of its own. Debounced to CHANGES
+  // only: `onFrame` runs every animation frame, and rewriting an
+  // `aria-live` region sixty times a second would make a screen reader
+  // unusable. The debounce is also what keeps a just-committed click
+  // sentence from being overwritten one frame later by a hover preview of
+  // the same, unchanged, region.
+  let lastGroundHover: string | null = null;
+  const previewGround = (regionId: string | null): void => {
+    if (regionId === null) {
+      speak(HINT, 'hint');
+      return;
+    }
+    const region = regionById.get(regionId);
+    if (!region) {
+      speak(t('world3d.hover.unmapped', { id: regionId }), 'info');
+      return;
+    }
+    const p = regionProgress(region, ledger, missionName);
+    const next = nextOf(region);
+    const line = hoverLine({
+      status: p.status,
+      regionName: region.name,
+      lockedBecause: p.lockedBecause ?? undefined,
+      nextMissionName: next !== null ? (missionName(next) ?? region.name) : undefined,
+    });
+    speak(t(line.key, line.params), line.tone);
   };
 
   // A label's rendered size never changes frame to frame (the text and the
@@ -386,6 +480,12 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // `offsetWidth`/`offsetHeight` are the placed-and-visible size regardless
   // of `opacity`, which is all this pin ever animates.
   const labelSize = new Map<string, { w: number; h: number }>();
+  // Assigned once `mount()` resolves, below -- `onFrame` is only ever
+  // CALLED by the mounted view itself, always after that assignment has
+  // happened, so this is never read `null` in practice; it starts `null`
+  // rather than asserted non-null because nothing here can prove that to
+  // the compiler ahead of time.
+  let mountedView: MountedView | null = null;
   const onFrame = (towns: readonly TownPin[], bearingDegrees: number): void => {
     const boxes: LabelBox[] = [];
     for (const t of towns) {
@@ -413,6 +513,14 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       pin.style.setProperty('--leader', `${Math.max(0, d - 4)}px`);
     }
     bearing.textContent = `${Math.round(bearingDegrees).toString().padStart(3, '0')}°`;
+
+    // The ground's own preview, debounced to changes only -- see
+    // `previewGround`'s own comment for why.
+    const hoveredId = mountedView?.hovered ?? null;
+    if (hoveredId !== lastGroundHover) {
+      lastGroundHover = hoveredId;
+      previewGround(hoveredId);
+    }
   };
 
   // --- swap in whichever board we can actually draw -----------------------
@@ -441,6 +549,7 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
         onPick,
         onFrame,
       });
+      mountedView = view;
       ccw.addEventListener('click', () => view.nudge(-NUDGE_DEGREES));
       cw.addEventListener('click', () => view.nudge(NUDGE_DEGREES));
       bearing.addEventListener('click', () => view.reset());
