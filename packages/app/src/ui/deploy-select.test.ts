@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { LedgerRosterEntry } from '@lions/sim';
+import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
 import { deployRosterView, drawFromPool } from './deploy-roster';
 import {
   defaultSelection,
+  deployedLedger,
   isComplete,
   permutePool,
   slotsLeft,
@@ -298,5 +299,52 @@ describe('permutePool — property: 500 random pools and selections', () => {
         expect(drawnOfType.slice(0, chosenOfType.length)).toEqual(chosenOfType);
       }
     }
+  });
+});
+
+describe('deployedLedger — the ledger the runtime is built from (Task 4)', () => {
+  it('hands back the SAME ledger object for an untouched screen', () => {
+    const ledger: LedgerData = { 'roster.surviving_units': pool() };
+    expect(deployedLedger(ledger, null)).toBe(ledger);
+  });
+
+  it('never invents a roster the campaign does not have yet', () => {
+    // Absent means a fresh campaign to the spawner; `[]` would mean a gutted
+    // brigade fielding one remnant per placement (`mission.ts:1254`).
+    const fresh: LedgerData = { 'roe.mission_ratings': { beit_sahwan_1_recon: 80 } };
+    const out = deployedLedger(fresh, { chosen: new Set([0, 2]) });
+    expect(out).toBe(fresh);
+    expect('roster.surviving_units' in out).toBe(false);
+  });
+
+  it('permutes a COPY, and leaves the ledger the save is written from exactly as it was', () => {
+    const entries = pool();
+    const roster = [...entries];
+    const ratings = { beit_sahwan_1_recon: 80 };
+    const ledger: LedgerData = { 'roster.surviving_units': roster, 'roe.mission_ratings': ratings };
+    const v = deployRosterView(mission, ledger, name);
+    if (!v) throw new Error('fixture: the view must exist');
+    const sel = toggleEntry(v, toggleEntry(v, defaultSelection(v), 0), 2);
+
+    const out = deployedLedger(ledger, sel);
+
+    // The copy carries the choice -- the two chosen squads, in pool order,
+    // in front of the benched one, and nothing else moved...
+    expect(out).not.toBe(ledger);
+    expect(out['roster.surviving_units']?.map((e) => e.name ?? e.type)).toEqual([
+      'inf_squad',
+      '1-3 Nachshon',
+      '1-1 Erez',
+      '2-1 Gachelet',
+      'recon_drone',
+    ]);
+    // ...and the original is untouched: same array, same order, same entries.
+    expect(ledger['roster.surviving_units']).toBe(roster);
+    expect(roster).toEqual(pool());
+    roster.forEach((e, i) => expect(e).toBe(entries[i]));
+    // Every other key rides along by reference; entries are never cloned, so a
+    // field the sim has never heard of (the app's `slot`) survives the trip.
+    expect(out['roe.mission_ratings']).toBe(ratings);
+    for (const e of out['roster.surviving_units'] ?? []) expect(entries).toContain(e);
   });
 });
