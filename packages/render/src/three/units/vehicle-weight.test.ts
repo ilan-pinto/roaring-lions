@@ -9,6 +9,7 @@ import {
   terrainRollRad,
 } from './vehicle-weight';
 import type { VehicleWeightInput, VehicleWeightParams } from './vehicle-weight';
+import { VEHICLE_WEIGHT_MASS_CLASS, VEHICLE_WEIGHT_ROLE_DEFAULTS } from './vehicle-weight-params';
 
 describe('the four footprint corners', () => {
   // Facing 0 turns is +X in game space (`fx.atan2` of the movement delta, and
@@ -450,14 +451,15 @@ describe('the settle on stop', () => {
   });
 });
 
-// The brief's sweep read `VEHICLE_WEIGHT_ROLE_DEFAULTS` from
-// `./vehicle-weight-params`, which is Task 4's file and does not exist yet.
-// Until it does, the sweep brackets the legal envelope instead: the schema's
-// own ceilings (R-B) -- lag at MAX_LAG_TILES, pitch and roll at 6 degrees --
-// with the fastest and the most underdamped settle it is sane to author, plus
-// the heavy and a light set. Task 4 appends its role defaults and mass classes
-// to SWEPT; an envelope that holds at its ceiling holds for every table inside
-// it, and Task 4's own lag-budget test is what keeps its tables inside.
+// CEILING and LIGHT bracket the legal envelope by hand: the schema's own
+// ceilings (R-B) -- lag at MAX_LAG_TILES, pitch and roll at 6 degrees -- with
+// the fastest and the most underdamped settle it is sane to author, plus a
+// light set. An envelope that holds at its ceiling holds for every table
+// inside it. Task 4's `VEHICLE_WEIGHT_ROLE_DEFAULTS`/`VEHICLE_WEIGHT_MASS_CLASS`
+// (`./vehicle-weight-params`) join both HEAVY/CEILING/LIGHT below -- SWEPT and
+// NAMED -- so this envelope check is proven for every table this package
+// actually ships, not only the three that bracket it; its own lag-budget test
+// is what keeps every one of those tables inside MAX_LAG_TILES to begin with.
 //
 // CEILING's damping sits at the SETTLE_DAMPING_MIN floor, 0.5: the 0.2 it
 // carried before fix round 1 is drawn as 0.5 now anyway. A settle this fast
@@ -480,7 +482,16 @@ const LIGHT: VehicleWeightParams = {
   settleDamping: 1.4,
   lagTiles: 0.02,
 };
-const SWEPT: VehicleWeightParams[] = [HEAVY, CEILING, LIGHT];
+// Task 4: every role default and every mass class joins the sweep, so the R-C
+// bound and the three per-table draws below are proven for every AUTHORED
+// table this package ships, not only the three envelope-bracketing ones above.
+const SWEPT: VehicleWeightParams[] = [
+  HEAVY,
+  CEILING,
+  LIGHT,
+  ...Object.values(VEHICLE_WEIGHT_ROLE_DEFAULTS),
+  ...Object.values(VEHICLE_WEIGHT_MASS_CLASS),
+];
 
 // Fix round 1. What an authored number means, measured on every swept table:
 // Task 4 appends its role defaults and mass classes to SWEPT and inherits all
@@ -489,6 +500,12 @@ const NAMED: Array<[string, VehicleWeightParams]> = [
   ['HEAVY', HEAVY],
   ['CEILING', CEILING],
   ['LIGHT', LIGHT],
+  ...Object.entries(VEHICLE_WEIGHT_ROLE_DEFAULTS).map(
+    ([name, params]): [string, VehicleWeightParams] => [`role:${name}`, params]
+  ),
+  ...Object.entries(VEHICLE_WEIGHT_MASS_CLASS).map(
+    ([name, params]): [string, VehicleWeightParams] => [`mass:${name}`, params]
+  ),
 ];
 const TURN_RATE = 60 / 360;
 /** Visible, for an overshoot: beyond 5% of the authored maximum -- 0.1 degree
