@@ -71,15 +71,9 @@ import {
   units,
   type MapJson,
 } from '@lions/data';
-import {
-  MissionRuntime,
-  Sim,
-  TICKS_PER_SECOND,
-  type LedgerData,
-  type MissionJson,
-  type TunnelRouteJson,
-} from '@lions/sim';
+import { Sim } from '@lions/sim';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
+import { missionWorld } from './mission-harness';
 
 type Pt = readonly [number, number];
 
@@ -445,58 +439,21 @@ describe('First Light fence — every wave route from a raid marker still reache
 
 // ---------------------------------------------------------- passive control
 
-/** A from-scratch replica of `playtest.ts`'s `run()` harness for exactly one
- *  check: the passive control, seeded to match it (424242) because this
- *  mission's autonomous civilian/suppression behaviour is seed-sensitive
- *  (confirmed while authoring this fence -- `walk_world.ts`'s own default
- *  seed, 11, reads VICTORY on the unmodified, fenceless mission, which is
- *  not the invariant `script.md`/`design.md` 5.1 pins; 424242, `playtest.ts`'s
- *  own seed, is the one that matters). Not exported from playtest.ts, so this
- *  is copied rather than imported -- deliberately minimal, no plan support,
- *  built only to answer "does an all-idle run still lose on evac_settlements". */
+/** The passive control, seeded to match `playtest.ts` (424242, the harness
+ *  default) because this mission's autonomous civilian/suppression behaviour
+ *  is seed-sensitive (confirmed while authoring this fence -- `walk_world.ts`'s
+ *  own default seed, 11, reads VICTORY on the unmodified, fenceless mission,
+ *  which is not the invariant `script.md`/`design.md` 5.1 pins; 424242,
+ *  `playtest.ts`'s own seed, is the one that matters). Built by
+ *  `mission-harness.ts`, the one copy of the Sim-plus-runtime recipe this file
+ *  used to carry a from-scratch replica of: no plan support, only "does an
+ *  all-idle run still lose on evac_settlements". */
 function passiveResult(): { result: string; objectives: Record<string, string> } {
-  const mission = missions.beit_sahwan_breach as unknown as MissionJson;
-  const map = parseMap(maps[mission.map.file as keyof typeof maps]);
-  const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
-  applyTerrain(map, sim);
-  const structIdx = new Map<string, number>();
-  for (const [id, spec] of Object.entries(structureCatalogue)) {
-    structIdx.set(id, sim.addStructureType(spec as Parameters<typeof sim.addStructureType>[0]));
-  }
-  for (const b of map.structures) {
-    const ti = structIdx.get(b.type);
-    if (ti === undefined) throw new Error(`unknown structure type ${b.type}`);
-    sim.addStructure(ti, b.tiles);
-  }
-  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
-    id: t.id,
-    points: t.points,
-    dig_tiles_per_s: t.digTilesPerS,
-    pre_dug: t.preDug,
-  }));
-  for (let i = 0; i < tunnelRoutes.length; i++) sim.addTunnel(tunnelRoutes[i]);
-  const typeOf = new Map<string, number>();
-  for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
-  const ledger: LedgerData = {};
-  const rt = new MissionRuntime(sim, mission, {
-    typeIdOf: (u: string) => typeOf.get(u) as number,
-    markers: map.markers,
-    zones: map.zones,
-    tunnels: tunnelRoutes,
-    ledger,
-    unitInfo: () => null,
-  });
-  rt.start();
-  const maxTicks = 20 * 60 * TICKS_PER_SECOND;
-  let t = 0;
-  for (; t < maxTicks; t++) {
-    const evs = sim.tick();
-    rt.step(evs);
-    if (rt.result !== 'ongoing') break;
-  }
+  const w = missionWorld('beit_sahwan_breach', {});
+  w.runToEnd();
   const objectives: Record<string, string> = {};
-  for (const o of rt.objectiveList) objectives[o.id] = o.status;
-  return { result: rt.result, objectives };
+  for (const o of w.runtime.objectiveList) objectives[o.id] = o.status;
+  return { result: w.runtime.result, objectives };
 }
 
 describe('First Light fence — the passive control is unchanged', () => {
