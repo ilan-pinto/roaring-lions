@@ -56,6 +56,27 @@ describe('confirmDialog', () => {
     expect(document.activeElement?.classList.contains('rl-confirm__no')).toBe(true);
   });
 
+  // Task 8 (M4): a synthetic Tab never moves focus in jsdom by itself, so a
+  // test that presses Tab once and asserts "focus is still inside" proves
+  // nothing -- that would already be true with no trap at all. The WRAP is
+  // the one thing only a real trap can produce.
+  it('traps Tab: wraps from the last focusable back to the first, and Shift+Tab the other way', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    void confirmDialog(host, { title: 't', body: 'b', confirm: 'c' });
+    const no = host.querySelector<HTMLButtonElement>('.rl-confirm__no')!;
+    const yes = host.querySelector<HTMLButtonElement>('.rl-confirm__yes')!;
+
+    yes.focus();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(no);
+
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })
+    );
+    expect(document.activeElement).toBe(yes);
+  });
+
   it('names what is lost in the body, and stamps the danger colour on the confirm button', () => {
     const host = document.createElement('div');
     void confirmDialog(host, {

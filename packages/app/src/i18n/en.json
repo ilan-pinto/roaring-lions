@@ -359,6 +359,7 @@
   "keymap.panRight": "Pan right",
   "keymap.pause": "Pause",
   "keymap.modifier.ctrl": "Ctrl + ",
+  "keymap.cap.ctrl": "Ctrl + {key}",
 
   "keys.title": "Key bindings",
   "keys.close": "Close",

@@ -287,12 +287,12 @@ describe('pauseMenu', () => {
     }
   });
 
-  // I1 (final review). Both modals deliberately let Tab through so the
-  // browser's native focus traversal works inside the dialog -- and `main.ts`
-  // binds Tab to `cycleChips`, so before the handler-wide guard a Tab pressed
-  // in the pause menu ran `hud.cycleChipFocus()`, moved the lime focus frame
-  // along the HUD chips BEHIND the modal, and then `preventDefault()`ed the
-  // very focus move the dialog had passed Tab through for.
+  // I1 (final review). Both modals deliberately let Tab through their OWN
+  // capture guard -- and `main.ts` binds Tab to `cycleChips`, so before the
+  // handler-wide guard a Tab pressed in the pause menu ran
+  // `hud.cycleChipFocus()`, moved the lime focus frame along the HUD chips
+  // BEHIND the modal, and then `preventDefault()`ed the very focus move the
+  // dialog had passed Tab through for.
   //
   // `gameKeydown` mirrors `main.ts`'s handler exactly: `resolveKey`, then the
   // one guard, then the `cycleChips` case -- and it imports
@@ -302,9 +302,14 @@ describe('pauseMenu', () => {
   // `false` blocks the pan and fails the second.
   //
   // jsdom implements no Tab traversal, so `document.activeElement` cannot say
-  // whether focus MOVED. What it can say -- and what the defect actually was
-  // -- is whether the game cancelled the browser's default action, so
-  // `defaultPrevented` is the reading.
+  // whether focus MOVED by itself. Task 8: it no longer has to -- `focusTrap`
+  // is a JS-implemented trap, not a reliance on the browser's own traversal,
+  // and it calls `preventDefault()` itself whenever it moves focus (which it
+  // always can here: the panel has several focusable controls). So
+  // `defaultPrevented` now reads TRUE for the modal's own trap claiming the
+  // key, which is a different claimant from the game's `cycleChipFocus` but
+  // the same reading this test always took: whichever code preempted the
+  // browser's default action.
   it('Tab does not reach the game through the open modal, while a pan key still does', () => {
     const bindings = bindingsFrom({});
     const d = deps();
@@ -332,7 +337,7 @@ describe('pauseMenu', () => {
       const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
       document.body.dispatchEvent(tab);
       expect(cycleChipFocus).toHaveBeenCalledTimes(1); // still 1: the modal's Tab is the modal's
-      expect(tab.defaultPrevented).toBe(false);
+      expect(tab.defaultPrevented).toBe(true); // claimed by focusTrap, not the game
       expect(document.activeElement?.closest('.rl-pause')).not.toBeNull();
 
       // A game verb the modal passes NOTHING of: blocked twice over.
@@ -347,6 +352,37 @@ describe('pauseMenu', () => {
     } finally {
       window.removeEventListener('keydown', gameKeydown);
     }
+  });
+
+  // Task 8 (M4): a synthetic Tab never moves focus in jsdom by itself, so a
+  // test that presses Tab once and asserts "focus is still inside the modal"
+  // proves nothing -- that would already be true with no trap at all, since
+  // nothing native or scripted moves focus off Resume (focused at mount).
+  // The WRAP is the one thing only a real trap can produce: focus the last
+  // focusable, Tab, expect the first; Shift+Tab from the first, expect the
+  // last.
+  it('traps Tab: wraps from the last focusable back to the first, and Shift+Tab the other way', () => {
+    const d = deps();
+    pauseMenu(document.body, d);
+    const dlg = document.querySelector<HTMLElement>('.rl-pause');
+    if (!dlg) throw new Error('no .rl-pause');
+    const focusables = [
+      ...dlg.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ),
+    ];
+    expect(focusables.length).toBeGreaterThan(1);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    last.focus();
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(first);
+
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })
+    );
+    expect(document.activeElement).toBe(last);
   });
 
   // The same guard, over a bare confirm rather than the pause menu -- where

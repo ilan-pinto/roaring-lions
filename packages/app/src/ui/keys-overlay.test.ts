@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ACTIONS, bindingsFrom, keyLabel } from '../input/keymap';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
+import { setCatalogue } from '../i18n/t';
 import { UNBOUND_KEYS, showKeysOverlay } from './keys-overlay';
 
 const mount = () => {
@@ -10,6 +13,10 @@ const mount = () => {
   const dispose = showKeysOverlay(host, { bindings: () => bindingsFrom({}), onClose: () => closed.push(1) });
   return { host, closed, dispose };
 };
+
+afterEach(() => {
+  setCatalogue('en', en);
+});
 
 describe('showKeysOverlay', () => {
   // The whole point: not "a list of keys" but "THE list", derived.
@@ -34,6 +41,55 @@ describe('showKeysOverlay', () => {
     expect(host.querySelector('.rl-keys__row[data-action="selectAll"] .rl-keys__cap')?.textContent)
       .toMatch(/Ctrl/);
     dispose();
+  });
+
+  // Task 8 (M14): the concatenation this replaces was
+  // `${t('keymap.modifier.ctrl')}${key}` -- the modifier fragment goes
+  // through `t()` on its own and the bare key never does, so under the
+  // pseudo-locale the modifier comes back bracketed and accented and the key
+  // does not, and the two read as separate words glued together (a `⟧`
+  // immediately followed by a bare, unaccented letter). `keymap.cap.ctrl`
+  // ("Ctrl + {key}") takes the key as its own param, so the WHOLE keycap is
+  // formatted first and pseudo-transformed once, as a single unit -- one
+  // opening bracket, one closing bracket, both ends accented.
+  it('composes a Ctrl keycap as one catalogue entry, not by concatenation, under the pseudo-locale', () => {
+    setCatalogue('pseudo', en, pseudo);
+    const { host, dispose } = mount();
+    try {
+      const cap = host.querySelector('.rl-keys__row[data-action="selectAll"] .rl-keys__cap')?.textContent ?? null;
+      expect(cap).not.toBeNull();
+      // The failure this pins: a bracket glued directly to a word character
+      // -- ⟧ immediately followed by a letter or digit -- which is what
+      // concatenating a separately-translated fragment with an untranslated
+      // key produces. The fixed composition brackets the whole string once,
+      // so the closing bracket is always the LAST character.
+      expect(cap).toMatch(/^⟦.*⟧$/);
+      expect((cap?.match(/⟦/g) ?? []).length).toBe(1);
+      expect((cap?.match(/⟧/g) ?? []).length).toBe(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  // Task 8 (M4): a synthetic Tab never moves focus in jsdom by itself. The
+  // overlay's row list has no focusable content at all (`row()` builds plain
+  // spans), so Close is the panel's ONLY focusable control -- "wraps from the
+  // last to the first" here means wrapping back onto itself, which is
+  // exactly what a real trap does with a single-element root. What actually
+  // falls without a trap is `defaultPrevented`: nothing here would claim the
+  // key at all, so it would read false rather than true.
+  it('traps Tab: the sole focusable (Close) keeps focus, claimed by the trap rather than left to the browser', () => {
+    const { host, dispose } = mount();
+    try {
+      const close = host.querySelector<HTMLButtonElement>('.rl-keys__close')!;
+      expect(document.activeElement).toBe(close); // focused at mount
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      document.body.dispatchEvent(tab);
+      expect(document.activeElement).toBe(close);
+      expect(tab.defaultPrevented).toBe(true);
+    } finally {
+      dispose();
+    }
   });
 
   // The control groups and the two mouse buttons are real bindings that

@@ -18,8 +18,9 @@
  * that file's own header for why the guard is capture-phase (it has to run
  * before `main.ts`'s bubble-phase game listener, which is registered once at
  * boot) and why Escape/Enter/Tab pass through untouched (Escape is this
- * dialog's own cancel, Enter activates a focused button, Tab is native focus
- * movement).
+ * dialog's own cancel, Enter activates a focused button, and Tab is
+ * `focusTrap`'s job now, not this guard's -- see the trap installed right
+ * after the panel is built, below).
  *
  * Fix round 1: `main.ts`'s bubble-phase game listener is the OLDEST one on
  * `window`, so it used to run BEFORE any dialog's own Escape handler and act
@@ -64,6 +65,7 @@
  */
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
+import { focusTrap } from './focus-trap';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 import { panel } from './panel';
 import { settingsPanel, type SettingsDeps } from './settings-panel';
@@ -127,6 +129,12 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
 
   const p = panel({ rank: 'inspect', title: t('pause.title') });
   p.el.classList.add('rl-pause__panel');
+  // Installed here, before a single row of body content exists: it queries
+  // `p.el` for its own focusable descendants at KEYPRESS time, not now, so
+  // the tabs/objectives/settings/actions built below (and the settings
+  // panel's own late mount on first "Settings" click) are all covered
+  // without this needing to know when they arrive.
+  const disposeTrap = focusTrap(p.el);
 
   // --- tabs: Objectives | Settings ---------------------------------------
   const tabs = document.createElement('div');
@@ -194,6 +202,7 @@ export function pauseMenu(host: HTMLElement, deps: PauseDeps): { close: Disposer
     closed = true;
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('keydown', onCaptureKey, true);
+    disposeTrap();
     mountedSettings?.dispose();
     objPanel.dispose();
     scrim.remove();
