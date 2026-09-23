@@ -911,8 +911,9 @@ re-seeds with three `snapshot()` calls, and `Renderer.reseed()` (with the record
 
 **D-45 — the outcome moment is presentation, after the ledger write (R-6).** As ruled, with a
 2600 ms hold, z-index 55 and no fade-out for the lead to judge. Departures from the fix wave: an
-autorepeat no longer skips it, and the HUD's end banner is suppressed while it shows — which also
-drops `aftermath`, drawn only by that banner, on the four missions that author it.
+autorepeat no longer skips it, and the HUD's end banner is suppressed while it shows — so the
+banner's second line, a victory's `aftermath` (four arc finales), moved into the moment under its
+verdict, as text, within the same hold (`outcomeMomentOptions`).
 
 **D-46 — 1280 is a fit floor and D-8 has its number (R-7).** As ruled: two breakpoints,
 `--menu-col-wide: min(34rem, 82vw)`, 29.75% of 2560 and 32.58% of 1920.

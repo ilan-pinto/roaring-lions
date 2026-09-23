@@ -291,8 +291,9 @@ const livingSide0 = (sim: Sim): number => {
 
 /**
  * A stand-in for exactly the renderer state the re-seed is coupled to, modelled
- * on both backends' `snapshot()` (`ThreeRenderer.ts:3062-3080`,
- * `renderer.ts:730-751`) and nothing else: `prev`/`cur` position copies taken
+ * on both backends' `snapshot()` (`ThreeRenderer.snapshot()` and
+ * `PixiRenderer.snapshot()`, cited by name because WP-A1.3 moves every line in
+ * `ThreeRenderer.ts`) and nothing else: `prev`/`cur` position copies taken
  * from `sim.state` on every call, a "moved" flag standing in for the speed
  * those copies imply, and the fog gate that refreshes on every call where
  * `fogTick++ % 4 === 0`, recording how many living side-0 units the refresh
@@ -315,8 +316,10 @@ class SeedRecorder {
     this.curX = new Int32Array(n);
     this.curY = new Int32Array(n);
   }
-  /** What both backends' `init()` end with (`ThreeRenderer.ts:2149-2150`,
-   *  `renderer.ts:557-558`). */
+  /** What both backends' `init()` end with: the two `snapshot()` calls in
+   *  `ThreeRenderer.init()` (under "Seeds prevX/prevY == curX/curY from the
+   *  sim's actual starting positions") and `PixiRenderer.init()` ("prev ==
+   *  cur on the first frame"). */
   init(): void {
     this.snapshot();
     this.snapshot();

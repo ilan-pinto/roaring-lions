@@ -76,7 +76,7 @@ import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
-import { outcomeMoment } from './ui/outcome-moment';
+import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
 import { EDGE_MARGIN_PX, clampZoom, edgeVector, panDelta, zoomAnchor } from './ui/camera-input';
@@ -3897,10 +3897,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // -- `writeLedger`/`payMission` already ran (victory only) before
             // this point, so the moment can never delay a write that has
             // already happened, and a player who closes the tab during the
-            // hold loses nothing. `line` is the mission's own outcome-specific
-            // sentence, already resolved into `debrief` above (`say.text`) --
-            // entirely absent, not a blank paragraph, when this outcome has
-            // none. The handler is synchronous inside the event loop up to
+            // hold loses nothing. What it says comes from
+            // `outcomeMomentOptions` (`ui/outcome-moment.ts`), the testable
+            // half of this handler: the verdict, the mission's own
+            // outcome-specific sentence (the same `say` resolved into
+            // `debrief` above), and on a victory the mission's `aftermath`,
+            // which the HUD banner (suppressed just below) used to be the only
+            // thing to draw. The handler is synchronous inside the event loop up to
             // this point, so the moment mounts NOW; `showEndScreen` is
             // deferred to `moment.done`'s `.then()`, guarded by `disposed` the
             // same way the deferred art block guards its own late callbacks
@@ -3909,17 +3912,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // drains `screenDisposers` (dismissing the still-open moment) and
             // sets `disposed`, so the end screen must not mount on a stage the
             // router has already cleared.
-            const moment = outcomeMoment(document.body, {
-              outcome: me.result,
-              title: t(me.result === 'victory' ? 'outcome.victory' : 'outcome.defeat'),
-              line: debrief?.text,
-            });
+            const moment = outcomeMoment(document.body, outcomeMomentOptions(me.result, mission));
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down
             // rather than sit behind it and stay up over the end screen after
             // it. Called here, in the same tick's event loop and BEFORE
             // `hud.onTick()` at the end of `runTick`, which is the call that
-            // would otherwise put the banner up.
+            // would otherwise put the banner up. The banner's second line, a
+            // victory's `aftermath`, did not go with it: the moment carries
+            // it now (`outcomeMomentOptions`, the correction to ruling 9).
             hud.suppressEndBanner();
             screenDisposers.push(() => moment.dismiss());
             void moment.done.then(() => {
