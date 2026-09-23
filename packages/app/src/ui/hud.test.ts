@@ -1731,3 +1731,113 @@ describe('the strip and the feed show what a mission authored as text', () => {
     expect(line?.querySelector('b')?.textContent).toBe('lost');
   });
 });
+
+// Shell upgrade Phase 3, Task 10, second half (R-9: the Phase 2 deferral
+// HANDOVER assigns here). `renderStrip` innerHTMLs `stripBody`/`stripInfo`
+// four times a second, so keyboard focus on any strip field lasted 250 ms at
+// most: the element holding it was destroyed and focus fell to <body>. The
+// strip now remembers the focused control's STABLE key -- its `data-obj`, its
+// `data-tip`, or the objectives button's own attribute -- and focuses the
+// node carrying the same key after the swap. Never an index (M8).
+describe('the strip does not eat the keyboard', () => {
+  /** One 4 Hz rebuild: `onTick` renders the strip on every fifth call. */
+  const rebuild = (r: Rig): void => {
+    for (let i = 0; i < 5; i++) r.tick();
+  };
+
+  it('keeps focus on the same field, objective or control across rebuilds', () => {
+    const r = rig(mission({ roe: 80, logistics: 410, intel: 40 }));
+    for (const sel of [
+      '[data-tip="conduct"]',
+      '[data-tip="logistics"]',
+      '[data-tip="intel"]',
+      '[data-obj="hold_west"]',
+      '.rl-strip__more',
+    ]) {
+      const before = r.host.querySelector<HTMLElement>(sel);
+      before?.focus();
+      expect(document.activeElement, `${sel} takes focus at all`).toBe(before);
+      rebuild(r);
+      rebuild(r);
+      const after = r.host.querySelector<HTMLElement>(sel);
+      // Not the same node: the rebuild really happened, so this cannot pass
+      // by the strip simply not having been touched.
+      expect(after, `${sel} was rebuilt`).not.toBe(before);
+      expect(document.activeElement, `${sel} still has focus`).toBe(after);
+    }
+  });
+
+  // M8. Two primaries, the second a failable deadline. The strip shows the
+  // first as its primary and gives the deadline its own row AFTER it.
+  // Completing the first promotes the deadline to the primary row, one place
+  // earlier, and the deadline row goes away. A restore by position -- the nth
+  // keyed control, or the nth objective row -- lands on a different control
+  // or on none, and only a restore by the objective's own id holds.
+  it('keeps focus on an objective by its own id when completing another reorders the rows', () => {
+    const m = mission({
+      objectives: [
+        { id: 'take_ridge', text: 'Take the ridge', primary: true, status: 'active' },
+        { id: 'raze_cache', type: 'raze', text: 'Raze the cache', primary: true, status: 'active', ticksLeft: 200 * 20 },
+      ],
+    });
+    const r = rig(m);
+    const keyed = (): HTMLElement[] => [
+      ...r.host.querySelectorAll<HTMLElement>('.rl-strip [data-obj], .rl-strip [data-tip], .rl-strip [data-open-objectives]'),
+    ];
+    const cache = r.host.querySelector<HTMLElement>('[data-obj="raze_cache"]');
+    expect(cache?.classList.contains('rl-strip__deadline')).toBe(true);
+    const placeBefore = cache ? keyed().indexOf(cache) : -1;
+    cache?.focus();
+    expect(document.activeElement).toBe(cache);
+
+    m.objectives[0].status = 'complete';
+    rebuild(r);
+
+    const now = r.host.querySelector<HTMLElement>('[data-obj="raze_cache"]');
+    // The reorder the test exists for, asserted rather than assumed.
+    expect(now?.classList.contains('rl-strip__deadline')).toBe(false);
+    expect(now ? keyed().indexOf(now) : -1).toBeLessThan(placeBefore);
+    expect(document.activeElement).toBe(now);
+  });
+
+  it('lets focus go when the control it was on is gone, rather than handing it to a neighbour', () => {
+    const m = mission({
+      objectives: [
+        { id: 'take_ridge', text: 'Take the ridge', primary: true, status: 'active' },
+        { id: 'hold_town', text: 'Hold the town', primary: true, status: 'active' },
+      ],
+    });
+    const r = rig(m);
+    r.host.querySelector<HTMLElement>('[data-obj="take_ridge"]')?.focus();
+    expect(document.activeElement?.getAttribute('data-obj')).toBe('take_ridge');
+
+    m.objectives[0].status = 'complete';
+    rebuild(r);
+
+    expect(r.host.querySelector('[data-obj="take_ridge"]')).toBeNull();
+    expect(r.host.querySelector('[data-obj="hold_town"]')).not.toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  // The strip is rebuilt 4 Hz for the whole mission; a restore that fires when
+  // focus is somewhere else takes the keyboard off the battlefield 4 Hz.
+  it('does not take the keyboard back once it has left the strip', () => {
+    const r = rig(mission({ roe: 80 }));
+    r.host.querySelector<HTMLElement>('[data-tip="conduct"]')?.focus();
+    rebuild(r);
+    expect(document.activeElement?.getAttribute('data-tip')).toBe('conduct');
+
+    // Outside the strip, and carrying the SAME key -- the HUD's own selection
+    // chips carry `data-tip` too -- so neither a key remembered from before
+    // nor a restore that skips the "was it in the strip" check can pass.
+    const outside = document.createElement('span');
+    outside.tabIndex = 0;
+    outside.dataset.tip = 'conduct';
+    document.body.appendChild(outside);
+    outside.focus();
+    rebuild(r);
+    rebuild(r);
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+});

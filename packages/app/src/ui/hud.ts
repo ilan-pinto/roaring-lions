@@ -125,6 +125,29 @@ const CARD_BADGE = 10;
 const CHIP_MARK = 18;
 const CARD_MARK = 32;
 
+/** The attributes that name a strip control across `renderStrip`'s 4 Hz
+ *  rebuild, tried in this order: an objective row by its objective's id, a
+ *  field by its tooltip key, the objectives button by its own marker. Every
+ *  focusable thing the rebuild creates carries exactly one of them. */
+const STRIP_FOCUS_KEYS = ['data-obj', 'data-tip', 'data-open-objectives'] as const;
+
+/** A selector that finds `el`'s successor once `renderStrip` has replaced it:
+ *  the one stable key it carries, never its position. Null when `el` carries
+ *  none of the keys, and then nothing is restored.
+ *
+ *  Deliberately not its tag as well. Every key the strip renders is carried
+ *  by exactly one element type, so a tag in the selector could never find a
+ *  better successor -- measured: taking it out left every spec green -- and
+ *  its one effect would be to drop focus on the rebuild where a control
+ *  changes element (a field that becomes a button). */
+function stripFocusSelector(el: Element): string | null {
+  for (const attr of STRIP_FOCUS_KEYS) {
+    const value = el.getAttribute(attr);
+    if (value !== null) return `[${attr}="${CSS.escape(value)}"]`;
+  }
+  return null;
+}
+
 /**
  * The five order buttons, wired to whatever `main.ts` binds its keys to.
  *
@@ -1018,8 +1041,11 @@ export class Hud {
             : '';
         const tone =
           primary.status === 'complete' ? 'rl-good' : primary.status === 'failed' ? 'rl-bad-text' : '';
+        // `tabindex="0"`: the row is reachable by Tab, so a keyboard or
+        // screen-reader player can land on the objective and have it read --
+        // and so the focus `renderStrip` restores below has somewhere to go.
         rows.push(
-          `<span class="rl-strip__obj ${tone}" data-obj="${escapeHtml(primary.id)}">` +
+          `<span class="rl-strip__obj ${tone}" data-obj="${escapeHtml(primary.id)}" tabindex="0">` +
             `${objectiveGlyph(primary.status)} ${escapeHtml(primary.text)}${inline}</span>`
         );
       }
@@ -1031,7 +1057,7 @@ export class Hud {
           // Clock FIRST: this span shrinks with an ellipsis at the end, and
           // the clock is the part that must survive the cut -- at 1440 px with
           // two long objectives it was the clock that vanished.
-          `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeHtml(deadline.objective.id)}">` +
+          `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeHtml(deadline.objective.id)}" tabindex="0">` +
             `${objectiveGlyph(deadline.objective.status)} ` +
             `<b class="${textToneClass(deadline.tone)}">${deadline.text}</b> ` +
             `${escapeHtml(deadline.objective.text)}</span>`
@@ -1084,8 +1110,34 @@ export class Hud {
         `<span class="rl-bad-text" data-tip="broken" tabindex="0"><b>${t('hud.strip.broken', { n: broken })}</b></span>`
       );
 
+    // Keyboard focus survives the swap (shell upgrade Phase 3, Task 10; the
+    // Phase 2 deferral). The innerHTML below destroys whichever strip node
+    // holds focus, four times a second, and focus falls to <body> -- so a
+    // keyboard player's place in the strip lasted 250 ms. What is carried
+    // across is the node's KEY (`stripFocusSelector`), read before the swap
+    // and looked up after it: never the node, which is about to be destroyed,
+    // and never its position, which moves when an objective completes and
+    // the deadline row is promoted to the primary one. Two refusals matter as
+    // much as the restore. Focus that is not in these two runs is left
+    // exactly where it is -- `activeElement` is read afresh every rebuild and
+    // nothing is remembered between them, so a player who has tabbed back to
+    // the battlefield is never pulled out of it 4 Hz. And a key that no
+    // longer exists (its objective completed and left the strip) restores
+    // nothing: focus falls to <body>, the same place the keyboard goes when
+    // any control it was on is removed, rather than onto a neighbour the
+    // player never chose.
+    const active = document.activeElement;
+    const refocus =
+      active !== null && (this.stripBody.contains(active) || this.stripInfo.contains(active))
+        ? stripFocusSelector(active)
+        : null;
     this.stripBody.innerHTML = rows.join('');
     this.stripInfo.innerHTML = info.join('');
+    if (refocus !== null) {
+      const successor =
+        this.stripBody.querySelector<HTMLElement>(refocus) ?? this.stripInfo.querySelector<HTMLElement>(refocus);
+      successor?.focus({ preventScroll: true });
+    }
     this.punctuate(m);
   }
 
