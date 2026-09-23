@@ -361,22 +361,64 @@ end, against 0.25 — never two independent clamps that can sum past it.
 rate (60–220 °/s across the roster). So the measured yaw rate has a known per-unit
 ceiling and `roll = maxRollRad · clamp(yawRate / turnRateRad, −1, 1)` is bounded by
 construction, at full lean exactly when the vehicle is turning as hard as it can. A Lavi
-at 60 °/s therefore leans fully on a turn that a `moto_rpg` at 220 °/s takes without
-leaning at all, which is the right answer and falls out of authored data rather than a
-table. The research brief's "the sim gives no acceleration signal" is true of SPEED and
-false of HEADING, and that asymmetry is the whole reason roll is cheap here and pitch is
-not.
+at 60 °/s therefore leans fully on a turn that a `jeep_shoded` at 160 °/s takes at under
+two-fifths of its lean, which is the right answer and falls out of authored data rather
+than a table. The research brief's "the sim gives no acceleration signal" is true of SPEED
+and false of HEADING, and that asymmetry is the whole reason roll is cheap here and pitch
+is not.
 
-**R-M — Pitch has to fake the ramp, and its time constant is a presentation number
+*Amended at Task 3's review (2026-09-23).* **The body rolls to the OUTSIDE of a turn**, as
+a sprung wheeled or tracked body does under lateral load: mass swinging out on its
+suspension is what reads as weight, where leaning in is a motorcycle's or an aircraft's
+bank. Every vehicle that reaches this model is wheeled or tracked. `moto_rpg` ships as an
+infantry GLB and never reaches it; the example above named it until this amendment. The
+sign is pinned to geometry, not to a word: positive roll lowers the corner
+`hullCornerOffsets` names `right`, the convention `terrainRollRad` returns, and one
+constant (`ROLL_TO_OUTSIDE`) flips it. Two more things ship beside the formula. First, the
+roll is scaled by the smoothed speed share `smoothedSpeed / speed_tiles_s` (0..1, so still
+bounded by construction). Lateral acceleration is speed times yaw rate, and a hull that
+`aimHullAt` swings in place has none. That is a **lead call, disclosed**: it keeps a
+parked vehicle's drawn pose the identity while it traverses. Second, the yaw rate goes
+through **two** first-order smoothing stages, each `accelSeconds / 2` and floored at two
+sim ticks. `facing` is a 20 Hz staircase, and one stage jumped on every step: measured at
+half the turn rate, 0.072° of roll peak to peak on the heavy table and 1.655° on the
+ceiling one. Two stages bring that to 0.007° and 0.087°. The roll is read from the second
+stage's state, so it holds exactly through a hit-stop.
+
+**R-M — Pitch has to fake the ramp, and its duration is a presentation number
 normalised by the unit's own `speed_tiles_s`.** `stepMovement` has no acceleration, so
-`entitySpeed` steps 0 → full in one tick and back. The renderer keeps a smoothed speed per
-entity — a first-order filter toward `entitySpeed[i]`, stepped on `frameDtSeconds`, the
-same shape and the same clock `stepTurretFacing`'s spring already uses — and takes the
-pitch from the derivative of THAT, normalised by `speed_tiles_s / accelSeconds` so a
-standing start reaches the authored maximum and a cruise reads zero. The issue's **±2°** is
-the authored maximum, which sits deliberately below the recoil's own 3.4°
-(`MESH_HULL_PITCH_RAD` = 0.06 rad): a main gun should rock the hull harder than pulling
-away from a standstill does.
+`entitySpeed` steps 0 → full in one tick and back.
+
+*Amended at Task 3's review (2026-09-23): what ships.* The renderer keeps a smoothed speed
+per entity that is a **constant-rate ramp** toward `entitySpeed[i]` at
+`speed_tiles_s / accelSeconds`, stepped on `frameDtSeconds`. A standing start therefore
+accelerates at exactly the reference rate for `accelSeconds`, and a cruise reads exactly
+zero, in finite time. The ramp's acceleration is the **rest point of a damped settle
+spring**, and the spring's position is the drawn pitch:
+- `settleSeconds` is the spring's 2% settling time.
+- `settleDamping` is its damping ratio, floored at 0.5.
+- The spring is solved in closed form, so what is drawn does not depend on how frames
+  are sliced.
+- The rest point is scaled by the spring's own peak for a whole launch, so a standing
+  start DRAWS `maxPitchRad` with the output clamp idle.
+
+This replaces the first-order filter this ruling first named, and the reason was
+measured rather than argued. Stepped at 60 fps with `accelSeconds` 0.35, that filter:
+- draws 97.7% of the maximum pitch on a launch's first frame, which is the spike
+  relocated rather than removed;
+- still reads 1.18e-4 rad two seconds after a stop at ±2°. That is **118×** the settle
+  spec's own 1e-6 rest bound, R-G's "a filter that never settles to zero".
+
+So the literal filter fails both the no-spike and the settle properties this spec asks
+of it.
+
+The same spring gives one counter-pitch of about 10% of max after a launch squat, as it
+gives one rebound after a stop dive. That is a **lead call, disclosed**: it is a single
+overshoot, not a bounce, and at cruise the spring sits exactly at rest.
+
+The issue's **±2°** is the authored maximum, which sits deliberately below the recoil's
+own 3.4° (`MESH_HULL_PITCH_RAD` = 0.06 rad): a main gun should rock the hull harder than
+pulling away from a standstill does.
 
 **R-N — The freeze is free; the RESET is the part that needs writing.** A dead entity is
 deleted from `vehicleMeshEntities` in the same frame `alive` goes to 0 (`:5460+`) and the
@@ -536,7 +578,7 @@ slots and each unit reaches its own by the ordinary flow-field walk, so a shared
 would be wrong the moment two vehicles in one order stopped a second apart.
 
 `VehicleWeightParams` carries the authored numbers: `maxPitchRad` (±2°, R-M),
-`maxRollRad`, `accelSeconds` (the smoothing time constant), `settleSeconds`,
+`maxRollRad`, `accelSeconds` (the launch ramp's duration, R-M), `settleSeconds`,
 `settleDamping` and `lagTiles`. Resolution order is JSON override → role default →
 throw-free fallback, and it is a pure function of its inputs so it is tested without a
 renderer.
