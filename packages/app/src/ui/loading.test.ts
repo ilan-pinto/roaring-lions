@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { missions } from '@lions/data';
-import { briefingBeats, briefingHoldsDeployment, broughtFor, showLoading } from './loading';
+import type { LedgerRosterEntry } from '@lions/sim';
+import en from '../i18n/en.json';
+import { pseudo } from '../i18n/pseudo';
+import { setCatalogue } from '../i18n/t';
+import { deployRosterView, type DeployRosterView } from './deploy-roster';
+import type { DeploySelection } from './deploy-select';
+import { briefingBeats, briefingHoldsDeployment, broughtFor, showLoading, type BroughtPanel } from './loading';
+import type { PreviewMap, PreviewTones } from './map-preview';
 import type { ObjectiveRow } from './objectives';
 
 // Whether the deploying screen waits for the player is the whole of #82, and it
@@ -727,5 +734,367 @@ describe('the objective panel on the briefing (task 5)', () => {
     // `objectives` is supplied, and the panel must not appear anyway.
     showLoading(el, 'Cinematic only', undefined, undefined, '/video/x.mp4', undefined, undefined, rows, true);
     expect(el.querySelectorAll('.rl-obj')).toHaveLength(0);
+  });
+});
+
+// --- the deploy spread (shell-upgrade Phase 3, Task 3) ----------------------
+//
+// Decision 4: "the briefing as a two-column spread -- portrait and orders
+// left, the roster's force and a map preview right -- with the force chosen,
+// not merely shown." The force is Task 1's `DeployRosterView`, built here
+// through the REAL adapter from beit_sahwan_2_foothold's own draw shape (two
+// ledger-drawn inf_squad, one ledger-drawn at_team, an Eitan that draws
+// nothing) rather than written out by hand, so no fixture can describe a view
+// the adapter would never produce. The choice itself is Task 2's selection
+// API; this screen renders it and reports it, and decides nothing.
+
+const SPREAD_POOL: LedgerRosterEntry[] = [
+  { type: 'inf_squad', veterancy: 2, name: '1-1 Erez', missions: 4, kills: 7 },
+  { type: 'inf_squad', veterancy: 0, missions: 1, kills: 0 },
+  { type: 'inf_squad', veterancy: 3, name: '1-3 Nachshon', missions: 9, kills: 21 },
+  { type: 'at_team', veterancy: 1, name: '2-1 Gachelet', missions: 3, kills: 5 },
+  { type: 'recon_drone', veterancy: 0 },
+];
+const SPREAD_MISSION = {
+  ledger: { requires: ['roster.surviving_units'] },
+  starting_force: [
+    { unit: 'apc_eitan', count: 1 },
+    { unit: 'inf_squad', count: 2, from_ledger: true },
+    { unit: 'at_team', count: 1, from_ledger: true },
+  ],
+};
+const UNIT_NAMES: Readonly<Record<string, string>> = {
+  inf_squad: 'Rifle Squad',
+  at_team: 'AT Team',
+  recon_drone: 'Recon Drone',
+};
+const unitName = (id: string): string => UNIT_NAMES[id] ?? id;
+
+function viewOf(pool: LedgerRosterEntry[] = SPREAD_POOL): DeployRosterView {
+  const v = deployRosterView(SPREAD_MISSION, { 'roster.surviving_units': pool }, unitName);
+  if (v === null) throw new Error('fixture: this mission reads no roster');
+  return v;
+}
+
+const SPREAD_BRIEFING = 'Take the foothold. Hold it until the column is through. Then push east.';
+
+/** 3x2 of open ground -- what the preview draws is `map-preview.test.ts`'s
+ *  business; here only whether and where it mounts. Tag-string tones. */
+const PREVIEW: { map: PreviewMap; tones: PreviewTones } = {
+  map: { width: 3, height: 2, blocked: new Uint8Array(6), boulder: new Uint8Array(6), cover: new Uint8Array(6) },
+  tones: { open: 'open', blocked: 'blocked', rock: 'rock', cover: ['c1', 'c2', 'c3'] },
+};
+
+/** jsdom has no canvas backend, so `getContext` answers null and the preview
+ *  degrades to nothing -- which would let every "no preview here" assertion
+ *  below pass for the wrong reason. A test that asks about the preview
+ *  installs this, the least context `paintMapTerrain` can paint into, and
+ *  `afterEach` puts jsdom's own back. */
+const realGetContext = HTMLCanvasElement.prototype.getContext;
+/** jsdom's own answer -- no context -- without the "Not implemented" line it
+ *  prints to stderr every time it gives it. */
+function leaveCanvasWithoutAContext(): void {
+  HTMLCanvasElement.prototype.getContext = (() => null) as unknown as HTMLCanvasElement['getContext'];
+}
+function giveCanvasAContext(): void {
+  const ctx = { fillStyle: '', fillRect: (): void => undefined };
+  HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
+}
+
+function spread(
+  el: HTMLElement,
+  onChange: (sel: DeploySelection) => void = () => undefined,
+  over: { view?: DeployRosterView; brought?: BroughtPanel; onBack?: () => void } = {}
+): ReturnType<typeof showLoading> {
+  return showLoading(
+    el,
+    'Foothold',
+    SPREAD_BRIEFING,
+    undefined,
+    undefined,
+    over.brought,
+    over.onBack ?? (() => undefined),
+    [],
+    false,
+    { view: over.view ?? viewOf(), onChange },
+    PREVIEW
+  );
+}
+
+const rowsOf = (el: HTMLElement): HTMLButtonElement[] => [...el.querySelectorAll<HTMLButtonElement>('.rl-deploy__row')];
+
+describe('the deploy spread (Task 3)', () => {
+  beforeEach(leaveCanvasWithoutAContext);
+  afterEach(() => {
+    HTMLCanvasElement.prototype.getContext = realGetContext;
+    setCatalogue('en', en);
+  });
+
+  it('draws one selectable row per eligible body and marks the default force', () => {
+    const el = document.createElement('div');
+    const s = spread(el);
+    const rows = rowsOf(el);
+    expect(rows).toHaveLength(4);
+    // Buttons, so the keyboard reaches every row with no code of its own.
+    expect(rows.map((b) => `${b.tagName}:${b.type}`)).toEqual(rows.map(() => 'BUTTON:button'));
+    expect(rows.map((b) => b.dataset.poolIndex)).toEqual(['0', '1', '2', '3']);
+    // The default is the draw the mission makes with no screen at all: the
+    // first two squads in pool order and the AT team. Nachshon, the third
+    // squad, stays behind -- and the drone, which no placement draws, has no
+    // row at all.
+    expect(rows.map((b) => b.dataset.chosen)).toEqual(['1', '1', '0', '1']);
+    expect(rows.map((b) => b.getAttribute('aria-pressed'))).toEqual(['true', 'true', 'false', 'true']);
+    s.dispose();
+  });
+
+  it('names each body, then its type, its stripes and its record -- and a nameless one by its type alone', () => {
+    const el = document.createElement('div');
+    const s = spread(el);
+    const [erez, anon] = rowsOf(el);
+    expect(erez.querySelector('.rl-deploy__name')?.textContent).toBe('1-1 Erez');
+    expect(erez.querySelector('.rl-deploy__type')?.textContent).toBe('Rifle Squad');
+    expect(erez.querySelector('.rl-commend')?.textContent).toBe('★★');
+    expect(erez.querySelector('.rl-deploy__record')?.textContent).toBe('4 missions · 7 kills');
+    expect(anon.querySelector('.rl-deploy__name')?.textContent).toBe('Rifle Squad');
+    expect(anon.querySelector('.rl-deploy__type')).toBeNull();
+    // No stripe, no star element -- an empty `.rl-commend` would still be a
+    // site for the symbol family's dingbat list to count.
+    expect(anon.querySelector('.rl-commend')).toBeNull();
+    expect(anon.querySelector('.rl-deploy__record')?.textContent).toBe('1 mission · 0 kills');
+    s.dispose();
+  });
+
+  it('a click benches one and frees a slot, and the count says so', () => {
+    const el = document.createElement('div');
+    const seen: number[] = [];
+    const s = spread(el, (sel) => seen.push(sel.chosen.size));
+    expect(el.querySelector('.rl-deploy__slots')?.textContent).toBe('Force assigned');
+    rowsOf(el)[0].click();
+    expect(seen).toEqual([2]);
+    expect(rowsOf(el)[0].dataset.chosen).toBe('0');
+    expect(el.querySelector('.rl-deploy__slots')?.textContent).toBe('1 left to assign');
+    s.dispose();
+  });
+
+  it('refuses a third body while its type is full, reports no change, and takes it once a slot opens', () => {
+    const el = document.createElement('div');
+    const seen: number[] = [];
+    const s = spread(el, (sel) => seen.push(sel.chosen.size));
+    const nachshon = rowsOf(el)[2];
+    expect(nachshon.getAttribute('aria-disabled')).toBe('true');
+    nachshon.click();
+    expect(seen).toEqual([]);
+    expect(nachshon.dataset.chosen).toBe('0');
+
+    rowsOf(el)[0].click();
+    expect(nachshon.hasAttribute('aria-disabled')).toBe(false);
+    nachshon.click();
+    expect(nachshon.dataset.chosen).toBe('1');
+    expect(seen).toEqual([2, 3]);
+    s.dispose();
+  });
+
+  it('Deploy is disabled while a slot is empty, and enabled again when it is filled', () => {
+    const el = document.createElement('div');
+    const s = spread(el);
+    const deploy = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
+    expect(deploy?.disabled).toBe(false);
+    el.querySelector<HTMLElement>('.rl-deploy__row[data-chosen="1"]')?.click();
+    expect(deploy?.disabled).toBe(true);
+    el.querySelector<HTMLElement>('.rl-deploy__row[data-chosen="0"]')?.click();
+    expect(deploy?.disabled).toBe(false);
+    s.dispose();
+  });
+
+  it('does not hold Deploy hostage to a pool too thin to fill a slot, and the slot line agrees', () => {
+    // One squad for a mission that asks for two: the spawner substitutes a
+    // fresh remnant for the missing body (mission.ts:1264), so there is
+    // nobody left to choose and nothing to wait for.
+    const thin = viewOf([
+      { type: 'inf_squad', veterancy: 1, name: 'Sela' },
+      { type: 'at_team', veterancy: 0 },
+    ]);
+    const el = document.createElement('div');
+    const s = spread(el, undefined, { view: thin });
+    expect(el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.disabled).toBe(false);
+    expect(el.querySelector('.rl-deploy__slots')?.textContent).toBe('Force assigned');
+    s.dispose();
+  });
+
+  it('draws no spread when there is nobody to choose, and the brought panel keeps its own lines', () => {
+    // The pool holds two drones and the mission draws squads and an AT team:
+    // a "Confirm your force" over an empty list would be a question with no
+    // answers, so the panel stays whole -- its reserve line included, and
+    // still the only one.
+    const drones: LedgerRosterEntry[] = [
+      { type: 'recon_drone', veterancy: 0 },
+      { type: 'recon_drone', veterancy: 1 },
+    ];
+    const brought = broughtFor(SPREAD_MISSION, { 'roster.surviving_units': drones }, unitName);
+    if (brought === null) throw new Error('fixture: this mission brings nothing');
+    const el = document.createElement('div');
+    const s = spread(el, undefined, { view: viewOf(drones), brought });
+    expect(el.querySelector('.rl-deploy')).toBeNull();
+    expect(el.querySelector('.rl-loading__reserve')?.textContent).toBe('2 in reserve');
+    expect(el.textContent?.match(/in reserve/g)).toHaveLength(1);
+    expect(el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.disabled).toBe(false);
+    s.dispose();
+  });
+
+  // Pre-flight P2/E2: two "in reserve" lines from two keys, with different
+  // numbers, was what the plan's own text would have shipped. The spread
+  // takes over the brought panel's roster and reserve lines, and the one
+  // count it shows is `loading.brought.reserve` -- pool entries this mission
+  // does not draw -- never a second key and never `roster.reserve`.
+  it('keeps ONE reserve count on the screen: the spread takes over the brought panel roster and reserve', () => {
+    const ledger = { 'roster.surviving_units': SPREAD_POOL, 'roe.mission_ratings': { a: 80 } };
+    const brought = broughtFor(SPREAD_MISSION, ledger, unitName);
+    if (brought === null) throw new Error('fixture: this mission brings nothing');
+    const el = document.createElement('div');
+    const s = spread(el, undefined, { brought });
+    expect(el.querySelector('.rl-loading__reserve')).toBeNull();
+    expect(el.querySelector('.rl-loading__brought')?.textContent).not.toContain('×');
+    // What the panel says that the spread does not, it still says.
+    expect(el.querySelector('.rl-loading__brought')?.textContent).toContain('Conduct 80');
+    expect(el.querySelector('.rl-deploy__reserve')?.textContent).toBe('2 in reserve');
+    expect(el.textContent?.match(/in reserve/g)).toHaveLength(1);
+    expect(Object.keys(en).filter((k) => k.startsWith('deploy.') && k.includes('reserve'))).toEqual([]);
+
+    // And the one count moves with the choice.
+    rowsOf(el)[0].click();
+    expect(el.querySelector('.rl-deploy__reserve')?.textContent).toBe('3 in reserve');
+    s.dispose();
+  });
+
+  // A sandbox and a no-briefing mission keep the bare progress screen they
+  // have always had: `holds` gates the spread exactly as it gates the orders
+  // paragraph and the commander line. The context is installed so that "no
+  // preview" is `holds` talking, not jsdom's missing canvas.
+  it('a screen that does not hold shows no spread and no preview', () => {
+    giveCanvasAContext();
+    const el = document.createElement('div');
+    const s = showLoading(
+      el,
+      'M0 sandbox',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      { view: viewOf(), onChange: () => undefined },
+      PREVIEW
+    );
+    expect(el.querySelector('.rl-deploy')).toBeNull();
+    expect(el.querySelector('.rl-deploy__map')).toBeNull();
+    s.dispose();
+  });
+
+  it('draws the ground beside the force, one pixel per tile, and the orders in the other column', () => {
+    giveCanvasAContext();
+    const el = document.createElement('div');
+    const s = spread(el);
+    const canvas = el.querySelector<HTMLCanvasElement>('.rl-deploy__map canvas');
+    expect([canvas?.width, canvas?.height]).toEqual([3, 2]);
+    expect(el.querySelector('.rl-loading__box--spread')).not.toBeNull();
+    const force = el.querySelector('.rl-loading__force');
+    expect(force?.querySelector('.rl-deploy')).not.toBeNull();
+    expect(force?.querySelector('.rl-deploy__map')).not.toBeNull();
+    expect(el.querySelector('.rl-loading__orders .rl-loading__brief')).not.toBeNull();
+    s.dispose();
+  });
+
+  it('goes without the preview, and keeps everything else, when there is no 2D context', () => {
+    // No context: `beforeEach`'s stand-in for jsdom, which answers null.
+    const el = document.createElement('div');
+    const s = spread(el);
+    expect(el.querySelector('.rl-deploy__map')).toBeNull();
+    expect(el.querySelector('.rl-deploy')).not.toBeNull();
+    expect(el.querySelector('.rl-loading__deploy')).not.toBeNull();
+    s.dispose();
+  });
+
+  it('the beat count is unchanged by the spread -- it is a sibling, never a beat', () => {
+    const without = document.createElement('div');
+    showLoading(without, 'Foothold', SPREAD_BRIEFING).dispose();
+    const n = briefingBeats(SPREAD_BRIEFING).length;
+    const el = document.createElement('div');
+    const s = spread(el);
+    expect(n).toBeGreaterThan(1);
+    expect(el.querySelectorAll('.rl-loading__beat')).toHaveLength(n);
+    s.dispose();
+  });
+
+  it('leaves a briefing with nothing to spread exactly as it was', () => {
+    const el = document.createElement('div');
+    const s = showLoading(el, 'Foothold', SPREAD_BRIEFING);
+    expect(el.querySelector('.rl-loading__box--spread')).toBeNull();
+    const box = el.querySelector('.rl-loading__box');
+    expect([...(box?.children ?? [])].map((c) => c.className.split(' ')[0])).toEqual([
+      'rl-loading__label',
+      'rl-loading__name',
+      'rl-loading__track',
+      'rl-loading__count',
+      'rl-loading__brief',
+      'rl-loading__deploy',
+    ]);
+    s.dispose();
+  });
+
+  // Pre-flight M2: the plan's version of this test never pressed Escape. Here
+  // Deploy settles one screen and Escape, pressed on a focused ROW of a
+  // second screen and bubbling to `window` the way a real key does, takes
+  // that one back -- the rows are buttons, and a button with focus must not
+  // have swallowed the one key that leaves.
+  it('Escape still goes back, and Deploy still settles done()', async () => {
+    let back = 0;
+    const onBack = (): void => {
+      back++;
+    };
+    const first = document.createElement('div');
+    const a = spread(first, undefined, { onBack });
+    const done = a.done();
+    first.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    await expect(done).resolves.toBeUndefined();
+    expect(back).toBe(0);
+
+    const second = document.createElement('div');
+    document.body.append(second);
+    const b = spread(second, undefined, { onBack });
+    let handed = false;
+    const pending = b
+      .done()
+      .then(() => {
+        handed = true;
+      })
+      .catch(() => undefined);
+    const row = rowsOf(second)[0];
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(back).toBe(1);
+    expect(handed).toBe(false);
+    expect(second.querySelector('.rl-loading')).toBeNull();
+    b.dispose();
+    await pending;
+    second.remove();
+  });
+
+  it('puts every chrome string of the spread through the catalogue', () => {
+    setCatalogue('pseudo', en, pseudo);
+    giveCanvasAContext();
+    const el = document.createElement('div');
+    const s = spread(el);
+    for (const sel of [
+      '.rl-deploy__title',
+      '.rl-deploy__slots',
+      '.rl-deploy__reserve',
+      '.rl-deploy__record',
+      '.rl-deploy__map figcaption',
+    ]) {
+      expect(el.querySelector(sel)?.textContent ?? '', sel).toMatch(/^⟦[\s\S]*⟧$/);
+    }
+    s.dispose();
   });
 });

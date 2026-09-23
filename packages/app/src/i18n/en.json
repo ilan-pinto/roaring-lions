@@ -212,6 +212,10 @@
   "loading.readingManifests": "reading manifests",
   "loading.marked": "{n, plural, one {# position your recon marked is} other {# positions your recon marked are}} on your map before a shot is fired.",
   "loading.marked.none": "Nothing marked. Whatever is out there, you find under fire.",
+  "deploy.title": "Confirm your force",
+  "deploy.slots": "{n} left to assign",
+  "deploy.slots.full": "Force assigned",
+  "deploy.map": "Ground",
 
   "world.card.locked": "locked",
   "world.card.noOps": "no operations authored yet",
