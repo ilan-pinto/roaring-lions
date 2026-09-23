@@ -32,7 +32,15 @@ import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import { buildVehicleMeshTemplate, type VehicleMeshEntity, type VehicleMeshTemplate } from './units/mesh-vehicle';
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
-import { hullCornerOffsets, MAX_DRAWN_OFFSET_TILES, type VehicleWeightArrays } from './units/vehicle-weight';
+import {
+  hullCornerOffsets,
+  terrainPitchRad,
+  terrainRollRad,
+  MAX_DRAWN_OFFSET_TILES,
+  type VehicleWeightArrays,
+} from './units/vehicle-weight';
+import { smoothLevel, terrainSurfaceFrom } from './terrain/surface';
+import { WORLD_PER_LEVEL } from './terrain/shared';
 import { VEHICLE_WEIGHT_IMPORTED_UNIT_IDS, vehicleWeightParamsFor } from './units/vehicle-weight-params';
 import type { EmitterSpec } from '../vfx/emitters';
 import vehicleDust from '../../../../data/vfx/vehicle_dust.json';
@@ -126,10 +134,29 @@ interface World {
 }
 
 async function world(
-  opts: { unitId?: string; x?: number; y?: number; facing?: number; elevation?: Uint8Array } = {}
+  opts: {
+    unitId?: string;
+    x?: number;
+    y?: number;
+    facing?: number;
+    elevation?: Uint8Array;
+    /** Map side, tiles; `MAP` unless given. */
+    size?: number;
+    /** Row-major `size * size`; nonzero tiles are set blocked on the sim
+     *  BEFORE the renderer reads its surface, the order `main.ts` uses. */
+    blocked?: Uint8Array;
+    /** The footprint `vehicleMeshBounds` holds; `HULL` unless given. */
+    hull?: THREE.Vector3;
+  } = {}
 ): Promise<World> {
   const unitId = opts.unitId ?? 'mbt_lavi';
-  const sim = new Sim({ seed: 1, width: MAP, height: MAP, capacity: 4 });
+  const size = opts.size ?? MAP;
+  const sim = new Sim({ seed: 1, width: size, height: size, capacity: 4 });
+  if (opts.blocked) {
+    for (let t = 0; t < opts.blocked.length; t++) {
+      if (opts.blocked[t] !== 0) sim.setBlocked(t % size, Math.floor(t / size), true);
+    }
+  }
   const typeIdx = sim.addUnitType(unitJson(unitId));
   const id = sim.spawn(typeIdx, 0, fx.from(opts.x ?? 6.5), fx.from(opts.y ?? 6.5), fx.from(opts.facing ?? 0));
   const renderer = new ThreeRenderer(sim, makeOpts());
@@ -141,7 +168,7 @@ async function world(
   if (opts.elevation) renderer.setElevation(opts.elevation);
   const gltf = await parseRigidFixture({ parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }] });
   priv.vehicleMeshTemplates.set(unitId, buildVehicleMeshTemplate(gltf, unitId));
-  priv.vehicleMeshBounds.set(unitId, HULL.clone());
+  priv.vehicleMeshBounds.set(unitId, (opts.hull ?? HULL).clone());
   // Twice: the first call only seeds `prevX`/`curX` from zero-filled slots.
   renderer.snapshot();
   renderer.snapshot();
@@ -401,6 +428,107 @@ describe('the ground is sampled at four corners, not one', () => {
     const t = w.renderer.debugVehicleTransform(w.id);
     expect(t?.pitchDeg).toBe(0);
     expect(t?.rollDeg).toBe(0);
+  });
+});
+
+describe('a corner with no open ground under it stands at the centre\'s height', () => {
+  // Task 6's review: the four corners went through `groundWorldY`, which
+  // answers a BLOCKED tile with its own flat top and an off-map point with 0.
+  // A hull parked beside a `^` wall rested a corner on the wall top, and a hull
+  // at a raised map edge tipped over it. `units/vehicle-conform.ts` now stands
+  // such a corner at the centre's own ground height; `tools/src/
+  // vehicle_conform_census.test.ts` sweeps every shipped map for it.
+
+  /** `vehicleShroudBounds(mbt_lavi.glb)` as the reviewer measured it: 2.107
+   *  tiles along the hull, 0.965 across. */
+  const LAVI = new THREE.Vector3(2.107, 0.8, 0.965);
+  const toDeg = 180 / Math.PI;
+
+  /** `data/maps/tel_marum.json`, read from disk. Its blocked mask is derived
+   *  here from the two blocking symbols it uses (`#` building, `^` ridge) --
+   *  this package may not import `@lions/data`'s `parseMap` -- so the symbol
+   *  set is asserted first: a map that grows a third blocking symbol fails
+   *  here by name instead of being silently mis-masked. */
+  function telMarum(): { size: number; elevation: Uint8Array; blocked: Uint8Array } {
+    const json = JSON.parse(readFileSync(path.join(REPO, 'data/maps/tel_marum.json'), 'utf8')) as {
+      width: number;
+      height: number;
+      rows: string[];
+      elevation: string[];
+    };
+    expect(json.width).toBe(json.height);
+    expect([...new Set(json.rows.join(''))].sort()).toEqual(['#', '.', '^', 'b']);
+    const size = json.width;
+    const elevation = new Uint8Array(size * size);
+    const blocked = new Uint8Array(size * size);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        elevation[y * size + x] = Number(json.elevation[y][x]);
+        const sym = json.rows[y][x];
+        blocked[y * size + x] = sym === '#' || sym === '^' ? 1 : 0;
+      }
+    }
+    return { size, elevation, blocked };
+  }
+
+  it('does not tip a hull off the tel_marum ridge it is parked beside', async () => {
+    // Tile (6,18) is valley floor, level 0; the tile behind it at facing 0.25,
+    // (6,17), is the `^` ridge, level 4. With the tail corner on the ridge
+    // top the hull drew 25.8 degrees nose-down, where the open ground under
+    // it is level.
+    const tm = telMarum();
+    const w = await world({ size: tm.size, elevation: tm.elevation, blocked: tm.blocked, hull: LAVI, x: 6.5, y: 18.5, facing: 0.25 });
+    w.renderer.frame(1, FRAME_MS);
+    const t = w.renderer.debugVehicleTransform(w.id);
+    if (t === null) throw new Error('no drawn transform');
+    const facing = fx.toNumber(w.sim.state.facing[w.id]);
+    const c = hullCornerOffsets(facing, LAVI.x / 2, LAVI.z / 2);
+    // Precondition: the tail corner really is over the ridge.
+    expect(tm.blocked[Math.floor(t.y + c.rearY) * tm.size + Math.floor(t.x + c.rearX)]).toBe(1);
+
+    // The smooth ground under the same four corners: the Catmull-Rom field
+    // alone, terraces replaced by their open neighbours' levels.
+    const surface = terrainSurfaceFrom(tm.elevation, tm.blocked, tm.size, tm.size);
+    const g = (dx: number, dy: number): number => smoothLevel(surface, t.x + dx, t.y + dy) * WORLD_PER_LEVEL;
+    const smoothPitchDeg = terrainPitchRad(g(c.frontX, c.frontY), g(c.rearX, c.rearY), LAVI.x) * toDeg;
+    const smoothRollDeg = terrainRollRad(g(c.leftX, c.leftY), g(c.rightX, c.rightY), LAVI.z) * toDeg;
+    expect(Math.abs(t.pitchDeg - smoothPitchDeg)).toBeLessThan(5);
+    expect(Math.abs(t.rollDeg - smoothRollDeg)).toBeLessThan(5);
+  });
+
+  it('does not tip a hull over a raised map edge', async () => {
+    // A plateau at level 4 to the map's own edge, and a hull at x = 0.9 facing
+    // 0.5 -- its nose corner at x = -0.1, off the map, where `groundWorldY`
+    // answers 0. Every other corner stands on level 4, so the answer is level.
+    const w = await world({ elevation: grid(() => 4), x: 0.9, y: 12.5, facing: 0.5 });
+    w.renderer.frame(1, FRAME_MS);
+    const t = w.renderer.debugVehicleTransform(w.id);
+    if (t === null) throw new Error('no drawn transform');
+    const c = hullCornerOffsets(fx.toNumber(w.sim.state.facing[w.id]), HULL.x / 2, HULL.z / 2);
+    expect(t.x + c.frontX).toBeLessThan(0); // precondition: the nose corner is off the map
+    expect(t.pitchDeg).toBe(0);
+    expect(t.rollDeg).toBe(0);
+  });
+
+  // Why `quiet`, `open-ground` and `vehicle` cannot move: on a map with no
+  // relief the drawn surface is `flat`, every `groundWorldY` is exactly 0 --
+  // a building tile's and an off-map point's included -- and so is the
+  // centre height a substituted corner takes. Every input to the conform is
+  // the same 0 before and after this fix. Pinned with both new branches
+  // exercised at once.
+  it('changes nothing on flat ground, with a building under one corner and the map edge under another', async () => {
+    const blocked = new Uint8Array(MAP * MAP);
+    blocked[12 * MAP + 1] = 1; // the tail corner's tile, at x = 1.9
+    const w = await world({ elevation: grid(() => 0), blocked, x: 0.9, y: 12.5, facing: 0.5 });
+    w.renderer.frame(1, FRAME_MS);
+    const t = w.renderer.debugVehicleTransform(w.id);
+    if (t === null) throw new Error('no drawn transform');
+    const c = hullCornerOffsets(fx.toNumber(w.sim.state.facing[w.id]), HULL.x / 2, HULL.z / 2);
+    expect(t.x + c.frontX).toBeLessThan(0);
+    expect(blocked[Math.floor(t.y + c.rearY) * MAP + Math.floor(t.x + c.rearX)]).toBe(1);
+    expect(t.pitchDeg).toBe(0);
+    expect(t.rollDeg).toBe(0);
+    expect(entityOf(w.priv, w.id).root.position.y).toBe(0);
   });
 });
 
