@@ -458,12 +458,18 @@ describe('the settle on stop', () => {
 // the heavy and a light set. Task 4 appends its role defaults and mass classes
 // to SWEPT; an envelope that holds at its ceiling holds for every table inside
 // it, and Task 4's own lag-budget test is what keeps its tables inside.
+//
+// CEILING's damping sits at the SETTLE_DAMPING_MIN floor, 0.5: the 0.2 it
+// carried before fix round 1 is drawn as 0.5 now anyway. A settle this fast
+// is still drawn faithfully at 60 fps -- measured over ten launch phases
+// within a frame, the sampled peak reads 0.959..1.000 of max at 0.1 s (and
+// 0.916..0.999 even at 0.05 s).
 const CEILING: VehicleWeightParams = {
   maxPitchRad: 6 * DEG,
   maxRollRad: 6 * DEG,
   accelSeconds: 0.05,
   settleSeconds: 0.1,
-  settleDamping: 0.2,
+  settleDamping: 0.5,
   lagTiles: MAX_LAG_TILES,
 };
 const LIGHT: VehicleWeightParams = {
@@ -475,6 +481,135 @@ const LIGHT: VehicleWeightParams = {
   lagTiles: 0.02,
 };
 const SWEPT: VehicleWeightParams[] = [HEAVY, CEILING, LIGHT];
+
+// Fix round 1. What an authored number means, measured on every swept table:
+// Task 4 appends its role defaults and mass classes to SWEPT and inherits all
+// of it. `name` is only for the failure message.
+const NAMED: Array<[string, VehicleWeightParams]> = [
+  ['HEAVY', HEAVY],
+  ['CEILING', CEILING],
+  ['LIGHT', LIGHT],
+];
+const TURN_RATE = 60 / 360;
+/** Visible, for an overshoot: beyond 5% of the authored maximum -- 0.1 degree
+ *  on a 2-degree hull, a fifth of a pixel at the nose at the top zoom. */
+const VISIBLE = 0.05;
+/** Roll under a 20 Hz staircase at half the turn rate, as fractions of max:
+ *  steady-state peak-to-peak, and the largest single-frame change anywhere in
+ *  the run (the lean-in included). Measured before fix round 1 -- one stage --
+ *  HEAVY 4.8% / 6.8%, LIGHT 10.5% / 14.9%, CEILING 27.6% / 35.8%; after --
+ *  two stages, each floored at two sim ticks -- HEAVY 0.5% / 2.2%, LIGHT and
+ *  CEILING 1.4% / 4.5%. The floor is what the last two sit on, so no table can
+ *  do worse than they do, and every one-stage table above fails both. */
+const RIPPLE_BOUND = 0.02;
+const JUMP_BOUND = 0.05;
+
+/** The lobes of a pitch trail, each as its peak fraction of `max`. */
+function lobes(trail: number[], max: number): number[] {
+  const out: number[] = [];
+  let sign = 0;
+  let peak = 0;
+  for (const v of trail) {
+    const s = Math.sign(v);
+    if (s !== 0 && s !== sign) {
+      if (sign !== 0) out.push(peak);
+      sign = s;
+      peak = 0;
+    }
+    peak = Math.max(peak, Math.abs(v) / max);
+  }
+  if (sign !== 0) out.push(peak);
+  return out;
+}
+
+/** Roll at 60 fps under a heading that steps at 20 Hz, the way `facing` does:
+ *  half the unit's turn rate, at cruise, for four seconds. */
+function staircaseRoll(params: VehicleWeightParams): number[] {
+  const a = makeVehicleWeightArrays(1);
+  stepVehicleWeight(a, at({ speedTilesS: 1.1, headingTurns: 0.1, params }));
+  const rolls: number[] = [];
+  for (let f = 1; f <= 240; f++) {
+    const tick = Math.floor(f / 3);
+    const headingTurns = 0.1 + (tick * TURN_RATE) / 2 / 20;
+    rolls.push(stepVehicleWeight(a, at({ speedTilesS: 1.1, headingTurns, params })).rollRad);
+  }
+  return rolls;
+}
+
+describe('what an authored number draws, on every swept table', () => {
+  // `maxPitchRad` is the pitch a standing start DRAWS, not the rest point the
+  // settle spring is pulled toward. Before fix round 1 it was the latter, and
+  // what reached the screen depended on the other three numbers: LIGHT drew
+  // 0.446 of its authored pitch and HEAVY overshot it and sat on the output
+  // clamp for ten frames.
+  it('launches to between 0.9 and 1.0 of the authored pitch, with the clamp idle', () => {
+    for (const [name, params] of NAMED) {
+      const a = makeVehicleWeightArrays(1);
+      stepVehicleWeight(a, at({ params }));
+      let peak = 0;
+      let raw = 0;
+      for (let f = 0; f < 120; f++) {
+        peak = Math.max(peak, stepVehicleWeight(a, at({ speedTilesS: 1.1, params })).pitchRad);
+        raw = Math.max(raw, Math.abs(a.settle[0]));
+      }
+      expect(peak / params.maxPitchRad, name).toBeGreaterThanOrEqual(0.9);
+      expect(peak / params.maxPitchRad, name).toBeLessThanOrEqual(1 + 1e-9);
+      // The spring itself never went past the maximum: nothing was clipped.
+      expect(raw / params.maxPitchRad, name).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+
+  it('dives to the authored pitch on a stop and overshoots visibly at most once', () => {
+    for (const [name, params] of NAMED) {
+      const a = makeVehicleWeightArrays(1);
+      stepVehicleWeight(a, at({ speedTilesS: 1.1, params }));
+      const trail: number[] = [];
+      for (let f = 0; f < 480; f++) trail.push(stepVehicleWeight(a, at({ params })).pitchRad);
+      const [dive, ...after] = lobes(trail, params.maxPitchRad);
+      expect(Math.sign(trail[0]), name).toBe(-1);
+      expect(dive, name).toBeGreaterThanOrEqual(0.9);
+      expect(dive, name).toBeLessThanOrEqual(1 + 1e-9);
+      expect(after.filter((l) => l > VISIBLE).length, name).toBeLessThanOrEqual(1);
+    }
+  });
+
+  // `facing` changes once per 20 Hz tick, so the heading this model sees is a
+  // staircase: three frames flat, then a step. A roll read off one smoothing
+  // stage jumps on every step -- measured before fix round 1 at half the turn
+  // rate: HEAVY 0.072 deg peak-to-peak, LIGHT 0.105, CEILING 1.655, each jump
+  // landing in one frame. That is the one-frame spike argument that retired
+  // the pitch filter, in the other axis. After: 0.007, 0.014 and 0.087 deg.
+  it('does not staircase on a heading that steps at 20 Hz', () => {
+    for (const [name, params] of NAMED) {
+      const rolls = staircaseRoll(params);
+      let jump = 0;
+      for (let k = 1; k < rolls.length; k++) jump = Math.max(jump, Math.abs(rolls[k] - rolls[k - 1]));
+      const tail = rolls.slice(120);
+      const ripple = Math.max(...tail) - Math.min(...tail);
+      expect(ripple / params.maxRollRad, `${name} ripple`).toBeLessThan(RIPPLE_BOUND);
+      expect(jump / params.maxRollRad, `${name} frame jump`).toBeLessThan(JUMP_BOUND);
+    }
+  });
+});
+
+describe('the settle damping floor', () => {
+  // Below 0.5 a stop rings: at 0.2 it crossed zero fourteen times and
+  // counter-pitched 50.7% of max. An authored 0.2 is drawn at the floor.
+  it('draws a damping authored below 0.5 exactly as 0.5', () => {
+    const low = makeVehicleWeightArrays(1);
+    const floor = makeVehicleWeightArrays(1);
+    const lowParams = { ...HEAVY, settleDamping: 0.2 };
+    const floorParams = { ...HEAVY, settleDamping: 0.5 };
+    stepVehicleWeight(low, at({ params: lowParams }));
+    stepVehicleWeight(floor, at({ params: floorParams }));
+    for (let f = 0; f < 180; f++) {
+      const speedTilesS = f < 60 ? 1.1 : 0;
+      const x = stepVehicleWeight(low, at({ speedTilesS, params: lowParams })).pitchRad;
+      const y = stepVehicleWeight(floor, at({ speedTilesS, params: floorParams })).pitchRad;
+      expect(x).toBe(y);
+    }
+  });
+});
 
 describe('the drawn hull never trails the sim by more than a quarter tile (R-C, R-K)', () => {
   const MESH_HULL_RECOIL_TILES = 0.16; // ThreeRenderer.ts:432 -- the other writer
@@ -684,6 +819,47 @@ describe('the frame clock, however it is sliced', () => {
     const plain = run([10]);
     const frozen = run([10], 7);
     for (const [tu, ref] of plain) expect(frozen.get(tu)).toEqual(ref);
+  });
+
+  // Hit-stop freezes the PRESENTATION clock; the sim keeps ticking under it.
+  // So a frozen frame can see a new speed and a new heading. Nothing drawn may
+  // move while the clock is held, and resuming must pick up exactly where a
+  // run that never froze would be -- nothing banked, nothing to spike on.
+  it('holds pitch and roll through a freeze the sim ticks through, and resumes clean', () => {
+    const turn = (tick: number): number => 0.1 + (tick * TURN_RATE) / 2 / 20;
+    const drive = (a: ReturnType<typeof makeVehicleWeightArrays>): void => {
+      stepVehicleWeight(a, at({ speedTilesS: 1.1, headingTurns: turn(0) }));
+      for (let f = 1; f <= 60; f++) {
+        stepVehicleWeight(a, at({ speedTilesS: 1.1, headingTurns: turn(Math.floor(f / 3)) }));
+      }
+    };
+    const frozen = makeVehicleWeightArrays(1);
+    const plain = makeVehicleWeightArrays(1);
+    drive(frozen);
+    drive(plain);
+    const last = stepVehicleWeight(frozen, at({ speedTilesS: 1.1, headingTurns: turn(20), dtSeconds: 0 }));
+    const held = { pitchRad: last.pitchRad, rollRad: last.rollRad };
+    expect(Math.abs(held.rollRad)).toBeGreaterThan(HEAVY.maxRollRad * 0.2); // it is leaning
+    // Four frozen frames: the sim stops the unit and turns it two ticks on.
+    for (let f = 0; f < 4; f++) {
+      const out = stepVehicleWeight(frozen, at({ headingTurns: turn(22), dtSeconds: 0 }));
+      expect(out.pitchRad).toBe(held.pitchRad);
+      expect(out.rollRad).toBe(held.rollRad);
+    }
+    // Resume: identical to a run that saw the same inputs and never froze.
+    let prevRoll = held.rollRad;
+    let prevPitch = held.pitchRad;
+    for (let f = 0; f < 90; f++) {
+      const x = stepVehicleWeight(frozen, at({ headingTurns: turn(22) }));
+      const xs = { pitchRad: x.pitchRad, rollRad: x.rollRad };
+      const y = stepVehicleWeight(plain, at({ headingTurns: turn(22) }));
+      expect(xs.pitchRad).toBe(y.pitchRad);
+      expect(xs.rollRad).toBe(y.rollRad);
+      expect(Math.abs(xs.rollRad - prevRoll)).toBeLessThan(HEAVY.maxRollRad * JUMP_BOUND);
+      expect(Math.abs(xs.pitchRad - prevPitch)).toBeLessThan(HEAVY.maxPitchRad * 0.25);
+      prevRoll = xs.rollRad;
+      prevPitch = xs.pitchRad;
+    }
   });
 
   it('clamps a long frame to the same ceiling the renderer uses', () => {
