@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "03fad1836d7df5b239597a332c2c8ec0dd6dd297",
-  "blessedAt": "2026-09-17T05:05:37.548Z",
-  "reason": "Shell upgrade Phase 0 (main 03fad18, spec docs/superpowers/specs/2026-09-16-shell-upgrade-design.md): a radial vignette after OutputPass, a ground skirt beyond the map with a one-tile fog fade, and plates under every over-world HUD string move all four gated scenarios. CI run 35183889329 on linux-x64-swiftshader against the 666c852 baseline: quiet 49351 px / 3.3913, open-ground 9821 / 5.0619, vehicle 373192 / 18.9493, relief 75369 / 4.8899; every layer check PASSED including the new vignette (quiet 20583 / 2.1977, relief 59402 / 3.4113) and skirt (quiet 21277 / 0.8349, relief 3403 / 0.2829) checks at floors of one third; campaign-board screen PASS. Looked at: quiet and vehicle captures downloaded from the run -- the void beyond the map is a dark desaturated skirt under the vignette, the hint line sits on a plate, the strip carries the leave button; nothing else moved. Known: vehicle's repaint-control read 0.0004 against its 0.00036 budget (the unexplained per-repaint drift around the vehicles, recorded in CLAUDE.md); left for investigation, not widened.",
+  "commit": "a387a6a2068622501367e44f109dbb86caa8f88b",
+  "blessedAt": "2026-09-23T11:51:25.506Z",
+  "reason": "Shell upgrade Phase 2 second landing (PR #210, main a387a6a2): the minimap draws a render-target photograph of the map's own lit ground (Task 15), and range rings are one desaturated fill that draws nothing in a gated frame (Task 16). CI runs 35853227506 (PR) and 35854331619 (main) on linux-x64-swiftshader against the 03fad18 baseline: quiet 6278 px / 0.6724, open-ground 1940 / 3.3034, vehicle 6338 / 0.6762, relief 14645 / 0.9220; every layer self-check PASSED (22 of 22). Looked at: the diff image is confined to the 210 px minimap box on every scenario; relief's minimap shows Tel Marum's rock wall in the upper third with the saddle gap (north at the top), friendly units at the bottom, enemy at the saddle, camera frame on the corridor; quiet's shows the buildings, roads, units and camera frame. Captured twice (PR run and main run): quiet, vehicle and relief byte-identical, open-ground 240 px apart and all of them outside the minimap box, so the photograph is deterministic.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "04f50ee629e43aa61f387356201868128d8b24aa2608455c23f7efede2074fa6"
+      "sha256": "10d3312b7099152333391368ce535704312181f44e95358790af43c07cad4e9b"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "109db07f7197c855d942b31a52c237a79ca9e7333aaf2e5ef8e8ae6f579218bf"
+      "sha256": "7b08c15d8a7cc6819572cac4f29469986eecdb0c2a4aca4b890bf565773f9676"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "9258a5a0a7a82e9c22c507eeb7fa64265cf273dca336771e4406fe86408a4b06"
+      "sha256": "1fc93165835eed49936eef1aac5b1417fff1edb36a6c71251e62e6e23e5a9569"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b8b4db2e81689b12828e5629eb6f6d49d087db294127a8926d30560b0432467d"
+      "sha256": "3b373255798178afa76f9e4220f2c8b3a023a9d7fbd5536e839b7c5a3595aa42"
     }
   }
 }
