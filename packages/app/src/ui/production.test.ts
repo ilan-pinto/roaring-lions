@@ -432,6 +432,23 @@ describe('the hover tooltip', () => {
     );
   });
 
+  // Final review of shell-upgrade Phase 3, ruling 5: the tip is `innerHTML`
+  // (`tooltip.ts`), and all three strings in it are catalogue data --
+  // `name` and `blurb` from `data/units/*.json`, the tags from
+  // `doctrineTags` over it -- that the schema does not forbid `<` or `&` in.
+  // Each renders WRONG unescaped: an entity that decodes, a tag that opens.
+  it('shows the name, the blurb and the tags as the characters they are', () => {
+    const r = rig([
+      dockUnit({ name: 'Fish &amp; <i>Chips</i>', blurb: 'Holds <b>ground</b> &amp; more', tags: ['soft', '<u>x</u> &lt;y&gt;'] }),
+    ]);
+    hover(r.tile('inf_squad'));
+    const tip = r.tip();
+    expect(tip.querySelector('i, b, u')).toBe(null);
+    expect(tip.querySelector('.rl-tip__name')?.textContent).toBe('Fish &amp; <i>Chips</i>');
+    expect(tip.querySelector('.rl-tip__blurb')?.textContent).toBe('Holds <b>ground</b> &amp; more');
+    expect(tip.querySelector('.rl-tip__tags')?.textContent).toContain('soft · <u>x</u> &lt;y&gt;');
+  });
+
   it('omits the description line for a unit that has no blurb', () => {
     const r = rig([dockUnit()]);
     hover(r.tile('inf_squad'));

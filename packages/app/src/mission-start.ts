@@ -3,8 +3,12 @@
 // Shell-upgrade Phase 3, Task 4 moved `new MissionRuntime` + `runtime.start()`
 // past the deploy screen (plan R-5), which put them AFTER `await
 // renderer.init(stage)`. Both backends' `init()` end by calling `snapshot()`
-// twice -- `ThreeRenderer.ts:2149-2150`, `renderer.ts:557-558` -- to seed their
-// interpolation copies and fog from the sim's starting units. When `init()`
+// twice -- in `ThreeRenderer.init()` under the comment "Seeds prevX/prevY ==
+// curX/curY from the sim's actual starting positions", and as the last two
+// statements of `PixiRenderer.init()`, the second marked "prev == cur on the
+// first frame" -- to seed their interpolation copies and fog from the sim's
+// starting units. Cited by function and anchor, never by line: WP-A1.3 (GH-177)
+// rewrites `ThreeRenderer.ts` and every line number in it moves. When `init()`
 // ran after the spawn that seeded the real force; now it seeds from an EMPTY
 // sim (`entityCount` 0), and nothing re-seeded after the spawn. Measured on
 // the Task 4 review: until tick 1 the whole starting force drew at world
@@ -27,27 +31,37 @@ import type { Renderer } from '@lions/render';
 /**
  * How many `snapshot()` calls re-seed a renderer whose `init()` ran on an
  * empty sim. THREE, and the number is a coupling to three renderer internals,
- * each cited so a change to one of them is a change to this:
+ * each cited by function and a nearby anchor (not a line number, which the
+ * A1.3 branch moves) so a change to one of them is a change to this:
  *
- *  1. **Interpolation.** `snapshot()` copies `cur` into `prev` and then reads
- *     the sim into `cur` (`ThreeRenderer.ts:3070-3078`, `renderer.ts:736-747`),
- *     and derives `entitySpeed` from the difference. Call 1 moves `cur` from
- *     the zero-fill to the spawns -- a speed spike; call 2 makes `prev == cur`
- *     and the speed 0. So at least two, and the LAST call must not be the one
- *     that moves anything, or the first frame lerps the force in from (0, 0)
- *     and `updateVehicleAmbientFx` reads the spike as a dust burst
- *     (`ThreeRenderer.ts:3969`, reading `entitySpeed` at `:3986`).
+ *  1. **Interpolation, and the speed read off it.** Both backends'
+ *     `snapshot()` copy `cur` into `prev` (`this.prevX.set(this.curX)`), read
+ *     the sim into `cur`, and derive `entitySpeed` from the difference
+ *     (`Math.hypot(dx, dy) * SIM_HZ`). Call 1 moves `cur` from the zero-fill
+ *     to the spawns -- a speed spike; call 2 makes `prev == cur` and the speed
+ *     0. So at least two, and the LAST call must not be the one that moves
+ *     anything, or the first frame lerps the force in from (0, 0) and every
+ *     reader of `entitySpeed` sees a vehicle that crossed the map in one
+ *     tick. The re-seed protects `entitySpeed` for all of them: today
+ *     `ThreeRenderer.updateVehicleAmbientFx` (`const speed =
+ *     this.entitySpeed[i]`), which would read the spike as a dust burst; and,
+ *     once WP-A1.3 (GH-177) lands, the vehicle weight model, which seeds its
+ *     first frame from it -- `updateVehicleMeshes` feeds `entitySpeed` to
+ *     `stepVehicleWeight` as the hull's speed, so a spike would throw every
+ *     hull's lag, squat and lean on the frame the player first sees it.
  *  2. **Fog.** The fog (and the trail) refresh only on a call where
- *     `fogTick++ % 4 === 0` (`ThreeRenderer.ts:3066`, `renderer.ts:733`), and
- *     read the sim directly when they do. `init()`'s two calls leave `fogTick`
- *     at 2, having refreshed once, on the empty sim. Calls at `fogTick` 2 and
- *     3 do not refresh; the call at 4 does. So THREE is the least that seeds
- *     the fog from the force the player is about to command, where two would
- *     leave the map full shroud until the first refresh inside the tick loop.
- *     More than three would only shift the 5 Hz phase, which nothing reads.
- *  3. **Pixi's turret seed.** `renderer.ts:748-750` seeds turret facing to
- *     hull facing only while `frameN === 0`, and `frameN` advances in
- *     `frame()` (`renderer.ts:1881`). `main.ts`'s first `frame()` is after
+ *     `fogTick++ % 4 === 0` -- the first statement of both backends'
+ *     `snapshot()` -- and read the sim directly when they do. `init()`'s two
+ *     calls leave `fogTick` at 2, having refreshed once, on the empty sim.
+ *     Calls at `fogTick` 2 and 3 do not refresh; the call at 4 does. So THREE
+ *     is the least that seeds the fog from the force the player is about to
+ *     command, where two would leave the map full shroud until the first
+ *     refresh inside the tick loop. More than three would only shift the
+ *     5 Hz phase, which nothing reads.
+ *  3. **Pixi's turret seed.** `PixiRenderer.snapshot()` seeds turret facing to
+ *     hull facing only while `frameN === 0` ("Seed turret facing to hull
+ *     facing on first snapshot"), and `frameN` advances in `frame()`'s
+ *     opening lines (`this.frameN++`). `main.ts`'s first `frame()` is after
  *     this, so all three calls are still inside that window. (three.js seeds
  *     turrets per entity in `entityFrame` instead and does not care.)
  *

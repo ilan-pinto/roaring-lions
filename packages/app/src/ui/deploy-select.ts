@@ -107,7 +107,7 @@ export function slotsLeft(view: DeployRosterView, sel: DeploySelection, type: st
  *
  * `sel.chosen` is sanitized (see `sanitizeChosen`) before it is read for
  * anything but the refusal checks above, so a stale or out-of-range index
- * riding along in `sel` never survives into the returned selection, and
+ * riding along in `sel` never survives into an accepted selection, and
  * every acceptance builds a fresh `Set` rather than mutating `sel.chosen`.
  */
 export function toggleEntry(view: DeployRosterView, sel: DeploySelection, poolIndex: number): DeploySelection {

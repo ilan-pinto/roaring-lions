@@ -65,6 +65,41 @@ describe('outcomeMoment', () => {
     await expect(m.done).resolves.toBeUndefined();
   });
 
+  // Final review, ruling 3. A player holding a pan key when the mission ends
+  // is already sending keydowns, and the browser repeats a held key about
+  // thirty times a second: without this, the first REPEAT ended the moment
+  // before it was ever seen. An autorepeat is not a decision to skip, so it
+  // is swallowed -- it still must not reach the game -- and the moment holds.
+  // The game listener is registered before the moment opens, the way the
+  // "stops a key from reaching the game" test below registers its own.
+  it('a held key’s autorepeat neither ends it nor reaches the game', async () => {
+    const seen: string[] = [];
+    const game = (e: KeyboardEvent): void => {
+      seen.push(e.key);
+    };
+    window.addEventListener('keydown', game);
+    const m = outcomeMoment(host, { outcome: 'victory', title: 'x' });
+    try {
+      let settled = false;
+      void m.done.then(() => {
+        settled = true;
+      });
+      for (let i = 0; i < 5; i++) {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', repeat: true, bubbles: true }));
+      }
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(m.el.isConnected).toBe(true);
+      expect(seen).toEqual([]);
+      // A fresh press is still a skip.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true }));
+      await expect(m.done).resolves.toBeUndefined();
+    } finally {
+      m.dismiss();
+      window.removeEventListener('keydown', game);
+    }
+  });
+
   it('a click skips it too', async () => {
     const m = outcomeMoment(host, { outcome: 'defeat', title: 'x' });
     window.dispatchEvent(new PointerEvent('pointerdown'));

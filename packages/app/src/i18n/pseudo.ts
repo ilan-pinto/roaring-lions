@@ -1,10 +1,11 @@
 // packages/app/src/i18n/pseudo.ts
 /**
  * The pseudo-locale transform: every ASCII letter through a fixed accented
- * table, `{…}` interpolation spans, `<…>` HTML tags and digit runs left
- * untouched -- touching any of those would desync a captured screenshot from
- * the params that produced it, break `format()`'s own `{…}` parsing, or turn
- * a tag name/attribute into something no longer parseable as markup -- then
+ * table, `{…}` interpolation spans, `<…>` HTML tags, `&…;` character
+ * entities and digit runs left untouched -- touching any of those would
+ * desync a captured screenshot from the params that produced it, break
+ * `format()`'s own `{…}` parsing, or turn markup into something no longer
+ * parseable as markup -- then
  * padded by about a third and bracketed. `?pseudo=1` (see `locales.ts`)
  * wraps the `en` catalogue in this: a screen that never calls `t()` at all
  * reads as conspicuously plain English against everything that does, and a
@@ -41,6 +42,11 @@ const TABLE: Readonly<Record<string, string>> = {
 };
 
 const LETTER = /[A-Za-z]/;
+
+/** A whole character reference -- named (`&amp;`), decimal (`&#39;`) or hex
+ *  (`&#x27;`) -- anchored at the `&` (sticky). Only a WHOLE one: a bare `&`
+ *  is prose, and so is everything after it up to the next `;`. */
+const ENTITY = /&(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#[xX][0-9A-Fa-f]+);/y;
 
 function accent(ch: string): string {
   const lower = ch.toLowerCase();
@@ -79,6 +85,23 @@ export function pseudo(s: string): string {
       out += s.slice(i, end);
       i = end;
       continue;
+    }
+    if (ch === '&') {
+      // A character entity is markup for the same reason a tag is (final
+      // review, ruling 4). Every caller that builds `innerHTML` escapes a
+      // parameter BEFORE `t()` formats it, and this transform runs on the
+      // formatted string -- so an escaped `&amp;` arrives here looking like
+      // prose, and accenting it (`&ámþ;`) stops the parser reading it as an
+      // entity at all: the player sees five characters where one belonged.
+      // Unlike `<…>` this is a pattern and not an `indexOf(';')` span, because
+      // a bare `&` is ordinary punctuation and the words after it are prose.
+      ENTITY.lastIndex = i;
+      const entity = ENTITY.exec(s);
+      if (entity !== null) {
+        out += entity[0];
+        i += entity[0].length;
+        continue;
+      }
     }
     if (LETTER.test(ch)) {
       out += accent(ch);

@@ -894,6 +894,40 @@ describe('the deploy spread (Task 3)', () => {
     s.dispose();
   });
 
+  // Final review, ruling 8. The whole screen used to be the live region
+  // (`role=status`, `aria-live=polite`, on `.rl-loading`), and `status` is
+  // atomic: every row toggle -- `aria-pressed`, the slot line, the reserve
+  // line -- changed text inside it, so a screen reader re-read the region
+  // on each click. The loading COUNT is the one thing on this screen that
+  // changes without the player doing anything, so it is the only thing that
+  // should announce. `politeness` is the nearest explicit `aria-live`, or an
+  // implicit one from a live role, walking up from the node itself.
+  it('announces the loading count and not the deploy rows', () => {
+    const politeness = (node: Element | null): string => {
+      for (let e = node; e !== null; e = e.parentElement) {
+        const live = e.getAttribute('aria-live');
+        if (live !== null) return live;
+        const role = e.getAttribute('role');
+        if (role === 'status' || role === 'log') return 'polite';
+        if (role === 'alert') return 'assertive';
+      }
+      return 'off';
+    };
+    const el = document.createElement('div');
+    const s = spread(el);
+    const quiet = [...rowsOf(el), el.querySelector('.rl-deploy__slots'), el.querySelector('.rl-deploy__reserve')];
+    expect(quiet).toHaveLength(6);
+    for (const node of quiet) expect(politeness(node), node?.className).toBe('off');
+    const count = el.querySelector('.rl-loading__count');
+    expect(politeness(count)).toBe('polite');
+    // ...and it still changes as the sheets land, which is what it announces.
+    s.total(4);
+    const before = count?.textContent;
+    s.step();
+    expect(count?.textContent).not.toBe(before);
+    s.dispose();
+  });
+
   it('Deploy is disabled while a slot is empty, and enabled again when it is filled', () => {
     const el = document.createElement('div');
     const s = spread(el);

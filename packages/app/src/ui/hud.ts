@@ -930,6 +930,21 @@ export class Hud {
     window.setTimeout(() => leave(el), 9000);
   }
 
+  /**
+   * Stand the big end-of-mission banner down for good (final review of
+   * shell-upgrade Phase 3, ruling 9). `main.ts` calls this when it mounts the
+   * held victory/defeat moment (`ui/outcome-moment.ts`): the moment is the
+   * verdict, and with this banner still up behind it and the end screen
+   * under both, one outcome was told three times in three wordings. Hides a
+   * banner a tick already put up, and keeps `updateBanner` from putting one
+   * up later. Idempotent. A mission end that shows no moment never calls
+   * this and keeps the banner.
+   */
+  suppressEndBanner(): void {
+    this.bannerShown = true;
+    this.banner.style.display = 'none';
+  }
+
   private updateBanner(): void {
     const m = this.deps.getMission();
     if (!m || m.result === 'ongoing' || this.bannerShown) return;
@@ -1358,12 +1373,12 @@ export class Hud {
       const why = worst.length > 0 ? ` · ${worst.join(' · ')}` : '';
       const bounce = p.hurts ? '' : ` · <span class="rl-bad-text">${t('hud.fire.cannotPenetrate')}</span>`;
       rows.push(
-        `<div>${name} <b>${chance}%</b> <span class="rl-dim">${p.weaponId}${why}</span>${bounce}</div>`
+        `<div>${escapeHtml(name)} <b>${chance}%</b> <span class="rl-dim">${escapeHtml(p.weaponId)}${why}</span>${bounce}</div>`
       );
     }
 
     const target = sim.unitTypes[sim.state.typeIdx[hoverId]].name;
-    const head = `<div class="rl-label">${t('hud.fire.heading', { target })}</div>`;
+    const head = `<div class="rl-label">${t('hud.fire.heading', { target: escapeHtml(target) })}</div>`;
     if (rows.length === 0 && unidentified > 0 && cannot === 0 && holdingFire === 0) {
       return head + `<div class="rl-dim">${t('hud.fire.unidentifiedOnly')}</div>`;
     }
@@ -1580,7 +1595,7 @@ export class Hud {
           // `.rl-chip__name > span`), so "AH-64 Peten" was being cut to
           // "AH-64 Pete" with no ellipsis glyph at all before it had one.
           `<span class="rl-chip__name">${roleBadgeSvg(c.bucket, CHIP_BADGE)}` +
-          `<span>${c.name}</span></span>` +
+          `<span>${escapeHtml(c.name)}</span></span>` +
           `<b>×${c.count}</b>` +
           `</div>` +
           `<div class="rl-track"><i class="rl-fill-${c.hpTone}" ` +
@@ -1600,7 +1615,7 @@ export class Hud {
    *  whatever the last render happened to leave behind. */
   private chipTipHtml(typeId: string | undefined): string | null {
     const chip = this.chipViews.find((c) => c.typeId === typeId);
-    return chip ? t('hud.chip.selectOnly', { name: chip.name, count: chip.count }) : null;
+    return chip ? t('hud.chip.selectOnly', { name: escapeHtml(chip.name), count: chip.count }) : null;
   }
 
   /**
@@ -1694,7 +1709,7 @@ export class Hud {
       for (const w of type.weapons) {
         const pen = fx.toNumber(w.penetration);
         arms.push(
-          `<div>${t('hud.card.weapon', { id: w.id, effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
+          `<div>${t('hud.card.weapon', { id: escapeHtml(w.id), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
             (pen > 0 ? ` · ${t('hud.card.weaponPen', { n: pen.toFixed(0) })}` : '') +
             (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${t('hud.card.weaponHeavy')}</span>` : '') +
             `</div>`
@@ -1733,7 +1748,7 @@ export class Hud {
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +
       callsign +
-      `<span class="rl-card__name">${type.name}</span>` +
+      `<span class="rl-card__name">${escapeHtml(type.name)}</span>` +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       `<span class="rl-card__hp rl-dim">${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}</span>` +
       `</div>` +

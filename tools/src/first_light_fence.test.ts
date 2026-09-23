@@ -457,7 +457,12 @@ function passiveResult(): { result: string; objectives: Record<string, string> }
 }
 
 describe('First Light fence — the passive control is unchanged', () => {
-  it('still DEFEATs with no orders at all, and evac_settlements is still the failure', () => {
+  // `{ timeout: 30_000 }`: a headless mission run to its end is legitimately
+  // long -- thousands of real sim ticks -- and a run of this kind measured
+  // 7.7 s under a loaded `pnpm test` against vitest's 5 s default. That is a
+  // busy machine, not a hang; a hang is `runToEnd`'s own to report, since it
+  // throws past its twenty-minute tick ceiling.
+  it('still DEFEATs with no orders at all, and evac_settlements is still the failure', { timeout: 30_000 }, () => {
     const { result, objectives } = passiveResult();
     expect(result).toBe('defeat');
     expect(objectives.evac_settlements).toBe('failed');

@@ -149,8 +149,18 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
   // Capture-phase: see the file header for why this has to run before the
   // game's own bubble-phase listener rather than after it, and why `Tab`
   // alone is left untouched.
+  //
+  // An autorepeat (`e.repeat`) is swallowed and does NOT skip (final review,
+  // ruling 3): a player still holding a pan key when the mission ends is
+  // already sending keydowns at the browser's repeat rate, and the first of
+  // them used to end the moment before it was seen. A held key was pressed
+  // before this existed, so it is not an answer to it; a fresh press is.
   const onCaptureKey = (e: KeyboardEvent): void => {
     if (e.key === 'Tab') return;
+    if (e.repeat) {
+      e.stopPropagation();
+      return;
+    }
     finish();
     e.stopPropagation();
   };

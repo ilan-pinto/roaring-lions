@@ -3371,6 +3371,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         orders.halt();
         break;
       case 'cycleChips':
+        // Final review, ruling 2: nothing while the objectives tracker is
+        // open. Tab there belongs to the tracker's own focus trap
+        // (`openObjectives` installs it), which has already moved focus by the
+        // time this bubble listener runs -- and `isDialogOpen()` does not know
+        // the tracker, so the handler-wide guard above lets Tab through. Left
+        // alone, one keypress moved focus inside the tracker AND walked the
+        // lime frame along the chips behind it: two answers to one key, one
+        // of them on a surface the player is not looking at.
+        if (objectivesOpen) break;
         // Tab walks the lime frame along the selection chips. Swallowed only
         // when there is something to walk: taking the browser's own focus
         // traversal on a screen with no chips would be a key spent on
@@ -3905,6 +3914,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               title: t(me.result === 'victory' ? 'outcome.victory' : 'outcome.defeat'),
               line: debrief?.text,
             });
+            // Final review, ruling 9: the moment is the verdict, so the HUD's
+            // own "Mission accomplished"/"Mission failed" banner stands down
+            // rather than sit behind it and stay up over the end screen after
+            // it. Called here, in the same tick's event loop and BEFORE
+            // `hud.onTick()` at the end of `runTick`, which is the call that
+            // would otherwise put the banner up.
+            hud.suppressEndBanner();
             screenDisposers.push(() => moment.dismiss());
             void moment.done.then(() => {
               if (disposed) return;
