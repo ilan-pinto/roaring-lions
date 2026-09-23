@@ -2,6 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { RosterEntry } from '../ledger-store';
+import { ROSTER_CAP } from '../roster-cap';
 import { t } from '../i18n/t';
 import { showBrigade, type BrigadeOptions } from './brigade';
 
@@ -78,10 +80,12 @@ const BASE: Record<string, Record<string, unknown>> = {
 const baseOf = (id: string): Record<string, unknown> => BASE[id] ?? { id };
 
 /** Every fixture in this file needs the same two required options; spelling
- *  them at each call site is how one of them silently drifts. */
+ *  them at each call site is how one of them silently drifts. `units` also
+ *  defaults to empty -- the cap/stood-down specs below mount on a roster
+ *  ledger alone and have no rail of their own to classify. */
 function mount(opts: Partial<BrigadeOptions>): HTMLElement {
   const host = document.createElement('div');
-  showBrigade(host, { missionName: noMissionNames, baseOf, ...opts } as BrigadeOptions);
+  showBrigade(host, { missionName: noMissionNames, baseOf, units: [], ...opts } as BrigadeOptions);
   return host;
 }
 
@@ -106,7 +110,7 @@ describe('showBrigade — the header and the rail', () => {
       possibleStars: 78,
     });
     expect(text(host, '.rl-garage__title')).toBe('The garage');
-    expect(text(host, '.rl-garage__campaign')).toBe('2 of 78 stars · Conduct 90');
+    expect(text(host, '.rl-garage__campaign')).toBe('2 of 78 stars · Conduct 90 · The brigade holds 0 of its 150 places.');
     expect(cardIds(host)).toEqual(['inf_squad', 'ifv_namer', 'breach_team']);
     expect(host.querySelector('.rl-garage__card[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('0');
     // The chip is the requirement; the card's `title` is the sentence.
@@ -120,7 +124,9 @@ describe('showBrigade — the header and the rail', () => {
 
   it('reads a fresh campaign honestly, and speaks a Conduct gate as a sentence, never a bare number', () => {
     const host = mount({ units, ledger: {}, possibleStars: 78 });
-    expect(text(host, '.rl-garage__campaign')).toBe('0 of 78 stars · no missions rated yet');
+    expect(text(host, '.rl-garage__campaign')).toBe(
+      '0 of 78 stars · no missions rated yet · The brigade holds 0 of its 150 places.'
+    );
     expect(host.querySelector('.rl-garage__card[data-unit="ifv_namer"]')?.getAttribute('data-locked')).toBe('1');
     // ifv_namer's gate is `{ roeMin: 40 }`: the bay names what it needs, never
     // the sim's own "requires campaign Conduct 40 (no missions rated yet)".
@@ -724,5 +730,44 @@ describe('the garage track headings', () => {
     // and a heading reading like a dotted identifier is worse than an English
     // word a translator has not reached yet.
     expect(head?.textContent).toBe('fire control');
+  });
+});
+
+const entry = (slot: number): RosterEntry => ({ type: 'inf_squad', veterancy: 0, slot });
+
+describe('the brigade line — the cap and who is stood down', () => {
+  // R-5: it renders on a fresh campaign too. A sentence that only appears once
+  // the cap has been reached is a sentence `pnpm ui:shots` never photographs and
+  // `--pseudo` never checks, and a rule the player meets for the first time by
+  // breaking it.
+  it('says how many places the brigade has, even with an empty roster', () => {
+    const host = mount({ ledger: {} });
+    expect(text(host, '.rl-garage__campaign')).toContain(`0 of its ${ROSTER_CAP} places`);
+  });
+
+  it('counts the active roster, not the whole population', () => {
+    const host = mount({ ledger: { 'roster.surviving_units': [entry(1), entry(2)], 'roster.reserve': [entry(3)] } });
+    expect(text(host, '.rl-garage__campaign')).toContain(`2 of its ${ROSTER_CAP} places`);
+  });
+
+  it('adds the stood-down clause only when somebody is', () => {
+    const host1 = mount({ ledger: { 'roster.surviving_units': [entry(1)] } });
+    expect(text(host1, '.rl-garage__campaign')).not.toContain('stood down');
+    const host2 = mount({ ledger: { 'roster.surviving_units': [entry(1)], 'roster.reserve': [entry(2), entry(3)] } });
+    expect(text(host2, '.rl-garage__campaign')).toContain('2 units are stood down');
+  });
+
+  it('pluralises one', () => {
+    const host = mount({ ledger: { 'roster.surviving_units': [entry(1)], 'roster.reserve': [entry(2)] } });
+    expect(text(host, '.rl-garage__campaign')).toContain('1 unit is stood down');
+  });
+
+  // The collision the research brief named: two different "reserve"s in one
+  // session, meaning two different things to the same player. The deploy screen
+  // keeps `{n} in reserve` for what a mission did not draw; this screen must not
+  // borrow the phrase.
+  it("does not use the deploy screen's word for a different idea", () => {
+    const host = mount({ ledger: { 'roster.surviving_units': [entry(1)], 'roster.reserve': [entry(2)] } });
+    expect(text(host, '.rl-garage__campaign')).not.toContain('in reserve');
   });
 });

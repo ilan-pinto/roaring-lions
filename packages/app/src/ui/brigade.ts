@@ -32,6 +32,8 @@ import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type Unlock
 import { campaignRoe } from '../campaign';
 import { gateSentence, gateShort } from '../gate-sentence';
 import { t } from '../i18n/t';
+import type { CampaignLedger } from '../ledger-store';
+import { ROSTER_CAP } from '../roster-cap';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
 import { flash } from './motion';
@@ -68,7 +70,7 @@ export interface BrigadeUnit {
 
 export interface BrigadeOptions {
   units: BrigadeUnit[];
-  ledger: LedgerData;
+  ledger: CampaignLedger;
   /** Resolves a mission id to its player-facing title, for an `afterMission` gate's
    *  sentence -- the same catalogue lookup `showCampaign` hands the world map. A unit
    *  gated on a mission this cannot name still reads as a sentence (`gateSentence`'s
@@ -246,12 +248,18 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   const titles = el('div', 'rl-garage__titles');
   titles.appendChild(el('h1', 'rl-garage__title', t('garage.title')));
   const roe = campaignRoe(opts.ledger);
+  const active = opts.ledger['roster.surviving_units'] ?? [];
+  const stoodDown = opts.ledger['roster.reserve'] ?? [];
   titles.appendChild(
     el(
       'div',
       'rl-garage__campaign',
       `${t('garage.stars', { n: starsEarned(opts.ledger), m: opts.possibleStars })} · ${
         roe !== null ? t('garage.conduct', { mean: roe.mean }) : t('garage.conduct.none')
+      } · ${
+        stoodDown.length > 0
+          ? t('garage.brigade.reserve', { n: active.length, cap: ROSTER_CAP, r: stoodDown.length })
+          : t('garage.brigade', { n: active.length, cap: ROSTER_CAP })
       }`
     )
   );

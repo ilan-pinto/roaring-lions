@@ -126,6 +126,8 @@
   "garage.stars": "{n, plural, one {# of {m} star} other {# of {m} stars}}",
   "garage.conduct": "Conduct {mean}",
   "garage.conduct.none": "no missions rated yet",
+  "garage.brigade": "The brigade holds {n} of its {cap} places.",
+  "garage.brigade.reserve": "The brigade holds {n} of its {cap} places, and {r, plural, one {# unit is} other {# units are}} stood down.",
   "garage.wallet.word": "{n, plural, one {credit} other {credits}}",
   "garage.bucket.all": "All",
   "garage.bucket.armour": "Armour",
