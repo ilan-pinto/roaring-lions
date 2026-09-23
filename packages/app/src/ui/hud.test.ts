@@ -1075,6 +1075,99 @@ describe('the single-unit card', () => {
   });
 });
 
+describe('the card\'s service record — whose place this is', () => {
+  it('names the predecessor when this unit took a vacant slot', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) =>
+          id === world.namer ? { type: 'inf_squad', veterancy: 1, name: 'Gilad', missions: 1, kills: 0, slot: 7 } : undefined,
+        predecessorOf: (slot) => (slot === 7 ? { name: 'Barkai', type: 'inf_squad' } : undefined),
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__replaces')?.textContent).toContain('Barkai');
+  });
+
+  // Do not regress the plain record line: a unit that has always held its own
+  // place is the common case and must gain nothing.
+  it('shows nothing extra for a unit whose slot has no history', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) =>
+          id === world.namer ? { type: 'inf_squad', veterancy: 0, name: 'Gilad', missions: 1, kills: 0, slot: 7 } : undefined,
+        predecessorOf: () => undefined,
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__replaces')).toBeNull();
+    expect(card.querySelector('.rl-card__record')?.textContent).toBe('1 mission · 0 kills');
+  });
+
+  // A fresh spawn has no ledger entry at all (`drawn = [null]`, mission.ts:1264),
+  // so there is no slot to look up and the lookup must not be attempted with
+  // `undefined`.
+  it('shows nothing for a fresh spawn with no roster entry', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: () => undefined,
+        predecessorOf: () => {
+          throw new Error('must not be called');
+        },
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__replaces')).toBeNull();
+  });
+
+  it('escapes a predecessor\'s name like every other name on the card', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        rosterEntryOf: (id) => (id === world.namer ? { type: 'inf_squad', veterancy: 0, slot: 7 } : undefined),
+        predecessorOf: () => ({ name: '<img src=x onerror=1>', type: 'inf_squad' }),
+      },
+      world
+    );
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(card.querySelector('.rl-card__replaces img')).toBeNull();
+  });
+
+  // jsdom computes no stylesheet, so -- the same disk-read shape "the chip
+  // name slot" below uses for its own rule -- this reads `theme.css` back off
+  // disk rather than asking a computed style for a rule no rendering engine
+  // here applies.
+  //
+  // Falsified by hand: dropping `.rl-card__replaces` from the grouped
+  // selector (leaving `.rl-card__record` alone) turns this red.
+  it('sizes the replaces line the same as the record line above it', () => {
+    const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
+    let found = false;
+    for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const selectors = rule[1]
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split(',')
+        .map((s) => s.trim());
+      if (!selectors.includes('.rl-card__replaces')) continue;
+      found = true;
+      const fontSize = /font-size\s*:\s*([^;]+);/.exec(rule[2]);
+      expect(fontSize?.[1].trim()).toBe('var(--t-s)');
+    }
+    // A selector that stopped matching (a rename, a merge into another rule)
+    // would otherwise report zero offenders forever.
+    expect(found).toBe(true);
+  });
+});
+
 describe('unit art the pipeline has not produced', () => {
   it('draws the reserved hatch with the role mark, never an empty box', () => {
     // `civilians` is the one shipped type absent from SPRITE_MAP, and a left

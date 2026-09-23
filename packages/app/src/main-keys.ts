@@ -8,12 +8,15 @@
  * strings.
  *
  * `loadLedger`/`saveLedger` take a `StorageLike | null` rather than the bare
- * `Storage` global: `main.ts`'s `safeStorage()` is what stands between this
- * module and a `window.localStorage` property access that can throw on its
- * own (private mode, site data blocked) -- passing its result straight
- * through, null and all, is what keeps that guard in exactly one place. A
- * caller that already has a definite store (`profile.ts`'s `StorageLike`
- * parameters, never null) can still hand one in unchanged.
+ * `Storage` global: `ledger-store.ts`'s `safeStorage()` is what stands between
+ * this module and a `window.localStorage` property access that can throw on
+ * its own (private mode, site data blocked) -- passing its result straight
+ * through, null and all, is what keeps that guard in exactly one place.
+ *
+ * Nothing but `ledger-store.ts` calls these any more. This module is the
+ * IMPLEMENTATION of the app's one door to the save, not its API: a screen or a
+ * screen's host asks the `LedgerStore` for the ledger and never names a
+ * storage key, which is what lets WP-ST6 replace the whole of it.
  */
 import type { LedgerData } from '@lions/sim';
 import type { StorageLike } from './brigade-account';

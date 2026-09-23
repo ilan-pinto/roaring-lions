@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { ACCOUNT_KEY, emptyAccount } from './brigade-account';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from './main-keys';
+import { memoryLedgerStore } from './ledger-store';
 import { SAVES_KEY, SAVE_ERROR_NOT_A_SAVE, deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive } from './profile';
 
-function memStore() {
-  const map = new Map<string, string>();
-  return { map, getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => void map.set(k, v), removeItem: (k: string) => void map.delete(k) };
-}
+// The `Map`-backed `StorageLike` fake this file used to carry is now
+// `memoryLedgerStore()` (`ledger-store.ts`), which runs the SAME
+// implementation the browser path does over a Map instead of `localStorage` --
+// so these specs are about the shipping door, not about a second one written
+// for tests. `.map` is that Map, exposed as test-only surface, and it is what
+// the assertions below read the raw bytes out of.
+const memStore = memoryLedgerStore;
 const ledger = { 'campaign.completed_missions': ['beit_sahwan_1_recon'], 'roe.mission_ratings': { beit_sahwan_1_recon: 88 } };
 // `grants` carries the balance, not just `balance`/`earned_total` themselves --
 // `migrateAccount` (brigade-account.ts) bounds a balance the grants log cannot
