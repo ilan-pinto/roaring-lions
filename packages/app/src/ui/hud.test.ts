@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
+import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
 
 /** A stand-in resolved commander, the shape `main.ts` would hand over from
@@ -1073,6 +1074,19 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-card__callsign')).toBeNull();
     expect(card.querySelector('.rl-card__record')).toBeNull();
   });
+
+  // Shell upgrade Phase 3, Task 10 moved the card's escaper into
+  // `escape-html.ts`. The callsign escape it re-points had no test of its own
+  // until then -- deleting it left this whole file green.
+  it('shows an entity-shaped callsign as the characters it was given', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [world.namer],
+      { rosterEntryOf: (id) => (id === world.namer ? { type: 'inf_squad', veterancy: 0, name: 'Fish &amp; Chips' } : undefined) },
+      world
+    );
+    expect(r.host.querySelector('.rl-card__callsign')?.textContent).toBe('Fish &amp; Chips');
+  });
 });
 
 describe('the card\'s service record — whose place this is', () => {
@@ -1655,5 +1669,65 @@ describe('the strip tooltip element (final review, C2)', () => {
       expect(whiteSpace?.[1].trim()).toBe('normal');
     }
     expect(found).toBe(true);
+  });
+});
+
+// Shell upgrade Phase 3, Task 10. `renderStrip` put three mission-authored
+// strings straight into `innerHTML`: the mission's `name`, the shown
+// primary's `text`, and a deadline objective's `text` (the third sink, which
+// the plan missed and the pre-flight scan found). All three can also come
+// from a translator's `data/locales/<lang>/missions.json` overlay. Every input
+// below renders WRONG before the fix -- an entity that decodes, a tag that
+// opens -- rather than a bare `&`, which a parser already shows literally and
+// which would pass with or without escaping (pre-flight M7).
+describe('the strip and the feed show what a mission authored as text', () => {
+  it('shows an entity-shaped mission name as the characters it was authored with', () => {
+    const r = rig(mission({ name: 'Fish &amp; Chips' }));
+    expect(r.host.querySelector('.rl-strip__name')?.textContent).toBe('Fish &amp; Chips');
+  });
+
+  // Green before the fix too -- `escapeAttr` escaped `"` -- and kept because
+  // it is what the consolidation could break: `hud.ts`'s old TEXT body did not
+  // escape `"`, and choosing it as "the one" would end this attribute early.
+  it('keeps the campaign tooltip whole when it carries a double quote', () => {
+    const r = rig(mission({ campaign: 'Roster 9 · "Conduct" 82' }));
+    expect(r.host.querySelector('.rl-strip__name')?.getAttribute('title')).toBe('Roster 9 · "Conduct" 82');
+  });
+
+  it('does not let the shown objective open a tag', () => {
+    const r = rig(
+      mission({ objectives: [{ id: 'hold', text: 'Hold <i>the</i> line', primary: true, status: 'active' }] })
+    );
+    const row = r.host.querySelector('[data-obj="hold"]');
+    expect(row?.querySelector('i')).toBeNull();
+    expect(row?.textContent).toContain('Hold <i>the</i> line');
+  });
+
+  it('does not let a deadline objective open a tag either -- the third sink', () => {
+    const r = rig(
+      mission({
+        objectives: [
+          { id: 'hold', text: 'Hold the line', primary: true, status: 'active' },
+          { id: 'raze', type: 'raze', text: 'Raze <i>the</i> cache', primary: true, status: 'active', ticksLeft: 200 * 20 },
+        ],
+      })
+    );
+    const row = r.host.querySelector('.rl-strip__deadline');
+    expect(row?.getAttribute('data-obj')).toBe('raze');
+    expect(row?.querySelector('i')).toBeNull();
+    expect(row?.textContent).toContain('Raze <i>the</i> cache');
+  });
+
+  // `hud.note` takes HTML by name and keeps doing so -- its callers pass
+  // catalogue markup. What is tested is the CALL SITE's output (M7): the lost-
+  // unit alert used to be `t(a.line.key, a.line.params)` inline in `main.ts`,
+  // with `{name}` a unit's display name from `data/units/*.json`, unescaped.
+  it('names a lost unit in the feed as text, and keeps the catalogue\'s own markup', () => {
+    const r = rig(mission());
+    r.hud.note(...alertNotice({ key: 'alert.unitLost', params: { name: '<i>Doobi</i>', n: 1 }, tone: 'bad' }));
+    const line = r.host.querySelector('.rl-notice');
+    expect(line?.querySelector('i')).toBeNull();
+    expect(line?.textContent).toContain('<i>Doobi</i>');
+    expect(line?.querySelector('b')?.textContent).toBe('lost');
   });
 });

@@ -313,6 +313,50 @@ describe('what a click does', () => {
     expect(r.notes[0].html).toContain('insufficient logistics');
   });
 
+  // Shell upgrade Phase 3, Task 10. A dock note is `hud.note` HTML, and a
+  // unit's `name` (`data/units/*.json`, free text the schema does not
+  // constrain) went into all three of them raw. Parsed the way `note` parses
+  // it, each of these opened an `<i>` before the fix.
+  it('names the unit in every note it writes as text, never as markup', () => {
+    const name = '<i>Rifle</i> Squad';
+    const r = rig([dockUnit({ name })]);
+    r.tile('inf_squad').click(); // building
+    r.rt.buildOk = false;
+    r.tile('inf_squad').click(); // cannot build
+    r.rt.blocked.inf_squad = 'field camp destroyed';
+    r.tile('inf_squad').click(); // locked
+    expect(r.notes.map((n) => n.tone)).toEqual(['info', 'mute', 'warn']);
+    for (const n of r.notes) {
+      const parsed = document.createElement('div');
+      parsed.innerHTML = n.html;
+      expect(parsed.querySelector('i')).toBeNull();
+      expect(parsed.textContent).toContain(name);
+    }
+  });
+
+  // The locked note's reason is `gateSentence`'s, and an `afterMission` gate
+  // names the MISSION -- `missionName` resolves it to the mission's own
+  // authored `name`, the same string the strip shows.
+  it('names the mission a lock is waiting on as text, never as markup', () => {
+    document.body.replaceChildren();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const notes: string[] = [];
+    new ReinforcementDock(host, {
+      units: [dockUnit({ unlock: { afterMission: 'wadi_halam_1_fords' } })],
+      runtime: fakeRuntime({ blocked: { inf_squad: 'requires clearing wadi_halam_1_fords' } }),
+      note: (html) => notes.push(html),
+      onArm: () => undefined,
+      missionName: () => 'The <i>Fords</i>',
+    });
+    host.querySelector<HTMLButtonElement>('[data-unit="inf_squad"]')?.click();
+    expect(notes).toHaveLength(1);
+    const parsed = document.createElement('div');
+    parsed.innerHTML = notes[0];
+    expect(parsed.querySelector('i')).toBeNull();
+    expect(parsed.textContent).toContain('Clear The <i>Fords</i> first');
+  });
+
   it('will not arm a support call there is no intel for', () => {
     const r = rig([dockUnit()], fakeRuntime({ intel: 0 }));
     r.support('sweep').click();

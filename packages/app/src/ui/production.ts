@@ -18,6 +18,7 @@
 import type { LedgerData } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
+import { escapeHtml } from './escape-html';
 import { roleBadgeSvg } from './role';
 import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
@@ -220,15 +221,21 @@ export class ReinforcementDock {
       // `requires clearing <missionId>` verbatim, exactly the "bare wording
       // — a floor with a parenthetical, or an id verbatim" `dock-model.ts`'s
       // own comment says a tile can never show.
+      //
+      // Shell upgrade Phase 3, Task 10: a note is `hud.note` HTML, so the
+      // unit's own `name` (free text in `data/units/*.json`) and the lock
+      // sentence (which names a MISSION, through `missionName`) are escaped
+      // before `t()` puts them beside the catalogue's `<b>`.
       const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
+      const name = escapeHtml(unit.name);
       if (state.lock !== null) {
-        this.opts.note(t('dock.note.locked', { name: unit.name, reason: state.lock.full }), 'warn');
+        this.opts.note(t('dock.note.locked', { name, reason: escapeHtml(state.lock.full) }), 'warn');
         return;
       }
       if (this.opts.runtime.requestBuild(unit.id)) {
-        this.opts.note(t('dock.note.building', { name: unit.name }), 'info');
+        this.opts.note(t('dock.note.building', { name }), 'info');
       } else {
-        this.opts.note(t('dock.note.cannotBuild', { name: unit.name }), 'mute');
+        this.opts.note(t('dock.note.cannotBuild', { name }), 'mute');
       }
       el.blur(); // keep the keyboard on the battlefield
       this.refresh(); // the bar starts now, not at the next 4 Hz beat

@@ -32,6 +32,7 @@ import type { RosterEntry } from '../ledger-store';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
+import { escapeHtml } from './escape-html';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { roleBadgeSvg, roleBucket } from './role';
@@ -854,7 +855,17 @@ export class Hud {
     this.strip.dataset.open = open ? '1' : '0';
   }
 
-  /** Mission-level narration — objectives, triggers, waves, refusals. */
+  /** Mission-level narration — objectives, triggers, waves, refusals.
+   *
+   *  `html` is set as `innerHTML`, and it is HTML on purpose: callers pass a
+   *  `t()` result whose catalogue markup (`<b>…</b>`) is meant to render. So
+   *  every value a caller interpolates that the catalogue did not write -- an
+   *  objective's `text`, a trigger's `label`, a unit's or a mission's `name`
+   *  -- goes through `escapeHtml` (`escape-html.ts`) before it reaches `t()`,
+   *  never after: `describeMissionEvent` in `main.ts`, `alertNotice`
+   *  (`mission-notice.ts`) and the dock's notes (`production.ts`) all do.
+   *  Schema-constrained ids (`^[a-z0-9_]+$`) cannot carry markup and are
+   *  interpolated as they are. */
   note(html: string, tone: Tone = 'live'): void {
     const el = document.createElement('div');
     // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
@@ -988,7 +999,7 @@ export class Hud {
       // the mission name's tooltip rather than being dropped: it is a
       // between-missions fact, not something read mid-fight.
       rows.push(
-        `<span class="rl-strip__name"${m.campaign ? ` title="${escapeAttr(m.campaign)}"` : ''}>${m.name}</span>`
+        `<span class="rl-strip__name"${m.campaign ? ` title="${escapeHtml(m.campaign)}"` : ''}>${escapeHtml(m.name)}</span>`
       );
       if (m.roe !== undefined) {
         rows.push(
@@ -1008,8 +1019,8 @@ export class Hud {
         const tone =
           primary.status === 'complete' ? 'rl-good' : primary.status === 'failed' ? 'rl-bad-text' : '';
         rows.push(
-          `<span class="rl-strip__obj ${tone}" data-obj="${escapeAttr(primary.id)}">` +
-            `${objectiveGlyph(primary.status)} ${primary.text}${inline}</span>`
+          `<span class="rl-strip__obj ${tone}" data-obj="${escapeHtml(primary.id)}">` +
+            `${objectiveGlyph(primary.status)} ${escapeHtml(primary.text)}${inline}</span>`
         );
       }
       if (deadline) {
@@ -1020,10 +1031,10 @@ export class Hud {
           // Clock FIRST: this span shrinks with an ellipsis at the end, and
           // the clock is the part that must survive the cut -- at 1440 px with
           // two long objectives it was the clock that vanished.
-          `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeAttr(deadline.objective.id)}">` +
+          `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeHtml(deadline.objective.id)}">` +
             `${objectiveGlyph(deadline.objective.status)} ` +
             `<b class="${textToneClass(deadline.tone)}">${deadline.text}</b> ` +
-            `${deadline.objective.text}</span>`
+            `${escapeHtml(deadline.objective.text)}</span>`
         );
       }
       // Task 6: the two `+N` counts above (primaries/secondaries the inline
@@ -1449,8 +1460,8 @@ export class Hud {
       .map((c, i) => {
         const tone = c.statusTone === null ? 'rl-dim' : textToneClass(c.statusTone);
         return (
-          `<div class="rl-chip" data-type="${escapeAttr(c.typeId)}" ` +
-          `data-tip="${escapeAttr(c.typeId)}" ` +
+          `<div class="rl-chip" data-type="${escapeHtml(c.typeId)}" ` +
+          `data-tip="${escapeHtml(c.typeId)}" ` +
           `data-focus="${i === this.chipFocus ? '1' : '0'}">` +
           this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK) +
           `<div class="rl-chip__body">` +
@@ -1506,13 +1517,13 @@ export class Hud {
       // -- `{id} — no sprite sheet`, `en.json`): one sentence for "this type
       // has no picture", wherever it is drawn.
       return (
-        `<div class="${cls}" data-nosprite="1" title="${escapeAttr(t('brigade.art.noSprite', { id: typeId }))}">` +
+        `<div class="${cls}" data-nosprite="1" title="${escapeHtml(t('brigade.art.noSprite', { id: typeId }))}">` +
         `${roleBadgeSvg(bucket, markSize)}</div>`
       );
     }
     const icon = this.deps.portraitIsIcon?.(typeId) === true;
     return (
-      `<img class="${cls}"${icon ? ` data-icon="1"` : ''} src="${escapeAttr(src)}" alt="" draggable="false">`
+      `<img class="${cls}"${icon ? ` data-icon="1"` : ''} src="${escapeHtml(src)}" alt="" draggable="false">`
     );
   }
 
@@ -1600,7 +1611,7 @@ export class Hud {
     if (caps.length === 0) caps.push(t('hud.card.cap.none'));
 
     return (
-      `<div class="rl-card" data-type="${escapeAttr(type.id)}">` +
+      `<div class="rl-card" data-type="${escapeHtml(type.id)}">` +
       `<div class="rl-card__frame">` +
       this.artHtml(type.id, bucket, 'rl-card__art', CARD_MARK) +
       // The corner badge only where there IS art. Without it the placeholder
@@ -1644,24 +1655,4 @@ export class Hud {
     this.clock.classList.toggle('rl-pulse', hold.contested);
     this.clock.style.display = 'block';
   }
-}
-
-/** Mission and objective text reaches the strip inside an attribute. Escaped
- *  rather than trusted: it is authored JSON, but an apostrophe in a mission
- *  name would otherwise end the attribute and eat the rest of the strip.
- *  For a string landing between tags rather than inside `attr="..."`, use
- *  `escapeHtml` below -- it escapes `>` instead of `"`, and the two are not
- *  interchangeable. */
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-}
-
-/** The same discipline as `escapeAttr` above, for a string landing as TEXT
- *  CONTENT between tags rather than inside `attr="..."` -- so it escapes `>`
- *  where `escapeAttr` escapes `"`, and reaching for the wrong one leaves the
- *  hole the other closes. A unit's callsign is authored data (spec §4.7:
- *  assigned by the app, carried opaquely by the sim) and goes through the same
- *  escaping path as every other string built here. */
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

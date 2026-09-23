@@ -1,7 +1,10 @@
 /**
  * How the narrative `MissionEvent` kinds (GDD §11 -- `removed`, `evacuated`)
- * are worded for the HUD notice feed, plus the two small string utilities
- * `describeMissionEvent` shares with them (`triggerLabel`, `escapeHtml`).
+ * are worded for the HUD notice feed, plus `triggerLabel`, which
+ * `describeMissionEvent` shares with them, and `alertNotice`, the feed
+ * wording for `alertsForTick`'s lines. `escapeHtml` used to live here too; it
+ * is `escape-html.ts`'s now, the one copy for the whole UI (shell upgrade
+ * Phase 3, Task 10).
  *
  * Split out of `describeMissionEvent` for the same reason `roe-notice.ts`
  * is (that file's own top comment): the interesting part is a wording
@@ -20,6 +23,8 @@
  * No DOM, no Pixi, no sim state.
  */
 import { t } from '../i18n/t';
+import type { AlertLine } from './alerts';
+import { escapeHtml } from './escape-html';
 import type { Tone } from './hud';
 
 /**
@@ -89,17 +94,26 @@ export function triggerLabel(
   return triggers[Number(m[1])]?.label ?? null;
 }
 
-/** `describeMissionEvent` builds `innerHTML`, so any authored string landing
- *  as TEXT CONTENT between tags -- a trigger's `label` included -- must be
- *  escaped first. The same five-entity replace as the HTML spec's own
- *  minimal set, kept local to this module: `hud.ts` has its own escapers for
- *  its own two contexts (an attribute value, a callsign as text content) and
- *  neither is exported for a second module to share. */
-export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+/**
+ * An `alertsForTick` line (`alerts.ts`), worded for the feed. That model hands
+ * back a catalogue key and its params and never calls `t()` -- its own header
+ * says why -- so this is where the key is resolved, and where the authored
+ * value it carries is escaped on its way into `hud.note`'s `innerHTML`.
+ *
+ * `alert.unitLost`'s `{name}` is a unit's display NAME from
+ * `data/units/*.json`, free text the schema does not constrain. Every string
+ * param is therefore treated as data and escaped, while the catalogue string
+ * around it stays trusted markup -- its `<b>` is the point. Numbers pass
+ * through untouched: a plural selects on them.
+ *
+ * Shell upgrade Phase 3, Task 10. This was `t(a.line.key, a.line.params)`
+ * inline in `main.ts`'s tick loop, raw, where no test could reach it --
+ * importing `main.ts` boots the app.
+ */
+export function alertNotice(line: AlertLine): [string, Tone] {
+  const params: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(line.params)) {
+    params[key] = typeof value === 'string' ? escapeHtml(value) : value;
+  }
+  return [t(line.key, params), line.tone];
 }
