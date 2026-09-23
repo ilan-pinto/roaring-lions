@@ -591,7 +591,7 @@ is the earned gate alone and the button carries the price — restated in text i
 duplicate the button. §4.4's own wording was updated in the final fix wave to match what ships.
 
 **D-8 — the UI scale steps are 1 / 1.15 / 1.4, and the menu column at 2560 reads 25%, not the
-acceptance's 28% (Task 3).** §6 specified `--ui-scale` "1 at ≤1600 wide, 1.25 at 2560" and
+acceptance's 28% (Task 3); discharged by Task 7 at 29.75%.** §6 specified `--ui-scale` "1 at ≤1600 wide, 1.25 at 2560" and
 `--menu-col: min(28.75rem, 92vw)`; the acceptance demanded a column "≥ 28% of a 2560 frame".
 Those two numbers never agreed: 28.75 rem at scale 1.25 is 575 px, 22.5% of 2560. What shipped
 is three steps — 1, 1.15 from 1900 px, 1.4 from 2400 px, the breakpoints in raw px because
@@ -600,6 +600,22 @@ the column is 644 px, 25.2% of 2560. The formula stands; the 28% figure is retir
 met by widening the column blind, because how wide the column should be at 2560 is decided by
 what sits behind it, and that is Phase 3's composed layout with the diorama host. Phase 3's
 acceptance owns the number.
+**Task 7 sets it (2026-09-24, measured directly off the shipped rule): 761.6 of 2560 px, 29.75%.**
+A new token, `--menu-col-wide: min(34rem, 82vw)`, picked up by `.rl-menu:not(:has(.rl-world))` at
+the same two breakpoints above — 34rem × 22.4 px/rem (the root's 16 px base times `--ui-scale:
+1.4`) is 761.6 px of 2560. At 1920 (`--ui-scale: 1.15`, 18.4 px/rem) the same token reads 625.6 px,
+32.58% of that frame. This replaces the unchanged-below-1900px formula's 644 px / 25.2% at 2560 for
+every plain menu screen (`01-menu`, `04-sandboxes`, `12-settings`, `13-credits`, `14-saves`) — the
+campaign board is excluded on purpose, since its header and footer are deliberately pinned to the
+narrow `--menu-col` inside their own wide frame (comment on `.rl-menu:has(.rl-world)`, `theme.css`).
+The number was not solved for the retired 28% target; it was chosen by capturing `01-menu` at 1920
+and 2560 side by side against several trial widths and picking the one that reads as a deliberate
+column rather than an accident of `28.75rem`'s arithmetic — that the result (29.75%) lands close to
+28% is a consequence of the capture, not a target aimed at. The diorama host §6 Phase 3's "scene
+host" bullet describes sitting behind this column is still unbuilt on this branch (a separate
+render-lane plan, gated on WP-A1.3, per R-1 of the Phase 3 app-half plan) — see
+`.superpowers/sdd/2026-09-19-shell-upgrade-phase-3-app/task-7-report.md` for the full capture and
+the discarded wider-restructure candidate.
 
 **D-9 — `confirmDialog` takes a host and an options object, not `(text, danger)` (Task 6).**
 Shipped as `confirmDialog(host, { title, body, confirm, danger? })` in `ui/confirm.ts`: the

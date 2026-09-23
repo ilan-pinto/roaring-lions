@@ -51,11 +51,22 @@ describe('composed layouts (D-8)', () => {
   // D-8: Phase 0 deferred the number with "Phase 3's acceptance owns the
   // number". This is it, and it is in the file rather than in a plan.
   //
-  // Falsified by hand: renaming `--menu-col-wide` to `--menu-col-2560`
-  // (keeping every other line, including the `D-8` comment) turns this red
-  // on the first assertion.
+  // T7 review, fix round 1: the number is what D-8 asks Phase 3 to set, so
+  // the test asserts the declared VALUE, not merely that a token by this
+  // name exists -- a renamed-and-reworded rule with the wrong figure would
+  // have passed the earlier version, which only checked for the strings
+  // `--menu-col-wide:` and `D-8` anywhere in the file. `toHaveLength(1)`
+  // is the "scoped to the rule that defines it" half: if a second
+  // `--menu-col-wide` declaration were ever added, this fails loudly
+  // instead of the `toMatch` below silently matching whichever one agrees.
+  //
+  // Falsified by hand: changing `min(34rem, 82vw)` to `min(36rem, 82vw)`
+  // in theme.css (leaving the token name, the `D-8` comment and everything
+  // else untouched) turns the second assertion red.
   it('declares the composed menu column, and says what it is a fraction of', () => {
-    expect(css).toMatch(/--menu-col-wide:/);
+    const declarations = [...css.matchAll(/--menu-col-wide:\s*[^;]+;/g)];
+    expect(declarations).toHaveLength(1);
+    expect(css).toMatch(/--menu-col-wide:\s*min\(34rem,\s*82vw\)/);
     expect(css).toMatch(/D-8/);
   });
 
@@ -72,13 +83,27 @@ describe('composed layouts (D-8)', () => {
   // Falsified by hand: deleting the `.rl-loading__box--spread` rule out of
   // Task 7's 1900px block (leaving `.rl-deploy__ground` alone in it) turns
   // `composed` undefined and the block-level assertions red.
-  it('the composed grid is declared for the wide band only — 1280 stays one column', () => {
+  //
+  // T7 review, fix round 1 (MINOR): retitled. `.rl-loading__box--spread`
+  // has been a two-column grid since Task 3's own 1024px rule, so "1280
+  // stays one column" was never true of it -- what this test actually
+  // checks is that the WIDE (1900px) block grows that existing grid
+  // further, while the PLAIN menu (`.rl-menu`) gets no grid at all here,
+  // only a wider `--menu-col`.
+  it('the wide-band grid belongs to the briefing spread; the plain menu only widens its column', () => {
     const blocks = mediaBlocks(css, '1900');
     expect(blocks.length).toBeGreaterThanOrEqual(2);
 
     const scaleBlock = blocks.find((b) => b.includes('--ui-scale'));
     expect(scaleBlock).toBeDefined();
     expect(scaleBlock).not.toMatch(/grid-template-columns/);
+
+    // The plain menu's own 1900px block (D-8, previous test) widens
+    // --menu-col-wide and nothing else here -- it must not ALSO carry a
+    // grid, or the title's "only widens its column" half would be false.
+    const menuColBlock = blocks.find((b) => b.includes('--menu-col-wide'));
+    expect(menuColBlock).toBeDefined();
+    expect(menuColBlock).not.toMatch(/grid-template-columns/);
 
     const composed = blocks.find((b) => b.includes('grid-template-columns'));
     expect(composed).toBeDefined();
