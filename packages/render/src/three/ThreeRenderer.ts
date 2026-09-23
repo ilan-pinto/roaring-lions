@@ -112,11 +112,20 @@ import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type Parti
 import { SIM_HZ } from '../anim';
 import { parseManifest, parseStructureManifest, clipOrFallback, type SheetSpec } from '../sheet';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
-import { updateDimetricCamera, worldToScreenThree, screenToWorldThree } from './camera';
+import {
+  updateDimetricCamera,
+  worldToScreenThree,
+  screenToWorldThree,
+  CAMERA_NEAR,
+  CAMERA_FAR,
+} from './camera';
 import { createSceneLights, type SceneLights } from './lighting';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
+// The ONE piece of the post chain `captureGroundAlbedo` needs -- see that
+// method for why a render target cannot simply be read back raw.
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FlashLightManager } from './flash-light';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
@@ -304,7 +313,13 @@ import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
-import { billboardPoint, objectiveZoneCorners } from './units/overlay-geometry';
+import {
+  billboardPoint,
+  objectiveZoneCorners,
+  RANGE_FILL_DESATURATE,
+  rangeFillAlphaFor,
+  RANGE_ARC_ALPHA,
+} from './units/overlay-geometry';
 import {
   OverlayBatch,
   NumeralBatch,
@@ -341,6 +356,7 @@ import {
   CHARGE_RING_FILL_COLOR_KEY,
   CHARGE_RING_FILL_FALLBACK_COLOR,
   tileRadiusToEllipsePx,
+  cachedDesaturate,
 } from './units/overlays';
 
 /** Where a unit type's sheets live, as the app named them. */
@@ -627,6 +643,29 @@ const VEHICLE_EXHAUST_MAGNITUDE = 0.4;
  */
 const OVERLAY_VERTICES_PER_ENTITY = 200;
 
+/** The maximum-reach hoop's alpha -- the one band of the range envelope
+ *  Task 16 kept as a stroke. It is the faintest thing in the shape on
+ *  purpose: maximum range is where a weapon can still reach and is no longer
+ *  expected to hit, so it is a boundary worth seeing and not worth reading a
+ *  distance off, which is the effective-range arc's job.
+ *
+ *  **0.22, not the 0.28 it drew at before Task 16.** The first cut of this
+ *  work carried the old number forward on the grounds that this band was not
+ *  being redesigned, which was wrong by omission: the hoop no longer sits on
+ *  bare ground. The fill's tint now runs underneath it out to effective
+ *  range, so the same alpha reads louder than it used to against a lighter
+ *  neighbour -- and the brief's own Step 3 had specified 0.22 for exactly
+ *  that reason, designed together with the fill rather than beside it.
+ *  Nothing measured contradicts it. */
+const MAX_RANGE_HOOP_ALPHA = 0.22;
+
+/** How strong a HOVER preview's envelope is, as a fraction of the same
+ *  unit's envelope when it is selected. One multiplier over all three bands
+ *  rather than three more tuned numbers: a preview is the same shape, said
+ *  more quietly, and a selected unit must always be the louder of the two
+ *  when the cursor is resting on one of its own. */
+const PREVIEW_ENVELOPE_STRENGTH = 0.6;
+
 export class ThreeRenderer implements Renderer {
   readonly camera: Camera = { x: 24, y: 24, zoom: 1 };
   selection: number[] = [];
@@ -634,6 +673,10 @@ export class ThreeRenderer implements Renderer {
   hoverEntity = -1;
   hoverStructure = -1;
   hoverCanGarrison = false;
+  /** The friendly hover the range-ring preview draws for -- see `api.ts`'s
+   *  own comment for why this is NOT `hoverEntity`, which stays the hostile
+   *  hover the cursor hinting and the projected-fire panel read. */
+  rangeRingPreview = -1;
   objectiveZone: readonly number[] | null = null;
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
@@ -900,6 +943,36 @@ export class ThreeRenderer implements Renderer {
    *  a live rendering concern -- it is null in every frame the gate is not
    *  driving. */
   private groundAlbedoStrengths: number[] | null = null;
+  /** The minimap's photograph of this map's ground, kept so the answer is
+   *  computed once per map rather than once per caller -- see
+   *  `captureGroundAlbedo`. Dropped whenever the terrain is rebuilt, so a
+   *  stale picture of a ground that has since changed can never be handed
+   *  out. `null` means "not taken", never "cannot be taken". */
+  private groundPhoto: ImageData | null = null;
+  /** The square `groundPhoto` was taken at. A caller asking for a different
+   *  size gets a fresh photograph rather than a resampled one. */
+  private groundPhotoPx = 0;
+
+  /**
+   * Throw the memo away, so the NEXT `captureGroundAlbedo` photographs again.
+   *
+   * Three callers, and they are the whole set of things that can change what
+   * a photograph of this ground would look like: the terrain rebuild in
+   * `frame()`, the same rebuild reached from inside a capture, and a ground
+   * albedo texture arriving from `loadGroundTexture` after a capture already
+   * ran. One name rather than three `this.groundPhoto = null` lines, because
+   * the failure this closes is a fourth invalidating event nobody wired up.
+   *
+   * It does NOT push anything at the minimap. The seam is a pull: the app
+   * asks on each of its own redraws and compares the returned object by
+   * IDENTITY, which works precisely because `captureGroundAlbedo` hands back
+   * the same `ImageData` until this runs. A renderer that called into the
+   * HUD would be the dependency direction inverted for a decoration.
+   */
+  private invalidateGroundPhoto(): void {
+    this.groundPhoto = null;
+    this.groundPhotoPx = 0;
+  }
 
   /**
    * Fetches the six ground albedo tiles `RendererOptions` names -- open
@@ -991,6 +1064,17 @@ export class ThreeRenderer implements Renderer {
               albedo.tiles
             );
           }
+          // The minimap's photograph is of ground that did not have this
+          // texture on it, so it is dropped here for the same reason the
+          // terrain rebuild drops it -- see `invalidateGroundPhoto`. These
+          // six loads are fire-and-forget and `init()` does not await them,
+          // so a capture taken at map load RACES them: on a sandbox or the
+          // tutorial, where nothing holds the player at a briefing, the
+          // photograph can be taken before some tiles land and would
+          // otherwise show those slots' flat palette tone for the whole
+          // mission, quietly and forever. Bounded at six extra captures per
+          // map, at boot, before any fight.
+          this.invalidateGroundPhoto();
         },
         undefined,
         (err) => {
@@ -2400,6 +2484,11 @@ export class ThreeRenderer implements Renderer {
     if (this.terrainDirty) {
       this.rebuildTerrain();
       this.terrainDirty = false;
+      // The minimap's photograph is of the ground that just went away, so it
+      // is dropped here rather than patched. A rebuild is a destroyed
+      // building or a first build, both of which change the picture; a
+      // photograph nobody invalidated would outlive its own subject.
+      this.invalidateGroundPhoto();
     }
     this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
@@ -2658,6 +2747,243 @@ export class ThreeRenderer implements Renderer {
     });
     this.groundAlbedoStrengths = null;
     return GROUND_SLOTS.length;
+  }
+
+  /**
+   * A top-down photograph of this map's ground, for the minimap
+   * (`../api.ts`'s `captureGroundAlbedo`, spec section 6, plan R-6).
+   *
+   * Memoised per map and per requested size: the ground does not change over
+   * a mission except when it is rebuilt or re-textured, and
+   * `invalidateGroundPhoto` drops the memo when either happens. Asking again
+   * is answered from the field rather than from the GPU.
+   *
+   * **The memo is also the seam's freshness signal, and that is why the
+   * return is IDENTITY-STABLE.** The app asks on each of its own redraws and
+   * re-blits only when the object it gets back is not the one it already
+   * has, so two asks with nothing in between must be the same `ImageData`
+   * and an ask after an invalidation must not be. That is what makes a
+   * per-redraw ask cost one reference compare instead of a readback, and it
+   * is what closes the race against `loadGroundTexture`'s six
+   * fire-and-forget loads without the renderer knowing the HUD exists.
+   *
+   * **It builds the terrain if the terrain is not built yet, through the
+   * SAME gate `frame()` uses.** `rebuildTerrain` is lazy -- nothing exists
+   * until the first `frame()` -- and `main.ts` mounts the minimap
+   * (`bootBattlefield`, right after the deploy gate) some 1500 lines BEFORE
+   * its first `renderer.frame(1, lastFrameMs)` call, GH-141's
+   * one-real-frame-before-the-loop. A capture that merely read
+   * `this.terrainMesh` would therefore answer null at exactly the one moment
+   * the app asks, the minimap would keep its painted terrain for the whole
+   * mission, and nothing would look broken. Building here rather than
+   * duplicating a builder is what makes the photograph and the frame the
+   * same ground by construction.
+   *
+   * Returns null rather than throwing on anything it cannot do: a HUD
+   * decoration must not be able to take the battlefield down.
+   */
+  captureGroundAlbedo(sizePx: number): ImageData | null {
+    if (!Number.isFinite(sizePx) || sizePx < 1) return null;
+    const size = Math.floor(sizePx);
+    // The dirty gate comes BEFORE the memo and that order is load-bearing,
+    // not tidiness. `frame()` drops the memo when it rebuilds, but
+    // `setDecor`/`setElevation` only mark the terrain dirty -- so between
+    // one of those and the next frame the memo describes ground that is
+    // already superseded, and consulting it first would hand out a
+    // photograph of a map that no longer exists. The size guard stays above
+    // both: a caller asking for no pixels must not trigger a terrain build.
+    if (this.terrainDirty) {
+      // The same gate `frame()` uses, not a second builder -- see above.
+      this.rebuildTerrain();
+      this.terrainDirty = false;
+      this.invalidateGroundPhoto();
+    }
+    if (this.groundPhoto !== null && this.groundPhotoPx === size) return this.groundPhoto;
+    if (this.terrainMesh === null) return null;
+    this.groundPhoto = this.photographGround(size);
+    this.groundPhotoPx = this.groundPhoto === null ? 0 : size;
+    return this.groundPhoto;
+  }
+
+  /**
+   * `captureGroundAlbedo`'s GL half: one orthographic render of the world
+   * from straight above, read back as bytes.
+   *
+   * Five things here were decided rather than inherited.
+   *
+   * **The frustum is exactly the map's tile extent**, `[0, w] x [0, h]`,
+   * centred on the map -- so the result lands on `minimapProjection`'s own
+   * linear tile-to-pixel mapping with no second convention to keep in step.
+   * A non-square map comes back stretched to fill the square and the
+   * minimap's own blit un-stretches it; see `api.ts` for why letterboxing
+   * here as well would apply it twice.
+   *
+   * **`up` is -Z, not the default +Y.** Looking straight down, the default
+   * up vector is parallel to the view direction and `lookAt` degenerates.
+   * -Z puts world +X across the image and world +Z down it, which is tile
+   * (0,0) at the top-left -- the minimap's own convention, and the camera
+   * basis is the whole of why the flip below is a row reversal and nothing
+   * more.
+   *
+   * **`units` and `overlays` are hidden for this one render and restored
+   * after** -- through `setDebugLayerVisible`, the seam that already names
+   * them, rather than a second list of scene objects that could drift from
+   * it. The minimap draws its own dots and diamonds from `sim.state` under
+   * its own fog rule, so a unit baked into the ground would be a second,
+   * permanent, unfogged copy of the roster. `units` MUST go through that
+   * seam and not a bare `visible` write: the per-frame path re-asserts fog
+   * visibility on every mesh entity (`debug-layers.ts`). Both are restored
+   * to what they WERE rather than to `true`, so a debug harness that hid one
+   * on purpose does not get it back from a minimap capture.
+   *
+   * **Decor and buildings deliberately stay** -- the boulder field and the
+   * town are ground the player plans around, and the painted terrain drew
+   * both. The buildings have to be STOOD UP first, which is what the
+   * `updateBuildingMeshes()` call in the body is for: `frame()` makes it
+   * AFTER this capture runs at boot, and `composeTerrain` skips the palette
+   * box for any structure whose art has loaded, so without it a photographed
+   * town is its `underBuilding` pads and nothing else.
+   *
+   * **A render target, not the canvas.** `preserveDrawingBuffer` stays off
+   * (CLAUDE.md) and the drawing buffer reads back black; a
+   * `WebGLRenderTarget` is a different buffer and is always readable. It
+   * also means this never disturbs what is on screen: the target is bound
+   * and unbound inside this call, and the next `frame()` reconfigures the
+   * view camera from scratch anyway.
+   *
+   * **Two targets and an `OutputPass`, not one target read raw.** three.js
+   * applies `outputColorSpace` and tone mapping only when rendering to the
+   * DEFAULT framebuffer -- rendering into a render target is forced to the
+   * linear working space with tone mapping off (`WebGLPrograms.getParameters`,
+   * three 0.170). Reading that back as bytes and handing it to a 2D canvas
+   * would present linear values as if they were sRGB, which is not a subtle
+   * shift: it is the same ground several stops darker and flatter. So the
+   * scene renders into a HalfFloat target exactly as `post-chain.ts` does,
+   * and three's own `OutputPass` -- the same class the live chain uses, not
+   * a reimplementation of ACES -- resolves it into the byte target this
+   * reads. What is NOT reproduced is the rest of the chain: no fog-of-war
+   * pass (the minimap's terrain is deliberately unfogged, and at map load
+   * every tile is unseen, so the honest picture would be a black square), no
+   * GTAO, no vignette, no SMAA.
+   */
+  private photographGround(size: number): ImageData | null {
+    const w = this.sim.width;
+    const h = this.sim.height;
+    if (w < 1 || h < 1) return null;
+
+    const camera = new THREE.OrthographicCamera(
+      -w / 2,
+      w / 2,
+      h / 2,
+      -h / 2,
+      CAMERA_NEAR,
+      CAMERA_FAR
+    );
+    // High enough that the whole scene sits inside [near, far] and low
+    // enough that it stays there: the terrain tops out around 2.3 world
+    // units (9 elevation levels at 10 px each through
+    // `WORLD_Y_PER_LIFT_PIXEL`) and a roof under 8, so from 120 up every
+    // depth falls in [112, 120] against `CAMERA_NEAR`/`CAMERA_FAR`'s
+    // [1, 300]. 120 is `camera.ts`'s own `CAMERA_DISTANCE`, spelled out
+    // rather than imported because that module keeps it private -- the two
+    // numbers it IS given are imported, so only this one can drift, and it
+    // can only drift into a clipped photograph rather than a wrong one.
+    const above = 120;
+    camera.position.set(w / 2, above, h / 2);
+    camera.up.set(0, 0, -1);
+    camera.lookAt(w / 2, 0, h / 2);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+
+    // HalfFloat for the scene pass, exactly as `post-chain.ts`'s own target
+    // is and for the same reason: the scene renders linear and unclamped, so
+    // an 8-bit intermediate would crush the highlights before tone mapping
+    // ever saw them. The second target is bytes, because that is what comes
+    // back.
+    const linear = new THREE.WebGLRenderTarget(size, size, { type: THREE.HalfFloatType });
+    const encoded = new THREE.WebGLRenderTarget(size, size);
+    const output = new OutputPass();
+    const wasTarget = this.renderer.getRenderTarget();
+    // What each layer's visibility was BEFORE this call, so the restore puts
+    // back what it found rather than writing `true` at both. A debug harness
+    // that switched a layer off on purpose -- the visual gate's toggle A/B,
+    // `plate-capture.ts` -- must not have it switched back on by a minimap
+    // photograph that happened to run in between. Read off the same two
+    // pieces of state `setDebugLayerVisible` itself writes, so there is no
+    // third place recording what is hidden.
+    const unitsWereVisible = !this.unitsDebugHidden;
+    const overlaysWereVisible = this.overlayBatch.mesh.visible;
+    try {
+      // The buildings, before the photograph and not after it. `frame()`
+      // stands a loaded building mesh up in `updateBuildingMeshes`, which
+      // runs AFTER this capture does at boot -- and `composeTerrain` skips
+      // the palette box for any structure whose art has loaded
+      // (`hasArt`). So without this call a photographed town is its
+      // `underBuilding` pads and nothing else: no buildings, and no
+      // building shadows on the ground beside them. Idempotent for a living
+      // structure (it only instantiates a clone it does not already have),
+      // so `frame()`'s own call a moment later finds the work done. A type
+      // whose GLB has not arrived yet keeps the palette box `composeTerrain`
+      // already gave it, exactly as it does on the field.
+      //
+      // `updateStructures` is deliberately NOT called beside it: a
+      // structure billboard is a static quad built to face the DIMETRIC
+      // camera (`units/structures.ts`), so from straight above it is
+      // edge-on. On the mesh path -- the default, and every shipped
+      // building type has a GLB -- that path is forced to an empty
+      // placement list anyway.
+      this.updateBuildingMeshes();
+      try {
+        // Inside the try, not above it: hiding is two calls, and a throw
+        // from the second would otherwise leave the first one's layer
+        // hidden for the rest of the mission.
+        this.setDebugLayerVisible('units', false);
+        this.setDebugLayerVisible('overlays', false);
+        this.renderer.setRenderTarget(linear);
+        // Explicit rather than trusting `autoClear`, which the post chain's
+        // own `RenderPass` turns off and on around itself.
+        this.renderer.clear();
+        this.renderer.render(this.scene, camera);
+        // `renderToScreen` is false by default, so this draws its full-screen
+        // quad into `encoded` -- tone-mapped and sRGB-encoded by its own
+        // defines, which it reads off this renderer's `toneMapping` and
+        // `outputColorSpace`.
+        // `deltaTime`/`maskActive` are in the `Pass` signature and unread by
+        // this pass; 0 and false are what `EffectComposer` hands a pass with
+        // no clock of its own.
+        // `OutputPass` binds `encoded` itself but does NOT clear it
+        // (`Pass.clear` is false by default), and its full-screen quad
+        // depth-tests like any other material. A render target's depth
+        // attachment has no defined initial contents, so the quad is given
+        // a cleared buffer to draw against rather than a driver's goodwill.
+        this.renderer.setRenderTarget(encoded);
+        this.renderer.clear();
+        output.render(this.renderer, encoded, linear, 0, false);
+      } finally {
+        // Restored whatever happened above: a capture that threw with the
+        // units switched off would take every unit off the battlefield for
+        // the rest of the mission, which is far worse than a minimap with
+        // no photograph. To what they WERE, not to `true` -- see
+        // `unitsWereVisible` above.
+        this.setDebugLayerVisible('overlays', overlaysWereVisible);
+        this.setDebugLayerVisible('units', unitsWereVisible);
+      }
+
+      const pixels = new Uint8Array(size * size * 4);
+      this.renderer.readRenderTargetPixels(encoded, 0, 0, size, size, pixels);
+      // The rows are bottom-up here (GL's origin) and the app flips them --
+      // `minimap.ts`'s `flipRows`, which is pure and has the two tests this
+      // method cannot have.
+      return new ImageData(new Uint8ClampedArray(pixels.buffer), size, size);
+    } catch (err) {
+      console.warn('[lions] ground albedo capture failed; the minimap keeps its painted terrain:', err);
+      return null;
+    } finally {
+      this.renderer.setRenderTarget(wasTarget);
+      output.dispose();
+      encoded.dispose();
+      linear.dispose();
+    }
   }
 
   /**
@@ -6074,6 +6400,30 @@ export class ThreeRenderer implements Renderer {
     return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
   }
 
+  /**
+   * Whether entity `i` gets a range envelope FILL at all: alive, carrying a
+   * weapon, and that weapon having an effective range to fill out to.
+   *
+   * ONE predicate rather than the same conditions written twice, because the
+   * ring block both COUNTS the envelopes it is about to draw -- which is what
+   * picks the fill's per-unit alpha (`rangeFillAlphaFor`) -- and then draws
+   * them. Counting by one rule and drawing by another dims every other unit's
+   * fill by the share of a unit that then contributes none, and it would read
+   * as a tuning problem rather than as a mismatch.
+   *
+   * The effective-range clause is in here for that reason and not because
+   * anything shipped needs it: all 29 `weapons[0]` in `data/units/` declare a
+   * non-zero `effectiveRange` today, so this moves no pixel. It is the third
+   * condition the DRAW side already had, brought to the side that counts.
+   */
+  private drawsEnvelope(i: number): boolean {
+    const st = this.sim.state;
+    if (st.alive[i] === 0) return false;
+    const type = this.sim.unitTypes[st.typeIdx[i]];
+    if (type.weapons.length === 0) return false;
+    return fx.toNumber(type.weapons[0].effectiveRange) > 0;
+  }
+
   /** The shared occlusion-silhouette material for `side` -- one of three for
    *  the whole scene, not one per unit. See `silhouetteMeshMaterials`' own
    *  field doc comment. */
@@ -6411,31 +6761,99 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Weapon envelopes for the selection (GDD S5.8): solid ring at
-    // effective range where accuracy holds up, faint ring at maximum reach,
-    // and an inner ring for weapons with a minimum range (mortars can't
-    // shoot close). `tileRadiusToEllipsePx` (units/overlays.ts) is Pixi's
-    // own `ring()` closure -- `tiles * TILE_W * ISO_K, tiles * TILE_H *
-    // ISO_K` -- pulled out once so this, the shepherd radius below, and the
-    // tutorial focus ring above all share the identical formula.
-    for (const i of this.selection) {
-      if (st.alive[i] === 0) continue;
-      const type = this.sim.unitTypes[st.typeIdx[i]];
-      if (type.weapons.length === 0) continue;
-      const ux = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-      const uy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      const groundYe = groundWorldY(elevation, width, height, ux, uy);
-      const envelopeAnchor: [number, number, number] = [ux, groundYe, uy];
-      const ring = (tiles: number, colorHex: string, widthPx: number, a: number): void => {
-        if (tiles <= 0) return;
-        const { rightR, upR } = tileRadiusToEllipsePx(tiles, TILE_W, TILE_H);
-        this.overlayBatch.ellipseRing(envelopeAnchor, rightR, upR, widthPx, colorHex, a);
+    // Weapon envelopes (GDD S5.8), redrawn for shell Phase 2 Task 16 as ONE
+    // readable shape instead of three competing hoops.
+    //
+    // What shipped until 2026-09-20 was three strokes per selected unit --
+    // maximum range at alpha 0.28, effective at 0.5, and the minimum-range
+    // hoop in HOSTILE RED at 0.35 -- so six units selected drew eighteen
+    // hoops with nothing in the picture saying which belonged to which unit,
+    // and the red inner ring read as an enemy's envelope rather than as this
+    // unit's own dead ground.
+    //
+    // It is now a filled ANNULUS from minimum range to effective range in the
+    // desaturated team hue, its outer edge drawn as a brighter arc -- "reach
+    // fades out at this line" -- with the maximum-range hoop kept as today's
+    // faint stroke. The inner red ring is deleted: its job is now the HOLE in
+    // the annulus, which cannot be mistaken for anyone else's ring.
+    //
+    // **It is not a facing sector**, and ruling R-12 has the reason: S6's
+    // "designed arc" reads most naturally as a sector on the unit's heading,
+    // and that would draw a rule the model does not have. `selectTarget`
+    // gates a shot on identification and range and NEVER on bearing, and no
+    // weapon in `data/units/` declares a traverse limit -- so a sector would
+    // tell the player "this unit can only shoot this way", which is false,
+    // and a player who believed it would manoeuvre against a constraint that
+    // does not exist.
+    //
+    // The colour is DERIVED from the resolved team hex rather than being a
+    // new palette row (ruling R-5, G0 decision #3): `this.opts.teamColors` is
+    // already per colour-vision variant, so the variant follows for free and
+    // no accessibility claim is made for three values nobody measured.
+    //
+    // `tileRadiusToEllipsePx` (units/overlays.ts) is Pixi's own `ring()`
+    // closure -- `tiles * TILE_W * ISO_K, tiles * TILE_H * ISO_K` -- pulled
+    // out once so this, the shepherd radius below, and the tutorial focus
+    // ring above all share the identical formula.
+    //
+    // The loop runs over the selection and then, at reduced strength, once
+    // more for `rangeRingPreview` -- the friendly unit under the cursor,
+    // written by `main.ts`'s `updateHover`. That is a SEPARATE field from
+    // `hoverEntity`, which stays the hostile hover the cursor hinting and the
+    // projected-fire panel read (api.ts has both comments). It is skipped
+    // when it is already in the selection, which draws at full strength.
+    {
+      const preview = this.rangeRingPreview;
+      const previewDraws =
+        preview >= 0 && preview < n && !this.selection.includes(preview) && this.drawsEnvelope(preview);
+      // How many envelopes this frame will actually draw -- NOT
+      // `selection.length`, which counts the dead and the unarmed. It decides
+      // the fill's per-unit alpha (`rangeFillAlphaFor`'s own doc comment has
+      // the photograph that made this necessary), so counting high would make
+      // the whole shape fainter than it declares. Counted in a loop rather
+      // than with a `filter`, because this runs every frame and the rest of
+      // this method allocates nothing per entity either.
+      let drawing = previewDraws ? 1 : 0;
+      for (const i of this.selection) if (this.drawsEnvelope(i)) drawing++;
+      const fillAlpha = rangeFillAlphaFor(drawing);
+      const drawEnvelope = (i: number, previewing: boolean): void => {
+        if (!this.drawsEnvelope(i)) return;
+        const type = this.sim.unitTypes[st.typeIdx[i]];
+        const ux = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+        const uy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+        const groundYe = groundWorldY(elevation, width, height, ux, uy);
+        const envelopeAnchor: [number, number, number] = [ux, groundYe, uy];
+        const ring = (tiles: number, colorHex: string, widthPx: number, a: number): void => {
+          if (tiles <= 0) return;
+          const { rightR, upR } = tileRadiusToEllipsePx(tiles, TILE_W, TILE_H);
+          this.overlayBatch.ellipseRing(envelopeAnchor, rightR, upR, widthPx, colorHex, a);
+        };
+        const w0 = type.weapons[0];
+        const fillHex = cachedDesaturate(this.opts.teamColors[st.side[i]], RANGE_FILL_DESATURATE);
+        // A preview is a hint at a unit the player has not committed to, so
+        // every band of it is drawn at the same fraction of its own strength
+        // rather than at a second set of tuned numbers.
+        const strength = previewing ? PREVIEW_ENVELOPE_STRENGTH : 1;
+        // `drawsEnvelope` has already established a non-zero effective range
+        // -- it is the same predicate the count above used, on purpose.
+        const outer = tileRadiusToEllipsePx(fx.toNumber(w0.effectiveRange), TILE_W, TILE_H);
+        // `minRangeSq` is 0 for every weapon but a mortar's, and a zero
+        // inner radius is a disc -- so this needs no branch.
+        const inner = tileRadiusToEllipsePx(Math.sqrt(fx.toNumber(w0.minRangeSq)), TILE_W, TILE_H);
+        this.overlayBatch.ellipseAnnulusFill(
+          envelopeAnchor,
+          inner.rightR,
+          inner.upR,
+          outer.rightR,
+          outer.upR,
+          fillHex,
+          fillAlpha * strength
+        );
+        this.overlayBatch.ellipseRing(envelopeAnchor, outer.rightR, outer.upR, 1.5, fillHex, RANGE_ARC_ALPHA * strength);
+        ring(fx.toNumber(w0.range), fillHex, 1, MAX_RANGE_HOOP_ALPHA * strength);
       };
-      const w0 = type.weapons[0];
-      const teamColor = this.opts.teamColors[st.side[i]];
-      ring(fx.toNumber(w0.range), teamColor, 1, 0.28);
-      ring(fx.toNumber(w0.effectiveRange), teamColor, 1.5, 0.5);
-      ring(Math.sqrt(fx.toNumber(w0.minRangeSq)), this.overlayColor('team.hostile', '#D93A2B'), 1, 0.35);
+      for (const i of this.selection) drawEnvelope(i, false);
+      if (previewDraws) drawEnvelope(preview, true);
     }
 
     // Shepherd radius: when a player unit is selected, highlight nearby

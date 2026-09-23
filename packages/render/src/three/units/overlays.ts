@@ -11,10 +11,16 @@
  * `render-order.ts`'s own top comment is this module's spec for WHERE things
  * draw; this file's job is WHAT draws and in what shape, ported from
  * `renderer.ts`'s single per-entity unit loop (`renderer.ts:1898` onward,
- * `const g = this.unitsG`) and its trailing per-frame overlay passes
- * (weapon-envelope rings, the shepherd radius and engagement reticles are
- * NOT ported -- out of this phase's named scope, see the task brief's own
- * "Scope" list, which names exactly seven things and no others).
+ * `const g = this.unitsG`) and its trailing per-frame overlay passes.
+ *
+ * **The weapon-envelope rings, the shepherd radius and the engagement
+ * reticles ARE here** -- this paragraph said they were "NOT ported, out of
+ * this phase's named scope" until 2026-09-20, which stopped being true when
+ * Phase C's successor drew them and was by then actively misleading to
+ * anyone reading this file to find where rings live. They are in
+ * `ThreeRenderer.updateOverlays`, built from the primitives below; the
+ * range envelope is one `ellipseAnnulusFill` plus two `ellipseRing` calls
+ * per selected unit (shell Phase 2 Task 16, ruling R-12).
  *
  * Split the same way `units/fx.ts` and `units/structures.ts` already are:
  * `./overlay-geometry.ts` is the pure half (pixel-space triangle arithmetic,
@@ -70,6 +76,8 @@ import {
   pushTrianglePx,
   pushEllipseFanPx,
   pushEllipseRingPx,
+  pushEllipseAnnulusFillPx,
+  desaturateHex,
   pushPolygonFillWorld,
   pushPolygonStrokeWorld,
   pushLineWorld,
@@ -371,6 +379,26 @@ export function cachedHexToLinear(hex: string): OverlayColor {
   return rgb;
 }
 
+/** The range-ring fill's hex, memoised -- `cachedHexToLinear` above has the
+ *  whole argument and this is the same one, one step earlier in the same
+ *  pipeline. `ThreeRenderer`'s ring block calls `desaturateHex` once per
+ *  drawn envelope per frame, and `desaturateHex` builds a STRING; the input
+ *  set is the three team colours of whichever colour-vision variant is
+ *  active, at one constant amount, so the cache is three entries for the
+ *  life of the process and never grows with the selection. Keyed on the
+ *  amount too, so a second caller at a different amount cannot silently
+ *  collide with this one. */
+const desaturateCache = new Map<string, string>();
+export function cachedDesaturate(hex: string, amount: number): string {
+  const key = `${hex}|${amount}`;
+  let out = desaturateCache.get(key);
+  if (out === undefined) {
+    out = desaturateHex(hex, amount);
+    desaturateCache.set(key, out);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // GPU-facing: everything below touches THREE.* GPU-side construction.
 // ---------------------------------------------------------------------------
@@ -524,6 +552,24 @@ export class OverlayBatch {
     segments: number = OVERLAY_RING_SEGMENTS
   ): void {
     pushEllipseRingPx(this.soup, anchor, rightR, upR, strokeWidthPx, cachedHexToLinear(colorHex), alpha, segments);
+  }
+
+  /** A filled band between two concentric ellipses -- the range envelope's
+   *  fill, from a weapon's minimum range to its effective range. A zero
+   *  inner radius is a disc, so a weapon with no minimum range needs no
+   *  branch at the call site (`pushEllipseAnnulusFillPx`'s own doc comment
+   *  has why). */
+  ellipseAnnulusFill(
+    anchor: readonly [number, number, number],
+    rIn: number,
+    uIn: number,
+    rOut: number,
+    uOut: number,
+    colorHex: string,
+    alpha: number,
+    segments: number = OVERLAY_RING_SEGMENTS
+  ): void {
+    pushEllipseAnnulusFillPx(this.soup, anchor, rIn, uIn, rOut, uOut, cachedHexToLinear(colorHex), alpha, segments);
   }
 
   /** The objective zone's fill -- see `overlay-geometry.ts`'s own top

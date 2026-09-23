@@ -9,12 +9,14 @@
  * would restore a campaign into the wrong brigade.
  */
 import type { LedgerData } from '@lions/sim';
-// Neither `ACCOUNT_KEY` (brigade-account.ts) nor `LEDGER_KEY` (main-keys.ts) is
-// read here directly -- `loadAccount`/`saveAccount` and `loadLedger`/`saveLedger`
-// are each key's one reader and writer, and this module goes through them rather
-// than naming either string a second time.
-import { loadAccount, migrateAccount, saveAccount, type BrigadeAccount, type StorageLike } from './brigade-account';
-import { TUTORIAL_DONE_KEY, loadLedger, markTutorialDone, saveLedger, tutorialDone } from './main-keys';
+// This module names no storage key but its own, and reaches no storage API at
+// all: the active campaign's three keys arrive through `LedgerStore`
+// (`ledger-store.ts`), which is the app's one door to the save. `SAVES_KEY`
+// below is still declared here -- the slots are this module's own format --
+// and the door reads and writes it as an opaque string, because a damaged slot
+// has to stay skippable by `importSlot` without the door knowing what a slot is.
+import { migrateAccount, type BrigadeAccount } from './brigade-account';
+import type { LedgerStore } from './ledger-store';
 
 export const SAVES_KEY = 'lions.saves';
 export const SAVE_VERSION = 1 as const;
@@ -35,8 +37,8 @@ export interface ActiveState { ledger: LedgerData; account: BrigadeAccount; tuto
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-export function readActive(store: StorageLike): ActiveState {
-  return { ledger: loadLedger(store), account: loadAccount(store), tutorialDone: tutorialDone(store) };
+export function readActive(store: LedgerStore): ActiveState {
+  return { ledger: store.readLedger(), account: store.readAccount(), tutorialDone: store.tutorialDone() };
 }
 
 /**
@@ -57,17 +59,25 @@ export function readActive(store: StorageLike): ActiveState {
  * through its `role="status"` line. A silent half-write that re-renders as if
  * it had succeeded is the one way "a save slot round-trips the ledger
  * byte-for-byte" can be false with nothing on screen to say so.
+ *
+ * `LedgerStore` does NOT relax that. An UNAVAILABLE store (no durable storage
+ * at all -- `available: false`) writes nothing here and throws nothing, which
+ * is a different case entirely: nothing is half written because nothing is
+ * written, and the saves screen is not reachable in that state anyway
+ * (`main.ts`'s `mountSaves` refuses it). A store that accepts writes and
+ * REFUSES one partway down -- a quota, a private-window refusal -- still
+ * throws out of here, exactly as before, and that is the case this comment is
+ * about. The door must never conflate the two.
  */
-export function writeActive(store: StorageLike, s: ActiveState): void {
-  saveLedger(store, s.ledger);
-  saveAccount(store, s.account);
-  if (s.tutorialDone) markTutorialDone(store);
-  else store.removeItem(TUTORIAL_DONE_KEY);
+export function writeActive(store: LedgerStore, s: ActiveState): void {
+  store.writeLedger(s.ledger);
+  store.writeAccount(s.account);
+  store.setTutorialDone(s.tutorialDone);
 }
 
-function readAll(store: StorageLike): Record<string, SaveSlot> {
+function readAll(store: LedgerStore): Record<string, SaveSlot> {
   try {
-    const v: unknown = JSON.parse(store.getItem(SAVES_KEY) ?? '{}');
+    const v: unknown = JSON.parse(store.readSlotsRaw() ?? '{}');
     if (!isRecord(v)) return {};
     const out: Record<string, SaveSlot> = {};
     for (const [id, raw] of Object.entries(v)) {
@@ -83,11 +93,11 @@ function readAll(store: StorageLike): Record<string, SaveSlot> {
   }
 }
 
-function writeAll(store: StorageLike, all: Record<string, SaveSlot>): void {
-  store.setItem(SAVES_KEY, JSON.stringify(all));
+function writeAll(store: LedgerStore, all: Record<string, SaveSlot>): void {
+  store.writeSlotsRaw(JSON.stringify(all));
 }
 
-export function listSlots(store: StorageLike): SlotMeta[] {
+export function listSlots(store: LedgerStore): SlotMeta[] {
   return Object.values(readAll(store))
     .sort((a, b) => b.savedAt - a.savedAt)
     .map((s) => ({
@@ -97,7 +107,7 @@ export function listSlots(store: StorageLike): SlotMeta[] {
     }));
 }
 
-export function saveSlot(store: StorageLike, id: string, name: string, s: ActiveState, build: string, now: number): SaveSlot {
+export function saveSlot(store: LedgerStore, id: string, name: string, s: ActiveState, build: string, now: number): SaveSlot {
   const slot: SaveSlot = { version: SAVE_VERSION, id, name, savedAt: now, build, ledger: s.ledger, account: s.account, tutorialDone: s.tutorialDone };
   const all = readAll(store);
   all[id] = slot;
@@ -105,11 +115,11 @@ export function saveSlot(store: StorageLike, id: string, name: string, s: Active
   return slot;
 }
 
-export function loadSlot(store: StorageLike, id: string): SaveSlot | null {
+export function loadSlot(store: LedgerStore, id: string): SaveSlot | null {
   return readAll(store)[id] ?? null;
 }
 
-export function deleteSlot(store: StorageLike, id: string): void {
+export function deleteSlot(store: LedgerStore, id: string): void {
   const all = readAll(store);
   if (!(id in all)) return;
   delete all[id];

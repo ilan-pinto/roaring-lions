@@ -17,6 +17,15 @@ export interface DebriefOptions {
   ticks: number;
   targetMinutes?: number;
   lost: { type: string; count: number }[];
+  /** Who was lost, by name (WP-G-E4). A SUBSET of `lost`'s count -- a fresh
+   *  remnant spawned and killed inside one mission never reached the roster
+   *  and has no service record to print (R-11), so `lost` stays the total
+   *  and this is the names it can name. Defaults to empty when absent, so
+   *  every existing call site and every existing spec still compiles. */
+  lostNamed?: { name?: string; type: string }[];
+  /** Who took a vacant place this mission (WP-G-E4) -- a slotless body
+   *  `fillVacancies` handed a slot a death just vacated. Defaults to empty. */
+  replacements?: { name: string; predecessor: string }[];
   secondaries: { text: string; complete: boolean; carries: boolean }[];
   marked: number;
   promoted: number;
@@ -89,6 +98,28 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
     o.lost.length === 0 ? t('debrief.row.lost.none') : o.lost.map((l) => `${l.type} ×${l.count}`).join(', '),
     'rl-debrief__lost'
   );
+  // R-11: the row above is the total and never changes. These two are the
+  // named half beside it -- who, by name, and who took the vacant place --
+  // and both are omitted entirely rather than printed empty (a nothing-to-
+  // report row is noise on the screen a player sees most often).
+  const lostNamed = o.lostNamed ?? [];
+  if (lostNamed.length > 0) {
+    row(
+      t('debrief.row.lostNamed.label'),
+      // A record with no callsign (a save written before names shipped)
+      // falls back to its type, never to "undefined".
+      lostNamed.map((l) => l.name ?? l.type).join(', '),
+      'rl-debrief__lostNamed'
+    );
+  }
+  const replacements = o.replacements ?? [];
+  if (replacements.length > 0) {
+    row(
+      t('debrief.row.replaced.label'),
+      replacements.map((r) => t('debrief.row.replaced.value', { name: r.name, predecessor: r.predecessor })).join(', '),
+      'rl-debrief__replaced'
+    );
+  }
   row(t('debrief.row.marked.label'), String(o.marked), 'rl-debrief__marked');
   row(t('debrief.row.promoted.label'), String(o.promoted), 'rl-debrief__promoted');
   if (o.credits) {

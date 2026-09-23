@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-18 (Phase 2 executing) · main: 89e60848 (v0.72.0 + the Phase 2 plan) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 0 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207
+Updated: 2026-09-23 (E2/E4 landed; S3e and A1.3 executing) · main: a9a71716 (v0.76.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 1 (ahead: S3e opened early) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,14 +8,14 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | S3e #178 app half (plan only) | `docs/shell-phase-3-plan` · `.claude/worktrees/ep-s3-plan` | spec §6 Phase 3 · brief `s3e-brief.md` (session scratchpad) | 19 Sep: research brief in progress → plan written by an opus agent → docs PR; execution waits for Stage 2 / G1 symbol sheet | Tasks 15–16 of the Phase 2 plan the moment A1.2 lands (new worktree off main) |
-| B (render · art · data) | A1.2 #172 the blast | `feat/art-blast` · `.claude/worktrees/ep-a12` | spec + plan on the branch · SDD ledger in the worktree | 20 Sep: 8 of 8 tasks done; Task 8's fix round re-registers the kill's emitter (light/shake/hit-stop were silent), softens the scorch, re-takes the after-set; then the final review, one fix wave (scorch on relief), one PR, a bless expected on `vehicle` | after the blast lands: E2 #174 + E4 #176 (LedgerStore ruling), then A1.3 #177; Lane A's Tasks 15–16 the same day |
+| A (packages/app) | S3e #178 app half (Phase 3 Tasks 1–10; 11–12 after G1) | `feat/shell-phase-3-app` · `.claude/worktrees/ep-s3e` | plan `docs/superpowers/plans/2026-09-19-shell-upgrade-phase-3-app.md` · SDD ledger in the worktree, mirrored to the session scratchpad | 23 Sep: Tasks 9 (pin hover), 8 (one stack-aware focus trap for four overlays) and 5 (the outcome moment) done; E2/E4 merged in; Task 1 (DeployRosterView, cap = ROSTER_CAP) in flight | 1→2→3→4→6→7→10, one PR; one bless budgeted (Task 10 touches `hud.ts`) |
+| B (render · art · data) | A1.3 #177 vehicle weight | `feat/art-vehicle-weight` · `.claude/worktrees/ep-a13` | plan `docs/superpowers/plans/2026-09-20-art-vehicle-weight.md` (7 tasks) | 23 Sep: Task 1 instrument + before-set (200 ms rungs exact), Task 2 terrain conform done; Task 3 dynamics in its fix round (roll smoothing, pitch gain) | Tasks 4–5 → Task 6 on `ThreeRenderer.ts` (merge origin/main first; interpolated position, world-space roll-sign test) → Task 7 after-set → one PR, bless on `vehicle` |
 | C (packages/sim) | — | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: S2b #171 renderer half (Tasks 15–16, after A1.2 #172) → S3e #178 app half → S3e scene host (after A1.3 lands) → S3a #180 → S-F #184, A4 #186
-- B: A1.2 #172 blast → G-E1..E4 #173–#176 → A1.3 #177 vehicle weight → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 → A3.2 #185
+- A: S3e #178 app half (Tasks 1–10 now, 11–12 after G1) → S3e scene host (after A1.3 lands) → S3a #180 → S-F #184, A4 #186
+- B: A1.3 #177 vehicle weight → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 → A3.2 #185
 - C: G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
 
@@ -49,6 +49,9 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-23 · WP-G-E2 #174 + WP-G-E4 #176 (closed) · PR #211 → f933477c · v0.76.0 · eight tasks + one fix wave: one `LedgerStore` seam, roster measured (largest chain 30) and capped at 150, slots that outlive their unit, overflow stands down to a reserve on write, the lost remembered and replaced, shown on the garage line, the debrief and the unit card; the final review caught two real bugs (recency by a per-mission tick; the split re-sorting who deploys) and the victory write became one tested function (`applyRosterCarryover`) · CI red once on a spec that assumed Node 25's jsdom storage, fixed b4d0a5b4 · visual GREEN, no bless · driven in a browser (garage line, deploy, card)
+- 2026-09-23 · WP-S2b renderer half (#171, closed) · PR #210 → a387a6a2 · Phase 2 Tasks 15–16: the minimap photographs the lit ground through a render target, range rings are one desaturated fill · Task 16 one fix round, final review + one fix wave (a late ground texture invalidates the photograph) · visual RED as expected on all four gated scenarios, confined to the minimap box: quiet 6278 px / 0.6724, open-ground 1940 / 3.3034, vehicle 6338 / 0.6762, relief 14645 / 0.9220, 22 of 22 layer self-checks PASS · looked at (Tel Marum north at the top), captured twice (PR and main runs, minimap box identical) → bless adb6ab7f · spec D-28..D-39 · the version bump rides the next push, because a bless pushed by the workflow token cannot trigger CI
+- 2026-09-20 · WP-A1.2 the blast (#172) · PR #209 → a567b892 · eight tasks + one fix wave, every review clean or closed in one round · the emitter registry never loaded `catastrophic_kill` (a kill's light/shake/hit-stop were silent) — found by measurement, fixed, every data registry pinned to its directory · visual job GREEN (R-L: `vehicle` has no blast), no bless · deferred: scorch on relief (follow-up), scorch opacity under a wreck (lead, on motion), the mortar keeps the crater column
 - 2026-09-20 · WP-G-E3 content fixes (#175) · PR #208 → 9553e7a8 · six tasks + one fix wave, every review clean; six promotions grade ★★★ at both tiers; `captured` reachable via `ends_at` (the board was printing a wrong line); pins measured 6/15/22 → 5/13/19, ladder 5531 → 5849; 23 controls DEFEAT; no bless · deferred: prices.md §2/§3.4/§5–§8 on the old ladder; `chargeTunnel` drops mid-drift (sim-guard)
 - 2026-09-19 · shell Phase 3 app-half PLAN (WP-S3e #178, docs only) · PR #198 → 8faccb1b · 12 tasks, 2 gated on G1 · five G1 questions posted on #165 · execution in Stage 2 after Phase 2's Tasks 15–16
 - 2026-09-19 · shell Phase 2 Tasks 1–14 (S2a #170 + the app half of S2b #171) · PR #197 → 8596bc37 · 23 commits, 14 tasks, 7 fix rounds each closed in one round, final review + one fix wave · v0.73.0 · visual job GREEN, all four gated scenarios PASS against the Phase 0 baseline (the plan's hideHudExceptCanvas claim was wrong — the HUD IS in the frame — but the picture held) · no bless · deferred: Tasks 15–16 wait for A1.2; keyboard focus on the strip resets every 250 ms (Phase 3)
@@ -72,6 +75,8 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - Posture change to free-to-play + Steam Wallet microtransactions (the lead's roadmap, 19 Sep): the August commercial plan's "Early Access at a price" is retired, its PPP pricing tiers and Early Access window void, its 7k wishlist floor still standing; ST5 #204, ST6 #205 and ST7 #206 are UNSCHEDULED until G7 #199 answers on 30 Oct, and G6 un-parks only when ST5+ST6 make the account server-held · 2026-09-19
 - Shell Phase 4 platform (Steam Deck, controller) · product track · G2
 - Shell deferred minors 9/10/13/15/17/20 and twelve task minors · spec §10 · 2026-09-18
+- E2/E4 parked: a save from before v0.76.0 leaves no memorials in its first mission afterwards (R-7); `predecessorOf` is an O(n) scan per HUD refresh over the append-only lost list; a stale `roster-cap.test.ts` comment and an unreachable name fallback · 2026-09-23
+- Phase 2 landing-2 parked: the capture-twice bless rule is a manual step, not in `three-baseline-gate.ts`; `main.ts`'s minimap flip memo has no test (`bootBattlefield` untestable as written); Pixi now polls a no-op ground ask at 4 Hz; `above = 120` duplicates `camera.ts`'s `CAMERA_DISTANCE` · 2026-09-23
 - Art Phase 1 follow-ups: RPG-team Meshy importer WIP; mortar team dies by a 150 ms blend; civilians never show `down` · 2026-09-17
 - Map variants for mission I of each town and First Light yard obstacles · lead's call · 2026-09-06
 
@@ -82,7 +87,9 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - The `version` CI job races when PRs merge minutes apart (2026-09-18: one cut v0.72.0, two failed on the tag) · merge one PR at a time and wait for `version`; a concurrency group on that job is a small CI fix worth queuing · every landing
 - `ThreeRenderer.ts` is shared by both lanes · schedule interleave (A1.2 → S2b; A1.3 → scene host) · every stage
 - Meshy balance 454 credits vs ~540 for eighteen bakes · G1 · Stage 2
-- Fable weekly cap · switch the session to Opus at 90%, findings written first · any long run
+- Fable weekly cap · switch the session to Opus at 90%, findings written first · any long run (hit 20 Sep; the session moved to Opus 5.5 on 23 Sep)
+- Local Node 25 gives vitest's jsdom a bare `{}` localStorage while CI's Node 22 gives a real Storage, so a storage spec can pass locally and fail in CI · specs install the storage shape they need · any storage test
+- Clean worktrees under `.claude/worktrees/` were removed between sessions (20→23 Sep) and took the git-ignored SDD ledgers with them; branches survived · mirror every ledger to the session scratchpad, run `git worktree list` before trusting a path · every session gap
 - Cross-OS visual equivalence never diffed · per-environment baselines stay · any bless
 - Playtest harness is single-seed (424242) · a second seed flips three lines · Stage 4 re-pins
 - `vehicle` thresholds calibrated against the old noise, not re-derived at the new zero floor · a decision · any bless of `vehicle`
@@ -108,26 +115,25 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 ## 8. Latest handoff prompt — verbatim, replaced at every handoff
 
 ```
-HANDOFF — Roaring Lions · 2026-09-19 · from session "Execution plan"
+HANDOFF — Roaring Lions · 2026-09-23 · from session "Execution plan"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
-      M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027.
-PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (milestones EP M1–M4, issues #164–#191, PR #197)
-STATUS: Stage 1 · main 8596bc37 (v0.73.0) · shell Phase 2 Tasks 1–14 LANDED 19 Sep (PR #197): alerts, objectives, tooltip, F1, hint line,
-        minimap control, group bar, idle finder, edge pan, zoom to cursor, tutorial hover, capture states 18–23 · CI green on main, no bless
-        Lane A idle until WP-A1.2 #172 lands (Tasks 15–16 touch ThreeRenderer.ts) · Lane B: second session on A1.2 (blast), then E2–E4, then A1.3
-        the shared tree /Users/ilpinto/dev/roaring-lions is on feat/terrain-tiles and stale: never work there; ep-s2 worktree removed
-DECISIONS THIS SESSION: subagent-driven Phase 2 with a task review per task, one final opus review, one fix wave (rulings in the archived SDD ledger);
-        the visual gate does NOT hide the HUD (plan text wrong) — a HUD change CAN move it; it did not this time.
+      M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027 · M5 Steam F2P (after G7).
+PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207)
+STATUS: Stage 1 · main a9a71716 (v0.76.0) · shell Phase 2 COMPLETE (#197, #210) · E2/E4 LANDED (#211) · two SDD loops open:
+        A · S3e #178 on feat/shell-phase-3-app (.claude/worktrees/ep-s3e) — 9, 8, 5 done; Task 1 in flight
+        B · A1.3 #177 on feat/art-vehicle-weight (ep-a13) — Tasks 1–2 done, Task 3 in its fix round
+        each loop's ledger: <worktree>/.superpowers/sdd/<plan>/progress.md, mirrored to the session scratchpad ledgers/
+DECISIONS THIS SESSION: S3e opened before Stage 2's date because its entry condition (Phase 2 Tasks 15–16) is met; its Task 1 waits
+        for E2/E4 (it takes ROSTER_CAP). LedgerStore stays a synchronous seam (ST6 = sync façade over a boot-hydrated cache).
+        The A1.3 instrument pumps the frame clock on every tick and records model_ms per cell (a rung was 418–450 ms before).
 NEXT STEP (exact):
-  1. Lane A: when `gh pr list -R ilan-pinto/roaring-lions --search "A1.2"` shows #172's PR merged: `git worktree add .claude/worktrees/ep-s2r -b feat/shell-phase-2-render origin/main`,
-     then Tasks 15–16 of docs/superpowers/plans/2026-09-18-shell-upgrade-phase-2.md subagent-driven (opus implementer, sim-guard not needed, render-vfx review), one PR, expect a bless
-  2. Lane A meanwhile (optional, small): the Phase 3 note "strip keyboard focus resets every 250 ms" → a state-preserving strip render; and the parked minors in the archived deferred-minors.md
-  3. Lane B: A1.2 #172 → E2–E4 #174–#176 → A1.3 #177
-  4. G1 #165 on 2 Oct: Meshy top-up, style bible, symbol sheet, board route, vehicle numbers, portrait rig, Conduct gate shape
-CONSTRAINTS: §7 above; the shell spec §10 file boundary; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time; merge ONE PR at a time (the version job races)
-READ FIRST: docs/superpowers/specs/2026-09-16-shell-upgrade-design.md §6 + §10 · the Phase 2 plan's Tasks 15–16 and "The last two tasks" preamble ·
-            CLAUDE.md "The three.js backend" · memory: land-commits-through-a-main-worktree · hud-changes-move-the-visual-gate · subagent-model-tiering
+  1. `git worktree list` — if a lane worktree is missing, `git worktree add .claude/worktrees/<name> <branch>` + pnpm install, restore its ledger from the scratchpad copy
+  2. Resume each loop at the first task without a "Task N: complete" line; ONE PR merged at a time, wait for `version`
+  3. E2/E4 lands first → S3e merges origin/main → Tasks 1–4; A1.3 Task 6 merges origin/main before touching ThreeRenderer.ts
+  4. G1 #165 on 2 Oct: Meshy top-up, style bible, symbol sheet (unblocks S3e 11–12), board route, vehicle numbers, portrait rig
+CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time; merge ONE PR at a time
+READ FIRST: each plan's head + the ledger · CLAUDE.md "The three.js backend" · memory: clean-worktrees-get-removed · land-commits-through-a-main-worktree
 VERIFY BEFORE BELIEVING: pnpm lint && pnpm typecheck && pnpm test && pnpm test:determinism && pnpm validate:data
                          && pnpm validate:ui && pnpm playtest && pnpm balance · gh run list --branch main --workflow ci.yml --limit 3
-OPEN FOR THE LEAD: G1 items (by 2 Oct) · G0 #11 special-forces concepts (by 19 Oct)
+OPEN FOR THE LEAD: G1 items (by 2 Oct) · G7 #199 (by 30 Oct) · A1.3 open questions (wheel/track art deferral, turret feel, parameter home)
 ```

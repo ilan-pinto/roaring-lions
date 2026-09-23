@@ -4,6 +4,8 @@
  * `fx.test.ts` exercises `particleBillboardGeometry`/`writeParticleInstances`.
  */
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { screenOffsetToWorld } from '../terrain/shared';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import {
@@ -16,12 +18,19 @@ import {
   pushLinePx,
   pushEllipseFanPx,
   pushEllipseRingPx,
+  pushEllipseAnnulusFillPx,
+  desaturateHex,
+  hexSaturation,
+  RANGE_FILL_DESATURATE,
+  RANGE_FILL_ALPHA,
+  rangeFillAlphaFor,
   pushTriangleWorld,
   objectiveZoneCorners,
   pushPolygonFillWorld,
   pushPolygonStrokeWorld,
   pushLineWorld,
   OVERLAY_RING_SEGMENTS,
+  type TriangleSoup,
 } from './overlay-geometry';
 
 const ANCHOR: [number, number, number] = [3, 0.5, 7];
@@ -440,5 +449,175 @@ describe('pushLineWorld', () => {
     for (let i = 0; i < soupPx.count * 3; i++) {
       expect(soupWorld.positions[i]).toBeCloseTo(soupPx.positions[i], 5);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 16 (shell Phase 2): the range rings become one readable shape. The
+// annulus fill is the shape; `desaturateHex`/`hexSaturation` are the colour
+// and the acceptance clause's own instrument.
+// ---------------------------------------------------------------------------
+
+/**
+ * Every vertex's distance from `anchor`, measured back in the anchor's OWN
+ * screen-pixel frame rather than in world units -- `billboardPoint`'s two
+ * axes have different world lengths per screen pixel (one is a ground-plane
+ * offset, the other is world +Y scaled by `WORLD_Y_PER_LIFT_PIXEL`), so a
+ * raw world distance would compare a pixel radius against a number that is
+ * not one. The right-axis component is recovered by projecting onto `right`
+ * itself, which is exact because the offset lies along it by construction,
+ * and does not divide by either component alone (either may be small).
+ */
+function maxOffsetFromAnchor(soup: TriangleSoup, anchor: readonly [number, number, number]): number {
+  const right = screenOffsetToWorld(1, 0);
+  const rightLenSq = right.dx * right.dx + right.dy * right.dy;
+  let max = 0;
+  for (let v = 0; v < soup.count; v++) {
+    const dx = soup.positions[v * 3] - anchor[0];
+    const dy = soup.positions[v * 3 + 1] - anchor[1];
+    const dz = soup.positions[v * 3 + 2] - anchor[2];
+    const rightPx = (dx * right.dx + dz * right.dy) / rightLenSq;
+    const upPx = dy / WORLD_Y_PER_LIFT_PIXEL;
+    max = Math.max(max, Math.hypot(rightPx, upPx));
+  }
+  return max;
+}
+
+/**
+ * The three team hexes of every shipped variant, read off `data/palette.json`
+ * rather than pasted -- so a new colour-vision variant is covered by the
+ * saturation budget below the day it is added, and a variant carrying a
+ * colour this ruling cannot drain fails HERE rather than on screen. Same
+ * shape as `textured-building.test.ts`'s read of the Python set.
+ *
+ * The three keys are `paletteTeamColors`' own tuple (`@lions/data`,
+ * `[kedem, hostile, neutral]`) -- what `RendererOptions.teamColors` holds and
+ * therefore what `this.opts.teamColors[side]` can ever hand the ring block.
+ * `hostile_text` is a HUD text colour and never reaches an overlay.
+ */
+function teamHexesFromPalette(): string[] {
+  const raw = readFileSync(fileURLToPath(new URL('../../../../../data/palette.json', import.meta.url)), 'utf8');
+  const palette = JSON.parse(raw) as {
+    reserved: {
+      team: {
+        colors: Record<string, string>;
+        variants: Record<string, Record<string, string>>;
+      };
+    };
+  };
+  const team = palette.reserved.team;
+  const blocks = [team.colors, ...Object.values(team.variants)];
+  return blocks.flatMap((b) => ['kedem', 'hostile', 'neutral'].map((k) => b[k]));
+}
+
+describe('pushEllipseAnnulusFillPx', () => {
+  it('writes two triangles per segment, like the ring it generalises', () => {
+    const soup = createTriangleSoup(256);
+    pushEllipseAnnulusFillPx(soup, ANCHOR, 4, 2, 10, 5, RED, 1, 8);
+    expect(soup.count).toBe(8 * 2 * 3);
+  });
+
+  it('a zero inner radius is a disc, and no vertex lands outside the outer radius', () => {
+    const soup = createTriangleSoup(256);
+    pushEllipseAnnulusFillPx(soup, ANCHOR, 0, 0, 10, 5, RED, 1, 16);
+    // No vertex further from the anchor than the outer radius, in the anchor's
+    // own local frame -- `billboardPoint(ANCHOR, 0, 0)` is the centre.
+    expect(maxOffsetFromAnchor(soup, ANCHOR)).toBeLessThanOrEqual(10.001);
+  });
+
+  // The simplification that makes this safe to land: one piece of geometry,
+  // two callers. If the ring drifts from the annulus, every existing ring test
+  // in this file goes red rather than the rings quietly changing shape.
+  it('pushEllipseRingPx is this function with a stroke width, vertex for vertex', () => {
+    const a = createTriangleSoup(256);
+    const b = createTriangleSoup(256);
+    pushEllipseRingPx(a, ANCHOR, 10, 5, 2, RED, 1, 16);
+    pushEllipseAnnulusFillPx(b, ANCHOR, 9, 4, 11, 6, RED, 1, 16);
+    expect(b.count).toBe(a.count);
+    expect([...a.positions.slice(0, a.count * 3)]).toEqual([...b.positions.slice(0, b.count * 3)]);
+  });
+});
+
+describe('desaturateHex', () => {
+  it('0 changes nothing and 1 is grey', () => {
+    expect(desaturateHex('#2F6FD9', 0)).toBe('#2f6fd9');
+    expect(hexSaturation(desaturateHex('#2F6FD9', 1))).toBeCloseTo(0, 5);
+  });
+
+  it('holds luminance while it drains colour', () => {
+    const luma = (hex: string): number => {
+      const n = parseInt(hex.slice(1), 16);
+      return 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+    };
+    // `<= 0.5`, and NOT `toBeCloseTo(_, 0)`, which is `< 0.5` strictly.
+    //
+    // Luma is held EXACTLY in real arithmetic -- the three Rec.709 weights sum
+    // to 1, so the drained luma is `L + amount * (L - L)`. The whole residual
+    // is the rounding of three channels back to bytes, and its arithmetic
+    // maximum is exactly 0.5: the weights sum to 1 and each channel can be up
+    // to half a byte out, so `sum(w_i * 0.5) = 0.5`. The worst residual across
+    // the shipped palette is already 0.4874 (`#D55E00` at amount 1), leaving
+    // 0.0126 of headroom -- and that bound is REACHABLE rather than merely
+    // arithmetic: sweeping 400,000 random colours finds `#dc0f00` at 0.6
+    // sitting at exactly 0.500000. So a strict `<` here is a false red
+    // waiting for whichever colour a future variant adds. The brief's own
+    // `toBeCloseTo(_, 1)` (0.05) was under the quantisation floor entirely
+    // and could not pass at all.
+    //
+    // It is still decisive about the thing it guards: lerping toward a fixed
+    // mid-grey instead moves `#D93A2B` by 22.4, nowhere near 0.5.
+    for (const hex of ['#D93A2B', ...teamHexesFromPalette()]) {
+      for (const amount of [0.25, 0.6, RANGE_FILL_DESATURATE, 1]) {
+        expect(Math.abs(luma(desaturateHex(hex, amount)) - luma(hex))).toBeLessThanOrEqual(0.5);
+      }
+    }
+  });
+
+  // Acceptance (c), as a number rather than as a look at a picture.
+  it('every shipped team colour, of every variant, is unsaturated at the shipped amount', () => {
+    const hexes = teamHexesFromPalette();
+    expect(hexes).toHaveLength(12);
+    // Reported as a table rather than as twelve bare assertions so a failure
+    // NAMES the colour that cannot be drained -- with twelve hexes read off
+    // disk, "expected 0.69 to be less than 0.35" does not say which variant
+    // to go and look at.
+    const over = hexes
+      .map((hex) => ({ hex, drained: desaturateHex(hex, RANGE_FILL_DESATURATE) }))
+      .map((r) => ({ ...r, saturation: hexSaturation(r.drained) }))
+      .filter((r) => r.saturation >= 0.35);
+    expect(over).toEqual([]);
+  });
+});
+
+describe('rangeFillAlphaFor', () => {
+  /** What `over` compositing leaves after `n` layers of alpha `a`. */
+  const composited = (a: number, n: number): number => 1 - Math.pow(1 - a, n);
+
+  it('one unit draws at the declared total', () => {
+    expect(rangeFillAlphaFor(1)).toBe(RANGE_FILL_ALPHA);
+  });
+
+  // The property the whole function exists for, and the one a flat alpha
+  // fails: six annuli at a flat 0.14 composite to 0.596 and photographed as a
+  // grey blanket over the whole frame at zoom 2.5.
+  it('N overlapping fills composite to the declared total, for every N a selection can reach', () => {
+    for (let n = 1; n <= 24; n++) {
+      expect(composited(rangeFillAlphaFor(n), n)).toBeCloseTo(RANGE_FILL_ALPHA, 10);
+    }
+  });
+
+  it('is monotonically fainter per unit as more units draw, and never leaves 0..1', () => {
+    for (let n = 2; n <= 24; n++) {
+      expect(rangeFillAlphaFor(n)).toBeLessThan(rangeFillAlphaFor(n - 1));
+      expect(rangeFillAlphaFor(n)).toBeGreaterThan(0);
+    }
+    expect(rangeFillAlphaFor(6)).toBeCloseTo(0.02482, 5);
+  });
+
+  // An empty selection never calls this, but a renderer that counted wrong
+  // must not produce an alpha outside the range or a NaN.
+  it('degenerate counts fall back to the declared total rather than to NaN', () => {
+    expect(rangeFillAlphaFor(0)).toBe(RANGE_FILL_ALPHA);
+    expect(rangeFillAlphaFor(-3)).toBe(RANGE_FILL_ALPHA);
   });
 });

@@ -4,38 +4,51 @@ import { showSaves, type SavesDeps } from './saves';
 import { Router } from '../shell/router';
 import { ACCOUNT_KEY, emptyAccount } from '../brigade-account';
 import { LEDGER_KEY } from '../main-keys';
+import { memoryLedgerStore, type LedgerStore } from '../ledger-store';
 import { listSlots, saveSlot, type ActiveState } from '../profile';
 
-/** Map-backed, the shape a browser hands over -- not a spy. Same fake
- *  `profile.test.ts`/`brigade-account.test.ts` use. */
-function memStore() {
-  const map = new Map<string, string>();
-  return { map, getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => void map.set(k, v), removeItem: (k: string) => void map.delete(k) };
-}
+/** The app's own door (`ledger-store.ts`) over a Map instead of
+ *  `localStorage` -- the same implementation the browser path runs, not a
+ *  second one written for tests. Same double `profile.test.ts` uses. */
+const memStore = memoryLedgerStore;
 
 /**
- * A store that refuses its Nth write, the way a browser at its quota does.
+ * A store that ACCEPTS writes and refuses its Nth, the way a browser at its
+ * quota does. Deliberately not `memoryLedgerStore.blocked()`, which is the
+ * other failure entirely: an unavailable store writes nothing and throws
+ * nothing, where this one has already half written the campaign by the time it
+ * refuses. That distinction is the whole of I2 below.
  *
  * `QuotaExceededError` is a `DOMException` in a real browser; a plain `Error`
  * carrying the same name is enough here, because nothing in the code under test
  * inspects the type -- and that is the point: it must not have to.
+ *
+ * Counts every call to one of these four, which includes one kind of event the
+ * old `setItem` spy never saw: `setTutorialDone(false)` is a REMOVAL
+ * (`removeItem`), so the spy did not count it and this does. Every write this
+ * screen can reach goes through exactly one of the four, so an `N` here is the
+ * Nth such call, not the Nth `setItem`.
  */
-function quotaStore(failOnWrite: number) {
-  const base = memStore();
+function quotaStore(failOnWrite: number): LedgerStore {
+  const base = memoryLedgerStore();
   let writes = 0;
+  const refuseOn = <T>(run: () => T): T => {
+    writes += 1;
+    if (writes === failOnWrite) throw new Error('QuotaExceededError: the quota has been exceeded.');
+    return run();
+  };
   return {
     ...base,
-    setItem: (k: string, v: string): undefined => {
-      writes += 1;
-      if (writes === failOnWrite) throw new Error('QuotaExceededError: the quota has been exceeded.');
-      return base.setItem(k, v);
-    },
+    writeLedger: (l) => refuseOn(() => base.writeLedger(l)),
+    writeAccount: (a) => refuseOn(() => base.writeAccount(a)),
+    setTutorialDone: (d) => refuseOn(() => base.setTutorialDone(d)),
+    writeSlotsRaw: (j) => refuseOn(() => base.writeSlotsRaw(j)),
   };
 }
 
 const active: ActiveState = { ledger: { 'campaign.completed_missions': ['beit_sahwan_1_recon'] }, account: emptyAccount(), tutorialDone: true };
 
-function deps(store: ReturnType<typeof memStore>, overrides: Partial<SavesDeps> = {}): SavesDeps {
+function deps(store: LedgerStore, overrides: Partial<SavesDeps> = {}): SavesDeps {
   return {
     store,
     build: '0.68.0',
@@ -87,7 +100,7 @@ describe('showSaves', () => {
     // Loading a slot must overwrite the CURRENT active state -- put something
     // different there first, so "writeActive ran" is distinguishable from
     // "nothing changed to begin with".
-    store.setItem(LEDGER_KEY, JSON.stringify({}));
+    store.writeLedger({});
     const stage = document.createElement('div');
     document.body.appendChild(stage);
     showSaves(stage, deps(store));
@@ -100,8 +113,8 @@ describe('showSaves', () => {
     dialog.querySelector<HTMLButtonElement>('.rl-confirm__yes')!.click();
     await Promise.resolve();
     await Promise.resolve();
-    expect(store.map.get(LEDGER_KEY)).toBe(JSON.stringify(active.ledger));
-    expect(store.map.get(ACCOUNT_KEY)).toBe(JSON.stringify(active.account));
+    expect(store.raw(LEDGER_KEY)).toBe(JSON.stringify(active.ledger));
+    expect(store.raw(ACCOUNT_KEY)).toBe(JSON.stringify(active.account));
     stage.remove();
   });
 

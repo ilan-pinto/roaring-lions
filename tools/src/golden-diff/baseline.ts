@@ -251,6 +251,19 @@ export interface BaselineSpec {
  *  `tuning.ts` follows. The measurements are in
  *  `.superpowers/queue/golden-three-report.md`; the short form is in each
  *  `rationale`. */
+/** A STATED PRECONDITION of every gated scenario below, alongside the frozen
+ *  frame loop and the absolute `targetTick`: **the capture is taken with
+ *  `renderer.selection.length === 0` and `renderer.rangeRingPreview === -1`**,
+ *  so no range envelope is drawn in any baseline (shell Phase 2 Task 16). It
+ *  holds today because no scenario selects anything and none parks the cursor
+ *  over a friendly unit -- but the second half is not inert the way the first
+ *  is: `main.ts`'s `updateHover` writes `rangeRingPreview` from `lastCursor`
+ *  EVERY frame, and `lastCursor` starts at screen (0, 0), so a re-authored
+ *  scenario that moves the pointer, or whose camera puts a living side-0 unit
+ *  within half a tile of where the pointer happens to sit, silently adds a
+ *  desaturated annulus to the frame. Re-check both when you add or re-frame a
+ *  scenario; a preview ring is a legitimate picture, so a baseline blessed
+ *  with one in it looks entirely correct. */
 /** Every floor below is ONE THIRD of this machine's measured signal, on both
  *  metrics, rounded down to a readable number.
  *

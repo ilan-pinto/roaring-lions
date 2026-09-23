@@ -301,6 +301,50 @@ export interface Renderer {
    *  Box-select is a projection question, so only the renderer can answer it. */
   unitsInScreenRect(x0: number, y0: number, x1: number, y1: number): number[];
 
+  /**
+   * A top-down photograph of THIS map's ground, rendered once, for the
+   * minimap. `sizePx` is the square the caller wants; the backend fits the
+   * map's own tile extent into it, matching `minimapProjection`'s letterbox.
+   *
+   * Precisely: the returned square holds the map's tile extent and nothing
+   * else -- the frustum is exactly `[0, mapWidth] x [0, mapHeight]`, so a
+   * non-square map arrives STRETCHED to fill the square and the caller's own
+   * `minimapProjection` un-stretches it by blitting into `w * scale` by
+   * `h * scale` at `(ox, oy)`. Letterboxing here as well would apply it
+   * twice. On every shipped map (48x48) the distinction is a no-op; it is
+   * written down because the one thing a minimap must never do is draw a
+   * non-square map stretched in one axis.
+   *
+   * `ImageData` rather than a texture or a canvas: it is the one shape that
+   * crosses this seam without either side learning about the other's
+   * rendering stack, and it is exactly what a 2D `putImageData` takes. Its
+   * rows arrive in the GL convention -- bottom row first -- and the app
+   * flips them (`minimap.ts`'s `flipRows`), because a pure function over a
+   * byte array is testable and a GL readback is not.
+   *
+   * **The answer is IDENTITY-STABLE, and callers are expected to lean on
+   * it.** Two asks with nothing in between return the SAME object; the
+   * backend returns a different one only when something has actually changed
+   * what a photograph of this ground would look like (the terrain rebuilt, a
+   * ground texture arriving after the last capture). So the caller asks as
+   * often as it redraws and does its expensive work -- a blit, an upload --
+   * only on a reference change. That is deliberately a PULL: the alternative
+   * is the renderer calling into the HUD, which inverts the dependency
+   * direction for a decoration. A backend that cannot promise identity must
+   * say so here rather than let a caller poll it into a readback per frame.
+   *
+   * Returns null before the terrain exists, and on a backend that has no
+   * ground mesh to photograph. Optional on the interface: `renderer.ts` is
+   * frozen and implements nothing, so `?renderer=pixi` keeps the painted
+   * terrain, which is not a degradation -- it is what shipped.
+   *
+   * NOTE for anyone reading the `preserveDrawingBuffer` rule (CLAUDE.md, "the
+   * three.js backend"): that rule is about the DRAWING BUFFER and stays off.
+   * This reads a `WebGLRenderTarget` with `readRenderTargetPixels`, which is a
+   * different buffer, is always readable, and is unaffected by it.
+   */
+  captureGroundAlbedo?(sizePx: number): ImageData | null;
+
   // --- world data pushed in
   setElevation(elevation: Uint8Array): void;
   setDecor(decor: Uint8Array): void;
@@ -315,9 +359,22 @@ export interface Renderer {
   readonly camera: Camera;
   selection: number[];
   readonly unitGroup: Uint8Array;
+  /** The HOSTILE hover: the nearest living side-1 entity under the cursor,
+   *  or -1. The cursor hinting and the projected-fire panel both read it, so
+   *  a friendly id must never be written here -- the friendly range-ring
+   *  preview has its own field below. */
   hoverEntity: number;
   hoverStructure: number;
   hoverCanGarrison: boolean;
+  /** The FRIENDLY hover, for the range-ring preview (shell Phase 2 Task 16):
+   *  a living side-0 entity under the cursor that is not already selected, or
+   *  -1. A backend draws that unit's range envelope at reduced strength, so a
+   *  player can read a weapon's reach without committing a selection.
+   *
+   *  Optional on the seam because `renderer.ts` is frozen: the Pixi backend
+   *  has no range-envelope redesign and ignores this, exactly as it ignores
+   *  `objectiveZones` above. `main.ts` writes it unconditionally. */
+  rangeRingPreview?: number;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
   /** Every active objective that is about a piece of ground, not only the

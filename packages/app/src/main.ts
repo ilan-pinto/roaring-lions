@@ -5,7 +5,9 @@
 // an accumulator; the renderer interpolates between ticks (invariant 1).
 
 import { objectiveZonesFor } from './objective-zones';
-import { assignNames, nameKind, type NameKind, type NamesJson } from './names';
+import { nameKind, type NamesJson } from './names';
+import { applyRosterCarryover } from './roster-carryover';
+import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
   Sim,
   fx,
@@ -19,7 +21,6 @@ import {
   zoneContains,
   creditsFor,
   creditInputFrom,
-  type LedgerData,
   type MissionEvent,
   type MissionJson,
   type TunnelRouteJson,
@@ -70,7 +71,7 @@ import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
-import { Minimap, objectivePoint } from './ui/minimap';
+import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
@@ -85,7 +86,7 @@ import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
-import { buyUnlock, buyUpgrade, loadAccount, payMission, resetAccount, saveAccount } from './brigade-account';
+import { buyUnlock, buyUpgrade, payMission } from './brigade-account';
 import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
@@ -177,7 +178,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { LEDGER_KEY, TUTORIAL_DONE_KEY, loadLedger, markTutorialDone, saveLedger, tutorialDone } from './main-keys';
+import { browserLedgerStore, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
@@ -191,9 +192,16 @@ const BASE = import.meta.env.BASE_URL;
 const MS_PER_TICK = 1000 / TICKS_PER_SECOND;
 
 /** `window.localStorage` can throw on the PROPERTY ACCESS itself (private mode, site
- *  data blocked) rather than on a method call. The brigade account route and the
- *  victory payout both read/write it through here instead of the global directly, so
- *  a blocked store means no credits line and no payout -- never a thrown error. */
+ *  data blocked) rather than on a method call.
+ *
+ *  Two callers left, and both are deliberate (R-9): the SETTINGS store
+ *  (`settings.ts`) and the hint line's first-use memory (`ui/hint-model.ts`).
+ *  Those are facts about the person and the device, not about the campaign, so
+ *  they stay on their own guarded access while WP-ST6 moves the campaign to a
+ *  server. Everything to do with the ledger, the brigade account and the save
+ *  slots goes through `ledgerStore` below instead -- one object, one decision
+ *  about what a blocked store means, made once in `ledger-store.ts` rather
+ *  than re-made at ten call sites in this file. */
 function safeStorage(): Storage | null {
   try {
     return window.localStorage;
@@ -201,6 +209,12 @@ function safeStorage(): Storage | null {
     return null;
   }
 }
+
+/** The app's one door to the campaign ledger, the brigade account and the save
+ *  slots (`ledger-store.ts`). One per page, because it is a handle on the
+ *  browser's own store rather than a snapshot of anything -- every read below
+ *  still goes to storage at the moment it is made. */
+const ledgerStore = browserLedgerStore();
 
 /** `{ id, role }` for `nameKind` (spec §4.7), from the same `units` catalogue every
  *  other lookup in this file reads. An unknown id (a future or removed unit type
@@ -513,10 +527,10 @@ function battleAudio(): BattleAudio {
 }
 
 /**
- * What the brigade account says RIGHT NOW: the storage handle, the units
- * bought and the tiers owned. Every surface that reads a KDF unit's unlock
- * gate through `kdfUnlockGate` starts here -- the dock's `unitInfo`, the
- * brigade screen, `resolveUpgrades`'s lookup and the debrief's `kdfUnits`.
+ * What the brigade account says RIGHT NOW: the units bought and the tiers
+ * owned. Every surface that reads a KDF unit's unlock gate through
+ * `kdfUnlockGate` starts here -- the dock's `unitInfo`, the brigade screen,
+ * `resolveUpgrades`'s lookup and the debrief's `kdfUnits`.
  *
  * Read once per MOUNT, not once per page load, and that is the whole reason
  * it is a function. A purchase used to end in `window.location.reload()`,
@@ -525,20 +539,21 @@ function battleAudio(): BattleAudio {
  * roster showing the unit the player has just bought as still locked.
  */
 function accountState(): {
-  storage: Storage | null;
   boughtUnits: Set<string>;
   ownedTiers: Record<string, Record<string, number>>;
 } {
-  const storage = safeStorage();
-  const account = storage ? loadAccount(storage) : null;
+  // A blocked store reads as the empty account (`ledger-store.ts`), which has
+  // no unlocks and no upgrades -- the same two values the `storage ? ... :
+  // null` this used to carry produced. The handle itself is no longer returned:
+  // callers that need to know whether there is anywhere to WRITE ask
+  // `ledgerStore.available`, and the rest just read.
+  const account = ledgerStore.readAccount();
   return {
-    storage,
-    boughtUnits: new Set(account ? account.unlocks : []),
-    // No storage or an empty account is `{}`, and `applyUpgrades` treats an
-    // absent track as the identity, so that case registers the raw JSON
-    // unchanged -- today's behaviour (spec 2026-09-15 §4.3, D5: the sim never
-    // learns a tier exists).
-    ownedTiers: account ? account.upgrades : {},
+    boughtUnits: new Set(account.unlocks),
+    // An empty account is `{}`, and `applyUpgrades` treats an absent track as
+    // the identity, so that case registers the raw JSON unchanged -- today's
+    // behaviour (spec 2026-09-15 §4.3, D5: the sim never learns a tier exists).
+    ownedTiers: account.upgrades,
   };
 }
 
@@ -556,14 +571,14 @@ function accountState(): {
  * 2026-09-15 §4.1 -- a second campaign starts with the brigade you built.
  */
 function purgeCampaign(): void {
-  // Minor 5: through `safeStorage()`, not the global. `window.localStorage` can
-  // throw on the PROPERTY ACCESS itself in a private window or with site data
-  // blocked (that function's own doc comment), and this one runs on the `fresh`
+  // Minor 5: through the store, not the global. `window.localStorage` can throw
+  // on the PROPERTY ACCESS itself in a private window or with site data blocked
+  // (`safeStorage()`'s own doc comment), and this one runs on the `fresh`
   // landing -- so a player in that state met a thrown boot error instead of a
-  // menu, for a store that has nothing in it to purge.
-  const store = safeStorage();
-  store?.removeItem(LEDGER_KEY);
-  store?.removeItem(TUTORIAL_DONE_KEY);
+  // menu, for a store that has nothing in it to purge. Both calls REMOVE their
+  // key rather than writing an empty value, exactly as before.
+  ledgerStore.clearLedger();
+  ledgerStore.setTutorialDone(false);
 }
 
 // Which sheet a unit uses -- facing convention, frame counts, clip list and
@@ -823,16 +838,15 @@ async function main(): Promise<void> {
   /** The landing. The one screen that defines no `window.__lions`. */
   function mountMenu(host: HTMLElement): Disposer {
     const worldData = parseWorld(world);
-    // Minor 4 + Minor 5: one predicate (`main-keys.ts`), through `safeStorage()`.
-    // This runs on every menu MOUNT now rather than once per page load, so a
-    // store whose property access throws would have thrown on every return to
-    // the menu.
-    const tutorialIsDone = tutorialDone(safeStorage());
+    // Minor 4 + Minor 5: one predicate, through the store. This runs on every
+    // menu MOUNT now rather than once per page load, so a store whose property
+    // access throws would have thrown on every return to the menu.
+    const tutorialIsDone = ledgerStore.tutorialDone();
     // Where the campaign is RIGHT NOW (Task 7): the tutorial while nothing has
     // been played, else the first open mission of wherever the map is live.
     // Null once every authored mission is done, which is `continue: undefined`
     // below -- the first nav item reverts to the plain "Campaign" link.
-    const target = continueTarget(worldData, loadLedger(safeStorage()), {
+    const target = continueTarget(worldData, ledgerStore.readLedger(), {
       id: 'beit_sahwan_0_tutorial',
       done: tutorialIsDone,
     });
@@ -867,17 +881,17 @@ async function main(): Promise<void> {
   }
 
   /** The saves screen (Task 7): every slot under `lions.saves`, over the SAME
-   *  two stores the active campaign already reads and writes -- see
+   *  door the active campaign already reads and writes through -- see
    *  `profile.ts`'s own header. No storage means no screen: a save slot with
-   *  nowhere durable to live is worse than an error card naming why. */
+   *  nowhere durable to live is worse than an error card naming why, and
+   *  `available` is that question asked once. */
   function mountSaves(host: HTMLElement): Disposer {
-    const storage = safeStorage();
-    if (!storage) {
+    if (!ledgerStore.available) {
       bootError(host, t('boot.savesUnavailable.title'), t('boot.savesUnavailable.body'), routes.menu());
       return () => host.replaceChildren();
     }
     const deps: SavesDeps = {
-      store: storage,
+      store: ledgerStore,
       build: __APP_BUILD__,
       now: () => Date.now(),
       back: routes.menu(),
@@ -901,7 +915,7 @@ async function main(): Promise<void> {
       base: BASE,
       world: parseWorld(world),
       countries: parseCountries(countries),
-      ledger: loadLedger(safeStorage()),
+      ledger: ledgerStore.readLedger(),
       commander: parseCommander(commander),
       missionOf: (id) => (missions as Record<string, MissionJson | undefined>)[id],
       portraitUrl: commanderPortraitUrl,
@@ -924,7 +938,7 @@ async function main(): Promise<void> {
    *  the map, so it is never in this sum at all). */
   async function mountBrigade(host: HTMLElement): Promise<Disposer> {
     const worldData = parseWorld(world);
-    const { storage, boughtUnits, ownedTiers } = accountState();
+    const { boughtUnits, ownedTiers } = accountState();
     const kdfUnits = Object.values(units)
       .filter((u) => u.faction === 'kdf')
       .map((u) => ({
@@ -954,7 +968,7 @@ async function main(): Promise<void> {
     };
     return showBrigade(host, {
       units: kdfUnits,
-      ledger: loadLedger(storage),
+      ledger: ledgerStore.readLedger(),
       missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
       portrait: (typeId) => portraits[typeId] ?? null,
       iconIds: portraitIcons,
@@ -973,16 +987,16 @@ async function main(): Promise<void> {
       baseOf: (typeId) =>
         ((units as Record<string, unknown>)[typeId] as UpgradableUnit | undefined) ?? { id: typeId },
       possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
-      credits: storage ? loadAccount(storage).balance : undefined,
-      onReset: storage
+      credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
+      onReset: ledgerStore.available
         ? () => {
-            resetAccount(storage);
+            ledgerStore.resetAccount();
             redraw();
           }
         : undefined,
-      onBuy: storage
+      onBuy: ledgerStore.available
         ? (unitId, price) => {
-            const { account, ok } = buyUnlock(loadAccount(storage), unitId, price);
+            const { account, ok } = buyUnlock(ledgerStore.readAccount(), unitId, price);
             // A refusal here is only reachable with a stale account (e.g. two
             // tabs on the same origin both showing this row as affordable) --
             // the control disabled itself against the balance THIS render
@@ -993,14 +1007,14 @@ async function main(): Promise<void> {
               redraw();
               return;
             }
-            saveAccount(storage, account);
+            ledgerStore.writeAccount(account);
             redraw();
           }
         : undefined,
       owned: ownedTiers,
-      onBuyUpgrade: storage
+      onBuyUpgrade: ledgerStore.available
         ? (unitId, track, tier, price) => {
-            const { account, ok } = buyUpgrade(loadAccount(storage), unitId, track, tier, price);
+            const { account, ok } = buyUpgrade(ledgerStore.readAccount(), unitId, track, tier, price);
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so redraw off the true state instead of
             // returning silently.
@@ -1008,7 +1022,7 @@ async function main(): Promise<void> {
               redraw();
               return;
             }
-            saveAccount(storage, account);
+            ledgerStore.writeAccount(account);
             redraw();
           }
         : undefined,
@@ -1168,7 +1182,7 @@ export interface BattlefieldRequest {
 async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Promise<Disposer> {
   const params = req.query;
   const audio = battleAudio();
-  const { storage, boughtUnits, ownedTiers } = accountState();
+  const { boughtUnits, ownedTiers } = accountState();
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -1284,7 +1298,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // falls back to `null` exactly as it does for `en` or a real 404.
     mission = applyMissionLocale(rawMission, await loadMissionOverlay(currentLocale(), BASE));
   }
-  const ledger: LedgerData = params.get('fresh') !== null ? {} : loadLedger(storage);
+  const ledger: CampaignLedger = params.get('fresh') !== null ? {} : ledgerStore.readLedger();
 
   // The chain of command (GDD §11): resolved once, here, off the mission id
   // alone -- world.json and commander.json are both static data, so rank and
@@ -1473,6 +1487,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** Every Conduct deduction this mission, for the debrief. The sim keeps no
    *  presentation log; the events are the record. */
   const deductions: { penalty: number; reason: string }[] = [];
+  /** The memorial half of this mission's service records (WP-G-E4), captured
+   *  one `unitLost` event at a time and appended to `roster.lost` on victory
+   *  only -- a defeat writes nothing to the ledger at all (M4, no ironman),
+   *  so a lost unit on a losing run is not memorialised: the run did not
+   *  happen as far as the campaign is concerned. */
+  const lostThisMission: LostRecord[] = [];
   /**
    * `&civ`: where the crowd is walked to, and the ground that counts as out.
    *
@@ -2437,6 +2457,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.
     rosterEntryOf: (id) => runtime?.rosterEntryOf(id),
+    // Reads `ledger`, this battlefield's own `const`: the campaign as it was
+    // read at boot, never rebound. That is the right ledger mid-mission, when
+    // the card is read: this mission's own losses reach `roster.lost` only
+    // through the victory write at mission end, so every record a slot can
+    // point to mid-mission is already in it.
+    // `type` is resolved to a display name here, through the same
+    // `units[type]?.name ?? type` lookup the debrief's own memorial rows use
+    // (`unitLost`'s `unit` field, and `lostRecordFor`'s `type`, are both the
+    // sim's raw type id) -- the card must never show a raw sim id to the player.
+    predecessorOf: (slot) => {
+      const record = predecessorOf(ledger['roster.lost'] ?? [], slot);
+      if (record === undefined) return undefined;
+      return {
+        ...(record.name !== undefined ? { name: record.name } : {}),
+        type: units[record.type as keyof typeof units]?.name ?? record.type,
+      };
+    },
     setSelection: (ids) => {
       renderer.selection = ids;
       dispatch({ kind: 'select', ids, via: 'click' });
@@ -2575,6 +2612,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `tones` and `teamColors` come straight off `opts`: the minimap paints the
   // ground and the sides in the colours the battlefield itself is painted in,
   // by construction rather than by a second lookup that could drift.
+  // The flip's memo, so this thunk is as identity-stable as the renderer it
+  // wraps. `flipRows` allocates, and a fresh `ImageData` every ask would tell
+  // the minimap the picture had changed on every redraw and make it rebuild
+  // its blit canvas four times a second forever. Keyed on the renderer's own
+  // object identity, which is the freshness signal it promises
+  // (`Renderer.captureGroundAlbedo`) -- not on the pixels, which would cost
+  // more to compare than the work being avoided.
+  let lastShot: ImageData | null = null;
+  let lastFlipped: ImageData | null = null;
   const minimap = new Minimap(document.body, {
     sim,
     map,
@@ -2584,6 +2630,40 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A thunk: objectives complete and drop off mid-mission, and a sandbox
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
+    // The map's own lit ground, photographed by the renderer (Task 15).
+    // Called on every one of the minimap's 4 Hz redraws, which is NOT a
+    // photograph per redraw: `captureGroundAlbedo` answers from its own memo
+    // and hands back the same object until its picture changes, and the two
+    // memos here make this wrapper do the same. What that buys is the race
+    // against `loadGroundTexture`'s six fire-and-forget loads -- a tile that
+    // lands after the first capture invalidates it, the next redraw gets a
+    // new object, and the minimap re-blits once.
+    //
+    // `?.` and `?? null` are the whole of the fallback and are not defensive
+    // padding: `captureGroundAlbedo` is OPTIONAL on `Renderer` because
+    // `renderer.ts` is frozen, so on `?renderer=pixi` this expression is
+    // `undefined ?? null` and the minimap paints its own terrain -- which is
+    // not a degradation, it is exactly what shipped. `renderer` is held here
+    // as a `Renderer`, never as a backend, so the compiler is what keeps
+    // this honest rather than a grep.
+    //
+    // The flip is here rather than in the renderer: the photograph comes
+    // back in GL's row order (bottom row first) and `flipRows` is a pure
+    // function with its own tests, where a GL readback is untestable --
+    // canvas readback is black by design and `preserveDrawingBuffer` stays
+    // off.
+    groundImage: () => {
+      const shot = renderer.captureGroundAlbedo?.(MINIMAP_SIZE) ?? null;
+      if (shot === null) return null;
+      if (shot === lastShot && lastFlipped !== null) return lastFlipped;
+      lastShot = shot;
+      lastFlipped = new ImageData(
+        flipRows(shot.data, shot.width, shot.height),
+        shot.width,
+        shot.height
+      );
+      return lastFlipped;
+    },
     // The three player gestures (Task 10). FORWARD REFERENCES, deliberately
     // and not by accident: `orderSink`, `intentWorld` and `minimap` itself
     // are all declared further down this same function, and these three
@@ -2859,7 +2939,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   if (
     mission &&
     stepList &&
-    (tutorialReplay || !tutorialDone(safeStorage()))
+    (tutorialReplay || !ledgerStore.tutorialDone())
   ) {
     tut = initTutorial(stepList.steps, performance.now());
     tutPanel = tutorialPanel(document.body, {
@@ -3486,6 +3566,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       for (const me of missionEvents) {
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
+        // The memorial half of the service record (WP-G-E4). `unitLost` is already
+        // side-0-only (mission.ts:1018) and `entityRoster` is only ever added to, so the
+        // dead unit's ledger entry is still readable here -- which is the whole reason
+        // this can be a read at the event rather than a diff after checkEnd.
+        if (me.kind === 'unitLost' && runtime) {
+          const record = lostRecordFor(runtime.rosterEntryOf(me.entity), me.unit, mission.id, me.tick);
+          if (record) lostThisMission.push(record);
+        }
         const described = describeMissionEvent(me, mission, narratedRoeReasons);
         if (described) hud.note(described[0], described[1]);
         // The story voice (GDD §11): the commander bar is the one surface for
@@ -3502,30 +3590,35 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           tutPanel?.destroy();
           tutPanel = null;
           renderer.clearTutorialFocus();
-          const updatedLedger = { ...ledger, ...me.ledger };
+          // The roster half of the victory write (WP-G-E2 + E4): R-13's pipeline
+          // and the debrief's two memorial rows, as one pure function driven
+          // through two consecutive missions by roster-carryover.test.ts. Victory
+          // only -- a defeat writes nothing to the ledger (M4, no ironman), so
+          // `lostThisMission`'s records are discarded with the rest of the run and
+          // the debrief must not claim a replacement that was never written
+          // (R-11). Names are issued inside it, on this path only, from table
+          // order and the `campaign.names_issued` counter (spec §4.7); nothing
+          // there draws from the sim's RNG. `ledger` is the one this mission was
+          // sent IN with, which is the `before` the slot reattachment compares
+          // against.
+          const carryover =
+            me.result === 'victory'
+              ? applyRosterCarryover(ledger, me.ledger, lostThisMission, {
+                  kindOf: (typeId) => nameKind(unitFor(typeId), names as NamesJson),
+                  names: names as NamesJson,
+                  // The same lookup `alertWorld.unitName` uses (spec §4.7's own
+                  // convention), so a feed line, a briefing line and a debrief row
+                  // all name a unit the same way.
+                  displayName: (typeId) => units[typeId as keyof typeof units]?.name ?? typeId,
+                })
+              : null;
+          const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...me.ledger };
           let payout: ReturnType<typeof payMission> | null = null;
+          // Task 7's two memorial rows (WP-G-E4). Empty on a defeat, like `payout`.
+          const lostNamed = carryover ? carryover.lostNamed : [];
+          const replacements = carryover ? carryover.replacements : [];
           if (me.result === 'victory') {
-            // Names are issued here, on the victory path only -- a defeat writes
-            // nothing to the ledger at all (see the comment above LEDGER_KEY), so
-            // there is no roster to name and no counter to advance. Table order and
-            // the `campaign.names_issued` counter are the whole mechanism (spec
-            // §4.7); nothing here draws from the sim's RNG.
-            const rosterIn = updatedLedger['roster.surviving_units'];
-            if (Array.isArray(rosterIn)) {
-              // Defaults first, then whatever the save already carried: no cast,
-              // now that `LedgerData` declares the key, and a save written before
-              // one of the three kinds existed still starts that kind at zero.
-              const issuedIn: Record<NameKind, number> = {
-                squad: 0,
-                vehicle: 0,
-                task: 0,
-                ...updatedLedger['campaign.names_issued'],
-              };
-              const named = assignNames(rosterIn, issuedIn, (typeId) => nameKind(unitFor(typeId), names as NamesJson), names as NamesJson);
-              updatedLedger['roster.surviving_units'] = named.roster;
-              updatedLedger['campaign.names_issued'] = named.issued;
-            }
-            saveLedger(storage, updatedLedger);
+            ledgerStore.writeLedger(updatedLedger);
             // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
             // only for improvement over what this mission has paid before. Read from the
             // runtime's own counters -- the same numbers the debrief prints -- and the
@@ -3535,10 +3628,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // and therefore outside the pinned ladder, and CLAUDE.md already says it
             // is not a campaign mission. Gate on the mission's own contract rather
             // than a name list, the same test `validate_data.mjs` already applies.
-            if (mission.ledger.produces.length > 0 && storage) {
+            if (mission.ledger.produces.length > 0 && ledgerStore.available) {
               const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
-              payout = missionId ? payMission(loadAccount(storage), missionId, runValue, Date.now()) : null;
-              if (payout) saveAccount(storage, payout.account);
+              payout = missionId ? payMission(ledgerStore.readAccount(), missionId, runValue, Date.now()) : null;
+              if (payout) ledgerStore.writeAccount(payout.account);
             }
             hud.note(t('main.note.ledgerUpdated'), 'info');
           }
@@ -3593,6 +3686,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               ticks: sim.tickCount,
               targetMinutes: (mission as { target_minutes?: number }).target_minutes,
               lost: Object.entries(runtime.lostByType()).map(([type, count]) => ({ type, count })),
+              // WP-G-E4, Task 7 (R-11): the aggregate above stays the total --
+              // it counts every dead player entity, including a fresh remnant
+              // that never reached the roster and has no service record.
+              // These two are computed only on the victory branch above and
+              // default to empty on a defeat, where nothing was written.
+              lostNamed,
+              replacements,
               secondaries: runtime.objectiveList
                 .filter((o) => !o.primary)
                 .map((o) => ({ text: o.text, complete: o.status === 'complete', carries: o.carries })),
@@ -3733,7 +3833,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.clearTutorialFocus();
         }
         if (tut.done) {
-          markTutorialDone(safeStorage());
+          ledgerStore.setTutorialDone(true);
           hud.note(t('main.note.tutorialComplete'), 'good');
           if (stepList?.completes !== undefined) runtime.completeObjective(stepList.completes);
           tut = null;
@@ -4014,6 +4114,45 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
   }
   renderer.hoverEntity = he;
+
+  // The FRIENDLY hover, for the range-ring preview (shell Phase 2 Task 16).
+  // Its own field, never `hoverEntity`: that one is the HOSTILE hover and the
+  // cursor hinting and the projected-fire panel both read it, so writing a
+  // friendly id there would put a fire solution on the player's own squad.
+  //
+  // Same half-tile generosity as the enemy scan above, and the same
+  // `renderer.isVisible` gate -- a unit the fog is hiding must not draw a
+  // range envelope either, which for a side-0 unit only ever matters to a
+  // spectator or a replay.
+  //
+  // A unit ALREADY in the selection is excluded, because a selected unit
+  // draws its envelope at full strength and a preview over the top would be
+  // the same shape drawn twice. BOTH sides check that, deliberately: here, so
+  // the field never names a unit the preview does not mean; and again in
+  // `ThreeRenderer`'s ring block, because the selection can change between
+  // this write and the next frame that reads it -- `updateHover` runs per
+  // frame but a click sets the selection whenever it lands.
+  let hf = -1;
+  let bestF = 0.5 * 0.5;
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (sim.state.alive[i] === 0 || sim.state.side[i] !== 0) continue;
+    const ex = fx.toNumber(sim.state.posX[i]);
+    const ey = fx.toNumber(sim.state.posY[i]);
+    if (!renderer.isVisible(ex, ey)) continue;
+    const dx = ex - hw.x;
+    const dy = ey - hw.y;
+    const d = dx * dx + dy * dy;
+    // The selection test sits INSIDE the distance test, not above it. It is a
+    // linear scan of an array the player can fill with the whole roster, and
+    // the outer loop runs over every living side-0 entity every frame; the
+    // half-tile radius rejects all but a handful before it, so only those few
+    // ever pay for it. Same answer, since neither test can change the other's.
+    if (d < bestF && !renderer.selection.includes(i)) {
+      bestF = d;
+      hf = i;
+    }
+  }
+  renderer.rangeRingPreview = hf;
 
   // Teach the hover, but only on a real change: `updateHover` runs every
   // frame, and an unchanged hover is not a new thing the player did.

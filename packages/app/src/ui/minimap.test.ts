@@ -33,6 +33,7 @@ import {
   boxToTile,
   dotShape,
   flashAlpha,
+  flipRows,
   linearFade,
   minimapProjection,
   objectivePoint,
@@ -86,6 +87,26 @@ interface DrawImage {
   kind: 'drawImage';
   filter: string;
   smoothing: boolean;
+  /** WHICH picture was blitted, read back off the source canvas's own
+   *  `dataset.source` rather than inferred from its size. Task 15 gave the
+   *  minimap two possible grounds -- the renderer's photograph of the lit
+   *  terrain and `paintTerrain`'s 1px-per-tile invention -- and they differ
+   *  by which canvas is handed to `drawImage`, by nothing else. Reading the
+   *  label the code itself wrote is the same move `__lions.cursorKey()`
+   *  makes against `canvas.dataset.cursor`: recomputing which path SHOULD
+   *  have been taken would agree with the logic and say nothing about the
+   *  wiring. Every op carries it, so a blit from a canvas that never
+   *  labelled itself reads 'unknown' rather than silently matching. */
+  source: string;
+  /** WHICH canvas OBJECT, as a small stable number the recorder mints per
+   *  source it has seen. `source` says which of the two grounds was blitted
+   *  and cannot say whether the minimap threw one away and built another --
+   *  two photographs both label themselves `ground-albedo`. That is exactly
+   *  the question the per-redraw ask raises: a minimap that rebuilt its blit
+   *  canvas four times a second would draw a correct picture and still be
+   *  the defect. A number rather than the element itself, so a failure reads
+   *  `2 !== 1` instead of two pages of DOM. */
+  srcId: number;
 }
 type Op = FillRect | StrokePath | FillPath | DrawImage;
 
@@ -125,6 +146,19 @@ const realGetContext = HTMLCanvasElement.prototype.getContext;
 
 function installContext(): Recorder {
   const ops: Op[] = [];
+  // Object identity, minted on first sight and stable thereafter. A WeakMap
+  // so a canvas the minimap has discarded is not held alive by the recorder,
+  // which is the whole point of the per-redraw ask being cheap.
+  const ids = new WeakMap<object, number>();
+  let nextId = 0;
+  const idOf = (src: unknown): number => {
+    if (typeof src !== 'object' || src === null) return -1;
+    const known = ids.get(src);
+    if (known !== undefined) return known;
+    nextId += 1;
+    ids.set(src, nextId);
+    return nextId;
+  };
   let path: [number, number][] = [];
   const saved: { fillStyle: string; strokeStyle: string; lineWidth: number; globalAlpha: number }[] = [];
   const ctx = {
@@ -159,13 +193,20 @@ function installContext(): Recorder {
     arc(x: number, y: number, r: number) {
       path.push([x + r, y], [x, y + r], [x - r, y], [x, y - r]);
     },
-    drawImage() {
+    drawImage(src: unknown) {
       ops.push({
         kind: 'drawImage',
         filter: String(this.filter),
         smoothing: Boolean(this.imageSmoothingEnabled),
+        source: src instanceof HTMLCanvasElement ? (src.dataset.source ?? 'unknown') : 'unknown',
+        srcId: idOf(src),
       });
     },
+    // jsdom has no canvas backend, so this is where the renderer's photograph
+    // would land. Recording nothing is right: no assertion here asks what the
+    // pixels ARE -- `flipRows` owns the only claim this file makes about
+    // pixel order, and it is pure.
+    putImageData: () => {},
     beginPath: () => {
       path = [];
     },
@@ -225,6 +266,32 @@ function installContext(): Recorder {
         ];
       }),
   };
+}
+
+/**
+ * jsdom implements `ImageData` only when the optional `canvas` package is
+ * installed, and this repo does not install it -- the same shape as this
+ * config's bare `{}` for `window.localStorage` (CLAUDE.md), and the same
+ * trap: the missing global is a `ReferenceError` at construction, not a
+ * quiet wrong answer.
+ *
+ * Three fields are the WHOLE of what the minimap reads off one -- `width`,
+ * `height` and the buffer it hands straight to `putImageData` -- so this is
+ * the data structure itself rather than a stand-in for a behaviour. Nothing
+ * here decodes or draws it: `flipRows` owns the only claim this file makes
+ * about pixel order and is pure.
+ */
+class ImageDataShim {
+  readonly colorSpace: PredefinedColorSpace = 'srgb';
+  constructor(
+    readonly data: Uint8ClampedArray,
+    readonly width: number,
+    readonly height: number
+  ) {}
+}
+if (typeof globalThis.ImageData === 'undefined') {
+  (globalThis as { ImageData?: typeof ImageData }).ImageData =
+    ImageDataShim as unknown as typeof ImageData;
 }
 
 beforeEach(() => {
@@ -585,7 +652,18 @@ describe('mount', () => {
     mount(() => true, { objectives: () => [{ status: 'active', zone: 'west_approach' }] });
     const blits = recorder.images();
     expect(blits).toHaveLength(1);
-    expect(blits[0]).toEqual({ kind: 'drawImage', filter: 'saturate(0.4)', smoothing: false });
+    expect(blits[0]).toEqual({
+      kind: 'drawImage',
+      filter: 'saturate(0.4)',
+      smoothing: false,
+      // Task 15 (R-F1), then the landing-2 fix wave: the recorder's op has
+      // grown two fields and this exact-match grew with them. Nothing about
+      // the behaviour asserted here moved -- this mount supplies no
+      // `groundImage`, which is the Pixi path and what shipped.
+      source: 'painted',
+      // The first canvas the recorder saw in this test's own context.
+      srcId: 1,
+    });
     const marks = [...dotsOf('blue'), ...dotsOf('red'), ...recorder.strokes()];
     expect(marks.length).toBeGreaterThan(0);
     expect(marks.map((m) => m.filter)).toEqual(marks.map(() => 'none'));
@@ -1098,5 +1176,123 @@ describe('the ping', () => {
     expect(lastDot).toBeGreaterThan(-1);
     expect(ringAt).toBeGreaterThan(lastDot);
     expect(ringAt).toBeLessThan(lastStroke);
+  });
+});
+
+// --- the lit ground (Task 15) ---------------------------------------------
+
+describe('the lit ground', () => {
+  it('blits the renderer image when there is one', () => {
+    // The recorder records every `drawImage`; the question is which SOURCE
+    // was blitted.
+    const img = new ImageData(new Uint8ClampedArray(48 * 48 * 4).fill(200), 48, 48);
+    const { minimap } = mount(() => true, { groundImage: () => img });
+    minimap.onTick();
+    expect(recorder.images().at(-1)?.source).toBe('ground-albedo');
+  });
+
+  it('falls back to the painted terrain when there is none -- which is what Pixi gets', () => {
+    const { minimap } = mount(() => true, { groundImage: () => null });
+    minimap.onTick();
+    expect(recorder.images().at(-1)?.source).toBe('painted');
+  });
+
+  it('asks again on every redraw, so a texture that lands late is not missed', () => {
+    // This used to assert `calls === 1`, and the single ask was the defect.
+    // The renderer fires six ground-albedo texture loads at map load and
+    // awaits none of them, while the minimap mounts right after the deploy
+    // gate -- immediately, on a sandbox or the tutorial. A photograph taken
+    // before those land shows the flat palette tone for the whole mission,
+    // and with one ask there is no second chance. Asking is cheap by
+    // contract: the renderer's answer is identity-stable, so the ask below
+    // is a reference compare and not a readback.
+    let calls = 0;
+    const { minimap } = mount(() => true, {
+      groundImage: () => {
+        calls++;
+        return null;
+      },
+    });
+    const atMount = calls;
+    expect(atMount).toBeGreaterThan(0);
+    // 4 Hz: `onTick` redraws on every fifth tick.
+    for (let i = 0; i < 20; i++) minimap.onTick();
+    expect(calls).toBe(atMount + 4);
+  });
+
+  it('re-blits only when the image identity changes, never when it is the same object', () => {
+    // Both halves in one test on purpose: they are one property, and the two
+    // failures are each other's mirror. Asking once makes the first
+    // assertion fail (the late image never arrives); rebuilding on every
+    // redraw makes the second fail (a new canvas four times a second, for a
+    // picture that did not change).
+    const first = new ImageData(new Uint8ClampedArray(48 * 48 * 4).fill(200), 48, 48);
+    const second = new ImageData(new Uint8ClampedArray(48 * 48 * 4).fill(90), 48, 48);
+    let current = first;
+    const { minimap } = mount(() => true, { groundImage: () => current });
+    // `onTick` redraws on every FIFTH tick (4 Hz), so one redraw is five
+    // calls. Calling it once and expecting a picture is the trap this
+    // helper exists to avoid -- four of the five are early returns.
+    const redraw = (): void => {
+      for (let i = 0; i < 5; i++) minimap.onTick();
+    };
+
+    recorder.ops.length = 0;
+    redraw();
+    const a = recorder.images().at(-1);
+    redraw();
+    const b = recorder.images().at(-1);
+    expect(a?.source).toBe('ground-albedo');
+    // Same `ImageData` object -> the same canvas, not a fresh one that
+    // happens to look identical.
+    expect(b?.srcId).toBe(a?.srcId);
+
+    // A ground texture lands, the renderer's memo is dropped, and the next
+    // ask answers with a different object.
+    current = second;
+    redraw();
+    const c = recorder.images().at(-1);
+    expect(c?.source).toBe('ground-albedo');
+    expect(c?.srcId).not.toBe(a?.srcId);
+
+    // And it STAYS the new one -- a rebuild per redraw would show up here
+    // too, one redraw later.
+    redraw();
+    expect(recorder.images().at(-1)?.srcId).toBe(c?.srcId);
+  });
+
+  it('smooths the photograph and not the painted tiles', () => {
+    // The two sources want opposite answers and the reason is their size. A
+    // 48px painted canvas blown up 4.375x must read as TILES, so nearest
+    // neighbour; a 210px photograph is already at the box's own scale and
+    // nearest neighbour there only re-aliases an image that is already
+    // right. Asserted rather than left to the eye because the flag is one
+    // boolean two lines apart from the blit that consumes it.
+    const img = new ImageData(new Uint8ClampedArray(48 * 48 * 4).fill(200), 48, 48);
+    const lit = mount(() => true, { groundImage: () => img });
+    lit.minimap.onTick();
+    expect(recorder.images().at(-1)?.smoothing).toBe(true);
+    expect(recorder.images().at(-1)?.filter).toBe('saturate(0.4)');
+  });
+});
+
+// --- flipRows -------------------------------------------------------------
+//
+// WebGL's framebuffer origin is the BOTTOM-left and a 2D canvas's is the
+// top-left, so the renderer's read-back arrives upside down. The flip is on
+// the app side, in a pure function, rather than inside an untestable GL
+// method: `preserveDrawingBuffer` is off and canvas readback is black by
+// design, so there is no way to assert the row order of a real capture at
+// all -- and an upside-down minimap is a picture that looks like a map.
+
+describe('flipRows', () => {
+  it('reverses row order and leaves each row intact', () => {
+    const src = new Uint8ClampedArray([1, 1, 1, 1, 2, 2, 2, 2]); // 1x2 RGBA
+    expect([...flipRows(src, 1, 2)]).toEqual([2, 2, 2, 2, 1, 1, 1, 1]);
+  });
+
+  it('is an involution', () => {
+    const src = new Uint8ClampedArray(Array.from({ length: 48 }, (_, i) => i));
+    expect([...flipRows(flipRows(src, 3, 4), 3, 4)]).toEqual([...src]);
   });
 });

@@ -3,8 +3,8 @@
  * The saves screen (Task 7): every slot under `lions.saves`, a form that
  * snapshots the ACTIVE campaign into a new one, and an import button. Pure
  * DOM over `profile.ts` -- this module owns no storage of its own and reads
- * nothing off `window` directly, so a test drives it with a `Map`-backed
- * `StorageLike` fake the same way `profile.test.ts` does.
+ * nothing off `window` directly, so a test drives it with the memory-backed
+ * `LedgerStore` double the same way `profile.test.ts` does.
  *
  * `deps.download`/`deps.pickFile` are the one place this module reaches past
  * `profile.ts`: `main.ts` supplies the real Blob/`<a download>` and
@@ -13,14 +13,17 @@
  */
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
-import type { StorageLike } from '../brigade-account';
+import type { LedgerStore } from '../ledger-store';
 import { SAVE_ERROR_NOT_A_SAVE, deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive, type SlotMeta } from '../profile';
 import { confirmDialog } from './confirm';
 import { panel } from './panel';
 import { stagger } from './motion';
 
 export interface SavesDeps {
-  store: StorageLike;
+  /** The app's one door to the save (`ledger-store.ts`). This screen owns no
+   *  storage of its own and names no key: a test drives it with
+   *  `memoryLedgerStore()` the same way `profile.test.ts` does. */
+  store: LedgerStore;
   /** `__APP_BUILD__`, stamped on every new slot. */
   build: string;
   now(): number;
