@@ -357,8 +357,12 @@ export interface WeightReading {
   readonly offsetTiles: number | null;
   readonly pitchDeg: number | null;
   readonly rollDeg: number | null;
-  /** The weight model's own smoothed speed, as `debugVehicleTransform`
-   *  reports it -- not re-derived from position deltas here. */
+  /** The SIM's own measured speed, tiles/s -- `ThreeRenderer.entitySpeed`,
+   *  the tick-exact input the weight model is fed -- as
+   *  `debugVehicleTransform` reports it, not re-derived from position deltas
+   *  here. It is NOT the model's smoothed ramp: that one is the transform's
+   *  separate `smoothedSpeed` field (WP-A1.3 Task 6), which this ladder does
+   *  not record. Before Task 6 this comment said the opposite. */
   readonly simSpeed: number | null;
   /** The sim's own hull heading, in degrees (`sim.state.facing` is Q16.16
    *  turns; `* 360` converts it). Always available. */

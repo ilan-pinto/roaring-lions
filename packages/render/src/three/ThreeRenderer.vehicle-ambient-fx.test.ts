@@ -33,6 +33,18 @@
  * emitter that never fires at all would otherwise pass the regression test
  * perfectly.
  *
+ * That was true of the DUST pair until WP-A1.3 Task 6 (2026-09-23) and is
+ * not any more: re-injecting the raw `dtMs` now reddens the exhaust test
+ * alone. The speed-driven dust cadence brought two guards of its own -- no
+ * dust spawn on a call with no elapsed time, and whole intervals of leftover
+ * credit dropped after a spawn -- and either one holds the dust regression
+ * test green without the clamp. The clamp is still what the exhaust test
+ * pins. What guards the dust half now is two specs in
+ * `ThreeRenderer.vehicle-weight.test.ts`: "never spawns on a call with no
+ * elapsed time, even after the interval shrank" and "cannot bank a burst
+ * when the interval drops sharply", each seen red against its own guard's
+ * removal.
+ *
  * Harness copied from `ThreeRenderer.vehicle-mesh-anim.test.ts`: a faked
  * `WebGLRenderer`, a real `Sim`, and the emitters wired through the public
  * `useEmitters` seam so the `ParticleSystem` this path needs is the one the

@@ -713,6 +713,12 @@ describe('picking still reads the sim, not the drawing (R-C)', () => {
     expect(drawn.x - ix).toBeLessThan(0); // ...and it TRAILS: the hull drives +x
 
     // A click on what the player sees, and a click on the sim's own truth.
+    // These two cannot fail on their own account, and are kept only as the
+    // statement R-C makes: `pickUnit` searches a 1.2-tile radius around
+    // `curX`/`curY`, and the drawn hull can sit at most ~0.42 tiles from
+    // there (0.25 of lag and shove plus up to 0.17 of interpolation at the
+    // roster's fastest 3.4 tiles/s). The `<= MAX_DRAWN_OFFSET_TILES` check
+    // above is the real test.
     expect(w.renderer.pickUnit(drawn.x, drawn.y)).toBe(w.id);
     expect(w.renderer.pickUnit(fx.toNumber(w.sim.state.posX[w.id]), fx.toNumber(w.sim.state.posY[w.id]))).toBe(w.id);
   });
