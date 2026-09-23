@@ -90,6 +90,8 @@ import { buyUnlock, buyUpgrade, payMission } from './brigade-account';
 import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
+import { deployRosterView } from './ui/deploy-roster';
+import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
 import { focusTrap } from './ui/focus-trap';
 import { showKeysOverlay } from './ui/keys-overlay';
@@ -1507,6 +1509,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const civFlight = civRefuge ? new CivilianFlight() : null;
   /** Who the sandbox spawned, for the two lists `CivilianFlight.step` takes. */
   let sandboxForce: SandboxForce = { player: [], civilians: [] };
+  /**
+   * Null until the player deploys (shell Phase 3, Task 4; plan R-5). The
+   * runtime copies its roster pool at construction (`mission.ts:550`) and
+   * `start()` spawns the starting force at once, so it cannot be built before
+   * the deploy screen has been answered -- it is built right after
+   * `loading.done()` below, from the ledger the player's choice permuted.
+   * Nothing between here and there reads it: the renderers take only the
+   * sim's fixed shape, and the loading bar's workload is derived from the
+   * mission JSON (`missionUnitTypes`), not from anything the runtime spawns.
+   */
   let runtime: MissionRuntime | null = null;
   /** The force `MissionRuntime` and the deploy panel (`broughtFor`) actually see:
    *  `upgrades_to` resolved once here (spec §4.6), before the runtime is built, so
@@ -1518,27 +1530,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
       return u ? kdfUnlockGate(u, boughtUnits) : undefined;
     });
-    runtime = new MissionRuntime(sim, resolvedMission, {
-      typeIdOf: (id) => {
-        const t = typeOf.get(id);
-        if (t === undefined) throw new Error(`mission references unknown unit ${id}`);
-        return t;
-      },
-      markers: map.markers,
-      zones: map.zones,
-      tunnels: tunnelRoutes,
-      ledger,
-      unitInfo: (id) => {
-        const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
-        if (!u || u.faction !== 'kdf') return null;
-        return {
-          logistics: u.cost.logistics,
-          buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
-          unlock: kdfUnlockGate(u, boughtUnits),
-        };
-      },
-    });
-    runtime.start();
   } else {
     sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
       tunnel: wantTunnel,
@@ -1933,6 +1924,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // reaches that call, so its briefing must not promise a secondary pays
   // credits when nothing will pay them.
   const paysCredits = mission !== undefined && mission.ledger.produces.length > 0;
+  const unitName = (id: string): string => units[id as keyof typeof units]?.name ?? id;
+  // Deploy as a decision (spec Decision 4; plan R-3). The view reads
+  // `resolvedMission` for the same reason `broughtFor` does: `upgrades_to` and
+  // `gate_only` change which placements draw from the ledger (pre-flight P3).
+  // Null for a sandbox and for any mission whose contract reads no roster.
+  const deployView = resolvedMission ? deployRosterView(resolvedMission, ledger, unitName) : null;
+  // The player's pick, as the spread last reported it. Null means the screen
+  // was never touched -- or never drawn, which is the case for a sandbox, the
+  // tutorial and a campaign that has no roster yet -- and `deployedLedger`
+  // then hands the runtime the original ledger object itself.
+  let deploySelection: DeploySelection | null = null;
   // Up before the canvas exists, so the player never sees the terrain draw
   // itself in or the units stand around as procedural boxes waiting for their
   // sheets. It comes down once the art gate below has settled.
@@ -1942,14 +1944,27 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission?.briefing,
     { rank: hudCommander.shai.rank, plate: hudCommander.shai.plate, portrait: hudCommander.shai.portrait },
     mission?.briefing_video !== undefined ? `${BASE}${mission.briefing_video}` : undefined,
-    resolvedMission ? (broughtFor(resolvedMission, ledger, (id) => units[id as keyof typeof units]?.name ?? id) ?? undefined) : undefined,
+    resolvedMission ? (broughtFor(resolvedMission, ledger, unitName) ?? undefined) : undefined,
     // A sandbox has no briefing to go back to -- only a real mission gets an
     // Escape/back edge (task 6). A router navigation now, not a page load:
     // this is the earliest soft exit from a battlefield, and it fires while
     // this very function is still parked on `loading.done()` below.
     mission ? () => req.navigate(routes.campaign()) : undefined,
     objectiveRows,
-    paysCredits
+    paysCredits,
+    deployView
+      ? {
+          view: deployView,
+          onChange: (sel) => {
+            deploySelection = sel;
+          },
+        }
+      : undefined,
+    // The ground the orders are about (pre-flight P6): the parsed map and the
+    // same resolved tones the minimap paints with. The screen draws it only
+    // when there are orders to read, and goes without it where the canvas has
+    // no 2D context.
+    { map, tones: opts.terrainTones }
   );
   onDispose(() => loading.dispose());
   // The one teardown that cannot wait for this function to return.
@@ -2172,6 +2187,52 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     throw err;
   }
   if (req.signal.aborted) abandon('left before deploy');
+
+  // The mission starts HERE, after the player has answered the deploy screen
+  // (plan R-5). It used to be built four hundred lines up, before that screen
+  // existed, which is why no choice made on it could reach the map. After the
+  // abandon check rather than before it: a boot the player has already left
+  // must not spawn a force into a sim that is being torn down, and `abandon`
+  // reads nothing the runtime owns.
+  //
+  // `deployedLedger` is the one place the choice meets the sim. It hands the
+  // runtime a shallow copy of `ledger` whose roster pool is PERMUTED so the
+  // spawner's first-of-type draw takes the chosen bodies -- never filtered
+  // (R-3), so a benched veteran stays in the runtime's pool and comes back
+  // out of `checkEnd` unchanged. `ledger` itself is untouched: the debrief and
+  // the victory write read it as the roster this mission was sent in with,
+  // and a player who quits after deploying leaves the save exactly as it was.
+  //
+  // Wrapped like the await above it: this used to throw before the renderer
+  // existed, and now runs after it, so a malformed mission must not strand one.
+  if (resolvedMission) {
+    try {
+      runtime = new MissionRuntime(sim, resolvedMission, {
+        typeIdOf: (id) => {
+          const t = typeOf.get(id);
+          if (t === undefined) throw new Error(`mission references unknown unit ${id}`);
+          return t;
+        },
+        markers: map.markers,
+        zones: map.zones,
+        tunnels: tunnelRoutes,
+        ledger: deployedLedger(ledger, deploySelection),
+        unitInfo: (id) => {
+          const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
+          if (!u || u.faction !== 'kdf') return null;
+          return {
+            logistics: u.cost.logistics,
+            buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+            unlock: kdfUnlockGate(u, boughtUnits),
+          };
+        },
+      });
+      runtime.start();
+    } catch (err) {
+      teardown();
+      throw err;
+    }
+  }
 
   // The art the game may still need but nobody is waiting for -- a mesh
   // vehicle's wreck sprite, a deferred buildable's billboard fallback, and

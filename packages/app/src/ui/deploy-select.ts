@@ -23,7 +23,7 @@
  * glitch. `permutePool`'s tests check that property directly (every entry
  * survives, exactly once) rather than trusting the row-by-row reordering.
  */
-import type { LedgerRosterEntry } from '@lions/sim';
+import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
 import { drawFromPool, type DeployEntry, type DeployRosterView } from './deploy-roster';
 
 /** The player's picks, as pool indices -- the same handle `DeployEntry.poolIndex`
@@ -225,4 +225,36 @@ export function permutePool<T extends LedgerRosterEntry>(pool: readonly T[], sel
     });
   }
   return out;
+}
+
+/**
+ * The ledger the mission's runtime is built from (Task 4): the campaign's own
+ * ledger with its roster pool permuted by the player's choice. This is where
+ * the permutation lives, and the ONLY place -- an in-memory shallow copy
+ * handed to `new MissionRuntime` and to nothing else.
+ *
+ * `main.ts` keeps reading the ORIGINAL `ledger` everywhere else: the brought
+ * panel, the debrief, and the victory write, where `applyRosterCarryover`
+ * compares what the mission produced against what it was sent in with. So a
+ * deploy choice never reorders the save by itself. A player who deploys and
+ * then quits, or loses (a defeat writes nothing, M4), leaves the saved roster
+ * byte-for-byte as it was; only a victory writes, and what it writes is
+ * `checkEnd`'s own output passed through the carryover pipeline.
+ *
+ * Two cases hand back the SAME object rather than a copy:
+ *   - `sel === null`, the untouched screen. The default selection permutes
+ *     to the identity (`permutePool`'s own property), so there is nothing to
+ *     change, and the runtime is handed exactly what it was handed before
+ *     deploy was a decision -- which is what keeps every playtest plan and
+ *     every golden capture fielding what it fields today.
+ *   - a ledger with no `roster.surviving_units` at all. The key is never
+ *     INVENTED: the spawner reads an absent roster as a fresh campaign that
+ *     fields full fresh placements, and an empty one as a gutted brigade
+ *     that fields a single remnant (`mission.ts:1254`). Writing `[]` here
+ *     would turn the first into the second.
+ */
+export function deployedLedger<L extends LedgerData>(ledger: L, sel: DeploySelection | null): L {
+  const pool = ledger['roster.surviving_units'];
+  if (sel === null || pool === undefined) return ledger;
+  return { ...ledger, 'roster.surviving_units': permutePool(pool, sel) };
 }
