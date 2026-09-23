@@ -569,6 +569,28 @@ describe('what you brought', () => {
     expect(b.reserve).toBe(2);
   });
 
+  // Pins that the draw now going through `drawFromPool` (deploy-roster.ts)
+  // still takes the FIRST matching entry in pool order, not some other one --
+  // the case a wrong index mapping (e.g. searching from the end) would break.
+  // Barzel sits before Sela in the pool, so a correct draw fields Barzel;
+  // fielding Sela here would mean the shared replay stopped agreeing with
+  // `spawnPlacement`'s own order.
+  it('fields the first matching entry in pool order when two of a type exist', () => {
+    const twoOfAType = {
+      'roster.surviving_units': [
+        { type: 'inf_squad', veterancy: 0, name: 'Barzel' },
+        { type: 'inf_squad', veterancy: 2, name: 'Sela' },
+      ],
+    };
+    const b = broughtFor(
+      { ledger: { requires }, starting_force: [{ unit: 'inf_squad', count: 1, from_ledger: true }] },
+      twoOfAType,
+      name
+    )!;
+    expect(b.roster).toEqual([{ type: 'Rifle Squad', count: 1, stripes: 0, names: ['Barzel'] }]);
+    expect(b.reserve).toBe(1);
+  });
+
   it('asks for more than the pool holds and fields what there is', () => {
     const b = broughtFor(
       { ledger: { requires }, starting_force: [{ unit: 'mbt_lavi', count: 3, from_ledger: true }] },

@@ -17,6 +17,7 @@
 import type { LedgerData } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { t } from '../i18n/t';
+import { drawFromPool } from './deploy-roster';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 
 /**
@@ -73,11 +74,15 @@ export function briefingBeats(text: string): string[] {
 export interface BroughtPanel {
   /** Only what this mission's own `from_ledger` placements draw -- not the whole
    *  pool. The roster is cumulative (spec §4.7), so by mid-campaign the two are
-   *  very different numbers and naming the pool overstates the force. */
+   *  very different numbers and naming the pool overstates the force. A count,
+   *  computed from `deploy-roster.ts`'s `drawFromPool` result -- this panel
+   *  has no opinion about which named entries a player could choose instead. */
   roster: { type: string; count: number; stripes: number; names: string[] }[];
   /** Everything the pool still holds once those draws are taken: survivors this
    *  mission does not field. Rendered as one line, never named -- a reserve is a
-   *  count, and the names belong to the people on the map. */
+   *  count, and the names belong to the people on the map. `pool.length` minus
+   *  what `drawFromPool` drew, never `roster.reserve` (WP-G-E2's cap overflow,
+   *  which this panel never names -- pre-flight E2/E10). */
   reserve: number;
   marked: number;
   conduct: number | null;
@@ -93,15 +98,18 @@ export interface BroughtPanel {
  *  only ever puts on the map what its own `from_ledger` placements draw. Naming
  *  the whole pool told the player they had brought a force they had not.
  *
- *  The draw simulated below is `MissionRuntime.spawnPlacement`'s own, deliberately
- *  step for step: each `from_ledger` placement takes up to `count` entries of its
- *  type in pool order, each entry removed as it is taken, so a second placement
- *  for the same type continues where the first stopped. `starting_force` cannot
- *  carry passengers or markers (`mission.schema.json` pins its keys), so array
- *  order here is the spawn order there and nothing else can draw. What the sim
- *  does that this deliberately does not is substitute a single fresh remnant for
- *  an empty draw: a fresh unit has no name, no stripes and no record, so it is
- *  not something the player "brought". */
+ *  The draw is `MissionRuntime.spawnPlacement`'s own, replayed by
+ *  `deploy-roster.ts`'s `drawFromPool` rather than hand-copied here a second
+ *  time (pre-flight R-4: two hand-written copies of a sim rule is how they
+ *  drift apart) -- deliberately step for step: each `from_ledger` placement
+ *  takes up to `count` entries of its type in pool order, each entry removed
+ *  as it is taken, so a second placement for the same type continues where
+ *  the first stopped. `starting_force` cannot carry passengers or markers
+ *  (`mission.schema.json` pins its keys), so array order here is the spawn
+ *  order there and nothing else can draw. What the sim does that this
+ *  deliberately does not is substitute a single fresh remnant for an empty
+ *  draw: a fresh unit has no name, no stripes and no record, so it is not
+ *  something the player "brought". */
 export function broughtFor(
   mission: {
     ledger: { requires: readonly string[] };
@@ -116,19 +124,11 @@ export function broughtFor(
   let reserve = 0;
   let draws = false;
   if (req.includes('roster.surviving_units')) {
-    const pool = [...(ledger['roster.surviving_units'] ?? [])];
-    const fielded: typeof pool = [];
-    for (const p of mission.starting_force ?? []) {
-      if (p.from_ledger !== true) continue;
-      draws = true;
-      for (let k = 0; k < p.count; k++) {
-        const idx = pool.findIndex((r) => r.type === p.unit);
-        if (idx < 0) break;
-        fielded.push(pool[idx]);
-        pool.splice(idx, 1);
-      }
-    }
-    reserve = pool.length;
+    const pool = ledger['roster.surviving_units'] ?? [];
+    const force = mission.starting_force ?? [];
+    draws = force.some((p) => p.from_ledger === true);
+    const fielded = drawFromPool(pool, force).map((i) => pool[i]);
+    reserve = pool.length - fielded.length;
     const byType = new Map<string, { count: number; stripes: number; names: string[] }>();
     for (const e of fielded) {
       const cur = byType.get(e.type) ?? { count: 0, stripes: 0, names: [] };
