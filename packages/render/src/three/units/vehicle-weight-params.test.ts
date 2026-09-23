@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MAX_LAG_TILES } from './vehicle-weight';
 import {
+  VEHICLE_WEIGHT_IMPORTED_UNIT_IDS,
   VEHICLE_WEIGHT_MASS_CLASS,
   VEHICLE_WEIGHT_ROLE_DEFAULTS,
   vehicleWeightParamsFor,
@@ -73,6 +74,26 @@ describe('the import list is pinned to the directory (R-I)', () => {
         9
       );
     }
+  });
+});
+
+// Fix round 1 (post-approval review). The three checks above only ever prove
+// the pin in ONE direction: every shipped GLB resolves to something usable.
+// That property survives a STALE or an EXTRA entry, because the role-default
+// fallback needed for "answers something usable for a role nobody has
+// thought of" is exactly as generous to a unit that should not be in the
+// list at all. `VEHICLE_WEIGHT_IMPORTED_UNIT_IDS` is the smallest export that
+// lets a test compare the two id sets directly, in both directions, instead
+// of only ever walking the disk side of the pin.
+describe('the import list matches the shipped roster exactly, in both directions', () => {
+  it('imports neither more nor fewer unit ids than art/meshes/vehicles/*.glb ships', () => {
+    const shipped = new Set(shippedVehicleIds());
+    const imported = new Set(VEHICLE_WEIGHT_IMPORTED_UNIT_IDS);
+    const missing = [...shipped].filter((id) => !imported.has(id)).sort();
+    const extra = [...imported].filter((id) => !shipped.has(id)).sort();
+    // Two separate arrays in the failure message, not one combined diff: a
+    // reader should not have to guess whether a name is missing or extra.
+    expect({ missing, extra }).toEqual({ missing: [], extra: [] });
   });
 });
 

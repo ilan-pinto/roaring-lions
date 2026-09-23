@@ -117,6 +117,19 @@ const BY_UNIT_ID: ReadonlyMap<string, WeightSource> = new Map(
 );
 
 /**
+ * The unit ids the import list above actually covers -- exported so a test
+ * can assert this list is exactly the shipped `art/meshes/vehicles/*.glb`
+ * roster, in BOTH directions. Without this, the pin only ever checked one
+ * direction (every shipped id resolves to something usable), and the
+ * role-default fallback that makes that direction possible also makes it
+ * blind to a STALE entry: `sniper_team` (no vehicle GLB at all) added here
+ * still resolves cleanly through its own role default, and a vehicle's
+ * import dropped together with its array entry is equally invisible, since
+ * nothing before this export ever compared the two lists against each other.
+ */
+export const VEHICLE_WEIGHT_IMPORTED_UNIT_IDS: readonly string[] = Array.from(BY_UNIT_ID.keys());
+
+/**
  * Role defaults, keyed by `UnitType.role` -- a field the sim already parses
  * and the renderer already has, so this is not a second hand-kept id table of
  * the `VEHICLE_TRACK_KIND` kind. Every entry here stays under
