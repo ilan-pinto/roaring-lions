@@ -3181,6 +3181,161 @@ button.rl-menu__item[data-kind='aside'] {
   width: fit-content;
   margin: var(--s3) auto 0 0;
 }
+/* The screen may not deploy short (`isComplete`, shell Phase 3 Task 3): while
+   a slot the player emptied is still open, the stamp is visibly not
+   pressable, and does not light on hover as if it were. After the hover rule
+   on purpose -- equal specificity, so order decides. */
+.rl-loading__deploy:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--band-mission);
+}
+
+/* The deploy spread (shell Phase 3, Task 3; spec Decision 4: "the briefing as
+   a two-column spread -- portrait and orders left, the roster's force and a
+   map preview right -- with the force chosen, not merely shown").
+   `--spread` is set only when there IS a right-hand column: a briefing with no
+   roster to choose and no ground to show keeps `--brief`'s single column,
+   child for child. Below the breakpoint the two columns simply stack --
+   orders, then the force -- and Deploy comes after both either way. */
+.rl-loading__force {
+  margin-top: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+/* A fieldset for its legend, which names every row for a screen reader. Its
+   default chrome (a groove border, inset padding) is not this sheet's
+   register, so it wears the brought panel's `--commend` left rule instead: a
+   carried-over body reads as an earned thing here exactly as it does there. */
+.rl-deploy {
+  margin: 0;
+  min-width: 0;
+  padding: var(--s2) var(--s3);
+  border: 0;
+  border-left: 2px solid var(--commend);
+}
+.rl-deploy__title,
+.rl-deploy__map figcaption {
+  padding: 0;
+  font-size: var(--t-s);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+/* A long campaign roster scrolls inside its own list, the way the orders
+   scroll inside theirs, so Deploy never leaves the screen for it. */
+.rl-deploy__rows {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
+  max-height: min(34vh, 20rem);
+  overflow-y: auto;
+}
+/* One body, one toggle. Wraps rather than truncates: the pseudo-locale pads
+   every string by a third, and a clipped name is a body the player cannot
+   tell from its neighbour. */
+.rl-deploy__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s2);
+  width: 100%;
+  margin: 0 0 var(--s1);
+  padding: var(--s2) var(--s3);
+  font-family: var(--font-body);
+  font-size: var(--t-band);
+  text-align: left;
+  overflow-wrap: anywhere;
+  color: var(--ink-mute);
+  background: transparent;
+  border: 1px solid var(--panel-rule);
+  cursor: pointer;
+}
+.rl-deploy__row:hover {
+  border-color: var(--accent);
+}
+/* Chosen: the mission's own olive band, the stamp Deploy itself wears. */
+.rl-deploy__row[data-chosen='1'] {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--band-mission) 35%, transparent);
+  border-color: var(--band-mission);
+}
+/* Its type is full: this body can go only once another of its type is
+   benched, so it stays in the tab order and says "not now". */
+.rl-deploy__row[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: default;
+}
+.rl-deploy__name {
+  font-weight: 600;
+}
+.rl-deploy__type,
+.rl-deploy__record {
+  font-size: var(--t-s);
+  color: var(--ink-dim);
+}
+/* The record on a line of its own, under the name. */
+.rl-deploy__record {
+  flex-basis: 100%;
+}
+.rl-deploy__slots {
+  margin-top: var(--s2);
+  font-size: var(--t-s);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+/* Survivors this mission does not field -- the brought panel's reserve line,
+   moved here with the roster it sits under, in the same muted ink. */
+.rl-deploy__reserve {
+  margin-top: var(--s1);
+  color: var(--ink-mute);
+}
+.rl-deploy__map {
+  margin: 0;
+}
+/* One pixel per tile, blown up by CSS to the column and kept as TILES --
+   smoothing a 48-tile canvas reads as a blur, not as ground. `height: auto` keeps
+   the map's own aspect from the canvas's intrinsic size. */
+.rl-deploy__ground {
+  display: block;
+  margin-top: var(--s2);
+  width: min(100%, 16rem);
+  height: auto;
+  image-rendering: pixelated;
+  border: 1px solid var(--panel-frame);
+}
+/* Side by side once there is room for both. One query and a modest one:
+   Task 7 owns the composed-layout numbers at 1920 and 2560 (R-7) and will
+   name `.rl-loading__box--spread` inside its own block; this only puts the
+   two halves next to each other at and above a 1024-wide viewport, which is
+   below the 1280 fit floor, so every supported width gets the spread. The
+   width is raw viewport px for the reason `theme.css:294-295`'s are: rem
+   here would be circular with the scale those set. The left column is 3fr
+   because the orders are read at `--t-read` under a 62ch measure; the right
+   holds the rows and a map capped at 16rem. */
+@media (min-width: 1024px) { /* px-ok */
+  .rl-loading__box--spread {
+    width: min(68rem, 94vw);
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    column-gap: var(--s6);
+    align-items: start;
+  }
+  .rl-loading__box--spread > * {
+    grid-column: 1 / -1;
+  }
+  .rl-loading__box--spread > .rl-loading__orders {
+    grid-column: 1;
+  }
+  .rl-loading__box--spread > .rl-loading__force {
+    grid-column: 2;
+  }
+  .rl-loading__box--spread > .rl-loading__deploy {
+    justify-self: start;
+  }
+}
 
 /* A player who has asked for less motion still gets the fill, just without
    the interpolation between counts -- and gets every beat at once rather

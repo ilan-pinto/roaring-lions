@@ -17,7 +17,9 @@
 import type { LedgerData } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { t } from '../i18n/t';
-import { drawFromPool } from './deploy-roster';
+import { drawFromPool, type DeployEntry, type DeployRosterView } from './deploy-roster';
+import { defaultSelection, isComplete, slotsLeft, toggleEntry, type DeploySelection } from './deploy-select';
+import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-preview';
 import { objectivesPanel, type ObjectiveRow } from './objectives';
 
 /**
@@ -157,6 +159,166 @@ export function broughtFor(
   return { roster, reserve, marked, conduct, sentences };
 }
 
+/**
+ * A veterancy stripe as the HUD card draws it: one `--commend` star per
+ * stripe, in an element of its own so it can wear that colour.
+ *
+ * The ONE `★` site in this file. The brought panel's rows and the deploy
+ * spread's rows both call it, so the symbol family's dingbat list (shell
+ * Phase 3, gated Task 11) names `loading.ts` once, as the plan's own
+ * `★` exception ("a repeated countable mark, not an icon" -- Open questions
+ * for G1), however many rows a campaign roster grows to. Built, never
+ * assigned as markup.
+ */
+function commendation(stripes: number): HTMLSpanElement {
+  const s = document.createElement('span');
+  s.className = 'rl-commend';
+  s.textContent = '★'.repeat(stripes);
+  return s;
+}
+
+/** What the deploy spread hands back to its caller: the pick, whenever the
+ *  player changes it. The screen reads and renders a `DeployRosterView`
+ *  (Task 1) through Task 2's selection API and decides nothing itself. */
+export interface DeployChoice {
+  view: DeployRosterView;
+  /** Called on every ACCEPTED change -- never at mount, and never for a
+   *  click `toggleEntry` refused. An untouched screen therefore means
+   *  `defaultSelection(view)`, which `permutePool` maps back onto the pool
+   *  unchanged (Task 2's identity property): a caller that starts from the
+   *  default and applies each change it is handed is always in step. */
+  onChange(sel: DeploySelection): void;
+}
+
+/** The ground the orders are about (`map-preview.ts`). The same `map` and
+ *  resolved tones `main.ts` already hands the minimap. */
+export interface GroundPreview {
+  map: PreviewMap;
+  tones: PreviewTones;
+}
+
+/**
+ * How many more bodies the player could still field: per demanded type, the
+ * open slots (`slotsLeft`) capped by the unchosen bodies there are to put in
+ * them. Zero exactly when `isComplete` is true -- a slot the pool cannot
+ * fill is the spawner's to substitute (`mission.ts:1264`), not the player's
+ * to fill -- so the line under the roster and the Deploy button can never
+ * disagree about whether anything is left to do.
+ */
+function openSlots(view: DeployRosterView, sel: DeploySelection): number {
+  let open = 0;
+  for (const type of view.demand.keys()) {
+    let unchosen = 0;
+    for (const e of view.eligible) if (e.type === type && !sel.chosen.has(e.poolIndex)) unchosen++;
+    open += Math.max(0, Math.min(slotsLeft(view, sel, type), unchosen));
+  }
+  return open;
+}
+
+/**
+ * The force, chosen (spec Decision 4): one toggle row per body a placement
+ * could draw, the slot line, and the reserve line.
+ *
+ * Every rule here is Task 2's: `defaultSelection` for the opening state,
+ * `toggleEntry` for a click (it refuses a body whose type is full, and
+ * answers a refusal with the SAME selection, which is how this tells "no
+ * change" from a change), `isComplete` for whether Deploy may go. The rows
+ * are `<button>`s so the keyboard reaches them with no code of its own, and
+ * the whole spread is one `<fieldset>`, so its legend names every row for a
+ * screen reader.
+ *
+ * The reserve line is the brought panel's, moved (pre-flight P2/E2): the same
+ * `loading.brought.reserve` key and the same meaning -- pool entries this
+ * mission does not draw -- so the screen carries one reserve count, never
+ * two. `view.cap` is deliberately not read: how many places the BRIGADE
+ * holds is the garage's line (`garage.brigade`), and this screen is about
+ * one mission's draw.
+ */
+function deploySpread(choice: DeployChoice, deployButton: HTMLButtonElement): HTMLFieldSetElement {
+  const { view } = choice;
+  let sel = defaultSelection(view);
+
+  const set = document.createElement('fieldset');
+  set.className = 'rl-deploy';
+  const legend = document.createElement('legend');
+  legend.className = 'rl-deploy__title';
+  legend.textContent = t('deploy.title');
+
+  const list = document.createElement('ul');
+  list.className = 'rl-deploy__rows';
+  const rows: { entry: DeployEntry; button: HTMLButtonElement }[] = [];
+
+  const slots = document.createElement('div');
+  slots.className = 'rl-deploy__slots';
+  const reserve = document.createElement('div');
+  reserve.className = 'rl-deploy__reserve';
+
+  const paint = (): void => {
+    for (const { entry, button } of rows) {
+      const chosen = sel.chosen.has(entry.poolIndex);
+      button.dataset.chosen = chosen ? '1' : '0';
+      button.setAttribute('aria-pressed', String(chosen));
+      // Not `disabled`: a disabled button leaves the tab order, and a row
+      // that cannot be fielded NOW becomes fieldable the moment another of
+      // its type is benched. `aria-disabled` says "not at the moment".
+      if (!chosen && slotsLeft(view, sel, entry.type) <= 0) button.setAttribute('aria-disabled', 'true');
+      else button.removeAttribute('aria-disabled');
+    }
+    const open = openSlots(view, sel);
+    slots.textContent = open > 0 ? t('deploy.slots', { n: open }) : t('deploy.slots.full');
+    const notDrawn = view.eligible.length + view.undrawable.length - sel.chosen.size;
+    reserve.textContent = t('loading.brought.reserve', { n: notDrawn });
+    reserve.hidden = notDrawn <= 0;
+    deployButton.disabled = !isComplete(view, sel);
+  };
+
+  for (const entry of view.eligible) {
+    const li = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'rl-deploy__row';
+    button.dataset.poolIndex = String(entry.poolIndex);
+
+    // Who, then what: a named body leads with its name and carries its type
+    // beside it; a nameless one is its type and nothing more.
+    const who = document.createElement('span');
+    who.className = 'rl-deploy__name';
+    who.textContent = entry.name ?? entry.typeName;
+    button.append(who);
+    if (entry.name !== undefined) {
+      const type = document.createElement('span');
+      type.className = 'rl-deploy__type';
+      type.textContent = entry.typeName;
+      button.append(type);
+    }
+    if (entry.veterancy > 0) button.append(commendation(entry.veterancy));
+    // The service record in the unit card's own words (`hud.card.record`):
+    // one record, one wording, wherever the same body is shown. Absent for a
+    // body with nothing on it yet -- "0 missions · 0 kills" is noise.
+    if (entry.missions > 0 || entry.kills > 0) {
+      const record = document.createElement('span');
+      record.className = 'rl-deploy__record';
+      record.textContent = t('hud.card.record', { missions: entry.missions, kills: entry.kills });
+      button.append(record);
+    }
+
+    button.addEventListener('click', () => {
+      const next = toggleEntry(view, sel, entry.poolIndex);
+      if (next === sel) return;
+      sel = next;
+      paint();
+      choice.onChange(sel);
+    });
+    li.append(button);
+    list.append(li);
+    rows.push({ entry, button });
+  }
+
+  paint();
+  set.append(legend, list, slots, reserve);
+  return set;
+}
+
 export interface LoadingScreen {
   /** How many assets the gate is waiting on. Drives the bar's denominator. */
   total(n: number): void;
@@ -234,7 +396,21 @@ export function showLoading(
   objectives?: readonly ObjectiveRow[],
   /** Whether this mission pays credits at all -- `ledger.produces.length > 0`,
    *  the same gate `main.ts` puts on `payMission`. */
-  paysCredits?: boolean
+  paysCredits?: boolean,
+  /**
+   * The force, to be chosen rather than merely shown (shell Phase 3, Task 3;
+   * spec Decision 4). Gated on `holds` like everything else conditional on
+   * this screen, and drawn only when the view has at least one body to
+   * choose -- with none, `brought` keeps its own roster and reserve lines as
+   * it always has. When it IS drawn it takes those two lines over, so the
+   * screen never carries two reserve counts (pre-flight P2). Appended after
+   * `paysCredits` so no existing call site's argument order moves.
+   */
+  force?: DeployChoice,
+  /** The ground the orders are about, painted one pixel per tile beside the
+   *  force. Gated on `holds`; dropped, not thrown on, where the canvas has no
+   *  2D context. */
+  preview?: GroundPreview
 ): LoadingScreen {
   const wrap = document.createElement('div');
   wrap.className = 'rl-loading';
@@ -325,10 +501,22 @@ export function showLoading(
     }
   }
 
+  // Whether the force is CHOSEN on this screen (Task 3) rather than listed.
+  // Only with orders to read, and only when there is at least one body to
+  // choose: an empty spread under "Confirm your force" would be a question
+  // with no answers, so that case keeps the brought panel whole instead.
+  const choosing = holds && force !== undefined && force.view.eligible.length > 0;
+
   // "What you brought" -- a sibling of the beats, never a beat itself, so the
   // beat count a test reads off a briefing stays what the briefing alone
   // produces. Gated on `holds` exactly like `orders` above it: a sandbox or a
   // mission with no briefing shows no panel, whether or not one was supplied.
+  //
+  // With the force being chosen, the spread takes over this panel's roster
+  // and reserve lines (pre-flight P2): the spread's rows ARE the roster, and
+  // two reserve counts from two computations is the defect that ruling
+  // closed. What stays here is what the spread does not say -- conduct and
+  // the intel sentences -- and a panel left with nothing to say is not drawn.
   let broughtEl: HTMLElement | null = null;
   if (holds && brought) {
     broughtEl = document.createElement('div');
@@ -338,18 +526,13 @@ export function showLoading(
     h.textContent = t('loading.brought.head');
     broughtEl.appendChild(h);
     const ul = document.createElement('ul');
-    for (const r of brought.roster) {
+    for (const r of choosing ? [] : brought.roster) {
       const li = document.createElement('li');
       li.textContent = t('loading.brought.item', { type: r.type, count: r.count });
       // The stripe is its own element so it can wear `--commend` like the HUD
       // card's does. Built rather than assigned as innerHTML: `r.type` is a
       // unit name out of the catalogue and this panel never interpolates.
-      if (r.stripes > 0) {
-        const s = document.createElement('span');
-        s.className = 'rl-commend';
-        s.textContent = '★'.repeat(r.stripes);
-        li.append(' ', s);
-      }
+      if (r.stripes > 0) li.append(' ', commendation(r.stripes));
       // Names, spelled out rather than counted -- who came back is the point
       // of a service record, and a count would just repeat `×${r.count}`.
       if (r.names.length > 0) li.append(` (${r.names.join(', ')})`);
@@ -358,7 +541,7 @@ export function showLoading(
     // The reserve is a count on its own line under the roster, not a roster row:
     // it is the one number here that is about people who are NOT coming, and
     // giving it a `×N` of its own would read as another unit type.
-    if (brought.reserve > 0) {
+    if (!choosing && brought.reserve > 0) {
       const li = document.createElement('li');
       li.className = 'rl-loading__reserve';
       li.textContent = t('loading.brought.reserve', { n: brought.reserve });
@@ -376,6 +559,7 @@ export function showLoading(
       p.textContent = s;
       broughtEl.appendChild(p);
     }
+    if (choosing && ul.childElementCount === 0 && brought.sentences.length === 0) broughtEl = null;
   }
 
   // The cinematic, when the mission has one. Autoplay is asked for with sound
@@ -432,6 +616,25 @@ export function showLoading(
     back.textContent = t('nav.backToCampaignMap');
   }
 
+  // The right-hand column of the spread (Task 3; spec Decision 4: "portrait
+  // and orders left, the roster's force and a map preview right"). Built
+  // only with orders to read, like everything else conditional on `holds`.
+  // The spread is built after `deploy` because it owns that button's
+  // `disabled` -- the screen may not deploy short (`isComplete`).
+  const spreadEl = choosing && force ? deploySpread(force, deploy) : null;
+  let groundEl: HTMLElement | null = null;
+  if (holds && preview) {
+    const ground = paintMapTerrain(preview.map, preview.tones);
+    if (ground !== null) {
+      ground.className = 'rl-deploy__ground';
+      groundEl = document.createElement('figure');
+      groundEl.className = 'rl-deploy__map';
+      const caption = document.createElement('figcaption');
+      caption.textContent = t('deploy.map');
+      groundEl.append(caption, ground);
+    }
+  }
+
   box.append(label, name, track, count);
   if (video) {
     box.classList.add('rl-loading__box--video');
@@ -439,8 +642,18 @@ export function showLoading(
   }
   if (holds) {
     box.classList.add('rl-loading__box--brief');
-    if (commander) box.append(commanderHead);
-    box.append(orders);
+    // With a right-hand column the orders get a column of their own; with
+    // none the box is laid out exactly as it was before the spread existed,
+    // child for child, so a mission that reads no roster and draws no
+    // preview cannot tell this change happened.
+    let left: HTMLElement = box;
+    if (spreadEl || groundEl) {
+      box.classList.add('rl-loading__box--spread');
+      left = document.createElement('div');
+      left.className = 'rl-loading__orders';
+    }
+    if (commander) left.append(commanderHead);
+    left.append(orders);
     // Task 5 (R-7: one component, three mounts): the full objective list,
     // read once, before deploying. A sibling of the beats -- appended here,
     // never built as one -- so a test counting `.rl-loading__beat` off a
@@ -451,9 +664,19 @@ export function showLoading(
     // `rows()` thunk keeps the type this `if` already narrowed it to.
     if (objectives) {
       const objs = objectives;
-      objectivesPanel(box, { rows: () => objs, paysCredits: paysCredits ?? false });
+      objectivesPanel(left, { rows: () => objs, paysCredits: paysCredits ?? false });
     }
-    if (broughtEl) box.append(broughtEl);
+    if (broughtEl) left.append(broughtEl);
+    if (left !== box) {
+      const right = document.createElement('div');
+      right.className = 'rl-loading__force';
+      if (spreadEl) right.append(spreadEl);
+      if (groundEl) right.append(groundEl);
+      box.append(left, right);
+    }
+    // Below both columns, never inside one: Deploy is the answer to the
+    // whole spread, and on a narrow screen where the columns stack it still
+    // comes after the force it deploys.
     box.append(deploy);
     if (back) box.append(back);
   } else if (video) {
