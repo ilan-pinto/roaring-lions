@@ -14,8 +14,9 @@
 //      the app-side rule can be deleted rather than left running for nothing.
 //
 // Lives under tools/ and not packages/sim/ because this plan does not open that
-// package, tests included. `first_light_fence.test.ts`'s `passiveResult()` is the
-// sim-construction idiom followed here, including its 424242 seed.
+// package, tests included. The world is built by `mission-harness.ts`, the one
+// copy of the Sim-plus-runtime recipe this file and `first_light_fence.test.ts`
+// each used to carry by hand, at its default 424242 seed.
 //
 // **Why the run ends in DEFEAT, and why that is irrelevant.** `checkEnd`
 // (mission.ts:1842-1888) builds the produced roster from ONE block on both
@@ -33,21 +34,11 @@
 // else, which is what makes one slotted entry fielded and the other a
 // pass-through in the same run.
 import { beforeAll, describe, expect, it } from 'vitest';
-import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, units } from '@lions/data';
-import {
-  MissionRuntime,
-  Sim,
-  type LedgerData,
-  type MissionJson,
-  type TunnelRouteJson,
-} from '@lions/sim';
+import type { LedgerData } from '@lions/sim';
 import type { RosterEntry } from '../../packages/app/src/ledger-store';
+import { missionWorld } from './mission-harness';
 
 const MISSION_ID = 'khan_rafid_1_recon';
-/** The `evacuate_before` deadline is 240 s; 20 minutes of ticks is the same
- *  ceiling `playtest.ts` gives every mission, and is here only so a runtime
- *  that never ends fails loudly instead of hanging. */
-const MAX_TICKS = 20 * 60 * 20;
 
 /** The two entries this file argues from. `Barkai` is an `inf_squad`, which
  *  this mission's `from_ledger` placement draws; `Nachshon` is an `mbt_lavi`,
@@ -68,29 +59,6 @@ interface RoundTrip {
 let trip: RoundTrip;
 
 function runMission(): RoundTrip {
-  const mission = (missions as Record<string, unknown>)[MISSION_ID] as MissionJson;
-  const map = parseMap(maps[mission.map.file as keyof typeof maps]);
-  const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
-  applyTerrain(map, sim);
-  const structIdx = new Map<string, number>();
-  for (const [id, spec] of Object.entries(structureCatalogue)) {
-    structIdx.set(id, sim.addStructureType(spec as Parameters<typeof sim.addStructureType>[0]));
-  }
-  for (const b of map.structures) {
-    const ti = structIdx.get(b.type);
-    if (ti === undefined) throw new Error(`unknown structure type ${b.type}`);
-    sim.addStructure(ti, b.tiles);
-  }
-  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
-    id: t.id,
-    points: t.points,
-    dig_tiles_per_s: t.digTilesPerS,
-    pre_dug: t.preDug,
-  }));
-  for (const r of tunnelRoutes) sim.addTunnel(r);
-  const typeOf = new Map<string, number>();
-  for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
-
   // The app's own widened entries, handed to a runtime typed to `@lions/sim`'s
   // narrower one. That this compiles proves nothing -- a subtype is always
   // assignable to its supertype. The evidence for fact 1 is OBJECT IDENTITY:
@@ -98,15 +66,10 @@ function runMission(): RoundTrip {
   // has never heard of is still on it (`trip.live?.slot` below reads 42).
   const roster: RosterEntry[] = [{ ...FIELDED }, { ...POOLED }];
   const ledger: LedgerData = { 'roster.surviving_units': roster };
-  const rt = new MissionRuntime(sim, mission, {
-    typeIdOf: (u: string) => typeOf.get(u) as number,
-    markers: map.markers,
-    zones: map.zones,
-    tunnels: tunnelRoutes,
-    ledger,
-    unitInfo: () => null,
-  });
-  rt.start();
+  // `mission-harness.ts`, the one copy of the Sim-plus-runtime recipe; its
+  // `runToEnd` throws past the same 20-minute ceiling this file used to set
+  // itself, so a runtime that never ends fails loudly instead of hanging.
+  const { sim, runtime: rt, runToEnd } = missionWorld(MISSION_ID, ledger);
 
   // `playerIds` is private, so the fielded body is found the way a screen would
   // find it: by asking the runtime which ledger entry each entity came from.
@@ -116,15 +79,7 @@ function runMission(): RoundTrip {
   }
   const live = fielded < 0 ? undefined : (rt.rosterEntryOf(fielded) as Readonly<RosterEntry> | undefined);
 
-  let produced: RosterEntry[] = [];
-  let t = 0;
-  for (; t < MAX_TICKS; t++) {
-    for (const me of rt.step(sim.tick())) {
-      if (me.kind === 'missionEnd') produced = me.ledger['roster.surviving_units'] ?? [];
-    }
-    if (rt.result !== 'ongoing') break;
-  }
-  if (t >= MAX_TICKS) throw new Error(`${MISSION_ID} never ended inside ${MAX_TICKS} ticks`);
+  const produced: RosterEntry[] = runToEnd()['roster.surviving_units'] ?? [];
   return { live, produced, result: rt.result, aliveAtEnd: fielded >= 0 && sim.state.alive[fielded] === 1 };
 }
 
