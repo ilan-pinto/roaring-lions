@@ -9,10 +9,11 @@
 //
 // Usage: pnpm ui:shots -- [--pseudo] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots]
 //
-// Writes <out>/<WxH>/NN-<state>.png for the twenty-three states below (Phase
+// Writes <out>/<WxH>/NN-<state>.png for the twenty-five states below (Phase
 // 0 shipped seventeen; Phase 2's Task 14 added 18-hud-alert, 19-objectives,
-// 20-keys, 21-tooltip, 22-groups and 23-minimap-ping). Every later task's
-// acceptance is read off these files -- see
+// 20-keys, 21-tooltip, 22-groups and 23-minimap-ping; Phase 3's Task 6 added
+// 25-outcome-defeat and 24-outcome-victory). Every later task's acceptance is
+// read off these files -- see
 // .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/ and
 // .superpowers/sdd/2026-09-18-shell-upgrade-phase-2/.
 //
@@ -21,10 +22,21 @@
 // (`i18n/pseudo.ts`) on whichever screen loads -- a plain, unbracketed word
 // in a pseudo capture is a string that never went through `t()`.
 //
-// 16-end-defeat and 17-debrief are a SCRIPTED defeat only: `debugKill` every
+// 16-end-defeat and 17-debrief are a SCRIPTED defeat: `debugKill` every
 // player unit and step the sim until `checkEnd` notices, which a script can
-// do without knowing a single thing about the mission. A victory needs that
-// mission's own objectives satisfied and stays a manual capture.
+// do without knowing a single thing about the mission. Task 5's outcome
+// moment (`ui/outcome-moment.ts`) now holds in FRONT of the end screen, so
+// `25-outcome-defeat` photographs it first and clicks `.rl-outcome__skip`
+// before `.rl-endnav` (below) ever appears -- without the skip that wait
+// times out at 15s, which is how this ordering was found. A victory needs
+// the mission's own objectives satisfied for real rather than a `debugKill`
+// equivalent (there is no `debugWin`, and adding one would be a sim change),
+// so `24-outcome-victory` drives `beit_sahwan_1_recon`'s own primary
+// (`picture`: locate 6 positions) by waypoint, the way `playtest.ts`'s own
+// recon plan does (`tools/src/backtest/playtest.ts`) -- measured against the
+// real runtime (`tools/src/mission-harness.ts`) to reach victory at tick 426
+// (21.3s) at both the harness's own seed and `main.ts`'s real mission seed
+// (20260727), so the margin stepped below is not sitting on the edge.
 //
 // Two things kept from the scratch pass, both learned the hard way: never
 // abort `/@vite/client` (Vite dev injects CSS-module styles through it;
@@ -458,14 +470,20 @@ try {
     // Scripted defeat: kill every player unit directly (`sim.debugKill`, the
     // same dev hook `perf/wreck-captures.ts` uses) and step until `checkEnd`
     // notices -- a script can force a wipe without knowing anything about
-    // THIS mission's objectives. A victory needs those satisfied for real and
-    // stays a manual capture (see the header comment).
+    // THIS mission's objectives.
     await page.evaluate(() => {
       const w = (window as LionsWindow).__lions;
       if (!w) return;
       for (const u of w.units(0)) w.sim.debugKill(u.id);
       w.step(40);
     });
+    // Task 6: the moment (`ui/outcome-moment.ts`) is a held, full-screen
+    // dialog in FRONT of the end screen. Photograph it FIRST, then skip it --
+    // without the skip the `.rl-endnav` wait below times out, which is how
+    // this line was found.
+    await page.waitForSelector('.rl-outcome', { timeout: 15000 });
+    await shot(page, dir, '25-outcome-defeat');
+    await page.click('.rl-outcome__skip');
     // `.rl-endnav` rather than a single `.rl-end` class: `showEndScreen`
     // (`ui/menu.ts`) builds its root from the shared `panel()` helper
     // (`.rl-panel[data-rank="alert"]`), and the nav row it appends last is
@@ -478,6 +496,71 @@ try {
     await shot(page, dir, '17-debrief');
 
     await ctx.close();
+
+    // Task 6: 24-outcome-victory. There is no `debugWin`, and adding one
+    // would be a sim change, so this drives `beit_sahwan_1_recon`'s own
+    // primary (`picture`: locate 6 positions) by waypoint, the same route
+    // `playtest.ts`'s own recon plan sends the drone and screen on (its
+    // third and last screen order, at tick 480, is omitted below -- the
+    // measured run ends at tick 426, before that order would ever be
+    // issued). A SEPARATE context: the `page` above has already been driven
+    // through combat and a scripted wipe, and this needs its own fresh
+    // mission from the deploy screen.
+    //
+    // The plan is DATA passed through `page.evaluate`'s own argument, not a
+    // closure over named `M`/`ids` helpers the way the sim-harness version
+    // above the file reads: esbuild's `keepNames` transform (tsx's default)
+    // rewrites `const ids = (type) => ...` to `const ids = __name((type) =>
+    // ..., "ids")`, and `Function.prototype.toString()` -- how Playwright
+    // ships a callback into the page -- carries that rewritten text verbatim
+    // into a browser context with no `__name` global, throwing
+    // `ReferenceError: __name is not defined` the instant the mission
+    // actually reaches a real victory and this block runs. Measured directly
+    // (`tsx`'s own transform output) before landing this shape. Every
+    // coordinate below is pre-converted to Q16.16 in THIS (Node) context, so
+    // the browser-side function is two anonymous `filter`/`map` callbacks
+    // (safe -- confirmed unrenamed) and a plain loop over plain data.
+    {
+      const Q = (v: number): number => Math.round(v * 65536);
+      const PLAN: { group: 'drone' | 'screen'; kind: 'move' | 'attackMove'; x: number; y: number; thenStep: number }[] = [
+        { group: 'drone', kind: 'move', x: Q(21), y: Q(8), thenStep: 18 },
+        { group: 'drone', kind: 'move', x: Q(40), y: Q(8), thenStep: 6 },
+        { group: 'drone', kind: 'move', x: Q(40), y: Q(22), thenStep: 8 },
+        { group: 'screen', kind: 'attackMove', x: Q(16), y: Q(22), thenStep: 28 },
+        { group: 'drone', kind: 'move', x: Q(21), y: Q(30), thenStep: 90 },
+        { group: 'drone', kind: 'move', x: Q(26), y: Q(40), thenStep: 90 },
+        { group: 'screen', kind: 'attackMove', x: Q(22), y: Q(24), thenStep: 60 },
+        // Measured (`tools/src/mission-harness.ts`) to end at tick 426 --
+        // 200 more ticks is margin, not a number sat on the edge.
+        { group: 'drone', kind: 'move', x: Q(30), y: Q(18), thenStep: 200 },
+      ];
+      const winCtx = await browser.newContext({
+        viewport: { width: res.width, height: res.height },
+        deviceScaleFactor: 1,
+      });
+      const winPage = await winCtx.newPage();
+      winPage.setDefaultTimeout(30000);
+      await winPage.goto(url(`/mission/${MISSION}`), { waitUntil: 'load' });
+      await settle(winPage, 6000);
+      await dismissDeployGate(winPage, `${TAG}-victory`);
+      await settle(winPage, 1500);
+      await winPage.evaluate((plan) => {
+        const L = (window as LionsWindow).__lions;
+        if (!L) return;
+        const unitsAll = L.units();
+        const drone = unitsAll.filter((u) => u.type === 'recon_drone').map((u) => u.id);
+        const screen = unitsAll
+          .filter((u) => u.type === 'apc_eitan' || u.type === 'mbt_lavi' || u.type === 'ifv_namer' || u.type === 'inf_squad' || u.type === 'at_team')
+          .map((u) => u.id);
+        for (const step of plan) {
+          L.sim.queueCommand({ kind: step.kind, ids: step.group === 'drone' ? drone : screen, x: step.x, y: step.y });
+          L.step(step.thenStep);
+        }
+      }, PLAN);
+      await winPage.waitForSelector('.rl-outcome[data-outcome="victory"]', { timeout: 15000 });
+      await shot(winPage, dir, '24-outcome-victory');
+      await winCtx.close();
+    }
   }
 } finally {
   if (browser) await browser.close();

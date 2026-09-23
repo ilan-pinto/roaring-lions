@@ -76,6 +76,7 @@ import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
+import { outcomeMoment } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
 import { EDGE_MARGIN_PX, clampZoom, edgeVector, panDelta, zoomAnchor } from './ui/camera-input';
@@ -3879,19 +3880,45 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // of `paused` too, and left open it would render over the end
             // screen about to be pushed.
             closeKeysOverlay();
-            screenDisposers.push(
-              showEndScreen(document.body, {
-                result: me.result,
-                roe: me.roeRating,
-                survivors: me.survivors.length,
-                missionId,
-                nextMissionId,
-                debrief,
-                onDebrief: () => {
-                  screenDisposers.push(showDebrief(document.body, debriefOpts));
-                },
-              })
-            );
+            // Task 6: the held victory/defeat moment (`ui/outcome-moment.ts`)
+            // goes in front of the end screen, behind the ledger write above
+            // -- `writeLedger`/`payMission` already ran (victory only) before
+            // this point, so the moment can never delay a write that has
+            // already happened, and a player who closes the tab during the
+            // hold loses nothing. `line` is the mission's own outcome-specific
+            // sentence, already resolved into `debrief` above (`say.text`) --
+            // entirely absent, not a blank paragraph, when this outcome has
+            // none. The handler is synchronous inside the event loop up to
+            // this point, so the moment mounts NOW; `showEndScreen` is
+            // deferred to `moment.done`'s `.then()`, guarded by `disposed` the
+            // same way the deferred art block guards its own late callbacks
+            // (see `bootBattlefield`'s header) -- a player who leaves during
+            // the hold has already run this battlefield's teardown, which
+            // drains `screenDisposers` (dismissing the still-open moment) and
+            // sets `disposed`, so the end screen must not mount on a stage the
+            // router has already cleared.
+            const moment = outcomeMoment(document.body, {
+              outcome: me.result,
+              title: t(me.result === 'victory' ? 'outcome.victory' : 'outcome.defeat'),
+              line: debrief?.text,
+            });
+            screenDisposers.push(() => moment.dismiss());
+            void moment.done.then(() => {
+              if (disposed) return;
+              screenDisposers.push(
+                showEndScreen(document.body, {
+                  result: me.result,
+                  roe: me.roeRating,
+                  survivors: me.survivors.length,
+                  missionId,
+                  nextMissionId,
+                  debrief,
+                  onDebrief: () => {
+                    screenDisposers.push(showDebrief(document.body, debriefOpts));
+                  },
+                })
+              );
+            });
           }
         }
       }
