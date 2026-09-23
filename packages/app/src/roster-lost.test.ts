@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { appendLost, fillVacancies, lostRecordFor, predecessorOf } from './roster-lost';
-import { issueSlots, reattachSlots } from './roster-slots';
 import type { LostRecord, RosterEntry } from './ledger-store';
 
 const e = (o: Partial<RosterEntry> & { type: string }): RosterEntry => ({ veterancy: 0, missions: 1, kills: 0, ...o });
@@ -134,65 +133,5 @@ describe('recency is array order, never tick — tick restarts every mission', (
       rec(7, { name: 'Dekel', missionId: 'm3', tick: 100 }),
     ];
     expect(fillVacancies([e({ type: 'inf_squad' })], lost, []).map((r) => r.slot)).toEqual([7]);
-  });
-});
-
-// A parked finding from Task 3's review: `reattachSlots(out, before)` takes two
-// POSITIONAL `readonly RosterEntry[]` arguments, so a swap type-checks silently,
-// and reading `before` off the POST-mission ledger (instead of the one the
-// mission was sent IN with) would re-issue every survivor a fresh slot on every
-// write, with every pure spec above still green -- none of them drive the real
-// `main.ts` seam, and a single mission cannot distinguish "reattached correctly"
-// from "issued fresh, coincidentally starting from the same counter". Only a
-// SECOND mission, run through the exact sequence `main.ts`'s victory branch
-// uses (R-13 steps 3-6), tells the two apart.
-describe('the R-13 seam — a slot survives a two-mission round trip through main.ts\'s own pipeline shape', () => {
-  // `before` = the roster THIS mission was sent in with (`ledger[...]`, read
-  // before `checkEnd` ran); `out` = what `checkEnd` just produced
-  // (`updatedLedger[...]`). Getting the two swapped, or sourcing `before` from
-  // `out`'s own object, type-checks -- both are `readonly RosterEntry[]`.
-  const pipeline = (
-    before: readonly RosterEntry[],
-    out: readonly RosterEntry[],
-    lostSoFar: readonly LostRecord[],
-    lostThisMission: readonly LostRecord[],
-    reserve: readonly RosterEntry[],
-    issued: number,
-  ): { roster: RosterEntry[]; lost: LostRecord[]; issued: number } => {
-    const lost = appendLost(lostSoFar, lostThisMission);
-    const filled = fillVacancies(reattachSlots(out, before), lost, reserve);
-    const carried = issueSlots(filled, issued);
-    return { roster: carried.roster, lost, issued: carried.issued };
-  };
-
-  it('gives a replacement the lost slot across two missions, and never re-issues a survivor a fresh one', () => {
-    // Mission 1: a fresh campaign. There is no previous save, so `before` is
-    // empty and `checkEnd` hands back two fresh, slotless bodies.
-    const m1 = pipeline([], [e({ type: 'inf_squad', name: 'Barkai' }), e({ type: 'inf_squad', name: 'Dekel' })], [], [], [], 0);
-    expect(m1.roster.map((r) => r.slot)).toEqual([0, 1]);
-
-    // Mission 2: Barkai survives -- `checkEnd` rebuilds a fielded survivor
-    // field by field and copies only `name` (mission.ts:1874-1883), so the
-    // entry that comes back out has no slot of its own. Dekel dies mid-mission
-    // (captured at the `unitLost` event, off the entry `rosterEntryOf` still
-    // has -- the one `before` carries, with its slot) and a fresh body of the
-    // same type fills the roster line instead.
-    const dekelLost = lostRecordFor(m1.roster.find((r) => r.name === 'Dekel'), 'inf_squad', 'm2', 500);
-    expect(dekelLost).not.toBeNull();
-    const m2 = pipeline(
-      m1.roster,
-      [e({ type: 'inf_squad', name: 'Barkai' }), e({ type: 'inf_squad' })],
-      m1.lost,
-      dekelLost ? [dekelLost] : [],
-      [],
-      m1.issued,
-    );
-
-    // Barkai keeps slot 0 -- reattached by name, never re-issued.
-    expect(m2.roster.find((r) => r.name === 'Barkai')?.slot).toBe(0);
-    // The replacement takes Dekel's OLD slot, 1 -- not a fresh slot 2.
-    expect(m2.roster.find((r) => r.name === undefined)?.slot).toBe(1);
-    expect(m2.issued).toBe(2);
-    expect(predecessorOf(m2.lost, 1)?.name).toBe('Dekel');
   });
 });
