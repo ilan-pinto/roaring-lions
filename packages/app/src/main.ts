@@ -2457,20 +2457,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.
     rosterEntryOf: (id) => runtime?.rosterEntryOf(id),
-    // A closure over the ledger, not a snapshot -- exactly like `rosterEntryOf`
-    // above -- `ledger` is rebound at mission end and a captured array would
-    // answer about the campaign as it was when the battlefield booted. `type`
-    // is resolved to a display name here, through the same `units[type]?.name
-    // ?? type` lookup the debrief's own memorial rows use (`unitLost`'s `unit`
-    // field, and `lostRecordFor`'s `type`, are both the sim's raw type id) --
-    // the card must never show a raw sim id to the player.
+    // Reads `ledger`, this battlefield's own `const`: the campaign as it was
+    // read at boot, never rebound. That is the right ledger mid-mission, when
+    // the card is read: this mission's own losses reach `roster.lost` only
+    // through the victory write at mission end, so every record a slot can
+    // point to mid-mission is already in it.
+    // `type` is resolved to a display name here, through the same
+    // `units[type]?.name ?? type` lookup the debrief's own memorial rows use
+    // (`unitLost`'s `unit` field, and `lostRecordFor`'s `type`, are both the
+    // sim's raw type id) -- the card must never show a raw sim id to the player.
     predecessorOf: (slot) => {
       const record = predecessorOf(ledger['roster.lost'] ?? [], slot);
       if (record === undefined) return undefined;
       return {
         ...(record.name !== undefined ? { name: record.name } : {}),
         type: units[record.type as keyof typeof units]?.name ?? record.type,
-        missionName: (missions as Record<string, MissionJson | undefined>)[record.missionId]?.name,
       };
     },
     setSelection: (ids) => {

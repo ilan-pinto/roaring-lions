@@ -226,6 +226,18 @@ describe('applyRosterCarryover — two missions through the one function main.ts
     expect(active(m2).map((r) => r.name)).toEqual(['Sela', '1-2 Ayil', 'Tzur', reserve(m1)[0].name]);
   });
 
+  // A predecessor with no callsign -- a slotted, nameless entry, the one hole
+  // R-2 names rather than papers over -- is named by its unit's display name,
+  // the same lookup the `lostNamed` rows use, never by its raw sim type id.
+  it('names a nameless predecessor by its display name, never its type id', () => {
+    const before: CampaignLedger = { 'roster.surviving_units': [{ type: 'inf_squad', veterancy: 0, slot: 0 }], 'campaign.slots_issued': 1 };
+    const produced: CampaignLedger = { 'roster.surviving_units': [{ type: 'inf_squad', veterancy: 0, missions: 1, kills: 0 }] };
+    const lost: LostRecord[] = [{ slot: 0, type: 'inf_squad', veterancy: 0, missions: 0, kills: 0, missionId: 'beit_sahwan_2_foothold', tick: 30 }];
+    const got = applyRosterCarryover(before, produced, lost, deps());
+    expect(got.replacements).toHaveLength(1);
+    expect(got.replacements[0].predecessor).toBe('Rifle Squad');
+  });
+
   it('gives deep-equal output for the same inputs, twice', () => {
     expect(campaign()).toEqual(campaign());
   });

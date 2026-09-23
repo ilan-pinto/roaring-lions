@@ -74,7 +74,7 @@ describe('splitRoster', () => {
     expect(got.reserve.map((r) => r.slot)).toEqual([2]);
   });
 
-  // #174's rule, as arithmetic rather than intent: nothing is ever deleted.
+  // GH-174's rule, as arithmetic rather than intent: nothing is ever deleted.
   it('is length-preserving over the whole population, always', () => {
     for (const [a, r, cap] of [[30, 0, 150], [200, 0, 150], [100, 100, 150], [0, 9, 150]] as const) {
       const got = splitRoster(many(a), many(r, 1000), cap);

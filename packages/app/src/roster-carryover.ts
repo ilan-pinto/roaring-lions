@@ -135,12 +135,17 @@ export function applyRosterCarryover(
   // `named.roster[i]` is `filled[i]`'s own entry, carried through `issueSlots`
   // (slot already set, untouched) and `assignNames` (which has just given a
   // nameless replacement its callsign) -- same index, same body.
-  // `predecessorOf` reads the just-appended `lost`, so the record this
-  // replacement's own death vacated is always the one found.
-  const replacements: ReplacementRow[] = replacedSlots.map(({ i, slot }) => {
+  // `predecessorOf` reads the just-appended `lost`, and every slot in
+  // `replacedSlots` was handed out by `fillVacancies` FROM that list, so a
+  // record is always found; `flatMap` states that without a non-null assertion
+  // and without a fallback string no path can reach. A predecessor with no
+  // callsign (R-2's named hole) reads as its unit's display name, the same
+  // lookup the `lostNamed` rows use.
+  const replacements: ReplacementRow[] = replacedSlots.flatMap(({ i, slot }) => {
     const predecessor = predecessorOf(lost, slot);
+    if (predecessor === undefined) return [];
     const body = named.roster[i];
-    return { name: body.name ?? body.type, predecessor: predecessor ? (predecessor.name ?? predecessor.type) : '' };
+    return [{ name: body.name ?? body.type, predecessor: predecessor.name ?? deps.displayName(predecessor.type) }];
   });
 
   // The cap (WP-G-E2). Computed over the WHOLE brigade -- active plus whatever
