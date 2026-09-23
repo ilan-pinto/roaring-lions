@@ -34,6 +34,9 @@ import { buildVehicleMeshTemplate, type VehicleMeshEntity, type VehicleMeshTempl
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import { hullCornerOffsets, MAX_DRAWN_OFFSET_TILES, type VehicleWeightArrays } from './units/vehicle-weight';
 import { VEHICLE_WEIGHT_IMPORTED_UNIT_IDS, vehicleWeightParamsFor } from './units/vehicle-weight-params';
+import type { EmitterSpec } from '../vfx/emitters';
+import vehicleDust from '../../../../data/vfx/vehicle_dust.json';
+import vehicleExhaust from '../../../../data/vfx/vehicle_exhaust.json';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -584,5 +587,115 @@ describe('picking still reads the sim, not the drawing (R-C)', () => {
     // A click on what the player sees, and a click on the sim's own truth.
     expect(w.renderer.pickUnit(drawn.x, drawn.y)).toBe(w.id);
     expect(w.renderer.pickUnit(fx.toNumber(w.sim.state.posX[w.id]), fx.toNumber(w.sim.state.posY[w.id]))).toBe(w.id);
+  });
+});
+
+// ===========================================================================
+// Task 5's dust cadence, wired (R-O). `ThreeRenderer.vehicle-ambient-fx.test.ts`
+// keeps pinning the accumulators' elapsed-time contract, unedited; these pin
+// what changed: the rate follows speed and the launch, the anchor is the
+// DRAWN hull, and a shrinking interval cannot buy a puff without elapsed time
+// or bank a burst.
+// ===========================================================================
+
+interface DustPriv {
+  entitySpeed: Float64Array;
+  vehicleWeightAccel: Float64Array;
+  particleSystem: { spawn(...args: unknown[]): void } | null;
+  updateVehicleAmbientFx(dtMs: number): void;
+}
+
+/** A world whose renderer has the real dust and exhaust emitters, with every
+ *  `particleSystem.spawn` call recorded: where it spawned, and where the
+ *  vehicle's mesh root stood at that instant. */
+async function dustWorld(opts: { x?: number; y?: number } = {}): Promise<
+  World & { dp: DustPriv; spawns: { x: number; y: number; rootX: number; rootZ: number }[] }
+> {
+  const w = await world(opts);
+  w.renderer.useEmitters(
+    [vehicleDust as unknown as EmitterSpec, vehicleExhaust as unknown as EmitterSpec],
+    () => '#8E9491'
+  );
+  const dp = w.renderer as unknown as DustPriv;
+  const system = dp.particleSystem;
+  if (system === null) throw new Error('useEmitters did not build a ParticleSystem');
+  const inner = system.spawn.bind(system);
+  const spawns: { x: number; y: number; rootX: number; rootZ: number }[] = [];
+  system.spawn = (...args: unknown[]): void => {
+    const root = w.priv.vehicleMeshEntities.get(w.id)?.root.position;
+    spawns.push({ x: args[1] as number, y: args[2] as number, rootX: root?.x ?? NaN, rootZ: root?.z ?? NaN });
+    inner(...args);
+  };
+  return { ...w, dp, spawns };
+}
+
+describe('dust follows the vehicle it comes off (R-O)', () => {
+  it('spawns behind the DRAWN hull, not the tick-exact sim position', async () => {
+    const w = await dustWorld({ x: 3.5, y: 6.5 });
+    moveTo(w, 21.5, 6.5); // due +x: facing 0, the plume sits 0.55 tiles behind in -x
+    for (let t = 0; t < 30; t++) tickAndDraw(w);
+    expect(w.spawns.length).toBeGreaterThan(3); // it really is dusting
+    for (const s of w.spawns) {
+      // `VEHICLE_DUST_OFFSET_TILES` (0.55) behind the root, along facing 0.
+      expect(s.x).toBeCloseTo(s.rootX - 0.55, 9);
+      expect(s.y).toBeCloseTo(s.rootZ, 9);
+    }
+    // And the root is NOT where `curX` would have put the plume -- a lagged,
+    // interpolated hull at cruise sits well behind the last tick's position.
+    const last = w.spawns[w.spawns.length - 1];
+    expect(w.priv.curX[w.id] - last.rootX).toBeGreaterThan(0.03);
+  });
+});
+
+describe('the dust cadence follows speed and the launch', () => {
+  /** Dust spawn calls over `ms` of 60 fps frames at a held speed and launch
+   *  signal, straight through `updateVehicleAmbientFx`. */
+  async function dustCount(speed: number, accel: number, ms: number): Promise<number> {
+    const w = await dustWorld();
+    w.dp.entitySpeed[w.id] = speed;
+    w.dp.vehicleWeightAccel[w.id] = accel;
+    for (let t = 0; t < ms; t += FRAME_MS) w.dp.updateVehicleAmbientFx(FRAME_MS);
+    return w.spawns.length;
+  }
+
+  it('lays dust more often the faster a vehicle goes, and exactly as before at the reference speed', async () => {
+    const crawl = await dustCount(0.5, 0, 3000);
+    const reference = await dustCount(1.0, 0, 3000);
+    const fast = await dustCount(2.6, 0, 3000);
+    // 3 s at the old fixed 250 ms is 12 puffs; 500 ms is 6; the 150 ms floor
+    // is 20. One frame of phase either way.
+    expect(reference).toBeGreaterThanOrEqual(11);
+    expect(reference).toBeLessThanOrEqual(12);
+    expect(crawl).toBeLessThan(reference);
+    expect(fast).toBeGreaterThan(reference);
+  });
+
+  it('throws more dust while pulling away than at the same speed cruising', async () => {
+    const cruising = await dustCount(1.0, 0, 3000);
+    const launching = await dustCount(1.0, 1, 3000);
+    expect(launching).toBeGreaterThan(cruising);
+  });
+
+  it('never spawns on a call with no elapsed time, even after the interval shrank', async () => {
+    const w = await dustWorld();
+    w.dp.entitySpeed[w.id] = 1.0; // 250 ms
+    for (let f = 0; f < 14; f++) w.dp.updateVehicleAmbientFx(FRAME_MS); // 233 ms banked
+    expect(w.spawns.length).toBe(0);
+    // A hit-stop: the sim keeps ticking and the vehicle speeds up, while
+    // `frame()` hands this method 0. At 2.6 tiles/s the interval is 150 --
+    // the 233 ms already banked would buy a puff if a zero call could spend.
+    w.dp.entitySpeed[w.id] = 2.6;
+    for (let f = 0; f < 10; f++) w.dp.updateVehicleAmbientFx(0);
+    expect(w.spawns.length).toBe(0);
+  });
+
+  it('cannot bank a burst when the interval drops sharply', async () => {
+    const w = await dustWorld();
+    w.dp.entitySpeed[w.id] = 0.2; // 1250 ms
+    for (let f = 0; f < 12; f++) w.dp.updateVehicleAmbientFx(100); // 1200 ms banked, still under
+    expect(w.spawns.length).toBe(0);
+    w.dp.entitySpeed[w.id] = 2.6; // 150 ms: the bank is worth eight puffs
+    for (let f = 0; f < 5; f++) w.dp.updateVehicleAmbientFx(FRAME_MS); // 83 ms of real time
+    expect(w.spawns.length).toBe(1);
   });
 });

@@ -104,14 +104,13 @@ export function vehicleDustMagnitude(speedTilesS: number): number {
 }
 
 /**
- * The reference spawn interval today's shipped
- * `ThreeRenderer.updateVehicleAmbientFx` fires vehicle dust on, in ms.
- * Mirrored here rather than imported -- that private constant stays put in
- * `ThreeRenderer.ts` until Task 6's wiring retargets its call site onto
- * `vehicleDustIntervalMs` below, and this task's own scope is this file
- * alone. The two must read the same value until then, or
- * `vehicleDustIntervalMs`'s reference-speed result stops matching what
- * ships and the `vehicle` golden frame moves for no authored reason.
+ * The dust spawn interval at the reference speed
+ * (`VEHICLE_DUST_FULL_SPEED_TILES_S`), in ms -- the fixed cadence
+ * `ThreeRenderer.updateVehicleAmbientFx` fired every moving vehicle's dust on
+ * before WP-A1.3, kept as the point `vehicleDustIntervalMs` below scales
+ * from. Since that package's Task 6 this is the ONLY copy: the renderer's own
+ * private constant is gone and its dust cadence calls
+ * `vehicleDustIntervalMs` directly.
  */
 export const VEHICLE_DUST_INTERVAL_MS = 250;
 
@@ -203,11 +202,12 @@ export interface VehicleFxAnchor {
  * centre -- ground truth for both effects: dust is kicked up by the tracks/
  * wheels at the rear, and exhaust vents from the engine deck, which sits at
  * the rear on every roster vehicle. Both call sites pass the SAME facing and
- * position (`curX`/`curY`, the exact last-tick position turret math already
- * prefers over the interpolated one -- see `TurretSpringInput`'s own doc
- * comment for why), differing only in `offsetTiles`, so idling and moving
- * anchor at the same physical point on the hull and the transition between
- * them does not visibly jump.
+ * position, differing only in `offsetTiles`, so idling and moving anchor at
+ * the same physical point on the hull and the transition between them does
+ * not visibly jump. Since WP-A1.3 that position is the hull as DRAWN for a
+ * mesh vehicle (`entity.root.position`, the weight model's lag and the
+ * recoil shove included) so the plume comes off the hull the player sees,
+ * and `curX`/`curY` for a vehicle with no mesh entity, as before.
  */
 export function vehicleFxAnchor(cx: number, cy: number, facingNorm: number, offsetTiles: number): VehicleFxAnchor {
   const facingRad = facingNorm * Math.PI * 2;

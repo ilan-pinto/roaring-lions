@@ -220,7 +220,7 @@ import {
   SHELL_CAPACITY,
   BOLT_CAPACITY,
 } from './units/fx';
-import { nextVehicleMoving, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
+import { nextVehicleMoving, vehicleDustIntervalMs, vehicleDustMagnitude, vehicleFxAnchor } from './units/vehicle-fx';
 import {
   hullCornerOffsets,
   makeVehicleWeightArrays,
@@ -619,16 +619,22 @@ const VEHICLE_EXHAUST_OFFSET_TILES = 0.35;
 
 /**
  * How often (in ms) `updateVehicleAmbientFx` calls `particleSystem.spawn`
- * for a single moving/idling vehicle, one accumulator per entity
- * (`vehicleDustAccumMs`/`vehicleExhaustAccumMs`). Each spawn's own
- * `emit_over_ms` (`vehicle_dust.json`/`vehicle_exhaust.json`) is set to
- * MATCH the interval it is called on, so successive spawn windows tile
- * back-to-back with no gap and no overlap -- a continuously trickling cloud
- * built from repeated bursts, not a visibly popping one. Exhaust's interval
- * is longer than dust's on purpose: "thinner, slower" per the brief this
- * effect was built against, not merely a smaller particle count.
+ * for a single IDLING vehicle's exhaust, one accumulator per entity
+ * (`vehicleExhaustAccumMs`). `vehicle_exhaust.json`'s own `emit_over_ms` is
+ * set to MATCH it, so successive spawn windows tile back-to-back with no gap
+ * and no overlap -- a continuously trickling plume built from repeated
+ * bursts, not a visibly popping one. "Thinner, slower" than dust per the
+ * brief this effect was built against, not merely a smaller particle count.
+ *
+ * DUST has no constant here any more (WP-A1.3, R-O): its cadence is
+ * `vehicleDustIntervalMs(speed, accelFraction)` (`units/vehicle-fx.ts`),
+ * which reads exactly the old 250 ms at the 1.0 tiles/s reference speed,
+ * longer for a crawl and shorter at speed, floored at
+ * `VEHICLE_DUST_MIN_INTERVAL_MS` (150). `vehicle_dust.json`'s `emit_over_ms`
+ * stays 250, so above the reference speed successive windows overlap and
+ * below it they leave gaps -- which is what a denser and a sparser plume
+ * are.
  */
-const VEHICLE_DUST_INTERVAL_MS = 250;
 const VEHICLE_EXHAUST_INTERVAL_MS = 500;
 
 /**
@@ -638,8 +644,10 @@ const VEHICLE_EXHAUST_INTERVAL_MS = 500;
  * background, or a frame that waited on a 5-second GLB load, catches up in
  * one bounded step instead of a huge stride.
  *
- * It MUST stay below the smaller of the two intervals above, and that is a
- * load-bearing coupling rather than a coincidence -- see
+ * It MUST stay below the smallest interval either accumulator can be asked
+ * for -- `VEHICLE_EXHAUST_INTERVAL_MS` above and the dust floor
+ * `VEHICLE_DUST_MIN_INTERVAL_MS` (150, `units/vehicle-fx.ts`) -- and that is
+ * a load-bearing coupling rather than a coincidence -- see
  * `updateVehicleAmbientFx`'s own "the ceiling is load-bearing" section for
  * the measurement. A ceiling at or above an interval lets one frame bank
  * more than one spawn's worth of credit, and the accumulator spends credit
@@ -4012,12 +4020,24 @@ export class ThreeRenderer implements Renderer {
    * (`entitySpeed`, `curX`/`curY`, `state.facing`) are the SAME regardless
    * of which of those two paths currently draws it, and this way there is
    * exactly one place that decides "is this vehicle moving", not one copy
-   * per draw path that could disagree. `curX`/`curY` (last-tick exact
-   * position), not the frame-interpolated position `updateUnits` computes
-   * for its own billboard placement -- matching `TurretSpringInput`'s own
-   * documented preference for the same reason: this is a presentation
-   * decision that only needs to update once per SIM tick's worth of motion,
-   * not resmoothed every render frame.
+   * per draw path that could disagree.
+   *
+   * WHERE a puff spawns is the one thing that does depend on the draw path
+   * (WP-A1.3, R-O). A mesh vehicle's anchor is the hull `updateVehicleMeshes`
+   * DREW this frame -- `entity.root.position`, read back, never recomputed:
+   * the weight model's lag and the recoil shove included -- so the plume comes
+   * off the hull the player sees rather than leading it by up to a tick of
+   * travel plus the lag. `updateVehicleMeshes` runs just before this in
+   * `frame()`, so that position is this frame's. A vehicle with no mesh
+   * entity (a billboard type, `&nomesh`) keeps `curX`/`curY`, exactly as
+   * before. For a vehicle the sim reports stationary and that is not
+   * recoiling the two are the same number to the bit: its interpolation is
+   * its sim position and its lag is forced to zero.
+   *
+   * HOW OFTEN dust spawns is `vehicleDustIntervalMs(speed, accelFraction)`
+   * (`units/vehicle-fx.ts`): the sim's own tick-exact speed, and the weight
+   * model's launch signal from `updateVehicleMeshes` this frame
+   * (`vehicleWeightAccel`, 0 for anything it does not step).
    *
    * `!type.isSoft` is this file's own established vehicle test (see
    * `onFire`'s "rather than Pixi's `!type.isSoft`" comment above, and
@@ -4055,11 +4075,27 @@ export class ThreeRenderer implements Renderer {
    * decaying, never reaching zero, on a budget of 0.00036.
    *
    * With the clamp the accumulator can never hold more than one interval:
-   * it starts a frame below `VEHICLE_*_INTERVAL_MS`, gains at most
-   * `FRAME_DT_CEILING_MS` (100, under both intervals), and a spawn takes a
-   * whole interval back off it. So a repaint handed 0 ms adds nothing,
-   * crosses nothing and spawns nothing -- which is also the only reading
-   * that makes the gate's layer toggles measure the layer.
+   * it starts a frame below its interval, gains at most
+   * `FRAME_DT_CEILING_MS` (100, under every interval either accumulator can
+   * be asked for), and a spawn takes a whole interval back off it. So a
+   * repaint handed 0 ms adds nothing, crosses nothing and spawns nothing --
+   * which is also the only reading that makes the gate's layer toggles
+   * measure the layer.
+   *
+   * A SPEED-DRIVEN dust interval needs two more lines to keep that true,
+   * because the interval itself can now shrink between two calls -- a
+   * vehicle speeding up, or a launch surge starting -- and credit banked
+   * against the old, longer interval would otherwise be worth several puffs
+   * under the new one:
+   *  - a call with no elapsed time never spawns dust, whatever the
+   *    accumulator holds. The one moment the interval moves while the clock
+   *    does not is a blast's hit-stop, when `frame()` passes 0 here while the
+   *    sim keeps ticking underneath and `entitySpeed` changes;
+   *  - after a spawn, whole intervals of credit left over are dropped
+   *    (`%`), so one frame buys at most one puff and the accumulator ends
+   *    below its interval again.
+   * Neither ever acts at a constant interval: there the accumulator already
+   * ends every call below it.
    *
    * It is the right behaviour for a player quite apart from the gate: a
    * 5-second load frame used to buy eleven puffs' worth of exhaust, dribbled
@@ -4097,10 +4133,18 @@ export class ThreeRenderer implements Renderer {
         this.vehicleExhaustAccumMs[i] = 0;
         if (!dust) continue;
         this.vehicleDustAccumMs[i] += dt;
-        if (this.vehicleDustAccumMs[i] < VEHICLE_DUST_INTERVAL_MS) continue;
-        this.vehicleDustAccumMs[i] -= VEHICLE_DUST_INTERVAL_MS;
+        const interval = vehicleDustIntervalMs(speed, this.vehicleWeightAccel[i]);
+        // No elapsed time, no dust -- see "a speed-driven dust interval" above.
+        if (dt <= 0 || this.vehicleDustAccumMs[i] < interval) continue;
+        this.vehicleDustAccumMs[i] = (this.vehicleDustAccumMs[i] - interval) % interval;
 
-        const anchor = vehicleFxAnchor(this.curX[i], this.curY[i], facingNorm, VEHICLE_DUST_OFFSET_TILES);
+        const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+        const anchor = vehicleFxAnchor(
+          drawn ? drawn.x : this.curX[i],
+          drawn ? drawn.z : this.curY[i],
+          facingNorm,
+          VEHICLE_DUST_OFFSET_TILES
+        );
         const magnitude = vehicleDustMagnitude(speed);
         const prio = dust.budget_priority ?? 2;
         for (const layer of dust.particles) {
@@ -4114,7 +4158,13 @@ export class ThreeRenderer implements Renderer {
         if (this.vehicleExhaustAccumMs[i] < VEHICLE_EXHAUST_INTERVAL_MS) continue;
         this.vehicleExhaustAccumMs[i] -= VEHICLE_EXHAUST_INTERVAL_MS;
 
-        const anchor = vehicleFxAnchor(this.curX[i], this.curY[i], facingNorm, VEHICLE_EXHAUST_OFFSET_TILES);
+        const drawn = this.vehicleMeshEntities.get(i)?.root.position;
+        const anchor = vehicleFxAnchor(
+          drawn ? drawn.x : this.curX[i],
+          drawn ? drawn.z : this.curY[i],
+          facingNorm,
+          VEHICLE_EXHAUST_OFFSET_TILES
+        );
         const prio = exhaust.budget_priority ?? 1;
         for (const layer of exhaust.particles) {
           const fxLayer = fxLayerIndex(exhaust.layer, layer.additive ?? false);
