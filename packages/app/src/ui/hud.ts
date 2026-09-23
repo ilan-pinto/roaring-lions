@@ -26,8 +26,9 @@
 // that the strip's inline clock and the big centred clock cannot derive the
 // same number twice, and so that "can this selection unload" is answered once.
 
-import { fx, type LedgerRosterEntry, type Sim } from '@lions/sim';
+import { fx, type Sim } from '@lions/sim';
 import type { ResolvedCommander } from '../campaign';
+import type { RosterEntry } from '../ledger-store';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
@@ -171,8 +172,20 @@ export interface HudDeps {
   /** The campaign roster entry a fielded unit was drawn from, if any -- the
    *  card's callsign and service record. Absent in tests and for a fresh spawn
    *  with no campaign history. Readonly, matching `MissionRuntime.rosterEntryOf`:
-   *  this is the runtime's own entry, not a copy, and the HUD only ever reads it. */
-  rosterEntryOf?: (id: number) => Readonly<LedgerRosterEntry> | undefined;
+   *  this is the runtime's own entry, not a copy, and the HUD only ever reads it.
+   *  Widened to `RosterEntry` (app-side, `slot` optional) rather than the sim's
+   *  own `LedgerRosterEntry` -- `main.ts` hands over the runtime's entry
+   *  unchanged, and the widening is free because `slot` is optional. */
+  rosterEntryOf?: (id: number) => Readonly<RosterEntry> | undefined;
+  /** The memorial record for whoever last held this slot before it was
+   *  refilled (WP-G-E4, R-6), or `undefined` if the slot has never been lost --
+   *  the common case, and a fresh spawn's absent `entry.slot` never calls this
+   *  at all. A closure over the ledger's `roster.lost`, not a snapshot, for the
+   *  same reason `rosterEntryOf` above is one: the ledger `main.ts` holds is
+   *  rebound at mission end. `type` already carries a resolved display name
+   *  (the same lookup `units[type]?.name ?? type` the debrief uses) -- never a
+   *  raw sim type id -- so `cardHtml`'s own fallback never has to resolve one. */
+  predecessorOf?: (slot: number) => { name?: string; type: string; missionName?: string } | undefined;
   /** Narrow the selection to one chip's sub-group. */
   setSelection?: (ids: number[]) => void;
   /** Game speed as a multiplier: 0 paused, 1 normal, 2 double. The strip owns
@@ -1525,6 +1538,19 @@ export class Hud {
         ? `<div class="rl-card__record rl-dim">${t('hud.card.record', { missions: entry.missions ?? 0, kills: entry.kills ?? 0 })}</div>`
         : '';
 
+    // Whose place this is (WP-G-E4, R-6): only looked up when the entry
+    // actually carries a slot -- a fresh spawn's `entry?.slot` is `undefined`
+    // and must never reach `predecessorOf` at all, since a save with no
+    // ledger behind it has no `roster.lost` to search. `predecessor.name`
+    // already carries a resolved display name when absent, so this never
+    // shows a raw sim id, and `escapeHtml` is not optional: a callsign is
+    // player-visible data that arrives from a save file.
+    const predecessor = entry?.slot !== undefined ? this.deps.predecessorOf?.(entry.slot) : undefined;
+    const replaces =
+      predecessor !== undefined
+        ? `<div class="rl-card__replaces rl-dim">${t('hud.card.replaces', { predecessor: escapeHtml(predecessor.name ?? predecessor.type) })}</div>`
+        : '';
+
     // Condition: only what is actually true right now. Unchanged from the panel
     // this replaces — the list is the product of a dozen play sessions and the
     // layout around it is what GH-153 is changing, not the facts in it.
@@ -1591,6 +1617,7 @@ export class Hud {
       `<span class="rl-card__hp rl-dim">${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}</span>` +
       `</div>` +
       record +
+      replaces +
       `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +
       `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
       `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : t('hud.card.holdingPosition')}</div>` +

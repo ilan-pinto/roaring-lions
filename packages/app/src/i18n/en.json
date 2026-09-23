@@ -304,6 +304,7 @@
   "hud.chip.selectOnly": "{name} ×{count} — click to select only these",
   "hud.card.hp": "{now} / {max} hp",
   "hud.card.record": "{missions, plural, one {# mission} other {# missions}} · {kills, plural, one {# kill} other {# kills}}",
+  "hud.card.replaces": "in {predecessor}'s place",
   "hud.card.broken": "BROKEN",
   "hud.card.pinned": "PINNED",
   "hud.card.inBuilding": "in a building",

@@ -2458,6 +2458,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.
     rosterEntryOf: (id) => runtime?.rosterEntryOf(id),
+    // A closure over the ledger, not a snapshot -- exactly like `rosterEntryOf`
+    // above -- `ledger` is rebound at mission end and a captured array would
+    // answer about the campaign as it was when the battlefield booted. `type`
+    // is resolved to a display name here, through the same `units[type]?.name
+    // ?? type` lookup the debrief's own memorial rows use (`unitLost`'s `unit`
+    // field, and `lostRecordFor`'s `type`, are both the sim's raw type id) --
+    // the card must never show a raw sim id to the player.
+    predecessorOf: (slot) => {
+      const record = predecessorOf(ledger['roster.lost'] ?? [], slot);
+      if (record === undefined) return undefined;
+      return {
+        ...(record.name !== undefined ? { name: record.name } : {}),
+        type: units[record.type as keyof typeof units]?.name ?? record.type,
+        missionName: (missions as Record<string, MissionJson | undefined>)[record.missionId]?.name,
+      };
+    },
     setSelection: (ids) => {
       renderer.selection = ids;
       dispatch({ kind: 'select', ids, via: 'click' });
