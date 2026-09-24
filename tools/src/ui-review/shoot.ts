@@ -7,7 +7,7 @@
 // the way `tools/src/perf/wreck-captures.ts` does, so it runs unattended --
 // no positional base-URL argument, no assumption a server is already up.
 //
-// Usage: pnpm ui:shots -- [--pseudo] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots] [--port=5176]
+// Usage: pnpm ui:shots -- [--pseudo] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots] [--port=5176] [--only=garage]
 //
 // The port is `--port=<n>`, else `UI_SHOTS_PORT`, else 5176 (`./port.ts`). A
 // port something else already holds is REFUSED, exit 2, before a browser or a
@@ -17,10 +17,22 @@
 // Writes <out>/<WxH>/NN-<state>.png for the twenty-five states below (Phase
 // 0 shipped seventeen; Phase 2's Task 14 added 18-hud-alert, 19-objectives,
 // 20-keys, 21-tooltip, 22-groups and 23-minimap-ping; Phase 3's Task 6 added
-// 25-outcome-defeat and 24-outcome-victory). Every later task's acceptance is
-// read off these files -- see
-// .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/ and
-// .superpowers/sdd/2026-09-18-shell-upgrade-phase-2/.
+// 25-outcome-defeat and 24-outcome-victory), plus the four garage-uplift
+// states below (WP-S3g T4/T8): 03b-brigade-kitted, 03c-brigade-preview,
+// 03d-brigade-locked and 07c-hud-card-kitted, every one shot on a SEEDED
+// page (`./garage-seed.ts`) rather than the fresh, kit-less account
+// `03-brigade` itself photographs. Every later task's acceptance is read off
+// these files -- see .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/,
+// .superpowers/sdd/2026-09-18-shell-upgrade-phase-2/ and
+// .superpowers/sdd/2026-09-25-garage-uplift-app/.
+//
+// `--only=garage` narrows a run to the garage's own four states: each
+// resolution shoots `03-brigade` on the unseeded page (the "before" the
+// garage shots are read against) and then the four states above, skipping
+// the menu/campaign/HUD walk entirely -- Task 8's look tasks drive this
+// instead of hand-rolling a server visit. Any other `--only` value is
+// refused, exit 2, before a browser or a server starts, the same convention
+// `./port.ts` uses for a bad port.
 //
 // `--pseudo` appends `?pseudo=1` to every navigation (`url()` below), which
 // swaps the real catalogue for the bracketed pseudo-locale one
@@ -77,6 +89,7 @@ import {
   stopDevServer,
   waitForHostCrossfade,
 } from '../golden-diff/browser';
+import { garageSeedScript } from './garage-seed';
 import { assertOutcomeStillPresent } from './outcome-guard';
 import { claimPort } from './port';
 
@@ -101,6 +114,14 @@ const arg = (name: string, fallback: string): string => {
 // `--name=value` pair, so it is read straight off argv rather than through
 // `arg()`.
 const PSEUDO = argv.includes('--pseudo');
+// `''` (unset) or `'garage'` -- anything else is a typo, and the tool's own
+// convention (`./port.ts`'s bad-port refusal) is to say so and exit 2 before
+// a browser or a server starts, rather than silently running the full walk.
+const ONLY = arg('only', '');
+if (ONLY !== '' && ONLY !== 'garage') {
+  console.error(`[${TAG}] --only="${ONLY}" is not recognised; the only value accepted is "garage"`);
+  process.exit(2);
+}
 // Resolved against the repo root, not process.cwd(): `pnpm ui:shots` always
 // reaches this file through `pnpm --filter @lions/tools`, which runs the
 // script with cwd set to tools/ (verified directly: `pnpm --filter
@@ -241,6 +262,89 @@ const BASE = `http://localhost:${PORT}`;
 // route it is rather than a hand-built query string. Named `p`, not `path`,
 // so it does not shadow the `node:path` import above.
 const url = (p: string): string => `${BASE}${p}${PSEUDO ? `${p.includes('?') ? '&' : '?'}pseudo=1` : ''}`;
+
+/**
+ * The garage-uplift states (WP-S3g T4/T8): a plate stat panel with a fully
+ * kitted unit, a rung's preview, a locked unit's card, and a HUD card marked
+ * with the kit level a garage purchase earned it -- every one shot on the
+ * seed (`./garage-seed.ts`), never on `03-brigade`'s own fresh, kit-less
+ * page. A NEW context, seeded through `addInitScript` before any script of
+ * the page itself runs -- the same isolation `plateCtx` above uses for its
+ * own one-off state -- so the seed can never reach the main walk's `page`
+ * and leak onto a real mission below it.
+ */
+async function garageStates(browser: Browser, res: { width: number; height: number }, dir: string): Promise<void> {
+  const ctx = await browser.newContext({
+    viewport: { width: res.width, height: res.height },
+    deviceScaleFactor: 1,
+  });
+  await ctx.addInitScript(garageSeedScript());
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(30000);
+
+  await page.goto(url('/brigade'), { waitUntil: 'load' });
+  await settle(page, 1500);
+
+  // 03b-brigade-kitted: the seed's own fully-upgraded unit in the bay.
+  await page.click('.rl-garage__card[data-unit="mbt_lavi"]');
+  await settle(page, 600);
+  await shot(page, dir, '03b-brigade-kitted');
+
+  // 03c-brigade-preview: a unit the seed left one tier short (F4's own
+  // "scrolled away" preview panel), a track's next rung hovered so the stat
+  // panel shows the change before the money is spent.
+  await page.click('.rl-garage__card[data-unit="at_team"]');
+  await page.hover('.rl-garage__track[data-track="firepower"] .rl-garage__rung[data-tier="2"]');
+  await settle(page, 400);
+  await shot(page, dir, '03c-brigade-preview');
+
+  // 03d-brigade-locked (controller ruling T8): `ifv_namer` needs Conduct 85
+  // and the seed's four missions average 83 (332 of the 340 a floor of 85
+  // over four ratings needs -- `conductAtLeast`, `packages/sim/src/unlock.ts`)
+  // -- locked by a hair, not by a stars gate this seed also fails, so the
+  // card reads "requires campaign Conduct 85" rather than a stars sentence.
+  await page.click('.rl-garage__card[data-unit="ifv_namer"]');
+  await settle(page, 400);
+  await shot(page, dir, '03d-brigade-locked');
+
+  // 07c-hud-card-kitted: the same kit, seen on the battlefield rather than in
+  // the garage. `beit_sahwan_outskirts` is the sandbox's own default map
+  // (CLAUDE.md's dev-instruments section), walked with a full task force from
+  // its markers -- no mission needed. A timeout here is evidence of a slow
+  // boot, not a defect in what this state exists to show, so it is logged and
+  // skipped rather than failing the whole run.
+  await page.goto(url('/free-play/beit_sahwan_outskirts'), { waitUntil: 'load' });
+  const reachedLions = await page
+    .waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined, null, {
+      timeout: 60000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (!reachedLions) {
+    console.log(`  07c skipped: window.__lions did not appear within 60 s`);
+  } else {
+    // Selected, not merely centred on: the state is named for the HUD's own
+    // selection card (the kit mark it draws, `ui/kit-sign.ts`), which only
+    // renders for a unit `sel()` has actually picked -- the same call
+    // `07-hud-selection-squad` above makes for the same reason.
+    const centred = await page.evaluate(() => {
+      const L = (window as LionsWindow).__lions;
+      if (!L) return false;
+      const squad = L.units().find((u) => u.type === 'inf_squad');
+      if (!squad) return false;
+      L.sel([squad.id]);
+      L.renderer.camera.x = squad.x;
+      L.renderer.camera.y = squad.y;
+      return true;
+    });
+    if (!centred) console.log('  07c skipped: the sandbox force has no inf_squad to centre on');
+    await settle(page, 700);
+    await shot(page, dir, '07c-hud-card-kitted');
+  }
+
+  await ctx.close();
+}
+
 const devServer = await ensureDevServer(PORT, REPO_ROOT, TAG);
 let browser: Browser | null = null;
 try {
@@ -289,44 +393,61 @@ try {
     const page = await ctx.newPage();
     page.setDefaultTimeout(30000);
 
-    await page.goto(url('/'), { waitUntil: 'load' });
-    await settleMenuHost(page);
-    await shot(page, dir, '01-menu');
+    // `--only=garage` skips the menu/campaign walk entirely: none of it is
+    // read by a garage look task, and every one of these states is already
+    // covered by the normal (non-`--only`) run.
+    if (ONLY !== 'garage') {
+      await page.goto(url('/'), { waitUntil: 'load' });
+      await settleMenuHost(page);
+      await shot(page, dir, '01-menu');
 
-    // Task 8: the reduced-motion plate path (spec §3.4), on its OWN context
-    // so `reducedMotion: 'reduce'` never leaks onto `page` above, which keeps
-    // driving the live menu and every mission below it -- the same isolation
-    // `backCtx`/`winCtx` use elsewhere in this file for a state that needs a
-    // setting the main page must not carry forward. Waits for `data-host`
-    // to reach `plate` specifically (not merely "not pending"): a reduced-
-    // motion visit that somehow went `live` would be the defect this state
-    // exists to catch, not a reason to shoot it anyway.
-    {
-      const plateCtx = await browser.newContext({
-        viewport: { width: res.width, height: res.height },
-        deviceScaleFactor: 1,
-        reducedMotion: 'reduce',
-      });
-      const platePage = await plateCtx.newPage();
-      platePage.setDefaultTimeout(30000);
-      await platePage.goto(url('/'), { waitUntil: 'load' });
-      await platePage
-        .waitForFunction(
-          () => document.querySelector('.rl-scene-host')?.getAttribute('data-host') === 'plate',
-          null,
-          { timeout: 30000 }
-        )
-        .catch(() => undefined);
-      await shot(platePage, dir, '01b-menu-plate');
-      await plateCtx.close();
+      // Task 8: the reduced-motion plate path (spec §3.4), on its OWN context
+      // so `reducedMotion: 'reduce'` never leaks onto `page` above, which keeps
+      // driving the live menu and every mission below it -- the same isolation
+      // `backCtx`/`winCtx` use elsewhere in this file for a state that needs a
+      // setting the main page must not carry forward. Waits for `data-host`
+      // to reach `plate` specifically (not merely "not pending"): a reduced-
+      // motion visit that somehow went `live` would be the defect this state
+      // exists to catch, not a reason to shoot it anyway.
+      {
+        const plateCtx = await browser.newContext({
+          viewport: { width: res.width, height: res.height },
+          deviceScaleFactor: 1,
+          reducedMotion: 'reduce',
+        });
+        const platePage = await plateCtx.newPage();
+        platePage.setDefaultTimeout(30000);
+        await platePage.goto(url('/'), { waitUntil: 'load' });
+        await platePage
+          .waitForFunction(
+            () => document.querySelector('.rl-scene-host')?.getAttribute('data-host') === 'plate',
+            null,
+            { timeout: 30000 }
+          )
+          .catch(() => undefined);
+        await shot(platePage, dir, '01b-menu-plate');
+        await plateCtx.close();
+      }
+
+      await page.goto(url('/campaign'), { waitUntil: 'load' });
+      await settle(page, 7000);
+      await shot(page, dir, '02-campaign');
     }
 
-    await page.goto(url('/campaign'), { waitUntil: 'load' });
-    await settle(page, 7000);
-    await shot(page, dir, '02-campaign');
     await page.goto(url('/brigade'), { waitUntil: 'load' });
     await settle(page, 3000);
     await shot(page, dir, '03-brigade');
+
+    // The garage-uplift states (WP-S3g T4/T8): a SEEDED context, never this
+    // unseeded `page`, so the seed cannot leak onto the sandbox mission the
+    // main walk boots below.
+    await garageStates(browser, res, dir);
+
+    if (ONLY === 'garage') {
+      await ctx.close();
+      continue;
+    }
+
     await page.goto(url('/free-play'), { waitUntil: 'load' });
     await settle(page, 2500);
     await shot(page, dir, '04-sandboxes');
