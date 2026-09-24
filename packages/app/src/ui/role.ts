@@ -38,6 +38,22 @@ export function roleBucket(type: {
   return type.isSoft ? 'soft' : 'armour';
 }
 
+/**
+ * Whether a unit in `unitBucket` should show under the garage rail's selected
+ * tab (`'all'`, or one of the seven buckets `roleBucket` returns). Extracted
+ * from `brigade.ts`'s `syncTabs`, where this was an inline expression with no
+ * test of its own (GH-237) -- the actual bug there was `theme.css` letting
+ * `.rl-garage__card`'s unconditional `display: flex` beat the native
+ * `hidden` attribute the tab click sets, so every card kept drawing at full
+ * size regardless of what this predicate said. Pulling the decision out to a
+ * pure function does not touch that CSS fix; it means the ANSWER a tab click
+ * computes has one small, direct test, separate from whether the DOM element
+ * that answer gets written to actually renders it.
+ */
+export function bucketVisible(unitBucket: RoleBucket, selected: RoleBucket | 'all'): boolean {
+  return selected === 'all' || unitBucket === selected;
+}
+
 /** The inspect card's glyphs, unchanged from what hud.ts drew inline. */
 export const ROLE_GLYPH: Record<RoleBucket, string> = {
   kamikaze: '✹',

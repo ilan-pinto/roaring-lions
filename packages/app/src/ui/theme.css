@@ -3905,6 +3905,16 @@ button.rl-menu__item[data-kind='aside'] {
   border: 1px solid var(--panel-frame);
   cursor: pointer;
 }
+/* `brigade.ts`'s role-tab filter hides a non-matching card with the native
+   `hidden` attribute, and this rule's own unconditional `display: flex` above
+   beats the UA's `[hidden] { display: none }` regardless of specificity --
+   author rules always win over UA ones (GH-237, the same trap
+   `.rl-cmd__face-img`'s comment already names). Every card kept rendering at
+   full size with a false `hidden` attribute; clicking a tab changed the DOM
+   and changed nothing on screen. */
+.rl-garage__card[hidden] {
+  display: none;
+}
 .rl-garage__card:hover,
 .rl-garage__card:focus-visible {
   border-color: var(--accent);

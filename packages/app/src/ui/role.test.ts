@@ -6,7 +6,7 @@
 // zoneContains in the slice before this one.
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
-import { ROLE_GLYPH, ROLE_LABEL, roleBucket, roleLabel, type RoleBucket } from './role';
+import { bucketVisible, ROLE_GLYPH, ROLE_LABEL, roleBucket, roleLabel, type RoleBucket } from './role';
 
 /** The four fields the classifier reads, defaulted to an armour unit. */
 function unit(over: Partial<Parameters<typeof roleBucket>[0]> = {}) {
@@ -44,6 +44,25 @@ describe('roleBucket', () => {
       'kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour',
     ];
     for (const b of buckets) expect(ROLE_GLYPH[b]).toBeTruthy();
+  });
+});
+
+describe('bucketVisible', () => {
+  // The garage rail's whole filter (`brigade.ts`'s `syncTabs`) is this one
+  // decision, made once per card per tab click. GH-237's actual bug was never
+  // in this predicate -- it was `theme.css` letting a hidden card keep
+  // drawing -- but the predicate had no test of its own before this, and a
+  // wrong answer here would have been just as invisible to a player as the
+  // CSS bug was.
+  it('shows everything under the "all" tab, whatever the unit\'s own bucket', () => {
+    const buckets: RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
+    for (const b of buckets) expect(bucketVisible(b, 'all')).toBe(true);
+  });
+
+  it('shows a unit only under its own bucket\'s tab', () => {
+    expect(bucketVisible('transport', 'transport')).toBe(true);
+    expect(bucketVisible('transport', 'armour')).toBe(false);
+    expect(bucketVisible('armour', 'transport')).toBe(false);
   });
 });
 

@@ -843,6 +843,63 @@ try {
     );
   }
 
+  // --- the garage filter (GH-237): a role tab must actually narrow the roster
+  //
+  // The reported bug was never in `brigade.ts`: `syncTabs` always set the
+  // native `hidden` attribute on the right cards. It never showed on screen
+  // because `theme.css`'s `.rl-garage__card` rule sets an unconditional
+  // `display: flex`, and a normal AUTHOR declaration beats the UA's own
+  // `[hidden] { display: none }` regardless of specificity or source order --
+  // the exact trap `.rl-cmd__face-img`'s own comment already names. No unit
+  // test can see this: jsdom's `getComputedStyle` answers a hidden element's
+  // `display` from the DOM property directly rather than from a real
+  // cascade, so it reads `none` whether or not the CSS override exists
+  // (checked by hand against this worktree's fixed `theme.css` and the
+  // pre-fix version -- identical either way). A real, rendered browser is the
+  // only oracle for it, which is why this lives here rather than in a
+  // `*.test.ts`. It asserts on the actual painted box, never on `hidden`
+  // alone, so a regression back to the old CSS fails this exactly as it
+  // failed a player.
+  await page.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+  await page.waitForSelector('.rl-garage__tab[data-bucket="all"]');
+  const paintedCardIds = (): Promise<(string | null)[]> =>
+    page.$$eval('.rl-garage__card', (els) =>
+      els
+        .filter((e) => getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().height > 0)
+        .map((e) => e.getAttribute('data-unit'))
+    );
+  const otherBuckets = await page.$$eval('.rl-garage__tab', (els) =>
+    els.map((e) => e.getAttribute('data-bucket')).filter((b): b is string => b !== null && b !== 'all')
+  );
+  expect(otherBuckets.length > 0, 'garage: the starting roster fills only one role bucket, so no tab can be tested');
+  if (otherBuckets.length > 0) {
+    const bucket = otherBuckets[0];
+    const allPainted = await paintedCardIds();
+    await page.click(`.rl-garage__tab[data-bucket="${bucket}"]`);
+    const filteredPainted = await paintedCardIds();
+    const expectedIds = await page.$$eval(
+      '.rl-garage__card',
+      (els, b) => els.filter((e) => e.getAttribute('data-bucket') === b).map((e) => e.getAttribute('data-unit')),
+      bucket
+    );
+    console.log(
+      `[${TAG}] garage filter: "all" paints ${allPainted.length} card(s), "${bucket}" paints ` +
+        `${filteredPainted.length} of ${expectedIds.length} expected`
+    );
+    expect(
+      filteredPainted.length < allPainted.length,
+      `garage: clicking the "${bucket}" tab left ${filteredPainted.length} of ${allPainted.length} cards ` +
+        `painted -- the roster did not narrow at all`
+    );
+    const same =
+      filteredPainted.length === expectedIds.length && expectedIds.every((id) => filteredPainted.includes(id));
+    expect(
+      same,
+      `garage: the "${bucket}" tab paints ${JSON.stringify(filteredPainted)}, expected exactly ` +
+        `${JSON.stringify(expectedIds)}`
+    );
+  }
+
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {
   if (browser) await browser.close();
