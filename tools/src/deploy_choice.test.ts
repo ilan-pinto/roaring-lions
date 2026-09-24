@@ -273,14 +273,19 @@ describe('the deploy choice, against the real spawner', () => {
 
 // --------------------------------------------------- the renderer re-seed
 //
-// Task 4 review, fix round 1. Moving the runtime past the deploy screen put
-// the spawn AFTER `renderer.init()`, and both backends' `init()` end by
-// snapshotting `sim.state` twice to seed their interpolation and their fog --
-// from what is now an empty sim. `startMission` (`mission-start.ts`) is the
-// function `main.ts` builds the runtime through, and it re-seeds the renderer
-// after the spawn. This drives it through the same deploy path as everything
-// above, with a stand-in renderer, and goes red if the re-seed is skipped or
-// cut short.
+// Task 4 review, fix round 1; made one call by the `Renderer.reseed()`
+// follow-up. Moving the runtime past the deploy screen put the spawn AFTER
+// `renderer.init()`, and `init()` seeds the renderer from the sim -- its
+// interpolation, its fog, its structure instancers -- from what is now a sim
+// with no units and none of the mission's own structures in it.
+// `startMission` (`mission-start.ts`) is the function `main.ts` builds the
+// runtime through, and it calls `renderer.reseed()` after the spawn. What a
+// reseed re-derives is each backend's business and is tested beside each
+// backend (`ThreeRenderer.reseed.test.ts`, `renderer.reseed.test.ts`); what
+// is tested HERE is the app's half: that the call is made, once, and after
+// the runtime has spawned the force and raised the mission's structures.
+// This drives it through the same deploy path as everything above, with a
+// stand-in renderer, and goes red if the reseed is skipped or made too early.
 
 /** Living side-0 units: what both backends' fog reveals from. */
 const livingSide0 = (sim: Sim): number => {
@@ -290,64 +295,53 @@ const livingSide0 = (sim: Sim): number => {
 };
 
 /**
- * A stand-in for exactly the renderer state the re-seed is coupled to, modelled
- * on both backends' `snapshot()` (`ThreeRenderer.snapshot()` and
- * `PixiRenderer.snapshot()`, cited by name because WP-A1.3 moves every line in
- * `ThreeRenderer.ts`) and nothing else: `prev`/`cur` position copies taken
- * from `sim.state` on every call, a "moved" flag standing in for the speed
- * those copies imply, and the fog gate that refreshes on every call where
- * `fogTick++ % 4 === 0`, recording how many living side-0 units the refresh
- * saw. Its numbers are literals of its own, never imported from the module
- * under test, so a change to `RESEED_SNAPSHOTS` cannot move both sides at once.
+ * A stand-in for the renderer half of the seam `startMission` drives: `init`
+ * and `reseed`, and what each saw of the sim at the moment it ran -- the
+ * living side-0 units a fog refresh would reveal from, the structures an
+ * instancer would be sized for, and where every entity stood. It models the
+ * contract (`api.ts`: "exactly as if `init` had run now"), not either
+ * backend's mechanism, so it has no snapshot count or fog phase to drift.
  */
 class SeedRecorder {
-  calls = 0;
-  private fogTick = 0;
-  /** Living side-0 units the fog saw at each refresh, in order. */
-  readonly fogRefreshes: number[] = [];
-  readonly prevX: Int32Array;
-  readonly prevY: Int32Array;
-  readonly curX: Int32Array;
-  readonly curY: Int32Array;
+  reseedCalls = 0;
+  /** Living side-0 units at each seed, `init` first. */
+  readonly forceSeen: number[] = [];
+  /** `sim.structureCount` at each seed, `init` first. */
+  readonly structuresSeen: number[] = [];
+  /** Every entity's position at the most recent seed. */
+  readonly seenX: Int32Array;
+  readonly seenY: Int32Array;
   constructor(private readonly sim: Sim) {
     const n = sim.state.posX.length;
-    this.prevX = new Int32Array(n);
-    this.prevY = new Int32Array(n);
-    this.curX = new Int32Array(n);
-    this.curY = new Int32Array(n);
+    this.seenX = new Int32Array(n);
+    this.seenY = new Int32Array(n);
   }
-  /** What both backends' `init()` end with: the two `snapshot()` calls in
-   *  `ThreeRenderer.init()` (under "Seeds prevX/prevY == curX/curY from the
-   *  sim's actual starting positions") and `PixiRenderer.init()` ("prev ==
-   *  cur on the first frame"). */
   init(): void {
-    this.snapshot();
-    this.snapshot();
+    this.seed();
   }
-  snapshot(): void {
-    this.calls++;
-    if (this.fogTick++ % 4 === 0) this.fogRefreshes.push(livingSide0(this.sim));
-    this.prevX.set(this.curX);
-    this.prevY.set(this.curY);
+  reseed(): void {
+    this.reseedCalls++;
+    this.seed();
+  }
+  private seed(): void {
+    this.forceSeen.push(livingSide0(this.sim));
+    this.structuresSeen.push(this.sim.structureCount);
     for (let i = 0; i < this.sim.entityCount; i++) {
-      this.curX[i] = this.sim.state.posX[i];
-      this.curY[i] = this.sim.state.posY[i];
+      this.seenX[i] = this.sim.state.posX[i];
+      this.seenY[i] = this.sim.state.posY[i];
     }
-  }
-  moved(id: number): boolean {
-    return this.curX[id] !== this.prevX[id] || this.curY[id] !== this.prevY[id];
   }
 }
 
 describe('the renderer is re-seeded from the force that just spawned', () => {
-  it('after the deploy path: every unit at its spawn, still, and the latest fog refresh saw the whole force', () => {
+  it('after the deploy path: one reseed, taken with every unit at its spawn and every mission structure raised', () => {
     const stage = missionStage(MISSION_ID);
     const r = new SeedRecorder(stage.sim);
     // `main.ts`'s order since Task 4: `renderer.init()` first, on a sim with
-    // nothing in it yet...
+    // the map's structures and nothing else in it yet...
     r.init();
-    expect(r.fogRefreshes, 'premise: init() seeds the fog from an empty sim').toEqual([0]);
-    // ...then the deploy choice, the spawn and the re-seed, in one call.
+    expect(r.forceSeen, 'premise: init() seeds from a sim with no units').toEqual([0]);
+    // ...then the deploy choice, the spawn and the reseed, in one call.
     const sel = benchErezFieldNachshon(view());
     startMission(stage.sim, stage.mission, stage.context(deployedLedger(campaign(), sel)), r);
 
@@ -355,24 +349,27 @@ describe('the renderer is re-seeded from the force that just spawned', () => {
     const force: number[] = [];
     for (let id = 0; id < sim.entityCount; id++) if (sim.state.alive[id] === 1 && sim.state.side[id] === 0) force.push(id);
     expect(force.length, 'the mission fielded no force at all').toBeGreaterThan(0);
+    expect(
+      sim.structureCount,
+      `premise: ${MISSION_ID} raises structures of its own, so the reseed has some to catch`
+    ).toBeGreaterThan(r.structuresSeen[0]);
 
-    // Two from init(), three from the re-seed: the least that lands a fog
-    // refresh after the spawn (see the fog check below).
-    expect(r.calls).toBe(5);
+    // Exactly one: the backend owns what a reseed means, so the app has no
+    // count to get right -- only the call.
+    expect(r.reseedCalls, 'startMission did not reseed the renderer').toBe(1);
+    // Taken AFTER the spawn: it saw the whole force and every structure.
+    expect(r.forceSeen.at(-1), 'the reseed ran before the force existed').toBe(force.length);
+    expect(r.structuresSeen.at(-1), "the reseed ran before the mission's structures were raised").toBe(
+      sim.structureCount
+    );
     for (const id of force) {
       // Seeded from the spawn, not the zero-fill: drawn at world (0, 0)
       // otherwise until tick 1.
-      expect([r.curX[id], r.curY[id]], `unit ${id} is not where it spawned`).toEqual([
+      expect([r.seenX[id], r.seenY[id]], `unit ${id} is not where it spawned`).toEqual([
         sim.state.posX[id],
         sim.state.posY[id],
       ]);
-      expect(r.curX[id] !== 0 || r.curY[id] !== 0, `unit ${id} is drawn at world (0, 0)`).toBe(true);
-      // prev == cur: the first frame lerps nothing in and reads no speed, so
-      // no vehicle throws a dust burst off a spike from (0, 0).
-      expect(r.moved(id), `unit ${id} still carries the jump from (0, 0)`).toBe(false);
+      expect(r.seenX[id] !== 0 || r.seenY[id] !== 0, `unit ${id} is drawn at world (0, 0)`).toBe(true);
     }
-    // The fog's LATEST refresh was taken with the force on the map, so the
-    // first frame is not full shroud.
-    expect(r.fogRefreshes.at(-1), 'the fog was last refreshed before the force existed').toBe(force.length);
   });
 });

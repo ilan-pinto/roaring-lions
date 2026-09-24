@@ -493,11 +493,15 @@ function warnStructureCapacityOnce(capacity: number): void {
  * without this clamp `count` would climb past what was actually written and
  * the caller would set `mesh.count` beyond the allocated instances -- every
  * instance past the real data reads (0, 0, 0) at alpha 0 and is
- * alpha-discarded. Unreachable today (capacity is `sim.structureCount`, an
- * upper bound on any one type's own living-or-dead count), but this phase
- * already shipped one buffer that dropped the wrong end on overflow
- * (`tracers`, fixed) -- the same mistake, caught here before it needs its
- * own incident.
+ * alpha-discarded. This phase already shipped one buffer that dropped the
+ * wrong end on overflow (`tracers`, fixed), so the clamp was written before
+ * it was needed -- and it WAS reached: once the mission runtime moved past
+ * the deploy screen, a mission's own structures arrived after their type's
+ * instancer had been sized, and on `&nomesh` the overflow here dropped one
+ * billboard on each of `wadi_halam_2_laager` (a shanty) and
+ * `qarn_hadid_2_foothold` (the concrete revetment). `ThreeRenderer.reseed`
+ * grows the instancer now (`StructureInstancer.withCapacity`); the warning
+ * below is what a recurrence would print.
  */
 export function writeStructureInstances(
   placements: readonly StructurePlacement[],
@@ -706,23 +710,33 @@ export function createCollapseMaterial(texture: THREE.Texture, alpha0: number): 
  * one for its idle art, one for its wreck art if the sheet declares one --
  * constructed and owned by `ThreeRenderer.loadStructureSprite`.
  *
- * Sized (via `capacity`) to `sim.structureCount` at load time, the same
- * "total count across every type" bound `UnitInstancer` uses (`sim.capacity`
- * there) -- safe because no structure type can ever have more living (or
- * dead) instances than the sim has structures at all, and `sim.structureCount`
- * is already final by the time `loadStructureSprite` runs (`main.ts` adds
- * every map structure before kicking off any art load).
+ * Sized (via `capacity`) to how many structures of its own type the sim
+ * holds when it is built (`ThreeRenderer.structureTypeCapacity`). That count
+ * is NOT final at load time on a mission: the map's structures are added
+ * before any art loads, but a mission's own (`MissionRuntime`'s
+ * `raiseMissionStructures` -- a camp, a fence, a shanty) arrive with
+ * `runtime.start()`, after the deploy screen and so after every sheet has
+ * loaded. Structures are never removed from the sim -- a destroyed one stays
+ * as a wreck -- so a type's count only ever grows, and `withCapacity` below
+ * is how the owner catches up (`ThreeRenderer.reseed`).
  */
 export class StructureInstancer {
   readonly mesh: THREE.InstancedMesh;
+  /** How many instances `mesh` can draw; `update` drops any past this. */
+  readonly capacity: number;
   private readonly texture: THREE.Texture;
+  /** The quad this instancer was built from, kept so `withCapacity` can
+   *  build the same billboard again at a larger size. */
+  private readonly quad: StructureBillboardGeometry;
   private readonly alphaAttr: THREE.InstancedBufferAttribute;
   private readonly scratchPositions: Float32Array;
   private readonly scratchMatrix = new THREE.Matrix4();
 
   constructor(texture: THREE.Texture, geometry: StructureBillboardGeometry, capacity: number) {
     this.texture = texture;
+    this.quad = geometry;
     const cap = Math.max(1, capacity);
+    this.capacity = cap;
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(geometry.positions, 3));
@@ -749,7 +763,8 @@ export class StructureInstancer {
    *  `Mesh` (never a copy or a second decode), so this instancer remains
    *  the texture's one true owner: `dispose()` below is still the only
    *  thing that ever frees it, and the collapse mesh's own `dispose()`
-   *  must not double-free it. */
+   *  must not double-free it. (`withCapacity` moves that ownership to its
+   *  replacement, the same texture object, so a borrow survives it.) */
   get spriteTexture(): THREE.Texture {
     return this.texture;
   }
@@ -772,6 +787,34 @@ export class StructureInstancer {
     this.mesh.count = count;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.alphaAttr.needsUpdate = true;
+  }
+
+  /**
+   * This billboard with room for at least `capacity` instances.
+   *
+   * Returns `this` when it already has room -- the usual case, and the only
+   * one that leaves the scene untouched. Otherwise it builds a replacement
+   * drawing the SAME texture through the same quad and hands the texture
+   * over: this instancer's own geometry and material are released here, and
+   * it must not be drawn, updated or disposed again. The caller swaps the
+   * replacement's `mesh` into the scene in place of this one's.
+   *
+   * The texture moves rather than being copied or re-decoded because
+   * `ThreeRenderer.beginCollapse` borrows it by reference (`spriteTexture`);
+   * freeing it here would pull it out from under both the replacement and
+   * any collapse already falling. `visible` carries over, so a debug layer
+   * switched off (`setDebugLayerVisible('buildings', false)`) stays off.
+   *
+   * Never shrinks: a structure is never removed from the sim, so no type's
+   * count falls below what it was when this was sized.
+   */
+  withCapacity(capacity: number): StructureInstancer {
+    if (capacity <= this.capacity) return this;
+    const next = new StructureInstancer(this.texture, this.quad, capacity);
+    next.mesh.visible = this.mesh.visible;
+    this.mesh.geometry.dispose();
+    (this.mesh.material as THREE.Material).dispose();
+    return next;
   }
 
   /** Releases the geometry, material and texture this instancer owns -- a

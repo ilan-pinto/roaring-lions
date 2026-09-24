@@ -1521,12 +1521,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * Nothing between here and there reads the RUNTIME, and the loading bar's
    * workload is derived from the mission JSON (`missionUnitTypes`), not from
    * anything the runtime spawns. The renderers are another matter:
-   * `renderer.init()` below ends by snapshotting `sim.state` twice to seed its
-   * interpolation and its fog, and on a mission it now does that on a sim with
-   * no units in it. `startMission` (`mission-start.ts`) re-seeds it after the
-   * spawn; see `RESEED_SNAPSHOTS` for the three renderer internals that
-   * couples to. The sandbox spawns in the `else` branch below, BEFORE
-   * `init()`, so its seeding is what it always was.
+   * `renderer.init()` below seeds its interpolation, its fog and its
+   * structure instancers from the sim, and on a mission it now does that on a
+   * sim with no units and none of the mission's own structures in it.
+   * `startMission` (`mission-start.ts`) calls `renderer.reseed()` after the
+   * spawn, and the backend owns what that re-derives (`api.ts`). The sandbox
+   * spawns in the `else` branch below, BEFORE `init()`, so its seeding is
+   * what it always was.
    */
   let runtime: MissionRuntime | null = null;
   /** The force `MissionRuntime` and the deploy panel (`broughtFor`) actually see:
@@ -2212,12 +2213,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the victory write read it as the roster this mission was sent in with,
   // and a player who quits after deploying leaves the save exactly as it was.
   //
-  // `startMission` (`mission-start.ts`) also RE-SEEDS the renderer, and that is
-  // not optional: `renderer.init()` above ran on a sim with no units in it yet,
-  // and its two seeding snapshots would otherwise leave the whole force drawn
-  // at world (0, 0) until tick 1, a dust burst off every vehicle as it lerped
-  // out, and the map under full shroud until tick 3. The sandbox branch spawns
-  // before `init()` and needs none of this.
+  // `startMission` (`mission-start.ts`) also RE-SEEDS the renderer
+  // (`renderer.reseed()`), and that is not optional: `renderer.init()` above
+  // ran on a sim with no units in it yet, and without it the whole force drew
+  // at world (0, 0) until tick 1, every vehicle threw a dust burst as it
+  // lerped out, the map stayed under full shroud until tick 3, and on
+  // `&nomesh` a mission's own structure could go undrawn. The sandbox branch
+  // spawns before `init()` and needs none of this.
   //
   // Wrapped like the await above it: this used to throw before the renderer
   // existed, and now runs after it, so a malformed mission must not strand one.
@@ -4373,10 +4375,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // is presentation-only: nothing about sim state changes, only what has
   // already been painted once before anything can observe it unpainted.
   // prevX == curX already holds the force's real starting positions: for a
-  // sandbox, from `renderer.init()`'s own two snapshots (`ThreeRenderer.init()`'s
-  // comment), which ran after `sandboxSpawns`; for a mission, from
-  // `startMission`'s `reseedAfterSpawn` (`mission-start.ts`), because on that
-  // path `init()` ran before the runtime existed and seeded from an empty sim.
+  // sandbox, from `renderer.init()`'s own seeding, which ran after
+  // `sandboxSpawns`; for a mission, from `startMission`'s `renderer.reseed()`
+  // (`mission-start.ts`), because on that path `init()` ran before the
+  // runtime existed and seeded from an empty sim.
   // Alpha is irrelevant here as a result, but `1` matches `__lions.step()`'s own
   // call for the same reason: on a still frame, prevX + (curX - prevX) * alpha
   // reduces to curX regardless.
