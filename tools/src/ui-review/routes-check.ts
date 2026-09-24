@@ -35,6 +35,7 @@ import { chromium, type ConsoleMessage, type Page } from 'playwright';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
+import { boardCanvasVerdict } from './board-canvases';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -76,6 +77,9 @@ interface Probe {
    *  campaign diorama into another, so this is how an abandoned renderer that
    *  no DOM count can see gets counted. */
   canvases: number;
+  /** `.rl-world`'s own `data-board` -- `'diorama'` or `'flat'` -- or `null`
+   *  off the campaign board. Read back, never inferred from `canvases`. */
+  board: string | null;
 }
 
 /** Everything a battlefield mounts on `document.body` that has a stable class:
@@ -96,6 +100,7 @@ const BODY_CHROME = [
 async function probe(page: Page): Promise<Probe> {
   return page.evaluate((chrome: string[]) => {
     const w = window as unknown as { __lions?: { sim: { tickCount: number } } };
+    const wrap = document.querySelector('.rl-world');
     return {
       boots: performance.getEntriesByName('rl:boot').length,
       lions: w.__lions !== undefined,
@@ -103,8 +108,38 @@ async function probe(page: Page): Promise<Probe> {
       bodyChildren: document.body.children.length,
       leftovers: chrome.filter((sel) => document.querySelector(sel) !== null),
       canvases: document.querySelectorAll('canvas').length,
+      board: wrap instanceof HTMLElement ? (wrap.dataset.board ?? null) : null,
     };
   }, BODY_CHROME);
+}
+
+/**
+ * Wait for the campaign board to reach its own verdict: the diorama's canvas
+ * in `.rl-world__canvas`, or `data-board="flat"`. `true` if it did.
+ *
+ * `.rl-world` being on the page does NOT mean the board has drawn. The diorama
+ * appends its canvas only once `mountWorldView` has taken a dynamic import and
+ * a ~3.8 MiB Draco GLB -- 190-363 ms after `.rl-world` landed, measured
+ * locally off the deploy screen -- so a canvas count taken on `.rl-world`
+ * alone is a count of a board still mounting. This is the golden gate's own
+ * `checkCampaignBoard` condition (`golden-diff/screens-check.ts`), for the
+ * same reason. See `board-canvases.ts` for what it cost when it was missing.
+ */
+async function settleBoard(page: Page): Promise<boolean> {
+  return page
+    .waitForFunction(
+      () => {
+        const wrap = document.querySelector('.rl-world');
+        return (
+          wrap instanceof HTMLElement &&
+          (wrap.dataset.board === 'flat' || document.querySelector('.rl-world__canvas canvas') !== null)
+        );
+      },
+      null,
+      { timeout: 60_000 }
+    )
+    .then(() => true)
+    .catch(() => false);
 }
 
 /**
@@ -284,6 +319,10 @@ try {
       `${t1 === t2 ? ' (frozen, as it must be)' : ' -- STILL RUNNING'}`
   );
 
+  // Settled before it is read, because it is the REFERENCE the deploy-screen
+  // leg's canvas count is held to. The 1200 ms above happened to be long
+  // enough every time; a reference that is right by luck is not one.
+  const backSettled = await settleBoard(page);
   const back = await probe(page);
   expect(back.boots === 1, `leaving mission A reloaded the page: boots=${back.boots}`);
   expectDocuments(2, 'leaving mission A');
@@ -379,6 +418,7 @@ try {
   await page.waitForSelector('.rl-loading__deploy');
   await pressEscapeUntilGone(page);
   await page.waitForSelector('.rl-world');
+  const escapeSettled = await settleBoard(page);
   const afterEscape = await probe(page);
   expect(afterEscape.boots === 1, `Escape off the deploy screen reloaded the page: boots=${afterEscape.boots}`);
   expectDocuments(4, 'Escape off the deploy screen');
@@ -408,15 +448,24 @@ try {
   // reference is `back.canvases` -- the same board, in the same run, reached by
   // leaving a mission the ordinary way -- rather than a hard-coded 1, so this
   // cannot drift when the board's own rendering changes.
-  expect(
-    afterEscape.canvases === back.canvases,
-    `leaving from the deploy screen left ${afterEscape.canvases} canvas(es) on the campaign board, ` +
-      `against ${back.canvases} after an ordinary leave -- an abandoned boot's renderer was never disposed`
+  //
+  // Both readings are taken only once their board has SETTLED (`settleBoard`).
+  // This one used to be read ~300 ms after Escape, against a reference read
+  // 1200 ms after its leave, and the diorama's canvas does not exist until its
+  // GLB has loaded: on CI that race read 0 against 1 on main (830f86c7) and
+  // twice on PR #212, and the message called it an undisposed renderer. A leak
+  // ADDS a canvas; `boardCanvasVerdict` names which direction it saw.
+  const verdict = boardCanvasVerdict(
+    { canvases: afterEscape.canvases, board: afterEscape.board, settled: escapeSettled },
+    { canvases: back.canvases, board: back.board, settled: backSettled }
   );
+  expect(verdict === null, verdict ?? '');
   console.log(
     `[${TAG}] left from the deploy screen: boots=${afterEscape.boots}, ` +
       `body=${afterEscape.bodyChildren}, __lions=${String(afterEscape.lions)}, ` +
-      `canvases=${afterEscape.canvases} (${back.canvases} after an ordinary leave)`
+      `canvases=${afterEscape.canvases} on ${escapeSettled ? 'a settled' : 'an UNSETTLED'} ` +
+      `${String(afterEscape.board)} board (${back.canvases} on ${backSettled ? 'a settled' : 'an UNSETTLED'} ` +
+      `${String(back.board)} board after an ordinary leave)`
   );
 
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
