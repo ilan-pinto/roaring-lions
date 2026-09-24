@@ -283,6 +283,64 @@ describe('the prefetch: bytes before any context', () => {
     expect(made.renderers).toHaveLength(0);
   });
 
+  // The prefetch chains the CALLER's signal to its own controller with a
+  // listener, and the `finally` around the downloads takes it off again. A
+  // listener left behind outlives the prefetch on a signal the router keeps
+  // for the whole visit -- a leave after a 404 would abort a controller
+  // nobody reads, and every remount would add one more.
+  describe('the listener the prefetch hangs on the caller signal', () => {
+    /** The abort listeners live on `controller.signal`, in the order added. */
+    const watch = (): { live: Set<EventListenerOrEventListenerObject>; first: () => unknown } => {
+      const live = new Set<EventListenerOrEventListenerObject>();
+      const order: EventListenerOrEventListenerObject[] = [];
+      const signal = controller.signal;
+      const add = signal.addEventListener.bind(signal);
+      const remove = signal.removeEventListener.bind(signal);
+      vi.spyOn(signal, 'addEventListener').mockImplementation((type, fn, opts) => {
+        if (type === 'abort' && fn) {
+          live.add(fn);
+          order.push(fn);
+        }
+        add(type, fn, opts);
+      });
+      vi.spyOn(signal, 'removeEventListener').mockImplementation((type, fn, opts) => {
+        if (type === 'abort' && fn) live.delete(fn);
+        remove(type, fn, opts);
+      });
+      return { live, first: () => order[0] };
+    };
+
+    it('is on the signal during the prefetch and off it after a 404', async () => {
+      const { live } = watch();
+      const lavi = deferred();
+      respond = async (url) => {
+        if (url !== '/m/lavi.glb') return okResponse(url);
+        await lavi.promise;
+        return { ok: false, status: 404, body: null };
+      };
+      const pending = mount();
+      await Promise.resolve();
+      expect(live.size).toBe(1); // premise: the prefetch is hanging on it
+
+      lavi.resolve();
+      await expect(pending).rejects.toThrow('HTTP 404');
+      expect(live.size).toBe(0);
+    });
+
+    it('is off the signal once the prefetch succeeds, whatever the mount adds after it', async () => {
+      const { live, first } = watch();
+      const view = await mount();
+
+      const prefetchListener = first();
+      expect(prefetchListener).toBeDefined(); // premise
+      expect(live.has(prefetchListener as EventListenerOrEventListenerObject)).toBe(false);
+      // The release listener is the only one left, and dispose takes it too.
+      expect(live.size).toBe(1);
+      view.dispose();
+      expect(live.size).toBe(0);
+    });
+  });
+
   it('the first failure cancels its own body and stops the other downloads', async () => {
     const cancel = vi.fn(async (): Promise<void> => {});
     respond = (url, signal) =>

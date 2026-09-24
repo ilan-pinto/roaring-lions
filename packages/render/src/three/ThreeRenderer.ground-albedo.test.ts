@@ -628,6 +628,48 @@ describe('groundTexturesSettled', () => {
     r.dispose();
   });
 
+  // The two guards in `loadGroundTexture` that return BEFORE a slot joins
+  // `settles`. Each one's position is load-bearing: a guard moved below the
+  // push, or dropped, queues a fetch that is waited on -- and for these two
+  // cases nothing the host is waiting for would ever be drawn, so a menu
+  // would reveal late (or, for a refused name, on a load nobody can apply).
+  it('a rock slot on a map with no ridge starts no fetch and holds nothing open', async () => {
+    // Premise: an 8x8 map with nothing blocked samples no rock at all.
+    const r = new ThreeRenderer(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), {
+      ...makeOpts(),
+      rockTextureUrl: 'https://example.test/assets/rock_ground_tile.jpg',
+    });
+    (r as unknown as { loadGroundTexture(): void }).loadGroundTexture();
+    let done = false;
+    void r.groundTexturesSettled().then(() => {
+      done = true;
+    });
+    await flush();
+    expect(pendingTextures).toHaveLength(0);
+    expect(done).toBe(true);
+    r.dispose();
+  });
+
+  it('a basename GROUND_ALBEDOS refuses starts no fetch and holds nothing open', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = new ThreeRenderer(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), {
+      ...makeOpts(),
+      groundTextureUrl: 'https://example.test/assets/not_a_ground_tile.jpg',
+    });
+    (r as unknown as { loadGroundTexture(): void }).loadGroundTexture();
+    let done = false;
+    void r.groundTexturesSettled().then(() => {
+      done = true;
+    });
+    await flush();
+    // Premise: the refusal is the path taken, not some other skip.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is not in GROUND_ALBEDOS'));
+    expect(pendingTextures).toHaveLength(0);
+    expect(done).toBe(true);
+    warn.mockRestore();
+    r.dispose();
+  });
+
   // Asked AFTER dispose() there is nothing left to wait for -- the renderer
   // draws nothing more -- so a fetch still on the network must not hold the
   // caller. Three's TextureLoader cannot abort one, and a stalled request

@@ -356,24 +356,28 @@ describe('sceneHost', () => {
     expect(loseContext).toHaveBeenCalledTimes(1);
   });
 
-  it('leaving before the scheduled start ran cancels it, and a late start mounts nothing', () => {
+  it('leaving before the scheduled start ran cancels it, and a late start mounts nothing', async () => {
     const cancel = vi.fn();
-    let started: (() => void) | null = null;
+    // A holder rather than a `let`: tsc narrows a `let` assigned only in a
+    // callback to its initialiser at the read below (menu.test.ts's pattern).
+    const scheduled: { start: (() => void) | null } = { start: null };
     const f = fakeMount();
     const { stage, column } = setup();
     const dispose = host(stage, column, deps({
       mount: f.mount,
       schedule: (fn) => {
-        started = fn;
+        scheduled.start = fn;
         return cancel;
       },
     }));
     dispose();
     expect(cancel).toHaveBeenCalledTimes(1);
     // An idle callback that fired anyway (the cancel raced it) finds the host gone.
-    const late: (() => void) | null = started;
-    if (late === null) throw new Error('nothing was scheduled');
-    (late as () => void)();
+    if (scheduled.start === null) throw new Error('nothing was scheduled');
+    scheduled.start();
+    // `mount` is reached only after `await door`, so a synchronous assertion
+    // here could not fail; the microtasks have to run first.
+    await flush();
     expect(f.calls).toHaveLength(0);
   });
 
