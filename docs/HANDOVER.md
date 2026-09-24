@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-24 night (#219–#221 landed, v0.79.0; WP-T1 #225 LANDED and live, v0.80.0; scene host Tasks 0–7 built; #224 open; roads #226 and tunnels #227 added to the plan) · main: b48f6734 (v0.80.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 1 done early, Stage 2 opens after G1 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art adds #226 (roads, in A2) and #227 (tunnels, in A3.2)
+Updated: 2026-09-24 late (scene host #232, the Saves/Credits fix #224, /stats share #231 and the dock tooltip/credits fix #233 LANDED; #234 win credits in flight) · main: 193f8144 (v0.81.0; the scene-host merge releases next) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 1 done early, Stage 2 opens after G1 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art adds #226 (roads, in A2) and #227 (tunnels, in A3.2)
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,13 +8,13 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | S3e #178 scene host (Tasks 11–12 still wait for G1) · fix #223 Saves/Credits | scene host: `feat/scene-host` · `/Users/ilpinto/dev/roaring-lions-ep/scenehost-exec` · #223: PR #224 | scene host: spec `docs/superpowers/specs/2026-09-24-scene-host-design.md`, plan `docs/superpowers/plans/2026-09-24-scene-host.md`, SDD ledger `.superpowers/sdd/2026-09-24-scene-host/progress.md` in that worktree (mirrored to `.superpowers/sdd-archive/` in the shared tree) | scene host: Tasks 0 and 2–7 done and reviewed; §10 numbers APPROVED by the lead 24 Sep; Task 1 was done by #214 · #224 green (scrollbar option A, the lead's choice) | scene host: Task 8 (the gate sees the host), Task 9 (docs), final review, one PR · the lead merges #224 (trial merge with `feat/scene-host` clean) · watch whether Workers Builds builds the next `[skip ci]` release commit |
+| A (packages/app) | #234 win screen shows credits paid and total · S3e #178 Tasks 11–12 wait for G1 | `feat/win-credits` · `/Users/ilpinto/dev/roaring-lions-ep/win-credits` | issue #234 (no spec; a follow-up) | implementer running | review, then PR; then S3e 11–12 after G1 (2 Oct) → S3a #180 |
 | B (render · art · data) | A3.1 #179 waits for G1 · adds filed 24 Sep: #226 road visual (inside A2 #182), #227 tunnel visuals (inside A3.2 #185) | — | — | idle; #219 and #220 landed | A3.1 after G1 (2 Oct); roads with A2 in Stage 3; tunnels with A3.2 in Stage 4; any Meshy call is announced with a credit estimate first |
 | C (packages/sim) | — | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: #224 (lead merges) · S3e scene host Tasks 8–9 + final review → PR → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186
+- A: #234 win credits → S3e #178 Tasks 11–12 (after G1) → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186
 - B: (A1.3 landed) → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 (with the road visual #226) → A3.2 #185 (with tunnel visuals #227, an add)
 - C: G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
@@ -49,6 +49,11 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-24 · **S3e scene host (#178 stays open for Tasks 11–12)** · PR #232 → 193f8144 (merge commit: the branch carries two main merges) · a live Beit Sahwan diorama behind the menu through a thin door (`@lions/render/three-front`) over a stock `ThreeRenderer`; a plate `menu_host_plate.jpg` from `pnpm plate:host` for Pixi, reduced motion, no WebGL2, failure or a 15 s deadline; the menu's context released on leave · gate: `menu-scene-host` path/contribution/register votes (+~42 s locally) · `ui:routes` three leaves with no WebGL/DRACO/Worker warning · 10 tasks + final opus review + one fix wave · CI `visual` GREEN on Linux on the first run, no bless · spec D-52…D-64 · memory budgets checked only through the lost-context proxy
+- 2026-09-24 · **#233 (closes #229)** → 130a56c9 · the dock tooltip clears the whole dock (`computeTipPosition`); a readable "N credits" chip in the dock header; ▣ on every tile cost; "logistics"/"intel" words on the strip · `ui:routes` asserts the tip covers no tile · visual GREEN, no bless
+- 2026-09-24 · **#231 (closes #230)** → 89306e89 · a Share button on `/stats` makes `<origin>/?tester=<name>`, with one builder shared by module and page and a guard against keepNames' `__name`
+- 2026-09-24 · **#224 (closes #223)** → e2d2bf25 · Saves and Credits no longer collapse; one themed scrollbar everywhere (option A); `ui:routes` checks both panels' height
+- 2026-09-24 · the lead said "merge all": #228, #224, #231, #233 rebase-merged, then #232 as a merge commit after two updates from main (the `routes-check.ts` conflict resolved with Saves/Credits before fast-leave legs (b) and (c), whose init script must reach only the walk's last hard navigation)
 - 2026-09-24 · **WP-T1 telemetry and Cloudflare hosting (#218, closed)** · PR #225 → 042a4b56 · v0.80.0 (b48f6734) · built in the peer session "Roaring Lion GitHub Pages deployment" · a Worker at `packages/worker` serves the static build (SPA fallback: `/`, `/campaign` and `/mission/<id>` return 200, so the deep-link 404 is gone), `POST /api/events` into D1 (`events`, `players`; the deploy runs the migrations; a junk POST gets 204 and stores nothing), and `/stats` behind a password login (`/stats/api/summary` gives 401 without it) · Cloudflare deployed it at 14:55 UTC and the lead set `STATS_PASSWORD` at 15:03 · telemetry is off in dev, CI and under GPC or DNT · open: whether Workers Builds builds a `[skip ci]` release commit (the version-number question)
 - 2026-09-24 · three more, merged by the lead a minute apart (#219 → 2613a6d6, #220 → 36a18362, #221 → 35b025ec) · **v0.79.0** cut from main's tip (a9f8b4b1) · **#220** an artifact upload can no longer fail `visual` (continue-on-error, 3-day retention) and `version` releases only when `origin/main` is the run's own commit · **#219** a left screen gives its WebGL context back (`disposeAndReleaseContext`; `ThreeRenderer.dispose` idempotent; the board mounts onto a signal): the menu after a mission reads 82–84 MB, down from 374–420 MB, and leaving the board before it mounts creates no context · **#221** this ledger, the scene-host spec and plan, the WP-T1 spec and plan · visual GREEN, no bless
 - 2026-09-24 · four follow-ups, merged by the lead one minute apart (#214 → 51924fd4, #215 → b44c2c4d, #216 → 26710e46, #217 → c04880e1) · NO RELEASE: on all four runs the golden gate and the route walk passed but the artifact upload hit the private repo's quota, which failed `visual` and skipped `version` — PR #220 fixes it and its own run cuts the release · **#214** `ui:shots`/`ui:routes` take `--port=<n>` / `UI_SHOTS_PORT` / `UI_ROUTES_PORT` and REFUSE a busy port (exit 2; `ui:routes`' default 5177 had been walking the lead's own server) · **#215** `Renderer.reseed()` on `api.ts` replaces the three-snapshot re-seed (one `seedFromSim()` shared with `init`; `renderer.ts` +1 method, compiler-forced); the structure instancer grows to the sim (wadi_halam_2 58→59/60, qarn_hadid_2 20→21/22 under `&nomesh`); a unit spawned MID-mission no longer draws at (0,0) and slides in (a bought jeep crossed half the map at 483.7 tiles/s) — three only, Pixi keeps it (CLAUDE.md) · **#216** the campaign board's pin line is no longer clobbered by ground hover ~25 ms after the cursor arrives, nor flashed on leave · **#217** `ui:shots` photographs the victory/defeat moments again (SwiftShader screenshot 5.0–7.8 s vs the 2.6 s hold → `--gpu=metal|swiftshader`, Metal default on macOS, 115–164 ms) · all Approved after one or two fix rounds; visual GREEN on every PR, no bless
@@ -132,21 +137,20 @@ HANDOFF — Roaring Lions · 2026-09-24 night · from session "Execution plan"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
       M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027 · M5 Steam F2P (after G7).
 PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207, #218, #223, #226, #227)
-STATUS: Stage 1 done early · main b48f6734 (v0.80.0) · landed 24 Sep: #214–#217, #219 context release, #220 CI, #221 ledger, #225 WP-T1 (live, STATS_PASSWORD set)
+STATUS: Stage 1 done early · main 193f8144 (v0.81.0 + scene host) · landed 24 Sep: #214–#217, #219–#221, #224, #225 WP-T1, #228, #231, #232 scene host, #233
         scene host: feat/scene-host in /Users/ilpinto/dev/roaring-lions-ep/scenehost-exec, Tasks 0 and 2–7 done (Task 1 was #214)
-        OPEN PRs: #224 Saves/Credits + themed scrollbar (#223, green) · #228 this ledger
+        IN FLIGHT: #234 win credits (feat/win-credits); no PRs open
         merges: the LEAD merges — this session's `gh pr merge` was refused by the permission check on 24 Sep
 DECISIONS THIS SESSION: scene-host §10 numbers approved as shown · scrollbar option A (standard properties, themed everywhere) ·
         telemetry: no Cloudflare Access (Zero Trust asks for payment details) → a password login on /stats ·
         roads (#226) and tunnels (#227) join A2 and A3.2 as items, Meshy a candidate route for each
 NEXT STEP (exact):
-  1. `git worktree list`; read `.superpowers/sdd/2026-09-24-scene-host/progress.md` in scenehost-exec — resume at the first task without "complete"
-  2. Task 8 carries ruling C4 (mutation (a) = drop renderer.dispose() from the door's release()) and the A/B visual method (the local darwin baseline is stale)
-  3. Task 9, the final whole-branch review (opus), one fix wave with the parked minors (§5), merge-tree against feat/telemetry, then the PR
-  4. Watch the next release commit: does Workers Builds build a `[skip ci]` commit, so the live build carries the version?
+  1. `git worktree list`; #234 in /Users/ilpinto/dev/roaring-lions-ep/win-credits — review, PR
+  2. G1 #165 on 2 Oct unblocks A3.1 #179 and S3e Tasks 11–12
+  3. Watch whether Workers Builds builds the `[skip ci]` release commit (the live version number)
 CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time
 READ FIRST: each plan's head + its SDD ledger · CLAUDE.md "The three.js backend" · memory: clean-worktrees-get-removed · land-commits-through-a-main-worktree
 VERIFY BEFORE BELIEVING: pnpm lint && pnpm typecheck && pnpm test && pnpm test:determinism && pnpm validate:data
                          && pnpm validate:ui && pnpm playtest && pnpm balance · gh run list --branch main --workflow ci.yml --limit 3
-OPEN FOR THE LEAD: merge #224 and #228 · G1 items (by 2 Oct) · G7 #199 (by 30 Oct)
+OPEN FOR THE LEAD: G1 items (by 2 Oct) · G7 #199 (by 30 Oct) · one click on the live /stats Share button
 ```
