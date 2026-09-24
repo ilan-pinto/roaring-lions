@@ -44,6 +44,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { boardCanvasVerdict } from './board-canvases';
+import { garageSeedScript } from './garage-seed';
 import { claimPort } from './port';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -898,6 +899,104 @@ try {
       `garage: the "${bucket}" tab paints ${JSON.stringify(filteredPainted)}, expected exactly ` +
         `${JSON.stringify(expectedIds)}`
     );
+  }
+
+  // --- the garage buys in place (WP-S3g F3) ------------------------------
+  // The old remount read ONE flat colour for ~210 ms (spec F3, capture
+  // `05-buy-upgrade-120ms`), then landed the bay on the first card with focus
+  // on <body>. Everything below is a DOM read in the real page -- jsdom
+  // cannot clamp a scroller or paint a frame.
+  //
+  // A fresh account has nothing to upgrade: `mbt_lavi`, the seeded page's own
+  // opening bay, is already fully kitted and shows no Buy at all (controller
+  // ruling T9/T11). `at_team` is the seed's own part-kitted unit -- firepower
+  // tier 1 owned, tier 2's Buy at 175 credits still on the board -- so this
+  // leg selects it before it ever looks for a Buy to click.
+  //
+  // `GARAGE_ARM` and `GARAGE_READ` are plain strings, not functions, for the
+  // same reason `frameCadence` above is: tsx/esbuild's `keepNames` transform
+  // rewrites a named const's inner arrow with a `__name` helper the page does
+  // not have, and `Function.prototype.toString()` -- how Playwright ships a
+  // callback into the page -- carries that rewritten text straight into a
+  // browser context with no `__name` global.
+  //
+  // `GARAGE_ARM` stashes the screen's own root node under a name of our own
+  // (`__rlGarage`) BEFORE the click, so "did the purchase replace the screen"
+  // can be answered by identity afterwards -- the same technique the scene-host
+  // legs above use for a canvas that a leave would otherwise remove out from
+  // under a later read. It also parks the rail's scroll at 120 (the purchase
+  // must not reset it) and starts a 40-frame `requestAnimationFrame` loop that
+  // counts every frame `.rl-garage__card` is absent from the DOM -- a remount
+  // blanks the screen for a real span of frames, not a single microtask, so a
+  // frame-counted window catches it where a single post-click read would not.
+  const GARAGE_ARM =
+    'window.__rlGarage = document.querySelector(".rl-menu--garage");' +
+    'var rail = document.querySelector(".rl-garage__cards");' +
+    'if (rail) rail.scrollTop = 120;' +
+    'window.__rlBlank = 0;' +
+    'window.__rlFrames = 0;' +
+    '(function loop() {' +
+    '  if (!document.querySelector(".rl-garage__card")) window.__rlBlank += 1;' +
+    '  window.__rlFrames += 1;' +
+    '  if (window.__rlFrames < 40) requestAnimationFrame(loop);' +
+    '})();';
+  const GARAGE_READ =
+    '(() => {' +
+    '  var wrap = document.querySelector(".rl-menu--garage");' +
+    '  var selected = document.querySelector(\'.rl-garage__card[aria-selected="true"]\');' +
+    '  var walletN = document.querySelector(".rl-garage__wallet-n");' +
+    '  var rail = document.querySelector(".rl-garage__cards");' +
+    '  var focused = document.activeElement;' +
+    '  return {' +
+    '    same: wrap !== null && wrap === window.__rlGarage,' +
+    '    blank: window.__rlBlank,' +
+    '    selected: selected ? selected.getAttribute("data-unit") : null,' +
+    '    focus: focused ? focused.getAttribute("data-focus-key") : null,' +
+    '    rail: rail ? rail.scrollTop : null,' +
+    '    value: walletN ? walletN.getAttribute("data-value") : null,' +
+    '    boots: performance.getEntriesByName("rl:boot").length,' +
+    '  };' +
+    '})()';
+  {
+    const garageCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await garageCtx.addInitScript(garageSeedScript());
+    const g = await garageCtx.newPage();
+    g.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    // The same collectors the main `page` carries, attached to this page too:
+    // a console error or a leave-shaped warning here must fail the run exactly
+    // as it would on the main walk.
+    g.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+      else if (m.type() === 'warning') warnings.push(m.text());
+    });
+    g.on('pageerror', (e) => errors.push(String(e)));
+
+    await g.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await g.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    await g.click('.rl-garage__card[data-unit="at_team"]');
+    await g.evaluate(GARAGE_ARM); // string: scroll the rail to 120, remember the screen node, start a 40-frame blank counter
+    const railBefore = await g.$eval('.rl-garage__cards', (e) => e.scrollTop);
+    await g.click('.rl-garage__track[data-track="firepower"] .rl-garage__buy-tier');
+    await g.waitForFunction('window.__rlFrames >= 40');
+    const after = await g.evaluate<{
+      same: boolean;
+      blank: number;
+      selected: string | null;
+      focus: string | null;
+      rail: number | null;
+      value: string | null;
+      boots: number;
+    }>(GARAGE_READ);
+    console.log(`[${TAG}] garage buy: ${JSON.stringify(after)} (rail was ${railBefore})`);
+    expect(after.same, 'garage: a purchase replaced the screen instead of re-rendering it in place (F3)');
+    expect(after.blank === 0, `garage: ${after.blank} frame(s) with no roster on screen while the purchase landed (F3)`);
+    expect(after.selected === 'at_team', `garage: the bay moved to "${after.selected}" after an at_team purchase (F3)`);
+    expect(after.focus === 'buy:firepower', `garage: focus is on "${after.focus}", not the next firepower Buy (F3/F8)`);
+    expect(Math.abs((after.rail ?? 0) - railBefore) <= 1, `garage: the rail scrolled from ${railBefore} to ${after.rail} (F3)`);
+    expect(after.value === '2225', `garage: the wallet reads ${after.value}, expected 2400 - 175 = 2225`);
+    expect(after.boots === 1, `garage: ${after.boots} boot marks -- the purchase reloaded the page`);
+
+    await garageCtx.close();
   }
 
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
