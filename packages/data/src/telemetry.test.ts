@@ -29,6 +29,8 @@ const VALID: Record<string, unknown>[] = [
   { ...ENV, type: 'mission_end', mission: 'wadi_halam_5_depot', result: 'defeat', cause: 'objective:raze_depot', tick: 6000, roe: 61, fielded: 9, lost: 9, objectivesDone: 0, objectivesTotal: 2 },
   { ...ENV, type: 'mission_end', mission: 'wadi_halam_5_depot', result: 'abandoned', tick: 900, roe: 100, fielded: 9, lost: 0, objectivesDone: 0, objectivesTotal: 2 },
   { ...ENV, type: 'campaign_progress', mission: 'beit_sahwan_breach', missionsWon: 1 },
+  { ...ENV, t: 9007199254740991, type: 'mission_start', mission: 'beit_sahwan_breach', replay: false },
+  { ...ENV, type: 'tutorial_step', step: 0, steps: 1, prevMs: 9007199254740991 },
 ];
 
 const INVALID: [string, Record<string, unknown>][] = [
@@ -44,6 +46,8 @@ const INVALID: [string, Record<string, unknown>][] = [
   ['float tick', { ...ENV, type: 'heartbeat', mission: 'a', tick: 1.5 }],
   ['dev false', { ...ENV, dev: false, type: 'mission_start', mission: 'a', replay: false }],
   ['not an object', 'mission_start' as unknown as Record<string, unknown>],
+  ['t exceeds MAX_SAFE_INTEGER', { ...ENV, t: 9007199254740992, type: 'mission_start', mission: 'a', replay: false }],
+  ['prevMs exceeds MAX_SAFE_INTEGER', { ...ENV, type: 'tutorial_step', step: 0, steps: 1, prevMs: 9007199254740992 }],
 ];
 
 describe('telemetry event contract', () => {
