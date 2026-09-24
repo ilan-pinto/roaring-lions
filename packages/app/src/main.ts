@@ -1131,7 +1131,10 @@ async function main(): Promise<void> {
   // off the URL -- except on the way into a mission, where it still means "run
   // this one against an empty ledger" and `bootBattlefield` reads it back off
   // `req.query`, exactly as the pre-router code read it off the query string.
-  const telemetryScreen = screenFor(location.pathname, BASE, 'beit_sahwan_0_tutorial');
+  // `landingPath` (computed above, pre-router) is what a legacy `?sandbox=`/
+  // `?mission=` query rewrites to -- `location.pathname` here would still be
+  // the raw pre-rewrite path and misclassify those links as `menu`.
+  const telemetryScreen = screenFor(landingPath, '/', 'beit_sahwan_0_tutorial');
   initTelemetry({ dev: telemetryScreen === 'sandbox' }).sessionStart(
     telemetryScreen,
     resolveRendererChoice(new URLSearchParams(location.search).get('renderer'), safeStorage()?.getItem(RENDERER_STORAGE_KEY) ?? null).choice
