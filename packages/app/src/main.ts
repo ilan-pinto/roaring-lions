@@ -3818,6 +3818,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             }
             hud.note(t('main.note.ledgerUpdated'), 'info');
           }
+          // GH-234: computed once, here, and handed to both the outcome moment
+          // (below) and the debrief (`debriefOpts.credits`) -- the payment
+          // already ran above this point (victory only), so both surfaces read
+          // the same `{ paid, balance }` rather than each re-deriving it.
+          const creditsInfo = payout ? { paid: payout.paid, balance: payout.account.balance } : undefined;
           if (missionId) {
             // Campaign order lives in world.json, not in the order data/missions files
             // happen to be imported.
@@ -3881,7 +3886,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 .map((o) => ({ text: o.text, complete: o.status === 'complete', carries: o.carries })),
               marked: runtime.markedCount,
               promoted: runtime.promotedCount,
-              credits: payout ? { paid: payout.paid, balance: payout.account.balance } : undefined,
+              credits: creditsInfo,
               // The account of the taken (spec §4.4). The board prints only the
               // standing total, because the board does not know which mission was
               // just played -- so "N came back at <place>", the half that needs a
@@ -3995,7 +4000,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // One value for both surfaces: the moment previews the
             // `aftermath` for its hold, and the end screen below carries the
             // same one where it can be read (the second correction to ruling 9).
-            const momentOptions = outcomeMomentOptions(me.result, mission);
+            const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo);
             const moment = outcomeMoment(document.body, momentOptions);
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down
