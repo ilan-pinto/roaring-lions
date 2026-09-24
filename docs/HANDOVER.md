@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-24 (S3e app half landed; A1.3 finishing) · main: a2db3b0c (v0.77.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 1 (ahead of plan) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207
+Updated: 2026-09-24 (A1.3 landed; both lanes idle on gates) · main: 88cf9235 (v0.78.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 1 done early, Stage 2 opens after G1 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,14 +8,14 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | S3e #178 — Tasks 11–12 (symbol family) wait for G1; the scene host waits for A1.3 | — | plan `docs/superpowers/plans/2026-09-19-shell-upgrade-phase-3-app.md` | 24 Sep: app half Tasks 1–10 LANDED (PR #212, v0.77.0) | Tasks 11–12 after G1 answers the symbol sheet (★ sites listed in the plan); `Renderer.reseed()` follow-up after A1.3; owed from a quiet run: the 24/25 outcome PNGs and a hand check of pin hover |
-| B (render · art · data) | A1.3 #177 vehicle weight | `feat/art-vehicle-weight` · `.claude/worktrees/ep-a13` | plan `docs/superpowers/plans/2026-09-20-art-vehicle-weight.md` (7 tasks) | 24 Sep: Tasks 1–6 done (instrument, conform with the wall/off-map fallback, ramp-and-spring dynamics, authored numbers, dust, composition with a world-space roll-sign test); Task 7 after-set and verdict in flight | Task 7 → final review → one PR; no bless expected (no gated vehicle moves) |
+| A (packages/app) | — (S3e Tasks 11–12 wait for G1; the scene host is now unblocked but needs its own spec and plan) | — | plan `docs/superpowers/plans/2026-09-19-shell-upgrade-phase-3-app.md` | 24 Sep: app half landed (PR #212) | draft the scene-host spec for the lead; `Renderer.reseed()` follow-up |
+| B (render · art · data) | — (A3.1 #179 waits for G1: Meshy credit top-up, style bible) | — | — | 24 Sep: A1.3 vehicle weight LANDED (PR #213, v0.78.0) | A3.1 after G1; small unblocked follow-ups below |
 | C (packages/sim) | — | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
 - A: S3e #178 Tasks 11–12 (after G1) and the scene host (after A1.3) → S3e scene host (after A1.3 lands) → S3a #180 → S-F #184, A4 #186
-- B: A1.3 #177 vehicle weight → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 → A3.2 #185
+- B: (A1.3 landed) → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 → A3.2 #185
 - C: G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
 
@@ -49,6 +49,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-24 · WP-A1.3 vehicle weight (#177, closed) · PR #213 → 9faed5f5 · v0.78.0 · seven tasks: a capture instrument with exact 200 ms rungs, a four-corner terrain conform (a wall or off-map corner falls back to the centre), a ramp-and-spring squat and dive with gain-scaled peaks, roll to the outside of a turn, authored `mobility.weight` with role defaults, speed-scaled dust, the composition with a world-space roll-sign test and no per-frame allocation, a numeric verdict on floors over three runs · after-set: Lavi launch 1.79°, dive −1.97°, lean 1.49°; Tel Marum bench 16.8° · visual GREEN, no bless · spec R-M and R-L amended
 - 2026-09-24 · WP-S3e app half, Tasks 1–10 (#178 stays open for 11–12 and the scene host) · PR #212 → 65c6ea65 · v0.77.0 · deploy as a decision (DeployRosterView, a position-preserving permutation, the two-column spread with the ground; the runtime built after deploy with a renderer re-seed), the outcome moment before the debrief (carries the aftermath; the end screen keeps it), one stack-aware focus trap for four overlays, pin hover on the board, 1920/2560 layouts (D-8 = 761.6/2560 px), one HTML escaper and a strip that keeps focus · six tasks took one fix round, final review + one wave · spec D-40..D-51 · visual GREEN, no bless · CI found a pre-existing race in `ui:routes` (the board canvas counted before it drew; it had failed on main too) — fixed 20a0499c
 - 2026-09-23 · WP-G-E2 #174 + WP-G-E4 #176 (closed) · PR #211 → f933477c · v0.76.0 · eight tasks + one fix wave: one `LedgerStore` seam, roster measured (largest chain 30) and capped at 150, slots that outlive their unit, overflow stands down to a reserve on write, the lost remembered and replaced, shown on the garage line, the debrief and the unit card; the final review caught two real bugs (recency by a per-mission tick; the split re-sorting who deploys) and the victory write became one tested function (`applyRosterCarryover`) · CI red once on a spec that assumed Node 25's jsdom storage, fixed b4d0a5b4 · visual GREEN, no bless · driven in a browser (garage line, deploy, card)
 - 2026-09-23 · WP-S2b renderer half (#171, closed) · PR #210 → a387a6a2 · Phase 2 Tasks 15–16: the minimap photographs the lit ground through a render target, range rings are one desaturated fill · Task 16 one fix round, final review + one fix wave (a late ground texture invalidates the photograph) · visual RED as expected on all four gated scenarios, confined to the minimap box: quiet 6278 px / 0.6724, open-ground 1940 / 3.3034, vehicle 6338 / 0.6762, relief 14645 / 0.9220, 22 of 22 layer self-checks PASS · looked at (Tel Marum north at the top), captured twice (PR and main runs, minimap box identical) → bless adb6ab7f · spec D-28..D-39 · the version bump rides the next push, because a bless pushed by the workflow token cannot trigger CI
@@ -76,6 +77,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - Posture change to free-to-play + Steam Wallet microtransactions (the lead's roadmap, 19 Sep): the August commercial plan's "Early Access at a price" is retired, its PPP pricing tiers and Early Access window void, its 7k wishlist floor still standing; ST5 #204, ST6 #205 and ST7 #206 are UNSCHEDULED until G7 #199 answers on 30 Oct, and G6 un-parks only when ST5+ST6 make the account server-held · 2026-09-19
 - Shell Phase 4 platform (Steam Deck, controller) · product track · G2
 - Shell deferred minors 9/10/13/15/17/20 and twelve task minors · spec §10 · 2026-09-18
+- A1.3 parked: the Tel Marum capture subject is shot at tick ~281 (its stop lane is a known-dead lane) and every turn lane opens with a harness-made launch squat — clear the relief hostiles, hand-pump the cruise-up, retake both sets · HP bars and selection rings sit at the interpolated position while the hull draws up to `lag_tiles` behind (lead call) · on the bench climb the rear dips under the ground (pivot at hull centre) · 2026-09-24
 - S3e parked: `Renderer.reseed()` on `api.ts` replaces the app-side three-snapshot re-seed and fixes StructureInstancer sizing under `&nomesh` (after A1.3) · the aftermath is readable on the end screen only (2.6 s in the moment) · `campaign.ts:473` builds an English line outside `t()` · 2026-09-24
 - E2/E4 parked: a save from before v0.76.0 leaves no memorials in its first mission afterwards (R-7); `predecessorOf` is an O(n) scan per HUD refresh over the append-only lost list; a stale `roster-cap.test.ts` comment and an unreachable name fallback · 2026-09-23
 - Phase 2 landing-2 parked: the capture-twice bless rule is a manual step, not in `three-baseline-gate.ts`; `main.ts`'s minimap flip memo has no test (`bootBattlefield` untestable as written); Pixi now polls a no-op ground ask at 4 Hz; `above = 120` duplicates `camera.ts`'s `CAMERA_DISTANCE` · 2026-09-23
@@ -121,9 +123,10 @@ HANDOFF — Roaring Lions · 2026-09-23 · from session "Execution plan"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
       M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027 · M5 Steam F2P (after G7).
 PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207)
-STATUS: Stage 1 · main a2db3b0c (v0.77.0) · landed this session: shell Phase 2 (#210), E2/E4 (#211), S3e app half (#212) · one loop open:
-        B · A1.3 #177 on feat/art-vehicle-weight (ep-a13) — Tasks 1–6 done, Task 7 (after-set, verdict, CLAUDE.md) in flight
-        lane A waits on G1 (S3e 11–12) and on A1.3 (scene host); ledgers: <worktree>/.superpowers/sdd/<plan>/progress.md + scratchpad ledgers/
+STATUS: Stage 1 done early · main 88cf9235 (v0.78.0) · landed this session: shell Phase 2 (#210, v0.75.0), E2/E4 (#211, v0.76.0),
+        S3e app half (#212, v0.77.0), A1.3 vehicle weight (#213, v0.78.0) · no SDD loop open
+        what waits on the lead: G1 #165 (2 Oct: Meshy top-up, style bible, symbol sheet, board route, portrait rig) unblocks A3.1 and S3e 11–12;
+        G7 #199 (30 Oct) unblocks ST8/E5; the scene host needs its spec approved
 DECISIONS THIS SESSION: S3e opened before Stage 2's date because its entry condition (Phase 2 Tasks 15–16) is met; its Task 1 waits
         for E2/E4 (it takes ROSTER_CAP). LedgerStore stays a synchronous seam (ST6 = sync façade over a boot-hydrated cache).
         The A1.3 instrument pumps the frame clock on every tick and records model_ms per cell (a rung was 418–450 ms before).
