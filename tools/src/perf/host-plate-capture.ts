@@ -3,9 +3,9 @@
  *
  *   pnpm plate:host [-- --port=<n>]
  *
- * Replaces `tools/src/perf/plate-capture.ts` and its output
- * `assets/ui/menu_plate.jpg` (scene-host plan Task 7, spec Q1). That script
- * booted a standalone `?sandbox=` mission, hand-picked a camera position
+ * Replaces `tools/src/perf/plate-capture.ts` and its retired JPEG output
+ * (scene-host plan Task 7, spec Q1). That script booted a standalone
+ * `?sandbox=` mission, hand-picked a camera position
  * clear of the map's void and the fog-of-war boundary, and hoped the result
  * looked like the menu -- because at the time nothing stood behind the menu
  * to compare it against. Now the scene host (`ui/scene-host.ts`) draws a real
