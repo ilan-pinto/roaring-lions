@@ -79,12 +79,15 @@ jobs:
 
       - name: Upload captures and diffs
         if: always()
+        # Cannot fail the run and kept three days: see ci.yml's visual job
+        # (the private-repository artifact quota filled on 2026-09-24).
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: visual-baseline-output
           path: visual-baseline-output
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
       # The notification. One issue, reused: a nightly that files a fresh issue
       # every night trains people to close them unread, which is the same

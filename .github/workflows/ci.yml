@@ -237,14 +237,24 @@ jobs:
       # Uploaded on failure AND on success: the diff image is what a triager
       # actually needs, and `combat` is captured but never gated, so its frame
       # is only ever reachable here.
+      #
+      # It does not VOTE, and since 2026-09-24 it cannot fail the job: the
+      # repository went private and its artifact storage quota filled, so the
+      # upload failed on all four merges that day while the golden gate and
+      # the route walk above had both passed -- and a red `visual` skipped the
+      # `version` job, so no release was cut. The two steps above are the
+      # checks; this one is a convenience. Kept three days, not fourteen, to
+      # stay inside the private-repository quota: a triager reads a failed
+      # run's diff the day it fails.
       - name: Upload captures and diffs
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: visual-baseline-output
           path: visual-baseline-output
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   determinism:
     strategy:
@@ -291,8 +301,30 @@ jobs:
         with:
           node-version: 22
 
+      # Only the run for main's CURRENT tip releases. Each run checks out its
+      # own commit, so when PRs merge minutes apart every older run's release
+      # commit is a sibling of main's tip and its push is refused -- that
+      # raced on 2026-09-18 (three merges) and 2026-09-24 (four), failing the
+      # older runs. An older run now steps aside with a notice; the newest
+      # run's range since the last tag already holds every commit the older
+      # ones would have released, and it has passed its own gates. If the
+      # newest run fails, nothing is released until the next push, which is
+      # the right outcome for an unverified tip.
+      - id: tip
+        name: Release only from main's tip
+        run: |
+          git fetch --quiet origin main
+          tip="$(git rev-parse origin/main)"
+          if [ "$tip" = "$GITHUB_SHA" ]; then
+            echo "is_tip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_tip=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Release skipped::main moved on to ${tip:0:8} after ${GITHUB_SHA:0:8}; the newest commit's own run releases both."
+          fi
+
       - id: decide
         name: Decide the next version
+        if: steps.tip.outputs.is_tip == 'true'
         run: node tools/decide_version.mjs >> "$GITHUB_OUTPUT"
 
       # Everything below is skipped when the range holds no feat and no fix.
