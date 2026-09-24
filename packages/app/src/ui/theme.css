@@ -149,6 +149,12 @@
   /* Earned, not a state: stars, citations, the stripe. Its own token so a reward never
      borrows the caution colour (the stripe stars used --warn until 2026-09-11). */
   --commend: var(--rl-dust-0);
+  /* Bought, per type (garage uplift §2 goal 4, D3): steel, never gold -- gold
+     is veterancy and credits. Shares its value with --ink-label by D3's own
+     choice; kit is told apart by SHAPE (pips, the bevelled mark) and by the
+     --kit-edge outline, never by hue alone. */
+  --kit: var(--rl-gunmetal-0);
+  --kit-edge: var(--rl-shadow-0);
   --bad: var(--rl-team-hostile);
   /* --bad is a FILL colour (the ROE gauge) and reads 4.01:1 as text over the
      panel ground -- under WCAG AA's 4.5:1 floor for body text
@@ -3774,6 +3780,35 @@ button.rl-menu__item[data-kind='aside'] {
   animation: none;
   opacity: 1;
   transform: none;
+}
+
+/* Kit pips (ui/kit-sign.ts): three columns, 0-3 filled, tier 1 at the
+   bottom. 0.375rem squares with 0.125rem gaps (spec §6). A column of
+   length 0 is a track the type does not have: it keeps its width so the
+   three columns stay aligned from card to card. */
+.rl-kit-pips {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.125rem;
+}
+.rl-kit-pips__col {
+  display: inline-flex;
+  flex-direction: column-reverse;
+  gap: 0.125rem;
+  min-width: 0.375rem;
+}
+.rl-kit-pips__pip {
+  display: block;
+  width: 0.375rem;
+  height: 0.375rem;
+  border: 1px solid var(--kit-edge);
+  background: color-mix(in srgb, var(--kit) 22%, transparent);
+}
+.rl-kit-pips__pip[data-on='1'] {
+  background: var(--kit);
+}
+.rl-kit-mark {
+  color: var(--kit);
 }
 
 /* ---------------------------------------------------------------------- */
