@@ -16,10 +16,9 @@
 			"/stats/*"
 		]
 	},
-	// Cloudflare's own preview URLs (<hash>.roaring-lions.workers.dev) bypass
-	// the custom domain's Access application entirely, which is exactly the
-	// hole F1 closes at the JWT-verification layer -- turning this off closes
-	// it at the door too, so /stats is never reachable unauthenticated at all.
+	// Cloudflare's own preview URLs (<hash>.roaring-lions.workers.dev) would be
+	// a second hostname serving the same /stats login -- off, so /stats is
+	// reachable only through the one deployed origin.
 	"preview_urls": false,
 	"d1_databases": [
 		{
