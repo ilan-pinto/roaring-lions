@@ -34,6 +34,7 @@ import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { escapeHtml } from './escape-html';
 import { flash, leave, titleCard } from './motion';
+import { LOGISTICS_GLYPH } from './glyphs';
 import { markSvg } from './mark';
 import { roleBadgeSvg, roleBucket } from './role';
 import { bindDelegatedTip, bindTip } from './tooltip';
@@ -1134,10 +1135,22 @@ export class Hud {
         m.logisticsRate !== undefined && m.logisticsRate > 0
           ? ` <span class="rl-dim">${t('hud.strip.rate', { n: m.logisticsRate })}</span>`
           : '';
-      info.push(`<span class="rl-info" data-tip="logistics" tabindex="0">▣ <b>${m.logistics}</b>${rate}</span>`);
+      // GH-229 fix round 2, the minimal slice of GH-77: the icon alone named
+      // nothing to a player who had not memorised it, and the dock's own
+      // credit balance beside a bare number on its tiles made that worse --
+      // "520" with no word reads as the credits sitting right next to it. The
+      // word is its own dim span rather than folded into `hud.strip.rate`,
+      // so a mission with no rate (`+N/min`) still names the figure.
+      info.push(
+        `<span class="rl-info" data-tip="logistics" tabindex="0">${LOGISTICS_GLYPH} <b>${m.logistics}</b> ` +
+          `<span class="rl-dim">${t('hud.strip.logistics.word')}</span>${rate}</span>`
+      );
     }
     if (m?.intel !== undefined) {
-      info.push(`<span class="rl-info" data-tip="intel" tabindex="0">◎ <b>${m.intel}</b></span>`);
+      info.push(
+        `<span class="rl-info" data-tip="intel" tabindex="0">◎ <b>${m.intel}</b> ` +
+          `<span class="rl-dim">${t('hud.strip.intel.word')}</span></span>`
+      );
     }
     // Suppression: shown only when there is some. A permanent "0 pinned" is
     // the kind of field a player learns to stop reading.

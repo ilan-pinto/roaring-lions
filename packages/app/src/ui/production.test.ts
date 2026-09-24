@@ -26,6 +26,7 @@ import { ReinforcementDock, type ProductionRuntime, type SupportKind } from './p
 import type { DockUnit } from './dock-model';
 import type { Tone } from './hud';
 import { closeTip } from './tooltip';
+import { LOGISTICS_GLYPH } from './glyphs';
 
 type QueueItem = ProductionRuntime['production'][number];
 
@@ -140,9 +141,11 @@ describe('the dock’s shape', () => {
   // GH-229 bug 2: nowhere in a mission told the player their brigade credit
   // balance, so a locked tile's "N cr" price (`dock.lock.price`) and its full
   // "buy for N credits" note (`gate.buy`) named a price against a balance the
-  // player could not see. The header is the one place in the dock that is on
-  // screen for the whole mission.
-  it('shows the brigade credit balance beside the label when the caller supplies one', () => {
+  // player could not see. Fix round 1 put it in the label at `--t-xs`; round
+  // 2 gives it its own chip, `.rl-dock__credits`, sized like the strip's own
+  // counters and carrying the WORD ("credits"), not folded into the label's
+  // own text -- read separately in the DOM here for exactly that reason.
+  it('shows the brigade credit balance as its own chip, with the word, when the caller supplies one', () => {
     document.body.replaceChildren();
     const host = document.createElement('div');
     document.body.appendChild(host);
@@ -153,22 +156,50 @@ describe('the dock’s shape', () => {
       onArm: () => undefined,
       credits: 1240,
     });
-    const label = host.querySelector('.rl-dock__label');
-    expect(label?.textContent).toBe('Reinforcements · B · 1240 cr');
-    // In its own element, distinct from the plain label text, so it can carry
-    // its own colour (`--good`, never `--accent`/`--info` -- this mission's
-    // own logistics/intel) without recolouring "Reinforcements · B" too.
-    const creditsEl = label?.querySelector('.rl-dock__credits');
-    expect(creditsEl?.textContent).toBe(' · 1240 cr');
+    // The label itself is untouched by the credits chip riding beside it.
+    expect(host.querySelector('.rl-dock__label')?.textContent).toBe('Reinforcements · B');
+    const creditsEl = host.querySelector('.rl-dock__credits');
+    expect(creditsEl?.textContent).toBe('1240 credits');
+    expect(creditsEl?.querySelector('b')?.textContent).toBe('1240');
+    // Reachable by keyboard, the same as a dock tile -- `.rl-dock` itself
+    // switches every non-control descendant's pointer events off.
+    expect(creditsEl?.getAttribute('tabindex')).toBe('0');
   });
 
   // Falsified by hand: dropping the `opts.credits !== undefined` guard (always
-  // appending the span) turns this red -- the label reads
-  // "Reinforcements · B · undefined cr".
-  it('leaves the label plain when no credit balance is supplied', () => {
+  // appending the chip) turns this red -- a chip reading "undefined credits"
+  // appears where none was expected.
+  it('shows no credits chip when no balance is supplied, and leaves the label plain', () => {
     const r = rig();
     expect(r.host.querySelector('.rl-dock__credits')).toBeNull();
     expect(r.host.querySelector('.rl-dock__label')?.textContent).toBe('Reinforcements · B');
+  });
+
+  it('explains the credit chip on hover, through the same shared tooltip the tiles use', () => {
+    document.body.replaceChildren();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    new ReinforcementDock(host, {
+      units: [dockUnit()],
+      runtime: fakeRuntime(),
+      note: () => undefined,
+      onArm: () => undefined,
+      credits: 5,
+    });
+    const chip = host.querySelector<HTMLElement>('.rl-dock__credits')!;
+    chip.dispatchEvent(new Event('mouseenter'));
+    const tip = host.querySelector('.rl-tip');
+    expect(tip?.textContent).toContain('Brigade credits');
+    expect(tip?.textContent).toContain('Brigade garage');
+    chip.dispatchEvent(new Event('mouseleave'));
+  });
+
+  // Fix round 2: a bare "520" on a tile read as credits once the header
+  // started showing a balance beside it. `LOGISTICS_GLYPH` (`./glyphs`) is
+  // the exact character the top strip's own Logistics field draws.
+  it("prefixes a tile's cost with the strip's own Logistics glyph", () => {
+    const r = rig([dockUnit({ logistics: 292 })]);
+    expect(r.tile('inf_squad').querySelector('.rl-tile__cost')?.textContent).toBe(`${LOGISTICS_GLYPH} 292`);
   });
 
   // The list the tile progress replaces. Its absence is the acceptance
