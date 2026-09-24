@@ -1065,6 +1065,33 @@ body {
 .rl-outcome__skip {
   margin-top: var(--s4);
 }
+/* The reward (GH-234): the most visible thing on screen after the verdict
+   itself, ahead of the mission's own narration below it. `--good` and the
+   "credit(s)" word both come from the dock chip's own balance (GH-233,
+   `.rl-dock__credits` below) so a figure reads the same everywhere it
+   appears -- the display face matches the verdict's own rather than the
+   narration's dim mono one, because this is the second thing the player is
+   meant to register, not a footnote. The "nothing paid" line shares the
+   narration's dim ink instead: it is an explanation, not a reward. */
+.rl-outcome__credits {
+  margin: var(--s3) 0 0;
+}
+.rl-outcome__credits-figure {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  color: var(--good);
+}
+.rl-outcome__credits-none {
+  margin: 0;
+  font-size: var(--t-m);
+  color: var(--ink-dim);
+}
+.rl-outcome__credits-total {
+  margin: 0.25rem 0 0;
+  font-size: var(--t-m);
+  color: var(--good);
+}
 /* The outcome is named in the DOM (`data-outcome`), not only in colour --
    this is the second half of that, a border tint rather than a repainted
    band so `--band-ink`'s contrast (tuned for `--band-alert`) is never asked
@@ -3100,7 +3127,28 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-debrief__who { display: block; margin-top: 2px; font-style: normal; color: var(--ink-dim); }
 .rl-debrief__grid { display: grid; grid-template-columns: 6em 1fr; gap: 2px 0.75rem; margin: 0.625rem 0; }
 .rl-debrief__grid dt { color: var(--ink-dim); }
-.rl-debrief__credits { color: var(--commend); }
+/* The reward (GH-234), promoted out of the row grid above and placed right
+   after the tier/stars head -- "the most visible figure after the result
+   title" is the brief's own phrase. Same `--good` and the same "credit(s)"
+   word the dock chip's own balance uses (GH-233, `.rl-dock__credits`), so a
+   figure reads the same on the outcome moment, the dock and here. */
+.rl-debrief__reward { margin: 0.5rem 0; }
+.rl-debrief__reward-figure {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  color: var(--good);
+}
+.rl-debrief__reward-none {
+  margin: 0;
+  font-size: var(--t-m);
+  color: var(--ink-dim);
+}
+.rl-debrief__reward-total {
+  margin: 0.125rem 0 0;
+  font-size: var(--t-m);
+  color: var(--good);
+}
 /* The account of the taken, the same ink the board's own line takes. */
 .rl-debrief__taken { margin: 0 0 0.5rem; color: var(--ink); }
 .rl-debrief__deductions, .rl-debrief__secondaries { margin: 0.25rem 0 0.5rem 1.2em; padding: 0; }

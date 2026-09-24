@@ -265,6 +265,62 @@ describe('outcomeMoment', () => {
     expect(lost.line).toBe(mission.debrief?.defeat?.text);
   });
 
+  // GH-234: the win's payment as a headline, ahead of the mission's own
+  // narration -- see the render order in `outcomeMoment` itself.
+  describe('the reward (GH-234)', () => {
+    it('shows +N credits and the new total when the win paid', () => {
+      const m = outcomeMoment(host, { outcome: 'victory', title: 'x', credits: { paid: 120, balance: 460 } });
+      expect(m.el.querySelector('.rl-outcome__credits-figure')?.textContent).toBe(t('debrief.credits.paid', { n: 120 }));
+      expect(m.el.querySelector('.rl-outcome__credits-total')?.textContent).toBe(t('debrief.credits.total', { n: 460 }));
+      expect(m.el.querySelector('.rl-outcome__credits')?.getAttribute('data-paid')).toBe('1');
+      expect(m.el.querySelector('.rl-outcome__credits-none')).toBeNull();
+      m.dismiss();
+    });
+
+    it('says why nothing was paid, and still shows the total', () => {
+      const m = outcomeMoment(host, { outcome: 'victory', title: 'x', credits: { paid: 0, balance: 460 } });
+      expect(m.el.querySelector('.rl-outcome__credits-none')?.textContent).toBe(t('debrief.credits.none'));
+      expect(m.el.querySelector('.rl-outcome__credits-total')?.textContent).toBe(t('debrief.credits.total', { n: 460 }));
+      expect(m.el.querySelector('.rl-outcome__credits')?.getAttribute('data-paid')).toBe('0');
+      expect(m.el.querySelector('.rl-outcome__credits-figure')).toBeNull();
+      m.dismiss();
+    });
+
+    it('shows no reward at all when there is none to show', () => {
+      const m = outcomeMoment(host, { outcome: 'victory', title: 'x' });
+      expect(m.el.querySelector('.rl-outcome__credits')).toBeNull();
+      m.dismiss();
+    });
+
+    // Defeat is unchanged (the brief's own rule): `outcomeMomentOptions`
+    // refuses to carry a `credits` value through on that path even if a
+    // caller hands it one, which is the second guard past `main.ts` never
+    // computing a payout for a defeat in the first place.
+    it('defeat carries no reward, even if handed one', () => {
+      const raw = (missions as Record<string, MissionJson | undefined>).wadi_halam_5_depot;
+      if (raw === undefined) throw new Error('fixture: wadi_halam_5_depot is gone');
+      const mission = applyMissionLocale(raw, null);
+      const lost = outcomeMomentOptions('defeat', mission, { paid: 50, balance: 200 });
+      expect('credits' in lost).toBe(false);
+      const m = outcomeMoment(host, lost);
+      expect(m.el.querySelector('.rl-outcome__credits')).toBeNull();
+      m.dismiss();
+    });
+
+    it('is the most visible thing after the verdict -- ahead of the aftermath', () => {
+      const m = outcomeMoment(host, {
+        outcome: 'victory',
+        title: 'x',
+        aftermath: 'The corridor is cut.',
+        credits: { paid: 120, balance: 460 },
+      });
+      const body = m.el.querySelector('.rl-panel__body')!;
+      expect(body.firstElementChild).toBe(m.el.querySelector('.rl-outcome__credits'));
+      expect(body.children[1]).toBe(m.el.querySelector('.rl-outcome__aftermath'));
+      m.dismiss();
+    });
+  });
+
   // Binding scan (M4): the brief's own draft focuses the ONE focusable
   // element already inside the root and presses Tab -- since jsdom never
   // moves focus on a synthetic Tab by itself, `el.contains(activeElement)`

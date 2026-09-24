@@ -84,6 +84,12 @@ export interface OutcomeMomentOptions {
    *  an empty paragraph, when there is none. It buys no hold of its own:
    *  `holdMs` is still the whole hold. */
   aftermath?: string;
+  /** What this win paid into the brigade account (GH-234), already computed
+   *  by the caller -- `main.ts` runs `payMission` before this moment ever
+   *  mounts, so this is the same `{ paid, balance }` the debrief prints,
+   *  never a second reader of the account. Victory only; `outcomeMomentOptions`
+   *  never sets it on a defeat. */
+  credits?: { paid: number; balance: number };
   holdMs?: number;
 }
 
@@ -121,7 +127,8 @@ export const OUTCOME_HOLD_MS = 2600;
  */
 export function outcomeMomentOptions(
   result: 'victory' | 'defeat',
-  mission: Pick<MissionJson, 'aftermath' | 'debrief'>
+  mission: Pick<MissionJson, 'aftermath' | 'debrief'>,
+  credits?: { paid: number; balance: number }
 ): OutcomeMomentOptions {
   const say = result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
   const aftermath = result === 'victory' ? mission.aftermath : undefined;
@@ -130,6 +137,9 @@ export function outcomeMomentOptions(
     title: t(result === 'victory' ? 'outcome.victory' : 'outcome.defeat'),
     ...(say !== undefined ? { line: say.text } : {}),
     ...(aftermath ? { aftermath } : {}),
+    // Defeat pays nothing (GH-234's own rule, unchanged): the caller never
+    // hands one on that path, and this is the second guard even if it did.
+    ...(result === 'victory' && credits ? { credits } : {}),
   };
 }
 
@@ -142,6 +152,27 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
 
   const p = panel({ rank: 'alert', title: o.title });
   p.el.classList.add('rl-outcome__panel');
+
+  // GH-234: the reward, the most visible thing after the verdict itself --
+  // ahead of even the mission's own narration, which is the runner-up for
+  // that spot. `debrief.credits.paid`/`.none`/`.total` are the exact same
+  // catalogue keys `showDebrief` reads (`ui/debrief.ts`), so a player who
+  // skips straight past this and opens the debrief sees the identical
+  // sentence, not a rephrasing of the same numbers.
+  if (o.credits) {
+    const reward = document.createElement('div');
+    reward.className = 'rl-outcome__credits';
+    reward.dataset.paid = o.credits.paid > 0 ? '1' : '0';
+    const figure = document.createElement('p');
+    figure.className = o.credits.paid > 0 ? 'rl-outcome__credits-figure' : 'rl-outcome__credits-none';
+    figure.textContent = o.credits.paid > 0 ? t('debrief.credits.paid', { n: o.credits.paid }) : t('debrief.credits.none');
+    reward.appendChild(figure);
+    const total = document.createElement('p');
+    total.className = 'rl-outcome__credits-total';
+    total.textContent = t('debrief.credits.total', { n: o.credits.balance });
+    reward.appendChild(total);
+    p.body.appendChild(reward);
+  }
 
   // Narration first, directly under the verdict -- the order the banner
   // drew it in -- then the speaker's own closing line. `textContent`, never

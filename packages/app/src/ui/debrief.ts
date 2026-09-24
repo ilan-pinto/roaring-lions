@@ -74,6 +74,25 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   if (won && o.stars > 0) head.appendChild(el('div', 'rl-debrief__stars', '★'.repeat(o.stars)));
   b.appendChild(head);
 
+  // GH-234: the reward, promoted out of the row grid below and placed as the
+  // most visible figure after the result title -- the same wording and the
+  // same `{ paid, balance }` the outcome moment already showed (`main.ts`
+  // computes it once, before either screen opens). Absent on a defeat, same
+  // as before.
+  if (o.credits) {
+    const reward = el('div', 'rl-debrief__reward');
+    reward.dataset.paid = o.credits.paid > 0 ? '1' : '0';
+    reward.appendChild(
+      el(
+        'p',
+        o.credits.paid > 0 ? 'rl-debrief__reward-figure' : 'rl-debrief__reward-none',
+        o.credits.paid > 0 ? t('debrief.credits.paid', { n: o.credits.paid }) : t('debrief.credits.none')
+      )
+    );
+    reward.appendChild(el('p', 'rl-debrief__reward-total', t('debrief.credits.total', { n: o.credits.balance })));
+    b.appendChild(reward);
+  }
+
   if (o.tierLine) {
     const q = el('blockquote', 'rl-debrief__line', t('debrief.tierLine.quote', { text: o.tierLine.text }));
     q.appendChild(el('cite', 'rl-debrief__who', o.tierLine.plate));
@@ -122,10 +141,6 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   }
   row(t('debrief.row.marked.label'), String(o.marked), 'rl-debrief__marked');
   row(t('debrief.row.promoted.label'), String(o.promoted), 'rl-debrief__promoted');
-  if (o.credits) {
-    const paidText = o.credits.paid > 0 ? t('debrief.credits.paid', { n: o.credits.paid }) : t('debrief.credits.none');
-    row(t('debrief.row.credits.label'), t('debrief.row.credits.value', { paid: paidText, balance: o.credits.balance }), 'rl-debrief__credits');
-  }
   b.appendChild(grid);
 
   if (o.taken) b.appendChild(el('div', 'rl-debrief__taken', o.taken));

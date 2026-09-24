@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { showDebrief, type DebriefOptions } from './debrief';
+import { outcomeMoment } from './outcome-moment';
 import { tierName } from './grade-copy';
 
 const base = (over: Partial<DebriefOptions> = {}): DebriefOptions => ({
@@ -122,22 +123,55 @@ describe('showDebrief', () => {
     expect(host.querySelector('.rl-debrief__stars')).toBeNull();
   });
 
-  it('prints what the run paid into the brigade account', () => {
+  // GH-234: the reward is a headline now, promoted out of the row grid and
+  // placed as the most visible figure after the result title -- two lines,
+  // not one small row.
+  it('prints what the run paid into the brigade account, as a headline figure', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ credits: { paid: 120, balance: 460 } }));
-    expect(text(host, '.rl-debrief__credits')).toBe('+120 credits · 460 on hand');
+    expect(text(host, '.rl-debrief__reward-figure')).toBe('+120 credits');
+    expect(text(host, '.rl-debrief__reward-total')).toBe('Total 460 credits');
+    expect(host.querySelector('.rl-debrief__reward')?.getAttribute('data-paid')).toBe('1');
+    // Directly after the tier/stars head, ahead of everything else the
+    // screen shows -- the brief's own "most visible figure after the result
+    // title".
+    expect(host.querySelector('.rl-panel__body')?.children[1]).toBe(host.querySelector('.rl-debrief__reward'));
   });
 
-  it('says so when a replay did not improve on the best', () => {
+  it('says so when a replay did not improve on the best, and still shows the total', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ credits: { paid: 0, balance: 460 } }));
-    expect(text(host, '.rl-debrief__credits')).toBe('no improvement over your best, nothing paid · 460 on hand');
+    expect(text(host, '.rl-debrief__reward-none')).toBe('no improvement over your best, nothing paid');
+    expect(text(host, '.rl-debrief__reward-total')).toBe('Total 460 credits');
+    expect(host.querySelector('.rl-debrief__reward')?.getAttribute('data-paid')).toBe('0');
+    expect(host.querySelector('.rl-debrief__reward-figure')).toBeNull();
   });
 
-  it('shows no credits row at all on a defeat', () => {
+  it('shows no reward at all on a defeat', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ result: 'defeat', stars: 0 }));
-    expect(host.querySelector('.rl-debrief__credits')).toBeNull();
+    expect(host.querySelector('.rl-debrief__reward')).toBeNull();
+  });
+
+  // GH-234's own requirement: the outcome moment and the debrief must show
+  // the SAME figure, because `main.ts` computes `{ paid, balance }` exactly
+  // once (`creditsInfo`) and hands the identical object to both. This feeds
+  // one object to both screens and checks the numbers agree byte-for-byte --
+  // it cannot see `main.ts` itself (nothing can load it), but it can catch
+  // either screen drifting from the shared catalogue keys or formatting the
+  // same numbers two different ways.
+  it('shows the identical figure on the outcome moment and the debrief', () => {
+    const credits = { paid: 75, balance: 910 };
+    const momentHost = document.createElement('div');
+    const moment = outcomeMoment(momentHost, { outcome: 'victory', title: 'x', credits });
+    const debriefHost = document.createElement('div');
+    showDebrief(debriefHost, base({ credits }));
+
+    expect(text(momentHost, '.rl-outcome__credits-figure')).toBe(text(debriefHost, '.rl-debrief__reward-figure'));
+    expect(text(momentHost, '.rl-outcome__credits-total')).toBe(text(debriefHost, '.rl-debrief__reward-total'));
+    expect(text(momentHost, '.rl-outcome__credits-figure')).toBe('+75 credits');
+    expect(text(momentHost, '.rl-outcome__credits-total')).toBe('Total 910 credits');
+    moment.dismiss();
   });
 
   it('offers the main menu, like the end panel does', () => {
