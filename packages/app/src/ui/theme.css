@@ -2660,7 +2660,7 @@ body {
    Credits are the two screens shaped this way (`ui/saves.ts`'s and
    `ui/credits.ts`'s only child is a `panel()`) -- needs the same reset every
    other embedded panel in this sheet already gets (`.rl-confirm__panel,
-   .rl-pause__panel, .rl-keys__panel` above, `.rl-obj-panel` below):
+   .rl-pause__panel, .rl-keys__panel` and `.rl-obj-panel`, all above):
    `.rl-panel` is absolutely positioned and pointer-events:none by default,
    right for a HUD panel pinned over the map and wrong here. Left unset, an
    absolutely positioned child contributes NOTHING to its containing block's
