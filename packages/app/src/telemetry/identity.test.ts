@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveIdentity, safeStorage, type StorageLike } from './identity';
+import { resolveIdentity, readOptOut, safeStorage, type StorageLike } from './identity';
 
 function memory(init: Record<string, string> = {}): StorageLike & { data: Record<string, string> } {
   const data = { ...init };
@@ -45,6 +45,29 @@ describe('resolveIdentity', () => {
     expect(resolveIdentity(null, q('tester=dani'), () => ID)).toEqual({
       player: ID, tester: 'dani', returning: false, optedOut: false,
     });
+  });
+});
+
+describe('readOptOut', () => {
+  it('is false with no signal and mints nothing', () => {
+    const s = memory();
+    expect(readOptOut(s, q())).toBe(false);
+    expect(s.data).toEqual({});
+  });
+  it('persists ?notrack without touching the player or tester keys', () => {
+    const s = memory();
+    expect(readOptOut(s, q('notrack'))).toBe(true);
+    expect(s.data).toEqual({ 'lions.telemetry.optout': '1' });
+    expect(readOptOut(s, q())).toBe(true);
+  });
+  it('reads a previously stored opt-out', () => {
+    const s = memory({ 'lions.telemetry.optout': '1' });
+    expect(readOptOut(s, q())).toBe(true);
+    expect(s.data).toEqual({ 'lions.telemetry.optout': '1' });
+  });
+  it('works with no storage', () => {
+    expect(readOptOut(null, q('notrack'))).toBe(true);
+    expect(readOptOut(null, q())).toBe(false);
   });
 });
 
