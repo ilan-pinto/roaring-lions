@@ -2,9 +2,9 @@
  * What `packages/app` is allowed to know about a renderer.
  *
  * Extracted so a second backend is possible. The surface is small for a
- * 5,000-line implementation -- eighteen methods (one of them optional) and
- * eleven properties -- and
- * that smallness is the whole reason replacing the backend is tractable.
+ * 5,000-line implementation -- twenty-one methods (three of them optional)
+ * and thirteen properties (two optional), counted when `reseed` was added --
+ * and that smallness is the whole reason replacing the backend is tractable.
  *
  * Types only. No implementation, no imports from Pixi or three.
  */
@@ -230,6 +230,28 @@ export interface Renderer {
   frame(alpha: number, dtMs: number): void;
   /** Latch current sim positions as the previous frame's, before the next tick. */
   snapshot(): void;
+  /**
+   * Re-derive everything `init` derived from the sim, from the sim as it is
+   * NOW -- for a caller that changed the sim after `init` without ticking it.
+   *
+   * The contract: when this returns, every piece of renderer state that
+   * `init` seeds from the sim reflects the sim's current state, exactly as if
+   * `init` had run now. The next `frame()` draws every unit where it stands
+   * (interpolation's previous and current copies are equal, so nothing lerps
+   * in from world (0, 0) and no speed is read off the jump), with fog
+   * computed from the units that exist now rather than on the next 5 Hz
+   * refresh, and with room to draw every structure the sim holds. It reads
+   * the sim and never writes it (invariant 4), and it is not a tick: it
+   * advances no sim time and fires no presentation event.
+   *
+   * The caller that needs it is the mission path. The mission runtime is
+   * built after the deploy screen, which is after `init`, so `init` seeds
+   * from a sim with no units in it and `runtime.start()` then spawns the
+   * starting force and the mission's own structures (`mission-start.ts`).
+   * One call, and the backend owns what it means -- how many snapshots,
+   * which fog phase -- so the app is coupled to none of it.
+   */
+  reseed(): void;
   onEvents(events: SimEvent[]): void;
   /**
    * The other half of "events out": what the MISSION runtime concluded this

@@ -2259,18 +2259,94 @@ export class ThreeRenderer implements Renderer {
       this.fitToHost();
     });
     this.resizeObserver.observe(host);
-    // Seeds prevX/prevY == curX/curY from the sim's actual starting
-    // positions before the first `frame()` -- exactly Pixi's own
-    // `PixiRenderer.init()` ("this.snapshot(); this.snapshot(); // prev ==
-    // cur on the first frame", `renderer.ts:557-558`). `main.ts`'s own
-    // fixed-tick loop calls `renderer.snapshot()` only from inside
-    // `runTick()`, which does not run until after the first `sim.tick()` --
-    // so without this, every unit would render at world (0, 0) (the
-    // Float64Array zero-fill) for however many animation frames elapse
-    // before that first tick lands.
-    this.snapshot();
-    this.snapshot();
+    // Everything this backend derives from the sim before the first
+    // `frame()`: interpolation, speed, fog, trail, track seeds, structure
+    // instancer room. The SAME call `reseed()` makes, so what `init` seeds
+    // and what a reseed re-seeds cannot drift apart -- see `seedFromSim`.
+    // `main.ts`'s own fixed-tick loop calls `renderer.snapshot()` only from
+    // inside `runTick()`, which does not run until after the first
+    // `sim.tick()` -- so without this, every unit would render at world
+    // (0, 0) (the Float64Array zero-fill) for however many animation frames
+    // elapse before that first tick lands.
+    this.seedFromSim();
     await Promise.resolve();
+  }
+
+  /** `Renderer.reseed` (`api.ts`): `init`'s own seeding, run again against
+   *  the sim as it stands now. Nothing else -- see `seedFromSim`. */
+  reseed(): void {
+    this.seedFromSim();
+  }
+
+  /**
+   * Every piece of renderer state `init` derives from the sim, derived from
+   * the sim as it is now. `init` and `reseed` are its only two callers, and
+   * that is the point of it: a seed added here reaches both, and a seed
+   * added anywhere else reaches neither.
+   *
+   *  1. **Fog and trail, now.** `fogTick` restarts at 0, so the first
+   *     `snapshot()` below is a 5 Hz refresh beat (`fogTick++ % 4 === 0`):
+   *     `recomputeFog` reads the living units the sim holds now, and
+   *     `trailMeshDirty` rebuilds the tunnel trail on the next frame. After
+   *     the two calls the counter stands at 2, the phase `init` has always
+   *     left it at, so the tick loop's refreshes land where they did.
+   *  2. **Interpolation, speed and track seeds.** The first `snapshot()`
+   *     moves `cur` to where every entity stands; the second copies that
+   *     into `prev`, so the first `frame()` lerps nothing in from (0, 0) and
+   *     `entitySpeed` reads 0 -- no dust burst off a speed spike
+   *     (`updateVehicleAmbientFx`), and no hull thrown into lag, squat and
+   *     lean by the weight model, which seeds each vehicle from
+   *     `entitySpeed` on its first stepped frame (`stepVehicleWeight`'s R-N
+   *     seed). A tracked vehicle's first `snapshot()` marks it seeded
+   *     without stamping (`vehicleTrackSeeded`), and the second finds it
+   *     still, so no phantom track runs from the zero-fill to its spawn.
+   *  3. **Structure instancer room** -- `fitStructureInstancers`.
+   *  4. **Terrain.** `rebuildTerrain` reads the sim's structures, and a
+   *     mission's own arrive after `init`. Marked dirty so the next frame
+   *     builds from what the sim holds; on the mission path no frame has
+   *     been drawn yet and the flag is already set from construction, so
+   *     this costs nothing there.
+   *
+   * NOT seeded here, because nothing here would be right to seed: turret
+   * facing and animation phase are seeded per entity on that entity's own
+   * first decided frame (`turretSeeded`/`animSeeded`, `entityFrame`), which
+   * a unit spawned after `init` has not had yet; the weight model likewise
+   * seeds per entity (see 2). Hull facing is read live from
+   * `sim.state.facing` every frame and holds no copy to go stale. Anything
+   * sized from `sim.capacity`, `sim.width`/`height` or `sim.unitTypes` is
+   * fixed before this renderer is constructed.
+   *
+   * Reads the sim, never writes it (invariant 4).
+   */
+  private seedFromSim(): void {
+    this.fogTick = 0;
+    this.snapshot();
+    this.snapshot();
+    this.fitStructureInstancers();
+    this.terrainDirty = true;
+  }
+
+  /**
+   * Give every loaded structure instancer room for every structure of its
+   * type the sim holds now. `loadStructureSprite` sizes each one at load,
+   * which on a mission is BEFORE `runtime.start()` raises the mission's own
+   * buildings -- so without this, `writeStructureInstances` dropped the
+   * newcomer every frame (on `&nomesh`, measured: one billboard each on
+   * `wadi_halam_2_laager` and `qarn_hadid_2_foothold`; with the mesh path
+   * on, a building mesh draws instead and the billboard is empty anyway).
+   * A no-op at `init`, which runs before any sheet has loaded, and for any
+   * type whose count did not grow.
+   */
+  private fitStructureInstancers(): void {
+    for (const byType of [this.structureIdle, this.structureWreck]) {
+      for (const [id, instancer] of byType) {
+        const fitted = instancer.withCapacity(this.structureTypeCapacity(id));
+        if (fitted === instancer) continue;
+        this.scene.remove(instancer.mesh);
+        this.scene.add(fitted.mesh);
+        byType.set(id, fitted);
+      }
+    }
   }
 
   /**
@@ -4941,8 +5017,9 @@ export class ThreeRenderer implements Renderer {
    * but `Sim` has no per-type structure count to read directly the way it
    * does for units, so this counts by a linear walk instead. Called once per
    * structure type at load time (at most seven times today, per `main.ts`'s
-   * `STRUCTURE_SPRITES`), never per frame, so an O(structureCount) scan here
-   * costs nothing worth avoiding.
+   * `STRUCTURE_SPRITES`) and once per loaded type and sheet by `reseed()`
+   * (`fitStructureInstancers`), never per frame, so an O(structureCount)
+   * scan here costs nothing worth avoiding.
    */
   private structureTypeCapacity(structureId: string): number {
     const st = this.sim.structures;
@@ -4991,14 +5068,14 @@ export class ThreeRenderer implements Renderer {
     const idleFrame = await loadStructureFrame(basePath, spec.file);
     const idleGeometry = structureBillboardGeometry(spec.scale, idleFrame.width, idleFrame.height);
     // Every structure of THIS TYPE, alive or dead, is a safe capacity bound
-    // for either instancer -- `sim.structureCount` (every structure of every
-    // type) is already final by now (`main.ts` adds every map structure
-    // before kicking off any art load), the same bound reasoning
-    // `UnitInstancer` uses for `sim.capacity`. Sized per-type rather than to
-    // the flat `sim.structureCount`: seven shipped structure types (Task
-    // C5) each allocating the map's TOTAL structure count would waste six
-    // types' worth of `Float32Array` slots on every type that is not the
-    // single most common one.
+    // for either instancer AS OF NOW. It is not final: `main.ts` adds every
+    // map structure before kicking off any art load, but a mission's own
+    // arrive with `runtime.start()` after the deploy screen, which is after
+    // this. `reseed()` grows the instancer then (`fitStructureInstancers`).
+    // Sized per-type rather than to the flat `sim.structureCount`: seven
+    // shipped structure types (Task C5) each allocating the map's TOTAL
+    // structure count would waste six types' worth of `Float32Array` slots
+    // on every type that is not the single most common one.
     const capacity = this.structureTypeCapacity(structureId);
     const idleInstancer = new StructureInstancer(idleFrame.texture, idleGeometry, capacity);
     const previousIdle = this.structureIdle.get(structureId);

@@ -752,6 +752,22 @@ export class PixiRenderer implements Renderer {
     }
   }
 
+  /**
+   * `Renderer.reseed` (api.ts): what `init()` derives from the sim, derived
+   * again from the sim as it is now. Terrain (and the structures drawn in
+   * it) redraws on the next frame; the fog counter restarts so the first
+   * snapshot below refreshes fog and trail from the units that exist now;
+   * the second leaves prev == cur and speed 0. Turret facing is seeded by
+   * `snapshot()` itself while `frameN === 0`, which holds on the one caller's
+   * path (`mission-start.ts` runs before `main.ts` draws a frame).
+   */
+  reseed(): void {
+    this.terrainDirty = true;
+    this.fogTick = 0;
+    this.snapshot();
+    this.snapshot(); // prev == cur on the first frame
+  }
+
   /** Feed each tick's events for transient visuals. */
   onEvents(events: SimEvent[]): void {
     for (const e of events) {
