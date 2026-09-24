@@ -46,8 +46,8 @@ const get=(path,p=qs())=>fetch('/stats/api/'+path+'?'+p).then((r)=>r.json());
 const table=(el,head,rows)=>{el.innerHTML='<tr>'+head.map((h)=>'<th>'+h+'</th>').join('')+'</tr>'+rows.join('')};
 async function load(){
   const [s,days,fun,mis,tes]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers')]);
-  $('summary').innerHTML=[['Players',s.players,0],['Sessions',s.sessions,0],['Hours played',s.hoursPlayed,1],['Median min / player',s.medianMinutesPerPlayer,0],['Came back on day 2',s.returnedDay2,0]]
-    .map(([l,v,d])=>'<div class="stat"><b>'+fmt(v,d)+'</b>'+l+'</div>').join('');
+  $('summary').innerHTML=[['Players',s.players,0],['Sessions',s.sessions,0],['Hours played',s.hoursPlayed,1],['Median min / player',s.medianMinutesPerPlayer,0],['Came back another day',s.returnedDay2,0,' ('+Math.round(100*s.returnRate)+'%)']]
+    .map(([l,v,d,suffix])=>'<div class="stat"><b>'+fmt(v,d)+(suffix||'')+'</b>'+l+'</div>').join('');
   const maxDay=Math.max(1,...days.map((d)=>d.new+d.returning));
   table($('perday'),['Day','New','Returning',''],days.map((d)=>'<tr><td>'+esc(d.day)+'</td><td class="n">'+d.new+'</td><td class="n">'+d.returning+'</td><td style="width:40%"><div class="bar" style="width:'+(100*(d.new+d.returning)/maxDay)+'%"></div></td></tr>'));
   const top=Math.max(1,fun.campaign[0]?.started||0);let worst=-1,worstAt=-1;
@@ -56,7 +56,7 @@ async function load(){
   const tTop=Math.max(1,fun.tutorial[0]?.players||0);
   table($('tutorial'),['Step','Players',''],fun.tutorial.map((r)=>'<tr><td>'+(r.step+1)+'</td><td class="n">'+r.players+'</td><td style="width:50%"><div class="bar" style="width:'+(100*r.players/tTop)+'%"></div></td></tr>'));
   table($('missions'),['Mission','Attempts','Win %','Median min','Target','Top loss cause','Mean ROE','Most-failed objective'],mis.map((m)=>'<tr><td>'+esc(m.mission)+'</td><td class="n">'+m.attempts+'</td><td class="n">'+(m.winRate==null?'—':Math.round(100*m.winRate))+'</td><td class="n'+(m.medianWinMinutes!=null&&m.targetMinutes!=null&&m.medianWinMinutes>m.targetMinutes?' over':'')+'">'+fmt(m.medianWinMinutes)+'</td><td class="n">'+fmt(m.targetMinutes,0)+'</td><td>'+esc(m.topCause??'—')+'</td><td class="n">'+fmt(m.meanRoe,0)+'</td><td>'+esc(m.mostFailedObjective??'—')+'</td></tr>'));
-  table($('testers'),['Tester','Missions won','Last won','Hours','Last seen'],tes.map((t)=>'<tr><td><button data-t="'+esc(t.tester)+'">'+esc(t.tester)+'</button></td><td class="n">'+t.missionsWon+'</td><td>'+esc(t.lastWon??'—')+'</td><td class="n">'+fmt(t.hours)+'</td><td>'+new Date(t.lastSeen).toISOString().slice(0,16).replace('T',' ')+'</td></tr>'));
+  table($('testers'),['Tester','Missions won','Furthest won','Hours','Last seen'],tes.map((t)=>'<tr><td><button data-t="'+esc(t.tester)+'">'+esc(t.tester)+'</button></td><td class="n">'+t.missionsWon+'</td><td>'+esc(t.furthestWon??'—')+'</td><td class="n">'+fmt(t.hours)+'</td><td>'+new Date(t.lastSeen).toISOString().slice(0,16).replace('T',' ')+'</td></tr>'));
   const sel=$('tester'),cur=sel.value;sel.innerHTML='<option value="">Any tester</option>'+tes.map((t)=>'<option'+(t.tester===cur?' selected':'')+'>'+esc(t.tester)+'</option>').join('');
 }
 async function showTimeline(name){
