@@ -18,7 +18,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.13
+          node-version: 22
           cache: pnpm
       - uses: actions/setup-python@v5
         with:
@@ -126,7 +126,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.13
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Cache Playwright browsers
@@ -267,7 +267,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.13
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:determinism
@@ -299,7 +299,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22.13
+          node-version: 22
 
       # Only the run for main's CURRENT tip releases. Each run checks out its
       # own commit, so when PRs merge minutes apart every older run's release
