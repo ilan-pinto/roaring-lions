@@ -120,6 +120,7 @@ import {
   CAMERA_FAR,
 } from './camera';
 import { createSceneLights, type SceneLights } from './lighting';
+import { disposeAndReleaseContext } from './context-release';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
@@ -747,6 +748,12 @@ export class ThreeRenderer implements Renderer {
   private cssHeight = 0;
   private host: HTMLElement | null = null;
   private resizeObserver: ResizeObserver | null = null;
+  /** Set once by `dispose()`, never cleared. After it the WebGL context is
+   *  LOST, and three does not know that (`context-release.ts` says why), so
+   *  every method that would issue a GL call -- `frame()`, and
+   *  `captureGroundAlbedo()` through `photographGround` -- returns before
+   *  reaching one, and a second `dispose()` is a no-op. */
+  private disposed = false;
 
   /**
    * World data the app has already handed over, some of which is now drawn.
@@ -2372,22 +2379,31 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Release the GPU context and stop observing the host.
+   * Free every GPU resource this renderer owns, stop observing the host, and
+   * LOSE the WebGL context. Idempotent: a second call does nothing.
    *
-   * Nothing calls this today: `main()` has no shutdown path -- see the `void
-   * rafId` note at the end of it -- so there is no sensible place to hang
-   * teardown off. It exists so the observer has a documented owner rather
-   * than being a listener with no way to remove it, and so a future teardown
-   * has one call to make instead of having to learn this class's internals.
+   * `bootBattlefield`'s disposer (`main.ts`) calls this on every soft leave
+   * of a mission, so a leak here is paid once per mission played in a
+   * session, not once per page.
    *
-   * Disposes every terrain geometry and the shared material. B2.4 left this
-   * out for the ground mesh alone -- harmless while `WebGLRenderer.dispose()`
-   * forces context loss regardless and nothing called `dispose()` at all --
-   * but B2.5 added a second geometry sharing the same material, and B2.6 a
-   * third; letting that omission grow rather than fixing it here would be
-   * the wrong direction to take it in.
+   * The context loss is the last line and is not implied by anything above
+   * it. Every comment in this file that once said `WebGLRenderer.dispose()`
+   * "forces context loss" was wrong for three r170: it frees three's own
+   * caches and leaves the context alive until the canvas is garbage-
+   * collected -- measured at ~0.3-0.4 GB of GPU-process memory still held
+   * back on the menu after a leave (`context-release.ts` has the numbers
+   * and the order). So the explicit disposals below are real frees,
+   * not hygiene riding on a context loss that was never coming, and
+   * `disposeAndReleaseContext` at the end is what hands the context back.
+   *
+   * Once this returns nothing may issue a GL call on this renderer: three
+   * never sees the loss (its listener is gone first), so `frame()` and
+   * `captureGroundAlbedo()` both check `disposed` rather than trusting three
+   * to no-op.
    */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     // The Draco decoder keeps a worker pool. Shared across renderers by
@@ -2418,14 +2434,15 @@ export class ThreeRenderer implements Renderer {
     // Mesh units: unlike the instancers above (added once, left for the
     // life of the renderer), every `MeshUnitEntity` is added and removed
     // dynamically across a mission (`updateMeshUnits`), so -- like
-    // `collapsing` below -- each one needs an explicit `scene.remove` here,
-    // not just a `.dispose()` relying on `renderer.dispose()`'s context
-    // loss. Entities first (they share the templates' geometries/materials
-    // by reference -- `MeshUnitTemplate`'s own doc comment -- so disposing a
-    // template before its entities are torn down would be fine here, since
-    // nothing renders again after this method returns, but entities-then-
-    // templates is the order `loadMeshUnit`'s own reload path already uses,
-    // and matching it means there is only one ordering to reason about).
+    // `collapsing` below -- each one gets an explicit `scene.remove` here as
+    // well as its `.dispose()`, so the scene graph does not keep a torn-down
+    // entity reachable. Entities first (they share the templates'
+    // geometries/materials by reference -- `MeshUnitTemplate`'s own doc
+    // comment -- so disposing a template before its entities are torn down
+    // would be fine here, since nothing renders again after this method
+    // returns, but entities-then-templates is the order `loadMeshUnit`'s own
+    // reload path already uses, and matching it means there is only one
+    // ordering to reason about).
     for (const entity of this.meshUnitEntities.values()) {
       this.scene.remove(entity.root);
       disposeMeshUnitEntity(entity);
@@ -2526,9 +2543,9 @@ export class ThreeRenderer implements Renderer {
     this.particleInstancerBelowAdditive.dispose();
     this.particleInstancerAboveAdditive.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
-    // the particle batches just above -- `renderer.dispose()` forces context
-    // loss below. Called for the same blanket "dispose everything this file
-    // owns" hygiene the rest of this method follows, though with
+    // the particle batches just above -- nothing draws this scene again once
+    // `disposed` is set. Called for the same blanket "dispose everything this
+    // file owns" hygiene the rest of this method follows, though with
     // `castShadow` permanently false on every pooled light (`flash-light.ts`)
     // its own `PointLightShadow` never allocates a map, so there is nothing
     // this actually frees today.
@@ -2585,8 +2602,8 @@ export class ThreeRenderer implements Renderer {
     // A full-map `InstancedMesh`, same "added once in the constructor, no
     // scene.remove needed" reasoning as every mesh above (terrain,
     // particles, tracers): this dispose() sequence never removes those from
-    // `scene` either, relying on `renderer.dispose()` forcing context loss
-    // below. Only the `collapsing` loop above calls `scene.remove`, because
+    // `scene` either, because nothing draws the scene again once `disposed`
+    // is set. Only the `collapsing` loop above calls `scene.remove`, because
     // those meshes are dynamically added and removed one at a time outside
     // of dispose().
     this.smokeMesh.dispose();
@@ -2597,17 +2614,18 @@ export class ThreeRenderer implements Renderer {
     // Same "added once in the constructor, no scene.remove needed" shape as
     // trailMesh just above.
     this.vehicleTrackMesh.dispose();
-    // BEFORE `renderer.dispose()`, and nulled: the composer owns three
+    // BEFORE the renderer goes, and nulled: the composer owns three
     // full-screen render targets plus SMAA's two lookup textures, none of
-    // which `WebGLRenderer.dispose()` reaches. Nulling it also means a
-    // `frame()` after `dispose()` takes the composer-less path rather than
-    // rendering into freed targets.
+    // which `WebGLRenderer.dispose()` reaches, and they have to be deleted
+    // while the context can still act on the call.
     this.post?.dispose();
     this.post = null;
     // The sun's shadow map is a render target of its own, on the same
     // footing as the composer's above.
     this.sceneLights.dispose();
-    this.renderer.dispose();
+    // LAST: three's own caches, then the context itself. Everything above
+    // is freed by a live context; after this line there is none.
+    disposeAndReleaseContext(this.renderer);
     this.host = null;
   }
 
@@ -2669,6 +2687,11 @@ export class ThreeRenderer implements Renderer {
    *  below does the same, so this gate governs only the GPU rebuild, not a
    *  separate computation. */
   frame(alpha: number, dtMs: number): void {
+    // After `dispose()` the context is lost and three does not know it, so a
+    // draw here would reach GL rather than no-op (`context-release.ts`). The
+    // app cancels its frame loop on leave; this is the renderer not relying
+    // on that, since `__lions.step()` and the capture tools call it too.
+    if (this.disposed) return;
     // R-J/R-D: a PRESENTATION pause, and the FIRST thing this method does so
     // that every clock below it is fed the held value rather than half of
     // them. The sim keeps ticking in `main.ts` underneath -- this holds the
@@ -3003,6 +3026,12 @@ export class ThreeRenderer implements Renderer {
    * decoration must not be able to take the battlefield down.
    */
   captureGroundAlbedo(sizePx: number): ImageData | null {
+    // First, above the terrain build too: after `dispose()` the context is
+    // lost, and a render into a fresh target on a lost context throws inside
+    // shader compilation (measured, `context-release.ts`) -- caught below,
+    // but as a console warning on every minimap redraw that outlived its
+    // battlefield. There is no ground to photograph any more; say so.
+    if (this.disposed) return null;
     if (!Number.isFinite(sizePx) || sizePx < 1) return null;
     const size = Math.floor(sizePx);
     // The dirty gate comes BEFORE the memo and that order is load-bearing,

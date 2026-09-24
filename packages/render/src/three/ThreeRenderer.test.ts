@@ -68,7 +68,33 @@ vi.mock('three', async (importOriginal) => {
     setClearColor(color: THREE.Color): void {
       this.clearColorCalls.push(color.getHexString());
     }
+    /** The WebGL context, reduced to the one question
+     *  `disposeAndReleaseContext` asks it. `lost` is written only by
+     *  `forceContextLoss` below (or by a test standing in for the browser
+     *  taking the context first), so "the context reports lost" is a fact
+     *  about what `dispose()` called, not about how the fake was built. */
+    readonly context = {
+      lost: false,
+      isContextLost(): boolean {
+        return this.lost;
+      },
+    };
+    getContext(): { isContextLost(): boolean } {
+      return this.context;
+    }
+    /** Every `dispose`/`forceContextLoss` call, in order, so the ORDER
+     *  `context-release.ts` argues for is pinned rather than implied. */
+    calls: string[] = [];
+    forceContextLoss(): void {
+      this.calls.push('forceContextLoss');
+      this.context.lost = true;
+    }
+    renderCalls = 0;
+    render(): void {
+      this.renderCalls += 1;
+    }
     dispose(): void {
+      this.calls.push('dispose');
       disposeSpy();
     }
   }
@@ -176,6 +202,78 @@ describe('ThreeRenderer.dispose', () => {
 
     expect(geometryDisposed).toBe(true);
     expect(materialDisposed).toBe(true);
+  });
+});
+
+/**
+ * `dispose()` gives the WebGL context back. `WebGLRenderer.dispose()` does
+ * not (three r170), and leaving a mission is a soft navigation, so before
+ * this every leave held ~0.4 GB of GPU memory until the canvas was
+ * collected. See `context-release.ts` for the measurements and the order.
+ */
+describe('ThreeRenderer.dispose releases the WebGL context', () => {
+  interface FakeGl {
+    context: { lost: boolean };
+    calls: string[];
+    renderCalls: number;
+  }
+  const glOf = (r: ThreeRenderer): FakeGl => (r as unknown as { renderer: FakeGl }).renderer;
+
+  it('loses the context, after three has freed its own caches', () => {
+    const renderer = new ThreeRenderer(makeSim(), makeOpts());
+    const gl = glOf(renderer);
+    expect(gl.context.lost).toBe(false);
+
+    renderer.dispose();
+
+    expect(gl.context.lost).toBe(true);
+    // dispose FIRST: three's caches are freed by a live context, and its
+    // `webglcontextlost` listener is gone before the (asynchronous) event
+    // lands, so three prints nothing.
+    expect(gl.calls).toEqual(['dispose', 'forceContextLoss']);
+  });
+
+  it('is idempotent: a second dispose() does not throw and loses nothing twice', () => {
+    const renderer = new ThreeRenderer(makeSim(), makeOpts());
+    const gl = glOf(renderer);
+    renderer.dispose();
+
+    expect(() => renderer.dispose()).not.toThrow();
+    // Exactly once each. A second `loseContext()` prints "WebGL:
+    // INVALID_OPERATION: loseContext: context already lost" in Chromium.
+    expect(gl.calls).toEqual(['dispose', 'forceContextLoss']);
+  });
+
+  it('does not lose a context the browser already took', () => {
+    const renderer = new ThreeRenderer(makeSim(), makeOpts());
+    const gl = glOf(renderer);
+    gl.context.lost = true;
+
+    renderer.dispose();
+
+    expect(gl.calls).toEqual(['dispose']);
+  });
+
+  it('draws nothing and photographs nothing once disposed', () => {
+    const renderer = new ThreeRenderer(makeSim(), makeOpts());
+    const gl = glOf(renderer);
+    // The premise: before dispose a frame DOES reach the renderer, so the
+    // zero below is the guard and not a frame that never draws.
+    renderer.frame(1, 16);
+    expect(gl.renderCalls).toBe(1);
+    renderer.dispose();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      renderer.frame(1, 16);
+      expect(gl.renderCalls).toBe(1);
+      expect(renderer.captureGroundAlbedo(64)).toBeNull();
+      // Null because it was refused, not because the capture failed and
+      // was caught: that path warns, and would warn on every minimap redraw.
+      expect(warn).not.toHaveBeenCalled();
+      expect(gl.renderCalls).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

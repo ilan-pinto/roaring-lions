@@ -37,6 +37,11 @@ vi.mock('three', async (importOriginal) => {
       // Real `WebGLRenderer#setClearColor` reads `outputColorSpace`
       // synchronously; this stand-in only needs to accept the call.
     }
+    // `ThreeRenderer.dispose` loses the context last (`context-release.ts`).
+    getContext(): { isContextLost(): boolean } {
+      return { isContextLost: () => false };
+    }
+    forceContextLoss(): void {}
     dispose(): void {
       // Nothing to release: this stand-in holds no GPU context.
     }

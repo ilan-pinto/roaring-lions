@@ -52,6 +52,7 @@
  * the whole board renders dark and still looks like a plausible diorama.
  */
 import * as THREE from 'three';
+import { disposeAndReleaseContext } from '../context-release';
 import { gltfLoader, setDracoDecoderPath } from '../units/gltf-loader';
 
 import {
@@ -218,7 +219,11 @@ export async function mountWorldView(
     // `outland_scenery` carries the diorama's whole underside and rim.
     world = readWorldScene(gltf.scene, (map) => campaignWorldMaterial(map, SCENERY_VISUAL));
   } catch (err) {
-    renderer.dispose();
+    // Lost, not merely disposed: the app answers this throw with the flat
+    // board, which never touches this context again, and
+    // `WebGLRenderer.dispose()` alone would leave it alive until the canvas
+    // is collected (`context-release.ts`).
+    disposeAndReleaseContext(renderer);
     renderer.domElement.remove();
     throw err;
   }
@@ -480,7 +485,16 @@ export async function mountWorldView(
     get bearingDegrees() {
       return ((((yaw * 180) / Math.PI) % 360) + 360) % 360;
     },
+    // Frees the board's geometry, materials and 4096 texture, then LOSES the
+    // WebGL context -- `WebGLRenderer.dispose()` alone leaves it alive until
+    // the canvas is garbage-collected (`context-release.ts`). Idempotent:
+    // the app's disconnect observer is not the only thing that could call
+    // it, and a second `loseContext()` would print a WebGL warning.
+    // `disposed` is also what stops `tick` from ever drawing again, which
+    // matters more after this than before: three never sees this loss, so
+    // a draw would reach GL rather than no-op.
     dispose() {
+      if (disposed) return;
       disposed = true;
       cancelAnimationFrame(raf);
       observer?.disconnect();
@@ -500,7 +514,7 @@ export async function mountWorldView(
         (m.material as THREE.Material).dispose();
       }
       world.map.dispose();
-      renderer.dispose();
+      disposeAndReleaseContext(renderer);
       el.remove();
     },
   };
