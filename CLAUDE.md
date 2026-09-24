@@ -316,6 +316,16 @@ The combat model is the product. Everything else is scaffolding around it.
   browser or server starts. They used to attach to whatever answered there, and
   `ui:routes`' default 5177 is also the lead's everyday dev server, so a local walk
   started while it was up walked that checkout and reported green.
+  **`ui:shots` also chooses its GPU backend** (`tools/src/ui-review/gpu.ts`):
+  `--gpu=metal|swiftshader`, defaulting to Metal on macOS and SwiftShader
+  elsewhere, and it prints the renderer the browser actually gave it. The default
+  moved on 2026-09-24 because under SwiftShader one screenshot of a live mission
+  took 5.0–7.8 s, longer than the victory/defeat moment's 2.6 s hold, so
+  `outcome-guard.ts` stopped every run at `25-outcome-defeat`; Metal takes
+  115–164 ms. **Captures from before that date are SwiftShader and are not
+  pixel-comparable with later ones** (`golden-diff/browser.ts` records 230 px /
+  0.032 between the two on `quiet`), so compare a capture with one from the same
+  backend.
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed. It is defined by the battlefield alone — the menu, the campaign board, the brigade and the picker define nothing, which is how a tool tells "the app booted a mission" from "the app booted".
 - `pnpm meshy -- <command>` (`tools/src/meshy/`) is the Meshy text-to-3D/image-to-3D CLI — estimate before you spend, key lives outside the repo, see `docs/ART_PIPELINE.md`'s "Meshy API — generating a base model" for the full workflow and policy.
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from

@@ -65,17 +65,12 @@
 // packages/app or assets/ triggers vite-plugin-asset-watch and reloads the
 // page being photographed) -- .superpowers/ is git-ignored and unwatched.
 import { chromium, type Browser, type Page } from 'playwright';
-// A separate statement from the `dismissDeployGate`/`ensureDevServer`/
-// `stopDevServer` import below (same module), rather than one merged import
-// list, so this line stays well clear of PR #214's (`fix/ui-shots-port`)
-// PORT/`claimPort` hunk, which touches that other import line's neighbours.
-import { readUnmaskedRenderer } from '../golden-diff/browser';
 import { FREEZE_FOR_SCREENSHOT_SCRIPT, RESTORE_AFTER_SCREENSHOT_SCRIPT } from './frame-freeze';
 import { claimGpuBackend, gpuLaunchArgs } from './gpu';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
+import { dismissDeployGate, ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
 import { assertOutcomeStillPresent } from './outcome-guard';
 import { claimPort } from './port';
 
