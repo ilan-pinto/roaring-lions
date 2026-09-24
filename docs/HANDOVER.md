@@ -8,13 +8,13 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | #234 win screen shows credits paid and total · S3e #178 Tasks 11–12 wait for G1 | `feat/win-credits` · `/Users/ilpinto/dev/roaring-lions-ep/win-credits` | issue #234 (no spec; a follow-up) | implementer running | review, then PR; then S3e 11–12 after G1 (2 Oct) → S3a #180 |
+| A (packages/app) | #234 win credits (PR #236) · #237 garage filter · WP-S3g #238 garage uplift spec · S3e #178 Tasks 11–12 wait for G1 | `feat/win-credits` (PR #236) · `fix/garage-filter` in `/Users/ilpinto/dev/roaring-lions-ep/garage-filter` · `docs/garage-uplift-spec` in `/Users/ilpinto/dev/roaring-lions-ep/garage-spec` | S3g: spec `docs/superpowers/specs/2026-09-25-garage-uplift-design.md` (drafting) | #236 approved; filter fix and spec draft running | the lead merges #236; review the filter fix → PR; the S3g spec to the lead (decisions: tier mark, sound source, image route) |
 | B (render · art · data) | A3.1 #179 waits for G1 · adds filed 24 Sep: #226 road visual (inside A2 #182), #227 tunnel visuals (inside A3.2 #185) | — | — | idle; #219 and #220 landed | A3.1 after G1 (2 Oct); roads with A2 in Stage 3; tunnels with A3.2 in Stage 4; any Meshy call is announced with a credit estimate first |
 | C (packages/sim) | — | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: #234 win credits → S3e #178 Tasks 11–12 (after G1) → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186
+- A: #236 → #237 filter fix → S3g #238 spec approved → S3e #178 Tasks 11–12 (after G1) → S3a #180 + S3g build (Stage 3, together) → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186
 - B: (A1.3 landed) → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 (with the road visual #226) → A3.2 #185 (with tunnel visuals #227, an add)
 - C: G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
@@ -145,7 +145,7 @@ DECISIONS THIS SESSION: scene-host §10 numbers approved as shown · scrollbar o
         telemetry: no Cloudflare Access (Zero Trust asks for payment details) → a password login on /stats ·
         roads (#226) and tunnels (#227) join A2 and A3.2 as items, Meshy a candidate route for each
 NEXT STEP (exact):
-  1. `git worktree list`; #234 in /Users/ilpinto/dev/roaring-lions-ep/win-credits — review, PR
+  1. `git worktree list`; #237 in garage-filter (review, PR); the S3g spec in garage-spec (to the lead)
   2. G1 #165 on 2 Oct unblocks A3.1 #179 and S3e Tasks 11–12
   3. Watch whether Workers Builds builds the `[skip ci]` release commit (the live version number)
 CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time
