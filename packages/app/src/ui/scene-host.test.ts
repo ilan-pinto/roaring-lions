@@ -297,14 +297,84 @@ describe('sceneHost', () => {
       expect(queue).toHaveLength(0);
     });
 
-    it('leaving removes the pointer listener', () => {
+    // The ORDER of the spec's decision puts Pixi before reduced motion, so a
+    // Pixi player who also asked for reduced motion gets reason `pixi` -- and
+    // must still get a picture that never moves (spec §3.5: "Reduced motion
+    // never mounts it"). Parallax keys off the preference, not the reason.
+    it('pixi + reduced motion never moves it', () => {
       const queue: FrameRequestCallback[] = [];
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
       const { stage, column } = setup();
-      const dispose = host(stage, column, deps({ mount: fakeMount().mount, frame: (cb) => queue.push(cb) }));
-      dispose();
+      host(stage, column, deps({ renderer: 'pixi', reducedMotion: () => true, frame: (cb) => queue.push(cb) }));
+      expect(hostEl(stage).dataset.hostReason).toBe('pixi');
       move(window.innerWidth, 0, 'mouse');
       expect(queue).toHaveLength(0);
+      run(queue, 5000);
+      expect(hostEl(stage).style.getPropertyValue('--host-dx')).toBe('');
     });
+
+    // Asked of the listeners themselves, not of the frame queue: after a leave
+    // the easing loop refuses to start whether or not the listener is still
+    // attached, so a queue that stays empty proves nothing about removal.
+    it('leaving removes exactly the listeners it added', () => {
+      const root = document.documentElement;
+      const addWin = vi.spyOn(window, 'addEventListener');
+      const removeWin = vi.spyOn(window, 'removeEventListener');
+      const addRoot = vi.spyOn(root, 'addEventListener');
+      const removeRoot = vi.spyOn(root, 'removeEventListener');
+      const { stage, column } = setup();
+      const dispose = host(stage, column, deps({ mount: fakeMount().mount, frame: () => 0 }));
+      const onMove = addWin.mock.calls.find((c) => c[0] === 'pointermove')?.[1];
+      const onLeave = addRoot.mock.calls.find((c) => c[0] === 'mouseleave')?.[1];
+      expect(onMove).toBeTypeOf('function');
+      expect(onLeave).toBeTypeOf('function');
+      expect(removeWin).not.toHaveBeenCalledWith('pointermove', onMove);
+      dispose();
+      expect(removeWin).toHaveBeenCalledWith('pointermove', onMove);
+      expect(removeRoot).toHaveBeenCalledWith('mouseleave', onLeave);
+    });
+  });
+
+  // Every seam has a production default; these two are the defaults whose
+  // absence would be silent.
+  it('with no webgl2 seam it asks the shared probe, which gives its context back', () => {
+    const loseContext = vi.fn();
+    const fakeGl = { getExtension: () => ({ loseContext }) };
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation((() => null) as unknown as HTMLCanvasElement['getContext']);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const a = setup();
+    host(a.stage, a.column, { ...deps({ mount: fakeMount().mount }), webgl2: undefined });
+    expect(hostEl(a.stage).dataset.host).toBe('plate');
+    expect(hostEl(a.stage).dataset.hostReason).toBe('no-webgl2');
+    getContext.mockImplementation((() => fakeGl) as unknown as HTMLCanvasElement['getContext']);
+    document.body.replaceChildren();
+    const b = setup();
+    host(b.stage, b.column, { ...deps({ mount: fakeMount().mount }), webgl2: undefined });
+    expect(hostEl(b.stage).dataset.host).toBe('pending');
+    expect(loseContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaving before the scheduled start ran cancels it, and a late start mounts nothing', () => {
+    const cancel = vi.fn();
+    let started: (() => void) | null = null;
+    const f = fakeMount();
+    const { stage, column } = setup();
+    const dispose = host(stage, column, deps({
+      mount: f.mount,
+      schedule: (fn) => {
+        started = fn;
+        return cancel;
+      },
+    }));
+    dispose();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    // An idle callback that fired anyway (the cancel raced it) finds the host gone.
+    const late: (() => void) | null = started;
+    if (late === null) throw new Error('nothing was scheduled');
+    (late as () => void)();
+    expect(f.calls).toHaveLength(0);
   });
 
   // The CSS transition and the JS timer that removes the poster are one

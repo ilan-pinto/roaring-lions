@@ -2,7 +2,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   CROSSFADE_MS, HOST_DEADLINE_MS, NARROW_COLUMN_SHARE, PARALLAX_TAU_MS,
-  easeToward, hostPath, hostStep, parallaxTarget, type HostInputs,
+  easeToward, hostPath, hostStep, parallaxTarget,
+  type HostEvent, type HostInputs, type HostState, type HostStep,
 } from './scene-host-model';
 
 const base = (over: Partial<HostInputs> = {}): HostInputs => ({
@@ -82,6 +83,39 @@ describe('hostStep -- spec §5, row by row', () => {
   // deadline it must not warn a second time.
   it('plate ignores a late failure', () => {
     expect(hostStep('plate', { type: 'failed' })).toEqual({ state: 'plate', effects: [] });
+  });
+
+  // Every cell, not only the ones a path reaches today. The leak rows exist to
+  // make a stranded view IMPOSSIBLE rather than unlikely, so a `ready` outside
+  // `pending` -- including `live` and `off`, which no path reaches -- disposes
+  // the view it delivered.
+  const TABLE: readonly [HostState, HostEvent['type'], HostStep][] = [
+    ['pending', 'ready', { state: 'live', effects: ['reveal'] }],
+    ['pending', 'failed', { state: 'plate', effects: ['keep-plate', 'warn'], reason: 'load-failed' }],
+    ['pending', 'deadline', { state: 'plate', effects: ['keep-plate', 'abort', 'warn'], reason: 'deadline' }],
+    ['pending', 'dispose', { state: 'disposed', effects: ['abort', 'dispose-view'] }],
+    ['live', 'ready', { state: 'live', effects: ['dispose-view'] }],
+    ['live', 'failed', { state: 'live', effects: [] }],
+    ['live', 'deadline', { state: 'live', effects: [] }],
+    ['live', 'dispose', { state: 'disposed', effects: ['abort', 'dispose-view'] }],
+    ['plate', 'ready', { state: 'plate', effects: ['dispose-view'] }],
+    ['plate', 'failed', { state: 'plate', effects: [] }],
+    ['plate', 'deadline', { state: 'plate', effects: [] }],
+    ['plate', 'dispose', { state: 'disposed', effects: ['abort', 'dispose-view'] }],
+    ['off', 'ready', { state: 'off', effects: ['dispose-view'] }],
+    ['off', 'failed', { state: 'off', effects: [] }],
+    ['off', 'deadline', { state: 'off', effects: [] }],
+    ['off', 'dispose', { state: 'disposed', effects: ['abort', 'dispose-view'] }],
+    ['disposed', 'ready', { state: 'disposed', effects: ['dispose-view'] }],
+    ['disposed', 'failed', { state: 'disposed', effects: [] }],
+    ['disposed', 'deadline', { state: 'disposed', effects: [] }],
+    ['disposed', 'dispose', { state: 'disposed', effects: [] }],
+  ];
+  it.each(TABLE)('every cell: %s + %s', (state, type, want) => {
+    expect(hostStep(state, { type })).toEqual(want);
+  });
+  it('the table is the whole of it: 5 states x 4 events', () => {
+    expect(new Set(TABLE.map(([s, e]) => `${s}+${e}`)).size).toBe(20);
   });
 });
 

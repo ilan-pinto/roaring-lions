@@ -216,9 +216,13 @@ export function sceneHost(stage: HTMLElement, column: HTMLElement, deps: SceneHo
 
   // --- the decision (spec §3.4) --------------------------------------------
   // After the insert, so the column is measured where it actually stands.
+  // The motion preference is read ONCE and kept: it decides the path, and it
+  // also decides parallax on its own (below), because the path's order puts
+  // Pixi first and a Pixi player can have asked for reduced motion too.
+  const reduced = (deps.reducedMotion ?? defaultReducedMotion)();
   const decided = hostPath({
     renderer: deps.renderer,
-    reducedMotion: (deps.reducedMotion ?? defaultReducedMotion)(),
+    reducedMotion: reduced,
     saveData: (deps.saveData ?? defaultSaveData)(),
     viewportWidth: window.innerWidth,
     columnWidth: column.getBoundingClientRect().width,
@@ -384,9 +388,11 @@ export function sceneHost(stage: HTMLElement, column: HTMLElement, deps: SceneHo
   }
 
   // --- parallax (spec §3.5) --------------------------------------------------
-  // Every path but `off` and reduced motion. The picture moves; the camera
-  // does not. Mouse only: touch and pen never move it.
-  if (decided.path !== 'off' && !(decided.path === 'plate' && decided.reason === 'reduced-motion')) {
+  // Every path but `off`, and never under reduced motion -- keyed off the
+  // PREFERENCE, not the plate's reason: Pixi + reduced motion reads reason
+  // `pixi` and must not move either. The picture moves; the camera does not.
+  // Mouse only: touch and pen never move it.
+  if (decided.path !== 'off' && !reduced) {
     const cur = { x: 0, y: 0 };
     let tgt = { x: 0, y: 0 };
     let running = false;

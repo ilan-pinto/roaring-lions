@@ -109,29 +109,27 @@ export interface HostStep {
 
 const stay = (state: HostState): HostStep => ({ state, effects: [] });
 
-/** Spec §5, row by row. Pure. */
+/** Spec §5, row by row, and every other cell too. Pure. */
 export function hostStep(state: HostState, event: HostEvent): HostStep {
   if (event.type === 'dispose') {
     return state === 'disposed' ? stay(state) : { state: 'disposed', effects: ['abort', 'dispose-view'] };
   }
-  switch (state) {
-    case 'pending':
-      if (event.type === 'ready') return { state: 'live', effects: ['reveal'] };
-      if (event.type === 'failed') return { state: 'plate', effects: ['keep-plate', 'warn'], reason: 'load-failed' };
-      return { state: 'plate', effects: ['keep-plate', 'abort', 'warn'], reason: 'deadline' };
-    case 'plate':
-    case 'disposed':
-      // The two leak rows: a view that arrives after nobody wants it is
-      // destroyed the moment it arrives, or it holds ~0.5 GB (spec M14).
-      // Anything else here is late news of an abort the host itself caused
-      // (a deadline or a leave), which has already said what it had to.
-      return event.type === 'ready' ? { state, effects: ['dispose-view'] } : stay(state);
-    case 'live':
-    case 'off':
-      // Live ignores a late deadline, and the door never settles twice. Off
-      // never started a load, so nothing can arrive.
-      return stay(state);
+  if (state === 'pending') {
+    if (event.type === 'ready') return { state: 'live', effects: ['reveal'] };
+    if (event.type === 'failed') return { state: 'plate', effects: ['keep-plate', 'warn'], reason: 'load-failed' };
+    return { state: 'plate', effects: ['keep-plate', 'abort', 'warn'], reason: 'deadline' };
   }
+  // The leak rows: outside `pending`, a view that arrives is one nobody wants,
+  // and it is destroyed the moment it arrives or it holds ~0.5 GB (spec M14).
+  // `plate` and `disposed` are the two a path reaches (a view landing after
+  // the deadline or the leave); `live` and `off` are unreachable today (the
+  // door settles once, and `off` never starts a load) and dispose it anyway,
+  // so a stranded view is impossible rather than merely unlikely.
+  if (event.type === 'ready') return { state, effects: ['dispose-view'] };
+  // Anything else outside `pending` is late news -- of an abort the host
+  // itself caused (a deadline or a leave), which already said what it had
+  // to, or a deadline after the reveal, which `live` ignores.
+  return stay(state);
 }
 
 /**
