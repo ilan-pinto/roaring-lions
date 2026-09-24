@@ -61,6 +61,11 @@ vi.mock('three', async (importOriginal) => {
     domElement: unknown = {};
     setClearColor(): void {}
     render(): void {}
+    // `ThreeRenderer.dispose` loses the context last (`context-release.ts`).
+    getContext(): { isContextLost(): boolean } {
+      return { isContextLost: () => false };
+    }
+    forceContextLoss(): void {}
     dispose(): void {}
   }
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };

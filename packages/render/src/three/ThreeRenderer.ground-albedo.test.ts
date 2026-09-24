@@ -178,6 +178,11 @@ vi.mock('three', async (importOriginal) => {
       }
     }
     setPixelRatio(): void {}
+    // `ThreeRenderer.dispose` loses the context last (`context-release.ts`).
+    getContext(): { isContextLost(): boolean } {
+      return { isContextLost: () => false };
+    }
+    forceContextLoss(): void {}
     dispose(): void {}
   }
   /**
