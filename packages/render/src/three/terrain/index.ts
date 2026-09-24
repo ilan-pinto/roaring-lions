@@ -52,6 +52,8 @@
  */
 export * from './types';
 export * from './shared';
+export * from './noise';
+export * from './road-graph';
 export * from './tones';
 export * from './surface';
 export * from './ground';
