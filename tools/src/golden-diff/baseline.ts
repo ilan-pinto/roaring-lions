@@ -714,16 +714,18 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
     ],
     rationale:
-      'whole frame, mesh vehicles plus continuous dust/exhaust FX. Noise 5-157 px / 0.0029-0.0069, ' +
-      'pooled over 94 gate runs in three independent samples on one machine (24 + 21 + 49; macOS 15 ' +
-      '/ M3 Pro, headless Chromium, software SwiftShader, 1400x900, frame loop frozen), unimodal in ' +
-      'every sample; 5 more runs against the 2026-09-15 side-light baseline read 0-30 px / ' +
-      '0.0017-0.0035, inside that band. Thresholds are 1.9x and 2.9x the POOLED maximum -- the ' +
-      '3.0x/3.4x this line used ' +
-      'to claim was measured against the narrowest of the three. The re-injected scatter defect ' +
-      'reads 63 px / 0.1953 -- 10x over the threshold on meanAbsChannelDelta (28x the pooled noise ' +
-      'maximum), and INSIDE the noise band on pixel count, which is why magnitude is the primary ' +
-      'metric here.',
+      'whole frame, mesh vehicles plus continuous dust/exhaust FX. The 5-157 px / 0.0029-0.0069 this ' +
+      'line used to carry as noise (94 gate runs, 24 + 21 + 49, one macOS machine) is RETIRED: every one ' +
+      'of those runs predates c0044ff6 (2026-09-18), and what varied was the ambient-FX emission ' +
+      'backlog, whose size is a load time -- never renderer noise. Re-measured 2026-09-23 from every ' +
+      'ci.yml `visual` run since that fix, all on linux-x64-swiftshader: against a baseline captured ' +
+      'after it (the a387a6a bless) 1-9 px / 0.0004-0.0012 over 5 runs, in two clusters (1 px x2, ' +
+      '9 px x3) with no established cause; against the pre-fix 03fad18 baseline 33-47 px / ' +
+      "0.0031-0.0054 over 26 runs, the offset being that baseline's own banked puffs. The thresholds " +
+      'are still 300 px / 0.02 -- 33x and 17x that post-fix maximum -- and re-deriving them is a ' +
+      'decision nobody has taken. The re-injected scatter defect reads 63 px / 0.1953 -- 10x over the ' +
+      'threshold on meanAbsChannelDelta and under it on pixel count, which is why magnitude is the ' +
+      'primary metric here.',
   },
   relief: {
     // MAP COVERAGE. The other four scenarios look at two of the five shipped

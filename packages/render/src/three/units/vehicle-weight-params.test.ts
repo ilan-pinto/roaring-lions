@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MAX_LAG_TILES } from './vehicle-weight';
+import type { VehicleWeightParams } from './vehicle-weight';
 import {
   VEHICLE_WEIGHT_IMPORTED_UNIT_IDS,
   VEHICLE_WEIGHT_MASS_CLASS,
@@ -122,9 +123,13 @@ describe('the schema ceilings are real', () => {
     for (const p of all) expect(p.lagTiles).toBeLessThanOrEqual(MAX_LAG_TILES);
   });
 
-  it('keeps every default under the recoil\'s own pitch, which is a bigger event', () => {
+  // Every role default AND every mass class: `unit.schema.json`'s
+  // `pitch_deg` description says the tables hold this line and the schema
+  // does not (its cap is 6 degrees), so both tables have to be the ones
+  // checked here.
+  it('keeps every default and every mass class under the recoil\'s own pitch, which is a bigger event', () => {
     const MESH_HULL_PITCH_RAD = 0.06; // ThreeRenderer.ts:440
-    for (const p of Object.values(VEHICLE_WEIGHT_ROLE_DEFAULTS)) {
+    for (const p of [...Object.values(VEHICLE_WEIGHT_ROLE_DEFAULTS), ...Object.values(VEHICLE_WEIGHT_MASS_CLASS)]) {
       expect(p.maxPitchRad).toBeLessThan(MESH_HULL_PITCH_RAD);
     }
   });
@@ -138,5 +143,86 @@ describe('the schema ceilings are real', () => {
     expect(medium.maxPitchRad).toBeGreaterThan(light.maxPitchRad);
     expect(heavy.accelSeconds).toBeGreaterThan(light.accelSeconds);
     expect(heavy.settleSeconds).toBeGreaterThan(light.settleSeconds);
+  });
+});
+
+// Final review of WP-A1.3, ruling 6. `validate:data` holds an AUTHORED
+// `mobility.weight` block to the schema; nothing held the renderer's own
+// tables to it, so a role default or a mass class could sit outside bounds
+// no author is allowed past and nothing would say so. These bounds are READ
+// from `data/schemas/unit.schema.json` at test time, never copied: move a
+// schema bound or a table number and this is where the two meet.
+describe('the tables sit inside the schema\'s own bounds, read from the schema', () => {
+  interface Bound {
+    minimum: number;
+    maximum: number;
+  }
+  const DEG = Math.PI / 180;
+  /** Each numeric schema field, and how a table entry is read in its units. */
+  const FIELDS: Readonly<Record<string, (p: VehicleWeightParams) => number>> = {
+    pitch_deg: (p) => p.maxPitchRad / DEG,
+    roll_deg: (p) => p.maxRollRad / DEG,
+    lag_tiles: (p) => p.lagTiles,
+    settle_s: (p) => p.settleSeconds,
+  };
+
+  function field(obj: unknown, key: string): unknown {
+    if (typeof obj !== 'object' || obj === null || !(key in obj)) {
+      throw new Error(`unit.schema.json: no "${key}" where mobility.weight's bounds were expected`);
+    }
+    return (obj as Record<string, unknown>)[key];
+  }
+
+  function schemaWeightBounds(): Record<string, Bound> {
+    const schema: unknown = JSON.parse(readFileSync(path.join(REPO, 'data/schemas/unit.schema.json'), 'utf8'));
+    const mobility = field(field(schema, 'properties'), 'mobility');
+    const props = field(field(field(mobility, 'properties'), 'weight'), 'properties');
+    const out: Record<string, Bound> = {};
+    for (const [key, spec] of Object.entries(props as Record<string, unknown>)) {
+      // `mass_class` is the one non-numeric field: an enum picks a whole
+      // table row, so it has no bound of its own to hold a number to.
+      if (typeof spec === 'object' && spec !== null && 'enum' in spec) continue;
+      const minimum = field(spec, 'minimum');
+      const maximum = field(spec, 'maximum');
+      if (typeof minimum !== 'number' || typeof maximum !== 'number') {
+        throw new Error(`unit.schema.json: mobility.weight.${key} has no numeric minimum/maximum`);
+      }
+      out[key] = { minimum, maximum };
+    }
+    return out;
+  }
+
+  const TABLES: ReadonlyArray<[string, Readonly<Record<string, VehicleWeightParams>>]> = [
+    ['VEHICLE_WEIGHT_ROLE_DEFAULTS', VEHICLE_WEIGHT_ROLE_DEFAULTS],
+    ['VEHICLE_WEIGHT_MASS_CLASS', VEHICLE_WEIGHT_MASS_CLASS],
+  ];
+
+  it('covers every numeric bound the schema declares, and nothing it does not', () => {
+    // A new schema number with no reading here would be a bound nothing holds
+    // the tables to; a reading with no schema field would be checking air.
+    expect(Object.keys(schemaWeightBounds()).sort()).toEqual(Object.keys(FIELDS).sort());
+  });
+
+  it('reads lag_tiles\' maximum as the renderer\'s own MAX_LAG_TILES (0.09)', () => {
+    expect(schemaWeightBounds().lag_tiles.maximum).toBe(MAX_LAG_TILES);
+    expect(MAX_LAG_TILES).toBe(0.09);
+  });
+
+  it('keeps every entry of both tables inside every schema bound', () => {
+    const bounds = schemaWeightBounds();
+    const outside: string[] = [];
+    for (const [tableName, table] of TABLES) {
+      for (const [entry, p] of Object.entries(table)) {
+        for (const [key, read] of Object.entries(FIELDS)) {
+          const v = read(p);
+          const b = bounds[key];
+          if (!(v >= b.minimum && v <= b.maximum)) {
+            outside.push(`${tableName}.${entry}.${key} = ${v}, schema allows ${b.minimum}..${b.maximum}`);
+          }
+        }
+      }
+    }
+    // Named, so a red run says which entry and which bound.
+    expect(outside).toEqual([]);
   });
 });

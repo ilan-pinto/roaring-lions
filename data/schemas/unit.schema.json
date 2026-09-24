@@ -297,7 +297,7 @@
               "type": "number",
               "minimum": 0,
               "maximum": 6,
-              "description": "Nose-up pitch a standing start draws, degrees. Capped just above the hull recoil's own 3.4 degrees (MESH_HULL_PITCH_RAD) -- a weight lean must read as smaller than a gun's recoil, not compete with it."
+              "description": "Nose-up pitch a standing start draws, degrees. The schema caps it at 6, which is NOT the recoil bound: the hull recoil pitches 3.4 degrees (MESH_HULL_PITCH_RAD, 0.06 rad), and every role default and mass class in the renderer's tables stays under that so a weight lean reads smaller than a gun's recoil -- pinned by vehicle-weight-params.test.ts, not here. An authored value between 3.4 and 6 validates and draws a lean larger than the recoil."
             },
             "roll_deg": {
               "type": "number",

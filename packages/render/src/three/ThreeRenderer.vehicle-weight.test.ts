@@ -31,6 +31,7 @@ import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import { buildVehicleMeshTemplate, type VehicleMeshEntity, type VehicleMeshTemplate } from './units/mesh-vehicle';
+import type { DyingVehicle } from './units/mesh-vehicle-death';
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import {
   hullCornerOffsets,
@@ -106,6 +107,7 @@ interface Priv {
   vehicleMeshTemplates: Map<string, VehicleMeshTemplate>;
   vehicleMeshBounds: Map<string, THREE.Vector3>;
   vehicleMeshEntities: Map<number, VehicleMeshEntity>;
+  vehicleDying: DyingVehicle[];
   vehicleWeight: VehicleWeightArrays;
   prevX: Float64Array;
   prevY: Float64Array;
@@ -147,6 +149,10 @@ async function world(
     blocked?: Uint8Array;
     /** The footprint `vehicleMeshBounds` holds; `HULL` unless given. */
     hull?: THREE.Vector3;
+    /** Build the fixture WITH `idle`/`wreck` and a death root, the shape
+     *  every shipped vehicle GLB has had since the wreck pass, so a kill
+     *  takes the wreck hand-off rather than the immediate removal. */
+    wreck?: boolean;
   } = {}
 ): Promise<World> {
   const unitId = opts.unitId ?? 'mbt_lavi';
@@ -166,7 +172,10 @@ async function world(
   priv.cssWidth = 1400;
   priv.cssHeight = 900;
   if (opts.elevation) renderer.setElevation(opts.elevation);
-  const gltf = await parseRigidFixture({ parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }] });
+  const gltf = await parseRigidFixture({
+    parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }],
+    ...(opts.wreck === true ? { clipNames: ['idle', 'wreck'], deathRoot: { parts: ['hull_hull'] } } : {}),
+  });
   priv.vehicleMeshTemplates.set(unitId, buildVehicleMeshTemplate(gltf, unitId));
   priv.vehicleMeshBounds.set(unitId, (opts.hull ?? HULL).clone());
   // Twice: the first call only seeds `prevX`/`curX` from zero-filled slots.
@@ -617,6 +626,127 @@ describe('the hull freezes at death (R-F)', () => {
     // from `vehicleMeshEntities` in the same frame `alive` goes to 0.
     expect(w.renderer.debugVehicleTransform(w.id)).toBeNull();
     expect(slot()).toEqual(frozen);
+  });
+});
+
+describe('a wreck keeps the conform and drops the dynamics (final review, ruling 9)', () => {
+  // The hand-off to `beginVehicleDeath` used to take the root exactly as the
+  // last LIVING frame left it -- the fade and the wreck then hold that pose
+  // for good, so a tank killed mid-dive stayed nose-down for the rest of the
+  // mission and one killed at cruise sat its lag behind the scorch mark and
+  // the shroud, both of which are stamped at the sim position (`onEvents`,
+  // `curX`/`curY`). The ground under a wreck is still the ground: the
+  // conform stays, and everything that only means "this hull is moving" goes.
+  //
+  // The oracle is a SECOND vehicle parked, from spawn, exactly where the
+  // first one died: a parked hull draws the conform and nothing else (the
+  // flat-ground identity spec above proves the "nothing else"), so its pose
+  // is what the wreck must match -- read off a real frame, not recomputed
+  // from `conformHull` here.
+  const SLOPE = (): Uint8Array => grid((tx, ty) => Math.floor((tx + ty) / 3));
+
+  async function parkedAt(w: World, elevation: Uint8Array): Promise<World> {
+    const st = w.sim.state;
+    const o = await world({
+      x: fx.toNumber(st.posX[w.id]),
+      y: fx.toNumber(st.posY[w.id]),
+      facing: fx.toNumber(st.facing[w.id]),
+      elevation,
+      wreck: true,
+    });
+    // Exactly where, to the Q16.16 bit -- `fx.from(fx.toNumber(v))` round-trips.
+    expect([o.sim.state.posX[o.id], o.sim.state.posY[o.id], o.sim.state.facing[o.id]]).toEqual([
+      st.posX[w.id],
+      st.posY[w.id],
+      st.facing[w.id],
+    ]);
+    o.renderer.frame(1, FRAME_MS);
+    return o;
+  }
+
+  function dyingRoot(w: World): THREE.Object3D {
+    expect(w.priv.vehicleDying).toHaveLength(1);
+    return w.priv.vehicleDying[0].entity.root;
+  }
+
+  it('leaves a vehicle killed during a braking dive with only the conform, at the sim position', async () => {
+    const elevation = SLOPE();
+    const w = await world({ x: 4.5, y: 6.5, elevation, wreck: true });
+    moveTo(w, 9.5, 6.5);
+    let moved = false;
+    let t = 0;
+    for (; t < 400; t++) {
+      tickAndDraw(w);
+      const d = w.renderer.debugVehicleTransform(w.id);
+      if (d !== null && d.simSpeed > 0) moved = true;
+      if (moved && d !== null && d.simSpeed === 0) break;
+    }
+    expect(moved).toBe(true);
+    expect(t).toBeLessThan(400); // it stopped
+
+    const o = await parkedAt(w, elevation);
+    const conform = o.renderer.debugVehicleTransform(o.id);
+    expect(conform).not.toBeNull();
+    // The ground here really does tilt the hull, or "keeps the conform"
+    // could not tell a kept conform from a zeroed one.
+    expect(Math.abs(conform?.pitchDeg ?? 0) + Math.abs(conform?.rollDeg ?? 0)).toBeGreaterThan(0.5);
+
+    // Into the dive: the sim stopped a tick ago, and the settle spring now
+    // pitches the nose DOWN past what the ground alone gives.
+    let dive = 0;
+    for (let k = 0; k < 10 && dive > -0.5; k++) {
+      tickAndDraw(w);
+      dive = (w.renderer.debugVehicleTransform(w.id)?.pitchDeg ?? 0) - (conform?.pitchDeg ?? 0);
+    }
+    expect(dive).toBeLessThan(-0.5);
+
+    w.sim.debugKill(w.id);
+    tickAndDraw(w);
+
+    const root = dyingRoot(w);
+    const oRoot = entityOf(o.priv, o.id).root;
+    expect(root.position.x).toBe(fx.toNumber(w.sim.state.posX[w.id]));
+    expect(root.position.z).toBe(fx.toNumber(w.sim.state.posY[w.id]));
+    expect(root.position.x).toBe(oRoot.position.x);
+    expect(root.position.z).toBe(oRoot.position.z);
+    // The fade sinks the root from `baseWorldY`, so the hand-off height is
+    // read there: the ground at the sim position, as the parked hull has it.
+    expect(w.priv.vehicleDying[0].baseWorldY).toBe(oRoot.position.y);
+    // Component by component, not `angleTo`: two bit-identical unit
+    // quaternions still read ~3e-8 rad there (`2 acos(dot)` with a dot that
+    // rounds a hair under 1), which would swamp a tolerance this tight.
+    const q = root.quaternion.toArray();
+    const oq = oRoot.quaternion.toArray();
+    for (let k = 0; k < 4; k++) expect(Math.abs(q[k] - oq[k])).toBeLessThan(1e-12);
+  });
+
+  it('puts a vehicle killed at cruise on its sim position, not its lag behind it', async () => {
+    const elevation = SLOPE();
+    const w = await world({ x: 4.5, y: 6.5, elevation, wreck: true });
+    moveTo(w, 20.5, 6.5);
+    for (let t = 0; t < 20; t++) tickAndDraw(w); // cruise, lag fully built
+    const d = w.renderer.debugVehicleTransform(w.id);
+    expect(d?.simSpeed).toBeGreaterThan(1);
+    // The last frame of `tickAndDraw` is alpha 1, where the interpolation is
+    // the sim position -- so this offset is the lag alone.
+    const lag = Math.hypot((d?.x ?? 0) - fx.toNumber(w.sim.state.posX[w.id]), (d?.y ?? 0) - fx.toNumber(w.sim.state.posY[w.id]));
+    expect(lag).toBeGreaterThan(0.03);
+
+    w.sim.debugKill(w.id);
+    tickAndDraw(w);
+    const o = await parkedAt(w, elevation);
+
+    const root = dyingRoot(w);
+    const oRoot = entityOf(o.priv, o.id).root;
+    expect(root.position.x).toBe(fx.toNumber(w.sim.state.posX[w.id]));
+    expect(root.position.z).toBe(fx.toNumber(w.sim.state.posY[w.id]));
+    // On a slope the lagged centre stands on different ground from the sim
+    // position, so this is also what pins the re-pose to BEFORE
+    // `beginVehicleDeath` latches `baseWorldY` off the root.
+    expect(w.priv.vehicleDying[0].baseWorldY).toBe(oRoot.position.y);
+    const q = root.quaternion.toArray();
+    const oq = oRoot.quaternion.toArray();
+    for (let k = 0; k < 4; k++) expect(Math.abs(q[k] - oq[k])).toBeLessThan(1e-12);
   });
 });
 

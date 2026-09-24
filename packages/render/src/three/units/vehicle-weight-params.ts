@@ -135,9 +135,11 @@ export const VEHICLE_WEIGHT_IMPORTED_UNIT_IDS: readonly string[] = Array.from(BY
  * the `VEHICLE_TRACK_KIND` kind. Every entry here stays under
  * `MESH_HULL_PITCH_RAD` (`ThreeRenderer.ts:440`, ~3.44 degrees): a weight lean
  * is meant to read as smaller than the gun's own recoil, never compete with
- * it, and `vehicle-weight-params.test.ts` pins that as a schema-independent
- * assertion (a JSON author could not reach it either -- `pitch_deg` maxes at
- * 6 in the schema, but nobody has authored a table entry anywhere near that).
+ * it, and `vehicle-weight-params.test.ts` pins that for this table and the
+ * mass classes. The schema does NOT hold that line: `pitch_deg` caps at 6
+ * there, so a JSON author can validate a lean bigger than the recoil's 3.4
+ * degrees -- the schema's own description says so. That same test reads the
+ * schema's bounds and holds both tables inside them.
  *
  * Every `lagTiles` here is far under `MAX_LAG_TILES` (0.09, R-K): a stop is
  * the one moment `stepVehicleWeight` forces the lag to exactly zero (R-C), so
@@ -252,11 +254,12 @@ export const VEHICLE_WEIGHT_ROLE_DEFAULTS: Readonly<Record<string, VehicleWeight
     settleDamping: 1.0,
     lagTiles: 0.01,
   },
-  // `dozer_d9`: the heaviest machine in the roster by intent (a D9 outweighs
-  // a Lavi), moving at 0.6 tiles/s. The biggest squat and dive in the table,
-  // and the slowest launch and settle -- a bulldozer starting or stopping
-  // reads as the heaviest thing on screen. Its low top speed keeps the lag
-  // budget modest despite the exaggerated pitch/roll.
+  // `dozer_d9`, moving at 0.6 tiles/s. The SLOWEST launch and settle in the
+  // table (0.4 s and 0.55 s, against `mbt`'s 0.35 s and 0.5 s), so a
+  // bulldozer starting or stopping takes the longest to do it -- but not the
+  // biggest squat and dive: that is `mbt`'s 2.0 degrees, against this entry's
+  // 1.8, and its roll (1.4) is under `mbt`'s 1.5 too. Its low top speed keeps
+  // the lag budget modest.
   engineer: {
     maxPitchRad: 1.8 * DEG,
     maxRollRad: 1.4 * DEG,

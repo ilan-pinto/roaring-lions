@@ -131,15 +131,24 @@
  * the wrong axis, breaks R-C's quarter-tile bound, or leaves an offset on a
  * unit the sim reports stationary. Every lane of every batch is judged, the
  * verdict is written into `sheet.md`/`sheet.json`, and a red lane makes the
- * process exit 1. A before-set taken at the branch base therefore goes red
- * by construction: that is the model-absent case the verdict exists to
- * catch, not a broken capture.
+ * process exit 1 -- every lane but the ones named in `KNOWN_DEAD_LANES`,
+ * which are reported and labelled and do not vote, and which turn red again
+ * the moment they gain a living rung (`laneStatus`). A before-set taken at
+ * the branch base therefore goes red by construction: that is the
+ * model-absent case the verdict exists to catch, not a broken capture.
  *
- * The one ruled exception in the before-set -- `mbt_lavi_tel_marum/start`,
- * whose 8600 and 8800 ms rungs read `modelMs` 8550 and 8733.33 because an
- * ambient sandbox kill near the tracked tank spends four frames of hit-stop
- * (`catastrophic_kill.json`'s 70 ms) with `frame()`'s `dtMs` zeroed -- is
- * deterministic, so the after-set shows the same gap at the same rungs.
+ * The tracked `mbt_lavi_tel_marum` DIES, and that one death explains both
+ * of that subject's oddities. `debugDisableFirepower` stops a subject
+ * shooting, not being shot, and the sandbox's Sarim force destroys this one
+ * at tick ~281 in every run, before-set and after-set alike. In its `start`
+ * lane that is the 66.67 ms `modelMs` gap: the kill's own blast spends four
+ * frames of hit-stop (`catastrophic_kill.json`'s 70 ms) with `frame()`'s
+ * `dtMs` zeroed, so the 8600 and 8800 ms rungs read `modelMs` 8550 and
+ * 8733.33 and the lane carries -66.67 ms to 10000 -- and from the 8600 ms
+ * rung on the subject is dead (see `WeightReading.alive`). In its `stop`
+ * lane the death comes before the ladder can start at all, so that lane is
+ * ten seconds of a wreck: the one entry in `KNOWN_DEAD_LANES`. The sim is
+ * deterministic, so both show identically in both sets.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -732,9 +741,84 @@ export function laneVerdicts(cells: readonly SheetCell[], zoom: number): LaneVer
     }));
 }
 
+/**
+ * A lane the verdict REPORTS and does not let vote: its subject is dead at
+ * every rung, so there is no living ladder to judge and `motionVerdict`
+ * fails it on that alone ("the subject is dead at every rung"). Named here
+ * one lane at a time, with the reason, rather than by a rule like "skip any
+ * all-dead lane" -- a rule would also wave through the next lane whose
+ * subject starts dying for a reason nobody has looked at.
+ */
+export interface KnownDeadLane {
+  readonly subject: string;
+  readonly phase: WeightPhase;
+  /** Why it is dead, printed into `sheet.md` beside the lane. */
+  readonly reason: string;
+}
+
+/**
+ * The known-dead lanes (the final review of WP-A1.3, ruling 1). One, and
+ * `weight-captures.test.ts` pins that it is exactly this one.
+ *
+ * The exclusion cannot outlive its cause: `laneStatus` FAILS a listed lane
+ * the moment it gains a single living rung, so the instrument revision that
+ * keeps this subject alive -- the recorded follow-up -- goes red until this
+ * entry is deleted and the lane votes again.
+ */
+export const KNOWN_DEAD_LANES: readonly KnownDeadLane[] = [
+  {
+    subject: 'mbt_lavi_tel_marum',
+    phase: 'stop',
+    reason:
+      "the subject is destroyed by the sandbox's Sarim force at tick ~281 (debugDisableFirepower stops it " +
+      'shooting, not being shot) and the 400-tick hunt for the tick its goal is 2 tiles away exhausts at ' +
+      'tick 520, so every rung photographs a wreck, before-set and after-set alike. Follow-up: clear the ' +
+      "relief subject's hostiles (or make it invulnerable) and retake both sets",
+  },
+];
+
+/** What one lane means for the run: `known-dead` is reported and does not
+ *  vote; only `fail` sets the exit code. */
+export type LaneStatus = 'pass' | 'fail' | 'known-dead';
+
+/**
+ * One lane's status, and the extra line (if any) its sheet row carries.
+ *
+ * A lane in `knownDead` is `known-dead` only while it has rungs and every
+ * one of them is dead. A living rung on such a lane is `fail` whatever its
+ * readings say -- a passing living ladder included, since it means the
+ * exclusion has outlived its cause and must be deleted so the lane votes on
+ * its own. An empty listed lane is `fail` too: "dead at every rung" of no
+ * rungs is not evidence of anything. Every other lane is `pass` or `fail`
+ * exactly as `motionVerdict` says.
+ */
+export function laneStatus(
+  v: LaneVerdict,
+  knownDead: readonly KnownDeadLane[] = KNOWN_DEAD_LANES
+): { readonly status: LaneStatus; readonly note: string | null } {
+  const known = knownDead.find((k) => k.subject === v.subject && k.phase === v.phase);
+  if (known === undefined) return { status: v.ok ? 'pass' : 'fail', note: null };
+  if (v.rungs > 0 && v.deadRungs === v.rungs) {
+    return { status: 'known-dead', note: `known dead, excluded from the exit code: ${known.reason}` };
+  }
+  return {
+    status: 'fail',
+    note:
+      `listed in KNOWN_DEAD_LANES but ${v.rungs - v.deadRungs} of ${v.rungs} rung(s) are alive -- the ` +
+      'exclusion has outlived its cause: delete the entry and let this lane vote',
+  };
+}
+
+/** Whether a run over `verdicts` exits 1: any lane whose `laneStatus` is
+ *  `fail`. */
+export function runFails(verdicts: readonly LaneVerdict[], knownDead: readonly KnownDeadLane[] = KNOWN_DEAD_LANES): boolean {
+  return verdicts.some((v) => laneStatus(v, knownDead).status === 'fail');
+}
+
 /** The verdict table `sheet.md` carries beneath the ladder. */
 export function verdictLines(verdicts: readonly LaneVerdict[]): string[] {
   const fmtPeak = (v: number | undefined): string => (v === undefined ? 'n/a' : String(round4(v)));
+  const label: Record<LaneStatus, string> = { pass: 'PASS', fail: 'FAIL', 'known-dead': 'KNOWN-DEAD' };
   return [
     ``,
     `## Verdict (R-Q)`,
@@ -742,17 +826,21 @@ export function verdictLines(verdicts: readonly LaneVerdict[]): string[] {
     `Floors: start nose-up pitch >= ${MOTION_FLOORS.start.minPeakPitchDeg} deg; stop nose-down pitch >= ` +
       `${MOTION_FLOORS.stop.minDiveDeg} deg and offset >= ${MOTION_FLOORS.stop.minPeakOffsetTiles} tiles; ` +
       `turn |roll| >= ${MOTION_FLOORS.turn.minPeakRollDeg} deg; every rung offset <= ` +
-      `${DRAWN_OFFSET_BOUND_TILES} tiles, and exactly 0 wherever the sim speed is 0.`,
+      `${DRAWN_OFFSET_BOUND_TILES} tiles, and exactly 0 wherever the sim speed is 0. A KNOWN-DEAD lane ` +
+      `(\`KNOWN_DEAD_LANES\`) is reported and does not set the exit code; it FAILS once it has a living rung.`,
     ``,
     `| subject | phase | verdict | max pitch | min pitch | max abs roll | max offset | dead rungs | reasons |`,
     `|---|---|---|---|---|---|---|---|---|`,
-    ...verdicts.map(
-      (v) =>
-        `| \`${v.subject}\` | ${v.phase} | ${v.ok ? 'PASS' : 'FAIL'} | ${fmtPeak(v.peaks?.maxPitchDeg)} | ` +
+    ...verdicts.map((v) => {
+      const { status, note } = laneStatus(v);
+      const reasons = [...(note === null ? [] : [note]), ...v.reasons];
+      return (
+        `| \`${v.subject}\` | ${v.phase} | ${label[status]} | ${fmtPeak(v.peaks?.maxPitchDeg)} | ` +
         `${fmtPeak(v.peaks?.minPitchDeg)} | ${fmtPeak(v.peaks?.maxAbsRollDeg)} | ` +
         `${fmtPeak(v.peaks?.maxOffsetTiles)} | ${v.deadRungs} of ${v.rungs} | ` +
-        `${v.reasons.join('; ').replace(/\|/g, '/') || '--'} |`
-    ),
+        `${reasons.join('; ').replace(/\|/g, '/') || '--'} |`
+      );
+    }),
   ];
 }
 
@@ -1103,7 +1191,9 @@ async function main(): Promise<void> {
 
   // R-Q: the ladder votes. Only THIS batch's own lanes set the exit code --
   // a merged sheet also carries every earlier batch's verdict, and a batch
-  // should not go red for a lane it did not capture.
+  // should not go red for a lane it did not capture. A KNOWN-DEAD lane is
+  // printed and does not vote (`laneStatus`); it fails once it has a living
+  // rung.
   const ran = new Set(runs.map((r) => `${r.subject.id}|${r.phase}`));
   const mine = verdicts.filter((v) => ran.has(`${v.subject}|${v.phase}`));
   console.log('\nverdict (R-Q):');
@@ -1113,10 +1203,12 @@ async function main(): Promise<void> {
       ? 'no readings'
       : `pitch ${round4(p.minPitchDeg)}..${round4(p.maxPitchDeg)} deg, |roll| ${round4(p.maxAbsRollDeg)} deg, ` +
         `offset ${round4(p.maxOffsetTiles)} tiles`;
-    console.log(`  ${v.ok ? 'PASS' : 'FAIL'} ${v.subject} / ${v.phase}: ${peaks}`);
+    const { status, note } = laneStatus(v);
+    console.log(`  ${status.toUpperCase()} ${v.subject} / ${v.phase}: ${peaks}`);
+    if (note !== null) console.log(`       ${note}`);
     for (const r of v.reasons) console.log(`       ${r}`);
   }
-  if (mine.some((v) => !v.ok)) {
+  if (runFails(mine)) {
     console.error('\nweight-captures: at least one lane failed its verdict -- see above and sheet.md');
     process.exitCode = 1;
   }
@@ -1590,7 +1682,8 @@ export function writeIndex(
         subjects,
         phases: WEIGHT_PHASES,
         floors: MOTION_FLOORS,
-        verdicts,
+        knownDeadLanes: KNOWN_DEAD_LANES,
+        verdicts: verdicts.map((v) => ({ ...v, status: laneStatus(v).status })),
         cells,
         notes,
       },
