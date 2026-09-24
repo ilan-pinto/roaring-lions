@@ -198,7 +198,9 @@ three mission would not, and warms that cache for it.**
    later rejection is swallowed silently (`ui:routes` fails on any console error).
    **Superseded by #219 (parent spec D-62): `ThreeRenderer.dispose()` now calls
    `loseContext()` itself, so the door's own explicit call was removed — a second release
-   warns, and the leave check allows no warning.**
+   through a held extension handle warns (`context already lost`), and since the fix wave
+   after the final review `ui:routes` collects warnings around each scene-host leave and fails
+   on it; it collected errors only until then.**
 7. **The menu route only.** Settings, saves, credits and the free-play picker are also column
    screens, but each is its own screen with its own disposer, and a host that outlived them
    would have to live outside the stage the router clears — the body-mounted-chrome problem
@@ -305,7 +307,12 @@ with no bless is their evidence. **No bless is budgeted.**
 
 **`ui:routes` gains two legs:** the host's canvas must report `isContextLost() === true` after
 the menu is left (a reference taken before leaving), and a leave clicked within 100 ms of
-landing — mid-prefetch — must leave no canvas, no error and no warning. **`ui:shots`** waits
+landing — mid-prefetch — must leave no canvas, no error and no warning. *As landed (fix wave
+after the final review):* the fast leave waits for the host's first `.glb`/`draco_` request
+instead of a time, a third leg leaves the moment `init()` has appended the canvas with
+`data-host` still `pending`, and all three leaves fail on a WebGL/loader/worker warning. The
+§10 memory rows were checked at landing only through the `isContextLost()` proxy, never as
+memory. **`ui:shots`** waits
 for a terminal `data-host` before `01-menu` and adds `01b-menu-plate` under emulated
 reduced motion.
 

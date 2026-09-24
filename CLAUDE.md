@@ -1445,9 +1445,17 @@ one remounts on return, with no reload.
 `ThreeRenderer.dispose()` already releases its own context
 (`three/context-release.ts`: `dispose()`, then `forceContextLoss()`, skipped
 if already lost), so `release()` calls `renderer.dispose()` and nothing
-else -- a second release warns, and `ui:routes`' leave check allows no
-warning. Do not reintroduce an explicit `loseContext()` call; that was the
-pre-#219 design and would now be dead code at best.
+else. Do not reintroduce an explicit `loseContext()` call; that was the
+pre-#219 design. What a re-added one does depends on its shape, measured on
+SwiftShader: `getExtension('WEBGL_lose_context')` asked AFTER `dispose()`
+returns `null` on the lost context, so that line is silent dead code; a
+handle taken BEFORE `dispose()` and called after it logs `WebGL:
+INVALID_OPERATION: loseContext: context already lost` as a WARNING. `ui:routes`
+collects warnings around all three of its scene-host leaves (live, mid-load,
+mid-construct) and fails on any matching
+`/WebGL|loseContext|scene host|DRACO|Worker/i`, bar SwiftShader's own `GPU
+stall due to ReadPixels` note, exempt by its full text; the held-handle
+re-add was seen red in all three.
 
 **`.rl-scene-host` carries `data-host`** (`pending` -> `live` | `plate`, or
 `off`) **and five siblings**: `-reason`, `-motion` (`animate` | `held`),
@@ -1461,9 +1469,12 @@ the visual gate freezes the frame loop inside its own `async` IIFE
 **Pixi and reduced motion both get the plate**, never a held live frame:
 Pixi because it is the hatch a player already reached for when three failed
 them, reduced motion because the plate already IS a held frame of the same
-diorama. Both must gate parallax off by that condition directly -- keying it
-on the plate's `reason` instead let Pixi at default motion still pan the
-picture, a defect this branch's own fix round caught and closed.
+diorama. **Reduced motion gates parallax off on its own, whatever the path**
+(`ui/scene-host.ts`: `decided.path !== 'off' && !reduced`). Keying it on the
+plate's `reason` let Pixi + reduced motion slide, because that visit reads
+reason `pixi`, not `reduced-motion` -- the defect `36f74025` closed (D-54).
+**Pixi at default motion slides the plate by design** (spec §3.5); do not
+"fix" it static.
 
 **`pnpm plate:host`** (`tools/src/perf/host-plate-capture.ts`)
 re-photographs `assets/ui/menu_host_plate.jpg` after any edit to
@@ -1476,9 +1487,23 @@ JSON's `plate` field names is missing on disk.
 `checkCampaignBoard`): *path* (`data-host` reaches `live`), *contribution*
 (hiding the host's canvas must move the flanks past a measured floor --
 30.4426, a third of three identical 91.3279 readings), and *register* (the
-plate's camera-for-camera colour match, within 10%). Cost: 41.7 s inside a
-165 s local `pnpm golden-baseline` run, almost all of it the register vote's
-own mission boot -- inherent to the camera-for-camera design, not waste.
+host's LIVE frame against the mission's own frame of the same map at the
+host's own camera and zoom, mean Y and S within 10% -- not the plate). The
+two photographing votes, and `ui:shots`' `01-menu`, first wait (bounded, never
+throwing) for `.rl-scene-host__plate` to come off: `live` is stamped at the
+START of the 400 ms crossfade and a CSS transition ignores the frame freeze.
+Cost: 41.7 s inside a 165 s local `pnpm golden-baseline` run, almost all of it
+the register vote's own mission boot -- inherent to the camera-for-camera
+design, not waste.
+
+**A SwiftShader tool that clicks off a LIVE menu needs ~20 s of headroom** for
+that click: Task 6 measured a 17.1 s menu -> campaign click locally, and
+CI's SwiftShader is slower. No landing run recorded `data-host-motion` reaching `held` (`ui:routes` leg
+(a) now prints it at `live` and again at the leave click, with the click's
+duration). And spec §10's memory budgets -- <= 900 MB while live,
+<= 60 MB within 1 s of leaving -- were never measured as memory: the landing
+checked only the `isContextLost()` proxy (`ui:routes` leg (a) and (c)), which
+says the context was released, not what the GPU process holds.
 
 `ui:routes`/`ui:shots` already take `--port` (landed on `main` via #214; see
 the paragraph above, ~:306) -- nothing new here.

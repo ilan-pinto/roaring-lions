@@ -62,10 +62,12 @@
  *   already lost). The spec's M14/M15 measured `dispose()` leaving ~440 MB
  *   held and its §3.3 (6) added an explicit `loseContext()` after it; both
  *   predate #219 and are superseded. A second release is at best dead code
- *   and at worst the `loseContext: context already lost` WebGL warning
- *   `context-release.ts` measured -- and the spec's leave check allows no
- *   warning. So `release()` below calls `dispose()` and nothing that touches
- *   the context.
+ *   (`getExtension` returns `null` on a lost context, so one asked for after
+ *   `dispose()` does nothing) and at worst, through a handle taken before
+ *   it, the `loseContext: context already lost` WebGL warning
+ *   `context-release.ts` measured -- which `ui:routes` fails on, around each
+ *   of its three leaves of this host. So `release()` below calls `dispose()`
+ *   and nothing that touches the context.
  * - **MUST: call the global `requestAnimationFrame` at call time.** The
  *   capture tools freeze a page by REPLACING `window.requestAnimationFrame`
  *   (`FREEZE_FRAME_LOOP_STATEMENTS`, `tools/src/golden-diff/capture-

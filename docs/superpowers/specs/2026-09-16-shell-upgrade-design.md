@@ -989,9 +989,20 @@ once the pointer leaves the window — pinned separately by a zero-viewport unit
 **D-58 — no WebGL context exists while the slice is on the network (R-7).** As ruled: the
 door's prefetch phase `fetch()`es every mesh URL plus the Draco decoder under the host's own
 `AbortSignal` and reads each body before constructing `ThreeRenderer`, so a leave during
-prefetch releases nothing because nothing yet holds a context. `ui:routes`' fast-leave leg
-confirms it end to end: clicking away 18–236 ms after the menu's own load across three runs
-left no canvas stashed and no console error or warning.
+prefetch releases nothing because nothing yet holds a context. What `ui:routes` showed at
+landing was narrower than first written here: its fast-leave leg ran twice (clicks 236 ms,
+then 18 ms, after the menu's own load), and at 18 ms the idle callback had most likely not run,
+so the leg exercised the cancelled schedule rather than the door's abort; it checked console
+ERRORS only. (The "no canvas stashed" wording belonged to leg (a), which stashes the live
+host's canvas.) The fix wave after the final review made the claim true: leg (b) now waits for
+the host's first `.glb`/`draco_` request and clicks then, a new leg (c) clicks the moment
+`init()` has appended the canvas while `data-host` is still `pending`, and all three
+scene-host leaves fail on a console WARNING matching
+`/WebGL|loseContext|scene host|DRACO|Worker/i` (SwiftShader's `GPU stall due to ReadPixels`
+note exempt by its full text). Note that leg (b) cannot tell the prefetch from the mesh load
+from the DOM -- `ThreeRenderer` is constructed before the loads and its canvas appended only
+by `init()` -- and one falsification run proved a leg-(b) click had landed in the load, with a
+context to release.
 
 **D-59 — the camera target is (27, 22), not the measured (28, 22) (R-8).** As ruled: M19's
 margin test failed at (28, 22) (corner ratio down to 0.189 against a ≥1 floor, at
@@ -1018,15 +1029,23 @@ reveal) failed the vote each names, in the direction predicted.
 Superseded before it could be written: `ThreeRenderer.dispose()` has released its own context
 since PR #219 (`packages/render/src/three/context-release.ts`: `dispose()`, then
 `forceContextLoss()`, skipped if `isContextLost()` already reads `true`). The door's `release()`
-therefore calls `renderer.dispose()` and nothing else — a second `loseContext()` call would be
-dead code on every ordinary leave and, on the rare double-release, the `loseContext: context
-already lost` WebGL warning `context-release.ts` measured — and the spec's leave check allows
-no warning. Spec M14/M15 and §3.3 (6)'s explicit-loss clause predate #219 and are superseded
+therefore calls `renderer.dispose()` and nothing else. A re-added `loseContext()` does one of
+two things, measured on SwiftShader in the fix wave: asked for through a fresh
+`getExtension('WEBGL_lose_context')` after `dispose()` it is silent dead code, because
+`getExtension` returns `null` on a lost context; through a handle taken BEFORE `dispose()` it
+logs `WebGL: INVALID_OPERATION: loseContext: context already lost` as a warning. `ui:routes`
+now fails on that warning around each of its three scene-host leaves; the held-handle re-add
+went red in all three (fix wave). Until the fix wave the "leave check allows no warning" this
+entry cited collected console errors only, so it could not have failed. Spec M14/M15 and §3.3 (6)'s explicit-loss clause predate #219 and are superseded
 (marked in place, along with §4 and §7, in
 `docs/superpowers/specs/2026-09-24-scene-host-design.md`). `ui:routes` asserts the host's canvas
 reports `isContextLost() === true` after leaving the menu; its falsification was dropping
 `renderer.dispose()` from the door's `release()`, which failed exactly that assertion (Task 8,
-mutation (a)).
+mutation (a)). That is a PROXY for the scene-host spec's §10 memory budgets (≤ 900 MB GPU
+footprint while live, ≤ 60 MB within 1 s of leaving), not a measurement of them: the landing
+checked only that the context reads lost, never what the GPU process holds. Nor did any landing
+run record `data-host-motion` reaching `held` on SwiftShader (§3.3 (5)); `ui:routes` leg (a)
+prints it now, at `live` and at the leave click.
 
 **D-63 — the main chunk grew +6,760 B against the plan's own ±1 kB (Task 6).** Accepted: the
 model, the executor and `buildDioramaWorld` must ship in the main chunk for the plate to show
