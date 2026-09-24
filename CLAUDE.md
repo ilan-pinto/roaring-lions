@@ -860,9 +860,10 @@ yours; each one records what the next phase inherits.
   repaints each spawned 7 exhaust puffs. Each fresh puff landed on the last
   one's pixels, which is why the series decayed without reaching zero — and
   because the backlog's size is a LOAD TIME, it also explains this scenario's
-  5–157 px baseline noise. One call (`frameDtMs(dtMs)`) takes the control to a
-  literal **0 px / 0.0000**, and two full-gate runs bit-identical to each other
-  on this frame. Two lessons worth more than the fix: **a control that cannot
+  5–157 px baseline noise, all of it but a Linux residual of up to 9 px (see
+  the noise line below). One call (`frameDtMs(dtMs)`) takes the control to a
+  literal **0 px / 0.0000**, and two macOS full-gate runs bit-identical to each
+  other on this frame. Two lessons worth more than the fix: **a control that cannot
   reach zero is a defect with a stopgap on top of it**, and the drift and the
   "renderer noise" were the same thing all along. A regression in anything no
   layer check names still passes on an unblessed runner at any size.
@@ -886,18 +887,34 @@ yours; each one records what the next phase inherits.
   thresholds were calibrated against 24 consecutive full-gate runs taken that
   way and the noise has since been **pooled across three independent samples on
   the same machine (24 + 21 + 49 runs)**: `quiet` 0–1 px / 0.0000–0.0001,
-  `open-ground` 0 / 0.0000, `relief` 0 / 0.0000, and `vehicle` **5–157 px /
-  0.0029–0.0069**, one continuous mode in every sample. The thresholds are
-  unchanged and still clear that — 300 px is 1.9× 157 and 0.02 is 2.9× 0.0069 —
-  but the `vehicle` figure this line used to carry (5–101 / 0.0029–0.0058) was
-  a single sample's best case, the second time that entry recorded one.
-  **A range with no sample size beside it is an anecdote**, and **a bimodal
-  noise reading is a bug to find, not a band to widen.** `vehicle`'s share of
-  that was not renderer noise either: it was the ambient-FX emission backlog
-  described above (its size is a LOAD TIME, so it varied run to run), and with
-  that fixed two full-gate runs of this frame are **bit-identical**. The
-  thresholds are still 300 / 0.02 — nobody has re-derived them against a
-  zero floor, and doing so is a separate decision from the fix.
+  `open-ground` 0 / 0.0000, `relief` 0 / 0.0000, and `vehicle` 5–157 px /
+  0.0029–0.0069 — **a `vehicle` figure that is retired, because it was never
+  renderer noise**: all 94 of those runs predate `c0044ff6` (2026-09-18), and
+  what varied was the ambient-FX emission backlog described above, whose size
+  is a LOAD TIME. **A range with no sample size beside it is an anecdote**, and
+  **a bimodal noise reading is a bug to find, not a band to widen.** What
+  `vehicle` reads NOW, re-measured 2026-09-23 from every `ci.yml` `visual` run
+  since the fix, all on `linux-x64-swiftshader`: against a baseline captured
+  AFTER it (the `a387a6a` bless) **1–9 px / 0.0004–0.0012 over 5 runs**, in two
+  clusters (1 px ×2, 9 px ×3) with no established cause, while `quiet`,
+  `open-ground` and `relief` read a literal 0 / 0.0000 on the same five and
+  `vehicle`'s own repaint control reads 0 px on all 33 runs since the fix;
+  against the pre-fix `03fad18` baseline it read 33–47 px / 0.0031–0.0054 over
+  26 runs, the offset being that baseline's own banked puffs. So the fix's
+  "bit-identical" (two macOS runs) does NOT hold on Linux, where up to 9 px of
+  this frame still moves run to run. The thresholds are still 300 / 0.02 —
+  33× and 17× that post-fix maximum — and re-deriving them is a decision
+  nobody has taken.
+  **WP-A1.3 (vehicle weight) changed nothing in the four gated frames, and
+  that was measured rather than predicted**: read back through
+  `debugVehicleTransform` at each scenario's own capture tick (two runs,
+  identical), every mesh vehicle in `quiet`, `open-ground` and `vehicle`
+  (eleven each) draws at offset 0, pitch 0 and roll 0 — none of those maps has
+  an `elevation` grid and the sandbox force is parked, so both halves of the
+  model are arithmetically zero there — and the only two hulls in `relief` that
+  are not at rest (Lavis still recoiling from firing, 0.38° / 0.018 tile) stand
+  ~700 px below its frame. No bless was needed; `combat` (report-only) moves,
+  because its armour drives, turns and fires.
   **`tel_marum` is in the gate now, and it is the only map that can catch
   terrain.** The `relief` scenario frames the T1-C boulder corridor and the
   extruded rock-ridge walls either side of it. Before it, the gate sampled two
@@ -1153,6 +1170,52 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   each frame where it used to skip one on a null check. Nothing in the export
   scripts authors them and nothing else may use those two names — `stripWreck`
   matches by name and would silently eat an authored `idle`.
+- **A mesh VEHICLE leans, lags and settles since WP-A1.3 (GH-177,
+  2026-09-23), and its wheels still do not turn.** Design
+  `docs/superpowers/specs/2026-09-20-art-vehicle-weight-design.md`. What ships,
+  all of it presentation on the frame clock with nothing read back by the sim:
+  a **four-sample terrain conform** (`units/vehicle-conform.ts` — the hull's
+  measured footprint corners on the drawn ground, a corner over a blocked tile
+  or off the map standing at the hull centre's height, which took the tiles
+  that drew a >10° false tilt from 130 on `tel_marum` and 86 on `deir_amun` to
+  0); an **acceleration pitch** (`units/vehicle-weight.ts` — a constant-rate
+  speed ramp, because the sim has no acceleration, feeding a damped settle
+  spring scaled so a standing start draws exactly the authored maximum); a
+  **turn roll to the OUTSIDE** of the turn, from the sim's own rate-limited
+  yaw rate times the speed share, so a hull pivoting in place does not lean;
+  the **settle** on a stop; a **lag** that trails the sim by `lag_tiles` and is
+  exactly zero on a stationary unit (R-C: lag plus recoil clamped once at
+  0.25 tile); and **dust whose cadence follows speed** (`vehicleDustIntervalMs`
+  — 4.40/s for a cruising Lavi, 6.67/s for the Eitan and the technical, which
+  both sit on its 150 ms floor, against a fixed 4.00/s before). Per-vehicle
+  numbers are an optional `mobility.weight` block in the unit JSON with role
+  defaults (`units/vehicle-weight-params.ts`, imported by relative path and
+  pinned to `art/meshes/vehicles/*.glb` both ways); air units are excluded and
+  the state freezes at death. On the running game (`pnpm weight:capture`,
+  whose ladder now VOTES through `motionVerdict`): a Lavi's launch reads 1.79°
+  at the 200 ms rung of its authored 2°, its turn 1.49° of 1.5°, its lag
+  0.06 tile, and climbing onto `tel_marum`'s bench it stands on 16.8° of ground
+  where it used to sit level with its nose in the hill. That harness's
+  `mbt_lavi_tel_marum` subject is killed by the sandbox's Sarim force at tick
+  ~281 in every run, so its `stop` lane is ten seconds of a wreck, before and
+  after alike, and the verdict fails it by name.
+  Two things a later reader will otherwise get wrong. **`rotation.x` under a
+  yaw on `rotation.y` is a WORLD-axis tilt**, not a pitch: three composes
+  `Rx·Ry·Rz`, so the shipped recoil's 0.06 rad measured a nose lift of
+  0.000 / −0.060 (nose DOWN) / 0.000 / +0.060 at facings 0 / 0.25 / 0.5 /
+  0.75, with a constant 0.060 sideways bank at every one of them, while its own
+  comment claimed a local pitch. The hull now takes ONE write,
+  `rotation.set(-roll, yaw, pitch, 'YZX')` — yaw, then pitch about the hull's
+  lateral axis, then roll about its length — and reads 0.05996 of nose lift at
+  every facing; the recoil pitch is one term of that sum. (The minus is real:
+  the corner `hullCornerOffsets` names `right` is the hull's PHYSICAL LEFT.)
+  And **the other half of GH-177 — wheel spin and track scroll — is OPEN, and
+  it needs geometry, not a pivot name** (R-J, the spec's open question 1): no
+  shipped vehicle GLB has a `wheel_*` or `track_*` node, every one merges its
+  wheels and tracks into a single `hull_rubber` mesh, four of them
+  (`apc_eitan`, `apc_kipod`, `dozer_d9`, `scout_shachaf`) carry no UVs on it
+  at all, and the seven that do share the hull's own material, so scrolling it
+  would scroll the whole vehicle. Nothing in WP-A1.3 delivered that half.
 - **A building's FACING is gated now** (GH-142, `tools/building_facing.py`,
   inside `pnpm validate:meshes`). A building never turns — `mesh-building.ts`
   leaves rotation at identity — so whichever elevation an export bakes toward
