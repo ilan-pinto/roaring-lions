@@ -385,6 +385,64 @@ try {
 
   await frameCadence(page, 'the soft-booted mission');
 
+  // GH-229: the dock's tooltip, opened on a tile below the first row, used to
+  // land on top of the row above it (`tooltip.ts`'s `computeTipPosition`,
+  // `production.ts`'s `clear: this.el`). The soft-booted mission above is
+  // already a `resources` one (the comment below explains why), so its dock
+  // is on the body right now -- reused rather than booting a fourth mission
+  // just to hover a tile.
+  // A plain arrow inline, never a NAMED const holding one: `frameCadence`
+  // above already found that tsx/esbuild compiles a function assigned to a
+  // const with a `__name` helper the page does not have, and dies on it.
+  const dockTip = await page.evaluate(() => {
+    const tiles = Array.from(document.querySelectorAll<HTMLElement>('.rl-dock .rl-tile'));
+    // A tile past the first row if the roster is deep enough to have one,
+    // else whatever there is -- the assertion still holds for a one-row dock
+    // (`clear` degrades to the trigger's own rect there), it just cannot
+    // exercise the regression this line exists to catch.
+    const target = tiles[5] ?? tiles[tiles.length - 1];
+    if (!target) return null;
+    target.dispatchEvent(new Event('mouseenter'));
+    const tip = document.querySelector<HTMLElement>('.rl-dock .rl-tip');
+    if (!tip || tip.hidden) return { tileCount: tiles.length, tileIndex: tiles.indexOf(target), tipShown: false };
+    const tr = tip.getBoundingClientRect();
+    return {
+      tileCount: tiles.length,
+      tileIndex: tiles.indexOf(target),
+      tipShown: true,
+      // Every tile's rect, not just the hovered one: the regression this
+      // check exists for is the tip landing on top of a DIFFERENT tile (the
+      // row above the one under the pointer), not the hovered tile itself.
+      tiles: tiles.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+      }),
+      tip: { top: tr.top, bottom: tr.bottom, left: tr.left, right: tr.right },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    };
+  });
+  expect(dockTip !== null, 'the soft-booted mission has no dock to test the tooltip on');
+  if (dockTip !== null) {
+    expect(dockTip.tileCount > 5, `dock has only ${dockTip.tileCount} tile(s) -- the regression needs a second row`);
+    expect(dockTip.tipShown === true, `hovering dock tile ${dockTip.tileIndex} showed no tooltip`);
+    if (dockTip.tipShown && dockTip.tiles && dockTip.tip && dockTip.viewport) {
+      const { tiles, tip, viewport } = dockTip;
+      const inside = tip.top >= 0 && tip.left >= 0 && tip.right <= viewport.width && tip.bottom <= viewport.height;
+      expect(inside, `dock tooltip left the viewport: ${JSON.stringify(tip)} vs ${JSON.stringify(viewport)}`);
+      const covered = tiles.filter(
+        (r) => tip.bottom > r.top && tip.top < r.bottom && tip.right > r.left && tip.left < r.right
+      );
+      expect(
+        covered.length === 0,
+        `dock tooltip covers ${covered.length} tile(s) it does not describe: tip=${JSON.stringify(tip)} ` +
+          `covered=${JSON.stringify(covered)}`
+      );
+    }
+  }
+  await page.evaluate(() => {
+    document.querySelectorAll('.rl-dock .rl-tile').forEach((t) => t.dispatchEvent(new Event('mouseleave')));
+  });
+
   // And leave THAT one too, which is not belt-and-braces: the board's first
   // card is a `resources` mission, and a mission with resources fields a
   // `ReinforcementDock` on the body that the two recon missions above do not.

@@ -419,6 +419,7 @@
 
   "dock.tag.smoke": "smoke",
   "dock.label": "Reinforcements · B",
+  "dock.label.credits": "{n} cr",
   "dock.support.sweep.word": "sweep",
   "dock.support.sweep.name": "Satellite sweep",
   "dock.support.sweep.blurb": "Reveals what is on the ground in a circle, once. It shoots nothing.",

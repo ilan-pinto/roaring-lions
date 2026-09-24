@@ -137,6 +137,40 @@ describe('the dock’s shape', () => {
     expect(r.host.querySelector('.rl-dock__label')?.textContent).toBe('Reinforcements · B');
   });
 
+  // GH-229 bug 2: nowhere in a mission told the player their brigade credit
+  // balance, so a locked tile's "N cr" price (`dock.lock.price`) and its full
+  // "buy for N credits" note (`gate.buy`) named a price against a balance the
+  // player could not see. The header is the one place in the dock that is on
+  // screen for the whole mission.
+  it('shows the brigade credit balance beside the label when the caller supplies one', () => {
+    document.body.replaceChildren();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    new ReinforcementDock(host, {
+      units: [dockUnit()],
+      runtime: fakeRuntime(),
+      note: () => undefined,
+      onArm: () => undefined,
+      credits: 1240,
+    });
+    const label = host.querySelector('.rl-dock__label');
+    expect(label?.textContent).toBe('Reinforcements · B · 1240 cr');
+    // In its own element, distinct from the plain label text, so it can carry
+    // its own colour (`--good`, never `--accent`/`--info` -- this mission's
+    // own logistics/intel) without recolouring "Reinforcements · B" too.
+    const creditsEl = label?.querySelector('.rl-dock__credits');
+    expect(creditsEl?.textContent).toBe(' · 1240 cr');
+  });
+
+  // Falsified by hand: dropping the `opts.credits !== undefined` guard (always
+  // appending the span) turns this red -- the label reads
+  // "Reinforcements · B · undefined cr".
+  it('leaves the label plain when no credit balance is supplied', () => {
+    const r = rig();
+    expect(r.host.querySelector('.rl-dock__credits')).toBeNull();
+    expect(r.host.querySelector('.rl-dock__label')?.textContent).toBe('Reinforcements · B');
+  });
+
   // The list the tile progress replaces. Its absence is the acceptance
   // criterion, so it is asserted rather than assumed.
   it('has no rl-queue list left in it', () => {
