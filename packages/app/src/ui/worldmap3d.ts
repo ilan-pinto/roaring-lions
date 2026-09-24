@@ -116,6 +116,7 @@ export type MountWorldView = (
     clickable: ReadonlySet<string>;
     onPick: (regionId: string | null) => void;
     onFrame: (towns: readonly TownPin[], bearingDegrees: number) => void;
+    signal?: AbortSignal;
   }
 ) => Promise<MountedView>;
 
@@ -152,12 +153,23 @@ export interface World3dOptions {
   mount?: MountWorldView;
   webgl?: () => boolean;
   navigate?: (href: string) => void;
+  /**
+   * Aborted when this screen is left -- the router's own `req.signal`, handed
+   * through `showCampaign`. Passed to the view, which checks it after the GLB
+   * arrives and before it makes a WebGL context, so leaving while the
+   * diorama downloads costs no context at all. Optional: without it the
+   * `isConnected` check after the mount still disposes a view that finished
+   * mounting into a board already left.
+   */
+  signal?: AbortSignal;
 }
 
 export interface World3dHandle {
   el: HTMLElement;
   /** Which board actually ended up on screen. Never rejects: every failure
-   *  path lands on `'flat'`. */
+   *  path lands on `'flat'`. A board left before its view mounted resolves
+   *  `'diorama'` -- the board this player gets -- with nothing on screen,
+   *  because the screen is gone. */
   ready: Promise<CampaignBoardKind>;
 }
 
@@ -181,11 +193,18 @@ const el = (tag: string, cls?: string, text?: string): HTMLElement => {
  * and a browser with no WebGL2 will not draw a pixel of it. Cheap -- one
  * throwaway canvas -- and it is also what keeps this screen out of three in
  * a jsdom test run.
+ *
+ * The probe's context is LOST before returning, as `atlas.ts`'s
+ * `queryArrayLayerLimit` does with its own: otherwise it holds one of the
+ * browser's ~16 context slots until the canvas is garbage-collected, and it
+ * was measured still alive 7 s after a visit to this screen.
  */
 function webglAvailable(): boolean {
   try {
     const probe = document.createElement('canvas');
-    return probe.getContext('webgl2') !== null;
+    const gl = probe.getContext('webgl2');
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return gl !== null;
   } catch {
     return false;
   }
@@ -629,7 +648,18 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
         clickable,
         onPick,
         onFrame,
+        signal: opts.signal,
       });
+      // Left while the view was mounting. The disconnect observer below is
+      // attached only after this line and fires only on a LATER body
+      // mutation, which an idle menu may never make -- measured holding the
+      // context alive through a forced GC. With the router's signal the
+      // view never gets this far (it rejects before making a context); this
+      // is the same guarantee for a caller that passes none.
+      if (!wrap.isConnected) {
+        view.dispose();
+        return 'diorama';
+      }
       mountedView = view;
       ccw.addEventListener('click', () => view.nudge(-NUDGE_DEGREES));
       cw.addEventListener('click', () => view.nudge(NUDGE_DEGREES));
@@ -649,6 +679,11 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       }
       return 'diorama';
     } catch (err) {
+      // The screen was left and the view gave up on purpose, having made no
+      // context. Nothing to fall back to and nothing to report: building the
+      // flat board into a detached wrap would be work for nobody, and the
+      // warning would read as a failure on every quick leave.
+      if (opts.signal?.aborted) return 'diorama';
       return toFlat('could not draw the Sahar Basin diorama', err);
     }
   })();

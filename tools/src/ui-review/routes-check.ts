@@ -25,10 +25,12 @@
 //   4. Does a SECOND mission, booted softly in the same realm, tick? A teardown
 //      that is too enthusiastic passes 1-3 and leaves the next mission dead.
 //
-// Plus: any console error or page error at all fails the run. That is what
-// catches the specific defect this task closes -- a frame loop that survives
-// its own renderer keeps drawing into a disposed context and says so, loudly,
-// in the console.
+// Plus: any console error or page error at all fails the run. A frame loop
+// that survives its own renderer is NOT caught that way any more: it used to
+// draw into a disposed context and say so in the console, but
+// `ThreeRenderer.frame()` now refuses once disposed, so its draws are silent.
+// What catches it is the left mission's tick counter, read twice after the
+// leave below -- a loop still running is still calling `runTick()`.
 //
 // Seen red: with `onDispose(() => cancelAnimationFrame(rafId))` commented out
 // of `bootBattlefield`, this exits 1. The output of both runs is in this
