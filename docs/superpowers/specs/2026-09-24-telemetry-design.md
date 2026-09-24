@@ -1,6 +1,9 @@
 # Player telemetry and Cloudflare hosting — design
 
-**Status:** design approved in chat by Ilan, 2026-09-24; awaiting spec review.
+**Status:** approved by Ilan 2026-09-24; revised the same day with the
+execution-plan session's eight review findings (soft-navigation abandons, 14
+tutorial steps, service-worker scope, `packages/worker`, D1 headroom, IP rate
+limit, consent, tester wording). Consent is the one open decision.
 **Work package:** WP-T1 (proposed by the execution-plan session; lane A plus a
 new root-level Worker).
 **Brainstormed in:** session "Roaring Lion GitHub Pages deployment".
@@ -34,7 +37,7 @@ median real duration against `target_minutes` for exactly that reason.
 ## Architecture
 
 ```
-packages/app/src/telemetry/  --batched POST /api/events-->  worker/index.ts --> D1
+packages/app/src/telemetry/  --batched POST /api/events-->  packages/worker --> D1
         ^ reads runtime events and state only                   |
         |                                                        v
    main.ts / mission-start.ts / tutorial caller            /stats (Access)
@@ -58,13 +61,15 @@ Every event carries an envelope:
 | `build` | the full `APP_BUILD` version (e.g. `0.78.0`) |
 | `t` | client epoch ms |
 
-No name, e-mail, IP or full URL is stored.
+No e-mail, IP or full URL is stored. The `tester` label is chosen by the tester
+(or by Ilan when he hands out a link) and may be a name; nothing else identifies
+a person.
 
 | Event | When | Payload |
 |---|---|---|
 | `session_start` | page load | screen (`menu`/`campaign`/`mission`/`tutorial`/`sandbox`), renderer, viewport, `returning` |
 | `heartbeat` | every 60 s while the tab is visible **and** a mission is running | mission id, game time (ticks) |
-| `tutorial_step` | a tutorial step opens | step index (0–12), ms spent on the previous step |
+| `tutorial_step` | a tutorial step opens | step index, step count (read from `data/tutorial/beit_sahwan_0.json`, 14 today — never hard-coded), ms spent on the previous step |
 | `mission_start` | deploy is clicked and the runtime starts | mission id, `replay` (already won), furthest mission unlocked |
 | `objective` | an objective becomes `complete` or `failed` | mission id, objective id, type, primary, game minute |
 | `mission_end` | victory, defeat, or leaving mid-mission | `result` (`victory`/`defeat`/`abandoned`), `cause`, duration (ticks), ROE score, units lost / fielded, objectives completed |
@@ -77,9 +82,16 @@ Add a **read-only** `defeatCause` getter to `MissionRuntime` returning
 state only; `pnpm test:determinism` must stay green with the golden hash
 unmoved. Reviewer: the `sim-guard` agent.
 
-**Abandoned.** Leaving mid-mission sends `mission_end{result:'abandoned'}` from a
-`pagehide` handler via `navigator.sendBeacon`. When even that is lost, the last
-`heartbeat` marks where the player stopped.
+**Abandoned.** Most abandons are *soft*: the HUD's leave button and the pause
+menu's Quit call `req.navigate`, and no `pagehide` fires. So
+`mission_end{result:'abandoned'}` is sent from `bootBattlefield`'s **teardown**
+whenever the runtime has no result yet — registered as a disposer where the
+listener is created, idempotent, per the disposer contract. `pagehide` +
+`navigator.sendBeacon` stays for a closed tab. Both paths share one
+per-mission guard, so a victory followed by a leave sends exactly one
+`mission_end`. When even the beacon is lost, the last `heartbeat` marks where
+the player stopped. (The context-release branch reorders teardown registration
+in this function; implement on top of it.)
 
 **Sandbox.** `?sandbox` sessions send `session_start` only, flagged `dev: true`,
 and `/stats` excludes them by default.
@@ -120,20 +132,35 @@ red. Also disabled when the browser sends Global Privacy Control
 (`navigator.globalPrivacyControl`) or Do Not Track, and by `?notrack`
 (persisted).
 
-**Service worker.** The app registers `src/service-worker.ts`. It must not cache
-or intercept `POST /api/events`; confirm its fetch handler passes non-GET
-requests through untouched.
+**Service worker.** The worker script is `assets/sw.js` (`src/service-worker.ts`
+only registers it), and its policy is `strategyFor` in the app's `sw-policy`.
+Non-GET already returns `'passthrough'`, so `POST /api/events` is safe. But
+`/stats` and `/stats/api/*` are same-origin GETs it may cache — a stale
+dashboard, or a cached Cloudflare Access redirect. Both prefixes (and `/api/`)
+must return `'passthrough'`, with a case in `packages/app/src/sw-policy.test.ts`
+whose red is recorded before the fix.
 
 **Player-facing text.** None is planned. If any appears (e.g. a privacy line in
 the menu), it goes through `t()` and passes `pnpm validate:ui`.
 
-## 3. Worker (`worker/index.ts` + `wrangler.jsonc`)
+## 3. Worker (`packages/worker` + root `wrangler.jsonc`)
+
+**Home.** `packages/worker`, not a root `worker/` directory:
+`pnpm-workspace.yaml` covers `packages/*` and `tools`, so only there do root
+`pnpm lint`, `pnpm typecheck` and `pnpm test` reach it. It may import
+`@lions/data` for the schema (data is a leaf); nothing imports it. Its tests run
+under `@cloudflare/vitest-pool-workers` as **their own vitest project**, so they
+do not collide with the jsdom default under `pnpm test`. The root
+`wrangler.jsonc` points `main` at `packages/worker/src/index.ts` and `assets` at
+`packages/app/dist`. CLAUDE.md's package layout gains one line for it.
 
 Routes:
 
 - `POST /api/events` — body ≤ 64 KB, ≤ 50 events. Each event validated against
-  the shared schema; invalid ones dropped silently. Rate-limited per `player`
-  (Workers rate-limiting binding). `Origin` must be the site's own. Always
+  the shared schema; invalid ones dropped silently. Rate-limited on the
+  connecting IP (Cloudflare's `CF-Connecting-IP`, held in memory by the
+  rate-limiting binding and **never stored**), because the `player` id is
+  client-supplied and spoofable. `Origin` must be the site's own. Always
   answers `204`.
 - `/stats` and `/stats/api/*` — the dashboard, protected by a Cloudflare Access
   application covering the `/stats*` path.
@@ -144,15 +171,18 @@ D1 tables:
 - `events` — one row per event: `type, player, session, tester, build, mission,
   t, received_at, payload JSON`. The raw record, kept forever.
 - `players` — one row per player: `first_seen, last_seen, seconds_played,
-  furthest_mission, missions_won, tester`, upserted on ingest so headline numbers
-  are one query.
+  furthest_mission, missions_won, tester`, upserted **once per request** (not per
+  event) so headline numbers are one query.
 
 Migrations live in `worker/migrations/`. Once `wrangler.jsonc` exists the
 Cloudflare build settings simplify to deploy command `npx wrangler deploy` —
 Ilan edits that in the dashboard in the same step as the merge.
 
-Free-tier headroom: D1 allows 100k writes/day; at ~60 events per player-hour
-that is ~1,500 player-hours a day.
+Free-tier headroom: D1 allows 100k rows written/day. Each event is one
+`events` insert, and each request (a batch, flushed at most every 30 s) adds one
+`players` upsert — about 180 rows per player-hour, so **~550 player-hours a day**
+on the free tier. Past that, the $5 Workers plan raises the limit to 50M rows a
+month.
 
 ## 4. `/stats`
 
@@ -163,7 +193,8 @@ tester):
    day-2 return rate.
 2. Players per day, new vs returning.
 3. Funnel — tutorial → campaign missions in campaign order, share reaching each,
-   biggest drop highlighted; plus a 13-step tutorial funnel.
+   biggest drop highlighted; plus a tutorial funnel over every step (the count
+   comes from the events, so it follows the tutorial data).
 4. Per-mission table — attempts, win %, **median real duration vs
    `target_minutes`**, top loss cause, mean ROE, most-failed objective.
 5. Testers — furthest mission, hours, last seen; click through to a timeline.
@@ -190,22 +221,39 @@ a Cloudflare deploy hook call (a secret URL stored as a repo secret).
 - `events.ts`, `identity.ts`, `sender.ts` unit tests; schema validation of every
   builder's output; storage-blocked and GPC cases.
 - `defeatCause` tests in `packages/sim`, plus `pnpm test:determinism`.
-- Worker tests (validation, size limit, rate limit, origin check) against a local
-  D1 via `wrangler dev` / `vitest-pool-workers`.
+- Worker tests (validation, size limit, rate limit, origin check, one upsert per
+  request) against a local D1 via `vitest-pool-workers`, in their own vitest
+  project.
+- Soft-leave test: leaving through the HUD sends one `abandoned`; victory then
+  leave sends one `victory` and nothing else.
+- `sw-policy.test.ts`: `/stats`, `/stats/api/x` and `/api/events` pass through.
 - One browser run on a port ≥ 5210: the tutorial with `?telemetry&tester=ilan`,
   confirming rows reach `/stats`. Driven through the UI, not console shortcuts.
 - The visual job and `pnpm ui:routes` stay green, proving the off switch.
 
-## Open decision for Ilan
+## Decisions for Ilan
 
-**Two backends.** Lane D (ST5 #204 / ST6 #205) plans Supabase/Postgres for auth
-and a server-authoritative ledger. D1 for telemetry means two backends. The
-recommendation is that this is **deliberate**: telemetry is write-heavy,
-anonymous and disposable, and needs to live on the same origin as the game; the
-ledger is account-bound and authoritative. They share nothing but the player id,
-and a Supabase account can later be linked to the anonymous telemetry id. If
-Ilan prefers one backend, the Worker can write to Supabase instead and D1 drops
-out; nothing in sections 1–2 changes.
+**Two backends — DECIDED 2026-09-24: deliberate.** Lane D (ST5 #204 / ST6 #205)
+plans Supabase/Postgres for auth and a server-authoritative ledger; telemetry
+uses D1. Telemetry is write-heavy, anonymous and disposable, and lives on the
+game's own origin; the ledger is account-bound and authoritative. They share
+nothing but the player id, and a Supabase account can later be linked to the
+anonymous telemetry id.
+
+**Consent — OPEN.** An anonymous UUID kept in `localStorage` for analytics is
+still an identifier stored on the device; for EU players ePrivacy art. 5(3)
+generally wants consent for that, and honouring GPC/DNT is not asking. Options:
+
+- **(a)** a one-line consent/notice in the menu, through `t()` and
+  `pnpm validate:ui`;
+- **(b)** session-only ids, no persistent `player` — loses day-2 return and
+  cross-session time played;
+- **(c)** accept the risk for the private test phase and revisit before any
+  public or Steam launch.
+
+Recommended: **(c) now, (a) as a gate on public launch** — the build is private
+and shared with testers by link, and (a) is small enough to land with the
+public switch.
 
 ## Sequencing
 
