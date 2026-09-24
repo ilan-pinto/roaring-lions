@@ -75,11 +75,13 @@
  *   compositor happened to hold.
  * - **MUST: redraw once on every resize, held or not.** `ThreeRenderer`'s
  *   own `ResizeObserver` (registered in `init()`, so it fires FIRST) calls
- *   `fitToHost`, whose `setSize` CLEARS the canvas. A held host has no loop
- *   to paint it back, so without this one redraw a window resize leaves a
- *   blank rectangle behind the menu for good; an animating one would show a
- *   blank frame. The redraw also re-frames the camera: the zoom follows the
- *   layer's size (the app's cover law), and `onCamera` reports it.
+ *   `fitToHost`, whose `setSize` writes `canvas.width` unconditionally and so
+ *   CLEARS the canvas -- including on that observer's first call, which lands
+ *   after the reveal. A held host has no loop to paint it back, so without
+ *   this one redraw a window resize leaves a blank rectangle behind the menu
+ *   for good; an animating one would show a blank frame. The redraw also
+ *   re-frames the camera: the zoom follows the layer's size (the app's cover
+ *   law), and `onCamera` reports it.
  *
  * Two more about teardown, both from #219. `dispose()` can still throw after
  * it has released the context, so the canvas comes off in a `finally` -- the
@@ -161,23 +163,61 @@ function prefetchUrls(opts: SceneHostOptions): string[] {
   return [...urls];
 }
 
+/**
+ * Mount the diorama into `host`, and resolve once a complete frame is on its
+ * canvas (the lifecycle in the header).
+ *
+ * Rejects with the failure -- a fetch that answered an HTTP error, a loader,
+ * `init` -- having released whatever it built; or with an `AbortError` once
+ * `opts.signal` has aborted. The ABORT is what releases, not this promise:
+ * from construction on, the signal's listener disposes the renderer and
+ * removes the canvas synchronously. A caller tearing down must never wait on
+ * this promise, because after an abort mid-load it may settle late or NEVER:
+ * `ThreeRenderer.dispose()` disposes the shared Draco loader, and three
+ * r170's `DRACOLoader.dispose()` terminates its workers without rejecting
+ * the decodes still pending on them, so a GLB caught mid-decode never
+ * settles its load.
+ */
 export async function mountSceneHost(host: HTMLElement, opts: SceneHostOptions): Promise<SceneHostView> {
   const { signal } = opts;
   const cap = opts.fpsCap ?? HOST_FPS_CAP;
   const stop = (): never => {
     throw new DOMException('scene host left', 'AbortError');
   };
+  // Before any fetch: the prefetch below listens for an abort, and a signal
+  // that has already fired never fires again.
+  if (signal.aborted) stop();
 
   // 1. Bytes first, NO context (R-7). Every GLB and the Draco decoder into the
   //    HTTP cache; the loaders' own requests below then hit it. Each body must
   //    be consumed -- an unread response is not cached.
-  await Promise.all(
-    prefetchUrls(opts).map(async (url) => {
-      const res = await fetch(url, { signal });
-      if (!res.ok) throw new Error(`scene host: ${url} answered HTTP ${res.status}`);
-      await res.arrayBuffer();
-    })
-  );
+  //
+  //    Under an INTERNAL controller chained to the caller's signal, so the
+  //    first failure stops the rest: `Promise.all` rejects on it, and without
+  //    this the other downloads would run on until the host is left.
+  const prefetch = new AbortController();
+  const stopPrefetch = (): void => prefetch.abort();
+  signal.addEventListener('abort', stopPrefetch, { once: true });
+  try {
+    await Promise.all(
+      prefetchUrls(opts).map(async (url) => {
+        try {
+          const res = await fetch(url, { signal: prefetch.signal });
+          if (!res.ok) {
+            // Nothing will read this body; give the connection back.
+            void res.body?.cancel().catch(() => undefined);
+            throw new Error(`scene host: ${url} answered HTTP ${res.status}`);
+          }
+          await res.arrayBuffer();
+        } catch (err) {
+          prefetch.abort();
+          throw err;
+        }
+      })
+    );
+  } finally {
+    signal.removeEventListener('abort', stopPrefetch);
+  }
   if (signal.aborted) stop();
 
   // 2. The context. From here an abort must release it AT ONCE, not at the
@@ -292,8 +332,11 @@ export async function mountSceneHost(host: HTMLElement, opts: SceneHostOptions):
   };
 
   // MUST: redraw once on every resize, held or not (header). Registered after
-  // `init()`'s own observer, so it runs after `fitToHost` has cleared the
-  // canvas. Its initial observation redraws once more at the settled size.
+  // `init()`'s own observer, so in every observation pass it runs AFTER
+  // `fitToHost` -- the FIRST pass included, which lands after the reveal.
+  // `fitToHost` -> `setSize` writes `canvas.width` unconditionally, clearing
+  // the drawing buffer, so this redraw in the same pass is what keeps the
+  // canvas the app has just revealed from painting a cleared buffer.
   observer = new ResizeObserver(() => {
     if (released) return;
     frameCamera();
