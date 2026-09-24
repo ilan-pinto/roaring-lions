@@ -252,4 +252,54 @@ describe('ThreeRenderer.reseed after the mission spawns into a sim init() alread
     expect(grown).not.toBe(loaded);
     expect(priv.scene.children.filter((c) => c === grown?.mesh)).toHaveLength(1);
   });
+
+  /**
+   * `seedFromSim` takes TWO snapshots, and since 4d6d2ede seeds a newcomer
+   * on the first, the mission path alone no longer shows why. The two tests
+   * below do, and each goes red with one snapshot.
+   *
+   * The fog phase: after the seed the 5 Hz counter stands at 2, so the
+   * tick loop's refreshes land on its 3rd, 7th, 11th... snapshot. That is
+   * the phase the sandbox golden baselines were blessed at (the sandbox
+   * seeds through `init`, which calls `seedFromSim`); one snapshot moves
+   * them to the 4th, 8th, 12th.
+   */
+  it('leaves the 5 Hz fog refresh on the third tick after the seed, the phase init has always had', () => {
+    const { sim, renderer } = missionPathBeforeReseed();
+    renderer.reseed();
+    const fog = vi.spyOn(renderer as unknown as { recomputeFog(): void }, 'recomputeFog');
+    const refreshedOn: number[] = [];
+    for (let k = 1; k <= 12; k++) {
+      const before = fog.mock.calls.length;
+      sim.tick();
+      renderer.snapshot();
+      if (fog.mock.calls.length > before) refreshedOn.push(k);
+    }
+    expect(refreshedOn).toEqual([3, 7, 11]);
+  });
+
+  /**
+   * The "as if init ran now" contract for an entity that is NOT new: one the
+   * renderer has copies of, that the sim has moved since the renderer last
+   * snapshotted it. One snapshot would copy the stale `cur` into `prev` and
+   * read the move as a speed; the second leaves it standing still where it
+   * is, exactly as a fresh init would.
+   */
+  it('re-seeds a unit that moved since the last snapshot to stand still where it is now', () => {
+    const { sim, renderer, priv, unit } = missionPathBeforeReseed();
+    renderer.reseed();
+    sim.queueCommand({ kind: 'move', ids: [unit], x: fx.from(SPAWN_X + 6), y: sim.state.posY[unit] });
+    for (let t = 0; t < 4; t++) {
+      sim.tick();
+      renderer.snapshot();
+    }
+    // The sim moves on without the renderer seeing it.
+    sim.tick();
+    const nowX = fx.toNumber(sim.state.posX[unit]);
+    expect(nowX, 'premise: the unit is moving').toBeGreaterThan(priv.curX[unit]);
+
+    renderer.reseed();
+    expect([priv.prevX[unit], priv.curX[unit]]).toEqual([nowX, nowX]);
+    expect(priv.entitySpeed[unit]).toBe(0);
+  });
 });
