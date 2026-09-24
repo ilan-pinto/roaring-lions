@@ -3,6 +3,7 @@ import { openTestD1 } from './test-d1';
 import { handleIngest } from './ingest';
 import * as stats from './stats';
 import type { Env } from './d1';
+import { issueValidAccessToken, testAccessEnv } from './access.test-helper';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 20);
@@ -43,7 +44,7 @@ const all: stats.StatsFilter = { since: 0, testersOnly: false, includeDev: false
 describe('stats queries', () => {
   it('summary counts real players, excludes dev, measures time and day-2 return', async () => {
     const s = await stats.summary(await seeded(), all);
-    expect(s).toMatchObject({ players: 2, sessions: 2, hoursPlayed: 2 / 60, returnedDay2: 1 });
+    expect(s).toMatchObject({ players: 2, sessions: 2, hoursPlayed: 2 / 60, returnedDay2: 1, returnRate: 0.5 });
   });
 
   it('funnel follows campaign order with started and won per mission', async () => {
@@ -70,27 +71,59 @@ describe('stats queries', () => {
   });
 
   it('lists testers with their furthest progress', async () => {
-    expect(await stats.testers(await seeded(), all)).toEqual([expect.objectContaining({ tester: 'dani', lastWon: 'beit_sahwan_breach' })]);
+    expect(await stats.testers(await seeded(), all)).toEqual([expect.objectContaining({ tester: 'dani', furthestWon: 'beit_sahwan_breach' })]);
+  });
+
+  it('F4: a tester still appears after a dev (free-play) batch', async () => {
+    const db = openTestD1();
+    const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
+    const send = (events: unknown[]) =>
+      handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    await send([base(9, T0, { tester: 'nir', type: 'session_start', screen: 'sandbox', renderer: 'three', viewport: [800, 600], returning: false, dev: true })]);
+    const rows = await stats.testers(db, all);
+    expect(rows).toEqual([expect.objectContaining({ tester: 'nir' })]);
+  });
+
+  it('F5: a tester who wins a later mission then replays an earlier one still shows the later one', async () => {
+    const db = openTestD1();
+    const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
+    const send = (events: unknown[]) =>
+      handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    await send([
+      base(10, T0, { tester: 'orit', type: 'campaign_progress', mission: 'beit_sahwan_2_foothold', missionsWon: 2 }),
+      base(10, T0 + 1, { tester: 'orit', type: 'campaign_progress', mission: 'beit_sahwan_1_recon', missionsWon: 2 }),
+    ]);
+    const rows = await stats.testers(db, all);
+    expect(rows).toEqual([expect.objectContaining({ tester: 'orit', furthestWon: 'beit_sahwan_2_foothold' })]);
   });
 });
 
 describe('handleStats', () => {
+  const DOMAIN = 'stats-test.cloudflareaccess.com';
+
   it('refuses without the Access assertion header', async () => {
-    const env: Env = { DB: openTestD1(), ASSETS: { fetch: async () => new Response('') } };
+    const env: Env = { DB: openTestD1(), ASSETS: { fetch: async () => new Response('') }, ...testAccessEnv(DOMAIN) };
     const res = await stats.handleStats(new Request('https://g.dev/stats'), env, T0);
     expect(res.status).toBe(403);
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
-  it('serves the page and JSON with the header', async () => {
-    const env: Env = { DB: await seeded(), ASSETS: { fetch: async () => new Response('') } };
+  it('refuses a forged header value that is not a valid Access JWT', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: { fetch: async () => new Response('') }, ...testAccessEnv(DOMAIN) };
     const h = { 'cf-access-jwt-assertion': 'x' };
+    const res = await stats.handleStats(new Request('https://g.dev/stats', { headers: h }), env, T0);
+    expect(res.status).toBe(403);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+  it('serves the page and JSON with a validly signed Access token', async () => {
+    const env: Env = { DB: await seeded(), ASSETS: { fetch: async () => new Response('') }, ...testAccessEnv(DOMAIN) };
+    const h = { 'cf-access-jwt-assertion': await issueValidAccessToken(DOMAIN, T0) };
     expect((await stats.handleStats(new Request('https://g.dev/stats', { headers: h }), env, T0)).headers.get('content-type')).toContain('text/html');
     const res = await stats.handleStats(new Request('https://g.dev/stats/api/summary?range=all', { headers: h }), env, T0);
     expect(await res.json()).toMatchObject({ players: 2 });
   });
   it('answers an unknown /stats/api path with an uncached 404', async () => {
-    const env: Env = { DB: await seeded(), ASSETS: { fetch: async () => new Response('') } };
-    const h = { 'cf-access-jwt-assertion': 'x' };
+    const env: Env = { DB: await seeded(), ASSETS: { fetch: async () => new Response('') }, ...testAccessEnv(DOMAIN) };
+    const h = { 'cf-access-jwt-assertion': await issueValidAccessToken(DOMAIN, T0) };
     const res = await stats.handleStats(new Request('https://g.dev/stats/api/nope', { headers: h }), env, T0);
     expect(res.status).toBe(404);
     expect(res.headers.get('cache-control')).toBe('no-store');

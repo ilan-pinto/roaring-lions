@@ -1,6 +1,7 @@
 import type { D1Like, Env } from './d1';
 import { CAMPAIGN_ORDER, MISSION_TARGET_MINUTES } from './campaign-order';
 import { STATS_HTML } from './stats-page';
+import { verifyAccessJwt } from './access';
 
 export interface StatsFilter {
   since: number;
@@ -57,12 +58,15 @@ export async function summary(db: D1Like, f: StatsFilter) {
     )
     .bind(...w.args)
     .all<{ player: string; beats: number; days: number }>();
+  const players = row?.players ?? 0;
+  const returnedDay2 = perPlayer.results.filter((r) => r.days >= 2).length;
   return {
-    players: row?.players ?? 0,
+    players,
     sessions: row?.sessions ?? 0,
     hoursPlayed: ((row?.beats ?? 0) * 60) / 3600,
     medianMinutesPerPlayer: median(perPlayer.results.map((r) => r.beats)) ?? 0,
-    returnedDay2: perPlayer.results.filter((r) => r.days >= 2).length,
+    returnedDay2,
+    returnRate: players > 0 ? returnedDay2 / players : 0,
   };
 }
 
@@ -151,17 +155,36 @@ export async function missions(db: D1Like, f: StatsFilter) {
   });
 }
 
+/** Testers are explicitly labelled people, not sandbox/dev traffic to be
+ *  filtered out (F4) -- `players.dev` latches via MAX, so a tester who once
+ *  opened free-play would otherwise vanish from this list entirely. */
 export async function testers(db: D1Like, f: StatsFilter) {
   const rows = await db
     .prepare(
-      `SELECT tester, MAX(missions_won) AS missionsWon, MAX(last_won) AS lastWon,
+      `SELECT tester, MAX(missions_won) AS missionsWon,
               SUM(seconds_played) / 3600.0 AS hours, MAX(last_seen) AS lastSeen
-       FROM players WHERE tester IS NOT NULL AND last_seen >= ? ${f.includeDev ? '' : 'AND dev = 0'}
+       FROM players WHERE tester IS NOT NULL AND last_seen >= ?
        GROUP BY tester ORDER BY lastSeen DESC`
     )
     .bind(f.since)
-    .all<{ tester: string; missionsWon: number; lastWon: string | null; hours: number; lastSeen: number }>();
-  return rows.results;
+    .all<{ tester: string; missionsWon: number; hours: number; lastSeen: number }>();
+
+  // F5: "furthest won" is the CAMPAIGN_ORDER-highest mission among a tester's
+  // own campaign_progress events, not MAX(last_won) (alphabetical, and blind
+  // to a later win followed by an earlier replay).
+  const progress = await db
+    .prepare(`SELECT tester, mission FROM events WHERE type = 'campaign_progress' AND tester IS NOT NULL`)
+    .all<{ tester: string; mission: string }>();
+  const order = new Map(CAMPAIGN_ORDER.map((m, i) => [m, i]));
+  const furthestByTester = new Map<string, string>();
+  for (const { tester, mission } of progress.results) {
+    const idx = order.get(mission);
+    if (idx === undefined) continue;
+    const cur = furthestByTester.get(tester);
+    if (cur === undefined || idx > (order.get(cur) ?? -1)) furthestByTester.set(tester, mission);
+  }
+
+  return rows.results.map((r) => ({ ...r, furthestWon: furthestByTester.get(r.tester) ?? null }));
 }
 
 export async function timeline(db: D1Like, tester: string) {
@@ -182,7 +205,8 @@ const json = (x: unknown): Response =>
 /** /stats and /stats/api/*. Access guards this at the edge; the header check is a
  *  tripwire for a missing or misconfigured Access application, not authentication. */
 export async function handleStats(req: Request, env: Env, now: number): Promise<Response> {
-  if (!req.headers.get('cf-access-jwt-assertion'))
+  const token = req.headers.get('cf-access-jwt-assertion');
+  if (!token || !(await verifyAccessJwt(token, env, now)))
     return new Response('Cloudflare Access is not protecting /stats.', { status: 403, headers: { 'cache-control': 'no-store' } });
   const url = new URL(req.url);
   const f = parseFilter(url, now);
