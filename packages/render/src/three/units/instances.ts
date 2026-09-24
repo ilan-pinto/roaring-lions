@@ -1089,15 +1089,30 @@ export class UnitInstancer {
     this.sideAttr.needsUpdate = true;
   }
 
-  /** Releases the geometry, material and texture this instancer owns. Not
-   *  reached from anywhere today -- `ThreeRenderer` has no shutdown path
-   *  (see its own `dispose()` doc comment) -- but `loadSprites` replacing an
-   *  already-loaded unit type calls it, so a re-load cannot leak the type it
-   *  replaces. */
+  /** Releases the mesh, geometry, material and texture this instancer owns.
+   *  `ThreeRenderer.dispose()` calls it for every unit type on a mission
+   *  leave, and `loadSprites` replacing an already-loaded unit type calls it
+   *  on the one it replaces.
+   *
+   *  `mesh.dispose()` is not redundant with the geometry's, for the reason
+   *  `StructureInstancer.releaseMesh()` gives: in three r170 the
+   *  instance-matrix buffer is freed ONLY by the `InstancedMesh`'s own
+   *  `dispose` event (`WebGLObjects`' `onInstancedMeshDispose`). It frees no
+   *  texture -- `InstancedMesh.dispose` touches only its own `morphTexture`,
+   *  which this mesh never has -- so the texture below is still freed exactly
+   *  once, by the line that names it. */
   dispose(): void {
-    // The silhouette's geometry and texture are the body's own -- disposed
-    // once, below, not twice. Only its material is separately owned.
-    if (this.silhouette) (this.silhouette.material as THREE.Material).dispose();
+    // The silhouette shares the body's geometry, texture AND `instanceMatrix`
+    // object -- see its field comment. Its `dispose` event therefore asks
+    // three to free the buffer the body's event just freed, which three
+    // treats as a no-op (`WebGLAttributes.remove` looks the attribute up
+    // first); it is called so the silhouette does not keep three's listener.
+    // Only its material is separately owned.
+    this.mesh.dispose();
+    if (this.silhouette) {
+      this.silhouette.dispose();
+      (this.silhouette.material as THREE.Material).dispose();
+    }
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
     this.texture.dispose();
