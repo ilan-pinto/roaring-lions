@@ -2,6 +2,8 @@
 --   npx wrangler d1 execute roaring-lions-telemetry --remote --file packages/worker/QUERIES.sql
 -- or paste a single query into --command "...". Every query skips sandbox traffic (dev = 0).
 -- Durations are in ticks at 20 Hz: 1200 ticks = 1 minute.
+-- This is an alternative route to the same numbers as the /stats page, not a
+-- stand-in for a closed one -- /stats is behind a password login (STATS_PASSWORD).
 
 -- @players_per_day
 SELECT date(t / 1000, 'unixepoch') AS day, COUNT(DISTINCT player) AS players

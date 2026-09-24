@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "The Cloudflare Worker in front of the game: static assets, POST /api/events into D1, and the /stats dashboard behind Cloudflare Access (WP-T1). Nothing imports it.",
+  "description": "The Cloudflare Worker in front of the game: static assets, POST /api/events into D1, and the /stats dashboard behind a password login (WP-T1). Nothing imports it.",
   "dependencies": {
     "@lions/data": "workspace:*"
   }
