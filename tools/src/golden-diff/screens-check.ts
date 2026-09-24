@@ -36,7 +36,13 @@
  */
 import type { Browser, Page } from 'playwright';
 import { PNG } from 'pngjs';
-import { FREEZE_FRAME_LOOP_STATEMENTS, REPAINT_SCRIPT, hideHudExceptCanvas } from './capture-protocol';
+import { waitForHostCrossfade } from './browser';
+import {
+  FREEZE_FRAME_LOOP_SCRIPT,
+  FREEZE_FRAME_LOOP_STATEMENTS,
+  REPAINT_SCRIPT,
+  hideHudExceptCanvas,
+} from './capture-protocol';
 import { colourRegister, registerDelta, withinRegister, type Register } from './register';
 
 export interface ScreenCheckResult {
@@ -298,6 +304,11 @@ async function voteMenuHostContribution(page: Page): Promise<MenuHostVote> {
   if (menuBox === null) {
     return { ok: false, detail: 'no .rl-menu in the DOM to flank -- cannot measure the host\'s contribution' };
   }
+  // The poster must be OFF before "shown" is taken: `live` is stamped at the
+  // start of the 400 ms crossfade, and a poster still on screen reads as the
+  // host's own contribution (`waitForHostCrossfade`). A poster that never
+  // comes off still fails this vote -- the wait is bounded and falls through.
+  await waitForHostCrossfade(page);
   // Its own IIFE, never `FREEZE_FRAME_LOOP_SCRIPT`: that variant's return
   // statement reads `window.__lions.sim.tickCount`, and the menu route never
   // assigns `window.__lions` (`ui:routes` asserts exactly that), so it would
@@ -357,6 +368,9 @@ async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<
     }
     const [xRaw, yRaw] = state.camera.split(',');
     const camera = { x: Number(xRaw), y: Number(yRaw), zoom: Number(state.zoom) };
+    // The host's LIVE frame is what is registered, never the poster fading
+    // off it (`waitForHostCrossfade`).
+    await waitForHostCrossfade(page);
 
     // The menu at 1920x1080 with `.rl-menu` hidden and the host live (spec
     // §3.7). Hiding it does not resize `.rl-scene-host` -- that element is
@@ -396,8 +410,8 @@ async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<
       () => (window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer !== undefined
     );
     if (!rendererReady) {
-      const detail = 'register: the mission page never exposed __lions.renderer within 60 s';
-      console.log(`[menu-scene-host] ${detail} -> FAIL`);
+      const detail = 'the mission page never exposed __lions.renderer within 60 s';
+      console.log(`[menu-scene-host] register: ${detail} -> FAIL`);
       for (const m of messages.slice(0, 5)) console.error(`[menu-scene-host]   ${m}`);
       return { ok: false, host, mission: ZERO_REGISTER, delta: { dY: 0, dS: 0 }, detail };
     }
@@ -417,6 +431,13 @@ async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<
       w.__lions.renderer.camera.zoom = c.zoom;
     }, camera);
     await page.evaluate(hideHudExceptCanvas);
+    // Freeze the app's frame loop first, so the repaint below is the frame
+    // the screenshot sees rather than whichever one the still-running rAF
+    // loop left on the compositor (CLAUDE.md, the visual gate: the tick the
+    // script steps to is not the tick the screenshot sees). The full script,
+    // not the bare statements: `__lions` exists on this page, and it is what
+    // the script's return reads.
+    await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
     await page.evaluate(REPAINT_SCRIPT);
     const missionPng = PNG.sync.read(await page.screenshot());
     const mission = colourRegister(missionPng.data, missionPng.width, missionPng.height);
@@ -445,8 +466,8 @@ async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<
     // than an uncaught exception that aborts the whole gate (the same defect
     // class the explicit `rendererReady` guard above closes for the one case
     // that was actually observed).
-    const detail = `register: ${err instanceof Error ? err.message : String(err)}`;
-    console.log(`[menu-scene-host] ${detail} -> FAIL`);
+    const detail = err instanceof Error ? err.message : String(err);
+    console.log(`[menu-scene-host] register: ${detail} -> FAIL`);
     for (const m of messages.slice(0, 5)) console.error(`[menu-scene-host]   ${m}`);
     return { ok: false, host: ZERO_REGISTER, mission: ZERO_REGISTER, delta: { dY: 0, dS: 0 }, detail };
   } finally {

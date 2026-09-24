@@ -70,7 +70,13 @@ import { claimGpuBackend, gpuLaunchArgs } from './gpu';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dismissDeployGate, ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
+import {
+  dismissDeployGate,
+  ensureDevServer,
+  readUnmaskedRenderer,
+  stopDevServer,
+  waitForHostCrossfade,
+} from '../golden-diff/browser';
 import { assertOutcomeStillPresent } from './outcome-guard';
 import { claimPort } from './port';
 
@@ -224,6 +230,9 @@ async function settleMenuHost(page: Page): Promise<void> {
       timeout: 60000,
     })
     .catch(() => undefined);
+  // `live` is stamped at the START of the 400 ms crossfade, so leaving
+  // `pending` is not yet a picture with the poster off it.
+  await waitForHostCrossfade(page);
 }
 
 const BASE = `http://localhost:${PORT}`;
