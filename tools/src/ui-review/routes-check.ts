@@ -316,10 +316,17 @@ try {
     const ctx = canvas ? canvas.getContext('webgl2') : null;
     return {
       elementGone: document.querySelector('.rl-scene-host') === null,
+      canvasStashed: canvas !== null,
       contextLost: ctx ? ctx.isContextLost() : null,
     };
   });
   expect(hostAfterLeave.elementGone, 'the .rl-scene-host element is still in the DOM after leaving the menu');
+  // A null stash and a live context are two different failures and must not
+  // share a message: the first means the harness itself never found a canvas
+  // to check (the earlier stash ran before the host reached "live", or found
+  // none), the second means the canvas WAS found and its context genuinely
+  // outlived the menu.
+  expect(hostAfterLeave.canvasStashed, 'no host canvas was stashed at the first menu visit');
   expect(hostAfterLeave.contextLost === true, 'the scene host left its WebGL context alive');
 
   // --- mission A, reached by a LEGACY query URL ----------------------------
@@ -550,8 +557,33 @@ try {
   // decode logging anything would fail the whole walk.
   await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
   const fastLeaveStart = Date.now();
-  await page.click('a[href="/campaign"]');
-  console.log(`[${TAG}] fast leave: clicked Campaign ${Date.now() - fastLeaveStart} ms after the menu's own load`);
+  // Read `data-host` and click Campaign in the SAME `page.evaluate` -- one JS
+  // turn, no Playwright round-trip between the two -- so the state read is
+  // the state the click actually landed on, not whatever it was a
+  // `page.click()` call and its own resolve/hit-test/dispatch machinery
+  // later. `link.click()` on an anchor dispatches a real (if untrusted)
+  // `MouseEvent`, which `interceptLinks`'s delegated listener does not
+  // discriminate against (no `isTrusted` check; `button`/modifier defaults
+  // match a plain click), so this reaches the router exactly as
+  // `page.click()` did. Asserting a literal millisecond budget here would
+  // flake on a slow runner (this file's own `ACTION_TIMEOUT_MS` comment
+  // measured a 4.8-7.5s SwiftShader click); what the leg actually needs is
+  // that the click landed before the host left `pending` -- proof the abort
+  // path, not the ordinary teardown path, is what got exercised.
+  const hostAtClick = await page.evaluate(() => {
+    const host = document.querySelector('.rl-scene-host')?.getAttribute('data-host') ?? null;
+    const link = document.querySelector('a[href="/campaign"]');
+    if (link instanceof HTMLElement) link.click();
+    return host;
+  });
+  console.log(
+    `[${TAG}] fast leave: clicked Campaign ${Date.now() - fastLeaveStart} ms after the menu's own load, ` +
+      `data-host was "${hostAtClick}" at that instant`
+  );
+  expect(
+    hostAtClick === 'pending',
+    `fast leave landed after the host reached ${String(hostAtClick)}; the abort path was not exercised`
+  );
   await page.waitForSelector('.rl-world');
   const noHostAfterFastLeave = await page.evaluate(() => document.querySelector('.rl-scene-host') === null);
   expect(noHostAfterFastLeave, 'the scene host left an element behind after a fast leave (mid-prefetch abort)');

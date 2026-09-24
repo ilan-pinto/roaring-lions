@@ -334,6 +334,16 @@ const ZERO_REGISTER: Register = { meanY: 0, meanS: 0, samples: 0 };
 
 async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<MenuHostRegisterVote> {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  const messages: string[] = [];
+  const onConsole = (m: { type(): string; text(): string }): void => {
+    const type = m.type();
+    if (type === 'error' || type === 'warning') messages.push(`${type}: ${m.text().slice(0, 300)}`);
+  };
+  const onError = (e: Error): void => {
+    messages.push(`pageerror: ${String(e).slice(0, 300)}`);
+  };
+  page.on('console', onConsole);
+  page.on('pageerror', onError);
   try {
     await page.goto(baseUrl, { waitUntil: 'load' });
     await waitForTerminalHost(page);
@@ -373,6 +383,24 @@ async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<
         { timeout: MENU_HOST_WAIT_MS }
       )
       .catch(() => undefined);
+    // The wait above swallows its own timeout (`.catch(() => undefined)`), so
+    // a mission page that never boots -- a bad map id, a broken sandbox route
+    // -- falls through silently unless this is checked explicitly. Without
+    // it the very next line's `w.__lions.renderer.setDebugLayerVisible(...)`
+    // throws a bare TypeError that nothing here catches, which used to abort
+    // the whole gate (`EXIT_USAGE`, a stack trace) instead of failing one
+    // vote with a named cause -- the same mistake `checkCampaignBoard`'s own
+    // header describes for a screen that fails softly. Mirrors the host-side
+    // guard just above (`state.host !== 'live'`).
+    const rendererReady = await page.evaluate(
+      () => (window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer !== undefined
+    );
+    if (!rendererReady) {
+      const detail = 'register: the mission page never exposed __lions.renderer within 60 s';
+      console.log(`[menu-scene-host] ${detail} -> FAIL`);
+      for (const m of messages.slice(0, 5)) console.error(`[menu-scene-host]   ${m}`);
+      return { ok: false, host, mission: ZERO_REGISTER, delta: { dY: 0, dS: 0 }, detail };
+    }
     await page.evaluate((c: { x: number; y: number; zoom: number }) => {
       const w = window as unknown as {
         __lions: {
@@ -411,7 +439,19 @@ async function voteMenuHostRegister(browser: Browser, baseUrl: string): Promise<
         : `dY=${(delta.dY * 100).toFixed(1)}%, dS=${(delta.dS * 100).toFixed(1)}% -- outside the ` +
           `${(MENU_HOST_REGISTER_TOLERANCE * 100).toFixed(0)}% band`,
     };
+  } catch (err) {
+    // Any OTHER unexpected throw -- a navigation error, a PNG decode failure,
+    // a page crash -- becomes this vote's own FAIL naming the error, rather
+    // than an uncaught exception that aborts the whole gate (the same defect
+    // class the explicit `rendererReady` guard above closes for the one case
+    // that was actually observed).
+    const detail = `register: ${err instanceof Error ? err.message : String(err)}`;
+    console.log(`[menu-scene-host] ${detail} -> FAIL`);
+    for (const m of messages.slice(0, 5)) console.error(`[menu-scene-host]   ${m}`);
+    return { ok: false, host: ZERO_REGISTER, mission: ZERO_REGISTER, delta: { dY: 0, dS: 0 }, detail };
   } finally {
+    page.off('console', onConsole);
+    page.off('pageerror', onError);
     await page.close();
   }
 }
