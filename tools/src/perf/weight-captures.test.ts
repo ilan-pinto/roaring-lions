@@ -3,10 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  DRAWN_OFFSET_BOUND_TILES,
+  MOTION_FLOORS,
   SAMPLE_MS,
   WEIGHT_PHASES,
   WEIGHT_SUBJECTS,
   framePumps,
+  laneVerdicts,
+  motionVerdict,
   sampleLadder,
   sheetIndex,
   tickPumpSchedule,
@@ -286,5 +290,177 @@ describe('writeIndex merges overlapping batches (Fix round 1)', () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('the numeric ladder votes now (R-Q)', () => {
+  // A model wired to nothing and a model at rest produce the same pictures.
+  // The only thing that tells them apart is whether the numbers ever move.
+  it('fails a ladder that never moves, rather than passing it', () => {
+    const flat = Array.from({ length: 51 }, (_, i) => ({
+      ms: i * 200,
+      offsetTiles: 0,
+      pitchDeg: 0,
+      rollDeg: 0,
+    }));
+    expect(motionVerdict('start', flat).ok).toBe(false);
+    expect(motionVerdict('turn', flat).ok).toBe(false);
+  });
+
+  it('passes a ladder that clears the measured floor', () => {
+    const f = MOTION_FLOORS.start;
+    const moving = Array.from({ length: 51 }, (_, i) => ({
+      ms: i * 200,
+      offsetTiles: 0,
+      pitchDeg: i < 5 ? f.minPeakPitchDeg * 2 : 0,
+      rollDeg: 0,
+    }));
+    expect(motionVerdict('start', moving).ok).toBe(true);
+  });
+
+  // A phase must show the motion it is NAMED for. A turn ladder that pitches
+  // and never rolls is a roll that is not wired, reported as a pass.
+  it("requires each phase's own axis, not merely some movement", () => {
+    const f = MOTION_FLOORS.turn;
+    const pitchOnly = Array.from({ length: 51 }, (_, i) => ({
+      ms: i * 200,
+      offsetTiles: 0,
+      pitchDeg: f.minPeakRollDeg * 5,
+      rollDeg: 0,
+    }));
+    expect(motionVerdict('turn', pitchOnly).ok).toBe(false);
+  });
+
+  // R-C on the running game, which is the point: the pure sweep proves the
+  // model, this proves the WIRING -- the composition, the clamp and the recoil
+  // all in the same frame.
+  it('fails a ladder that breaks the quarter-tile bound', () => {
+    const over = [{ ms: 0, offsetTiles: 0.4, pitchDeg: 2, rollDeg: 0 }];
+    expect(motionVerdict('start', over).ok).toBe(false);
+    expect(motionVerdict('start', over).reasons.join(' ')).toMatch(/0\.25/);
+  });
+
+  it('records a sample size beside every floor, because a range with no n is an anecdote', () => {
+    for (const f of Object.values(MOTION_FLOORS)) expect(f.rationale).toMatch(/\b\d+ runs?\b/);
+  });
+
+  // Task 7's own additions, each with the input that reddens it.
+
+  // A floor of 0 is `peak >= 0`, which every ladder satisfies -- the flat one
+  // above included. The ladder would then pass a model wired to nothing, so
+  // every axis a phase owns must carry a positive floor.
+  it('holds every owned axis to a positive floor, since a floor of 0 passes a flat ladder', () => {
+    const owned = [
+      MOTION_FLOORS.start.minPeakPitchDeg,
+      MOTION_FLOORS.stop.minDiveDeg,
+      MOTION_FLOORS.stop.minPeakOffsetTiles,
+      MOTION_FLOORS.turn.minPeakRollDeg,
+    ];
+    for (const v of owned) {
+      expect(Number.isFinite(v)).toBe(true);
+      expect(v).toBeGreaterThan(0);
+    }
+  });
+
+  // A launch squats NOSE-UP and a stop dives NOSE-DOWN; a sign flip in the
+  // composition would swap them and still move the numbers. Both directions.
+  it('reads the pitch by sign: a start must squat nose-up, a stop must dive nose-down', () => {
+    const big = 10 * Math.max(MOTION_FLOORS.start.minPeakPitchDeg, MOTION_FLOORS.stop.minDiveDeg);
+    const lag = 2 * MOTION_FLOORS.stop.minPeakOffsetTiles;
+    const noseDown = [{ ms: 0, offsetTiles: lag, pitchDeg: -big, rollDeg: 0 }];
+    const noseUp = [{ ms: 0, offsetTiles: lag, pitchDeg: big, rollDeg: 0 }];
+    expect(motionVerdict('start', noseDown).ok).toBe(false);
+    expect(motionVerdict('start', noseUp).ok).toBe(true);
+    expect(motionVerdict('stop', noseUp).ok).toBe(false);
+    expect(motionVerdict('stop', noseDown).ok).toBe(true);
+  });
+
+  // The stop owns the lag as well as the dive: a hull that dives and never
+  // trailed is a lag that is not wired.
+  it('requires the stop to have carried a lag, not only to dive', () => {
+    const dive = -10 * MOTION_FLOORS.stop.minDiveDeg;
+    expect(motionVerdict('stop', [{ ms: 0, offsetTiles: 0, pitchDeg: dive, rollDeg: 0 }]).ok).toBe(false);
+  });
+
+  // R-C's other clause: "never on a unit the sim reports stationary".
+  it('fails any offset at all on a rung whose sim speed is exactly 0', () => {
+    const pitch = 2 * MOTION_FLOORS.start.minPeakPitchDeg;
+    const parked = [{ ms: 0, offsetTiles: 1e-6, pitchDeg: pitch, rollDeg: 0, simSpeed: 0 }];
+    const moving = [{ ms: 0, offsetTiles: 1e-6, pitchDeg: pitch, rollDeg: 0, simSpeed: 1.1 }];
+    expect(motionVerdict('start', parked).ok).toBe(false);
+    expect(motionVerdict('start', parked).reasons.join(' ')).toMatch(/stationary/);
+    expect(motionVerdict('start', moving).ok).toBe(true);
+  });
+
+  // `null` is what the harness records when `debugVehicleTransform` is absent
+  // or answers null. It is an absence, and an absence must not read as rest.
+  it('fails a rung that carries no reading, and an empty ladder', () => {
+    const pitch = 2 * MOTION_FLOORS.start.minPeakPitchDeg;
+    const partly = [
+      { ms: 0, offsetTiles: null, pitchDeg: null, rollDeg: null },
+      { ms: 200, offsetTiles: 0, pitchDeg: pitch, rollDeg: 0 },
+    ];
+    expect(motionVerdict('start', partly).ok).toBe(false);
+    expect(motionVerdict('start', []).ok).toBe(false);
+  });
+
+  // A subject can be KILLED mid-ladder (the tel_marum start lane is, at
+  // ~8.5 s, before and after alike). A dead hull reads null exactly as an
+  // unwired transform does, so the verdict needs the sim's own alive flag to
+  // tell them apart -- and must not let "dead" become a way to pass.
+  it('skips rungs where the sim reports the subject dead, and only those', () => {
+    const pitch = 2 * MOTION_FLOORS.start.minPeakPitchDeg;
+    const diedLate = [
+      { ms: 0, offsetTiles: 0, pitchDeg: pitch, rollDeg: 0, alive: true },
+      { ms: 200, offsetTiles: null, pitchDeg: null, rollDeg: null, alive: false },
+    ];
+    const v = motionVerdict('start', diedLate);
+    expect(v.ok).toBe(true);
+    expect(v.deadRungs).toBe(1);
+    // The same null on a LIVING subject is still an unwired model.
+    const unwired = [diedLate[0], { ...diedLate[1], alive: true }];
+    expect(motionVerdict('start', unwired).ok).toBe(false);
+    // And a subject dead for the whole ladder has nothing to pass on.
+    const deadThroughout = [{ ms: 0, offsetTiles: null, pitchDeg: null, rollDeg: null, alive: false }];
+    expect(motionVerdict('start', deadThroughout).ok).toBe(false);
+  });
+
+  it('is the literal R-C bound, not a number imported from the code it judges', () => {
+    expect(DRAWN_OFFSET_BOUND_TILES).toBe(0.25);
+  });
+
+  // `laneVerdicts` is what `writeIndex` and `main()` actually call: it must
+  // judge each (subject, phase) lane on its own ladder rungs, and skip the
+  // establishing still, which repeats rung 0 at another zoom.
+  it('judges each lane separately, on the ladder zoom only', () => {
+    const cell = (subject: string, phase: 'start' | 'turn', zoom: number, pitchDeg: number, rollDeg: number): SheetCell => ({
+      subject,
+      phase,
+      ms: 0,
+      zoom,
+      tick: 0,
+      file: `${subject}.png`,
+      offsetTiles: 0,
+      pitchDeg,
+      rollDeg,
+    });
+    const up = 2 * MOTION_FLOORS.start.minPeakPitchDeg;
+    const lean = 2 * MOTION_FLOORS.turn.minPeakRollDeg;
+    const verdicts = laneVerdicts(
+      [
+        cell('a', 'start', 2.5, up, 0),
+        cell('a', 'turn', 2.5, 0, 0),
+        // The establishing still of the turn leans; the ladder does not. It
+        // must not rescue the lane.
+        cell('a', 'turn', 1, 0, lean),
+        cell('b', 'turn', 2.5, 0, lean),
+      ],
+      2.5
+    );
+    expect(verdicts.map((v) => `${v.subject}/${v.phase}/${v.ok}`)).toEqual([
+      'a/start/true',
+      'a/turn/false',
+      'b/turn/true',
+    ]);
   });
 });
