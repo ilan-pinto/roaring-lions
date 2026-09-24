@@ -59,6 +59,29 @@ describe('POST /api/events', () => {
     expect(h.count('SELECT COUNT(*) AS n FROM events')).toBe(0);
   });
 
+  it('M5: rejects on a Content-Length over 64 KB before reading the body', async () => {
+    const db = openTestD1();
+    const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('asset') } };
+    let bodyRead = false;
+    const req = {
+      method: 'POST',
+      url: 'https://game.example.workers.dev/api/events',
+      headers: new Headers({
+        origin: 'https://game.example.workers.dev',
+        'cf-connecting-ip': '203.0.113.9',
+        'content-length': String(70_000),
+      }),
+      text: async () => {
+        bodyRead = true;
+        return JSON.stringify({ events: [hb(1)] });
+      },
+    } as unknown as Request;
+    const res = await handleIngest(req, env, 1_790_000_001_000);
+    expect(res.status).toBe(204);
+    expect(bodyRead).toBe(false);
+    expect((db.raw.prepare('SELECT COUNT(*) AS n FROM events').get() as { n: number }).n).toBe(0);
+  });
+
   it('keys the rate limit on the connecting IP and stores nothing when limited', async () => {
     const keys: string[] = [];
     const h = setup({ limit: async ({ key }) => { keys.push(key); return { success: false }; } });

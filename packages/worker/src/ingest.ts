@@ -23,6 +23,11 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
       const { success } = await env.INGEST_LIMIT.limit({ key: ip }); // held in memory by the binding, never stored
       if (!success) return NO_CONTENT();
     }
+    // M5: reject on the declared size before reading the body at all, so an
+    // oversized request never gets buffered into memory just to be dropped.
+    // The header can be absent or lie, so `text.length` below still guards.
+    const contentLength = req.headers.get('content-length');
+    if (contentLength !== null && Number(contentLength) > MAX_BODY) return NO_CONTENT();
     const text = await req.text();
     if (text.length > MAX_BODY) return NO_CONTENT();
     const body = JSON.parse(text) as { events?: unknown };
