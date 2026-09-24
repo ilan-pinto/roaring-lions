@@ -57,6 +57,15 @@ export interface BindTipOptions {
    * where the tip is drawn, only on who is responsible for removing it.
    */
   host?: HTMLElement;
+  /**
+   * The element vertical placement clears, when it differs from the bound
+   * element itself — see `computeTipPosition`'s doc comment in `./tooltip`
+   * (this module). The reinforcement dock passes its own grid root here for
+   * every tile: a tip opened on row 2 must clear the WHOLE grid, not just
+   * the row under the pointer, or it lands on top of row 1. Omitted, vertical
+   * placement clears the bound element, same as before this option existed.
+   */
+  clear?: HTMLElement;
 }
 
 /** Clearance from the trigger, and from the viewport edge, in CSS pixels —
@@ -98,30 +107,86 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(Math.max(v, lo), hi);
 }
 
+/** The three numbers `computeTipPosition` needs from a live rect — kept this
+ *  narrow (rather than taking a whole `DOMRect`) so the function stays a
+ *  plain object in, plain object out call a test can construct by hand. */
+export interface TipAnchorRect {
+  top: number;
+  bottom: number;
+  left: number;
+}
+
+export interface TipSize {
+  width: number;
+  height: number;
+}
+
+export interface ViewportSize {
+  width: number;
+  height: number;
+}
+
+export interface TipPlacement {
+  left: number;
+  top: number;
+  /** Whether the flip fired — `.rl-tip--below` reads this. */
+  below: boolean;
+}
+
 /**
- * Above the trigger by default, flipped below when there is no room above,
- * both clamped so the tip never leaves the viewport — a fixed-position
- * element ignores every ancestor's clipping and offset, so this is the one
- * place that has to keep it on screen.
+ * Pure placement arithmetic, no DOM: above the trigger by default, flipped
+ * below when there is no room above, both clamped so the tip never leaves the
+ * viewport — a fixed-position element ignores every ancestor's clipping and
+ * offset, so this is the one place that has to keep it on screen.
  *
- * The strip sits at `top: 0`, so every strip tooltip (Conduct first) has no
- * room above it at all: `rect.top - h - gap` is negative there, and the old
- * unconditional "above" placement put the tip over its own trigger row
- * rather than beside it. `.rl-tip--below` is toggled alongside the flip so a
- * later arrow/border can point the other way; it changes nothing on its own
- * today.
+ * `clear` and `trigger` are the same rect for a bound element that is the
+ * only thing at its height (the strip's fields, the HUD's order row): the
+ * strip sits at `top: 0`, so every strip tooltip (Conduct first) has no room
+ * above it at all, and the old unconditional "above" placement put the tip
+ * over its own trigger row rather than beside it. They DIFFER for a trigger
+ * that is one cell in a taller stack of same-kind siblings — the reinforcement
+ * dock's tiles — where `clear` is the whole stack's own rect: vertical
+ * placement clears the STACK, so a tip opened on row 2 cannot land on top of
+ * row 1, while `left` still follows the trigger's own column so the tip
+ * still reads as belonging to the tile under the pointer. Passing the
+ * trigger's own rect for `clear` (the single-row case) makes this identical
+ * to the placement `fix round 1` shipped.
  */
-function positionTip(tip: HTMLDivElement, el: HTMLElement): void {
-  const rect = el.getBoundingClientRect();
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const th = tip.offsetHeight;
-  const tw = tip.offsetWidth;
-  const above = rect.top - th - TIP_GAP_PX;
+export function computeTipPosition(
+  trigger: TipAnchorRect,
+  clear: TipAnchorRect,
+  tip: TipSize,
+  viewport: ViewportSize
+): TipPlacement {
+  const above = clear.top - tip.height - TIP_GAP_PX;
   const below = above < TIP_EDGE_MARGIN_PX;
-  const rawTop = below ? rect.bottom + TIP_GAP_PX : above;
-  const left = clamp(rect.left, TIP_EDGE_MARGIN_PX, Math.max(TIP_EDGE_MARGIN_PX, vw - tw - TIP_EDGE_MARGIN_PX));
-  const top = clamp(rawTop, TIP_EDGE_MARGIN_PX, Math.max(TIP_EDGE_MARGIN_PX, vh - th - TIP_EDGE_MARGIN_PX));
+  const rawTop = below ? clear.bottom + TIP_GAP_PX : above;
+  const left = clamp(
+    trigger.left,
+    TIP_EDGE_MARGIN_PX,
+    Math.max(TIP_EDGE_MARGIN_PX, viewport.width - tip.width - TIP_EDGE_MARGIN_PX)
+  );
+  const top = clamp(
+    rawTop,
+    TIP_EDGE_MARGIN_PX,
+    Math.max(TIP_EDGE_MARGIN_PX, viewport.height - tip.height - TIP_EDGE_MARGIN_PX)
+  );
+  return { left, top, below };
+}
+
+/** The DOM-touching half of placement: reads the live rects/sizes and writes
+ *  the result onto the tip's own style. `clearEl` is the dock's own `clear`
+ *  option (see `computeTipPosition`'s doc comment) — omitted, vertical
+ *  placement clears the trigger itself, same as before this fix. */
+function positionTip(tip: HTMLDivElement, el: HTMLElement, clearEl?: HTMLElement): void {
+  const rect = el.getBoundingClientRect();
+  const clearRect = clearEl ? clearEl.getBoundingClientRect() : rect;
+  const { left, top, below } = computeTipPosition(
+    rect,
+    clearRect,
+    { width: tip.offsetWidth, height: tip.offsetHeight },
+    { width: window.innerWidth, height: window.innerHeight }
+  );
   tip.style.setProperty('--tip-x', `${left}px`);
   tip.style.setProperty('--tip-y', `${top}px`);
   tip.classList.toggle('rl-tip--below', below);
@@ -157,12 +222,12 @@ function releaseEscapeListenerIfIdle(): void {
 
 // --- shared show/hide, under both bindTip and bindDelegatedTip -----------
 
-function showState(state: TipState, el: HTMLElement, html: () => string): void {
+function showState(state: TipState, el: HTMLElement, html: () => string, clearEl?: HTMLElement): void {
   // Fresh every time: a live number (logistics, a chip's health) shown once
   // and never again would be a tooltip that lies the second time it opens.
   state.el.innerHTML = html();
   state.el.hidden = false;
-  positionTip(state.el, el);
+  positionTip(state.el, el, clearEl);
   state.owner = el;
   el.setAttribute('aria-describedby', state.el.id);
   shownStates.add(state);
@@ -188,7 +253,7 @@ function hideState(state: TipState, el: HTMLElement): void {
  */
 export function bindTip(el: HTMLElement, html: () => string, opts: BindTipOptions = {}): Disposer {
   const state = ensureTip(opts.host ?? document.body);
-  const show = (): void => showState(state, el, html);
+  const show = (): void => showState(state, el, html, opts.clear);
   const hide = (): void => hideState(state, el);
   el.addEventListener('mouseenter', show);
   el.addEventListener('focus', show);
