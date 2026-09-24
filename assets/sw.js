@@ -84,8 +84,8 @@ function strategyFor(url, request) {
 
   const rest = url.pathname.slice(BASE.length);
   // The Worker's own routes (WP-T1): the telemetry endpoint and the private
-  // dashboard behind Cloudflare Access. A cached /stats is a stale dashboard,
-  // or worse a cached Access login redirect.
+  // dashboard behind a password login. A cached /stats is a stale dashboard,
+  // or worse a cached login redirect.
   if (rest === 'stats' || rest.startsWith('stats/') || rest.startsWith('api/')) return 'passthrough';
   if (rest.startsWith('video/')) return 'passthrough';
   // `mode: 'navigate'` is the document request itself; the `index.html`

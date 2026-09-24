@@ -30,7 +30,7 @@ median real duration against `target_minutes` for exactly that reason.
 |---|---|---|
 | 1 | Who is measured | Anonymous by default; optional `?tester=<name>` label |
 | 2 | Depth | Milestones **plus** in-mission detail (objectives, duration, ROE, loss cause). No per-command stream |
-| 3 | Where results are read | A private `/stats` page on the Worker, behind Cloudflare Access |
+| 3 | Where results are read | A private `/stats` page on the Worker, behind a password login (§4) |
 | 4 | Storage | D1 (kept forever), not Analytics Engine (3-month retention) |
 | 5 | Shape | One Worker serves the game, `/api/events` and `/stats` — not two Workers |
 
@@ -40,7 +40,7 @@ median real duration against `target_minutes` for exactly that reason.
 packages/app/src/telemetry/  --batched POST /api/events-->  packages/worker --> D1
         ^ reads runtime events and state only                   |
         |                                                        v
-   main.ts / mission-start.ts / tutorial caller            /stats (Access)
+   main.ts / mission-start.ts / tutorial caller            /stats (password)
 ```
 
 Dependency direction is unchanged: `telemetry/` lives in `app`, imports nothing
@@ -136,7 +136,7 @@ red. Also disabled when the browser sends Global Privacy Control
 only registers it), and its policy is `strategyFor` in the app's `sw-policy`.
 Non-GET already returns `'passthrough'`, so `POST /api/events` is safe. But
 `/stats` and `/stats/api/*` are same-origin GETs it may cache — a stale
-dashboard, or a cached Cloudflare Access redirect. Both prefixes (and `/api/`)
+dashboard, or a cached login redirect. Both prefixes (and `/api/`)
 must return `'passthrough'`, with a case in `packages/app/src/sw-policy.test.ts`
 whose red is recorded before the fix.
 
@@ -208,13 +208,17 @@ colours from `data/palette.json` and its fonts from `assets/fonts/`.
 than Cloudflare Zero Trust (Access): Access asks for a payment method even on
 its free tier, so Ilan declined it. The password is a Worker secret,
 `STATS_PASSWORD` (`npx wrangler secret put STATS_PASSWORD`), never committed to
-the repo or to `wrangler.jsonc`. A successful `POST /stats/login` sets a
-signed, stateless 7-day session cookie — HMAC-SHA256 over the cookie's own
-expiry, keyed from `STATS_PASSWORD` itself, so rotating the password revokes
-every outstanding session with no server-side session store. `POST
-/stats/login` is rate-limited on the connecting IP (`LOGIN_LIMIT`, 10/min) to
-slow password guessing, separately from `INGEST_LIMIT`. Until the secret is
-set, `/stats` and `/stats/api/*` answer 403 to everyone, same as before.
+the repo or to `wrangler.jsonc`. It should be long and random, not a memorised
+phrase -- e.g. `openssl rand -base64 24` -- because a captured session cookie
+gives an attacker the signature key too (see below), and a short or guessable
+password is then an offline HMAC-speed guess, not a rate-limited one. A
+successful `POST /stats/login` sets a signed, stateless 7-day session cookie —
+HMAC-SHA256 over the cookie's own expiry, keyed from `STATS_PASSWORD` itself,
+so rotating the password revokes every outstanding session with no
+server-side session store. `POST /stats/login` is rate-limited on the
+connecting IP (`LOGIN_LIMIT`, 10/min) to slow password guessing, separately
+from `INGEST_LIMIT`. Until the secret is set, `/stats` and `/stats/api/*`
+answer 403 to everyone, same as before.
 
 The terminal queries in `packages/worker/QUERIES.sql` remain available as an
 alternative to the `/stats` page, not as a stand-in for a closed one:
