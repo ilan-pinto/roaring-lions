@@ -399,12 +399,22 @@ describe('a hovered pin previews, and never navigates', () => {
     expect(pin?.dataset.hover).toBeUndefined();
   });
 
-  it('leaving a pin puts the hint back rather than leaving the last preview up', async () => {
+  // Leaving a pin no longer restores the hint SYNCHRONOUSLY -- it takes the
+  // next `onFrame` to. That's deliberate, not a regression: the view's own
+  // `hovered` reads stale (still `null` from the moment the pin overlay
+  // became topmost) at the exact instant `mouseleave` fires, so speaking it
+  // synchronously would show a live region under the cursor as bare ground
+  // for one frame every time a pin is left onto one. See `forceGroundSpeak`
+  // in `worldmap3d.ts`. A real browser repaints every ~16ms, so the delay
+  // this test now drives with an explicit `frame()` is not one a player
+  // notices.
+  it('leaving a pin puts the hint back on the next frame, rather than leaving the last preview up', async () => {
     const s = mountScreen({});
     await s.ready;
     const pin = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
     pin?.dispatchEvent(new MouseEvent('mouseenter'));
     pin?.dispatchEvent(new MouseEvent('mouseleave'));
+    s.view().frame([], 0); // the view's own hover has caught up by now: still null
     expect(say(s.el)).toBe(HINT);
   });
 
@@ -422,6 +432,7 @@ describe('a hovered pin previews, and never navigates', () => {
     expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
     pin?.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
     expect(pin?.dataset.hover).toBeUndefined();
+    s.view().frame([], 0); // see the mouse version of this above
     expect(say(s.el)).toBe(HINT);
   });
 
@@ -526,7 +537,17 @@ describe('a pin owns the line while it is hovered, and ground hover must not clo
     expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
   });
 
-  it('resumes ground hover, re-speaking the region still under the cursor, once the pin is left', async () => {
+  // The real ordering, not the convenient one: at the exact instant a pin's
+  // `mouseleave` fires, the view's own `hovered` has NOT yet recomputed for
+  // wherever the cursor actually lands next -- `world-view.ts`'s canvas
+  // `pointerleave` zeroed it to `null` the moment the pin overlay became
+  // topmost (entering the pin), and the canvas only gets a `pointermove` of
+  // its own, recomputing it, on the frame AFTER this one. A synchronous
+  // read of `hovered` right here (as `resumeGroundHover` did through
+  // cdbfebb5) reads that stale `null` and speaks the generic hint
+  // immediately -- wrong for one frame, even though the cursor is really
+  // back over a live region the whole time.
+  it('does not flash the hint before the frame that actually catches up, once the pin is left', async () => {
     const s = mountScreen({});
     await s.ready;
     s.view().hovered = 'sur';
@@ -534,12 +555,47 @@ describe('a pin owns the line while it is hovered, and ground hover must not clo
     const pin = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
     pin?.dispatchEvent(new MouseEvent('mouseenter'));
     s.view().hovered = null;
-    s.view().frame([], 1);
+    s.view().frame([], 1); // the frame that used to clobber it, from the test above
 
+    // `mouseleave` fires with the mock's `hovered` still `null` -- the real
+    // ordering. No frame has run yet.
     pin?.dispatchEvent(new MouseEvent('mouseleave'));
-    s.view().hovered = 'sur'; // the cursor never actually left this ground
+    expect(say(s.el)).not.toBe(HINT);
+    expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
+
+    // The view's own hover catches up on the NEXT frame: the cursor is
+    // really back over Sur, and only now does the line say so.
+    s.view().hovered = 'sur';
     s.view().frame([], 2);
     expect(say(s.el)).toBe('Sur — locked: Clear an earlier mission first');
+  });
+
+  // Two different pins can own the line at once -- a mouse hovering one
+  // while a different one keeps keyboard focus. Letting go of ONE must not
+  // hand the line to the ground (the other still owns it) or leave the
+  // departing pin's now-stale sentence up; it must show the REMAINING
+  // owner's own sentence again.
+  it('keeps the remaining owner’s sentence when only one of two simultaneous owners lets go', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    const a = s.el.querySelector<HTMLElement>('[data-town="beit_sahwan"]');
+    const b = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
+
+    // B takes the line first, by keyboard focus.
+    b?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
+
+    // A takes it over, by mouse -- both now own the line at the same time.
+    // (No mission catalogue is supplied to this harness, so the fallback is
+    // the town's own name, not a mission title -- see "says the region
+    // alone" above for the same fallback on the click path.)
+    a?.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(say(s.el)).toBe('Beit Sahwan — opens Beit Sahwan');
+
+    // A lets go. B still holds the line (it is still focused): the line
+    // must return to B's own sentence, not stay on A's stale one.
+    a?.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
   });
 });
 
