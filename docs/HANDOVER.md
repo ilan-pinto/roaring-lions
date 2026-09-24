@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-24 (A1.3 landed; both lanes idle on gates) · main: 88cf9235 (v0.78.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 1 done early, Stage 2 opens after G1 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207
+Updated: 2026-09-24 (four follow-ups landed; scene host and WP-T1 telemetry specs in; context release PR #219 open) · main: c04880e1 (still v0.78.0: no release cut, see §4) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 1 done early, Stage 2 opens after G1 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,13 +8,13 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | — (S3e Tasks 11–12 wait for G1; the scene host is now unblocked but needs its own spec and plan) | — | plan `docs/superpowers/plans/2026-09-19-shell-upgrade-phase-3-app.md` | 24 Sep: app half landed (PR #212) | draft the scene-host spec for the lead; `Renderer.reseed()` follow-up |
-| B (render · art · data) | — (A3.1 #179 waits for G1: Meshy credit top-up, style bible) | — | — | 24 Sep: A1.3 vehicle weight LANDED (PR #213, v0.78.0) | A3.1 after G1; small unblocked follow-ups below |
+| A (packages/app) | S3e #178 scene-host half (Tasks 11–12 still wait for G1) · WP-T1 #218 telemetry (peer session "Roaring Lion GitHub Pages deployment") | scene host: none yet · WP-T1: `feat/telemetry` off main after #219 | scene host: spec `docs/superpowers/specs/2026-09-24-scene-host-design.md`, plan `docs/superpowers/plans/2026-09-24-scene-host.md` (Task 1 done by #214) · WP-T1: spec `docs/superpowers/specs/2026-09-24-telemetry-design.md` | both specs approved 24 Sep; both wait for #219 (`main.ts` bootBattlefield) | merge #219, then run the scene-host plan from Task 0 (§10 numbers go to the lead before Task 7); WP-T1 starts in its own session |
+| B (render · art · data) | context release (no WP; follow-up) · A3.1 #179 waits for G1 | `fix/renderer-context-release` · `/Users/ilpinto/dev/roaring-lions-ep/ctxrelease` | SDD ledger `.superpowers/sdd-archive/2026-09-24-followups/progress.md` (shared tree) | PR #219 open, reviews Approved, rebased on main, green locally · PR #220 (ci: upload cannot fail `visual`; only main's tip releases) open | Ilan merges #220 first (its run cuts the missing release), then updates #219 from main so its `visual` picks up the fix, then merges it |
 | C (packages/sim) | — | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: S3e #178 Tasks 11–12 (after G1) and the scene host (after A1.3) → S3e scene host (after A1.3 lands) → S3a #180 → S-F #184, A4 #186
+- A: #219 lands → S3e scene host (plan Tasks 0, 2–9) → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186 · in parallel, in its own session: WP-T1 #218 telemetry + Cloudflare Worker (packages/worker), after #219
 - B: (A1.3 landed) → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 → A3.2 #185
 - C: G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
@@ -49,6 +49,8 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-24 · four follow-ups, merged by the lead one minute apart (#214 → 51924fd4, #215 → b44c2c4d, #216 → 26710e46, #217 → c04880e1) · NO RELEASE: on all four runs the golden gate and the route walk passed but the artifact upload hit the private repo's quota, which failed `visual` and skipped `version` — PR #220 fixes it and its own run cuts the release · **#214** `ui:shots`/`ui:routes` take `--port=<n>` / `UI_SHOTS_PORT` / `UI_ROUTES_PORT` and REFUSE a busy port (exit 2; `ui:routes`' default 5177 had been walking the lead's own server) · **#215** `Renderer.reseed()` on `api.ts` replaces the three-snapshot re-seed (one `seedFromSim()` shared with `init`; `renderer.ts` +1 method, compiler-forced); the structure instancer grows to the sim (wadi_halam_2 58→59/60, qarn_hadid_2 20→21/22 under `&nomesh`); a unit spawned MID-mission no longer draws at (0,0) and slides in (a bought jeep crossed half the map at 483.7 tiles/s) — three only, Pixi keeps it (CLAUDE.md) · **#216** the campaign board's pin line is no longer clobbered by ground hover ~25 ms after the cursor arrives, nor flashed on leave · **#217** `ui:shots` photographs the victory/defeat moments again (SwiftShader screenshot 5.0–7.8 s vs the 2.6 s hold → `--gpu=metal|swiftshader`, Metal default on macOS, 115–164 ms) · all Approved after one or two fix rounds; visual GREEN on every PR, no bless
+- 2026-09-24 · specs (docs only, this ledger's PR): the scene host (spec + 10-task plan, approved on recommendation; §10 numbers to the lead before Task 7) · WP-T1 telemetry + Cloudflare hosting (#218, approved by the lead; two backends DELIBERATE — D1 for telemetry, Supabase for lane D; consent DECIDED — accepted for the private test phase, a menu notice through `t()` gates public launch)
 - 2026-09-24 · WP-A1.3 vehicle weight (#177, closed) · PR #213 → 9faed5f5 · v0.78.0 · seven tasks: a capture instrument with exact 200 ms rungs, a four-corner terrain conform (a wall or off-map corner falls back to the centre), a ramp-and-spring squat and dive with gain-scaled peaks, roll to the outside of a turn, authored `mobility.weight` with role defaults, speed-scaled dust, the composition with a world-space roll-sign test and no per-frame allocation, a numeric verdict on floors over three runs · after-set: Lavi launch 1.79°, dive −1.97°, lean 1.49°; Tel Marum bench 16.8° · visual GREEN, no bless · spec R-M and R-L amended
 - 2026-09-24 · WP-S3e app half, Tasks 1–10 (#178 stays open for 11–12 and the scene host) · PR #212 → 65c6ea65 · v0.77.0 · deploy as a decision (DeployRosterView, a position-preserving permutation, the two-column spread with the ground; the runtime built after deploy with a renderer re-seed), the outcome moment before the debrief (carries the aftermath; the end screen keeps it), one stack-aware focus trap for four overlays, pin hover on the board, 1920/2560 layouts (D-8 = 761.6/2560 px), one HTML escaper and a strip that keeps focus · six tasks took one fix round, final review + one wave · spec D-40..D-51 · visual GREEN, no bless · CI found a pre-existing race in `ui:routes` (the board canvas counted before it drew; it had failed on main too) — fixed 20a0499c
 - 2026-09-23 · WP-G-E2 #174 + WP-G-E4 #176 (closed) · PR #211 → f933477c · v0.76.0 · eight tasks + one fix wave: one `LedgerStore` seam, roster measured (largest chain 30) and capped at 150, slots that outlive their unit, overflow stands down to a reserve on write, the lost remembered and replaced, shown on the garage line, the debrief and the unit card; the final review caught two real bugs (recency by a per-mission tick; the split re-sorting who deploys) and the victory write became one tested function (`applyRosterCarryover`) · CI red once on a spec that assumed Node 25's jsdom storage, fixed b4d0a5b4 · visual GREEN, no bless · driven in a browser (garage line, deploy, card)
@@ -78,7 +80,8 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - Shell Phase 4 platform (Steam Deck, controller) · product track · G2
 - Shell deferred minors 9/10/13/15/17/20 and twelve task minors · spec §10 · 2026-09-18
 - A1.3 parked: the Tel Marum capture subject is shot at tick ~281 (its stop lane is a known-dead lane) and every turn lane opens with a harness-made launch squat — clear the relief hostiles, hand-pump the cruise-up, retake both sets · HP bars and selection rings sit at the interpolated position while the hull draws up to `lag_tiles` behind (lead call) · on the bench climb the rear dips under the ground (pivot at hull centre) · 2026-09-24
-- S3e parked: `Renderer.reseed()` on `api.ts` replaces the app-side three-snapshot re-seed and fixes StructureInstancer sizing under `&nomesh` (after A1.3) · the aftermath is readable on the end screen only (2.6 s in the moment) · `campaign.ts:473` builds an English line outside `t()` · 2026-09-24
+- S3e parked: the aftermath is readable on the end screen only (2.6 s in the moment) · `campaign.ts:473` builds an English line outside `t()` · (the reseed item LANDED in #215) · 2026-09-24
+- 24 Sep follow-ups parked: Pixi still slides a mid-mission spawn in from (0,0) (the one-method `renderer.ts` unfreeze is reserved for compiler-forced edits) · the board's live-region hover measured 29,181 px (5.46%) against CLAUDE.md's 43,848 (7.52%), different point/bearing, unconfirmed · `pages.yml` fails on every push since the repo went private and ci.yml's `version` job re-dispatches it (WP-T1 retires both together) · 2026-09-24
 - E2/E4 parked: a save from before v0.76.0 leaves no memorials in its first mission afterwards (R-7); `predecessorOf` is an O(n) scan per HUD refresh over the append-only lost list; a stale `roster-cap.test.ts` comment and an unreachable name fallback · 2026-09-23
 - Phase 2 landing-2 parked: the capture-twice bless rule is a manual step, not in `three-baseline-gate.ts`; `main.ts`'s minimap flip memo has no test (`bootBattlefield` untestable as written); Pixi now polls a no-op ground ask at 4 Hz; `above = 120` duplicates `camera.ts`'s `CAMERA_DISTANCE` · 2026-09-23
 - Art Phase 1 follow-ups: RPG-team Meshy importer WIP; mortar team dies by a 150 ms blend; civilians never show `down` · 2026-09-17
@@ -88,9 +91,11 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 - The Conduct floors cannot spread on the optimal ladder (mission 1 scores 97): measure against a middling-player ladder first, change the gate shape only if that shows no spread either · G1 #165 · 2 Oct
 - E5 is three units (~12 tasks), not two · Stage 3 lane B is heavier; its buffer absorbs it or A2's second plan slips a week · R1
-- The `version` CI job races when PRs merge minutes apart (2026-09-18: one cut v0.72.0, two failed on the tag) · merge one PR at a time and wait for `version`; a concurrency group on that job is a small CI fix worth queuing · every landing
+- The `version` CI job races when PRs merge minutes apart (2026-09-18: one cut v0.72.0, two failed on the tag; 2026-09-24 again with four merges a minute apart) · each run bumps from ITS OWN commit, so only the newest can push · fix: check out `main`'s tip in that job plus a non-cancelling concurrency group, so the first run releases everything and later ones find nothing new · FIXED by PR #220 (a tip check: an older run steps aside with a notice) · every landing
 - `ThreeRenderer.ts` is shared by both lanes · schedule interleave (A1.2 → S2b; A1.3 → scene host) · every stage
 - Meshy balance 454 credits vs ~540 for eighteen bakes · G1 · Stage 2
+- The private repository's Actions artifact quota filled on 24 Sep ("Artifact storage quota has been hit"): the `visual` upload failed on all of that day's merges while the gate and route walk passed, which skipped `version` · PR #220 makes the upload non-fatal and keeps 3 days, not 14 · recalculated every 6–12 h; a bless still uploads its captures for 14 days · now
+- The repo went private ~21–23 Sep; GitHub Pages is gone and the build deploys from Cloudflare Workers Builds (a `Workers Builds: roaring-lions` check now appears on PRs) · WP-T1 #218 · now
 - Fable weekly cap · switch the session to Opus at 90%, findings written first · any long run (hit 20 Sep; the session moved to Opus 5.5 on 23 Sep)
 - Local Node 25 gives vitest's jsdom a bare `{}` localStorage while CI's Node 22 gives a real Storage, so a storage spec can pass locally and fail in CI · specs install the storage shape they need · any storage test
 - Clean worktrees under `.claude/worktrees/` were removed between sessions (20→23 Sep) and took the git-ignored SDD ledgers with them; branches survived · mirror every ledger to the session scratchpad, run `git worktree list` before trusting a path · every session gap
@@ -119,25 +124,26 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 ## 8. Latest handoff prompt — verbatim, replaced at every handoff
 
 ```
-HANDOFF — Roaring Lions · 2026-09-23 · from session "Execution plan"
+HANDOFF — Roaring Lions · 2026-09-24 · from session "Execution plan"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
       M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027 · M5 Steam F2P (after G7).
-PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207)
-STATUS: Stage 1 done early · main 88cf9235 (v0.78.0) · landed this session: shell Phase 2 (#210, v0.75.0), E2/E4 (#211, v0.76.0),
-        S3e app half (#212, v0.77.0), A1.3 vehicle weight (#213, v0.78.0) · no SDD loop open
-        what waits on the lead: G1 #165 (2 Oct: Meshy top-up, style bible, symbol sheet, board route, portrait rig) unblocks A3.1 and S3e 11–12;
-        G7 #199 (30 Oct) unblocks ST8/E5; the scene host needs its spec approved
-DECISIONS THIS SESSION: S3e opened before Stage 2's date because its entry condition (Phase 2 Tasks 15–16) is met; its Task 1 waits
-        for E2/E4 (it takes ROSTER_CAP). LedgerStore stays a synchronous seam (ST6 = sync façade over a boot-hydrated cache).
-        The A1.3 instrument pumps the frame clock on every tick and records model_ms per cell (a rung was 418–450 ms before).
+PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207, WP-T1 #218)
+STATUS: Stage 1 done early · main c04880e1 (v0.78.0; release waits for #220) · landed 24 Sep: #214 port override, #215 reseed + mid-spawn,
+        #216 board pin line, #217 ui:shots outcome capture · OPEN: PR #219 context release (green locally, reviews Approved)
+        merges: the LEAD merges now — this session's `gh pr merge` was refused by the permission check on 24 Sep
+        what waits on the lead: merge #220 then #219 · G1 #165 (2 Oct) unblocks A3.1 and S3e 11–12 · G7 #199 (30 Oct) unblocks ST8/E5 ·
+        scene-host §10 numbers before its Task 7 · the telemetry menu notice before any public launch (consent decided 24 Sep)
+DECISIONS THIS SESSION: the scene-host spec was approved on its own recommendations (banner retired, column centred, stall accepted);
+        a mid-mission spawn is fixed on three only (renderer.ts takes compiler-forced edits only); OUTCOME_HOLD_MS stays 2600 and the
+        harness moved to a GPU backend instead; worktrees now live OUTSIDE .claude/worktrees (/Users/ilpinto/dev/roaring-lions-ep/).
 NEXT STEP (exact):
-  1. `git worktree list` — if a lane worktree is missing, `git worktree add .claude/worktrees/<name> <branch>` + pnpm install, restore its ledger from the scratchpad copy
-  2. Resume each loop at the first task without a "Task N: complete" line; ONE PR merged at a time, wait for `version`
-  3. E2/E4 lands first → S3e merges origin/main → Tasks 1–4; A1.3 Task 6 merges origin/main before touching ThreeRenderer.ts
+  1. `git worktree list` — worktrees are under /Users/ilpinto/dev/roaring-lions-ep/ (ctxrelease, landing, scenehost, ...)
+  2. After #219 merges: run the scene-host plan with superpowers:subagent-driven-development from Task 0 (skip Task 1)
+  3. Confirm #220's own run on main cut the release for #214–#217 (a tag v0.79.x, and the older runs' `version` steps printing "Release skipped")
   4. G1 #165 on 2 Oct: Meshy top-up, style bible, symbol sheet (unblocks S3e 11–12), board route, vehicle numbers, portrait rig
-CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time; merge ONE PR at a time
+CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time; ONE PR merged at a time
 READ FIRST: each plan's head + the ledger · CLAUDE.md "The three.js backend" · memory: clean-worktrees-get-removed · land-commits-through-a-main-worktree
 VERIFY BEFORE BELIEVING: pnpm lint && pnpm typecheck && pnpm test && pnpm test:determinism && pnpm validate:data
                          && pnpm validate:ui && pnpm playtest && pnpm balance · gh run list --branch main --workflow ci.yml --limit 3
-OPEN FOR THE LEAD: G1 items (by 2 Oct) · G7 #199 (by 30 Oct) · A1.3 open questions (wheel/track art deferral, turret feel, parameter home)
+OPEN FOR THE LEAD: merge #220 then #219 · G1 items (by 2 Oct) · G7 #199 (by 30 Oct) · A1.3 open questions · scene-host §10 numbers
 ```
