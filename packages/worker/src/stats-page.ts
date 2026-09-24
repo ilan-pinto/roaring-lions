@@ -3,10 +3,12 @@ import palette from '../../../data/palette.json';
 const ramp = (name: string, i: number): string =>
   (palette as { ramps: Record<string, { colors: string[] }> }).ramps[name].colors[i];
 
-export const STATS_HTML = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Roaring Lions Stats</title>
-<style>
+/** The palette-derived CSS variables and self-hosted @font-face rules shared by
+ *  the dashboard (stats-page.ts) and the login page (login-page.ts), so a page
+ *  gated by a password looks like the page it is gating rather than a second
+ *  design. Each caller wraps this in its own `<style>...</style>` plus its own
+ *  page-specific rules. */
+export const STATS_STYLE_HEAD = `
 @font-face{font-family:Barlow;src:url(/fonts/barlow-latin-400.woff2) format('woff2');font-weight:400}
 @font-face{font-family:Barlow;src:url(/fonts/barlow-latin-600.woff2) format('woff2');font-weight:600}
 @font-face{font-family:'Big Shoulders Display';src:url(/fonts/big-shoulders-display-latin.woff2) format('woff2');font-weight:100 900}
@@ -15,6 +17,12 @@ export const STATS_HTML = `<!doctype html>
 --rule:${ramp('gunmetal', 0)};--accent:${ramp('olive', 1)};--bad:${ramp('terracotta', 1)};--good:${ramp('scrub', 1)}}
 *{box-sizing:border-box}body{margin:0;padding:0 16px 64px;background:var(--ground);color:var(--ink);font:16px/1.5 Barlow,Arial,sans-serif}
 main{max-width:1080px;margin:0 auto}h1{font:800 48px/1 'Big Shoulders Display',Impact,sans-serif;text-transform:uppercase;margin:32px 0 8px}
+`;
+
+export const STATS_HTML = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roaring Lions Stats</title>
+<style>${STATS_STYLE_HEAD}
 h2{font:700 26px/1.1 'Big Shoulders Display',Impact,sans-serif;text-transform:uppercase;border-top:1px solid var(--rule);padding-top:14px;margin:40px 0 12px}
 .controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}select,button{font:inherit;padding:4px 8px}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
@@ -22,8 +30,10 @@ h2{font:700 26px/1.1 'Big Shoulders Display',Impact,sans-serif;text-transform:up
 .wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:15px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--rule)}
 th{font:600 12px 'IBM Plex Mono',monospace;text-transform:uppercase;color:var(--muted)}td.n{text-align:right;font-family:'IBM Plex Mono',monospace}
 .bar{height:14px;background:var(--accent)}.drop{background:var(--bad)}.over{color:var(--bad)}.muted{color:var(--muted)}
+.hdr{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.hdr a{color:var(--muted);font:600 13px 'IBM Plex Mono',monospace;text-transform:uppercase;text-decoration:none;border-bottom:1px solid var(--rule)}
 </style></head><body><main>
-<h1>Roaring Lions Stats</h1>
+<div class="hdr"><h1>Roaring Lions Stats</h1><a href="/stats/logout">Sign out</a></div>
 <p class="muted">Anonymous telemetry from the deployed game. Sandbox traffic is excluded.</p>
 <div class="controls">
 <select id="range"><option value="7d">Last 7 days</option><option value="30d" selected>Last 30 days</option><option value="all">All time</option></select>

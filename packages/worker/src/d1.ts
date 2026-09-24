@@ -20,8 +20,9 @@ export interface Env {
   INGEST_LIMIT?: RateLimiter;
   /** Comma-separated extra origins allowed to POST (e.g. a custom domain). */
   ALLOWED_ORIGINS?: string;
-  /** Cloudflare Access team domain, e.g. `roaringlions.cloudflareaccess.com`. */
-  ACCESS_TEAM_DOMAIN?: string;
-  /** The Access application's audience tag. */
-  ACCESS_AUD?: string;
+  /** Rate limit on POST /stats/login, keyed on the connecting IP. */
+  LOGIN_LIMIT?: RateLimiter;
+  /** The /stats password, set as a Worker secret. Unset or empty fails closed:
+   *  every /stats* path answers 403. */
+  STATS_PASSWORD?: string;
 }

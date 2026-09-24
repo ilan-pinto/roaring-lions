@@ -1,7 +1,8 @@
 import type { D1Like, Env } from './d1';
 import { CAMPAIGN_ORDER, MISSION_TARGET_MINUTES } from './campaign-order';
 import { STATS_HTML } from './stats-page';
-import { verifyAccessJwt } from './access';
+import { loginPageHtml } from './login-page';
+import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
 
 export interface StatsFilter {
   since: number;
@@ -199,35 +200,92 @@ export async function timeline(db: D1Like, tester: string) {
   return rows.results;
 }
 
-const json = (x: unknown): Response =>
-  new Response(JSON.stringify(x), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+const NO_STORE = { 'cache-control': 'no-store' } as const;
+const json = (x: unknown, status = 200): Response =>
+  new Response(JSON.stringify(x), { status, headers: { 'content-type': 'application/json', ...NO_STORE } });
+const html = (body: string, status = 200): Response =>
+  new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8', ...NO_STORE } });
+const UNAUTHORIZED_JSON = { error: 'unauthorized' };
+const MAX_LOGIN_BODY = 4 * 1024;
 
-/** /stats and /stats/api/*. Access guards this at the edge, and the Worker verifies
- *  the Access JWT itself (`verifyAccessJwt`), failing closed until
- *  ACCESS_TEAM_DOMAIN and ACCESS_AUD are set. */
-export async function handleStats(req: Request, env: Env, now: number): Promise<Response> {
-  const token = req.headers.get('cf-access-jwt-assertion');
-  if (!token || !(await verifyAccessJwt(token, env, now)))
-    return new Response('Cloudflare Access is not protecting /stats.', { status: 403, headers: { 'cache-control': 'no-store' } });
-  const url = new URL(req.url);
-  const f = parseFilter(url, now);
-  switch (url.pathname) {
-    case '/stats':
-    case '/stats/':
-      return new Response(STATS_HTML, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
-    case '/stats/api/summary':
-      return json(await summary(env.DB, f));
-    case '/stats/api/per-day':
-      return json(await perDay(env.DB, f));
-    case '/stats/api/funnel':
-      return json({ campaign: await funnel(env.DB, f), tutorial: await tutorialFunnel(env.DB, f) });
-    case '/stats/api/missions':
-      return json(await missions(env.DB, f));
-    case '/stats/api/testers':
-      return json(await testers(env.DB, f));
-    case '/stats/api/timeline':
-      return json(await timeline(env.DB, url.searchParams.get('tester') ?? ''));
-    default:
-      return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
+async function handleLogin(req: Request, env: Env, now: number): Promise<Response> {
+  const origin = req.headers.get('origin');
+  if (origin !== null && origin !== new URL(req.url).origin) {
+    return new Response('Forbidden', { status: 403, headers: NO_STORE });
   }
+
+  const ip = req.headers.get('cf-connecting-ip') ?? '';
+  if (env.LOGIN_LIMIT) {
+    const { success } = await env.LOGIN_LIMIT.limit({ key: ip });
+    if (!success) return html(loginPageHtml('Too many attempts. Wait a minute and try again.'), 429);
+  }
+
+  const contentLength = req.headers.get('content-length');
+  if (contentLength !== null && Number(contentLength) > MAX_LOGIN_BODY) {
+    return new Response('Payload too large', { status: 413, headers: NO_STORE });
+  }
+  const text = await req.text();
+  if (text.length > MAX_LOGIN_BODY) {
+    return new Response('Payload too large', { status: 413, headers: NO_STORE });
+  }
+
+  const password = new URLSearchParams(text).get('password') ?? '';
+  if (!(await passwordsMatch(password, env.STATS_PASSWORD as string))) {
+    return html(loginPageHtml('That password is not right.'), 401);
+  }
+
+  const cookie = await sessionCookieHeader(env.STATS_PASSWORD as string, now);
+  return new Response(null, { status: 303, headers: { location: '/stats', 'set-cookie': cookie, ...NO_STORE } });
+}
+
+function handleLogout(): Response {
+  return new Response(null, { status: 303, headers: { location: '/stats', 'set-cookie': clearedSessionCookieHeader(), ...NO_STORE } });
+}
+
+/** /stats and /stats/api/*, gated by a password (Worker secret STATS_PASSWORD)
+ *  behind a signed, stateless session cookie -- see auth.ts. Fails closed until
+ *  STATS_PASSWORD is set. */
+export async function handleStats(req: Request, env: Env, now: number): Promise<Response> {
+  const url = new URL(req.url);
+  const path = url.pathname;
+  const isApi = path.startsWith('/stats/api/');
+  const secret = env.STATS_PASSWORD;
+
+  if (!secret) {
+    return isApi
+      ? json(UNAUTHORIZED_JSON, 403)
+      : new Response('Stats password is not configured.', { status: 403, headers: NO_STORE });
+  }
+
+  if (path === '/stats/logout') return handleLogout();
+  if (path === '/stats/login' && req.method === 'POST') return handleLogin(req, env, now);
+
+  const authed = await verifySession(readCookie(req, SESSION_COOKIE), secret, now);
+
+  if (isApi) {
+    if (!authed) return json(UNAUTHORIZED_JSON, 401);
+    const f = parseFilter(url, now);
+    switch (path) {
+      case '/stats/api/summary':
+        return json(await summary(env.DB, f));
+      case '/stats/api/per-day':
+        return json(await perDay(env.DB, f));
+      case '/stats/api/funnel':
+        return json({ campaign: await funnel(env.DB, f), tutorial: await tutorialFunnel(env.DB, f) });
+      case '/stats/api/missions':
+        return json(await missions(env.DB, f));
+      case '/stats/api/testers':
+        return json(await testers(env.DB, f));
+      case '/stats/api/timeline':
+        return json(await timeline(env.DB, url.searchParams.get('tester') ?? ''));
+      default:
+        return new Response('Not found', { status: 404, headers: NO_STORE });
+    }
+  }
+
+  if (path === '/stats' || path === '/stats/') {
+    return authed ? html(STATS_HTML) : html(loginPageHtml());
+  }
+
+  return new Response('Not found', { status: 404, headers: NO_STORE });
 }
