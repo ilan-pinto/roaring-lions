@@ -2400,10 +2400,30 @@ export class ThreeRenderer implements Renderer {
    * never sees the loss (its listener is gone first), so `frame()` and
    * `captureGroundAlbedo()` both check `disposed` rather than trusting three
    * to no-op.
+   *
+   * The context goes in a `finally`, so a free that throws on the way cannot
+   * strand it: `disposed` is already set, so a second call could not retry,
+   * and a stranded context is the ~0.4 GB this method exists to give back.
+   * The throw still propagates -- `bootBattlefield`'s teardown isolates and
+   * reports each disposer -- it just no longer costs the context.
    */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    try {
+      this.releaseResources();
+    } finally {
+      // LAST: three's own caches, then the context itself. Everything
+      // `releaseResources` freed was freed by a live context; after this
+      // line there is none.
+      disposeAndReleaseContext(this.renderer);
+      this.host = null;
+    }
+  }
+
+  /** Everything `dispose()` frees before the context goes. Split out only so
+   *  the context release can sit in `dispose()`'s `finally`. */
+  private releaseResources(): void {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     // The Draco decoder keeps a worker pool. Shared across renderers by
@@ -2623,10 +2643,6 @@ export class ThreeRenderer implements Renderer {
     // The sun's shadow map is a render target of its own, on the same
     // footing as the composer's above.
     this.sceneLights.dispose();
-    // LAST: three's own caches, then the context itself. Everything above
-    // is freed by a live context; after this line there is none.
-    disposeAndReleaseContext(this.renderer);
-    this.host = null;
   }
 
   /** Size the canvas to the host element, exactly as Pixi's `resizeTo` does:

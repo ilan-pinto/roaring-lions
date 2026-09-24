@@ -115,6 +115,16 @@ export interface WorldViewOptions {
   /** Called after every frame the view actually drew, with where the town
    *  markers are now. The app moves its DOM pins to match. */
   onFrame: (towns: readonly TownScreen[], bearingDegrees: number) => void;
+  /**
+   * Aborted when the screen this board belongs to is left. Checked before
+   * the GLB fetch and again after it, and the second check is the one that
+   * matters: it is the last point before `new THREE.WebGLRenderer`, so a
+   * player who leaves while the ~3.8 MiB diorama is still downloading costs
+   * no WebGL context at all -- the promise rejects with the signal's
+   * `AbortError` instead. Everything after that check up to the return is
+   * synchronous, so no leave can land between the check and the context.
+   */
+  signal?: AbortSignal;
 }
 
 export interface WorldView {
@@ -160,7 +170,10 @@ const TAU = Math.PI * 2;
  * or if the scene graph does not carry the campaign contract
  * (`world-scene.ts` throws by node name). The app catches all of those the
  * same way -- by falling back to the flat PNG board -- because none of them
- * should cost a player their campaign screen.
+ * should cost a player their campaign screen. Rejects with `opts.signal`'s
+ * `AbortError` if the screen was left before the view existed, having made
+ * no WebGL context; the app tells that apart by the signal, not the error.
+ * On every rejection after the context exists, the context is lost first.
  */
 export async function mountWorldView(
   host: HTMLElement,
@@ -177,7 +190,10 @@ export async function mountWorldView(
         '-- every shipped GLB is compressed (level load time, step 4)'
     );
   }
+  opts.signal?.throwIfAborted();
   const gltf = await gltfLoader().loadAsync(opts.meshUrl);
+  // The last point before a context exists -- see `signal`'s own comment.
+  opts.signal?.throwIfAborted();
 
   const renderer = new THREE.WebGLRenderer({
     // Transparent: the campaign page's own ground shows through, so the
@@ -194,6 +210,33 @@ export async function mountWorldView(
     // artefact this screen could have.
     antialias: true,
   });
+  try {
+    return mountOnto(host, opts, gltf.scene, renderer);
+  } catch (err) {
+    // EVERY throw between here and a returned view, not only the contract
+    // check: `readWorldScene`, `footprintCandidates`, the first `draw()` (and
+    // the app's `onFrame` inside it) all run after the context exists. Lost,
+    // not merely disposed -- `WebGLRenderer.dispose()` alone leaves it alive
+    // until the canvas is collected (`context-release.ts`) -- and the canvas
+    // comes off the host, because the app answers this throw with the flat
+    // board and never touches either again. `mountOnto` starts the frame
+    // loop as its last statement, so no loop is running to stop.
+    disposeAndReleaseContext(renderer);
+    renderer.domElement.remove();
+    throw err;
+  }
+}
+
+/**
+ * Everything `mountWorldView` does once the context exists. Synchronous, and
+ * split out only so its caller can release the context on any throw from it.
+ */
+function mountOnto(
+  host: HTMLElement,
+  opts: WorldViewOptions,
+  gltfScene: THREE.Object3D,
+  renderer: THREE.WebGLRenderer
+): WorldView {
   renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   // Pass-through output, pairing with `prepareCampaignMap`'s `NoColorSpace`
   // (`world-material.ts`). See this file's header for why
@@ -211,22 +254,13 @@ export async function mountWorldView(
   const statuses: Record<string, CampaignRegionStatus> = { ...opts.statuses };
   const clickable = opts.clickable;
 
-  let world: WorldScene;
-  try {
-    // Every mesh is built with the scenery visual and the REGION ones are
-    // then given their own state by `applyVisuals` below. Scenery keeps it:
-    // it is never a region and must never be tinted as one, because
-    // `outland_scenery` carries the diorama's whole underside and rim.
-    world = readWorldScene(gltf.scene, (map) => campaignWorldMaterial(map, SCENERY_VISUAL));
-  } catch (err) {
-    // Lost, not merely disposed: the app answers this throw with the flat
-    // board, which never touches this context again, and
-    // `WebGLRenderer.dispose()` alone would leave it alive until the canvas
-    // is collected (`context-release.ts`).
-    disposeAndReleaseContext(renderer);
-    renderer.domElement.remove();
-    throw err;
-  }
+  // Every mesh is built with the scenery visual and the REGION ones are
+  // then given their own state by `applyVisuals` below. Scenery keeps it:
+  // it is never a region and must never be tinted as one, because
+  // `outland_scenery` carries the diorama's whole underside and rim. A
+  // scene that fails the campaign contract throws here, and
+  // `mountWorldView` releases the context.
+  const world: WorldScene = readWorldScene(gltfScene, (map) => campaignWorldMaterial(map, SCENERY_VISUAL));
 
   // The board turns about its own horizontal centre. Not the origin (the
   // exporter centres X/Z on it, but a re-export need not) and not the
@@ -461,7 +495,6 @@ export async function mountWorldView(
   // appear only after you look at it reads as broken.
   draw();
   dirty = false;
-  raf = requestAnimationFrame(tick);
 
   // The host is sized by CSS, so its box changes with the window and with
   // nothing this file can see. An observer rather than a per-frame
@@ -474,6 +507,10 @@ export async function mountWorldView(
           needsResize = true;
         });
   observer?.observe(host);
+  // The frame loop starts LAST, after everything that can throw: a throw
+  // anywhere above makes `mountWorldView` lose this context, and a loop
+  // already running would then draw into it.
+  raf = requestAnimationFrame(tick);
 
   return {
     canvas: el,
@@ -492,30 +529,35 @@ export async function mountWorldView(
     // it, and a second `loseContext()` would print a WebGL warning.
     // `disposed` is also what stops `tick` from ever drawing again, which
     // matters more after this than before: three never sees this loss, so
-    // a draw would reach GL rather than no-op.
+    // a draw would reach GL rather than no-op. The context and the canvas go
+    // in a `finally`: `disposed` is set first, so a free that threw would
+    // otherwise strand the context with no second call able to retry.
     dispose() {
       if (disposed) return;
       disposed = true;
-      cancelAnimationFrame(raf);
-      observer?.disconnect();
-      el.removeEventListener('pointerdown', onPointerDown);
-      el.removeEventListener('pointermove', onPointerMove);
-      el.removeEventListener('pointerup', onPointerUp);
-      el.removeEventListener('pointerleave', onPointerLeave);
-      el.removeEventListener('keydown', onKeyDown);
-      for (const meshes of world.regions.values()) {
-        for (const m of meshes) {
+      try {
+        cancelAnimationFrame(raf);
+        observer?.disconnect();
+        el.removeEventListener('pointerdown', onPointerDown);
+        el.removeEventListener('pointermove', onPointerMove);
+        el.removeEventListener('pointerup', onPointerUp);
+        el.removeEventListener('pointerleave', onPointerLeave);
+        el.removeEventListener('keydown', onKeyDown);
+        for (const meshes of world.regions.values()) {
+          for (const m of meshes) {
+            m.geometry.dispose();
+            (m.material as THREE.Material).dispose();
+          }
+        }
+        for (const m of world.scenery) {
           m.geometry.dispose();
           (m.material as THREE.Material).dispose();
         }
+        world.map.dispose();
+      } finally {
+        disposeAndReleaseContext(renderer);
+        el.remove();
       }
-      for (const m of world.scenery) {
-        m.geometry.dispose();
-        (m.material as THREE.Material).dispose();
-      }
-      world.map.dispose();
-      disposeAndReleaseContext(renderer);
-      el.remove();
     },
   };
 }

@@ -90,9 +90,26 @@ vi.mock('three', async (importOriginal) => {
       this.context.lost = true;
     }
     renderCalls = 0;
+    /** Throws once the context is lost -- the stand-in for what a real
+     *  three renderer does on a context it never saw go (a render into a
+     *  fresh target threw `TypeError: Cannot read properties of null
+     *  (reading 'trim')`, measured, `context-release.ts`). So a draw that
+     *  slips past a `disposed` guard fails the way it would in a browser. */
     render(): void {
       this.renderCalls += 1;
+      if (this.context.lost) throw new Error('render on a lost context');
     }
+    /** The three calls `photographGround` makes around its render, so a
+     *  capture that is NOT refused reaches that render -- and its catch --
+     *  rather than dying on a missing method before its `try`. */
+    private target: unknown = null;
+    getRenderTarget(): unknown {
+      return this.target;
+    }
+    setRenderTarget(t: unknown): void {
+      this.target = t;
+    }
+    clear(): void {}
     dispose(): void {
       this.calls.push('dispose');
       disposeSpy();
@@ -241,6 +258,23 @@ describe('ThreeRenderer.dispose releases the WebGL context', () => {
     expect(() => renderer.dispose()).not.toThrow();
     // Exactly once each. A second `loseContext()` prints "WebGL:
     // INVALID_OPERATION: loseContext: context already lost" in Chromium.
+    expect(gl.calls).toEqual(['dispose', 'forceContextLoss']);
+  });
+
+  it('loses the context even when a free on the way throws', () => {
+    const renderer = new ThreeRenderer(makeSim(), makeOpts());
+    const gl = glOf(renderer);
+    // The shroud is one of ~60 frees before the context; any of them
+    // throwing used to return from `dispose()` with the context alive and
+    // `disposed` already set, so nothing could ever retry.
+    const shroud = (renderer as unknown as { shroud: { dispose(): void } }).shroud;
+    vi.spyOn(shroud, 'dispose').mockImplementation(() => {
+      throw new Error('free failed');
+    });
+
+    expect(() => renderer.dispose()).toThrow('free failed');
+
+    expect(gl.context.lost).toBe(true);
     expect(gl.calls).toEqual(['dispose', 'forceContextLoss']);
   });
 
