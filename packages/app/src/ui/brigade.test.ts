@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { RosterEntry } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import { t } from '../i18n/t';
-import { showBrigade, type BrigadeOptions } from './brigade';
+import { showBrigade, type BrigadeOptions, type BrigadeUnit } from './brigade';
 
 // No mission is ever gated behind `afterMission` in this fixture set, so the
 // resolver is never actually called for a real id -- it only has to exist to
@@ -364,7 +364,9 @@ describe('showBrigade — the bay', () => {
       ledger: {},
       possibleStars: 78,
       credits: 700,
-      onBuy: (id, p) => bought.push([id, p]),
+      onBuy: (id, p) => {
+        bought.push([id, p]);
+      },
     });
     select(host, 'breach_team');
     const buy = host.querySelector<HTMLButtonElement>('.rl-garage__buy');
@@ -509,7 +511,9 @@ describe('showBrigade — the board', () => {
       possibleStars: 78,
       owned: { inf_squad: { armour: 1 } },
       credits: 999,
-      onBuyUpgrade: (unitId, track, tier, price) => bought.push([unitId, track, tier, price]),
+      onBuyUpgrade: (unitId, track, tier, price) => {
+        bought.push([unitId, track, tier, price]);
+      },
     });
     const armourBtn = host.querySelector<HTMLButtonElement>(
       '.rl-garage__track[data-track="armour"] .rl-garage__buy-tier'
@@ -611,7 +615,9 @@ describe('showBrigade — the board', () => {
       ledger: {},
       possibleStars: 78,
       credits: 999,
-      onBuyUpgrade: (unitId, track, tier, price) => bought.push([unitId, track, tier, price]),
+      onBuyUpgrade: (unitId, track, tier, price) => {
+        bought.push([unitId, track, tier, price]);
+      },
     });
     const track = host.querySelector('.rl-garage__track');
     expect(track?.getAttribute('data-track')).toBe('fire_control');
@@ -627,7 +633,15 @@ describe('showBrigade — the board', () => {
 describe('showBrigade — the wallet and the footer', () => {
   it('prints the balance in the wallet and asks twice before resetting the account', () => {
     let resets = 0;
-    const host = mount({ units, ledger: {}, possibleStars: 78, credits: 460, onReset: () => resets++ });
+    const host = mount({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits: 460,
+      onReset: () => {
+        resets++;
+      },
+    });
     expect(text(host, '.rl-garage__wallet-n')).toBe('460');
     expect(text(host, '.rl-garage__wallet-word')).toBe('credits');
     const btn = host.querySelector<HTMLButtonElement>('.rl-garage__reset');
@@ -769,5 +783,132 @@ describe('the brigade line — the cap and who is stood down', () => {
   it("does not use the deploy screen's word for a different idea", () => {
     const host = mount({ ledger: { 'roster.surviving_units': [entry(1)], 'roster.reserve': [entry(2)] } });
     expect(text(host, '.rl-garage__campaign')).not.toContain('in reserve');
+  });
+});
+/** Mounted IN the document, which `focus()` needs; disposes and detaches. */
+function mountLive(opts: Partial<BrigadeOptions>): { host: HTMLElement; dispose: () => void } {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const dispose = showBrigade(host, { missionName: noMissionNames, baseOf, units: [], ...opts } as BrigadeOptions);
+  return {
+    host,
+    dispose: () => {
+      dispose();
+      host.remove();
+    },
+  };
+}
+
+const focusKey = (): string | null => document.activeElement?.getAttribute('data-focus-key') ?? null;
+
+describe('showBrigade — a purchase re-renders in place (F3)', () => {
+  it('keeps the screen, the tab, the unit and focus on the same track’s next Buy', () => {
+    let owned: Record<string, Record<string, number>> = {};
+    let credits = 999;
+    const { host, dispose } = mountLive({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits,
+      owned,
+      onBuyUpgrade: (unitId, track, tier, price) => {
+        owned = { ...owned, [unitId]: { ...(owned[unitId] ?? {}), [track]: tier } };
+        credits -= price;
+        return { units, credits, owned };
+      },
+    });
+    const screen = host.querySelector('.rl-menu--garage');
+    host.querySelector<HTMLButtonElement>('.rl-garage__tab[data-bucket="soft"]')?.click();
+    const rail = host.querySelector<HTMLElement>('.rl-garage__cards');
+    if (rail) rail.scrollTop = 40; // jsdom does not clamp; ui:routes (Task 4) is this line's falsification
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+
+    expect(host.querySelector('.rl-menu--garage')).toBe(screen);
+    expect(host.querySelector('.rl-garage__tab[aria-selected="true"]')?.getAttribute('data-bucket')).toBe('soft');
+    expect(host.querySelector('.rl-garage__card[aria-selected="true"]')?.getAttribute('data-unit')).toBe('inf_squad');
+    expect(host.querySelector<HTMLElement>('.rl-garage__cards')?.scrollTop).toBe(40);
+    expect(host.querySelector<HTMLElement>('.rl-garage__wallet-n')?.dataset.value).toBe('799');
+    const next = host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier');
+    expect(next?.textContent).toBe('Buy tier 2 · 300');
+    expect(document.activeElement).toBe(next);
+    dispose();
+  });
+
+  it('keeps the unit that was bought in the bay (F3: an at_team buy landed on the Lavi)', () => {
+    const roster: BrigadeUnit[] = units.map((u) =>
+      u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 850 } } : u
+    );
+    const { host, dispose } = mountLive({
+      units: roster,
+      ledger: {},
+      possibleStars: 78,
+      credits: 999,
+      onBuy: (unitId) => ({
+        units: roster.map((u) => (u.id === unitId && u.unlock ? { ...u, unlock: { ...u.unlock, bought: true } } : u)),
+        credits: 149,
+        owned: {},
+      }),
+    });
+    select(host, 'breach_team');
+    host.querySelector<HTMLButtonElement>('.rl-garage__buy')?.click();
+    expect(host.querySelector('.rl-garage__card[aria-selected="true"]')?.getAttribute('data-unit')).toBe('breach_team');
+    expect(host.querySelector('.rl-garage__card[data-unit="breach_team"]')?.getAttribute('data-locked')).toBe('0');
+    expect(host.querySelector('.rl-garage__buy')).toBeNull();
+    // No unit Buy any more and no tracks on this fixture: focus lands on its own card.
+    expect(focusKey()).toBe('card:breach_team');
+    dispose();
+  });
+
+  it('re-renders a refused purchase off the caller’s answer, with the Buy live again', () => {
+    const { host, dispose } = mountLive({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits: 999,
+      owned: {},
+      onBuyUpgrade: () => ({ units, credits: 999, owned: {} }), // the store refused: nothing moved
+    });
+    const buy = (): HTMLButtonElement | null =>
+      host.querySelector('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier');
+    buy()?.click();
+    expect(buy()?.textContent).toBe('Buy tier 1 · 200');
+    expect(buy()?.disabled).toBe(false);
+    dispose();
+  });
+
+  it('leaves the screen as it was when the callback answers nothing (a legacy caller)', () => {
+    const { host, dispose } = mountLive({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits: 999,
+      onBuyUpgrade: () => undefined,
+    });
+    const buy = host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier');
+    buy?.click();
+    expect(host.querySelector('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')).toBe(buy);
+    expect(buy?.disabled).toBe(true);
+    dispose();
+  });
+
+  it('answers the reset in place too', () => {
+    const { host, dispose } = mountLive({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits: 500,
+      owned: { inf_squad: { armour: 1 } },
+      onReset: () => ({ units, credits: 0, owned: {} }),
+    });
+    const screen = host.querySelector('.rl-menu--garage');
+    const reset = (): HTMLButtonElement | null => host.querySelector('.rl-garage__reset');
+    reset()?.click();
+    reset()?.click();
+    expect(host.querySelector('.rl-menu--garage')).toBe(screen);
+    expect(host.querySelector<HTMLElement>('.rl-garage__wallet-n')?.dataset.value).toBe('0');
+    expect(host.querySelector('.rl-garage__rung[data-owned="1"]')).toBeNull();
+    expect(reset()?.textContent).toBe('reset brigade account');
+    expect(reset()?.disabled).toBe(false);
+    dispose();
   });
 });

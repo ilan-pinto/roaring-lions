@@ -69,7 +69,7 @@ import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portr
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
-import { showBrigade } from './ui/brigade';
+import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
@@ -550,6 +550,7 @@ function battleAudio(): BattleAudio {
 function accountState(): {
   boughtUnits: Set<string>;
   ownedTiers: Record<string, Record<string, number>>;
+  balance: number;
 } {
   // A blocked store reads as the empty account (`ledger-store.ts`), which has
   // no unlocks and no upgrades -- the same two values the `storage ? ... :
@@ -563,6 +564,9 @@ function accountState(): {
     // the identity, so that case registers the raw JSON unchanged -- today's
     // behaviour (spec 2026-09-15 §4.3, D5: the sim never learns a tier exists).
     ownedTiers: account.upgrades,
+    // The garage's wallet (WP-S3g T3): its answer to a purchase reads the
+    // balance here, alongside the two fields that purchase changes.
+    balance: account.balance,
   };
 }
 
@@ -973,17 +977,23 @@ async function main(): Promise<void> {
    *  the map, so it is never in this sum at all). */
   async function mountBrigade(host: HTMLElement): Promise<Disposer> {
     const worldData = parseWorld(world);
-    const { boughtUnits, ownedTiers } = accountState();
-    const kdfUnits = Object.values(units)
-      .filter((u) => u.faction === 'kdf')
-      .map((u) => ({
-        id: u.id,
-        name: u.name,
-        role: u.role,
-        unlock: kdfUnlockGate(u, boughtUnits),
-        ...kdfBrigadeTraits(u),
-        upgrades: 'upgrades' in u ? u.upgrades : undefined,
-      }));
+    const { boughtUnits, ownedTiers, balance } = accountState();
+    /** The KDF roster as the garage draws it, off one account's bought set.
+     *  Called at mount and again for every answer: a purchase can open a
+     *  unit (`bought`), and nothing else about the roster moves. */
+    const garageUnits = (bought: ReadonlySet<string>): BrigadeUnit[] =>
+      Object.values(units)
+        .filter((u) => u.faction === 'kdf')
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          unlock: kdfUnlockGate(u, bought),
+          ...kdfBrigadeTraits(u),
+          upgrades: 'upgrades' in u ? u.upgrades : undefined,
+        }));
+    const kdfUnits = garageUnits(boughtUnits);
+    // Loaded once: the set of ids never changes, whatever is bought.
     const portraits: Record<string, string> = {};
     const portraitIcons = new Set<string>();
     await Promise.all(
@@ -994,12 +1004,13 @@ async function main(): Promise<void> {
         if (picture.isIcon) portraitIcons.add(id);
       })
     );
-    // What `window.location.reload()` was for: re-read the account and redraw
-    // the roster off it. This re-runs THIS mount, which re-reads the account
-    // through `accountState()` above -- `force: true` because the URL has not
-    // changed and the router would otherwise consider itself already there.
-    const redraw = (): void => {
-      void router.navigate(routes.brigade(), { replace: true, force: true });
+    /** The answer to every purchase and to the reset: the account as the
+     *  store holds it NOW, read through `accountState()` (which reads
+     *  `ledgerStore.readAccount()`), never a copy this mount kept. A refusal
+     *  answers the same way -- the store is the truth either way. */
+    const now = (): GarageState => {
+      const a = accountState();
+      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
     };
     return showBrigade(host, {
       units: kdfUnits,
@@ -1022,11 +1033,11 @@ async function main(): Promise<void> {
       baseOf: (typeId) =>
         ((units as Record<string, unknown>)[typeId] as UpgradableUnit | undefined) ?? { id: typeId },
       possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
-      credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
+      credits: ledgerStore.available ? balance : undefined,
       onReset: ledgerStore.available
         ? () => {
             ledgerStore.resetAccount();
-            redraw();
+            return now();
           }
         : undefined,
       onBuy: ledgerStore.available
@@ -1036,14 +1047,11 @@ async function main(): Promise<void> {
             // tabs on the same origin both showing this row as affordable) --
             // the control disabled itself against the balance THIS render
             // read, so `!ok` means the account on disk has since moved.
-            // Redrawing re-renders off the true, current state instead of
-            // leaving the row showing a purchase that did not happen.
-            if (!ok) {
-              redraw();
-              return;
-            }
+            // Answering `now()` re-renders off the true, current state instead
+            // of leaving the row showing a purchase that did not happen.
+            if (!ok) return now();
             ledgerStore.writeAccount(account);
-            redraw();
+            return now();
           }
         : undefined,
       owned: ownedTiers,
@@ -1051,14 +1059,11 @@ async function main(): Promise<void> {
         ? (unitId, track, tier, price) => {
             const { account, ok } = buyUpgrade(ledgerStore.readAccount(), unitId, track, tier, price);
             // Same reasoning as `onBuy` above: the control disabled itself
-            // against a stale read, so redraw off the true state instead of
+            // against a stale read, so answer with the true state instead of
             // returning silently.
-            if (!ok) {
-              redraw();
-              return;
-            }
+            if (!ok) return now();
             ledgerStore.writeAccount(account);
-            redraw();
+            return now();
           }
         : undefined,
     });
