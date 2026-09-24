@@ -88,18 +88,36 @@ describe('FREEZE_FOR_SCREENSHOT_SCRIPT / RESTORE_AFTER_SCREENSHOT_SCRIPT', () =>
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
-  it('freeze is idempotent: a second freeze before a restore keeps the FIRST original', async () => {
-    const realRaf = immediateRaf();
-    const w = mockWindow(realRaf);
-    await run(FREEZE_FOR_SCREENSHOT_SCRIPT, w);
-    await run(FREEZE_FOR_SCREENSHOT_SCRIPT, w); // must not stash the already-stubbed function
-    await run(RESTORE_AFTER_SCREENSHOT_SCRIPT, w);
-    expect(w.requestAnimationFrame).toBe(realRaf);
-    // Only the FIRST freeze should have ridden out two real frames -- the
-    // second, idempotent call returns immediately without touching the
-    // (already-stubbed) requestAnimationFrame at all.
-    expect(realRaf).toHaveBeenCalledTimes(2);
-  });
+  // Explicit short timeout, and read this one's red carefully if it ever
+  // shows up: dropping the `if (window.${FROZEN_RAF_KEY}) return;` guard
+  // from `FREEZE_FOR_SCREENSHOT_SCRIPT` does not fail an assertion here --
+  // the second freeze call would capture `_raf = window.requestAnimationFrame`
+  // AFTER the first freeze already replaced it with the no-op stub, so `_raf`
+  // IS the stub, its own `await new Promise(...)` calls a callback the stub
+  // never invokes, and the promise never resolves. Verified directly: with
+  // the guard removed, this test times out at "Test timed out in 1200ms",
+  // not an assertion message. Vitest's own default (5000ms) would eventually
+  // catch the same hang, but a short, explicit one here means a broken
+  // freeze reports back in just over a second rather than stalling the whole
+  // suite, and this comment means a future reader sees a timeout and knows
+  // to look at the idempotency guard first rather than treating it as an
+  // unrelated flake.
+  it(
+    'freeze is idempotent: a second freeze before a restore keeps the FIRST original',
+    async () => {
+      const realRaf = immediateRaf();
+      const w = mockWindow(realRaf);
+      await run(FREEZE_FOR_SCREENSHOT_SCRIPT, w);
+      await run(FREEZE_FOR_SCREENSHOT_SCRIPT, w); // must not stash the already-stubbed function
+      await run(RESTORE_AFTER_SCREENSHOT_SCRIPT, w);
+      expect(w.requestAnimationFrame).toBe(realRaf);
+      // Only the FIRST freeze should have ridden out two real frames -- the
+      // second, idempotent call returns immediately without touching the
+      // (already-stubbed) requestAnimationFrame at all.
+      expect(realRaf).toHaveBeenCalledTimes(2);
+    },
+    1200
+  );
 
   it('restore without a prior freeze is a harmless no-op', async () => {
     const realRaf = immediateRaf();

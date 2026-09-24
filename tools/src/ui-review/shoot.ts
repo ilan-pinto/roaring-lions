@@ -43,6 +43,20 @@
 // (21.3s) at both the harness's own seed and `main.ts`'s real mission seed
 // (20260727), so the margin stepped below is not sitting on the edge.
 //
+// The capture environment changed (fix round 2): every state here is now
+// photographed through real hardware GPU rendering by default
+// (`--use-angle=metal` on macOS, `./gpu.ts`) rather than SwiftShader software
+// rendering, because `page.screenshot()` of the post-combat outcome scene
+// measured 5.0-7.8s on SwiftShader against a fixed 2600ms hold, and 115-164ms
+// on Metal (see the launch site's own comment for the full measurement).
+// SwiftShader remains available (`--gpu=swiftshader`) and is still the
+// default off macOS. The two backends are NOT pixel-identical --
+// `golden-diff/browser.ts`'s own gate records 230px/0.032 meanAbsChannelDelta
+// between them on its `quiet` scenario -- so a PNG captured by this script
+// before this change landed is not a like-for-like comparison against one
+// captured after; treat the two as different capture environments, the same
+// way the golden gate keys a baseline to its own.
+//
 // Two things kept from the scratch pass, both learned the hard way: never
 // abort `/@vite/client` (Vite dev injects CSS-module styles through it;
 // aborting it produces blank PNGs -- this script does no request
@@ -51,7 +65,13 @@
 // packages/app or assets/ triggers vite-plugin-asset-watch and reloads the
 // page being photographed) -- .superpowers/ is git-ignored and unwatched.
 import { chromium, type Browser, type Page } from 'playwright';
+// A separate statement from the `dismissDeployGate`/`ensureDevServer`/
+// `stopDevServer` import below (same module), rather than one merged import
+// list, so this line stays well clear of PR #214's (`fix/ui-shots-port`)
+// PORT/`claimPort` hunk, which touches that other import line's neighbours.
+import { readUnmaskedRenderer } from '../golden-diff/browser';
 import { FREEZE_FOR_SCREENSHOT_SCRIPT, RESTORE_AFTER_SCREENSHOT_SCRIPT } from './frame-freeze';
+import { claimGpuBackend, gpuLaunchArgs } from './gpu';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -191,13 +211,13 @@ const url = (p: string): string => `${BASE}${p}${PSEUDO ? `${p.includes('?') ? '
 const devServer = await ensureDevServer(PORT, REPO_ROOT, TAG);
 let browser: Browser | null = null;
 try {
-  // Fix round 2, part C: real hardware GPU, not SwiftShader software
-  // rendering -- see `backend-curve-gate.ts`/`render-frame-cost.ts` for the
-  // same args used the same way. Measured directly against THIS defect
-  // (`outcome-freeze-probe.ts`): with the frame loop frozen from well before
-  // the outcome moment's own scene ever rendered -- ruling out "competing
-  // with an active loop" as the cause -- `page.screenshot()` of the
-  // post-combat scene still cost 5.4s on SwiftShader, and 115-164ms on
+  // Fix round 2, part C: real hardware GPU by default, not SwiftShader
+  // software rendering -- see `backend-curve-gate.ts`/`render-frame-cost.ts`
+  // for the same args used the same way. Measured directly against THIS
+  // defect (`outcome-freeze-probe.ts`): with the frame loop frozen from well
+  // before the outcome moment's own scene ever rendered -- ruling out
+  // "competing with an active loop" as the cause -- `page.screenshot()` of
+  // the post-combat scene still cost 5.4s on SwiftShader, and 115-164ms on
   // Metal. The cost is the SwiftShader software-rasteriser readback of a
   // complex scene, not loop contention, and freezing the loop cannot touch
   // it -- CLAUDE.md's own scaling-debt entry on draw-call submission cost is
@@ -207,13 +227,23 @@ try {
   // `spawn`/`removeFromPlay` churn (a garage plate loop cycling many unit
   // types through one page), which this file never does -- one mission
   // played normally start to end, then a SEPARATE fresh context for the
-  // victory mission. `readUnmaskedRenderer` (`golden-diff/browser.ts`)
-  // exists to confirm which backend actually launched, for exactly this
-  // kind of doubt.
+  // victory mission.
+  //
+  // `--gpu=<metal|swiftshader>` (`./gpu.ts`) overrides the platform default
+  // (metal on macOS, swiftshader elsewhere -- Metal is macOS-only, and
+  // `unit-plates.ts`'s own precedent is SwiftShader-default-with-Metal-
+  // opt-in for exactly that reason plus its context-loss finding). An
+  // unrecognised value refuses with exit 2 before any browser starts.
+  // `readUnmaskedRenderer` (`golden-diff/browser.ts`) then confirms which
+  // backend the launch ACTUALLY got -- a macOS box where Metal silently did
+  // not take, or a non-macOS run, is diagnosable straight from the console
+  // rather than only from screenshot timing.
+  const gpu = claimGpuBackend(TAG);
   browser = await chromium.launch({
     headless: true,
-    args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--use-gl=angle', '--enable-gpu-rasterization', '--disable-gpu-sandbox'],
+    args: gpuLaunchArgs(gpu),
   });
+  console.log(`[${TAG}] renderer: ${await readUnmaskedRenderer(browser)}`);
   for (const res of RESOLUTIONS) {
     const dirName = `${res.width}x${res.height}`;
     const dir = path.join(OUT, dirName);
