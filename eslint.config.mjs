@@ -159,6 +159,10 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/worker/src/**/*.ts'],
+    languageOptions: { globals: { ...globals.serviceworker } },
+  },
+  {
     files: ['tools/src/**/*.ts'],
     rules: {
       'no-restricted-syntax': [
