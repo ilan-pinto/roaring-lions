@@ -479,6 +479,60 @@ try {
       `${String(back.board)} board after an ordinary leave)`
   );
 
+  // --- Saves and Credits: the `.rl-menu` column must not collapse ----------
+  //
+  // GH-223: both screens build a `.rl-menu` column whose only child is a
+  // `panel()` (`ui/saves.ts`, `ui/credits.ts`). `.rl-panel` is absolutely
+  // positioned by default (theme.css) -- right for a HUD panel pinned over
+  // the map, wrong here. Taking it out of flow does NOT shrink the panel
+  // itself: `.rl-panel` still sizes to its own content (measured on this
+  // exact page, pre-fix: 251px/617px for Saves/Credits). What collapses is
+  // the `.rl-menu` WRAPPER -- an absolutely positioned descendant contributes
+  // nothing to its containing block's own auto-height, so `.rl-menu`'s
+  // rendered box shrinks to its padding alone (`padding: var(--s5)
+  // var(--s6)` = 3rem block + 2px border = ~50px at scale 1) regardless of
+  // how tall the panel is, and `overflow-y: auto` then reveals that panel
+  // through a small scrolling window -- the ~60px strip GH-223 reported. So
+  // the oracle here is `.rl-menu`'s own box, not `.rl-panel`'s: measuring the
+  // panel (a plausible first instinct) reads a healthy number even on the
+  // broken build and would never go red. jsdom has no layout at all, so
+  // nothing in `pnpm test` can see this either way -- a rendered box height
+  // in a real browser is the only oracle. The floor is a FRACTION of the
+  // viewport, not a pixel count, so it survives a --ui-scale change or a
+  // different capture resolution: measured on this page's own 900px-tall
+  // viewport, the broken wrapper reads 5.6% (the ~50px padding-only box) on
+  // BOTH routes -- it does not even vary with the panel's own content height,
+  // which is the tell -- and a wrapper restored to flow reads over 30% on the
+  // shorter of the two (Saves). 15% sits with wide margin on both sides of
+  // that gap. Seen red: with `.rl-menu > .rl-panel`'s position reset removed,
+  // this leg fails both routes at 5.6%.
+  const MENU_MIN_FRACTION = 0.15;
+  for (const [routePath, label] of [
+    ['/saves', 'Saves'],
+    ['/credits', 'Credits'],
+  ] as const) {
+    await page.goto(`http://localhost:${PORT}${routePath}`, { waitUntil: 'load' });
+    await page.waitForSelector('.rl-menu');
+    const { height, viewport } = await page.evaluate(() => {
+      const m = document.querySelector('.rl-menu');
+      return {
+        height: m instanceof HTMLElement ? m.getBoundingClientRect().height : 0,
+        viewport: window.innerHeight,
+      };
+    });
+    const fraction = viewport > 0 ? height / viewport : 0;
+    console.log(
+      `[${TAG}] ${label} .rl-menu: ${height.toFixed(0)}px of a ${viewport}px viewport ` +
+        `(${(fraction * 100).toFixed(1)}%)`
+    );
+    expect(
+      fraction >= MENU_MIN_FRACTION,
+      `${label} (${routePath}): .rl-menu renders ${height.toFixed(0)}px tall, ` +
+        `${(fraction * 100).toFixed(1)}% of a ${viewport}px viewport (floor ${MENU_MIN_FRACTION * 100}%) -- ` +
+        `its .rl-panel child is out of flow again (GH-223)`
+    );
+  }
+
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {
   if (browser) await browser.close();

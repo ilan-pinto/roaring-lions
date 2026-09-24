@@ -130,6 +130,16 @@
      plate over a hatched frame is the case that needed it. */
   --ink-label: var(--rl-gunmetal-0);
 
+  /* --- scrollbar (GH-223) ---------------------------------------------- */
+  /* A themed bar for every scroll region, replacing the browser default's
+     white rail and rounded grey thumb inside these dark, square-cornered
+     panels. Built from tokens already declared above rather than fresh
+     ramp entries, so a palette revision restyles the scrollbar the same way
+     it restyles everything else that reads --ink/--panel-frame. */
+  --scroll-thumb: var(--ink-mute);
+  --scroll-thumb-hover: var(--ink);
+  --scroll-track: color-mix(in srgb, var(--panel-frame) 35%, transparent);
+
   /* --- state ---------------------------------------------------------- */
   /* Reserved bands are runtime-only in static art, but the HUD *is* runtime:
      these are exactly the colours the battlefield uses to say the same things,
@@ -303,6 +313,164 @@ body {
   font-family: var(--font-body);
   font-size: var(--t-body);
   line-height: var(--lh-body);
+  /* GH-223: `scrollbar-color`/`scrollbar-width` are INHERITED properties (CSS
+     Scrollbars Level 1), so declaring them once here reaches every overflow
+     container in the document -- Firefox, Chromium and Safari 18.2+ read
+     this with no per-region rule at all. `thin` is the only cross-browser
+     WIDTH keyword the standard property accepts; the exact 0.375rem the
+     issue's table asks for is applied below through `::-webkit-scrollbar`,
+     which is NOT inherited and is the one path an older Safari still reads. */
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  scrollbar-width: thin;
+}
+
+/* ====================================================================== */
+/* Scrollbars (GH-223) — every scroll region wears the same themed bar     */
+/* ====================================================================== */
+
+/* `body`'s own standard properties (above) are the fallback for anything this
+   list misses, but they are NOT enough on their own: measured directly
+   (a throwaway probe, both in this app and in a minimal test page)
+   `scrollbar-width` does not reliably reach a scroll container nested this
+   many levels under `body` -- the computed value read back as `auto`
+   (delta 15 px against a 200 px test box) rather than the inherited `thin`
+   (11 px), while `scrollbar-color` DID reach it correctly by the same test.
+   Chromium's asymmetry, not a mistake in this sheet: color inherits, width
+   does not, reliably, at depth. So every scroll region below restates BOTH
+   standard properties directly, which the same probe confirmed corrects it
+   (11 px, matching a `thin` set directly on the element). This list is also
+   the `::-webkit-scrollbar` half for an older Safari, plus `scrollbar-gutter:
+   stable` on every scroll container so a list growing past its box does not
+   shift its own content sideways -- the issue's named regions (the garage
+   board, the objectives tracker, the pause menu, settings, saves, credits)
+   plus every in-mission panel body that scrolls, the loading/deploy screen
+   and its briefing prose, the HUD's selection card, and the deploy roster.
+   `.rl-garage__board` already carried `scrollbar-gutter: stable` (and a mask
+   fade, kept, both above); repeating it here is harmless and keeps this list
+   the single place a reader checks for "does this scroll region have the
+   reset". The `::-webkit-scrollbar` width below is a fixed 0.375rem
+   regardless of --ui-scale, matching `thin`'s own scale-independence -- a rem
+   value here would double-scale on top of the standard property's `thin` at
+   the 1.4 breakpoint and read as fatter, not thinner, than the table asks
+   for. Square corners: no `border-radius` is set, so the thumb and track
+   paint as flat rectangles, matching the panels, bands and buttons around
+   them. Wherever a browser honours BOTH mechanisms on the same element
+   (current Chromium, which now treats the standard properties as
+   authoritative once present), the RENDERED width is that browser's own
+   `thin` preset, not literally 0.375rem -- `scrollbar-width` only accepts
+   the keywords `auto`/`thin`/`none`, never a length, so an exact pixel width
+   is reachable only where `::-webkit-scrollbar` is the one path a browser
+   reads (older Safari). The colour is exact everywhere either way, since
+   both mechanisms are fed the same three tokens. */
+.rl-panel__body,
+.rl-pause__panel,
+.rl-keys__panel,
+.rl-obj-panel--tracker,
+.rl-menu,
+.rl-world__scroll,
+.rl-garage__cards,
+.rl-garage__bay,
+.rl-garage__board,
+.rl-settings,
+.rl-credits__licence-text,
+.rl-loading,
+.rl-loading__brief,
+.rl-card,
+.rl-deploy__rows,
+.rl-saves__list {
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  scrollbar-width: thin;
+}
+.rl-panel__body::-webkit-scrollbar,
+.rl-pause__panel::-webkit-scrollbar,
+.rl-keys__panel::-webkit-scrollbar,
+.rl-obj-panel--tracker::-webkit-scrollbar,
+.rl-menu::-webkit-scrollbar,
+.rl-world__scroll::-webkit-scrollbar,
+.rl-garage__cards::-webkit-scrollbar,
+.rl-garage__bay::-webkit-scrollbar,
+.rl-garage__board::-webkit-scrollbar,
+.rl-settings::-webkit-scrollbar,
+.rl-credits__licence-text::-webkit-scrollbar,
+.rl-loading::-webkit-scrollbar,
+.rl-loading__brief::-webkit-scrollbar,
+.rl-card::-webkit-scrollbar,
+.rl-deploy__rows::-webkit-scrollbar,
+.rl-saves__list::-webkit-scrollbar {
+  width: 0.375rem;
+  height: 0.375rem;
+}
+.rl-panel__body::-webkit-scrollbar-track,
+.rl-pause__panel::-webkit-scrollbar-track,
+.rl-keys__panel::-webkit-scrollbar-track,
+.rl-obj-panel--tracker::-webkit-scrollbar-track,
+.rl-menu::-webkit-scrollbar-track,
+.rl-world__scroll::-webkit-scrollbar-track,
+.rl-garage__cards::-webkit-scrollbar-track,
+.rl-garage__bay::-webkit-scrollbar-track,
+.rl-garage__board::-webkit-scrollbar-track,
+.rl-settings::-webkit-scrollbar-track,
+.rl-credits__licence-text::-webkit-scrollbar-track,
+.rl-loading::-webkit-scrollbar-track,
+.rl-loading__brief::-webkit-scrollbar-track,
+.rl-card::-webkit-scrollbar-track,
+.rl-deploy__rows::-webkit-scrollbar-track,
+.rl-saves__list::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+}
+.rl-panel__body::-webkit-scrollbar-thumb,
+.rl-pause__panel::-webkit-scrollbar-thumb,
+.rl-keys__panel::-webkit-scrollbar-thumb,
+.rl-obj-panel--tracker::-webkit-scrollbar-thumb,
+.rl-menu::-webkit-scrollbar-thumb,
+.rl-world__scroll::-webkit-scrollbar-thumb,
+.rl-garage__cards::-webkit-scrollbar-thumb,
+.rl-garage__bay::-webkit-scrollbar-thumb,
+.rl-garage__board::-webkit-scrollbar-thumb,
+.rl-settings::-webkit-scrollbar-thumb,
+.rl-credits__licence-text::-webkit-scrollbar-thumb,
+.rl-loading::-webkit-scrollbar-thumb,
+.rl-loading__brief::-webkit-scrollbar-thumb,
+.rl-card::-webkit-scrollbar-thumb,
+.rl-deploy__rows::-webkit-scrollbar-thumb,
+.rl-saves__list::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 0;
+}
+.rl-panel__body::-webkit-scrollbar-thumb:hover,
+.rl-panel__body::-webkit-scrollbar-thumb:active,
+.rl-pause__panel::-webkit-scrollbar-thumb:hover,
+.rl-pause__panel::-webkit-scrollbar-thumb:active,
+.rl-keys__panel::-webkit-scrollbar-thumb:hover,
+.rl-keys__panel::-webkit-scrollbar-thumb:active,
+.rl-obj-panel--tracker::-webkit-scrollbar-thumb:hover,
+.rl-obj-panel--tracker::-webkit-scrollbar-thumb:active,
+.rl-menu::-webkit-scrollbar-thumb:hover,
+.rl-menu::-webkit-scrollbar-thumb:active,
+.rl-world__scroll::-webkit-scrollbar-thumb:hover,
+.rl-world__scroll::-webkit-scrollbar-thumb:active,
+.rl-garage__cards::-webkit-scrollbar-thumb:hover,
+.rl-garage__cards::-webkit-scrollbar-thumb:active,
+.rl-garage__bay::-webkit-scrollbar-thumb:hover,
+.rl-garage__bay::-webkit-scrollbar-thumb:active,
+.rl-garage__board::-webkit-scrollbar-thumb:hover,
+.rl-garage__board::-webkit-scrollbar-thumb:active,
+.rl-settings::-webkit-scrollbar-thumb:hover,
+.rl-settings::-webkit-scrollbar-thumb:active,
+.rl-credits__licence-text::-webkit-scrollbar-thumb:hover,
+.rl-credits__licence-text::-webkit-scrollbar-thumb:active,
+.rl-loading::-webkit-scrollbar-thumb:hover,
+.rl-loading::-webkit-scrollbar-thumb:active,
+.rl-loading__brief::-webkit-scrollbar-thumb:hover,
+.rl-loading__brief::-webkit-scrollbar-thumb:active,
+.rl-card::-webkit-scrollbar-thumb:hover,
+.rl-card::-webkit-scrollbar-thumb:active,
+.rl-deploy__rows::-webkit-scrollbar-thumb:hover,
+.rl-deploy__rows::-webkit-scrollbar-thumb:active,
+.rl-saves__list::-webkit-scrollbar-thumb:hover,
+.rl-saves__list::-webkit-scrollbar-thumb:active {
+  background: var(--scroll-thumb-hover);
 }
 
 /* ====================================================================== */
@@ -2488,6 +2656,31 @@ body {
   color: var(--ink);
   text-align: center;
 }
+/* GH-223: a `.rl-panel` mounted as a `.rl-menu`'s own content -- Saves and
+   Credits are the two screens shaped this way (`ui/saves.ts`'s and
+   `ui/credits.ts`'s only child is a `panel()`) -- needs the same reset every
+   other embedded panel in this sheet already gets (`.rl-confirm__panel,
+   .rl-pause__panel, .rl-keys__panel` above, `.rl-obj-panel` below):
+   `.rl-panel` is absolutely positioned and pointer-events:none by default,
+   right for a HUD panel pinned over the map and wrong here. Left unset, an
+   absolutely positioned child contributes NOTHING to its containing block's
+   own auto-height, so the COLUMN collapsed to its own padding (~50 px)
+   regardless of how tall the panel's content was, and this rule's own
+   `overflow-y: auto` then revealed that content through a small scrolling
+   window instead of the column growing to fit it -- a ~60 px strip with a
+   native scrollbar on both routes, caught by `pnpm ui:routes`'s own
+   `.rl-menu` height leg. Direct-child-scoped (`>`) so a floating tooltip or
+   popover a future screen mounts INSIDE a menu column ON PURPOSE is
+   untouched. `relative`, not `static`, matching the sheet's own convention
+   for this exact reset (`.rl-confirm__panel` et al.): nothing under
+   `.rl-panel` needs it as a positioning context today, but a panel that is
+   the only child of an absolutely positioned wrapper is the shape that bit
+   Task 6's Quit button (comment above `.rl-pause__settings .rl-settings`),
+   and `static` would silently reopen it if one ever does. */
+.rl-menu > .rl-panel {
+  position: relative;
+  pointer-events: auto;
+}
 /* D-8 (composed layouts, Task 7 -- spec Deviations, D-8): the plain button
    list reads well at 28.75rem on a laptop and leaves most of a 1920 or 2560
    frame empty, with nothing behind it to compose against yet -- the "scene
@@ -4073,11 +4266,18 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--saves .rl-panel {
   text-align: left;
 }
+/* GH-223: its own scroll region, capped well under the column's 96vh, so a
+   long list scrolls internally instead of pushing the name field, the Save
+   button and Back down past the fold -- the same shape
+   `.rl-obj-panel .rl-panel__body` already uses for the same reason. */
 .rl-saves__list {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
   margin-bottom: var(--s3);
+  max-height: min(40vh, 24rem);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 .rl-saves__row {
   display: flex;
