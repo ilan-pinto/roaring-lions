@@ -940,6 +940,49 @@ try {
     '  window.__rlFrames += 1;' +
     '  if (window.__rlFrames < 40) requestAnimationFrame(loop);' +
     '})();';
+  // Fix round 1 (Task 4 review): the plain purchase above never falsifies the
+  // `rail` assertion on its OWN, and that is a real finding, not a mistake in
+  // this leg -- `renderCards()` clears `.rl-garage__cards` with a bare
+  // `replaceChildren()` and repopulates it synchronously, in one JS task, so
+  // Chromium's batched layout never lays the rail out while it is transiently
+  // empty and its stored scroll offset is never actually clamped, whichever
+  // unit is bought. The OLD full-remount bug (falsification (a) above) forced
+  // exactly this for free, because it threw away the whole `.rl-garage__cards`
+  // DOM node and built a fresh one (default scrollTop 0) -- this harness has
+  // no such node swap to lean on for an in-place purchase, so it manufactures
+  // the same forced-empty-layout moment directly, scoped to this one element
+  // on this one page, so `rail` is an assertion this leg can actually fail.
+  //
+  // `GARAGE_FORCE_RAIL_REFLOW` wraps `.rl-garage__cards`'s own
+  // `replaceChildren` (an instance property shadowing the prototype method,
+  // never touching `brigade.ts`) so that the call `renderCards()` already
+  // makes to CLEAR the rail also forces a synchronous layout read
+  // (`void cards.offsetHeight`) while it is empty -- the moment a real
+  // browser would clamp the stored scroll offset to 0. `renderCards()`'s own
+  // subsequent `appendChild` loop (unwrapped, unaffected) then repopulates it
+  // exactly as it always does; the restore lines in `answer()` are what put
+  // the offset back afterward, and this exists so their absence has
+  // somewhere to be seen. `GARAGE_RESTORE_RAIL_REFLOW` puts the original
+  // method back once this leg's own assertions are done, so nothing about
+  // `.rl-garage__cards` outlives this block (belt and braces over the context
+  // close right after).
+  const GARAGE_FORCE_RAIL_REFLOW =
+    '(() => {' +
+    '  var cards = document.querySelector(".rl-garage__cards");' +
+    '  if (!cards) return;' +
+    '  var orig = cards.replaceChildren.bind(cards);' +
+    '  window.__rlRailReplaceChildren = orig;' +
+    '  cards.replaceChildren = function (...args) {' +
+    '    orig(...args);' +
+    '    void cards.offsetHeight;' + // force the layout a real remount used to force for free
+    '  };' +
+    '})()';
+  const GARAGE_RESTORE_RAIL_REFLOW =
+    '(() => {' +
+    '  var cards = document.querySelector(".rl-garage__cards");' +
+    '  if (cards && window.__rlRailReplaceChildren) cards.replaceChildren = window.__rlRailReplaceChildren;' +
+    '  delete window.__rlRailReplaceChildren;' +
+    '})()';
   const GARAGE_READ =
     '(() => {' +
     '  var wrap = document.querySelector(".rl-menu--garage");' +
@@ -974,6 +1017,10 @@ try {
     await g.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
     await g.waitForSelector('.rl-garage__card[data-unit="at_team"]');
     await g.click('.rl-garage__card[data-unit="at_team"]');
+    // Scoped to this page and this one element; see the constant's own
+    // comment for why the plain purchase below needs this to falsify `rail`
+    // at all.
+    await g.evaluate(GARAGE_FORCE_RAIL_REFLOW);
     await g.evaluate(GARAGE_ARM); // string: scroll the rail to 120, remember the screen node, start a 40-frame blank counter
     const railBefore = await g.$eval('.rl-garage__cards', (e) => e.scrollTop);
     await g.click('.rl-garage__track[data-track="firepower"] .rl-garage__buy-tier');
@@ -995,6 +1042,7 @@ try {
     expect(Math.abs((after.rail ?? 0) - railBefore) <= 1, `garage: the rail scrolled from ${railBefore} to ${after.rail} (F3)`);
     expect(after.value === '2225', `garage: the wallet reads ${after.value}, expected 2400 - 175 = 2225`);
     expect(after.boots === 1, `garage: ${after.boots} boot marks -- the purchase reloaded the page`);
+    await g.evaluate(GARAGE_RESTORE_RAIL_REFLOW);
 
     await garageCtx.close();
   }
