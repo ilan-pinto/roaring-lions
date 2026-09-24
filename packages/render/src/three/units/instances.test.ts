@@ -806,3 +806,55 @@ describe('writeTurretInstances', () => {
     }
   });
 });
+
+/**
+ * `dispose` releases the `InstancedMesh` itself, not only its geometry and
+ * material -- the `StructureInstancer.releaseMesh()` fix, for units. In three
+ * r170 the instance-matrix buffer is freed only by the mesh's own `dispose`
+ * event (`WebGLObjects`' `onInstancedMeshDispose`), and `ThreeRenderer.dispose`
+ * reaches this once per unit type on every mission leave.
+ *
+ * The texture is the one thing here with two readers -- the body's material
+ * and the silhouette's sample the same `DataArrayTexture` -- and one owner,
+ * this instancer (`loadSprites` builds one per call and hands it to nobody
+ * else). So it is freed exactly ONCE: neither mesh's `dispose` may reach it.
+ * Events rather than spies, because they prove the real three.js method ran.
+ */
+describe('UnitInstancer releases what it owns', () => {
+  const teamColors = [new THREE.Color('#2F6FD9'), new THREE.Color('#D93A2B'), new THREE.Color('#E8C33A')];
+  const counter = (target: THREE.EventDispatcher<{ dispose: object }>): { n: number } => {
+    const c = { n: 0 };
+    target.addEventListener('dispose', () => {
+      c.n += 1;
+    });
+    return c;
+  };
+
+  it('dispose fires the body mesh and the silhouette dispose events, and frees their shared texture once', () => {
+    const texture = new THREE.DataArrayTexture();
+    const instancer = new UnitInstancer(infSquad, texture, packSheet(infSquad), 4, HULL_RENDER_ORDER, teamColors);
+    const silhouette = instancer.silhouette;
+    if (!silhouette) throw new Error('premise: a silhouette was requested');
+    const body = counter(instancer.mesh);
+    const outline = counter(silhouette);
+    const tex = counter(texture);
+
+    instancer.dispose();
+
+    expect(body.n).toBe(1);
+    expect(outline.n).toBe(1);
+    expect(tex.n).toBe(1);
+  });
+
+  it('an instancer with no silhouette frees its mesh and texture the same way', () => {
+    const texture = new THREE.DataArrayTexture();
+    const instancer = new UnitInstancer(infSquad, texture, packSheet(infSquad), 4);
+    const body = counter(instancer.mesh);
+    const tex = counter(texture);
+
+    instancer.dispose();
+
+    expect(body.n).toBe(1);
+    expect(tex.n).toBe(1);
+  });
+});
