@@ -905,16 +905,23 @@ yours; each one records what the next phase inherits.
   this frame still moves run to run. The thresholds are still 300 / 0.02 —
   33× and 17× that post-fix maximum — and re-deriving them is a decision
   nobody has taken.
-  **WP-A1.3 (vehicle weight) changed nothing in the four gated frames, and
-  that was measured rather than predicted**: read back through
-  `debugVehicleTransform` at each scenario's own capture tick (two runs,
-  identical), every mesh vehicle in `quiet`, `open-ground` and `vehicle`
-  (eleven each) draws at offset 0, pitch 0 and roll 0 — none of those maps has
-  an `elevation` grid and the sandbox force is parked, so both halves of the
-  model are arithmetically zero there — and the only two hulls in `relief` that
-  are not at rest (Lavis still recoiling from firing, 0.38° / 0.018 tile) stand
-  ~700 px below its frame. No bless was needed; `combat` (report-only) moves,
-  because its armour drives, turns and fires.
+  **WP-A1.3 (vehicle weight) is expected to need no bless, and that
+  expectation is a measurement at the capture tick, not a gate result**: read
+  back through `debugVehicleTransform` at each gated scenario's own capture
+  tick (the gate's own URL, freeze, settle and capture script; two runs,
+  identical), every mesh vehicle inside a gated frame reads exactly 0 offset,
+  0 pitch and 0 roll — the eleven in each of `quiet`, `open-ground` and
+  `vehicle`, whose maps have no `elevation` grid and whose sandbox force is
+  parked, so both halves of the model are arithmetically zero there; the only
+  two hulls in `relief` that read otherwise (Lavis still recoiling from
+  firing, 0.38° / 0.018 tile) stand ~700 px below its frame. The golden gate
+  was not run for it: **the confirmation is the PR's `ci.yml` `visual` job.**
+  The wreck hand-off (see "Mesh units") writes a new pose only on the frame a
+  mesh vehicle dies, and a hull that dies parked and not recoiling gets the
+  pose it already held; whether any vehicle dies inside a gated frame before
+  its capture tick was not measured, which is one more reason that job, not
+  this paragraph, is the confirmation. `combat` (report-only) is expected to
+  move, because its armour drives, turns and fires.
   **`tel_marum` is in the gate now, and it is the only map that can catch
   terrain.** The `relief` scenario frames the T1-C boulder corridor and the
   extruded rock-ridge walls either side of it. Before it, the gate sampled two
@@ -1176,11 +1183,14 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   all of it presentation on the frame clock with nothing read back by the sim:
   a **four-sample terrain conform** (`units/vehicle-conform.ts` — the hull's
   measured footprint corners on the drawn ground, a corner over a blocked tile
-  or off the map standing at the hull centre's height, which took the tiles
-  that drew a >10° false tilt from 130 on `tel_marum` and 86 on `deir_amun` to
-  0); an **acceleration pitch** (`units/vehicle-weight.ts` — a constant-rate
-  speed ramp, because the sim has no acceleration, feeding a damped settle
-  spring scaled so a standing start draws exactly the authored maximum); a
+  or off the map standing at the hull centre's height; that fallback is what
+  keeps a plain four-corner sample, found in review and never shipped, from
+  drawing a >10° false tilt on 130 of `tel_marum`'s 1,534 passable tiles and
+  86 of `deir_amun`'s 1,916, and `tools/src/vehicle_conform_census.test.ts`
+  holds every shipped map at 0); an **acceleration pitch**
+  (`units/vehicle-weight.ts` — a constant-rate speed ramp, because the sim
+  has no acceleration, feeding a damped settle spring scaled so a standing
+  start draws exactly the authored maximum); a
   **turn roll to the OUTSIDE** of the turn, from the sim's own rate-limited
   yaw rate times the speed share, so a hull pivoting in place does not lean;
   the **settle** on a stop; a **lag** that trails the sim by `lag_tiles` and is
@@ -1191,14 +1201,19 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   numbers are an optional `mobility.weight` block in the unit JSON with role
   defaults (`units/vehicle-weight-params.ts`, imported by relative path and
   pinned to `art/meshes/vehicles/*.glb` both ways); air units are excluded and
-  the state freezes at death. On the running game (`pnpm weight:capture`,
-  whose ladder now VOTES through `motionVerdict`): a Lavi's launch reads 1.79°
+  the state freezes at death, while the WRECK is handed over at the sim
+  position with the terrain conform alone (`poseVehicleWreck`) — no dive,
+  lean, lag or recoil frozen into it, so it sits on its own scorch mark and
+  shroud. On the running game (`pnpm weight:capture`, whose ladder now VOTES
+  through `motionVerdict`): a Lavi's launch reads 1.79°
   at the 200 ms rung of its authored 2°, its turn 1.49° of 1.5°, its lag
   0.06 tile, and climbing onto `tel_marum`'s bench it stands on 16.8° of ground
   where it used to sit level with its nose in the hill. That harness's
   `mbt_lavi_tel_marum` subject is killed by the sandbox's Sarim force at tick
   ~281 in every run, so its `stop` lane is ten seconds of a wreck, before and
-  after alike, and the verdict fails it by name.
+  after alike: the one named `KNOWN_DEAD_LANES` entry, reported and labelled
+  in `sheet.md`, excluded from the exit code, and red again the moment it
+  gains a living rung.
   Two things a later reader will otherwise get wrong. **`rotation.x` under a
   yaw on `rotation.y` is a WORLD-axis tilt**, not a pitch: three composes
   `Rx·Ry·Rz`, so the shipped recoil's 0.06 rad measured a nose lift of
