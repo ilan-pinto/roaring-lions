@@ -271,9 +271,9 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // the same, unchanged, region.
   //
   // Declared here, before the town pins, for the same reason `speak` is
-  // (see its own comment above): `resumeGroundHover` below is called from
-  // the pins' own leave handlers, and a forward reference across the whole
-  // loop is worse than moving this block up.
+  // (see its own comment above): `enterPin` and `leavePin` below are called
+  // from the pins' own handlers and share this state, and a forward
+  // reference across the whole loop is worse than moving this block up.
   let lastGroundHover: string | null = null;
   const previewGround = (regionId: string | null): void => {
     if (regionId === null) {
