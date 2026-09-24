@@ -49,7 +49,7 @@ async function load(){
   $('summary').innerHTML=[['Players',s.players,0],['Sessions',s.sessions,0],['Hours played',s.hoursPlayed,1],['Median min / player',s.medianMinutesPerPlayer,0],['Came back on day 2',s.returnedDay2,0]]
     .map(([l,v,d])=>'<div class="stat"><b>'+fmt(v,d)+'</b>'+l+'</div>').join('');
   const maxDay=Math.max(1,...days.map((d)=>d.new+d.returning));
-  table($('perday'),['Day','New','Returning',''],days.map((d)=>'<tr><td>'+d.day+'</td><td class="n">'+d.new+'</td><td class="n">'+d.returning+'</td><td style="width:40%"><div class="bar" style="width:'+(100*(d.new+d.returning)/maxDay)+'%"></div></td></tr>'));
+  table($('perday'),['Day','New','Returning',''],days.map((d)=>'<tr><td>'+esc(d.day)+'</td><td class="n">'+d.new+'</td><td class="n">'+d.returning+'</td><td style="width:40%"><div class="bar" style="width:'+(100*(d.new+d.returning)/maxDay)+'%"></div></td></tr>'));
   const top=Math.max(1,fun.campaign[0]?.started||0);let worst=-1,worstAt=-1;
   fun.campaign.forEach((r,i)=>{if(i>0){const drop=fun.campaign[i-1].started-r.started;if(drop>worst){worst=drop;worstAt=i}}});
   table($('funnel'),['Mission','Started','Won','Reached'],fun.campaign.map((r,i)=>'<tr><td>'+esc(r.mission)+'</td><td class="n">'+r.started+'</td><td class="n">'+r.won+'</td><td style="width:35%"><div class="bar'+(i===worstAt?' drop':'')+'" style="width:'+(100*r.started/top)+'%"></div></td></tr>'));

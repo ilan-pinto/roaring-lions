@@ -182,7 +182,8 @@ const json = (x: unknown): Response =>
 /** /stats and /stats/api/*. Access guards this at the edge; the header check is a
  *  tripwire for a missing or misconfigured Access application, not authentication. */
 export async function handleStats(req: Request, env: Env, now: number): Promise<Response> {
-  if (!req.headers.get('cf-access-jwt-assertion')) return new Response('Cloudflare Access is not protecting /stats.', { status: 403 });
+  if (!req.headers.get('cf-access-jwt-assertion'))
+    return new Response('Cloudflare Access is not protecting /stats.', { status: 403, headers: { 'cache-control': 'no-store' } });
   const url = new URL(req.url);
   const f = parseFilter(url, now);
   switch (url.pathname) {
@@ -202,6 +203,6 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
     case '/stats/api/timeline':
       return json(await timeline(env.DB, url.searchParams.get('tester') ?? ''));
     default:
-      return new Response('Not found', { status: 404 });
+      return new Response('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
   }
 }

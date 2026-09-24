@@ -79,6 +79,7 @@ describe('handleStats', () => {
     const env: Env = { DB: openTestD1(), ASSETS: { fetch: async () => new Response('') } };
     const res = await stats.handleStats(new Request('https://g.dev/stats'), env, T0);
     expect(res.status).toBe(403);
+    expect(res.headers.get('cache-control')).toBe('no-store');
   });
   it('serves the page and JSON with the header', async () => {
     const env: Env = { DB: await seeded(), ASSETS: { fetch: async () => new Response('') } };
@@ -86,5 +87,12 @@ describe('handleStats', () => {
     expect((await stats.handleStats(new Request('https://g.dev/stats', { headers: h }), env, T0)).headers.get('content-type')).toContain('text/html');
     const res = await stats.handleStats(new Request('https://g.dev/stats/api/summary?range=all', { headers: h }), env, T0);
     expect(await res.json()).toMatchObject({ players: 2 });
+  });
+  it('answers an unknown /stats/api path with an uncached 404', async () => {
+    const env: Env = { DB: await seeded(), ASSETS: { fetch: async () => new Response('') } };
+    const h = { 'cf-access-jwt-assertion': 'x' };
+    const res = await stats.handleStats(new Request('https://g.dev/stats/api/nope', { headers: h }), env, T0);
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('no-store');
   });
 });
