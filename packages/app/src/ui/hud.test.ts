@@ -234,10 +234,15 @@ describe('top strip', () => {
     expect(two.strip()).toContain('+2 secondary');
   });
 
-  it('stamps logistics with its rate and intel as separate fields', () => {
+  // GH-229 fix round 2 (GH-77's minimal slice): the icon alone named nothing
+  // to a player who had not memorised it, which read especially badly once
+  // the dock's own credit balance sat beside a bare "520" on a tile with no
+  // icon at all. Both fields now carry a short visible WORD, not only the
+  // hover tooltip's full sentence -- rather than only the icon and the rate.
+  it('stamps logistics with its rate and intel as separate fields, each with a visible word', () => {
     const r = rig(mission({ logistics: 410, logisticsRate: 120, intel: 40 }));
-    expect(r.strip()).toContain('▣ 410 +120/min');
-    expect(r.strip()).toContain('◎ 40');
+    expect(r.strip()).toContain('▣ 410 logistics +120/min');
+    expect(r.strip()).toContain('◎ 40 intel');
   });
 
   it('drops the rate when the mission pays none, rather than printing +0/min', () => {

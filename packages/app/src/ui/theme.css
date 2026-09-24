@@ -2379,6 +2379,16 @@ body {
   /* The label and the gaps are not clickable; the tiles turn it back on. */
   pointer-events: none;
 }
+/* The header row: the small band label plus (fix round 2) the credit chip
+   beside it, at its own larger size -- see `.rl-dock__credits` below for why
+   the two cannot share one size. `baseline` keeps the bigger chip's own
+   baseline lined up with the label's text rather than centring on its
+   larger box. */
+.rl-dock__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
 /* Unpanelled type sits on the battlefield, so it carries its own halo — the
    same treatment the hold clock and the feed get. */
 .rl-dock__label {
@@ -2386,16 +2396,27 @@ body {
   color: var(--ink-label);
   text-shadow: 0 1px 3px var(--type-shadow);
 }
-/* The brigade credit balance (GH-229 bug 2), beside the label rather than
-   repeated next to every locked tile's price -- `production.ts`'s own
-   `credits` doc comment says why. `--good` on purpose: this dock already
-   spends two other colours on two other currencies inside itself --
-   `--accent` on `.rl-tile__cost` (this mission's logistics, per unit) and
-   `--info` on the support pair (this mission's intel) -- and the brigade's
-   credits are a THIRD currency, earned across the whole campaign rather than
-   this mission, so it gets a colour neither of those two claims. */
+/* The brigade credit balance (GH-229 bug 2). Fix round 1 rode it along at the
+   label's own `--t-xs` -- reviewed as illegible, "REINFORCEMENTS · B · 0 CR"
+   all at the smallest tracked-caps size on the sheet. Fix round 2 gives it
+   the top strip's OWN counter size (`--t-strip`, the size `.rl-info` reads
+   off `.rl-strip` itself) so a balance reads as easily as "▣ 424 +120/min"
+   does up there, plus a halo to match (this sits over the battlefield the
+   same as the label). `tabindex` on the element in `production.ts` plus
+   `pointer-events: auto` here is what lets its `bindTip` tooltip be reached
+   by mouse OR keyboard, the same as a dock tile -- `.rl-dock` itself sets
+   `pointer-events: none` on everything that is not a control.
+   `--good` on purpose: this dock already spends two other colours on two
+   other currencies inside itself -- `--accent` on `.rl-tile__cost` (this
+   mission's logistics, per unit) and `--info` on the support pair (this
+   mission's intel) -- and the brigade's credits are a THIRD currency, earned
+   across the whole campaign rather than this mission, so it gets a colour
+   neither of those two claims. */
 .rl-dock__credits {
+  font-size: var(--t-strip);
   color: var(--good);
+  text-shadow: 0 1px 3px var(--type-shadow);
+  pointer-events: auto;
 }
 .rl-dock__grid {
   display: grid;
