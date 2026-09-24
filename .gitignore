@@ -82,3 +82,7 @@ art/blend/
 # upload it as an artifact; it is captures and diffs, never a baseline (those
 # live in tools/golden-baselines/ and are committed deliberately by a bless).
 /visual-baseline-output/
+
+# Wrangler's local state (dev D1 shadow copy, cached auth, etc, WP-T1). Never
+# wanted in git, and it accumulates just from running `wrangler dev`.
+.wrangler/
