@@ -1324,6 +1324,17 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   elevation (`renderer.ts:2599`, a flat `isoY(...)-4`) while three's
   `TracerBatch` lifts by the higher endpoint's ground height. Three is
   correct there and Pixi is not.
+- **A unit spawned mid-mission draws correctly on three and not on Pixi.**
+  Every mid-mission spawn (a build, a reinforcement, a trigger, a wave) happens
+  inside `runtime.step`, after that tick's `renderer.snapshot()`, so until the
+  next snapshot its id is inside `sim.entityCount` with both position copies at
+  zero. Three seeds a newcomer in `snapshot()` (`prev = cur`, speed 0) and
+  bounds every per-frame loop by the count it last snapshotted, so the unit
+  appears at its spawn up to 50 ms late and never slides (`4d6d2ede`). Pixi
+  still draws it at world (0,0) for that tick and lerps it in from there --
+  measured on `wadi_halam_2_laager`, a bought jeep drawn halfway across the map
+  at 483.7 tiles/s. `renderer.ts` was left alone because its one-method
+  unfreeze (`reseed`, `8c638f1d`) is reserved for edits the compiler forces.
 - **A renderer choice persists per ORIGIN, not per tab** (`renderer-choice.ts`,
   `localStorage['lions.renderer']`). Two tabs open on the same origin fight
   over it -- observed live. Harmless between agents; a real hazard for a player
