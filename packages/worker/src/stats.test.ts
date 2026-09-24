@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { openTestD1 } from './test-d1';
 import { handleIngest } from './ingest';
 import * as stats from './stats';
-import type { Env } from './d1';
-import { issueValidAccessToken, testAccessEnv } from './access.test-helper';
+import type { Env, RateLimiter } from './d1';
+import { sessionCookieHeader, signSession, SESSION_COOKIE } from './auth';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 20);
@@ -98,33 +98,171 @@ describe('stats queries', () => {
   });
 });
 
-describe('handleStats', () => {
-  const DOMAIN = 'stats-test.cloudflareaccess.com';
+const PASSWORD = 'correct horse battery staple';
+const NOOP_ASSETS = { fetch: async () => new Response('') };
 
-  it('refuses without the Access assertion header', async () => {
-    const env: Env = { DB: openTestD1(), ASSETS: { fetch: async () => new Response('') }, ...testAccessEnv(DOMAIN) };
+function fakeLimiter(succeeds: boolean): RateLimiter & { calls: string[] } {
+  const calls: string[] = [];
+  return {
+    calls,
+    limit: async ({ key }) => {
+      calls.push(key);
+      return { success: succeeds };
+    },
+  };
+}
+
+async function loggedInCookie(password: string, now: number): Promise<string> {
+  const header = await sessionCookieHeader(password, now);
+  return header.split(';')[0]; // "stats_session=<value>", suitable for a Cookie request header
+}
+
+describe('handleStats', () => {
+  it('no secret: 403 on /stats, /stats/api/summary and POST /stats/login', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS };
+    for (const req of [
+      new Request('https://g.dev/stats'),
+      new Request('https://g.dev/stats/api/summary'),
+      new Request('https://g.dev/stats/login', { method: 'POST', body: 'password=x' }),
+    ]) {
+      const res = await stats.handleStats(req, env, T0);
+      expect(res.status).toBe(403);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+    }
+  });
+
+  it('GET /stats without a session shows the login page', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
     const res = await stats.handleStats(new Request('https://g.dev/stats'), env, T0);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
     expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.text()).toContain('action="/stats/login"');
   });
-  it('refuses a forged header value that is not a valid Access JWT', async () => {
-    const env: Env = { DB: openTestD1(), ASSETS: { fetch: async () => new Response('') }, ...testAccessEnv(DOMAIN) };
-    const h = { 'cf-access-jwt-assertion': 'x' };
-    const res = await stats.handleStats(new Request('https://g.dev/stats', { headers: h }), env, T0);
-    expect(res.status).toBe(403);
+
+  it('GET /stats/api/summary without a session is a 401 JSON error, never HTML', async () => {
+    const env: Env = { DB: await seeded(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const res = await stats.handleStats(new Request('https://g.dev/stats/api/summary'), env, T0);
+    expect(res.status).toBe(401);
+    expect(res.headers.get('content-type')).toContain('application/json');
     expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ error: 'unauthorized' });
   });
-  it('serves the page and JSON with a validly signed Access token', async () => {
-    const env: Env = { DB: await seeded(), ASSETS: { fetch: async () => new Response('') }, ...testAccessEnv(DOMAIN) };
-    const h = { 'cf-access-jwt-assertion': await issueValidAccessToken(DOMAIN, T0) };
-    expect((await stats.handleStats(new Request('https://g.dev/stats', { headers: h }), env, T0)).headers.get('content-type')).toContain('text/html');
-    const res = await stats.handleStats(new Request('https://g.dev/stats/api/summary?range=all', { headers: h }), env, T0);
-    expect(await res.json()).toMatchObject({ players: 2 });
+
+  it('wrong password: 401 login page, no Set-Cookie', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const req = new Request('https://g.dev/stats/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'password=wrong',
+    });
+    const res = await stats.handleStats(req, env, T0);
+    expect(res.status).toBe(401);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    expect(res.headers.get('set-cookie')).toBe(null);
+    expect(await res.text()).toContain('That password is not right.');
   });
-  it('answers an unknown /stats/api path with an uncached 404', async () => {
-    const env: Env = { DB: await seeded(), ASSETS: { fetch: async () => new Response('') }, ...testAccessEnv(DOMAIN) };
-    const h = { 'cf-access-jwt-assertion': await issueValidAccessToken(DOMAIN, T0) };
-    const res = await stats.handleStats(new Request('https://g.dev/stats/api/nope', { headers: h }), env, T0);
+
+  it('right password: 303 + Set-Cookie with the exact attributes, then the cookie unlocks the page and the JSON', async () => {
+    const env: Env = { DB: await seeded(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const req = new Request('https://g.dev/stats/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'password=' + encodeURIComponent(PASSWORD),
+    });
+    const res = await stats.handleStats(req, env, T0);
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/stats');
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain(`${SESSION_COOKIE}=`);
+    expect(setCookie).toContain('HttpOnly');
+    expect(setCookie).toContain('Secure');
+    expect(setCookie).toContain('SameSite=Strict');
+    expect(setCookie).toContain('Path=/stats');
+    expect(setCookie).toContain('Max-Age=604800');
+
+    const cookie = setCookie.split(';')[0];
+    const dashboard = await stats.handleStats(new Request('https://g.dev/stats', { headers: { cookie } }), env, T0);
+    expect(await dashboard.text()).toContain('Roaring Lions Stats');
+    expect(dashboard.headers.get('content-type')).toContain('text/html');
+
+    const api = await stats.handleStats(new Request('https://g.dev/stats/api/summary?range=all', { headers: { cookie } }), env, T0);
+    expect(api.status).toBe(200);
+    expect(await api.json()).toMatchObject({ players: 2 });
+  });
+
+  it('a tampered signature, an expired session and a session signed with a different password all fall back to the login page (and 401 JSON on the API)', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const good = await loggedInCookie(PASSWORD, T0);
+    const tampered = good.slice(0, -1) + (good.at(-1) === 'A' ? 'B' : 'A');
+    const expiredValue = await signSession(PASSWORD, T0 - 1);
+    const expired = `${SESSION_COOKIE}=${expiredValue}`;
+    const wrongPasswordValue = await signSession('a different password', T0 + 1000);
+    const wrongPassword = `${SESSION_COOKIE}=${wrongPasswordValue}`;
+
+    for (const cookie of [tampered, expired, wrongPassword]) {
+      const page = await stats.handleStats(new Request('https://g.dev/stats', { headers: { cookie } }), env, T0);
+      expect(await page.text()).toContain('action="/stats/login"');
+      const api = await stats.handleStats(new Request('https://g.dev/stats/api/summary', { headers: { cookie } }), env, T0);
+      expect(api.status).toBe(401);
+      expect(await api.json()).toEqual({ error: 'unauthorized' });
+    }
+  });
+
+  it('LOGIN_LIMIT failing answers 429 and never checks the password (a limiter fake records calls; the password given would have been correct)', async () => {
+    const limiter = fakeLimiter(false);
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD, LOGIN_LIMIT: limiter };
+    const req = new Request('https://g.dev/stats/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', 'cf-connecting-ip': '203.0.113.9' },
+      body: 'password=' + encodeURIComponent(PASSWORD),
+    });
+    const res = await stats.handleStats(req, env, T0);
+    expect(res.status).toBe(429);
+    expect(res.headers.get('set-cookie')).toBe(null);
+    expect(await res.text()).toContain('Too many attempts. Wait a minute and try again.');
+    expect(limiter.calls).toEqual(['203.0.113.9']);
+  });
+
+  it('a foreign Origin on POST /stats/login is refused with 403', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const req = new Request('https://g.dev/stats/login', {
+      method: 'POST',
+      headers: { origin: 'https://evil.example', 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'password=' + encodeURIComponent(PASSWORD),
+    });
+    const res = await stats.handleStats(req, env, T0);
+    expect(res.status).toBe(403);
+  });
+
+  it('a login body over 4 KB is rejected with 413 and the password is not checked', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const req = new Request('https://g.dev/stats/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'password=' + encodeURIComponent(PASSWORD) + '&pad=' + 'x'.repeat(5000),
+    });
+    const res = await stats.handleStats(req, env, T0);
+    expect(res.status).toBe(413);
+    expect(res.headers.get('set-cookie')).toBe(null);
+  });
+
+  it('GET or POST /stats/logout clears the session cookie and redirects to /stats', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    for (const method of ['GET', 'POST']) {
+      const res = await stats.handleStats(new Request('https://g.dev/stats/logout', { method }), env, T0);
+      expect(res.status).toBe(303);
+      expect(res.headers.get('location')).toBe('/stats');
+      const setCookie = res.headers.get('set-cookie') ?? '';
+      expect(setCookie).toContain(`${SESSION_COOKIE}=;`);
+      expect(setCookie).toContain('Max-Age=0');
+    }
+  });
+
+  it('answers an unknown /stats/api path with an uncached 404 once authenticated', async () => {
+    const env: Env = { DB: await seeded(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const cookie = await loggedInCookie(PASSWORD, T0);
+    const res = await stats.handleStats(new Request('https://g.dev/stats/api/nope', { headers: { cookie } }), env, T0);
     expect(res.status).toBe(404);
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
