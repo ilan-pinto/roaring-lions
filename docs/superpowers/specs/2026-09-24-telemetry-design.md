@@ -3,7 +3,7 @@
 **Status:** approved by Ilan 2026-09-24; revised the same day with the
 execution-plan session's eight review findings (soft-navigation abandons, 14
 tutorial steps, service-worker scope, `packages/worker`, D1 headroom, IP rate
-limit, consent, tester wording). Consent is the one open decision.
+limit, consent, tester wording). Both decisions taken the same day: two backends deliberate; consent accepted for the private test, a menu notice before public launch.
 **Work package:** WP-T1 (proposed by the execution-plan session; lane A plus a
 new root-level Worker).
 **Brainstormed in:** session "Roaring Lion GitHub Pages deployment".
@@ -240,7 +240,7 @@ game's own origin; the ledger is account-bound and authoritative. They share
 nothing but the player id, and a Supabase account can later be linked to the
 anonymous telemetry id.
 
-**Consent — OPEN.** An anonymous UUID kept in `localStorage` for analytics is
+**Consent — DECIDED 2026-09-24: (c) now, (a) before public launch.** An anonymous UUID kept in `localStorage` for analytics is
 still an identifier stored on the device; for EU players ePrivacy art. 5(3)
 generally wants consent for that, and honouring GPC/DNT is not asking. Options:
 
@@ -251,7 +251,7 @@ generally wants consent for that, and honouring GPC/DNT is not asking. Options:
 - **(c)** accept the risk for the private test phase and revisit before any
   public or Steam launch.
 
-Recommended: **(c) now, (a) as a gate on public launch** — the build is private
+Ilan chose **(c) now, (a) as a gate on public launch** — the build is private
 and shared with testers by link, and (a) is small enough to land with the
 public switch.
 
