@@ -203,7 +203,7 @@ The combat model is the product. Everything else is scaffolding around it.
   anonymous events to `/api/events` ONLY from a production build on a real host, or with
   `?telemetry` -- never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any
   console error. `?tester=<name>` labels a tester, `?notrack` opts out (persisted). Results
-  are at `/stats`, behind Cloudflare Access. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
+  are read from the terminal with `packages/worker/QUERIES.sql` (`npx wrangler d1 execute roaring-lions-telemetry --remote --file ...`); `/stats` exists but answers 403 until Cloudflare Access is configured (deliberately, 24 Sep). Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
 
 - **The shell is on a router, and the screens are PATHS**
   (`packages/app/src/shell/router.ts`, Phase 1): `/` the menu, `/campaign` the

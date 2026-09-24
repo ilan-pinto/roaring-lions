@@ -204,6 +204,20 @@ The page lives in the Worker, not in `packages/app`, so the game bundle does not
 grow and the UI colour rule does not have to stretch to it. It still takes its
 colours from `data/palette.json` and its fonts from `assets/fonts/`.
 
+**Closed by decision, 24 Sep 2026.** The page ships but stays **deliberately
+closed**. Cloudflare Zero Trust (Access) asks for a payment method even on its
+free tier, so Ilan chose not to set it up for now. `ACCESS_TEAM_DOMAIN` and
+`ACCESS_AUD` stay empty, and the Worker's JWT check fails closed: `/stats` and
+`/stats/api/*` answer 403 to everyone. Until Access is set up, the same numbers
+come from the terminal, using the ready-made queries in
+`packages/worker/QUERIES.sql`:
+
+    npx wrangler d1 execute roaring-lions-telemetry --remote --file packages/worker/QUERIES.sql
+
+The option not taken stays available: replace the Access check with a password
+stored as a Worker secret (`wrangler secret put`). That opens the page without
+Zero Trust and needs only a change to `handleStats`.
+
 ## 5. Retiring GitHub Pages
 
 `.github/workflows/pages.yml` fails on every push since the repo went private.
