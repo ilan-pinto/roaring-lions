@@ -5,7 +5,7 @@ execution-plan session's eight review findings (soft-navigation abandons, 14
 tutorial steps, service-worker scope, `packages/worker`, D1 headroom, IP rate
 limit, consent, tester wording). Both decisions taken the same day: two backends deliberate; consent accepted for the private test, a menu notice before public launch.
 **Work package:** WP-T1 (proposed by the execution-plan session; lane A plus a
-new root-level Worker).
+new `packages/worker`; GitHub #218).
 **Brainstormed in:** session "Roaring Lion GitHub Pages deployment".
 
 ## Why
