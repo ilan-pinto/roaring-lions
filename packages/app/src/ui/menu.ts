@@ -512,6 +512,14 @@ export interface EndScreenOptions {
    *  never a fallback to the other outcome's, and never the hatch alone
    *  standing in for missing text: no paragraph at all. */
   debrief?: EndScreenDebrief;
+  /** A victory's `aftermath` (GDD §11), the mission's closing narration,
+   *  drawn under the speaker's line, above the rating. The caller passes the
+   *  value the outcome moment was handed (`outcomeMomentOptions`'s
+   *  `aftermath`, `ui/outcome-moment.ts`), so the two surfaces read one
+   *  value under one rule -- victory only, only when authored -- and this
+   *  screen does not restate it. The moment only previews it for its hold;
+   *  this is where it stays up long enough to read. Absent: no paragraph. */
+  aftermath?: string;
   /** Opens the full debrief screen (Task 9's `ui/debrief.ts`) in place of this
    *  panel. Optional: a caller with nothing to show beyond this 26.25rem card
    *  (no wiring yet, or a context with no ledger to report on) simply omits
@@ -572,6 +580,14 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     debrief.className = 'rl-enddebrief';
     debrief.textContent = t('menu.end.quote', { text });
     p.body.appendChild(debrief);
+  }
+
+  // Mission data, so `textContent`: an authored tag is shown, not parsed.
+  if (opts.aftermath !== undefined) {
+    const aftermath = document.createElement('p');
+    aftermath.className = 'rl-endaftermath';
+    aftermath.textContent = opts.aftermath;
+    p.body.appendChild(aftermath);
   }
 
   const summary = document.createElement('div');

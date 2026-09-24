@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 //
 // `showEndScreen`'s `debrief` (GDD §11, outcome-aware since G11): the one
-// field this file's own `EndScreenOptions` carries beyond plain navigation.
+// field this file's own `EndScreenOptions` carried beyond plain navigation,
+// until a victory's `aftermath` joined it (the final review's second
+// correction to ruling 9, tested below with the value the moment is handed).
 // The victory/defeat PICK itself happens in `main.ts` (it is the one place
 // `mission.debrief` and `me.result` are both in scope) -- what this screen
 // owns, and what these tests hold it to, is rendering whatever single
@@ -11,7 +13,10 @@
 // exists", which is not what changed here.
 
 import { describe, expect, it } from 'vitest';
+import { applyMissionLocale, missions } from '@lions/data';
+import type { MissionJson } from '@lions/sim';
 import { showEndScreen, showMenu } from './menu';
+import { outcomeMomentOptions } from './outcome-moment';
 import type { ParsedWorld } from '../campaign';
 
 const world = { name: 'The Sahar Basin' } as unknown as ParsedWorld;
@@ -207,6 +212,47 @@ describe('showEndScreen', () => {
       debrief: { plate: 'CPT. HAMMAI', text: long },
     });
     expect(host.querySelector('.rl-enddebrief')!.textContent).toBe(`“${long}”`);
+  });
+
+  // Final review, the second correction to ruling 9. The outcome moment
+  // previews a victory's `aftermath` for its 2.6 s hold, and about 45 words
+  // do not read in that -- the old HUD banner stayed up. So this screen, the
+  // one that stays, carries it too, and from the SAME value the moment is
+  // handed: `outcomeMomentOptions` over the locale-applied mission, which is
+  // what `main.ts` passes both surfaces. `wadi_halam_5_depot` closes the Wadi
+  // Halam arc. Victory only, as the banner drew it; text, never markup.
+  it('carries a won finale\'s aftermath from the value the moment is handed, and a lost one\'s not', () => {
+    const raw = (missions as Record<string, MissionJson | undefined>).wadi_halam_5_depot;
+    if (raw === undefined) throw new Error('fixture: wadi_halam_5_depot is gone');
+    const mission = applyMissionLocale(raw, null);
+    expect(mission.aftermath, 'premise: the finale authors an aftermath').toMatch(/^The corridor is cut\./);
+
+    const end = (result: 'victory' | 'defeat', aftermath: string | undefined): HTMLElement => {
+      const host = document.createElement('div');
+      showEndScreen(host, {
+        result,
+        roe: 90,
+        survivors: 5,
+        missionId: mission.id,
+        debrief: { plate: 'CPT. HAMMAI', text: 'Nineteen points.' },
+        aftermath,
+      });
+      return host;
+    };
+
+    const won = end('victory', outcomeMomentOptions('victory', mission).aftermath);
+    const after = won.querySelector('.rl-endaftermath');
+    expect(after?.textContent).toBe(mission.aftermath);
+    // Under the speaker's line, above the rating.
+    expect(won.querySelector('.rl-enddebrief')?.nextElementSibling).toBe(after);
+
+    const lost = end('defeat', outcomeMomentOptions('defeat', mission).aftermath);
+    expect(lost.querySelector('.rl-endaftermath')).toBeNull();
+
+    // Mission data, so text: an authored tag shows as the characters it is.
+    const tagged = end('victory', 'The corridor is <b>cut</b>.');
+    expect(tagged.querySelector('.rl-endaftermath b')).toBeNull();
+    expect(tagged.querySelector('.rl-endaftermath')?.textContent).toBe('The corridor is <b>cut</b>.');
   });
 
   it('offers the debrief when a caller wires one', () => {

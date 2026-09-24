@@ -78,9 +78,11 @@ export interface OutcomeMomentOptions {
   /** The mission's `aftermath` -- the victory narration a mission may
    *  author, drawn directly under the verdict, as text. The HUD's end banner
    *  used to be the only thing that showed it, and it stands down for this
-   *  moment (final review, ruling 9, and its correction), so this is now its
-   *  one place. Absent, not an empty paragraph, when there is none. It buys
-   *  no hold of its own: `holdMs` is still the whole hold. */
+   *  moment (final review, ruling 9, and its corrections). The moment only
+   *  PREVIEWS it: the end screen is handed the same value
+   *  (`EndScreenOptions.aftermath`) and is where it can be read. Absent, not
+   *  an empty paragraph, when there is none. It buys no hold of its own:
+   *  `holdMs` is still the whole hold. */
   aftermath?: string;
   holdMs?: number;
 }
