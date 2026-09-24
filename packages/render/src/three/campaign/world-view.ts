@@ -120,8 +120,8 @@ export interface WorldViewOptions {
    * the GLB fetch and again after it, and the second check is the one that
    * matters: it is the last point before `new THREE.WebGLRenderer`, so a
    * player who leaves while the ~3.8 MiB diorama is still downloading costs
-   * no WebGL context at all -- the promise rejects with the signal's
-   * `AbortError` instead. Everything after that check up to the return is
+   * no WebGL context at all -- the promise rejects with an `AbortError`
+   * instead. Everything after that check up to the return is
    * synchronous, so no leave can land between the check and the context.
    */
   signal?: AbortSignal;
@@ -163,6 +163,13 @@ const CLICK_SLOP_PX = 4;
 
 const TAU = Math.PI * 2;
 
+/** What `mountWorldView` rejects with when its screen was left first. Built
+ *  here rather than taken from `AbortSignal.throwIfAborted()`, which needs
+ *  Chrome 100 / Safari 15.4 and which Vite does not polyfill; the app
+ *  recognises the case by `signal.aborted`, never by this error. */
+const leftEarly = (): DOMException =>
+  new DOMException('the campaign board was left before it mounted', 'AbortError');
+
 /**
  * Load the world and mount it into `host`.
  *
@@ -170,8 +177,8 @@ const TAU = Math.PI * 2;
  * or if the scene graph does not carry the campaign contract
  * (`world-scene.ts` throws by node name). The app catches all of those the
  * same way -- by falling back to the flat PNG board -- because none of them
- * should cost a player their campaign screen. Rejects with `opts.signal`'s
- * `AbortError` if the screen was left before the view existed, having made
+ * should cost a player their campaign screen. Rejects with an `AbortError`
+ * (`leftEarly`) if the screen was left before the view existed, having made
  * no WebGL context; the app tells that apart by the signal, not the error.
  * On every rejection after the context exists, the context is lost first.
  */
@@ -190,10 +197,10 @@ export async function mountWorldView(
         '-- every shipped GLB is compressed (level load time, step 4)'
     );
   }
-  opts.signal?.throwIfAborted();
+  if (opts.signal?.aborted) throw leftEarly();
   const gltf = await gltfLoader().loadAsync(opts.meshUrl);
   // The last point before a context exists -- see `signal`'s own comment.
-  opts.signal?.throwIfAborted();
+  if (opts.signal?.aborted) throw leftEarly();
 
   const renderer = new THREE.WebGLRenderer({
     // Transparent: the campaign page's own ground shows through, so the
