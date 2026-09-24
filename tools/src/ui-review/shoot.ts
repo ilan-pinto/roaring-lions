@@ -51,6 +51,7 @@
 // packages/app or assets/ triggers vite-plugin-asset-watch and reloads the
 // page being photographed) -- .superpowers/ is git-ignored and unwatched.
 import { chromium, type Browser, type Page } from 'playwright';
+import { FREEZE_FOR_SCREENSHOT_SCRIPT, RESTORE_AFTER_SCREENSHOT_SCRIPT } from './frame-freeze';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -190,9 +191,28 @@ const url = (p: string): string => `${BASE}${p}${PSEUDO ? `${p.includes('?') ? '
 const devServer = await ensureDevServer(PORT, REPO_ROOT, TAG);
 let browser: Browser | null = null;
 try {
+  // Fix round 2, part C: real hardware GPU, not SwiftShader software
+  // rendering -- see `backend-curve-gate.ts`/`render-frame-cost.ts` for the
+  // same args used the same way. Measured directly against THIS defect
+  // (`outcome-freeze-probe.ts`): with the frame loop frozen from well before
+  // the outcome moment's own scene ever rendered -- ruling out "competing
+  // with an active loop" as the cause -- `page.screenshot()` of the
+  // post-combat scene still cost 5.4s on SwiftShader, and 115-164ms on
+  // Metal. The cost is the SwiftShader software-rasteriser readback of a
+  // complex scene, not loop contention, and freezing the loop cannot touch
+  // it -- CLAUDE.md's own scaling-debt entry on draw-call submission cost is
+  // the same bottleneck this file's own combat/wreck-heavy end state hits.
+  // `unit-plates.ts`'s "Hardware GPU: tried, and rejected as the default"
+  // does not apply here: its crash was a WebGL context loss following rapid
+  // `spawn`/`removeFromPlay` churn (a garage plate loop cycling many unit
+  // types through one page), which this file never does -- one mission
+  // played normally start to end, then a SEPARATE fresh context for the
+  // victory mission. `readUnmaskedRenderer` (`golden-diff/browser.ts`)
+  // exists to confirm which backend actually launched, for exactly this
+  // kind of doubt.
   browser = await chromium.launch({
     headless: true,
-    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+    args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--use-gl=angle', '--enable-gpu-rasterization', '--disable-gpu-sandbox'],
   });
   for (const res of RESOLUTIONS) {
     const dirName = `${res.width}x${res.height}`;
@@ -490,9 +510,36 @@ try {
     // Task 6: the moment (`ui/outcome-moment.ts`) is a held, full-screen
     // dialog in FRONT of the end screen. Photograph it FIRST, then skip it --
     // without the skip the `.rl-endnav` wait below times out, which is how
-    // this line was found.
+    // this line was found. This wait runs on the REAL, unfrozen rAF: see the
+    // freeze comment right below for why that matters.
     await page.waitForSelector('.rl-outcome[data-outcome="defeat"]', { timeout: 15000 });
+    // Fix round 2: `page.screenshot()` ALONE was measured taking 4.7-6.9s
+    // here -- longer than the moment's fixed 2600ms hold
+    // (`OUTCOME_HOLD_MS`) -- because the live mission scene keeps rendering
+    // through SwiftShader while Playwright's screenshot pipeline waits its
+    // turn on the same render thread. `OutcomeMomentDismissedError` fired in
+    // 6 of 7 runs, 3 of them at low load, so this was not a load artifact.
+    // `frame-freeze.ts` stubs `window.requestAnimationFrame` so `main.ts`'s
+    // `loop()` cannot re-arm itself, stopping the app from submitting new
+    // frames so the imminent screenshot composites the already-painted
+    // canvas instead of racing a continuous one.
+    //
+    // This is NOT `FREEZE_FRAME_LOOP_STATEMENTS` (the golden gate's own
+    // ONE-WAY freeze, `golden-diff/capture-protocol.ts`) applied the same
+    // way: that one is safe to run before `waitForSelector` there because
+    // the golden gate never calls another Playwright locator wait
+    // afterwards. Here it broke `waitForSelector` itself -- Playwright's own
+    // actionability polling needs a real animation frame too, and hung for
+    // the full 15s timeout even though `.count()` on the same page confirmed
+    // the element already existed (see frame-freeze.ts's header for the
+    // measurement). So this freezes only AFTER `waitForSelector` above has
+    // already confirmed presence on the real rAF, and restores immediately
+    // after the screenshot below, before `.rl-outcome__skip`'s click and the
+    // `.rl-endnav`/`.rl-debrief` waits that follow need Playwright's own
+    // polling working again.
+    await page.evaluate(FREEZE_FOR_SCREENSHOT_SCRIPT);
     await shot(page, dir, '25-outcome-defeat');
+    await page.evaluate(RESTORE_AFTER_SCREENSHOT_SCRIPT);
     // Fix round 1 (Task 6 review): `shot()` alone never checked that the
     // moment was STILL the thing on screen by the time its pixels were
     // rasterised. Under load, a real run captured this PNG after the
@@ -502,6 +549,8 @@ try {
     // check separately (its own header: `dismiss()` removes the node
     // SYNCHRONOUSLY, unlike `titleCard`'s fade) -- presence is the whole
     // check, and its absence here means the PNG just taken is mislabelled.
+    // `.count()` is a plain, non-waiting query, so it is unaffected by
+    // whether the loop is frozen or restored at the point it runs.
     assertOutcomeStillPresent(
       (await page.locator('.rl-outcome[data-outcome="defeat"]').count()) > 0,
       '25-outcome-defeat'
@@ -566,6 +615,27 @@ try {
       await winPage.goto(url(`/mission/${MISSION}`), { waitUntil: 'load' });
       await settle(winPage, 6000);
       await dismissDeployGate(winPage, `${TAG}-victory`);
+      // Fix round 2, part A: freeze IMMEDIATELY after deploy -- BEFORE the
+      // settle(1500) below and BEFORE the plan -- rather than tightly around
+      // the screenshot the way the defeat capture does. This page's own
+      // `loop()` starts running the instant deploy clears, and it advances
+      // the sim in REAL TIME same as any live mission would: measured
+      // directly (`victory-probe.ts`), a run that reached this point with
+      // the loop still live had already ticked the sim 30 times before the
+      // plan's first `queueCommand` -- pure real-time drift from the settle
+      // wait plus evaluate() round-trips, nothing to do with the plan itself.
+      // The plan's `thenStep` counts are tuned against a run that starts
+      // from tick 0 (`tools/src/mission-harness.ts`'s own measurement), so a
+      // 30-tick head start desyncs every queued order from the enemy AI
+      // state it was aimed at -- reproduced concretely: the recon drone,
+      // which the plan's own comment notes enemy technicals are "hunting,
+      // not you", got caught and killed instead of completing its route,
+      // and the mission never reached victory at all (`.rl-outcome` absent
+      // after 15s, twice, byte-identical failure both times -- not a flake).
+      // Freezing before the drift can accrue removes it at the source,
+      // matching `capture-protocol.ts`'s own "stop the loop before the
+      // settle, not after" rule for exactly this reason.
+      await winPage.evaluate(FREEZE_FOR_SCREENSHOT_SCRIPT);
       await settle(winPage, 1500);
       await winPage.evaluate((plan) => {
         const L = (window as LionsWindow).__lions;
@@ -580,11 +650,35 @@ try {
           L.step(step.thenStep);
         }
       }, PLAN);
-      await winPage.waitForSelector('.rl-outcome[data-outcome="victory"]', { timeout: 15000 });
+      // Fix round 2, part B: the loop is frozen from before this page ever
+      // settled, so `page.waitForSelector` cannot be used here the way the
+      // defeat capture uses it before ITS freeze -- Playwright's own
+      // actionability polling needs a real animation frame too (see
+      // frame-freeze.ts's header), and this page has had none since before
+      // the plan started. `outcomeMoment(...)` is created SYNCHRONOUSLY
+      // inside `step()`'s own call stack (same architecture the scripted
+      // defeat above relies on), so by the time the `evaluate` above has
+      // returned, the node already exists if the mission reached victory --
+      // an immediate, NON-waiting `.count()` is the correct check, not a
+      // poll. Its absence here is a real plan failure (the tick-drift bug
+      // above, or a genuine regression), not a timing race, so it throws
+      // immediately with a clear cause rather than spending 15s finding out
+      // the same way `waitForSelector` would have.
+      const victoryReached = (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0;
+      if (!victoryReached) {
+        throw new Error(
+          '24-outcome-victory: the scripted plan did not reach victory (.rl-outcome[data-outcome="victory"] absent immediately after the plan\'s own step() calls) -- see the freeze comment above for the tick-drift failure mode this replaced'
+        );
+      }
       await shot(winPage, dir, '24-outcome-victory');
+      // `winCtx` closes right after this block, so nothing later on
+      // `winPage` needs the loop restored -- unlike the defeat capture,
+      // which freezes only briefly and restores before continuing the same
+      // page through the skip click and the end screen.
       // Fix round 1 (Task 6 review): same guard as the defeat capture above
       // -- see its comment and `outcome-guard.ts`'s header for the failure
-      // this closes.
+      // this closes. `.count()` is a plain, non-waiting query, unaffected by
+      // the loop being frozen.
       assertOutcomeStillPresent(
         (await winPage.locator('.rl-outcome[data-outcome="victory"]').count()) > 0,
         '24-outcome-victory'
