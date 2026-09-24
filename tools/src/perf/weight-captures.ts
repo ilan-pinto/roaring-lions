@@ -66,7 +66,8 @@
  * 577.2 with `step(1)` still in the loop, worse than the bug it was meant
  * to fix. Hand-ticking is what makes the pumps the ONLY thing that ever
  * touches `smokeClockMs`: every rung of the re-taken before-set reads
- * `modelMs === ms` exactly, at every one of the 51 rungs, for every subject.
+ * `modelMs === ms` exactly, at every one of the 51 rungs, in eleven of its
+ * twelve lanes -- the twelfth is the hit-stop exception recorded below.
  *
  * **The pumps advance the MODEL clock; they do not change what the PICTURE
  * shows.** Every screenshot is still taken through `frameOnEntity`'s own
@@ -111,15 +112,34 @@
  * correctness at the cost of twelve page loads instead of two; there is no
  * per-mission budget this instrument has to answer to.
  *
- * ## The numeric readback (R-Q)
+ * ## The numeric readback (R-Q), and the verdict that votes on it
  *
- * `debugVehicleTransform` does not exist until Task 6. Calling through it
- * would throw; this harness checks `typeof ... === 'function'` first and
- * records every reading as `null` when it is absent -- never `0`, because a
- * zero and an absence read identically (the whole `measureFacing` lesson,
- * CLAUDE.md's "every check gets an input that makes it fail"). That is the
- * correct BEFORE reading, not a failure, exactly as `blast-captures.ts`
- * reports two zeroes with a reason on its own before-set.
+ * `ThreeRenderer.debugVehicleTransform` (WP-A1.3 Task 6) is READ at every
+ * rung, never recomputed: the drawn position, pitch and roll, the sim's own
+ * speed (`simSpeed`, `entitySpeed`) and the model's ramp (`smoothedSpeed`).
+ * It is still called through a `typeof ... === 'function'` guard, and a
+ * `null` answer (no live vehicle mesh for that entity) is honoured, so the
+ * same file runs at a revision that predates it -- and every reading is then
+ * `null`, never `0`, because a zero and an absence read identically (the
+ * whole `measureFacing` lesson, CLAUDE.md's "every check gets an input that
+ * makes it fail").
+ *
+ * **Since Task 7 the ladder VOTES** (`motionVerdict`, `MOTION_FLOORS`). A
+ * sheet of pretty frames cannot tell a working model from one wired to
+ * nothing, and a model wired to nothing reads exactly like a model at rest
+ * -- so a ladder that never moves is a FAILURE, and so is one that moves on
+ * the wrong axis, breaks R-C's quarter-tile bound, or leaves an offset on a
+ * unit the sim reports stationary. Every lane of every batch is judged, the
+ * verdict is written into `sheet.md`/`sheet.json`, and a red lane makes the
+ * process exit 1. A before-set taken at the branch base therefore goes red
+ * by construction: that is the model-absent case the verdict exists to
+ * catch, not a broken capture.
+ *
+ * The one ruled exception in the before-set -- `mbt_lavi_tel_marum/start`,
+ * whose 8600 and 8800 ms rungs read `modelMs` 8550 and 8733.33 because an
+ * ambient sandbox kill near the tracked tank spends four frames of hit-stop
+ * (`catastrophic_kill.json`'s 70 ms) with `frame()`'s `dtMs` zeroed -- is
+ * deterministic, so the after-set shows the same gap at the same rungs.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -343,10 +363,10 @@ export const WEIGHT_SUBJECTS: readonly WeightSubject[] = [
  * One reading of the drawn transform against the sim's own truth, at one
  * rung of one subject's one phase (R-Q).
  *
- * `offsetTiles`, `pitchDeg`, `rollDeg` and `simSpeed` are `null` rather than
- * `0` whenever `debugVehicleTransform` cannot be read -- see the module
- * header. `simFacing` needs no such guard: it is read straight off
- * `sim.state.facing`, which exists regardless of this package's own code.
+ * `offsetTiles`, `pitchDeg`, `rollDeg`, `simSpeed` and `smoothedSpeed` are
+ * `null` rather than `0` whenever `debugVehicleTransform` cannot be read --
+ * see the module header. `simFacing` needs no such guard: it is read straight
+ * off `sim.state.facing`, which exists regardless of this package's own code.
  */
 export interface WeightReading {
   readonly ms: number;
@@ -360,13 +380,26 @@ export interface WeightReading {
   /** The SIM's own measured speed, tiles/s -- `ThreeRenderer.entitySpeed`,
    *  the tick-exact input the weight model is fed -- as
    *  `debugVehicleTransform` reports it, not re-derived from position deltas
-   *  here. It is NOT the model's smoothed ramp: that one is the transform's
-   *  separate `smoothedSpeed` field (WP-A1.3 Task 6), which this ladder does
-   *  not record. Before Task 6 this comment said the opposite. */
+   *  here. It is NOT the model's smoothed ramp: that is `smoothedSpeed`,
+   *  below. Before Task 6 this comment said the opposite. */
   readonly simSpeed: number | null;
+  /** The weight model's own speed RAMP, tiles/s (`vehicleWeight.smoothedSpeed`,
+   *  read through `debugVehicleTransform`). Beside `simSpeed` it shows the
+   *  acceleration the sim does not have: the sim steps 0 -> cruise in one
+   *  tick, this climbs at `cruise / accelSeconds`. */
+  readonly smoothedSpeed: number | null;
   /** The sim's own hull heading, in degrees (`sim.state.facing` is Q16.16
    *  turns; `* 360` converts it). Always available. */
   readonly simFacing: number;
+  /** `sim.state.alive[id] !== 0`. A subject can be KILLED mid-ladder:
+   *  `debugDisableFirepower` stops it shooting, not being shot, and on
+   *  `tel_marum` the sandbox's Sarim force destroys `mbt_lavi_tel_marum` at
+   *  tick ~281 of its `start` lane, before and after this package alike (the
+   *  hit-stop that kill throws is the before-set's 66.67 ms `modelMs` gap).
+   *  A dead hull has no weight pose to judge (R-F), so the verdict skips
+   *  those rungs rather than failing them -- and needs this to tell a dead
+   *  subject from an unwired transform, both of which read `null`. */
+  readonly alive: boolean;
 }
 
 /** One photograph and its reading, as printed in the sheet. A separate shape
@@ -384,7 +417,11 @@ export interface SheetCell {
   readonly pitchDeg: number | null;
   readonly rollDeg: number | null;
   readonly simSpeed?: number | null;
+  readonly smoothedSpeed?: number | null;
   readonly simFacing?: number;
+  /** See `WeightReading.alive`. Optional: sheets taken before Task 7 do not
+   *  carry it, and an absent value is read as alive. */
+  readonly alive?: boolean;
   /** Fix round 1, CRITICAL: how much the MODEL clock (`smokeClockMs`) has
    *  actually advanced since this run's trigger, read back rather than
    *  assumed from the labelled `ms`. The two should agree closely now that
@@ -412,16 +449,311 @@ export function sheetIndex(label: string, cells: readonly SheetCell[]): string {
     `${cells.length} frame(s) over ${subjects.length} subject(s): ${subjects.join(', ') || '(none)'}.`,
     `Ladder: ${SAMPLE_MS.length} rungs, 0..${SAMPLE_WINDOW_MS} ms every ${SAMPLE_EVERY_MS} ms.`,
     ``,
-    `| subject | phase | t (ms) | model_ms | zoom | tick | offset (tiles) | pitch (deg) | roll (deg) | sim speed | sim facing (deg) | file |`,
-    `|---|---|---|---|---|---|---|---|---|---|---|---|`,
+    `| subject | phase | t (ms) | model_ms | zoom | tick | offset (tiles) | pitch (deg) | roll (deg) | sim speed | smoothed speed | sim facing (deg) | file |`,
+    `|---|---|---|---|---|---|---|---|---|---|---|---|---|`,
     ...cells.map(
       (c) =>
         `| \`${c.subject}\` | ${c.phase} | ${c.ms} | ${fmt(c.modelMs)} | ${c.zoom} | ${c.tick} | ` +
         `${fmt(c.offsetTiles)} | ${fmt(c.pitchDeg)} | ${fmt(c.rollDeg)} | ` +
-        `${fmt(c.simSpeed)} | ${fmt(c.simFacing)} | \`${c.file}\` |`
+        `${fmt(c.simSpeed)} | ${fmt(c.smoothedSpeed)} | ${fmt(c.simFacing)} | \`${c.file}\` |`
     ),
   ];
   return lines.join('\n') + '\n';
+}
+
+// ---------------------------------------------------------------------------
+// The verdict (R-Q). Pure, and imported by the spec.
+// ---------------------------------------------------------------------------
+
+/**
+ * R-C's bound on the combined drawn-vs-sim offset, in tiles, recoil shove
+ * and weight lag together.
+ *
+ * A LITERAL, deliberately not `MAX_DRAWN_OFFSET_TILES` imported from
+ * `vehicle-weight.ts`: this is the oracle, and CLAUDE.md records what happens
+ * when an "independent" oracle imports its arguments from the code under
+ * test -- raise the renderer's clamp and both sides move together, green.
+ * The spec's number is 0.25; if the renderer's ever differs, this is the one
+ * that is right until the spec says otherwise.
+ */
+export const DRAWN_OFFSET_BOUND_TILES = 0.25;
+
+/** One rung of one lane, as the verdict reads it. `SheetCell` satisfies this,
+ *  and so does the minimal literal the spec builds. */
+export interface MotionSample {
+  readonly ms: number;
+  readonly offsetTiles: number | null;
+  readonly pitchDeg: number | null;
+  readonly rollDeg: number | null;
+  /** Optional so a fixture need not supply it; when it is present and reads
+   *  exactly 0, the rung is one the sim reports stationary and R-C's second
+   *  clause applies to it. */
+  readonly simSpeed?: number | null;
+  /** `false` only when the sim reports the subject dead at this rung; such a
+   *  rung is skipped and counted, never judged. Absent means alive. */
+  readonly alive?: boolean;
+}
+
+/**
+ * What each phase must show on its OWN axis. A field that is absent is an
+ * axis the phase does not own: it is reported, never gated, so a turn that
+ * pitches and never rolls cannot pass as a turn.
+ */
+export interface MotionFloor {
+  /** The launch squat: the ladder's largest NOSE-UP (positive) pitch, deg. */
+  readonly minPeakPitchDeg?: number;
+  /** The braking dive: the magnitude of the ladder's most NOSE-DOWN
+   *  (negative) pitch, deg. */
+  readonly minDiveDeg?: number;
+  /** The turn lean: the ladder's largest |roll|, deg. Unsigned, because the
+   *  lean's sign follows which way a subject turns (`turnSign`), and the
+   *  world-space sign is Task 6's thirteen specs' to pin, not this ladder's. */
+  readonly minPeakRollDeg?: number;
+  /** The lag: the ladder's largest drawn-vs-sim offset, tiles. */
+  readonly minPeakOffsetTiles?: number;
+  /** The measured reading the floor was set against, with its sample size,
+   *  machine, GL backend, viewport and zoom. */
+  readonly rationale: string;
+}
+
+/**
+ * The floors, one third of the smallest measured reading across every
+ * subject of a phase -- the standard `baseline.ts`'s own `layerChecks` are
+ * held to. Each phase owns the motion it is NAMED for: a start squats
+ * nose-up; a stop dives nose-down and closes the lag the hull carried at
+ * cruise; a turn leans.
+ */
+export const MOTION_FLOORS: {
+  readonly start: MotionFloor & { readonly minPeakPitchDeg: number };
+  readonly stop: MotionFloor & { readonly minDiveDeg: number; readonly minPeakOffsetTiles: number };
+  readonly turn: MotionFloor & { readonly minPeakRollDeg: number };
+} = {
+  start: {
+    minPeakPitchDeg: 0.26,
+    rationale:
+      'A third of the smallest launch squat, technical 0.7859 deg (mbt_lavi 1.7896, apc_eitan 1.1507, ' +
+      'mbt_lavi_tel_marum 16.7867 with the bench climb in it), identical to four decimals over 3 runs x ' +
+      '4 subjects, 2026-09-23: darwin-arm64 (Apple M3 Pro, macOS 26.6), headless Chromium on SwiftShader ' +
+      '(ANGLE/Vulkan), 1400x900 viewport, ladder zoom 2.5, rendered code 5f618576. On the same lanes peak ' +
+      'roll read 0.0000-0.0999 deg and peak offset 0.045-0.060 tiles -- reported, not gated: a start is ' +
+      "named for its squat. The 200 ms rung under-reads every table's own maximum (technical's authored " +
+      '1.0 deg peaks between rungs), which is one more reason the floor sits at a third and not higher.',
+  },
+  stop: {
+    minDiveDeg: 0.25,
+    minPeakOffsetTiles: 0.015,
+    rationale:
+      'A third of the smallest braking dive, apc_eitan 0.7755 deg (mbt_lavi 1.9655, technical 0.8108), ' +
+      'and of the smallest lag carried into the halt, 0.045 tiles (apc_eitan, technical; mbt_lavi 0.060), ' +
+      'identical over 3 runs x 3 subjects, 2026-09-23, same machine, GL backend, viewport and zoom as ' +
+      "`start`. mbt_lavi_tel_marum's stop lane cannot set a floor: its subject is killed at tick ~281 and " +
+      'the 400-tick "2 tiles from goal" hunt exhausts at tick 520, so it has no living rung in any run, ' +
+      'the before-set included. Peak roll 0.0000-0.0999 deg reported, not gated.',
+  },
+  turn: {
+    minPeakRollDeg: 0.36,
+    rationale:
+      'A third of the smallest lean, apc_eitan 1.0802 deg (technical 1.5449, mbt_lavi 1.4859, ' +
+      'mbt_lavi_tel_marum 1.4859), identical over 3 runs x 4 subjects, 2026-09-23, same machine, GL ' +
+      "backend, viewport and zoom as `start`. Peak pitch 0.72-2.00 deg and offset 0.045-0.060 tiles " +
+      "reported, not gated: the turn lane's opening pitch is a launch the harness makes itself (its " +
+      'cruise-up runs through step(20), which presents one frame), and on tel_marum it varies run to run ' +
+      "with the boot's own lastFrameMs (1.9979 vs 1.9996 deg) -- the one cell set that is not bit-identical.",
+  },
+};
+
+export interface MotionPeaks {
+  /** Largest signed pitch (nose-up), deg. */
+  readonly maxPitchDeg: number;
+  /** Smallest signed pitch (most nose-down), deg. */
+  readonly minPitchDeg: number;
+  readonly maxAbsRollDeg: number;
+  readonly maxOffsetTiles: number;
+}
+
+export interface MotionVerdict {
+  readonly ok: boolean;
+  /** Why it failed, one line per broken rule; empty when `ok`. */
+  readonly reasons: readonly string[];
+  /** The readings the floors were compared against -- `null` when no rung
+   *  carried a reading at all. */
+  readonly peaks: MotionPeaks | null;
+  readonly rungs: number;
+  /** Rungs skipped because the sim reports the subject dead there. */
+  readonly deadRungs: number;
+}
+
+function round4(v: number): number {
+  return Math.round(v * 10_000) / 10_000;
+}
+
+/**
+ * Judges one lane's ladder against its phase's floors, R-C's bound and R-C's
+ * stationary clause. Reference-free in the sense the layer toggle is: it
+ * never asks what the frame looks like, only whether the drawn transform
+ * moved on the axis the phase is named for, and stayed inside the bound.
+ *
+ * Fails, rather than passes, on: an empty ladder; any LIVING rung with no
+ * reading (`null` -- a model that could not be read is not a model at
+ * rest); any non-finite reading; an offset past `DRAWN_OFFSET_BOUND_TILES`;
+ * a nonzero offset on a rung whose `simSpeed` is exactly 0; a ladder with no
+ * living rung at all; and every owned axis whose peak falls short of its
+ * floor -- which is what makes a ladder that never moves red. A rung the sim
+ * reports the subject DEAD at is skipped and counted (`deadRungs`): the
+ * weight state freezes at death (R-F) and the hull leaves the mesh map in the
+ * same frame, so there is nothing there to judge.
+ */
+export function motionVerdict(phase: WeightPhase, samples: readonly MotionSample[]): MotionVerdict {
+  const floor: MotionFloor = MOTION_FLOORS[phase];
+  const reasons: string[] = [];
+  if (samples.length === 0) {
+    return {
+      ok: false,
+      reasons: [`${phase}: no rungs at all -- an empty ladder cannot pass`],
+      peaks: null,
+      rungs: 0,
+      deadRungs: 0,
+    };
+  }
+  let unread = 0;
+  let dead = 0;
+  let maxPitch = -Infinity;
+  let minPitch = Infinity;
+  let maxRoll = 0;
+  let maxOffset = 0;
+  let read = 0;
+  for (const s of samples) {
+    if (s.alive === false) {
+      dead++;
+      continue;
+    }
+    const { offsetTiles: o, pitchDeg: p, rollDeg: r } = s;
+    if (o === null || p === null || r === null) {
+      unread++;
+      continue;
+    }
+    if (!Number.isFinite(o) || !Number.isFinite(p) || !Number.isFinite(r)) {
+      reasons.push(`${phase} @ ${s.ms} ms: a non-finite reading (offset ${o}, pitch ${p}, roll ${r})`);
+      continue;
+    }
+    read++;
+    if (p > maxPitch) maxPitch = p;
+    if (p < minPitch) minPitch = p;
+    if (Math.abs(r) > maxRoll) maxRoll = Math.abs(r);
+    if (o > maxOffset) maxOffset = o;
+    if (o > DRAWN_OFFSET_BOUND_TILES) {
+      reasons.push(
+        `${phase} @ ${s.ms} ms: the drawn hull sits ${round4(o)} tiles from the sim, past R-C's ` +
+          `${DRAWN_OFFSET_BOUND_TILES}-tile bound`
+      );
+    }
+    // R-C: "never on a unit the sim reports stationary". Read as ANY offset,
+    // which is only sound because every subject here is spawned with
+    // `debugDisableFirepower` -- the recoil shove is the one other writer of
+    // the drawn position, and on a parked tank that fires it is legitimate.
+    if (s.simSpeed === 0 && o !== 0) {
+      reasons.push(
+        `${phase} @ ${s.ms} ms: the sim reports the unit stationary and the drawn hull still sits ` +
+          `${o} tiles from it -- R-C allows no lag on a stationary unit, and this harness's subjects ` +
+          'cannot fire, so there is no recoil to account for it'
+      );
+    }
+  }
+  if (unread > 0) {
+    reasons.push(
+      `${phase}: ${unread} of ${samples.length} living rung(s) carry no reading -- debugVehicleTransform ` +
+        'is absent or the vehicle had no live mesh, and a model that cannot be read is not a model at rest'
+    );
+  }
+  if (dead === samples.length) {
+    reasons.push(`${phase}: the subject is dead at every rung -- there is no living ladder to judge`);
+  }
+  if (read === 0) return { ok: false, reasons, peaks: null, rungs: samples.length, deadRungs: dead };
+
+  const peaks: MotionPeaks = {
+    maxPitchDeg: maxPitch,
+    minPitchDeg: minPitch,
+    maxAbsRollDeg: maxRoll,
+    maxOffsetTiles: maxOffset,
+  };
+  const short = (axis: string, got: number, need: number): void => {
+    reasons.push(
+      `${phase}: ${axis} peaked at ${round4(got)}, under its floor of ${need} -- a model wired to ` +
+        'nothing reads exactly like a model at rest'
+    );
+  };
+  if (floor.minPeakPitchDeg !== undefined && !(maxPitch >= floor.minPeakPitchDeg)) {
+    short('nose-up pitch (deg)', maxPitch, floor.minPeakPitchDeg);
+  }
+  if (floor.minDiveDeg !== undefined && !(-minPitch >= floor.minDiveDeg)) {
+    short('nose-down pitch (deg)', -minPitch, floor.minDiveDeg);
+  }
+  if (floor.minPeakRollDeg !== undefined && !(maxRoll >= floor.minPeakRollDeg)) {
+    short('|roll| (deg)', maxRoll, floor.minPeakRollDeg);
+  }
+  if (floor.minPeakOffsetTiles !== undefined && !(maxOffset >= floor.minPeakOffsetTiles)) {
+    short('offset (tiles)', maxOffset, floor.minPeakOffsetTiles);
+  }
+  return { ok: reasons.length === 0, reasons, peaks, rungs: samples.length, deadRungs: dead };
+}
+
+/** One lane's verdict, as written into `sheet.json`. */
+export interface LaneVerdict extends MotionVerdict {
+  readonly subject: string;
+  readonly phase: WeightPhase;
+}
+
+/**
+ * Judges every (subject, phase) lane present in `cells`, on the LADDER rungs
+ * only (`zoom`), in rung order. The establishing still repeats rung 0 at
+ * another zoom and would count it twice.
+ */
+export function laneVerdicts(cells: readonly SheetCell[], zoom: number): LaneVerdict[] {
+  const lanes = new Map<string, { subject: string; phase: WeightPhase; cells: SheetCell[] }>();
+  for (const c of cells) {
+    if (c.zoom !== zoom) continue;
+    const key = `${c.subject}|${c.phase}`;
+    let lane = lanes.get(key);
+    if (lane === undefined) {
+      lane = { subject: c.subject, phase: c.phase, cells: [] };
+      lanes.set(key, lane);
+    }
+    lane.cells.push(c);
+  }
+  return [...lanes.values()]
+    .sort((a, b) => a.subject.localeCompare(b.subject) || a.phase.localeCompare(b.phase))
+    .map((lane) => ({
+      subject: lane.subject,
+      phase: lane.phase,
+      ...motionVerdict(
+        lane.phase,
+        [...lane.cells].sort((a, b) => a.ms - b.ms)
+      ),
+    }));
+}
+
+/** The verdict table `sheet.md` carries beneath the ladder. */
+export function verdictLines(verdicts: readonly LaneVerdict[]): string[] {
+  const fmtPeak = (v: number | undefined): string => (v === undefined ? 'n/a' : String(round4(v)));
+  return [
+    ``,
+    `## Verdict (R-Q)`,
+    ``,
+    `Floors: start nose-up pitch >= ${MOTION_FLOORS.start.minPeakPitchDeg} deg; stop nose-down pitch >= ` +
+      `${MOTION_FLOORS.stop.minDiveDeg} deg and offset >= ${MOTION_FLOORS.stop.minPeakOffsetTiles} tiles; ` +
+      `turn |roll| >= ${MOTION_FLOORS.turn.minPeakRollDeg} deg; every rung offset <= ` +
+      `${DRAWN_OFFSET_BOUND_TILES} tiles, and exactly 0 wherever the sim speed is 0.`,
+    ``,
+    `| subject | phase | verdict | max pitch | min pitch | max abs roll | max offset | dead rungs | reasons |`,
+    `|---|---|---|---|---|---|---|---|---|`,
+    ...verdicts.map(
+      (v) =>
+        `| \`${v.subject}\` | ${v.phase} | ${v.ok ? 'PASS' : 'FAIL'} | ${fmtPeak(v.peaks?.maxPitchDeg)} | ` +
+        `${fmtPeak(v.peaks?.minPitchDeg)} | ${fmtPeak(v.peaks?.maxAbsRollDeg)} | ` +
+        `${fmtPeak(v.peaks?.maxOffsetTiles)} | ${v.deadRungs} of ${v.rungs} | ` +
+        `${v.reasons.join('; ').replace(/\|/g, '/') || '--'} |`
+    ),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -557,7 +889,8 @@ interface LionsWindow {
       /**
        * Added in Task 6. Declared here optional and read through a `typeof`
        * guard, never asserted, so this file compiles and runs identically
-       * before and after that task lands -- see the module header.
+       * before and after that task lands -- see the module header. `null`
+       * for an entity with no live vehicle mesh (not loaded yet, or dead).
        */
       debugVehicleTransform?: (id: number) => {
         x: number;
@@ -565,7 +898,8 @@ interface LionsWindow {
         pitchDeg: number;
         rollDeg: number;
         simSpeed: number;
-      };
+        smoothedSpeed: number;
+      } | null;
     };
   };
 }
@@ -625,8 +959,7 @@ async function main(): Promise<void> {
   const { revision, dirty } = readGitInfo();
   const cells: SheetCell[] = [];
   const notes: string[] = [];
-  let sawWiredTransform = false;
-  let sawNonZeroWiredTransform = false;
+  let verdicts: LaneVerdict[] = [];
 
   const server = await ensureDevServer(port, REPO_ROOT, 'weight-captures');
   const browser = await chromium.launch({ headless: true });
@@ -741,12 +1074,6 @@ async function main(): Promise<void> {
           clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
         });
         const reading = await readTransform(page, entity);
-        if (reading.offsetTiles !== null) {
-          sawWiredTransform = true;
-          if (reading.offsetTiles !== 0 || reading.pitchDeg !== 0 || reading.rollDeg !== 0) {
-            sawNonZeroWiredTransform = true;
-          }
-        }
         cells.push({
           subject: run.subject.id,
           phase: run.phase,
@@ -761,32 +1088,36 @@ async function main(): Promise<void> {
       await page.close();
     }
 
-    if (!sawWiredTransform) {
-      notes.push(
-        '`debugVehicleTransform` is not wired yet (added in Task 6) -- offsetTiles/pitchDeg/rollDeg/' +
-          'simSpeed read `null` for every rung of every subject/phase. This is the correct BEFORE ' +
-          'reading, not a failure -- exactly as blast-captures.ts reports two zeroes with a reason on ' +
-          'its own before-set.'
-      );
-    }
-
-    writeIndex(out, label, cells, notes, { gl, stepJumpMs: firstStepJumpMs, port, revision, dirty }, wantedSubjects);
+    verdicts = writeIndex(
+      out,
+      label,
+      cells,
+      notes,
+      { gl, stepJumpMs: firstStepJumpMs, port, revision, dirty },
+      wantedSubjects
+    );
   } finally {
     await browser.close();
     stopDevServer(server, 'weight-captures');
   }
 
-  // R-Q: once the transform IS wired, a reading that is wired but reads zero
-  // everywhere is a model wired to nothing, and that is a failure -- the
-  // same rule `debug-layers.ts` states for a layer toggle. It cannot fire on
-  // this branch (nothing calls `debugVehicleTransform` from Task 6 yet), so
-  // this only starts biting once the after-set is capturable.
-  if (sawWiredTransform && !sawNonZeroWiredTransform) {
-    console.error(
-      '\ndebugVehicleTransform is wired but reported the identity transform (0 offset, 0 pitch, ' +
-        '0 roll) on every single rung of every subject and phase -- a model wired to nothing reads ' +
-        'exactly like a model at rest.'
-    );
+  // R-Q: the ladder votes. Only THIS batch's own lanes set the exit code --
+  // a merged sheet also carries every earlier batch's verdict, and a batch
+  // should not go red for a lane it did not capture.
+  const ran = new Set(runs.map((r) => `${r.subject.id}|${r.phase}`));
+  const mine = verdicts.filter((v) => ran.has(`${v.subject}|${v.phase}`));
+  console.log('\nverdict (R-Q):');
+  for (const v of mine) {
+    const p = v.peaks;
+    const peaks = p === null
+      ? 'no readings'
+      : `pitch ${round4(p.minPitchDeg)}..${round4(p.maxPitchDeg)} deg, |roll| ${round4(p.maxAbsRollDeg)} deg, ` +
+        `offset ${round4(p.maxOffsetTiles)} tiles`;
+    console.log(`  ${v.ok ? 'PASS' : 'FAIL'} ${v.subject} / ${v.phase}: ${peaks}`);
+    for (const r of v.reasons) console.log(`       ${r}`);
+  }
+  if (mine.some((v) => !v.ok)) {
+    console.error('\nweight-captures: at least one lane failed its verdict -- see above and sheet.md');
     process.exitCode = 1;
   }
 }
@@ -1061,24 +1392,44 @@ async function frameOnEntity(
  *  `subject` and `phase` -- those three are known to the caller already, and
  *  keeping this return type free of them means spreading it into a `cells`
  *  entry can never silently clobber the real values with a placeholder. */
-type TransformReading = Pick<WeightReading, 'offsetTiles' | 'pitchDeg' | 'rollDeg' | 'simSpeed' | 'simFacing'>;
+type TransformReading = Pick<
+  WeightReading,
+  'offsetTiles' | 'pitchDeg' | 'rollDeg' | 'simSpeed' | 'smoothedSpeed' | 'simFacing' | 'alive'
+>;
 
 /** R-Q's numeric readback. See the module header for why every field but
- *  `simFacing` is `null` rather than `0` until Task 6 wires
- *  `debugVehicleTransform`. */
+ *  `simFacing` is `null` rather than `0` whenever `debugVehicleTransform`
+ *  is absent (a revision before Task 6) or answers `null` (no live mesh). */
 async function readTransform(page: import('playwright').Page, entity: number): Promise<TransformReading> {
   return page.evaluate(
     ([id, fixed]) => {
       const L = (window as unknown as LionsWindow).__lions;
       const simFacing = (L.sim.state.facing[id] / fixed) * 360;
-      if (typeof L.renderer.debugVehicleTransform !== 'function') {
-        return { offsetTiles: null, pitchDeg: null, rollDeg: null, simSpeed: null, simFacing };
-      }
+      const alive = L.sim.state.alive[id] !== 0;
+      const unread = {
+        offsetTiles: null,
+        pitchDeg: null,
+        rollDeg: null,
+        simSpeed: null,
+        smoothedSpeed: null,
+        simFacing,
+        alive,
+      };
+      if (typeof L.renderer.debugVehicleTransform !== 'function') return unread;
       const drawn = L.renderer.debugVehicleTransform(id);
+      if (drawn === null) return unread;
       const simX = L.sim.state.posX[id] / fixed;
       const simY = L.sim.state.posY[id] / fixed;
       const offsetTiles = Math.hypot(drawn.x - simX, drawn.y - simY);
-      return { offsetTiles, pitchDeg: drawn.pitchDeg, rollDeg: drawn.rollDeg, simSpeed: drawn.simSpeed, simFacing };
+      return {
+        offsetTiles,
+        pitchDeg: drawn.pitchDeg,
+        rollDeg: drawn.rollDeg,
+        simSpeed: drawn.simSpeed,
+        smoothedSpeed: drawn.smoothedSpeed,
+        simFacing,
+        alive,
+      };
     },
     [entity, FIXED] as const
   );
@@ -1163,6 +1514,12 @@ function loadExisting(
   }
 }
 
+/**
+ * Merges this batch into any same-label sheet already in `out`, writes
+ * `sheet.md` and `sheet.json`, and returns the verdict over EVERY lane the
+ * merged sheet now holds -- computed from the merged cells rather than this
+ * batch's alone, so the sheet's verdict table always describes the sheet.
+ */
 export function writeIndex(
   out: string,
   label: string,
@@ -1170,7 +1527,7 @@ export function writeIndex(
   notes: readonly string[],
   batch: { gl: string; stepJumpMs: number; port: number; revision: string; dirty: boolean },
   subjects: readonly WeightSubject[]
-): void {
+): LaneVerdict[] {
   const previous = loadExisting(out, label);
   const merged = new Map<string, SheetCell>();
   for (const c of previous.cells) merged.set(cellKey(c), c);
@@ -1221,7 +1578,8 @@ export function writeIndex(
     `- isolation: one page per (subject, phase) run -- see the module header`,
   ];
   const noteLines = notes.length > 0 ? [``, `## Notes`, ``, ...notes.map((n) => `- ${n}`)] : [];
-  const md = sheetIndex(label, cells) + [...condLines, ...noteLines].join('\n') + '\n';
+  const verdicts = laneVerdicts(cells, LADDER_ZOOM);
+  const md = sheetIndex(label, cells) + [...verdictLines(verdicts), ...condLines, ...noteLines].join('\n') + '\n';
   fs.writeFileSync(path.join(out, 'sheet.md'), md);
   fs.writeFileSync(
     path.join(out, 'sheet.json'),
@@ -1231,6 +1589,8 @@ export function writeIndex(
         conditions,
         subjects,
         phases: WEIGHT_PHASES,
+        floors: MOTION_FLOORS,
+        verdicts,
         cells,
         notes,
       },
@@ -1239,6 +1599,7 @@ export function writeIndex(
     ) + '\n'
   );
   console.log(`index at ${path.join(out, 'sheet.md')} (${cells.length} frames)`);
+  return verdicts;
 }
 
 // Only when run as a script. The spec imports this module for its pure half,
