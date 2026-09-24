@@ -206,9 +206,10 @@ const json = (x: unknown, status = 200): Response =>
 const html = (body: string, status = 200): Response =>
   new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8', ...NO_STORE } });
 const UNAUTHORIZED_JSON = { error: 'unauthorized' };
-const MAX_LOGIN_BODY = 4 * 1024;
+const MAX_LOGIN_BODY_BYTES = 4 * 1024;
+const REDIRECT_TO_STATS = { status: 303, headers: { location: '/stats', ...NO_STORE } } as const;
 
-async function handleLogin(req: Request, env: Env, now: number): Promise<Response> {
+async function handleLogin(req: Request, env: Env, secret: string, now: number): Promise<Response> {
   const origin = req.headers.get('origin');
   if (origin !== null && origin !== new URL(req.url).origin) {
     return new Response('Forbidden', { status: 403, headers: NO_STORE });
@@ -221,20 +222,22 @@ async function handleLogin(req: Request, env: Env, now: number): Promise<Respons
   }
 
   const contentLength = req.headers.get('content-length');
-  if (contentLength !== null && Number(contentLength) > MAX_LOGIN_BODY) {
+  if (contentLength !== null && Number(contentLength) > MAX_LOGIN_BODY_BYTES) {
     return new Response('Payload too large', { status: 413, headers: NO_STORE });
   }
   const text = await req.text();
-  if (text.length > MAX_LOGIN_BODY) {
+  // Measured in bytes, not JS string length: a multi-byte character makes those
+  // diverge, and the 4 KB cap is a wire-size limit.
+  if (new TextEncoder().encode(text).length > MAX_LOGIN_BODY_BYTES) {
     return new Response('Payload too large', { status: 413, headers: NO_STORE });
   }
 
   const password = new URLSearchParams(text).get('password') ?? '';
-  if (!(await passwordsMatch(password, env.STATS_PASSWORD as string))) {
+  if (!(await passwordsMatch(password, secret))) {
     return html(loginPageHtml('That password is not right.'), 401);
   }
 
-  const cookie = await sessionCookieHeader(env.STATS_PASSWORD as string, now);
+  const cookie = await sessionCookieHeader(secret, now);
   return new Response(null, { status: 303, headers: { location: '/stats', 'set-cookie': cookie, ...NO_STORE } });
 }
 
@@ -258,7 +261,10 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
   }
 
   if (path === '/stats/logout') return handleLogout();
-  if (path === '/stats/login' && req.method === 'POST') return handleLogin(req, env, now);
+  if (path === '/stats/login') {
+    if (req.method === 'POST') return handleLogin(req, env, secret, now);
+    return new Response(null, REDIRECT_TO_STATS); // GET: no form handling here, just send it to the login/dashboard gate
+  }
 
   const authed = await verifySession(readCookie(req, SESSION_COOKIE), secret, now);
 
