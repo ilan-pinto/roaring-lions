@@ -24,7 +24,13 @@
 //     and the order locked units sort in. Those are economy rules with their
 //     own tests, and this task is a re-draw.
 //   * The purchase protocol: this screen only ever ASKS (`onBuy`,
-//     `onBuyUpgrade`, `onReset`); the caller buys, saves and re-renders.
+//     `onBuyUpgrade`, `onReset`); the caller buys and saves. It never mutates
+//     the account itself. What changed (WP-S3g T3, F3) is that the caller
+//     may now also ANSWER, returning the account as the store holds it
+//     afterwards (`GarageState`); the screen redraws around that answer in
+//     place -- same node, tab, unit, scroll and a focused control -- instead
+//     of the caller remounting the whole route. A caller that answers nothing
+//     leaves the screen exactly as the click left it.
 //   * The two-click reset, and the rule that a Buy control renders only when
 //     the caller supplied BOTH a balance and a callback.
 import { applyUpgrades, nextTierPrice, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
@@ -34,6 +40,7 @@ import { gateSentence, gateShort } from '../gate-sentence';
 import { t } from '../i18n/t';
 import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
+import { restoreFocus, retainSelection } from './garage-model';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
 import { flash } from './motion';
@@ -66,6 +73,16 @@ export interface BrigadeUnit {
    *  one shows no board at all, since nothing can be bought for a unit not
    *  yet in reach. */
   upgrades?: UpgradeTracks;
+}
+
+/** The account as a purchase or a reset left it, which is what the caller
+ *  hands back from `onBuy`, `onBuyUpgrade` and `onReset` (R-3). The same
+ *  three fields `BrigadeOptions` opens with, because a redraw is the mount
+ *  with newer numbers. */
+export interface GarageState {
+  readonly units: BrigadeUnit[];
+  readonly credits?: number;
+  readonly owned?: Record<string, Record<string, number>>;
 }
 
 export interface BrigadeOptions {
@@ -110,20 +127,23 @@ export interface BrigadeOptions {
    *  account (tests, or a boot where storage is blocked): the header then prints no
    *  wallet, and no purchase control renders anywhere on the screen. */
   credits?: number;
-  /** Called after the second click on the reset control. The caller resets the account and
-   *  re-renders; this screen only asks twice. */
-  onReset?: () => void;
+  /** Called after the second click on the reset control. The caller resets the account
+   *  and answers with the account as it now stands, which the screen redraws around in
+   *  place; this screen only asks twice. Answering nothing leaves the control disabled. */
+  onReset?: () => GarageState | void;
   /** Called when the player clicks a locked, priced unit's Buy control. The caller buys,
-   *  saves and re-renders; this screen only asks — it never mutates the account itself. */
-  onBuy?: (unitId: string, price: number) => void;
+   *  saves and answers with the account as the store now holds it -- a refusal answers
+   *  too, off the true state. This screen only asks; it never mutates the account itself. */
+  onBuy?: (unitId: string, price: number) => GarageState | void;
   /** The brigade account's own `upgrades` map: unit id -> track -> owned tier (0 = none).
    *  Absent tiers read as 0. Absent entirely (no account) draws every rung unbought --
    *  still informative as a read-only view of what a track offers. */
   owned?: Record<string, Record<string, number>>;
   /** Called when the player clicks a rung's Buy control. The caller buys,
-   *  saves and re-renders; this screen only asks. Rendered only alongside `credits`
-   *  -- both present or neither, the same rule the unit-unlock Buy control follows. */
-  onBuyUpgrade?: (unitId: string, track: string, tier: number, price: number) => void;
+   *  saves and answers, exactly as `onBuy` does; this screen only asks. Rendered only
+   *  alongside `credits` -- both present or neither, the same rule the unit-unlock Buy
+   *  control follows. */
+  onBuyUpgrade?: (unitId: string, track: string, tier: number, price: number) => GarageState | void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -239,6 +259,10 @@ function statNumber(value: number, kind: string): string {
 }
 
 export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
+  /** The account this screen is drawing. Opens as the options hand it in and
+   *  is replaced whole by each answer a purchase or a reset gets back
+   *  (`answer()` below); nothing here edits it. */
+  let state: GarageState = { units: opts.units, credits: opts.credits, owned: opts.owned };
   const wrap = el('div', 'rl-menu rl-menu--garage');
 
   // --- header: the mark, the title, the campaign line, and the wallet -------
@@ -266,22 +290,38 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   brand.appendChild(titles);
   head.appendChild(brand);
 
+  // The wallet is built ONCE and survives every purchase: `renderWallet`
+  // repaints its figure, so the spend flash below runs on a node that is still
+  // on screen afterwards (F3: it used to run on one the remount had removed).
   let wallet: HTMLElement | null = null;
-  if (opts.credits !== undefined) {
+  let walletN: HTMLElement | null = null;
+  let walletWord: HTMLElement | null = null;
+  if (state.credits !== undefined) {
     wallet = el('div', 'rl-garage__wallet');
     // The figure carries no words of its own, so it is set from the number
     // rather than through the catalogue; the WORD beside it is pluralised
     // (`1 credit`), which is the part a locale changes.
-    wallet.appendChild(el('span', 'rl-garage__wallet-n', String(opts.credits)));
-    wallet.appendChild(el('span', 'rl-garage__wallet-word', t('garage.wallet.word', { n: opts.credits })));
+    walletN = el('span', 'rl-garage__wallet-n');
+    walletWord = el('span', 'rl-garage__wallet-word');
+    wallet.append(walletN, walletWord);
     head.appendChild(wallet);
   }
   wrap.appendChild(head);
 
-  /** Spent: the wallet flashes on the click that asks for a purchase, not on
-   *  the re-render that follows it — the caller re-mounts this whole screen,
-   *  so a flash started after the callback would be started on a node that is
-   *  about to be replaced. */
+  /** The wallet's figure and word off `state.credits`. `data-value` is the
+   *  true balance whatever the text says, so a later count-up animation of
+   *  the text (Task 10) never leaves a reader of the number mid-count. */
+  function renderWallet(): void {
+    if (walletN === null || walletWord === null || state.credits === undefined) return;
+    walletN.textContent = String(state.credits);
+    walletN.dataset.value = String(state.credits);
+    walletWord.textContent = t('garage.wallet.word', { n: state.credits });
+  }
+  renderWallet();
+
+  /** Spent: the wallet flashes on the click that asks for a purchase. The
+   *  wallet node persists across the redraw that answers it, so the flash is
+   *  seen through to its end. */
   const spend = (): void => {
     if (wallet !== null) flash(wallet, 'rl-garage__wallet--spent', 600);
   };
@@ -290,23 +330,30 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // Available first; ties keep their given order (no gate to sort by).
   // Locked units follow, ordered by the gate that opens soonest — a Conduct
   // floor, then a star count, then a named mission, then a bought-only gate
-  // (D1, sorted by price) last — ties broken by name.
-  const rows = opts.units.map((u) => classifyRow(u, opts.ledger, opts.missionName));
-  rows.sort((a, b2) => {
-    if (a.locked !== b2.locked) return a.locked ? 1 : -1;
-    if (!a.locked || !b2.locked) return 0; // both available: stable, preserves input order
-    const [rankA, valA] = bindingGate(a.unlock, opts.ledger);
-    const [rankB, valB] = bindingGate(b2.unlock, opts.ledger);
-    if (rankA !== rankB) return rankA - rankB;
-    if (valA !== valB) return valA - valB;
-    return a.u.name.localeCompare(b2.u.name);
-  });
+  // (D1, sorted by price) last — ties broken by name. Re-run on every answer:
+  // a unit bought open moves from the locked tail to the available head.
+  function classify(): Row[] {
+    const out = state.units.map((u) => classifyRow(u, opts.ledger, opts.missionName));
+    out.sort((a, b2) => {
+      if (a.locked !== b2.locked) return a.locked ? 1 : -1;
+      if (!a.locked || !b2.locked) return 0; // both available: stable, preserves input order
+      const [rankA, valA] = bindingGate(a.unlock, opts.ledger);
+      const [rankB, valB] = bindingGate(b2.unlock, opts.ledger);
+      if (rankA !== rankB) return rankA - rankB;
+      if (valA !== valB) return valA - valB;
+      return a.u.name.localeCompare(b2.u.name);
+    });
+    return out;
+  }
+  let rows: Row[] = classify();
 
   // Every bar in the stat panel is scaled against the ROSTER's own maximum for
   // that stat, not against the unit's own: a rifleman's 400 hit points and a
   // Lavi's 3000 have to draw at different lengths or the panel says they are
   // the same tank. Read off the base JSON; an upgraded unit can exceed it, and
-  // the bar clamps rather than overflowing.
+  // the bar clamps rather than overflowing. Computed once, like the tabs
+  // below: a purchase changes neither which units are on the roster nor their
+  // base JSON.
   const rosterMax = new Map<string, number>();
   for (const row of rows) {
     const base = opts.baseOf(row.u.id);
@@ -328,7 +375,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   const present = new Set(rows.map((r) => roleBucket(r.u)));
   const buckets: readonly (RoleBucket | 'all')[] = ['all', ...BUCKET_ORDER.filter((b) => present.has(b))];
   let bucket: RoleBucket | 'all' = 'all';
-  let selectedId: string = rows.length > 0 ? rows[0].u.id : '';
+  let selectedId: string = retainSelection('', rows.map((r) => r.u.id));
 
   const tabs = el('div', 'rl-garage__tabs');
   tabs.setAttribute('role', 'tablist');
@@ -339,6 +386,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     tab.className = 'rl-garage__tab';
     tab.dataset.bucket = b;
     tab.setAttribute('role', 'tab');
+    tab.dataset.focusKey = `tab:${b}`;
     tab.textContent = t(`garage.bucket.${b}`);
     tab.addEventListener('click', () => {
       bucket = b;
@@ -352,64 +400,73 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   const cards = el('div', 'rl-garage__cards');
   cards.setAttribute('role', 'listbox');
   const cardEls = new Map<string, HTMLButtonElement>();
-  for (const row of rows) {
-    const { u } = row;
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'rl-garage__card';
-    card.dataset.unit = u.id;
-    card.dataset.locked = row.locked ? '1' : '0';
-    card.dataset.bucket = roleBucket(u);
-    card.setAttribute('role', 'option');
+  /** The rail's cards off `rows`. The `.rl-garage__cards` container itself is
+   *  never replaced -- only its children -- so its scroll offset and its
+   *  keydown listener outlive a purchase. */
+  function renderCards(): void {
+    cards.replaceChildren();
+    cardEls.clear();
+    for (const row of rows) {
+      const { u } = row;
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'rl-garage__card';
+      card.dataset.unit = u.id;
+      card.dataset.locked = row.locked ? '1' : '0';
+      card.dataset.bucket = roleBucket(u);
+      card.dataset.focusKey = `card:${u.id}`;
+      card.setAttribute('role', 'option');
 
-    const src = opts.portrait?.(u.id) ?? null;
-    if (src !== null) {
-      const img = document.createElement('img');
-      img.className = 'rl-garage__card-art';
-      img.src = src;
-      img.alt = '';
-      if (opts.iconIds?.has(u.id) === true) img.dataset.icon = '1';
-      card.appendChild(img);
-    } else {
-      // The HUD's own "reserved, not broken" hatch — the role mark on top,
-      // never a bare frame, so a type with no sheet (`civilians` is the
-      // shipped case) reads as reserved rather than as a broken image.
-      const art = el('div', 'rl-garage__card-art');
-      art.dataset.nosprite = '1';
-      // Named, not silent: the hatch says WHICH type has no sheet, which is
-      // the difference between "reserved" and "this build is broken" for
-      // anyone looking at the roster.
-      art.title = t('garage.card.noSprite', { id: u.id });
-      art.innerHTML = roleBadgeSvg(roleBucket(u), CARD_MARK);
-      card.appendChild(art);
+      const src = opts.portrait?.(u.id) ?? null;
+      if (src !== null) {
+        const img = document.createElement('img');
+        img.className = 'rl-garage__card-art';
+        img.src = src;
+        img.alt = '';
+        if (opts.iconIds?.has(u.id) === true) img.dataset.icon = '1';
+        card.appendChild(img);
+      } else {
+        // The HUD's own "reserved, not broken" hatch — the role mark on top,
+        // never a bare frame, so a type with no sheet (`civilians` is the
+        // shipped case) reads as reserved rather than as a broken image.
+        const art = el('div', 'rl-garage__card-art');
+        art.dataset.nosprite = '1';
+        // Named, not silent: the hatch says WHICH type has no sheet, which is
+        // the difference between "reserved" and "this build is broken" for
+        // anyone looking at the roster.
+        art.title = t('garage.card.noSprite', { id: u.id });
+        art.innerHTML = roleBadgeSvg(roleBucket(u), CARD_MARK);
+        card.appendChild(art);
+      }
+
+      const text = el('div', 'rl-garage__card-text');
+      text.appendChild(el('div', 'rl-garage__card-name', u.name));
+      // The chip is the REQUIREMENT, not the instruction: `Locked · Conduct 55`,
+      // not a sentence clipped to `Locked · Needs a campaign Conduc…`, which is
+      // the same eleven characters for a floor of 35 and one of 75 and therefore
+      // distinguishes nothing. The sentence is not lost -- it is the card's
+      // `title` here and the bay prints it in full the moment the card is
+      // picked.
+      text.appendChild(
+        el(
+          'div',
+          'rl-garage__card-chip',
+          row.locked ? t('garage.chip.locked', { why: row.short }) : t('garage.chip.owned')
+        )
+      );
+      if (row.locked) card.title = row.reason;
+      card.appendChild(text);
+
+      card.addEventListener('click', () => {
+        selectedId = u.id;
+        syncCards();
+        renderBay();
+      });
+      cardEls.set(u.id, card);
+      cards.appendChild(card);
     }
-
-    const text = el('div', 'rl-garage__card-text');
-    text.appendChild(el('div', 'rl-garage__card-name', u.name));
-    // The chip is the REQUIREMENT, not the instruction: `Locked · Conduct 55`,
-    // not a sentence clipped to `Locked · Needs a campaign Conduc…`, which is
-    // the same eleven characters for a floor of 35 and one of 75 and therefore
-    // distinguishes nothing. The sentence is not lost -- it is the card's
-    // `title` here and the bay prints it in full the moment the card is
-    // picked.
-    text.appendChild(
-      el(
-        'div',
-        'rl-garage__card-chip',
-        row.locked ? t('garage.chip.locked', { why: row.short }) : t('garage.chip.owned')
-      )
-    );
-    if (row.locked) card.title = row.reason;
-    card.appendChild(text);
-
-    card.addEventListener('click', () => {
-      selectedId = u.id;
-      syncCards();
-      renderBay();
-    });
-    cardEls.set(u.id, card);
-    cards.appendChild(card);
   }
+  renderCards();
   rail.appendChild(cards);
 
   // Arrows move, Enter selects. A `<button>` already fires `click` on Enter
@@ -470,7 +527,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // benefit lines are computed from exactly the tiers the rung was drawn
     // from, and the two can never disagree about a track's length.
     const upgradable: UpgradableUnit = { ...base, id: u.id, upgrades: u.upgrades };
-    const tiers = ownedTiers(u, opts.owned);
+    const tiers = ownedTiers(u, state.owned);
     // The panel shows the unit AS IT STANDS — base plus what has been bought —
     // so the next rung's `before` is the number already on screen.
     //
@@ -525,21 +582,22 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
     if (row.locked) {
       bay.appendChild(el('p', 'rl-garage__gate', row.reason));
-      if (row.unlock.price !== undefined && opts.credits !== undefined && opts.onBuy) {
+      if (row.unlock.price !== undefined && state.credits !== undefined && opts.onBuy) {
         const price = row.unlock.price;
-        const credits = opts.credits;
+        const credits = state.credits;
         const buy = document.createElement('button');
         buy.type = 'button';
         buy.className = 'rl-btn rl-garage__buy';
         buy.textContent = t('garage.buy', { price });
         buy.setAttribute('aria-label', t('garage.buy.aria', { name: u.name, price }));
+        buy.dataset.focusKey = 'unit-buy';
         // Short balance: the control stays visible so the price is legible, and disabled so
         // a click cannot reach `buyUnlock`'s refusal path from here.
         buy.disabled = credits < price;
         buy.addEventListener('click', () => {
-          buy.disabled = true; // one purchase per render; the caller re-renders
+          buy.disabled = true; // one purchase per render; the answer redraws
           spend();
-          opts.onBuy?.(u.id, price);
+          answer(opts.onBuy?.(u.id, price), 'unit-buy');
         });
         bay.appendChild(buy);
         if (credits < price) {
@@ -603,6 +661,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         const trackLabel = translated === trackKey ? humanised : translated;
         const trackEl = el('div', 'rl-garage__track');
         trackEl.dataset.track = trackName;
+        // Focusable by script only, so focus has somewhere to land when a
+        // purchase maxes this track and its Buy is gone (R-4).
+        trackEl.dataset.focusKey = `track:${trackName}`;
+        trackEl.tabIndex = -1;
         trackEl.appendChild(el('h3', 'rl-garage__track-name', trackLabel));
 
         const ladder = el('div', 'rl-garage__rungs');
@@ -640,8 +702,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
           // The control (Buy or "maxed") renders only when the caller supplied
           // both a balance and a purchase callback -- without them, this is a
           // read-only view of what a track offers and what has been bought.
-          if (opts.credits !== undefined && opts.onBuyUpgrade && tier === owned + 1) {
-            const credits = opts.credits;
+          if (state.credits !== undefined && opts.onBuyUpgrade && tier === owned + 1) {
+            const credits = state.credits;
             const price = nextTierPrice(upgradable, trackName, owned);
             // `tier === owned + 1 <= track.tiers.length` here, so
             // `nextTierPrice` returning null would mean it disagrees with
@@ -658,18 +720,21 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
               'aria-label',
               t('garage.rung.buy.aria', { name: u.name, track: trackLabel, tier, price })
             );
+            // Named by its TRACK, not its tier, so the next tier's Buy after a
+            // purchase answers to the same key and `restoreFocus` finds it.
+            buy.dataset.focusKey = `buy:${trackName}`;
             buy.disabled = credits < price;
             buy.addEventListener('click', () => {
-              buy.disabled = true; // one purchase per render; the caller re-renders
+              buy.disabled = true; // one purchase per render; the answer redraws
               spend();
-              opts.onBuyUpgrade?.(u.id, trackName, tier, price);
+              answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), `buy:${trackName}`);
             });
             rung.appendChild(buy);
           }
           ladder.appendChild(rung);
         }
         trackEl.appendChild(ladder);
-        if (opts.credits !== undefined && opts.onBuyUpgrade && owned >= track.tiers.length) {
+        if (state.credits !== undefined && opts.onBuyUpgrade && owned >= track.tiers.length) {
           trackEl.appendChild(el('div', 'rl-garage__track-max', t('garage.track.maxed')));
         }
         board.appendChild(trackEl);
@@ -721,28 +786,67 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   };
   link(t('nav.campaignMap'), routes.campaign());
   link(t('nav.menu'), routes.menu());
-  if (opts.credits !== undefined && opts.onReset) {
-    const reset = document.createElement('button');
-    reset.type = 'button';
-    reset.className = 'rl-btn rl-garage__reset';
+  // Built once, like the wallet: the reset survives a purchase, and its own
+  // answer puts it back to its first label rather than replacing it.
+  let reset: HTMLButtonElement | null = null;
+  let armed = false;
+  /** The reset control as it stands before its first click: unarmed, live,
+   *  first label. Run by every answer, which is what makes the two-click
+   *  confirmation start over after a reset that was answered in place. */
+  function resetUi(): void {
+    if (reset === null) return;
+    armed = false;
+    reset.disabled = false;
     reset.textContent = t('garage.reset.button');
-    let armed = false;
-    reset.addEventListener('click', () => {
+  }
+  if (state.credits !== undefined && opts.onReset) {
+    const control = document.createElement('button');
+    control.type = 'button';
+    control.className = 'rl-btn rl-garage__reset';
+    control.dataset.focusKey = 'reset';
+    reset = control;
+    resetUi();
+    control.addEventListener('click', () => {
       if (!armed) {
         armed = true;
-        reset.textContent = t('garage.reset.confirm');
+        control.textContent = t('garage.reset.confirm');
         return;
       }
       // Disabled BEFORE the handler runs, so the second click is provably the
-      // last one this control can fire: the caller re-renders, but nothing
-      // here relies on that, and a control that says "cannot be undone" must
-      // not be able to fire twice.
-      reset.disabled = true;
-      opts.onReset?.();
+      // last one this control can fire until the caller answers: a caller
+      // that answers nothing leaves it disabled, and a control that says
+      // "cannot be undone" must not be able to fire twice on one ask.
+      control.disabled = true;
+      answer(opts.onReset?.(), 'reset');
     });
-    nav.appendChild(reset);
+    nav.appendChild(control);
   }
   wrap.appendChild(nav);
+
+  /** The caller's answer to a purchase or a reset: the account as the store
+   *  holds it now (R-3). Redraws around it -- same screen node, same tab,
+   *  same unit, same scroll -- and puts focus where `restoreFocus` says. */
+  function answer(next: GarageState | void, asked: string | null): void {
+    if (next === undefined) return; // a caller that answers nothing: as before
+    const scroll = { rail: cards.scrollTop, bay: bay.scrollTop, board: board.scrollTop };
+    state = next;
+    rows = classify();
+    selectedId = retainSelection(selectedId, rows.map((r) => r.u.id));
+    renderWallet();
+    renderCards();
+    syncTabs();
+    syncCards();
+    renderBay();
+    resetUi();
+    // Children replaced under a scroller clamp its offset to the new height
+    // for a frame; put it back after the content is whole again.
+    cards.scrollTop = scroll.rail;
+    bay.scrollTop = scroll.bay;
+    board.scrollTop = scroll.board;
+    const keys = [...wrap.querySelectorAll<HTMLElement>('[data-focus-key]')];
+    const want = restoreFocus(asked, keys.map((e) => e.dataset.focusKey ?? ''), selectedId);
+    keys.find((e) => e.dataset.focusKey === want)?.focus({ preventScroll: true });
+  }
 
   host.appendChild(wrap);
   return () => wrap.remove();
