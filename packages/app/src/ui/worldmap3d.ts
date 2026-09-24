@@ -297,12 +297,12 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   };
 
   // Assigned once `mount()` resolves, far below -- declared here (rather
-  // than beside that assignment) so `resumeGroundHover` can read it with no
-  // forward reference. `onFrame` is only ever CALLED by the mounted view
-  // itself, always after that assignment has happened, so this is never
-  // read `null` in practice there; it starts `null` rather than asserted
-  // non-null because nothing here can prove that to the compiler ahead of
-  // time.
+  // than beside that assignment) so the pin-ownership code below can read
+  // it with no forward reference. `onFrame` is only ever CALLED by the
+  // mounted view itself, always after that assignment has happened, so
+  // this is never read `null` in practice there; it starts `null` rather
+  // than asserted non-null because nothing here can prove that to the
+  // compiler ahead of time.
   let mountedView: MountedView | null = null;
 
   // --- who owns the line: the ground, or a pin -----------------------------
@@ -316,20 +316,51 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   // real mouse, 2026-09-24). Keyboard focus never showed it: it does not
   // touch `onFrame` at all.
   //
-  // A counter, not a boolean, because a mouse hover and a keyboard focus can
-  // land on two different pins (or the same one) at once, each with its own
-  // enter/leave pair -- the ground must stay quiet until the LAST one lets
-  // go.
-  let pinOwnsLine = 0;
-  /** Ground hover resumes once the last pin lets go -- re-derived from
-   *  whatever the view says is under the cursor right now, forced rather
-   *  than left to the next frame's debounce, since the cursor may already
-   *  be back over the very region `lastGroundHover` remembers from before
-   *  the pin was entered (a debounce comparing equal values speaks nothing). */
-  const resumeGroundHover = (): void => {
-    const hoveredId = mountedView?.hovered ?? null;
-    lastGroundHover = hoveredId;
-    previewGround(hoveredId);
+  // An ORDERED LIST of the markers currently owning the line, not a bare
+  // counter: a mouse hover and a keyboard focus can land on two different
+  // pins (or the same one) at once, each with its own enter/leave pair, and
+  // when one lets go while the other still holds the line, the line must
+  // show the REMAINING owner's sentence, not fall through to the ground.
+  // Duplicates are allowed on purpose (the same marker entered twice, once
+  // per input kind) and `leavePin` below removes one occurrence per leave.
+  const pinOwners: HTMLElement[] = [];
+  /** Every pin's own preview, keyed by its marker -- populated in the loop
+   *  below as each pin's `previewThisPin` is built, so `leavePin` can
+   *  re-assert whichever pin is still on top of `pinOwners` after one lets
+   *  go, without a second copy of the hover-line logic. */
+  const previewFor = new Map<HTMLElement, () => void>();
+
+  // Set instead of read-and-speak: see `onFrame`'s own comment on why a
+  // pin's leave handler must never read `mountedView.hovered` synchronously.
+  // The short version -- `world-view.ts`'s canvas `pointerleave` zeroes
+  // `hovered` to `null` the INSTANT the pin overlay becomes topmost
+  // (entering the pin), and the canvas's own hit test is only recomputed
+  // inside the next animation-frame tick, gated on a `pointermove` the
+  // canvas has not had yet at the moment a marker's `mouseleave` fires. A
+  // synchronous read here would therefore show a live region under the
+  // cursor as bare ground for one frame, every time a pin is left onto one
+  // -- the same bug class this file exists to guard against, one frame
+  // long. Setting this flag instead defers the read to the NEXT `onFrame`,
+  // by which point the view's own hover has had its chance to catch up.
+  let forceGroundSpeak = false;
+
+  const enterPin = (marker: HTMLElement): void => {
+    pinOwners.push(marker);
+  };
+  /** The mirror of `enterPin`. If another pin (or the same one, via the
+   *  other input kind) still owns the line afterward, re-speaks ITS
+   *  sentence -- rather than leaving the line showing the pin that just
+   *  left, now stale; otherwise hands the line back to the ground on the
+   *  next frame. */
+  const leavePin = (marker: HTMLElement): void => {
+    const idx = pinOwners.lastIndexOf(marker);
+    if (idx !== -1) pinOwners.splice(idx, 1);
+    const stillOwns = pinOwners[pinOwners.length - 1];
+    if (stillOwns !== undefined) {
+      previewFor.get(stillOwns)?.();
+    } else {
+      forceGroundSpeak = true;
+    }
   };
 
   // --- the town pins ------------------------------------------------------
@@ -390,22 +421,22 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
         });
         speak(t(line.key, line.params), line.tone);
       };
+      previewFor.set(marker, previewThisPin);
       const leaveThisPin = (): void => {
         delete marker.dataset.hover;
-        // Only the LAST hover or focus letting go hands the line back to
-        // the ground -- see `pinOwnsLine`'s own comment above.
-        pinOwnsLine = Math.max(0, pinOwnsLine - 1);
-        if (pinOwnsLine === 0) resumeGroundHover();
+        // See `leavePin`'s own comment above -- it re-speaks whichever pin
+        // still owns the line, or hands it back to the ground.
+        leavePin(marker);
       };
       marker.addEventListener('mouseenter', () => {
         marker.dataset.hover = '1';
-        pinOwnsLine++;
+        enterPin(marker);
         previewThisPin();
       });
       marker.addEventListener('mouseleave', leaveThisPin);
       marker.addEventListener('focusin', () => {
         marker.dataset.hover = '1';
-        pinOwnsLine++;
+        enterPin(marker);
         previewThisPin();
       });
       marker.addEventListener('focusout', leaveThisPin);
@@ -556,14 +587,19 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
 
     // The ground's own preview, debounced to changes only -- see
     // `previewGround`'s own comment for why. Skipped entirely while a pin
-    // owns the line (`pinOwnsLine`, above): the DOM overlay being topmost
+    // owns the line (`pinOwners`, above): the DOM overlay being topmost
     // makes this read `null` the instant a pin is hovered, and that must
-    // not clobber the pin's own sentence.
-    if (pinOwnsLine === 0) {
+    // not clobber the pin's own sentence. `forceGroundSpeak` (also above)
+    // makes this fire even when `hoveredId` has not changed from the
+    // debounce's point of view -- the frame right after the last pin was
+    // left, when the view's own hover has finally had a chance to catch up
+    // to whatever is really under the cursor now.
+    if (pinOwners.length === 0) {
       const hoveredId = mountedView?.hovered ?? null;
-      if (hoveredId !== lastGroundHover) {
+      if (hoveredId !== lastGroundHover || forceGroundSpeak) {
         lastGroundHover = hoveredId;
         previewGround(hoveredId);
+        forceGroundSpeak = false;
       }
     }
   };
