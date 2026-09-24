@@ -21,7 +21,7 @@ Copied from the specs and CLAUDE.md, binding on every task:
 - **The sim is untouched.** `git diff --stat <base>..HEAD -- packages/sim` is EMPTY at landing; every task's gate line says so. The diorama builds a `Sim` and spawns into it through its own API at construction, exactly as `bootBattlefield` does, and **never ticks it** — no tick, no RNG draw, no event. `pnpm test:determinism` is in the gate of Tasks 2 and 3 anyway: the claim "cannot move the hash" is worth the measurement.
 - **One lane on `ThreeRenderer.ts`.** Task 4 is this plan's only edit to that file, additive, after Task 0's merge. If another branch holds the file when Task 4 is reached, stop and wait; do not edit around it.
 - **Three only under `packages/render/src/three/**`.** The app reaches the door by a dynamic `import('@lions/render/three-front')` only; Task 5 adds the specifier to eslint's `no-restricted-imports` list. `@lions/render/project` may be imported by **test files** only (precedent: `terrain-parity.test.ts:91`).
-- **Two WebGL contexts never coexist.** The host's disposer runs synchronously in `Router.unmount()` before the next screen mounts, and it ends with an explicit `WEBGL_lose_context.loseContext()` — spec M14/M15: `ThreeRenderer.dispose()` alone keeps ~440 MB of GPU memory. No task may remove that line; Task 8 makes `ui:routes` fail if it goes.
+- **Two WebGL contexts never coexist.** The host's disposer runs synchronously in `Router.unmount()` before the next screen mounts, and it ends with an explicit `WEBGL_lose_context.loseContext()` — spec M14/M15: `ThreeRenderer.dispose()` alone keeps ~440 MB of GPU memory. No task may remove that line; Task 8 makes `ui:routes` fail if it goes. **Superseded by #219 (C3; parent spec D-62): `ThreeRenderer.dispose()` now releases its own context, the door calls `dispose()` and nothing else, and a second release warns. The first sentence still holds; `ui:routes` fails if the context outlives the leave.**
 - **Colour comes from the palette.** `theme.css` stays the only file naming an `--rl-*` variable; `pnpm validate:ui` stays at an empty allowlist; no hex, `rgb()` or `rgba()` literal in UI source. Every new length is a `rem` (`--host-bleed: 0.75rem`); a `px` ≥ 4 in UI CSS fails `validate:ui` unless tagged `/* px-ok */`, and nothing here needs one.
 - **Screens are pure functions.** `showMenu(stage, opts)` still returns a disposer; the host is mounted through an injected `backdrop` option and is torn down by that disposer. Nothing reads `window.location` inside a screen.
 - **No `any`. No non-null assertion in new code, tests included.** Strict TypeScript; tests colocated as `*.test.ts`; every DOM test opens with `// @vitest-environment jsdom`; `window.localStorage` differs between local Node 25 (a bare `{}`) and CI's Node 22 (a real `Storage`), so any storage read takes an injected storage and is tested with a fake.
@@ -1418,7 +1418,7 @@ Haiku; opus reviews it with the final review.
 
 **Files:** `CLAUDE.md` (a new `### The scene host` subsection under "The three.js backend", edited as a section and never wholesale), `docs/superpowers/specs/2026-09-16-shell-upgrade-design.md` (§6 Phase 3's first bullet marked landed with the commit; D-52…D-61 from R-1…R-10 with what was measured on the way), `docs/superpowers/specs/2026-09-24-scene-host-design.md` (status line).
 
-- [ ] **Step 1:** The CLAUDE.md subsection carries only what a later agent would get wrong: the door is a stock `ThreeRenderer`, never a menu mode; `ThreeRenderer.dispose()` does not release the context (spec M14/M15) and the host's explicit `loseContext()` is load-bearing; the host lives on `/` only; `data-host` and its five sibling attributes, and that `window.__lions` is not defined there; `pnpm plate:host` re-photographs the plate after any diorama edit; `ui:routes`/`ui:shots` take `--port` and why. Numbers go with their conditions.
+- [ ] **Step 1:** The CLAUDE.md subsection carries only what a later agent would get wrong: the door is a stock `ThreeRenderer`, never a menu mode; `ThreeRenderer.dispose()` does not release the context (spec M14/M15) and the host's explicit `loseContext()` is load-bearing **[superseded by #219 (C3; parent spec D-62): `dispose()` releases the context, and the record says the door must NOT add its own `loseContext()`]**; the host lives on `/` only; `data-host` and its five sibling attributes, and that `window.__lions` is not defined there; `pnpm plate:host` re-photographs the plate after any diorama edit; `ui:routes`/`ui:shots` take `--port` and why. Numbers go with their conditions.
 - [ ] **Step 2:** Gates line. Message: `docs: the scene host, recorded`. `HANDOVER.md` is updated at landing from a main worktree, per its §7 protocol, not from this branch.
 
 ---
@@ -1428,7 +1428,7 @@ Haiku; opus reviews it with the final review.
 - **A host behind settings, saves, credits and free play** — spec Q3; recommended as a small lane-A follow-up putting the plate behind those column screens.
 - **Moving the menu column** — spec Q2; a `theme.css` decision taken from `ui:shots` of both layouts after this lands.
 - **Spreading the first frame's upload over idle frames** — spec Q4; a second `ThreeRenderer` change that would also shorten every mission's first frame.
-- **`ThreeRenderer.dispose()` and `mountWorldView`'s dispose releasing their own contexts** — spec Q5; a one-line render-lane follow-up each, with `ui:routes` gaining the same lost-context assertion Task 8 adds for the host.
+- **`ThreeRenderer.dispose()` and `mountWorldView`'s dispose releasing their own contexts** — spec Q5; a one-line render-lane follow-up each, with `ui:routes` gaining the same lost-context assertion Task 8 adds for the host. **Done by #219 for `ThreeRenderer.dispose()`** (`context-release.ts`); `mountWorldView`'s dispose remains open.
 - **The campaign board on the lit pipeline, its basin re-author, portraits, key art beyond the menu's plate, the garage's art pass** — art lane (G1 items 2, 4, 6).
 - **The motion capture and the observed first-player session** owed before Phase 3's acceptance (parent §7(b), (c)) — not code; they are where spec §10's parallax numbers are confirmed.
 - **`packages/sim/**`** — untouched.
@@ -1441,8 +1441,8 @@ Spec §8, with the plan's defaults. None blocks Tasks 0–6.
 2. The column's position. **Default: centred for this landing.**
 3. The plate behind the other column screens. **Default: a follow-up, not this branch.**
 4. The first-frame stall. **Default: accept; re-measure at landing.**
-5. Fix `ThreeRenderer.dispose()`. **Default: a separate render-lane follow-up.**
-6. **Approve spec §10's numbers before Task 7.** This one gates a task.
+5. Fix `ThreeRenderer.dispose()`. **Default: a separate render-lane follow-up.** **Answered: done by #219** (`context-release.ts`); `mountWorldView`'s dispose is the one item still open.
+6. **Approve spec §10's numbers before Task 7.** This one gates a task. **Answered: the lead approved §10's numbers as shown, on 24 Sep** (`menu-live-1400x900.png`).
 
 ## Self-review
 

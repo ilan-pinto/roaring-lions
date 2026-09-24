@@ -226,3 +226,27 @@ describe('campaign data files are all imported by index.ts', () => {
     }
   });
 });
+
+// `data/front/` is the same shape of hazard as `data/campaign/`: a lone file
+// per named export rather than an id-keyed collection (today, exactly one --
+// the menu diorama), so it is swept the same way -- is every file on disk
+// referenced by an import in index.ts -- rather than by id. This is the check
+// CLAUDE.md's own note for this task asks for: `catastrophic_kill.json`
+// shipped, validated, and was never imported here, so it was unregistered in
+// the running app despite passing `validate:data` -- the failure mode this
+// sweep exists to catch a second time.
+describe('front data files are all imported by index.ts', () => {
+  const frontDir = path.join(DATA_ROOT, 'front');
+  const indexSrc = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'index.ts'),
+    'utf8'
+  );
+
+  it('imports every front JSON file on disk', () => {
+    const onDisk = readdirSync(frontDir).filter((f) => f.endsWith('.json'));
+    expect(onDisk.length).toBeGreaterThan(0);
+    for (const f of onDisk) {
+      expect(indexSrc, `index.ts imports data/front/${f}`).toContain(`data/front/${f}`);
+    }
+  });
+});

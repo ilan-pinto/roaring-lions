@@ -647,9 +647,9 @@ export function readingAccepted(voted: boolean, clearsFloor: boolean): boolean {
 
 /** Ports in use by this repo's other harnesses: 5173 a human's own dev
  *  server, 5174 golden-diff, 5175 three-baseline, 5176 ui:shots, 5177
- *  ui:routes and plate-capture, 5178 wreck-captures, 5179 death-captures and
- *  unit-plates. This one takes the next free number and never touches
- *  another. */
+ *  ui:routes, 5178 wreck-captures, 5179 death-captures and unit-plates,
+ *  5182 weight-captures, 5183 plate:host (`host-plate-capture.ts`). This
+ *  one takes the next free number and never touches another. */
 const PORT = 5181;
 const VIEWPORT = { width: 1400, height: 900 } as const;
 /** The establishing still, then the ladder. The lead's figure for the ladder

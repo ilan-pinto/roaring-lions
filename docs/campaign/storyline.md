@@ -542,7 +542,7 @@ missing surface is the narrative layer.
 | row | status | gate | pipeline |
 |---|---|---|---|
 | Commander data (`data/campaign/commander.json`: Shai, Idit, rank ladder, per-mission rank and speaker) | **MISSING** | `pnpm validate:data` — needs a new `data/schemas/commander.schema.json` **and** a line in `tools/validate_data.mjs`, which names `world.json` and `countries.json` individually (`data/campaign` is a "mixed directory") | hand-authored JSON — `mission-author` |
-| Shai portrait (`assets/ui/shai_portrait.png`, 512×640) | **MISSING** | **no gate** — `tools/validate_assets.py` defaults to `--sprites assets/sprites` (line 315), so `assets/ui/` is ungated, same footing as `menu_plate.jpg` | generative, PR disclosure required (`CONTRIBUTING.md`); art brief exists in `2026-08-21-commander-brief-design.md` |
+| Shai portrait (`assets/ui/shai_portrait.png`, 512×640) | **MISSING** | **no gate** — `tools/validate_assets.py` defaults to `--sprites assets/sprites` (line 315), so `assets/ui/` is ungated, same footing as `menu_host_plate.jpg` | generative, PR disclosure required (`CONTRIBUTING.md`); art brief exists in `2026-08-21-commander-brief-design.md` |
 | Idit portrait | **MISSING** | no gate | as above |
 | Villain portraits ×3 | **MISSING** | no gate | as above. **Must not resemble a real person and must carry no real insignia** |
 | KDF rank insignia, 2–5 stars | **MISSING** | no gate; `pnpm validate:ui` applies if drawn in CSS (no colour literals) | vector; **must resemble no real force** (O6) |

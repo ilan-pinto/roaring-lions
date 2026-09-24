@@ -25,7 +25,10 @@
 //   4. Does a SECOND mission, booted softly in the same realm, tick? A teardown
 //      that is too enthusiastic passes 1-3 and leaves the next mission dead.
 //
-// Plus: any console error or page error at all fails the run. A frame loop
+// Plus: any console error or page error at all fails the run, and so does a
+// console WARNING about the WebGL context, the loaders, the decoder worker or
+// the scene host itself in the window after any of the three scene-host leaves
+// -- live, mid-load and mid-construct (`expectQuietLeave`). A frame loop
 // that survives its own renderer is NOT caught that way any more: it used to
 // draw into a disposed context and say so in the console, but
 // `ThreeRenderer.frame()` now refuses once disposed, so its draws are silent.
@@ -244,10 +247,43 @@ try {
       `${where}: ${documents} document(s) loaded, expected ${n} -- a navigation went through the network`
     );
   const errors: string[] = [];
+  // Warnings too, but not as failures in themselves: the mission legs warn
+  // legitimately (a missing sprite, a plate reason). What a leave of the
+  // scene host must not do is warn about the CONTEXT or the loaders it tore
+  // down -- a second `loseContext()` logs `WebGL: INVALID_OPERATION:
+  // loseContext: context already lost` as a warning, not an error, and the
+  // spec's "no warning on leave" (§3.3 (6), §3.6 leg (b)) is the only guard
+  // C3 has. `leaveWarnings` below asks that of each leave window.
+  const warnings: string[] = [];
   page.on('console', (m: ConsoleMessage) => {
     if (m.type() === 'error') errors.push(m.text());
+    else if (m.type() === 'warning') warnings.push(m.text());
   });
   page.on('pageerror', (e) => errors.push(String(e)));
+  /** Warnings a scene-host leave must never produce: its context, its
+   *  loaders, its decoder worker, or its own name. */
+  const LEAVE_WARNING = /WebGL|loseContext|scene host|DRACO|Worker/i;
+  /** The one matching warning that is not about a leave: SwiftShader's own
+   *  performance note, `[.WebGL-0x...]GL Driver Message (OpenGL, Performance,
+   *  GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels`, which the
+   *  campaign board's first frames print on this runner whichever way the
+   *  menu was left. Exempt by its full text, so a different WebGL message
+   *  still fails. */
+  const NOT_A_LEAVE_WARNING = /GL Driver Message \(OpenGL, Performance, [A-Z_]+, High\): GPU stall due to ReadPixels/;
+  /** Assert that no warning since `from` matches `LEAVE_WARNING`, after a
+   *  short settle: a decoder worker torn down mid-decode, or a context lost
+   *  twice, can log a turn or two after the click that caused it. */
+  const expectQuietLeave = async (from: number, where: string): Promise<void> => {
+    await page.waitForTimeout(750);
+    const bad = warnings.slice(from).filter((w) => LEAVE_WARNING.test(w) && !NOT_A_LEAVE_WARNING.test(w));
+    console.log(
+      `[${TAG}] ${where}: ${warnings.length - from} console warning(s) in the leave window, ` +
+        `${bad.length} matching ${String(LEAVE_WARNING)} (ReadPixels stall notes exempt)`
+    );
+    for (const w of bad) {
+      expect(false, `${where}: the scene host's leave logged a warning: ${w.slice(0, 300)}`);
+    }
+  };
 
   // --- the menu, and the rest position everything else is measured against --
   await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
@@ -258,12 +294,94 @@ try {
   const idleBody = menu.bodyChildren;
   console.log(`[${TAG}] menu: ${idleBody} body children, boots=${menu.boots}`);
 
+  // --- the scene host: it must leave nothing behind, in DOM or GPU alike ----
+  //
+  // Leg (a). `data-host` starts `pending` and settles to `live`/`plate`/`off`
+  // on its own clock (spec §3.3/§3.6), so this waits for the DOM's own
+  // verdict rather than a fixed delay -- `dismissDeployGate`'s own reasoning.
+  // This harness sets no reduced-motion/save-data/`?renderer=pixi` override
+  // and the runner has WebGL2 (every other leg here draws three.js), so
+  // "live" is the only acceptable outcome.
+  await page.waitForFunction(
+    () => document.querySelector('.rl-scene-host')?.getAttribute('data-host') !== 'pending',
+    null,
+    { timeout: 60_000 }
+  );
+  const hostReached = await page.evaluate(() => {
+    const el = document.querySelector('.rl-scene-host');
+    return {
+      host: el?.getAttribute('data-host') ?? null,
+      reason: el?.getAttribute('data-host-reason') ?? null,
+      ms: el?.getAttribute('data-host-ms') ?? null,
+      motion: el?.getAttribute('data-host-motion') ?? null,
+    };
+  });
+  // `data-host-motion` is printed, not gated: `held` is what keeps a tool on
+  // a 1 fps SwiftShader menu from clicking through a frame loop (spec §3.3
+  // (5)), and whether a runner reaches it is a fact worth one line per run.
+  console.log(
+    `[${TAG}] scene host: data-host=${hostReached.host} in ${hostReached.ms} ms` +
+      `, data-host-motion=${String(hostReached.motion)}` +
+      `${hostReached.reason ? ` (data-host-reason=${hostReached.reason})` : ''}`
+  );
+  expect(
+    hostReached.host === 'live',
+    `scene host did not reach "live" on a WebGL2 runner: data-host=${hostReached.host}, ` +
+      `data-host-reason=${hostReached.reason}`
+  );
+  // Stashed under our own name for the same reason the mission leave leg
+  // below stashes `__rlLeftSim`: the element (and its canvas) is gone once
+  // the menu is left, so only a reference taken BEFORE the leave can answer
+  // whether the WebGL context it drew through is still alive afterward.
+  await page.evaluate(() => {
+    (window as unknown as { __rlHostCanvas?: HTMLCanvasElement | null }).__rlHostCanvas = document.querySelector(
+      '.rl-scene-host canvas'
+    );
+  });
+
   // --- an in-app click to the campaign board -------------------------------
+  // Read again at the click: at `live` the loop has not sampled a single
+  // interval yet, so it always reads `animate` there; whether it went on to
+  // HOLD is only knowable now.
+  const motionAtLeave = await page.evaluate(
+    () => document.querySelector('.rl-scene-host')?.getAttribute('data-host-motion') ?? null
+  );
+  const leaveClickStart = Date.now();
+  const liveLeaveFrom = warnings.length;
   await page.click('a[href="/campaign"]');
   await page.waitForSelector('.rl-world');
   const board = await probe(page);
+  console.log(
+    `[${TAG}] leg (a): left the live host with data-host-motion=${String(motionAtLeave)}; ` +
+      `the Campaign click reached the board in ${Date.now() - leaveClickStart} ms`
+  );
   expect(board.boots === 1, `clicking Campaign reloaded the page: boots=${board.boots}`);
   expectDocuments(1, 'clicking Campaign');
+
+  // Leg (a), continued: the router's disposer must have released both
+  // halves of the host -- the DOM element, and (since #219, via
+  // `ThreeRenderer.dispose()`) the WebGL context itself. Read off the
+  // canvas reference stashed above, because `.rl-scene-host` no longer
+  // exists to query directly.
+  const hostAfterLeave = await page.evaluate(() => {
+    const w = window as unknown as { __rlHostCanvas?: HTMLCanvasElement | null };
+    const canvas = w.__rlHostCanvas ?? null;
+    const ctx = canvas ? canvas.getContext('webgl2') : null;
+    return {
+      elementGone: document.querySelector('.rl-scene-host') === null,
+      canvasStashed: canvas !== null,
+      contextLost: ctx ? ctx.isContextLost() : null,
+    };
+  });
+  expect(hostAfterLeave.elementGone, 'the .rl-scene-host element is still in the DOM after leaving the menu');
+  // A null stash and a live context are two different failures and must not
+  // share a message: the first means the harness itself never found a canvas
+  // to check (the earlier stash ran before the host reached "live", or found
+  // none), the second means the canvas WAS found and its context genuinely
+  // outlived the menu.
+  expect(hostAfterLeave.canvasStashed, 'no host canvas was stashed at the first menu visit');
+  expect(hostAfterLeave.contextLost === true, 'the scene host left its WebGL context alive');
+  await expectQuietLeave(liveLeaveFrom, 'leg (a), leaving a live host');
 
   // --- mission A, reached by a LEGACY query URL ----------------------------
   // A hard navigation on purpose: this is the URL every tool and bookmark in
@@ -597,6 +715,131 @@ try {
       `${label} (${routePath}): .rl-menu renders ${height.toFixed(0)}px tall, ` +
         `${(fraction * 100).toFixed(1)}% of a ${viewport}px viewport (floor ${MENU_MIN_FRACTION * 100}%) -- ` +
         `its .rl-panel child is out of flow again (GH-223)`
+    );
+  }
+
+  // --- leg (b): a fast leave, during the LOAD --------------------------------
+  //
+  // Every leg above lets the host settle to "live" before leaving. This one
+  // leaves while the door is fetching: it waits for the first request the
+  // host makes for a mesh or the Draco decoder (the prefetch, spec §3.3 (1)
+  // -- the long phase on a slow link), then clicks Campaign. Clicking on
+  // `load` alone, as this leg first did, landed ~18 ms in: before the idle
+  // callback had even run, so it exercised the CANCELLED SCHEDULE and never
+  // the door's abort. The run's "no console error" rule and
+  // `expectQuietLeave` cover what an aborted fetch or a torn-down decoder
+  // might log.
+  //
+  // The campaign board's own GLB lives under `/campaign/`; this document has
+  // no board, but the predicate says so rather than relying on it.
+  // `draco_` and not `draco`: the loader's own MODULE is served as
+  // `three_addons_loaders_DRACOLoader__js.js`, a JS import that says nothing
+  // about the prefetch having started (the first run matched it).
+  const isHostFetch = (u: string): boolean =>
+    /\.glb(\?|$)|draco_(wasm_wrapper|decoder)/.test(u) && !u.includes('/campaign/') && !u.includes('/node_modules/');
+  const firstHostFetch = page
+    .waitForRequest((r) => isHostFetch(r.url()), { timeout: 60_000 })
+    .then((r) => r.url())
+    .catch(() => null);
+  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'commit' });
+  const fastLeaveFrom = warnings.length;
+  const fastLeaveStart = Date.now();
+  const hostFetch = await firstHostFetch;
+  expect(hostFetch !== null, 'leg (b): the menu made no .glb/draco request within 60 s -- nothing to leave during');
+  // Read `data-host` and click Campaign in the SAME `page.evaluate` -- one JS
+  // turn, no Playwright round-trip between the two -- so the state read is
+  // the state the click actually landed on. `link.click()` on an anchor
+  // dispatches a real (if untrusted) `MouseEvent`, which `interceptLinks`'s
+  // delegated listener does not discriminate against, so this reaches the
+  // router exactly as `page.click()` does. The phase is read in the same
+  // turn, and only as far as the DOM can say it: a canvas means the door is
+  // past `init()`; NO canvas means the prefetch OR the mesh load, because
+  // `ThreeRenderer` -- and so the context -- is constructed before the loads
+  // and `init()` appends its canvas only after them. Measured: with a second
+  // `loseContext()` re-added to the door's `release()`, this leg went red on
+  // "context already lost" in a run whose click read "no canvas", so that
+  // click had landed in the mesh load, with a context to release.
+  const fastAt = await page.evaluate(() => {
+    const host = document.querySelector('.rl-scene-host')?.getAttribute('data-host') ?? null;
+    const canvas = document.querySelector('.rl-scene-host canvas') !== null;
+    const link = document.querySelector('a[href="/campaign"]');
+    if (link instanceof HTMLElement) link.click();
+    return { host, canvas };
+  });
+  console.log(
+    `[${TAG}] fast leave: clicked Campaign ${Date.now() - fastLeaveStart} ms after navigating, once ` +
+      `${hostFetch === null ? '(no request seen)' : new URL(hostFetch).pathname} was requested; ` +
+      `data-host was "${String(fastAt.host)}", phase ${fastAt.canvas ? 'past init() (canvas in the DOM)' : 'before init() -- prefetch or mesh load (no canvas in the DOM)'}`
+  );
+  expect(
+    fastAt.host === 'pending',
+    `fast leave landed after the host reached ${String(fastAt.host)}; the abort path was not exercised`
+  );
+  await page.waitForSelector('.rl-world');
+  const noHostAfterFastLeave = await page.evaluate(() => document.querySelector('.rl-scene-host') === null);
+  expect(noHostAfterFastLeave, 'the scene host left an element behind after a fast leave (mid-load abort)');
+  await expectQuietLeave(fastLeaveFrom, 'leg (b), leaving during the load');
+
+  // --- leg (c): a leave the moment the context exists --------------------------
+  //
+  // The window between `init()` appending the canvas and the reveal: a
+  // context now exists, and the abort listener must release it synchronously
+  // (spec §3.3 (2)). A MutationObserver installed before the app's own
+  // scripts run sees the canvas arrive and clicks Campaign in that same
+  // microtask checkpoint, not a Playwright round-trip later -- Playwright's
+  // own `waitForFunction` polls per frame or per interval, and one SwiftShader
+  // frame is longer than this window. If the host leaves `pending` before any
+  // mutation shows the canvas, the observer records that instead of clicking.
+  //
+  // An init script applies to every LATER document of this page. This is the
+  // last hard navigation in the walk (the click below is the router's), so it
+  // reaches this document and no other. A string, not a function, for
+  // `frameCadence`'s reason: tsx's `__name` helper does not exist in the page.
+  await page.addInitScript(
+    'new MutationObserver(function (_, mo) {' +
+      ' var el = document.querySelector(".rl-scene-host"); if (!el) return;' +
+      ' var host = el.getAttribute("data-host"); var canvas = el.querySelector("canvas");' +
+      ' if (canvas && host === "pending") {' +
+      '   window.__rlCtxCanvas = canvas; window.__rlCtxLeave = { host: host, clicked: true }; mo.disconnect();' +
+      '   var link = document.querySelector(\'a[href="/campaign"]\'); if (link) link.click();' +
+      ' } else if (host && host !== "pending") {' +
+      '   window.__rlCtxLeave = { host: host, clicked: false }; mo.disconnect();' +
+      ' }' +
+      ' }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-host"] });'
+  );
+  const ctxLeaveFrom = warnings.length;
+  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'commit' });
+  const ctxAt = await page
+    .waitForFunction(
+      () => (window as unknown as { __rlCtxLeave?: { host: string; clicked: boolean } }).__rlCtxLeave ?? false,
+      null,
+      { timeout: 60_000 }
+    )
+    .then((h) => h.jsonValue())
+    .then((v) => (v === false ? null : v))
+    .catch(() => null);
+  if (ctxAt !== null && ctxAt.clicked) {
+    await page.waitForSelector('.rl-world');
+    const ctxAfter = await page.evaluate(() => {
+      const canvas = (window as unknown as { __rlCtxCanvas?: HTMLCanvasElement }).__rlCtxCanvas ?? null;
+      const gl = canvas ? canvas.getContext('webgl2') : null;
+      return {
+        elementGone: document.querySelector('.rl-scene-host') === null,
+        contextLost: gl ? gl.isContextLost() : null,
+      };
+    });
+    console.log(
+      `[${TAG}] context leave: clicked Campaign with the canvas present and data-host "pending"; ` +
+        `element gone=${String(ctxAfter.elementGone)}, context lost=${String(ctxAfter.contextLost)}`
+    );
+    expect(ctxAfter.elementGone, 'leg (c): the scene host left an element behind after a leave mid-construct');
+    expect(ctxAfter.contextLost === true, 'leg (c): a leave mid-construct left the WebGL context alive');
+    await expectQuietLeave(ctxLeaveFrom, 'leg (c), leaving with a context and no reveal');
+  } else {
+    expect(
+      false,
+      `leg (c): never saw the host canvas while data-host was "pending" ` +
+        `(${ctxAt === null ? 'timed out' : `the host reached "${String(ctxAt.host)}" first`})`
     );
   }
 

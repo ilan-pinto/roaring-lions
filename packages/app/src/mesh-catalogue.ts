@@ -343,6 +343,72 @@ export function hasUnitMesh(typeId: string): boolean {
 }
 
 /**
+ * Which meshes one map and one roster actually need -- extracted out of
+ * `bootBattlefield` (Task 2 of the scene-host plan) as the shape both a
+ * mission boot and, later, the menu's own diorama can ask for. The unit split
+ * is roster-driven (a type with no mesh drops out rather than falling back to
+ * anything here -- `hasUnitMesh` is the billboard-fallback question, answered
+ * by the caller); the building split is stand-driven, PLUS whatever the
+ * caller names in `extraStructures` -- `camp` is the one building type that
+ * arrives from mission JSON rather than a map symbol, so a map's own
+ * `structures` list alone would miss it. Decor is never a second rule: it is
+ * `decorFamiliesFor(map)`, verbatim.
+ */
+export interface MeshPlan {
+  readonly rigged: ReadonlySet<string>;
+  readonly vehicles: ReadonlySet<string>;
+  readonly buildings: ReadonlySet<string>;
+  readonly decor: ReadonlySet<DecorFamilyName>;
+}
+
+export function meshPlanFor(
+  map: ParsedMap,
+  roster: ReadonlySet<string>,
+  extraStructures: readonly string[] = []
+): MeshPlan {
+  const structureTypes = new Set(map.structures.map((b) => b.type));
+  for (const id of extraStructures) structureTypes.add(id);
+  return {
+    rigged: new Set([...roster].filter((id) => id in RIGGED_UNIT_MESHES)),
+    vehicles: new Set([...roster].filter((id) => id in VEHICLE_UNIT_MESHES)),
+    buildings: new Set([...structureTypes].filter((id) => id in BUILDING_MESHES)),
+    decor: decorFamiliesFor(map),
+  };
+}
+
+/**
+ * Every planned id resolved to a served URL, in catalogue order -- the id ->
+ * URL mapping `bootBattlefield` used to spell inline for each of its four
+ * loader calls, now the one place that arithmetic happens. Building entries
+ * carry only the STANDING url: the wreck half is fetched later, after the
+ * first frame (`bootBattlefield`'s own `wreckMeshLoader`), which is why this
+ * type has no `wreck` field to forget to fill in.
+ */
+export interface MeshManifest {
+  readonly rigged: readonly { id: string; urls: readonly string[]; faction: MeshFactionName }[];
+  readonly vehicles: readonly { id: string; url: string }[];
+  readonly buildings: readonly { id: string; url: string }[];
+  readonly decor: ReadonlyMap<string, string>;
+}
+
+export function meshManifestFor(plan: MeshPlan): MeshManifest {
+  return {
+    rigged: [...plan.rigged].map((id) => ({
+      id,
+      urls: RIGGED_UNIT_MESHES[id].files.map(meshUrl),
+      faction: RIGGED_UNIT_MESHES[id].faction,
+    })),
+    vehicles: [...plan.vehicles].map((id) => ({ id, url: meshUrl(VEHICLE_UNIT_MESHES[id]) })),
+    buildings: [...plan.buildings].map((id) => ({ id, url: meshUrl(BUILDING_MESHES[id].idle) })),
+    decor: new Map(
+      [...plan.decor].flatMap((fam) =>
+        DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)])
+      )
+    ),
+  };
+}
+
+/**
  * Which sprite sheets a boot needs, and WHEN -- step 1 of
  * `docs/superpowers/specs/2026-09-07-level-load-time-design.md`.
  *

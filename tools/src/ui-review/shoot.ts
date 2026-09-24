@@ -70,7 +70,13 @@ import { claimGpuBackend, gpuLaunchArgs } from './gpu';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dismissDeployGate, ensureDevServer, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
+import {
+  dismissDeployGate,
+  ensureDevServer,
+  readUnmaskedRenderer,
+  stopDevServer,
+  waitForHostCrossfade,
+} from '../golden-diff/browser';
 import { assertOutcomeStillPresent } from './outcome-guard';
 import { claimPort } from './port';
 
@@ -197,6 +203,38 @@ async function settle(page: Page, ms: number): Promise<void> {
   await page.waitForTimeout(ms);
 }
 
+/**
+ * `01-menu`'s own wait (scene-host plan Task 8), in place of `settle`'s fixed
+ * 2.5 s. The scene host's reveal (spec §3.3) blocks on a GLB fetch and a GPU
+ * load, so a fixed delay either shoots mid-crossfade on a slow run or wastes
+ * seconds waiting past a host that already settled. `data-host` is the DOM's
+ * own verdict: `pending` is the only NON-terminal value (`live`/`plate`/`off`
+ * are all terminal), so waiting for it to leave `pending` is waiting for the
+ * host to be DONE, whichever way it went -- exactly `pnpm plate:host`'s own
+ * wait. Falls through rather than throwing if `.rl-scene-host` never settles
+ * at all: a host that hangs is a real bug, but `ui:routes`'s own path leg is
+ * what catches it, not this capture tool, and a screenshot tool that can hang
+ * the whole run over one missing element is worse than one that shoots
+ * whatever is on screen.
+ */
+async function settleMenuHost(page: Page): Promise<void> {
+  await page
+    .waitForFunction(
+      () => document.fonts.status === 'loaded' && document.body.innerText.trim().length > 20,
+      null,
+      { timeout: 30000 }
+    )
+    .catch(() => undefined);
+  await page
+    .waitForFunction(() => document.querySelector('.rl-scene-host')?.getAttribute('data-host') !== 'pending', null, {
+      timeout: 60000,
+    })
+    .catch(() => undefined);
+  // `live` is stamped at the START of the 400 ms crossfade, so leaving
+  // `pending` is not yet a picture with the poster off it.
+  await waitForHostCrossfade(page);
+}
+
 const BASE = `http://localhost:${PORT}`;
 // The app's own paths (Task 1) plus the pseudo switch: `p` is always
 // base-relative (`/campaign`, `/mission/x`), so every call site reads as the
@@ -252,8 +290,37 @@ try {
     page.setDefaultTimeout(30000);
 
     await page.goto(url('/'), { waitUntil: 'load' });
-    await settle(page, 2500);
+    await settleMenuHost(page);
     await shot(page, dir, '01-menu');
+
+    // Task 8: the reduced-motion plate path (spec §3.4), on its OWN context
+    // so `reducedMotion: 'reduce'` never leaks onto `page` above, which keeps
+    // driving the live menu and every mission below it -- the same isolation
+    // `backCtx`/`winCtx` use elsewhere in this file for a state that needs a
+    // setting the main page must not carry forward. Waits for `data-host`
+    // to reach `plate` specifically (not merely "not pending"): a reduced-
+    // motion visit that somehow went `live` would be the defect this state
+    // exists to catch, not a reason to shoot it anyway.
+    {
+      const plateCtx = await browser.newContext({
+        viewport: { width: res.width, height: res.height },
+        deviceScaleFactor: 1,
+        reducedMotion: 'reduce',
+      });
+      const platePage = await plateCtx.newPage();
+      platePage.setDefaultTimeout(30000);
+      await platePage.goto(url('/'), { waitUntil: 'load' });
+      await platePage
+        .waitForFunction(
+          () => document.querySelector('.rl-scene-host')?.getAttribute('data-host') === 'plate',
+          null,
+          { timeout: 30000 }
+        )
+        .catch(() => undefined);
+      await shot(platePage, dir, '01b-menu-plate');
+      await plateCtx.close();
+    }
+
     await page.goto(url('/campaign'), { waitUntil: 'load' });
     await settle(page, 7000);
     await shot(page, dir, '02-campaign');

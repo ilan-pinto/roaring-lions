@@ -287,6 +287,33 @@ export async function readUnmaskedRenderer(browser: Browser): Promise<string> {
   }
 }
 
+/**
+ * Wait for the menu scene host's poster to come off, i.e. for the 400 ms
+ * crossfade that follows `data-host="live"` to finish (`CROSSFADE_MS`,
+ * `packages/app/src/ui/scene-host-model.ts`). `data-host="live"` is stamped
+ * at the START of the fade, and a CSS transition is not stopped by the frame
+ * freeze, so a photograph taken on `live` alone can still show the poster
+ * over the live canvas. It passed on SwiftShader only because a screenshot
+ * there is slow enough to land after the fade; a fast rasteriser would shoot
+ * mid-fade.
+ *
+ * Satisfied, too, by any host that is not `live` -- the plate path keeps its
+ * poster for good, and waiting 5 s for it to go would be waiting for nothing.
+ * Bounded and never throws: a poster that never leaves is something the
+ * CALLER's own vote or picture shows, not a harness failure.
+ */
+export async function waitForHostCrossfade(page: Page, timeoutMs = 5_000): Promise<void> {
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelector('.rl-scene-host')?.getAttribute('data-host') !== 'live' ||
+        document.querySelector('.rl-scene-host__plate') === null,
+      null,
+      { timeout: timeoutMs }
+    )
+    .catch(() => undefined);
+}
+
 /** Headless Chromium with no GL arguments, which is a DELIBERATE choice rather
  *  than a default left unexamined: with none, Chromium renders WebGL through
  *  SwiftShader, and SwiftShader is a pure-CPU rasteriser that reproduces itself

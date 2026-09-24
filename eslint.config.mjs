@@ -232,6 +232,13 @@ export default tseslint.config(
                 'and will never draw it. Same rule as @lions/render/three above.',
             },
             {
+              name: '@lions/render/three-front',
+              message:
+                'The scene host is three.js. It must reach packages/app via a dynamic import() ' +
+                '(see ui/scene-host.ts) -- a static one puts three.js in the main chunk for every ' +
+                'player, including one on ?renderer=pixi who is shown the plate instead.',
+            },
+            {
               name: '@lions/render/terrain',
               message:
                 'The terrain barrel exists for terrain-parity.test.ts (and packages/render\'s own test suite) to ' +

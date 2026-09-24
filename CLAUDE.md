@@ -1431,11 +1431,90 @@ Two traps found while building it, neither specific to this screen.
 `.superpowers/**` are ignored now, alongside `**/dist/**`.
 **`window.localStorage` in this vitest jsdom config is a bare `{}`** -- no
 `getItem`, no `setItem`, no `length`. Any UI code reaching it must guard
-(`storedRenderer` in `menu.ts` does, which is also right for a real browser with
-site data blocked, where the property access itself throws). And it makes
-`worldmap.test.ts`'s "does not write to localStorage" test **unable to fail**:
-it compares `window.localStorage.length` before and after, and both are
-`undefined`.
+(`readStoredRenderer` in `renderer-choice.ts` does, which is also right for a
+real browser with site data blocked, where the property access itself
+throws). And it makes `worldmap.test.ts`'s "does not write to localStorage"
+test **unable to fail**: it compares `window.localStorage.length` before and
+after, and both are `undefined`.
+
+### The scene host
+
+`packages/render/src/three/front/scene-host.ts` is a new door,
+`@lions/render/three-front`, named in eslint's bundle rule beside the other
+five -- **a stock `ThreeRenderer` pointed at a real map, never a "menu mode"**
+threaded through that file. It drives a never-ticked `Sim`
+(`data/front/menu_diorama.json`, four KDF units on `beit_sahwan_outskirts`)
+through the mission's own `RendererOptions`, capped at 30 fps, behind the
+menu column -- and **lives on `/` only**: it is part of the menu screen's own
+disposer, so `/` -> `/settings` -> `/` leaves no host on settings and a fresh
+one remounts on return, with no reload.
+
+**The door never calls `loseContext()` itself.** Since #219,
+`ThreeRenderer.dispose()` already releases its own context
+(`three/context-release.ts`: `dispose()`, then `forceContextLoss()`, skipped
+if already lost), so `release()` calls `renderer.dispose()` and nothing
+else. Do not reintroduce an explicit `loseContext()` call; that was the
+pre-#219 design. What a re-added one does depends on its shape, measured on
+SwiftShader: `getExtension('WEBGL_lose_context')` asked AFTER `dispose()`
+returns `null` on the lost context, so that line is silent dead code; a
+handle taken BEFORE `dispose()` and called after it logs `WebGL:
+INVALID_OPERATION: loseContext: context already lost` as a WARNING. `ui:routes`
+collects warnings around all three of its scene-host leaves (live, mid-load,
+mid-construct) and fails on any matching
+`/WebGL|loseContext|scene host|DRACO|Worker/i`, bar SwiftShader's own `GPU
+stall due to ReadPixels` note, exempt by its full text; the held-handle
+re-add was seen red in all three.
+
+**`.rl-scene-host` carries `data-host`** (`pending` -> `live` | `plate`, or
+`off`) **and five siblings**: `-reason`, `-motion` (`animate` | `held`),
+`-camera`/`-zoom` (reported by the door through `onCamera`, never
+recomputed), and `-ms` (mount to terminal state). `window.__lions` is never
+defined on the menu route -- `ui:routes` asserts exactly that -- which is why
+the visual gate freezes the frame loop inside its own `async` IIFE
+(`FREEZE_FRAME_LOOP_STATEMENTS`, not the `_SCRIPT` variant, which reads
+`__lions.sim.tickCount`) rather than its usual one-liner.
+
+**Pixi and reduced motion both get the plate**, never a held live frame:
+Pixi because it is the hatch a player already reached for when three failed
+them, reduced motion because the plate already IS a held frame of the same
+diorama. **Reduced motion gates parallax off on its own, whatever the path**
+(`ui/scene-host.ts`: `decided.path !== 'off' && !reduced`). Keying it on the
+plate's `reason` let Pixi + reduced motion slide, because that visit reads
+reason `pixi`, not `reduced-motion` -- the defect `36f74025` closed (D-54).
+**Pixi at default motion slides the plate by design** (spec §3.5); do not
+"fix" it static.
+
+**`pnpm plate:host`** (`tools/src/perf/host-plate-capture.ts`)
+re-photographs `assets/ui/menu_host_plate.jpg` after any edit to
+`menu_diorama.json` -- a re-staged diorama and a stale plate cannot be caught
+by eye at review time. `pnpm validate:data` fails by name if the file the
+JSON's `plate` field names is missing on disk.
+
+**The gate votes three ways on this screen**, in `checkMenuSceneHost`
+(`tools/src/golden-diff/screens-check.ts`, run right after
+`checkCampaignBoard`): *path* (`data-host` reaches `live`), *contribution*
+(hiding the host's canvas must move the flanks past a measured floor --
+30.4426, a third of three identical 91.3279 readings), and *register* (the
+host's LIVE frame against the mission's own frame of the same map at the
+host's own camera and zoom, mean Y and S within 10% -- not the plate). The
+two photographing votes, and `ui:shots`' `01-menu`, first wait (bounded, never
+throwing) for `.rl-scene-host__plate` to come off: `live` is stamped at the
+START of the 400 ms crossfade and a CSS transition ignores the frame freeze.
+Cost: 41.7 s inside a 165 s local `pnpm golden-baseline` run, almost all of it
+the register vote's own mission boot -- inherent to the camera-for-camera
+design, not waste.
+
+**A SwiftShader tool that clicks off a LIVE menu needs ~20 s of headroom** for
+that click: Task 6 measured a 17.1 s menu -> campaign click locally, and
+CI's SwiftShader is slower. No landing run recorded `data-host-motion` reaching `held` (`ui:routes` leg
+(a) now prints it at `live` and again at the leave click, with the click's
+duration). And spec §10's memory budgets -- <= 900 MB while live,
+<= 60 MB within 1 s of leaving -- were never measured as memory: the landing
+checked only the `isContextLost()` proxy (`ui:routes` leg (a) and (c)), which
+says the context was released, not what the GPU process holds.
+
+`ui:routes`/`ui:shots` already take `--port` (landed on `main` via #214; see
+the paragraph above, ~:306) -- nothing new here.
 
 ---
 

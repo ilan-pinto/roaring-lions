@@ -1,0 +1,12 @@
+{
+  "id": "menu",
+  "map": "beit_sahwan_outskirts",
+  "camera": { "at": [27, 22], "zoom_at_1080p": 1.6 },
+  "units": [
+    { "unit": "mbt_lavi", "at": [17, 21], "facing_deg": 144 },
+    { "unit": "apc_eitan", "at": [14, 22], "facing_deg": 144 },
+    { "unit": "inf_squad", "at": [18, 23], "facing_deg": 144 },
+    { "unit": "inf_squad", "at": [16, 24], "facing_deg": 144 }
+  ],
+  "plate": "ui/menu_host_plate.jpg"
+}

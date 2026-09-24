@@ -1068,6 +1068,11 @@ export class ThreeRenderer implements Renderer {
       blocked: this.sim.blocked,
       cover: this.sim.cover,
     });
+    // One per fetch actually STARTED -- the guards below return before a
+    // skipped or refused slot gets one, so it cannot hold
+    // `groundTexturesSettled` open. Each only ever RESOLVES: a failed tile is
+    // fail-soft here, and must be the same to anyone awaiting it.
+    const settles: Promise<void>[] = [];
     const load = (url: string | undefined, slot: GroundSlot, what: string): void => {
       if (!url) return;
       if (!usedSlots.has(slot)) return;
@@ -1082,6 +1087,12 @@ export class ThreeRenderer implements Renderer {
       }
       const albedo = GROUND_ALBEDOS[id as GroundAlbedoId];
       const u = slotUniforms(slot);
+      let settle = (): void => {};
+      settles.push(
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        })
+      );
       new THREE.TextureLoader().load(
         url,
         (tex) => {
@@ -1119,10 +1130,13 @@ export class ThreeRenderer implements Renderer {
           // mission, quietly and forever. Bounded at six extra captures per
           // map, at boot, before any fight.
           this.invalidateGroundPhoto();
+          // LAST, so whoever awaits this tile wakes to it on the ground.
+          settle();
         },
         undefined,
         (err) => {
           console.warn(`[lions] ${what} texture FAILED for ${url}; drawing its flat palette tone:`, err);
+          settle();
         }
       );
     };
@@ -1132,6 +1146,40 @@ export class ThreeRenderer implements Renderer {
     load(this.opts.scrubTextureUrl, 'scrub', 'cover scrub');
     load(this.opts.groveTextureUrl, 'grove', 'grove floor');
     load(this.opts.knollTextureUrl, 'knoll', 'rocky knoll');
+    this.groundTexturesPending = Promise.all(settles).then(() => undefined);
+  }
+
+  /** What `groundTexturesSettled` answers until `dispose()`. Already resolved
+   *  until `init()` reaches `loadGroundTexture`, which replaces it. */
+  private groundTexturesPending: Promise<void> = Promise.resolve();
+
+  /**
+   * Resolves once every ground-albedo fetch `init()` started has either been
+   * applied to the ground or has failed. Never rejects: a failed tile already
+   * draws its flat palette tone and warns (`loadGroundTexture`), and a caller
+   * waiting on it is owed the same fail-soft answer, not a throw.
+   *
+   * Its first reader is the menu's scene host (spec M7,
+   * `docs/superpowers/specs/2026-09-24-scene-host-design.md`): on a 20 Mbit/s
+   * link the first frame came at 4.18-4.46 s and the tiles landed at
+   * 4.43-4.62 s, AFTER it, so a host that revealed on that frame showed flat
+   * ground and then popped the sand in. It waits on this, draws once more,
+   * and reveals.
+   *
+   * Three states worth naming:
+   * - Before `init()` it is already resolved -- nothing has been asked for.
+   * - A slot the map never samples, or a URL `GROUND_ALBEDOS` refuses, starts
+   *   no fetch and so is not waited on.
+   * - Asked AFTER `dispose()` it is already resolved: this renderer will draw
+   *   nothing more, so there is nothing to wait for, and three's
+   *   `TextureLoader` cannot abort a fetch still on the network. A promise
+   *   taken BEFORE `dispose()` is the same object it was, and settles when
+   *   the browser finishes or fails each fetch still in flight -- a caller
+   *   holding one across a teardown must check its own abort signal after
+   *   the await, as it would after any other.
+   */
+  groundTexturesSettled(): Promise<void> {
+    return this.disposed ? Promise.resolve() : this.groundTexturesPending;
   }
   /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `GroveMaterial` doc
    *  comment for why the wind-sway shader needs to be a separate material
@@ -2938,7 +2986,7 @@ export class ThreeRenderer implements Renderer {
         // `Pass.enabled`, exactly `vignette`'s shape -- but skipping the
         // whole pass to remove the fog-of-war boundary also skipped
         // `FOG_OFFMAP_FADE_TILES`, the off-map fade the SAME pass carries,
-        // and `tools/src/perf/plate-capture.ts` shipped a pale, unshrouded
+        // and the retired Phase 0 plate capture shipped a pale, unshrouded
         // wedge beyond the map edge as a result. The pass now stays enabled
         // always; hiding this layer instead drives `uRevealAll` on the
         // pass's own uniforms (`fog-pass.ts`), which forces every ON-map
@@ -3172,10 +3220,10 @@ export class ThreeRenderer implements Renderer {
     // What each layer's visibility was BEFORE this call, so the restore puts
     // back what it found rather than writing `true` at both. A debug harness
     // that switched a layer off on purpose -- the visual gate's toggle A/B,
-    // `plate-capture.ts` -- must not have it switched back on by a minimap
-    // photograph that happened to run in between. Read off the same two
-    // pieces of state `setDebugLayerVisible` itself writes, so there is no
-    // third place recording what is hidden.
+    // or the retired Phase 0 plate capture -- must not have it switched
+    // back on by a minimap photograph that happened to run in between. Read
+    // off the same two pieces of state `setDebugLayerVisible` itself
+    // writes, so there is no third place recording what is hidden.
     const unitsWereVisible = !this.unitsDebugHidden;
     const overlaysWereVisible = this.overlayBatch.mesh.visible;
     try {

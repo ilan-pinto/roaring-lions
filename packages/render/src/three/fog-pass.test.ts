@@ -83,8 +83,9 @@ describe('FogOfWarPass', () => {
 
 describe('uRevealAll (C2: reveal every on-map tile without disabling the pass)', () => {
   it('runs BEFORE the off-map fade, so ground past the border still fades rather than snapping to seen', () => {
-    // `plate-capture.ts` used to hide the fog-of-war boundary by disabling
-    // this whole pass (`setDebugLayerVisible('fog', false)`), which also
+    // The Phase 0 key-art plate capture (retired by the scene-host plan's
+    // Task 7) used to hide the fog-of-war boundary by disabling this whole
+    // pass (`setDebugLayerVisible('fog', false)`), which also
     // disabled `FOG_OFFMAP_FADE_TILES` and shipped a pale, unshrouded wedge
     // beyond the map edge in the key art. The fix leaves the pass enabled
     // and forces the SAMPLED value toward 1.0 instead -- ordering matters:

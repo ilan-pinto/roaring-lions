@@ -262,6 +262,10 @@
   --dur: 160ms;
   --dur-slow: 250ms;
   --dur-route: 200ms;
+  /* The scene host's canvas fading in over its poster (spec §3.5). The JS
+     timer that removes the poster is CROSSFADE_MS (ui/scene-host-model.ts),
+     and scene-host.test.ts pins the two together. */
+  --dur-host-reveal: 400ms;
   --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 }
 
@@ -2815,23 +2819,56 @@ body {
   background: var(--panel-bg);
   padding-block: var(--s2);
 }
-/* The banner, wordmark and nav were laid out for the narrow column; letting
-   them stretch to the map's width would blow the banner image up and turn
-   the nav into an oversized bar. They keep reading as the original centred
-   column inside the wider frame instead. */
-.rl-menu__banner,
+/* The wordmark, theatre label and nav were laid out for the narrow column;
+   letting them stretch to the map's width would turn the nav into an
+   oversized bar. They keep reading as the original centred column inside the
+   wider frame instead. (The Phase 0 key-art banner that used to head this
+   list left the column with the scene host below: the world stands behind
+   the column now, and a photograph of it inside the column would be the same
+   picture twice -- spec Q1.) */
 .rl-wordmark,
 .rl-menu__theatre,
 .rl-menu__nav {
   max-width: var(--menu-col);
   margin-inline: auto;
 }
-.rl-menu__banner {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin-bottom: var(--s3);
+
+/* The scene host (ui/scene-host.ts; spec §3.5): the lit diorama BEHIND the
+   menu column, in the same stage, so it leaves with the screen. The column
+   stacks over it. The host never takes a click or a Tab stop
+   (`pointer-events: none` here, `aria-hidden` in the DOM).
+
+   Parallax moves the picture, never the camera: the layer is oversized by
+   --host-bleed on every side and translated by up to one bleed against the
+   pointer, a compositor transform with no WebGL work. --host-dx/--host-dy are
+   unitless in [-1, 1], written by the host's easing loop. A rem, so the
+   amplitude follows the one UI scale and no px enters this sheet.
+
+   The stage the door draws into stays transparent until data-host='live': the
+   door paints its first frame there BEFORE the host reveals it, and the fade
+   in over the poster is --dur-host-reveal. */
+.rl-menu { z-index: 1; }
+.rl-scene-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  --host-bleed: 0.75rem;
+  --host-dx: 0;
+  --host-dy: 0;
 }
+.rl-scene-host__layer {
+  position: absolute;
+  inset: calc(-1 * var(--host-bleed));
+  transform: translate3d(calc(var(--host-dx) * var(--host-bleed)), calc(var(--host-dy) * var(--host-bleed)), 0);
+  will-change: transform;
+}
+.rl-scene-host__plate,
+.rl-scene-host__stage { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rl-scene-host__plate { display: block; object-fit: cover; }
+.rl-scene-host__stage { opacity: 0; transition: opacity var(--dur-host-reveal) var(--ease); }
+.rl-scene-host[data-host='live'] .rl-scene-host__stage { opacity: 1; }
 .rl-wordmark__mark {
   display: block;
   margin: 0 auto var(--s2);

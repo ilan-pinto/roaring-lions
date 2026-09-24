@@ -98,9 +98,11 @@
  *               can see it, which is why it does not get a check on every
  *               gated scenario.
  *
- * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate --
- * `tools/src/perf/plate-capture.ts` is its only caller today; a `layerChecks`
- * entry can still be added later if a scenario ever wants to gate it). HP
+ * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate -- the
+ * Phase 0 capture tool that added it was its only caller, and retired with
+ * the key-art plate it drew (scene-host plan Task 7); no capture tool calls
+ * it today, and a `layerChecks` entry can still be added later if a scenario
+ * ever wants to gate it). HP
  * bars, suppression bars, selection/threat rings, control-group badges and
  * their numerals, the veterancy chevron, order/objective markers -- every
  * unit AND structure overlay this backend draws, because all of it funnels

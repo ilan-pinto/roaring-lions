@@ -156,10 +156,16 @@ describe('the ground albedo table', () => {
     // renderer REFUSES a URL the table does not name (it warns and leaves
     // the surface flat), so the symptom on screen is a surface that never
     // got its material and nothing anywhere saying why.
+    //
+    // The five `${base}textures/....jpg` literals lived in `main.ts`'s own
+    // `opts` object literal until the scene-host plan's Task 2 extracted it
+    // into `rendererOptionsFor` (`renderer-options.ts`) -- read both files, or
+    // this regressed to "found no texture names" the moment the code moved.
     const ids = new Set(table.map((e) => e.id));
     const asked = new Set<string>();
     const main = readFileSync(root('packages/app/src/main.ts'), 'utf8');
-    for (const m of main.matchAll(/textures\/([a-z0-9_]+)\.jpg/g)) asked.add(m[1]);
+    const rendererOptions = readFileSync(root('packages/app/src/renderer-options.ts'), 'utf8');
+    for (const m of (main + rendererOptions).matchAll(/textures\/([a-z0-9_]+)\.jpg/g)) asked.add(m[1]);
     const themes = readFileSync(root('packages/app/src/terrain-themes.ts'), 'utf8');
     const themeBlock = /TERRAIN_GROUND_TEXTURE[^=]*= \{([\s\S]*?)\};/.exec(themes);
     expect(themeBlock, 'TERRAIN_GROUND_TEXTURE not found').not.toBeNull();

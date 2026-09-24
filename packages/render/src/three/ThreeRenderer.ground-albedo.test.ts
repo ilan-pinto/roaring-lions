@@ -65,6 +65,9 @@ let targetSize = 0;
  *  which is the only way to reproduce the boot race from a test: `init()`
  *  fires six of these and awaits none of them. */
 let pendingTextures: (() => void)[] = [];
+/** The failure half of each recorded load, index-aligned with
+ *  `pendingTextures`: a test lands a load OR fails it, never both. */
+let failTextures: (() => void)[] = [];
 
 /**
  * One byte per pixel: how many VISIBLE meshes' world bounding boxes project
@@ -195,9 +198,15 @@ vi.mock('three', async (importOriginal) => {
    * no texture URL at all, so nothing is queued unless a test asks for it.
    */
   class FakeTextureLoader {
-    load(_url: string, onLoad: (t: THREE.Texture) => void): THREE.Texture {
+    load(
+      _url: string,
+      onLoad: (t: THREE.Texture) => void,
+      _onProgress?: unknown,
+      onError?: (e: unknown) => void
+    ): THREE.Texture {
       const tex = new actual.Texture();
       pendingTextures.push(() => onLoad(tex));
+      failTextures.push(() => onError?.(new Error('404 (fake)')));
       return tex;
     }
   }
@@ -325,6 +334,7 @@ beforeEach(() => {
   coverage = null;
   targetSize = 0;
   pendingTextures = [];
+  failTextures = [];
 });
 
 /**
@@ -480,8 +490,8 @@ describe('ThreeRenderer.captureGroundAlbedo', () => {
   });
 
   it('puts a layer somebody else hid on purpose back to HIDDEN, not to visible', () => {
-    // A debug harness -- the visual gate's toggle A/B, `plate-capture.ts` --
-    // switches a layer off deliberately and then photographs. A minimap
+    // A debug harness -- the visual gate's toggle A/B -- switches a layer
+    // off deliberately and then photographs. A minimap
     // capture running in between must not hand it back a different scene
     // than the one it asked for.
     const r = makeRenderer();
@@ -563,5 +573,116 @@ describe('ThreeRenderer.captureGroundAlbedo', () => {
     expect(after).not.toBe(before);
     expect(renderCalls).toBeGreaterThan(afterFirst);
     r.dispose();
+  });
+});
+
+describe('groundTexturesSettled', () => {
+  const flush = async (): Promise<void> => {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  };
+
+  it('is already settled when no ground texture was asked for', async () => {
+    const r = makeRenderer();
+    let done = false;
+    void r.groundTexturesSettled().then(() => {
+      done = true;
+    });
+    await flush();
+    expect(done).toBe(true);
+    r.dispose();
+  });
+
+  it('waits for a load init() started, and settles once it has been applied', async () => {
+    const r = makeTexturedRenderer();
+    let done = false;
+    void r.groundTexturesSettled().then(() => {
+      done = true;
+    });
+    await flush();
+    expect(done).toBe(false);
+    expect(pendingTextures).toHaveLength(1);
+    for (const land of pendingTextures) land();
+    await flush();
+    expect(done).toBe(true);
+    r.dispose();
+  });
+
+  // A failed tile is already fail-soft in loadGroundTexture (flat palette tone,
+  // a warning). The scene host must not hang on it, and must not see a throw.
+  it('a failed load settles too, and the promise never rejects', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = makeTexturedRenderer();
+    let outcome: 'pending' | 'resolved' | 'rejected' = 'pending';
+    r.groundTexturesSettled().then(
+      () => {
+        outcome = 'resolved';
+      },
+      () => {
+        outcome = 'rejected';
+      }
+    );
+    for (const fail of failTextures) fail();
+    await flush();
+    expect(outcome).toBe('resolved');
+    warn.mockRestore();
+    r.dispose();
+  });
+
+  // The two guards in `loadGroundTexture` that return BEFORE a slot joins
+  // `settles`. Each one's position is load-bearing: a guard moved below the
+  // push, or dropped, queues a fetch that is waited on -- and for these two
+  // cases nothing the host is waiting for would ever be drawn, so a menu
+  // would reveal late (or, for a refused name, on a load nobody can apply).
+  it('a rock slot on a map with no ridge starts no fetch and holds nothing open', async () => {
+    // Premise: an 8x8 map with nothing blocked samples no rock at all.
+    const r = new ThreeRenderer(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), {
+      ...makeOpts(),
+      rockTextureUrl: 'https://example.test/assets/rock_ground_tile.jpg',
+    });
+    (r as unknown as { loadGroundTexture(): void }).loadGroundTexture();
+    let done = false;
+    void r.groundTexturesSettled().then(() => {
+      done = true;
+    });
+    await flush();
+    expect(pendingTextures).toHaveLength(0);
+    expect(done).toBe(true);
+    r.dispose();
+  });
+
+  it('a basename GROUND_ALBEDOS refuses starts no fetch and holds nothing open', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = new ThreeRenderer(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), {
+      ...makeOpts(),
+      groundTextureUrl: 'https://example.test/assets/not_a_ground_tile.jpg',
+    });
+    (r as unknown as { loadGroundTexture(): void }).loadGroundTexture();
+    let done = false;
+    void r.groundTexturesSettled().then(() => {
+      done = true;
+    });
+    await flush();
+    // Premise: the refusal is the path taken, not some other skip.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('is not in GROUND_ALBEDOS'));
+    expect(pendingTextures).toHaveLength(0);
+    expect(done).toBe(true);
+    warn.mockRestore();
+    r.dispose();
+  });
+
+  // Asked AFTER dispose() there is nothing left to wait for -- the renderer
+  // draws nothing more -- so a fetch still on the network must not hold the
+  // caller. Three's TextureLoader cannot abort one, and a stalled request
+  // would otherwise hold the answer for as long as the network takes.
+  it('asked after dispose(), it is settled even with a load still in flight', async () => {
+    const r = makeTexturedRenderer();
+    r.dispose();
+    let done = false;
+    void r.groundTexturesSettled().then(() => {
+      done = true;
+    });
+    await flush();
+    expect(pendingTextures).toHaveLength(1);
+    expect(done).toBe(true);
   });
 });

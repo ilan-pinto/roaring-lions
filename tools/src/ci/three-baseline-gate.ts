@@ -97,7 +97,7 @@
 //     re-authored (`capturePreconditionMismatches`) rather than reporting the
 //     re-authoring as a regression.
 
-import { checkCampaignBoard } from '../golden-diff/screens-check';
+import { checkCampaignBoard, checkMenuSceneHost } from '../golden-diff/screens-check';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -522,7 +522,7 @@ async function main(): Promise<void> {
     // over a printed FAIL. Found by reading that assignment rather than by a
     // run -- it is the same green-tick-over-a-real-failure shape this whole
     // check exists to stop.
-    const screensOk = screen.ok;
+    let screensOk = screen.ok;
     if (!screen.ok) {
       for (const m of screen.messages.slice(0, 5)) console.error(`[${TAG}]   ${m}`);
       console.error(
@@ -530,6 +530,25 @@ async function main(): Promise<void> {
           `That is a real regression, not an environment limit -- the fallback is legitimate ONLY for a browser ` +
           `with no WebGL2, and this one has it.`
       );
+      process.exitCode = EXIT_DIFF;
+    }
+
+    // The menu's own screen check (scene-host plan Task 8, spec §3.6): path,
+    // contribution and the colour register, folded into `screensOk` the same
+    // way `screen` (the campaign board) is -- `&&`, never an overwrite, so a
+    // PASS here can never clobber a FAIL `checkCampaignBoard` already set.
+    // Timed on its own (Task 0's run was never timed, so this IS the number
+    // spec §3.6 wanted rather than an estimate).
+    const menuHostStarted = Date.now();
+    const menuHost = await checkMenuSceneHost(browser, `http://localhost:${args.port}/`);
+    const menuHostMs = Date.now() - menuHostStarted;
+    console.log(
+      `\n[${TAG}] screen "${menuHost.id}": ${menuHost.detail} -> ${menuHost.ok ? 'PASS' : 'FAIL'} ` +
+        `(${menuHostMs} ms)`
+    );
+    screensOk = screensOk && menuHost.ok;
+    if (!menuHost.ok) {
+      for (const m of menuHost.messages.slice(0, 5)) console.error(`[${TAG}]   ${m}`);
       process.exitCode = EXIT_DIFF;
     }
 

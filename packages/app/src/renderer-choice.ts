@@ -27,8 +27,12 @@
  * missing one. Flipping the default is what turns that escape hatch from
  * decoration into the only way back.
  *
- * Pure: two strings in, a decision out. No DOM, no storage I/O — the caller
- * does the read/write so this stays testable without jsdom.
+ * `resolveRendererChoice` is pure: two strings in, a decision out, no DOM and
+ * no storage I/O, so it stays testable without jsdom. The read and the write
+ * are the two guarded helpers at the bottom, `readStoredRenderer` and
+ * `rememberRenderer`, which take the storage as a parameter for the same
+ * reason. They moved here from `ui/menu.ts` (scene-host plan, Task 6) when the
+ * menu itself began asking which renderer this player chose.
  */
 
 export type RendererChoice = 'pixi' | 'three';
@@ -58,4 +62,39 @@ export function resolveRendererChoice(
   }
   const choice: RendererChoice = stored === 'pixi' ? 'pixi' : 'three';
   return { choice, persist: null };
+}
+
+/** Where the remembered choice is read from and written to -- `localStorage`
+ *  in the app, a stand-in in a test. `Partial` because this vitest jsdom
+ *  configuration under Node 25 supplies a bare `{}` with no Storage API. */
+type StorageDoor<K extends 'getItem' | 'setItem'> = () => Partial<Pick<Storage, K>> | undefined;
+
+/**
+ * The remembered renderer choice, or `null`.
+ *
+ * Guarded rather than called inline because reaching `localStorage` is not
+ * guaranteed to work: a browser with site data blocked THROWS on the
+ * property access itself, and this vitest jsdom configuration supplies a
+ * bare `{}` with no Storage API at all -- so an unguarded `getItem` takes the
+ * whole screen that asked down in both. Losing the remembered choice is a
+ * small cost (the default is three, and `?renderer=` still works for that
+ * session); losing the screen is not.
+ */
+export function readStoredRenderer(storage: StorageDoor<'getItem'> = () => window.localStorage): string | null {
+  try {
+    return storage()?.getItem?.(RENDERER_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember an explicit choice, guarded for the same reasons as
+ *  `readStoredRenderer`. */
+export function rememberRenderer(choice: string, storage: StorageDoor<'setItem'> = () => window.localStorage): void {
+  try {
+    storage()?.setItem?.(RENDERER_STORAGE_KEY, choice);
+  } catch {
+    // Nothing to do and nothing to say: the player asked for a backend, they
+    // get it this session, and it simply will not outlive the navigation.
+  }
 }
