@@ -300,8 +300,6 @@ describe('the three campaign keys have one door', () => {
       'main.ts',
       'renderer-choice.ts',
       'shell/router.ts',
-      // Telemetry identity: player id and tester name are person-and-device facts.
-      'telemetry/identity.ts',
       'ui/menu.ts',
       'ui/saves.ts',
       'ui/worldmap3d.ts',
