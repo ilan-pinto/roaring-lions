@@ -4,16 +4,20 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   DRAWN_OFFSET_BOUND_TILES,
+  KNOWN_DEAD_LANES,
   MOTION_FLOORS,
   SAMPLE_MS,
   WEIGHT_PHASES,
   WEIGHT_SUBJECTS,
   framePumps,
+  laneStatus,
   laneVerdicts,
   motionVerdict,
+  runFails,
   sampleLadder,
   sheetIndex,
   tickPumpSchedule,
+  verdictLines,
   writeIndex,
   type SheetCell,
   type WeightSubject,
@@ -462,5 +466,84 @@ describe('the numeric ladder votes now (R-Q)', () => {
       'a/turn/false',
       'b/turn/true',
     ]);
+  });
+});
+
+describe('the known-dead lane (final review, ruling 1)', () => {
+  // `mbt_lavi_tel_marum/stop` is a wreck at every rung in both sets: its
+  // subject is killed at tick ~281, before the stop ladder can start. It
+  // stays in the sheet, labelled, and does not set the exit code -- and the
+  // moment it has a living rung it votes red, so the exclusion cannot outlive
+  // the choreography that caused it.
+  const cell = (subject: string, phase: 'start' | 'stop' | 'turn', ms: number, alive: boolean, pitchDeg = 0): SheetCell => ({
+    subject,
+    phase,
+    ms,
+    zoom: 2.5,
+    tick: ms / 50,
+    file: `${subject}-${phase}-${ms}.png`,
+    offsetTiles: alive ? 2 * MOTION_FLOORS.stop.minPeakOffsetTiles : null,
+    pitchDeg: alive ? pitchDeg : null,
+    rollDeg: alive ? 0 : null,
+    alive,
+  });
+  const deadLane = (subject: string, phase: 'start' | 'stop' | 'turn'): SheetCell[] =>
+    SAMPLE_MS.map((ms) => cell(subject, phase, ms, false));
+  const dive = -2 * MOTION_FLOORS.stop.minDiveDeg;
+  const up = 2 * MOTION_FLOORS.start.minPeakPitchDeg;
+
+  it('names exactly the one ruled lane, on a subject the harness really captures', () => {
+    expect(KNOWN_DEAD_LANES.map((k) => `${k.subject}/${k.phase}`)).toEqual(['mbt_lavi_tel_marum/stop']);
+    for (const k of KNOWN_DEAD_LANES) {
+      expect(WEIGHT_SUBJECTS.map((s) => s.id)).toContain(k.subject);
+      expect(k.reason).toMatch(/tick ~281/);
+    }
+  });
+
+  it('does not fail the run, and stays in the sheet labelled with its reason', () => {
+    const verdicts = laneVerdicts(deadLane('mbt_lavi_tel_marum', 'stop'), 2.5);
+    expect(verdicts).toHaveLength(1);
+    // The verdict itself is still a failure -- it is the RUN that excuses it.
+    expect(verdicts[0].ok).toBe(false);
+    expect(laneStatus(verdicts[0]).status).toBe('known-dead');
+    expect(runFails(verdicts)).toBe(false);
+    const row = verdictLines(verdicts).find((l) => l.includes('`mbt_lavi_tel_marum`'));
+    expect(row).toMatch(/\| KNOWN-DEAD \|/);
+    expect(row).toMatch(/excluded from the exit code/);
+    expect(row).toMatch(/tick ~281/);
+  });
+
+  it('fails the run once that lane gains a living rung, even a passing one', () => {
+    const revived = deadLane('mbt_lavi_tel_marum', 'stop');
+    revived[0] = cell('mbt_lavi_tel_marum', 'stop', 0, true, dive);
+    const [v] = laneVerdicts(revived, 2.5);
+    expect(v.ok).toBe(true); // its one living rung clears every floor...
+    expect(laneStatus(v).status).toBe('fail'); // ...and the listing still turns it red
+    expect(laneStatus(v).note).toMatch(/outlived its cause/);
+    expect(runFails([v])).toBe(true);
+    // A failing living rung is red too, not excused.
+    revived[0] = cell('mbt_lavi_tel_marum', 'stop', 0, true, 0);
+    expect(runFails(laneVerdicts(revived, 2.5))).toBe(true);
+  });
+
+  it('lets every other failing lane fail the run, the same subject and an all-dead lane included', () => {
+    const passing = SAMPLE_MS.map((ms) => cell('mbt_lavi', 'start', ms, true, ms === 200 ? up : 0));
+    expect(runFails(laneVerdicts(passing, 2.5))).toBe(false); // the control
+
+    const known = deadLane('mbt_lavi_tel_marum', 'stop');
+    // The same subject, another phase, dead throughout: not listed, so red.
+    const sameSubject = deadLane('mbt_lavi_tel_marum', 'start');
+    // Another subject, the listed phase, dead throughout: not listed, so red.
+    const samePhase = deadLane('mbt_lavi', 'stop');
+    // A living lane that simply fails its floor.
+    const flat = SAMPLE_MS.map((ms) => cell('apc_eitan', 'turn', ms, true, 0));
+    for (const bad of [sameSubject, samePhase, flat]) {
+      const verdicts = laneVerdicts([...known, ...passing, ...bad], 2.5);
+      expect(runFails(verdicts)).toBe(true);
+    }
+    // An empty lane is not "dead at every rung": a listed lane with no rungs
+    // at all cannot excuse itself.
+    const empty = { subject: 'mbt_lavi_tel_marum', phase: 'stop' as const, ...motionVerdict('stop', []) };
+    expect(laneStatus(empty).status).toBe('fail');
   });
 });

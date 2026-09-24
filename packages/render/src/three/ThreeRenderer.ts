@@ -5892,7 +5892,6 @@ export class ThreeRenderer implements Renderer {
         pitch += weight.pitchRad;
         roll += weight.rollRad;
         this.vehicleWeightAccel[i] = weight.accelFraction;
-
       }
       // The hull's own height: the ground under its drawn centre, sampled
       // BEFORE the recoil shove, exactly like `entityFrame`'s own recoil block
@@ -5903,29 +5902,9 @@ export class ThreeRenderer implements Renderer {
       const worldY = centreGroundY + airLift;
 
       // The terrain half, ground vehicles only, at the DRAWN centre (the hull
-      // stands on the ground it is drawn over) -- `units/vehicle-conform.ts`.
-      // A corner over a blocked tile or off the map stands at the centre's own
-      // height instead of on a ridge top or at 0; every other corner is on
-      // the smooth surface the units stand on. A missing footprint SKIPS the
-      // whole half rather than taking a default: a wrong footprint tilts the
-      // wrong way, a skipped one draws what shipped before this package.
-      // `vehicleMeshBounds` is the live body's measured size in tiles in the
-      // template root's frame -- `x` along the hull's forward axis, `z`
-      // across it.
-      const bounds = type.isAir ? undefined : this.vehicleMeshBounds.get(type.id);
-      if (bounds !== undefined && bounds.x > 0 && bounds.z > 0) {
-        const input = this.hullConformInput;
-        input.elevation = this.retained.elevation;
-        input.blocked = this.sim.blocked;
-        input.mapWidth = this.sim.width;
-        input.mapHeight = this.sim.height;
-        input.centreX = drawX;
-        input.centreY = drawY;
-        input.centreGroundY = centreGroundY;
-        input.facingNorm = facingNorm;
-        input.lengthTiles = bounds.x;
-        input.widthTiles = bounds.z;
-        const conform = conformHull(input, this.vehicleHullCorners, this.hullConform);
+      // stands on the ground it is drawn over) -- `vehicleConformAt`.
+      const conform = this.vehicleConformAt(type.id, type.isAir, drawX, drawY, centreGroundY, facingNorm);
+      if (conform !== null) {
         pitch += conform.pitchRad;
         roll += conform.rollRad;
       }
@@ -6094,6 +6073,9 @@ export class ThreeRenderer implements Renderer {
         // root, and a silhouette's own `MeshBasicMaterial` is shared by every
         // unit on that side. A wreck has no outline to keep either.
         detachMeshSilhouette(entity.root);
+        // The wreck's pose, BEFORE `beginVehicleDeath` latches `baseWorldY`
+        // off it -- see `poseVehicleWreck`.
+        this.poseVehicleWreck(entity, id);
         // `null` means "this entity cannot start a death" -- it warns and
         // falls through to the same immediate removal a clipless vehicle
         // takes. Never a throw: this runs inside `frame()`, where an
@@ -6110,6 +6092,92 @@ export class ThreeRenderer implements Renderer {
       }
     }
     this.stepVehicleDeaths(dtSeconds);
+  }
+
+  /**
+   * The terrain conform for a hull standing at `(x, y)` -- `units/
+   * vehicle-conform.ts`, fed this renderer's own surface, blocked mask and
+   * the type's measured footprint. A corner over a blocked tile or off the
+   * map stands at the centre's own height instead of on a ridge top or at 0;
+   * every other corner is on the smooth surface the units stand on.
+   *
+   * `null` for an air type, and for a type with no measured footprint: a
+   * missing footprint SKIPS the conform rather than taking a default, since
+   * a wrong footprint tilts the wrong way and a skipped one draws what
+   * shipped before WP-A1.3. `vehicleMeshBounds` is the live body's measured
+   * size in tiles in the template root's frame -- `x` along the hull's
+   * forward axis, `z` across it.
+   *
+   * Two callers, one answer: the living loop (at the DRAWN centre) and the
+   * death hand-off (`poseVehicleWreck`, at the sim position). The returned
+   * object is the shared scratch `hullConform`, overwritten by the next
+   * call -- read it before calling again.
+   */
+  private vehicleConformAt(
+    typeId: string,
+    isAir: boolean,
+    x: number,
+    y: number,
+    centreGroundY: number,
+    facingNorm: number
+  ): HullConform | null {
+    const bounds = isAir ? undefined : this.vehicleMeshBounds.get(typeId);
+    if (bounds === undefined || !(bounds.x > 0 && bounds.z > 0)) return null;
+    const input = this.hullConformInput;
+    input.elevation = this.retained.elevation;
+    input.blocked = this.sim.blocked;
+    input.mapWidth = this.sim.width;
+    input.mapHeight = this.sim.height;
+    input.centreX = x;
+    input.centreY = y;
+    input.centreGroundY = centreGroundY;
+    input.facingNorm = facingNorm;
+    input.lengthTiles = bounds.x;
+    input.widthTiles = bounds.z;
+    return conformHull(input, this.vehicleHullCorners, this.hullConform);
+  }
+
+  /**
+   * The pose a vehicle's wreck is handed over in (final review of WP-A1.3,
+   * ruling 9). `beginVehicleDeath` and the settle after it keep the root's
+   * position and rotation for the rest of the mission, and the root still
+   * holds whatever the last LIVING frame wrote: a hull killed mid-dive stayed
+   * nose-down for good, and one killed at cruise sat its lag (up to 0.06 tile
+   * on a Lavi) behind the scorch mark, the blast and the collapse shroud --
+   * all three placed at the sim position by `onEvents` (`curX`/`curY`).
+   *
+   * So the hand-off re-poses it from scratch: at the sim position, on the
+   * ground there (plus the air lift, for an air type -- its settle drops it
+   * to the ground later, as before), yawed to the sim's facing, and tilted by
+   * the terrain conform ALONE. Everything that only means "this hull is
+   * moving or has just fired" is dropped -- the weight model's pitch, roll
+   * and lag, and the recoil's pitch and shove with them. The conform stays:
+   * the ground under a wreck is still the ground.
+   *
+   * A write to the drawing only. The weight state is not touched (R-F: it
+   * freezes at death), and nothing here is read back by the sim. Every read
+   * is of state the living loop already reads for this entity; a hull that
+   * dies parked and not recoiling is written the same pose it already held.
+   */
+  private poseVehicleWreck(entity: VehicleMeshEntity, id: number): void {
+    const st = this.sim.state;
+    const type = this.sim.unitTypes[st.typeIdx[id]];
+    const x = this.curX[id];
+    const y = this.curY[id];
+    const facingNorm = fx.toNumber(st.facing[id]);
+    const centreGroundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y);
+    const airLift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+    let pitch = 0;
+    let roll = 0;
+    const conform = this.vehicleConformAt(type.id, type.isAir, x, y, centreGroundY, facingNorm);
+    if (conform !== null) {
+      pitch = conform.pitchRad;
+      roll = conform.rollRad;
+    }
+    entity.root.position.set(x, centreGroundY + airLift, y);
+    // The living loop's own single write, same order and same roll sign --
+    // see the comment above that one.
+    entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
   }
 
   /**
