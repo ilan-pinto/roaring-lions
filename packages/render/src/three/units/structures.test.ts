@@ -656,3 +656,51 @@ describe('configureStructureTexture', () => {
     expect(configureStructureTexture(texture)).toBe(texture);
   });
 });
+
+/**
+ * `grow` and `dispose` release the `InstancedMesh` itself, not only its
+ * geometry and material: in three r170 the instance-matrix buffer is freed
+ * only by the mesh's own `dispose` event (`WebGLObjects`'
+ * `onInstancedMeshDispose`). `grow` must NOT free the texture, which it hands
+ * to the replacement; `dispose` must.
+ */
+describe('StructureInstancer releases what it owns', () => {
+  const quad = structureBillboardGeometry(1, 64, 64);
+
+  it('grow releases the replaced mesh, geometry and material, and keeps the texture alive for its replacement', () => {
+    const texture = new THREE.Texture();
+    const old = new StructureInstancer(texture, quad, 1);
+    const meshDispose = vi.spyOn(old.mesh, 'dispose');
+    const geometryDispose = vi.spyOn(old.mesh.geometry, 'dispose');
+    const materialDispose = vi.spyOn(old.mesh.material as THREE.Material, 'dispose');
+    const textureDispose = vi.spyOn(texture, 'dispose');
+
+    const next = old.grow(3);
+
+    expect(next).not.toBe(old);
+    expect(next.capacity).toBe(3);
+    expect(next.spriteTexture).toBe(texture);
+    expect(meshDispose).toHaveBeenCalledTimes(1);
+    expect(geometryDispose).toHaveBeenCalledTimes(1);
+    expect(materialDispose).toHaveBeenCalledTimes(1);
+    expect(textureDispose).not.toHaveBeenCalled();
+  });
+
+  it('grow to a capacity it already has releases nothing', () => {
+    const old = new StructureInstancer(new THREE.Texture(), quad, 4);
+    const meshDispose = vi.spyOn(old.mesh, 'dispose');
+    expect(old.grow(4)).toBe(old);
+    expect(old.grow(2)).toBe(old);
+    expect(meshDispose).not.toHaveBeenCalled();
+  });
+
+  it('dispose releases the mesh as well as the geometry, material and texture', () => {
+    const texture = new THREE.Texture();
+    const instancer = new StructureInstancer(texture, quad, 1);
+    const meshDispose = vi.spyOn(instancer.mesh, 'dispose');
+    const textureDispose = vi.spyOn(texture, 'dispose');
+    instancer.dispose();
+    expect(meshDispose).toHaveBeenCalledTimes(1);
+    expect(textureDispose).toHaveBeenCalledTimes(1);
+  });
+});

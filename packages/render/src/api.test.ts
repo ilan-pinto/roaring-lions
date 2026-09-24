@@ -41,9 +41,11 @@ describe('Renderer projection contract', () => {
 /**
  * The optional half of the seam, which is where a FROZEN backend lives.
  *
- * `renderer.ts` (Pixi) is frozen and cannot grow a member, so anything only
- * the three.js backend can answer arrives on this interface as optional and
- * the app carries the fallback. That optionality is a compile-time property
+ * `renderer.ts` (Pixi) is frozen, and grows a member only when the compiler
+ * forces it -- once so far, `reseed` (8c638f1d), which every backend must
+ * answer and so is required. Anything only the three.js backend can answer
+ * arrives on this interface as optional instead, and the app carries the
+ * fallback. That optionality is a compile-time property
  * with no runtime shadow, so the check below is half a TYPE assertion -- the
  * annotated literal compiles only while the member is optional, and making
  * it required is what turns this file red under `pnpm typecheck` -- and half

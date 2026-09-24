@@ -2289,7 +2289,9 @@ export class ThreeRenderer implements Renderer {
    *     `recomputeFog` reads the living units the sim holds now, and
    *     `trailMeshDirty` rebuilds the tunnel trail on the next frame. After
    *     the two calls the counter stands at 2, the phase `init` has always
-   *     left it at, so the tick loop's refreshes land where they did.
+   *     left it at, so the tick loop's refreshes land where the sandbox
+   *     path, and every mission before PR #212, had them. (Between PR #212
+   *     and `reseed`, a mission's app-side stopgap left the counter at 5.)
    *  2. **Interpolation, speed and track seeds.** The first `snapshot()`
    *     moves `cur` to where every entity stands; the second copies that
    *     into `prev`, so the first `frame()` lerps nothing in from (0, 0) and
@@ -2340,7 +2342,7 @@ export class ThreeRenderer implements Renderer {
   private fitStructureInstancers(): void {
     for (const byType of [this.structureIdle, this.structureWreck]) {
       for (const [id, instancer] of byType) {
-        const fitted = instancer.withCapacity(this.structureTypeCapacity(id));
+        const fitted = instancer.grow(this.structureTypeCapacity(id));
         if (fitted === instancer) continue;
         this.scene.remove(instancer.mesh);
         this.scene.add(fitted.mesh);
