@@ -302,6 +302,8 @@ describe('the three campaign keys have one door', () => {
       'main.ts',
       'renderer-choice.ts',
       'shell/router.ts',
+      // WP-T1: telemetry initializes the player identity from localStorage via safeStorage guard.
+      'telemetry/index.ts',
       'ui/saves.ts',
       'ui/worldmap3d.ts',
     ]);

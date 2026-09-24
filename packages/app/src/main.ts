@@ -89,6 +89,8 @@ import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
+import { initTelemetry, telemetry, type MissionTelemetry, type RuntimeView } from './telemetry';
+import { screenFor } from './telemetry/events';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
 import { focusTrap } from './ui/focus-trap';
 import { showKeysOverlay } from './ui/keys-overlay';
@@ -1153,6 +1155,14 @@ async function main(): Promise<void> {
   // off the URL -- except on the way into a mission, where it still means "run
   // this one against an empty ledger" and `bootBattlefield` reads it back off
   // `req.query`, exactly as the pre-router code read it off the query string.
+  // `landingPath` (computed above, pre-router) is what a legacy `?sandbox=`/
+  // `?mission=` query rewrites to -- `location.pathname` here would still be
+  // the raw pre-rewrite path and misclassify those links as `menu`.
+  const telemetryScreen = screenFor(landingPath, '/', 'beit_sahwan_0_tutorial');
+  initTelemetry({ dev: telemetryScreen === 'sandbox' }).sessionStart(
+    telemetryScreen,
+    resolveRendererChoice(new URLSearchParams(location.search).get('renderer'), safeStorage()?.getItem(RENDERER_STORAGE_KEY) ?? null).choice
+  );
   await router.start({ drop: landingIsMission ? [] : ['fresh'] });
 }
 
@@ -1549,6 +1559,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * what it always was.
    */
   let runtime: MissionRuntime | null = null;
+  let missionTelemetry: MissionTelemetry | null = null;
   /** The force `MissionRuntime` and the deploy panel (`broughtFor`) actually see:
    *  `upgrades_to` resolved once here (spec §4.6), before the runtime is built, so
    *  the spawner stays gate-blind. Every other reader of `mission` -- briefing,
@@ -2217,6 +2228,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           };
         },
       }, renderer);
+      const missionTel: MissionTelemetry = telemetry().missionStarted(
+        resolvedMission.id,
+        (ledger['campaign.mission_results'] ?? {})[resolvedMission.id] !== undefined,
+        (): RuntimeView => ({
+          tick: sim.tickCount,
+          result: runtime?.result ?? 'ongoing',
+          defeatCause: runtime?.defeatCause,
+          roe: runtime?.roeScore ?? 0,
+          fielded: runtime?.fieldedCount ?? 0,
+          lost: Object.values(runtime?.lostByType() ?? {}).reduce((a, b) => a + b, 0),
+          objectives: runtime?.objectiveList ?? [],
+        })
+      );
+      onDispose(() => missionTel.end());
+      missionTelemetry = missionTel;
     } catch (err) {
       teardown();
       throw err;
@@ -2992,6 +3018,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     tutorials as Record<string, { mission: string; steps: StepJson[]; completes?: string } | undefined>
   ).find((t) => t?.mission === missionId);
   let tut: TutorialState | null = null;
+  let telemetryTutIndex = -1;
   let tutPanel: TutorialPanel | null = null;
   // Companions for the hover dispatch in `updateHover`: it runs every frame,
   // and an unchanged hover is not a new thing the player did, so these hold
@@ -3641,6 +3668,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
 
       for (const me of missionEvents) {
+        missionTelemetry?.onEvent(me);
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
         // The memorial half of the service record (WP-G-E4). `unitLost` is already
@@ -3690,6 +3718,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 })
               : null;
           const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...me.ledger };
+          if (me.result === 'victory')
+            telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
           let payout: ReturnType<typeof payMission> | null = null;
           // Task 7's two memorial rows (WP-G-E4). Empty on a defeat, like `payout`.
           const lostNamed = carryover ? carryover.lostNamed : [];
@@ -4039,6 +4069,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer.objectiveZoneState =
         timed?.paused === 'contested' ? 'contested' : timed?.paused === 'unheld' ? 'unheld' : 'held';
       renderer.objectiveZones = objectiveZonesFor(runtime.objectiveList, map.zones);
+    }
+    if (tut && tut.index !== telemetryTutIndex) {
+      telemetryTutIndex = tut.index;
+      if (tut.index < tut.steps.length) telemetry().tutorialStep(tut.index, tut.steps.length);
     }
   };
 

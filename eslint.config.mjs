@@ -42,6 +42,8 @@ export default tseslint.config(
       // one of them `no-undef` on `module`/`define`/`exports` in an UMD
       // wrapper.
       'assets/draco/**',
+      // Wrangler's local dev state (WP-T1) -- generated, gitignored, not ours.
+      '.wrangler/**',
     ],
   },
   eslint.configs.recommended,
@@ -157,6 +159,10 @@ export default tseslint.config(
         },
       ],
     },
+  },
+  {
+    files: ['packages/worker/src/**/*.ts'],
+    languageOptions: { globals: { ...globals.serviceworker } },
   },
   {
     files: ['tools/src/**/*.ts'],
