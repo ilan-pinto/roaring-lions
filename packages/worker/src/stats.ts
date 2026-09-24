@@ -202,8 +202,9 @@ export async function timeline(db: D1Like, tester: string) {
 const json = (x: unknown): Response =>
   new Response(JSON.stringify(x), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 
-/** /stats and /stats/api/*. Access guards this at the edge; the header check is a
- *  tripwire for a missing or misconfigured Access application, not authentication. */
+/** /stats and /stats/api/*. Access guards this at the edge, and the Worker verifies
+ *  the Access JWT itself (`verifyAccessJwt`), failing closed until
+ *  ACCESS_TEAM_DOMAIN and ACCESS_AUD are set. */
 export async function handleStats(req: Request, env: Env, now: number): Promise<Response> {
   const token = req.headers.get('cf-access-jwt-assertion');
   if (!token || !(await verifyAccessJwt(token, env, now)))
