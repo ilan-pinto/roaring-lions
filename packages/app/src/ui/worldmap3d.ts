@@ -260,6 +260,78 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     say.dataset.tone = tone;
   };
 
+  // --- the ground's own preview: what a click at the cursor would say -----
+  // Read from `view.hovered` (below) inside `onFrame`, the only place this
+  // screen learns what is currently under the cursor -- the ground is one
+  // canvas with no per-region DOM node of its own. Debounced to CHANGES
+  // only: `onFrame` runs every animation frame, and rewriting an
+  // `aria-live` region sixty times a second would make a screen reader
+  // unusable. The debounce is also what keeps a just-committed click
+  // sentence from being overwritten one frame later by a hover preview of
+  // the same, unchanged, region.
+  //
+  // Declared here, before the town pins, for the same reason `speak` is
+  // (see its own comment above): `resumeGroundHover` below is called from
+  // the pins' own leave handlers, and a forward reference across the whole
+  // loop is worse than moving this block up.
+  let lastGroundHover: string | null = null;
+  const previewGround = (regionId: string | null): void => {
+    if (regionId === null) {
+      speak(HINT, 'hint');
+      return;
+    }
+    const region = regionById.get(regionId);
+    if (!region) {
+      speak(t('world3d.hover.unmapped', { id: regionId }), 'info');
+      return;
+    }
+    const p = regionProgress(region, ledger, missionName);
+    const next = nextOf(region);
+    const line = hoverLine({
+      status: p.status,
+      regionName: region.name,
+      lockedBecause: p.lockedBecause ?? undefined,
+      nextMissionName: next !== null ? (missionName(next) ?? region.name) : undefined,
+    });
+    speak(t(line.key, line.params), line.tone);
+  };
+
+  // Assigned once `mount()` resolves, far below -- declared here (rather
+  // than beside that assignment) so `resumeGroundHover` can read it with no
+  // forward reference. `onFrame` is only ever CALLED by the mounted view
+  // itself, always after that assignment has happened, so this is never
+  // read `null` in practice there; it starts `null` rather than asserted
+  // non-null because nothing here can prove that to the compiler ahead of
+  // time.
+  let mountedView: MountedView | null = null;
+
+  // --- who owns the line: the ground, or a pin -----------------------------
+  // A realistic mouse move onto a pin crosses bare board first, so ground
+  // hover has already spoken by the time the cursor reaches it. A pin's own
+  // `mouseenter` speaks its sentence (below), but the DOM pin overlay is
+  // then topmost, so the very next `onFrame` sees the canvas's own hit test
+  // read `null` -- a CHANGE from whatever region ground hover last spoke --
+  // and the debounce above used to treat that as real and re-speak the hint
+  // over the pin's sentence, ~25ms later in a real browser (found driving a
+  // real mouse, 2026-09-24). Keyboard focus never showed it: it does not
+  // touch `onFrame` at all.
+  //
+  // A counter, not a boolean, because a mouse hover and a keyboard focus can
+  // land on two different pins (or the same one) at once, each with its own
+  // enter/leave pair -- the ground must stay quiet until the LAST one lets
+  // go.
+  let pinOwnsLine = 0;
+  /** Ground hover resumes once the last pin lets go -- re-derived from
+   *  whatever the view says is under the cursor right now, forced rather
+   *  than left to the next frame's debounce, since the cursor may already
+   *  be back over the very region `lastGroundHover` remembers from before
+   *  the pin was entered (a debounce comparing equal values speaks nothing). */
+  const resumeGroundHover = (): void => {
+    const hoveredId = mountedView?.hovered ?? null;
+    lastGroundHover = hoveredId;
+    previewGround(hoveredId);
+  };
+
   // --- the town pins ------------------------------------------------------
   const pinFor = new Map<string, HTMLElement>();
   for (const region of world.regions) {
@@ -320,15 +392,20 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
       };
       const leaveThisPin = (): void => {
         delete marker.dataset.hover;
-        speak(HINT, 'hint');
+        // Only the LAST hover or focus letting go hands the line back to
+        // the ground -- see `pinOwnsLine`'s own comment above.
+        pinOwnsLine = Math.max(0, pinOwnsLine - 1);
+        if (pinOwnsLine === 0) resumeGroundHover();
       };
       marker.addEventListener('mouseenter', () => {
         marker.dataset.hover = '1';
+        pinOwnsLine++;
         previewThisPin();
       });
       marker.addEventListener('mouseleave', leaveThisPin);
       marker.addEventListener('focusin', () => {
         marker.dataset.hover = '1';
+        pinOwnsLine++;
         previewThisPin();
       });
       marker.addEventListener('focusout', leaveThisPin);
@@ -443,49 +520,12 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     navigate(opts.href(next));
   };
 
-  // --- the ground's own preview: what a click at the cursor would say -----
-  // Read from `view.hovered` (below) inside `onFrame`, the only place this
-  // screen learns what is currently under the cursor -- the ground is one
-  // canvas with no per-region DOM node of its own. Debounced to CHANGES
-  // only: `onFrame` runs every animation frame, and rewriting an
-  // `aria-live` region sixty times a second would make a screen reader
-  // unusable. The debounce is also what keeps a just-committed click
-  // sentence from being overwritten one frame later by a hover preview of
-  // the same, unchanged, region.
-  let lastGroundHover: string | null = null;
-  const previewGround = (regionId: string | null): void => {
-    if (regionId === null) {
-      speak(HINT, 'hint');
-      return;
-    }
-    const region = regionById.get(regionId);
-    if (!region) {
-      speak(t('world3d.hover.unmapped', { id: regionId }), 'info');
-      return;
-    }
-    const p = regionProgress(region, ledger, missionName);
-    const next = nextOf(region);
-    const line = hoverLine({
-      status: p.status,
-      regionName: region.name,
-      lockedBecause: p.lockedBecause ?? undefined,
-      nextMissionName: next !== null ? (missionName(next) ?? region.name) : undefined,
-    });
-    speak(t(line.key, line.params), line.tone);
-  };
-
   // A label's rendered size never changes frame to frame (the text and the
   // star count are fixed once the pin is built), so it is measured once --
   // the moment a pin first gets a real position -- rather than every frame.
   // `offsetWidth`/`offsetHeight` are the placed-and-visible size regardless
   // of `opacity`, which is all this pin ever animates.
   const labelSize = new Map<string, { w: number; h: number }>();
-  // Assigned once `mount()` resolves, below -- `onFrame` is only ever
-  // CALLED by the mounted view itself, always after that assignment has
-  // happened, so this is never read `null` in practice; it starts `null`
-  // rather than asserted non-null because nothing here can prove that to
-  // the compiler ahead of time.
-  let mountedView: MountedView | null = null;
   const onFrame = (towns: readonly TownPin[], bearingDegrees: number): void => {
     const boxes: LabelBox[] = [];
     for (const t of towns) {
@@ -515,11 +555,16 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
     bearing.textContent = `${Math.round(bearingDegrees).toString().padStart(3, '0')}°`;
 
     // The ground's own preview, debounced to changes only -- see
-    // `previewGround`'s own comment for why.
-    const hoveredId = mountedView?.hovered ?? null;
-    if (hoveredId !== lastGroundHover) {
-      lastGroundHover = hoveredId;
-      previewGround(hoveredId);
+    // `previewGround`'s own comment for why. Skipped entirely while a pin
+    // owns the line (`pinOwnsLine`, above): the DOM overlay being topmost
+    // makes this read `null` the instant a pin is hovered, and that must
+    // not clobber the pin's own sentence.
+    if (pinOwnsLine === 0) {
+      const hoveredId = mountedView?.hovered ?? null;
+      if (hoveredId !== lastGroundHover) {
+        lastGroundHover = hoveredId;
+        previewGround(hoveredId);
+      }
     }
   };
 

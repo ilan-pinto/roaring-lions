@@ -494,6 +494,55 @@ describe('the ground previews what a click there would say', () => {
   });
 });
 
+/**
+ * The bug found driving a real mouse on 2026-09-24 (report Part 2): a
+ * realistic multi-step move onto a pin crosses bare board first, so ground
+ * hover has already spoken by the time the cursor reaches the pin.
+ * `mouseenter` speaks the pin's own sentence -- but the DOM pin overlay is
+ * now topmost, so the very next `onFrame` reads the view's own `hovered` as
+ * `null`, and the ground-hover debounce used to treat that as a CHANGE
+ * (`null !== 'sur'`, the region spoken a moment before) and re-speak the
+ * hint over the pin's sentence, ~25ms after it appeared in a real browser.
+ * Keyboard focus was unaffected because it never touches `onFrame` at all.
+ */
+describe('a pin owns the line while it is hovered, and ground hover must not clobber it', () => {
+  it('keeps the pin sentence on the frame where the ground hover reads null', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    // Ground hover speaks first -- the cursor crossed bare board on the way
+    // to the pin, exactly as a real mouse move does.
+    s.view().hovered = 'sur';
+    s.view().frame([], 0);
+    expect(say(s.el)).toBe('Sur — locked: Clear an earlier mission first');
+
+    const pin = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
+    pin?.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
+
+    // The frame that used to clobber it: the DOM overlay is topmost now, so
+    // the view's own hit test reports nothing under the cursor.
+    s.view().hovered = null;
+    s.view().frame([], 1);
+    expect(say(s.el)).toBe('Tel Marum — locked: Clear an earlier mission first');
+  });
+
+  it('resumes ground hover, re-speaking the region still under the cursor, once the pin is left', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    s.view().hovered = 'sur';
+    s.view().frame([], 0);
+    const pin = s.el.querySelector<HTMLElement>('[data-town="tel_marum"]');
+    pin?.dispatchEvent(new MouseEvent('mouseenter'));
+    s.view().hovered = null;
+    s.view().frame([], 1);
+
+    pin?.dispatchEvent(new MouseEvent('mouseleave'));
+    s.view().hovered = 'sur'; // the cursor never actually left this ground
+    s.view().frame([], 2);
+    expect(say(s.el)).toBe('Sur — locked: Clear an earlier mission first');
+  });
+});
+
 describe('the rotate controls', () => {
   it('turn the board both ways and face north again', async () => {
     const s = mountScreen({});
