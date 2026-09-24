@@ -37,6 +37,14 @@
 				"limit": 120,
 				"period": 60
 			}
+		},
+		{
+			"name": "LOGIN_LIMIT",
+			"namespace_id": "1002",
+			"simple": {
+				"limit": 10,
+				"period": 60
+			}
 		}
 	],
 	// Per-request URL logs would carry the ?tester= label in plain text;
@@ -47,12 +55,5 @@
 		"logs": {
 			"invocation_logs": false
 		}
-	},
-	// Fill both from the Access application at Zero Trust > Access > Applications
-	// for /stats: ACCESS_TEAM_DOMAIN is the team's `<team>.cloudflareaccess.com`
-	// domain, ACCESS_AUD is that application's Audience (AUD) tag.
-	"vars": {
-		"ACCESS_TEAM_DOMAIN": "",
-		"ACCESS_AUD": ""
 	}
 }
