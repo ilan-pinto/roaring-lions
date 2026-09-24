@@ -5,7 +5,7 @@ import { maps, menuDiorama, parseMap, units, type DioramaJson } from '@lions/dat
 // renderer for projection, but a test may hold data to project.ts's own maths.
 import { screenToWorldFlat, worldToScreen } from '@lions/render/project';
 import { hasUnitMesh } from '../mesh-catalogue';
-import { buildDioramaWorld, facingFromDeg } from './diorama';
+import { buildDioramaWorld, dioramaSceneOptions, facingFromDeg } from './diorama';
 import { REF_LAYER, hostZoom } from './framing';
 
 const tiny: DioramaJson = {
@@ -106,5 +106,15 @@ describe('the shipped menu diorama', () => {
       expect(s.x > 0.05 * W && s.x < 0.95 * W && s.y > 0.05 * H && s.y < 0.95 * H, `${u.unit} off frame at ${s.x},${s.y}`).toBe(true);
       expect(s.x < colL || s.x > colR, `${u.unit} under the column at x=${s.x.toFixed(0)}`).toBe(true);
     }
+  });
+});
+
+describe('dioramaSceneOptions', () => {
+  it('hands the door the mission’s own options and a zoom that follows the cover law', () => {
+    const o = dioramaSceneOptions(menuDiorama, { colorVision: 'default', quality: 'high' }, '/');
+    expect(o.renderer.groundTextureUrl).toBe('/textures/desert_sand_tile.jpg');
+    expect(o.camera).toEqual({ x: 27, y: 22 });
+    expect(o.zoomFor(1920, 1080)).toBeCloseTo(1.6, 10);
+    expect(o.meshes.vehicles.map((v) => v.id).sort()).toEqual(['apc_eitan', 'mbt_lavi']);
   });
 });

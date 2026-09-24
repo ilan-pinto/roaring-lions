@@ -57,6 +57,7 @@ import {
   paletteColor,
   audioManifest,
   vfxEmitters,
+  menuDiorama,
   type MapJson,
   type MissionLocaleOverlay,
   type UpgradableUnit,
@@ -157,7 +158,12 @@ import {
   type RouteRequest,
 } from './shell/router';
 import { routes } from './shell/links';
-import { resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
+import { readStoredRenderer, rememberRenderer, resolveRendererChoice, RENDERER_STORAGE_KEY } from './renderer-choice';
+// The menu's scene host (scene-host plan, Task 6): the lit diorama behind the
+// column. `ui/scene-host.ts` is the only thing that reaches its three.js door,
+// by a dynamic import, so neither import below pulls three into this chunk.
+import { sceneHost } from './ui/scene-host';
+import { dioramaSceneOptions } from './front/diorama';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import {
@@ -837,8 +843,14 @@ async function main(): Promise<void> {
   if (new URLSearchParams(landingSearch).has('fresh') && !landingIsMission) purgeCampaign();
 
   /** The landing. The one screen that defines no `window.__lions`. */
-  function mountMenu(host: HTMLElement): Disposer {
+  function mountMenu(host: HTMLElement, req: RouteRequest): Disposer {
     const worldData = parseWorld(world);
+    // Which backend this player chose, resolved and persisted the way
+    // `showCampaign` does it: the scene host behind the column takes the
+    // campaign board's rule -- `?renderer=pixi` gets the plate, and never
+    // downloads three for a menu.
+    const renderer = resolveRendererChoice(req.query.get('renderer'), readStoredRenderer());
+    if (renderer.persist) rememberRenderer(renderer.persist);
     // Minor 4 + Minor 5: one predicate, through the store. This runs on every
     // menu MOUNT now rather than once per page load, so a store whose property
     // access throws would have thrown on every return to the menu.
@@ -878,6 +890,23 @@ async function main(): Promise<void> {
         purgeCampaign();
         void router.navigate(routes.menu(), { replace: true, force: true });
       },
+      // The host decides its own path (live, plate or off) and builds the
+      // diorama's world only on the live one. Settings are read when that
+      // world is built, like a mission's at its boot: the colour-vision
+      // variant and quality preset the player has right now.
+      backdrop: (into, column) =>
+        sceneHost(into, column, {
+          plateUrl: `${BASE}${menuDiorama.plate}`,
+          renderer: renderer.choice,
+          world: () => {
+            const now = settingsDeps.get();
+            return dioramaSceneOptions(
+              menuDiorama,
+              { colorVision: now.accessibility.colorVision, quality: now.video.quality },
+              BASE
+            );
+          },
+        }),
     });
   }
 
@@ -1043,7 +1072,7 @@ async function main(): Promise<void> {
     base: BASE,
     stage,
     routes: [
-      { name: 'menu', pattern: '/', mount: (host) => mountMenu(host) },
+      { name: 'menu', pattern: '/', mount: (host, req) => mountMenu(host, req) },
       { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
       { name: 'brigade', pattern: '/brigade', mount: (host) => mountBrigade(host) },
       // The picker. Nothing is passed in: the screen reads the map enumeration

@@ -9,7 +9,7 @@
 // parsed at all, which is exactly the case that matters once the default
 // flips.
 import { describe, expect, it } from 'vitest';
-import { resolveRendererChoice } from './renderer-choice';
+import { readStoredRenderer, rememberRenderer, resolveRendererChoice } from './renderer-choice';
 
 describe('resolveRendererChoice', () => {
   it('parses an explicit ?renderer=pixi as a real choice, not a fallthrough', () => {
@@ -48,5 +48,24 @@ describe('resolveRendererChoice', () => {
 
   it('ignores garbage in storage rather than trusting it as three', () => {
     expect(resolveRendererChoice(null, 'nope')).toEqual({ choice: 'three', persist: null });
+  });
+});
+
+describe('readStoredRenderer / rememberRenderer', () => {
+  it('read and write through the storage they are handed', () => {
+    const m = new Map<string, string>();
+    const s = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+    rememberRenderer('pixi', () => s);
+    expect(readStoredRenderer(() => s)).toBe('pixi');
+  });
+  it('a storage that throws reads as nothing and writes as nothing', () => {
+    const blocked = (): never => {
+      throw new Error('site data blocked');
+    };
+    expect(readStoredRenderer(blocked)).toBeNull();
+    expect(() => rememberRenderer('pixi', blocked)).not.toThrow();
+  });
+  it('a storage with no API (jsdom under Node 25) reads as nothing', () => {
+    expect(readStoredRenderer(() => ({}))).toBeNull();
   });
 });

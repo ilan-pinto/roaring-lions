@@ -15,6 +15,7 @@ import {
   type MountedView,
   type TownPin,
 } from './worldmap3d';
+import { webgl2Available } from './webgl-probe';
 
 const world = parseWorld(worldJson);
 const countries = parseCountries(countriesJson);
@@ -118,8 +119,8 @@ const mountScreen = (
  *
  * This vitest jsdom configuration supplies `window.localStorage` as a bare
  * `{}` -- no `getItem`, no `setItem`, no `length`. Two things follow.
- * `showCampaign` must survive that (it does, see `storedRenderer` in
- * `menu.ts`), and a test that wants to steer the renderer choice has to
+ * `showCampaign` must survive that (it does, see `readStoredRenderer` in
+ * `renderer-choice.ts`), and a test that wants to steer the renderer choice has to
  * provide storage itself. Map-backed rather than a spy: the shape a browser
  * really hands over, so nothing here passes against an API the app could
  * never meet.
@@ -781,6 +782,10 @@ describe('a board left before its view mounts holds no WebGL context', () => {
     }
   });
 
+  // The probe lives in `./webgl-probe` since the scene host began sharing it
+  // (scene-host plan, Task 6), and this is still its guard: the module's own
+  // function is asked directly, then the board is asked to run it -- so a
+  // board that stopped using the shared probe fails here too.
   it('the WebGL2 probe gives its own context back', async () => {
     const loseContext = vi.fn();
     // `getContext` is overloaded per context type; the stand-in answers the
@@ -791,6 +796,8 @@ describe('a board left before its view mounts holds no WebGL context', () => {
       .spyOn(HTMLCanvasElement.prototype, 'getContext')
       .mockImplementation((() => fakeGl) as unknown as HTMLCanvasElement['getContext']);
     try {
+      expect(webgl2Available()).toBe(true);
+      expect(loseContext).toHaveBeenCalledTimes(1);
       const fake = fakeMount();
       // No `webgl` override: the real probe runs.
       const { el, ready } = worldMap3d({
@@ -805,7 +812,7 @@ describe('a board left before its view mounts holds no WebGL context', () => {
       });
       document.body.appendChild(el);
       expect(await ready).toBe('diorama');
-      expect(loseContext).toHaveBeenCalledTimes(1);
+      expect(loseContext).toHaveBeenCalledTimes(2);
     } finally {
       probe.mockRestore();
     }

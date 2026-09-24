@@ -277,3 +277,37 @@ describe('showMenu aside', () => {
     expect(last.getAttribute('href')).toBe('/credits');
   });
 });
+
+describe('showMenu backdrop (the scene host)', () => {
+  it('mounts the backdrop after the column is in the stage, handing it the column', () => {
+    const stage = document.createElement('div');
+    // A holder rather than two `let`s: tsc narrows a `let` assigned only in a
+    // callback to its initialiser at the read below.
+    const seen: { column: HTMLElement | null; inStage: boolean } = { column: null, inStage: false };
+    showMenu(stage, {
+      base: '/', version: '0.0.0', world, tutorial,
+      backdrop: (s, column) => {
+        seen.column = column;
+        seen.inStage = column.parentElement === s;
+        return () => {};
+      },
+    });
+    expect(seen.inStage).toBe(true);
+    expect(seen.column?.classList.contains('rl-menu')).toBe(true);
+  });
+  it('its disposer runs the backdrop’s disposer and removes the column', () => {
+    const stage = document.createElement('div');
+    let disposed = 0;
+    const off = showMenu(stage, { base: '/', version: '0.0.0', world, tutorial, backdrop: () => () => void disposed++ });
+    off();
+    expect(disposed).toBe(1);
+    expect(stage.querySelector('.rl-menu')).toBeNull();
+  });
+  // Spec Q1's default: with the world behind the column, a second photograph
+  // of it inside the column is the same picture twice.
+  it('no longer carries the key-art banner inside the column', () => {
+    const stage = document.createElement('div');
+    showMenu(stage, { base: '/', version: '0.0.0', world, tutorial });
+    expect(stage.querySelector('img.rl-menu__banner')).toBeNull();
+  });
+});

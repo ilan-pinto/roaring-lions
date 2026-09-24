@@ -67,6 +67,9 @@ import {
   type WorldRegion,
 } from '../campaign';
 import { nudgeLabels, type LabelBox } from './label-layout';
+// Whether this browser can draw the board at all, probed before the dynamic
+// import -- shared with the scene host behind the menu; see that file.
+import { webgl2Available } from './webgl-probe';
 import type { RendererChoice } from '../renderer-choice';
 import { ledgerLine, regionCard } from './worldmap';
 import { hoverLine, pickOutcome, type PinStatus } from './pin-hover';
@@ -186,30 +189,6 @@ const el = (tag: string, cls?: string, text?: string): HTMLElement => {
   return n;
 };
 
-/**
- * Whether this browser can draw the board at all.
- *
- * Probed BEFORE the dynamic import, not after it fails: three.js is ~700 kB
- * and a browser with no WebGL2 will not draw a pixel of it. Cheap -- one
- * throwaway canvas -- and it is also what keeps this screen out of three in
- * a jsdom test run.
- *
- * The probe's context is LOST before returning, as `atlas.ts`'s
- * `queryArrayLayerLimit` does with its own: otherwise it holds one of the
- * browser's ~16 context slots until the canvas is garbage-collected, and it
- * was measured still alive 7 s after a visit to this screen.
- */
-function webglAvailable(): boolean {
-  try {
-    const probe = document.createElement('canvas');
-    const gl = probe.getContext('webgl2');
-    gl?.getExtension('WEBGL_lose_context')?.loseContext();
-    return gl !== null;
-  } catch {
-    return false;
-  }
-}
-
 async function loadView(): Promise<MountWorldView> {
   const mod = await import('@lions/render/three-campaign');
   // This assignment is the type check. See the file header.
@@ -229,7 +208,7 @@ async function loadView(): Promise<MountWorldView> {
 export function worldMap3d(opts: World3dOptions): World3dHandle {
   const { world, ledger } = opts;
   const navigate = opts.navigate ?? ((href: string) => window.location.assign(href));
-  const hasWebgl = opts.webgl ?? webglAvailable;
+  const hasWebgl = opts.webgl ?? webgl2Available;
   // A gate's `afterMission` sentence names the mission rather than its id --
   // the same catalogue lookup the flat board's `worldMap` uses.
   const missionName = (id: string): string | undefined => opts.missionOf?.(id)?.name;

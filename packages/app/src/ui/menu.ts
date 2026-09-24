@@ -10,7 +10,7 @@ import { maps, type MapJson } from '@lions/data';
 import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
 import { t } from '../i18n/t';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
-import { RENDERER_STORAGE_KEY, resolveRendererChoice } from '../renderer-choice';
+import { readStoredRenderer, rememberRenderer, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
@@ -51,6 +51,15 @@ export interface MenuOptions {
    *  campaign ledger" read like plumbing and said nothing about what it
    *  spared. */
   newCampaign?: () => void;
+  /**
+   * What stands behind the column -- the scene host (`ui/scene-host.ts`), in
+   * the shell. Called once the column is in the stage, so the host can
+   * measure it (spec §3.4's narrow test reads the column's box) and slot
+   * itself under it; its disposer runs in this screen's own. Absent in tests
+   * that do not exercise it, which is also the empty page the menu was
+   * before the host existed.
+   */
+  backdrop?: (stage: HTMLElement, column: HTMLElement) => Disposer;
 }
 
 export interface CampaignOptions {
@@ -85,27 +94,9 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   const wrap = document.createElement('div');
   wrap.className = 'rl-menu';
 
-  const banner = document.createElement('img');
-  // Width-constrained rather than fixed, so the panel stays usable on a narrow
-  // window; the intrinsic ratio is declared so the layout does not jump once
-  // the image loads.
-  //
-  // A plate captured from the running game (`pnpm plate:capture`,
-  // `tools/src/perf/plate-capture.ts`), not a generated painting -- see that
-  // script's own header for what it replaced and why. 2200x900 are the
-  // plate's own pixel dimensions (the intrinsic size hint only; the CSS
-  // below still constrains display width to 100%, height auto) -- not the
-  // 2360x1000 of the old banner's ratio, because no camera position the
-  // follow-up's zoom-1.3/no-off-map-ground constraint was checked against
-  // could hold a void-free 2360-wide window; see the capture script's own
-  // "Clip" section for the measurement.
-  banner.src = `${opts.base}ui/menu_plate.jpg`;
-  banner.alt = '';
-  banner.width = 2200;
-  banner.height = 900;
-  banner.className = 'rl-menu__banner';
-  wrap.appendChild(banner);
-
+  // No key-art banner at the top of the column any more (spec Q1's default):
+  // with the world drawn BEHIND the column by `backdrop` (the scene host), a
+  // second photograph of it inside the column would be the same picture twice.
   const lockup = document.createElement('div');
   lockup.innerHTML = wordmark(opts.version);
   wrap.appendChild(lockup.firstElementChild as HTMLElement);
@@ -211,7 +202,11 @@ export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
   // The menu introduces itself rather than simply existing.
   stagger(wrap);
   stage.appendChild(wrap);
-  return () => wrap.remove();
+  const disposeBackdrop = opts.backdrop?.(stage, wrap);
+  return () => {
+    disposeBackdrop?.();
+    wrap.remove();
+  };
 }
 
 /**
@@ -237,34 +232,6 @@ function audioToggle(audio: { isMuted(): boolean; toggle(): boolean }): HTMLButt
   });
   paint();
   return b;
-}
-
-/**
- * The remembered renderer choice, and how it is remembered.
- *
- * Wrapped rather than called inline because reaching `localStorage` is not
- * guaranteed to work: a browser with site data blocked THROWS on the
- * property access itself, and this vitest jsdom configuration supplies a
- * bare `{}` with no Storage API at all -- so an unguarded `getItem` here
- * takes the whole campaign screen down in both. Losing the remembered choice
- * is a small cost (the default is three, and `?renderer=` still works for
- * that session); losing the screen is not.
- */
-function storedRenderer(): string | null {
-  try {
-    return window.localStorage?.getItem?.(RENDERER_STORAGE_KEY) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function rememberRenderer(choice: string): void {
-  try {
-    window.localStorage?.setItem?.(RENDERER_STORAGE_KEY, choice);
-  } catch {
-    // Nothing to do and nothing to say: the player asked for a backend, they
-    // get it this session, and it simply will not outlive the navigation.
-  }
 }
 
 /** The campaign map page: the world, its states, and a way back. Reached from the
@@ -296,7 +263,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   // explicit `?renderer=pixi` survives into every mission link this screen
   // builds exactly as it does elsewhere. Reading `window.location.search`
   // directly is the one thing the router took away from every screen.
-  const decision = resolveRendererChoice(opts.renderer ?? null, storedRenderer());
+  const decision = resolveRendererChoice(opts.renderer ?? null, readStoredRenderer());
   if (decision.persist) rememberRenderer(decision.persist);
   const href = (id: string): string => routes.mission(id);
   const flat = (): HTMLElement =>

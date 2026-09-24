@@ -12,9 +12,23 @@
  * and this never runs.
  */
 import { fx, Sim, type UnitTypeJson } from '@lions/sim';
-import { applyTerrain, maps, parseMap, units, type DioramaJson, type MapJson, type ParsedMap } from '@lions/data';
+import {
+  applyTerrain,
+  maps,
+  paletteColor,
+  parseMap,
+  units,
+  vfxEmitters,
+  type DioramaJson,
+  type MapJson,
+  type ParsedMap,
+} from '@lions/data';
+import type { EmitterSpec } from '@lions/render';
 import { standMapStructures } from '../map-sim';
-import { meshPlanFor, type MeshPlan } from '../mesh-catalogue';
+import { meshManifestFor, meshPlanFor, type MeshPlan } from '../mesh-catalogue';
+import { rendererOptionsFor, type RendererSettings } from '../renderer-options';
+import type { SceneHostWorld } from '../ui/scene-host';
+import { hostZoom } from './framing';
 
 /**
  * A degree heading -> Q16.16 turn fraction, masked to the facing field's own
@@ -98,5 +112,31 @@ export function buildDioramaWorld(d: DioramaJson): DioramaWorld {
     plan,
     camera: { x: d.camera.at[0], y: d.camera.at[1] },
     zoomAtRef: d.camera.zoom_at_1080p,
+  };
+}
+
+/**
+ * Everything the scene host's door needs to draw `d`, bar what the host
+ * supplies itself (`signal`, `onMotion`, `onCamera`): the built world, the
+ * MISSION's own renderer options for this map and these settings
+ * (`rendererOptionsFor`, so the menu shares the mission's lighting, quality
+ * preset and team colours rather than a drifting copy), the mesh manifest for
+ * its plan, the map's decor and elevation, the shipped VFX emitters -- what
+ * `bootBattlefield` hands `useEmitters` -- and a zoom that follows the cover
+ * law (`hostZoom`) for whatever size the host's layer turns out to be.
+ *
+ * `base` is the deploy base, as `rendererOptionsFor` takes it.
+ */
+export function dioramaSceneOptions(d: DioramaJson, s: RendererSettings, base: string): SceneHostWorld {
+  const w = buildDioramaWorld(d);
+  return {
+    sim: w.sim,
+    renderer: rendererOptionsFor(w.map, s, base),
+    meshes: meshManifestFor(w.plan),
+    decor: w.map.decor,
+    elevation: w.map.elevation,
+    emitters: { list: vfxEmitters as EmitterSpec[], resolve: paletteColor },
+    camera: w.camera,
+    zoomFor: (layerW, layerH) => hostZoom(layerW, layerH, w.zoomAtRef),
   };
 }
