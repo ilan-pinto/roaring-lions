@@ -157,12 +157,13 @@ const schemas = {
   countries: loadJson(join(ROOT, 'data/schemas/countries.schema.json')),
   commander: loadJson(join(ROOT, 'data/schemas/commander.schema.json')),
   names: loadJson(join(ROOT, 'data/schemas/names.schema.json')),
+  diorama: loadJson(join(ROOT, 'data/schemas/diorama.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
-  schemas.world && schemas.countries && schemas.commander && schemas.names
+  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -174,6 +175,7 @@ if (
     countries: ajv.compile(schemas.countries),
     commander: ajv.compile(schemas.commander),
     names: ajv.compile(schemas.names),
+    diorama: ajv.compile(schemas.diorama),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -187,6 +189,7 @@ if (
   checked += validateFile(join(ROOT, 'data/campaign/countries.json'), validators.countries, 'countries.schema');
   checked += validateFile(join(ROOT, 'data/campaign/commander.json'), validators.commander, 'commander.schema');
   checked += validateFile(join(ROOT, 'data/campaign/names.json'), validators.names, 'names.schema');
+  checked += validateFile(join(ROOT, 'data/front/menu_diorama.json'), validators.diorama, 'diorama.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }

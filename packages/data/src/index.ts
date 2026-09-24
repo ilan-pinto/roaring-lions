@@ -141,6 +141,11 @@ import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
 import vehicleExhaust from '../../../data/vfx/vehicle_exhaust.json';
 
+// The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
+// camera and a few idle units, standing behind the main menu. One file, one
+// export -- unlike maps/missions/units it is not a directory of many.
+import menuDioramaJson from '../../../data/front/menu_diorama.json';
+
 export { palette };
 export type Palette = typeof palette;
 
@@ -312,6 +317,26 @@ export const units = {
 } as const;
 
 export type UnitId = keyof typeof units;
+
+/**
+ * A scene-host diorama: which map, where the camera looks, who stands where
+ * (each at a tile's own coordinate, facing in degrees the way a mission
+ * placement's `facing_deg` does), and which photographed plate stands in for
+ * it before the real render arrives. Shape matches
+ * `data/schemas/diorama.schema.json`.
+ */
+export interface DioramaJson {
+  id: string;
+  map: string;
+  camera: { at: [number, number]; zoom_at_1080p: number };
+  units: { unit: string; at: [number, number]; facing_deg?: number }[];
+  plate: string;
+}
+
+/** The main menu's own diorama. The cast narrows plain `number[]` tuples read
+ *  back off JSON to `DioramaJson`'s `[number, number]`s; `tsc` still rejects
+ *  the object if a required field goes missing. */
+export const menuDiorama: DioramaJson = menuDioramaJson as DioramaJson;
 
 /** Every emitter the renderer may need.
  *
