@@ -75,6 +75,10 @@ export interface CampaignOptions {
    *  own default -- the flat board's town pins are anchors and go through the
    *  shell's link interception instead. */
   navigate?: (href: string) => void;
+  /** The router's `req.signal` for this screen, aborted when it is left.
+   *  Handed to the 3D board so a leave during its download makes no WebGL
+   *  context (`worldmap3d.ts`, `World3dOptions.signal`). */
+  signal?: AbortSignal;
 }
 
 export function showMenu(stage: HTMLElement, opts: MenuOptions): Disposer {
@@ -336,6 +340,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
           missionOf: opts.missionOf,
           portraitUrl: opts.portraitUrl,
           navigate: opts.navigate,
+          signal: opts.signal,
         }).el;
   // The wordmark and theatre scroll away with the board rather than sitting
   // beside it: `.rl-menu:has(.rl-world)` (theme.css) is a two-row grid --

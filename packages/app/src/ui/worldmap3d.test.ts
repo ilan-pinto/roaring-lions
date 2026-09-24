@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { LedgerData } from '@lions/sim';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import worldJson from '../../../../data/campaign/world.json';
 import countriesJson from '../../../../data/campaign/countries.json';
@@ -698,5 +698,116 @@ describe('the Draco decoder path', () => {
     return s.ready.then(() => {
       expect(s.view().dracoDecoderPath).toBe('/draco/');
     });
+  });
+});
+
+/**
+ * Leaving the campaign screen while the diorama is still downloading. Before
+ * this, the view finished mounting into the detached board, made a WebGL
+ * context and started its frame loop, and the disconnect observer -- attached
+ * only AFTER the mount -- heard of the leave at the next body mutation, which
+ * an idle menu may never make. Measured on the real screen: the context was
+ * still alive 7 s after the leave and through a forced GC.
+ */
+describe('a board left before its view mounts holds no WebGL context', () => {
+  const board = (over: { mount: MountWorldView; signal?: AbortSignal; webgl?: () => boolean }) => {
+    const { el, ready } = worldMap3d({
+      world,
+      ledger: {},
+      href: (id) => `/mission/${id}`,
+      meshUrl: '/art/sahar_basin.glb',
+      dracoDecoderPath: '/draco/',
+      fallback: () => {
+        const f = document.createElement('div');
+        f.className = 'rl-world__flatstub';
+        return f;
+      },
+      mount: over.mount,
+      webgl: over.webgl ?? (() => true),
+      navigate: () => {},
+      signal: over.signal,
+    });
+    document.body.appendChild(el);
+    return { el, ready };
+  };
+
+  it('disposes a view that finishes mounting after the board was left', async () => {
+    const fake = fakeMount();
+    let release = (): void => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const mount: MountWorldView = async (host, o) => {
+      await gate;
+      return fake.mount(host, o);
+    };
+    const { el, ready } = board({ mount });
+
+    el.remove(); // the player leaves while the diorama downloads
+    release();
+
+    expect(await ready).toBe('diorama');
+    expect(fake.view().disposed).toBe(1);
+  });
+
+  it('hands the screen signal to the view, which is what lets it make no context at all', async () => {
+    let seen: AbortSignal | undefined;
+    const fake = fakeMount();
+    const mount: MountWorldView = (host, o) => {
+      seen = o.signal;
+      return fake.mount(host, o);
+    };
+    const leave = new AbortController();
+    const { ready } = board({ mount, signal: leave.signal });
+    await ready;
+    expect(seen).toBe(leave.signal);
+  });
+
+  it('a view that gave up because the screen was left draws no flat board and warns nothing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const leave = new AbortController();
+      const mount: MountWorldView = () => {
+        leave.abort();
+        return Promise.reject(new DOMException('left', 'AbortError'));
+      };
+      const { el, ready } = board({ mount, signal: leave.signal });
+
+      expect(await ready).toBe('diorama');
+      expect(el.querySelector('.rl-world__flatstub')).toBe(null);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('the WebGL2 probe gives its own context back', async () => {
+    const loseContext = vi.fn();
+    // `getContext` is overloaded per context type; the stand-in answers the
+    // one call the probe makes, so it is typed as the method rather than as
+    // any one overload.
+    const fakeGl = { getExtension: () => ({ loseContext }) };
+    const probe = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation((() => fakeGl) as unknown as HTMLCanvasElement['getContext']);
+    try {
+      const fake = fakeMount();
+      // No `webgl` override: the real probe runs.
+      const { el, ready } = worldMap3d({
+        world,
+        ledger: {},
+        href: (id) => `/mission/${id}`,
+        meshUrl: '/art/sahar_basin.glb',
+        dracoDecoderPath: '/draco/',
+        fallback: () => document.createElement('div'),
+        mount: fake.mount,
+        navigate: () => {},
+      });
+      document.body.appendChild(el);
+      expect(await ready).toBe('diorama');
+      expect(loseContext).toHaveBeenCalledTimes(1);
+    } finally {
+      probe.mockRestore();
+    }
   });
 });

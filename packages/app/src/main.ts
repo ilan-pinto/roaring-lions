@@ -933,6 +933,9 @@ async function main(): Promise<void> {
       // the document. The flat board's town pins are real anchors and go
       // through `interceptLinks` instead.
       navigate: (h) => void router.navigate(h),
+      // Aborted when this screen is left, so the 3D board can decline to
+      // make a WebGL context for a player who has already gone.
+      signal: req.signal,
     });
   }
 
@@ -1753,6 +1756,28 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // already knows which backend it built.
     const three = new ThreeRenderer(sim, opts);
     renderer = three;
+    // Its teardown is registered HERE, the moment the WebGL context exists,
+    // not after `init()`: the mesh downloads below are awaited first, and a
+    // boot that failed on one used to throw with the context held and no
+    // disposer to give it back. Safe this early because `dispose()` works
+    // before `init()` and is idempotent, and it runs ONCE -- there is no
+    // second registration below. `teardown()` drains in reverse, so this
+    // runs after everything built on top of the renderer, the frame loop's
+    // `cancelAnimationFrame` (registered last of all) included.
+    //
+    // The CANVAS is taken off in the same breath, and that half is not
+    // redundant. `init()` puts it in the stage, and the router only clears
+    // the stage for a screen that actually MOUNTED -- `Router.unmount()`
+    // returns early at `if (!m) return` when the mount is still in flight. So
+    // a battlefield abandoned on its deploy screen left its canvas behind in
+    // the stage, under the campaign board, and the route walk photographed
+    // exactly that: two canvases where the board needs one. Measured, not
+    // assumed; a teardown that relies on the router to clean up after it is
+    // the rule this file states at the top, broken.
+    onDispose(() => {
+      three.dispose();
+      three.canvas.remove();
+    });
     if (wantMesh) {
       // ROSTER-DRIVEN, not the whole library. Everything below is driven by
       // `meshPlan` above: this branch loads the meshes for the unit types this
@@ -1778,6 +1803,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // Errors propagate, as they did before: `loadMeshUnit`'s own doc comment
       // says a missing or malformed GLB fails loudly for this caller to
       // report, and swallowing it would leave a unit type silently absent.
+      // After the teardown, like the other awaits below that can throw: a
+      // registered disposer is no use to a boot that throws past it, and
+      // this one used to leave the context alive until GC.
       await Promise.all([
         ...[...meshPlan.rigged].map((id) =>
           three.loadMeshUnit(
@@ -1820,7 +1848,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             )
           )
         ),
-      ]);
+      ]).catch((err: unknown) => {
+        teardown();
+        throw err;
+      });
 
       // The late arrivals. `loadMeshUnit`/`loadVehicleMesh` are safe to call
       // after the first frame -- both replace a template and tear down every
@@ -1990,28 +2021,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Registered with `once` so it is a single shot, and removed by the ordinary
   // teardown so a mission played to its end leaves nothing on the signal.
   onAbort(req.signal, () => loading.dispose());
-  await renderer.init(stage);
+  // Torn down on a throw like the mesh downloads above: on three the
+  // renderer's disposer is already registered, and it only runs if something
+  // runs `teardown()`.
+  try {
+    await renderer.init(stage);
+  } catch (err) {
+    teardown();
+    throw err;
+  }
   // `ThreeRenderer` holds a WebGL context, a 4096 shadow map, every geometry
-  // and material for the map, and a ResizeObserver on the canvas. A browser
-  // hands out a bounded number of contexts, so walking in and out of missions
-  // without this is a session that stops drawing after a handful of them.
-  // Optional on the seam (`api.ts`): PixiRenderer's file is frozen and
-  // implements nothing, so a Pixi battlefield still leaks here.
-  //
-  // The CANVAS is taken off in the same breath, and that half is not
-  // redundant. `WebGLRenderer.dispose()` frees the context's resources and
-  // leaves the element in the DOM, and the router only clears the stage for a
-  // screen that actually MOUNTED -- `Router.unmount()` returns early at
-  // `if (!m) return` when the mount is still in flight. So a battlefield
-  // abandoned on its deploy screen left its canvas behind in the stage, under
-  // the campaign board, and the route walk photographed exactly that: two
-  // canvases where the board needs one. Measured, not assumed; a teardown that
-  // relies on the router to clean up after it is the rule this file states at
-  // the top, broken.
-  onDispose(() => {
-    renderer.dispose?.();
-    renderer.canvas.remove();
-  });
+  // and material for the map, and a ResizeObserver on the canvas; its
+  // teardown was registered where it was constructed, above, and loses the
+  // context. This one is PIXI's, and only the canvas half of it does
+  // anything: `dispose` is optional on the seam (`api.ts`), PixiRenderer's
+  // file is frozen and implements nothing, so a Pixi battlefield still leaks
+  // its context here. Registered after `init()` because Pixi's `canvas`
+  // does not exist before it.
+  if (rendererDecision.choice !== 'three') {
+    onDispose(() => {
+      renderer.dispose?.();
+      renderer.canvas.remove();
+    });
+  }
   if (req.signal.aborted) abandon('left while the renderer was starting');
   renderer.useEmitters(vfxEmitters as EmitterSpec[], paletteColor);
 
@@ -4456,10 +4488,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   rafId = requestAnimationFrame(loop);
   // The load-bearing line of this whole teardown, and the one the route walk
   // is calibrated against: without it the loop re-requests itself forever,
-  // ticking the sim and drawing into a disposed renderer from behind whatever
-  // screen the player went to. `pnpm ui:routes` was run with exactly this line
-  // commented out and fails on the console errors that produces, which is what
-  // makes its green run evidence rather than an assumption.
+  // ticking the sim and asking a disposed renderer for frames from behind
+  // whatever screen the player went to. `pnpm ui:routes` was run with exactly
+  // this line commented out and fails on its tick counter -- the left
+  // mission's sim read 140 then 146 over 1200 ms (2473f688) -- which is what
+  // makes its green run evidence rather than an assumption. Not on console
+  // errors: `ThreeRenderer.frame()` refuses once disposed, so the draws are
+  // silent and the ticks are the only symptom.
   //
   // `requestAnimationFrame` above is deliberately left as the bare global so
   // `capture-protocol.ts`'s `FREEZE_FRAME_LOOP_STATEMENTS` can still stop the
