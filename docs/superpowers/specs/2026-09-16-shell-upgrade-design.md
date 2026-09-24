@@ -271,8 +271,8 @@ readable in-mission; the capture pass at zoom 2.5 shows no saturated ring fill.
 - **Scene host.** `packages/render/src/three/front/` (a new door, named in the bundle rule):
   a held diorama — a lit map slice with a few idle units — rendered behind the menu column on
   the mission pipeline, slow parallax on mouse, the campaign screen's no-WebGL2 fallback
-  pattern reused (a static plate when the host cannot draw). **Landed on `feat/scene-host`,
-  PR pending** — the controller fills in the commit at landing.
+  pattern reused (a static plate when the host cannot draw). **Landed 2026-09-24,
+  PR #232 → 193f8144.**
 - **Campaign board on the lit pipeline** (the spec's own one-file follow-up in `world-view.ts`
   / `world-material.ts`), its biome re-authored to the basin per Decision 2, a hover language
   for the pins.
