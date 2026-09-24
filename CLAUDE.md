@@ -1330,11 +1330,15 @@ same rule, as `pnpm wreck:meshes` for vehicles.
   next snapshot its id is inside `sim.entityCount` with both position copies at
   zero. Three seeds a newcomer in `snapshot()` (`prev = cur`, speed 0) and
   bounds every per-frame loop by the count it last snapshotted, so the unit
-  appears at its spawn up to 50 ms late and never slides (`4d6d2ede`). Pixi
-  still draws it at world (0,0) for that tick and lerps it in from there --
-  measured on `wadi_halam_2_laager`, a bought jeep drawn halfway across the map
-  at 483.7 tiles/s. `renderer.ts` was left alone because its one-method
-  unfreeze (`reseed`, `8c638f1d`) is reserved for edits the compiler forces.
+  appears where the next snapshot finds it, up to one tick late, and never
+  slides (`4d6d2ede`). Pixi still runs the old code (`renderer.ts`'s
+  `snapshot()` seeds no newcomer and its frame loops walk the live
+  `sim.entityCount`), so it still draws the unit at world (0,0) for that tick
+  and lerps it in from there. Measured on three before `4d6d2ede`, the same
+  code Pixi still runs: on `wadi_halam_2_laager` a bought jeep drew at (0,0),
+  then halfway across the map at 483.7 tiles/s. `renderer.ts` was left alone
+  because its one-method unfreeze (`reseed`, `8c638f1d`) is reserved for edits
+  the compiler forces.
 - **A renderer choice persists per ORIGIN, not per tab** (`renderer-choice.ts`,
   `localStorage['lions.renderer']`). Two tabs open on the same origin fight
   over it -- observed live. Harmless between agents; a real hazard for a player
