@@ -47,9 +47,17 @@ export interface Identity {
   optedOut: boolean;
 }
 
-export function resolveIdentity(storage: StorageLike | null, query: URLSearchParams, newId: () => string): Identity {
+/** Reads (and persists) the opt-out signal alone, without minting or storing
+ *  a player or tester id. The caller must check this -- together with GPC/DNT
+ *  and the prod/host gate -- BEFORE calling `resolveIdentity`, so a user who
+ *  is not tracked never gets an id written to storage in the first place. */
+export function readOptOut(storage: StorageLike | null, query: URLSearchParams): boolean {
   if (query.has('notrack')) storage?.setItem(OPTOUT_KEY, '1');
-  const optedOut = query.has('notrack') || storage?.getItem(OPTOUT_KEY) === '1';
+  return query.has('notrack') || storage?.getItem(OPTOUT_KEY) === '1';
+}
+
+export function resolveIdentity(storage: StorageLike | null, query: URLSearchParams, newId: () => string): Identity {
+  const optedOut = readOptOut(storage, query);
 
   const asked = query.get('tester');
   if (asked !== null && TESTER_PATTERN.test(asked)) storage?.setItem(TESTER_KEY, asked);

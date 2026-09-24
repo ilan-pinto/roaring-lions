@@ -6,6 +6,7 @@ import type { RuntimeView } from './events';
 
 function harness(over: Partial<TelemetryDeps> = {}) {
   const sent: TelemetryEvent[] = [];
+  const flushes: boolean[] = [];
   const timers: { fn: () => void; ms: number; cleared: boolean }[] = [];
   let pagehide: (() => void) | undefined;
   let visible = true;
@@ -21,12 +22,12 @@ function harness(over: Partial<TelemetryDeps> = {}) {
     setInterval: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
     clearInterval: (h) => { (h as { cleared: boolean }).cleared = true; },
     onPagehide: (fn) => { pagehide = fn; },
-    sink: { push: (e) => void sent.push(e), flush: () => undefined },
+    sink: { push: (e) => void sent.push(e), flush: (useBeacon = false) => void flushes.push(useBeacon) },
     ...over,
   };
   const tel = createTelemetry(deps);
   return {
-    tel, sent, timers,
+    tel, sent, flushes, timers,
     hide: () => pagehide?.(),
     setVisible: (v: boolean) => { visible = v; },
     advance: (ms: number) => { now += ms; },
@@ -81,6 +82,17 @@ describe('Telemetry', () => {
     expect(h.sent.filter((e) => e.type === 'mission_end')).toEqual([expect.objectContaining({ result: 'abandoned' })]);
   });
 
+  it('M2: pagehide sends the abandoned event over the beacon flush, not a plain fetch flush', () => {
+    reset();
+    const h = harness();
+    h.tel.missionStarted('m1', false, view);
+    h.hide();
+    // Exactly one flush happened, and it was the beacon one -- `end()`
+    // called from the pagehide handler must skip its own (non-beacon) flush
+    // and leave the queued event for the handler's own `flush(true)`.
+    expect(h.flushes).toEqual([true]);
+  });
+
   it('heartbeats every 60 s only while visible, and stops at end()', () => {
     reset();
     const h = harness();
@@ -112,6 +124,18 @@ describe('Telemetry', () => {
     h.advance(5000);
     h.tel.tutorialStep(1, 14);
     expect(h.sent.map((e) => (e.type === 'tutorial_step' ? e.prevMs : -1))).toEqual([0, 5000]);
+  });
+
+  it('M4: a fresh run starting back at step 0 reads prevMs 0, not time since the previous run', () => {
+    const h = harness();
+    h.tel.tutorialStep(0, 14);
+    h.advance(5000);
+    h.tel.tutorialStep(1, 14);
+    h.advance(9000);
+    h.tel.tutorialStep(0, 14); // replayed, or a second player: back to step 0
+    h.advance(3000);
+    h.tel.tutorialStep(1, 14);
+    expect(h.sent.map((e) => (e.type === 'tutorial_step' ? e.prevMs : -1))).toEqual([0, 5000, 0, 3000]);
   });
 
   it('marks dev traffic', () => {

@@ -9,7 +9,7 @@ import type { TelemetryEnvelope, TelemetryEvent, TelemetryScreen } from '@lions/
 import type { MissionEvent } from '@lions/sim';
 import * as ev from './events';
 import type { RuntimeView } from './events';
-import { resolveIdentity, safeStorage, type Identity } from './identity';
+import { resolveIdentity, readOptOut, safeStorage, type Identity } from './identity';
 import { telemetryEnabled } from './enabled';
 import { Sender, browserTransport } from './sender';
 
@@ -17,8 +17,11 @@ export type { RuntimeView } from './events';
 
 export interface MissionTelemetry {
   onEvent(me: MissionEvent): void;
-  /** The one exit: teardown and pagehide both call it; idempotent. */
-  end(): void;
+  /** The one exit: teardown and pagehide both call it; idempotent. `viaPagehide`
+   *  skips this call's own flush, so the pagehide handler's `flush(true)` is
+   *  what actually sends the abandoned event, over `sendBeacon` rather than a
+   *  `fetch` that page unload can cut off mid-flight. */
+  end(viaPagehide?: boolean): void;
 }
 
 export interface Telemetry {
@@ -79,7 +82,7 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
 
   d.onPagehide(
     safe(() => {
-      current?.end();
+      current?.end(true);
       d.sink.flush(true);
     })
   );
@@ -90,6 +93,10 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
     }),
     tutorialStep: safe((step, steps) => {
       const now = d.now();
+      // A fresh tutorial run (replayed, or a second player on the same
+      // document) starts back at step 0; `prevMs` must read as 0 for it too,
+      // not as the time since whatever step the PREVIOUS run ended on.
+      if (step === 0) lastStepAt = null;
       d.sink.push(ev.tutorialStep(envelope(), step, steps, lastStepAt === null ? 0 : now - lastStepAt));
       lastStepAt = now;
     }),
@@ -107,12 +114,15 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
           }),
           HEARTBEAT_MS
         );
-        const finish = (abandoned: boolean): void => {
+        const finish = (abandoned: boolean, viaPagehide = false): void => {
           if (ended) return;
           ended = true;
           d.clearInterval(hb);
           d.sink.push(ev.missionEnd(envelope(), mission, view(), abandoned));
-          d.sink.flush();
+          // On pagehide the caller's own `flush(true)` (over sendBeacon) is
+          // what sends this: flushing here too would race it out over a plain
+          // `fetch`, which page unload is free to cut off mid-flight.
+          if (!viaPagehide) d.sink.flush();
         };
         const m: MissionTelemetry = {
           onEvent: safe((me: MissionEvent) => {
@@ -122,8 +132,8 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
               if (e) d.sink.push(e);
             }
           }),
-          end: safe(() => {
-            finish(true);
+          end: safe((viaPagehide?: boolean) => {
+            finish(true, viaPagehide);
             if (current === m) current = null;
           }),
         };
@@ -148,7 +158,11 @@ export function initTelemetry(opts: { dev: boolean }): Telemetry {
   try {
     const query = new URLSearchParams(location.search);
     const storage = safeStorage(() => window.localStorage);
-    const identity = resolveIdentity(storage, query, () => crypto.randomUUID());
+    // Read the opt-out signal alone first -- it mints and stores nothing.
+    // Only once `on` is true do we call resolveIdentity, which mints and
+    // saves a player (and tester) id: a GPC/DNT/notrack user, or a dev/CI
+    // session with telemetry off, must never get an id written to storage.
+    const optedOut = readOptOut(storage, query);
     const nav = navigator as Navigator & { globalPrivacyControl?: boolean };
     const on = telemetryEnabled({
       prod: import.meta.env.PROD,
@@ -156,9 +170,10 @@ export function initTelemetry(opts: { dev: boolean }): Telemetry {
       query,
       gpc: nav.globalPrivacyControl === true,
       dnt: nav.doNotTrack === '1',
-      optedOut: identity.optedOut,
+      optedOut,
     });
     if (!on) return (instance = NOOP_TELEMETRY);
+    const identity = resolveIdentity(storage, query, () => crypto.randomUUID());
     const sender = new Sender(browserTransport(new URL('api/events', location.origin + import.meta.env.BASE_URL).href));
     window.setInterval(safe(() => sender.flush()), FLUSH_MS);
     instance = createTelemetry({
