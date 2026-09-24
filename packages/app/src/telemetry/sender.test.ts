@@ -1,6 +1,7 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TelemetryEvent } from '@lions/data/telemetry';
-import { Sender, type Transport } from './sender';
+import { Sender, browserTransport, type Transport } from './sender';
 
 const e = (tick: number): TelemetryEvent => ({
   v: 1, player: '0f8fad5b-d9cb-469f-a165-70867728950e', session: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
@@ -61,5 +62,18 @@ describe('Sender', () => {
     expect(() => s.flush()).not.toThrow();
     expect(() => s.flush(true)).not.toThrow();
     expect(s.pending).toBe(0); // dropped, never retried in a loop
+  });
+});
+
+describe('browserTransport', () => {
+  it('M3: sends the beacon Blob as text/plain, not application/json', () => {
+    let seenType: string | undefined;
+    navigator.sendBeacon = ((_url: string, data: Blob) => {
+      seenType = data.type;
+      return true;
+    }) as typeof navigator.sendBeacon;
+    const transport = browserTransport('https://g.dev/api/events');
+    expect(transport.beacon('{"events":[]}')).toBe(true);
+    expect(seenType).toBe('text/plain');
   });
 });
