@@ -48,6 +48,10 @@ export function browserTransport(url: string): Transport {
         () => undefined
       );
     },
-    beacon: (body) => navigator.sendBeacon(url, new Blob([body], { type: 'application/json' })),
+    // `text/plain`, not `application/json`: a non-simple content-type on a
+    // beacon triggers a CORS preflight, which sendBeacon cannot wait for and
+    // the browser instead just drops. The Worker reads the body with
+    // `req.text()` and parses it itself either way (ingest.ts).
+    beacon: (body) => navigator.sendBeacon(url, new Blob([body], { type: 'text/plain' })),
   };
 }
