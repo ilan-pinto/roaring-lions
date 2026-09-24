@@ -1428,7 +1428,7 @@ Haiku; opus reviews it with the final review.
 - **A host behind settings, saves, credits and free play** — spec Q3; recommended as a small lane-A follow-up putting the plate behind those column screens.
 - **Moving the menu column** — spec Q2; a `theme.css` decision taken from `ui:shots` of both layouts after this lands.
 - **Spreading the first frame's upload over idle frames** — spec Q4; a second `ThreeRenderer` change that would also shorten every mission's first frame.
-- **`ThreeRenderer.dispose()` and `mountWorldView`'s dispose releasing their own contexts** — spec Q5; a one-line render-lane follow-up each, with `ui:routes` gaining the same lost-context assertion Task 8 adds for the host.
+- **`ThreeRenderer.dispose()` and `mountWorldView`'s dispose releasing their own contexts** — spec Q5; a one-line render-lane follow-up each, with `ui:routes` gaining the same lost-context assertion Task 8 adds for the host. **Done by #219 for `ThreeRenderer.dispose()`** (`context-release.ts`); `mountWorldView`'s dispose remains open.
 - **The campaign board on the lit pipeline, its basin re-author, portraits, key art beyond the menu's plate, the garage's art pass** — art lane (G1 items 2, 4, 6).
 - **The motion capture and the observed first-player session** owed before Phase 3's acceptance (parent §7(b), (c)) — not code; they are where spec §10's parallax numbers are confirmed.
 - **`packages/sim/**`** — untouched.
@@ -1441,8 +1441,8 @@ Spec §8, with the plan's defaults. None blocks Tasks 0–6.
 2. The column's position. **Default: centred for this landing.**
 3. The plate behind the other column screens. **Default: a follow-up, not this branch.**
 4. The first-frame stall. **Default: accept; re-measure at landing.**
-5. Fix `ThreeRenderer.dispose()`. **Default: a separate render-lane follow-up.**
-6. **Approve spec §10's numbers before Task 7.** This one gates a task.
+5. Fix `ThreeRenderer.dispose()`. **Default: a separate render-lane follow-up.** **Answered: done by #219** (`context-release.ts`); `mountWorldView`'s dispose is the one item still open.
+6. **Approve spec §10's numbers before Task 7.** This one gates a task. **Answered: the lead approved §10's numbers as shown, on 24 Sep** (`menu-live-1400x900.png`).
 
 ## Self-review
 

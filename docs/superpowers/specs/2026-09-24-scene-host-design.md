@@ -1,6 +1,7 @@
 # The scene host: the diorama behind the menu — design
 
-Date: 2026-09-24. Status: **draft, for the project lead's approval.** Package: the scene-host
+Date: 2026-09-24. Status: **built; Tasks 0 and 2–9 complete on `feat/scene-host`; Task 1 landed
+as #214.** Package: the scene-host
 bullet of shell Phase 3 (WP-S3e, GH-178, render half). Parent spec:
 `docs/superpowers/specs/2026-09-16-shell-upgrade-design.md` (Decision 1, §5, §6 Phase 3, §7,
 §10, D-1…D-51). Plan: `docs/superpowers/plans/2026-09-24-scene-host.md`.
@@ -54,7 +55,7 @@ session scratchpad (`ep/scenehost/meas/`); the report lists them.
 | M12 | CI's steady frame | **~920 ms mean** per frame; a capped loop drew under one frame in 4 s | SwiftShader, 1400×900, load 39–43 |
 | M13 | Does an idle second context slow the mission? | mission-like renderer (same map, 10 units): **15.0–17.9 ms** mean with the host's context alive and not drawing, **15.3–16.6 ms** after disposing it (with or without the explicit loss) — inside run-to-run noise at this load | Metal, 3 runs × 2 variants, load 50–96 |
 | M14 | Does an idle second context cost memory? | GPU process `phys_footprint`: blank page **11 MB**; host drawing **563–840 MB**; after `ThreeRenderer.dispose()` **437–450 MB**; after `WEBGL_lose_context.loseContext()` **41–43 MB** (3 runs) | Metal, macOS `footprint`, load 131–185 |
-| M15 | Does `dispose()` release the context? | **No.** `isContextLost()` is `false` after `ThreeRenderer.dispose()` in 3 of 3 runs, `true` after an explicit `loseContext()`; the explicit loss logs nothing to the console on Metal or SwiftShader | three r170's `WebGLRenderer.dispose()` does not call `forceContextLoss()` |
+| M15 | Does `dispose()` release the context? **Superseded by #219 — see the parent spec's D-62; `disposeAndReleaseContext` now makes `dispose()` do both.** | **No.** `isContextLost()` is `false` after `ThreeRenderer.dispose()` in 3 of 3 runs, `true` after an explicit `loseContext()`; the explicit loss logs nothing to the console on Metal or SwiftShader | three r170's `WebGLRenderer.dispose()` does not call `forceContextLoss()` |
 | M16 | Colour register (§8's metric) | host frame **Y 0.2382 / S 0.3000**; mission (sandbox, same map, same camera and zoom, fog revealed, HUD hidden) **Y 0.2423 / S 0.2985** — **ΔY −1.7%, ΔS +0.5%**. Host at `low` quality Y 0.2375; host on SwiftShader Y 0.2385; host without units Y 0.2428 | Metal, 1920×1080 |
 | M17 | …what the metric actually sees | the SAME pipeline at a different framing (zoom 1.0) reads **ΔY +17.1%, ΔS −11.6%**; a different camera (the sandbox force, zoom 1.0) with fog of war on reads **ΔY −30.6%** — fog's own share was not isolated; the shipped `menu_plate.jpg` **ΔY +30.1%, ΔS −9.9%** | same frames |
 | M18 | Plate file size, this framing | 2560×1440 JPEG q80 **429 KiB** (q86 542, WebP q80 226); 1920×1080 q80 260 KiB | PIL, progressive, optimised |
@@ -64,8 +65,9 @@ Three things the table settles that were open. **Two live contexts cost memory, 
 time** (M13, M14): ~0.4 GB each on this machine, held until something releases them.
 **`ThreeRenderer.dispose()` does not release the context** (M15): it frees 114–403 MB of
 what the frame used and leaves ~440 MB held — its own comments say `renderer.dispose()`
-"forces context loss", which three r170 does not do. And **the colour
-register metric measures framing and fog far more than pipeline** (M16, M17): the same
+"forces context loss", which three r170 does not do. **Superseded by #219** (parent spec
+D-62): `dispose()` now calls `forceContextLoss()` itself via `context-release.ts`. And
+**the colour register metric measures framing and fog far more than pipeline** (M16, M17): the same
 renderer at two zooms differs by 17%, so the acceptance can only be run camera-for-camera.
 
 Not measured, and labelled so wherever used: parallax cost (argued in §3.5), anything on a
@@ -194,6 +196,9 @@ three mission would not, and warms that cache for it.**
    context keeps ~440 MB of GPU memory until garbage collection finds it. An abort that
    arrives while a load is in flight disposes at once rather than at the next await, and every
    later rejection is swallowed silently (`ui:routes` fails on any console error).
+   **Superseded by #219 (parent spec D-62): `ThreeRenderer.dispose()` now calls
+   `loseContext()` itself, so the door's own explicit call was removed — a second release
+   warns, and the leave check allows no warning.**
 7. **The menu route only.** Settings, saves, credits and the free-play picker are also column
    screens, but each is its own screen with its own disposer, and a host that outlived them
    would have to live outside the stage the router clears — the body-mounted-chrome problem
@@ -352,6 +357,9 @@ mesh-catalogue.ts    meshPlanFor · meshManifestFor ◄── also bootBattlefie
 data/front/menu_diorama.json  (+ diorama.schema.json, @lions/data `menuDiorama`)
 ```
 
+Step 7's `loseContext` is superseded by #219 (parent spec D-62): `dispose()` alone now
+releases the context, and the door calls nothing after it.
+
 Data flows one way: the app builds a `Sim` and spawns into it through its own API at
 construction — the same thing `bootBattlefield` does — and hands it over; nothing ticks it and
 nothing writes to it afterwards (invariant 4). `packages/render` imports sim types and receives
@@ -437,7 +445,8 @@ executor of `effects`; every branch a leak could hide in is a table row with a t
   diorama and its basin re-author (Decision 2, art lane); key art beyond the menu's plate.
 - Spreading the first frame's upload over idle frames (Q4).
 - Fixing `ThreeRenderer.dispose()` and `mountWorldView`'s dispose to release their contexts
-  (Q5) — the host does not rely on either.
+  (Q5) — the host does not rely on either. **Superseded by #219 (parent spec D-62):
+  `ThreeRenderer.dispose()` already does; `mountWorldView`'s dispose is the remaining item.**
 - Moving the menu column (Q2); any HUD, sim or mission change. `packages/sim` is untouched.
 
 ## 8. Open questions for the lead
@@ -467,6 +476,8 @@ executor of `effects`; every branch a leak could hide in is a table row with a t
    (`this.renderer.forceContextLoss()` after `this.renderer.dispose()`, and the same in
    `world-view.ts`), with `ui:routes` gaining the same lost-context assertion this plan adds for
    the host.** Not folded in here: it changes mission teardown and deserves its own review.
+   **Superseded by #219 (parent spec D-62): `ThreeRenderer.dispose()` releases the context on
+   its own now, via `context-release.ts`; `mountWorldView`'s dispose is the one item left open.**
 6. **Approve §10's numbers before the plate is photographed** (the repository's "numbers
    before rendering" rule). The plan's Tasks 1–5 run on the proposed values; Task 6 photographs
    only after approval.

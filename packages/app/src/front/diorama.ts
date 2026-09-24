@@ -7,9 +7,10 @@
  *
  * Invariant 1 ("sim runs at a fixed 20 Hz tick") has nothing to say about a
  * `Sim` that is never ticked, which is exactly what this builds: the menu's
- * units stand for a photograph, not a battle. No tick means no RNG draw, no
- * event, and no determinism surface -- the sim invariants apply to what runs,
- * and this never runs.
+ * units stand for a photograph, not a battle. No tick means no RNG draw and
+ * no determinism surface; `Sim.spawn` still queues a `pendingEvents` entry
+ * for each unit, but with nothing ticking to drain it, no event reaches a
+ * subscriber -- the sim invariants apply to what runs, and this never runs.
  */
 import { fx, Sim, type UnitTypeJson } from '@lions/sim';
 import {

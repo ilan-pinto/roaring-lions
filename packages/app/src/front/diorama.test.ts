@@ -46,7 +46,8 @@ describe('buildDioramaWorld', () => {
   });
 
   // Invariant 1 has nothing to say about a sim that never runs, and that is
-  // the point: no tick, no RNG draw, no event, no determinism surface.
+  // the point: no tick, no RNG draw, no determinism surface, and no event
+  // reaches a subscriber (Sim.spawn still queues one; nothing drains it).
   it('is never ticked', () => {
     expect(buildDioramaWorld(tiny).sim.tickCount).toBe(0);
   });

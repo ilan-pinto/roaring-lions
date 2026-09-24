@@ -271,7 +271,8 @@ readable in-mission; the capture pass at zoom 2.5 shows no saturated ring fill.
 - **Scene host.** `packages/render/src/three/front/` (a new door, named in the bundle rule):
   a held diorama — a lit map slice with a few idle units — rendered behind the menu column on
   the mission pipeline, slow parallax on mouse, the campaign screen's no-WebGL2 fallback
-  pattern reused (a static plate when the host cannot draw).
+  pattern reused (a static plate when the host cannot draw). **Landed on `feat/scene-host`,
+  PR pending** — the controller fills in the commit at landing.
 - **Campaign board on the lit pipeline** (the spec's own one-file follow-up in `world-view.ts`
   / `world-material.ts`), its biome re-authored to the basin per Decision 2, a hover language
   for the pins.
@@ -938,3 +939,105 @@ imported only by its own test, until gated Task 12.
 **D-51 — victory is photographed, and the defeat capture skips the moment (R-12).** As ruled:
 `24-outcome-victory` by waypoint on `beit_sahwan_1_recon`, with an `OutcomeMomentDismissedError`
 guard after each outcome shot. Owed before merge: both PNGs from a quiet run.
+
+### Phase 3's deviations (the scene host)
+
+The scene-host plan's ten rulings (R-1 … R-10, `docs/superpowers/plans/2026-09-24-scene-host.md`,
+from `docs/superpowers/specs/2026-09-24-scene-host-design.md` §9) as D-52 … D-61, R-n to
+D-(n+51), plus three the executing sessions found beyond the ten: one entry each, from the
+ruling and what shipped on `feat/scene-host` (Tasks 0, 2–8 and their fix rounds), saying where
+the shipped behaviour departs from the ruling.
+
+**D-52 — the host needs `ThreeRenderer.ts` for one additive read, not zero and not a menu
+mode (R-1).** As ruled: `groundTexturesSettled(): Promise<void>` (Task 4), placed after
+`loadGroundTexture`, one field and three edits inside it. It resolves once every ground-texture
+fetch `init()` started has applied or failed, never rejects, and is already resolved before
+`init()` runs (a slot the map never uses starts no fetch). A promise obtained before
+`dispose()` does not settle at `dispose()` — it settles when the network finishes or fails,
+which is the door's exact case (a caller must recheck its own abort signal after the `await`,
+which it does). A fourth test beyond the brief's three: called after `dispose()`, it returns an
+already-resolved promise even mid-download.
+
+**D-53 — Pixi gets the plate, not nothing (R-2).** As ruled: `hostPath`
+(`ui/scene-host-model.ts`) reads the persisted/`?renderer=pixi` choice and returns
+`{path:'plate', reason:'pixi'}` before ever probing WebGL2. Driven live (Task 6): `?renderer=pixi`
+shows the column on a dark background, one console warning, no request under
+`render/src/three/` beyond an import-free fog helper already in the main chunk, and no three.js
+requested at all.
+
+**D-54 — reduced motion gets the plate, not a held live frame (R-3).** As ruled, with one
+fix-round correction: the first landing (`e0aa2b8a`/`bf8dfcbd`) keyed parallax off the plate's
+*reason* rather than off reduced motion itself, so Pixi *and* reduced motion together still ran
+the parallax loop. `36f74025` gates parallax on the reduced-motion condition directly, regardless
+of path, confirmed by re-running the drive on Pixi with and without reduced motion.
+
+**D-55 — `data-host` gains a fourth, transient value, `pending` (R-4).** As ruled. Driven live
+(Task 6): the timeline reads `pending` (274 ms) → `live` (1122 ms), recorded by a
+`MutationObserver` because a first poll can race a warm reveal.
+
+**D-56 — the host lives on `/` only (R-5).** As ruled: it is part of the menu screen's own
+disposer, not a body-mounted singleton. Driven live: `/` → `/settings` → `/` leaves no host and
+no canvas on settings, the old canvas's `isContextLost()` reads `true`, and back on `/` a new
+host reaches `live` in 552 ms warm, with no reload.
+
+**D-57 — parallax moves the picture, not the camera (R-6).** As ruled: a CSS `translate3d` on
+the poster/canvas layer. Measured at the four corners and centre (1920×1080, Task 6's drive):
+roughly ±11.9 px at each corner, settling to (−0.08, −0.08) at centre and to exactly `{0,0}`
+once the pointer leaves the window — pinned separately by a zero-viewport unit test asserting
+`toEqual({x:0,y:0})` (D-2's ruling).
+
+**D-58 — no WebGL context exists while the slice is on the network (R-7).** As ruled: the
+door's prefetch phase `fetch()`es every mesh URL plus the Draco decoder under the host's own
+`AbortSignal` and reads each body before constructing `ThreeRenderer`, so a leave during
+prefetch releases nothing because nothing yet holds a context. `ui:routes`' fast-leave leg
+confirms it end to end: clicking away 18–236 ms after the menu's own load across three runs
+left no canvas stashed and no console error or warning.
+
+**D-59 — the camera target is (27, 22), not the measured (28, 22) (R-8).** As ruled: M19's
+margin test failed at (28, 22) (corner ratio down to 0.189 against a ≥1 floor, at
+1366×768/1920×1080/2560×1440) and passes at (27, 22) across all seven pinned viewports (Task 3).
+
+**D-60 — `ui:routes`/`ui:shots` gain `--port`; `plate:host` takes its own free port (R-9).**
+The instruments' own `--port` flag predates this plan (#214, landed on `main` before Task 1
+ran, so Task 1 was skipped as superseded — CLAUDE.md's own line, ~:306). What this plan adds is
+`plate:host`'s port: `claimPort('plate-host', 'PLATE_HOST_PORT', 5183)`, exercised at 5190 in
+Task 7's capture and 5183 as the tool's own default/fallback.
+
+**D-61 — the colour-register acceptance is a gate vote, camera-for-camera, not a one-off
+reading (R-10).** As ruled: `checkMenuSceneHost`'s three votes (path, contribution, register) in
+`tools/src/golden-diff/screens-check.ts`, wired into `three-baseline-gate.ts` right after
+`checkCampaignBoard`. `MENU_HOST_CONTRIBUTION_FLOOR` is measured, not guessed: three identical
+readings of 91.3279 (SwiftShader, clean tree) give a floor of 30.4426 (a third of the minimum).
+The register reads host Y 0.2439 / S 0.3035 against mission Y 0.2451 / S 0.3020 — dY −0.5%, dS
++0.5%, inside the 10% band and close to spec M16's own −1.7%/+0.5% (measured against an earlier
+probe build, not this door). All four planned falsifications (dropping the door's own
+`dispose()` call; leaving fog on; forcing the plate path; leaving the poster in place after
+reveal) failed the vote each names, in the direction predicted.
+
+**D-62 — no explicit `loseContext()` in the door, and why (C3, not one of the ten R-s).**
+Superseded before it could be written: `ThreeRenderer.dispose()` has released its own context
+since PR #219 (`packages/render/src/three/context-release.ts`: `dispose()`, then
+`forceContextLoss()`, skipped if `isContextLost()` already reads `true`). The door's `release()`
+therefore calls `renderer.dispose()` and nothing else — a second `loseContext()` call would be
+dead code on every ordinary leave and, on the rare double-release, the `loseContext: context
+already lost` WebGL warning `context-release.ts` measured — and the spec's leave check allows
+no warning. Spec M14/M15 and §3.3 (6)'s explicit-loss clause predate #219 and are superseded
+(marked in place, along with §4 and §7, in
+`docs/superpowers/specs/2026-09-24-scene-host-design.md`). `ui:routes` asserts the host's canvas
+reports `isContextLost() === true` after leaving the menu; its falsification was dropping
+`renderer.dispose()` from the door's `release()`, which failed exactly that assertion (Task 8,
+mutation (a)).
+
+**D-63 — the main chunk grew +6,760 B against the plan's own ±1 kB (Task 6).** Accepted: the
+model, the executor and `buildDioramaWorld` must ship in the main chunk for the plate to show
+at once on the very first paint, and moving the diorama builder behind a dynamic import would
+only save ~1.3 kB at the cost of making `world()` asynchronous. The door itself is its own
+chunk, 2,923 B, sharing `ThreeRenderer` and three's core chunk with an ordinary mission — the
+host downloads no JavaScript a mission would not and warms that cache for it.
+
+**D-64 — the gate's new menu-host check costs 41.7 s inside a 165 s local `pnpm
+golden-baseline` run (Task 8), one macOS run, headless Chromium, SwiftShader.** Almost all of
+it is the register vote's own mission-side boot (mesh/GLB loads under SwiftShader), which the
+review judged inherent to the camera-for-camera design (D-61) rather than waste. The
+contribution floor is 30.4426, a third of three identical readings of 91.33; the register reads
+host Y 0.2439 / S 0.3035 against mission Y 0.2451 / S 0.3020.

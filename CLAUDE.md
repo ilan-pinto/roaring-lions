@@ -1423,11 +1423,65 @@ Two traps found while building it, neither specific to this screen.
 `.superpowers/**` are ignored now, alongside `**/dist/**`.
 **`window.localStorage` in this vitest jsdom config is a bare `{}`** -- no
 `getItem`, no `setItem`, no `length`. Any UI code reaching it must guard
-(`storedRenderer` in `menu.ts` does, which is also right for a real browser with
-site data blocked, where the property access itself throws). And it makes
-`worldmap.test.ts`'s "does not write to localStorage" test **unable to fail**:
-it compares `window.localStorage.length` before and after, and both are
-`undefined`.
+(`readStoredRenderer` in `renderer-choice.ts` does, which is also right for a
+real browser with site data blocked, where the property access itself
+throws). And it makes `worldmap.test.ts`'s "does not write to localStorage"
+test **unable to fail**: it compares `window.localStorage.length` before and
+after, and both are `undefined`.
+
+### The scene host
+
+`packages/render/src/three/front/scene-host.ts` is a new door,
+`@lions/render/three-front`, named in eslint's bundle rule beside the other
+five -- **a stock `ThreeRenderer` pointed at a real map, never a "menu mode"**
+threaded through that file. It drives a never-ticked `Sim`
+(`data/front/menu_diorama.json`, four KDF units on `beit_sahwan_outskirts`)
+through the mission's own `RendererOptions`, capped at 30 fps, behind the
+menu column -- and **lives on `/` only**: it is part of the menu screen's own
+disposer, so `/` -> `/settings` -> `/` leaves no host on settings and a fresh
+one remounts on return, with no reload.
+
+**The door never calls `loseContext()` itself.** Since #219,
+`ThreeRenderer.dispose()` already releases its own context
+(`three/context-release.ts`: `dispose()`, then `forceContextLoss()`, skipped
+if already lost), so `release()` calls `renderer.dispose()` and nothing
+else -- a second release warns, and `ui:routes`' leave check allows no
+warning. Do not reintroduce an explicit `loseContext()` call; that was the
+pre-#219 design and would now be dead code at best.
+
+**`.rl-scene-host` carries `data-host`** (`pending` -> `live` | `plate`, or
+`off`) **and five siblings**: `-reason`, `-motion` (`animate` | `held`),
+`-camera`/`-zoom` (reported by the door through `onCamera`, never
+recomputed), and `-ms` (mount to terminal state). `window.__lions` is never
+defined on the menu route -- `ui:routes` asserts exactly that -- which is why
+the visual gate freezes the frame loop inside its own `async` IIFE
+(`FREEZE_FRAME_LOOP_STATEMENTS`, not the `_SCRIPT` variant, which reads
+`__lions.sim.tickCount`) rather than its usual one-liner.
+
+**Pixi and reduced motion both get the plate**, never a held live frame:
+Pixi because it is the hatch a player already reached for when three failed
+them, reduced motion because the plate already IS a held frame of the same
+diorama. Both must gate parallax off by that condition directly -- keying it
+on the plate's `reason` instead let Pixi at default motion still pan the
+picture, a defect this branch's own fix round caught and closed.
+
+**`pnpm plate:host`** (`tools/src/perf/host-plate-capture.ts`)
+re-photographs `assets/ui/menu_host_plate.jpg` after any edit to
+`menu_diorama.json` -- a re-staged diorama and a stale plate cannot be caught
+by eye at review time. `pnpm validate:data` fails by name if the file the
+JSON's `plate` field names is missing on disk.
+
+**The gate votes three ways on this screen**, in `checkMenuSceneHost`
+(`tools/src/golden-diff/screens-check.ts`, run right after
+`checkCampaignBoard`): *path* (`data-host` reaches `live`), *contribution*
+(hiding the host's canvas must move the flanks past a measured floor --
+30.4426, a third of three identical 91.3279 readings), and *register* (the
+plate's camera-for-camera colour match, within 10%). Cost: 41.7 s inside a
+165 s local `pnpm golden-baseline` run, almost all of it the register vote's
+own mission boot -- inherent to the camera-for-camera design, not waste.
+
+`ui:routes`/`ui:shots` already take `--port` (landed on `main` via #214; see
+the paragraph above, ~:306) -- nothing new here.
 
 ---
 

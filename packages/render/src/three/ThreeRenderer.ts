@@ -2986,7 +2986,7 @@ export class ThreeRenderer implements Renderer {
         // `Pass.enabled`, exactly `vignette`'s shape -- but skipping the
         // whole pass to remove the fog-of-war boundary also skipped
         // `FOG_OFFMAP_FADE_TILES`, the off-map fade the SAME pass carries,
-        // and `tools/src/perf/plate-capture.ts` shipped a pale, unshrouded
+        // and the retired Phase 0 plate capture shipped a pale, unshrouded
         // wedge beyond the map edge as a result. The pass now stays enabled
         // always; hiding this layer instead drives `uRevealAll` on the
         // pass's own uniforms (`fog-pass.ts`), which forces every ON-map
@@ -3220,10 +3220,10 @@ export class ThreeRenderer implements Renderer {
     // What each layer's visibility was BEFORE this call, so the restore puts
     // back what it found rather than writing `true` at both. A debug harness
     // that switched a layer off on purpose -- the visual gate's toggle A/B,
-    // `plate-capture.ts` -- must not have it switched back on by a minimap
-    // photograph that happened to run in between. Read off the same two
-    // pieces of state `setDebugLayerVisible` itself writes, so there is no
-    // third place recording what is hidden.
+    // or the retired Phase 0 plate capture -- must not have it switched
+    // back on by a minimap photograph that happened to run in between. Read
+    // off the same two pieces of state `setDebugLayerVisible` itself
+    // writes, so there is no third place recording what is hidden.
     const unitsWereVisible = !this.unitsDebugHidden;
     const overlaysWereVisible = this.overlayBatch.mesh.visible;
     try {
