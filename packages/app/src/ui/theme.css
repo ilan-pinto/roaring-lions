@@ -345,6 +345,20 @@ body {
    board, the objectives tracker, the pause menu, settings, saves, credits)
    plus every in-mission panel body that scrolls, the loading/deploy screen
    and its briefing prose, the HUD's selection card, and the deploy roster.
+   `.rl-garage__body` is the same screen's OTHER scroll container: at
+   `max-width: 1200 px` (below) it becomes the one scroller and the three
+   column scrollers above switch to `overflow: visible`, so without it the
+   whole garage falls back to the native bar under 1200 px wide -- the exact
+   defect this file exists to fix, just at a width the earlier pass never
+   captured. `.rl-debrief` cannot be reached by any selector at all: its
+   `overflow: auto; max-height: 88vh` is INLINE (`ui/debrief.ts`'s `panel({
+   place: … })`, applied as `el.style.cssText` by `panel.ts`), so it needed
+   naming here explicitly rather than turning up in a sweep of this file --
+   and it is the one screen in this list shown after every single mission.
+   A sweep of every other TS file under `packages/app/src` for a `place:`
+   string found none with an `overflow` of its own (`ui/menu.ts`'s end screen and
+   `tutorial/panel.ts` both set only position/size), so `.rl-debrief` is the
+   only inline case.
    `.rl-garage__board` already carried `scrollbar-gutter: stable` (and a mask
    fade, kept, both above); repeating it here is harmless and keeps this list
    the single place a reader checks for "does this scroll region have the
@@ -368,11 +382,13 @@ body {
 .rl-obj-panel--tracker,
 .rl-menu,
 .rl-world__scroll,
+.rl-garage__body,
 .rl-garage__cards,
 .rl-garage__bay,
 .rl-garage__board,
 .rl-settings,
 .rl-credits__licence-text,
+.rl-debrief,
 .rl-loading,
 .rl-loading__brief,
 .rl-card,
@@ -388,11 +404,13 @@ body {
 .rl-obj-panel--tracker::-webkit-scrollbar,
 .rl-menu::-webkit-scrollbar,
 .rl-world__scroll::-webkit-scrollbar,
+.rl-garage__body::-webkit-scrollbar,
 .rl-garage__cards::-webkit-scrollbar,
 .rl-garage__bay::-webkit-scrollbar,
 .rl-garage__board::-webkit-scrollbar,
 .rl-settings::-webkit-scrollbar,
 .rl-credits__licence-text::-webkit-scrollbar,
+.rl-debrief::-webkit-scrollbar,
 .rl-loading::-webkit-scrollbar,
 .rl-loading__brief::-webkit-scrollbar,
 .rl-card::-webkit-scrollbar,
@@ -407,11 +425,13 @@ body {
 .rl-obj-panel--tracker::-webkit-scrollbar-track,
 .rl-menu::-webkit-scrollbar-track,
 .rl-world__scroll::-webkit-scrollbar-track,
+.rl-garage__body::-webkit-scrollbar-track,
 .rl-garage__cards::-webkit-scrollbar-track,
 .rl-garage__bay::-webkit-scrollbar-track,
 .rl-garage__board::-webkit-scrollbar-track,
 .rl-settings::-webkit-scrollbar-track,
 .rl-credits__licence-text::-webkit-scrollbar-track,
+.rl-debrief::-webkit-scrollbar-track,
 .rl-loading::-webkit-scrollbar-track,
 .rl-loading__brief::-webkit-scrollbar-track,
 .rl-card::-webkit-scrollbar-track,
@@ -425,11 +445,13 @@ body {
 .rl-obj-panel--tracker::-webkit-scrollbar-thumb,
 .rl-menu::-webkit-scrollbar-thumb,
 .rl-world__scroll::-webkit-scrollbar-thumb,
+.rl-garage__body::-webkit-scrollbar-thumb,
 .rl-garage__cards::-webkit-scrollbar-thumb,
 .rl-garage__bay::-webkit-scrollbar-thumb,
 .rl-garage__board::-webkit-scrollbar-thumb,
 .rl-settings::-webkit-scrollbar-thumb,
 .rl-credits__licence-text::-webkit-scrollbar-thumb,
+.rl-debrief::-webkit-scrollbar-thumb,
 .rl-loading::-webkit-scrollbar-thumb,
 .rl-loading__brief::-webkit-scrollbar-thumb,
 .rl-card::-webkit-scrollbar-thumb,
@@ -450,6 +472,8 @@ body {
 .rl-menu::-webkit-scrollbar-thumb:active,
 .rl-world__scroll::-webkit-scrollbar-thumb:hover,
 .rl-world__scroll::-webkit-scrollbar-thumb:active,
+.rl-garage__body::-webkit-scrollbar-thumb:hover,
+.rl-garage__body::-webkit-scrollbar-thumb:active,
 .rl-garage__cards::-webkit-scrollbar-thumb:hover,
 .rl-garage__cards::-webkit-scrollbar-thumb:active,
 .rl-garage__bay::-webkit-scrollbar-thumb:hover,
@@ -460,6 +484,8 @@ body {
 .rl-settings::-webkit-scrollbar-thumb:active,
 .rl-credits__licence-text::-webkit-scrollbar-thumb:hover,
 .rl-credits__licence-text::-webkit-scrollbar-thumb:active,
+.rl-debrief::-webkit-scrollbar-thumb:hover,
+.rl-debrief::-webkit-scrollbar-thumb:active,
 .rl-loading::-webkit-scrollbar-thumb:hover,
 .rl-loading::-webkit-scrollbar-thumb:active,
 .rl-loading__brief::-webkit-scrollbar-thumb:hover,

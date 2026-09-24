@@ -506,6 +506,15 @@ try {
   // shorter of the two (Saves). 15% sits with wide margin on both sides of
   // that gap. Seen red: with `.rl-menu > .rl-panel`'s position reset removed,
   // this leg fails both routes at 5.6%.
+  //
+  // 15% is calibrated for THIS walk's fixed 1400x900 viewport (`browser.newPage`
+  // above) and is not a universal figure. The broken state stays far under it
+  // at any viewport height, since a rem-driven ~50px padding-only box does not
+  // grow with the frame. A healthy `.rl-menu` is also rem-sized, though, so
+  // its FRACTION of the viewport shrinks as the viewport grows -- Saves' own
+  // 301px would only near 15% around a ~1900-2000px-tall viewport. A future
+  // caller of this leg at a much taller viewport should re-measure before
+  // reusing this constant.
   const MENU_MIN_FRACTION = 0.15;
   for (const [routePath, label] of [
     ['/saves', 'Saves'],
