@@ -89,3 +89,16 @@ describe('testerLink', () => {
     expect(rebuilt('https://g.dev', 'bad name')).toEqual({ ok: false, reason: TESTER_NAME_REFUSAL });
   });
 });
+
+// wrangler bundles with esbuild's keepNames, which wraps every NESTED named
+// function in `__name(fn, "fn")` INSIDE its parent's body. `stats-page.ts`
+// ships `testerLink.toString()` to the browser, where `__name` does not exist,
+// so one inner helper would throw on /stats while every test here stays green.
+// Measured on 6062d465 with `wrangler deploy --dry-run`: the call sits after the
+// function today, which is why the body must stay flat.
+describe('testerLink stays flat for the page copy', () => {
+  it('declares no inner function or arrow', () => {
+    const body = testerLink.toString().replace(/^function\s+\w+\s*\([^)]*\)\s*\{/, '');
+    expect(body).not.toMatch(/=>|\bfunction\b/);
+  });
+});
