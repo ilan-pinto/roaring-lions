@@ -149,8 +149,9 @@ the menu), it goes through `t()` and passes `pnpm validate:ui`.
 `pnpm-workspace.yaml` covers `packages/*` and `tools`, so only there do root
 `pnpm lint`, `pnpm typecheck` and `pnpm test` reach it. It may import
 `@lions/data` for the schema (data is a leaf); nothing imports it. Its tests run
-under `@cloudflare/vitest-pool-workers` as **their own vitest project**, so they
-do not collide with the jsdom default under `pnpm test`. The root
+in the repo's existing node vitest project against a `node:sqlite`
+adapter shaped like D1 (D1 is SQLite, so the real migrations and queries run);
+the Workers runtime itself is exercised by `wrangler dev` and the deployed check. The root
 `wrangler.jsonc` points `main` at `packages/worker/src/index.ts` and `assets` at
 `packages/app/dist`. CLAUDE.md's package layout gains one line for it.
 

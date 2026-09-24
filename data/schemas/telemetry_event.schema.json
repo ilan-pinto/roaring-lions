@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "telemetry_event.schema.json",
+  "title": "Telemetry event",
+  "description": "One anonymous gameplay event sent by the client to POST /api/events. Mirrored by isTelemetryEvent in packages/data/src/telemetry.ts; telemetry.test.ts pins the two against each other.",
+  "type": "object",
+  "required": ["v", "type", "player", "session", "build", "t"],
+  "properties": {
+    "v": { "const": 1 },
+    "type": { "enum": ["session_start", "heartbeat", "tutorial_step", "mission_start", "objective", "mission_end", "campaign_progress"] },
+    "player": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "session": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "tester": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,32}$" },
+    "build": { "type": "string", "pattern": "^[0-9]{1,4}\\.[0-9]{1,4}\\.[0-9]{1,6}$" },
+    "t": { "type": "integer", "minimum": 0 },
+    "dev": { "const": true }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "session_start" },
+        "screen": { "enum": ["menu", "campaign", "brigade", "mission", "tutorial", "sandbox", "other"] },
+        "renderer": { "enum": ["three", "pixi"] },
+        "viewport": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 20000 }, "minItems": 2, "maxItems": 2 },
+        "returning": { "type": "boolean" }
+      },
+      "required": ["screen", "renderer", "viewport", "returning"]
+    },
+    {
+      "properties": {
+        "type": { "const": "heartbeat" },
+        "mission": { "$ref": "#/$defs/mission" },
+        "tick": { "$ref": "#/$defs/tick" }
+      },
+      "required": ["mission", "tick"]
+    },
+    {
+      "properties": {
+        "type": { "const": "tutorial_step" },
+        "step": { "type": "integer", "minimum": 0, "maximum": 200 },
+        "steps": { "type": "integer", "minimum": 1, "maximum": 200 },
+        "prevMs": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["step", "steps", "prevMs"]
+    },
+    {
+      "properties": {
+        "type": { "const": "mission_start" },
+        "mission": { "$ref": "#/$defs/mission" },
+        "replay": { "type": "boolean" }
+      },
+      "required": ["mission", "replay"]
+    },
+    {
+      "properties": {
+        "type": { "const": "objective" },
+        "mission": { "$ref": "#/$defs/mission" },
+        "objective": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+        "objectiveType": { "type": "string", "pattern": "^[a-z_]{1,32}$" },
+        "primary": { "type": "boolean" },
+        "status": { "enum": ["complete", "failed"] },
+        "tick": { "$ref": "#/$defs/tick" }
+      },
+      "required": ["mission", "objective", "objectiveType", "primary", "status", "tick"]
+    },
+    {
+      "properties": {
+        "type": { "const": "mission_end" },
+        "mission": { "$ref": "#/$defs/mission" },
+        "result": { "enum": ["victory", "defeat", "abandoned"] },
+        "cause": { "type": "string", "pattern": "^(force_destroyed|roe_collapse|objective:[A-Za-z0-9_.-]{1,64})$" },
+        "tick": { "$ref": "#/$defs/tick" },
+        "roe": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "fielded": { "$ref": "#/$defs/count" },
+        "lost": { "$ref": "#/$defs/count" },
+        "objectivesDone": { "$ref": "#/$defs/count" },
+        "objectivesTotal": { "$ref": "#/$defs/count" }
+      },
+      "required": ["mission", "result", "tick", "roe", "fielded", "lost", "objectivesDone", "objectivesTotal"]
+    },
+    {
+      "properties": {
+        "type": { "const": "campaign_progress" },
+        "mission": { "$ref": "#/$defs/mission" },
+        "missionsWon": { "$ref": "#/$defs/count" }
+      },
+      "required": ["mission", "missionsWon"]
+    }
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "mission": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
+    "tick": { "type": "integer", "minimum": 0, "maximum": 1000000000 },
+    "count": { "type": "integer", "minimum": 0, "maximum": 100000 }
+  }
+}
