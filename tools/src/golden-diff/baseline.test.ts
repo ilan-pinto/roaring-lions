@@ -732,13 +732,16 @@ describe('BASELINES layerChecks', () => {
         scatter: { px: 4344, mean: 0.4536 },
         decor: { px: 52587, mean: 4.7771 },
         'ground-albedo': { px: 8, mean: 1.9043 },
-        // Shell upgrade Phase 0 Task 9, as for quiet above. `skirt` is the
-        // weakest layer signal in the whole gate (3403 px / 0.2858) because
-        // this framing is zoomed to a corridor and only its corners reach
-        // past the map edge -- which is exactly why it is declared on two
-        // maps rather than on its strongest one alone.
         vignette: { px: 59402, mean: 3.4137 },
-        skirt: { px: 3403, mean: 0.2858 },
+        // G5 (`skirtRing`, 2026-09-25): region-scoped to `{x:0,y:0,w:260,
+        // h:140}`, the frame corner the ring draws in on this corridor-zoomed
+        // framing -- see `baseline.ts`'s rationale for the controller ruling
+        // and why (the fix's whole-frame reading, 2705 px / 0.0880, falls
+        // BELOW the old whole-frame floor of 1100 px / 0.095; scoping the
+        // region rather than lowering that floor keeps the check's
+        // sensitivity where the layer actually draws). This was `3403 px /
+        // 0.2858` against the OLD one-rectangle skirt, whole-frame.
+        skirt: { px: 2705, mean: 3.0455 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the

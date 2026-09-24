@@ -833,16 +833,38 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'skirt',
-        minDiffPixels: 1100,
-        minMeanAbsChannelDelta: 0.095,
+        // CONTROLLER RULING (G5 follow-up, 2026-09-25): region-scoped rather
+        // than a whole-frame floor lowered. Before `skirtRing` the skirt was
+        // one quad spanning the map's own footprint, hidden under real
+        // terrain by `SKIRT_Y` alone -- so hiding it moved pixels wherever
+        // the smoothed ground's Catmull-Rom undershoot let it show through
+        // (the G5 defect this task fixes), scattered well outside any one
+        // corner, which is what the OLD floor (1100 px / 0.095, `SHELL_P0`)
+        // was calibrated against. After the fix the ring draws ONLY past the
+        // map edge, and on this corridor-zoomed framing that is a single
+        // frame corner: the exact-diff bounding box between the shown and
+        // skirt-hidden captures is x[0,212] y[0,99] (`layer-shown.png` vs
+        // `layer-skirt-hidden.png`, pixel-exact RGB compare, not pixelmatch's
+        // thresholded count). `{x:0,y:0,w:260,h:140}` adds a ~50/40px margin
+        // around that box. Scoping is not a threshold widening -- the check
+        // keeps its sensitivity exactly where the layer draws; a whole-frame
+        // floor recalibrated on the fixed geometry would have to shrink
+        // instead, diluted by the ~1.26M pixels the ring no longer touches.
+        region: { x: 0, y: 0, w: 260, h: 140 },
+        minDiffPixels: 900,
+        minMeanAbsChannelDelta: 1.01,
         rationale:
-          SHELL_P0 +
-          'hiding the ground beyond the map moves 3403 px / 0.2858 here -- 6x less than on quiet, ' +
-          'because this framing is zoomed to a corridor and only its far corners reach past the ' +
-          'map. Declared anyway, and that is the point of having two: quiet and relief are ' +
-          'different maps at different zooms, so a skirt that failed to build on one map alone ' +
-          'cannot hide behind the other. The weakest layer signal in the gate, which is why the ' +
-          'floor is a third of a small number rather than a round one.',
+          'measured 2026-09-25 on this fix, 3 consecutive full-gate runs on macOS 15 / M3 Pro, ' +
+          'headless Chromium, software SwiftShader, frame loop frozen: bit-identical across all ' +
+          'three at 2705 px / 3.0455. Floor is a third, rounded down: 900 px / 1.01 -- 9.5x and ' +
+          '10.6x the OLD whole-frame floor (1100 px / 0.095) on the same two metrics, because the ' +
+          'region excludes the ~1.26M pixels the ring never touches rather than averaging over ' +
+          'them. The whole-frame reading of the identical fix is 2705 px / 0.0880 (see the task-2 ' +
+          'report for the R-20 stop this replaces) -- BELOW the old floor on magnitude alone, which ' +
+          'is why this check is scoped rather than recalibrated in place. Falsified: with the skirt ' +
+          'mesh never added to the scene (the erasure case, not merely toggled) this reads a literal ' +
+          '0 px / 0.0000 in-region too and fails both floors, exactly like every other layer check in ' +
+          'this file.',
       },
     ],
     rationale:
