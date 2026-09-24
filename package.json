@@ -32,7 +32,7 @@
     "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "blast:capture": "pnpm --filter @lions/tools blast:capture",
     "weight:capture": "pnpm --filter @lions/tools weight:capture",
-    "plate:capture": "pnpm --filter @lions/tools plate:capture",
+    "plate:host": "pnpm --filter @lions/tools plate:host",
     "plates:units": "pnpm --filter @lions/tools plates:units",
     "gait:meshes": "pnpm --filter @lions/tools gait:meshes",
     "meshy": "pnpm --filter @lions/tools meshy --"

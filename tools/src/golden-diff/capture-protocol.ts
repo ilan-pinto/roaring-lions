@@ -761,10 +761,11 @@ export const CAPTURE_SCRIPT = captureScript(QUIET_SCENARIO);
  * pattern, and `unit-plates.ts`'s own top comment for a caller that hit it
  * elsewhere in the same file).
  *
- * Extracted from `plate-capture.ts` (v2 of that file) when `unit-plates.ts`
- * needed the identical snippet a second time -- two independent copies of a
- * DOM-shape assumption this specific is exactly the kind of thing that goes
- * stale silently in one copy after the other is fixed.
+ * Extracted from the Phase 0 key-art plate capture (v2 of that file, since
+ * retired -- scene-host plan Task 7) when `unit-plates.ts` needed the
+ * identical snippet a second time -- two independent copies of a DOM-shape
+ * assumption this specific is exactly the kind of thing that goes stale
+ * silently in one copy after the other is fixed.
  */
 export function hideHudExceptCanvas(): void {
   const canvas = document.querySelector('canvas');

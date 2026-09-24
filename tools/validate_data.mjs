@@ -194,6 +194,24 @@ if (
   failures.push('schema files missing or unparseable — cannot validate content');
 }
 
+// The menu diorama's plate must exist: the scene host (`packages/app/src/ui/
+// scene-host.ts`) falls back to it on every path but `live`, and a 404'd
+// <img> there is silently removed rather than shown broken -- so a missing
+// file fails only a human looking at the menu, never a gate, unless this
+// checks it. Same shape as world.json's `art` check above (schema validates
+// the JSON's shape; this is the cross-file fact it cannot see). The plate is
+// photographed by `pnpm plate:host` (`tools/src/perf/host-plate-capture.ts`).
+{
+  const dioramaPath = join(ROOT, 'data/front/menu_diorama.json');
+  const diorama = loadJson(dioramaPath);
+  if (diorama && typeof diorama.plate === 'string') {
+    const platePath = join(ROOT, 'assets', diorama.plate);
+    if (!existsSync(platePath)) {
+      failures.push(`data/front/menu_diorama.json: plate "${diorama.plate}" not found at assets/${diorama.plate}`);
+    }
+  }
+}
+
 // Hoisted above the mission cross-check block below, which needs the symbol ->
 // structure-type lookup for the `raze` check. The map-symbol block further
 // down (data/structures.json sanity, map row legality) also uses these — do

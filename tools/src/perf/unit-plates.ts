@@ -10,10 +10,10 @@
  *   pnpm plates:units --out=assets/ui/plates/units
  *   pnpm plates:units --port=5180
  *
- * Manages its own dev server, the way `plate-capture.ts` does (never a
+ * Manages its own dev server, the way `host-plate-capture.ts` does (never a
  * human's `pnpm dev`, never a port another tool already owns -- see that
  * file's own comment for the ledger: 5173 human, 5174 golden-diff, 5175
- * three-baseline, 5176 ui:shots, 5177 ui:routes/plate:capture; this one
+ * three-baseline, 5176 ui:shots, 5177 ui:routes, 5183 plate:host; this one
  * defaults to 5179, the next free self-managed slot -- 5178 is the OTHER
  * convention, "point me at a server you already started", used by
  * `wreck-captures.ts`/`gait-captures.ts`, not this file. `--port` overrides
@@ -485,13 +485,14 @@ async function runCapture(): Promise<void> {
       timeout: 30000,
     });
     await page.evaluate(() => document.fonts.ready);
-    // Time for the roster-driven mesh loader's own boot fetches, same margin
-    // `plate-capture.ts` gives it.
+    // Time for the roster-driven mesh loader's own boot fetches, the same
+    // margin the Phase 0 key-art plate capture (since retired) used to give
+    // it.
     await page.waitForTimeout(3000);
 
     // Hide the HUD by containment -- see `hideHudExceptCanvas`'s own doc
-    // comment (`golden-diff/capture-protocol.ts`, shared with
-    // `plate-capture.ts` since fix round 1) for why.
+    // comment (`golden-diff/capture-protocol.ts`, written for the Phase 0
+    // key-art plate capture and reused here since fix round 1) for why.
     await page.evaluate(hideHudExceptCanvas);
 
     await page.evaluate(() => (window as unknown as LionsWindow).__lions.renderer.setDebugLayerVisible('overlays', false));

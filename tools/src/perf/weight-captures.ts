@@ -849,9 +849,10 @@ export function verdictLines(verdicts: readonly LaneVerdict[]): string[] {
 // ---------------------------------------------------------------------------
 
 /** Ports in use by this repo's other harnesses, per the controller's own
- *  ruling: 5173 a human's own dev server, 5176 ui:shots, 5177 ui:routes and
- *  plate-capture, 5179 death-captures and unit-plates, 5181 blast-captures.
- *  This one takes the next free number and never touches another. */
+ *  ruling: 5173 a human's own dev server, 5176 ui:shots, 5177 ui:routes,
+ *  5179 death-captures and unit-plates, 5181 blast-captures, 5183 plate:host
+ *  (`host-plate-capture.ts`). This one takes the next free number and never
+ *  touches another. */
 const PORT = 5182;
 const VIEWPORT = { width: 1400, height: 900 } as const;
 /** The establishing still, then the ladder. 2.5 is the top of `main.ts`'s own

@@ -490,8 +490,8 @@ describe('ThreeRenderer.captureGroundAlbedo', () => {
   });
 
   it('puts a layer somebody else hid on purpose back to HIDDEN, not to visible', () => {
-    // A debug harness -- the visual gate's toggle A/B, `plate-capture.ts` --
-    // switches a layer off deliberately and then photographs. A minimap
+    // A debug harness -- the visual gate's toggle A/B -- switches a layer
+    // off deliberately and then photographs. A minimap
     // capture running in between must not hand it back a different scene
     // than the one it asked for.
     const r = makeRenderer();

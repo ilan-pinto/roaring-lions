@@ -11,8 +11,9 @@
  * `uRevealAll` (C2, shell-upgrade Phase 0 final fix wave): a debug-only
  * uniform that forces every ON-map sample to read as fully seen while
  * leaving the pass itself enabled, so the off-map fade above still runs.
- * `tools/src/perf/plate-capture.ts` used to reach for
- * `setDebugLayerVisible('fog', false)`, which skipped this whole pass --
+ * The Phase 0 key-art plate capture (retired by the scene-host plan's Task 7)
+ * used to reach for `setDebugLayerVisible('fog', false)`, which skipped this
+ * whole pass --
  * and with it, `FOG_OFFMAP_FADE_TILES`, the very fade this comment
  * describes -- so the skirt read back as an unshrouded, ClampToEdge-flooded
  * wedge instead of fading to never-seen. `uRevealAll` lets the debug layer
