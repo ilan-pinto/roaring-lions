@@ -130,4 +130,21 @@ describe('Telemetry', () => {
       NOOP_TELEMETRY.campaignProgress('m', 1);
     }).not.toThrow();
   });
+
+  it('starting a new mission auto-ends the previous one as abandoned', () => {
+    reset();
+    const h = harness();
+    state = { ...state, tick: 100 };
+    h.tel.missionStarted('m1', false, view);
+    state = { ...state, tick: 250 };
+    const m2 = h.tel.missionStarted('m2', false, view);
+    const ends = h.sent.filter((e) => e.type === 'mission_end');
+    expect(ends).toHaveLength(1);
+    expect(ends[0]).toMatchObject({ mission: 'm1', result: 'abandoned', tick: 250 });
+    m2.end();
+    const ends2 = h.sent.filter((e) => e.type === 'mission_end');
+    expect(ends2).toHaveLength(2);
+    expect(ends2[0]).toMatchObject({ mission: 'm1', result: 'abandoned' });
+    expect(ends2[1]).toMatchObject({ mission: 'm2', result: 'abandoned' });
+  });
 });
