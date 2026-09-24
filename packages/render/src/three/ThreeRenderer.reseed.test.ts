@@ -93,6 +93,7 @@ interface Private {
   seedFromSim(): void;
   structureTypeCapacity(structureId: string): number;
   structureIdle: Map<string, StructureInstancer>;
+  structureWreck: Map<string, StructureInstancer>;
   updateStructures(): void;
   scene: THREE.Scene;
   prevX: Float64Array;
@@ -105,7 +106,8 @@ interface Private {
 
 /**
  * The mission path, up to (not including) the reseed: returns the renderer,
- * the spawned unit and the instancer the sheet load built.
+ * the spawned unit and the two instancers the sheet load built (idle, and
+ * wreck -- the shanty sheet declares a `wreckFile`, as `BLD_SHANTY` does).
  */
 function missionPathBeforeReseed(): {
   sim: Sim;
@@ -113,6 +115,7 @@ function missionPathBeforeReseed(): {
   priv: Private;
   unit: number;
   loaded: StructureInstancer;
+  loadedWreck: StructureInstancer;
 } {
   const sim = new Sim({ seed: 1, width: W, height: H, capacity: 8 });
   const tank = sim.addUnitType(TANK);
@@ -125,21 +128,22 @@ function missionPathBeforeReseed(): {
   // `init()`, on a sim with no units in it yet.
   priv.seedFromSim();
 
-  // `loadStructureSprite`, after its fetch: sized to the shanties there are NOW.
-  const loaded = new StructureInstancer(
-    new THREE.Texture(),
-    structureBillboardGeometry(1, 64, 64),
-    priv.structureTypeCapacity('shanty')
-  );
+  // `loadStructureSprite`, after its fetch: both instancers sized to the
+  // shanties there are NOW.
+  const capacity = priv.structureTypeCapacity('shanty');
+  const loaded = new StructureInstancer(new THREE.Texture(), structureBillboardGeometry(1, 64, 64), capacity);
   priv.scene.add(loaded.mesh);
   priv.structureIdle.set('shanty', loaded);
+  const loadedWreck = new StructureInstancer(new THREE.Texture(), structureBillboardGeometry(1, 64, 64), capacity);
+  priv.scene.add(loadedWreck.mesh);
+  priv.structureWreck.set('shanty', loadedWreck);
 
   // `runtime.start()`: the starting force spawns and the mission raises its
   // own building (`raiseMissionStructures` -- `wadi_halam_2_laager`'s shanty).
   const unit = sim.spawn(tank, 0, fx.from(SPAWN_X), fx.from(SPAWN_Y));
   sim.addStructure(shanty, [4 * W + 6]);
 
-  return { sim, renderer, priv, unit, loaded };
+  return { sim, renderer, priv, unit, loaded, loadedWreck };
 }
 
 describe('ThreeRenderer.reseed after the mission spawns into a sim init() already seeded', () => {
@@ -150,14 +154,15 @@ describe('ThreeRenderer.reseed after the mission spawns into a sim init() alread
     // Fog was computed from no units at all.
     expect(renderer.isVisible(SPAWN_X, SPAWN_Y)).toBe(false);
     // The sheet was sized before the mission's shanty existed, so the
-    // overflow clamp drops it (and says so, once per module).
+    // overflow clamp drops it. (The clamp also warns, but only once per
+    // module -- `warnedStructureOverflow` -- so whether THIS test sees the
+    // warning depends on test order. Silenced here, never asserted.)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     priv.updateStructures();
+    warn.mockRestore();
     const idle = priv.structureIdle.get('shanty');
     expect(idle?.mesh.count).toBe(1);
     expect(sim.structureCount).toBe(2);
-    expect(String(warn.mock.calls[0]?.[0])).toContain('instance capacity (1) exceeded');
-    warn.mockRestore();
   });
 
   it('draws the force where it spawned, still, with no lerp in from world (0, 0)', () => {
@@ -199,6 +204,22 @@ describe('ThreeRenderer.reseed after the mission spawns into a sim init() alread
     expect(idle.spriteTexture).toBe(loaded.spriteTexture);
   });
 
+  it('grows the WRECK instancer too, so a mission structure that falls leaves its wreck drawn', () => {
+    const { sim, priv, renderer, loadedWreck } = missionPathBeforeReseed();
+    renderer.reseed();
+
+    const wreck = priv.structureWreck.get('shanty');
+    if (!wreck) throw new Error('the reseed dropped the shanty wreck instancer');
+    expect(wreck).not.toBe(loadedWreck);
+    expect(wreck.capacity).toBe(sim.structureCount);
+    expect(priv.scene.children).toContain(wreck.mesh);
+    expect(priv.scene.children).not.toContain(loadedWreck.mesh);
+    // Both shanties destroyed -- the map's and the mission's: both wrecks draw.
+    for (let s = 0; s < sim.structureCount; s++) sim.structures.alive[s] = 0;
+    priv.updateStructures();
+    expect(wreck.mesh.count).toBe(sim.structureCount);
+  });
+
   it('marks the terrain for a rebuild, so ground built before the spawn does not outlive it', () => {
     // `rebuildTerrain` reads the sim's structures (footprints, the blocked
     // mask). On the mission path the flag is still set from construction, so
@@ -210,7 +231,7 @@ describe('ThreeRenderer.reseed after the mission spawns into a sim init() alread
   });
 
   it('keeps a debug-hidden buildings layer hidden across the swap', () => {
-    // `withCapacity` builds a NEW mesh; a layer the visual gate switched off
+    // `grow` builds a NEW mesh; a layer the visual gate switched off
     // must not come back on because the object behind it was replaced.
     const { priv, renderer, loaded } = missionPathBeforeReseed();
     renderer.setDebugLayerVisible('buildings', false);

@@ -500,7 +500,7 @@ function warnStructureCapacityOnce(capacity: number): void {
  * instancer had been sized, and on `&nomesh` the overflow here dropped one
  * billboard on each of `wadi_halam_2_laager` (a shanty) and
  * `qarn_hadid_2_foothold` (the concrete revetment). `ThreeRenderer.reseed`
- * grows the instancer now (`StructureInstancer.withCapacity`); the warning
+ * grows the instancer now (`StructureInstancer.grow`); the warning
  * below is what a recurrence would print.
  */
 export function writeStructureInstances(
@@ -717,7 +717,7 @@ export function createCollapseMaterial(texture: THREE.Texture, alpha0: number): 
  * `raiseMissionStructures` -- a camp, a fence, a shanty) arrive with
  * `runtime.start()`, after the deploy screen and so after every sheet has
  * loaded. Structures are never removed from the sim -- a destroyed one stays
- * as a wreck -- so a type's count only ever grows, and `withCapacity` below
+ * as a wreck -- so a type's count only ever grows, and `grow` below
  * is how the owner catches up (`ThreeRenderer.reseed`).
  */
 export class StructureInstancer {
@@ -725,7 +725,7 @@ export class StructureInstancer {
   /** How many instances `mesh` can draw; `update` drops any past this. */
   readonly capacity: number;
   private readonly texture: THREE.Texture;
-  /** The quad this instancer was built from, kept so `withCapacity` can
+  /** The quad this instancer was built from, kept so `grow` can
    *  build the same billboard again at a larger size. */
   private readonly quad: StructureBillboardGeometry;
   private readonly alphaAttr: THREE.InstancedBufferAttribute;
@@ -763,7 +763,7 @@ export class StructureInstancer {
    *  `Mesh` (never a copy or a second decode), so this instancer remains
    *  the texture's one true owner: `dispose()` below is still the only
    *  thing that ever frees it, and the collapse mesh's own `dispose()`
-   *  must not double-free it. (`withCapacity` moves that ownership to its
+   *  must not double-free it. (`grow` moves that ownership to its
    *  replacement, the same texture object, so a borrow survives it.) */
   get spriteTexture(): THREE.Texture {
     return this.texture;
@@ -790,14 +790,16 @@ export class StructureInstancer {
   }
 
   /**
-   * This billboard with room for at least `capacity` instances.
+   * Grow this billboard to room for at least `capacity` instances --
+   * DESTRUCTIVELY when it has to grow at all.
    *
    * Returns `this` when it already has room -- the usual case, and the only
    * one that leaves the scene untouched. Otherwise it builds a replacement
    * drawing the SAME texture through the same quad and hands the texture
-   * over: this instancer's own geometry and material are released here, and
-   * it must not be drawn, updated or disposed again. The caller swaps the
-   * replacement's `mesh` into the scene in place of this one's.
+   * over: this instancer's own GPU objects (its mesh's instance buffer, its
+   * geometry, its material) are released here, and it must not be drawn,
+   * updated or disposed again. The caller swaps the replacement's `mesh`
+   * into the scene in place of this one's.
    *
    * The texture moves rather than being copied or re-decoded because
    * `ThreeRenderer.beginCollapse` borrows it by reference (`spriteTexture`);
@@ -808,12 +810,11 @@ export class StructureInstancer {
    * Never shrinks: a structure is never removed from the sim, so no type's
    * count falls below what it was when this was sized.
    */
-  withCapacity(capacity: number): StructureInstancer {
+  grow(capacity: number): StructureInstancer {
     if (capacity <= this.capacity) return this;
     const next = new StructureInstancer(this.texture, this.quad, capacity);
     next.mesh.visible = this.mesh.visible;
-    this.mesh.geometry.dispose();
-    (this.mesh.material as THREE.Material).dispose();
+    this.releaseMesh();
     return next;
   }
 
@@ -821,9 +822,21 @@ export class StructureInstancer {
    *  re-load calls this on the instancer it replaces, exactly like
    *  `UnitInstancer.dispose`/`ThreeRenderer.loadSprites`. */
   dispose(): void {
+    this.releaseMesh();
+    this.texture.dispose();
+  }
+
+  /**
+   * Everything this instancer owns except the texture. `mesh.dispose()` is
+   * not redundant with the geometry's: in three r170 the instance-matrix
+   * buffer is freed ONLY by the `InstancedMesh`'s own `dispose` event
+   * (`WebGLObjects`' `onInstancedMeshDispose`), so leaving it out leaks one
+   * GL buffer per instancer released.
+   */
+  private releaseMesh(): void {
+    this.mesh.dispose();
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
-    this.texture.dispose();
   }
 }
 
