@@ -39,7 +39,7 @@ import { plateFit } from './plate-fit';
 import { flash } from './motion';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
-import { roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
+import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
 import { asPercent, benefitLabel, formatBenefit, upgradeBenefits, type BenefitLine } from './upgrade-benefit';
 
 export interface BrigadeUnit {
@@ -435,7 +435,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     for (const row of rows) {
       const card = cardEls.get(row.u.id);
       if (card === undefined) continue;
-      card.hidden = bucket !== 'all' && roleBucket(row.u) !== bucket;
+      card.hidden = !bucketVisible(roleBucket(row.u), bucket);
     }
   }
 
