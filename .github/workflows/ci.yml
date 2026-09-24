@@ -361,12 +361,3 @@ jobs:
           git push origin HEAD:main
           git push origin "refs/tags/v${NEXT}"
 
-      # The push above is invisible to Actions, so the Pages deploy running
-      # for the merge that triggered this job would publish the PRE-bump
-      # version. Dispatching it again is what keeps the number the app shows
-      # in step with the tag that was just cut.
-      - name: Redeploy Pages at the new version
-        if: steps.decide.outputs.next != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run pages.yml --ref main
