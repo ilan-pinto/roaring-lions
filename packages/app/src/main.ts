@@ -1745,6 +1745,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  second forever. */
   let meshPathActive = false;
 
+  // The map's decor layer goes to the renderer as `TERRAIN_DECOR` indices, and
+  // the two enums are declared separately because @lions/render must not import
+  // @lions/data. This is the one module that imports both, so it is where they
+  // are held to agree; a silent divergence would draw roads as trees. Checked
+  // HERE, before a renderer exists: it reads only imports, and a throw after
+  // construction would have left a WebGL context with no `teardown()` to free it.
+  if (
+    DECOR.none !== TERRAIN_DECOR.none ||
+    DECOR.road !== TERRAIN_DECOR.road ||
+    DECOR.grove !== TERRAIN_DECOR.grove ||
+    DECOR.knoll !== TERRAIN_DECOR.knoll ||
+    DECOR.ridge !== TERRAIN_DECOR.ridge ||
+    DECOR.ditch !== TERRAIN_DECOR.ditch
+  ) {
+    throw new Error('decor enums have diverged between @lions/data and @lions/render');
+  }
+
   let renderer: Renderer;
   if (rendererDecision.choice === 'three') {
     const { ThreeRenderer } = await import('@lions/render/three');
@@ -1911,6 +1928,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       console.warn('&mesh needs ?renderer=three — the Pixi backend has no mesh path; ignoring it');
     }
   }
+  // Left during the mesh download (or the backend's import). Everything
+  // below until the next abandon check -- the loading screen, `init()` --
+  // would otherwise run for a screen the player has gone from: measured,
+  // `init()` appended the battlefield's canvas into the NEXT screen's stage
+  // and fetched five ground textures before that check tore it down.
+  if (req.signal.aborted) abandon('left while the meshes were downloading');
   // The same lesson again, for the one unit type with no billboard to fall
   // back on. `civilians` is absent from `SPRITE_MAP` by design (the four
   // figures are mesh-only), so on Pixi or under `&nomesh` the crowd is spawned,
@@ -1928,21 +1951,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the renderer. It deliberately does NOT travel through the sim: whether a tile
   // draws a tree or a rock changes no outcome, and invariant 4 keeps presentation
   // data out of simulation state. The mechanical half of the same tile, its cover
-  // level, went through sim.setCover above.
-  //
-  // The two enums are declared separately because @lions/render must not import
-  // @lions/data. This is the one module that imports both, so it is where they are
-  // held to agree; a silent divergence would draw roads as trees.
-  if (
-    DECOR.none !== TERRAIN_DECOR.none ||
-    DECOR.road !== TERRAIN_DECOR.road ||
-    DECOR.grove !== TERRAIN_DECOR.grove ||
-    DECOR.knoll !== TERRAIN_DECOR.knoll ||
-    DECOR.ridge !== TERRAIN_DECOR.ridge ||
-    DECOR.ditch !== TERRAIN_DECOR.ditch
-  ) {
-    throw new Error('decor enums have diverged between @lions/data and @lions/render');
-  }
+  // level, went through sim.setCover above. The two enums it is indexed by are
+  // held to agree before the renderer is constructed -- see there.
   renderer.setDecor(map.decor);
   renderer.setElevation(map.elevation);
   // Task 5: the briefing's full objective list, off the mission's own JSON
