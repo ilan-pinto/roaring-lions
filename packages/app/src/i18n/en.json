@@ -265,6 +265,8 @@
   "hud.strip.conduct": "Conduct",
   "hud.strip.open": "Objectives{primary, plural, =0 {} other { +{primary} primary}}{secondary, plural, =0 {} other { +{secondary} secondary}}",
   "hud.strip.rate": "+{n}/min",
+  "hud.strip.logistics.word": "logistics",
+  "hud.strip.intel.word": "intel",
   "hud.strip.pinned": "▼ {n} pinned",
   "hud.strip.broken": "⚑ {n} broken",
   "hud.strip.logistics.tip": "Logistics — spent to build reinforcements at the dock.{rate, plural, =0 {} other { The mission adds {rate} more a minute.}}",
@@ -419,6 +421,8 @@
 
   "dock.tag.smoke": "smoke",
   "dock.label": "Reinforcements · B",
+  "dock.credits.word": "{n, plural, one {credit} other {credits}}",
+  "dock.credits.tip": "Brigade credits: earned by missions, spent in the Brigade garage.",
   "dock.support.sweep.word": "sweep",
   "dock.support.sweep.name": "Satellite sweep",
   "dock.support.sweep.blurb": "Reveals what is on the ground in a circle, once. It shoots nothing.",

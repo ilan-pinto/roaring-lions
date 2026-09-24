@@ -19,6 +19,7 @@ import type { LedgerData } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { escapeHtml } from './escape-html';
+import { LOGISTICS_GLYPH } from './glyphs';
 import { roleBadgeSvg } from './role';
 import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
@@ -53,6 +54,19 @@ export interface ProductionOptions {
    *  gate's sentence -- the same catalogue lookup the campaign map and
    *  brigade already take. */
   missionName?: (id: string) => string | undefined;
+  /**
+   * The brigade's credit balance on hand, read through the same
+   * `ledgerStore.readAccount()` seam the garage uses -- GH-229. `undefined`
+   * when the store is unavailable (no durable storage), the one state that
+   * genuinely has no number to show; the caller reaches it only through that
+   * one door, never the browser's storage directly. A locked tile's short
+   * label (`dock.lock.price`) and its full
+   * note (`gate.buy`) both name a credit PRICE without ever saying what the
+   * player actually has on hand, which is bug 2 of GH-229 -- the header is
+   * the one place in the dock that is on screen for the whole mission, so it
+   * is where the balance goes rather than repeated beside every price.
+   */
+  credits?: number;
 }
 
 /** The two fire-support calls, as the dock draws them. `word`/`name`/`blurb`
@@ -122,11 +136,41 @@ export class ReinforcementDock {
     this.el = document.createElement('div');
     this.el.className = 'rl-dock';
 
+    const head = document.createElement('div');
+    head.className = 'rl-dock__head';
+
     const label = document.createElement('div');
     label.className = 'rl-label rl-dock__label';
     // `B` focuses the first tile — see `focusFirst`. A label that named a key
     // doing nothing is the drift slice 2 refused for `Attack-move A`.
     label.textContent = t('dock.label');
+    head.appendChild(label);
+
+    // GH-229 bug 2, fix round 2: the balance now gets its own chip, sized like
+    // the top strip's own counters (`--t-strip`, the same size `.rl-info`
+    // reads off `.rl-strip`) rather than riding along at the small label's
+    // `--t-xs` -- a reviewer read "REINFORCEMENTS · B · 0 CR" at that size as
+    // illegible on the first round. `--good` stays the colour, distinct from
+    // this tile's own logistics badge (`--accent`) and the strip's own
+    // logistics/intel figures (`--info`) -- those are THIS mission's
+    // currencies, and the brigade's credits are a different one, earned
+    // across the whole campaign and spent only in the garage. Static once at
+    // construction: nothing in a mission ever spends or grants brigade
+    // credits mid-mission, so unlike the tile countdowns this never needs a
+    // 4 Hz refresh. The number carries no comma grouping -- nothing in this
+    // codebase formats one (`i18n/format.ts` has no `{n, number}` support),
+    // and every other credit figure shipped (the garage's own wallet, the
+    // debrief's payout line) reads the same bare way.
+    if (opts.credits !== undefined) {
+      const credits = document.createElement('span');
+      credits.className = 'rl-dock__credits';
+      credits.tabIndex = 0;
+      const n = document.createElement('b');
+      n.textContent = String(opts.credits);
+      credits.append(n, document.createTextNode(` ${t('dock.credits.word', { n: opts.credits })}`));
+      head.appendChild(credits);
+      this.tipDisposers.push(bindTip(credits, () => t('dock.credits.tip'), { host: this.el }));
+    }
 
     const grid = document.createElement('div');
     grid.className = 'rl-dock__grid';
@@ -137,7 +181,7 @@ export class ReinforcementDock {
       grid.appendChild(this.buildSupportTile(spec, cost));
     }
 
-    this.el.append(label, grid);
+    this.el.append(head, grid);
     host.appendChild(this.el);
     this.refresh();
   }
@@ -200,7 +244,12 @@ export class ReinforcementDock {
 
     const cost = document.createElement('span');
     cost.className = 'rl-tile__cost';
-    cost.textContent = String(unit.logistics);
+    // GH-229 fix round 2: a bare number here read as credits once the dock's
+    // header started showing a credit balance beside it. `LOGISTICS_GLYPH` is
+    // the SAME character the top strip's own Logistics field uses (`hud.ts`,
+    // `./glyphs`) -- imported rather than retyped, so the two glyphs cannot
+    // drift apart by one of them being edited alone.
+    cost.textContent = `${LOGISTICS_GLYPH} ${unit.logistics}`;
 
     const left = document.createElement('span');
     left.className = 'rl-tile__left';
@@ -240,7 +289,10 @@ export class ReinforcementDock {
       el.blur(); // keep the keyboard on the battlefield
       this.refresh(); // the bar starts now, not at the next 4 Hz beat
     });
-    this.tipDisposers.push(bindTip(el, () => this.unitTipHtml(unit), { host: this.el }));
+    // `clear: this.el` -- GH-229: vertical placement clears the whole dock,
+    // not just this tile's own row, so a tip opened on row 2+ cannot land on
+    // top of the row above it (`tooltip.ts`'s `computeTipPosition`).
+    this.tipDisposers.push(bindTip(el, () => this.unitTipHtml(unit), { host: this.el, clear: this.el }));
 
     this.unitTiles.push({ el, unit, cost, left, bar, lock });
     return el;
@@ -271,7 +323,9 @@ export class ReinforcementDock {
       );
       el.blur();
     });
-    this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(spec, cost), { host: this.el }));
+    // Same `clear` reasoning as the unit tiles above -- the support pair sits
+    // on its own row, below every unit row.
+    this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(spec, cost), { host: this.el, clear: this.el }));
 
     this.supportTiles.push({ el, kind: spec.kind, cost });
     return el;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bindDelegatedTip, bindTip, closeTip } from './tooltip';
+import { bindDelegatedTip, bindTip, closeTip, computeTipPosition } from './tooltip';
 
 afterEach(() => closeTip());
 const tip = (): HTMLElement | null => document.querySelector('.rl-tip');
@@ -131,6 +131,106 @@ describe('positioning', () => {
     expect(t.style.getPropertyValue('--tip-y')).toBe('28px'); // 20 + 8
     restore();
     off();
+  });
+
+  // `bindTip`'s own `clear` option (GH-229), end to end: a row-2 tile inside
+  // a taller dock grid must clear the GRID's top, not its own.
+  it('clears the `clear` option element, not the bound element, when the two differ', () => {
+    const grid = document.createElement('div');
+    document.body.appendChild(grid);
+    stubRect(grid, { top: 557, bottom: 892, left: 8 });
+    const el = document.createElement('button');
+    grid.appendChild(el);
+    stubRect(el, { top: 640, bottom: 700, left: 72 });
+    const off = bindTip(el, () => 'x', { clear: grid });
+    const t = tip()!;
+    const restore = stubSize(t, 230, 108);
+    el.dispatchEvent(new Event('mouseenter'));
+    // Above the GRID's top (557), not the tile's own (640) -- 557-108-8=441.
+    expect(t.style.getPropertyValue('--tip-y')).toBe('441px');
+    // Still beside the TILE's own column, not the grid's.
+    expect(t.style.getPropertyValue('--tip-x')).toBe('72px');
+    restore();
+    off();
+  });
+});
+
+// GH-229: the dock's tip, opened on a row below the first, used to land on
+// top of the row above it -- `positionTip` cleared only the hovered tile's
+// own rect, and two dock rows sit closer together (~64-84px, one tile plus a
+// gap) than a tip with a blurb is tall (~100-150px). `computeTipPosition` is
+// the DOM-free half of the fix: a `clear` rect distinct from `trigger` lets a
+// caller say "clear this taller stack", not just "clear yourself".
+describe('computeTipPosition', () => {
+  const viewport = { width: 1400, height: 900 };
+  const tip = { width: 230, height: 108 };
+
+  it('places the tip above the trigger, inside the viewport, when clear === trigger', () => {
+    const trigger = { top: 300, bottom: 360, left: 50 };
+    const p = computeTipPosition(trigger, trigger, tip, viewport);
+    expect(p.below).toBe(false);
+    expect(p.top).toBe(300 - 108 - 8); // TIP_GAP_PX
+    expect(p.left).toBe(50);
+    // Inside the viewport on every edge.
+    expect(p.top).toBeGreaterThanOrEqual(0);
+    expect(p.left).toBeGreaterThanOrEqual(0);
+    expect(p.top + tip.height).toBeLessThanOrEqual(viewport.height);
+    expect(p.left + tip.width).toBeLessThanOrEqual(viewport.width);
+  });
+
+  it('follows the TRIGGER column, not the clear rect, for its left edge', () => {
+    // The dock's whole grid starts at x=8; a tile three columns in sits at
+    // x=136. The tip must anchor beside the TILE, not slide back to the
+    // grid's own left edge -- that would stop reading as "this tile's tip".
+    const trigger = { top: 640, bottom: 700, left: 136 };
+    const clear = { top: 557, bottom: 892, left: 8 };
+    const p = computeTipPosition(trigger, clear, tip, viewport);
+    expect(p.left).toBe(136);
+  });
+
+  it('never overlaps the CLEAR rect, even when the trigger is a lower row inside it', () => {
+    // Falsified by hand: passing `trigger` for `clear` here (the pre-fix
+    // shape) instead gives top = 640 - 108 - 8 = 524, which is inside
+    // [557, 892] -- i.e. on top of the grid the tile sits in. This is
+    // `dock-row2-1400x900.png` from the GH-229 repro, numbers unchanged:
+    // hovering `recon_drone` at row 2 (tile rect top 640) with the whole
+    // dock's own rect (top 557, bottom 892) as `clear`.
+    const trigger = { top: 640, bottom: 700, left: 72 };
+    const clear = { top: 557, bottom: 892, left: 8 };
+    const p = computeTipPosition(trigger, clear, tip, viewport);
+    expect(p.below).toBe(false);
+    const tipBottom = p.top + tip.height;
+    expect(tipBottom).toBeLessThanOrEqual(clear.top - 8); // TIP_GAP_PX clearance
+    expect(tipBottom).toBeLessThanOrEqual(clear.top); // never overlaps
+  });
+
+  it('flips below, and stays inside the viewport, when the clear rect leaves no room above', () => {
+    const trigger = { top: 20, bottom: 40, left: 50 };
+    const clear = { top: 0, bottom: 40, left: 50 };
+    const p = computeTipPosition(trigger, clear, tip, viewport);
+    expect(p.below).toBe(true);
+    expect(p.top).toBe(40 + 8); // clear.bottom + TIP_GAP_PX
+    expect(p.top).toBeGreaterThanOrEqual(0);
+    expect(p.top + tip.height).toBeLessThanOrEqual(viewport.height);
+  });
+
+  it('clamps off the RIGHT edge without leaving the viewport', () => {
+    const trigger = { top: 300, bottom: 360, left: 1350 }; // 1350 + 230 > 1400
+    const p = computeTipPosition(trigger, trigger, tip, viewport);
+    expect(p.left).toBeLessThanOrEqual(viewport.width - tip.width);
+    expect(p.left).toBeGreaterThanOrEqual(0);
+  });
+
+  it('clamps off the BOTTOM edge without leaving the viewport, even after a flip', () => {
+    // No room above (clear.top is 0) AND no room below either (the viewport
+    // is barely taller than the tip) -- the flip fires but the raw "below"
+    // top would still run off the bottom, so the final clamp has to hold.
+    const trigger = { top: 5, bottom: 20, left: 50 };
+    const clear = { top: 0, bottom: 20, left: 50 };
+    const shortViewport = { width: 1400, height: 116 }; // tip.height + 8
+    const p = computeTipPosition(trigger, clear, tip, shortViewport);
+    expect(p.top).toBeGreaterThanOrEqual(0);
+    expect(p.top + tip.height).toBeLessThanOrEqual(shortViewport.height);
   });
 });
 

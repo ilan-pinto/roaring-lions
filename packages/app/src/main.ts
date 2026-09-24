@@ -2896,6 +2896,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       runtime,
       ledger,
       missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
+      // GH-229 bug 2: the same `ledgerStore.readAccount()` seam the garage
+      // screen reads its own wallet through (line ~1001 above) -- never
+      // `localStorage` directly. `undefined` when the store itself is
+      // unavailable, which `ProductionOptions.credits`' doc comment says is
+      // the one state with no number to show.
+      credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       note: (html, tone) => hud.note(html, tone),
       onArm: (kind) => {
         armedSupport = kind;
