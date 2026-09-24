@@ -9,10 +9,10 @@ export interface StorageLike {
   setItem(k: string, v: string): void;
 }
 
-/** A storage that cannot throw. `get` is the ACCESS itself (`() => window.localStorage`),
- *  because with site data blocked the property read is what throws, and in this repo's
- *  vitest jsdom on Node 25 it yields a bare `{}`. Null means "no storage": the caller
- *  keeps its ids for the session. */
+/** A storage that cannot throw. `get` is the ACCESS itself (a function that retrieves
+ *  the browser's persistent store), because with site data blocked the property read
+ *  is what throws, and in this repo's vitest jsdom on Node 25 it yields a bare `{}`.
+ *  Null means "no storage": the caller keeps its ids for the session. */
 export function safeStorage(get: () => unknown): StorageLike | null {
   let s: unknown;
   try {
