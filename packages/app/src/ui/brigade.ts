@@ -843,8 +843,20 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     cards.scrollTop = scroll.rail;
     bay.scrollTop = scroll.bay;
     board.scrollTop = scroll.board;
-    const keys = [...wrap.querySelectorAll<HTMLElement>('[data-focus-key]')];
-    const want = restoreFocus(asked, keys.map((e) => e.dataset.focusKey ?? ''), selectedId);
+    // Only controls a player can see are candidates. A card the current tab
+    // hides still carries its key, and `focus()` on it is refused by a real
+    // browser, which drops focus to <body>. The tabs, the bay and the board
+    // are never hidden, so the one hidden element that can occur is the card
+    // itself; `closest` covers a control nested under one anyway.
+    const keys = [...wrap.querySelectorAll<HTMLElement>('[data-focus-key]')].filter(
+      (e) => e.closest('[hidden]') === null
+    );
+    // Nothing closer is left when the unit's own card is filtered out (the
+    // bay keeps a unit the tab has hidden): the tab the player is on is the
+    // nearest visible control to where they were.
+    const want =
+      restoreFocus(asked, keys.map((e) => e.dataset.focusKey ?? ''), selectedId) ??
+      (asked !== null ? `tab:${bucket}` : null);
     keys.find((e) => e.dataset.focusKey === want)?.focus({ preventScroll: true });
   }
 

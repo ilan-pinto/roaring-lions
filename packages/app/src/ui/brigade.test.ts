@@ -376,8 +376,9 @@ describe('showBrigade — the bay', () => {
     expect(host.querySelector('.rl-garage__short')).toBeNull();
     buy?.click();
     expect(bought).toEqual([['breach_team', 600]]);
-    // The wallet is struck on the click that ASKS -- the caller re-mounts the
-    // screen, so a flash started afterwards would land on a dead node.
+    // The wallet is struck on the click that ASKS, and stays struck: the
+    // wallet node survives the answer's redraw (F3), so the flash is seen
+    // through to its end rather than cut off with a removed node.
     expect(host.querySelector('.rl-garage__wallet')?.classList.contains('rl-garage__wallet--spent')).toBe(true);
 
     select(host, 'ifv_namer');
@@ -856,6 +857,35 @@ describe('showBrigade — a purchase re-renders in place (F3)', () => {
     expect(host.querySelector('.rl-garage__buy')).toBeNull();
     // No unit Buy any more and no tracks on this fixture: focus lands on its own card.
     expect(focusKey()).toBe('card:breach_team');
+    dispose();
+  });
+
+  it('never sends focus to a card the tab has hidden (review, fix round 1)', () => {
+    const roster: BrigadeUnit[] = units.map((u) =>
+      u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 850 } } : u
+    );
+    const { host, dispose } = mountLive({
+      units: roster,
+      ledger: {},
+      possibleStars: 78,
+      credits: 999,
+      onBuy: (unitId) => ({
+        units: roster.map((u) => (u.id === unitId && u.unlock ? { ...u, unlock: { ...u.unlock, bought: true } } : u)),
+        credits: 149,
+        owned: {},
+      }),
+    });
+    select(host, 'breach_team');
+    // `transport` holds only the Namer: the bay keeps the breach team, its
+    // card is hidden, and the breach team has no tracks to catch focus.
+    host.querySelector<HTMLButtonElement>('.rl-garage__tab[data-bucket="transport"]')?.click();
+    expect(host.querySelector<HTMLElement>('.rl-garage__card[data-unit="breach_team"]')?.hidden).toBe(true);
+    host.querySelector<HTMLButtonElement>('.rl-garage__buy')?.click();
+    const at = document.activeElement;
+    expect(at).not.toBe(document.body);
+    expect(at?.closest('[hidden]')).toBeNull();
+    // The tab the player is on: the nearest visible thing to where they were.
+    expect(focusKey()).toBe('tab:transport');
     dispose();
   });
 
