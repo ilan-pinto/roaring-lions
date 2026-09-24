@@ -381,6 +381,10 @@ type MissingMissionEventKind = Exclude<MissionEvent['kind'], (typeof MISSION_EVE
 type AssertNoMissingMissionKind<T extends never> = T;
 export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingMissionEventKind>;
 
+/** Why a mission was lost, for the app's telemetry. Read-only: computed from
+ *  the state `checkEnd` froze, in the order `checkEnd` tests it. */
+export type DefeatCause = 'force_destroyed' | 'roe_collapse' | { objective: string };
+
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
   'evacuate_before', 'raze', 'collapse',
@@ -713,6 +717,18 @@ export class MissionRuntime {
       this.mission.roe?.fail_below,
       this.objectives.map((o) => ({ primary: o.def.primary, carries: o.def.carries, status: o.status }))
     );
+  }
+
+  /** Why this mission was lost; undefined unless `result` is 'defeat'.
+   *  A pure read -- writes nothing, so it cannot move the golden hash. */
+  get defeatCause(): DefeatCause | undefined {
+    if (this.resultValue !== 'defeat') return undefined;
+    const wiped =
+      this.playerIds.length > 0 && this.playerIds.every((id) => this.sim.state.alive[id] === 0);
+    if (wiped) return 'force_destroyed';
+    if (this.roeFailed) return 'roe_collapse';
+    const failed = this.objectives.find((o) => o.def.primary && o.status === 'failed');
+    return failed ? { objective: failed.def.id } : undefined;
   }
 
   /** Every player unit that ever took the field, dead or alive. Losses in a mission that

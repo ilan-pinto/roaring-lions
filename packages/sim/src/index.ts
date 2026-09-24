@@ -20,6 +20,7 @@ export {
   type LedgerData,
   type LedgerRosterEntry,
   type MissionEventKindsAreExhaustive,
+  type DefeatCause,
 } from './mission';
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
 // Exported because a sandbox has no mission and therefore no runtime, and the
