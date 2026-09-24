@@ -160,7 +160,7 @@ export function initTelemetry(opts: { dev: boolean }): Telemetry {
     });
     if (!on) return (instance = NOOP_TELEMETRY);
     const sender = new Sender(browserTransport(new URL('api/events', location.origin + import.meta.env.BASE_URL).href));
-    window.setInterval(() => sender.flush(), FLUSH_MS);
+    window.setInterval(safe(() => sender.flush()), FLUSH_MS);
     instance = createTelemetry({
       identity,
       newSession: () => crypto.randomUUID(),
