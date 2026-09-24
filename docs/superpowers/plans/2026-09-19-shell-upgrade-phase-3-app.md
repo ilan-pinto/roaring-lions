@@ -1489,8 +1489,12 @@ The check is the acceptance clause made mechanical (R-10): an exported `dingbatF
 - `packages/app/src/ui/worldmap.ts:210` — a town pin's earned/possible stars; `worldmap.ts:317` — the ledger line's veteran count;
 - `packages/app/src/ui/worldmap3d.ts:301` — the diorama pin's earned/possible stars;
 - `packages/app/src/campaign.ts:473` — `campaignSummary`'s veteran count, which reaches the strip's campaign tooltip through `main.ts`'s `getMission`. Found by the re-verification, not in the fix wave's list, and inside `validate_ui_palette.mjs`'s scan root (`packages/app/src`), so the check will see it.
+- `packages/app/src/i18n/en.json:402` — `dock.lock.stars` (`"★ ≥{n}"`), a locked dock tile's star gate, rendered through `ui/dock-model.ts:114` (`lockLabel`);
+- `packages/app/src/i18n/en.json:445` — `gate.short.stars` (`"{n}★"`), the short star gate, rendered through `gate-sentence.ts:116`.
 
-Three more `★` in `packages/app/src` are prose inside comments and render nothing (`roster-cap.ts:4`, `campaign.ts:494`, `gate-sentence.ts:92`); test files are outside the scan. If the list's check reads comments, it must skip these rather than fail on them.
+**The two catalogue sites are invisible to the validator as it stands**: `validate_ui_palette.mjs`'s `EXTS` is `.ts`, `.css`, `.html` and `.svg`, so `.json` is never read, and the `.ts` lines that render them (`dock-model.ts:114`, `gate-sentence.ts:116`) hold only a `t()` key. A `dingbatFailures` pass over today's file set would report neither, so the named list must record them by key, or the check must read `en.json` too. (These two and the comment below were added by the re-review after the fix wave; each line re-read on this branch after `dd3939c4`.)
+
+Four more `★` are prose inside comments and render nothing: `roster-cap.ts:4`, `campaign.ts:494`, `gate-sentence.ts:92`, and `ui/theme.css:3654` (3643 at `dd3939c4`; the fix wave's `.rl-endaftermath` rule landed above it) — the last in a `.css` file, which IS a scanned type. Test files are outside the scan. If the list's check reads comments, it must skip these rather than fail on them.
 
 **Files:**
 - Create: `packages/app/src/ui/symbol.ts`
@@ -1696,7 +1700,7 @@ Each of these is Phase 3 work and none of it is in this plan. Named with its own
 | `ui/production.ts:80` | `✸` | `strike` support action in the dock | **Draw it** |
 | `ui/worldmap3d.ts:296-297` | `↺` `↻` | The diorama's two rotate buttons | **Draw them** — they are the only controls on that screen and they are the one place the board's own weight is visible |
 | `ui/role.ts:42-50` | `✹ ⬡ ✈ ✛ ▤ ▲ ■` | `ROLE_GLYPH`, a dead second role table | **Delete, do not draw** (R-11) — its only importer is its own test |
-| `loading.ts:166-176`, `hud.ts:1752`, `debrief.ts:74, :167`, `worldmap.ts:210, :317`, `worldmap3d.ts:301`, `campaign.ts:473` — **re-verified at `4397e7c7`** (the rest of this table is still as taken at `1e584bfa`) | `★` | Veterancy stripes and mission stars, eight sites | **Named exception, not drawn** — it is a repeated countable mark (`'★'.repeat(n)`), not an icon, and a drawn sprite repeated nine times is a different problem. But it must be NAMED, because the acceptance sentence is absolute and an unnamed survivor reads as an oversight. The list with what each site draws is in Task 11's "The `★` exception" |
+| `loading.ts:166-176`, `hud.ts:1752`, `debrief.ts:74, :167`, `worldmap.ts:210, :317`, `worldmap3d.ts:301`, `campaign.ts:473` — **re-verified at `4397e7c7`** — and the catalogue's `en.json:402` (`dock.lock.stars`, via `dock-model.ts:114`) and `en.json:445` (`gate.short.stars`, via `gate-sentence.ts:116`), which the validator cannot see because `.json` is outside its `EXTS` (the rest of this table is still as taken at `1e584bfa`) | `★` | Veterancy stripes, mission stars and star gates, ten sites | **Named exception, not drawn** — it is a repeated countable mark (`'★'.repeat(n)`), not an icon, and a drawn sprite repeated nine times is a different problem. But it must be NAMED, because the acceptance sentence is absolute and an unnamed survivor reads as an oversight. The list with what each site draws is in Task 11's "The `★` exception" |
 
 So the question in one line: **does the sheet cover the six utility marks in rows 1–5 (bringing it to eighteen), and is `★` an approved exception?** The plan's default if G1 answers nothing: draw the six, name `★` as the exception, delete `ROLE_GLYPH`.
 

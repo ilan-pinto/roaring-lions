@@ -3912,7 +3912,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // drains `screenDisposers` (dismissing the still-open moment) and
             // sets `disposed`, so the end screen must not mount on a stage the
             // router has already cleared.
-            const moment = outcomeMoment(document.body, outcomeMomentOptions(me.result, mission));
+            // One value for both surfaces: the moment previews the
+            // `aftermath` for its hold, and the end screen below carries the
+            // same one where it can be read (the second correction to ruling 9).
+            const momentOptions = outcomeMomentOptions(me.result, mission);
+            const moment = outcomeMoment(document.body, momentOptions);
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down
             // rather than sit behind it and stay up over the end screen after
@@ -3933,6 +3937,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   missionId,
                   nextMissionId,
                   debrief,
+                  aftermath: momentOptions.aftermath,
                   onDebrief: () => {
                     screenDisposers.push(showDebrief(document.body, debriefOpts));
                   },

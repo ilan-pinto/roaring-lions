@@ -2789,6 +2789,17 @@ button.rl-menu__item[data-kind='aside'] {
   line-height: 1.5;
   color: var(--ink);
 }
+/* A victory's narration (a mission's `aftermath`), under the speaker's line:
+   the same face and ink the outcome moment previews it in
+   (`.rl-outcome__aftermath`), at the quote's line height, because here it is
+   read rather than glimpsed. */
+.rl-endaftermath {
+  margin: 0 0 var(--s2);
+  font-family: var(--font-mono);
+  font-size: var(--t-m);
+  line-height: 1.5;
+  color: var(--ink-dim);
+}
 
 /* The debrief screen (`ui/debrief.ts`, Task 9) -- the full card that would not
    fit in the 26.25rem end panel above. `--t-lg` does not exist in this file;
