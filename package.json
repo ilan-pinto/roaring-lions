@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.79.0",
+  "version": "0.80.0",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -47,6 +47,7 @@
     "jsdom": "^30.0.1",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.38.0",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wrangler": "^4.136.3"
   }
 }

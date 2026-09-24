@@ -1,0 +1,58 @@
+{
+	// WP-T1: the game's static build, plus /api/events and /stats.
+	// Spec: docs/superpowers/specs/2026-09-24-telemetry-design.md
+	"name": "roaring-lions",
+	"main": "packages/worker/src/index.ts",
+	"compatibility_date": "2026-09-01",
+	"assets": {
+		"directory": "packages/app/dist",
+		"binding": "ASSETS",
+		// The app routes by PATH (/mission/:id, /campaign); a reload on a deep
+		// link must get index.html, as Pages' 404.html copy used to provide.
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*",
+			"/stats",
+			"/stats/*"
+		]
+	},
+	// Cloudflare's own preview URLs (<hash>.roaring-lions.workers.dev) would be
+	// a second hostname serving the same /stats login -- off, so /stats is
+	// reachable only through the one deployed origin.
+	"preview_urls": false,
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "roaring-lions-telemetry",
+			"database_id": "d23ceb15-6f89-4bcb-bb81-559eeba98e07",
+			"migrations_dir": "packages/worker/migrations"
+		}
+	],
+	"ratelimits": [
+		{
+			"name": "INGEST_LIMIT",
+			"namespace_id": "1001",
+			"simple": {
+				"limit": 120,
+				"period": 60
+			}
+		},
+		{
+			"name": "LOGIN_LIMIT",
+			"namespace_id": "1002",
+			"simple": {
+				"limit": 10,
+				"period": 60
+			}
+		}
+	],
+	// Per-request URL logs would carry the ?tester= label in plain text;
+	// invocation_logs stays off so a tester's name never lands in Cloudflare's
+	// log storage.
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": false
+		}
+	}
+}

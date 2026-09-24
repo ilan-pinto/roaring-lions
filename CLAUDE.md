@@ -40,6 +40,8 @@ packages/
             second backend is a new implementation rather than a rewrite.
   data/     unit/building/mission/vfx JSON + schemas
   app/      shell, input, UI, campaign ledger
+  worker/   Cloudflare Worker in front of the game: static assets, POST /api/events
+            into D1, /stats behind a password login (WP-T1). Nothing imports it.
 tools/      render rig, asset validator, balance sim
 docs/       GDD, art pipeline
 ```
@@ -196,6 +198,12 @@ The combat model is the product. Everything else is scaffolding around it.
 ---
 
 ## Dev instruments
+- **Hosting and telemetry (WP-T1).** The playable build deploys to Cloudflare Workers from
+  `main` (`wrangler.jsonc`; GitHub Pages retired when the repo went private). The game sends
+  anonymous events to `/api/events` ONLY from a production build on a real host, or with
+  `?telemetry` -- never from `pnpm dev`, tests or CI, because `pnpm ui:routes` fails on any
+  console error. `?tester=<name>` labels a tester, `?notrack` opts out (persisted). Results
+  are read from the terminal with `packages/worker/QUERIES.sql` (`npx wrangler d1 execute roaring-lions-telemetry --remote --file ...`), still available as an alternative; `/stats` is behind a password set with `npx wrangler secret put STATS_PASSWORD` -- make it long and random (e.g. `openssl rand -base64 24`), not a memorised phrase, since a captured session cookie hands over the signing key too -- and answers 403 until that secret is set. Spec: `docs/superpowers/specs/2026-09-24-telemetry-design.md`.
 
 - **The shell is on a router, and the screens are PATHS**
   (`packages/app/src/shell/router.ts`, Phase 1): `/` the menu, `/campaign` the

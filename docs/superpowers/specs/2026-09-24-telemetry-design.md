@@ -30,7 +30,7 @@ median real duration against `target_minutes` for exactly that reason.
 |---|---|---|
 | 1 | Who is measured | Anonymous by default; optional `?tester=<name>` label |
 | 2 | Depth | Milestones **plus** in-mission detail (objectives, duration, ROE, loss cause). No per-command stream |
-| 3 | Where results are read | A private `/stats` page on the Worker, behind Cloudflare Access |
+| 3 | Where results are read | A private `/stats` page on the Worker, behind a password login (§4) |
 | 4 | Storage | D1 (kept forever), not Analytics Engine (3-month retention) |
 | 5 | Shape | One Worker serves the game, `/api/events` and `/stats` — not two Workers |
 
@@ -40,7 +40,7 @@ median real duration against `target_minutes` for exactly that reason.
 packages/app/src/telemetry/  --batched POST /api/events-->  packages/worker --> D1
         ^ reads runtime events and state only                   |
         |                                                        v
-   main.ts / mission-start.ts / tutorial caller            /stats (Access)
+   main.ts / mission-start.ts / tutorial caller            /stats (password)
 ```
 
 Dependency direction is unchanged: `telemetry/` lives in `app`, imports nothing
@@ -136,7 +136,7 @@ red. Also disabled when the browser sends Global Privacy Control
 only registers it), and its policy is `strategyFor` in the app's `sw-policy`.
 Non-GET already returns `'passthrough'`, so `POST /api/events` is safe. But
 `/stats` and `/stats/api/*` are same-origin GETs it may cache — a stale
-dashboard, or a cached Cloudflare Access redirect. Both prefixes (and `/api/`)
+dashboard, or a cached login redirect. Both prefixes (and `/api/`)
 must return `'passthrough'`, with a case in `packages/app/src/sw-policy.test.ts`
 whose red is recorded before the fix.
 
@@ -149,8 +149,9 @@ the menu), it goes through `t()` and passes `pnpm validate:ui`.
 `pnpm-workspace.yaml` covers `packages/*` and `tools`, so only there do root
 `pnpm lint`, `pnpm typecheck` and `pnpm test` reach it. It may import
 `@lions/data` for the schema (data is a leaf); nothing imports it. Its tests run
-under `@cloudflare/vitest-pool-workers` as **their own vitest project**, so they
-do not collide with the jsdom default under `pnpm test`. The root
+in the repo's existing node vitest project against a `node:sqlite`
+adapter shaped like D1 (D1 is SQLite, so the real migrations and queries run);
+the Workers runtime itself is exercised by `wrangler dev` and the deployed check. The root
 `wrangler.jsonc` points `main` at `packages/worker/src/index.ts` and `assets` at
 `packages/app/dist`. CLAUDE.md's package layout gains one line for it.
 
@@ -162,8 +163,8 @@ Routes:
   rate-limiting binding and **never stored**), because the `player` id is
   client-supplied and spoofable. `Origin` must be the site's own. Always
   answers `204`.
-- `/stats` and `/stats/api/*` — the dashboard, protected by a Cloudflare Access
-  application covering the `/stats*` path.
+- `/stats` and `/stats/api/*` — the dashboard, gated by a password login (see
+  §4) rather than Cloudflare Access.
 - everything else — static assets from `packages/app/dist`, exactly as today.
 
 D1 tables:
@@ -202,6 +203,27 @@ tester):
 The page lives in the Worker, not in `packages/app`, so the game bundle does not
 grow and the UI colour rule does not have to stretch to it. It still takes its
 colours from `data/palette.json` and its fonts from `assets/fonts/`.
+
+**Password login, 24 Sep 2026.** `/stats` is behind a password login rather
+than Cloudflare Zero Trust (Access): Access asks for a payment method even on
+its free tier, so Ilan declined it. The password is a Worker secret,
+`STATS_PASSWORD` (`npx wrangler secret put STATS_PASSWORD`), never committed to
+the repo or to `wrangler.jsonc`. It should be long and random, not a memorised
+phrase -- e.g. `openssl rand -base64 24` -- because a captured session cookie
+gives an attacker the signature key too (see below), and a short or guessable
+password is then an offline HMAC-speed guess, not a rate-limited one. A
+successful `POST /stats/login` sets a signed, stateless 7-day session cookie —
+HMAC-SHA256 over the cookie's own expiry, keyed from `STATS_PASSWORD` itself,
+so rotating the password revokes every outstanding session with no
+server-side session store. `POST /stats/login` is rate-limited on the
+connecting IP (`LOGIN_LIMIT`, 10/min) to slow password guessing, separately
+from `INGEST_LIMIT`. Until the secret is set, `/stats` and `/stats/api/*`
+answer 403 to everyone, same as before.
+
+The terminal queries in `packages/worker/QUERIES.sql` remain available as an
+alternative to the `/stats` page, not as a stand-in for a closed one:
+
+    npx wrangler d1 execute roaring-lions-telemetry --remote --file packages/worker/QUERIES.sql
 
 ## 5. Retiring GitHub Pages
 

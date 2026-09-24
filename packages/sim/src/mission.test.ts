@@ -1580,6 +1580,108 @@ describe('civilians and ROE (GDD §6)', () => {
       )
     ).toThrow(/needs civilians\.refuge/);
   });
+
+  describe('defeatCause', () => {
+    function ongoingRuntime(): World {
+      // Copied from 'objectives and mission end' > 'capture: clear the zone,
+      // hold it, win' setup, read before its objective completes.
+      return makeWorld(
+        baseMission({
+          starting_force: [{ unit: 'm_squad', count: 2, at: [3, 5] }],
+          enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [21, 5], facing_deg: 180 }] },
+          objectives: [{ id: 'take', type: 'capture', primary: true, target: 'obj', seconds: 3 }],
+        }),
+        { zones: { obj: [19, 3, 5, 5] } }
+      );
+    }
+
+    function wonRuntime(): World {
+      // The existing 'capture: clear the zone, hold it, win' fixture, stepped
+      // to its own victory.
+      const w = makeWorld(
+        baseMission({
+          starting_force: [{ unit: 'm_squad', count: 2, at: [3, 5] }],
+          enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [21, 5], facing_deg: 180 }] },
+          objectives: [{ id: 'take', type: 'capture', primary: true, target: 'obj', seconds: 3 }],
+        }),
+        { zones: { obj: [19, 3, 5, 5] } }
+      );
+      w.sim.queueCommand({ kind: 'attackMove', ids: [0, 1], x: fx.from(21.5), y: fx.from(5.5) });
+      w.step(90 * TICKS_PER_SECOND);
+      return w;
+    }
+
+    function failedEvacuationRuntime(): World {
+      // The existing 'a failed primary evacuation loses the mission outright' fixture.
+      const w = civWorld(
+        {
+          starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+          civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+          objectives: [
+            { id: 'evac', type: 'evacuate_before', primary: true, target: 'refuge_zone', count: 1, seconds: 5 },
+          ],
+        },
+        REFUGE_CTX
+      );
+      w.step(5 * TICKS_PER_SECOND + 2);
+      return w;
+    }
+
+    function roeCollapsedRuntime(): World {
+      // The existing 'falling below fail_below loses the mission' fixture.
+      const w = civWorld({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 4, at: [10, 9] }] },
+        roe: { enabled: true, civilian_casualty_penalty: 30, fail_below: 50 },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      });
+      w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 2, by: 0 }]);
+      w.runtime.step([{ kind: 'destroyed', tick: 2, entity: 3, by: 0 }]);
+      return w;
+    }
+
+    function wipedRuntime(): World {
+      const w = makeWorld(
+        baseMission({
+          starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+          enemy: { garrison: [{ unit: 'm_tank', count: 1, at: [24, 5] }] },
+        })
+      );
+      w.sim.debugKill(0);
+      w.step(1);
+      return w;
+    }
+
+    it('is undefined while the mission is ongoing', () => {
+      const w = ongoingRuntime();
+      expect(w.runtime.result).toBe('ongoing');
+      expect(w.runtime.defeatCause).toBeUndefined();
+    });
+
+    it('is undefined after a victory', () => {
+      const w = wonRuntime();
+      expect(w.runtime.result).toBe('victory');
+      expect(w.runtime.defeatCause).toBeUndefined();
+    });
+
+    it('names the failed primary objective', () => {
+      const w = failedEvacuationRuntime();
+      expect(w.runtime.result).toBe('defeat');
+      expect(w.runtime.defeatCause).toEqual({ objective: 'evac' });
+    });
+
+    it('reports an ROE collapse', () => {
+      const w = roeCollapsedRuntime();
+      expect(w.runtime.result).toBe('defeat');
+      expect(w.runtime.defeatCause).toBe('roe_collapse');
+    });
+
+    it('reports a wiped force ahead of anything else', () => {
+      const w = wipedRuntime();
+      expect(w.runtime.result).toBe('defeat');
+      expect(w.runtime.defeatCause).toBe('force_destroyed');
+    });
+  });
 });
 
 describe('economy (GDD §3, just enough for M1)', () => {

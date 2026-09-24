@@ -134,6 +134,16 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
   it('passes through an unrecognised path rather than defaulting to storing it', () => {
     expect(strategyFor(at('some/new/thing.bin'), GET)).toBe('passthrough');
   });
+
+  it('never touches the telemetry endpoint or the stats dashboard', () => {
+    for (const path of ['stats', 'stats/', 'stats/api/summary', 'api/events']) {
+      expect(strategyFor(at(path), GET), path).toBe('passthrough');
+      expect(strategyFor(at(path), NAVIGATE), path).toBe('passthrough');
+    }
+    expect(strategyFor(at('api/events'), { ...GET, method: 'POST' })).toBe('passthrough');
+    // A lookalike path is still an ordinary document.
+    expect(strategyFor(at('statsheet'), NAVIGATE)).toBe('network-first');
+  });
 });
 
 describe('the service worker cache name', () => {

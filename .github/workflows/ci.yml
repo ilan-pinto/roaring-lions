@@ -286,11 +286,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
-      # contents to push the bump and the tag; actions to dispatch pages
-      # afterwards. Without the second the final step fails with a 403 that
-      # reads as a broken build when the release itself already landed.
+      # contents to push the bump and the tag.
       contents: write
-      actions: write
     steps:
       # The whole history and every tag: the rule reads the range since the
       # last release, which a shallow clone cannot see.
@@ -348,7 +345,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json
-          # [skip ci] is what stops this push retriggering ci and pages. Without
+          # [skip ci] is what stops this push retriggering ci. Without
           # it the bump would trigger a run that finds no new commits since the
           # tag, cuts nothing, and still costs a full matrix.
           git commit -m "chore(release): v${NEXT} [skip ci]"
@@ -361,12 +358,3 @@ jobs:
           git push origin HEAD:main
           git push origin "refs/tags/v${NEXT}"
 
-      # The push above is invisible to Actions, so the Pages deploy running
-      # for the merge that triggered this job would publish the PRE-bump
-      # version. Dispatching it again is what keeps the number the app shows
-      # in step with the tag that was just cut.
-      - name: Redeploy Pages at the new version
-        if: steps.decide.outputs.next != ''
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run pages.yml --ref main
