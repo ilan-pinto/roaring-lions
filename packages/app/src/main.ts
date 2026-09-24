@@ -36,8 +36,6 @@ import {
   DebugOverlay,
   BattleAudio,
   TERRAIN_DECOR,
-  QUALITY_PRESETS,
-  type RendererOptions,
   type AudioManifest,
   type EmitterSpec,
   type Renderer,
@@ -51,22 +49,18 @@ import {
   countries,
   commander,
   names,
-  structures as structureCatalogue,
   parseMap,
   applyTerrain,
   applyUpgrades,
   applyMissionLocale,
   DECOR,
   paletteColor,
-  paletteTeamColors,
-  variantAwareResolver,
   audioManifest,
   vfxEmitters,
   type MapJson,
   type MissionLocaleOverlay,
   type UpgradableUnit,
 } from '@lions/data';
-import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
@@ -142,15 +136,16 @@ import {
   RIGGED_UNIT_MESHES,
   VEHICLE_UNIT_MESHES,
   BUILDING_MESHES,
-  DECOR_MESHES,
   VFX_MESHES,
   meshUrl,
-  dracoDecoderPath,
   missionUnitTypes,
-  decorFamiliesFor,
   hasUnitMesh,
   spriteSheetPlan,
+  meshPlanFor,
+  meshManifestFor,
 } from './mesh-catalogue';
+import { rendererOptionsFor } from './renderer-options';
+import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { registerServiceWorker } from './service-worker';
 import {
@@ -1431,15 +1426,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   applyTerrain(map, sim);
   // Buildings are entities, not terrain: each contiguous run of identical
   // symbols becomes one structure with HP, a garrison and rubble.
-  const structTypeIdx = new Map<string, number>();
-  for (const [id, spec] of Object.entries(structureCatalogue)) {
-    structTypeIdx.set(id, sim.addStructureType(spec as Parameters<typeof sim.addStructureType>[0]));
-  }
-  for (const b of map.structures) {
-    const t = structTypeIdx.get(b.type);
-    if (t === undefined) throw new Error(`map references unknown structure type ${b.type}`);
-    sim.addStructure(t, b.tiles);
-  }
+  standMapStructures(sim, map);
 
   // Tunnels: registered from ONE array in ONE loop, and that same array is
   // what the mission context receives. `ctx.tunnels` is positional — entry r
@@ -1552,99 +1539,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
 
   // --- renderer + overlay --------------------------------------------------
-  // Terrain tones by theme -- `./terrain-themes` (Task B3.1: was declared here
-  // verbatim AND, separately, in `terrain-parity.test.ts`; the parity test
-  // could not import this function-local declaration, and this function could
-  // not import a test file, so each kept its own copy until both moved to a
-  // shared module neither of those constraints applies to).
-  // Task 12: read once here (construction-time, like the renderer backend
-  // choice) rather than live -- a variant switched mid-mission takes effect
-  // from the next one, which the settings hint says explicitly. Both
-  // `teamColors` (the minimap's own tuple) and `resolveColor` below (what
-  // the renderer -- either backend -- asks for a palette key by STRING) have
-  // to agree on this same value, or the silhouette outline, the HP bars, the
-  // objective-zone tints and the min-range ring -- every one of which asks
-  // `resolveColor('team.hostile')`/`'team.kedem'`/`'team.neutral'` rather
-  // than reading `teamColors` directly -- would keep drawing the default
-  // palette regardless of the setting.
+  // The options object itself is `./renderer-options`'s `rendererOptionsFor`
+  // (Task 2 of the scene-host plan) -- extracted so the menu's own diorama can
+  // ask for exactly the same options a mission gets, rather than a second,
+  // drifting copy of this literal. What stays here is construction-time: both
+  // `colorVision` and `quality` are read ONCE (like the renderer backend
+  // choice below), because a setting switched mid-mission takes effect from
+  // the next boot, which the settings hint says explicitly. `teamColors` and
+  // `resolveColor` -- what the renderer, either backend, asks for a palette
+  // key by STRING -- have to agree on the same `colorVision` value, or the
+  // silhouette outline, the HP bars, the objective-zone tints and the
+  // min-range ring would keep drawing the default palette regardless of the
+  // setting; `rendererOptionsFor` is what now holds that agreement.
   const cvdVariant = req.settings.get().accessibility.colorVision;
-  const opts: RendererOptions = {
-    background: paletteColor('shadow.1'),
-    teamColors: paletteTeamColors(cvdVariant),
-    hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],
-    infantryColors: [paletteColor('olive.0'), paletteColor('dust.0'), paletteColor('limestone.1')],
-    groupColors: [
-      paletteColor('group.g1'),
-      paletteColor('group.g2'),
-      paletteColor('group.g3'),
-      paletteColor('group.g4'),
-      paletteColor('group.g5'),
-      paletteColor('group.g6'),
-      paletteColor('group.g7'),
-      paletteColor('group.g8'),
-      paletteColor('group.g9'),
-    ],
-    terrainTones: TERRAIN_THEMES[map.terrain],
-    tracerColors: [paletteColor('vfx.tracer'), paletteColor('vfx.ember')],
-    // GH-149. Deliberately NOT `tracerColors` -- an arcing round is
-    // ordnance, not a bullet, and drew green until now. See
-    // `RendererOptions.shellColors`.
-    shellColors: [paletteColor('vfx.fire'), paletteColor('vfx.ember')],
-    flashColor: paletteColor('vfx.fire'),
-    nearMissColor: paletteColor('dust.0'),
-    interceptColor: paletteColor('vfx.interceptor'),
-    // `variantAwareResolver` (@lions/data) is `paletteColor` for every key
-    // except the four `team.*` ones, which it routes through this same
-    // `cvdVariant` -- the silhouette outline (`silhouette.ts`'s
-    // `SILHOUETTE_COLOR_KEY_BY_SIDE`, every billboard `UnitInstancer`'s
-    // `uTeam` and the mesh path's shared materials), the HP bar
-    // (`hpBarColorKey`), the objective-zone tint (`objectiveZoneColorKey`)
-    // and the min-range ring all ask for a palette key by name rather than
-    // reading `teamColors` above, so a bare `paletteColor` here would leave
-    // every one of them on the default palette no matter what the player
-    // picked.
-    resolveColor: variantAwareResolver(cvdVariant),
-    // The ground albedos, served out of the repo-root `assets/` publicDir
-    // like every sprite sheet and font. Three-only and fail-soft: Pixi
-    // ignores the fields and the three ground draws its flat palette tone if
-    // an image never arrives. See `RendererOptions.groundTextureUrl`.
-    //
-    // Open ground is chosen by the map's own theme, the SAME read that picks
-    // `terrainTones` two lines up -- `TERRAIN_GROUND_TEXTURE[map.terrain]`,
-    // typed as a total `Record<TerrainTheme, ...>` so a new theme is a
-    // compile error here rather than a map that silently draws sand.
-    //
-    // All six of these are requested UNCONDITIONALLY here -- main.ts has no
-    // per-tile view of the map (and, since 2026-09-06, is expressly forbidden
-    // from building one: `@lions/render/terrain` is production-app-restricted
-    // by `eslint.config.mjs`, precisely because this package has no other use
-    // for the pure builders). Deciding which of the six this map's own tiles
-    // can actually sample -- and skipping a fetch for the rest -- is
-    // `ThreeRenderer.loadGroundTexture`'s own job now: it already holds the
-    // real `sim`/decor/elevation once `init()` runs, and building a second,
-    // independent copy of that state here just to answer the same question
-    // twice is exactly the risk of two answers drifting apart.
-    groundTextureUrl: `${BASE}textures/${TERRAIN_GROUND_TEXTURE[map.terrain]}.jpg`,
-    // Each of the five below is one surface, one image, and one independent
-    // failure: a ridge that loses its texture is still a ridge, and a road
-    // that loses its wheel track is still the authored road tone.
-    rockTextureUrl: `${BASE}textures/rock_ground_tile.jpg`,
-    roadTextureUrl: `${BASE}textures/road_track_tile.jpg`,
-    scrubTextureUrl: `${BASE}textures/rough_scrub_tile.jpg`,
-    groveTextureUrl: `${BASE}textures/orchard_floor_tile.jpg`,
-    knollTextureUrl: `${BASE}textures/knoll_scree_tile.jpg`,
-    // Where the Draco decoder is fetched from. Self-hosted in `assets/draco/`
-    // like the fonts, never a CDN. Every shipped GLB is Draco-compressed
-    // (level load time, step 4), so a mesh renderer without this loads no
-    // mesh at all -- it is not a nicety, and `gltf-loader.ts` says so.
-    dracoDecoderPath: dracoDecoderPath(),
-    // Shell upgrade Phase 1: the video-quality setting, read once here like
-    // `cvdVariant` above -- a change mid-mission takes effect from the next
-    // one, which is what `settings.quality.hint` tells the player. Three-only
-    // (see `RendererOptions.quality`); Pixi ignores it like every other field
-    // in this stretch.
-    quality: QUALITY_PRESETS[req.settings.get().video.quality],
-  };
+  const opts = rendererOptionsFor(
+    map,
+    { colorVision: cvdVariant, quality: req.settings.get().video.quality },
+    BASE
+  );
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the
   // navigation links `menu.ts` builds. The annotation is what makes this a
@@ -1694,15 +1606,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? missionUnitTypes(mission, new Set(Object.keys(units)))
     : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv });
   // Structure types this map actually stands, plus anything the mission
-  // places itself (`camp` is the only one that arrives that way).
+  // places itself (`camp` is the only one that arrives that way). Kept
+  // independently of `meshPlanFor` below -- `spritePlan` further down needs
+  // the raw set of standing types, not the mesh-only subset `MeshPlan.buildings`
+  // filters down to.
   const meshStructures = new Set(map.structures.map((b) => b.type));
   for (const s of mission?.structures ?? []) meshStructures.add(s.type);
-  const meshPlan = {
-    rigged: new Set([...meshRoster].filter((id) => id in RIGGED_UNIT_MESHES)),
-    vehicles: new Set([...meshRoster].filter((id) => id in VEHICLE_UNIT_MESHES)),
-    buildings: new Set([...meshStructures].filter((id) => id in BUILDING_MESHES)),
-    decor: decorFamiliesFor(map),
-  };
+  // `./mesh-catalogue`'s `meshPlanFor` (Task 2 of the scene-host plan): which
+  // meshes this roster and this map's own buildings actually need, so the
+  // menu's own diorama can ask the same question about its own roster.
+  const meshPlan = meshPlanFor(map, meshRoster, (mission?.structures ?? []).map((s) => s.type));
+  // Resolved once, beside `meshPlan` and BEFORE `new ThreeRenderer` below --
+  // nothing between here and the renderer's construction may throw, because
+  // its teardown is not registered until the context exists.
+  const meshManifest = meshManifestFor(meshPlan);
   /**
    * Types whose mesh is fetched AFTER the mission is running rather than
    * before it starts.
@@ -1824,16 +1741,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // registered disposer is no use to a boot that throws past it, and
       // this one used to leave the context alive until GC.
       await Promise.all([
-        ...[...meshPlan.rigged].map((id) =>
-          three.loadMeshUnit(
-            id,
-            RIGGED_UNIT_MESHES[id].files.map(meshUrl),
-            RIGGED_UNIT_MESHES[id].faction
-          )
-        ),
-        ...[...meshPlan.vehicles].map((id) =>
-          three.loadVehicleMesh(id, meshUrl(VEHICLE_UNIT_MESHES[id]))
-        ),
+        ...meshManifest.rigged.map((m) => three.loadMeshUnit(m.id, m.urls, m.faction)),
+        ...meshManifest.vehicles.map((m) => three.loadVehicleMesh(m.id, m.url)),
         // Building meshes: the STANDING state only, for the structure types
         // this map actually stands. `colour_key`/`wallColorKey` is resolved
         // inside `loadBuildingMesh` itself off `Sim.structureTypes[...].color`
@@ -1844,9 +1753,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
         // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
         // earliest a building can fall is minutes of play away.
-        ...[...meshPlan.buildings].map((id) =>
-          three.loadBuildingMesh(id, meshUrl(BUILDING_MESHES[id].idle), null)
-        ),
+        ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null)),
         // The three shared VFX meshes (`units/muzzle-flash.ts`,
         // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
         // anything and wanted by every mission -- 0.46 MiB for the set, so
@@ -1858,13 +1765,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // Decor: one call for the whole set, so it is one entry rather than a
         // spread. `<family>_<variant>` keys, not unit type ids -- nothing in
         // the sim has a "bush", which is the point.
-        three.loadDecorMeshes(
-          new Map(
-            [...meshPlan.decor].flatMap((fam) =>
-              DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)])
-            )
-          )
-        ),
+        three.loadDecorMeshes(meshManifest.decor),
       ]).catch((err: unknown) => {
         teardown();
         throw err;

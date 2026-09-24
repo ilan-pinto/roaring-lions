@@ -51,6 +51,9 @@ import {
   missionUnitTypes,
   hasUnitMesh,
   spriteSheetPlan,
+  meshPlanFor,
+  meshManifestFor,
+  meshUrl,
 } from './mesh-catalogue';
 
 const MESH_ROOT = path.resolve(
@@ -389,5 +392,43 @@ describe('sprite sheet plan (level load time, step 1)', () => {
       for (const t of plan.before) expect(hasUnitMesh(t), `${id}: ${t} gates deploy but has a mesh`).toBe(false);
       for (const t of roster) if (!hasUnitMesh(t)) expect(plan.before.has(t), `${id}: ${t} has no mesh and is not loaded`).toBe(true);
     }
+  });
+});
+
+describe('meshPlanFor', () => {
+  const map = parseMap(maps.beit_sahwan_outskirts);
+
+  it('splits a roster by mesh kind and drops a type with no mesh', () => {
+    const plan = meshPlanFor(map, new Set(['mbt_lavi', 'inf_squad', 'apc_eitan', 'recon_drone']));
+    expect([...plan.rigged]).toEqual(['inf_squad']);
+    expect([...plan.vehicles].sort()).toEqual(['apc_eitan', 'mbt_lavi']);
+  });
+
+  it('stands the buildings the map stands, plus the ones a mission places', () => {
+    expect([...meshPlanFor(map, new Set()).buildings].sort()).toEqual(['apartment', 'clinic', 'hall', 'house', 'shanty']);
+    expect(meshPlanFor(map, new Set(), ['camp']).buildings.has('camp')).toBe(true);
+  });
+
+  it('takes its decor from decorFamiliesFor, never from a second rule', () => {
+    expect(meshPlanFor(map, new Set()).decor).toEqual(decorFamiliesFor(map));
+  });
+});
+
+describe('meshManifestFor', () => {
+  it('resolves every planned id to served URLs, variants in catalogue order', () => {
+    const m = meshManifestFor({
+      rigged: new Set(['civilians']),
+      vehicles: new Set(['mbt_lavi']),
+      buildings: new Set(['house']),
+      decor: new Set(['rock'] as const),
+    });
+    expect(m.rigged).toEqual([{ id: 'civilians', urls: RIGGED_UNIT_MESHES.civilians.files.map(meshUrl), faction: 'civilian' }]);
+    expect(m.vehicles).toEqual([{ id: 'mbt_lavi', url: meshUrl('vehicles/mbt_lavi.glb') }]);
+    expect(m.buildings).toEqual([{ id: 'house', url: meshUrl('buildings/house.glb') }]);
+    expect([...m.decor.entries()]).toEqual([
+      ['rock_0', meshUrl('decor/rock_0.glb')],
+      ['rock_1', meshUrl('decor/rock_1.glb')],
+      ['rock_2', meshUrl('decor/rock_2.glb')],
+    ]);
   });
 });
