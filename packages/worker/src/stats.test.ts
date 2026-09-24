@@ -3,7 +3,7 @@ import { openTestD1 } from './test-d1';
 import { handleIngest } from './ingest';
 import * as stats from './stats';
 import type { Env, RateLimiter } from './d1';
-import { sessionCookieHeader, signSession, SESSION_COOKIE } from './auth';
+import { sessionCookieHeader, clearedSessionCookieHeader, signSession, SESSION_COOKIE } from './auth';
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 8, 20);
@@ -163,7 +163,7 @@ describe('handleStats', () => {
     expect(await res.text()).toContain('That password is not right.');
   });
 
-  it('right password: 303 + Set-Cookie with the exact attributes, then the cookie unlocks the page and the JSON', async () => {
+  it('right password: 303 + the exact Set-Cookie string, then the cookie unlocks the page and the JSON', async () => {
     const env: Env = { DB: await seeded(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
     const req = new Request('https://g.dev/stats/login', {
       method: 'POST',
@@ -174,12 +174,7 @@ describe('handleStats', () => {
     expect(res.status).toBe(303);
     expect(res.headers.get('location')).toBe('/stats');
     const setCookie = res.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain(`${SESSION_COOKIE}=`);
-    expect(setCookie).toContain('HttpOnly');
-    expect(setCookie).toContain('Secure');
-    expect(setCookie).toContain('SameSite=Strict');
-    expect(setCookie).toContain('Path=/stats');
-    expect(setCookie).toContain('Max-Age=604800');
+    expect(setCookie).toBe(await sessionCookieHeader(PASSWORD, T0));
 
     const cookie = setCookie.split(';')[0];
     const dashboard = await stats.handleStats(new Request('https://g.dev/stats', { headers: { cookie } }), env, T0);
@@ -191,10 +186,27 @@ describe('handleStats', () => {
     expect(await api.json()).toMatchObject({ players: 2 });
   });
 
+  it('right password with a matching Origin still succeeds (303)', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const req = new Request('https://g.dev/stats/login', {
+      method: 'POST',
+      headers: { origin: 'https://g.dev', 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'password=' + encodeURIComponent(PASSWORD),
+    });
+    const res = await stats.handleStats(req, env, T0);
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/stats');
+    expect(res.headers.get('set-cookie')).not.toBe(null);
+  });
+
   it('a tampered signature, an expired session and a session signed with a different password all fall back to the login page (and 401 JSON on the API)', async () => {
     const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
     const good = await loggedInCookie(PASSWORD, T0);
-    const tampered = good.slice(0, -1) + (good.at(-1) === 'A' ? 'B' : 'A');
+    const [name, value] = good.split('=');
+    const [expiry, sig] = value.split('.');
+    const mid = Math.floor(sig.length / 2);
+    const tamperedSig = sig.slice(0, mid) + (sig[mid] === 'A' ? 'B' : 'A') + sig.slice(mid + 1);
+    const tampered = `${name}=${expiry}.${tamperedSig}`;
     const expiredValue = await signSession(PASSWORD, T0 - 1);
     const expired = `${SESSION_COOKIE}=${expiredValue}`;
     const wrongPasswordValue = await signSession('a different password', T0 + 1000);
@@ -247,16 +259,46 @@ describe('handleStats', () => {
     expect(res.headers.get('set-cookie')).toBe(null);
   });
 
-  it('GET or POST /stats/logout clears the session cookie and redirects to /stats', async () => {
+  it('the 4 KB cap is measured in bytes: a chunked body (no Content-Length) whose multi-byte characters keep its JS string length under 4096 but its byte length over it is still rejected with 413', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    // 'é' is 1 UTF-16 code unit but 2 UTF-8 bytes: 2100 of them is under 4096
+    // chars but over 4096 bytes once the rest of the body is added.
+    const bodyText = 'password=' + encodeURIComponent(PASSWORD) + '&pad=' + 'é'.repeat(2100);
+    expect(bodyText.length).toBeLessThan(4096);
+    expect(new TextEncoder().encode(bodyText).length).toBeGreaterThan(4096);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(bodyText));
+        controller.close();
+      },
+    });
+    const req = new Request('https://g.dev/stats/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit);
+    expect(req.headers.get('content-length')).toBe(null);
+    const res = await stats.handleStats(req, env, T0);
+    expect(res.status).toBe(413);
+  });
+
+  it('GET or POST /stats/logout clears the session cookie (exact Set-Cookie string) and redirects to /stats', async () => {
     const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
     for (const method of ['GET', 'POST']) {
       const res = await stats.handleStats(new Request('https://g.dev/stats/logout', { method }), env, T0);
       expect(res.status).toBe(303);
       expect(res.headers.get('location')).toBe('/stats');
-      const setCookie = res.headers.get('set-cookie') ?? '';
-      expect(setCookie).toContain(`${SESSION_COOKIE}=;`);
-      expect(setCookie).toContain('Max-Age=0');
+      expect(res.headers.get('set-cookie')).toBe(clearedSessionCookieHeader());
     }
+  });
+
+  it('GET /stats/login answers 303 to /stats instead of 404', async () => {
+    const env: Env = { DB: openTestD1(), ASSETS: NOOP_ASSETS, STATS_PASSWORD: PASSWORD };
+    const res = await stats.handleStats(new Request('https://g.dev/stats/login'), env, T0);
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/stats');
+    expect(res.headers.get('cache-control')).toBe('no-store');
   });
 
   it('answers an unknown /stats/api path with an uncached 404 once authenticated', async () => {
