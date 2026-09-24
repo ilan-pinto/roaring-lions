@@ -1,7 +1,10 @@
 // The route walk: one JS realm, two missions, no reload, nothing left behind.
 //
-// Usage: pnpm ui:routes     (starts its own dev server on :5177, like ui:shots,
-//                            and stops the one it started)
+// Usage: pnpm ui:routes [-- --port=<n>]
+//                            (starts its own dev server, like ui:shots, and
+//                            stops the one it started; the port is --port=<n>,
+//                            else UI_ROUTES_PORT, else 5177, and a port that
+//                            something else already holds is refused, exit 2)
 //
 // This is the reference-free half of Task 2. It never asks what the app LOOKS
 // like -- the golden gate does that, against a blessed picture -- it asks
@@ -36,13 +39,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { boardCanvasVerdict } from './board-canvases';
+import { claimPort } from './port';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 
-/** Its own port, so a run never fights `ui:shots` (5176) or the golden gate. */
-const PORT = 5177;
 const TAG = 'ui-routes';
+/** Its own DEFAULT port, so a run never fights `ui:shots` (5176) or the golden
+ *  gate (5175) on CI. Locally 5177 is also the lead's everyday dev server, and
+ *  before `claimPort` a walk started while it was up attached to it and walked
+ *  THAT checkout, green, with no error; now it is refused and
+ *  `--port=`/`UI_ROUTES_PORT` pick another. */
+const DEFAULT_PORT = 5177;
+const PORT = await claimPort(TAG, 'UI_ROUTES_PORT', DEFAULT_PORT);
 
 /**
  * Per-action hang guard, sized from a measurement and not a threshold: nothing

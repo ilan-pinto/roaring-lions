@@ -303,13 +303,19 @@ The combat model is the product. Everything else is scaffolding around it.
   default colours were measured NOT to collapse under any simulated deficiency,
   and the one variant with a relational gate buys 1.5 ΔE, below the 2.3
   just-noticeable difference.
-- `pnpm ui:shots -- [--pseudo] [--res=…] [--out=…]` (`tools/src/ui-review/shoot.ts`) boots its own dev server and photographs every shell screen at three resolutions, and since Task 13 that walk covers settings, credits, saves, the pause menu (`Escape` in a running mission) and a scripted `debugKill`-forced defeat plus its debrief, with `--pseudo` swapping the catalogue for the bracketed pseudo-locale first.
+- `pnpm ui:shots -- [--pseudo] [--res=…] [--out=…] [--port=…]` (`tools/src/ui-review/shoot.ts`) boots its own dev server and photographs every shell screen at three resolutions, and since Task 13 that walk covers settings, credits, saves, the pause menu (`Escape` in a running mission) and a scripted `debugKill`-forced defeat plus its debrief, with `--pseudo` swapping the catalogue for the bracketed pseudo-locale first.
   After each shot it also prints every element inside `.rl-menu`/`.rl-panel`/
   `.rl-garage` whose content is wider than its own box, by selector — a printed
   REPORT and deliberately not a gate, because a threshold on "how much overflow
   is acceptable" would be a fitted number and several of the hits are the design
   (an ellipsis is a decision). It prints its total even at zero, since a check
   that speaks only on a hit and a check that never ran read identically.
+  **Both harnesses take their port the same way** (`tools/src/ui-review/port.ts`):
+  `--port=<n>`, else `UI_SHOTS_PORT` / `UI_ROUTES_PORT`, else the default (5176 /
+  5177), and a port something else already holds is REFUSED, exit 2, before any
+  browser or server starts. They used to attach to whatever answered there, and
+  `ui:routes`' default 5177 is also the lead's everyday dev server, so a local walk
+  started while it was up walked that checkout and reported green.
 - Browser sandbox: `window.__lions.step(n)` fast-forwards n deterministic ticks; `__lions.sim` and `__lions.renderer` are exposed. It is defined by the battlefield alone — the menu, the campaign board, the brigade and the picker define nothing, which is how a tool tells "the app booted a mission" from "the app booted".
 - `pnpm meshy -- <command>` (`tools/src/meshy/`) is the Meshy text-to-3D/image-to-3D CLI — estimate before you spend, key lives outside the repo, see `docs/ART_PIPELINE.md`'s "Meshy API — generating a base model" for the full workflow and policy.
 - `?sandbox=<map id>` walks **any** shipped map with a full task force placed from

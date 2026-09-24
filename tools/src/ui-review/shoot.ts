@@ -7,7 +7,12 @@
 // the way `tools/src/perf/wreck-captures.ts` does, so it runs unattended --
 // no positional base-URL argument, no assumption a server is already up.
 //
-// Usage: pnpm ui:shots -- [--pseudo] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots]
+// Usage: pnpm ui:shots -- [--pseudo] [--res=1400x900,1920x1080,2560x1440] [--out=.superpowers/ui-shots] [--port=5176]
+//
+// The port is `--port=<n>`, else `UI_SHOTS_PORT`, else 5176 (`./port.ts`). A
+// port something else already holds is REFUSED, exit 2, before a browser or a
+// server starts: `ensureDevServer` would otherwise attach to that server and
+// photograph whichever checkout it serves.
 //
 // Writes <out>/<WxH>/NN-<state>.png for the twenty-five states below (Phase
 // 0 shipped seventeen; Phase 2's Task 14 added 18-hud-alert, 19-objectives,
@@ -51,14 +56,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { assertOutcomeStillPresent } from './outcome-guard';
+import { claimPort } from './port';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const TAG = 'ui-shots';
-// Not the human dev-server convention (:5173) and not another tool's managed
-// port (:5174 golden-diff, :5175 three-baseline) -- this script starts and
-// stops its own, so it needs a port nothing else claims.
-const PORT = 5176;
+// The DEFAULT: not the human dev-server convention (:5173) and not another
+// tool's managed port (:5174 golden-diff, :5175 three-baseline). This script
+// starts and stops its own server, so it needs a port nothing else claims --
+// and on a machine where something does, `--port=`/`UI_SHOTS_PORT` pick
+// another, and `claimPort` refuses the busy one rather than sharing it.
+const DEFAULT_PORT = 5176;
+const PORT = await claimPort(TAG, 'UI_SHOTS_PORT', DEFAULT_PORT);
 const MISSION = 'beit_sahwan_1_recon';
 
 const argv = process.argv.slice(2);
