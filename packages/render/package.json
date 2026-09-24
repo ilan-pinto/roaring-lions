@@ -9,6 +9,7 @@
     "./pixi": "./src/pixi.ts",
     "./three": "./src/three/ThreeRenderer.ts",
     "./three-campaign": "./src/three/campaign/world-view.ts",
+    "./three-front": "./src/three/front/scene-host.ts",
     "./terrain": "./src/three/terrain/index.ts",
     "./project": "./src/project.ts",
     "./three-camera": "./src/three/camera.ts",
