@@ -1269,6 +1269,23 @@ export class ThreeRenderer implements Renderer {
   private readonly prevY: Float64Array;
   private readonly curX: Float64Array;
   private readonly curY: Float64Array;
+  /**
+   * `sim.entityCount` as of the last `snapshot()`: how many entities have a
+   * position copy above. Every per-frame entity loop stops here rather than
+   * at the live `sim.entityCount`, and the two queries that read the copies
+   * (`pickUnit`, `unitsInScreenRect`) do too.
+   *
+   * The two differ between a snapshot and the next one whenever something
+   * spawns between them, and on a mission that is every mid-mission spawn:
+   * `main.ts`'s `runTick` runs `sim.tick()`, then `snapshot()`, then
+   * `runtime.step()`, and the build queue, `spawn`/`reinforce` triggers and
+   * waves all spawn inside that last call. Until the next snapshot such a
+   * unit's copies are the zero-fill, so a loop to the live count drew it at
+   * world (0, 0) -- and could pick it there -- for up to one tick (50 ms).
+   * Stopping at this count means it is not drawn until it has a position,
+   * and `snapshot()` seeds it so it then starts still, where it stands.
+   */
+  private snapshottedCount = 0;
   /** Where the round that killed entity `i` came from, tile coordinates,
    *  written by `onEvents` on `destroyed` and read once by `updateMeshUnits`'
    *  prune loop (D5). NaN = no killer (`by < 0`: `debugKill`, tunnel
@@ -2293,8 +2310,11 @@ export class ThreeRenderer implements Renderer {
    *     path, and every mission before PR #212, had them. (Between PR #212
    *     and `reseed`, a mission's app-side stopgap left the counter at 5.)
    *  2. **Interpolation, speed and track seeds.** The first `snapshot()`
-   *     moves `cur` to where every entity stands; the second copies that
-   *     into `prev`, so the first `frame()` lerps nothing in from (0, 0) and
+   *     moves `cur` to where every entity stands (and seeds `prev = cur` for
+   *     any entity it has never seen -- the whole starting force, on the
+   *     mission path); the second copies `cur` into `prev` for the rest,
+   *     which matters for any entity that moved since an earlier snapshot.
+   *     Either way the first `frame()` lerps nothing in from (0, 0) and
    *     `entitySpeed` reads 0 -- no dust burst off a speed spike
    *     (`updateVehicleAmbientFx`), and no hull thrown into lag, squat and
    *     lean by the weight model, which seeds each vehicle from
@@ -3221,7 +3241,7 @@ export class ThreeRenderer implements Renderer {
    * `stepDeaths` builds its own synthetic frame from captured state instead).
    */
   private drainTimers(dtSeconds: number): void {
-    const n = this.sim.entityCount;
+    const n = this.snapshottedCount;
     for (let i = 0; i < n; i++) {
       if (this.firingTimer[i] > 0) this.firingTimer[i] = Math.max(0, this.firingTimer[i] - dtSeconds);
       // Task B3.6: same shape as firingTimer -- counts down its own
@@ -3258,6 +3278,19 @@ export class ThreeRenderer implements Renderer {
    * `frameN === 0` gate does not (a unit spawned after the first frame has
    * rendered is never seeded there at all, and springs from a frozen 0
    * until it first acquires a target).
+   *
+   * **A newcomer is seeded, not lerped.** An entity whose id is at or above
+   * `snapshottedCount` -- spawned since the previous call -- has no `cur`
+   * copy yet, only the zero-fill, so `prev = cur` for it here and its speed
+   * reads 0. Without that, its first tick lerped it in from world (0, 0) and
+   * `entitySpeed` spiked (467.5 tiles/s measured), throwing vehicle dust
+   * along the way. Ids are never reused (`Sim.spawn` is `this.count++`), so
+   * "at or above the previous count" is exactly "spawned since". This is
+   * the mid-mission case: `main.ts`'s `runTick` snapshots BEFORE
+   * `runtime.step`, which is where the build queue, `spawn`/`reinforce`
+   * triggers and waves all spawn. The frame loops stop at
+   * `snapshottedCount` for the other half of the same defect -- see that
+   * field.
    */
   snapshot(): void {
     // Fog only needs to keep up with movement, not the tick rate -- same
@@ -3270,9 +3303,15 @@ export class ThreeRenderer implements Renderer {
     this.prevX.set(this.curX);
     this.prevY.set(this.curY);
     const st = this.sim.state;
-    for (let i = 0; i < this.sim.entityCount; i++) {
+    const seen = this.snapshottedCount;
+    const n = this.sim.entityCount;
+    for (let i = 0; i < n; i++) {
       this.curX[i] = fx.toNumber(st.posX[i]);
       this.curY[i] = fx.toNumber(st.posY[i]);
+      if (i >= seen) {
+        this.prevX[i] = this.curX[i];
+        this.prevY[i] = this.curY[i];
+      }
       const dx = this.curX[i] - this.prevX[i];
       const dy = this.curY[i] - this.prevY[i];
       this.entitySpeed[i] = Math.hypot(dx, dy) * SIM_HZ;
@@ -3317,6 +3356,7 @@ export class ThreeRenderer implements Renderer {
         }
       }
     }
+    this.snapshottedCount = n;
   }
 
   /**
@@ -4201,7 +4241,7 @@ export class ThreeRenderer implements Renderer {
     if (!dust && !exhaust) return;
 
     const st = this.sim.state;
-    const n = this.sim.entityCount;
+    const n = this.snapshottedCount;
     // The shared ceiling, never the raw `dtMs` -- see this method's own
     // "the ceiling is load-bearing" section.
     const dt = this.frameDtMs(dtMs);
@@ -4317,7 +4357,7 @@ export class ThreeRenderer implements Renderer {
       this.curY,
       this.sim.state.alive,
       this.sim.state.tunnelIn,
-      this.sim.entityCount,
+      this.snapshottedCount,
       radiusTiles
     );
   }
@@ -4361,7 +4401,7 @@ export class ThreeRenderer implements Renderer {
       this.curX,
       this.curY,
       this.sim.state.alive,
-      this.sim.entityCount,
+      this.snapshottedCount,
       this.retained.elevation,
       this.sim.width,
       this.sim.height,
@@ -5312,7 +5352,7 @@ export class ThreeRenderer implements Renderer {
 
     const dtSeconds = this.frameDtSeconds(dtMs);
     const st = this.sim.state;
-    const n = this.sim.entityCount;
+    const n = this.snapshottedCount;
     const roofSlots = assignRoofSlots(st.garrisonedIn, st.alive, n);
 
     for (const frames of this.framesByType.values()) frames.length = 0;
@@ -5505,7 +5545,7 @@ export class ThreeRenderer implements Renderer {
 
     const dtSeconds = this.frameDtSeconds(dtMs);
     const st = this.sim.state;
-    const n = this.sim.entityCount;
+    const n = this.snapshottedCount;
 
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
@@ -5819,7 +5859,7 @@ export class ThreeRenderer implements Renderer {
 
     const dtSeconds = this.frameDtSeconds(dtMs);
     const st = this.sim.state;
-    const n = this.sim.entityCount;
+    const n = this.snapshottedCount;
 
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
@@ -6894,10 +6934,15 @@ export class ThreeRenderer implements Renderer {
    * anything shipped needs it: all 29 `weapons[0]` in `data/units/` declare a
    * non-zero `effectiveRange` today, so this moves no pixel. It is the third
    * condition the DRAW side already had, brought to the side that counts.
+   *
+   * An id past `snapshottedCount` has no position copy yet (spawned since
+   * the last snapshot); the app can still select one -- select-all walks
+   * the live `sim.entityCount` -- and its envelope would be drawn at world
+   * (0, 0). Not drawn until the next snapshot, like the unit itself.
    */
   private drawsEnvelope(i: number): boolean {
     const st = this.sim.state;
-    if (st.alive[i] === 0) return false;
+    if (i >= this.snapshottedCount || st.alive[i] === 0) return false;
     const type = this.sim.unitTypes[st.typeIdx[i]];
     if (type.weapons.length === 0) return false;
     return fx.toNumber(type.weapons[0].effectiveRange) > 0;
@@ -6961,7 +7006,7 @@ export class ThreeRenderer implements Renderer {
     this.chevronBatch.beginFrame();
 
     const st = this.sim.state;
-    const n = this.sim.entityCount;
+    const n = this.snapshottedCount;
     const elevation = this.retained.elevation;
     const width = this.sim.width;
     const height = this.sim.height;
@@ -7366,9 +7411,9 @@ export class ThreeRenderer implements Renderer {
     // `pushLineWorld`'s, `units/overlay-geometry.ts`) has the full reasoning
     // for why that needs its own primitive.
     for (const i of this.selection) {
-      if (st.alive[i] === 0 || st.side[i] !== 0) continue;
+      if (i >= n || st.alive[i] === 0 || st.side[i] !== 0) continue;
       const t = st.curTarget[i];
-      if (t < 0 || st.alive[t] === 0) continue;
+      if (t < 0 || t >= n || st.alive[t] === 0) continue;
       const tx = this.prevX[t] + (this.curX[t] - this.prevX[t]) * alpha;
       const ty = this.prevY[t] + (this.curY[t] - this.prevY[t]) * alpha;
       const groundYt2 = groundWorldY(elevation, width, height, tx, ty);
