@@ -738,11 +738,18 @@ float rlHeightBiased(float w, vec3 ratio) {
  * the arithmetic. `rlTop` keeps the road off every wall. `uRoadOn` is 1; the
  * `roads` debug layer writes 0 (`GroundMaterial.setRoadsVisible`).
  *
- * The fetches are unconditional rather than branched: a dynamic branch around
- * a texture fetch forces a gradient the hardware cannot compute, so every tap
- * happens on every ground fragment even where its weight is zero. Six albedo
- * taps (five slots and the road's grain) plus three data taps, on a single
- * draw call with an overdraw of one.
+ * The five slot fetches are unconditional rather than branched: a dynamic
+ * branch around a texture fetch leaves its implicit gradient undefined, so
+ * those taps happen on every ground fragment even where their weight is zero.
+ * The ROAD block is the one exception (fix wave, the lead's perf item 2): it
+ * sits inside `if (rlB.g < 1.0)`, because where control B's road distance
+ * saturates the bent edge is at least `1 - ROAD_EDGE_BEND` = 0.92, past the
+ * shoulder's outer edge at 0.57, so surface, shoulder and rut are all exactly
+ * 0 and skipping them changes no pixel (golden A/B: 0 px on every scenario).
+ * Its grain tap is a `textureGrad` whose derivatives are taken BEFORE the
+ * branch. Off road that is one tap and about 20 ALU saved; on road it is six
+ * albedo taps plus three data taps, as before, on a single draw call with an
+ * overdraw of one.
  *
  * `vGroundUv`, not a projection taken from the world position, for the
  * ALBEDO: the builder emits the right planar projection per piece of geometry,
@@ -799,21 +806,34 @@ if (rlBSum > 0.0) {
   rlW4 = rlB4 * rlRescale;
 }
 // The road: roadProfile transcribed (road-graph.test.ts is its test), over control B's G, B and A.
-float rlRoadD = rlB.g * ${ROAD_DISTANCE_RANGE_TILES.toFixed(3)};
-float rlJuncD = rlB.b * ${ROAD_DISTANCE_RANGE_TILES.toFixed(3)};
-float rlRoadE = rlRoadD + ${ROAD_EDGE_BEND.toFixed(3)} * (rlB.a * 2.0 - 1.0);
-float rlRoadH0 = (${ROAD_HALF_WIDTH.toFixed(3)} - 0.5 * ${ROAD_EDGE_FALLOFF.toFixed(3)});
-float rlRoadH1 = (${ROAD_HALF_WIDTH.toFixed(3)} + 0.5 * ${ROAD_EDGE_FALLOFF.toFixed(3)});
-float rlRoadEdge = smoothstep(rlRoadH0, rlRoadH1, rlRoadE);
-float rlRoadSurf = uRoadOn * rlTop * (1.0 - rlRoadEdge);
-float rlShoulder = uRoadOn * rlTop * ${SHOULDER_ALPHA.toFixed(3)} * rlRoadEdge
-  * (1.0 - smoothstep(rlRoadH1, rlRoadH1 + ${SHOULDER_TILES.toFixed(3)}, rlRoadE));
-vec3 rlGrain = texture2D(uKnoll, vRlWorldXZ / uRoadGrainTiles).rgb / uKnollMean;
-float rlGrainLum = dot(rlGrain, vec3(0.2126, 0.7152, 0.0722));
-float rlRut = ${RUT_ALPHA.toFixed(3)}
-  * (1.0 - smoothstep((0.5 * ${RUT_WIDTH.toFixed(3)} - 0.010), (0.5 * ${RUT_WIDTH.toFixed(3)} + 0.010), abs(rlRoadD - ${RUT_OFFSET.toFixed(3)})))
-  * smoothstep(0.0, ${RUT_JUNCTION_FADE.toFixed(3)}, rlJuncD) * rlRoadSurf
-  * smoothstep(0.85, 1.05, rlGrainLum); // broken by the grain: the spec's "world noise"
+// Skipped where B.g saturates (no road within ROAD_DISTANCE_RANGE_TILES): there every band below
+// is exactly 0, so the skip is pixel-identical. The grain tap inside the branch takes its gradient
+// from outside it, since implicit derivatives are undefined in non-uniform control flow.
+float rlRoadSurf = 0.0;
+float rlShoulder = 0.0;
+float rlRut = 0.0;
+vec3 rlRoadGrainTerm = vec3(0.0);
+vec2 rlGrainUv = vRlWorldXZ / uRoadGrainTiles;
+vec2 rlGrainDx = dFdx(rlGrainUv);
+vec2 rlGrainDy = dFdy(rlGrainUv);
+if (rlB.g < 1.0) {
+  float rlRoadD = rlB.g * ${ROAD_DISTANCE_RANGE_TILES.toFixed(3)};
+  float rlJuncD = rlB.b * ${ROAD_DISTANCE_RANGE_TILES.toFixed(3)};
+  float rlRoadE = rlRoadD + ${ROAD_EDGE_BEND.toFixed(3)} * (rlB.a * 2.0 - 1.0);
+  float rlRoadH0 = (${ROAD_HALF_WIDTH.toFixed(3)} - 0.5 * ${ROAD_EDGE_FALLOFF.toFixed(3)});
+  float rlRoadH1 = (${ROAD_HALF_WIDTH.toFixed(3)} + 0.5 * ${ROAD_EDGE_FALLOFF.toFixed(3)});
+  float rlRoadEdge = smoothstep(rlRoadH0, rlRoadH1, rlRoadE);
+  rlRoadSurf = uRoadOn * rlTop * (1.0 - rlRoadEdge);
+  rlShoulder = uRoadOn * rlTop * ${SHOULDER_ALPHA.toFixed(3)} * rlRoadEdge
+    * (1.0 - smoothstep(rlRoadH1, rlRoadH1 + ${SHOULDER_TILES.toFixed(3)}, rlRoadE));
+  vec3 rlGrain = textureGrad(uKnoll, rlGrainUv, rlGrainDx, rlGrainDy).rgb / uKnollMean;
+  float rlGrainLum = dot(rlGrain, vec3(0.2126, 0.7152, 0.0722));
+  rlRut = ${RUT_ALPHA.toFixed(3)}
+    * (1.0 - smoothstep((0.5 * ${RUT_WIDTH.toFixed(3)} - 0.010), (0.5 * ${RUT_WIDTH.toFixed(3)} + 0.010), abs(rlRoadD - ${RUT_OFFSET.toFixed(3)})))
+    * smoothstep(0.0, ${RUT_JUNCTION_FADE.toFixed(3)}, rlJuncD) * rlRoadSurf
+    * smoothstep(0.85, 1.05, rlGrainLum); // broken by the grain: the spec's "world noise"
+  rlRoadGrainTerm = rlRoadSurf * (mix(vec3(1.0), rlGrain, uRoadGrainGain) - 1.0);
+}
 rlW0 *= (1.0 - rlRoadSurf);
 rlW1 *= (1.0 - rlRoadSurf);
 rlW2 *= (1.0 - rlRoadSurf);
@@ -828,7 +848,7 @@ vec3 rlAlbedo = vec3(1.0)
   + rlW2 * (rlF2 - 1.0)
   + rlW3 * (rlF3 - 1.0)
   + rlW4 * (rlF4 - 1.0)
-  + rlRoadSurf * (mix(vec3(1.0), rlGrain, uRoadGrainGain) - 1.0);
+  + rlRoadGrainTerm;
 float rlM = (texture2D(uMacro, rlCtlUv).r * 255.0 - 128.0) / 127.0 * uMacroAmp;
 vec3 rlMacro = (1.0 + ${MACRO_LUMINANCE.toFixed(3)} * rlM)
   * mix(vec3(1.0), rlM >= 0.0 ? uMacroBright : uMacroDark, ${MACRO_HUE.toFixed(3)} * abs(rlM));

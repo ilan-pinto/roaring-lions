@@ -243,7 +243,23 @@ describe('the road shader (#226)', () => {
     for (const derived of ['0.270', '0.450', '0.020']) expect(src).not.toContain(derived);
   });
   it('takes its grain from the knoll sampler -- one shared image, no road asset (R-7)', () => {
-    expect(src).toMatch(/texture2D\s*\(\s*uKnoll\s*,\s*vRlWorldXZ\s*\/\s*uRoadGrainTiles\s*\)/);
+    expect(src).toMatch(/vec2 rlGrainUv = vRlWorldXZ\s*\/\s*uRoadGrainTiles;/);
+    expect(src).toMatch(/textureGrad\s*\(\s*uKnoll\s*,\s*rlGrainUv\s*,\s*rlGrainDx\s*,\s*rlGrainDy\s*\)/);
+  });
+  it('skips the road block where control B saturates, taking the grain gradient outside the branch', () => {
+    // At B.g = 1 the bent edge is >= 1 - ROAD_EDGE_BEND, past the shoulder's
+    // outer edge (ROAD_HALF_WIDTH + FALLOFF/2 + SHOULDER_TILES = 0.57), so
+    // surface, shoulder and rut are exactly 0 there and the skip is
+    // pixel-identical -- proven by a golden A/B of 0 px (fix wave).
+    expect(ROAD_HALF_WIDTH + ROAD_EDGE_FALLOFF / 2 + SHOULDER_TILES).toBeLessThan(1 - ROAD_EDGE_BEND);
+    const branch = src.indexOf('if (rlB.g < 1.0) {');
+    expect(branch).toBeGreaterThan(-1);
+    // The derivatives are taken BEFORE the branch: implicit derivatives are
+    // undefined in non-uniform control flow.
+    expect(src.indexOf('dFdx(rlGrainUv)')).toBeGreaterThan(-1);
+    expect(src.indexOf('dFdx(rlGrainUv)')).toBeLessThan(branch);
+    expect(src.indexOf('dFdy(rlGrainUv)')).toBeLessThan(branch);
+    expect(src.indexOf('textureGrad(uKnoll')).toBeGreaterThan(branch);
   });
   it('lets the road cover the surfaces beneath it', () => {
     expect(src).toMatch(/rlW0\s*\*=\s*\(1\.0\s*-\s*rlRoadSurf\)/);
@@ -262,13 +278,14 @@ describe('the road shader (#226)', () => {
       expect(at, t).toBeGreaterThan(-1);
       expect(at, t).toBeLessThan(mul);
     }
-    expect(src).toMatch(/\+\s*rlRoadSurf\s*\*\s*\(mix\(vec3\(1\.0\),\s*rlGrain,\s*uRoadGrainGain\)\s*-\s*1\.0\)/);
+    expect(src).toMatch(/rlRoadGrainTerm = rlRoadSurf\s*\*\s*\(mix\(vec3\(1\.0\),\s*rlGrain,\s*uRoadGrainGain\)\s*-\s*1\.0\)/);
+    expect(src).toMatch(/\+\s*rlRoadGrainTerm;/);
   });
   it('is a top-only surface, switched by uRoadOn', () => {
     // A road never paints a wall (`rlTop`), and the `roads` layer (Task 9)
     // removes it by writing uRoadOn = 0.
-    expect(src).toMatch(/float rlRoadSurf = uRoadOn \* rlTop \*/);
-    expect(src).toMatch(/float rlShoulder = uRoadOn \* rlTop \*/);
+    expect(src).toMatch(/rlRoadSurf = uRoadOn \* rlTop \*/);
+    expect(src).toMatch(/rlShoulder = uRoadOn \* rlTop \*/);
   });
   it('fails soft: the grain is off until the knoll image lands (F-12), the road on', () => {
     // Before the image lands `uKnoll` is the 1x1 white pixel, which reads as
