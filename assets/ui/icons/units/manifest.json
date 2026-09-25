@@ -473,20 +473,20 @@
     "JEEP_HULL": {
       "box": [
         0,
-        2,
-        251,
-        251
+        0,
+        256,
+        256
       ],
       "extent": [
-        111,
-        59
+        120,
+        69
       ],
       "facing": 3,
       "file": "JEEP_HULL.png",
       "sources": [
         {
           "path": "assets/sprites/JEEP_HULL/idle_f03_000.png",
-          "sha256": "07b9de9a83b7ee091a0ad610f7ee7578025e02be6cf84078b8f2e44bdce459bc"
+          "sha256": "dced6ecb425b75f92f5b98448f2e62049e53e60670123ea9dd0655a7d687b4f3"
         }
       ]
     },
@@ -642,25 +642,25 @@
     },
     "TNK_HULL": {
       "box": [
-        49,
-        59,
-        157,
-        157
+        44,
+        16,
+        168,
+        168
       ],
       "extent": [
-        112,
-        84
+        73,
+        111
       ],
       "facing": 3,
       "file": "TNK_HULL.png",
       "sources": [
         {
           "path": "assets/sprites/TNK_HULL/f03_000.png",
-          "sha256": "33204c3eb6da6c5f37a065ecc71007d436d207cd3ba5679429ef2f7deb9d4d10"
+          "sha256": "41dcbfb4a1f5cfaae61754e4deec7974c1260fe95e4ee51f6f8d53946125c887"
         },
         {
           "path": "assets/sprites/TNK_TURR/f03_000.png",
-          "sha256": "151bbcd23308cdc96f16f6eebb54f108b2bcf18eb806452bdfdeed728071f58f"
+          "sha256": "c769ab86719da6e146df0d53e9a38897d8e4903cf060bdfbe7ad9eef788b1099"
         }
       ],
       "turretFacing": 3
