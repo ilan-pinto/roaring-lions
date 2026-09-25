@@ -2,7 +2,7 @@
 """
 Roaring Lions -- procedural battle SFX and UI cue generator.
 
-    python tools/gen_audio.py [--only=name,name,...]
+    python tools/gen_audio.py [--only=name,name,...] [-h | --help]
 
 Synthesises the placeholder sound library offline and encodes it to OGG + M4A
 (Safari) via ffmpeg. Everything here is generated from noise and envelopes, so
@@ -272,13 +272,43 @@ def encode(samples, base):
     os.remove(wav)
 
 
+USAGE = """usage: python tools/gen_audio.py [--only=name,name,...] [-h | --help]
+
+Regenerates the placeholder sound library into assets/audio/ and rewrites the
+variants in data/audio.json. With no --only it re-encodes EVERY set.
+
+  --only=a,b   generate only the named sets (from SETS or UI_SETS)
+  -h, --help   print this and exit without generating anything
+"""
+
+
+def parse_args(argv):
+    """(only, exit_code): `only` is None for every set, or the named ones;
+    `exit_code` is set when the run must stop BEFORE generating anything.
+
+    Every argument is accounted for. Anything unrecognised -- a typo such as
+    `--onyl=`, a bare word, `--only` without its `=` -- is exit 2, never
+    ignored: the old loop ignored it and ran the full generator, which
+    re-encodes all 31 clips (final review, parked item (b))."""
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE, end="")
+        return None, 0
+    only = None
+    for arg in argv:
+        if arg.startswith("--only="):
+            only = [s.strip() for s in arg[len("--only="):].split(",") if s.strip()]
+        else:
+            print(f"unknown argument: {arg}\n\n{USAGE}", end="", file=sys.stderr)
+            return None, 2
+    return only, None
+
+
 def main():
     all_sets = {**SETS, **UI_SETS}
 
-    only = None
-    for arg in sys.argv[1:]:
-        if arg.startswith("--only="):
-            only = [s.strip() for s in arg[len("--only="):].split(",") if s.strip()]
+    only, stop = parse_args(sys.argv[1:])
+    if stop is not None:
+        return stop
     if only is not None:
         unknown = [name for name in only if name not in all_sets]
         if unknown:
