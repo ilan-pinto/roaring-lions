@@ -4043,8 +4043,23 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink-dim);
   white-space: nowrap;
 }
-.rl-garage__card[data-locked='0'] .rl-garage__card-chip {
+.rl-garage__card[data-status='earned'] .rl-garage__card-chip,
+.rl-garage__card[data-status='bought'] .rl-garage__card-chip {
   color: var(--good);
+}
+.rl-garage__card[data-status='maxed'] .rl-garage__card-chip {
+  color: var(--kit);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+/* The kit, where a type has any, sits at the card's far edge; a kitted card
+   also takes a steel edge (§3.1) so the rail reads "kitted" at a glance. */
+.rl-garage__card-kit {
+  margin-left: auto;
+  flex: none;
+}
+.rl-garage__card:not([data-kit='0']) {
+  border-left-color: var(--kit);
 }
 
 /* --- the bay ------------------------------------------------------------ */

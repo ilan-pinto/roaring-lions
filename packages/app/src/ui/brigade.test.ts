@@ -118,7 +118,7 @@ describe('showBrigade — the header and the rail', () => {
     expect(host.querySelector('.rl-garage__card[data-unit="breach_team"]')?.getAttribute('title')).toBe(
       'Needs 12 stars (you have 2)'
     );
-    expect(text(host, '.rl-garage__card[data-unit="ifv_namer"] .rl-garage__card-chip')).toBe('Owned');
+    expect(text(host, '.rl-garage__card[data-unit="ifv_namer"] .rl-garage__card-chip')).toBe('Earned');
     expect(host.querySelector('.rl-garage__card[data-unit="ifv_namer"]')?.getAttribute('title')).toBeNull();
   });
 
@@ -414,7 +414,7 @@ describe('showBrigade — the bay', () => {
     });
     expect(host3.querySelector('.rl-garage__buy')).toBeNull();
     expect(host3.querySelector('.rl-garage__gate')).toBeNull();
-    expect(text(host3, '.rl-garage__card-chip')).toBe('Owned');
+    expect(text(host3, '.rl-garage__card-chip')).toBe('Bought');
   });
 });
 
@@ -939,6 +939,70 @@ describe('showBrigade — a purchase re-renders in place (F3)', () => {
     expect(host.querySelector('.rl-garage__rung[data-owned="1"]')).toBeNull();
     expect(reset()?.textContent).toBe('reset brigade account');
     expect(reset()?.disabled).toBe(false);
+    dispose();
+  });
+});
+
+describe('the rail card — status and kit (WP-S3g §3.1, F1)', () => {
+  const four: BrigadeUnit[] = [
+    units[0], // inf_squad: no gate -> Earned
+    { ...units[1], unlock: { roeMin: 40, price: 520, bought: true } }, // bought, no tracks -> Bought
+    {
+      ...units[1],
+      id: 'namer_kitted',
+      name: 'Namer (kitted)',
+      unlock: { roeMin: 40, price: 520, bought: true },
+      upgrades: { armour: { tiers: [{ price: 250, patch: { 'hull.hp': 154 } }] } },
+    }, // bought and every tier owned -> Maxed
+    units[2], // breach_team: locked by stars
+  ];
+  const read = (host: HTMLElement, id: string): [string | undefined, string | null | undefined] => [
+    text(host, `.rl-garage__card[data-unit="${id}"] .rl-garage__card-chip`),
+    host.querySelector(`.rl-garage__card[data-unit="${id}"]`)?.getAttribute('data-status'),
+  ];
+
+  it('says Earned, Bought or Maxed where it used to say Owned', () => {
+    const host = mount({ units: four, ledger: {}, possibleStars: 78, owned: { namer_kitted: { armour: 1 } } });
+    expect(read(host, 'inf_squad')).toEqual(['Earned', 'earned']);
+    expect(read(host, 'ifv_namer')).toEqual(['Bought', 'bought']);
+    expect(read(host, 'namer_kitted')).toEqual(['Maxed', 'maxed']);
+    expect(read(host, 'breach_team')).toEqual(['Locked · 12★', 'locked']);
+  });
+
+  it('draws a pip column per track, filled from the account', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1 } } });
+    const col = (track: string): Element | null =>
+      host.querySelector(`.rl-garage__card[data-unit="inf_squad"] .rl-kit-pips__col[data-track="${track}"]`);
+    const count = (track: string, sel: string): number => col(track)?.querySelectorAll(sel).length ?? -1;
+    expect([count('armour', '[data-on="1"]'), count('armour', '.rl-kit-pips__pip')]).toEqual([1, 2]);
+    expect([count('sensors', '[data-on="1"]'), count('sensors', '.rl-kit-pips__pip')]).toEqual([0, 1]);
+    expect(count('firepower', '.rl-kit-pips__pip')).toBe(0); // the fixture has no firepower track
+    expect(host.querySelector('.rl-garage__card[data-unit="inf_squad"]')?.getAttribute('data-kit')).toBe('1');
+  });
+
+  it('draws no pips on a card whose unit has no tracks', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78 });
+    expect(host.querySelector('.rl-garage__card[data-unit="ifv_namer"] .rl-kit-pips')).toBeNull();
+    expect(host.querySelector('.rl-garage__card[data-unit="ifv_namer"]')?.getAttribute('data-kit')).toBe('0');
+  });
+
+  it('fills the new pip when a tier is bought in place', () => {
+    let owned: Record<string, Record<string, number>> = {};
+    const { host, dispose } = mountLive({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits: 999,
+      owned,
+      onBuyUpgrade: (id, track, tier) => {
+        owned = { [id]: { [track]: tier } };
+        return { units, credits: 799, owned };
+      },
+    });
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+    expect(
+      host.querySelectorAll('.rl-garage__card[data-unit="inf_squad"] .rl-kit-pips__col[data-track="armour"] [data-on="1"]')
+    ).toHaveLength(1);
     dispose();
   });
 });
