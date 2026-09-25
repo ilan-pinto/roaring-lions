@@ -64,6 +64,68 @@ describe('roadDistanceAt', () => {
   });
 });
 
+/**
+ * A street authored two tiles wide (`rr` over `rr`) is ONE street, not a
+ * ladder (ground plan Task 6, controller ruling). Built as a plain graph it
+ * was two rows joined by a rung at every tile: the centre of each 2x2 cell sat
+ * 0.5 from every edge -- a hole in the surface ringed by shoulder -- and every
+ * node had degree 3, so the ruts faded out around every tile into a lattice.
+ * Four Beit Sahwan maps are built on these streets.
+ */
+describe('two-wide streets', () => {
+  const junctions = (g: ReturnType<typeof buildRoadGraph>): string[] =>
+    g.nodes.filter((_, i) => isJunction(g, i)).map((n) => `${n.x},${n.y}`);
+
+  it('fills a 2x2 block of road: its centre is ON the road, not 0.5 off it', () => {
+    const g = buildRoadGraph(roads(['rr', 'rr']));
+    expect(roadDistanceAt(g, 1.0, 1.0)).toBe(0);
+    const strip = buildRoadGraph(roads(['......', 'rrrrrr', 'rrrrrr', '......']));
+    // Every point between the two lane centrelines is road...
+    for (const x of [1.0, 2.25, 3.0, 4.5]) for (const z of [1.5, 1.8, 2.0, 2.5]) expect(roadDistanceAt(strip, x, z)).toBe(0);
+    // ...and outside them the distance runs from the band's edge, so the
+    // surface is one band 1 + 2 x ROAD_HALF_WIDTH wide.
+    expect(roadDistanceAt(strip, 3.0, 1.2)).toBeCloseTo(0.3, 6);
+    expect(roadDistanceAt(strip, 3.0, 2.8)).toBeCloseTo(0.3, 6);
+  });
+
+  it('gives a two-wide strip no junction at all -- a rung across the street is not a branch', () => {
+    expect(junctions(buildRoadGraph(roads(['rrrrrr', 'rrrrrr'])))).toEqual([]);
+    // A two-wide L-bend turns; it does not branch either.
+    expect(junctions(buildRoadGraph(roads(['rrrr', 'rrrr', '..rr', '..rr'])))).toEqual([]);
+  });
+
+  it('still finds the junction where a real road branches off a two-wide street', () => {
+    const g = buildRoadGraph(roads(['...r..', '...r..', 'rrrrrr', 'rrrrrr']));
+    // Both lanes the side road meets -- it crosses the whole width of the
+    // street, so the ruts must fade across both -- and nowhere else.
+    expect(junctions(g)).toEqual(['3,2', '3,3']);
+  });
+
+  it('makes the crossing of two two-wide streets one junction region, and nothing on the arms', () => {
+    const g = buildRoadGraph(roads(['..rr..', '..rr..', 'rrrrrr', 'rrrrrr', '..rr..', '..rr..']));
+    expect(junctions(g)).toEqual(['2,2', '3,2', '2,3', '3,3']);
+    // The ruts fade around the crossing's centre and nowhere down the arms.
+    expect(junctionDistanceAt(g, 3.0, 3.0)).toBeCloseTo(Math.SQRT1_2, 6);
+    expect(junctionDistanceAt(g, 0.5, 2.5)).toBeCloseTo(2, 6);
+  });
+
+  it('draws one surface with two rut tracks and no rings along the street', () => {
+    const g = buildRoadGraph(roads(['......', '......', 'rrrrrr', 'rrrrrr', '......', '......']));
+    const at = (x: number, z: number): ReturnType<typeof roadProfile> =>
+      roadProfile(roadDistanceAt(g, x, z), 0, junctionDistanceAt(g, x, z));
+    // Solid across the whole width, the gap between the lanes included.
+    for (const x of [1.5, 2.0, 3.0, 3.5]) for (const z of [2.5, 3.0, 3.5]) expect(at(x, z).surface).toBe(1);
+    // Two tracks, 0.17 outside each lane centreline, the same at a tile
+    // centre and between two -- no ring, no dash.
+    for (const x of [2.0, 2.5, 3.0]) {
+      expect(at(x, 2.5 - 0.17).rut).toBeCloseTo(0.35, 6);
+      expect(at(x, 3.5 + 0.17).rut).toBeCloseTo(0.35, 6);
+      expect(at(x, 3.0).rut).toBe(0);
+      expect(at(x, 3.0).shoulder).toBe(0);
+    }
+  });
+});
+
 describe('roadProfile -- spec §5, the road rows', () => {
   const far = 10;
   it('is packed surface on the centreline, with no rut and no shoulder there', () => {
