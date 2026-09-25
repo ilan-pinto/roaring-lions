@@ -3847,7 +3847,12 @@ button.rl-menu__item[data-kind='aside'] {
      takes: subtract the menu's own horizontal padding and border so the BOX,
      not just its content, stays inside the viewport. */
   width: min(112.5rem, calc(98vw - 2 * var(--s6) - 2px)); /* px-ok */
-  max-height: 96vh;
+  /* F9: `max-height: 96vh` let the box sit taller than the viewport it opens
+     in -- measured 14 px over at a 1080 viewport, 12 px over at 1440, which
+     is what pushed the footer and the board's own bottom edge off screen.
+     The box's height is `var(--s6)` of breathing room top and bottom, the
+     same arithmetic the width line above already uses for its own edges. */
+  height: calc(100vh - 2 * var(--s6) - 2px); /* px-ok */
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: var(--s4);
@@ -4239,14 +4244,89 @@ button.rl-menu__item[data-kind='aside'] {
   text-transform: uppercase;
   color: var(--ink-mute);
 }
+/* The track head (WP-S3g T7): a two-row grid, the glyph on the left spanning
+   both rows, the name/pips/tier line on top of the spend line -- one compact
+   block instead of the heading-then-ladder stack Task 5/6 drew. */
+.rl-garage__track-head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--s3);
+  align-items: center;
+}
+/* The glyph sits over the same "reserved, not broken" hatch the bay's own
+   plate draws (`.rl-garage__plate[data-noplate]`), at the track head's own
+   2.5rem -- a track with no symbol of its own (an underscored content-author
+   track, say) still reads as a filled cell rather than a blank one. */
+.rl-garage__track-glyph {
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--ink-dim);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--type-shadow) 0,
+    var(--type-shadow) 0.5rem,
+    var(--panel-frame) 0.5rem,
+    var(--panel-frame) 0.75rem
+  );
+}
+.rl-garage__track-line {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.rl-garage__track-pips {
+  display: inline-flex;
+  gap: 0.1875rem;
+}
+.rl-garage__track-pips i {
+  display: block;
+  width: 0.5rem;
+  height: 0.5rem;
+  background: color-mix(in srgb, var(--ink) 20%, transparent);
+}
+.rl-garage__track-pips i[data-on='1'] {
+  background: var(--kit);
+}
+.rl-garage__track-tier {
+  font-size: var(--t-small);
+  color: var(--ink-dim);
+}
+.rl-garage__track-spend {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+}
+.rl-garage__track[data-state='maxed'] .rl-garage__track-spend {
+  color: var(--ink-dim);
+}
 .rl-garage__stats,
 .rl-garage__track {
   display: flex;
   flex-direction: column;
-  gap: var(--s2);
-  padding: var(--s3);
   background: var(--well);
   border: 1px solid var(--panel-frame);
+}
+.rl-garage__stats {
+  gap: var(--s2);
+  padding: var(--s3);
+}
+/* Tighter than the stats panel's own padding and inter-row gap (§2 goal 3,
+   F9): three real tracks (the Lavi's own armour/firepower/sensors, each
+   three tiers deep) have to fit the board column at 1920x1080 with no
+   scroll, and every rung -- even a compact one-line "other" rung -- pays
+   this padding once. */
+.rl-garage__track {
+  gap: var(--s1);
+  padding: var(--s2) var(--s3);
 }
 /* Label, bar, number. The bar's own maximum is the ROSTER's maximum for that
    stat (brigade.ts's `rosterMax`), so a rifleman's 400 hit points and a
@@ -4302,13 +4382,16 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__rungs {
   display: flex;
   flex-direction: column;
-  gap: var(--s2);
+  gap: var(--s1);
 }
+/* Vertical padding is the tighter `--s1`, not `--s2`: an "other" (owned or
+   future) rung is one line now, and it is the one element on the board a
+   unit's own track length multiplies by three. */
 .rl-garage__rung {
   display: flex;
   flex-direction: column;
   gap: var(--s1);
-  padding: var(--s2);
+  padding: var(--s1) var(--s2);
   border-left: 2px solid var(--panel-frame); /* px-ok */
 }
 .rl-garage__rung:hover,
@@ -4317,9 +4400,19 @@ button.rl-menu__item[data-kind='aside'] {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   outline: none;
 }
-.rl-garage__rung[data-owned='1'] {
+.rl-garage__rung[data-state='owned'] {
   border-left-color: var(--friendly);
   background: color-mix(in srgb, var(--friendly) 12%, transparent);
+}
+/* A future rung is read-only speculation, several purchases away, and reads
+   dimmer than the owned and next rungs either side of it -- its own head
+   colours (`--commend` on the price, `--ink` on the tier) are named
+   explicitly here because they would otherwise beat the inherited colour on
+   specificity. */
+.rl-garage__rung[data-state='future'],
+.rl-garage__rung[data-state='future'] .rl-garage__rung-tier,
+.rl-garage__rung[data-state='future'] .rl-garage__rung-price {
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
 .rl-garage__rung-head {
   display: flex;
@@ -4346,6 +4439,15 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__benefit {
   font-size: var(--t-body);
+  color: var(--ink-mute);
+}
+/* The one line a compact (owned or future) rung shows of its own benefits.
+   Hidden everywhere by default -- the full text still lives on the rung's
+   `title`, a hover away -- and switched back on only at the widest layout
+   below, and only for a FUTURE rung. */
+.rl-garage__rung-gist {
+  display: none;
+  font-size: var(--t-small);
   color: var(--ink-mute);
 }
 .rl-garage__buy-tier {
@@ -4395,6 +4497,19 @@ button.rl-menu__item[data-kind='aside'] {
      Capped here and nowhere else; the photograph contains inside it. */
   .rl-garage__plate {
     max-height: 40vh;
+  }
+}
+
+/* Wide: at the 2200 CSS-pixel breakpoint below and up there is room the
+   narrow and default layouts do not have, so the board column widens and a
+   future rung's one-line gist -- kept off everywhere else -- earns its place
+   (F9's wide-screen allowance). */
+@media (min-width: 2200px) { /* px-ok */
+  .rl-garage__body {
+    grid-template-columns: minmax(16rem, 20rem) minmax(0, 1fr) minmax(20rem, 34rem);
+  }
+  .rl-garage__rung[data-state='future'] .rl-garage__rung-gist {
+    display: block;
   }
 }
 
