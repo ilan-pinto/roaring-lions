@@ -33,22 +33,23 @@
 //     leaves the screen exactly as the click left it.
 //   * The two-click reset, and the rule that a Buy control renders only when
 //     the caller supplied BOTH a balance and a callback.
-import { applyUpgrades, nextTierPrice, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
+import { applyUpgrades, maxTiers, nextTierPrice, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { gateSentence, gateShort } from '../gate-sentence';
+import { PANEL_PATHS, previewDeltas, statPanel, type StatPanel } from './garage-stats';
 import { t } from '../i18n/t';
 import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import { cardStatus, restoreFocus, retainSelection } from './garage-model';
-import { kitPipsHtml, kitSummary } from './kit-sign';
+import { kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
 import { flash } from './motion';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
-import { asPercent, benefitLabel, formatBenefit, upgradeBenefits, type BenefitLine } from './upgrade-benefit';
+import { formatBenefit, upgradeBenefits } from './upgrade-benefit';
 
 export interface BrigadeUnit {
   id: string;
@@ -177,19 +178,6 @@ const BUCKET_ORDER: readonly RoleBucket[] = [
   'kamikaze',
 ];
 
-/** The six stats the bay's panel reads, in the order it draws them. Paths, not
- *  field names, because these are the SAME whitelist paths a tier's patch
- *  names — which is what lets a rung's benefit line address a panel row by
- *  `line.path` with nothing in between to get it wrong. */
-const PANEL_PATHS: readonly string[] = [
-  'hull.hp',
-  'hull.armor.front',
-  'hull.armor.side',
-  'hull.armor.rear',
-  'sensors.sight_tiles',
-  'weapons[0].accuracy',
-];
-
 /** A unit once it is known to be locked: `unlock` narrowed to defined (never a
  *  cast) because `classifyRow` only builds this variant when `u.unlock` is
  *  itself checked non-undefined, and `reason` narrowed to a real string for
@@ -250,13 +238,6 @@ function ownedTiers(u: BrigadeUnit, owned: Record<string, Record<string, number>
     out[name] = Math.min(owned?.[u.id]?.[name] ?? 0, track.tiers.length);
   }
   return out;
-}
-
-/** A panel number as the player reads it. `percent` is the only kind that is
- *  not printed as the raw figure — accuracy is authored as 0.85 and nobody
- *  reads armour in fractions of a hit. */
-function statNumber(value: number, kind: string): string {
-  return kind === 'percent' ? t('garage.stat.percent', { n: asPercent(value) }) : String(value);
 }
 
 export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
@@ -351,15 +332,26 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // Every bar in the stat panel is scaled against the ROSTER's own maximum for
   // that stat, not against the unit's own: a rifleman's 400 hit points and a
   // Lavi's 3000 have to draw at different lengths or the panel says they are
-  // the same tank. Read off the base JSON; an upgraded unit can exceed it, and
-  // the bar clamps rather than overflowing. Computed once, like the tabs
-  // below: a purchase changes neither which units are on the roster nor their
-  // base JSON.
+  // the same tank. Read off each unit's FULLY KITTED numbers (R-5) -- base
+  // JSON alone would leave the roster's own strongest unit with a full bar
+  // and no room to draw what it bought. Computed once, like the tabs below: a
+  // purchase changes neither which units are on the roster nor their base
+  // JSON or upgrade tracks.
   const rosterMax = new Map<string, number>();
   for (const row of rows) {
     const base = opts.baseOf(row.u.id);
+    const merged: UpgradableUnit = { ...base, id: row.u.id, upgrades: row.u.upgrades };
+    let kitted: UpgradableUnit = merged;
+    try {
+      kitted = applyUpgrades(merged, maxTiers(merged));
+    } catch {
+      // Same fault `renderBay` already tolerates: a patch path the unit does
+      // not itself declare. Falling back to the unmodified unit still gives
+      // every OTHER unit's bar something honest to measure against.
+      kitted = merged;
+    }
     for (const path of PANEL_PATHS) {
-      const v = readPath(base, path);
+      const v = readPath(kitted, path);
       if (v === undefined) continue;
       rosterMax.set(path, Math.max(rosterMax.get(path) ?? 0, v));
     }
@@ -521,22 +513,16 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   }
 
   // --- the bay and the board ------------------------------------------------
-  /** The six panel rows of the unit currently in the bay, keyed by the same
-   *  whitelist path a tier's patch names. Rebuilt with the bay; a rung's
-   *  preview addresses them by `line.path`. */
-  interface PanelRow {
-    kind: string;
-    current: number | undefined;
-    fill: HTMLElement;
-    delta: HTMLElement;
-    num: HTMLElement;
-  }
-  let panelRows = new Map<string, PanelRow>();
+  /** The bay's stat panel (`garage-stats.ts`'s `statPanel`), rebuilt with the
+   *  bay. A rung's hover and focus address it through `panel.preview`, which
+   *  is why it lives in a variable that outlives one `renderBay` call rather
+   *  than being read back out of the DOM. */
+  let panel: StatPanel | null = null;
 
   function renderBay(): void {
     bay.replaceChildren();
     board.replaceChildren();
-    panelRows = new Map();
+    panel = null;
     const row = rows.find((r) => r.u.id === selectedId);
     if (row === undefined) return;
     const { u } = row;
@@ -564,6 +550,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       console.warn(`[lions] garage: ${u.id}'s owned tiers do not fit its own JSON:`, err);
     }
 
+    // One reading of "how kitted is this unit" drives both the plate's mark
+    // and the credits line below it -- never two arithmetics for one idea.
+    const kit = kitSummary(upgradable, tiers);
+
     // The plate, zoomed so the UNIT is large rather than the sand. Every plate
     // is the same frame at the same camera zoom, so a rifleman occupies 154 of
     // its 1800 pixels and a Namer 823; drawn at the plate's own scale the
@@ -572,6 +562,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // is centred in the plate by construction (the capture frames it), so a
     // centred transform keeps it centred.
     const plate = el('div', 'rl-garage__plate');
+    plate.dataset.kit = String(kit.level);
     const picture = opts.plate?.(u.id) ?? null;
     if (picture !== null) {
       const img = document.createElement('img');
@@ -590,10 +581,34 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       plate.title = t('garage.plate.none', { id: u.id });
       plate.innerHTML = roleBadgeSvg(roleBucket(u), BAY_MARK);
     }
+    // The kit mark: a bevelled plate with `kit.level` bars and its own label
+    // (`Kit I`/`II`/`III`), drawn only once something on this type has
+    // actually been bought -- an unkitted bay is left exactly as it was.
+    if (kit.level !== 0) {
+      const mark = el('div', 'rl-garage__plate-kit rl-kit-mark');
+      mark.innerHTML = kitSymbolSvg('kit', 48, kit.level);
+      mark.appendChild(el('span', 'rl-garage__plate-kit-label', kitLevelLabel(kit.level)));
+      plate.appendChild(mark);
+    }
     bay.appendChild(plate);
 
     bay.appendChild(el('h2', 'rl-garage__name', u.name));
     bay.appendChild(el('div', 'rl-garage__role', roleLabel(u.role)));
+
+    // The stat panel -- base, kit and (while a rung is hovered) preview, all
+    // one reading -- sits straight under the name and role, and stays in
+    // view for as long as the bay does (it no longer scrolls away inside the
+    // board's own aside).
+    panel = statPanel(base, asOwned, rosterMax);
+    bay.appendChild(panel.el);
+
+    // What this type's kit cost, directly under the numbers it bought.
+    // Absent when nothing has been spent -- the same "nothing to say" rule
+    // the kit mark above follows.
+    if (kit.spent > 0) {
+      bay.appendChild(el('div', 'rl-garage__kit-total', t('garage.kit.total', { n: kit.spent })));
+    }
+
     // The blurb is the unit's own JSON — data, in the unit's file, beside its
     // name. Not chrome, and not routed through the catalogue for the same
     // reason a mission's briefing is not.
@@ -625,31 +640,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         }
       }
     }
-
-    // --- the stat panel ---
-    const stats = el('div', 'rl-garage__stats');
-    stats.appendChild(el('h3', 'rl-garage__board-title', t('garage.board.stats')));
-    for (const path of PANEL_PATHS) {
-      const meta = benefitLabel(path);
-      if (meta === null) continue;
-      const stat = el('div', 'rl-garage__stat');
-      stat.dataset.path = path;
-      stat.appendChild(el('span', 'rl-garage__stat-label', meta.label));
-      const bar = el('span', 'rl-garage__stat-bar');
-      const fill = el('span', 'rl-garage__stat-fill');
-      const delta = el('span', 'rl-garage__stat-delta');
-      bar.append(fill, delta);
-      stat.appendChild(bar);
-      const value = readPath(asOwned, path);
-      const num = el('span', 'rl-garage__stat-n', value === undefined ? t('garage.stat.none') : statNumber(value, meta.unit));
-      stat.appendChild(num);
-      const max = rosterMax.get(path) ?? 0;
-      fill.style.width = barWidth(value ?? 0, max);
-      delta.style.width = '0%';
-      stats.appendChild(stat);
-      panelRows.set(path, { kind: meta.unit, current: value, fill, delta, num });
-    }
-    board.appendChild(stats);
 
     // --- the tracks ---
     // A locked unit is not in the brigade yet, so there is nothing on it to
@@ -712,8 +702,11 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
           // The garage's one trick a list cannot do: the panel above shows
           // what this rung would make of the unit, before the money is spent.
-          const on = (): void => showPreview(lines);
-          const off = (): void => showPreview(null);
+          // Guarded at this call site too (belt and suspenders over
+          // `previewDeltas`'s own `tier <= owned` check): an owned rung must
+          // never preview as a re-buy (F5).
+          const on = (): void => panel?.preview(tier <= owned ? null : previewDeltas(upgradable, trackName, owned, tier));
+          const off = (): void => panel?.preview(null);
           rung.addEventListener('mouseenter', on);
           rung.addEventListener('mouseleave', off);
           rung.addEventListener('focus', on);
@@ -759,35 +752,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         }
         board.appendChild(trackEl);
       }
-    }
-  }
-
-  /** Paint (or clear) a rung's preview across the stat panel. A line whose
-   *  path the panel does not draw — `weapons[1].*`, `hull.suppression_resistance`
-   *  — simply has nowhere to land, which is why this never assumes a row
-   *  exists. The delta is applied to what is ON SCREEN rather than to the
-   *  line's own `before`: another track may already have moved the same stat,
-   *  and a preview that contradicted the number above it would be worse than
-   *  none. */
-  function showPreview(lines: readonly BenefitLine[] | null): void {
-    for (const [path, row] of panelRows) {
-      const max = rosterMax.get(path) ?? 0;
-      row.delta.style.width = '0%';
-      row.num.textContent = row.current === undefined ? t('garage.stat.none') : statNumber(row.current, row.kind);
-      row.fill.style.width = barWidth(row.current ?? 0, max);
-    }
-    if (lines === null) return;
-    for (const line of lines) {
-      const row = panelRows.get(line.path);
-      if (row === undefined || row.current === undefined) continue;
-      const after = Math.round((row.current + (line.after - line.before)) * 100) / 100;
-      const max = rosterMax.get(line.path) ?? 0;
-      row.fill.style.width = barWidth(Math.min(row.current, after), max);
-      row.delta.style.width = barWidth(Math.abs(after - row.current), max);
-      row.num.textContent = t('garage.stat.preview', {
-        before: statNumber(row.current, row.kind),
-        after: statNumber(after, row.kind),
-      });
     }
   }
 
@@ -882,14 +846,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
   host.appendChild(wrap);
   return () => wrap.remove();
-}
-
-/** A bar's length as a percentage of the roster's own maximum for that stat,
- *  clamped: an upgraded unit can exceed a maximum read off base JSON, and a
- *  bar that overflowed its track would read as a rendering fault. */
-function barWidth(value: number, max: number): string {
-  if (max <= 0) return '0%';
-  return `${Math.max(0, Math.min(100, (value / max) * 100))}%`;
 }
 
 /** The unit's own one-line description, when its JSON carries one.

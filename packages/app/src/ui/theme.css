@@ -4074,6 +4074,7 @@ button.rl-menu__item[data-kind='aside'] {
    what makes the sand read as a FLOOR the unit is standing on rather than a
    rectangle it is pasted over. */
 .rl-garage__plate {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4085,6 +4086,14 @@ button.rl-menu__item[data-kind='aside'] {
   flex: none;
   width: 100%;
   aspect-ratio: 3 / 2;
+  /* T6's own measurement (`.superpowers/garage-uplift/t6`, 2026-09-25): with
+     the stat panel now living in the bay rather than the board, an
+     uncapped 3:2 plate at 1400x900 pushed the panel and a hovered rung's
+     preview segments off the bottom of the screen. 42vh (the brief's own
+     starting point) already cleared both at every shot resolution taken --
+     1400x900, 1920x1080 and 2560x1440 -- so no further lowering was needed:
+     lower still would crop the photograph for no legibility gained. */
+  max-height: 42vh;
   overflow: hidden;
   border: 1px solid var(--panel-frame);
   background:
@@ -4094,6 +4103,13 @@ button.rl-menu__item[data-kind='aside'] {
       transparent 62%
     ),
     var(--tile-bg);
+}
+/* Kitted (§3.1): the same steel the kit mark and pips use, never gold -- a
+   frame is the plate's own way of saying "this type has been bought into",
+   at a glance, before a player reads the mark inside it. */
+.rl-garage__plate:not([data-kit='0']) {
+  border-color: var(--kit);
+  box-shadow: 0 0 0 1px var(--kit-edge);
 }
 /* `brigade.ts` writes a `transform: scale()` here from `ui/plate-fit.ts`, so
    the UNIT fills the bay rather than the sand around it. The origin is the
@@ -4116,6 +4132,29 @@ button.rl-menu__item[data-kind='aside'] {
     var(--panel-frame) 0.5rem,
     var(--panel-frame) 0.75rem
   );
+}
+/* The kit mark, pinned in the plate's own corner (`.rl-garage__plate` is the
+   positioning context above): the bevelled bars-and-level badge
+   (`kit-sign.ts`'s `kitSymbolSvg`) beside its own `Kit I`/`II`/`III` label.
+   `.rl-kit-mark` (theme.css, kit pips) already colours the svg through
+   `currentColor`. */
+.rl-garage__plate-kit {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s2);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-garage__plate-kit svg {
+  width: 3rem;
+  height: 3rem;
+}
+.rl-garage__plate-kit-label {
+  font-family: var(--font-display);
+  font-size: var(--t-h3);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
 }
 .rl-garage__name {
   margin: 0;
@@ -4157,6 +4196,13 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__short {
   font-size: var(--t-small);
   color: var(--bad-text);
+}
+/* What this type's kit cost, directly under the panel it bought numbers
+   into. Absent when nothing has been spent -- read text, not a badge, so it
+   sits at the same weight the blurb below it does. */
+.rl-garage__kit-total {
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 
 /* --- the board ---------------------------------------------------------- */
@@ -4220,10 +4266,16 @@ button.rl-menu__item[data-kind='aside'] {
   height: 0.5rem;
   background: color-mix(in srgb, var(--ink) 12%, transparent);
 }
+/* Base: ink, never the friendly-unit blue -- this bar reads a NUMBER, not a
+   side (§3.1). */
 .rl-garage__stat-fill {
-  background: var(--friendly);
+  background: var(--ink);
 }
-/* What a previewed rung would ADD, drawn on the end of what is there now --
+/* What has been BOUGHT into this stat, drawn on the end of base. */
+.rl-garage__stat-kit {
+  background: var(--kit);
+}
+/* What a previewed rung would ADD, drawn on the end of base and kit both --
    the one thing on this screen that is not yet true. */
 .rl-garage__stat-delta {
   background: var(--good);
@@ -4231,6 +4283,17 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__stat-n {
   font-family: var(--font-mono);
   color: var(--ink);
+  text-align: right;
+  white-space: nowrap;
+}
+/* The kit line: what the kit added, in its own steel colour, right under the
+   figure it explains. Third grid column, same as `.rl-garage__stat-n` above
+   it -- and no `display` here, so `hidden` (a plain attribute) actually
+   removes it rather than being overridden back to visible (GH-237). */
+.rl-garage__stat-kitn {
+  grid-column: 3;
+  font-size: var(--t-small);
+  color: var(--kit);
   text-align: right;
   white-space: nowrap;
 }

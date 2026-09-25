@@ -10,6 +10,13 @@ describe('previewDeltas (F5, R-6)', () => {
   it('previews nothing for a rung already owned (F5: the Lavi read 3750 → 3960)', () => {
     expect(previewDeltas(lavi, 'armour', 1, 1).size).toBe(0);
   });
+  // The tier-equals-owned case above cannot falsify the `tier <= owned` guard
+  // on its own: `trackPatchAt(spec, owned)` diffed against itself is zero
+  // whether or not the guard runs. A rung BELOW the owned tier is what
+  // actually depends on it -- without the guard this reads a negative "un-buy".
+  it('previews nothing for a rung below the one owned (R-6 guard, not just F5)', () => {
+    expect(previewDeltas(lavi, 'armour', 3, 1).size).toBe(0);
+  });
   it('previews a future rung against the OWNED tier, not the tier below it (R-6)', () => {
     const d = previewDeltas(lavi, 'armour', 1, 3);
     expect(d.get('hull.hp')).toBe(540); // 750 - 210, not 750 - 450
