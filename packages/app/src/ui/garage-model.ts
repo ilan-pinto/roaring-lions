@@ -68,7 +68,8 @@ export function trackForDigit(key: string, tracks: readonly string[]): string | 
 
 /** What a Buy asked the store for (§3.5): a unit's own unlock, or one tier of
  *  one of its tracks. `answer()` in `brigade.ts` holds it across the redraw
- *  so it can ask `purchaseLanded` whether the account now says yes. */
+ *  so `celebrate` knows what to stamp -- WHETHER to is the caller's own word,
+ *  `GarageState.landed` (final review M1), never read back off the account. */
 export type PurchaseAsk =
   | { readonly kind: 'unit'; readonly unitId: string }
   | { readonly kind: 'upgrade'; readonly unitId: string; readonly track: string; readonly tier: number };
@@ -85,21 +86,6 @@ export const CUE_SET: Readonly<Record<PurchaseCue, string>> = { purchase: 'ui_pu
 export const STAMP_MS = 240;
 export const BAR_GROW_MS = 300;
 export const WALLET_COUNT_MS = 400;
-
-/** Did the store actually do what was asked? Read off the ANSWER, never off
- *  the click: a refusal answers too (off the true state), and a refusal must
- *  neither sound nor stamp. An upgrade has landed when the account owns at
- *  least the asked tier; a unit when the roster lists it bought. */
-export function purchaseLanded(
-  ask: PurchaseAsk,
-  next: {
-    readonly units: readonly { readonly id: string; readonly unlock?: { readonly bought?: boolean } }[];
-    readonly owned?: Readonly<Record<string, Readonly<Record<string, number>>>>;
-  }
-): boolean {
-  if (ask.kind === 'upgrade') return (next.owned?.[ask.unitId]?.[ask.track] ?? 0) >= ask.tier;
-  return next.units.find((u) => u.id === ask.unitId)?.unlock?.bought === true;
-}
 
 export function cueFor(ask: PurchaseAsk): PurchaseCue {
   return ask.kind === 'unit' ? 'purchase' : 'upgrade';

@@ -188,6 +188,7 @@
   "garage.track.spent": "{spent} spent · {toMax} to max",
   "garage.track.spentMaxed": "{spent} spent · maxed",
   "garage.locked.unlockFirst": "Unlock first",
+  "garage.locked.kitKept": "Kit kept — unit locked",
   "garage.empty.credits": "Credits come from winning missions.",
 
   "debrief.defeat.title": "Withdraw and regroup",

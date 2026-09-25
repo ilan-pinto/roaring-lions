@@ -44,6 +44,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { boardCanvasVerdict } from './board-canvases';
+import { ACCOUNT_KEY } from '../../../packages/app/src/brigade-account';
 import { garageSeedScript } from './garage-seed';
 import { claimPort } from './port';
 
@@ -1056,6 +1057,86 @@ try {
     await garageCtx.close();
   }
 
+  // --- one Enter, one tier (final review C1) --------------------------------
+  //
+  // The board's own Enter handler clicked the Buy and left the key's default
+  // action alone. `answer()` then moves focus to the next tier's Buy (R-4),
+  // and Chromium delivers the same press's activation to whatever is focused
+  // by then -- so one Enter bought two tiers whenever the second was
+  // affordable. jsdom runs no default actions, so only a REAL key press in a
+  // real browser can see it: `page.keyboard.press('Enter')`, never a
+  // synthetic `dispatchEvent`.
+  //
+  // Both keyboard paths the spec names, on the seed's part-kitted `at_team`
+  // (armour 0, sensors 0, firepower 1; 2400 credits):
+  //   A. a focused Buy -- firepower tier 2 (175). Tier 3 (250) is the one a
+  //      double press would also take.
+  //   B. the digit jump's landing -- '1' focuses armour's tier-1 rung (95);
+  //      tier 2 (140) is the one a double press would also take.
+  // Read off the ACCOUNT in localStorage, which is the store's own truth, and
+  // cross-checked against the wallet the screen prints.
+  const ACCOUNT_READ =
+    '(() => {' +
+    `  var raw = localStorage.getItem(${JSON.stringify(ACCOUNT_KEY)});` +
+    '  var a = raw ? JSON.parse(raw) : null;' +
+    '  var up = a && a.upgrades && a.upgrades.at_team ? a.upgrades.at_team : {};' +
+    '  var w = document.querySelector(".rl-garage__wallet-n");' +
+    '  return {' +
+    '    balance: a ? a.balance : null,' +
+    '    armour: up.armour || 0,' +
+    '    firepower: up.firepower || 0,' +
+    '    wallet: w ? w.getAttribute("data-value") : null,' +
+    '    focus: document.activeElement ? document.activeElement.getAttribute("data-focus-key") : null,' +
+    '  };' +
+    '})()';
+  {
+    const enterCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await enterCtx.addInitScript(garageSeedScript());
+    const e = await enterCtx.newPage();
+    e.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    e.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+    });
+    e.on('pageerror', (err) => errors.push(String(err)));
+    await e.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await e.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    await e.click('.rl-garage__card[data-unit="at_team"]');
+    type AccountRead = { balance: number | null; armour: number; firepower: number; wallet: string | null; focus: string | null };
+    const start = await e.evaluate<AccountRead>(ACCOUNT_READ);
+    expect(
+      start.balance === 2400 && start.firepower === 1 && start.armour === 0,
+      `garage Enter: the seed is not the one this leg prices against: ${JSON.stringify(start)}`
+    );
+
+    // A: a focused Buy.
+    await e.hover('.rl-garage__track[data-track="firepower"] .rl-garage__track-head');
+    await e.locator('.rl-garage__track[data-track="firepower"] .rl-garage__buy-tier').focus();
+    await e.keyboard.press('Enter');
+    await e.waitForTimeout(300);
+    const a = await e.evaluate<AccountRead>(ACCOUNT_READ);
+    console.log(`[${TAG}] garage Enter on a focused Buy: ${JSON.stringify(a)}`);
+    expect(
+      a.firepower === 2 && a.balance === 2225 && a.wallet === '2225',
+      `garage C1: one Enter on the firepower Buy left firepower ${a.firepower}, balance ${a.balance} ` +
+        `(wallet ${a.wallet}) -- expected exactly one tier: 2, 2400 - 175 = 2225`
+    );
+
+    // B: the digit jump's landing, a focused rung.
+    await e.keyboard.press('1');
+    const landed = await e.evaluate<AccountRead>(ACCOUNT_READ);
+    expect(landed.focus === 'rung:armour:1', `garage C1: '1' landed on "${landed.focus}", not armour's tier-1 rung`);
+    await e.keyboard.press('Enter');
+    await e.waitForTimeout(300);
+    const b = await e.evaluate<AccountRead>(ACCOUNT_READ);
+    console.log(`[${TAG}] garage Enter on a focused rung: ${JSON.stringify(b)}`);
+    expect(
+      b.armour === 1 && b.balance === 2130 && b.wallet === '2130',
+      `garage C1: one Enter on armour's rung left armour ${b.armour}, balance ${b.balance} ` +
+        `(wallet ${b.wallet}) -- expected exactly one tier: 1, 2225 - 95 = 2130`
+    );
+    await enterCtx.close();
+  }
+
   // --- the garage's first Buy is heard (WP-S3g T11, spec §9 "First gesture") -
   //
   // Browsers build no sound before a user gesture, and the mixer's context is
@@ -1311,6 +1392,36 @@ try {
     }
     console.log(`[${TAG}] garage F8: ${presses} Tab press(es) to reach the bay/board (reached=${reached})`);
     expect(reached && presses <= 3, `F8: ${presses} Tab stops before the bay (the audit counted 25)`);
+
+    // I1 (final review): the accordion left ONE track's ladder in the Tab
+    // order and nothing at all for the other two -- a collapsed ladder is
+    // `display: none`, and the track heads were `tabIndex = -1` divs. Every
+    // head is a button now, so the walk through the board must reach all
+    // three, whichever is open; and a real Enter (or Space) on a collapsed
+    // one must open it and say so through `aria-expanded`.
+    const FOCUS_KEY = '(() => document.activeElement ? document.activeElement.getAttribute("data-focus-key") : null)()';
+    const walked: (string | null)[] = [await tPage.evaluate<string | null>(FOCUS_KEY)];
+    for (let i = 0; i < 15 && (await tPage.evaluate<boolean>(REACHED_BAY_OR_BOARD)); i++) {
+      await tPage.keyboard.press('Tab');
+      walked.push(await tPage.evaluate<string | null>(FOCUS_KEY));
+    }
+    const inBoard = walked.slice(0, -1); // the last press left the board
+    console.log(`[${TAG}] garage I1: ${inBoard.length} Tab stop(s) in the bay/board: ${JSON.stringify(inBoard)}`);
+    for (const track of ['armour', 'sensors', 'firepower']) {
+      expect(inBoard.includes(`track:${track}`), `I1: Tab never reaches the ${track} track's head: ${JSON.stringify(inBoard)}`);
+    }
+    const HEAD_STATE =
+      '(() => Array.prototype.map.call(document.querySelectorAll(".rl-garage__track"), function (t) {' +
+      '  var h = t.querySelector(".rl-garage__track-head");' +
+      '  return t.getAttribute("data-track") + ":" + t.getAttribute("data-expanded") + ":" + (h ? h.getAttribute("aria-expanded") : "-");' +
+      '}).join(" "))()';
+    for (const [track, key] of [['sensors', 'Enter'], ['firepower', ' ']] as const) {
+      await tPage.locator(`.rl-garage__track[data-track="${track}"] .rl-garage__track-head`).focus();
+      await tPage.keyboard.press(key === ' ' ? 'Space' : key);
+      const heads = await tPage.evaluate<string>(HEAD_STATE);
+      console.log(`[${TAG}] garage I1: ${key === ' ' ? 'Space' : key} on ${track}'s head -> ${heads}`);
+      expect(heads.includes(`${track}:1:true`), `I1: ${key === ' ' ? 'Space' : key} on the ${track} head left it closed: ${heads}`);
+    }
     await tabCtx.close();
   }
 

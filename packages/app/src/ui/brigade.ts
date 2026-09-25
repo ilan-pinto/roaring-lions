@@ -30,7 +30,9 @@
 //     afterwards (`GarageState`); the screen redraws around that answer in
 //     place -- same node, tab, unit, scroll and a focused control -- instead
 //     of the caller remounting the whole route. A caller that answers nothing
-//     leaves the screen exactly as the click left it.
+//     leaves the screen exactly as the click left it. The answer also says
+//     whether THIS ask was the one that bought (`landed`); only then is the
+//     purchase an event (§3.5).
 //   * The two-click reset, and the rule that a Buy control renders only when
 //     the caller supplied BOTH a balance and a callback.
 import { applyUpgrades, maxTiers, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
@@ -49,7 +51,6 @@ import {
   cardStatus,
   countAt,
   cueFor,
-  purchaseLanded,
   restoreFocus,
   retainSelection,
   rovingStep,
@@ -99,6 +100,14 @@ export interface GarageState {
   readonly units: BrigadeUnit[];
   readonly credits?: number;
   readonly owned?: Record<string, Record<string, number>>;
+  /** Whether the purchase this answers is the one the store made -- the
+   *  caller's own `ok`, never inferred from the account (final review M1).
+   *  The account alone cannot say it: with two tabs open, tab B buys armour
+   *  tier 1, tab A's stale Buy asks for tier 1 again, the store refuses, and
+   *  the true state it answers with owns armour tier 1 all the same. Only
+   *  `true` celebrates (§3.5: the cue, the stamps, the counted wallet);
+   *  absent -- a reset, or a caller that does not say -- is silent. */
+  readonly landed?: boolean;
 }
 
 export interface BrigadeOptions {
@@ -182,6 +191,12 @@ const CARD_MARK = 22;
 /** And inside the bay's own reserved-plate hatch, which is the whole width of
  *  the bay rather than a chip. */
 const BAY_MARK = 72;
+
+/** A unit purchase's beat (§3.5): the plate's hatch lifts for this long
+ *  (`rl-garage-lift` in theme.css), and the ENLISTED stamp stays for it. */
+const ENLIST_MS = 900;
+/** The stamp's own fade on the way out, with motion (`.rl-garage__stamp--out`). */
+const STAMP_OUT_MS = 160;
 
 /** Each stat row's base and kit bar widths, by `PANEL_PATHS` path -- what a
  *  purchase's bars grow FROM (§3.5). */
@@ -341,9 +356,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   /** The setting, then the OS -- or the caller's own answer (tests). */
   const reduced = (): boolean => opts.reducedMotion?.() ?? prefersReducedMotion();
 
-  /** Spent: the wallet flashes on the click that asks for a purchase. The
-   *  wallet node persists across the redraw that answers it, so the flash is
-   *  seen through to its end. */
+  /** Spent: the wallet flashes when a purchase LANDS (`celebrate`), never on
+   *  the click that merely asks -- a refusal spent nothing (final review
+   *  M1). The wallet node persists across every redraw, so the flash is seen
+   *  through to its end. */
   const spend = (): void => {
     pulse(wallet, 'rl-garage__wallet--spent', 600);
   };
@@ -567,7 +583,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // digit after it. Left alone for an `input`/`textarea` target -- none
   // lives on this screen today, but a content author's stray one must never
   // have its own digits hijacked by the board.
+  //
+  // A chord is not a digit (final review M5): Alt, Ctrl and Meta with a digit
+  // belong to the browser and the OS (tab switching, bookmarks, a screen
+  // reader's own keys), so they are left alone. Shift is NOT: on AZERTY the
+  // digit row types `&é"'...` unshifted and the digits themselves only WITH
+  // Shift, so `key === '1'` arrives with `shiftKey` set; and on a layout
+  // where Shift+1 is `!`, `trackForDigit` never sees a digit anyway.
   wrap.addEventListener('keydown', (ev: KeyboardEvent) => {
+    if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
     const target = ev.target instanceof HTMLElement ? ev.target : null;
     if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
     const trackNames = [...board.querySelectorAll<HTMLElement>('[data-track]')].map((e) => e.dataset.track ?? '');
@@ -593,12 +617,24 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // own `tabIndex` is -1, script-focusable only). Silent when there is
   // nothing to buy: an owned or future rung's disabled/absent Buy, or a
   // locked unit's "Unlock first" in its place.
+  //
+  // The key's own default is cancelled BEFORE the click (final review C1,
+  // Critical). The click answers synchronously, and `answer()` moves focus to
+  // the next tier's Buy (R-4); Chromium then delivers this same press's
+  // activation to whatever is focused by then, and a button activates on
+  // Enter -- so one press bought two tiers whenever the second was
+  // affordable, on both keyboard paths: the digit jump's rung, and a Buy
+  // focused after an earlier purchase. jsdom runs no default actions, so the
+  // unit specs can only check the cancel; `ui:routes`' real-Enter leg is the
+  // behavioural proof.
   board.addEventListener('keydown', (ev: KeyboardEvent) => {
     if (ev.key !== 'Enter') return;
     const target = ev.target instanceof HTMLElement ? ev.target : null;
     const rung = target?.closest<HTMLElement>('.rl-garage__rung') ?? null;
     const buy = rung?.querySelector<HTMLButtonElement>('.rl-garage__buy-tier') ?? null;
-    if (buy !== null && !buy.disabled) buy.click();
+    if (buy === null || buy.disabled) return;
+    ev.preventDefault();
+    buy.click();
   });
 
   function syncTabs(): void {
@@ -649,6 +685,14 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // stay the one expanded, so focus can land back on its own next Buy.
   let activeTrack: string | null = null;
 
+  /** True only while `answer()` is putting focus back after a redraw (M2).
+   *  That `.focus()` is programmatic: the rung it lands on fires `focusin`,
+   *  which previews ITS tier -- the next one -- so a mouse purchase left the
+   *  panel reading "new → next" while the bars grew. The panel must show
+   *  the purchase that just landed; a player who then points at a rung, or
+   *  Tabs, previews as before. */
+  let restoringFocus = false;
+
   /** Sets `data-expanded` on every track wrapper the board currently holds,
    *  off `expandedTrack`'s own decision. Reads each track's `data-state`
    *  (set by `trackEl` itself) rather than recomputing `trackSummary`, so
@@ -658,7 +702,12 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     const order = wraps.map((w) => w.dataset.track ?? '');
     const maxed = new Set(wraps.filter((w) => w.dataset.state === 'maxed').map((w) => w.dataset.track ?? ''));
     const expanded = expandedTrack(order, maxed, activeTrack);
-    for (const w of wraps) w.dataset.expanded = w.dataset.track === expanded ? '1' : '0';
+    for (const w of wraps) {
+      const open = w.dataset.track === expanded;
+      w.dataset.expanded = open ? '1' : '0';
+      // The head's own disclosure state (I1), said the same way the CSS reads it.
+      w.querySelector('.rl-garage__track-head')?.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
   }
 
   function renderBay(): void {
@@ -703,6 +752,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // One reading of "how kitted is this unit" drives both the plate's mark
     // and the credits line below it -- never two arithmetics for one idea.
     const kit = kitSummary(upgradable, tiers);
+
+    // M3 (lead ruling L2): a locked unit that still OWNS tiers -- one a gate
+    // re-locked after it was kitted -- keeps them, dormant; the sim's
+    // pre-pass applies them regardless. The board draws them owned and
+    // read-only, and this says why nothing on it can be bought. Absent for a
+    // locked unit that owns nothing, which has nothing kept to explain.
+    if (row.locked && kit.spent > 0) {
+      board.appendChild(el('div', 'rl-garage__kept', t('garage.locked.kitKept')));
+    }
 
     // The plate, zoomed so the UNIT is large rather than the sand. Every plate
     // is the same frame at the same camera zoom, so a rifleman occupies 154 of
@@ -788,7 +846,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         buy.disabled = credits < price;
         buy.addEventListener('click', () => {
           buy.disabled = true; // one purchase per render; the answer redraws
-          spend();
           answer(opts.onBuy?.(u.id, price), 'unit-buy', { kind: 'unit', unitId: u.id });
         });
         bay.appendChild(buy);
@@ -816,7 +873,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             ? {
                 credits: state.credits,
                 onBuy: (tier, price, asked) => {
-                  spend();
                   answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), asked, {
                     kind: 'upgrade',
                     unitId: u.id,
@@ -834,7 +890,12 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             owned,
             buy,
             locked: row.locked,
-            preview: (d) => panel?.preview(d),
+            // Held off while `answer()` puts focus back (M2): the rung it
+            // lands on is the NEXT tier's, and its `focusin` would paint that
+            // tier's preview over the purchase that just landed.
+            preview: (d) => {
+              if (!restoringFocus) panel?.preview(d);
+            },
             onActivate: () => {
               activeTrack = trackName;
               applyExpansion();
@@ -914,13 +975,21 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  the accordion to clear it), so it survives a purchase's redraw
    *  unchanged and needs no re-assertion after the fact.
    *
-   *  `ask` is what a Buy asked for (a reset asks for nothing). When the answer
-   *  says the store did it, the purchase is an event (§3.5): `celebrate`
-   *  below. The figures it animates FROM are read here, before the redraw
-   *  replaces them. */
+   *  `ask` is what a Buy asked for (a reset asks for nothing). When the
+   *  caller says THIS ask is the one the store made (`next.landed`, M1), the
+   *  purchase is an event (§3.5): `celebrate` below. The figures it animates
+   *  FROM are read here, before the redraw replaces them. */
   function answer(next: GarageState | void, asked: string | null, ask?: PurchaseAsk): void {
     if (next === undefined) return; // a caller that answers nothing: as before
-    const scroll = { rail: cards.scrollTop, bay: bay.scrollTop, board: board.scrollTop };
+    // The stat panel scrolls in place too (T9) and `renderBay` rebuilds it,
+    // so its offset is carried over like the three scrollers that outlive
+    // the redraw (M4) -- otherwise a purchase snapped it back to the top.
+    const scroll = {
+      rail: cards.scrollTop,
+      bay: bay.scrollTop,
+      board: board.scrollTop,
+      stats: panel?.el.scrollTop ?? 0,
+    };
     // The figure ON SCREEN, not `state.credits`: a second purchase landing
     // mid-count carries on down from where the eye is rather than jumping
     // back up to the last true balance.
@@ -945,6 +1014,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     cards.scrollTop = scroll.rail;
     bay.scrollTop = scroll.bay;
     board.scrollTop = scroll.board;
+    if (panel !== null) panel.el.scrollTop = scroll.stats;
     // Only controls a player can actually SEE are candidates. A card the
     // current tab hides still carries its key, and so does a rung under a
     // track the accordion has collapsed (`trackEl` always builds the full
@@ -966,8 +1036,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     const want =
       restoreFocus(asked, keys.map((e) => e.dataset.focusKey ?? ''), selectedId) ??
       (asked !== null ? `tab:${bucket}` : null);
-    keys.find((e) => e.dataset.focusKey === want)?.focus({ preventScroll: true });
-    if (ask !== undefined && purchaseLanded(ask, next)) celebrate(ask, fromCredits, fromBars);
+    restoringFocus = true;
+    try {
+      keys.find((e) => e.dataset.focusKey === want)?.focus({ preventScroll: true });
+    } finally {
+      restoringFocus = false;
+    }
+    if (ask !== undefined && next.landed === true) celebrate(ask, fromCredits, fromBars);
   }
 
   /** Each stat row's base and kit widths, by path, as the panel draws them
@@ -997,6 +1072,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  colour, which reports. */
   function celebrate(ask: PurchaseAsk, fromCredits: number | undefined, fromBars: BarWidths): void {
     opts.onCue?.(cueFor(ask));
+    spend();
     countWallet(fromCredits, state.credits);
     pulse(bay.querySelector('.rl-garage__plate-kit'), 'rl-garage__plate-kit--stamp', STAMP_MS);
     if (ask.kind === 'upgrade') {
@@ -1008,11 +1084,32 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     } else {
       const plate = bay.querySelector('.rl-garage__plate');
       if (plate instanceof HTMLElement) {
-        plate.appendChild(el('div', 'rl-garage__stamp', t('garage.plate.enlisted')));
-        pulse(plate, 'rl-garage__plate--enlisted', 900);
+        const stamp = el('div', 'rl-garage__stamp', t('garage.plate.enlisted'));
+        plate.appendChild(stamp);
+        pulse(plate, 'rl-garage__plate--enlisted', ENLIST_MS);
+        clearStamp(stamp);
       }
     }
     growBars(fromBars);
+  }
+
+  /** The ENLISTED stamp belongs to the purchase's beat, not to the plate
+   *  (final review M7): it used to stay until the next `renderBay`, so it was
+   *  there after a purchase and gone once the same unit was re-selected.
+   *  With motion it fades over `STAMP_OUT_MS` once the hatch's lift is done;
+   *  under reduced motion there is no fade to watch, so it simply goes at
+   *  the same moment. Both timers are the disposer's to clear. */
+  function clearStamp(stamp: HTMLElement): void {
+    if (reduced()) {
+      timers.push(window.setTimeout(() => stamp.remove(), ENLIST_MS));
+      return;
+    }
+    timers.push(
+      window.setTimeout(() => {
+        stamp.classList.add('rl-garage__stamp--out');
+        timers.push(window.setTimeout(() => stamp.remove(), STAMP_OUT_MS));
+      }, ENLIST_MS)
+    );
   }
 
   /** The bars, old -> new over `BAR_GROW_MS`. The width transition exists ONLY

@@ -4,7 +4,6 @@ import {
   cardStatus,
   countAt,
   cueFor,
-  purchaseLanded,
   restoreFocus,
   retainSelection,
   rovingStep,
@@ -77,20 +76,6 @@ describe('cardStatus (R-11)', () => {
     expect(cardStatus({ locked: false, bought: true, maxed: true })).toBe('maxed');
     expect(cardStatus({ locked: false, bought: true, maxed: false })).toBe('bought');
     expect(cardStatus({ locked: false, bought: false, maxed: false })).toBe('earned');
-  });
-});
-
-describe('purchaseLanded', () => {
-  const units = [{ id: 'at_team' }, { id: 'mbt_lavi', unlock: { bought: true } }];
-  it('reads an upgrade as landed when the account holds the tier', () => {
-    const ask = { kind: 'upgrade', unitId: 'at_team', track: 'firepower', tier: 2 } as const;
-    expect(purchaseLanded(ask, { units, owned: { at_team: { firepower: 2 } } })).toBe(true);
-    expect(purchaseLanded(ask, { units, owned: { at_team: { firepower: 1 } } })).toBe(false);
-    expect(purchaseLanded(ask, { units })).toBe(false);
-  });
-  it('reads a unit as landed when the account lists it bought', () => {
-    expect(purchaseLanded({ kind: 'unit', unitId: 'mbt_lavi' }, { units })).toBe(true);
-    expect(purchaseLanded({ kind: 'unit', unitId: 'at_team' }, { units })).toBe(false);
   });
 });
 

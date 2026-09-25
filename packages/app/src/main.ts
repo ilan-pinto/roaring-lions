@@ -1057,9 +1057,12 @@ async function main(): Promise<void> {
             // read, so `!ok` means the account on disk has since moved.
             // Answering `now()` re-renders off the true, current state instead
             // of leaving the row showing a purchase that did not happen.
-            if (!ok) return now();
+            // `landed` is THIS ask's own outcome (final review M1): the
+            // current state can own the tier a refused ask asked for (another
+            // tab bought it), so the screen must not read it off the account.
+            if (!ok) return { ...now(), landed: false };
             ledgerStore.writeAccount(account);
-            return now();
+            return { ...now(), landed: true };
           }
         : undefined,
       owned: ownedTiers,
@@ -1068,10 +1071,10 @@ async function main(): Promise<void> {
             const { account, ok } = buyUpgrade(ledgerStore.readAccount(), unitId, track, tier, price);
             // Same reasoning as `onBuy` above: the control disabled itself
             // against a stale read, so answer with the true state instead of
-            // returning silently.
-            if (!ok) return now();
+            // returning silently. `landed` as above (M1).
+            if (!ok) return { ...now(), landed: false };
             ledgerStore.writeAccount(account);
-            return now();
+            return { ...now(), landed: true };
           }
         : undefined,
     });

@@ -4208,6 +4208,13 @@ button.rl-menu__item[data-kind='aside'] {
   transform: rotate(-6deg);
   animation: rl-garage-stamp 240ms var(--ease);
 }
+/* The stamp's exit (M7): once the hatch's 900 ms lift is done, it fades and
+   `brigade.ts`'s `clearStamp` removes it. Reduced motion never adds this
+   class -- the stamp simply goes at the same moment. */
+.rl-garage__stamp--out {
+  opacity: 0;
+  transition: opacity 160ms var(--ease);
+}
 /* The kit mark, pinned in the plate's own corner (`.rl-garage__plate` is the
    positioning context above): the bevelled bars-and-level badge
    (`kit-sign.ts`'s `kitSymbolSvg`) beside its own `Kit I`/`II`/`III` label.
@@ -4362,13 +4369,31 @@ button.rl-menu__item[data-kind='aside'] {
 }
 /* The track head (WP-S3g T7): a two-row grid, the glyph on the left spanning
    both rows, the name/pips/tier line on top of the spend line -- one compact
-   block instead of the heading-then-ladder stack Task 5/6 drew. */
+   block instead of the heading-then-ladder stack Task 5/6 drew.
+   A real <button> inside the track's <h3> since the final review's I1 (the
+   disclosure pattern: the heading for navigation, the button for Tab and
+   `aria-expanded`), so the button's own chrome is taken off here and the
+   head draws exactly as the div it replaced did. The ring is the sheet's
+   one `:focus-visible` rule, like every other control. */
+.rl-garage__track-heading {
+  margin: 0;
+  font: inherit;
+}
 .rl-garage__track-head {
   display: grid;
   grid-template-columns: auto 1fr;
   grid-template-rows: auto auto;
   column-gap: var(--s3);
   align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
 }
 /* The glyph sits over the same "reserved, not broken" hatch the bay's own
    plate draws (`.rl-garage__plate[data-noplate]`), at the track head's own
@@ -4458,13 +4483,17 @@ button.rl-menu__item[data-kind='aside'] {
 }
 /* Fix round 1 (§2 goal 3): the accordion. Only one track's ladder shows at a
    time -- `brigade.ts`'s `applyExpansion` sets this from `expandedTrack`
-   (`garage-board.ts`), off whichever track the player is pointed at (mouse
-   hover or keyboard focus landing anywhere in the track, or a digit jump),
-   falling back to the first track still worth a decision. The DOM is built
-   in full regardless (`trackEl` never omits the ladder) -- this hides it,
-   which is also why a real Tab walk skips a collapsed track's Buy button:
-   `display: none` removes it from the focus order same as it removes it
-   from the screen. */
+   (`garage-board.ts`), off whichever track the player last pointed at: the
+   mouse entering a track's HEAD (never the whole track box -- fix round 2
+   narrowed it, so a cursor crossing an open neighbour resizes nothing),
+   keyboard focus landing anywhere inside a track, a click (or Enter/Space)
+   on a head, or a digit jump; falling back to the first track still worth a
+   decision. Leaving asks for nothing: the last track pointed at stays open.
+   The DOM is built in full regardless (`trackEl` never omits the ladder) --
+   this hides it, which is also why a real Tab walk skips a collapsed
+   track's Buy button: `display: none` removes it from the focus order same
+   as it removes it from the screen. The head stays in the Tab order (I1),
+   so every track is still one Tab stop away. */
 .rl-garage__track[data-expanded='0'] .rl-garage__rungs,
 .rl-garage__track[data-expanded='0'] .rl-garage__track-max {
   display: none;
@@ -4641,12 +4670,20 @@ button.rl-menu__item[data-kind='aside'] {
 /* F7: the account itself is empty, not any one track -- prepended above the
    board's tracks, in the same recessed well a stat panel sits in, so it
    reads as the screen speaking rather than as a rung's own line. */
-.rl-garage__empty {
+.rl-garage__empty,
+.rl-garage__kept {
   font-size: var(--t-body);
   color: var(--ink-mute);
   background: var(--well);
   border: 1px solid var(--panel-frame);
   padding: var(--s2) var(--s3);
+}
+/* M3 (lead ruling L2): a re-locked unit's kit is kept, dormant. Said once,
+   above its tracks, in the dashed frame a locked track itself draws -- this
+   is about the lock, not the account. */
+.rl-garage__kept {
+  border-style: dashed;
+  color: var(--warn);
 }
 .rl-garage__reset {
   color: var(--bad-text);

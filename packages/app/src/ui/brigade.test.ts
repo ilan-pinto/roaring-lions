@@ -495,6 +495,12 @@ describe('showBrigade — the bay', () => {
       credits: 700,
       onBuy: (id, p) => {
         bought.push([id, p]);
+        return {
+          units: priced.map((u) => (u.id === id && u.unlock ? { ...u, unlock: { ...u.unlock, bought: true } } : u)),
+          credits: 700 - p,
+          owned: {},
+          landed: true,
+        };
       },
     });
     select(host, 'breach_team');
@@ -505,16 +511,18 @@ describe('showBrigade — the bay', () => {
     expect(host.querySelector('.rl-garage__short')).toBeNull();
     buy?.click();
     expect(bought).toEqual([['breach_team', 600]]);
-    // The wallet is struck on the click that ASKS, and stays struck: the
-    // wallet node survives the answer's redraw (F3), so the flash is seen
-    // through to its end rather than cut off with a removed node.
+    // The wallet is struck when the purchase LANDS (final review M1: never
+    // on a refusal), and stays struck: the wallet node survives the answer's
+    // redraw (F3), so the flash is seen through to its end rather than cut
+    // off with a removed node.
     expect(host.querySelector('.rl-garage__wallet')?.classList.contains('rl-garage__wallet--spent')).toBe(true);
 
     select(host, 'ifv_namer');
     const short = host.querySelector<HTMLButtonElement>('.rl-garage__buy');
     expect(short?.textContent).toBe('Buy for 1200 credits');
     expect(short?.disabled).toBe(true);
-    expect(text(host, '.rl-garage__short')).toBe('500 more credits');
+    // 100 left after the 600 purchase above landed: 1200 - 100.
+    expect(text(host, '.rl-garage__short')).toBe('1100 more credits');
     // `.rl-garage__gate` is `gateSentence`'s own rendering, never the sim's raw
     // `unlockReason` string -- ifv_namer here is price-only (D1), so it reads the
     // Buy sentence rather than a requires/Conduct/stars line.
@@ -1251,7 +1259,7 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
       onCue: (c) => void cues.push(c),
       onBuyUpgrade: (id, track, tier) => {
         owned = { [id]: { [track]: tier } };
-        return { units, credits: 799, owned };
+        return { units, credits: 799, owned, landed: true };
       },
       ...over,
     });
@@ -1287,7 +1295,7 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
       owned,
       onBuyUpgrade: (id, track, n) => {
         owned = { [id]: { [track]: n } };
-        return { units: six, credits: 899, owned };
+        return { units: six, credits: 899, owned, landed: true };
       },
     });
     const level = (): string | null | undefined => host.querySelector('.rl-garage__plate')?.getAttribute('data-kit');
@@ -1299,7 +1307,7 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
   });
 
   it('stays silent and unstamped when the store refused', () => {
-    const { host, dispose, cues } = buyer({ onBuyUpgrade: () => ({ units, credits: 999, owned: {} }) });
+    const { host, dispose, cues } = buyer({ onBuyUpgrade: () => ({ units, credits: 999, owned: {}, landed: false }) });
     buyArmour(host);
     expect(cues).toEqual([]);
     expect(host.querySelector('.rl-garage__rung--stamp')).toBeNull();
@@ -1316,6 +1324,7 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
         units: roster.map((u) => (u.id === unitId && u.unlock ? { ...u, unlock: { ...u.unlock, bought: true } } : u)),
         credits: 149,
         owned: {},
+        landed: true,
       }),
     });
     select(host, 'breach_team');
@@ -1416,5 +1425,235 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// The final whole-branch review's fix wave (`.superpowers/sdd/2026-09-25-
+// garage-uplift-app/final-review.md`). Each spec below names its finding and
+// was shown red on the code the review read (bd849036) before the fix.
+describe('showBrigade — the final review’s fix wave', () => {
+  /** A caller that buys and reports the outcome, as `main.ts` does. */
+  function kitBuyer(over: Partial<BrigadeOptions> = {}): { host: HTMLElement; dispose: () => void; cues: string[] } {
+    const cues: string[] = [];
+    let owned: Record<string, Record<string, number>> = {};
+    let credits = 999;
+    const live = mountLive({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits,
+      owned,
+      reducedMotion: () => true,
+      onCue: (c) => void cues.push(c),
+      onBuyUpgrade: (id, track, tier, price) => {
+        owned = { ...owned, [id]: { ...(owned[id] ?? {}), [track]: tier } };
+        credits -= price;
+        return { units, credits, owned, landed: true };
+      },
+      ...over,
+    });
+    return { ...live, cues };
+  }
+  const enter = (): KeyboardEvent => new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  const digit = (host: HTMLElement, key: string, mods: KeyboardEventInit = {}): boolean =>
+    host.querySelector('.rl-menu--garage')?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...mods })) ?? true;
+
+  // C1: the handler clicked the Buy and let the Enter's default action run
+  // too. `answer()` moves focus to the next tier's Buy, and a real browser
+  // then activates THAT button on the same press. jsdom runs no default
+  // action, so the only thing a unit test can see is whether the handler
+  // cancelled it; `ui:routes`' real-Enter leg is the behavioural proof.
+  it('cancels the Enter it turns into a purchase, on a focused rung (C1)', () => {
+    const { host, dispose } = kitBuyer();
+    digit(host, '1');
+    expect(focusKey()).toBe('rung:armour:1');
+    const ev = enter();
+    expect(document.activeElement?.dispatchEvent(ev)).toBe(false);
+    expect(ev.defaultPrevented).toBe(true);
+    dispose();
+  });
+
+  it('cancels the Enter it turns into a purchase, on a focused Buy (C1)', () => {
+    const { host, dispose } = kitBuyer();
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.focus();
+    expect(focusKey()).toBe('buy:armour');
+    const ev = enter();
+    document.activeElement?.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(text(host, '.rl-garage__track[data-track="armour"] .rl-garage__track-tier')).toBe('tier 1 of 2');
+    dispose();
+  });
+
+  // I1: a collapsed track had no Tab stop and no state a screen reader could
+  // read. Its head is a real button now, in the Tab order, saying whether it
+  // is open; activating it (Enter or Space do that natively) opens it.
+  it('makes every track head a button in the Tab order that says whether it is open (I1)', () => {
+    const { host, dispose } = kitBuyer();
+    const head = (track: string): HTMLElement | null =>
+      host.querySelector<HTMLElement>(`.rl-garage__track[data-track="${track}"] .rl-garage__track-head`);
+    expect(head('armour')?.tagName).toBe('BUTTON');
+    expect(head('sensors')?.tabIndex).toBe(0);
+    expect(head('armour')?.getAttribute('aria-expanded')).toBe('true');
+    expect(head('sensors')?.getAttribute('aria-expanded')).toBe('false');
+    const controls = head('sensors')?.getAttribute('aria-controls') ?? '';
+    expect(host.querySelector(`#${controls}`)?.classList.contains('rl-garage__rungs')).toBe(true);
+    head('sensors')?.click();
+    expect(host.querySelector('.rl-garage__track[data-track="sensors"]')?.getAttribute('data-expanded')).toBe('1');
+    expect(head('sensors')?.getAttribute('aria-expanded')).toBe('true');
+    expect(head('armour')?.getAttribute('aria-expanded')).toBe('false');
+    dispose();
+  });
+
+  // M1: two tabs. Tab B bought armour tier 1; tab A, still showing it for
+  // sale, asks for it again. The store refuses, and its answer -- the true
+  // account -- owns armour tier 1. Read off the account, that looked like
+  // tab A's own purchase landing.
+  it('does not celebrate a refusal whose answer happens to own the tier (M1)', () => {
+    const { host, dispose, cues } = kitBuyer({
+      onBuyUpgrade: () => ({ units, credits: 799, owned: { inf_squad: { armour: 1 } }, landed: false }),
+    });
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+    expect(cues).toEqual([]);
+    expect(host.querySelector('.rl-garage__rung--stamp')).toBeNull();
+    expect(host.querySelector('.rl-garage__wallet')?.classList.contains('rl-garage__wallet--spent')).toBe(false);
+    dispose();
+  });
+
+  it('celebrates the purchase the caller says landed (M1)', () => {
+    const { host, dispose, cues } = kitBuyer();
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+    expect(cues).toEqual(['upgrade']);
+    expect(host.querySelector('.rl-garage__wallet')?.classList.contains('rl-garage__wallet--spent')).toBe(true);
+    dispose();
+  });
+
+  // M2: focus is put back on the next tier's Buy, and that rung's own
+  // `focusin` used to paint ITS preview -- so the panel read "440 → 480"
+  // (the next tier) the moment tier 1 landed, instead of the 440 just bought.
+  it('shows the purchase that just landed, not the next tier’s preview (M2)', () => {
+    const { host, dispose } = kitBuyer();
+    const hp = (): string | undefined => text(host, '.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-n');
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+    expect(focusKey()).toBe('buy:armour');
+    expect(hp()).toBe('440');
+    dispose();
+  });
+
+  // M4: the stat panel scrolls in place (T9) and is rebuilt by every
+  // purchase; the rail, bay and board kept their offsets and it did not.
+  it('keeps the stat panel’s scroll offset across a purchase (M4)', () => {
+    const { host, dispose } = kitBuyer();
+    const stats = (): HTMLElement | null => host.querySelector<HTMLElement>('.rl-garage__stats');
+    const was = stats();
+    if (was) was.scrollTop = 30; // jsdom does not clamp
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+    expect(stats()).not.toBe(was);
+    expect(stats()?.scrollTop).toBe(30);
+    dispose();
+  });
+
+  // M5: Alt, Ctrl and Meta chords belong to the browser and the OS. Shift is
+  // let through on purpose: on AZERTY the digits ARE the shifted keys, and on
+  // a layout where Shift+1 is '!', `key` is not a digit anyway.
+  it('leaves a digit with Alt, Ctrl or Meta alone, and takes one with Shift (M5)', () => {
+    const { host, dispose } = kitBuyer();
+    host.querySelector<HTMLButtonElement>('.rl-garage__card[data-unit="inf_squad"]')?.focus();
+    for (const mod of ['altKey', 'ctrlKey', 'metaKey'] as const) {
+      expect(digit(host, '2', { [mod]: true })).toBe(true);
+      expect(focusKey()).toBe('card:inf_squad');
+    }
+    expect(digit(host, '2', { shiftKey: true })).toBe(false);
+    expect(focusKey()).toBe('rung:sensors:1');
+    dispose();
+  });
+
+  // M3 (lead ruling L2): a unit that re-locks keeps its tiers, dormant --
+  // the sim's pre-pass applies them regardless. The board used to read
+  // "tier 0 of 2 · 0 spent" beside rail pips, a kit mark and a kit total that
+  // all said otherwise.
+  it('draws a re-locked unit’s owned tiers read-only, with a note that the kit is kept (M3)', () => {
+    const relocked: BrigadeUnit[] = [
+      { ...units[0], unlock: { roeMin: 90 } }, // Conduct 90 on a campaign with none: locked
+    ];
+    const host = mount({
+      units: relocked,
+      ledger: {},
+      possibleStars: 78,
+      credits: 999,
+      owned: { inf_squad: { armour: 1 } },
+      onBuyUpgrade: () => undefined,
+    });
+    expect(host.querySelector('.rl-garage__card[data-unit="inf_squad"]')?.getAttribute('data-status')).toBe('locked');
+    expect(text(host, '.rl-garage__track[data-track="armour"] .rl-garage__track-tier')).toBe('tier 1 of 2');
+    expect(host.querySelector('.rl-garage__track[data-track="armour"] .rl-garage__rung[data-tier="1"]')?.getAttribute('data-owned')).toBe('1');
+    expect(text(host, '.rl-garage__track[data-track="armour"] .rl-garage__track-lock')).toBe('Unlock first');
+    expect(host.querySelector('.rl-garage__buy-tier')).toBeNull();
+    expect(text(host, '.rl-garage__kept')).toBe(t('garage.locked.kitKept'));
+    expect(t('garage.locked.kitKept')).toBe('Kit kept — unit locked');
+    // Everything else on the screen already said so, and still does.
+    expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe('1');
+    expect(text(host, '.rl-garage__kit-total')).toBe('200 credits of kit');
+  });
+
+  it('says nothing about kept kit on a locked unit that owns none (M3)', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, credits: 999 });
+    select(host, 'breach_team');
+    expect(host.querySelector('.rl-garage__kept')).toBeNull();
+  });
+
+  // M7: the stamp is the beat's, not the plate's. It lingered until the next
+  // `renderBay`, so it was there after a purchase and gone on re-selecting
+  // the same unit.
+  describe('the Enlisted stamp clears on its own (M7)', () => {
+    const roster: BrigadeUnit[] = units.map((u) =>
+      u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 850 } } : u
+    );
+    const enlist = (reduced: boolean): { host: HTMLElement; dispose: () => void } => {
+      const live = mountLive({
+        units: roster,
+        ledger: {},
+        possibleStars: 78,
+        credits: 999,
+        reducedMotion: () => reduced,
+        onBuy: (unitId) => ({
+          units: roster.map((u) => (u.id === unitId && u.unlock ? { ...u, unlock: { ...u.unlock, bought: true } } : u)),
+          credits: 149,
+          owned: {},
+          landed: true,
+        }),
+      });
+      select(live.host, 'breach_team');
+      live.host.querySelector<HTMLButtonElement>('.rl-garage__buy')?.click();
+      return live;
+    };
+    for (const reduced of [false, true]) {
+      it(`${reduced ? 'under reduced motion' : 'with motion'}`, () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+        try {
+          const { host, dispose } = enlist(reduced);
+          expect(text(host, '.rl-garage__stamp')).toBe('Enlisted');
+          vi.advanceTimersByTime(1500);
+          expect(host.querySelector('.rl-garage__stamp')).toBeNull();
+          dispose();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    }
+    it('fades out with motion, and simply goes under reduced motion', () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+      try {
+        const moving = enlist(false);
+        vi.advanceTimersByTime(950);
+        expect(moving.host.querySelector('.rl-garage__stamp')?.classList.contains('rl-garage__stamp--out')).toBe(true);
+        moving.dispose();
+        const still = enlist(true);
+        vi.advanceTimersByTime(950);
+        expect(still.host.querySelector('.rl-garage__stamp')).toBeNull();
+        still.dispose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
