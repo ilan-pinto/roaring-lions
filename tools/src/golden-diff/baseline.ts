@@ -350,6 +350,23 @@ const GROUND_T9 =
   'bit-identical across the three, and the repaint control read 0 px / 0.0000 on all three ' +
   'scenarios, so the whole delta is the layer. Floors are a third, rounded down. ';
 
+/**
+ * Every figure in an `aftermath` rationale below, and the conditions it was
+ * taken under.
+ */
+const GROUND_T17 =
+  'measured 2026-09-25 on ground Task 17 (the `aftermath` scenario, D4), 3 consecutive full-gate ' +
+  'runs (`--scenario=aftermath`, each its own fresh dev-server process) on macOS 15 / M3 Pro, ' +
+  'headless Chromium, software SwiftShader, frame loop frozen. Unlike the whole-frame checks on the ' +
+  'other four scenarios, these were NOT bit-identical run to run -- a small spread under 1% on both ' +
+  'metrics (decals 29979-30212 px / 1.5346-1.5451, roads 982-985 / 0.2565-0.2573, macro 21 px on ' +
+  'all three / 0.7833-0.7841, scatter 5195-5196 / 0.6546-0.6551), which the repaint control (0 px / ' +
+  '0.0000 on every run) rules out as scene drift between the two toggle photographs -- it is process ' +
+  'to process, not frame to frame. Every floor below is a third of the SMALLEST of the three, per ' +
+  'the ruling, so this spread costs headroom rather than correctness. No darwin baseline exists for ' +
+  'this scenario yet -- these floors are what a runner with none is judged by (exit 3 otherwise), ' +
+  'not thresholds against a stored picture. ';
+
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
@@ -990,6 +1007,92 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       'the thresholds -- while quiet, open-ground and vehicle did not move outside their own noise ' +
       'at all. The scatter defect also fired here, at 86 px / 0.1452, so this is map coverage ' +
       'rather than a single-feature tripwire.',
+  },
+  aftermath: {
+    // No darwin baseline exists for this scenario -- it ships in the same
+    // commit that adds it, so there is nothing to compare a capture against
+    // yet (`golden-baseline` exits 3 here, never a silent pass). What votes
+    // in that state is the reference-free layer checks below, exactly the
+    // regime `three-baseline-gate.ts`'s own top comment describes.
+    region: null,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'decals',
+        minDiffPixels: 9900,
+        minMeanAbsChannelDelta: 0.5,
+        rationale:
+          GROUND_T17 +
+          'hiding both decal pools erases the whole showcase -- every crater, scorch, oil and ' +
+          'rubble mark plus both tread and tyre runs, at all three sites -- moving 29979 px / ' +
+          '1.5346. This is the scenario the showcase exists to be judged on: the two decal pools ' +
+          '(`decal-pool.ts`) draw nothing anywhere else in the gate (no other scenario stamps a ' +
+          'mark), so this is the only witness for whether the showcase drew at all. Falsified by ' +
+          'commenting out `stampDecalShowcase`\'s call in `ThreeRenderer` (R-16\'s D4 entry point): ' +
+          '0 px / 0.0000, FAIL.',
+      },
+      {
+        layer: 'roads',
+        minDiffPixels: 300,
+        minMeanAbsChannelDelta: 0.08,
+        rationale:
+          GROUND_T17 +
+          'driving `uRoadOn` to 0 removes the diagonal road this map\'s own `road` showcase site sits ' +
+          'on, packed surface tone, shoulder, ruts and knoll grain together, moving 982 px / 0.2565. ' +
+          'A second witness for `roads` on a second map (`quiet`\'s outskirts crossroads is the ' +
+          'first) -- this one on a diagonal road rather than a cardinal one, which the shipped ' +
+          'road-graph code does not special-case, so agreement here is real coverage rather than a ' +
+          'restatement. Smaller than quiet\'s 187/0.468 in absolute pixel count but larger in ' +
+          'magnitude, because this crop is closer to the road than the outskirts crossroads shot is. ' +
+          'Falsified by baking control B\'s road distance (B.g) to 255 in `buildControlMap`: ' +
+          '0 px / 0.0000, FAIL on both floors.',
+      },
+      {
+        layer: 'macro',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.26,
+        rationale:
+          GROUND_T17 +
+          'driving the macro field\'s amplitude to 0 moves 21 px / 0.7833. TWENTY-ONE pixels is under ' +
+          'SUB_THRESHOLD_PX (100), so `minDiffPixels` is 0 for the reason `LayerCheckSpec` allows it, ' +
+          'exactly as on `quiet` and `open-ground`: the field is a ratio shift over a wide area, mostly ' +
+          'under pixelmatch\'s 0.1 threshold, and the magnitude is the whole check. The STRONGEST macro ' +
+          'magnitude witness in the gate (0.7833 against quiet\'s 0.4798 and open-ground\'s 0.8773\'s ' +
+          'own crop -- this one is a whole 1400x900 frame, not a crop, yet still reads high because ' +
+          'the centroid camera sits over sloped ground the field shades unevenly). F-18: the pure ' +
+          '`buildMacroField(48, 48)` predicts mean |m| 0.2645 over this frame\'s 961-tile footprint ' +
+          '(elevation-aware projection, the same `tileToCapture` `baseline.test.ts` already trusts ' +
+          'for `RELIEF_SCENARIO framing`, at this scenario\'s own camera/zoom) -- above the 0.2 the ' +
+          'ruling asks a witness to clear, and the third map (after `quiet` and `open-ground`) to do ' +
+          'so; `relief` does not and does not declare the check (see that entry). Falsified by ' +
+          'initialising `uMacroAmp` to 0 in `groundUniforms()`: 0 px / 0.0000, FAIL.',
+      },
+      {
+        layer: 'scatter',
+        minDiffPixels: 1700,
+        minMeanAbsChannelDelta: 0.21,
+        rationale:
+          GROUND_T17 +
+          'hiding the grain mesh moves 5195 px / 0.6546 here. A fourth scatter witness (after ' +
+          '`quiet`, `open-ground` and `relief`), on ground that carries BOTH a diagonal road and ' +
+          'freshly-stamped decals under the same scatter mesh -- the composite order between scatter ' +
+          'and a ground mark was never exercised by an existing scenario. No `toneCheck` declared: ' +
+          'the tone-collapse ratio depends on the SAME `ground-albedo` + `macro` backdrop every other ' +
+          'scatter witness uses, and this scenario adds nothing that ratio needs a fresh floor for -- ' +
+          'declaring one here without a distinct measured population would only restate `open-ground`\'s ' +
+          '0.9260/0.7109 gap on different ground. Falsified by making `buildScatter` return an empty ' +
+          'array: 0 px / 0.0000, FAIL.',
+      },
+    ],
+    rationale:
+      'whole frame, qarn_hadid decal showcase centroid @ (25,38), zoom 1, tick 300 -- the fixed D4 ' +
+      'crater/scorch/oil/rubble/tread/tyre showcase on its road, relief and flat sites, revealed by ' +
+      'the sandbox recon drone. The only shipped map with a relief showcase site, and the only ' +
+      'gated scenario that stamps any ground decal at all. No baseline yet in any environment: ' +
+      'measured only as the repaint control (0 px / 0.0000 over 3 runs) and the four layer checks ' +
+      'below -- see `GROUND_T17` for the small (<1%) run-to-run spread and why every floor uses the ' +
+      'smallest reading rather than an average.',
   },
   combat: {
     // NOT GATED, and this is a finding rather than a gap. Real deaths, wrecks,

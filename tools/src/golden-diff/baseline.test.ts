@@ -671,7 +671,7 @@ describe('BASELINES layerChecks', () => {
         byLayer.set(check.layer, [...(byLayer.get(check.layer) ?? []), id]);
       }
     }
-    expect(byLayer.get('scatter')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
+    expect(byLayer.get('scatter')?.sort()).toEqual(['aftermath', 'open-ground', 'quiet', 'relief']);
     expect(byLayer.get('decor')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
     expect(byLayer.get('ground-albedo')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
     // Only two scenarios frame a building at all; `open-ground` and `relief`
@@ -687,13 +687,18 @@ describe('BASELINES layerChecks', () => {
     // out of the vignette's fall-off.
     expect(byLayer.get('vignette')?.sort()).toEqual(['quiet', 'relief']);
     expect(byLayer.get('skirt')?.sort()).toEqual(['quiet', 'relief']);
-    // Ground Task 9. The road is witnessed on the outskirts crossroads only.
-    // The macro field is witnessed only where the pure `buildMacroField`
-    // predicts mean |m| >= 0.2 over the crop (F-18): quiet 0.253 and
-    // open-ground 0.381 clear it, relief (0.181) does not and must not
-    // declare it -- see that scenario's own comment.
-    expect(byLayer.get('roads')).toEqual(['quiet']);
-    expect(byLayer.get('macro')?.sort()).toEqual(['open-ground', 'quiet']);
+    // Ground Task 9, and Task 17's `aftermath` joins both as a second map.
+    // The road is now witnessed on `quiet`'s cardinal outskirts crossroads
+    // AND `aftermath`'s diagonal qarn_hadid road. The macro field is
+    // witnessed only where the pure `buildMacroField` predicts mean |m| >= 0.2
+    // over the crop (F-18): quiet 0.253, open-ground 0.381 and aftermath
+    // 0.2645 clear it, relief (0.181) does not and must not declare it -- see
+    // that scenario's own comment.
+    expect(byLayer.get('roads')?.sort()).toEqual(['aftermath', 'quiet']);
+    expect(byLayer.get('macro')?.sort()).toEqual(['aftermath', 'open-ground', 'quiet']);
+    // Task 17 (D4): the two decal pools draw nowhere else in the gate, so
+    // `aftermath` is their only witness.
+    expect(byLayer.get('decals')).toEqual(['aftermath']);
   });
 
   it('sets every floor strictly below the signal it was measured from, on both metrics', () => {
@@ -756,6 +761,21 @@ describe('BASELINES layerChecks', () => {
         // sensitivity where the layer actually draws). This was `3403 px /
         // 0.2858` against the OLD one-rectangle skirt, whole-frame.
         skirt: { px: 2705, mean: 3.0455 },
+      },
+      // Ground Task 17 (D4, the `aftermath` scenario), 2026-09-25, 3
+      // consecutive full-gate runs (`--scenario=aftermath`). Unlike the other
+      // entries these were NOT bit-identical -- a small (<1%) run-to-run
+      // spread with the repaint control at a literal 0 on every run (see
+      // `GROUND_T17` in `baseline.ts`) -- so the SMALLEST of the three is
+      // recorded here, per the ruling. No darwin baseline exists for this
+      // scenario in ANY environment, so these are exactly what a runner with
+      // none is judged by.
+      aftermath: {
+        decals: { px: 29979, mean: 1.5346 },
+        roads: { px: 982, mean: 0.2565 },
+        // 21 px is under SUB_THRESHOLD_PX -- the pixel floor is 0 below.
+        macro: { px: 21, mean: 0.7833 },
+        scatter: { px: 5195, mean: 0.6546 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the

@@ -152,6 +152,15 @@ export interface Scenario {
    *  comment, "has not left its assembly point"). Pair with `orders` to make
    *  anything actually happen. */
   mission?: string;
+  /** Sandbox-only opt-in flags (`packages/app/src/sandbox-help.ts`'s
+   *  `SandboxFlagName`), appended to the URL in order as bare `&<flag>`
+   *  tokens -- `sceneParam` writes `&decals`, never `&decals=true`, matching
+   *  `routes.sandbox`'s own value-less spelling (`shell/links.ts`) and
+   *  `readFlags`' `has` check. Exists for `AFTERMATH_SCENARIO`, which needs
+   *  `&decals` to stamp the showcase this scenario exists to photograph; a
+   *  `mission` scenario has no such flags today, but nothing here refuses
+   *  one. */
+  sandboxFlags?: readonly string[];
   /** A named marker on the map, OR omit this and set `cameraTile` instead --
    *  see that field for why a scenario would need the latter. */
   cameraMarker?: string;
@@ -534,6 +543,91 @@ export const RELIEF_SCENARIO: Scenario = {
   },
 };
 
+/** The decal showcase (D4, ground plan Task 15/16/17): `qarn_hadid` under
+ *  `&decals`, framed on the showcase's own three sites -- road, relief and
+ *  flat -- so the gate has a witness that the ground can remember a battle.
+ *
+ *  WHY THIS MAP. `qarn_hadid` is "the terrain map" (CLAUDE.md): the only one
+ *  carrying all ten terrain symbols, elevation range 0-7 (every other map
+ *  tops out at 4), and a rock wall with two ways through. That gives the
+ *  showcase's own site picker (`showcaseSites`, `decal-showcase.ts`) a real
+ *  `relief` candidate -- a tile whose drawn-surface normal tips far enough
+ *  from vertical -- which `tel_marum`'s corridor floor (flat but for the
+ *  boulders themselves) does not reliably offer near ITS friendly anchor, and
+ *  a real `road` candidate from the diagonal `r` tiles this map authors. The
+ *  same reason `RELIEF_SCENARIO` exists for map coverage applies again here:
+ *  a decal regression that only shows on sloped ground would be invisible on
+ *  every flat-map scenario.
+ *
+ *  WHY `&decals`. `showcaseSites` needs an anchor to search around
+ *  (`SHOWCASE_RING`, 4-9 tiles), and `sandboxAnchors(maps.qarn_hadid).friendly`
+ *  is exactly the anchor `main.ts` hands `RendererOptions.decalShowcase` when
+ *  the flag is on (`kdf_start` at (24,39), matched by `FRIENDLY_HINTS`'
+ *  `/^kdf[_-]/`) -- so the camera below is computed the SAME way the app
+ *  computes the showcase's own site list, not a copy that could drift from
+ *  it. Without the flag there is nothing to photograph: `stampDecalShowcase`
+ *  (`ThreeRenderer.ts`) is a no-op when `opts.decalShowcase` is undefined.
+ *
+ *  THE CAMERA is the three sites' own centroid, `((x+0.5) averaged, (y+0.5)
+ *  averaged)` rounded to the nearest half-tile -- `aftermath.test.ts` recomputes
+ *  this from `showcaseSites` directly rather than asserting a literal, so a
+ *  site-picker change that moves the sites re-fails this scenario's OWN test
+ *  rather than silently leaving the camera pointed at empty ground. Measured
+ *  on the shipped map: road (24,35), relief (30,39), flat (20,39) -> centroid
+ *  (25.17, 38.17) -> (25, 38). Confirmed by photograph at zoom 1: all three
+ *  sites, the diagonal road connecting them, and the `hollow_floor` marker
+ *  (38,38) at this map's own bowl rim all land inside the 1400x900 capture
+ *  rect (isoX span [-34.9, 8.9] around x-y=-13, isoY span [34.9, 91.1] around
+ *  x+y=63 -- `hollow_floor`'s (0, 76) sits inside both).
+ *
+ *  WHY `orders` AND `recon_drone` -- the identical trap `RELIEF_SCENARIO`
+ *  documents, for the identical reason: fog of war is computed from LIVING
+ *  SIDE-0 UNITS ONLY, and the sandbox force spawns at the friendly anchor
+ *  itself, which is 4-9 tiles short of every showcase site by construction
+ *  (`SHOWCASE_RING`'s inner radius). A camera pointed at the centroid with
+ *  nobody watching it photographs mostly fog. `recon_drone` is id 11 in
+ *  `SANDBOX_KDF` on every map (it is the table's twelfth entry, independent
+ *  of which map is loaded -- confirmed here exactly as `RELIEF_SCENARIO`
+ *  confirms it for `tel_marum`), `domain: air` so it needs no route through
+ *  qarn_hadid's rock wall, and `sight_tiles: 16` covers all three sites from
+ *  one hover point over their own centroid. Ordered there at tick 20, same as
+ *  `RELIEF_SCENARIO`.
+ *
+ *  `targetTick: 300` -- 15 sim-seconds -- rather than `RELIEF_SCENARIO`'s 500:
+ *  the drone only has to cross the showcase's own ring (at most 9 tiles from
+ *  the anchor it spawns 4 tiles from) rather than `RELIEF_SCENARIO`'s ~30-tile
+ *  crossing, and every stamp in the showcase is dated `simMs: 0` (R-14, D4),
+ *  so its fade depends only on the tick a capture pins -- not on how long the
+ *  drone took to arrive. 300 gives the drone's short flight (needing under 5s
+ *  at 2.2 tiles/s) ten seconds of settled slack before the capture, the same
+ *  margin `RELIEF_SCENARIO` reasons from. `zoom: 1` -- inside the in-game
+ *  wheel clamp `[0.35, 2.5]`, same as `RELIEF_SCENARIO`'s 2 -- because a
+ *  showcase is meant to be read, not merely detected: at 1 the whole 3x4
+ *  lattice at each site resolves clearly rather than smearing into a stain
+ *  the way `open-ground`'s deliberate 3 would. */
+export const AFTERMATH_SCENARIO: Scenario = {
+  id: 'aftermath',
+  description:
+    'qarn_hadid @ the decal showcase centroid, zoom 1, tick 300 -- the fixed crater/scorch/oil/' +
+    'rubble/tread/tyre showcase on its road, relief and flat sites, revealed by the sandbox recon ' +
+    'drone. The only shipped map with a relief showcase site.',
+  sandboxMap: 'qarn_hadid',
+  sandboxFlags: ['decals'],
+  cameraTile: [25, 38],
+  ticks: 20, // unused when targetTick is set; kept as documentation of the original relative advance
+  targetTick: 300,
+  zoom: 1,
+  orders: {
+    atTick: 20,
+    commands: [
+      // id 11 is `recon_drone` in `SANDBOX_KDF` -- see this scenario's own
+      // comment for why the fog makes this order mandatory rather than
+      // decorative.
+      "window.__lions.sim.queueCommand({ kind: 'move', ids: [11], x: Math.round(25 * 65536), y: Math.round(38 * 65536) });",
+    ],
+  },
+};
+
 /** Every scenario this harness knows about. `golden-diff-gate.ts` runs all of
  *  them, each against its own budget. Add a new one here rather than
  *  building another ad-hoc scenario by hand.
@@ -547,6 +641,7 @@ export const SCENARIOS: readonly Scenario[] = [
   OPEN_GROUND_SCENARIO,
   VEHICLE_SCENARIO,
   RELIEF_SCENARIO,
+  AFTERMATH_SCENARIO,
   COMBAT_SCENARIO,
 ];
 
@@ -566,8 +661,13 @@ function sceneParam(scenario: Scenario): string {
   if (scenario.sandboxMap !== undefined && scenario.mission !== undefined) {
     throw new Error(`scenario "${scenario.id}" sets both sandboxMap and mission -- exactly one is allowed`);
   }
-  if (scenario.mission !== undefined) return `mission=${scenario.mission}`;
-  if (scenario.sandboxMap !== undefined) return `sandbox=${scenario.sandboxMap}`;
+  // Bare tokens (`&decals`), never `&decals=true`: `routes.sandbox`'s own
+  // links and `readFlags`' `has` check both treat the flag as value-less, and
+  // `URLSearchParams.has('decals')` reads a bare token exactly as it reads
+  // `decals=`, so this is the simpler spelling with nothing lost.
+  const flags = (scenario.sandboxFlags ?? []).map((f) => `&${f}`).join('');
+  if (scenario.mission !== undefined) return `mission=${scenario.mission}${flags}`;
+  if (scenario.sandboxMap !== undefined) return `sandbox=${scenario.sandboxMap}${flags}`;
   throw new Error(`scenario "${scenario.id}" sets neither sandboxMap nor mission`);
 }
 
