@@ -3,10 +3,12 @@
  * of the shared decal pool (spec §3.3, `docs/superpowers/specs/
  * 2026-09-25-ground-design.md`) -- a ring buffer, a grid of vertices that
  * conforms to the terrain surface underneath it, and a clock that reads sim
- * time rather than frame time. The kind shader (crater/scorch/oil/rubble/
- * tread/tyre alpha and colour) is Task 11, deliberately not here -- this
- * module's material is whatever the caller hands it (see `DecalPool`'s own
- * doc comment), and `decalAlpha`/`createDecalMaterial` do not exist yet.
+ * time rather than frame time. Task 11 added the kind shader: `decalAlpha`
+ * (the pure mirror, one formula per kind, spec §5) and `createDecalMaterial`
+ * (its GLSL transcription, with every constant interpolated from the same
+ * TypeScript names, so the two cannot drift by a retyped literal). See
+ * "The kind shader" below. `DecalPool` still takes its material from the
+ * caller (see its own doc comment) -- one material, two pools.
  *
  * Shape follows `scorch-decals.ts`: a pure half with no `THREE.*` below,
  * exercised directly with plain numbers, then a GPU half.
@@ -113,10 +115,53 @@
  * agree with the terrain mesh it sits on (both wind "up", `+Y`, at a flat
  * placement -- `decal-pool.test.ts` cross-checks this directly rather than
  * trusting the mirrored formula).
+ *
+ * ## The kind shader (Task 11)
+ *
+ * Every kind is procedural: a function of the fragment's own `(s, t)`
+ * offset in `[-1, 1]^2` (`aOffset`), the stamp's `seed`, its age in SIM
+ * seconds, and its `halfLength` -- no texture. `decalAlpha` is written
+ * first and tested; `DECAL_FRAGMENT_SHADER` is the same arithmetic line for
+ * line, and every number in it is interpolated from a named constant in
+ * this file (`glslFloat`), never retyped. `decal-pool.test.ts` checks the
+ * load-bearing constants appear in the compiled string.
+ *
+ * - **Age is sim time.** `uNowSec` is `presentationSimMs(tickCount, alpha)
+ *   / 1000`, set by the renderer (Task 12); `aDecal.z` is the stamp's own
+ *   `simMs / 1000`. A frame-clock age would make the gate's zero-elapsed
+ *   repaint read two different fades (see "The sim-time clock" above).
+ * - **Colour is eight palette uniforms**, `uColors[8]` in `DecalPalette`'s
+ *   key order (bowl 0, lip 1, scorch 2, oil 3, rubble 4/5, tread 6, tyre 7),
+ *   converted with `hexToLinear` -- the renderer's output colour space is
+ *   pass-through linear (`palette-material.ts`), so an sRGB-unit colour
+ *   here would draw darker than the palette entry it names. No colour is
+ *   written in the GLSL.
+ * - **Unlit, with one multiply point (F-22).** The kinds are blended
+ *   unlit in a lit scene; a pale kind (crater lip, rubble, tyre) may glow
+ *   inside a cast shadow. That is judged in Task 12's photographs. If it
+ *   glows, the remedy is ONE presentation uniform (the ground's sun
+ *   factor) applied at the single line in the fragment shader that turns
+ *   `colour` into the output -- the shader keeps exactly one such point so
+ *   that uniform lands without rework.
+ * - **Polygon offset (F-23).** At full-power scorch (radius 1.6) a 4x4
+ *   cell spans about 1.07 tiles, and the linear chord between two grid
+ *   vertices can sit below the bicubic crest by more than `MARK_EPSILON`.
+ *   `polygonOffset` (factor -1, units -4) pulls the decal toward the
+ *   camera in depth only -- the standard decal remedy, free.
+ * - **`rlHash` is `tileHash` in `uint`.** JS's `| 0`, `>>>` and
+ *   `Math.imul` are all mod-2^32 bit operations, which is exactly GLSL ES
+ *   3.00 `uint` arithmetic; rubble's cell coordinates are offset by 64 (and
+ *   the seed term is non-negative) so the `int -> uint` cast never sees a
+ *   negative. The one inexactness is the final conversion: the GLSL keeps
+ *   the TOP 24 bits (`h >> 8u`, exact in a float, and unlike a rounded
+ *   `float(h)` never reaching 1.0), so it reads at most 2^-24 below
+ *   `tileHash` -- a chip threshold at 0.55 can only disagree for a hash
+ *   within that of it.
  */
 import * as THREE from 'three';
 import { STAMP_SPACING_TILES } from './vehicle-tracks';
-import { MARK_EPSILON } from './terrain/shared';
+import { hexToLinear, MARK_EPSILON } from './terrain/shared';
+import { tileHash } from '../tile-hash';
 
 // ---------------------------------------------------------------------------
 // Pure: kinds, the clock, grid geometry, and the approved size curves. No
@@ -385,6 +430,205 @@ export interface DecalStamp {
 }
 
 // ---------------------------------------------------------------------------
+// Pure: the kind formulas (Task 11, spec §5). `decalAlpha` is the shader's
+// mirror; `DECAL_FRAGMENT_SHADER` below is its transcription. Every number
+// either side uses is one of the constants in this block.
+// ---------------------------------------------------------------------------
+
+/**
+ * The eight palette colours the kinds draw in, as hex strings the caller
+ * resolves from `data/palette.json` (never a literal at the call site). KEY
+ * ORDER IS THE SHADER'S COLOUR INDEX: `DECAL_PALETTE_ORDER` below lists the
+ * same keys in the same order, and `DecalSample.colour` indexes it.
+ */
+export interface DecalPalette {
+  readonly craterBowl: string;
+  readonly craterLip: string;
+  readonly scorch: string;
+  readonly oil: string;
+  readonly rubbleA: string;
+  readonly rubbleB: string;
+  readonly tread: string;
+  readonly tyre: string;
+}
+
+/** `DecalPalette`'s keys in colour-index order -- `uColors[i]` is
+ *  `palette[DECAL_PALETTE_ORDER[i]]`. */
+export const DECAL_PALETTE_ORDER: readonly (keyof DecalPalette)[] = [
+  'craterBowl',
+  'craterLip',
+  'scorch',
+  'oil',
+  'rubbleA',
+  'rubbleB',
+  'tread',
+  'tyre',
+];
+
+/** Spec §5's approved opacities, per kind (the lead's numbers -- do not
+ *  tune here). */
+export const CRATER_BOWL_ALPHA = 0.4;
+export const CRATER_LIP_ALPHA = 0.25;
+export const OIL_ALPHA = 0.55;
+export const RUBBLE_ALPHA = 0.6;
+export const TRACK_ALPHA = 0.35;
+/** D6: a tread/tyre mark fades LINEARLY from `TRACK_ALPHA` to nothing over
+ *  this many SIM seconds -- no hold. */
+export const TRACK_FADE_SEC = 180;
+/** A1.2's scorch as shipped (`scorch-decals.ts`'s `SCORCH_OPACITY` /
+ *  `SCORCH_EDGE_INNER`), now owned here: solid to 0.55 r, `smoothstep` to
+ *  nothing at the rim. */
+export const SCORCH_ALPHA = 0.45;
+export const SCORCH_EDGE_INNER = 0.55;
+
+// Shape constants -- spec §5 formulas, in offset units (r = 1 at the rim).
+/** Crater rim wobble: `r' = r(1 + A sin(3θ + 2π seed))`. */
+const CRATER_WOBBLE = 0.04;
+const CRATER_LOBES = 3;
+const CRATER_BOWL_EDGE0 = 0.72;
+const CRATER_BOWL_EDGE1 = 0.8;
+const CRATER_LIP_IN0 = 0.76;
+const CRATER_LIP_IN1 = 0.84;
+const CRATER_LIP_OUT0 = 0.92;
+const CRATER_LIP_OUT1 = 1.0;
+/** Oil edge wobble: `r' = r(1 + A sin(2θ + 2π seed))`. */
+const OIL_WOBBLE = 0.1;
+const OIL_LOBES = 2;
+const OIL_EDGE_INNER = 0.7;
+/** Rubble cells are `1 / RUBBLE_CELLS_PER_UNIT` = 0.2 r across. */
+const RUBBLE_CELLS_PER_UNIT = 5;
+/** Keeps `floor(5s)` (>= -5) non-negative before `tileHash`, so the GLSL
+ *  `uint` cast agrees with the JS integer hash. */
+const RUBBLE_CELL_OFFSET = 64;
+/** `floor(1000 seed)` -- one stamp's cells differ from the next's. */
+const RUBBLE_SEED_SCALE = 1000;
+const RUBBLE_CHIP_THRESHOLD = 0.55;
+/** `fract(7h) < 0.5` picks the tone -- decorrelated from the chip test. */
+const RUBBLE_TONE_SCALE = 7;
+const RUBBLE_EDGE_INNER = 0.75;
+/** Tread/tyre falls off across the print from `|t| = 0.7` to 1. */
+const TRACK_SIDE_INNER = 0.7;
+/** Tread cleat period along the print, tiles, and the cleat's two levels. */
+const TREAD_PERIOD_TILES = 0.06;
+const TREAD_PATTERN_BASE = 0.65;
+const TREAD_PATTERN_CLEAT = 0.35;
+
+/** `tileHash`'s three multipliers, interpolated into `rlHash` so the GLSL
+ *  cannot drift from `packages/render/src/tile-hash.ts`. Pinned against
+ *  `tileHash` itself in `decal-pool.test.ts`. */
+export const TILE_HASH_MX = 374761393;
+export const TILE_HASH_MY = 668265263;
+export const TILE_HASH_MIX = 1274126177;
+
+/** Colour indices -- positions in `DECAL_PALETTE_ORDER`. */
+const COLOUR_CRATER_BOWL = 0;
+const COLOUR_CRATER_LIP = 1;
+const COLOUR_SCORCH = 2;
+const COLOUR_OIL = 3;
+const COLOUR_RUBBLE_A = 4;
+const COLOUR_RUBBLE_B = 5;
+const COLOUR_TREAD = 6;
+const COLOUR_TYRE = 7;
+
+/** One fragment's worth of `decalAlpha`: its opacity, and which palette
+ *  entry (`DECAL_PALETTE_ORDER` index) it draws in. */
+export interface DecalSample {
+  readonly alpha: number;
+  readonly colour: number;
+}
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const u = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return u * u * (3 - 2 * u);
+}
+
+function clamp01(x: number): number {
+  return Math.min(1, Math.max(0, x));
+}
+
+/** `r(1 + amp sin(lobes θ + 2π seed))`, with θ taken as 0 at the centre --
+ *  GLSL's `atan(0, 0)` is undefined, and `r = 0` there anyway. */
+function wobbledRadius(s: number, t: number, seed: number, amp: number, lobes: number): number {
+  const r = Math.hypot(s, t);
+  const theta = r > 0 ? Math.atan2(t, s) : 0;
+  return r * (1 + amp * Math.sin(lobes * theta + 2 * Math.PI * seed));
+}
+
+/**
+ * The kind shader's mirror (spec §5): opacity and palette index for one
+ * fragment of a `kind` decal at offset `(s, t)` in `[-1, 1]^2`, with the
+ * stamp's `seed` in `[0, 1)`, its age in SIM seconds (`uNowSec - aDecal.z`;
+ * negative between a stamp's date and the frame that presents it, clamped),
+ * and its `halfLength` in tiles (tread/tyre only: it turns `s` into tiles
+ * along the print, so the feather and the cleat period are in tiles
+ * whatever the stamp's length).
+ *
+ * The tread/tyre feather is `TRACK_FEATHER_TILES` -- the same constant
+ * `TRACK_STAMP_HALF_LENGTH` is built from -- so two stamps
+ * `STAMP_SPACING_TILES` apart overlap by exactly the feather, on
+ * complementary linear ramps: their "over" composite never exceeds
+ * `TRACK_ALPHA` (no double) and dips at most `TRACK_ALPHA^2 / 4` at the
+ * midpoint (no seam) -- G7, R-15.
+ */
+export function decalAlpha(
+  kind: DecalKind,
+  s: number,
+  t: number,
+  seed: number,
+  ageSec: number,
+  halfLength: number
+): DecalSample {
+  switch (kind) {
+    case 'crater': {
+      const rw = wobbledRadius(s, t, seed, CRATER_WOBBLE, CRATER_LOBES);
+      const bowl = CRATER_BOWL_ALPHA * (1 - smoothstep(CRATER_BOWL_EDGE0, CRATER_BOWL_EDGE1, rw));
+      const lip =
+        CRATER_LIP_ALPHA *
+        smoothstep(CRATER_LIP_IN0, CRATER_LIP_IN1, rw) *
+        (1 - smoothstep(CRATER_LIP_OUT0, CRATER_LIP_OUT1, rw));
+      return lip > bowl ? { alpha: lip, colour: COLOUR_CRATER_LIP } : { alpha: bowl, colour: COLOUR_CRATER_BOWL };
+    }
+    case 'scorch': {
+      const r = Math.hypot(s, t);
+      return { alpha: SCORCH_ALPHA * (1 - smoothstep(SCORCH_EDGE_INNER, 1, r)), colour: COLOUR_SCORCH };
+    }
+    case 'oil': {
+      const rw = wobbledRadius(s, t, seed, OIL_WOBBLE, OIL_LOBES);
+      return { alpha: OIL_ALPHA * (1 - smoothstep(OIL_EDGE_INNER, 1, rw)), colour: COLOUR_OIL };
+    }
+    case 'rubble': {
+      const r = Math.hypot(s, t);
+      const h = tileHash(
+        Math.floor(RUBBLE_CELLS_PER_UNIT * s) + RUBBLE_CELL_OFFSET,
+        Math.floor(RUBBLE_CELLS_PER_UNIT * t) + RUBBLE_CELL_OFFSET + Math.floor(RUBBLE_SEED_SCALE * seed)
+      );
+      const chip = h >= RUBBLE_CHIP_THRESHOLD ? 1 : 0;
+      const tone = RUBBLE_TONE_SCALE * h - Math.floor(RUBBLE_TONE_SCALE * h);
+      return {
+        alpha: RUBBLE_ALPHA * chip * (1 - smoothstep(RUBBLE_EDGE_INNER, 1, r)),
+        colour: tone < 0.5 ? COLOUR_RUBBLE_A : COLOUR_RUBBLE_B,
+      };
+    }
+    case 'tread':
+    case 'tyre': {
+      const u = s * halfLength;
+      const feather = clamp01((halfLength - Math.abs(u)) / TRACK_FEATHER_TILES);
+      const side = 1 - smoothstep(TRACK_SIDE_INNER, 1, Math.abs(t));
+      const fade = clamp01(1 - Math.max(ageSec, 0) / TRACK_FADE_SEC);
+      let pattern = 1;
+      if (kind === 'tread') {
+        const p = u / TREAD_PERIOD_TILES;
+        pattern = TREAD_PATTERN_BASE + TREAD_PATTERN_CLEAT * (p - Math.floor(p) >= 0.5 ? 1 : 0);
+      }
+      return {
+        alpha: TRACK_ALPHA * feather * side * fade * pattern,
+        colour: kind === 'tread' ? COLOUR_TREAD : COLOUR_TYRE,
+      };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // GPU-facing: THREE.* construction. Constructed and inspected under
 // `environment: 'node'` with no real `WebGLRenderer`, same as
 // `scorch-decals.test.ts`'s own GPU half.
@@ -547,4 +791,142 @@ export class DecalPool {
   dispose(): void {
     this.mesh.geometry.dispose();
   }
+}
+
+/** F-23: pull the decal toward the camera in depth only, so the linear
+ *  chord of a coarse grid cell never sinks under a bicubic crest. See this
+ *  file's top comment, "The kind shader". */
+export const DECAL_POLYGON_OFFSET_FACTOR = -1;
+export const DECAL_POLYGON_OFFSET_UNITS = -4;
+
+/** A number as a GLSL float literal -- always carries a decimal point, so
+ *  `180` becomes `180.000000`, never the `int` literal `180`. */
+function glslFloat(v: number): string {
+  return v.toFixed(6);
+}
+
+const DECAL_VERTEX_SHADER = /* glsl */ `
+  attribute vec2 aOffset;
+  attribute vec4 aDecal;
+  varying vec2 vOffset;
+  // flat: kind, seed, date and half-length are per-decal constants -- no
+  // interpolation, so floor(1000 seed) and the kind branch see the exact
+  // value the pool wrote.
+  flat varying vec4 vDecal;
+  void main() {
+    vOffset = aOffset;
+    vDecal = aDecal;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const f = glslFloat;
+
+/** `decalAlpha`, transcribed. Keep the two in step line for line. */
+const DECAL_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uColors[${DECAL_PALETTE_ORDER.length}];
+  uniform float uNowSec;
+  varying vec2 vOffset;
+  flat varying vec4 vDecal;
+
+  // tileHash (packages/render/src/tile-hash.ts) in uint arithmetic -- see
+  // decal-pool.ts's top comment. Inputs are non-negative by construction.
+  float rlHash(int xi, int yi) {
+    uint h = uint(xi) * ${TILE_HASH_MX}u + uint(yi) * ${TILE_HASH_MY}u;
+    h = (h ^ (h >> 13u)) * ${TILE_HASH_MIX}u;
+    h = h ^ (h >> 16u);
+    // Top 24 bits: exact in a float, and never rounds up to 1.0.
+    return float(h >> 8u) / 16777216.0;
+  }
+
+  float wobbledRadius(vec2 st, float seed, float amp, float lobes) {
+    float r = length(st);
+    float theta = r > 0.0 ? atan(st.y, st.x) : 0.0;
+    return r * (1.0 + amp * sin(lobes * theta + ${f(2 * Math.PI)} * seed));
+  }
+
+  void main() {
+    int kind = int(vDecal.x + 0.5);
+    float seed = vDecal.y;
+    float ageSec = uNowSec - vDecal.z;
+    float halfLength = vDecal.w;
+    float s = vOffset.x;
+    float t = vOffset.y;
+    float a = 0.0;
+    int ci = 0;
+
+    if (kind == ${DECAL_KIND_INDEX.crater}) {
+      float rw = wobbledRadius(vOffset, seed, ${f(CRATER_WOBBLE)}, ${f(CRATER_LOBES)});
+      float bowl = ${f(CRATER_BOWL_ALPHA)} * (1.0 - smoothstep(${f(CRATER_BOWL_EDGE0)}, ${f(CRATER_BOWL_EDGE1)}, rw));
+      float lip = ${f(CRATER_LIP_ALPHA)}
+        * smoothstep(${f(CRATER_LIP_IN0)}, ${f(CRATER_LIP_IN1)}, rw)
+        * (1.0 - smoothstep(${f(CRATER_LIP_OUT0)}, ${f(CRATER_LIP_OUT1)}, rw));
+      if (lip > bowl) { a = lip; ci = ${COLOUR_CRATER_LIP}; } else { a = bowl; ci = ${COLOUR_CRATER_BOWL}; }
+    } else if (kind == ${DECAL_KIND_INDEX.scorch}) {
+      a = ${f(SCORCH_ALPHA)} * (1.0 - smoothstep(${f(SCORCH_EDGE_INNER)}, 1.0, length(vOffset)));
+      ci = ${COLOUR_SCORCH};
+    } else if (kind == ${DECAL_KIND_INDEX.oil}) {
+      float rw = wobbledRadius(vOffset, seed, ${f(OIL_WOBBLE)}, ${f(OIL_LOBES)});
+      a = ${f(OIL_ALPHA)} * (1.0 - smoothstep(${f(OIL_EDGE_INNER)}, 1.0, rw));
+      ci = ${COLOUR_OIL};
+    } else if (kind == ${DECAL_KIND_INDEX.rubble}) {
+      float h = rlHash(
+        int(floor(${f(RUBBLE_CELLS_PER_UNIT)} * s)) + ${RUBBLE_CELL_OFFSET},
+        int(floor(${f(RUBBLE_CELLS_PER_UNIT)} * t)) + ${RUBBLE_CELL_OFFSET} + int(floor(${f(RUBBLE_SEED_SCALE)} * seed))
+      );
+      float chip = step(${f(RUBBLE_CHIP_THRESHOLD)}, h);
+      a = ${f(RUBBLE_ALPHA)} * chip * (1.0 - smoothstep(${f(RUBBLE_EDGE_INNER)}, 1.0, length(vOffset)));
+      ci = fract(${f(RUBBLE_TONE_SCALE)} * h) < 0.5 ? ${COLOUR_RUBBLE_A} : ${COLOUR_RUBBLE_B};
+    } else if (kind == ${DECAL_KIND_INDEX.tread} || kind == ${DECAL_KIND_INDEX.tyre}) {
+      float u = s * halfLength;
+      float feather = clamp((halfLength - abs(u)) / ${f(TRACK_FEATHER_TILES)}, 0.0, 1.0);
+      float side = 1.0 - smoothstep(${f(TRACK_SIDE_INNER)}, 1.0, abs(t));
+      float fade = clamp(1.0 - max(ageSec, 0.0) / ${f(TRACK_FADE_SEC)}, 0.0, 1.0);
+      float pattern = 1.0;
+      if (kind == ${DECAL_KIND_INDEX.tread}) {
+        pattern = ${f(TREAD_PATTERN_BASE)} + ${f(TREAD_PATTERN_CLEAT)} * step(0.5, fract(u / ${f(TREAD_PERIOD_TILES)}));
+      }
+      a = ${f(TRACK_ALPHA)} * feather * side * fade * pattern;
+      ci = kind == ${DECAL_KIND_INDEX.tread} ? ${COLOUR_TREAD} : ${COLOUR_TYRE};
+    }
+
+    if (a <= 0.0) discard;
+    vec3 colour = uColors[ci];
+    // F-22: the ONE point where colour becomes output. A presentation sun
+    // factor, if Task 12's photographs call for one, multiplies here.
+    gl_FragColor = vec4(colour, a);
+  }
+`;
+
+/**
+ * The one material both decal pools share (see `DecalPool`'s top comment):
+ * the kind shader above, `uColors[8]` from `palette` in
+ * `DECAL_PALETTE_ORDER` (linear, via `hexToLinear`), and `uNowSec`, the
+ * SIM clock in seconds, starting at 0 -- the renderer sets it every frame
+ * from `presentationSimMs(tickCount, alpha) / 1000`, never from a frame
+ * timestamp. Translucent, depth-tested, not depth-writing, with F-23's
+ * polygon offset; `DoubleSide` for the same reason `createScorchMaterial`
+ * gives -- no lighting term depends on the winding, so the winding is not a
+ * risk worth carrying.
+ */
+export function createDecalMaterial(palette: DecalPalette): THREE.ShaderMaterial {
+  const colours = DECAL_PALETTE_ORDER.map((key) => {
+    const [r, g, b] = hexToLinear(palette[key]);
+    return new THREE.Vector3(r, g, b);
+  });
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColors: { value: colours },
+      uNowSec: { value: 0 },
+    },
+    vertexShader: DECAL_VERTEX_SHADER,
+    fragmentShader: DECAL_FRAGMENT_SHADER,
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: DECAL_POLYGON_OFFSET_FACTOR,
+    polygonOffsetUnits: DECAL_POLYGON_OFFSET_UNITS,
+    side: THREE.DoubleSide,
+  });
 }
