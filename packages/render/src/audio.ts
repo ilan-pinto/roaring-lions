@@ -448,6 +448,17 @@ export class BattleAudio {
     if (setName === 'ui_objective') {
       this.tone(660, 0.09, 'sine', 0.05);
       window.setTimeout(() => this.tone(990, 0.12, 'sine', 0.045), 70);
+    } else if (setName === 'ui_purchase') {
+      // A shop, not an alarm (garage uplift §3.5): a low clunk under a rising
+      // pair. Rising is the objective's meaning ("something went your way"),
+      // kept deliberately short of the objective's own pitch.
+      this.tone(196, 0.08, 'triangle', 0.06);
+      window.setTimeout(() => this.tone(294, 0.12, 'sine', 0.045), 70);
+    } else if (setName === 'ui_upgrade') {
+      // Two pawl clicks of a ratchet, then the higher note.
+      this.tone(1175, 0.02, 'square', 0.02);
+      window.setTimeout(() => this.tone(1175, 0.02, 'square', 0.02), 35);
+      window.setTimeout(() => this.tone(880, 0.1, 'sine', 0.045), 90);
     } else {
       this.tone(520, 0.08, 'triangle', 0.06);
       window.setTimeout(() => this.tone(390, 0.16, 'triangle', 0.05), 60);

@@ -301,7 +301,25 @@
         }
       ]
     },
-    "ui_alert":     { "event": "ui", "gain": 0.5, "variants": [] },
-    "ui_objective": { "event": "ui", "gain": 0.4, "variants": [] }
+    "ui_alert": {
+      "event": "ui",
+      "gain": 0.5,
+      "variants": []
+    },
+    "ui_objective": {
+      "event": "ui",
+      "gain": 0.4,
+      "variants": []
+    },
+    "ui_purchase": {
+      "event": "ui",
+      "gain": 0.45,
+      "variants": []
+    },
+    "ui_upgrade": {
+      "event": "ui",
+      "gain": 0.45,
+      "variants": []
+    }
   }
 }

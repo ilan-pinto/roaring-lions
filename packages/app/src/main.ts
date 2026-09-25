@@ -70,6 +70,7 @@ import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
+import { CUE_SET } from './ui/garage-model';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
@@ -1034,6 +1035,12 @@ async function main(): Promise<void> {
         ((units as Record<string, unknown>)[typeId] as UpgradableUnit | undefined) ?? { id: typeId },
       possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
       credits: ledgerStore.available ? balance : undefined,
+      // A purchase that landed is heard (WP-S3g T11, spec §3.5). The mixer is
+      // the document's one, built at boot, so its `pointerdown` listener has
+      // made the AudioContext before this click's handler runs -- the Buy is
+      // its own first gesture. Mute and the volume sliders are honoured
+      // inside `playUi`; a set with no decoded clip plays its synth arm.
+      onCue: (cue) => battleAudio().playUi(CUE_SET[cue]),
       onReset: ledgerStore.available
         ? () => {
             ledgerStore.resetAccount();

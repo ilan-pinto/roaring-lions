@@ -1056,6 +1056,98 @@ try {
     await garageCtx.close();
   }
 
+  // --- the garage's first Buy is heard (WP-S3g T11, spec §9 "First gesture") -
+  //
+  // Browsers build no sound before a user gesture, and the mixer's context is
+  // made inside its own `pointerdown`/`keydown` listener (`audio.ts`'s
+  // `attach()`), so the one Buy that could be silent is a session's FIRST.
+  // Nothing in this context may therefore reach the page as a gesture before
+  // it: `at_team` (the seed's part-kitted unit -- the page opens on `mbt_lavi`,
+  // maxed, with no Buy anywhere) is selected with an UNTRUSTED `el.click()`
+  // inside the page, which runs the card's click handler and dispatches no
+  // `pointerdown` or `keydown` at all. Then the Buy is clicked for real.
+  //
+  // Two votes on sound, not one: an oscillator or buffer source was created
+  // AND the context that made it reads `running` 500 ms later. Counting
+  // sources alone passes on a context left `suspended`, which is silence. And
+  // the first oscillator must not be 520 Hz -- `playUi`'s fallback, the
+  // ALERT's falling tone, which is what a set with no arm of its own plays
+  // (R-2). The recorder is an init script so it is in place before `main.ts`
+  // can construct anything; `ctx` is whichever context actually made a voice.
+  //
+  // What "untrusted" buys here, measured: Playwright runs every
+  // `page.evaluate` with `userGesture: true`, so the card click DOES hand the
+  // page user activation -- a probe's `navigator.userActivation.hasBeenActive`
+  // reads true after any evaluate. What it does not do is dispatch the
+  // `pointerdown`/`keydown` the mixer listens for, so no AudioContext exists
+  // until the real Buy (the `before` vote below). Without an evaluate this
+  // shared browser does enforce the autoplay policy -- a context built at
+  // load reads `suspended` -- and launching it with
+  // `--autoplay-policy=user-gesture-required` measured LOOSER (`running`), so
+  // there is no flag here on purpose. One break this leg CANNOT see: an
+  // `attach()` that builds its context eagerly at boot and never resumes it
+  // still read `running` here (measured) -- by inference, because the
+  // evaluate's activation lets Chromium start a policy-suspended context once
+  // a node starts. The `running` vote's red was shown with a context
+  // suspended explicitly (`ctx.suspend()` in the gesture listener).
+  const AUDIO_RECORDER =
+    '(function () {' +
+    '  var w = window; w.__rlAudio = { osc: [], buf: 0, ctx: null };' +
+    '  var C = w.AudioContext || w.webkitAudioContext; if (!C) return;' +
+    '  var mk = C.prototype.createOscillator;' +
+    '  C.prototype.createOscillator = function () {' +
+    '    var o = mk.call(this); var rec = { f: null }; w.__rlAudio.osc.push(rec); w.__rlAudio.ctx = this;' +
+    '    setTimeout(function () { rec.f = o.frequency.value; }, 0); return o;' +
+    '  };' +
+    '  var mb = C.prototype.createBufferSource;' +
+    '  C.prototype.createBufferSource = function () { w.__rlAudio.buf++; w.__rlAudio.ctx = this; return mb.call(this); };' +
+    '})();';
+  const AUDIO_READ =
+    '(() => ({' +
+    '  osc: window.__rlAudio.osc.map(function (r) { return r.f; }),' +
+    '  buf: window.__rlAudio.buf,' +
+    '  state: window.__rlAudio.ctx ? window.__rlAudio.ctx.state : null,' +
+    '}))()';
+  {
+    const soundCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await soundCtx.addInitScript(garageSeedScript());
+    await soundCtx.addInitScript(AUDIO_RECORDER);
+    const s = await soundCtx.newPage();
+    s.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    s.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+      else if (m.type() === 'warning') warnings.push(m.text());
+    });
+    s.on('pageerror', (e) => errors.push(String(e)));
+
+    await s.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await s.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    // Untrusted, in the page: the card's own handler, and no gesture.
+    await s.evaluate(
+      '(() => { document.querySelector(\'.rl-garage__card[data-unit="at_team"]\').click(); })()'
+    );
+    await s.waitForSelector('.rl-garage__card[data-unit="at_team"][aria-selected="true"]');
+    const before = await s.evaluate<{ osc: (number | null)[]; buf: number; state: string | null }>(AUDIO_READ);
+    expect(
+      before.osc.length + before.buf === 0,
+      `garage: ${before.osc.length + before.buf} voice(s) before the first Buy -- the leg is not testing a first gesture`
+    );
+    // The first gesture of the session, for real.
+    await s.locator('.rl-garage__board .rl-garage__buy-tier:enabled:visible').first().click();
+    await s.waitForTimeout(500);
+    const heard = await s.evaluate<{ osc: (number | null)[]; buf: number; state: string | null }>(AUDIO_READ);
+    console.log(`[${TAG}] garage first Buy: ${JSON.stringify(heard)}`);
+    expect(heard.osc.length + heard.buf > 0, "garage: a session's first Buy made no sound (spec §9)");
+    expect(
+      heard.state === 'running',
+      `garage: the first Buy's AudioContext reads "${heard.state}" 500 ms later, not "running" -- nothing was heard (spec §9)`
+    );
+    if (heard.osc.length > 0) {
+      expect(heard.osc[0] !== 520, "garage: the first Buy played the ALERT's falling tone (R-2)");
+    }
+    await soundCtx.close();
+  }
+
   // --- the garage fits the screen, measured (WP-S3g T9, F4, F9, §2 goal 3) --
   //
   // Task 7 shrank the box to the viewport and Task 6 capped the plate so the
