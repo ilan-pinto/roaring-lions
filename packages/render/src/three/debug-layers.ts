@@ -50,6 +50,10 @@
  *                 starts at 0 and a 404 leaves it there). Hiding it therefore
  *                 reproduces exactly "the texture never arrived", and the
  *                 delta is the whole contribution of the shipped tiles.
+ *                 Since ground Task 5 it also drives the macro field's
+ *                 amplitude to 0, so hidden still means the FLAT vertex
+ *                 palette tone the `scatter` tone check flattens to
+ *                 (`GroundMaterial.setAlbedoVisible`).
  * - `buildings`   structure boxes, mesh building clones (idle and wreck) and
  *                 the billboard structure instancers.
  *

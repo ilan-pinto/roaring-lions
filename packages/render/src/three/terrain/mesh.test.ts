@@ -30,9 +30,71 @@ import {
   albedoMean,
   slotUniforms,
   prepareGroundTexture,
+  controlTextures,
 } from './mesh';
-import { srgbToLinear } from './shared';
-import type { MeshData } from './types';
+import { buildControlMap, buildMacroField, HEIGHT_BLEND, MACRO_HUE, MACRO_LUMINANCE } from './control-map';
+import { buildGround, WALL_ALBEDO_NONE, WALL_ALBEDO_ROCK, WALL_ALBEDO_TOP } from './ground';
+import { DECOR_RIDGE, DECOR_ROAD, srgbToLinear } from './shared';
+import type { MeshData, TerrainInput } from './types';
+
+type Vec3 = [number, number, number];
+
+/** Verbatim from `ground.test.ts` -- vertex `i`'s position. */
+function vertex(m: MeshData, i: number): Vec3 {
+  return [m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2]];
+}
+
+/** Verbatim from `ground.test.ts`: which of the four things `buildGround`
+ *  emits a triangle belongs to, classified from its own vertices. */
+function kindOf(a: Vec3, b: Vec3, c: Vec3): 'tile top' | 'east face' | 'south face' | 'surface patch' {
+  if (a[0] === b[0] && b[0] === c[0]) return 'east face';
+  if (a[2] === b[2] && b[2] === c[2]) return 'south face';
+  if (a[1] === b[1] && b[1] === c[1]) return 'tile top';
+  return 'surface patch';
+}
+
+/** `ground.test.ts`'s own tone set -- any on-palette `TerrainTones` will do,
+ *  since nothing here reads a colour. */
+const TONES = {
+  open: '#C8B494', cover: ['#8F9464', '#6E7449', '#4E5433'] as [string, string, string],
+  blocked: '#3A3C33', underBuilding: '#23241F', road: '#E6D8BE', rut: '#4E5433',
+  rock: '#8E9491', rockLit: '#F2E8D5', earth: '#6E7449', low: '#8F9464',
+  trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
+  leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
+  crownRatio: 0.52, scatter: 'stone' as const, groveFamily: 'desert_tree' as const,
+};
+const BACKGROUND = '#14150F';
+
+/** A 4x4 map with something on it for each control channel to say: a road
+ *  row, a cover-2 tile and a ridge. */
+const tinyInput: TerrainInput = (() => {
+  const w = 4;
+  const h = 4;
+  const decor = new Uint8Array(w * h);
+  const blocked = new Uint8Array(w * h);
+  const cover = new Uint8Array(w * h);
+  for (let x = 0; x < w; x++) decor[0 * w + x] = DECOR_ROAD;
+  cover[2 * w + 1] = 2;
+  decor[3 * w + 3] = DECOR_RIDGE;
+  blocked[3 * w + 3] = 1;
+  return { width: w, height: h, decor, elevation: null, blocked, cover };
+})();
+
+/** 4x4 at elevation 1, a `^` ridge at (1,1) and a building's blocked tile at
+ *  (2,2), both at elevation 3 -- so each throws walls, one of each kind. */
+function reliefWithRidgeAndBuilding(): TerrainInput {
+  const w = 4;
+  const h = 4;
+  const elevation = new Uint8Array(w * h).fill(1);
+  const decor = new Uint8Array(w * h);
+  const blocked = new Uint8Array(w * h);
+  decor[1 * w + 1] = DECOR_RIDGE;
+  blocked[1 * w + 1] = 1;
+  elevation[1 * w + 1] = 3;
+  blocked[2 * w + 2] = 1;
+  elevation[2 * w + 2] = 3;
+  return { width: w, height: h, decor, elevation, blocked, cover: new Uint8Array(w * h) };
+}
 
 /**
  * The standard material's own sources with this material's injection applied
@@ -60,6 +122,83 @@ function compiled(material: THREE.Material): {
   return shader;
 }
 
+/** `compiled(material).fragmentShader` -- the brief's name for the same seam. */
+function compiledFragmentSource(material: THREE.Material): string {
+  return compiled(material).fragmentShader;
+}
+
+describe('GroundMaterial samples the control map', () => {
+  const src = compiledFragmentSource(new GroundMaterial());
+
+  it('declares the control and macro samplers, and no longer the five surface masks', () => {
+    for (const u of ['uControlA', 'uControlB', 'uMacro', 'uMapSize', 'uMacroAmp']) expect(src).toContain(u);
+    for (const m of ['vSandMask', 'vRockMask', 'vScrubMask', 'vGroveMask', 'vKnollMask']) expect(src).not.toContain(m);
+  });
+  it('carries the tested constants, not a transcription of them', () => {
+    expect(src).toContain(HEIGHT_BLEND.toFixed(3));
+    expect(src).toContain(MACRO_LUMINANCE.toFixed(3));
+    expect(src).toContain(MACRO_HUE.toFixed(3));
+    // Once each: a constant written in several places passes "contains" with
+    // one of them retyped by hand, which is the drift this test exists for.
+    for (const c of [HEIGHT_BLEND, MACRO_LUMINANCE, MACRO_HUE]) {
+      expect(src.split(c.toFixed(3)).length - 1, `${c.toFixed(3)} is written more than once`).toBe(1);
+    }
+    // And every weight goes through the one biased helper.
+    expect(src.match(/rlHeightBiased\(rlW[0-4], rlF[0-4]\)/g)).toHaveLength(5);
+    // The exact inverse of `buildMacroField`'s `round(128 + 127 v)`, so the
+    // 1x1 default of 128 is m = 0 exactly.
+    expect(src).toContain('* 255.0 - 128.0) / 127.0');
+  });
+  it('fails soft: before any map lands, every default means "flat palette tone"', () => {
+    const u = new GroundMaterial().uniforms;
+    const px = (name: string): number[] => Array.from((u[name].value as THREE.DataTexture).image.data as Uint8Array);
+    expect(px('uControlA')).toEqual([0, 0, 0, 0]);
+    expect(px('uControlB')).toEqual([0, 255, 255, 128]);
+    expect(px('uMacro')[0]).toBe(128);
+    expect(u.uMacroAmp.value).toBe(1);
+  });
+  it('builds its textures as data, not colour', () => {
+    const t = controlTextures(buildControlMap(tinyInput), buildMacroField(4, 4));
+    for (const tex of [t.a, t.b, t.macro]) {
+      expect(tex.colorSpace).toBe(THREE.NoColorSpace);
+      expect(tex.flipY).toBe(false);
+      expect(tex.wrapS).toBe(THREE.ClampToEdgeWrapping);
+      expect(tex.generateMipmaps).toBe(true);
+    }
+    expect(t.macro.format).toBe(THREE.RedFormat);
+  });
+  it('reads the wall attribute and the world position in the vertex stage', () => {
+    const vert = compiled(new GroundMaterial()).vertexShader;
+    expect(vert).toContain('attribute float wallAlbedo;');
+    expect(vert).toContain('vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    // After `<begin_vertex>`, where `transformed` exists.
+    expect(vert.indexOf('#include <begin_vertex>')).toBeLessThan(vert.indexOf('vRlWorldXZ ='));
+  });
+});
+
+describe('wallAlbedo -- the one per-vertex surface fact left (R-5)', () => {
+  it('is -1 on every top, 1 on a ridge wall, 0 on a building wall', () => {
+    const data = buildGround(reliefWithRidgeAndBuilding(), TONES, BACKGROUND);
+    const w = data.wallAlbedo;
+    if (!w) throw new Error('buildGround emitted no wallAlbedo');
+    const byKind = new Map<string, Set<number>>();
+    for (let t = 0; t < data.indices.length / 3; t++) {
+      const vs = [0, 1, 2].map((k) => data.indices[t * 3 + k]);
+      const kind = kindOf(vertex(data, vs[0]), vertex(data, vs[1]), vertex(data, vs[2]));
+      const set = byKind.get(kind) ?? new Set<number>();
+      for (const v of vs) set.add(w[v]);
+      byKind.set(kind, set);
+    }
+    for (const top of ['tile top', 'surface patch']) {
+      const s = byKind.get(top);
+      if (s) expect(s, top).toEqual(new Set([WALL_ALBEDO_TOP]));
+    }
+    const walls = new Set([...(byKind.get('east face') ?? []), ...(byKind.get('south face') ?? [])]);
+    expect(walls).toEqual(new Set([WALL_ALBEDO_ROCK, WALL_ALBEDO_NONE]));
+    expect(toGeometry(data).getAttribute('wallAlbedo').count).toBe(data.positions.length / 3);
+  });
+});
+
 describe('GroundMaterial', () => {
   it('is a lit, vertex-coloured, double-sided standard material with the six albedo slots as uniforms', () => {
     const m = new GroundMaterial();
@@ -84,9 +223,9 @@ describe('GroundMaterial', () => {
     m.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
     expect(shader.uniforms.uSandStrength).toBe(m.uniforms.uSandStrength);
     expect(shader.vertexShader).toContain('attribute vec2 groundUv;');
-    expect(shader.fragmentShader).toContain('diffuseColor.rgb *= rlAlbedo;');
+    expect(shader.fragmentShader).toContain('diffuseColor.rgb *= rlAlbedo * rlMacro;');
     expect(shader.fragmentShader.indexOf('#include <color_fragment>')).toBeLessThan(
-      shader.fragmentShader.indexOf('diffuseColor.rgb *= rlAlbedo;')
+      shader.fragmentShader.indexOf('diffuseColor.rgb *= rlAlbedo * rlMacro;')
     );
     expect(m.customProgramCacheKey()).toBe('rl-ground');
   });
@@ -138,7 +277,8 @@ describe('the ground albedo tile', () => {
     // byte-identical.
     const src = compiled(new GroundMaterial()).fragmentShader;
     expect(src).toMatch(/texture2D\s*\(\s*uSand[^)]*\)\.rgb\s*\/\s*uSandMean/);
-    expect(src).toMatch(/mix\s*\(\s*vec3\(1\.0\)\s*,\s*rlSand\s*,\s*uSandStrength\s*\*\s*vSandMask\s*\)/);
+    // Weighted by the control map now, not switched by a `vSandMask`.
+    expect(src).toMatch(/mix\s*\(\s*vec3\(1\.0\)\s*,\s*rlSand\s*,\s*uSandStrength\s*\)/);
     // The builder's own planar projection, NOT `vWorldPos.xz`: XZ is only
     // right for a horizontal surface, and an east-facing cliff has a constant
     // world X, so XZ would give every fragment on it the same U and smear one
@@ -150,7 +290,7 @@ describe('the ground albedo tile', () => {
   it('applies the ROCK tile the same way, on its own mask, at its own scale', () => {
     const src = compiled(new GroundMaterial()).fragmentShader;
     expect(src).toMatch(/texture2D\s*\(\s*uRock[^)]*\)\.rgb\s*\/\s*uRockMean/);
-    expect(src).toMatch(/mix\s*\(\s*vec3\(1\.0\)\s*,\s*rlRock\s*,\s*uRockStrength\s*\*\s*vRockMask\s*\)/);
+    expect(src).toMatch(/mix\s*\(\s*vec3\(1\.0\)\s*,\s*rlRock\s*,\s*uRockStrength\s*\)/);
     expect(src).toMatch(/vGroundUv\s*\/\s*uRockTiles/);
     const m = new GroundMaterial();
     expect(m.uniforms.uRockStrength.value).toBe(0);
@@ -170,7 +310,7 @@ describe('the ground albedo tile', () => {
     expect(sand.x - sand.z).toBeGreaterThan(rock.x - rock.z);
   });
 
-  it('gives every slot all four uniforms and a mask the shader actually reads', () => {
+  it('gives every slot all four uniforms, and only the road a per-vertex mask', () => {
     // The failure this exists to stop: a slot wired into `GROUND_SLOTS` (so
     // `ThreeRenderer` fetches its image and writes its uniforms) whose
     // uniforms or mask the shader never declares. Nothing throws -- the
@@ -188,11 +328,19 @@ describe('the ground albedo tile', () => {
       // palette tone rather than white or undefined.
       expect(m.uniforms[u.strength].value).toBe(0);
       expect(m.uniforms[u.map].value.image.width).toBe(1);
+      // The control map says which surface a fragment is on now. Only the
+      // road keeps its per-vertex mask, until Task 6 moves it to control B;
+      // the other five must be GONE, or a stale mask is still switching a
+      // surface the map is also weighting.
       const mask = `${slot}Mask`;
-      expect(vert, `no ${mask} attribute`).toContain(`attribute float ${mask};`);
-      expect(frag, `shader never reads v${slot.charAt(0).toUpperCase()}${slot.slice(1)}Mask`).toContain(
-        `v${slot.charAt(0).toUpperCase()}${slot.slice(1)}Mask`
-      );
+      const vMask = `v${slot.charAt(0).toUpperCase()}${slot.slice(1)}Mask`;
+      if (slot === 'road') {
+        expect(vert, `no ${mask} attribute`).toContain(`attribute float ${mask};`);
+        expect(frag, `shader never reads ${vMask}`).toContain(vMask);
+      } else {
+        expect(vert, `${mask} is still an attribute`).not.toContain(`attribute float ${mask};`);
+        expect(frag, `shader still reads ${vMask}`).not.toContain(vMask);
+      }
     }
   });
 
@@ -269,8 +417,11 @@ describe('the ground albedo tile', () => {
     for (const slot of GROUND_SLOTS) {
       const u = slotUniforms(slot);
       const cap = slot.charAt(0).toUpperCase() + slot.slice(1);
+      // The road still multiplies by its own mask (until Task 6); every other
+      // slot's weight comes from the control map, outside the mix.
+      const weight = slot === 'road' ? `\\s*\\*\\s*v${cap}Mask` : '';
       const pattern = new RegExp(
-        `mix\\s*\\(\\s*vec3\\(1\\.0\\)\\s*,\\s*rl${cap}\\s*,\\s*${u.strength}\\s*\\*\\s*v${cap}Mask\\s*\\)`
+        `mix\\s*\\(\\s*vec3\\(1\\.0\\)\\s*,\\s*rl${cap}\\s*,\\s*${u.strength}${weight}\\s*\\)`
       );
       expect(src, `${slot} is not applied as a mix from vec3(1.0)`).toMatch(pattern);
       // ...and each is a ratio to its own measured mean, never the raw texel.
@@ -399,5 +550,24 @@ describe('toGeometry colour space and normals', () => {
     d.normals = Float32Array.from([0, 0, 1, 0, 0, 1, 0, 0, 1]);
     const n = toGeometry(d, { normals: 'compute' }).getAttribute('normal');
     expect(n.getZ(0)).toBe(1);
+  });
+});
+
+describe('GroundMaterial.setAlbedoVisible -- the ground-albedo debug layer', () => {
+  it('hides the macro with the slots, so hidden means the flat palette tone, and restores both', () => {
+    // The scatter tone check flattens the ground by hiding this layer and
+    // compares a mark's footprint over it. Scatter marks carry no macro, so a
+    // macro left on makes a colour-collapsed mark visible over "flat" ground
+    // and the check stops failing on the defect it exists for.
+    const m = new GroundMaterial();
+    m.uniforms.uSandStrength.value = 1;
+    m.setAlbedoVisible(false);
+    expect(m.uniforms.uMacroAmp.value).toBe(0);
+    for (const slot of GROUND_SLOTS) expect(m.uniforms[slotUniforms(slot).strength].value).toBe(0);
+    // Idempotent: a second hide must not stash the zeroes.
+    m.setAlbedoVisible(false);
+    m.setAlbedoVisible(true);
+    expect(m.uniforms.uMacroAmp.value).toBe(1);
+    expect(m.uniforms.uSandStrength.value).toBe(1);
   });
 });

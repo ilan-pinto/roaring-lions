@@ -110,10 +110,6 @@ export function isJunction(g: RoadGraph, n: number): boolean {
   return g.degree[n] >= 3;
 }
 
-function nodeCenter(n: RoadNode): readonly [number, number] {
-  return [n.x + 0.5, n.y + 0.5];
-}
-
 function pointSegmentDistance(
   px: number,
   pz: number,
@@ -130,24 +126,6 @@ function pointSegmentDistance(
   return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
 }
 
-/** The half-open window of tiles a query at `(px, pz)` needs to consider: no
- *  road graph feature further than two tiles from the query tile can be the
- *  nearest one, so both distance queries below only ever look here. */
-function nearbyNodes(g: RoadGraph, px: number, pz: number): number[] {
-  const cx = Math.floor(px);
-  const cz = Math.floor(pz);
-  const found: number[] = [];
-  for (let y = cz - 2; y <= cz + 2; y++) {
-    if (y < 0 || y >= g.height) continue;
-    for (let x = cx - 2; x <= cx + 2; x++) {
-      if (x < 0 || x >= g.width) continue;
-      const n = g.nodeAt[y * g.width + x];
-      if (n >= 0) found.push(n);
-    }
-  }
-  return found;
-}
-
 /**
  * Distance in tiles from `(px, pz)` to the road centreline: the point
  * distance to a degree-0 node (a lone road tile has no segment to measure
@@ -157,21 +135,31 @@ function nearbyNodes(g: RoadGraph, px: number, pz: number): number[] {
  * local search, not a full-graph one.
  */
 export function roadDistanceAt(g: RoadGraph, px: number, pz: number): number {
+  // A 5x5 tile window (two tiles each way), walked inline: this runs once per
+  // control texel (147,456 of them on a 48x48 map), and the array, the
+  // `Set` of seen edges and the two centre tuples it used to allocate per
+  // query were a third of `buildControlMap`'s time. An edge reached from
+  // both its ends is simply measured twice -- `min` of the same number is
+  // the same number, so dropping the de-duplication changes no result.
   let best = Infinity;
-  const seenEdges = new Set<number>();
-  for (const n of nearbyNodes(g, px, pz)) {
-    if (g.degree[n] === 0) {
-      const [ax, az] = nodeCenter(g.nodes[n]);
-      best = Math.min(best, Math.hypot(px - ax, pz - az));
-      continue;
-    }
-    for (const e of g.incident[n]) {
-      if (seenEdges.has(e)) continue;
-      seenEdges.add(e);
-      const [a, b] = g.edges[e];
-      const [ax, az] = nodeCenter(g.nodes[a]);
-      const [bx, bz] = nodeCenter(g.nodes[b]);
-      best = Math.min(best, pointSegmentDistance(px, pz, ax, az, bx, bz));
+  const cx = Math.floor(px);
+  const cz = Math.floor(pz);
+  for (let y = cz - 2; y <= cz + 2; y++) {
+    if (y < 0 || y >= g.height) continue;
+    for (let x = cx - 2; x <= cx + 2; x++) {
+      if (x < 0 || x >= g.width) continue;
+      const n = g.nodeAt[y * g.width + x];
+      if (n < 0) continue;
+      if (g.degree[n] === 0) {
+        best = Math.min(best, Math.hypot(px - (x + 0.5), pz - (y + 0.5)));
+        continue;
+      }
+      for (const e of g.incident[n]) {
+        const [a, b] = g.edges[e];
+        const na = g.nodes[a];
+        const nb = g.nodes[b];
+        best = Math.min(best, pointSegmentDistance(px, pz, na.x + 0.5, na.y + 0.5, nb.x + 0.5, nb.y + 0.5));
+      }
     }
   }
   return best;
@@ -179,13 +167,19 @@ export function roadDistanceAt(g: RoadGraph, px: number, pz: number): number {
 
 /** Distance in tiles from `(px, pz)` to the nearest junction node
  *  (`isJunction`) in the same two-tile search window as `roadDistanceAt`.
- *  `Infinity` when none is that close. */
+ *  `Infinity` when none is that close. Allocation-free for the same reason. */
 export function junctionDistanceAt(g: RoadGraph, px: number, pz: number): number {
   let best = Infinity;
-  for (const n of nearbyNodes(g, px, pz)) {
-    if (!isJunction(g, n)) continue;
-    const [ax, az] = nodeCenter(g.nodes[n]);
-    best = Math.min(best, Math.hypot(px - ax, pz - az));
+  const cx = Math.floor(px);
+  const cz = Math.floor(pz);
+  for (let y = cz - 2; y <= cz + 2; y++) {
+    if (y < 0 || y >= g.height) continue;
+    for (let x = cx - 2; x <= cx + 2; x++) {
+      if (x < 0 || x >= g.width) continue;
+      const n = g.nodeAt[y * g.width + x];
+      if (n < 0 || !isJunction(g, n)) continue;
+      best = Math.min(best, Math.hypot(px - (x + 0.5), pz - (y + 0.5)));
+    }
   }
   return best;
 }

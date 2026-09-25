@@ -148,6 +148,19 @@ export interface MeshData {
    */
   groundUv?: Float32Array;
   /**
+   * One float per vertex, same length and vertex order as `colors` --
+   * `ground.ts`'s `WALL_ALBEDO_TOP` (-1) on every top, `WALL_ALBEDO_ROCK` (1)
+   * on a ridge's cliff face, `WALL_ALBEDO_NONE` (0) on a building's wall.
+   *
+   * The one per-vertex surface fact left once `GroundMaterial` reads the
+   * control map (R-5): a top samples the map, and a wall -- which sits exactly
+   * on a texel boundary and cannot -- takes this instead. OPTIONAL,
+   * `buildGround` only; absent, the attribute reads 0 in the shader, which is
+   * the untextured building-wall case, so a geometry without it draws its
+   * flat palette tone rather than anything invented.
+   */
+  wallAlbedo?: Float32Array;
+  /**
    * One float per vertex, same length and vertex order as `colors` -- how
    * far this vertex sits above its own object's ground anchor, in world-Y
    * units (0 at a trunk base or a flat ground mark, larger toward a

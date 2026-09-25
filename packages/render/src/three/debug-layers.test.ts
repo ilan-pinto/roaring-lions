@@ -278,12 +278,17 @@ describe('DEBUG_LAYERS', () => {
     const i = internals(r);
     i.groundMat.uniforms.uSandStrength.value = 0.7;
     i.groundMat.uniforms.uRockStrength.value = 0.4;
-    expect(r.setDebugLayerVisible('ground-albedo', false)).toBe(6);
+    // Six slot strengths plus the macro amplitude (ground Task 5): hidden
+    // must mean the FLAT palette tone the scatter tone check flattens to,
+    // and the macro field would otherwise survive the hide.
+    expect(r.setDebugLayerVisible('ground-albedo', false)).toBe(7);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0);
     expect(i.groundMat.uniforms.uRockStrength.value).toBe(0);
+    expect(i.groundMat.uniforms.uMacroAmp.value).toBe(0);
     r.setDebugLayerVisible('ground-albedo', true);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0.7);
     expect(i.groundMat.uniforms.uRockStrength.value).toBe(0.4);
+    expect(i.groundMat.uniforms.uMacroAmp.value).toBe(1);
     r.dispose();
   });
 

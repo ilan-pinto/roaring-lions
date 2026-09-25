@@ -290,11 +290,34 @@ export function groundAlbedoSlotsUsed(input: TerrainInput): ReadonlySet<GroundAl
   return used;
 }
 
+/**
+ * The one per-vertex surface fact the fragment shader still reads once the
+ * control map carries the surfaces (R-5): whether a vertex belongs to a TOP
+ * -- which samples the control map -- or to a WALL, and which kind.
+ *
+ * A wall cannot ask the control map. A vertical face sits exactly on the
+ * texel boundary between the two tiles it separates, so the map would answer
+ * with whichever side the rasteriser's rounding lands on -- and a ridge wall
+ * and a building wall read the same there anyway. So the builder, which knows,
+ * says: `WALL_ALBEDO_ROCK` is a ridge's cliff face and draws the rock image at
+ * full weight; `WALL_ALBEDO_NONE` is a building's wall and keeps its authored
+ * `FACE_ALPHA_*` composite untextured, exactly as the old `NO_ALBEDO` did.
+ * `GroundMaterial` reads the value directly as the wall's rock weight, which
+ * is why ROCK is 1 and NONE is 0 rather than any other pair of codes.
+ */
+export const WALL_ALBEDO_TOP = -1;
+export const WALL_ALBEDO_NONE = 0;
+export const WALL_ALBEDO_ROCK = 1;
+
 /** The seven per-vertex albedo channels, as the plain arrays `buildGround`
  *  accumulates before they become `Float32Array`s. One struct rather than
  *  seven positional parameters: `pushSmoothTile` and `pushWall` already took
  *  fifteen arguments apiece. */
 interface AlbedoArrays {
+  /** `WALL_ALBEDO_*` per vertex -- see that constant family. Not an `Albedo`
+   *  channel: it records WHERE a vertex is (a top, or which kind of wall), not
+   *  which surface a tile is. */
+  wall: number[];
   sand: number[];
   rock: number[];
   road: number[];
@@ -307,8 +330,9 @@ interface AlbedoArrays {
 /** Appends `a` to every channel of `into`, `times` times -- one call per
  *  vertex batch, keeping all six arrays in lockstep with `colors` by
  *  construction rather than by six remembered `push` calls. */
-function pushAlbedo(into: AlbedoArrays, a: Albedo, times: number): void {
+function pushAlbedo(into: AlbedoArrays, a: Albedo, times: number, wall: number): void {
   for (let i = 0; i < times; i++) {
+    into.wall.push(wall);
     into.sand.push(a.sand);
     into.rock.push(a.rock);
     into.road.push(a.road);
@@ -339,7 +363,16 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
   const positions: number[] = [];
   const colors: number[] = [];
   const normals: number[] = [];
-  const albedo: AlbedoArrays = { sand: [], rock: [], road: [], roadAxis: [], scrub: [], grove: [], knoll: [] };
+  const albedo: AlbedoArrays = {
+    wall: [],
+    sand: [],
+    rock: [],
+    road: [],
+    roadAxis: [],
+    scrub: [],
+    grove: [],
+    knoll: [],
+  };
   const groundUv: number[] = [];
   const indices: number[] = [];
 
@@ -391,7 +424,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     for (let i = 0; i < 4; i++) {
       normals.push(UP_NORMAL[0], UP_NORMAL[1], UP_NORMAL[2]);
     }
-    pushAlbedo(albedo, tileAlbedo, 4);
+    pushAlbedo(albedo, tileAlbedo, 4, WALL_ALBEDO_TOP);
   };
 
   for (let y = 0; y < height; y++) {
@@ -516,6 +549,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     scrubMask: Float32Array.from(albedo.scrub),
     groveMask: Float32Array.from(albedo.grove),
     knollMask: Float32Array.from(albedo.knoll),
+    wallAlbedo: Float32Array.from(albedo.wall),
     groundUv: Float32Array.from(groundUv),
     indices: Uint32Array.from(indices),
   };
@@ -565,7 +599,7 @@ function pushSmoothTile(
       // rock is the `^` ridge and a ridge is a terrace that never reaches
       // this function, but `albedoFor` is the one decision and this path
       // does not get to hold a second opinion about it.
-      pushAlbedo(albedo, tileAlbedo, 1);
+      pushAlbedo(albedo, tileAlbedo, 1, WALL_ALBEDO_TOP);
       // A (near-)horizontal surface: project straight down.
       groundUv.push(px, pz);
     }
@@ -703,6 +737,11 @@ function pushWall(
     // things that lie ON ground, and a wall is the cut through it. A
     // building's wall is the `NO_ALBEDO` case and keeps its authored
     // `FACE_ALPHA_EAST`/`SOUTH` composite.
-    pushAlbedo(albedo, rock !== 0 ? RIDGE_ALBEDO : NO_ALBEDO, 4);
+    pushAlbedo(
+      albedo,
+      rock !== 0 ? RIDGE_ALBEDO : NO_ALBEDO,
+      4,
+      rock !== 0 ? WALL_ALBEDO_ROCK : WALL_ALBEDO_NONE
+    );
   }
 }

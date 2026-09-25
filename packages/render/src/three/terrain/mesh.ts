@@ -19,12 +19,17 @@
  * `mesh.test.ts` still pins is the six-slot albedo blend, which three.js does
  * not provide and which reaches the GPU through an `onBeforeCompile` string
  * edit -- a seam where every failure is silent and draws a plausible map.
+ * Since Task 5 of the ground plan that blend is WEIGHTED by the control map
+ * (`control-map.ts`) rather than switched by five per-vertex masks, and sits
+ * under the macro field; `controlTextures` below is the one place those two
+ * pure grids become GPU data.
  * The palette guarantee on the vertex COLOURS is still proved where it
  * always was, in `ground.test.ts`, on data this consumes unchanged.
  */
 import * as THREE from 'three';
 import type { MeshData } from './ground';
 import { srgbToLinear } from './shared';
+import { HEIGHT_BLEND, MACRO_HUE, MACRO_LUMINANCE, type ControlMap, type MacroField } from './control-map';
 
 /**
  * Uploads `data`'s positions, colours and indices as a `BufferGeometry`.
@@ -92,6 +97,11 @@ export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.Bu
   if (data.scrubMask) geometry.setAttribute('scrubMask', new THREE.BufferAttribute(data.scrubMask, 1));
   if (data.groveMask) geometry.setAttribute('groveMask', new THREE.BufferAttribute(data.groveMask, 1));
   if (data.knollMask) geometry.setAttribute('knollMask', new THREE.BufferAttribute(data.knollMask, 1));
+  // Top or which kind of wall -- the one per-vertex surface fact the shader
+  // still reads now the control map carries the surfaces (R-5; `ground.ts`'s
+  // `WALL_ALBEDO_*`). The five masks above are still uploaded and no longer
+  // read by `GroundMaterial`; Task 7 retires them.
+  if (data.wallAlbedo) geometry.setAttribute('wallAlbedo', new THREE.BufferAttribute(data.wallAlbedo, 1));
   // Albedo sampling coordinates. Under a custom name rather than three.js's
   // reserved `uv`, so nothing in three's own shader chunks can be surprised
   // by a `uv` on geometry that has no material expecting one.
@@ -394,9 +404,11 @@ export function albedoMean(id: GroundAlbedoId): THREE.Vector3 {
  *
  * Exported so `ThreeRenderer` can loop rather than repeating four uniform
  * names five times, and so `mesh.test.ts` can assert that every stem here
- * really has all four uniforms and a matching mask attribute in the shader
- * source -- a slot added to one and not the other is otherwise silent (the
- * uniform is simply never written, and the ground draws its flat tone).
+ * really has all four uniforms in the shader source -- a slot added to one
+ * and not the other is otherwise silent (the uniform is simply never written,
+ * and the ground draws its flat tone). Which surface a fragment is ON comes
+ * from the control map now, not from a per-slot mask attribute; only the road
+ * keeps one, until Task 6.
  */
 export const GROUND_SLOTS = ['sand', 'rock', 'road', 'scrub', 'grove', 'knoll'] as const;
 export type GroundSlot = (typeof GROUND_SLOTS)[number];
@@ -483,6 +495,99 @@ export function prepareGroundTexture(map: THREE.Texture): THREE.Texture {
   return map;
 }
 /**
+ * The sampler state every ground DATA texture takes -- control A, control B
+ * and the macro field alike (the plan's Global Constraints).
+ *
+ * `NoColorSpace` for the same reason `prepareGroundTexture` gives the albedo
+ * tiles: these bytes are weights and a signed scalar, not colours, and an sRGB
+ * tag would have the GPU "decode" a 0.5 blend weight to 0.21. `ClampToEdge`,
+ * not repeat: the map does not tile, and a repeat would bleed the far edge's
+ * surfaces into the near edge's first half-texel. Mipmapped, because at zoom
+ * 0.35 a ground fragment spans several control texels and an unfiltered
+ * minification would shimmer the splat edges as the camera pans. `flipY`
+ * false: row 0 of every grid is world z = 0, and `vRlWorldXZ / uMapSize`
+ * samples v = z / height, so the rows must land in the texture top-first.
+ */
+function asGroundData(tex: THREE.DataTexture): THREE.DataTexture {
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.flipY = false;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  // One byte a texel on the macro field: rows are not 4-byte aligned on a
+  // 1x1 default, and a wrong alignment skews every row after the first.
+  tex.unpackAlignment = 1;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** `data` as a view three's `DataTexture` accepts. The pure grids are typed
+ *  over `ArrayBufferLike`, which admits a `SharedArrayBuffer` a texture upload
+ *  does not; every one of them is in fact a plain `ArrayBuffer`, so this is a
+ *  second VIEW of the same bytes -- no copy -- and copies only in the case
+ *  that never happens. */
+function uploadable(data: Uint8Array): Uint8Array<ArrayBuffer> {
+  const buffer = data.buffer;
+  return buffer instanceof ArrayBuffer ? new Uint8Array(buffer, data.byteOffset, data.length) : new Uint8Array(data);
+}
+
+/** An RGBA8 control texture over `data`, `width x height` texels. */
+function controlTexture(data: Uint8Array, width: number, height: number): THREE.DataTexture {
+  return asGroundData(
+    new THREE.DataTexture(uploadable(data), width, height, THREE.RGBAFormat, THREE.UnsignedByteType)
+  );
+}
+
+/** The macro field as an R8 texture -- one byte a texel, 128 neutral. */
+export function macroTexture(macro: MacroField): THREE.DataTexture {
+  return asGroundData(
+    new THREE.DataTexture(uploadable(macro.data), macro.size, macro.size, THREE.RedFormat, THREE.UnsignedByteType)
+  );
+}
+
+/** Control A and control B as textures, without the macro field -- what
+ *  `ThreeRenderer.rebuildTerrain` rebinds when a destroyed structure changes
+ *  the ground, since the macro field depends on the map's size alone and is
+ *  built once. */
+export function controlTexturePair(cm: ControlMap): { a: THREE.DataTexture; b: THREE.DataTexture } {
+  return { a: controlTexture(cm.a, cm.width, cm.height), b: controlTexture(cm.b, cm.width, cm.height) };
+}
+
+/**
+ * Every ground data texture `GroundMaterial` samples, built from the two pure
+ * grids `control-map.ts` makes: control A (open, rock, scrub, grove), control
+ * B (knoll, road distance, junction distance, road-edge bend) and the macro
+ * field, each with `asGroundData`'s sampler state.
+ */
+export function controlTextures(
+  cm: ControlMap,
+  macro: MacroField
+): { a: THREE.DataTexture; b: THREE.DataTexture; macro: THREE.DataTexture } {
+  return { ...controlTexturePair(cm), macro: macroTexture(macro) };
+}
+
+/**
+ * The 1x1 textures bound before any map lands -- and forever, if building one
+ * fails -- each meaning "nothing here": control A `(0,0,0,0)` is no surface
+ * weight at all, control B `(0,255,255,128)` is no knoll, no road within
+ * range, no junction, neutral bend, and macro `128` is `m = 0`. Every weight
+ * zero makes the albedo sum exactly `vec3(1.0)` and a neutral macro is exactly
+ * 1, so the ground draws its flat palette tone: the same fail-soft the albedo
+ * slots' strength-0 white pixel already gives (`whitePixel`).
+ */
+function defaultControlA(): THREE.DataTexture {
+  return controlTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+}
+function defaultControlB(): THREE.DataTexture {
+  return controlTexture(new Uint8Array([0, 255, 255, 128]), 1, 1);
+}
+function defaultMacro(): THREE.DataTexture {
+  return macroTexture({ size: 1, data: new Uint8Array([128]) });
+}
+
+/**
  * The vertex attributes the ground geometry carries that three.js's own
  * standard shader knows nothing about, and the varyings that hand them to the
  * fragment stage.
@@ -491,28 +596,32 @@ export function prepareGroundTexture(map: THREE.Texture): THREE.Texture {
  * must agree exactly: a varying declared in one stage and not the other is a
  * link error, and one declared with a different type is worse -- it links and
  * draws nonsense.
+ *
+ * The five surface masks are gone from the shader: the control map carries
+ * them now, per TEXEL rather than per vertex, which is what lets a surface
+ * change fade across a noise-bent band instead of stepping at the tile line
+ * (G3). `roadMask` and `roadAxis` stay for this one task -- Task 6 replaces
+ * the road with the distance field control B already carries.
+ * `wallAlbedo` is the one surface fact a wall still needs per vertex
+ * (`ground.ts`'s `WALL_ALBEDO_*`), and `vRlWorldXZ` is where a fragment sits
+ * on the map, which is what the control map and the macro field are indexed
+ * by.
  */
 const GROUND_ATTRIBUTES_GLSL = /* glsl */ `
-attribute float sandMask;
-attribute float rockMask;
 attribute float roadMask;
 attribute float roadAxis;
-attribute float scrubMask;
-attribute float groveMask;
-attribute float knollMask;
+attribute float wallAlbedo;
 attribute vec2 groundUv;
-varying float vSandMask;
-varying float vRockMask;
 varying float vRoadMask;
 varying float vRoadAxis;
-varying float vScrubMask;
-varying float vGroveMask;
-varying float vKnollMask;
+varying float vWallAlbedo;
 varying vec2 vGroundUv;
+varying vec2 vRlWorldXZ;
 `;
 
-/** The fragment half: one quartet of uniforms per `GROUND_SLOTS` entry, and
- *  the receiving end of every varying above. */
+/** The fragment half: one quartet of uniforms per `GROUND_SLOTS` entry, the
+ *  control map and the macro field, and the receiving end of every varying
+ *  above. */
 const GROUND_VARYINGS_GLSL = /* glsl */ `
 uniform sampler2D uSand; uniform float uSandStrength; uniform vec3 uSandMean; uniform float uSandTiles;
 uniform sampler2D uRock; uniform float uRockStrength; uniform vec3 uRockMean; uniform float uRockTiles;
@@ -520,56 +629,96 @@ uniform sampler2D uRoad; uniform float uRoadStrength; uniform vec3 uRoadMean; un
 uniform sampler2D uScrub; uniform float uScrubStrength; uniform vec3 uScrubMean; uniform float uScrubTiles;
 uniform sampler2D uGrove; uniform float uGroveStrength; uniform vec3 uGroveMean; uniform float uGroveTiles;
 uniform sampler2D uKnoll; uniform float uKnollStrength; uniform vec3 uKnollMean; uniform float uKnollTiles;
-varying float vSandMask;
-varying float vRockMask;
+uniform sampler2D uControlA;
+uniform sampler2D uControlB;
+uniform sampler2D uMacro;
+uniform vec2 uMapSize;
+uniform float uMacroAmp;
+uniform vec3 uMacroBright;
+uniform vec3 uMacroDark;
 varying float vRoadMask;
 varying float vRoadAxis;
-varying float vScrubMask;
-varying float vGroveMask;
-varying float vKnollMask;
+varying float vWallAlbedo;
 varying vec2 vGroundUv;
+varying vec2 vRlWorldXZ;
+// One weight's height bias (control-map.ts's heightBiased, before its
+// rescale): w + HEIGHT_BLEND * h * 4w(1 - w), h being the Rec. 709 luminance
+// deviation of this surface's own strength-scaled texel ratio. A function at
+// global scope, so the constant is written once rather than five times.
+float rlHeightBiased(float w, vec3 ratio) {
+  float h = dot(ratio, vec3(0.2126, 0.7152, 0.0722)) - 1.0;
+  return max(0.0, w + ${HEIGHT_BLEND.toFixed(3)} * h * 4.0 * w * (1.0 - w));
+}
 `;
 
 /**
- * The six-slot albedo blend, verbatim from the retired custom shader: each
- * texel is a RATIO to its image's own mean, so the blend cannot move the
- * surface's average off the palette tone the vertex colour carries.
+ * The six-slot albedo blend, WEIGHTED by the control map and multiplied by the
+ * macro field.
  *
- * Six surfaces over one geometry: open ground (sand on an arid map, dry sward
- * on a green one), rock on a `^` ridge, the wheel track on a road, scrub on a
- * cover tile, orchard floor under a grove, scree on an `n` knoll. The masks
- * are mutually exclusive by construction (a tile is one surface), so the
- * multiplies could have been a chain of branches; they are a chain of MIXES
- * because at most one factor is ever anything but exactly `vec3(1.0)` and a
- * mix by 0 is free where a branch is not. Every mask 0, or no image loaded,
- * and the whole block is a no-op on the vertex colour.
+ * Each texel is still a RATIO to its image's own mean, so no surface can move
+ * its average off the palette tone the vertex colour carries. What changed is
+ * how a fragment picks its surface. It used to be five per-vertex masks, one
+ * per surface, mutually exclusive and constant across a tile -- so every
+ * surface change was a hard edge at the tile line (G3). Now it is five weights
+ * read from control A and B at the fragment's own map position, and the
+ * albedo is their weighted sum of ratios:
+ *
+ *   `1 + sum_i w_i * (mix(1, texel_i/mean_i, strength_i) - 1)`
+ *
+ * **On every tile interior that is the old chain of mixes, exactly.** There
+ * one weight is the tile's own strength and the rest are 0: an open tile's
+ * `w = 1` gives `mix(1, sand, s)`, and a cover-1 tile's scrub `w = 0.4` gives
+ * `1 + 0.4 * (mix(1, scrub, s) - 1)` = `mix(1, scrub, 0.4 s)` -- today's
+ * `strength x mask`. The weights only differ from the masks inside the
+ * 0.5-tile edge band, which is the point, and the only interior change is the
+ * macro factor below.
+ *
+ * **Height blend.** Inside a band, each weight is biased by its OWN texel's
+ * luminance deviation (`control-map.ts`'s `heightBiased`, transcribed with its
+ * `HEIGHT_BLEND`): a bright pebble on the scree beats the dark sand beside it
+ * and the edge follows the texture rather than a smooth ramp. The bias reads
+ * the strength-scaled ratio, so an image that has not landed has deviation 0
+ * and biases nothing. A single non-zero weight is left exactly as it was, by
+ * the rescale -- which is what keeps the interior claim above true.
+ *
+ * **Walls** ignore the map (R-5): a vertical face sits on a texel boundary.
+ * `vWallAlbedo` is -1 on a top and is otherwise the wall's rock weight
+ * directly -- 1 on a ridge's cliff, 0 on a building's wall.
+ *
+ * **Macro.** A map-sized scalar `m` in [-1, 1] (`buildMacroField`), applied as
+ * `macroFactor` is: a luminance ratio `1 + MACRO_LUMINANCE m` times a small
+ * hue pull toward `uMacroBright` or `uMacroDark`, which are `neutralTint`s and
+ * so cannot move luminance themselves. The byte decode is the EXACT inverse of
+ * the field's `round(128 + 127 v)` encoding, so the 1x1 default of 128 is
+ * `m = 0` exactly rather than `r * 2 - 1`'s 0.004. `uMacroAmp` is 1 shipped;
+ * 0 removes the field.
  *
  * The fetches are unconditional rather than branched: a dynamic branch around
- * a texture fetch forces a gradient the hardware cannot compute, so all seven
- * happen on every ground fragment even though six of them are multiplied by
- * zero. That is seven taps on a single draw call with an overdraw of one, and
- * it was measured rather than assumed.
+ * a texture fetch forces a gradient the hardware cannot compute, so every tap
+ * happens on every ground fragment even where its weight is zero. Seven albedo
+ * taps plus three data taps, on a single draw call with an overdraw of one.
  *
- * `vGroundUv`, not a projection taken from the world position: the builder
- * emits the right planar projection per piece of geometry, because projecting
- * straight down is only correct for a HORIZONTAL surface and a cliff face is
- * not one. See `MeshData.groundUv`.
+ * `vGroundUv`, not a projection taken from the world position, for the
+ * ALBEDO: the builder emits the right planar projection per piece of geometry,
+ * because projecting straight down is only correct for a horizontal surface
+ * and a cliff face is not one (`MeshData.groundUv`). The control map and the
+ * macro field are the opposite case -- they describe the map in plan, so they
+ * are indexed by world `xz`.
  *
- * The ROAD is the one slot that is not rotationally free, and the only one
- * that fetches twice. Its source is a single wheel track running along the
- * image's V axis, so the unrotated sample draws a road running north-south and
- * the coordinate SWAP draws one running east-west. `vRoadAxis` is the blend
- * between them: 0 north-south, 1 east-west, 0.5 at a corner, a T or a
- * crossroads, where the average of the two is a plus-shaped patch of lane with
- * the gravel left in the four corners -- which is what a junction is. See
- * `ground.ts`'s `roadAxisAt` for the neighbour rule that picks it. The swap is
- * done here rather than by emitting swapped coordinates in the builder because
- * a junction needs BOTH at once, and a vertex can only carry one pair.
+ * The ROAD is still the one slot that is not rotationally free, and the only
+ * one that fetches twice; see `ground.ts`'s `roadAxisAt`. It keeps its
+ * per-vertex mask for this one task (Task 6 replaces it).
  *
  * Every local is `rl`-prefixed: this code is spliced into three.js's own
  * `main()`, where a bare `sand` or `road` would be one chunk away from
  * colliding with a name three.js owns. (No backticks anywhere in this shader
  * source: it is a JS template literal and one would close it mid-string.)
+ * The three constants are interpolated from the TypeScript exports their
+ * mirrors are tested against, never retyped, and `mesh.test.ts` pins that the
+ * source contains them -- once each, so a line retyped by hand cannot hide
+ * behind a sibling that was not. The luminance weights are Rec. 709, the same
+ * three `neutralTint` uses; the height bias lives in `rlHeightBiased`, at
+ * global scope in the fragment header, for exactly that once-each reason.
  */
 const GROUND_BLEND_GLSL = /* glsl */ `
 vec3 rlSand = texture2D(uSand, vGroundUv / uSandTiles).rgb / uSandMean;
@@ -579,20 +728,56 @@ vec3 rlRoad = mix(texture2D(uRoad, rlRoadUv).rgb, texture2D(uRoad, rlRoadUv.yx).
 vec3 rlScrub = texture2D(uScrub, vGroundUv / uScrubTiles).rgb / uScrubMean;
 vec3 rlGrove = texture2D(uGrove, vGroundUv / uGroveTiles).rgb / uGroveMean;
 vec3 rlKnoll = texture2D(uKnoll, vGroundUv / uKnollTiles).rgb / uKnollMean;
-vec3 rlAlbedo = vec3(1.0);
-rlAlbedo *= mix(vec3(1.0), rlSand, uSandStrength * vSandMask);
-rlAlbedo *= mix(vec3(1.0), rlRock, uRockStrength * vRockMask);
-rlAlbedo *= mix(vec3(1.0), rlRoad, uRoadStrength * vRoadMask);
-rlAlbedo *= mix(vec3(1.0), rlScrub, uScrubStrength * vScrubMask);
-rlAlbedo *= mix(vec3(1.0), rlGrove, uGroveStrength * vGroveMask);
-rlAlbedo *= mix(vec3(1.0), rlKnoll, uKnollStrength * vKnollMask);
-diffuseColor.rgb *= rlAlbedo;
+vec2 rlCtlUv = vRlWorldXZ / uMapSize;
+vec4 rlA = texture2D(uControlA, rlCtlUv);
+vec4 rlB = texture2D(uControlB, rlCtlUv);
+float rlTop = step(vWallAlbedo, -0.5);
+// Five surface weights: open, rock, scrub, grove, knoll. A wall ignores the map.
+float rlW0 = rlTop * rlA.r;
+float rlW1 = rlTop * rlA.g + (1.0 - rlTop) * max(vWallAlbedo, 0.0);
+float rlW2 = rlTop * rlA.b;
+float rlW3 = rlTop * rlA.a;
+float rlW4 = rlTop * rlB.r;
+vec3 rlF0 = mix(vec3(1.0), rlSand, uSandStrength);
+vec3 rlF1 = mix(vec3(1.0), rlRock, uRockStrength);
+vec3 rlF2 = mix(vec3(1.0), rlScrub, uScrubStrength);
+vec3 rlF3 = mix(vec3(1.0), rlGrove, uGroveStrength);
+vec3 rlF4 = mix(vec3(1.0), rlKnoll, uKnollStrength);
+// Height blend: each weight biased by its own texel's luminance deviation, then rescaled (heightBiased).
+float rlB0 = rlHeightBiased(rlW0, rlF0);
+float rlB1 = rlHeightBiased(rlW1, rlF1);
+float rlB2 = rlHeightBiased(rlW2, rlF2);
+float rlB3 = rlHeightBiased(rlW3, rlF3);
+float rlB4 = rlHeightBiased(rlW4, rlF4);
+float rlBSum = rlB0 + rlB1 + rlB2 + rlB3 + rlB4;
+if (rlBSum > 0.0) {
+  float rlRescale = (rlW0 + rlW1 + rlW2 + rlW3 + rlW4) / rlBSum;
+  rlW0 = rlB0 * rlRescale;
+  rlW1 = rlB1 * rlRescale;
+  rlW2 = rlB2 * rlRescale;
+  rlW3 = rlB3 * rlRescale;
+  rlW4 = rlB4 * rlRescale;
+}
+vec3 rlAlbedo = vec3(1.0)
+  + rlW0 * (rlF0 - 1.0)
+  + rlW1 * (rlF1 - 1.0)
+  + rlW2 * (rlF2 - 1.0)
+  + rlW3 * (rlF3 - 1.0)
+  + rlW4 * (rlF4 - 1.0);
+rlAlbedo *= mix(vec3(1.0), rlRoad, uRoadStrength * vRoadMask); // Task 6 replaces this line
+float rlM = (texture2D(uMacro, rlCtlUv).r * 255.0 - 128.0) / 127.0 * uMacroAmp;
+vec3 rlMacro = (1.0 + ${MACRO_LUMINANCE.toFixed(3)} * rlM)
+  * mix(vec3(1.0), rlM >= 0.0 ? uMacroBright : uMacroDark, ${MACRO_HUE.toFixed(3)} * abs(rlM));
+diffuseColor.rgb *= rlAlbedo * rlMacro;
 `;
 
 /** One quartet of uniforms per slot, each starting at its own image's numbers
  *  (`DEFAULT_ALBEDO_FOR_SLOT`) with a valid 1x1 sampler bound and a strength
  *  of 0 -- so a map with no texture, or one whose fetch failed, draws the flat
- *  palette tone it always did rather than a white or undefined one. */
+ *  palette tone it always did rather than a white or undefined one. Plus the
+ *  control map and the macro field at their "nothing here" defaults
+ *  (`defaultControlA` and its siblings), which fail soft the same way, and a
+ *  neutral `(1, 1, 1)` hue pull until `ThreeRenderer` resolves the palette's. */
 function groundUniforms(): Record<string, THREE.IUniform> {
   const u: Record<string, THREE.IUniform> = {};
   for (const slot of GROUND_SLOTS) {
@@ -603,6 +788,13 @@ function groundUniforms(): Record<string, THREE.IUniform> {
     u[names.mean] = { value: albedoMean(id) };
     u[names.tiles] = { value: GROUND_ALBEDOS[id].tiles };
   }
+  u.uControlA = { value: defaultControlA() };
+  u.uControlB = { value: defaultControlB() };
+  u.uMacro = { value: defaultMacro() };
+  u.uMapSize = { value: new THREE.Vector2(1, 1) };
+  u.uMacroAmp = { value: 1 };
+  u.uMacroBright = { value: new THREE.Vector3(1, 1, 1) };
+  u.uMacroDark = { value: new THREE.Vector3(1, 1, 1) };
   return u;
 }
 
@@ -664,13 +856,58 @@ export class GroundMaterial extends THREE.MeshStandardMaterial {
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-vSandMask = sandMask; vRockMask = rockMask; vRoadMask = roadMask; vRoadAxis = roadAxis;
-vScrubMask = scrubMask; vGroveMask = groveMask; vKnollMask = knollMask; vGroundUv = groundUv;`
+vRoadMask = roadMask; vRoadAxis = roadAxis; vWallAlbedo = wallAlbedo; vGroundUv = groundUv;
+vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
         );
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>\n${GROUND_VARYINGS_GLSL}`)
         .replace('#include <color_fragment>', `#include <color_fragment>\n${GROUND_BLEND_GLSL}`);
     };
+  }
+
+  /** Non-null only while the `ground-albedo` debug layer is hidden: what
+   *  `setAlbedoVisible(true)` puts back -- the per-slot strengths in
+   *  `GROUND_SLOTS` order, and the macro amplitude. */
+  private albedoStash: { strengths: number[]; macroAmp: number } | null = null;
+
+  /**
+   * Backs `setDebugLayerVisible('ground-albedo', ...)`: hidden, every slot's
+   * strength AND the macro amplitude go to 0, so the ground is exactly its
+   * flat vertex palette tone -- the backdrop the `scatter` tone check
+   * (`tools/src/golden-diff/baseline.ts`, `ToneCollapseSpec`) was built
+   * around. The macro has to go with the slots: scatter marks do not carry
+   * it, so over a macro-shaded "flat" ground a mark whose colour has
+   * collapsed into its tile's tone still differs by the macro factor, and the
+   * tone check stops seeing the defect it exists for (measured: the 671acdb
+   * no-op read 0.9328 / 0.9675 on quiet / open-ground with the macro left on,
+   * PASSING a 0.8 floor it fails at 0.5779 / 0.6512 with it off).
+   *
+   * Idempotent in both directions: hiding twice must not stash a set of
+   * zeroes as the value to restore, which would leave the ground permanently
+   * flat and make every later toggle read a delta of nothing. Returns how
+   * many uniforms it drove -- the gate prints it as a diagnostic.
+   */
+  setAlbedoVisible(visible: boolean): number {
+    const driven = GROUND_SLOTS.length + 1;
+    if (!visible) {
+      if (this.albedoStash === null) {
+        this.albedoStash = {
+          strengths: GROUND_SLOTS.map((slot) => this.uniforms[slotUniforms(slot).strength].value as number),
+          macroAmp: this.uniforms.uMacroAmp.value as number,
+        };
+      }
+      for (const slot of GROUND_SLOTS) this.uniforms[slotUniforms(slot).strength].value = 0;
+      this.uniforms.uMacroAmp.value = 0;
+      return driven;
+    }
+    const stash = this.albedoStash;
+    if (stash === null) return 0;
+    GROUND_SLOTS.forEach((slot, i) => {
+      this.uniforms[slotUniforms(slot).strength].value = stash.strengths[i];
+    });
+    this.uniforms.uMacroAmp.value = stash.macroAmp;
+    this.albedoStash = null;
+    return driven;
   }
 
   override customProgramCacheKey(): string {

@@ -173,13 +173,15 @@ import {
   prepareGroundTexture,
   albedoMean,
   slotUniforms,
+  controlTexturePair,
+  macroTexture,
   GROUND_ALBEDOS,
-  GROUND_SLOTS,
   type GroundAlbedoId,
   type GroundSlot,
 } from './terrain/mesh';
 import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
 import { terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
+import { buildControlMap, buildMacroField, neutralTint } from './terrain/control-map';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
   buildDecorMesh,
@@ -982,11 +984,16 @@ export class ThreeRenderer implements Renderer {
   private readonly terrainMat: THREE.MeshStandardMaterial = vertexColorMaterial();
   /** The ground mesh's own material -- see `rebuildTerrain`. */
   private readonly groundMat: GroundMaterial = new GroundMaterial();
-  /** Non-null only while `setDebugLayerVisible('ground-albedo', false)` is in
-   *  force: the per-slot strengths to put back, in `GROUND_SLOTS` order. Not
-   *  a live rendering concern -- it is null in every frame the gate is not
-   *  driving. */
-  private groundAlbedoStrengths: number[] | null = null;
+  /** The control map's two textures, bound on `groundMat` as `uControlA`/
+   *  `uControlB` -- rebuilt by every `rebuildTerrain`, because a destroyed
+   *  structure turns its pad back into open ground, and the previous pair is
+   *  disposed there. Null until the first rebuild, when the material's own
+   *  1x1 "nothing here" defaults are bound instead (`GroundMaterial`). */
+  private controlTex: { a: THREE.DataTexture; b: THREE.DataTexture } | null = null;
+  /** The macro field's texture, bound as `uMacro`. Built once, in the
+   *  constructor: it depends on the map's size alone, never on the terrain,
+   *  so no rebuild has anything to change in it. */
+  private readonly macroTex: THREE.DataTexture;
   /** The minimap's photograph of this map's ground, kept so the answer is
    *  computed once per map rather than once per caller -- see
    *  `captureGroundAlbedo`. Dropped whenever the terrain is rebuilt, so a
@@ -2064,6 +2071,20 @@ export class ThreeRenderer implements Renderer {
     // the real palette entry and one that did not (this backend's own tests)
     // still gets an on-palette hex rather than magenta.
     this.scorchDecals = new ScorchDecalMesh(SCORCH_CAPACITY, this.overlayColor('shadow.0', '#23241F'));
+    // The ground's macro field (spec 3.1, G4): built once, since it depends
+    // on the map's size alone. Its hue pull resolves through `overlayColor`
+    // exactly as the decals above do, and is `neutralTint`ed so it moves hue
+    // and never luminance -- `MACRO_LUMINANCE` owns that. The control map
+    // itself is the terrain's, and is bound by `rebuildTerrain`.
+    this.macroTex = macroTexture(buildMacroField(sim.width, sim.height));
+    this.groundMat.uniforms.uMacro.value = this.macroTex;
+    (this.groundMat.uniforms.uMapSize.value as THREE.Vector2).set(sim.width, sim.height);
+    (this.groundMat.uniforms.uMacroBright.value as THREE.Vector3).fromArray(
+      neutralTint(this.overlayColor('limestone.2', '#D9C7A7'))
+    );
+    (this.groundMat.uniforms.uMacroDark.value as THREE.Vector3).fromArray(
+      neutralTint(this.overlayColor('dust.1', '#D1A668'))
+    );
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
     // budget this multiplies, and the "+ 8192" headroom for the handful of
@@ -2495,6 +2516,12 @@ export class ThreeRenderer implements Renderer {
     this.disposeTexturedDecorSet(this.texturedDecorSet);
     this.terrainMat.dispose();
     this.groveMat.dispose();
+    // The ground's data textures: the control pair `rebuildTerrain` last
+    // bound, and the macro field the constructor built.
+    this.controlTex?.a.dispose();
+    this.controlTex?.b.dispose();
+    this.controlTex = null;
+    this.macroTex.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
     this.unitInstancers.clear();
     for (const instancer of this.turretInstancers.values()) instancer.dispose();
@@ -3033,27 +3060,11 @@ export class ThreeRenderer implements Renderer {
     for (const light of this.flashLights.lights) light.intensity = 0;
   }
 
-  /** Backs `setDebugLayerVisible('ground-albedo', ...)`. Idempotent in both
-   *  directions: hiding twice must not stash a set of zeroes as the value to
-   *  restore, which would leave the ground permanently flat and make every
-   *  later toggle read a delta of nothing. */
+  /** Backs `setDebugLayerVisible('ground-albedo', ...)`: the six slot
+   *  strengths AND the macro amplitude to 0 and back, idempotently -- see
+   *  `GroundMaterial.setAlbedoVisible` for why the macro goes with them. */
   private setGroundAlbedoOn(on: boolean): number {
-    if (!on) {
-      if (this.groundAlbedoStrengths === null) {
-        this.groundAlbedoStrengths = GROUND_SLOTS.map(
-          (slot) => this.groundMat.uniforms[slotUniforms(slot).strength].value as number
-        );
-      }
-      for (const slot of GROUND_SLOTS) this.groundMat.uniforms[slotUniforms(slot).strength].value = 0;
-      return GROUND_SLOTS.length;
-    }
-    const stashed = this.groundAlbedoStrengths;
-    if (stashed === null) return 0;
-    GROUND_SLOTS.forEach((slot, i) => {
-      this.groundMat.uniforms[slotUniforms(slot).strength].value = stashed[i];
-    });
-    this.groundAlbedoStrengths = null;
-    return GROUND_SLOTS.length;
+    return this.groundMat.setAlbedoVisible(on);
   }
 
   /**
@@ -7795,6 +7806,19 @@ export class ThreeRenderer implements Renderer {
       this.opts.background
     );
 
+    // The control map is built from `composed.input` -- the SAME draw mask
+    // the ground itself was, so a live low-profile structure stays open
+    // ground here too -- and here rather than inside `composeTerrain`, which
+    // `terrain-parity.test.ts` calls ~80 times with no GPU to feed (F-21).
+    // A destroyed structure lands here through `terrainDirty`, which is what
+    // turns its pad back into open ground in the map.
+    const control = controlTexturePair(buildControlMap(composed.input));
+    this.controlTex?.a.dispose();
+    this.controlTex?.b.dispose();
+    this.controlTex = control;
+    this.groundMat.uniforms.uControlA.value = control.a;
+    this.groundMat.uniforms.uControlB.value = control.b;
+
     // The GROUND alone draws through `GroundMaterial` -- the one material here
     // that carries the six-slot albedo blend. Scatter, groves, the residual
     // layer and every building box take the plain vertex-coloured
@@ -8429,6 +8453,11 @@ export interface ComposedBuildingBox {
 /** `composeTerrain`'s full result -- one entry per terrain layer
  *  `rebuildTerrain` used to build inline before Task B3.9 lifted this out. */
 export interface ComposedTerrain {
+  /** The `TerrainInput` every layer below was built from -- the DRAW mask,
+   *  not the sim's. Surfaced so `rebuildTerrain` builds the ground's control
+   *  map from exactly the grid the ground itself saw (F-21), without this
+   *  pure function paying for a GPU-only grid on every test call. */
+  readonly input: TerrainInput;
   readonly ground: MeshData;
   readonly scatter: MeshData;
   readonly groves: MeshData;
@@ -8563,5 +8592,5 @@ export function composeTerrain(
     });
   }
 
-  return { ground, scatter, groves, residual, buildings, decorPlacements: decorPlacements(input) };
+  return { input, ground, scatter, groves, residual, buildings, decorPlacements: decorPlacements(input) };
 }
