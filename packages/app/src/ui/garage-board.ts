@@ -100,6 +100,13 @@ export interface TrackDeps {
     readonly credits: number;
     readonly onBuy: (tier: number, price: number, asked: string) => void;
   };
+  /** F7: the unit is not in the brigade yet, so this track is read-only
+   *  speculation rather than a decision. Every tier reads as if nothing were
+   *  owned -- tier 1 is `next`, expanded with its price and benefits, exactly
+   *  as an unbought track always draws -- but where a Buy would sit on that
+   *  rung, `.rl-garage__track-lock` says "Unlock first" instead. No Buy is
+   *  ever drawn while this is true, even if `buy` is also supplied. */
+  readonly locked?: boolean;
   readonly preview: (d: ReadonlyMap<string, number> | null) => void;
 }
 
@@ -120,10 +127,17 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   const translated = t(trackKey);
   const trackLabel = translated === trackKey ? humanised : translated;
 
-  const summary = trackSummary(track, deps.owned);
+  // F7: a locked unit owns nothing on this track no matter what the account
+  // says -- it is not in the brigade yet, so `deps.owned` (whatever a stray
+  // account entry might carry) is never the number this draws from.
+  const locked = deps.locked === true;
+  const effectiveOwned = locked ? 0 : deps.owned;
+
+  const summary = trackSummary(track, effectiveOwned);
 
   const trackWrap = el('div', 'rl-garage__track');
   trackWrap.dataset.track = trackName;
+  trackWrap.dataset.locked = locked ? '1' : '0';
   // Maxed vs. still open -- read by CSS to grey the spend line once nothing
   // is left to buy on this track; nothing in script keys off it.
   trackWrap.dataset.state = summary.next === null ? 'maxed' : 'active';
@@ -175,8 +189,8 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   // --- the ladder ------------------------------------------------------------
   const ladder = el('div', 'rl-garage__rungs');
   for (let tier = track.tiers.length; tier >= 1; tier--) {
-    const state = rungState(tier, deps.owned);
-    const owned = tier <= deps.owned;
+    const state = rungState(tier, effectiveOwned);
+    const owned = tier <= effectiveOwned;
 
     const rung = el('div', 'rl-garage__rung');
     rung.dataset.tier = String(tier);
@@ -203,10 +217,14 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
       for (const line of visible) benefits.appendChild(el('div', 'rl-garage__benefit', formatBenefit(line)));
       rung.appendChild(benefits);
 
-      if (deps.buy) {
+      if (locked) {
+        // F7: read-only speculation. Where a Buy would sit -- even one the
+        // caller supplied -- this rung says what stands in its way instead.
+        rung.appendChild(el('div', 'rl-garage__track-lock', t('garage.locked.unlockFirst')));
+      } else if (deps.buy) {
         const { credits, onBuy } = deps.buy;
-        const price = nextTierPrice(deps.unit, trackName, deps.owned);
-        // `tier === deps.owned + 1 <= track.tiers.length` here by
+        const price = nextTierPrice(deps.unit, trackName, effectiveOwned);
+        // `tier === effectiveOwned + 1 <= track.tiers.length` here by
         // construction, so `nextTierPrice` disagreeing about the track's own
         // length would be a programming error, not data to fall through
         // silently for.
@@ -247,7 +265,7 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
     // rung previews nothing (F5) -- never `previewDeltas` on it, which would
     // read as a re-buy.
     const on = (): void =>
-      deps.preview(state === 'owned' ? null : previewDeltas(deps.unit, trackName, deps.owned, tier));
+      deps.preview(state === 'owned' ? null : previewDeltas(deps.unit, trackName, effectiveOwned, tier));
     const off = (): void => deps.preview(null);
     rung.addEventListener('mouseenter', on);
     rung.addEventListener('mouseleave', off);
@@ -258,7 +276,7 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   }
   trackWrap.appendChild(ladder);
 
-  if (deps.buy && summary.next === null) {
+  if (!locked && deps.buy && summary.next === null) {
     trackWrap.appendChild(el('div', 'rl-garage__track-max', t('garage.track.maxed')));
   }
 
