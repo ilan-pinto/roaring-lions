@@ -681,7 +681,7 @@ describe('GroundMaterial debug toggles -- ground-albedo and macro', () => {
     expect(m.setMacroVisible(false)).toBe(1);
     expect(m.uniforms.uMacroAmp.value).toBe(0);
     expect(m.uniforms.uSandStrength.value).toBe(1);
-    m.setMacroVisible(false);
+    expect(m.setMacroVisible(false), 'a second hide changes nothing').toBe(0);
     expect(m.setMacroVisible(true)).toBe(1);
     expect(m.uniforms.uMacroAmp.value).toBe(1);
     expect(m.setMacroVisible(true)).toBe(0);

@@ -304,6 +304,45 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
+  it('names the ground\'s two new contributions', () => {
+    expect(DEBUG_LAYERS).toContain('macro');
+    expect(DEBUG_LAYERS).toContain('roads');
+  });
+
+  it.each([
+    ['macro', 'uMacroAmp'],
+    ['roads', 'uRoadOn'],
+  ])('%s drives %s to 0 and back, and a second hide reports nothing changed', (layer, uniform) => {
+    // `was === want ? 0 : 1`, the vignette/fog contract: the count is what
+    // the gate prints, and a second hide that claimed to change something
+    // would hide a caller that toggles twice.
+    const r = makeRenderer();
+    const u = internals(r).groundMat.uniforms[uniform];
+    expect(u.value).toBe(1);
+    expect(r.setDebugLayerVisible(layer, false)).toBe(1);
+    expect(u.value).toBe(0);
+    expect(r.setDebugLayerVisible(layer, false)).toBe(0);
+    expect(r.setDebugLayerVisible(layer, true)).toBe(1);
+    expect(u.value).toBe(1);
+    expect(r.setDebugLayerVisible(layer, true)).toBe(0);
+    r.dispose();
+  });
+
+  it('hides the road alone: no slot strength, grain gain or macro moves', () => {
+    // The roads check must measure the road itself (Task 6 advisory C), so
+    // the hide must not reach into the texture half the ground-albedo check
+    // already owns.
+    const r = makeRenderer();
+    const g = internals(r).groundMat.uniforms;
+    g.uSandStrength.value = 0.7;
+    g.uRoadGrainGain.value = 0.5;
+    r.setDebugLayerVisible('roads', false);
+    expect(g.uSandStrength.value).toBe(0.7);
+    expect(g.uRoadGrainGain.value).toBe(0.5);
+    expect(g.uMacroAmp.value).toBe(1);
+    r.dispose();
+  });
+
   it('sets the terrain layers\' shadow flags the way rebuildTerrain claims', () => {
     // The asymmetry is deliberate and is argued in `rebuildTerrain`'s own
     // comment -- receiving is universal (every terrain layer is ground or

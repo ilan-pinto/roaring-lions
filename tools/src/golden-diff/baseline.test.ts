@@ -687,6 +687,13 @@ describe('BASELINES layerChecks', () => {
     // out of the vignette's fall-off.
     expect(byLayer.get('vignette')?.sort()).toEqual(['quiet', 'relief']);
     expect(byLayer.get('skirt')?.sort()).toEqual(['quiet', 'relief']);
+    // Ground Task 9. The road is witnessed on the outskirts crossroads only.
+    // The macro field is witnessed only where the pure `buildMacroField`
+    // predicts mean |m| >= 0.2 over the crop (F-18): quiet 0.253 and
+    // open-ground 0.381 clear it, relief (0.181) does not and must not
+    // declare it -- see that scenario's own comment.
+    expect(byLayer.get('roads')).toEqual(['quiet']);
+    expect(byLayer.get('macro')?.sort()).toEqual(['open-ground', 'quiet']);
   });
 
   it('sets every floor strictly below the signal it was measured from, on both metrics', () => {
@@ -722,11 +729,18 @@ describe('BASELINES layerChecks', () => {
         // the layer erased rather than merely toggled.
         vignette: { px: 20583, mean: 2.192 },
         skirt: { px: 21455, mean: 0.8442 },
+        // Ground Task 9, 2026-09-25, 3 consecutive full-gate runs,
+        // bit-identical (`GROUND_T9` in `baseline.ts`). `macro`'s 6 px is
+        // sub-threshold, so its pixel floor is 0 and the magnitude carries it.
+        roads: { px: 187, mean: 0.468 },
+        macro: { px: 6, mean: 0.4798 },
       },
       'open-ground': {
         scatter: { px: 3615, mean: 1.6088 },
         decor: { px: 1025, mean: 0.646 },
         'ground-albedo': { px: 470, mean: 2.6616 },
+        // Ground Task 9, as above: 0 px, the whole contribution sub-threshold.
+        macro: { px: 0, mean: 0.8773 },
       },
       relief: {
         scatter: { px: 4344, mean: 0.4536 },

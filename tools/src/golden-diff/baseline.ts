@@ -339,6 +339,17 @@ const PRE_LIT =
   'layer check EXCEPT vehicle/units, whose own entry states its spread. Floors are a third of ' +
   'the SMALLEST of the five. ';
 
+/**
+ * Every figure in a `roads` or `macro` rationale below, and the conditions it
+ * was taken under.
+ */
+const GROUND_T9 =
+  'measured 2026-09-25 on ground Task 9 (the `roads` and `macro` debug layers, #226), 3 ' +
+  'consecutive full-gate runs (`--scenario=quiet,open-ground,relief`) on macOS 15 / M3 Pro, ' +
+  'headless Chromium, software SwiftShader, frame loop frozen. Every figure below was ' +
+  'bit-identical across the three, and the repaint control read 0 px / 0.0000 on all three ' +
+  'scenarios, so the whole delta is the layer. Floors are a third, rounded down. ';
+
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
@@ -439,6 +450,45 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'tiles\' own contribution. Falsified by making every tile top ignore the control map ' +
           '(the splat\'s `rlTop` step moved past -1): 0 px / 0.0537, FAIL; the residue is the ' +
           'road\'s per-vertex slot, which that mutation does not reach.',
+      },
+      {
+        layer: 'roads',
+        minDiffPixels: 62,
+        minMeanAbsChannelDelta: 0.156,
+        rationale:
+          GROUND_T9 +
+          'driving `uRoadOn` to 0 -- the procedural road (#226) gone whole: its packed surface ' +
+          'tone, the bleached shoulder, both wheel ruts and the knoll-image grain, with the ' +
+          'ground it was painted over showing through -- moves 187 px / 0.4680 here, identical on ' +
+          'all three runs. Floor a third, rounded down: 62 px / 0.156. This framing is the ' +
+          'outskirts crossroads, and an exact (unthresholded) compare of the two photographs ' +
+          'changes 66343 px inside x[275,1043] y[245,623] -- the crossroads and nothing else. ' +
+          'The pixelmatch count is small against that because the road tone and the ground ' +
+          'beside it are one or two palette steps apart, which is why the magnitude is the ' +
+          'primary floor. It measures the ROAD, not its texture: the ruts\' breakup reads the ' +
+          'knoll image\'s luminance even at grain gain 0 (Task 6 review, advisory C), so ' +
+          '`ground-albedo` hidden still leaves the road and broken ruts on screen, but every ' +
+          'road band -- ruts included -- is multiplied by `uRoadOn`. Falsified by baking control ' +
+          'B\'s road distance (B.g) to 255 in `buildControlMap`, so no tile is within range of a ' +
+          'road: 0 px / 0.0000, FAIL on both floors.',
+      },
+      {
+        layer: 'macro',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.1599,
+        rationale:
+          GROUND_T9 +
+          'driving the macro field\'s amplitude to 0 moves 6 px / 0.4798 here, identical on all ' +
+          'three runs. Floor a third of the magnitude, rounded down: 0.1599. SIX pixels is not ' +
+          'a count a third can be taken of, so `minDiffPixels` is 0 for the reason ' +
+          '`LayerCheckSpec` allows it, exactly as `ground-albedo` here: the field is a +/-7% ' +
+          'luminance ratio over a 12-tile period, so removing it shifts a wide area smoothly ' +
+          'and stays under pixelmatch\'s 0.1 threshold almost everywhere. F-18: the pure ' +
+          '`buildMacroField(48, 48)` predicts mean |m| 0.253 over this frame\'s 1198-tile ' +
+          'footprint (0.251 per pixel), above the 0.2 the ruling asks for. Not in the plan\'s ' +
+          'list (open-ground and relief); declared here because relief FAILED the F-18 test ' +
+          'and this is the second witness that passed it, on a second map. Falsified by ' +
+          'initialising `uMacroAmp` to 0 in `groundUniforms()`: 0 px / 0.0000, FAIL.',
       },
       {
         layer: 'buildings',
@@ -563,6 +613,22 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'part in a thousand (3615 / 1.6071 front-lit, the same 3615 pixels), because this ' +
           'crop holds no vertical face for an azimuth to change. Still the strongest scatter ' +
           'witness on magnitude, which is what the crop was chosen for.',
+      },
+      {
+        layer: 'macro',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.2924,
+        rationale:
+          GROUND_T9 +
+          'driving the macro field\'s amplitude to 0 moves 0 px / 0.8773 inside this crop, ' +
+          'identical on all three runs. Floor a third of the magnitude, rounded down: 0.2924. ' +
+          'ZERO pixels: the whole contribution is under pixelmatch\'s 0.1 threshold, so ' +
+          '`minDiffPixels` is 0 and the magnitude is the check, as on quiet. The strongest ' +
+          'macro witness in the gate. F-18: the pure `buildMacroField(48, 48)` predicts mean ' +
+          '|m| 0.381 over this crop\'s 35-tile footprint (0.344 per pixel), above 0.2 -- a ' +
+          '450x400 crop at zoom 3 spans about six tiles of a 12-tile-period field, and here it ' +
+          'sits on a lobe rather than a zero crossing. Falsified by initialising `uMacroAmp` to ' +
+          '0 in `groundUniforms()`: 0 px / 0.0000, FAIL.',
       },
       {
         layer: 'decor',
@@ -823,6 +889,16 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'carries its own slope shading and a mark on a lit slope separates from it by less than ' +
           'it did from a flat palette tone. The only scatter witness on a map with relief.',
       },
+      // NO `macro` check, by F-18 and not by measurement. The pure
+      // `buildMacroField(48, 48)` predicts mean |m| 0.181 over this frame's
+      // 324-tile footprint (0.175 per pixel), under the 0.2 the ruling asks
+      // a witness to clear: the corridor sits near one of the field's zero
+      // crossings. The toggle does move this frame -- 1 px / 0.4284 on all
+      // three ground Task 9 runs -- but on ground where the field is this
+      // weak a small change to the field (its period, its seed, the border
+      // fade) could move the crop onto the crossing, and a floor set there
+      // would flicker on content rather than on a fault. quiet and
+      // open-ground carry the check instead.
       {
         layer: 'decor',
         minDiffPixels: 17500,

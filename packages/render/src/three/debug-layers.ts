@@ -57,8 +57,29 @@
  *                 TOGETHER with `ground-albedo` it gives the flat vertex
  *                 palette tone the `scatter` tone check flattens to
  *                 (`ToneCollapseSpec.over`); scatter marks carry no macro,
- *                 so leaving it on would blind that check. No layer check of
- *                 its own yet -- that is ground Task 9's, under F-18.
+ *                 so leaving it on would blind that check. Its OWN check
+ *                 (ground Task 9) is declared only on a framing where the
+ *                 pure `buildMacroField` predicts real signal -- mean |m|
+ *                 of at least 0.2 over the crop's tile footprint (F-18) --
+ *                 because the field is 12 tiles to a period and a crop that
+ *                 sits near a zero crossing would carry a floor set at noise.
+ *                 A plain uniform write that nothing in `frame()` re-asserts:
+ *                 the only writers of `uMacroAmp` are `groundUniforms()` and
+ *                 `setMacroVisible` (grepped), so it holds across the gate's
+ *                 repaint, the `fog` layer's standard.
+ * - `roads`       the procedural road (#226), `uRoadOn` driven to 0
+ *                 (`GroundMaterial.setRoadsVisible`). Everything road-shaped
+ *                 on the ground goes with it -- the packed surface tone, the
+ *                 bleached shoulder, both wheel ruts and the knoll-image
+ *                 grain the road carries -- and the ground it was painted
+ *                 over shows through. That makes it a witness for the road
+ *                 ITSELF rather than for its texture: the ruts' breakup reads
+ *                 the knoll image's luminance even at grain gain 0 (Task 6
+ *                 review, advisory C), so hiding `ground-albedo` leaves the
+ *                 road and its broken ruts on screen, while hiding `roads`
+ *                 leaves none of it. Also a plain uniform write that nothing
+ *                 per-frame re-asserts: `uRoadOn`'s only writers are
+ *                 `groundUniforms()` and `setRoadsVisible` (grepped).
  * - `buildings`   structure boxes, mesh building clones (idle and wreck) and
  *                 the billboard structure instancers.
  *
@@ -210,6 +231,7 @@ export const DEBUG_LAYERS = [
   'decor',
   'ground-albedo',
   'macro',
+  'roads',
   'buildings',
   'units',
   'vignette',

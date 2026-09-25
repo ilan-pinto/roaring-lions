@@ -736,7 +736,7 @@ float rlHeightBiased(float w, vec3 ratio) {
  * constants, never as their folded values (the plan's F-3), so a drifted
  * constant in `road-graph.ts` moves the shader with it; the compiler folds
  * the arithmetic. `rlTop` keeps the road off every wall. `uRoadOn` is 1; the
- * `roads` debug layer (Task 9) writes 0.
+ * `roads` debug layer writes 0 (`GroundMaterial.setRoadsVisible`).
  *
  * The fetches are unconditional rather than branched: a dynamic branch around
  * a texture fetch forces a gradient the hardware cannot compute, so every tap
@@ -1003,7 +1003,12 @@ vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
    */
   setMacroVisible(visible: boolean): number {
     if (!visible) {
-      if (this.macroStash === null) this.macroStash = this.uniforms.uMacroAmp.value as number;
+      // A second hide is a no-op and reports it (`was === want ? 0 : 1`,
+      // the `vignette`/`fog` contract): the stash is already the amplitude
+      // to restore, and overwriting it with the 0 just written would leave
+      // the macro off for the rest of the run.
+      if (this.macroStash !== null) return 0;
+      this.macroStash = this.uniforms.uMacroAmp.value as number;
       this.uniforms.uMacroAmp.value = 0;
       return 1;
     }
@@ -1012,6 +1017,36 @@ vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
     this.uniforms.uMacroAmp.value = stash;
     this.macroStash = null;
     return 1;
+  }
+
+  /**
+   * Backs `setDebugLayerVisible('roads', ...)`: `uRoadOn` to 0 and back.
+   * Returns 1 when it changed the value and 0 when it was already there
+   * (`was === want ? 0 : 1`), so a second hide reports that nothing moved.
+   *
+   * WHAT HIDING IT REMOVES, which is the whole road and nothing else: every
+   * road band in `GROUND_BLEND_GLSL` is multiplied by `uRoadOn` through
+   * `rlRoadSurf` or `rlShoulder` -- the packed surface's palette tone
+   * (`uRoadTone`), the bleached shoulder (`uShoulderTone`), both wheel ruts
+   * (`uRutTone`, gated by `rlRoadSurf`) and the knoll-image grain term
+   * (`rlRoadSurf * (mix(1, rlGrain, uRoadGrainGain) - 1)`) -- and the five
+   * surface weights stop being taken down under the road, so whatever the
+   * road was painted over -- the tile's own vertex tone and its control-map
+   * surface weights -- shows through. The macro field and the slot strengths are
+   * untouched. That is why this check measures the road ITSELF rather than
+   * its texture: the ruts' breakup reads the knoll image's luminance even at
+   * `uRoadGrainGain = 0` (Task 6 review, advisory C), so `ground-albedo`
+   * hidden still leaves broken ruts on screen -- but `uRoadOn = 0` leaves no
+   * rut at all, since the rut is multiplied by `rlRoadSurf`.
+   *
+   * No stash: the shipped value is always 1, and nothing else writes it.
+   */
+  setRoadsVisible(visible: boolean): number {
+    const u = this.uniforms.uRoadOn;
+    const want = visible ? 1 : 0;
+    const was = u.value as number;
+    u.value = want;
+    return was === want ? 0 : 1;
   }
 
   override customProgramCacheKey(): string {

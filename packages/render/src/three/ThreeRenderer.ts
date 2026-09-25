@@ -1090,9 +1090,9 @@ export class ThreeRenderer implements Renderer {
     // `groundTexturesSettled` open. Each only ever RESOLVES: a failed tile is
     // fail-soft here, and must be the same to anyone awaiting it.
     const settles: Promise<void>[] = [];
-    const load = (url: string | undefined, slot: GroundSlot, what: string, used = usedSlots.has(slot)): void => {
+    const load = (url: string | undefined, slot: GroundSlot, what: string): void => {
       if (!url) return;
-      if (!used) return;
+      if (!usedSlots.has(slot)) return;
       // The basename, with any query string or extension stripped: `BASE`
       // may be a full origin and a bundler may append a hash-free query.
       const id = (url.split('?')[0].split('/').pop() ?? '').replace(/\.[a-z0-9]+$/i, '');
@@ -1164,16 +1164,10 @@ export class ThreeRenderer implements Renderer {
     load(this.opts.rockTextureUrl, 'rock', 'rock ridge');
     load(this.opts.scrubTextureUrl, 'scrub', 'cover scrub');
     load(this.opts.groveTextureUrl, 'grove', 'grove floor');
-    // Knoll OR road: the road's grain samples the knoll image. The cast keeps
-    // this compiling once Task 7 narrows `GroundAlbedoSlot` to drop 'road'
-    // (and folds this rule into `groundAlbedoSlotsUsed`); Task 9 simplifies it
-    // to `usedSlots.has('knoll')`.
-    load(
-      this.opts.knollTextureUrl,
-      'knoll',
-      'rocky knoll',
-      usedSlots.has('knoll') || (usedSlots as ReadonlySet<string>).has('road')
-    );
+    // The road's grain samples the knoll image too, and `groundAlbedoSlotsUsed`
+    // already says so: a road tile adds 'knoll' to the set, so a road-only map
+    // still fetches it.
+    load(this.opts.knollTextureUrl, 'knoll', 'rocky knoll');
     this.groundTexturesPending = Promise.all(settles).then(() => undefined);
   }
 
@@ -3014,10 +3008,19 @@ export class ThreeRenderer implements Renderer {
         return this.setGroundAlbedoOn(visible);
       case 'macro':
         // A uniform, like `ground-albedo` above: the macro field's amplitude
-        // to 0 and back (`GroundMaterial.setMacroVisible`). Nothing per-frame
-        // writes `uMacroAmp`, so the plain write holds across the gate's
-        // repaint.
+        // to 0 and back (`GroundMaterial.setMacroVisible`), 1 when it changed
+        // and 0 when it was already there. Nothing per-frame writes
+        // `uMacroAmp` -- its only writers are `groundUniforms()` and that
+        // method -- so the plain write holds across the gate's repaint.
         return this.groundMat.setMacroVisible(visible);
+      case 'roads':
+        // `uRoadOn` to 0 and back (`GroundMaterial.setRoadsVisible`), 1 when
+        // it changed and 0 when it was already there. The same shape as
+        // `macro` and for the same reason: its only writers are
+        // `groundUniforms()` and that method, so nothing in `frame()`
+        // re-asserts it. What it removes -- the whole road, grain and ruts
+        // included -- is that method's own doc comment.
+        return this.groundMat.setRoadsVisible(visible);
       case 'overlays': {
         // Unlike `units`, a plain `setObjectsVisible` is correct for the
         // three batches -- `debug-layers.ts`'s own doc comment for
@@ -3087,6 +3090,13 @@ export class ThreeRenderer implements Renderer {
         this.flashLightsDebugHidden = !visible;
         if (this.flashLightsDebugHidden) this.zeroFlashLights();
         return this.flashLights.lights.length;
+      default:
+        // A name `DEBUG_LAYERS` lists and this switch does not handle. The
+        // compiler already refuses it (`name` is `never` here), but a build
+        // that skips the typecheck -- vite's dev server is one -- would
+        // otherwise return `undefined`, toggle nothing and read as a layer
+        // that draws nothing. Throwing makes it a capture failure instead.
+        throw new Error(unknownDebugLayerMessage(name));
     }
   }
 
