@@ -4,9 +4,12 @@
  * sim-time clock, the conforming-grid maths, the approved size curves, and
  * `decalAlpha` (the kind shader's pure mirror, one formula per kind, spec
  * §5). No `THREE.*` anywhere in this file -- exercised directly with plain
- * numbers, and pinned by this file's own `decal-maths.test.ts` import-boundary
- * check so a tools-side test (Task 17) can pull in this maths without pulling
- * in `three`. `decal-pool.ts` re-exports everything here and adds the GPU
+ * numbers, and pinned by `decal-maths.test.ts`'s import-boundary check. That
+ * split is TIDINESS, not a requirement: `three` loads fine under node
+ * (`decal-pool.test.ts` builds real meshes there, and tools resolves it
+ * through `packages/render/node_modules`), so nothing breaks if it slips --
+ * it keeps the pure maths readable apart from the GPU code (final review
+ * M-5). `decal-pool.ts` re-exports everything here and adds the GPU
  * half on top: `DecalPool` (the ring-buffer `THREE.Mesh`) and
  * `createDecalMaterial` (`decalAlpha`'s GLSL transcription).
  *
@@ -91,20 +94,20 @@
  * lift every other mark in this backend uses to avoid z-fighting the
  * terrain quad directly beneath it (`terrain/shared.ts`).
  *
- * **R-19: a terrace is not draped down.** `applyTerrain`'s `^`/building
- * terraces are vertical walls, not a slope a grid can follow -- sampling a
- * terrace's own height function at a vertex that has wandered past its
- * edge would climb the wall face rather than lying flat. So `writeDecalGrid`
- * takes a second predicate, `isTerrace(x, z)`, and where it is true for a
- * vertex, that vertex takes the height at the decal's own CENTRE
- * (`sampleY(cx, cz)`) instead of at its own position -- the plan's own
- * wording, "a decal whose centre tile is a terrace is not stamped [Task
- * 12's job]; a grid vertex that lands on a terrace takes the centre's
- * height, so no decal drapes down a wall". A decal is never centred ON a
- * terrace tile in practice (Task 12 filters that at the stamp call site),
- * so this only ever fires for a vertex that overhangs a terrace edge from a
- * centre on open ground -- and it is pinned here regardless, since nothing
- * in THIS module enforces that precondition.
+ * **R-19, and what a grid vertex over a terrace samples (fix wave I-4).**
+ * A decal whose centre tile is a terrace is not stamped (`stampGroundDecal`
+ * refuses it). A vertex that overhangs a terrace or the map edge from an
+ * open centre used to take the CENTRE's height, and off the map the height
+ * was 0: at a ridge foot the chord then cut under the rising apron by up to
+ * 0.62 wu, and on `qarn_hadid`'s level-2 rim a mark dived by up to 0.38 wu.
+ * The caller's `sampleY` is now the SMOOTH field everywhere
+ * (`smoothWorldY`): on open ground that is the drawn surface exactly; under
+ * a terrace it is the field `buildTerrainSurface` fills in from the open
+ * ground around it, so the chord follows the apron to the foot of the wall
+ * and runs on under the terrace, where the wall's own depth hides it; and
+ * off the map it is the edge-clamped field (`fieldAt` replicates the rim),
+ * so a rim mark stays on its level. The shader discards what hangs past the
+ * map edge. On a flat map every one of these reads 0, so nothing moves.
  *
  * Indexing follows `ground.ts`'s own `pushSmoothTile` exactly: the fan
  * `(a, c, b, a, d, c)` per quad, corners walked `(i,j) -> (i+1,j) ->
@@ -141,11 +144,11 @@
  *   mixed toward 1 by alpha -- what `decal-pool.ts`'s material then
  *   multiplies onto the ground AFTER lighting and shadow. The scene target
  *   is HalfFloat, so a ratio above 1 (a pale lip) survives.
- * - **`TILE_HASH_MX`/`MY`/`MIX` are `tileHash`'s three multipliers**,
- *   exported so `decal-pool.ts`'s GLSL `rlHash` can be built from the same
- *   names rather than retyped literals that could drift from
- *   `packages/render/src/tile-hash.ts`. Pinned against `tileHash` itself in
- *   `decal-pool.test.ts`.
+ * - **`TILE_HASH_MX`/`MY`/`MIX` and the two shifts are `tileHash`'s own
+ *   constants**, exported by `packages/render/src/tile-hash.ts` (which
+ *   `tileHash` itself now reads) and re-exported here, so `decal-pool.ts`'s
+ *   GLSL `rlHash` is built from the same names rather than retyped literals
+ *   that could drift. Pinned against `tileHash` in `decal-pool.test.ts`.
  */
 import { STAMP_SPACING_TILES } from './vehicle-tracks';
 import { MARK_EPSILON } from './terrain/shared';
@@ -242,7 +245,7 @@ export function gridTriangles(n: number): number {
  * walked `(i,j) -> (i+1,j) -> (i+1,j+1) -> (i,j+1)`, fanned `(a, c, b, a, d,
  * c)` -- see this file's top comment for why that agreement matters.
  */
-export function writeGridIndices(out: Uint32Array, slot: number, n: number): void {
+export function writeGridIndices(out: Uint16Array | Uint32Array, slot: number, n: number): void {
   const base = slot * n * n;
   const idx = (i: number, j: number): number => base + j * n + i;
   let p = 0;
@@ -305,8 +308,7 @@ let cellSagScratch = new Float64Array(9);
  *
  * `x = cx + s*halfLength*cos(f) - t*halfWidth*sin(f)`
  * `z = cz + s*halfLength*sin(f) + t*halfWidth*cos(f)`
- * `h(x, z) = isTerrace(x, z) ? sampleY(cx, cz) : sampleY(x, z)`
- * `y = h(x, z) + min(lift(i, j), DECAL_LIFT_CAP) + MARK_EPSILON`
+ * `y = sampleY(x, z) + min(lift(i, j), DECAL_LIFT_CAP) + MARK_EPSILON`
  *
  * **The lift (F-23, fix round 1).** Between vertices the grid is a pair of
  * flat triangles, and over a bicubic crest that chord passes UNDER the
@@ -343,13 +345,11 @@ export function writeDecalGrid(
   slot: number,
   n: number,
   p: GridPlacement,
-  sampleY: (x: number, z: number) => number,
-  isTerrace: (x: number, z: number) => boolean
+  sampleY: (x: number, z: number) => number
 ): void {
   const base = slot * n * n * 3;
   const cosF = Math.cos(p.facingRad);
   const sinF = Math.sin(p.facingRad);
-  const centreY = sampleY(p.cx, p.cz);
   // Grid-local (gi, gj) in [0, n-1], fractional inside a cell.
   const worldX = (gi: number, gj: number): number => {
     const s = -1 + (2 * gi) / (n - 1);
@@ -361,7 +361,7 @@ export function writeDecalGrid(
     const t = -1 + (2 * gj) / (n - 1);
     return p.cz + s * p.halfLength * sinF + t * p.halfWidth * cosF;
   };
-  const h = (x: number, z: number): number => (isTerrace(x, z) ? centreY : sampleY(x, z));
+  const h = sampleY;
 
   if (sagScratch.length < n * n) sagScratch = new Float64Array(n * n);
   const cells = (n - 1) * (n - 1);
@@ -576,17 +576,46 @@ export const CRATER_LIP_OUT1 = 1.0;
 export const OIL_WOBBLE = 0.1;
 export const OIL_LOBES = 2;
 export const OIL_EDGE_INNER = 0.7;
-/** Rubble cells are `1 / RUBBLE_CELLS_PER_UNIT` = 0.2 r across. */
-export const RUBBLE_CELLS_PER_UNIT = 5;
-/** Keeps `floor(5s)` (>= -5) non-negative before `tileHash`, so the GLSL
+/**
+ * Rubble is a scatter of small soft CHIPS, one at most per cell (fix wave
+ * I-5). The first cut filled whole square cells a fifth of the radius across
+ * -- 0.34 tile on a 2x2 footprint, 0.5 on a larger one, axis-aligned, hard
+ * `step` edges, in two tones -- and on grass, where the ratio divides by the
+ * grass tone, it drew a checkerboard of limestone tiles. Now:
+ *
+ * - cells are `RUBBLE_CELL_TILES` across in WORLD units, whatever the spill's
+ *   radius, so a big collapse spills more chips rather than bigger squares;
+ * - the lattice is turned by `2 pi seed`, so no two spills line up and none
+ *   lines up with the tile grid;
+ * - each cell holds at most one soft disc (`1 - smoothstep(R0, R1, d)`),
+ *   jittered off the cell centre by up to `RUBBLE_JITTER / 2` and sized by
+ *   `RUBBLE_CHIP_SIZE_MIN..1`. `R1 + JITTER / 2 < 0.5`, so a chip never
+ *   reaches its cell's edge and is never cut by a neighbour's;
+ * - a cell holds a chip when its hash is under `RUBBLE_DENSITY`, thinned to
+ *   nothing between `RUBBLE_EDGE_INNER` and the rim by the chip CENTRE's own
+ *   radius -- a spill thins out rather than stopping at a circle.
+ */
+export const RUBBLE_CELL_TILES = 0.1;
+/** Keeps a cell index (>= -sqrt(2) r / RUBBLE_CELL_TILES, tens of cells for
+ *  any shipped footprint) non-negative before `tileHash`, so the GLSL
  *  `uint` cast agrees with the JS integer hash. */
-export const RUBBLE_CELL_OFFSET = 64;
+export const RUBBLE_CELL_OFFSET = 1024;
 /** `floor(1000 seed)` -- one stamp's cells differ from the next's. */
 export const RUBBLE_SEED_SCALE = 1000;
-export const RUBBLE_CHIP_THRESHOLD = 0.55;
+/** Offset added to one coordinate for each jitter hash, so the two jitter
+ *  axes and the chip test read three unrelated hashes of the same cell. */
+export const RUBBLE_JITTER_SALT = 4099;
+export const RUBBLE_DENSITY = 0.7;
+export const RUBBLE_JITTER = 0.2;
+/** A chip's soft edge, in cell units, before its size scale. */
+export const RUBBLE_CHIP_R0 = 0.2;
+export const RUBBLE_CHIP_R1 = 0.38;
+export const RUBBLE_CHIP_SIZE_MIN = 0.55;
+/** `fract(13h)` sizes the chip -- decorrelated from the tone and the test. */
+export const RUBBLE_SIZE_SCALE = 13;
 /** `fract(7h) < 0.5` picks the tone -- decorrelated from the chip test. */
 export const RUBBLE_TONE_SCALE = 7;
-export const RUBBLE_EDGE_INNER = 0.75;
+export const RUBBLE_EDGE_INNER = 0.55;
 /** Tread/tyre falls off across the print from `|t| = 0.7` to 1. */
 export const TRACK_SIDE_INNER = 0.7;
 /** Tread cleat period along the print, tiles, and the cleat's two levels. */
@@ -594,11 +623,9 @@ export const TREAD_PERIOD_TILES = 0.06;
 export const TREAD_PATTERN_BASE = 0.65;
 export const TREAD_PATTERN_CLEAT = 0.35;
 
-/** `tileHash`'s three multipliers -- see this file's top comment. Pinned
- *  against `tileHash` itself in `decal-pool.test.ts`. */
-export const TILE_HASH_MX = 374761393;
-export const TILE_HASH_MY = 668265263;
-export const TILE_HASH_MIX = 1274126177;
+/** `tileHash`'s multipliers and shifts, owned by `../tile-hash.ts` and
+ *  re-exported here for the shader -- see this file's top comment. */
+export { TILE_HASH_MIX, TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_SHIFT_A, TILE_HASH_SHIFT_B } from '../tile-hash';
 
 /** Colour indices -- positions in `DECAL_PALETTE_ORDER`. */
 export const COLOUR_CRATER_BOWL = 0;
@@ -657,6 +684,10 @@ function clamp01(x: number): number {
   return Math.min(1, Math.max(0, x));
 }
 
+function fract(x: number): number {
+  return x - Math.floor(x);
+}
+
 /** `r(1 + amp sin(lobes θ + 2π seed))`, with θ taken as 0 at the centre --
  *  GLSL's `atan(0, 0)` is undefined, and `r = 0` there anyway. */
 function wobbledRadius(s: number, t: number, seed: number, amp: number, lobes: number): number {
@@ -708,16 +739,26 @@ export function decalAlpha(
       return { alpha: OIL_ALPHA * (1 - smoothstep(OIL_EDGE_INNER, 1, rw)), colour: COLOUR_OIL };
     }
     case 'rubble': {
-      const r = Math.hypot(s, t);
-      const h = tileHash(
-        Math.floor(RUBBLE_CELLS_PER_UNIT * s) + RUBBLE_CELL_OFFSET,
-        Math.floor(RUBBLE_CELLS_PER_UNIT * t) + RUBBLE_CELL_OFFSET + Math.floor(RUBBLE_SEED_SCALE * seed)
-      );
-      const chip = h >= RUBBLE_CHIP_THRESHOLD ? 1 : 0;
-      const tone = RUBBLE_TONE_SCALE * h - Math.floor(RUBBLE_TONE_SCALE * h);
+      // Tiles from the centre, turned by the seed, in cell units.
+      const th = 2 * Math.PI * seed;
+      const px = (s * halfLength) / RUBBLE_CELL_TILES;
+      const pz = (t * halfLength) / RUBBLE_CELL_TILES;
+      const qx = Math.cos(th) * px - Math.sin(th) * pz;
+      const qz = Math.sin(th) * px + Math.cos(th) * pz;
+      const cx = Math.floor(qx);
+      const cz = Math.floor(qz);
+      const ix = cx + RUBBLE_CELL_OFFSET;
+      const iz = cz + RUBBLE_CELL_OFFSET + Math.floor(RUBBLE_SEED_SCALE * seed);
+      const h = tileHash(ix, iz);
+      const jx = 0.5 + RUBBLE_JITTER * (tileHash(ix + RUBBLE_JITTER_SALT, iz) - 0.5);
+      const jz = 0.5 + RUBBLE_JITTER * (tileHash(ix, iz + RUBBLE_JITTER_SALT) - 0.5);
+      const rc = (Math.hypot(cx + jx, cz + jz) * RUBBLE_CELL_TILES) / Math.max(halfLength, 1e-6);
+      const chip = h < RUBBLE_DENSITY * (1 - smoothstep(RUBBLE_EDGE_INNER, 1, rc)) ? 1 : 0;
+      const size = RUBBLE_CHIP_SIZE_MIN + (1 - RUBBLE_CHIP_SIZE_MIN) * fract(RUBBLE_SIZE_SCALE * h);
+      const disc = 1 - smoothstep(RUBBLE_CHIP_R0 * size, RUBBLE_CHIP_R1 * size, Math.hypot(qx - cx - jx, qz - cz - jz));
       return {
-        alpha: RUBBLE_ALPHA * chip * (1 - smoothstep(RUBBLE_EDGE_INNER, 1, r)),
-        colour: tone < 0.5 ? COLOUR_RUBBLE_A : COLOUR_RUBBLE_B,
+        alpha: RUBBLE_ALPHA * chip * disc,
+        colour: fract(RUBBLE_TONE_SCALE * h) < 0.5 ? COLOUR_RUBBLE_A : COLOUR_RUBBLE_B,
       };
     }
     case 'tread':

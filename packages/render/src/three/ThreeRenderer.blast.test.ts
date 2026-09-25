@@ -46,8 +46,9 @@ import * as THREE from 'three';
 import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
-import { isTerrace, terrainSurfaceFrom } from './terrain/surface';
-import { groundWorldY } from './ground-height';
+import { terrainSurfaceFrom } from './terrain/surface';
+import { decalGroundY } from './ground-height';
+import { SHOWCASE_CLEAR_TILES } from './decal-showcase';
 import { isAoOccluder } from './post-chain';
 import { STAMP_SPACING_TILES } from './vehicle-tracks';
 import {
@@ -826,8 +827,7 @@ describe('the ground remembers (spec §3.3)', () => {
       0,
       PERSISTENT_GRID,
       { cx: s.x, cz: s.z, halfLength: s.halfLength, halfWidth: s.halfWidth, facingRad: s.facingRad },
-      (x, z) => groundWorldY(surface, MAP, MAP, x, z),
-      (x, z) => isTerrace(surface, Math.floor(x), Math.floor(z))
+      (x, z) => decalGroundY(surface, MAP, MAP, x, z)
     );
     const pos = (priv.decalsPersistent as unknown as { mesh: THREE.Mesh }).mesh.geometry.getAttribute('position');
     for (let v = 0; v < PERSISTENT_GRID * PERSISTENT_GRID; v++) expect(pos.getY(v)).toBeCloseTo(expected[v * 3 + 1], 5);
@@ -912,6 +912,11 @@ describe('the ground remembers (spec §3.3)', () => {
     r.frame(1, 16);
     r.frame(1, 16);
     expect(spy.mock.calls.length).toBe(first);
+    // Clear of the force the option names (fix wave I-2): no mark within
+    // SHOWCASE_CLEAR_TILES less a lattice's half-extent of it.
+    for (const [s] of spy.mock.calls) {
+      expect(Math.hypot(s.x - 15.5, s.z - 15.5), `${s.kind}@${s.x},${s.z}`).toBeGreaterThan(SHOWCASE_CLEAR_TILES - 2);
+    }
     r.dispose();
   });
   it('stamps nothing without the option', () => {

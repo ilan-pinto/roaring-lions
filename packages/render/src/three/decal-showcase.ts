@@ -187,6 +187,53 @@ export function showcaseSites(
   return sites;
 }
 
+/**
+ * How far every showcase site stands from the sandbox FORCE's anchor, tiles
+ * (fix wave I-2). The first cut anchored the showcase ON the force: its
+ * sites were `SHOWCASE_RING` = 4-9 tiles from the anchor, inside a column of
+ * fourteen idle mesh units, and the fight the drone starts with the nearest
+ * hostiles put a live fireball and a missile streak over the marks. Every
+ * one of those animates on the frame clock, which `step()` advances by a
+ * latched real frame time that differs process to process -- so the
+ * `aftermath` frame moved 519-656 px between two captures of the SAME commit,
+ * against a 40 px budget. 10 is the smallest whole number that clears the
+ * force's column on `qarn_hadid` with the three kinds still found.
+ */
+export const SHOWCASE_CLEAR_TILES = 10;
+
+/**
+ * Where to anchor the showcase for a sandbox force standing at `force`: the
+ * tile whose `showcaseSites` finds the MOST kinds with every site at least
+ * `SHOWCASE_CLEAR_TILES` from the force, and of those the one whose sites'
+ * centroid is NEAREST the force -- clear of it, and as close as that allows,
+ * so the force's own sight still lifts the fog over the marks. Ties go to the
+ * first in a row-major scan, so the answer is a pure function of the map.
+ * Returns `force` itself when no tile finds any site clear of it.
+ */
+export function showcaseAnchor(
+  input: TerrainInput,
+  surface: TerrainSurface,
+  force: { x: number; y: number }
+): { x: number; y: number } {
+  const fx = Math.floor(force.x) + 0.5;
+  const fy = Math.floor(force.y) + 0.5;
+  let best: { x: number; y: number; n: number; d: number } | null = null;
+  for (let y = 0; y < input.height; y++) {
+    for (let x = 0; x < input.width; x++) {
+      const sites = showcaseSites(input, surface, { x, y });
+      if (sites.length === 0) continue;
+      if (sites.some((s) => Math.hypot(s.x + 0.5 - fx, s.y + 0.5 - fy) < SHOWCASE_CLEAR_TILES)) continue;
+      const cx = sites.reduce((a, s) => a + s.x + 0.5, 0) / sites.length;
+      const cy = sites.reduce((a, s) => a + s.y + 0.5, 0) / sites.length;
+      const d = Math.hypot(cx - fx, cy - fy);
+      if (best === null || sites.length > best.n || (sites.length === best.n && d < best.d)) {
+        best = { x, y, n: sites.length, d };
+      }
+    }
+  }
+  return best === null ? { x: force.x, y: force.y } : { x: best.x, y: best.y };
+}
+
 /** The half extents of a lattice cell's mark, by row kind and column. */
 function latticeRadius(kind: Exclude<DecalKind, 'tread' | 'tyre'>, col: number): number {
   const power = SHOWCASE_POWERS[col];

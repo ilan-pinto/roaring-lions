@@ -337,6 +337,59 @@ export function buildControlMap(input: TerrainInput): ControlMap {
 }
 
 /**
+ * Everything `buildControlMap` and `buildRoadGraph` read, kept from the last
+ * build so an unchanged rebuild can skip both (fix wave I-1). Neither reads
+ * `elevation` or which structures have art, and those are what most of a
+ * boot's 3-5 `terrainDirty` rebuilds change: a building template landing, a
+ * decor set loading, `setElevation`. Before this each of those paid 48-80 ms
+ * for a map identical to the one already bound.
+ *
+ * `decor` is kept by REFERENCE: the renderer replaces the array when the map
+ * changes and never writes into it. `blocked` and `cover` are kept by
+ * CONTENT, as copies, and that is not caution: `drawBlockedMask` returns a
+ * NEW array on every call, so a reference compare would never match, and
+ * `sim.cover` is the sim's own array, written IN PLACE when a structure dies
+ * (the tile becomes rubble), so a reference compare would always match.
+ */
+export interface ControlInputs {
+  readonly width: number;
+  readonly height: number;
+  readonly decor: Uint8Array | null;
+  readonly blocked: Uint8Array;
+  readonly cover: Uint8Array;
+}
+
+/** A snapshot of `input`'s control-map inputs -- see `ControlInputs`. */
+export function snapshotControlInputs(input: TerrainInput): ControlInputs {
+  return {
+    width: input.width,
+    height: input.height,
+    decor: input.decor,
+    blocked: input.blocked.slice(),
+    cover: input.cover.slice(),
+  };
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** True when a control map built from `input` would be byte-identical to the
+ *  one `prev` was snapshotted from -- see `ControlInputs`. */
+export function controlInputsMatch(prev: ControlInputs | null, input: TerrainInput): boolean {
+  return (
+    prev !== null &&
+    prev.width === input.width &&
+    prev.height === input.height &&
+    prev.decor === input.decor &&
+    bytesEqual(prev.blocked, input.blocked) &&
+    bytesEqual(prev.cover, input.cover)
+  );
+}
+
+/**
  * Task 4b: the height bias and the macro field -- appended to this same file
  * rather than a sibling module, purely because the controller's file-size cap
  * split Task 4 in two, not because the two halves are independent ideas. Both

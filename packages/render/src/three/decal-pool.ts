@@ -13,8 +13,8 @@
  *
  * F-27 split this file in two: `decal-maths.ts` holds everything pure --
  * kinds, the sim-time clock, the conforming-grid maths, the size curves and
- * `decalAlpha` itself, with no `THREE.*` import, so a tools-side test can
- * pull in the maths without pulling in `three`. This file re-exports all of
+ * `decalAlpha` itself, with no `THREE.*` import -- tidiness rather than a
+ * requirement, since `three` loads under node anyway. This file re-exports all of
  * it (`export * from './decal-maths'`) and adds the GPU half: `DecalPool`
  * (the ring-buffer `THREE.Mesh`) and `createDecalMaterial` (the shader).
  *
@@ -101,6 +101,9 @@
  */
 import * as THREE from 'three';
 import { hexToLinear } from './terrain/shared';
+import { ROAD_DISTANCE_RANGE_TILES } from './terrain/control-map';
+import { ROAD_EDGE_BEND, ROAD_EDGE_FALLOFF, ROAD_HALF_WIDTH, SHOULDER_ALPHA, SHOULDER_TILES } from './terrain/road-graph';
+import { defaultControlB } from './terrain/mesh';
 import {
   CRATER_BOWL_ALPHA,
   CRATER_BOWL_EDGE0,
@@ -130,16 +133,24 @@ import {
   OIL_WOBBLE,
   RUBBLE_ALPHA,
   RUBBLE_CELL_OFFSET,
-  RUBBLE_CELLS_PER_UNIT,
-  RUBBLE_CHIP_THRESHOLD,
+  RUBBLE_CELL_TILES,
+  RUBBLE_CHIP_R0,
+  RUBBLE_CHIP_R1,
+  RUBBLE_CHIP_SIZE_MIN,
+  RUBBLE_DENSITY,
   RUBBLE_EDGE_INNER,
+  RUBBLE_JITTER,
+  RUBBLE_JITTER_SALT,
   RUBBLE_SEED_SCALE,
+  RUBBLE_SIZE_SCALE,
   RUBBLE_TONE_SCALE,
   SCORCH_ALPHA,
   SCORCH_EDGE_INNER,
   TILE_HASH_MIX,
   TILE_HASH_MX,
   TILE_HASH_MY,
+  TILE_HASH_SHIFT_A,
+  TILE_HASH_SHIFT_B,
   TRACK_ALPHA,
   TRACK_FADE_SEC,
   TRACK_FEATHER_TILES,
@@ -194,6 +205,12 @@ export * from './decal-maths';
  * terrain it already shadows correctly -- casting or receiving a shadow of
  * its own would double it.
  */
+/** Flags one ring slot's vertices of `attr` for upload -- see `stamp`. */
+function markSlot(attr: THREE.BufferAttribute, slot: number, verticesPerSlot: number): void {
+  attr.addUpdateRange(slot * verticesPerSlot * attr.itemSize, verticesPerSlot * attr.itemSize);
+  attr.needsUpdate = true;
+}
+
 export class DecalPool {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
   private readonly positionAttr: THREE.BufferAttribute;
@@ -249,8 +266,11 @@ export class DecalPool {
     geometry.setAttribute('aGround', this.groundAttr);
 
     // STATIC index: a decal's grid topology never changes, only its vertex
-    // data does.
-    const indices = new Uint32Array(capacity * this.trisPerDecal * 3);
+    // data does. 16-bit where every vertex index fits (M-1): both shipped
+    // pools hold exactly 16,384 vertices, so neither needs 32.
+    const indexCount = capacity * this.trisPerDecal * 3;
+    const indices =
+      capacity * verticesPerDecal <= 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
     const perSlot = this.trisPerDecal * 3;
     for (let slot = 0; slot < capacity; slot++) {
       // `writeGridIndices` writes from index 0 of the array it is handed (it
@@ -286,18 +306,19 @@ export class DecalPool {
    * Stamps one decal into the next ring slot, overwriting the oldest
    * content there once the pool is full -- the same graceful-degradation
    * wraparound every ring-buffer mark in this backend uses.
-   * `sampleY`/`isTerrace` are threaded straight through to
-   * `writeDecalGrid`; this method adds nothing to the height they return
-   * beyond what that function already does (`+ MARK_EPSILON`). `ground` is
-   * the ground's linear base albedo at the decal's centre
-   * (`terrain/decal-ground-tone.ts`), the ratio's denominator.
+   * `sampleY` is threaded straight through to `writeDecalGrid` (the smooth
+   * field, fix wave I-4); this method adds nothing to the height it returns
+   * beyond what that function already does. `ground` is the tile's own
+   * linear palette tone at the decal's centre, with no road in it
+   * (`terrain/decal-ground-tone.ts`, `decalBaseTone`): the shader mixes the
+   * road and shoulder in per fragment (fix wave I-3).
+   *
+   * Uploads only this slot (M-1): each attribute gets an update RANGE over
+   * the slot's own vertices, so a stamp moves `n * n` vertices' worth of
+   * bytes rather than the whole pool's 0.4-0.5 MiB -- which the fading pool
+   * used to do almost every frame while vehicles move.
    */
-  stamp(
-    s: DecalStamp,
-    sampleY: (x: number, z: number) => number,
-    isTerrace: (x: number, z: number) => boolean,
-    ground: readonly [number, number, number]
-  ): void {
+  stamp(s: DecalStamp, sampleY: (x: number, z: number) => number, ground: readonly [number, number, number]): void {
     const slot = this.writeCursor;
     this.writeCursor = (this.writeCursor + 1) % this.capacityValue;
     this.writtenCount = Math.min(this.writtenCount + 1, this.capacityValue);
@@ -308,10 +329,9 @@ export class DecalPool {
       slot,
       n,
       { cx: s.x, cz: s.z, halfLength: s.halfLength, halfWidth: s.halfWidth, facingRad: s.facingRad },
-      sampleY,
-      isTerrace
+      sampleY
     );
-    this.positionAttr.needsUpdate = true;
+    markSlot(this.positionAttr, slot, n * n);
 
     const kindIndex = DECAL_KIND_INDEX[s.kind];
     const ageBaseSec = s.simMs / 1000;
@@ -324,7 +344,7 @@ export class DecalPool {
       decalArray[vBase + 2] = ageBaseSec;
       decalArray[vBase + 3] = s.halfLength;
     }
-    this.decalAttr.needsUpdate = true;
+    markSlot(this.decalAttr, slot, n * n);
 
     const groundArray = this.groundAttr.array as Float32Array;
     const gBase = slot * n * n * 3;
@@ -333,7 +353,7 @@ export class DecalPool {
       groundArray[gBase + v * 3 + 1] = ground[1];
       groundArray[gBase + v * 3 + 2] = ground[2];
     }
-    this.groundAttr.needsUpdate = true;
+    markSlot(this.groundAttr, slot, n * n);
 
     this.mesh.geometry.setDrawRange(0, this.writtenCount * this.trisPerDecal * 3);
   }
@@ -363,16 +383,21 @@ const DECAL_VERTEX_SHADER = /* glsl */ `
   attribute vec4 aDecal;
   attribute vec3 aGround;
   varying vec2 vOffset;
+  // Where this fragment sits on the map, in tiles: what control B and the
+  // map-edge discard are indexed by (fix wave I-3, I-4).
+  varying vec2 vWorldXZ;
   // flat: kind, seed, date and half-length are per-decal constants -- no
   // interpolation, so floor(1000 seed) and the kind branch see the exact
   // value the pool wrote.
   flat varying vec4 vDecal;
-  // flat: the ground tone under the decal, one per decal (fix round 2).
+  // flat: the tile's own palette tone under the decal, one per decal, with
+  // no road in it -- the road is mixed in per fragment (fix wave I-3).
   flat varying vec3 vGround;
   void main() {
     vOffset = aOffset;
     vDecal = aDecal;
     vGround = aGround;
+    vWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -383,7 +408,16 @@ const f = glslFloat;
 const DECAL_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColors[${DECAL_PALETTE_ORDER.length}];
   uniform float uNowSec;
+  // The ground's own road inputs, SHARED uniform objects (fix wave I-3):
+  // control B, the map size, the two road tones and the roads toggle, so a
+  // rebuilt control map or a hidden road reaches the decals too.
+  uniform sampler2D uControlB;
+  uniform vec2 uMapSize;
+  uniform vec3 uRoadTone;
+  uniform vec3 uShoulderTone;
+  uniform float uRoadOn;
   varying vec2 vOffset;
+  varying vec2 vWorldXZ;
   flat varying vec4 vDecal;
   flat varying vec3 vGround;
 
@@ -391,8 +425,8 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
   // decal-pool.ts's top comment. Inputs are non-negative by construction.
   float rlHash(int xi, int yi) {
     uint h = uint(xi) * ${TILE_HASH_MX}u + uint(yi) * ${TILE_HASH_MY}u;
-    h = (h ^ (h >> 13u)) * ${TILE_HASH_MIX}u;
-    h = h ^ (h >> 16u);
+    h = (h ^ (h >> ${TILE_HASH_SHIFT_A}u)) * ${TILE_HASH_MIX}u;
+    h = h ^ (h >> ${TILE_HASH_SHIFT_B}u);
     // Top 24 bits: exact in a float, and never rounds up to 1.0.
     return float(h >> 8u) / 16777216.0;
   }
@@ -404,6 +438,12 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
   }
 
   void main() {
+    // Fetched before any discard, so its implicit gradient is taken in
+    // uniform control flow -- the same LOD the ground's own tap picks.
+    vec4 rlB = texture2D(uControlB, vWorldXZ / uMapSize);
+    // Nothing hangs past the map edge over the skirt (fix wave I-4).
+    if (vWorldXZ.x < 0.0 || vWorldXZ.y < 0.0 || vWorldXZ.x > uMapSize.x || vWorldXZ.y > uMapSize.y) discard;
+
     int kind = int(vDecal.x + 0.5);
     float seed = vDecal.y;
     float ageSec = uNowSec - vDecal.z;
@@ -428,12 +468,20 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
       a = ${f(OIL_ALPHA)} * (1.0 - smoothstep(${f(OIL_EDGE_INNER)}, 1.0, rw));
       ci = ${COLOUR_OIL};
     } else if (kind == ${DECAL_KIND_INDEX.rubble}) {
-      float h = rlHash(
-        int(floor(${f(RUBBLE_CELLS_PER_UNIT)} * s)) + ${RUBBLE_CELL_OFFSET},
-        int(floor(${f(RUBBLE_CELLS_PER_UNIT)} * t)) + ${RUBBLE_CELL_OFFSET} + int(floor(${f(RUBBLE_SEED_SCALE)} * seed))
-      );
-      float chip = step(${f(RUBBLE_CHIP_THRESHOLD)}, h);
-      a = ${f(RUBBLE_ALPHA)} * chip * (1.0 - smoothstep(${f(RUBBLE_EDGE_INNER)}, 1.0, length(vOffset)));
+      // Chips on a seed-turned lattice of RUBBLE_CELL_TILES cells (I-5).
+      float th = ${f(2 * Math.PI)} * seed;
+      vec2 p = vOffset * halfLength / ${f(RUBBLE_CELL_TILES)};
+      vec2 q = vec2(cos(th) * p.x - sin(th) * p.y, sin(th) * p.x + cos(th) * p.y);
+      vec2 cell = floor(q);
+      int ix = int(cell.x) + ${RUBBLE_CELL_OFFSET};
+      int iz = int(cell.y) + ${RUBBLE_CELL_OFFSET} + int(floor(${f(RUBBLE_SEED_SCALE)} * seed));
+      float h = rlHash(ix, iz);
+      vec2 jit = vec2(0.5) + ${f(RUBBLE_JITTER)} * (vec2(rlHash(ix + ${RUBBLE_JITTER_SALT}, iz), rlHash(ix, iz + ${RUBBLE_JITTER_SALT})) - 0.5);
+      float rc = length(cell + jit) * ${f(RUBBLE_CELL_TILES)} / max(halfLength, 0.000001);
+      float chip = 1.0 - step(${f(RUBBLE_DENSITY)} * (1.0 - smoothstep(${f(RUBBLE_EDGE_INNER)}, 1.0, rc)), h);
+      float size = ${f(RUBBLE_CHIP_SIZE_MIN)} + ${f(1 - RUBBLE_CHIP_SIZE_MIN)} * fract(${f(RUBBLE_SIZE_SCALE)} * h);
+      float disc = 1.0 - smoothstep(${f(RUBBLE_CHIP_R0)} * size, ${f(RUBBLE_CHIP_R1)} * size, length(q - cell - jit));
+      a = ${f(RUBBLE_ALPHA)} * chip * disc;
       ci = fract(${f(RUBBLE_TONE_SCALE)} * h) < 0.5 ? ${COLOUR_RUBBLE_A} : ${COLOUR_RUBBLE_B};
     } else if (kind == ${DECAL_KIND_INDEX.tread} || kind == ${DECAL_KIND_INDEX.tyre}) {
       float u = s * halfLength;
@@ -450,16 +498,44 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
 
     if (a <= 0.0) discard;
     vec3 colour = uColors[ci];
+    // The ground tone under THIS fragment (fix wave I-3): the decal's own
+    // tile tone, with the road surface and its shoulder mixed in exactly as
+    // GroundMaterial mixes them, from the same control B texel -- road-graph
+    // roadProfile's surface and shoulder, transcribed (decalRoadMix is the
+    // TypeScript mirror). A crater lip on a road's shoulder divides by the
+    // shoulder, not by the road at the crater's centre.
+    float rlRoadE = rlB.g * ${ROAD_DISTANCE_RANGE_TILES.toFixed(3)} + ${ROAD_EDGE_BEND.toFixed(3)} * (rlB.a * 2.0 - 1.0);
+    float rlRoadH0 = (${ROAD_HALF_WIDTH.toFixed(3)} - 0.5 * ${ROAD_EDGE_FALLOFF.toFixed(3)});
+    float rlRoadH1 = (${ROAD_HALF_WIDTH.toFixed(3)} + 0.5 * ${ROAD_EDGE_FALLOFF.toFixed(3)});
+    float rlRoadEdge = smoothstep(rlRoadH0, rlRoadH1, rlRoadE);
+    float rlRoadSurf = uRoadOn * (1.0 - rlRoadEdge);
+    float rlShoulder = uRoadOn * ${SHOULDER_ALPHA.toFixed(3)} * rlRoadEdge
+      * (1.0 - smoothstep(rlRoadH1, rlRoadH1 + ${SHOULDER_TILES.toFixed(3)}, rlRoadE));
+    vec3 ground = mix(mix(vGround, uRoadTone, rlRoadSurf), uShoulderTone, rlShoulder);
     // F-22 (fix round 1): the ONE point where colour becomes output --
-    // \`decalMultiplier\`, transcribed. Written as an albedo ratio over the
-    // ground's OWN tone under this decal (vGround, captured at the stamp --
-    // fix round 2) and multiplied onto the LIT ground by the blend state, so
-    // a lip in shade stays in shade and a lip on a green map's road is the
-    // lip's colour, not a salmon one. Alpha is unused by the blend.
-    vec3 ratio = colour / max(vGround, ${f(DECAL_GROUND_FLOOR)});
+    // \`decalMultiplier\`, transcribed. An albedo ratio over that ground,
+    // multiplied onto the LIT ground by the blend state, so a lip in shade
+    // stays in shade. Alpha is unused by the blend.
+    vec3 ratio = colour / max(ground, ${f(DECAL_GROUND_FLOOR)});
     gl_FragColor = vec4(1.0 + a * (ratio - 1.0), 1.0);
   }
 `;
+
+/**
+ * The ground uniforms the decal shader reads the road from (fix wave I-3).
+ * `ThreeRenderer` hands in `GroundMaterial`'s OWN uniform objects, not
+ * copies, so a rebuilt control map (`uControlB.value`), the palette's road
+ * tones and the `roads` debug toggle (`uRoadOn`) reach both materials with
+ * one write. Omitted, the decals get the 1x1 "no road in range" control B
+ * and draw every mark over its own tile tone.
+ */
+export interface DecalGroundUniforms {
+  readonly uControlB: THREE.IUniform;
+  readonly uMapSize: THREE.IUniform;
+  readonly uRoadTone: THREE.IUniform;
+  readonly uShoulderTone: THREE.IUniform;
+  readonly uRoadOn: THREE.IUniform;
+}
 
 /**
  * The one material both decal pools share (see `DecalPool`'s top comment):
@@ -467,23 +543,37 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
  * `DECAL_PALETTE_ORDER` (linear, via `hexToLinear`), and `uNowSec`, the
  * SIM clock in seconds, starting at 0 -- the renderer sets it every frame
  * from `presentationSimMs(tickCount, alpha) / 1000`, never from a frame
- * timestamp. The denominator of `decalMultiplier`'s albedo ratio is NOT a
- * uniform: each decal carries its own ground tone (`aGround`, written by
- * `DecalPool.stamp`). Multiply-blended onto the
+ * timestamp. The denominator of `decalMultiplier`'s albedo ratio is built
+ * per fragment: each decal carries its own TILE tone (`aGround`, written by
+ * `DecalPool.stamp`), and the road and shoulder are mixed in from the
+ * ground's own control B through `ground`'s shared uniforms (fix wave I-3).
+ * Multiply-blended onto the
  * lit ground (F-22, fix round 1), depth-tested, not depth-writing, with
  * F-23's polygon offset; `DoubleSide` for the same reason every other flat
  * decal material in this backend carries it -- no lighting term depends on
  * the winding, so the winding is not a risk worth carrying.
  */
-export function createDecalMaterial(palette: DecalPalette): THREE.ShaderMaterial {
+export function createDecalMaterial(palette: DecalPalette, ground?: DecalGroundUniforms): THREE.ShaderMaterial {
   const colours = DECAL_PALETTE_ORDER.map((key) => {
     const [r, g, b] = hexToLinear(palette[key]);
     return new THREE.Vector3(r, g, b);
   });
+  const road: DecalGroundUniforms = ground ?? {
+    uControlB: { value: defaultControlB() },
+    uMapSize: { value: new THREE.Vector2(1, 1) },
+    uRoadTone: { value: new THREE.Vector3(1, 1, 1) },
+    uShoulderTone: { value: new THREE.Vector3(1, 1, 1) },
+    uRoadOn: { value: 1 },
+  };
   return new THREE.ShaderMaterial({
     uniforms: {
       uColors: { value: colours },
       uNowSec: { value: 0 },
+      uControlB: road.uControlB,
+      uMapSize: road.uMapSize,
+      uRoadTone: road.uRoadTone,
+      uShoulderTone: road.uShoulderTone,
+      uRoadOn: road.uRoadOn,
     },
     vertexShader: DECAL_VERTEX_SHADER,
     fragmentShader: DECAL_FRAGMENT_SHADER,

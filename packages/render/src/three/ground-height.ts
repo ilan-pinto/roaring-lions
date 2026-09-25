@@ -40,7 +40,7 @@
  * see rather than the terrace that is no longer drawn.
  */
 import { levelAt, WORLD_PER_LEVEL } from './terrain/shared';
-import { surfaceLevel, type TerrainSurface } from './terrain/surface';
+import { smoothWorldY, surfaceLevel, type TerrainSurface } from './terrain/surface';
 import type { TerrainInput } from './terrain/types';
 
 /** Never mutated, never indexed past its own zero length -- `levelAt` only
@@ -135,4 +135,30 @@ export function tileGroundWorldY(
   ty: number
 ): number {
   return groundWorldY(elevation, width, height, tx + 0.5, ty + 0.5);
+}
+
+/**
+ * The height a ground DECAL's grid vertex takes (fix wave I-4) -- the drawn
+ * surface's SMOOTH field, not `groundWorldY`'s terrace dispatch.
+ *
+ * On open ground the two are the same function. They differ in exactly the
+ * two places a decal grid overhangs: over a terrace, where `groundWorldY`
+ * reads the pad or ridge top (a wall a vertex would climb) and the smooth
+ * field reads the ground `buildTerrainSurface` fills in under it from the
+ * open tiles around, so a chord from a ridge foot follows the apron and runs
+ * on under the terrace, hidden by the wall's own depth; and off the map,
+ * where `groundWorldY` reads 0 and the smooth field replicates the rim, so a
+ * mark near a raised edge stays on its level instead of diving. The decal
+ * shader discards what then hangs past the edge. Before a surface exists
+ * (`Uint8Array` or null) this is `groundWorldY`.
+ */
+export function decalGroundY(
+  elevation: ElevationSource,
+  width: number,
+  height: number,
+  x: number,
+  y: number
+): number {
+  if (isSurface(elevation)) return smoothWorldY(elevation, x, y);
+  return groundWorldY(elevation, width, height, x, y);
 }

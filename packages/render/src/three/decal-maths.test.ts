@@ -1,7 +1,8 @@
 /**
- * F-27: `decal-maths.ts` is the three-free half of the shared decal pool --
- * Task 17's tools-side test needs to import this maths without pulling in
- * `three` at all. The behavioural tests for every export here already live
+ * F-27: `decal-maths.ts` is the three-free half of the shared decal pool.
+ * That is tidiness, not a requirement -- `three` loads under node, and tools
+ * resolves it -- but it keeps the pure maths apart from the GPU code, and a
+ * boundary nobody checks does not stay put. The behavioural tests for every export here already live
  * in `decal-pool.test.ts` (which imports them through `decal-pool.ts`'s own
  * re-export); this file only pins the import boundary itself.
  */

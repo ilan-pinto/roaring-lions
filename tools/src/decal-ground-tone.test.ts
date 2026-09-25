@@ -24,7 +24,13 @@
 import { describe, expect, it } from 'vitest';
 import { maps, paletteColor, parseMap } from '@lions/data';
 import { TERRAIN_THEMES } from '../../packages/app/src/terrain-themes';
-import { decalGroundTone, type DecalGroundSource } from '../../packages/render/src/three/terrain/decal-ground-tone';
+import {
+  decalBaseTone,
+  decalGroundTone,
+  decalRoadMix,
+  makeDecalGroundSource,
+  type DecalGroundSource,
+} from '../../packages/render/src/three/terrain/decal-ground-tone';
 import { tileBaseToneHex } from '../../packages/render/src/three/terrain/ground';
 import {
   buildControlMap,
@@ -34,7 +40,7 @@ import {
 import { buildRoadGraph, roadProfile } from '../../packages/render/src/three/terrain/road-graph';
 import { hexToLinear } from '../../packages/render/src/three/terrain/shared';
 import type { TerrainInput } from '../../packages/render/src/three/terrain/types';
-import { decalMultiplier } from '../../packages/render/src/three/decal-pool';
+import { CRATER_LIP_ALPHA, craterRadiusTiles, decalMultiplier } from '../../packages/render/src/three/decal-pool';
 
 type Rgb = [number, number, number];
 
@@ -50,7 +56,7 @@ const input: TerrainInput = {
   blocked: map.blocked,
   cover: map.cover,
 };
-const src: DecalGroundSource = { input, tones, background, shoulder, graph: buildRoadGraph(input) };
+const src: DecalGroundSource = makeDecalGroundSource(input, tones, background, shoulder, buildRoadGraph(input));
 const control = buildControlMap(input);
 
 /** Control B at world point (x, z), bilinear over texel centres like the GPU,
@@ -103,12 +109,12 @@ const SURFACES: readonly { name: string; x: number; z: number }[] = [
 ];
 
 /** The decal kinds whose colours sit furthest from grass: the pale lip, the
- *  tyre, the dark bowl, and the tread (which is the theme's rut tone). */
+ *  tyre, the dark bowl, and the tread (`dust.5` on every theme, M-2). */
 const DECALS: readonly { name: string; hex: string }[] = [
   { name: 'crater lip (limestone.1)', hex: paletteColor('limestone.1') },
   { name: 'tyre (limestone.6)', hex: paletteColor('limestone.6') },
   { name: 'crater bowl (shadow.0)', hex: paletteColor('shadow.0') },
-  { name: 'tread (rut)', hex: tones.rut },
+  { name: 'tread (dust.5)', hex: paletteColor('dust.5') },
 ];
 
 describe('a decal on a green map is its own colour on every surface (fix round 2)', () => {
@@ -139,5 +145,64 @@ describe('a decal on a green map is its own colour on every surface (fix round 2
         }
       });
     }
+  }
+});
+
+/** Linear to an sRGB byte, as the display shows it. */
+const enc = (v: number): number => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055);
+
+/**
+ * Fix wave I-3. A crater lip lies 0.34-0.60 tiles out, so on a crater centred
+ * on a road it lies on the road's edge and shoulder every time. The decal
+ * shader now builds its divisor PER FRAGMENT: the decal's own tile tone
+ * (`decalBaseTone`, stamped) with the road and shoulder mixed in from the
+ * fragment's own control B texel (`decalRoadMix`, the shader's mirror). The
+ * lip over the shoulder must then be the approved lip -- the "over" blend of
+ * `limestone.1` at 25% onto the ground drawn THERE -- to 1 sRGB level.
+ *
+ * `drawn` is the ground shader's road mix read independently (above); the
+ * divisor reads the same texel through the function the shader transcribes.
+ */
+describe('a crater lip on a green road\'s shoulder is the approved lip (fix wave I-3)', () => {
+  const lip = hexToLinear(paletteColor('limestone.1'));
+  // A Grad crater (r 0.6) centred on the road at row 34; its lip ring at
+  // 0.9 r is 0.54 tile south, on the shoulder band (0.45-0.57 of the centreline).
+  const centre = { x: 20.5, z: 34.5 };
+  const lipAt = { x: 20.5, z: 34.5 + 0.9 * craterRadiusTiles(0.45) };
+
+  /** The shader's per-fragment divisor at `at` for a decal stamped at `centre`. */
+  const divisorPerFragment = (at: { x: number; z: number }): number[] => {
+    const b = controlB(at.x, at.z);
+    return decalRoadMix(decalBaseTone(src, centre.x, centre.z), src.roadLinear, src.shoulderLinear, b[1], b[3]);
+  };
+  /** The retired divisor: the whole ground tone at the decal's CENTRE. */
+  const divisorCentreOnly = (): number[] => decalGroundTone(src, centre.x, centre.z);
+
+  const drawnLip = (div: readonly number[], a: number): number[] => {
+    const g = drawn(lipAt.x, lipAt.z);
+    const m = decalMultiplier(lip, [div[0], div[1], div[2]], a);
+    return [0, 1, 2].map((c) => g[c] * m[c]);
+  };
+  const approved = (a: number): number[] => {
+    const g = drawn(lipAt.x, lipAt.z);
+    return [0, 1, 2].map((c) => g[c] * (1 - a) + lip[c] * a);
+  };
+  const worstLevel = (got: readonly number[], want: readonly number[]): number =>
+    Math.max(...[0, 1, 2].map((c) => Math.abs(enc(got[c]) - enc(want[c]))));
+
+  it('really is a shoulder: not the road, not the grass', () => {
+    const g = drawn(lipAt.x, lipAt.z);
+    const road = drawn(centre.x, centre.z);
+    const grass = drawn(40.5, 5.5);
+    expect(worstLevel(g, road)).toBeGreaterThan(10);
+    expect(worstLevel(g, grass)).toBeGreaterThan(10);
+  });
+  for (const a of [CRATER_LIP_ALPHA, 1]) {
+    it(`draws the lip at alpha ${a} to within 1 sRGB level of the approved colour`, () => {
+      expect(worstLevel(drawnLip(divisorPerFragment(lipAt), a), approved(a))).toBeLessThanOrEqual(1);
+    });
+    it(`(control) the centre-only divisor misses it at alpha ${a}`, () => {
+      expect(worstLevel(drawnLip(divisorCentreOnly(), a), approved(a))).toBeGreaterThan(5);
+    });
   }
 });

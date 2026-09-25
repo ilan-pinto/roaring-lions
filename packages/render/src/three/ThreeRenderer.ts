@@ -144,7 +144,7 @@ import {
 } from './units/smoke-plume';
 import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
 import { scorchRadiusTiles } from './scorch-decals';
-import { decalShowcase, showcaseSites } from './decal-showcase';
+import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
@@ -181,7 +181,7 @@ import {
   type HitStopState,
 } from './blast-shake';
 import { buildGround, groundAlbedoSlotsUsed } from './terrain/ground';
-import { decalGroundTone, type DecalGroundSource } from './terrain/decal-ground-tone';
+import { decalBaseTone, makeDecalGroundSource, type DecalGroundSource } from './terrain/decal-ground-tone';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
@@ -201,7 +201,14 @@ import {
 } from './terrain/mesh';
 import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
 import { isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
-import { buildControlMap, buildMacroField, neutralTint } from './terrain/control-map';
+import {
+  buildControlMap,
+  buildMacroField,
+  controlInputsMatch,
+  neutralTint,
+  snapshotControlInputs,
+  type ControlInputs,
+} from './terrain/control-map';
 import { ROAD_GRAIN_GAIN, buildRoadGraph } from './terrain/road-graph';
 import { hexToLinear } from './terrain/shared';
 import type { TerrainInput, MeshData } from './terrain/types';
@@ -344,7 +351,7 @@ import type { MeshFaction } from './units/mesh-role';
  *  at compile time, so it cannot pull three.js back into the main chunk --
  *  the regression this entry point exists to prevent. */
 export type { MeshFaction } from './units/mesh-role';
-import { groundWorldY } from './ground-height';
+import { decalGroundY, groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
@@ -1051,6 +1058,9 @@ export class ThreeRenderer implements Renderer {
    *  disposed there. Null until the first rebuild, when the material's own
    *  1x1 "nothing here" defaults are bound instead (`GroundMaterial`). */
   private controlTex: { a: THREE.DataTexture; b: THREE.DataTexture } | null = null;
+  /** What `controlTex` (and `decalGround.graph`) were last built from, so
+   *  `rebuildTerrain` can skip an unchanged rebuild (fix wave I-1). */
+  private controlInputs: ControlInputs | null = null;
   /** The macro field's texture, bound as `uMacro`. Built once, in the
    *  constructor: it depends on the map's size alone, never on the terrain,
    *  so no rebuild has anything to change in it. */
@@ -1346,12 +1356,19 @@ export class ThreeRenderer implements Renderer {
   private readonly decalsPersistent: DecalPool;
   private readonly decalsFading: DecalPool;
   /** `stampGroundDecal`'s two samplers, built once rather than per stamp:
-   *  the drawn surface's height, and R-19's terrace test on the same
-   *  surface. Both read `this.retained.elevation` at CALL time, so a
-   *  `refreshSurface` between two stamps is seen by the second. */
+   *  the height a decal grid vertex takes, and R-19's terrace test for the
+   *  decal's CENTRE. Both read `this.retained.elevation` at CALL time, so a
+   *  `refreshSurface` between two stamps is seen by the second.
+   *
+   *  The height is the SMOOTH field (`decalGroundY`), not `groundWorldY`
+   *  (fix wave I-4). On open ground the two are the same function; under a
+   *  terrace the smooth field continues the apron (so the chord no longer
+   *  cuts under a ridge foot by up to 0.62 wu), and off the map it is the
+   *  edge-clamped field rather than 0 (so a rim mark no longer dives by up to
+   *  0.38 wu). Before a surface exists it falls back to `groundWorldY`. */
   private readonly decalSampleY = (x: number, z: number): number =>
-    groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
-  /** What `decalGroundTone` reads -- the last terrain build's own input
+    decalGroundY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
+  /** What `decalBaseTone` reads -- the last terrain build's own input
    *  (draw mask, decor, tones) and road graph. `null` until the first build;
    *  a stamp before it divides by the map's open tone, which is what every
    *  tile is before a build has said otherwise. Its draw mask is refreshed
@@ -2155,19 +2172,35 @@ export class ThreeRenderer implements Renderer {
     // exactly as the meshes above resolve theirs -- a caller with a resolver
     // gets the real palette entry, and one without (this backend's own
     // tests) still gets the on-palette hex that key names today rather
-    // than magenta. `tread` is the SAME resolved rut tone the ground's
-    // own road ruts use, so a driven-over tile and a road rut read as one
-    // material.
-    this.decalMaterial = createDecalMaterial({
-      craterBowl: this.overlayColor('shadow.0', '#23241F'),
-      craterLip: this.overlayColor('limestone.1', '#E6D8BE'),
-      scorch: this.overlayColor('shadow.0', '#23241F'),
-      oil: this.overlayColor('shadow.1', '#14150F'),
-      rubbleA: this.overlayColor('limestone.5', '#A28C6E'),
-      rubbleB: this.overlayColor('limestone.7', '#75624A'),
-      tread: opts.terrainTones.rut,
-      tyre: this.overlayColor('limestone.6', '#8C7659'),
-    });
+    // than magenta. `tread` is `dust.5` on every theme, as spec §5 gives it
+    // (fix wave M-2): the ground's own road ruts are a different tone again
+    // (`limestone.6`, `uRutTone`), and the retired line here that called
+    // tread "the SAME rut tone" was wrong twice -- it read the theme's
+    // `terrainTones.rut`, which is `dust.6` on green.
+    //
+    // The second argument hands the decal shader the ground's OWN road
+    // uniform objects (fix wave I-3), so the per-fragment road mix reads the
+    // control map `rebuildTerrain` binds and the `roads` toggle with no
+    // second write.
+    this.decalMaterial = createDecalMaterial(
+      {
+        craterBowl: this.overlayColor('shadow.0', '#23241F'),
+        craterLip: this.overlayColor('limestone.1', '#E6D8BE'),
+        scorch: this.overlayColor('shadow.0', '#23241F'),
+        oil: this.overlayColor('shadow.1', '#14150F'),
+        rubbleA: this.overlayColor('limestone.5', '#A28C6E'),
+        rubbleB: this.overlayColor('limestone.7', '#75624A'),
+        tread: this.overlayColor('dust.5', '#806032'),
+        tyre: this.overlayColor('limestone.6', '#8C7659'),
+      },
+      {
+        uControlB: this.groundMat.uniforms.uControlB,
+        uMapSize: this.groundMat.uniforms.uMapSize,
+        uRoadTone: this.groundMat.uniforms.uRoadTone,
+        uShoulderTone: this.groundMat.uniforms.uShoulderTone,
+        uRoadOn: this.groundMat.uniforms.uRoadOn,
+      }
+    );
     // Each decal writes its tone as a ratio over the ground tone under it
     // (`decalGround`, captured per stamp) and is MULTIPLIED onto the lit
     // ground (F-22), so a crater lip in a building's shadow stays in shadow.
@@ -2644,6 +2677,7 @@ export class ThreeRenderer implements Renderer {
     this.controlTex?.a.dispose();
     this.controlTex?.b.dispose();
     this.controlTex = null;
+    this.controlInputs = null;
     this.macroTex.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
     this.unitInstancers.clear();
@@ -7224,17 +7258,20 @@ export class ThreeRenderer implements Renderer {
    * vertical, and a mark centred on one would hang in the air or wrap a
    * wall -- and returns whether it stamped. Routes tread/tyre to the fading
    * pool and every other kind to the persistent one. Heights come from the
-   * drawn surface (`retained.elevation`) through `groundWorldY`, the same
-   * function every unit and particle here stands on.
+   * drawn surface's SMOOTH field (`decalSampleY`, fix wave I-4): the drawn
+   * ground itself on open ground, continued under terraces and past the map
+   * edge rather than held at the centre's height or dropped to 0.
    */
   private stampGroundDecal(s: DecalStamp): boolean {
     if (this.decalIsTerrace(s.x, s.z)) return false;
     const pool = isFadingKind(s.kind) ? this.decalsFading : this.decalsPersistent;
     // The ratio's denominator is the ground under THIS decal (fix round 2),
     // not the map's open tone: a green map's road is dust, not grass.
+    // Fix wave I-3: the TILE tone only -- the shader mixes the road and its
+    // shoulder in per fragment, from the same control B the ground reads.
     const ground =
-      this.decalGround === null ? hexToLinear(this.opts.terrainTones.open) : decalGroundTone(this.decalGround, s.x, s.z);
-    pool.stamp(s, this.decalSampleY, this.decalIsTerrace, ground);
+      this.decalGround === null ? hexToLinear(this.opts.terrainTones.open) : decalBaseTone(this.decalGround, s.x, s.z);
+    pool.stamp(s, this.decalSampleY, ground);
     return true;
   }
 
@@ -7253,7 +7290,9 @@ export class ThreeRenderer implements Renderer {
     const ground = this.decalGround;
     const surface = this.retained.elevation;
     if (anchor === undefined || ground === null || surface === null) return;
-    for (const s of decalShowcase(showcaseSites(ground.input, surface, anchor))) this.stampGroundDecal(s);
+    // Fix wave I-2: clear of the force the anchor names, not on it.
+    const at = showcaseAnchor(ground.input, surface, anchor);
+    for (const s of decalShowcase(showcaseSites(ground.input, surface, at))) this.stampGroundDecal(s);
     this.showcasePending = false;
   }
 
@@ -8071,21 +8110,36 @@ export class ThreeRenderer implements Renderer {
     // `terrain-parity.test.ts` calls ~80 times with no GPU to feed (F-21).
     // A destroyed structure lands here through `terrainDirty`, which is what
     // turns its pad back into open ground in the map.
-    const control = controlTexturePair(buildControlMap(composed.input));
+    //
+    // Fix wave I-1: only when its inputs changed. Most of a boot's 3-5
+    // rebuilds change neither the decor, the draw mask nor the cover (a
+    // building template landing, a decor set loading, `setElevation`), and
+    // each used to pay 48-80 ms for a map byte-identical to the one bound.
+    // `controlInputsMatch` compares the masks by CONTENT -- see its doc
+    // comment for why a reference compare is wrong in both directions.
+    const controlReused =
+      this.controlTex !== null && this.decalGround !== null && controlInputsMatch(this.controlInputs, composed.input);
+    const graph =
+      controlReused && this.decalGround !== null ? this.decalGround.graph : buildRoadGraph(composed.input);
+    if (!controlReused) {
+      const control = controlTexturePair(buildControlMap(composed.input));
+      this.controlTex?.a.dispose();
+      this.controlTex?.b.dispose();
+      this.controlTex = control;
+      this.controlInputs = snapshotControlInputs(composed.input);
+      this.groundMat.uniforms.uControlA.value = control.a;
+      this.groundMat.uniforms.uControlB.value = control.b;
+    }
     // The decal pool's local ground tone reads the same input the ground and
-    // the control map were built from (fix round 2).
-    this.decalGround = {
-      input: composed.input,
-      tones: this.opts.terrainTones,
-      background: this.opts.background,
-      shoulder: this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK),
-      graph: buildRoadGraph(composed.input),
-    };
-    this.controlTex?.a.dispose();
-    this.controlTex?.b.dispose();
-    this.controlTex = control;
-    this.groundMat.uniforms.uControlA.value = control.a;
-    this.groundMat.uniforms.uControlB.value = control.b;
+    // the control map were built from (fix round 2) -- refreshed on every
+    // rebuild, since its draw mask is the one the ground just drew.
+    this.decalGround = makeDecalGroundSource(
+      composed.input,
+      this.opts.terrainTones,
+      this.opts.background,
+      this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK),
+      graph
+    );
 
     // The GROUND alone draws through `GroundMaterial` -- the one material here
     // that carries the six-slot albedo blend. Scatter, groves, the residual

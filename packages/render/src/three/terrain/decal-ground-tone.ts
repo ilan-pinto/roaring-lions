@@ -26,19 +26,20 @@
  *   centre happened to land on a rut would be divided by a darker tone than
  *   the rest of its footprint stands on.
  *
- * **The straddle case is a known, accepted limitation, not an oversight.**
- * A decal takes exactly ONE ground tone -- this function's own return value,
- * sampled once at the decal's own centre `(x, z)` -- and `DecalPool.stamp`
- * writes that single tone onto every vertex of the decal's grid (`aGround`).
- * A decal that physically straddles two different surfaces (a scorch mark
- * half on the road, half on open grass) therefore divides its ENTIRE
- * footprint by whichever surface its centre happens to sit on: the grass
- * half of that mark is divided by the road's tone, not its own, and reads
- * off. This mirrors `ground.ts`'s own per-TILE (not per-vertex) tone
- * decision -- a decal is smaller than the band this could visibly matter
- * over, and a per-vertex sample would need the same control-map lookup the
- * shader itself does, which is exactly the fragment-level machinery this
- * function's single centre sample exists to avoid paying twice.
+ * **The straddle case: the road is exact, the tile tone is not.** A crater
+ * lip lies 0.34-0.60 tiles out, which for a crater centred on a road is the
+ * road's own edge and shoulder -- the straddle case every time, not now and
+ * then (fix wave I-3). Dividing the whole mark by the road tone at its centre
+ * drew that lip over the shoulder at (238, 240, 261) sRGB instead of (189,
+ * 157, 117): a green map's shoulder is far bluer than its `dust.3` road, and
+ * the ratio multiplied blue eightfold. So the decal SHADER now mixes the road
+ * and shoulder in per fragment, from the same control B texel the ground
+ * reads (`decalRoadMix` is its mirror), and only the tile's own palette tone
+ * is per decal (`decalBaseTone`, written into `aGround` at the stamp). A decal
+ * straddling two TILE tones -- grass and a cover tile -- still divides both
+ * halves by its centre tile's tone. That is the accepted part: it mirrors
+ * `ground.ts`'s own per-tile tone, and a cover tier reads as texture, not a
+ * tint, so the two tones are close.
  *
  * Linear light throughout (`hexToLinear`), like the shader's.
  *
@@ -55,8 +56,12 @@ import { roadDistanceAt, roadProfile, ROAD_EDGE_BEND_CYCLES, type RoadGraph } fr
 import { hexToLinear } from './shared';
 import type { TerrainInput } from './types';
 
+type Rgb = [number, number, number];
+
 /** Everything the local tone reads, retained by the renderer from its last
- *  terrain build (and its draw mask refreshed when a structure falls). */
+ *  terrain build (and its draw mask refreshed when a structure falls). Built
+ *  through `makeDecalGroundSource`, which resolves the two road tones once
+ *  rather than per stamp (fix wave M-4). */
 export interface DecalGroundSource {
   readonly input: TerrainInput;
   readonly tones: TerrainTones;
@@ -64,28 +69,79 @@ export interface DecalGroundSource {
   /** The road shoulder's tone -- `limestone.2`, as bound to `uShoulderTone`. */
   readonly shoulder: string;
   readonly graph: RoadGraph;
+  /** `tones.road` and `shoulder`, linear, resolved once. */
+  readonly roadLinear: Rgb;
+  readonly shoulderLinear: Rgb;
+  /** Linear tile tones by hex, filled on first use: a map has a handful. */
+  readonly baseCache: Map<string, Rgb>;
 }
 
-/** The ground's base albedo at world tile point `(x, z)`, linear RGB. */
-export function decalGroundTone(src: DecalGroundSource, x: number, z: number): [number, number, number] {
+export function makeDecalGroundSource(
+  input: TerrainInput,
+  tones: TerrainTones,
+  background: string,
+  shoulder: string,
+  graph: RoadGraph
+): DecalGroundSource {
+  return {
+    input,
+    tones,
+    background,
+    shoulder,
+    graph,
+    roadLinear: hexToLinear(tones.road),
+    shoulderLinear: hexToLinear(shoulder),
+    baseCache: new Map(),
+  };
+}
+
+/**
+ * The tile's own palette tone under world point `(x, z)`, linear, with NO
+ * road mixed in -- what `DecalPool.stamp` writes into `aGround` (fix wave
+ * I-3). The road and its shoulder are mixed in per FRAGMENT by the decal
+ * shader from the same control B the ground reads (`decalRoadMix` is its
+ * mirror), so a crater lip lying on a road's shoulder divides by the
+ * shoulder it lies on rather than by the road at the crater's centre.
+ */
+export function decalBaseTone(src: DecalGroundSource, x: number, z: number): Rgb {
   const { input } = src;
   const tx = Math.min(input.width - 1, Math.max(0, Math.floor(x)));
   const tz = Math.min(input.height - 1, Math.max(0, Math.floor(z)));
-  const base = hexToLinear(tileBaseToneHex(input, src.tones, tz * input.width + tx, src.background));
+  const hex = tileBaseToneHex(input, src.tones, tz * input.width + tx, src.background);
+  let rgb = src.baseCache.get(hex);
+  if (rgb === undefined) {
+    rgb = hexToLinear(hex);
+    src.baseCache.set(hex, rgb);
+  }
+  return rgb;
+}
 
-  // The road, as the shader reads it: a distance saturating at
-  // ROAD_DISTANCE_RANGE_TILES, and the wander control B stores as
-  // `0.5 + 0.5 * noise` and the shader decodes back to `noise`.
-  const d = Math.min(roadDistanceAt(src.graph, x, z), ROAD_DISTANCE_RANGE_TILES);
-  const bend = valueNoise2(x, z, ROAD_EDGE_BEND_CYCLES, ROAD_BEND_SEED);
-  // The junction distance feeds only the ruts, which are left out (above).
-  const p = roadProfile(d, bend, ROAD_DISTANCE_RANGE_TILES);
-  const road = hexToLinear(src.tones.road);
-  const shoulder = hexToLinear(src.shoulder);
-  const out: [number, number, number] = [0, 0, 0];
+/**
+ * The decal shader's divisor, in TypeScript: `base` with the road surface and
+ * its shoulder mixed in exactly as `GroundMaterial` mixes them, from control
+ * B's road distance and edge bend as the shader samples them (`bG`, `bA` in
+ * [0, 1]). `decal-pool.ts`'s `DECAL_FRAGMENT_SHADER` is its transcription.
+ * The junction distance feeds only the ruts, which are left out (above).
+ */
+export function decalRoadMix(base: readonly number[], road: readonly number[], shoulder: readonly number[], bG: number, bA: number): Rgb {
+  const p = roadProfile(bG * ROAD_DISTANCE_RANGE_TILES, bA * 2 - 1, ROAD_DISTANCE_RANGE_TILES);
+  const out: Rgb = [0, 0, 0];
   for (let c = 0; c < 3; c++) {
     const withRoad = base[c] + (road[c] - base[c]) * p.surface;
     out[c] = withRoad + (shoulder[c] - withRoad) * p.shoulder;
   }
   return out;
+}
+
+/** The ground's base albedo at world tile point `(x, z)`, linear RGB: the
+ *  tile tone with the road mixed in at that exact point, read from the
+ *  distance itself rather than the control map's bytes. */
+export function decalGroundTone(src: DecalGroundSource, x: number, z: number): Rgb {
+  const base = decalBaseTone(src, x, z);
+  // The road, as the shader reads it: a distance saturating at
+  // ROAD_DISTANCE_RANGE_TILES, and the wander control B stores as
+  // `0.5 + 0.5 * noise` and the shader decodes back to `noise`.
+  const d = Math.min(roadDistanceAt(src.graph, x, z), ROAD_DISTANCE_RANGE_TILES);
+  const bend = valueNoise2(x, z, ROAD_EDGE_BEND_CYCLES, ROAD_BEND_SEED);
+  return decalRoadMix(base, src.roadLinear, src.shoulderLinear, d / ROAD_DISTANCE_RANGE_TILES, 0.5 + 0.5 * bend);
 }

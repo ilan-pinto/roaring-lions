@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildTerrainSurface } from './terrain/surface';
 import { DECOR_ROAD } from './terrain/shared';
 import type { TerrainInput } from './terrain/types';
-import { decalShowcase, SHOWCASE_POWERS, showcaseSites } from './decal-showcase';
+import { decalShowcase, SHOWCASE_CLEAR_TILES, SHOWCASE_POWERS, showcaseAnchor, showcaseSites } from './decal-showcase';
 
 function world(): TerrainInput {
   const w = 30;
@@ -38,6 +38,40 @@ describe('showcaseSites', () => {
   });
   it('is deterministic', () => {
     expect(showcaseSites(input, buildTerrainSurface(input), anchor)).toEqual(sites);
+  });
+});
+
+// Fix wave I-2: the showcase sits clear of the force the sandbox anchor
+// spawns, as close to it as that allows, with every kind the map offers.
+describe('showcaseAnchor', () => {
+  const input = world();
+  const surface = buildTerrainSurface(input);
+  const force = { x: 15, y: 15 };
+  const at = showcaseAnchor(input, surface, force);
+  const sites = showcaseSites(input, surface, at);
+  it('keeps every site clear of the force, and still finds all three kinds', () => {
+    expect(SHOWCASE_CLEAR_TILES).toBe(10);
+    expect(sites.map((s) => s.kind).sort()).toEqual(['flat', 'relief', 'road']);
+    for (const s of sites) expect(Math.hypot(s.x - force.x, s.y - force.y)).toBeGreaterThanOrEqual(SHOWCASE_CLEAR_TILES);
+  });
+  it('is the nearest such spot: no clear anchor with as many kinds has a nearer centroid', () => {
+    const centroid = (ss: ReturnType<typeof showcaseSites>): number =>
+      Math.hypot(
+        ss.reduce((a, s) => a + s.x + 0.5, 0) / ss.length - (force.x + 0.5),
+        ss.reduce((a, s) => a + s.y + 0.5, 0) / ss.length - (force.y + 0.5)
+      );
+    const best = centroid(sites);
+    for (let y = 0; y < input.height; y++)
+      for (let x = 0; x < input.width; x++) {
+        const ss = showcaseSites(input, surface, { x, y });
+        if (ss.length < sites.length) continue;
+        if (ss.some((s) => Math.hypot(s.x - force.x, s.y - force.y) < SHOWCASE_CLEAR_TILES)) continue;
+        expect(centroid(ss), `${x},${y}`).toBeGreaterThanOrEqual(best - 1e-9);
+      }
+  });
+  it('falls back to the force itself when nothing is clear of it', () => {
+    const tiny: TerrainInput = { ...world(), width: 6, height: 6, decor: null, elevation: null, blocked: new Uint8Array(36), cover: new Uint8Array(36) };
+    expect(showcaseAnchor(tiny, buildTerrainSurface(tiny), { x: 3, y: 3 })).toEqual({ x: 3, y: 3 });
   });
 });
 

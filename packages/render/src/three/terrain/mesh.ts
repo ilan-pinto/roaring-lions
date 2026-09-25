@@ -596,7 +596,7 @@ export function controlTextures(
 function defaultControlA(): THREE.DataTexture {
   return controlTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
 }
-function defaultControlB(): THREE.DataTexture {
+export function defaultControlB(): THREE.DataTexture {
   return controlTexture(new Uint8Array([0, 255, 255, 128]), 1, 1);
 }
 function defaultMacro(): THREE.DataTexture {
