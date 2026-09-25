@@ -3,8 +3,9 @@ import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD } from './shared';
 import type { TerrainInput } from './types';
 import {
   buildControlMap, buildMacroField, CONTROL_TEXELS_PER_TILE as N, heightBiased, macroBlurTexels,
-  macroFactor, neutralTint, tileSurface,
+  macroFactor, MACRO_OCTAVES, MACRO_PERIOD_TILES, neutralTint, tileSurface,
 } from './control-map';
+import { boxBlur, fbm2 } from './noise';
 import { roadDistanceAt, buildRoadGraph } from './road-graph';
 
 /** '.' open, 'r' road, 'o' grove, 'n' knoll, '1'-'3' cover, '#' pad, '^' ridge. */
@@ -247,6 +248,50 @@ describe('the macro field', () => {
     const i = Math.round((2 / 48) * 256);
     const j = i;
     expect(f.data[j * 256 + i]).not.toBe(128);
+  });
+  // Fix round 1: nothing above tells max|v| normalisation (F-2's ruling)
+  // from min/max normalisation (the plan's own, which F-2 explicitly
+  // rejects) -- both satisfy every existing assertion on this field. This
+  // test rebuilds the raw, blurred field independently of buildMacroField,
+  // finds the texel OUTSIDE the F-13 fade band whose blurred value sits
+  // closest to zero, and checks that buildMacroField reads that texel as
+  // neutral. max|v| normalisation maps raw 0 to byte 128 everywhere by
+  // construction (128 + 127 * (0 / maxAbs) = 128); min/max normalisation
+  // does not, except when the field happens to be exactly symmetric, and
+  // maps raw 0 to a byte offset from 128 by the field's own skew instead.
+  it('reads neutral at the texel whose blurred value is nearest zero (F-2, max|v| vs min/max)', () => {
+    const size = 256;
+    const mapWidth = 48;
+    const mapHeight = 48;
+    const raw = new Float32Array(size * size);
+    for (let j = 0; j < size; j++) {
+      const pz = ((j + 0.5) / size) * mapHeight;
+      for (let i = 0; i < size; i++) {
+        const px = ((i + 0.5) / size) * mapWidth;
+        raw[j * size + i] = fbm2(px, pz, MACRO_PERIOD_TILES, MACRO_OCTAVES, 404);
+      }
+    }
+    const band = macroBlurTexels(mapWidth);
+    const blurred = boxBlur(raw, size, size, band);
+
+    let bestI = -1;
+    let bestJ = -1;
+    let bestAbs = Infinity;
+    for (let j = 0; j < size; j++)
+      for (let i = 0; i < size; i++) {
+        const edge = Math.min(i, size - 1 - i, j, size - 1 - j);
+        if (edge < band) continue; // inside the F-13 fade band -- forced toward neutral regardless.
+        const abs = Math.abs(blurred[j * size + i]);
+        if (abs < bestAbs) {
+          bestAbs = abs;
+          bestI = i;
+          bestJ = j;
+        }
+      }
+
+    const byte = f.data[bestJ * size + bestI];
+    expect(byte, `texel (${bestI}, ${bestJ}), blurred value ${bestAbs}`).toBeGreaterThanOrEqual(127);
+    expect(byte, `texel (${bestI}, ${bestJ}), blurred value ${bestAbs}`).toBeLessThanOrEqual(129);
   });
 });
 
