@@ -25,7 +25,15 @@
 import { describe, it, expect } from 'vitest';
 import { Sim } from '@lions/sim';
 import { maps, parseMap, applyTerrain, structures as structureCatalogue, type MapId } from '@lions/data';
-import { buildGround, groundAlbedoSlotsUsed, type TerrainInput, type MeshData } from '@lions/render/terrain';
+import {
+  buildControlMap,
+  buildGround,
+  CONTROL_TEXELS_PER_TILE as N,
+  groundAlbedoSlotsUsed,
+  tileSurface,
+  type TerrainInput,
+  type MeshData,
+} from '@lions/render/terrain';
 import { TERRAIN_THEMES } from './terrain-themes';
 
 const BACKGROUND = '#14150F';
@@ -106,5 +114,66 @@ describe.each(MAP_IDS)('ground albedo slot derivation: %s', (id) => {
     // no business being in the derived set either -- that is exactly the
     // unconditional-fetch waste this task exists to remove.
     expect([...derived].sort(), `${id}: derived set vs. the mesh's own slots`).toEqual([...meshSlots].sort());
+  });
+});
+
+describe('the control map on every shipped map', () => {
+  it.each(MAP_IDS)('%s: 8 texels a tile, and every tile core carries its own surface', (id) => {
+    const { input } = loadInput(id);
+    const cm = buildControlMap(input);
+    expect([cm.width, cm.height]).toEqual([input.width * N, input.height * N]);
+    const channel = { open: ['a', 0], road: ['a', 0], rock: ['a', 1], scrub: ['a', 2], grove: ['a', 3], knoll: ['b', 0] } as const;
+    for (let y = 0; y < input.height; y++)
+      for (let x = 0; x < input.width; x++) {
+        const s = tileSurface(input, x, y);
+        const o = ((y * N + 3) * cm.width + (x * N + 3)) * 4;
+        if (s.kind === 'pad') {
+          expect(cm.a[o] + cm.a[o + 1] + cm.a[o + 2] + cm.a[o + 3] + cm.b[o], `${id} (${x},${y}) pad`).toBe(0);
+          continue;
+        }
+        const [t, c] = channel[s.kind];
+        const want = Math.floor(0.9 * s.strength * 255);
+        // Controller ruling F-1: the brief's own bound ("own channel alone
+        // >= 0.9 * strength * 255") fails on the 10 of 26 maps with ridges,
+        // because the approved ridge apron (APRON_TILES) deliberately walks
+        // up to 0.5 tile of rock onto the open ground beside it -- see
+        // `control-map.ts`'s `surfaceWeightsAt` doc, step 5. For every kind
+        // but rock itself, count that borrowed rock weight back in rather
+        // than weakening the apron to pass a test.
+        if (s.kind === 'rock') {
+          expect(cm[t][o + c], `${id} (${x},${y}) ${s.kind}`).toBeGreaterThanOrEqual(want);
+        } else {
+          const rockBleed = cm.a[o + 1];
+          expect(cm[t][o + c] + rockBleed, `${id} (${x},${y}) ${s.kind}`).toBeGreaterThanOrEqual(want);
+        }
+      }
+  });
+
+  // G2 on real data: qarn_hadid's road runs diagonally from (29,28) to (24,33).
+  // Every texel along that segment is within a texel's diagonal of the centreline.
+  it('joins qarn_hadid\'s diagonal road into one line (G2)', () => {
+    const { input } = loadInput('qarn_hadid');
+    const cm = buildControlMap(input);
+    for (let k = 0; k <= 40; k++) {
+      const x = 29.5 - (5 * k) / 40;
+      const z = 28.5 + (5 * k) / 40;
+      const o = (Math.floor(z * N) * cm.width + Math.floor(x * N)) * 4;
+      expect(cm.b[o + 1], `(${x.toFixed(3)}, ${z.toFixed(3)})`).toBeLessThanOrEqual(23);
+    }
+  });
+
+  // The two copies of the per-tile decision agree until Task 7 deletes one.
+  it.each(MAP_IDS)('%s: tileSurface agrees with buildGround\'s masks', (id) => {
+    const { input, terrain } = loadInput(id);
+    const mesh = buildGround(input, TERRAIN_THEMES[terrain], BACKGROUND);
+    const kinds = slotsInMesh(mesh);
+    const fromSurface = new Set<GroundAlbedoSlot>();
+    for (let y = 0; y < input.height; y++)
+      for (let x = 0; x < input.width; x++) {
+        const k = tileSurface(input, x, y).kind;
+        if (k === 'open') fromSurface.add('sand');
+        else if (k !== 'pad') fromSurface.add(k === 'road' ? 'road' : k);
+      }
+    expect(fromSurface).toEqual(kinds);
   });
 });
