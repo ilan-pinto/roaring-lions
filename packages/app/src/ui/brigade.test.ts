@@ -582,17 +582,63 @@ describe('showBrigade — the board', () => {
     expect(armour?.querySelectorAll('.rl-garage__rung')).toHaveLength(2);
   });
 
-  it('renders no board rungs at all on a locked unit', () => {
+  it('shows a locked unit’s tracks read-only, tier-1 prices and "Unlock first" (F7)', () => {
     const fixture = units.map((u) =>
-      u.id === 'breach_team'
-        ? { ...u, upgrades: { armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } } }
-        : u
+      u.id === 'breach_team' ? { ...u, upgrades: { armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } } } : u
     );
     const host = mount({ units: fixture, ledger: {}, possibleStars: 78, credits: 999, onBuyUpgrade: () => {} });
     select(host, 'breach_team');
-    expect(host.querySelector('.rl-garage__track')).toBeNull();
-    // The stat panel still draws -- a locked unit is still a unit you can read.
-    expect(host.querySelectorAll('.rl-garage__stat')).toHaveLength(6);
+    expect(host.querySelector('.rl-garage__track[data-track="armour"]')?.getAttribute('data-locked')).toBe('1');
+    expect(text(host, '.rl-garage__track-lock')).toBe('Unlock first');
+    expect(host.querySelector('.rl-garage__buy-tier')).toBeNull();
+    expect(host.querySelectorAll('.rl-garage__stat')).toHaveLength(6); // still a unit you can read
+  });
+
+  it('says where credits come from at zero, and only at zero', () => {
+    const at = (credits: number | undefined): string | undefined =>
+      text(mount({ units, ledger: {}, possibleStars: 78, credits, onBuyUpgrade: () => {} }), '.rl-garage__empty');
+    expect(at(0)).toBe('Credits come from winning missions.');
+    expect(at(5)).toBeUndefined();
+    expect(at(undefined)).toBeUndefined(); // no account: as today
+  });
+
+  it('stamps Maxed on a maxed unit’s plate, and not on one at level 2 still for sale', () => {
+    const maxed = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 2, sensors: 1 } } });
+    expect(text(maxed, '.rl-garage__plate-maxed')).toBe('Maxed');
+    const two = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 2 } } });
+    expect(two.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe('2');
+    expect(two.querySelector('.rl-garage__plate-maxed')).toBeNull();
+  });
+
+  // Controller ruling T8: the brief's own falsification ("stamp Maxed on
+  // `kit.level === 3`") cannot go red against the fixture above, because
+  // `inf_squad` there has exactly 3 tiers across its two tracks (armour 2 +
+  // sensors 1) -- level 3 and fully-bought coincide, so a level-gated stamp
+  // reads no differently from a maxed-gated one. `kitLevel`'s own doc names
+  // the case that pulls them apart: 7 of 9 tiers already reads as the top
+  // third. Four tiers, three owned, does it in miniature -- `ceil(3*3/4) = 3`
+  // is level 3, and 3 of 4 is not everything.
+  it('does not stamp Maxed at kit level 3 alone -- level and "everything owned" are different questions (R-11)', () => {
+    const fixture = units.map((u) =>
+      u.id === 'inf_squad'
+        ? {
+            ...u,
+            upgrades: {
+              armour: {
+                tiers: [
+                  { price: 100, patch: { 'hull.hp': 10 } },
+                  { price: 100, patch: { 'hull.hp': 10 } },
+                  { price: 100, patch: { 'hull.hp': 10 } },
+                  { price: 100, patch: { 'hull.hp': 10 } },
+                ],
+              },
+            },
+          }
+        : u
+    );
+    const host = mount({ units: fixture, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 3 } } });
+    expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe('3');
+    expect(host.querySelector('.rl-garage__plate-maxed')).toBeNull();
   });
 
   it('renders the rungs read-only, with no Buy or Maxed control, without credits/onBuyUpgrade', () => {

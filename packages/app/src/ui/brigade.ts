@@ -71,9 +71,9 @@ export interface BrigadeUnit {
   transportSlots: number;
   isSoft: boolean;
   /** Brigade economy step 3 upgrade tracks (`@lions/data`'s `UpgradeTracks`) --
-   *  absent for a unit with none. Rendered only on an AVAILABLE unit; a locked
-   *  one shows no board at all, since nothing can be bought for a unit not
-   *  yet in reach. */
+   *  absent for a unit with none. Rendered on a locked unit too (F7): read-only,
+   *  as what the type could become once it is unlocked -- tier 1 of every track
+   *  expanded, its price and benefits shown, no Buy anywhere on it. */
   upgrades?: UpgradeTracks;
 }
 
@@ -526,6 +526,14 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     const row = rows.find((r) => r.u.id === selectedId);
     if (row === undefined) return;
     const { u } = row;
+    // F7: zero credits, and only zero -- five is still an account with a
+    // future, and no account at all (this screen's own "as before" reading)
+    // says nothing here either. Prepended to the board, ahead of every track,
+    // since it is the one thing on this screen that answers "why can't I buy
+    // anything" before a player goes looking for a reason on a rung.
+    if (state.credits === 0) {
+      board.appendChild(el('div', 'rl-garage__empty', t('garage.empty.credits')));
+    }
     const base = opts.baseOf(u.id);
     // The board draws the tracks the CALLER declared on the unit
     // (`BrigadeUnit.upgrades`, the option that already existed) and reads its
@@ -590,6 +598,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       mark.appendChild(el('span', 'rl-garage__plate-kit-label', kitLevelLabel(kit.level)));
       plate.appendChild(mark);
     }
+    // F7: stamped only when every tier on every track is owned -- level 3
+    // (kitLevel's own top third, reached at 7 of 9 tiers) is a DIFFERENT
+    // question from "everything is bought" (R-11), and this reads `kit.maxed`
+    // rather than the level for exactly that reason.
+    if (kit.maxed) {
+      plate.appendChild(el('div', 'rl-garage__plate-maxed', t('garage.chip.maxed')));
+    }
     bay.appendChild(plate);
 
     bay.appendChild(el('h2', 'rl-garage__name', u.name));
@@ -642,12 +657,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     }
 
     // --- the tracks ---
-    // A locked unit is not in the brigade yet, so there is nothing on it to
-    // upgrade: no board rungs at all, exactly as before. Task 7 moved the
-    // track's own DOM into `garage-board.ts`'s `trackEl`; this loop's only
-    // job now is to hand it the one unit's numbers and the purchase/preview
+    // F7: a locked unit is not in the brigade yet, but its tracks still draw
+    // -- read-only, what the type could become once it is unlocked -- rather
+    // than nothing at all. Task 7 moved the track's own DOM into
+    // `garage-board.ts`'s `trackEl`; this loop's only job now is to hand it
+    // the one unit's numbers, the locked flag, and the purchase/preview
     // callbacks -- the Task 3 answer path, unchanged.
-    if (!row.locked && u.upgrades) {
+    if (u.upgrades) {
       for (const [trackName, track] of Object.entries(u.upgrades)) {
         const owned = tiers[trackName] ?? 0;
         // The control (Buy or "maxed") renders only when the caller supplied
@@ -670,6 +686,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             unitName: u.name,
             owned,
             buy,
+            locked: row.locked,
             preview: (d) => panel?.preview(d),
           })
         );

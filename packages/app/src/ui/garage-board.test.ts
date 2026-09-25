@@ -103,3 +103,27 @@ describe('trackEl', () => {
     ]);
   });
 });
+
+describe('trackEl — locked (F7)', () => {
+  it('shows a locked unit’s track read-only: tier-1 price and benefits, "Unlock first", no Buy', () => {
+    const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ owned: 0, locked: true, buy: { credits: 5000, onBuy: () => {} } }));
+    expect(el.getAttribute('data-locked')).toBe('1');
+    const first = el.querySelector('.rl-garage__rung[data-tier="1"]');
+    expect(first?.getAttribute('data-state')).toBe('next');
+    expect(first?.querySelector('.rl-garage__rung-price')?.textContent).toBe('360');
+    expect(first?.querySelectorAll('.rl-garage__benefit').length).toBeGreaterThan(0);
+    expect(first?.querySelector('.rl-garage__track-lock')?.textContent).toBe('Unlock first');
+    expect(el.querySelector('.rl-garage__buy-tier')).toBeNull();
+    expect(el.querySelector('.rl-garage__track-max')).toBeNull();
+  });
+
+  // A stray account entry must never leak through: `owned` here is nonzero,
+  // but this unit is not in the brigade, so the track still reads as if
+  // nothing were owned.
+  it('ignores a nonzero `owned` while locked', () => {
+    const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ owned: 2, locked: true }));
+    const first = el.querySelector('.rl-garage__rung[data-tier="1"]');
+    expect(first?.getAttribute('data-state')).toBe('next');
+    expect(el.querySelector('.rl-garage__rung[data-owned="1"]')).toBeNull();
+  });
+});

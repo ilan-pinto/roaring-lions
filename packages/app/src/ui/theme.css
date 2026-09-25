@@ -4161,6 +4161,22 @@ button.rl-menu__item[data-kind='aside'] {
   letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
+/* F7: stamped in the plate's opposite corner from the kit mark -- a rubber
+   stamp, tilted, rather than another badge in the same register as the
+   pips and levels this plate already carries. */
+.rl-garage__plate-maxed {
+  position: absolute;
+  right: var(--s2);
+  bottom: var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-h3);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--kit);
+  border: 2px solid var(--kit);
+  padding: 0 var(--s2);
+  transform: rotate(-4deg);
+}
 .rl-garage__name {
   margin: 0;
   font-family: var(--font-display);
@@ -4328,6 +4344,22 @@ button.rl-menu__item[data-kind='aside'] {
   gap: var(--s1);
   padding: var(--s2) var(--s3);
 }
+/* F7: read-only speculation, not a decision -- a dashed frame instead of the
+   solid one every buyable track draws, and text a shade dimmer throughout so
+   a locked track never looks like one a player could act on right now. */
+.rl-garage__track[data-locked='1'] {
+  border-style: dashed;
+  color: var(--ink-dim);
+}
+/* Where a Buy would sit on the one expanded rung: what stands in the way,
+   named plainly rather than left as an absence a player has to explain to
+   themselves. */
+.rl-garage__track-lock {
+  color: var(--warn);
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+  font-size: var(--t-body);
+}
 /* Label, bar, number. The bar's own maximum is the ROSTER's maximum for that
    stat (brigade.ts's `rosterMax`), so a rifleman's 400 hit points and a
    Lavi's 3000 do not both draw full. */
@@ -4459,6 +4491,16 @@ button.rl-menu__item[data-kind='aside'] {
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-dim);
+}
+/* F7: the account itself is empty, not any one track -- prepended above the
+   board's tracks, in the same recessed well a stat panel sits in, so it
+   reads as the screen speaking rather than as a rung's own line. */
+.rl-garage__empty {
+  font-size: var(--t-body);
+  color: var(--ink-mute);
+  background: var(--well);
+  border: 1px solid var(--panel-frame);
+  padding: var(--s2) var(--s3);
 }
 .rl-garage__reset {
   color: var(--bad-text);
