@@ -1006,3 +1006,60 @@ describe('the rail card — status and kit (WP-S3g §3.1, F1)', () => {
     dispose();
   });
 });
+
+describe('showBrigade — the bay carries the kit (§3.1, F4, F5)', () => {
+  it('moves the stat panel into the bay, straight under the name and role', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78 });
+    expect(host.querySelector('.rl-garage__bay .rl-garage__stats')).not.toBeNull();
+    expect(host.querySelector('.rl-garage__board .rl-garage__stats')).toBeNull();
+    const kids = [...(host.querySelector('.rl-garage__bay')?.children ?? [])].map((e) => e.classList[0]);
+    expect(kids.indexOf('rl-garage__stats')).toBe(kids.indexOf('rl-garage__role') + 1);
+  });
+  it('frames a kitted plate in steel and marks it with the level', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1 } } });
+    expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe('1');
+    expect(host.querySelector('.rl-garage__plate .rl-garage__plate-kit svg')).not.toBeNull();
+    expect(text(host, '.rl-garage__plate-kit-label')).toBe('Kit I');
+  });
+  it('leaves an unkitted plate as it was', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78 });
+    expect(host.querySelector('.rl-garage__plate')?.getAttribute('data-kit')).toBe('0');
+    expect(host.querySelector('.rl-garage__plate-kit')).toBeNull();
+    expect(host.querySelector('.rl-garage__kit-total')).toBeNull();
+  });
+  it('says what the kit on this unit cost', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1, sensors: 1 } } });
+    expect(text(host, '.rl-garage__kit-total')).toBe('350 credits of kit');
+  });
+  // R-5: against a base-JSON maximum, the roster's strongest unit fills its
+  // bar with base and has no room left to draw what it bought.
+  it('leaves the roster’s strongest unit room to draw its kit', () => {
+    const host = mount({ units: [units[0]], ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1 } } });
+    const kit = host.querySelector<HTMLElement>('.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-kit');
+    expect(kit?.style.width).not.toBe('0%'); // 40 of a fully kitted 480
+  });
+  it('previews nothing over a rung already owned, and the next one from what is owned (F5)', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1 } } });
+    const hp = (): string | undefined => text(host, '.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-n');
+    const rung = (tier: number): Element | null =>
+      host.querySelector(`.rl-garage__track[data-track="armour"] .rl-garage__rung[data-tier="${tier}"]`);
+    rung(1)?.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(hp()).toBe('440');
+    rung(2)?.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(hp()).toBe('440 → 480');
+  });
+  // R-6, exercised at the call site: hovering an already-owned rung BELOW the
+  // one just bought must still preview nothing -- the case
+  // `garage-stats.test.ts`'s own tier-equals-owned assertion cannot catch,
+  // because `trackPatchAt(spec, owned)` diffed against itself is trivially
+  // zero regardless of the guard. Two tiers owned here, hovering the lower
+  // one, is what actually depends on the `tier <= owned` check.
+  it('previews nothing over an owned rung below the top of what is owned (R-6, F5)', () => {
+    const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 2 } } });
+    const hp = (): string | undefined => text(host, '.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-n');
+    const rung1 = host.querySelector('.rl-garage__track[data-track="armour"] .rl-garage__rung[data-tier="1"]');
+    expect(hp()).toBe('480'); // 400 base + tier 2's own cumulative +80
+    rung1?.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(hp()).toBe('480');
+  });
+});
