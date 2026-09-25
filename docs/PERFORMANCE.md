@@ -1051,5 +1051,54 @@ The rebuilds that land AFTER `__lions` show up as a hitch: the longest post-boot
 - qarn: 145–151 ms before, 196–202 ms after.
 
 Task 13 read this as a ~6.05 s → ~6.35 s "first frame" (+5%) with a different probe. The +5–7% and
-its cause agree. **Not fixed here.** The obvious remedy is to rebuild the control map only when
-its inputs change, or once after the templates settle. It is recorded for the lead, not done.
+its cause agree. **Fixed in the fix wave (I-1), below.**
+
+### The fix wave after the final review (2026-09-25)
+
+Same machine (ANGLE Metal, M3 Pro), same session for every before/after pair. BEFORE is
+`f5ecf82f` (the branch at the final review), served from a throwaway detached worktree on :5197;
+AFTER is the fix wave's working tree on :5195. Runs were interleaved, never concurrent.
+
+**Boot (I-1: the control map is built only when its inputs change).** `t18/boot-probe.ts`, 320x200,
+one warm-up then 2 runs per server, done twice interleaved (4 runs each). Profiled milliseconds are
+inclusive and inflated by the 100 µs sampler; read them as proportions.
+
+| Map | `buildControlMap` per boot | `rebuildTerrain` per boot | Longest frame after `__lions` | `__lions` at |
+|---|---|---|---|---|
+| beit, before | 180–182 ms (3 builds) | 418–425 ms | 162–182 ms | 1187–1221 ms |
+| beit, after | **65–66 ms (1 build)** | 304–377 ms | **96–115 ms** | 1175–1196 ms |
+| qarn, before | 209–305 ms | 583–837 ms | 193–206 ms | 1237–1263 ms |
+| qarn, after | **111–114 ms (2 builds)** | 486–643 ms | 188–190 ms | 1237–1247 ms |
+
+- beit's post-boot hitch is back to main's own 98–108 ms (Task 18).
+- qarn still builds twice: its second rebuild genuinely changes the draw mask. Its longest frame is
+  owned by something else (main read 145–151 ms there).
+- Time to `__lions` barely moves, because the first build always ran before it. What the fix
+  removes is main-thread time after it: about 115 ms a boot on beit and 100–190 ms on qarn, in
+  profiled time.
+- A structure collapse still pays one full build. A dirty-rect rebuild (the footprint plus about
+  2 tiles) is the follow-up.
+
+**The road block skip (lead item 2).** `render-frame-cost.ts` on `?sandbox=qarn_hadid&sur`,
+1440x900 at DPR 2, n = 5 interleaved per tree:
+
+| View | cpu p95, before → after | gpu p95, before → after | gpu median |
+|---|---|---|---|
+| qarn (26,22) z1.6 | 14.56 [14.2–14.8] → 14.50 [14.1–14.9] | 15.36 [14.9–15.7] → **14.86** [14.4–15.3] | 12.06 → 12.06 |
+| qarn (22,24) z0.5 | 14.32 → 14.06 | 14.78 → 14.46 | 12.92 → 12.84 |
+| qarn (5,22) z2.5 | 18.06 → 17.80 | 19.74 → 19.88 | 11.56 → 11.50 |
+
+The skip is pixel-identical: a golden A/B against a scratch baseline blessed from `f5ecf82f` reads
+0 px / 0.0000 on `quiet`, `open-ground` and `relief`. `vehicle` reads 2 px and `aftermath` 656 px;
+a HEAD-vs-HEAD control run of the same two read 0 and 519 px, which is their own unit and effect
+noise. The z1.6 gpu p95 falls 0.5 ms, with the medians unchanged. That is within this instrument's
+run-to-run spread, and it still sits over the 14.5 ms line. The albedo-skip rework (`textureGrad`
+on the five slot taps) was not attempted.
+
+**Decal buffers (M-1).** 16-bit indices for both pools (each holds exactly 16,384 vertices): 1.805 →
+**1.652 MiB** (persistent 0.961 → 0.855, fading 0.844 → 0.797). A stamp now uploads its own slot:
+640 B for a persistent decal and 160 B for a fading one. Before, it uploaded the pool's three
+dynamic attributes whole, 0.625 MiB, almost every frame while vehicles moved.
+
+**The showcase search (I-2).** `showcaseAnchor` scans every tile once, on the first terrain build,
+under the sandbox `&decals` flag only: 46–63 ms in node on five maps.

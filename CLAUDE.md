@@ -597,12 +597,19 @@ yours; each one records what the next phase inherits.
   not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
   toon ramp materials, the blob shadows and the black fog quads are all
   deleted. Ground decals (`decal-pool.ts`) are albedo RATIOS: each decal's
-  colour is divided by the ground tone under THAT decal, sampled once at stamp
-  time (`terrain/decal-ground-tone.ts`, `decalGroundTone`), and MULTIPLIED
+  colour is divided by the ground tone under THAT FRAGMENT and MULTIPLIED
   (`DstColor * SrcColor`) onto the lit ground, so a crater lip in a building's
-  shadow stays in shadow. Dividing by the map's one open tone instead was
-  wrong on every green map (a salmon lip on a dust road, red tyre prints on
-  grass). A pale mark is a ratio above 1, so decals need the composer's
+  shadow stays in shadow. The divisor has two halves: the tile's own palette
+  tone, stamped per decal (`terrain/decal-ground-tone.ts`, `decalBaseTone`),
+  and the road and its shoulder, mixed in PER FRAGMENT from the ground's own
+  control B through the ground material's shared uniform objects (fix wave
+  I-3; `decalRoadMix` is the TypeScript mirror). Dividing by the map's one
+  open tone was wrong on every green map (a salmon lip on a dust road, red
+  tyre prints on grass); dividing by the road at a crater's CENTRE was wrong
+  on every road crater, because the lip ring (0.34-0.60 tile out) lies on the
+  road's edge and shoulder -- it drew blue-white, blue multiplied eightfold.
+  A decal straddling two TILE tones still divides both by its centre tile's;
+  that part is accepted. A pale mark is a ratio above 1, so decals need the composer's
   **HalfFloat** scene target; **the raw-renderer path without the composer is
   not supported** -- an 8-bit target clamps the source to 1 and every pale lip
   disappears.
@@ -760,8 +767,16 @@ yours; each one records what the next phase inherits.
   for its own deletion task. Cost, measured on ANGLE/Metal M3 Pro at `64afcf3b`: **+0 draw calls
   on every view of four maps**, texture count +2 (A, B and macro in; the road image out), and
   **1.58 MiB** a 48x48 map with mips (A and B 768 KiB each, macro 85 KiB). `buildControlMap`
-  costs ~50-68 ms a call, and a boot runs it once per terrain rebuild -- 3 on
-  `beit_sahwan_outskirts`, 5 on `qarn_hadid` -- see `docs/PERFORMANCE.md`, "The ground, plan 1".
+  costs ~50-68 ms a call, and **it runs only when what it reads changed** (fix wave I-1,
+  `controlInputsMatch`): the decor array by reference, the draw mask and `cover` by CONTENT.
+  Both halves of that are load-bearing -- `drawBlockedMask` returns a new array every call, so a
+  reference compare never matches, and `sim.cover` is written IN PLACE when a structure dies, so
+  a reference compare always does. A boot fires 3-5 terrain rebuilds (templates, decor sets,
+  `setElevation`) and now builds the map once; a structure collapse still pays a full build,
+  and a dirty-rect rebuild is the follow-up. See `docs/PERFORMANCE.md`, "The ground, plan 1".
+  **The road block in the ground shader is skipped where control B saturates**
+  (`if (rlB.g < 1.0)`): there every road term is exactly 0, the golden A/B read 0 px, and its
+  grain tap is a `textureGrad` whose derivatives are taken OUTSIDE the branch. Keep them there.
 - **Ground decals are ONE pool class, two instances, on the SIM clock** (`decal-pool.ts`, the
   pure maths in `decal-maths.ts`). Persistent: 1024 stamps on a 4x4 grid (crater, scorch, oil,
   rubble). Fading: 4096 on 2x2 (tread, tyre). Both share one material and one program, and the
@@ -773,12 +788,27 @@ yours; each one records what the next phase inherits.
   (R-14): a stamp is dated `tickCount x 50` ms, and a frame presents `(tickCount - 1 + alpha) x
   50`. So a frozen gate frame never fades, and wall-clock fades would make `quiet` noisy.
   **`&decals` is the showcase** (R-16): `RendererOptions.decalShowcase` stamps every kind at
-  three sizes on a flat, a road and a relief site near the friendly anchor, dated 0 ms, through
-  the same entry. It is sandbox-only, and a mission never sees it. **`decal-maths.ts` is
-  three-free** (F-27), which is what lets `decal-showcase.ts`, and
-  `tools/src/golden-diff/aftermath.test.ts` through it, load under node with no GPU.
-  `decal-maths.test.ts` pins its DIRECT imports only: a transitive `three` through
-  `vehicle-tracks.ts` or `terrain/shared.ts` would still pass it, and that is a parked gap.
+  three sizes on a flat, a road and a relief site, dated 0 ms, through the same entry. It is
+  sandbox-only, and a mission never sees it. The option names the sandbox FORCE's anchor, and
+  the showcase sits CLEAR of it (`showcaseAnchor`, fix wave I-2): every site at least
+  `SHOWCASE_CLEAR_TILES` (10) from the force, as near as that allows, with the most kinds the
+  map offers -- on `qarn_hadid` road (30,28), relief (34,31), flat (38,36). It used to sit on
+  the force, under fourteen idle mesh units and the fight the drone started, and that frame
+  moved 519-656 px between two captures of the same commit. The search costs ~50-60 ms, once.
+  **`decal-maths.ts` is three-free** (F-27), and that is TIDINESS, not a requirement: `three`
+  loads under node (`decal-pool.test.ts` builds meshes there, and tools resolves it through
+  `packages/render/node_modules`), so nothing breaks if it slips. `decal-maths.test.ts` pins its
+  direct imports.
+  **Rubble is chips, not cells** (fix wave I-5): at most one soft, jittered disc per
+  `RUBBLE_CELL_TILES` (0.1 tile) cell, the lattice turned by `2 pi seed`, thinned by the chip
+  centre's radius from 0.55 r to the rim. The first cut filled whole 0.34-0.5-tile squares in a
+  hard step, and on grass, where the ratio divides by the grass tone, it drew a checkerboard.
+  The GLSL hash (`rlHash`) takes its multipliers AND its two shifts from `tile-hash.ts`'s own
+  exports, which `tileHash` itself reads. **Tread is `dust.5` on every theme** (spec §5): the
+  ground's road ruts are `limestone.6`, and the theme's `rut` tone is `dust.6` on green -- the
+  old comment that called tread "the SAME rut tone" was wrong twice. **A stamp uploads its own
+  slot** (`addUpdateRange`, M-1) rather than the pool's 0.64 MiB of dynamic attributes, and both
+  pools index in 16 bits: 1.81 -> 1.65 MiB of buffers for the two.
   The AO pre-pass and the shadow pass never see a decal. This is by omission: the pool geometry
   has no `normal` attribute, so `isAoOccluder` drops it, and `castShadow` is false. **Proved on
   the real renderer**, by counting `renderBufferDirect` per object over one frame with the shadow
@@ -791,11 +821,16 @@ yours; each one records what the next phase inherits.
   lattice, against the drawn surface, on `qarn_hadid` (level 0-7). Where every grid vertex is on
   open ground: craters 0; mortar scorch (r 0.876) 0.025 wu worst, 9 centres over 0.01; Grad
   scorch (r 1.07) 0.067; full-power scorch (r 1.6) **0.203 wu**, 3,749 of 22,464 centres over
-  0.01, photographed as a straight cut edge at zoom 2.5 (`tel_marum`: 0.170). Two other
-  mechanisms clip harder, and the cap cannot touch either one. **At a ridge foot**, a vertex on a
-  terrace is held at the centre's height (R-19), and the chord cuts under the rising apron by up
-  to 0.62 wu. **Within a radius of the map edge**, off-map vertices sample height 0, and on
-  qarn's level-2 rim that is up to 0.38 wu.
+  0.01, photographed as a straight cut edge at zoom 2.5 (`tel_marum`: 0.170). With no wreck
+  over it, that cut reads as a pale, hull-shaped patch inside the scorch on tel_marum's steepest
+  shoulder (review capture 16) -- the one clipping the approved cap leaves. **A grid vertex
+  over a terrace or off the map samples the SMOOTH field** (`decalGroundY`, fix wave I-4): the
+  drawn ground on open tiles, the field `buildTerrainSurface` fills in under a terrace, and the
+  edge-clamped field past the rim; the decal shader discards what hangs past the edge. Holding
+  the terrace vertex at the centre's height cut under a ridge-foot apron by 0.62 wu, and the old
+  off-map 0 dived 0.38 wu on qarn's rim. Re-scanned on `qarn_hadid` at the fix: terrace class
+  full-power 0.624 -> 0.202 wu (now the open-ground cap's own limit), Grad 0.520 -> 0.067,
+  mortar scorch 0.433 -> 0.025, craters 0.21 -> 0; edge class 0.353 -> 0.043, craters 0.376 -> 0.
 - **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
   therefore returns black — that is correct, not a broken renderer. The
   sanctioned way to photograph the scene from inside the renderer is a RENDER
@@ -879,10 +914,18 @@ yours; each one records what the next phase inherits.
   layer contributes cannot.**
   **`aftermath` is the gated scenario that sees the ground remember a battle**
   (`AFTERMATH_SCENARIO`, `capture-protocol.ts`): `qarn_hadid&decals` at the
-  showcase centroid (25,38), zoom 1, tick 300. The recon drone is ordered there
-  at tick 20, because fog would otherwise black the frame. Every stamp is dated
-  0 ms, so the pinned tick fixes the fades. Its readings vary by under 1% run to
-  run, not bit-identically, like `vehicle`'s animating units. A missing
+  showcase centroid (34.5,32), zoom 2.2, tick 300, with NO drone order -- the
+  force's own sight lifts the fog there. Every stamp is dated 0 ms, so the
+  pinned tick fixes the fades. **Its frame has no unit and no live effect in
+  it, and that is the whole point** (fix wave I-2): at Task 17's framing, on the
+  sandbox force at zoom 1, two captures of one commit differed by 519-656 px /
+  0.040-0.047 against a 40 px / 0.004 budget, because idle mesh units and the
+  fight the drone started animate on the FRAME clock, which `step()` advances
+  by a latched real frame time that differs per process. The showcase now sits
+  clear of the force and 22 of 22 fresh-process captures read 0 px / 0.0000
+  against a provisional baseline; every layer reading is bit-identical over 23
+  runs. Zoom 2.0 still took in the force's west edge (390-500 px). Do not
+  frame units back into it, and do not raise its thresholds. A missing
   `aftermath` entry in an EXISTING manifest is exit **1**, not 3, so CI's
   `visual` job stays red until the post-merge bless. That is intended.
   **`DEBUG_LAYERS` still carries one name no gated scenario can judge, because
@@ -910,9 +953,11 @@ yours; each one records what the next phase inherits.
   latch, which the harness's own guard then skipped, so the subjects that set
   the floors went unmeasured. `qarn_hadid` steadies at 190–233 ms and runs to
   the ceiling, so `scorch_qarn_shoulder` is `handTick: true`, and its stale
-  `blast-light` exemption is deleted. One blind spot is parked: `settle.steady
-  === false` is only logged. A scene whose frames are all 180 ms times out and
-  still passes.
+  `blast-light` exemption is deleted. **A settle that hits its ceiling
+  refuses the group** (`unsteadySettleRefusal`) unless every subject in it is
+  `handTick`, and the run fails at the end, exactly as an overshooting
+  `step(1)` does -- it used to be only logged, so a scene whose frames were all
+  180 ms timed out and still passed.
   Both documented defects now exit **1** with an
   empty baseline directory: erasing every decor object (`decor-place.ts`'s
   `familyFor` → `return null`) drives the `decor` toggle to 0 px / 0.0000 on all

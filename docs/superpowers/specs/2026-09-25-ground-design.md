@@ -1,6 +1,6 @@
 # The ground — design (WP-A2, art Phase 2, #182 with #226)
 
-**Date:** 2026-09-25 · **Status:** plan 1 landed `64afcf3b` (on `feat/ground`; merge and bless 1 wait for the lead's word on the zoom-0.35 captures). §5 and D8 were approved by the lead on 25 Sep. Plan 2 has not started. What plan 1 did differently from this text is in §9, Deviations.
+**Date:** 2026-09-25 · **Status:** plan 1 landed `64afcf3b`, with the post-review fix wave on top (on `feat/ground`; merge and bless 1 wait for the lead's word on the zoom-0.35 captures). §5 and D8 were approved by the lead on 25 Sep. Plan 2 has not started. What plan 1 did differently from this text is in §9, Deviations.
 **Lands as:** two plans, two blesses, `perf:units` re-run after the scatter. **Constraint:** Meshy credits
 arrive in early October, so everything here is procedural or Blender. Meshy appears only as a later, optional
 swap with a credit estimate.
@@ -315,7 +315,8 @@ costs and their conditions are in `docs/PERFORMANCE.md`, "The ground, plan 1 (WP
   `decals` with its numbers kept. The re-recorded readings are at or above scorch-only on every
   subject; the weakest is 0.2363 against a floor of 0.07.
 - **R-18: decals sample through `groundWorldY`**, which dispatches to `surfaceWorldY`.
-- **R-19: a terrace centre is not stamped, and a vertex on a terrace takes the centre's height.**
+- **R-19: a terrace centre is not stamped, and a vertex on a terrace takes the centre's height**
+  (the vertex half is superseded by the fix wave's I-4, below).
   Measured cost (see "The lift cap" below): at a ridge foot, the chord cuts under the rising apron
   by up to 0.62 wu on `qarn_hadid`.
 - **R-20: the relief `skirt` floor would have fallen, so Task 2 stopped.** The ring removes the G5
@@ -395,7 +396,7 @@ costs and their conditions are in `docs/PERFORMANCE.md`, "The ground, plan 1 (WP
   - Not stopped on, because the first build sits behind the loading screen. Its boot cost is
     measured in `PERFORMANCE.md`.
 - **`aftermath` is a gated scenario** (D4): `qarn_hadid&decals` at the showcase centroid, zoom 1,
-  tick 300.
+  tick 300. The fix wave moved it to (34.5, 32), zoom 2.2, clear of the force (below).
   - Checks and floors, each a third of the smallest of three runs:
 
     | Check | Floor |
@@ -414,3 +415,40 @@ costs and their conditions are in `docs/PERFORMANCE.md`, "The ground, plan 1 (WP
   - `perf:units` at 300: 7.50 and 7.30 ms, inside 7.5 (main read 7.60 in the same session).
   - **The absolute 14.5 ms ceiling is missed on `qarn_hadid`, on main and branch alike.** At z2.5
     the tail is the `decor` layer's. At z1.6 the branch's cpu p95 crosses the line: 13.90 → 14.62.
+
+### The fix wave after the final review (2026-09-25)
+
+The final whole-branch review (`.superpowers/sdd/2026-09-25-ground-plan-1/final-review.md`) found five
+Important items. All five, the lead's perf item 2, the minors and the parked items were fixed in one
+wave; its report is `.superpowers/sdd/2026-09-25-ground-plan-1/fix-wave-report.md`. No approved number
+in §5 moved.
+
+- **I-1: the control map is built only when its inputs change.** `controlInputsMatch` compares the
+  decor array by reference and the draw mask and `cover` by content: `drawBlockedMask` returns a new
+  array every call, and `sim.cover` is written in place when a structure dies. A boot now builds it
+  once. Profiled per boot: beit 180 -> 65 ms (3 builds -> 1) and qarn 209-305 -> 111-114 ms (2 builds). beit's longest post-boot frame fell from 162-182 to 96-115 ms, which is main's own figure.
+- **I-2: `aftermath` moved off the sandbox force.** Its frame was never quiet: two captures of the same
+  commit differed by 519-656 px / 0.040-0.047, against the 40 px / 0.004 budget copied from `quiet`.
+  The cause was fourteen idle mesh units and a live fight on the frame clock, which `step()` advances
+  by a latched real frame time -- not float rounding. The showcase now anchors clear of the force
+  (`showcaseAnchor`, every site at least 10 tiles out), and the scenario frames it at (34.5, 32),
+  zoom 2.2, with no drone order. Measured: 0 px / 0.0000 on 22 of 22 fresh-process captures against a provisional local baseline, and every layer reading was bit-identical over 23 runs. Its floors were re-derived as a third of those readings. Three rose. `macro`'s fell from 0.26 to 0.23, because its reading dropped from 0.7833 to 0.7082. The thresholds were not raised.
+- **I-3: the exact fix.** The decal shader mixes the road and shoulder into its divisor per fragment,
+  from the ground's own control B and road uniforms (shared objects); only the tile tone is stamped
+  per decal. A lip over a green road's shoulder is now the approved lip to 1 sRGB level; the
+  centre-only divisor missed it by 55 levels at alpha 0.25 and 132 at alpha 1.
+- **I-4: terrace and off-map vertices sample the smooth field** (`decalGroundY`), and the shader
+  discards off-map fragments. On `qarn_hadid` the ridge-foot class fell from 0.624 to 0.202 wu (the
+  open-ground cap's own limit) and the rim class from 0.353 to 0.043; craters clip nowhere.
+- **I-5: rubble is chips.** 0.1-tile world cells, one soft jittered disc each, the lattice turned by
+  the seed, thinned by the chip centre's radius from 0.55 r. The GLSL hash shifts now come from
+  `tile-hash.ts`.
+- **Perf item 2: the road block is skipped where control B saturates.** Pixel-identical (golden A/B
+  0 px on `quiet`, `open-ground` and `relief`; `vehicle` and `aftermath` inside their own
+  HEAD-vs-HEAD noise). `qarn_hadid` z1.6 gpu p95 15.36 -> 14.86 ms, cpu p95 14.56 -> 14.50 (n = 5
+  interleaved per tree). The albedo-skip rework was not attempted.
+- **Minors.** A stamp uploads only its slot, and both pools index in 16 bits (1.81 -> 1.65 MiB).
+  Tread is `dust.5` on every theme, as §5 says. `decalGroundTone` resolves its hex tones once.
+- **Parked items closed.** The blast harness refuses a group whose settle hit its ceiling unless
+  every subject is `handTick`; the `TRACK_ALPHA` check asserts its own use; `validate_assets.py`
+  no longer names `road_track_tile` as the road's albedo.
