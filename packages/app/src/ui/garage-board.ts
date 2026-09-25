@@ -122,14 +122,19 @@ export interface TrackDeps {
    *  ever drawn while this is true, even if `buy` is also supplied. */
   readonly locked?: boolean;
   readonly preview: (d: ReadonlyMap<string, number> | null) => void;
-  /** The accordion's own two raw signals (fix round 1) -- mouse hover and
-   *  keyboard focus, each landing anywhere inside this track's own wrapper.
-   *  `brigade.ts` combines both tracks' worth of these into one active
-   *  track and decides expansion (`expandedTrack`); this module only
-   *  reports what its own DOM saw. Optional so a caller with no accordion
-   *  (none exists today, but a future read-only embed might) need not wire
-   *  it. */
-  readonly onPoint?: (kind: 'hover' | 'focus', over: boolean) => void;
+  /** The accordion's own one signal (fix round 2, issue 2): this track was
+   *  pointed at, either by a `mouseenter` on its HEAD specifically -- never
+   *  the whole track box, which is what let a cursor merely passing over an
+   *  expanded (tall) neighbour on its way somewhere else resize the board
+   *  under it -- or by keyboard focus landing anywhere inside the track
+   *  (the head, a rung, a Buy). There is no opposite signal: leaving a head,
+   *  or blurring out of the track, fires nothing at all, on purpose --
+   *  `brigade.ts`'s own `activeTrack` only ever gets SET, never cleared by
+   *  either, so the last track pointed at stays expanded through anything
+   *  short of pointing at a different one. Optional so a caller with no
+   *  accordion (none exists today, but a future read-only embed might) need
+   *  not wire it. */
+  readonly onActivate?: () => void;
 }
 
 /**
@@ -302,17 +307,30 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
     trackWrap.appendChild(el('div', 'rl-garage__track-max', t('garage.track.maxed')));
   }
 
-  // The accordion's own two signals (fix round 1): the DOM is always built
-  // in full above -- this module never decides which track is expanded,
-  // only reports that the player pointed at THIS one. `mouseenter`/
-  // `mouseleave` do not bubble, so listening directly on `trackWrap` is what
-  // makes hovering any of its descendants (the head, a rung) count as
-  // hovering the track; `focusin`/`focusout` do bubble and are attached the
-  // same way for the one shape both signals share.
-  trackWrap.addEventListener('mouseenter', () => deps.onPoint?.('hover', true));
-  trackWrap.addEventListener('mouseleave', () => deps.onPoint?.('hover', false));
-  trackWrap.addEventListener('focusin', () => deps.onPoint?.('focus', true));
-  trackWrap.addEventListener('focusout', () => deps.onPoint?.('focus', false));
+  // The accordion's own one signal (fix round 2, issue 2): the DOM is always
+  // built in full above -- this module never decides which track is
+  // expanded, only reports that the player pointed at THIS one, and only on
+  // the way IN. Deliberately asymmetric:
+  //   - `mouseenter` is bound to `head` alone, not `trackWrap`. The whole
+  //     track box includes the ladder below it, which is tall exactly when
+  //     the track is already expanded -- binding to the box let a cursor
+  //     merely passing over an open neighbour on its way to a track further
+  //     down retrigger it and resize the board underneath, the hover-jitter
+  //     the review named. A head is a fixed, compact target regardless of
+  //     what its own ladder is doing.
+  //   - `focusin` stays on `trackWrap`: keyboard focus can land on a rung or
+  //     a Buy directly (a digit jump, Task 9), and any of those pointing at
+  //     the track is exactly as valid as the head doing it. `focusin`
+  //     bubbles; `mouseenter` does not, which is why the two need different
+  //     listener targets to express the same "landed inside" for keyboard
+  //     and a narrower one for the mouse.
+  //   - There is no `mouseleave`/`focusout` handler at all. Leaving a head,
+  //     or blurring out of the track, asks for nothing -- the ruling is that
+  //     the last track pointed at stays open through anything short of
+  //     pointing at a different one, so there is nothing for a "leaving"
+  //     event to usefully do.
+  head.addEventListener('mouseenter', () => deps.onActivate?.());
+  trackWrap.addEventListener('focusin', () => deps.onActivate?.());
 
   return trackWrap;
 }
