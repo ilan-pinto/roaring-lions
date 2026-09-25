@@ -662,12 +662,17 @@ interface Harness {
  * one-tile structure blocks the named tile so the drawn surface makes it a
  * terrace.
  */
-function harness(opts: { terraceAt?: readonly [number, number] } = {}): Harness {
+function harness(
+  opts: { terraceAt?: readonly [number, number]; decalShowcase?: RendererOptions['decalShowcase'] } = {}
+): Harness {
   const sim = new Sim({ seed: 1, width: MAP, height: MAP, capacity: 16 });
   sim.addUnitType(HARD);
   sim.addUnitType(SOFT);
   sim.addUnitType(JEEP);
-  const r = new ThreeRenderer(sim, makeOpts());
+  const r = new ThreeRenderer(sim, {
+    ...makeOpts(),
+    ...(opts.decalShowcase ? { decalShowcase: opts.decalShowcase } : {}),
+  });
   const priv = r as unknown as BlastPrivate;
   priv.cssWidth = 1400;
   priv.cssHeight = 900;
@@ -890,6 +895,29 @@ describe('the ground remembers (spec §3.3)', () => {
     r.snapshot();
     r.frame(1, 0);
     expect(priv.decalMaterial.uniforms.uNowSec.value).toBeCloseTo(t0 + 0.05, 9);
+    r.dispose();
+  });
+  it('stamps the showcase on the first frame, through the entry the event path calls (D4)', () => {
+    const { r, priv } = harness({ decalShowcase: { x: 15, y: 15 } });
+    const spy = vi.spyOn(priv, 'stampGroundDecal');
+    r.frame(1, 16);
+    // At least one site (12 persistent + 12 tread/tyre), every kind present.
+    const first = spy.mock.calls.length;
+    expect(first).toBeGreaterThanOrEqual(24);
+    expect(new Set(spy.mock.calls.map(([s]) => s.kind))).toEqual(
+      new Set(['crater', 'scorch', 'oil', 'rubble', 'tread', 'tyre'])
+    );
+    expect(new Set(spy.mock.calls.map(([s]) => s.simMs))).toEqual(new Set([0]));
+    // Once only.
+    r.frame(1, 16);
+    r.frame(1, 16);
+    expect(spy.mock.calls.length).toBe(first);
+    r.dispose();
+  });
+  it('stamps nothing without the option', () => {
+    const { r, priv } = harness();
+    r.frame(1, 16);
+    expect(priv.decalsPersistent.liveCount + priv.decalsFading.liveCount).toBe(0);
     r.dispose();
   });
   it('keeps both pools out of the shadow and AO passes', () => {

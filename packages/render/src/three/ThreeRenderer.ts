@@ -144,6 +144,7 @@ import {
 } from './units/smoke-plume';
 import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
 import { scorchRadiusTiles } from './scorch-decals';
+import { decalShowcase, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
@@ -867,6 +868,13 @@ export class ThreeRenderer implements Renderer {
    * since a mesh built from a null elevation is valid, just flat.
    */
   private terrainDirty = true;
+  /**
+   * `RendererOptions.decalShowcase` is still owed (D4, R-16). Cleared by the
+   * first `frame()` that finds a terrain build behind it -- `decalGround` is
+   * that build's own record -- so the showcase is stamped exactly once, on
+   * the ground it was built for. See `stampDecalShowcase`.
+   */
+  private showcasePending: boolean;
   private terrainMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
   /** The grain -- flecks, blades, bushes, cover rubble, knolls, ridges,
    *  ruts, slope-face dressing -- as a second mesh sharing the ground's own
@@ -2081,6 +2089,7 @@ export class ThreeRenderer implements Renderer {
     // `units/gltf-loader.ts` holds it for the whole module graph, because the
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
+    this.showcasePending = opts.decalShowcase !== undefined;
     this.unitGroup = new Uint8Array(sim.capacity);
     const n = sim.capacity;
     this.prevX = new Float64Array(n);
@@ -2938,6 +2947,10 @@ export class ThreeRenderer implements Renderer {
       // photograph nobody invalidated would outlive its own subject.
       this.invalidateGroundPhoto();
     }
+    // After the rebuild, not inside it: `groundPhoto` can build the terrain
+    // before any frame has run, and the showcase must still be stamped by
+    // the next frame rather than lost to whichever caller built first.
+    if (this.showcasePending) this.stampDecalShowcase();
     this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
@@ -7223,6 +7236,25 @@ export class ThreeRenderer implements Renderer {
       this.decalGround === null ? hexToLinear(this.opts.terrainTones.open) : decalGroundTone(this.decalGround, s.x, s.z);
     pool.stamp(s, this.decalSampleY, this.decalIsTerrace, ground);
     return true;
+  }
+
+  /**
+   * D4: lays `RendererOptions.decalShowcase` once, through
+   * `stampGroundDecal` -- the entry every real event uses, so the showcase
+   * photographs the code a battle runs rather than a copy of it. Waits for
+   * the first terrain build (`decalGround` is its record), because the sites
+   * are chosen from that build's own input: the draw mask, the decor and the
+   * drawn surface, exactly what the marks will lie on. Every stamp is dated
+   * sim time 0 (R-14), so the fades a capture sees do not depend on how many
+   * ticks ran before it.
+   */
+  private stampDecalShowcase(): void {
+    const anchor = this.opts.decalShowcase;
+    const ground = this.decalGround;
+    const surface = this.retained.elevation;
+    if (anchor === undefined || ground === null || surface === null) return;
+    for (const s of decalShowcase(showcaseSites(ground.input, surface, anchor))) this.stampGroundDecal(s);
+    this.showcasePending = false;
   }
 
   /** A round persistent mark of radius `r` tiles at `(x, z)`, dated this
