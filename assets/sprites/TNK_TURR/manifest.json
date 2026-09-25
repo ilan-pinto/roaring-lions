@@ -1,17 +1,18 @@
 {
-  "unit": "tiger_tank_turret",
+  "unit": "mbt_lavi_turret",
+  "credit": "Original work for Roaring Lions: rendered from art/meshes/vehicles/mbt_lavi.glb, AI-generated with Meshy (commercial plan) and reworked in Blender; see docs/ASSET_PROVENANCE.md",
   "facings": 16,
   "size": 256,
   "frames": 1,
   "facingOffset": 5,
   "facingReverse": true,
-  "scale": 1.9643,
-  "derivedScale": 1.9643,
+  "scale": 1.8421,
+  "derivedScale": 1.8421,
   "sizeClass": "heavy_vehicle",
   "classMultiplier": 1.0,
   "realMetres": 6.32,
-  "metresPerModelUnit": 0.49379,
-  "frameMetres": 8.334,
+  "metresPerModelUnit": 1.0,
+  "frameMetres": 7.815,
   "layer": "turret",
   "files": [
     {

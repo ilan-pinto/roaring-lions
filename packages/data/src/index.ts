@@ -170,10 +170,14 @@ export {
  *  with its bought upgrade tiers before @lions/sim registers the type. */
 export {
   applyUpgrades,
+  kitCounts,
+  kitLevel,
   maxTiers,
   nextTierPrice,
   readPath,
   UPGRADE_PATHS,
+  type KitCounts,
+  type KitLevel,
   type UpgradableUnit,
   type UpgradeTier,
   type UpgradeTrack,

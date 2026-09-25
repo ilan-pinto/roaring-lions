@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest';
 import {
   UPGRADE_PATHS,
   applyUpgrades,
+  kitCounts,
+  kitLevel,
   maxTiers,
   nextTierPrice,
   type UpgradableUnit,
@@ -282,5 +284,55 @@ describe('UPGRADE_PATHS pin against tools/validate_balance.py', () => {
     const docstring = /def apply_upgrades\(unit, tiers\):\s*"""([\s\S]*?)"""/.exec(py);
     expect(docstring, 'could not find apply_upgrades\' docstring in validate_balance.py').not.toBeNull();
     expect((docstring as RegExpExecArray)[1]).toMatch(/summed across tracks/);
+  });
+});
+
+/** A shipped KDF unit, read off disk the way the sweep tests above read them. */
+function kdf(id: string): UpgradableUnit {
+  return JSON.parse(readFileSync(join(__dirname, '../../../data/units/kdf', `${id}.json`), 'utf8')) as UpgradableUnit;
+}
+
+describe('kitLevel (garage uplift §3.1, §6: ceil(3 × owned ÷ available))', () => {
+  it('reads the audit seed the spec was written against', () => {
+    expect(kitLevel(kdf('inf_squad'), { armour: 2, sensors: 1 })).toBe(1); // 3 of 9
+    expect(kitLevel(kdf('at_team'), { firepower: 1 })).toBe(1); // 1 of 9
+    expect(kitLevel(kdf('mbt_lavi'), { armour: 3, sensors: 3, firepower: 3 })).toBe(3); // 9 of 9
+  });
+
+  it('is 0 with nothing bought, and for a unit with no tracks at all', () => {
+    expect(kitLevel(kdf('mbt_lavi'), {})).toBe(0);
+    expect(kitLevel({ id: 'bare' }, { armour: 3 })).toBe(0);
+  });
+
+  it('is one rule for a nine-tier type and a six-tier one', () => {
+    const d9 = kdf('dozer_d9');
+    expect(kitCounts(d9, {}).available).toBe(6);
+    const six = [1, 2, 3, 4, 5, 6].map((n) =>
+      kitLevel(d9, { armour: Math.min(n, 3), sensors: Math.max(0, n - 3) })
+    );
+    expect(six).toEqual([1, 1, 2, 2, 3, 3]);
+    const lavi = kdf('mbt_lavi');
+    const nine = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) =>
+      kitLevel(lavi, {
+        armour: Math.min(n, 3),
+        sensors: Math.min(Math.max(0, n - 3), 3),
+        firepower: Math.max(0, n - 6),
+      })
+    );
+    expect(nine).toEqual([1, 1, 1, 2, 2, 2, 3, 3, 3]);
+  });
+
+  // R-11: level 3 is not "maxed". The garage asks that separately.
+  it('rounds UP: seven of nine is level 3 with two tiers still for sale', () => {
+    const tiers = { armour: 3, sensors: 3, firepower: 1 };
+    expect(kitCounts(kdf('mbt_lavi'), tiers)).toEqual({ owned: 7, available: 9 });
+    expect(kitLevel(kdf('mbt_lavi'), tiers)).toBe(3);
+  });
+
+  it('clamps to what the data still declares, and ignores unknown tracks, negatives and junk', () => {
+    expect(kitCounts(kdf('mbt_lavi'), { armour: 9, rockets: 3, sensors: -2, firepower: Number.NaN })).toEqual({
+      owned: 3,
+      available: 9,
+    });
   });
 });

@@ -1,17 +1,17 @@
 {
   "unit": "jeep_shoded_hull",
-  "credit": "Military jeep. LICENCE UNVERIFIED, see tools/render_jeep.py",
+  "credit": "Original work for Roaring Lions: rendered from art/meshes/vehicles/jeep_shoded.glb, AI-generated with Meshy (commercial plan) and reworked in Blender; see docs/ASSET_PROVENANCE.md",
   "facings": 16,
   "size": 256,
   "facingOffset": 0,
   "facingReverse": true,
-  "scale": 1.3977,
-  "derivedScale": 1.3977,
+  "scale": 1.2749,
+  "derivedScale": 1.2749,
   "sizeClass": "light_vehicle",
   "classMultiplier": 1.0,
   "realMetres": 4.8,
-  "metresPerModelUnit": 0.76949,
-  "frameMetres": 5.93,
+  "metresPerModelUnit": 1.00011,
+  "frameMetres": 5.409,
   "clips": {
     "idle": {
       "frames": 1,

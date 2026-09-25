@@ -32,70 +32,68 @@ does not look at provenance, because there is no provenance to look at.
 
 ---
 
-## Sprites: 41 sets, 36 clean
+## Sprites: 41 sets, all with recorded rights
 
-36 of 41 carry `Original work for Roaring Lions (CC BY-SA 4.0)` or the
-equivalent. The five exceptions:
+**Resolved 2026-09-25, the day the repository went public.** Until then five
+sets carried no usable rights record. Four were replaced and one now carries its
+full credit:
 
-| Set | Credit | Problem | Status |
-|---|---|---|---|
-| `TNK_HULL` | **(none)** | no credit at all | **replaced** by `art/meshes/vehicles/mbt_lavi.glb`; old art not yet retired |
-| `TNK_TURR` | **(none)** | as above | as above |
-| `NAMER_HULL` | `Mutte (CC-BY 3.0, BlendSwap #75225)` | attribution mandatory and permanent; would have to appear in a shipped credits screen | **replaced** by `art/meshes/vehicles/ifv_namer.glb`; old art not yet retired |
-| `NAMER_TURR` | as above | as above | as above |
-| `JEEP_HULL` | `Military jeep. LICENCE UNVERIFIED` | `tools/render_jeep.py`: *"downloaded without licence, readme or attribution. Do not redistribute until the terms are established."* **No known terms at all.** | **replaced** by `art/meshes/vehicles/jeep_shoded.glb`; old art not yet retired |
+| Set | Was | Now |
+|---|---|---|
+| `TNK_HULL`, `TNK_TURR` | rendered from a 2013 BlendSwap Tiger tank (`tiger_tank_rigged.blend`); **no credit recorded anywhere**, source never in git | **re-rendered** from `art/meshes/vehicles/mbt_lavi.glb` by `tools/render_vehicle_glb.py` |
+| `JEEP_HULL` | rendered from `art/src/jeep_shoded.blend`, a model downloaded with no licence, readme or attribution; its manifest credit said as much; source never in git | **re-rendered** from `art/meshes/vehicles/jeep_shoded.glb` by `tools/render_vehicle_glb.py` |
+| `NAMER_HULL`, `NAMER_TURR` | "VEHICLE IFV DMM08" by Mutte, CC BY 3.0 (BlendSwap #75225), credited on screen by author and id only | **kept**, with the full CC BY 3.0 credit on the credits screen (below) |
 
-Licence file on disk for the Namer only: `art/src/ifv_dmm08_LICENSE.html`
-(`creativecommons.org/licenses/by/3.0` — plain Attribution, so commercial use
-and closed-source derivatives are both permitted; attribution is not optional).
+The two re-rendered sets come from the unit's **own shipped mesh**, whose
+rights are recorded under "The supplied Meshy assets" below (AI-generated,
+Meshy commercial plan, disclosed). Their GLB sources are committed, so unlike
+the sheets they replace they can be re-rendered from a fresh clone. The sheet
+FORMAT was reproduced exactly -- file names and layout (TNK_* are legacy
+`f{NN}_000.png` with no clips and no wreck, JEEP_HULL is `idle_`/`wreck_`), 16
+facings, 256 px cells, the median-vertex pivot, each sheet's `facingOffset`, and
+`realMetres` (6.32, 4.8) -- so `main.ts`, the Pixi backend, `&nomesh`, the unit
+icons and the tests needed no change. `scale` is re-derived by
+`dimetric.unit_scale` (TNK 1.9643 -> 1.8421, JEEP 1.3977 -> 1.2749): the new
+models fit tighter frames, and the vehicles still draw at their declared
+length. The numbers were approved by the project lead before rendering. The
+cropped unit icons `assets/ui/icons/units/TNK_HULL.png` and `JEEP_HULL.png`,
+derived from the old frames, were rebuilt from the new ones.
 
-**All five now have replacements drawing in game**, so every retirement below is
-unblocked. Retirement is still deliberately not performed here: art existing and
-art drawing are different things, this branch has confused them six times, and
-each retirement is its own verified step rather than a bulk delete.
+The old TNK sheet turned out to be **one facing (22.5 deg) off** its own
+`facingOffset`. Matched frame by frame by silhouette, old frame `f` lines up
+with new frame `f+1`, while the jeep lines up at `f`. The hull's principal axis,
+measured against each frame's projected heading, fits the old sheet best at
+offset 4 (mean 10.0 deg, against 17.9 deg at the declared 5). The new sheet
+follows the rig's measured convention instead (`dimetric.facing_offset`: +X
+forward draws at offset 12), and it fits best at its declared 5. So a
+`?renderer=pixi` or `&nomesh` Lavi is now drawn a facing closer to where it
+drives. The jeep fits 0 both before and after.
 
-**Update, 2026-09-01: the `&mesh` gate is gone — meshes are the default on
-`three`.** `main.ts` now loads every mesh asset unless `&nomesh` is passed, so
-the correction below is history rather than current state: a menu-driven player
-on the default backend now DOES draw `mbt_lavi`, `ifv_namer` and `jeep_shoded`
-from `art/meshes/vehicles/`. Verified live on `?mission=beit_sahwan_2_foothold`
-with no flags — 7 vehicle and 14 unit mesh templates populated, 34 GLB fetches.
+Every sprite set now carries a `credit` in its manifest. The one attribution
+the game owes is the Namer's, and `ui/credits.ts` carries it in the form CC BY
+3.0 section 4 asks for: title, author, the licensor's URI for the work
+(`http://www.blendswap.com/blends/view/75225`), the licence URI, and a line
+saying the work was modified (rendered to sprites, recoloured to the palette).
+`credits-data.test.ts` pins that credit against the licensor's own page,
+`art/src/ifv_dmm08_LICENSE.html`.
 
-That unblocks **half** of outstanding item 2 and no more. `?renderer=pixi` still
-has no mesh path, and `SPRITE_MAP` still loads all three sets unconditionally
-for both backends, so deleting them today still blanks those vehicles on Pixi.
-The remaining decision is unchanged and still the project lead's: accept that
-`?renderer=pixi` loses them, or keep the debt until Pixi itself is retired. What
-changed is that the *default* configuration is no longer an argument for keeping
-them.
+### `art/src/soldier_kolos.fbx` -- removed 2026-09-25
 
-**Correction, 2026-08-31: "drawing in game" above is narrower than it reads.**
-The replacements draw only behind the dev-only `&mesh` URL flag
-(`packages/app/src/sandbox-help.ts`'s `SANDBOX_FLAGS`) — checked live against
-the running dev server, not merely read off the source. Neither backend's
-*default* configuration loads a vehicle mesh at all: `SPRITE_MAP` in
-`main.ts` still names `TNK_HULL`/`TNK_TURR` for `mbt_lavi`,
-`NAMER_HULL`/`NAMER_TURR` for `ifv_namer`, and `JEEP_HULL` for `jeep_shoded`,
-and that loop runs unconditionally, for both backends, regardless of `&mesh`.
-`?renderer=pixi` has no mesh path at all (`PixiRenderer` never gained one),
-so it depends on these three sets absolutely. And on the default `three`
-backend, `flags.mesh` gates the *entire* `MESH_VEHICLES` load — with the flag
-off, `vehicleMeshTemplates` stays empty and the billboard path (built from
-these same three sprite sets) is what actually draws `mbt_lavi`, `ifv_namer`
-and `jeep_shoded`. Confirmed empirically: on the live dev server,
-`?sandbox&renderer=three` (no `&mesh`) shows `unitInstancers` containing all
-three ids and `vehicleMeshTemplates` empty; adding `&mesh` populates
-`vehicleMeshTemplates` for them (and `unitInstancers` still keeps loading the
-sprites — mesh wins the draw, but nothing stops loading the billboard).
-`menu.ts` never appends `&mesh` to any link it builds, so **every real player,
-on both backends, in their default configuration, is currently drawing these
-three units from the sprite sets this section calls "unblocked" to retire.**
-"Unblocked" is true only for a developer who manually adds `&mesh` to the
-URL. See `.superpowers/sprite-retirement-report.md` for the full trail
-(gitignored, session-scoped) and outstanding item 2 below for what retiring
-these three sets actually requires before it is safe.
+A KolosStudios rigged soldier with no licence on record. The 2026-08-29 phase-D
+audit also found that it **embeds a Synty POLYGON Military texture path**, which
+makes it paid-pack material and not merely unknown. **It never shipped in the
+game**: no sprite, mesh or build step read it (`tools/units/kit.py` only named
+it as the dependency the code-authored kit had dropped, and every infantry
+proportion is a constant in that file). It is gone from HEAD.
 
----
+### History is kept
+
+Every file replaced or removed above -- the old TNK_*/JEEP_HULL frames and
+icons, `soldier_kolos.fbx`, and the render scripts that pointed at the
+unrecorded sources (`render_tank.py`, `render_tiger.py`, `render_jeep.py`) --
+**remains in git history from before 2026-09-25.** Rewriting history to purge
+them was considered and declined: the project lead accepted keeping history
+(25 Sep). This section records the fact. It is not an oversight.
 
 ## The supplied Meshy assets
 
@@ -166,8 +164,8 @@ commercial build, and the retirements below are unblocked.
 Audio has a CI gate that rejects an unlicensed clip. Sprites have a convention
 with no gate. Meshes have neither.
 
-That asymmetry is why `JEEP_HULL` shipped with *"LICENCE UNVERIFIED"* in its own
-credit string and nothing objected, and why 33 meshes have no origin recorded at
+That asymmetry is why `JEEP_HULL` shipped for weeks with a credit string that
+declared its own licence unknown, and nothing objected (resolved 2026-09-25, above), and why 33 meshes have no origin recorded at
 all. A human noticed; no check did.
 
 **Recommended:** give `art/meshes/**` the same `credit` record sprites already
@@ -183,35 +181,16 @@ depends on someone remembering is provenance that eventually fails.
 1. **Record credits for the 33 meshes and gate on them** (above). Now that the
    Meshy terms are settled, every mesh has an answer to record — which is the
    cheapest moment to start requiring one.
-2. **Retire the three superseded sprite sets** — `TNK_*`, `NAMER_*`, `JEEP_HULL`
-   plus their `render_*.py` scripts and `art/src/ifv_dmm08_LICENSE.html` — each
-   only after its replacement is confirmed drawing in game. Retiring `NAMER_*`
-   removes the project's last permanent attribution obligation; retiring
-   `JEEP_HULL` removes the only asset with no known terms at all.
-   **Attempted 2026-08-31, NOT done — still blocked, but for one reason fewer
-   as of 2026-09-01.** The original blocker — "confirmed drawing in game" meaning
-   "drawing behind the dev-only `&mesh` flag," off in every real player's session
-   — no longer applies on `three`: meshes are the default there now (see the
-   update above `SPRITE_MAP`'s table). Pixi is what still blocks it. Concretely, deleting these
-   three directories today would blank `mbt_lavi`, `ifv_namer` and
-   `jeep_shoded` for `?renderer=pixi` (no mesh path exists there at all — not
-   a gap to close, a permanent property of that backend) AND for the default
-   `three` backend with no `&mesh` (which is every menu-driven link —
-   `menu.ts` never adds the flag). Two more concrete breaks found alongside
-   the rendering hole, neither owned by this task: `packages/render/src/
-   three/units/instances.test.ts` (in `pnpm test`'s baseline) does a hard
-   JSON import of `assets/sprites/TNK_HULL/manifest.json`; and
-   `tools/vehicles/export_meshy_tank.py` / `export_meshy_namer.py` /
-   `export_meshy_jeep.py` each read their respective legacy manifest's
-   `real_metres` as the source of truth when regenerating that vehicle's GLB
-   — deleting the manifest breaks re-running those scripts, not just today's
-   render. Unblocking this is a decision, not a cleanup: either make `&mesh`
-   (or an equivalent) the default for these three vehicle types on `three`
-   and accept that `?renderer=pixi` permanently loses them, or accept the
-   attribution/licence debt stays until `?renderer=pixi` itself is retired,
-   or give these three types their own non-Meshy replacement sprites. That
-   choice is the project lead's, not this task's — see
-   `.superpowers/sprite-retirement-report.md` for the full trail.
+2. ~~**Retire the three superseded sprite sets**~~ -- **resolved 2026-09-25**,
+   by a different route than the one this item proposed. Retiring the sets would
+   have blanked `mbt_lavi`, `ifv_namer` and `jeep_shoded` on `?renderer=pixi` and
+   `&nomesh`, so the tank and jeep sets were instead **re-rendered from their own
+   Meshy GLBs** in the same format, and the Namer set was kept with its full CC BY
+   credit on screen (see "Sprites" above). The Namer is therefore still the
+   project's one permanent attribution obligation; `render_namer.py` and
+   `art/src/ifv_dmm08_LICENSE.html` stay. The legacy manifests that
+   `export_meshy_tank.py` / `export_meshy_jeep.py` read `realMetres` from still
+   exist and still declare 6.32 and 4.8.
 3. ~~**Change the art licence declaration**~~ — **done 2026-08-30**, in
    `ART_PIPELINE.md` §8, ahead of merging this work to `main`. Art and data are
    now all rights reserved. Everything published under CC BY-SA 4.0 between

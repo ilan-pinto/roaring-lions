@@ -44,6 +44,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { boardCanvasVerdict } from './board-canvases';
+import { ACCOUNT_KEY } from '../../../packages/app/src/brigade-account';
+import { garageSeedScript } from './garage-seed';
 import { claimPort } from './port';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -899,6 +901,594 @@ try {
         `${JSON.stringify(expectedIds)}`
     );
   }
+
+  // --- the garage buys in place (WP-S3g F3) ------------------------------
+  // The old remount read ONE flat colour for ~210 ms (spec F3, capture
+  // `05-buy-upgrade-120ms`), then landed the bay on the first card with focus
+  // on <body>. Everything below is a DOM read in the real page -- jsdom
+  // cannot clamp a scroller or paint a frame.
+  //
+  // A fresh account has nothing to upgrade: `mbt_lavi`, the seeded page's own
+  // opening bay, is already fully kitted and shows no Buy at all (controller
+  // ruling T9/T11). `at_team` is the seed's own part-kitted unit -- firepower
+  // tier 1 owned, tier 2's Buy at 175 credits still on the board -- so this
+  // leg selects it before it ever looks for a Buy to click.
+  //
+  // `GARAGE_ARM` and `GARAGE_READ` are plain strings, not functions, for the
+  // same reason `frameCadence` above is: tsx/esbuild's `keepNames` transform
+  // rewrites a named const's inner arrow with a `__name` helper the page does
+  // not have, and `Function.prototype.toString()` -- how Playwright ships a
+  // callback into the page -- carries that rewritten text straight into a
+  // browser context with no `__name` global.
+  //
+  // `GARAGE_ARM` stashes the screen's own root node under a name of our own
+  // (`__rlGarage`) BEFORE the click, so "did the purchase replace the screen"
+  // can be answered by identity afterwards -- the same technique the scene-host
+  // legs above use for a canvas that a leave would otherwise remove out from
+  // under a later read. It also parks the rail's scroll at 120 (the purchase
+  // must not reset it) and starts a 40-frame `requestAnimationFrame` loop that
+  // counts every frame `.rl-garage__card` is absent from the DOM -- a remount
+  // blanks the screen for a real span of frames, not a single microtask, so a
+  // frame-counted window catches it where a single post-click read would not.
+  const GARAGE_ARM =
+    'window.__rlGarage = document.querySelector(".rl-menu--garage");' +
+    'var rail = document.querySelector(".rl-garage__cards");' +
+    'if (rail) rail.scrollTop = 120;' +
+    'window.__rlBlank = 0;' +
+    'window.__rlFrames = 0;' +
+    '(function loop() {' +
+    '  if (!document.querySelector(".rl-garage__card")) window.__rlBlank += 1;' +
+    '  window.__rlFrames += 1;' +
+    '  if (window.__rlFrames < 40) requestAnimationFrame(loop);' +
+    '})();';
+  // Fix round 1 (Task 4 review): the plain purchase above never falsifies the
+  // `rail` assertion on its OWN, and that is a real finding, not a mistake in
+  // this leg -- `renderCards()` clears `.rl-garage__cards` with a bare
+  // `replaceChildren()` and repopulates it synchronously, in one JS task, so
+  // Chromium's batched layout never lays the rail out while it is transiently
+  // empty and its stored scroll offset is never actually clamped, whichever
+  // unit is bought. The OLD full-remount bug (falsification (a) above) forced
+  // exactly this for free, because it threw away the whole `.rl-garage__cards`
+  // DOM node and built a fresh one (default scrollTop 0) -- this harness has
+  // no such node swap to lean on for an in-place purchase, so it manufactures
+  // the same forced-empty-layout moment directly, scoped to this one element
+  // on this one page, so `rail` is an assertion this leg can actually fail.
+  //
+  // `GARAGE_FORCE_RAIL_REFLOW` wraps `.rl-garage__cards`'s own
+  // `replaceChildren` (an instance property shadowing the prototype method,
+  // never touching `brigade.ts`) so that the call `renderCards()` already
+  // makes to CLEAR the rail also forces a synchronous layout read
+  // (`void cards.offsetHeight`) while it is empty -- the moment a real
+  // browser would clamp the stored scroll offset to 0. `renderCards()`'s own
+  // subsequent `appendChild` loop (unwrapped, unaffected) then repopulates it
+  // exactly as it always does; the restore lines in `answer()` are what put
+  // the offset back afterward, and this exists so their absence has
+  // somewhere to be seen. `GARAGE_RESTORE_RAIL_REFLOW` puts the original
+  // method back once this leg's own assertions are done, so nothing about
+  // `.rl-garage__cards` outlives this block (belt and braces over the context
+  // close right after).
+  const GARAGE_FORCE_RAIL_REFLOW =
+    '(() => {' +
+    '  var cards = document.querySelector(".rl-garage__cards");' +
+    '  if (!cards) return;' +
+    '  var orig = cards.replaceChildren.bind(cards);' +
+    '  window.__rlRailReplaceChildren = orig;' +
+    '  cards.replaceChildren = function (...args) {' +
+    '    orig(...args);' +
+    '    void cards.offsetHeight;' + // force the layout a real remount used to force for free
+    '  };' +
+    '})()';
+  const GARAGE_RESTORE_RAIL_REFLOW =
+    '(() => {' +
+    '  var cards = document.querySelector(".rl-garage__cards");' +
+    '  if (cards && window.__rlRailReplaceChildren) cards.replaceChildren = window.__rlRailReplaceChildren;' +
+    '  delete window.__rlRailReplaceChildren;' +
+    '})()';
+  const GARAGE_READ =
+    '(() => {' +
+    '  var wrap = document.querySelector(".rl-menu--garage");' +
+    '  var selected = document.querySelector(\'.rl-garage__card[aria-selected="true"]\');' +
+    '  var walletN = document.querySelector(".rl-garage__wallet-n");' +
+    '  var rail = document.querySelector(".rl-garage__cards");' +
+    '  var focused = document.activeElement;' +
+    '  return {' +
+    '    same: wrap !== null && wrap === window.__rlGarage,' +
+    '    blank: window.__rlBlank,' +
+    '    selected: selected ? selected.getAttribute("data-unit") : null,' +
+    '    focus: focused ? focused.getAttribute("data-focus-key") : null,' +
+    '    rail: rail ? rail.scrollTop : null,' +
+    '    value: walletN ? walletN.getAttribute("data-value") : null,' +
+    '    boots: performance.getEntriesByName("rl:boot").length,' +
+    '  };' +
+    '})()';
+  {
+    const garageCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await garageCtx.addInitScript(garageSeedScript());
+    const g = await garageCtx.newPage();
+    g.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    // The same collectors the main `page` carries, attached to this page too:
+    // a console error or a leave-shaped warning here must fail the run exactly
+    // as it would on the main walk.
+    g.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+      else if (m.type() === 'warning') warnings.push(m.text());
+    });
+    g.on('pageerror', (e) => errors.push(String(e)));
+
+    await g.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await g.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    await g.click('.rl-garage__card[data-unit="at_team"]');
+    // Scoped to this page and this one element; see the constant's own
+    // comment for why the plain purchase below needs this to falsify `rail`
+    // at all.
+    await g.evaluate(GARAGE_FORCE_RAIL_REFLOW);
+    await g.evaluate(GARAGE_ARM); // string: scroll the rail to 120, remember the screen node, start a 40-frame blank counter
+    const railBefore = await g.$eval('.rl-garage__cards', (e) => e.scrollTop);
+    // Fix round 1: the board is an accordion now, and `armour` -- at_team's
+    // first non-maxed track -- opens by default, not firepower. Fix round 2,
+    // issue 2 moved the accordion's own `mouseenter` from the whole track box
+    // to its HEAD alone (a raw mouseenter of the box is what let a cursor
+    // merely passing over an expanded neighbour on its way here resize the
+    // board underneath, which is also what made a genuine `page.hover()` here
+    // time out under round 1's own listener) -- a real hover now proves the
+    // fix rather than routing around it.
+    await g.hover('.rl-garage__track[data-track="firepower"] .rl-garage__track-head');
+    await g.click('.rl-garage__track[data-track="firepower"] .rl-garage__buy-tier');
+    await g.waitForFunction('window.__rlFrames >= 40');
+    const after = await g.evaluate<{
+      same: boolean;
+      blank: number;
+      selected: string | null;
+      focus: string | null;
+      rail: number | null;
+      value: string | null;
+      boots: number;
+    }>(GARAGE_READ);
+    console.log(`[${TAG}] garage buy: ${JSON.stringify(after)} (rail was ${railBefore})`);
+    expect(after.same, 'garage: a purchase replaced the screen instead of re-rendering it in place (F3)');
+    expect(after.blank === 0, `garage: ${after.blank} frame(s) with no roster on screen while the purchase landed (F3)`);
+    expect(after.selected === 'at_team', `garage: the bay moved to "${after.selected}" after an at_team purchase (F3)`);
+    expect(after.focus === 'buy:firepower', `garage: focus is on "${after.focus}", not the next firepower Buy (F3/F8)`);
+    expect(Math.abs((after.rail ?? 0) - railBefore) <= 1, `garage: the rail scrolled from ${railBefore} to ${after.rail} (F3)`);
+    expect(after.value === '2225', `garage: the wallet reads ${after.value}, expected 2400 - 175 = 2225`);
+    expect(after.boots === 1, `garage: ${after.boots} boot marks -- the purchase reloaded the page`);
+    await g.evaluate(GARAGE_RESTORE_RAIL_REFLOW);
+
+    await garageCtx.close();
+  }
+
+  // --- one Enter, one tier (final review C1) --------------------------------
+  //
+  // The board's own Enter handler clicked the Buy and left the key's default
+  // action alone. `answer()` then moves focus to the next tier's Buy (R-4),
+  // and Chromium delivers the same press's activation to whatever is focused
+  // by then -- so one Enter bought two tiers whenever the second was
+  // affordable. jsdom runs no default actions, so only a REAL key press in a
+  // real browser can see it: `page.keyboard.press('Enter')`, never a
+  // synthetic `dispatchEvent`.
+  //
+  // Both keyboard paths the spec names, on the seed's part-kitted `at_team`
+  // (armour 0, sensors 0, firepower 1; 2400 credits):
+  //   A. a focused Buy -- firepower tier 2 (175). Tier 3 (250) is the one a
+  //      double press would also take.
+  //   B. the digit jump's landing -- '1' focuses armour's tier-1 rung (95);
+  //      tier 2 (140) is the one a double press would also take.
+  // Read off the ACCOUNT in localStorage, which is the store's own truth, and
+  // cross-checked against the wallet the screen prints.
+  const ACCOUNT_READ =
+    '(() => {' +
+    `  var raw = localStorage.getItem(${JSON.stringify(ACCOUNT_KEY)});` +
+    '  var a = raw ? JSON.parse(raw) : null;' +
+    '  var up = a && a.upgrades && a.upgrades.at_team ? a.upgrades.at_team : {};' +
+    '  var w = document.querySelector(".rl-garage__wallet-n");' +
+    '  return {' +
+    '    balance: a ? a.balance : null,' +
+    '    armour: up.armour || 0,' +
+    '    firepower: up.firepower || 0,' +
+    '    wallet: w ? w.getAttribute("data-value") : null,' +
+    '    focus: document.activeElement ? document.activeElement.getAttribute("data-focus-key") : null,' +
+    '  };' +
+    '})()';
+  {
+    const enterCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await enterCtx.addInitScript(garageSeedScript());
+    const e = await enterCtx.newPage();
+    e.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    e.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+    });
+    e.on('pageerror', (err) => errors.push(String(err)));
+    await e.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await e.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    await e.click('.rl-garage__card[data-unit="at_team"]');
+    type AccountRead = { balance: number | null; armour: number; firepower: number; wallet: string | null; focus: string | null };
+    const start = await e.evaluate<AccountRead>(ACCOUNT_READ);
+    expect(
+      start.balance === 2400 && start.firepower === 1 && start.armour === 0,
+      `garage Enter: the seed is not the one this leg prices against: ${JSON.stringify(start)}`
+    );
+
+    // A: a focused Buy.
+    await e.hover('.rl-garage__track[data-track="firepower"] .rl-garage__track-head');
+    await e.locator('.rl-garage__track[data-track="firepower"] .rl-garage__buy-tier').focus();
+    await e.keyboard.press('Enter');
+    await e.waitForTimeout(300);
+    const a = await e.evaluate<AccountRead>(ACCOUNT_READ);
+    console.log(`[${TAG}] garage Enter on a focused Buy: ${JSON.stringify(a)}`);
+    expect(
+      a.firepower === 2 && a.balance === 2225 && a.wallet === '2225',
+      `garage C1: one Enter on the firepower Buy left firepower ${a.firepower}, balance ${a.balance} ` +
+        `(wallet ${a.wallet}) -- expected exactly one tier: 2, 2400 - 175 = 2225`
+    );
+
+    // B: the digit jump's landing, a focused rung.
+    await e.keyboard.press('1');
+    const landed = await e.evaluate<AccountRead>(ACCOUNT_READ);
+    expect(landed.focus === 'rung:armour:1', `garage C1: '1' landed on "${landed.focus}", not armour's tier-1 rung`);
+    await e.keyboard.press('Enter');
+    await e.waitForTimeout(300);
+    const b = await e.evaluate<AccountRead>(ACCOUNT_READ);
+    console.log(`[${TAG}] garage Enter on a focused rung: ${JSON.stringify(b)}`);
+    expect(
+      b.armour === 1 && b.balance === 2130 && b.wallet === '2130',
+      `garage C1: one Enter on armour's rung left armour ${b.armour}, balance ${b.balance} ` +
+        `(wallet ${b.wallet}) -- expected exactly one tier: 1, 2225 - 95 = 2130`
+    );
+    await enterCtx.close();
+  }
+
+  // --- the garage's first Buy is heard (WP-S3g T11, spec §9 "First gesture") -
+  //
+  // Browsers build no sound before a user gesture, and the mixer's context is
+  // made inside its own `pointerdown`/`keydown` listener (`audio.ts`'s
+  // `attach()`), so the one Buy that could be silent is a session's FIRST.
+  // Nothing in this context may therefore reach the page as a gesture before
+  // it: `at_team` (the seed's part-kitted unit -- the page opens on `mbt_lavi`,
+  // maxed, with no Buy anywhere) is selected with an UNTRUSTED `el.click()`
+  // inside the page, which runs the card's click handler and dispatches no
+  // `pointerdown` or `keydown` at all. Then the Buy is clicked for real.
+  //
+  // Two votes on sound, not one: an oscillator or buffer source was created
+  // AND the context that made it reads `running` 500 ms later. Counting
+  // sources alone passes on a context left `suspended`, which is silence. And
+  // the first oscillator must not be 520 Hz -- `playUi`'s fallback, the
+  // ALERT's falling tone, which is what a set with no arm of its own plays
+  // (R-2). The recorder is an init script so it is in place before `main.ts`
+  // can construct anything; `ctx` is whichever context actually made a voice.
+  //
+  // What "untrusted" buys here, measured: Playwright runs every
+  // `page.evaluate` with `userGesture: true`, so the card click DOES hand the
+  // page user activation -- a probe's `navigator.userActivation.hasBeenActive`
+  // reads true after any evaluate. What it does not do is dispatch the
+  // `pointerdown`/`keydown` the mixer listens for, so no AudioContext exists
+  // until the real Buy (the `before` vote below). Without an evaluate this
+  // shared browser does enforce the autoplay policy -- a context built at
+  // load reads `suspended` -- and launching it with
+  // `--autoplay-policy=user-gesture-required` measured LOOSER (`running`), so
+  // there is no flag here on purpose. One break the `running` vote cannot
+  // see: an `attach()` that builds its context eagerly at boot and never
+  // resumes it still reads `running` here (measured) -- by inference, because
+  // the evaluate's activation lets Chromium start a policy-suspended context
+  // once a node starts. The `running` vote's red was shown with a context
+  // suspended explicitly (`ctx.suspend()` in the gesture listener). That
+  // eager build is what the CONSTRUCTOR count exists for (the final review's
+  // parked item (a)): the recorder subclasses `AudioContext` itself, so a
+  // context built at boot is counted whether or not it ever makes a voice,
+  // and the leg requires zero at boot and zero after the untrusted click.
+  const AUDIO_RECORDER =
+    '(function () {' +
+    '  var w = window; w.__rlAudio = { osc: [], buf: 0, ctx: null, constructed: 0 };' +
+    '  var C = w.AudioContext || w.webkitAudioContext; if (!C) return;' +
+    // Counted at the constructor, not at the first voice: a context built at
+    // boot and never used is exactly what "no context before the first
+    // gesture" forbids, and it makes no voice to be counted by.
+    '  var Counted = class extends C { constructor(o) { super(o); w.__rlAudio.constructed++; } };' +
+    '  w.AudioContext = Counted; if (w.webkitAudioContext) w.webkitAudioContext = Counted;' +
+    '  var mk = C.prototype.createOscillator;' +
+    '  C.prototype.createOscillator = function () {' +
+    '    var o = mk.call(this); var rec = { f: null }; w.__rlAudio.osc.push(rec); w.__rlAudio.ctx = this;' +
+    '    setTimeout(function () { rec.f = o.frequency.value; }, 0); return o;' +
+    '  };' +
+    '  var mb = C.prototype.createBufferSource;' +
+    '  C.prototype.createBufferSource = function () { w.__rlAudio.buf++; w.__rlAudio.ctx = this; return mb.call(this); };' +
+    '})();';
+  const AUDIO_READ =
+    '(() => ({' +
+    '  osc: window.__rlAudio.osc.map(function (r) { return r.f; }),' +
+    '  buf: window.__rlAudio.buf,' +
+    '  state: window.__rlAudio.ctx ? window.__rlAudio.ctx.state : null,' +
+    '  constructed: window.__rlAudio.constructed,' +
+    '}))()';
+  {
+    const soundCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await soundCtx.addInitScript(garageSeedScript());
+    await soundCtx.addInitScript(AUDIO_RECORDER);
+    const s = await soundCtx.newPage();
+    s.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    s.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+      else if (m.type() === 'warning') warnings.push(m.text());
+    });
+    s.on('pageerror', (e) => errors.push(String(e)));
+
+    await s.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await s.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    // Parked item (a), closing the blind spot recorded above: nothing may have
+    // BUILT an AudioContext before the untrusted click, voice or no voice.
+    type AudioRead = { osc: (number | null)[]; buf: number; state: string | null; constructed: number };
+    const booted = await s.evaluate<AudioRead>(AUDIO_READ);
+    console.log(`[${TAG}] garage audio at boot: ${JSON.stringify(booted)}`);
+    expect(
+      booted.constructed === 0,
+      `garage: ${booted.constructed} AudioContext(s) constructed before any gesture -- the mixer must wait for one`
+    );
+    // Untrusted, in the page: the card's own handler, and no gesture.
+    await s.evaluate(
+      '(() => { document.querySelector(\'.rl-garage__card[data-unit="at_team"]\').click(); })()'
+    );
+    await s.waitForSelector('.rl-garage__card[data-unit="at_team"][aria-selected="true"]');
+    const before = await s.evaluate<AudioRead>(AUDIO_READ);
+    expect(
+      before.constructed === 0,
+      `garage: ${before.constructed} AudioContext(s) constructed by the untrusted card click -- it is not a gesture`
+    );
+    expect(
+      before.osc.length + before.buf === 0,
+      `garage: ${before.osc.length + before.buf} voice(s) before the first Buy -- the leg is not testing a first gesture`
+    );
+    // The first gesture of the session, for real.
+    await s.locator('.rl-garage__board .rl-garage__buy-tier:enabled:visible').first().click();
+    await s.waitForTimeout(500);
+    const heard = await s.evaluate<AudioRead>(AUDIO_READ);
+    console.log(`[${TAG}] garage first Buy: ${JSON.stringify(heard)}`);
+    expect(heard.osc.length + heard.buf > 0, "garage: a session's first Buy made no sound (spec §9)");
+    expect(
+      heard.state === 'running',
+      `garage: the first Buy's AudioContext reads "${heard.state}" 500 ms later, not "running" -- nothing was heard (spec §9)`
+    );
+    if (heard.osc.length > 0) {
+      expect(heard.osc[0] !== 520, "garage: the first Buy played the ALERT's falling tone (R-2)");
+    }
+    await soundCtx.close();
+  }
+
+  // --- the garage fits the screen, measured (WP-S3g T9, F4, F9, §2 goal 3) --
+  //
+  // Task 7 shrank the box to the viewport and Task 6 capped the plate so the
+  // stat panel stays in the bay; jsdom lays out nothing, so no unit test can
+  // see a box bottom past the fold or a scrollbar on the board. Two units,
+  // because a box that fits one unit's board can still overflow another's:
+  // `mbt_lavi` (the seed's fully-kitted unit -- three tracks, every rung
+  // `owned`, no Buy anywhere) and `at_team` (part-kitted -- firepower carries
+  // a live `next` rung with its benefits and a Buy expanded). Three sizes,
+  // because the board's own overflow budget is only asked of the two widest
+  // (`garage-board.ts`'s own header: the wide-screen gist allowance).
+  //
+  // `FIT_READ`/`FIT_HOVER_READ` are strings, not functions, for the same
+  // `__name` reason `GARAGE_ARM`/`GARAGE_READ` above are.
+  const FIT_SIZES: readonly { width: number; height: number }[] = [
+    { width: 1400, height: 900 },
+    { width: 1920, height: 1080 },
+    { width: 2560, height: 1440 },
+  ];
+  const FIT_UNITS = ['mbt_lavi', 'at_team'] as const;
+  const FIT_READ =
+    '(() => {' +
+    '  var wrap = document.querySelector(".rl-menu--garage");' +
+    '  var stats = document.querySelector(".rl-garage__stats");' +
+    '  var bay = document.querySelector(".rl-garage__bay");' +
+    '  var board = document.querySelector(".rl-garage__board");' +
+    '  var wr = wrap ? wrap.getBoundingClientRect() : null;' +
+    '  var sr = stats ? stats.getBoundingClientRect() : null;' +
+    '  var br = bay ? bay.getBoundingClientRect() : null;' +
+    '  return {' +
+    '    boxBottom: wr ? wr.bottom : null,' +
+    '    innerHeight: window.innerHeight,' +
+    '    statsBottom: sr ? sr.bottom : null,' +
+    '    bayBottom: br ? br.bottom : null,' +
+    '    boardOverflow: board ? board.scrollHeight - board.clientHeight : null,' +
+    '  };' +
+    '})()';
+  // The garage's own trick a list cannot do (`brigade.ts`'s header): the
+  // panel shows the change before the money is spent. That preview has to
+  // land ON SCREEN to be worth anything, so this reads the AT team's
+  // firepower `next` rung -- hovered, not clicked -- and its
+  // `weapons[0].accuracy` reading, which `garage-stats.ts`'s `statBar` prints
+  // as `{before} → {after}` only while a preview is live.
+  const FIT_HOVER_READ =
+    '(() => {' +
+    '  var stat = document.querySelector(\'.rl-garage__stat[data-path="weapons[0].accuracy"] .rl-garage__stat-n\');' +
+    '  var r = stat ? stat.getBoundingClientRect() : null;' +
+    '  return {' +
+    '    text: stat ? stat.textContent : null,' +
+    '    top: r ? r.top : null,' +
+    '    left: r ? r.left : null,' +
+    '    bottom: r ? r.bottom : null,' +
+    '    right: r ? r.right : null,' +
+    '  };' +
+    '})()';
+  for (const { width, height } of FIT_SIZES) {
+    for (const unit of FIT_UNITS) {
+      const fitCtx = await browser.newContext({ viewport: { width, height } });
+      await fitCtx.addInitScript(garageSeedScript());
+      const f = await fitCtx.newPage();
+      f.setDefaultTimeout(ACTION_TIMEOUT_MS);
+      f.on('console', (m: ConsoleMessage) => {
+        if (m.type() === 'error') errors.push(m.text());
+      });
+      f.on('pageerror', (e) => errors.push(String(e)));
+      await f.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+      await f.waitForSelector(`.rl-garage__card[data-unit="${unit}"]`);
+      await f.click(`.rl-garage__card[data-unit="${unit}"]`);
+      const m = await f.evaluate<{
+        boxBottom: number | null;
+        innerHeight: number;
+        statsBottom: number | null;
+        bayBottom: number | null;
+        boardOverflow: number | null;
+      }>(FIT_READ);
+      console.log(
+        `[${TAG}] garage fit ${width}x${height} ${unit}: box bottom ${m.boxBottom}/${m.innerHeight}, ` +
+          `stats ${m.statsBottom} vs bay ${m.bayBottom}, board overflow ${m.boardOverflow}`
+      );
+      expect(
+        m.boxBottom !== null && m.boxBottom <= m.innerHeight + 0.5,
+        `garage ${width}x${height} ${unit}: the screen ends ${((m.boxBottom ?? 0) - m.innerHeight).toFixed(1)}px below the viewport (F9)`
+      );
+      expect(
+        m.statsBottom !== null && m.bayBottom !== null && m.statsBottom <= m.bayBottom + 0.5,
+        `garage ${width}x${height} ${unit}: the stat panel is scrolled out of the bay (F4)`
+      );
+      if (width === 1920 || width === 2560) {
+        expect(
+          m.boardOverflow !== null && m.boardOverflow <= 1,
+          `garage ${width}x${height} ${unit}: the board scrolls ${m.boardOverflow}px: three tracks do not fit (§2 goal 3)`
+        );
+      }
+
+      if (unit === 'at_team') {
+        // Fix round 1: point at firepower first so the accordion expands it
+        // -- `armour` (the first non-maxed track) is what opens by default,
+        // and a rung under a collapsed track cannot be hovered at all. Real
+        // hovers now (fix round 2, issue 2: `mouseenter` moved to the track's
+        // HEAD alone, so a cursor crossing armour's box on the way here no
+        // longer resizes anything under it).
+        await f.hover('.rl-garage__track[data-track="firepower"] .rl-garage__track-head');
+        await f.hover('.rl-garage__track[data-track="firepower"] .rl-garage__rung[data-state="next"]');
+        const hv = await f.evaluate<{
+          text: string | null;
+          top: number | null;
+          left: number | null;
+          bottom: number | null;
+          right: number | null;
+        }>(FIT_HOVER_READ);
+        const onScreen =
+          hv.top !== null &&
+          hv.left !== null &&
+          hv.bottom !== null &&
+          hv.right !== null &&
+          hv.top >= 0 &&
+          hv.left >= 0 &&
+          hv.bottom <= height + 0.5 &&
+          hv.right <= width + 0.5;
+        console.log(`[${TAG}] garage fit ${width}x${height} at_team preview: "${hv.text}" onScreen=${onScreen}`);
+        expect(
+          hv.text !== null && hv.text.includes('→') && onScreen,
+          `garage ${width}x${height}: the preview landed off-screen (F4)`
+        );
+      }
+
+      await fitCtx.close();
+    }
+  }
+
+  // --- the garage by keyboard: two Tab stops before the bay/board (F8) -----
+  //
+  // T9's controller ruling: the seeded screen opens on `mbt_lavi`, fully
+  // kitted and Buy-less everywhere on its board, so a Tab walk from there
+  // never reaches a real control under `.rl-garage__bay`/`.rl-garage__board`
+  // at all -- this leg selects `at_team` first, the seed's own part-kitted
+  // unit, so a Buy button actually exists to Tab onto.
+  {
+    const tabCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await tabCtx.addInitScript(garageSeedScript());
+    const tPage = await tabCtx.newPage();
+    tPage.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    tPage.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+    });
+    tPage.on('pageerror', (e) => errors.push(String(e)));
+    await tPage.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await tPage.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    await tPage.click('.rl-garage__card[data-unit="at_team"]');
+    await tPage.focus('.rl-garage__tab[aria-selected="true"]');
+    // A string, not a function -- the same `__name` reason as above.
+    const REACHED_BAY_OR_BOARD =
+      '(() => document.activeElement !== null && ' +
+      'document.activeElement.closest(".rl-garage__bay, .rl-garage__board") !== null)()';
+    let presses = 0;
+    let reached = false;
+    while (presses < 10 && !reached) {
+      await tPage.keyboard.press('Tab');
+      presses += 1;
+      reached = await tPage.evaluate<boolean>(REACHED_BAY_OR_BOARD);
+    }
+    console.log(`[${TAG}] garage F8: ${presses} Tab press(es) to reach the bay/board (reached=${reached})`);
+    expect(reached && presses <= 3, `F8: ${presses} Tab stops before the bay (the audit counted 25)`);
+
+    // I1 (final review): the accordion left ONE track's ladder in the Tab
+    // order and nothing at all for the other two -- a collapsed ladder is
+    // `display: none`, and the track heads were `tabIndex = -1` divs. Every
+    // head is a button now, so the walk through the board must reach all
+    // three, whichever is open; and a real Enter (or Space) on a collapsed
+    // one must open it and say so through `aria-expanded`.
+    const FOCUS_KEY = '(() => document.activeElement ? document.activeElement.getAttribute("data-focus-key") : null)()';
+    const walked: (string | null)[] = [await tPage.evaluate<string | null>(FOCUS_KEY)];
+    for (let i = 0; i < 15 && (await tPage.evaluate<boolean>(REACHED_BAY_OR_BOARD)); i++) {
+      await tPage.keyboard.press('Tab');
+      walked.push(await tPage.evaluate<string | null>(FOCUS_KEY));
+    }
+    const inBoard = walked.slice(0, -1); // the last press left the board
+    console.log(`[${TAG}] garage I1: ${inBoard.length} Tab stop(s) in the bay/board: ${JSON.stringify(inBoard)}`);
+    for (const track of ['armour', 'sensors', 'firepower']) {
+      expect(inBoard.includes(`track:${track}`), `I1: Tab never reaches the ${track} track's head: ${JSON.stringify(inBoard)}`);
+    }
+    const HEAD_STATE =
+      '(() => Array.prototype.map.call(document.querySelectorAll(".rl-garage__track"), function (t) {' +
+      '  var h = t.querySelector(".rl-garage__track-head");' +
+      '  return t.getAttribute("data-track") + ":" + t.getAttribute("data-expanded") + ":" + (h ? h.getAttribute("aria-expanded") : "-");' +
+      '}).join(" "))()';
+    for (const [track, key] of [['sensors', 'Enter'], ['firepower', ' ']] as const) {
+      await tPage.locator(`.rl-garage__track[data-track="${track}"] .rl-garage__track-head`).focus();
+      await tPage.keyboard.press(key === ' ' ? 'Space' : key);
+      const heads = await tPage.evaluate<string>(HEAD_STATE);
+      console.log(`[${TAG}] garage I1: ${key === ' ' ? 'Space' : key} on ${track}'s head -> ${heads}`);
+      expect(heads.includes(`${track}:1:true`), `I1: ${key === ' ' ? 'Space' : key} on the ${track} head left it closed: ${heads}`);
+    }
+    await tabCtx.close();
+  }
+
+  // --- the HUD card does not jump for kit (final review, parked item (d)) --
+  //
+  // The kit pips sat in the card's top line at the garage's own size: a
+  // content-box 0.375rem square plus a 1px border each side, so a three-tier
+  // column stood taller than the line and a kitted card measured 16.7px
+  // taller than the same unit's card without kit (162 vs 145.3 at
+  // 1920x1080, before the fix) -- the card jumped as the selection moved
+  // between a kitted type and an unkitted one. Same unit type, same map, two
+  // accounts: the seed (inf_squad armour 2, sensors 1) and a fresh one. The
+  // heights must be EQUAL, not merely close.
+  const CARD_SELECT =
+    '(() => { var L = window.__lions; if (!L) return false;' +
+    ' var u = L.units().find(function (x) { return x.type === "inf_squad"; });' +
+    ' if (!u) return false; L.sel([u.id]); return true; })()';
+  const CARD_READ =
+    '(() => { var c = document.querySelector(".rl-card");' +
+    ' return { card: c ? c.getBoundingClientRect().height : null, kit: document.querySelector(".rl-card__kit") !== null }; })()';
+  const cardHeights: { card: number | null; kit: boolean }[] = [];
+  for (const seeded of [false, true]) {
+    const cardCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    if (seeded) await cardCtx.addInitScript(garageSeedScript());
+    const c = await cardCtx.newPage();
+    c.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    c.on('pageerror', (err) => errors.push(String(err)));
+    await c.goto(`http://localhost:${PORT}/free-play/beit_sahwan_outskirts`, { waitUntil: 'load' });
+    await c.waitForFunction('window.__lions !== undefined', null, { timeout: 90_000 });
+    expect(await c.evaluate<boolean>(CARD_SELECT), 'HUD card: the sandbox force has no inf_squad to select');
+    await c.waitForSelector('.rl-card');
+    await c.waitForTimeout(300);
+    cardHeights.push(await c.evaluate<{ card: number | null; kit: boolean }>(CARD_READ));
+    await cardCtx.close();
+  }
+  console.log(`[${TAG}] HUD card height, no kit vs kitted: ${JSON.stringify(cardHeights)}`);
+  expect(
+    cardHeights[0].kit === false && cardHeights[1].kit === true,
+    `HUD card: the two accounts did not produce one card without kit and one with: ${JSON.stringify(cardHeights)}`
+  );
+  expect(
+    cardHeights[0].card !== null && cardHeights[0].card === cardHeights[1].card,
+    `HUD card (d): ${cardHeights[1].card}px kitted vs ${cardHeights[0].card}px without kit -- the card jumps`
+  );
 
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {

@@ -159,6 +159,41 @@ export function maxTiers(unit: UpgradableUnit): Record<string, number> {
   return out;
 }
 
+/** How kitted a unit is, as one number the garage, the HUD and the renderer
+ *  all read (garage uplift §3.1, §6): tiers owned across every track over the
+ *  sum of the tracks' lengths, in thirds, rounded UP -- so any purchase at all
+ *  shows, and 7 of 9 already reads as the top level. "Every tier owned" is a
+ *  different question (`kitCounts` answers it), and the two are kept apart. */
+export type KitLevel = 0 | 1 | 2 | 3;
+
+export interface KitCounts {
+  readonly owned: number;
+  readonly available: number;
+}
+
+/** Owned tiers clamped to each track's current length (data may SHRINK a
+ *  track after a purchase -- `applyUpgrades`'s own rule), over the tiers
+ *  the unit's own tracks declare. A tier map naming a track the unit does
+ *  not have counts nothing; a negative or non-finite tier counts as 0. */
+export function kitCounts(unit: UpgradableUnit, tiers: Readonly<Record<string, number>>): KitCounts {
+  let owned = 0;
+  let available = 0;
+  for (const [name, track] of Object.entries(unit.upgrades ?? {})) {
+    const len = track.tiers.length;
+    available += len;
+    const raw = tiers[name];
+    owned += Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 0), len) : 0;
+  }
+  return { owned, available };
+}
+
+export function kitLevel(unit: UpgradableUnit, tiers: Readonly<Record<string, number>>): KitLevel {
+  const { owned, available } = kitCounts(unit, tiers);
+  if (available === 0 || owned === 0) return 0;
+  const thirds = Math.ceil((3 * owned) / available);
+  return thirds >= 3 ? 3 : thirds === 2 ? 2 : 1;
+}
+
 /** The price of the next tier above `current` on `track`, or null when the
  *  track is already at its maximum, or the unit has no such track. */
 export function nextTierPrice(unit: UpgradableUnit, track: string, current: number): number | null {

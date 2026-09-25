@@ -52,7 +52,6 @@ import {
   names,
   parseMap,
   applyTerrain,
-  applyUpgrades,
   applyMissionLocale,
   DECOR,
   paletteColor,
@@ -70,7 +69,9 @@ import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portr
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
-import { showBrigade } from './ui/brigade';
+import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
+import { CUE_SET } from './ui/garage-model';
+import { upgradePrepass } from './upgrade-prepass';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
@@ -551,6 +552,7 @@ function battleAudio(): BattleAudio {
 function accountState(): {
   boughtUnits: Set<string>;
   ownedTiers: Record<string, Record<string, number>>;
+  balance: number;
 } {
   // A blocked store reads as the empty account (`ledger-store.ts`), which has
   // no unlocks and no upgrades -- the same two values the `storage ? ... :
@@ -564,6 +566,9 @@ function accountState(): {
     // the identity, so that case registers the raw JSON unchanged -- today's
     // behaviour (spec 2026-09-15 §4.3, D5: the sim never learns a tier exists).
     ownedTiers: account.upgrades,
+    // The garage's wallet (WP-S3g T3): its answer to a purchase reads the
+    // balance here, alongside the two fields that purchase changes.
+    balance: account.balance,
   };
 }
 
@@ -974,17 +979,23 @@ async function main(): Promise<void> {
    *  the map, so it is never in this sum at all). */
   async function mountBrigade(host: HTMLElement): Promise<Disposer> {
     const worldData = parseWorld(world);
-    const { boughtUnits, ownedTiers } = accountState();
-    const kdfUnits = Object.values(units)
-      .filter((u) => u.faction === 'kdf')
-      .map((u) => ({
-        id: u.id,
-        name: u.name,
-        role: u.role,
-        unlock: kdfUnlockGate(u, boughtUnits),
-        ...kdfBrigadeTraits(u),
-        upgrades: 'upgrades' in u ? u.upgrades : undefined,
-      }));
+    const { boughtUnits, ownedTiers, balance } = accountState();
+    /** The KDF roster as the garage draws it, off one account's bought set.
+     *  Called at mount and again for every answer: a purchase can open a
+     *  unit (`bought`), and nothing else about the roster moves. */
+    const garageUnits = (bought: ReadonlySet<string>): BrigadeUnit[] =>
+      Object.values(units)
+        .filter((u) => u.faction === 'kdf')
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          unlock: kdfUnlockGate(u, bought),
+          ...kdfBrigadeTraits(u),
+          upgrades: 'upgrades' in u ? u.upgrades : undefined,
+        }));
+    const kdfUnits = garageUnits(boughtUnits);
+    // Loaded once: the set of ids never changes, whatever is bought.
     const portraits: Record<string, string> = {};
     const portraitIcons = new Set<string>();
     await Promise.all(
@@ -995,12 +1006,13 @@ async function main(): Promise<void> {
         if (picture.isIcon) portraitIcons.add(id);
       })
     );
-    // What `window.location.reload()` was for: re-read the account and redraw
-    // the roster off it. This re-runs THIS mount, which re-reads the account
-    // through `accountState()` above -- `force: true` because the URL has not
-    // changed and the router would otherwise consider itself already there.
-    const redraw = (): void => {
-      void router.navigate(routes.brigade(), { replace: true, force: true });
+    /** The answer to every purchase and to the reset: the account as the
+     *  store holds it NOW, read through `accountState()` (which reads
+     *  `ledgerStore.readAccount()`), never a copy this mount kept. A refusal
+     *  answers the same way -- the store is the truth either way. */
+    const now = (): GarageState => {
+      const a = accountState();
+      return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
     };
     return showBrigade(host, {
       units: kdfUnits,
@@ -1023,11 +1035,17 @@ async function main(): Promise<void> {
       baseOf: (typeId) =>
         ((units as Record<string, unknown>)[typeId] as UpgradableUnit | undefined) ?? { id: typeId },
       possibleStars: possibleStars(worldData, missions as Record<string, MissionJson | undefined>),
-      credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
+      credits: ledgerStore.available ? balance : undefined,
+      // A purchase that landed is heard (WP-S3g T11, spec §3.5). The mixer is
+      // the document's one, built at boot, so its `pointerdown` listener has
+      // made the AudioContext before this click's handler runs -- the Buy is
+      // its own first gesture. Mute and the volume sliders are honoured
+      // inside `playUi`; a set with no decoded clip plays its synth arm.
+      onCue: (cue) => battleAudio().playUi(CUE_SET[cue]),
       onReset: ledgerStore.available
         ? () => {
             ledgerStore.resetAccount();
-            redraw();
+            return now();
           }
         : undefined,
       onBuy: ledgerStore.available
@@ -1037,14 +1055,14 @@ async function main(): Promise<void> {
             // tabs on the same origin both showing this row as affordable) --
             // the control disabled itself against the balance THIS render
             // read, so `!ok` means the account on disk has since moved.
-            // Redrawing re-renders off the true, current state instead of
-            // leaving the row showing a purchase that did not happen.
-            if (!ok) {
-              redraw();
-              return;
-            }
+            // Answering `now()` re-renders off the true, current state instead
+            // of leaving the row showing a purchase that did not happen.
+            // `landed` is THIS ask's own outcome (final review M1): the
+            // current state can own the tier a refused ask asked for (another
+            // tab bought it), so the screen must not read it off the account.
+            if (!ok) return { ...now(), landed: false };
             ledgerStore.writeAccount(account);
-            redraw();
+            return { ...now(), landed: true };
           }
         : undefined,
       owned: ownedTiers,
@@ -1052,14 +1070,11 @@ async function main(): Promise<void> {
         ? (unitId, track, tier, price) => {
             const { account, ok } = buyUpgrade(ledgerStore.readAccount(), unitId, track, tier, price);
             // Same reasoning as `onBuy` above: the control disabled itself
-            // against a stale read, so redraw off the true state instead of
-            // returning silently.
-            if (!ok) {
-              redraw();
-              return;
-            }
+            // against a stale read, so answer with the true state instead of
+            // returning silently. `landed` as above (M1).
+            if (!ok) return { ...now(), landed: false };
             ledgerStore.writeAccount(account);
-            redraw();
+            return { ...now(), landed: true };
           }
         : undefined,
     });
@@ -1227,6 +1242,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const params = req.query;
   const audio = battleAudio();
   const { boughtUnits, ownedTiers } = accountState();
+  /** The bought kit, read ONCE from the account through `accountState()`
+   *  (WP-S3g §3.4): tiers are type-wide and fixed for the mission (brigade
+   *  D3). `upgradePrepass` is one loop that yields both the unit types
+   *  registered with the sim below and the HUD card's kit per type, from the
+   *  same per-type read, so the card shows the kit this mission actually
+   *  runs with -- never the account as it stands later, which a garage visit
+   *  can change. */
+  const prepass = upgradePrepass(Object.values(units), ownedTiers);
+  const kitByType = prepass.kitByType;
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -1513,12 +1537,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
 
   const typeOf = new Map<string, number>();
-  for (const u of Object.values(units)) {
-    // Enemy units never go through the pre-pass -- only a KDF unit can carry
-    // a bought tier, and `unitInfo` (cost/gate lookup) below still reads the
-    // raw JSON, never this patched copy, because cost is not patchable.
-    const registered = u.faction === 'kdf' ? applyUpgrades(u, ownedTiers[u.id] ?? {}) : u;
-    typeOf.set(u.id, sim.addUnitType(registered));
+  // The pre-pass's own output (`upgradePrepass`, above): enemy units pass
+  // through untouched -- only a KDF unit can carry a bought tier -- and
+  // `unitInfo` (cost/gate lookup) below still reads the raw JSON, never this
+  // patched copy, because cost is not patchable.
+  for (const registered of prepass.registered) {
+    typeOf.set(registered.id, sim.addUnitType(registered));
   }
 
   // Which ROE reasons have already been narrated, so the advice attached to a
@@ -2564,6 +2588,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     keyFor: (id) => (isAction(id) ? keyLabel(bindings[id]) : id),
     portrait: (typeId) => portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
+    kitOf: (typeId) => kitByType.get(typeId) ?? null,
     // A closure over `runtime`, not a snapshot of it: the Hud is constructed
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.

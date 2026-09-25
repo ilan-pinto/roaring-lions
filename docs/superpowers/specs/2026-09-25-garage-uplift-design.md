@@ -1,7 +1,7 @@
 # The garage uplift — design (WP-S3g, #238)
 
-**Date:** 2026-09-25 · **Status:** draft for the lead's review; nothing is built until it is
-approved. **Builds with:** S3a #180 (the plates are re-rendered once, not twice). **Out of
+**Date:** 2026-09-25 · **Status:** approved (merged as #239); plan 1 (the app half) is built on
+`feat/garage-uplift-app`. **Builds with:** S3a #180 (the plates are re-rendered once, not twice). **Out of
 scope:** the filter bug #237, which is being fixed separately and is only noted here.
 
 ## 1. Status and problem
