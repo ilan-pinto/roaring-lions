@@ -39,6 +39,7 @@ import {
   type AudioManifest,
   type EmitterSpec,
   type Renderer,
+  type RendererOptions,
 } from '@lions/render';
 import {
   units,
@@ -1403,6 +1404,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const wantSur = flags.sur;
   const wantCiv = flags.civ;
   const wantDitch = flags.ditch;
+  // The ground-mark showcase (Task 15, `three/decal-showcase.ts`): a fixed,
+  // dated set of craters, scorch, oil, rubble, tread and tyre stamped near
+  // the friendly anchor. Sandbox-only and three-only, like every flag beside
+  // it -- a real mission's ground must remember only its own battle.
+  const wantDecals = flags.decals;
   // Meshes are what the game looks like now, so they load unless asked not to.
   // This was `flags.mesh` -- an opt-IN that `ui/menu.ts` never appended to any
   // link it builds, so no player reached by the menu ever saw a mesh. The
@@ -1592,11 +1598,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // min-range ring would keep drawing the default palette regardless of the
   // setting; `rendererOptionsFor` is what now holds that agreement.
   const cvdVariant = req.settings.get().accessibility.colorVision;
-  const opts = rendererOptionsFor(
-    map,
-    { colorVision: cvdVariant, quality: req.settings.get().video.quality },
-    BASE
-  );
+  const opts: RendererOptions = {
+    ...rendererOptionsFor(
+      map,
+      { colorVision: cvdVariant, quality: req.settings.get().video.quality },
+      BASE
+    ),
+    // Sandbox only: a mission brings its own battle, and a dev flag must
+    // never change how one looks.
+    ...(!mission && wantDecals
+      ? { decalShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
+      : {}),
+  };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the
   // navigation links `menu.ts` builds. The annotation is what makes this a
@@ -1867,6 +1880,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // and reads as a broken feature rather than as a missing `?renderer=
       // three`. Warn by name, the way `unknownParams` warns for a typo.
       console.warn('&mesh needs ?renderer=three — the Pixi backend has no mesh path; ignoring it');
+    }
+    if (wantDecals) {
+      // Same lesson again: `RendererOptions.decalShowcase` is three-only
+      // (`api.ts`) and `PixiRenderer` ignores it outright, so `&decals` on
+      // this backend would otherwise stamp nothing and say nothing.
+      console.warn('&decals needs ?renderer=three — the Pixi backend has no decal path; ignoring it');
     }
   }
   // Left during the mesh download (or the backend's import). Everything

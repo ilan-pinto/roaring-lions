@@ -62,6 +62,7 @@ describe('routes', () => {
       civ: false,
       ditch: false,
       nomesh: true,
+      decals: false,
     });
     expect(unknownParams(url.searchParams)).toEqual([]);
 
