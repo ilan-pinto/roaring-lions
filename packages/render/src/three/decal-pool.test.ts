@@ -23,6 +23,7 @@ import {
   createDecalMaterial,
   decalAlpha,
   decalMultiplier,
+  DECAL_LIFT_CAP,
   DECAL_SAG_STEPS,
   DECAL_PALETTE_ORDER,
   DecalPool,
@@ -57,6 +58,7 @@ import { DECAL_FADING_RENDER_ORDER, DECAL_PERSISTENT_RENDER_ORDER } from './unit
 
 const flat = (): number => 0;
 const never = (): boolean => false;
+const GREY: [number, number, number] = [0.5, 0.5, 0.5];
 const stamp = (over: Partial<DecalStamp> = {}): DecalStamp => ({
   kind: 'crater',
   x: 5,
@@ -161,7 +163,7 @@ describe('DecalPool', () => {
   });
   it('grows to its capacity and never past it, evicting the oldest', () => {
     const p = new DecalPool({ capacity: 3, grid: 4, renderOrder: DECAL_PERSISTENT_RENDER_ORDER, material: material() });
-    for (let k = 0; k < 4; k++) p.stamp(stamp({ x: k }), flat, never);
+    for (let k = 0; k < 4; k++) p.stamp(stamp({ x: k }), flat, never, GREY);
     expect(p.liveCount).toBe(3);
     const pos = p.mesh.geometry.getAttribute('position');
     expect(pos.getX(0)).toBeCloseTo(3 - 0.5, 6); // slot 0 now holds the fourth stamp
@@ -193,16 +195,21 @@ describe('DecalPool', () => {
     expect(p.mesh.renderOrder).toBe(DECAL_FADING_RENDER_ORDER);
     expect(p.mesh.geometry.getAttribute('normal')).toBeUndefined();
   });
-  it('records kind, seed, date and length on every vertex', () => {
-    const p = new DecalPool({ capacity: 1, grid: 2, renderOrder: 0, material: material() });
-    p.stamp(stamp({ kind: 'tyre', seed: 0.25, simMs: 1500, halfLength: 0.29 }), flat, never);
+  it('records kind, seed, date, length and the ground tone under it on every vertex', () => {
+    const p = new DecalPool({ capacity: 2, grid: 2, renderOrder: 0, material: material() });
+    p.stamp(stamp({ kind: 'crater' }), flat, never, GREY);
+    p.stamp(stamp({ kind: 'tyre', seed: 0.25, simMs: 1500, halfLength: 0.29 }), flat, never, [0.1, 0.2, 0.3]);
     const a = p.mesh.geometry.getAttribute('aDecal');
-    for (let v = 0; v < 4; v++) {
+    const g = p.mesh.geometry.getAttribute('aGround');
+    for (let v = 4; v < 8; v++) {
       expect(a.getX(v)).toBe(5);
       expect(a.getY(v)).toBeCloseTo(0.25, 6);
       expect(a.getZ(v)).toBeCloseTo(1.5, 6);
       expect(a.getW(v)).toBeCloseTo(0.29, 6);
+      // Slot 1's own tone, not slot 0's: the denominator is per decal.
+      expect([g.getX(v), g.getY(v), g.getZ(v)].map((c) => +c.toFixed(6))).toEqual([0.1, 0.2, 0.3]);
     }
+    for (let v = 0; v < 4; v++) expect(g.getX(v)).toBeCloseTo(0.5, 6);
   });
 });
 
@@ -290,8 +297,7 @@ describe('createDecalMaterial', () => {
     tread: '#806032',
     tyre: '#8C7659',
   };
-  const GROUND = '#C8B494';
-  const m = createDecalMaterial(palette, GROUND);
+  const m = createDecalMaterial(palette);
   it('is a translucent, depth-tested, non-writing decal', () => {
     expect(m.transparent).toBe(true);
     expect(m.depthTest).toBe(true);
@@ -317,15 +323,17 @@ describe('createDecalMaterial', () => {
   });
   // F-22 (fix round 1): multiplied onto the LIT ground, so a lip in shade
   // stays in shade. The ratio's denominator is the ground's palette tone.
-  it('multiplies onto the lit ground, as an albedo ratio over the ground tone (F-22)', () => {
+  it('multiplies onto the lit ground, as an albedo ratio over each decal\'s own ground tone (F-22)', () => {
     expect(m.blending).toBe(THREE.CustomBlending);
     expect(m.blendEquation).toBe(THREE.AddEquation);
     expect(m.blendSrc).toBe(THREE.DstColorFactor);
     expect(m.blendDst).toBe(THREE.ZeroFactor);
     expect(m.blendSrcAlpha).toBe(THREE.ZeroFactor);
     expect(m.blendDstAlpha).toBe(THREE.OneFactor);
-    expect((m.uniforms.uGroundTone.value as THREE.Vector3).toArray()).toEqual(hexToLinear(GROUND));
-    expect(m.fragmentShader).toContain('colour / max(uGroundTone');
+    // The denominator is per decal (fix round 2), never a map-wide uniform.
+    expect(m.uniforms.uGroundTone).toBeUndefined();
+    expect(m.vertexShader).toContain('attribute vec3 aGround');
+    expect(m.fragmentShader).toContain('colour / max(vGround');
     expect(m.fragmentShader).toContain('gl_FragColor = vec4(1.0 + a * (ratio - 1.0), 1.0)');
   });
   it('carries the tested constants', () => {
@@ -387,54 +395,68 @@ describe('the sag lift (F-23, fix round 1)', () => {
       expect(pos[v * 3 + 1] - MARK_EPSILON).toBeCloseTo(plane(pos[v * 3], pos[v * 3 + 2]), 6);
     }
   });
-  // One cell over a crest y = -x^2 across x in [-1, 1]: all four corners sit
-  // at -1, the chord is the plane y = -1, and the ground rises to 0 at the
-  // cell's middle -- a sag of exactly 1, which every corner is lifted by.
+  // One cell over a crest y = -k x^2 across x in [-1, 1]: all four corners
+  // sit at -k, the chord is the plane y = -k, and the ground rises to 0 at the
+  // cell's middle -- a sag of exactly k, which every corner is lifted by.
+  // k = 0.05 sits under DECAL_LIFT_CAP, so the lift is the sag itself.
   it('lifts every vertex by its cell\'s sag over a crest', () => {
-    const crest = (x: number): number => -x * x;
+    const k = 0.05;
+    const crest = (x: number): number => -k * x * x;
     const pos = new Float32Array(4 * 3);
     writeDecalGrid(pos, 0, 2, { cx: 0, cz: 0, halfLength: 1, halfWidth: 1, facingRad: 0 }, crest, never);
     for (let v = 0; v < 4; v++) {
-      expect(crest(pos[v * 3])).toBeCloseTo(-1, 6);
-      expect(pos[v * 3 + 1]).toBeCloseTo(-1 + 1 + MARK_EPSILON, 6);
+      expect(crest(pos[v * 3])).toBeCloseTo(-k, 6);
+      expect(pos[v * 3 + 1]).toBeCloseTo(-k + k + MARK_EPSILON, 6);
     }
   });
+  // Fix round 2: a lifted decal floats over a unit's feet and the multiply
+  // darkens its legs, so the lift stops at DECAL_LIFT_CAP -- the same crest
+  // made twenty times taller lifts by the cap, not by its sag of 1.
+  it('never lifts a vertex by more than DECAL_LIFT_CAP', () => {
+    expect(DECAL_LIFT_CAP).toBe(0.08);
+    const crest = (x: number): number => -x * x;
+    const pos = new Float32Array(4 * 3);
+    writeDecalGrid(pos, 0, 2, { cx: 0, cz: 0, halfLength: 1, halfWidth: 1, facingRad: 0 }, crest, never);
+    for (let v = 0; v < 4; v++) expect(pos[v * 3 + 1]).toBeCloseTo(-1 + DECAL_LIFT_CAP + MARK_EPSILON, 6);
+  });
   // Measured through the triangles the index buffer DRAWS (diagonal a-c).
-  // A ridge along the other diagonal (b-d) sags 4 under the drawn chord at
-  // the cell's centre, and only 1 under the undrawn one.
+  // A ridge along the other diagonal (b-d) sags 4k under the drawn chord at
+  // the cell's centre, and only k under the undrawn one; 4k stays under the cap.
   it('measures the sag through the drawn diagonal, not the other one', () => {
-    const ridge = (x: number, z: number): number => -((x + z) ** 2);
+    const k = 0.015;
+    const ridge = (x: number, z: number): number => -k * (x + z) ** 2;
     const pos = new Float32Array(4 * 3);
     writeDecalGrid(pos, 0, 2, { cx: 0, cz: 0, halfLength: 1, halfWidth: 1, facingRad: 0 }, ridge, never);
     for (let v = 0; v < 4; v++) {
-      expect(pos[v * 3 + 1] - MARK_EPSILON - ridge(pos[v * 3], pos[v * 3 + 2])).toBeCloseTo(4, 6);
+      expect(pos[v * 3 + 1] - MARK_EPSILON - ridge(pos[v * 3], pos[v * 3 + 2])).toBeCloseTo(4 * k, 6);
     }
   });
   // The guarantee the lift buys, on the persistent grid over a 2-D crest:
   // at every point of the sag lattice, both triangles of every cell are on
   // or above the ground. Without the lift this crest sags by ~0.1.
-  it('keeps every cell of a 4x4 grid on or above a crest at its sample lattice', () => {
-    const crest = (x: number, z: number): number => -0.6 * (x * x + z * z) + 0.3 * Math.sin(3 * x);
+  // Built from `writeGridIndices`' own output, so the triangles checked here
+  // are the triangles drawn: the sag's diagonal and the index buffer's cannot
+  // diverge without this going red.
+  // A crest whose sag stays under the cap (the cap's own test is above).
+  it('keeps every drawn triangle of a 4x4 grid on or above a crest', () => {
+    const crest = (x: number, z: number): number => -0.06 * (x * x + z * z) + 0.03 * Math.sin(3 * x);
     const n = 4;
     const pos = new Float32Array(n * n * 3);
     writeDecalGrid(pos, 0, n, { cx: 0.2, cz: -0.1, halfLength: 1.6, halfWidth: 1.6, facingRad: 0.4 }, crest, never);
-    const at = (i: number, j: number): [number, number, number] => {
-      const k = (j * n + i) * 3;
-      return [pos[k], pos[k + 1], pos[k + 2]];
-    };
+    const idx = new Uint32Array(gridTriangles(n) * 3);
+    writeGridIndices(idx, 0, n);
+    const at = (k: number): [number, number, number] => [pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2]];
     let worst = Infinity;
-    for (let j = 0; j < n - 1; j++) {
-      for (let i = 0; i < n - 1; i++) {
-        const a = at(i, j), b = at(i + 1, j), c = at(i + 1, j + 1), d = at(i, j + 1);
-        for (let sv = 0; sv <= DECAL_SAG_STEPS; sv++) {
-          for (let su = 0; su <= DECAL_SAG_STEPS; su++) {
-            const u = su / DECAL_SAG_STEPS;
-            const v = sv / DECAL_SAG_STEPS;
-            // The same diagonal as writeGridIndices (a-c).
-            const lerp = (k: number): number =>
-              u >= v ? a[k] + u * (b[k] - a[k]) + v * (c[k] - b[k]) : a[k] + v * (d[k] - a[k]) + u * (c[k] - d[k]);
-            worst = Math.min(worst, lerp(1) - crest(lerp(0), lerp(2)));
-          }
+    for (let t = 0; t < idx.length; t += 3) {
+      const [p0, p1, p2] = [at(idx[t]), at(idx[t + 1]), at(idx[t + 2])];
+      // Barycentric lattice over the drawn triangle, edges included.
+      for (let i = 0; i <= DECAL_SAG_STEPS; i++) {
+        for (let j = 0; j <= DECAL_SAG_STEPS - i; j++) {
+          const w1 = i / DECAL_SAG_STEPS;
+          const w2 = j / DECAL_SAG_STEPS;
+          const w0 = 1 - w1 - w2;
+          const p = (c: number): number => w0 * p0[c] + w1 * p1[c] + w2 * p2[c];
+          worst = Math.min(worst, p(1) - crest(p(0), p(2)));
         }
       }
     }

@@ -140,7 +140,8 @@
  *   unlit with an ordinary "over", a pale kind glowed inside a cast shadow
  *   -- Task 12 photographed a crater lip at 1.6x the shaded ground around
  *   it. The single output line now writes `decalMultiplier`: the kind's
- *   tone over the ground's palette tone, mixed toward 1 by alpha, and the
+ *   tone over the ground tone UNDER THAT DECAL (captured at the stamp, per
+ *   decal -- fix round 2), mixed toward 1 by alpha, and the
  *   material multiplies it onto the ground AFTER lighting and shadow. The
  *   scene target is HalfFloat, so a ratio above 1 (a pale lip) survives.
  * - **Polygon offset (F-23).** At full-power scorch (radius 1.6) a 4x4
@@ -296,8 +297,13 @@ export interface GridPlacement {
  */
 export const DECAL_SAG_STEPS = 4;
 
-/** Reused across calls (single-threaded; no re-entrancy), so a stamp
- *  allocates nothing. Grown on demand to `n * n`. */
+/** The most any vertex is lifted, world units (fix round 2) -- see
+ *  `writeDecalGrid`'s doc comment, "The cap". */
+export const DECAL_LIFT_CAP = 0.08;
+
+/** Reused across calls (single-threaded; no re-entrancy), so the height
+ *  and sag buffers are not reallocated per stamp. Grown on demand to `n * n`.
+ *  (A stamp still allocates the few closures `writeDecalGrid` builds.) */
 let sagScratch = new Float64Array(16);
 let cellSagScratch = new Float64Array(9);
 
@@ -314,7 +320,7 @@ let cellSagScratch = new Float64Array(9);
  * `x = cx + s*halfLength*cos(f) - t*halfWidth*sin(f)`
  * `z = cz + s*halfLength*sin(f) + t*halfWidth*cos(f)`
  * `h(x, z) = isTerrace(x, z) ? sampleY(cx, cz) : sampleY(x, z)`
- * `y = h(x, z) + lift(i, j) + MARK_EPSILON`
+ * `y = h(x, z) + min(lift(i, j), DECAL_LIFT_CAP) + MARK_EPSILON`
  *
  * **The lift (F-23, fix round 1).** Between vertices the grid is a pair of
  * flat triangles, and over a bicubic crest that chord passes UNDER the
@@ -332,6 +338,19 @@ let cellSagScratch = new Float64Array(9);
  * and nothing moves either. Only a crest lifts, and there a decal may float
  * a little over the hollows beside it -- the trade the controller ruled
  * for, against a vertex-shader depth bias that would draw over unit feet.
+ *
+ * **The cap (fix round 2).** A lifted decal floats over whatever stands in
+ * it, and since it multiplies, a unit's legs under the float darken.
+ * Photographed on tel_marum's shoulder (a killed Lavi's full-power scorch, a
+ * rifle squad and a Lavi standing in it, sun shadows off so the unit mask is
+ * body only): against the same scene with no lift, the uncapped lift darkened
+ * the squad's body pixels by p90 16 / max 50 grey levels; capped at 0.08, p90
+ * 8. 0.08 is the smallest round cap that leaves NOTHING below the ground for
+ * a crater (r <= 0.6) or a mortar scorch (r 0.876) at any of the three
+ * steepest shoulder sites measured (the worst needs 0.072). What stays
+ * clipped at the cap is the large scorch on the steepest ground only: Grad
+ * (r 1.07) <= 0.026 wu, a wheeled kill (r 1.17) <= 0.043, a full-power kill
+ * (r 1.6) <= 0.167 -- the last mostly under its own wreck.
  */
 export function writeDecalGrid(
   out: Float32Array,
@@ -397,7 +416,7 @@ export function writeDecalGrid(
       }
       const vBase = base + (j * n + i) * 3;
       out[vBase] = worldX(i, j);
-      out[vBase + 1] = baseY[j * n + i] + lift + MARK_EPSILON;
+      out[vBase + 1] = baseY[j * n + i] + Math.min(lift, DECAL_LIFT_CAP) + MARK_EPSILON;
       out[vBase + 2] = worldZ(i, j);
     }
   }
@@ -612,8 +631,10 @@ const COLOUR_TYRE = 7;
  * The decal is drawn with multiply blending (`DstColor x SrcColor`) onto the
  * ground AFTER the ground is lit and shadowed, so it cannot glow in shade:
  * it scales whatever light is already on the pixel. What it writes is the
- * ALBEDO RATIO of the decal's tone to the ground's own palette tone -- the
- * same ratio-over-palette-tone model the ground itself uses -- mixed toward
+ * ALBEDO RATIO of the decal's tone to the ground's own base tone at that
+ * decal (`terrain/decal-ground-tone.ts`: the tile's palette tone with the
+ * road mixed in, before the albedo and macro ratio fields) -- the same
+ * ratio-over-palette-tone model the ground itself uses -- mixed toward
  * 1 by its alpha: `1 + alpha * (decal / ground - 1)`, per channel, linear.
  * On ground whose albedo is its palette tone this is exactly the old "over"
  * blend lit like the ground: `ground * (1 - a) + decal * a`, so an approved
@@ -774,6 +795,7 @@ export class DecalPool {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly decalAttr: THREE.BufferAttribute;
+  private readonly groundAttr: THREE.BufferAttribute;
   private readonly capacityValue: number;
   private readonly gridValue: number;
   private readonly trisPerDecal: number;
@@ -817,6 +839,13 @@ export class DecalPool {
     this.decalAttr.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aDecal', this.decalAttr);
 
+    // DYNAMIC: the ground's own linear albedo under this decal, captured at
+    // the stamp -- `decalMultiplier`'s denominator (fix round 2). One vec3 a
+    // decal, repeated on each of its vertices, like `aDecal`.
+    this.groundAttr = new THREE.BufferAttribute(new Float32Array(capacity * verticesPerDecal * 3), 3);
+    this.groundAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aGround', this.groundAttr);
+
     // STATIC index: a decal's grid topology never changes, only its vertex
     // data does.
     const indices = new Uint32Array(capacity * this.trisPerDecal * 3);
@@ -857,12 +886,15 @@ export class DecalPool {
    * wraparound `ScorchDecalMesh.stamp`/`VehicleTrackMesh.stamp` use.
    * `sampleY`/`isTerrace` are threaded straight through to
    * `writeDecalGrid`; this method adds nothing to the height they return
-   * beyond what that function already does (`+ MARK_EPSILON`).
+   * beyond what that function already does (`+ MARK_EPSILON`). `ground` is
+   * the ground's linear base albedo at the decal's centre
+   * (`terrain/decal-ground-tone.ts`), the ratio's denominator.
    */
   stamp(
     s: DecalStamp,
     sampleY: (x: number, z: number) => number,
-    isTerrace: (x: number, z: number) => boolean
+    isTerrace: (x: number, z: number) => boolean,
+    ground: readonly [number, number, number]
   ): void {
     const slot = this.writeCursor;
     this.writeCursor = (this.writeCursor + 1) % this.capacityValue;
@@ -892,6 +924,15 @@ export class DecalPool {
     }
     this.decalAttr.needsUpdate = true;
 
+    const groundArray = this.groundAttr.array as Float32Array;
+    const gBase = slot * n * n * 3;
+    for (let v = 0; v < n * n; v++) {
+      groundArray[gBase + v * 3] = ground[0];
+      groundArray[gBase + v * 3 + 1] = ground[1];
+      groundArray[gBase + v * 3 + 2] = ground[2];
+    }
+    this.groundAttr.needsUpdate = true;
+
     this.mesh.geometry.setDrawRange(0, this.writtenCount * this.trisPerDecal * 3);
   }
 
@@ -918,14 +959,18 @@ function glslFloat(v: number): string {
 const DECAL_VERTEX_SHADER = /* glsl */ `
   attribute vec2 aOffset;
   attribute vec4 aDecal;
+  attribute vec3 aGround;
   varying vec2 vOffset;
   // flat: kind, seed, date and half-length are per-decal constants -- no
   // interpolation, so floor(1000 seed) and the kind branch see the exact
   // value the pool wrote.
   flat varying vec4 vDecal;
+  // flat: the ground tone under the decal, one per decal (fix round 2).
+  flat varying vec3 vGround;
   void main() {
     vOffset = aOffset;
     vDecal = aDecal;
+    vGround = aGround;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -935,10 +980,10 @@ const f = glslFloat;
 /** `decalAlpha`, transcribed. Keep the two in step line for line. */
 const DECAL_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColors[${DECAL_PALETTE_ORDER.length}];
-  uniform vec3 uGroundTone;
   uniform float uNowSec;
   varying vec2 vOffset;
   flat varying vec4 vDecal;
+  flat varying vec3 vGround;
 
   // tileHash (packages/render/src/tile-hash.ts) in uint arithmetic -- see
   // decal-pool.ts's top comment. Inputs are non-negative by construction.
@@ -1005,9 +1050,11 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
     vec3 colour = uColors[ci];
     // F-22 (fix round 1): the ONE point where colour becomes output --
     // \`decalMultiplier\`, transcribed. Written as an albedo ratio over the
-    // ground's palette tone and multiplied onto the LIT ground by the blend
-    // state, so a lip in shade stays in shade. Alpha is unused by the blend.
-    vec3 ratio = colour / max(uGroundTone, ${f(DECAL_GROUND_FLOOR)});
+    // ground's OWN tone under this decal (vGround, captured at the stamp --
+    // fix round 2) and multiplied onto the LIT ground by the blend state, so
+    // a lip in shade stays in shade and a lip on a green map's road is the
+    // lip's colour, not a salmon one. Alpha is unused by the blend.
+    vec3 ratio = colour / max(vGround, ${f(DECAL_GROUND_FLOOR)});
     gl_FragColor = vec4(1.0 + a * (ratio - 1.0), 1.0);
   }
 `;
@@ -1018,23 +1065,22 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
  * `DECAL_PALETTE_ORDER` (linear, via `hexToLinear`), and `uNowSec`, the
  * SIM clock in seconds, starting at 0 -- the renderer sets it every frame
  * from `presentationSimMs(tickCount, alpha) / 1000`, never from a frame
- * timestamp. `groundTone` is the map's open-ground palette tone, the
- * denominator of `decalMultiplier`'s albedo ratio. Multiply-blended onto the
+ * timestamp. The denominator of `decalMultiplier`'s albedo ratio is NOT a
+ * uniform: each decal carries its own ground tone (`aGround`, written by
+ * `DecalPool.stamp`). Multiply-blended onto the
  * lit ground (F-22, fix round 1), depth-tested, not depth-writing, with
  * F-23's polygon offset; `DoubleSide` for the same reason `createScorchMaterial`
  * gives -- no lighting term depends on the winding, so the winding is not a
  * risk worth carrying.
  */
-export function createDecalMaterial(palette: DecalPalette, groundTone: string): THREE.ShaderMaterial {
+export function createDecalMaterial(palette: DecalPalette): THREE.ShaderMaterial {
   const colours = DECAL_PALETTE_ORDER.map((key) => {
     const [r, g, b] = hexToLinear(palette[key]);
     return new THREE.Vector3(r, g, b);
   });
-  const [gr, gg, gb] = hexToLinear(groundTone);
   return new THREE.ShaderMaterial({
     uniforms: {
       uColors: { value: colours },
-      uGroundTone: { value: new THREE.Vector3(gr, gg, gb) },
       uNowSec: { value: 0 },
     },
     vertexShader: DECAL_VERTEX_SHADER,

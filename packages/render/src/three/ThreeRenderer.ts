@@ -180,6 +180,7 @@ import {
   type HitStopState,
 } from './blast-shake';
 import { buildGround, groundAlbedoSlotsUsed } from './terrain/ground';
+import { decalGroundTone, type DecalGroundSource } from './terrain/decal-ground-tone';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
@@ -200,7 +201,7 @@ import {
 import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
 import { isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import { buildControlMap, buildMacroField, neutralTint } from './terrain/control-map';
-import { ROAD_GRAIN_GAIN } from './terrain/road-graph';
+import { ROAD_GRAIN_GAIN, buildRoadGraph } from './terrain/road-graph';
 import { hexToLinear } from './terrain/shared';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
@@ -1331,6 +1332,13 @@ export class ThreeRenderer implements Renderer {
    *  `refreshSurface` between two stamps is seen by the second. */
   private readonly decalSampleY = (x: number, z: number): number =>
     groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
+  /** What `decalGroundTone` reads -- the last terrain build's own input
+   *  (draw mask, decor, tones) and road graph. `null` until the first build;
+   *  a stamp before it divides by the map's open tone, which is what every
+   *  tile is before a build has said otherwise. Its draw mask is refreshed
+   *  when a structure falls (`structureDestroyed`), for the same F-10 reason
+   *  the surface is. */
+  private decalGround: DecalGroundSource | null = null;
   private readonly decalIsTerrace = (x: number, z: number): boolean => {
     const surface = this.retained.elevation;
     return surface !== null && isTerrace(surface, Math.floor(x), Math.floor(z));
@@ -2139,9 +2147,9 @@ export class ThreeRenderer implements Renderer {
       rubbleB: this.overlayColor('limestone.7', '#75624A'),
       tread: opts.terrainTones.rut,
       tyre: this.overlayColor('limestone.6', '#8C7659'),
-    }, opts.terrainTones.open);
-    // `terrainTones.open` is the ground's own palette tone: each decal
-    // writes its tone as a ratio over it and is MULTIPLIED onto the lit
+    });
+    // Each decal writes its tone as a ratio over the ground tone under it
+    // (`decalGround`, captured per stamp) and is MULTIPLIED onto the lit
     // ground (F-22), so a crater lip in a building's shadow stays in shadow.
     // One material, two pools, one band each (`render-order.ts`'s decal
     // aliases): the persistent marks in the world band, the fading prints
@@ -3923,6 +3931,15 @@ export class ThreeRenderer implements Renderer {
         // the rebuild then turns into hillside). The rebuild's own refresh
         // repeats this pass; it is one walk over the map.
         this.refreshSurface();
+        // ...and the decal tone's draw mask, for the same reason: until the
+        // rebuild the pad still reads as `underBuilding`, and rubble divided
+        // by that dark tone would draw far too pale.
+        if (this.decalGround !== null) {
+          this.decalGround = {
+            ...this.decalGround,
+            input: { ...this.decalGround.input, blocked: drawBlockedMask(this.sim) },
+          };
+        }
         {
           const st = this.sim.structures;
           const minX = st.minX[deadStruct];
@@ -7186,7 +7203,11 @@ export class ThreeRenderer implements Renderer {
   private stampGroundDecal(s: DecalStamp): boolean {
     if (this.decalIsTerrace(s.x, s.z)) return false;
     const pool = isFadingKind(s.kind) ? this.decalsFading : this.decalsPersistent;
-    pool.stamp(s, this.decalSampleY, this.decalIsTerrace);
+    // The ratio's denominator is the ground under THIS decal (fix round 2),
+    // not the map's open tone: a green map's road is dust, not grass.
+    const ground =
+      this.decalGround === null ? hexToLinear(this.opts.terrainTones.open) : decalGroundTone(this.decalGround, s.x, s.z);
+    pool.stamp(s, this.decalSampleY, this.decalIsTerrace, ground);
     return true;
   }
 
@@ -8005,6 +8026,15 @@ export class ThreeRenderer implements Renderer {
     // A destroyed structure lands here through `terrainDirty`, which is what
     // turns its pad back into open ground in the map.
     const control = controlTexturePair(buildControlMap(composed.input));
+    // The decal pool's local ground tone reads the same input the ground and
+    // the control map were built from (fix round 2).
+    this.decalGround = {
+      input: composed.input,
+      tones: this.opts.terrainTones,
+      background: this.opts.background,
+      shoulder: this.overlayColor('limestone.2', '#D9C7A7'),
+      graph: buildRoadGraph(composed.input),
+    };
     this.controlTex?.a.dispose();
     this.controlTex?.b.dispose();
     this.controlTex = control;

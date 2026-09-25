@@ -226,6 +226,29 @@ export function groundAlbedoSlotsUsed(input: TerrainInput): ReadonlySet<GroundAl
  * shader by the time this function still emitted them; this is where they
  * stop being emitted too.
  */
+/**
+ * The palette tone a tile's TOP vertices carry -- what `diffuseColor` holds
+ * before `GroundMaterial` mixes the road in and multiplies the albedo and
+ * macro ratio fields over it. One function for `buildGround` and for the
+ * decal pool's local ground tone (`decal-ground-tone.ts`), so the two cannot
+ * disagree about what the ground under a decal is.
+ *
+ * A road tile does not take `groundTone`'s own DECOR_ROAD branch
+ * (`tones.road` composited over the open wash): the road's tone is the
+ * shader's job, drawn from control B's distance field over whatever is
+ * beneath it (Task 6, #226), and what belongs beneath it is the open
+ * ground's own wash -- `groundTone`'s open branch, transcribed rather than
+ * reached through `groundTone` itself so this one exception does not have to
+ * route through (and risk disturbing) every other branch that function
+ * still owns.
+ */
+export function tileBaseToneHex(input: TerrainInput, tones: TerrainTones, ti: number, background: string): string {
+  const decorHere = input.decor ? input.decor[ti] : 0;
+  return decorHere === DECOR_ROAD
+    ? quantise(composite(background, tones.open, 1), PALETTE_HEXES)
+    : groundTone(input, tones, ti, PALETTE_HEXES, background);
+}
+
 export function buildGround(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
   const { width, height } = input;
   const surface = buildTerrainSurface(input);
@@ -292,20 +315,8 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
       const levelHere = levelAt(input, x, y);
       const topY = levelHere * WORLD_PER_LEVEL;
 
-      // A road tile no longer takes `groundTone`'s own DECOR_ROAD branch
-      // (`tones.road` composited over the open wash): the road's tone is the
-      // shader's job now, drawn from control B's distance field over
-      // whatever is beneath it (Task 6, #226), and what belongs beneath it
-      // is the open ground's own wash -- `groundTone`'s open branch,
-      // transcribed rather than reached through `groundTone` itself so this
-      // one exception does not have to route through (and risk disturbing)
-      // every other branch that function still owns.
-      const decorHere = input.decor ? input.decor[ti] : 0;
-      const toneHex =
-        decorHere === DECOR_ROAD
-          ? quantise(composite(background, tones.open, 1), PALETTE_HEXES)
-          : groundTone(input, tones, ti, PALETTE_HEXES, background);
-      const toneColor = hexToUnit(toneHex);
+      // See `tileBaseToneHex` for the road tile's exception.
+      const toneColor = hexToUnit(tileBaseToneHex(input, tones, ti, background));
 
       if (surface.flat || isTerrace(surface, x, y)) {
         // Tile top: a flat quad at its own height, four fresh vertices, no

@@ -64,6 +64,10 @@ export const APRON_TILES = 0.5;
  *  control channels saturate to 1 (fully "far"). */
 export const ROAD_DISTANCE_RANGE_TILES = 1;
 
+/** The road edge's wander noise seed -- control B's alpha channel. Named so
+ *  `decal-ground-tone.ts` reads the same wander the shader does. */
+export const ROAD_BEND_SEED = 303;
+
 /** The seven things `tileSurface` can call a tile. `'pad'` is a building
  *  footprint -- not ground, and carries no channel of its own in either
  *  control texture. */
@@ -285,7 +289,7 @@ export function buildControlMap(input: TerrainInput): ControlMap {
 
       const roadDist = roadDistanceAt(graph, px, pz);
       const juncDist = junctionDistanceAt(graph, px, pz);
-      const bend = 0.5 + 0.5 * valueNoise2(px, pz, ROAD_EDGE_BEND_CYCLES, 303);
+      const bend = 0.5 + 0.5 * valueNoise2(px, pz, ROAD_EDGE_BEND_CYCLES, ROAD_BEND_SEED);
       b[o] = byteOf(w.knoll);
       b[o + 1] = byteOf(Math.min(1, roadDist / ROAD_DISTANCE_RANGE_TILES));
       b[o + 2] = byteOf(Math.min(1, juncDist / ROAD_DISTANCE_RANGE_TILES));

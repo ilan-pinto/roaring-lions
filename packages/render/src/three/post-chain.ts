@@ -31,6 +31,9 @@
  *
  * Why the target is HalfFloat: the scene renders linear, tone mapping and
  * the sRGB encode happen in OutputPass, so the intermediate must not clip.
+ * The ground decals depend on it too (`decal-pool.ts`): they are MULTIPLIED
+ * onto the lit ground as albedo ratios, and a pale mark (crater lip, rubble,
+ * tyre) is a ratio above 1 that an 8-bit target would clamp.
  * Why it carries a stencil: `units/silhouette.ts` masks the occlusion
  * outline with a one-bit stencil; on a target with no stencil attachment the
  * test silently always passes and every vehicle grows flat blue patches --
