@@ -1165,16 +1165,25 @@ try {
   // shared browser does enforce the autoplay policy -- a context built at
   // load reads `suspended` -- and launching it with
   // `--autoplay-policy=user-gesture-required` measured LOOSER (`running`), so
-  // there is no flag here on purpose. One break this leg CANNOT see: an
-  // `attach()` that builds its context eagerly at boot and never resumes it
-  // still read `running` here (measured) -- by inference, because the
-  // evaluate's activation lets Chromium start a policy-suspended context once
-  // a node starts. The `running` vote's red was shown with a context
-  // suspended explicitly (`ctx.suspend()` in the gesture listener).
+  // there is no flag here on purpose. One break the `running` vote cannot
+  // see: an `attach()` that builds its context eagerly at boot and never
+  // resumes it still reads `running` here (measured) -- by inference, because
+  // the evaluate's activation lets Chromium start a policy-suspended context
+  // once a node starts. The `running` vote's red was shown with a context
+  // suspended explicitly (`ctx.suspend()` in the gesture listener). That
+  // eager build is what the CONSTRUCTOR count exists for (the final review's
+  // parked item (a)): the recorder subclasses `AudioContext` itself, so a
+  // context built at boot is counted whether or not it ever makes a voice,
+  // and the leg requires zero at boot and zero after the untrusted click.
   const AUDIO_RECORDER =
     '(function () {' +
-    '  var w = window; w.__rlAudio = { osc: [], buf: 0, ctx: null };' +
+    '  var w = window; w.__rlAudio = { osc: [], buf: 0, ctx: null, constructed: 0 };' +
     '  var C = w.AudioContext || w.webkitAudioContext; if (!C) return;' +
+    // Counted at the constructor, not at the first voice: a context built at
+    // boot and never used is exactly what "no context before the first
+    // gesture" forbids, and it makes no voice to be counted by.
+    '  var Counted = class extends C { constructor(o) { super(o); w.__rlAudio.constructed++; } };' +
+    '  w.AudioContext = Counted; if (w.webkitAudioContext) w.webkitAudioContext = Counted;' +
     '  var mk = C.prototype.createOscillator;' +
     '  C.prototype.createOscillator = function () {' +
     '    var o = mk.call(this); var rec = { f: null }; w.__rlAudio.osc.push(rec); w.__rlAudio.ctx = this;' +
@@ -1188,6 +1197,7 @@ try {
     '  osc: window.__rlAudio.osc.map(function (r) { return r.f; }),' +
     '  buf: window.__rlAudio.buf,' +
     '  state: window.__rlAudio.ctx ? window.__rlAudio.ctx.state : null,' +
+    '  constructed: window.__rlAudio.constructed,' +
     '}))()';
   {
     const soundCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
@@ -1203,12 +1213,25 @@ try {
 
     await s.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
     await s.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    // Parked item (a), closing the blind spot recorded above: nothing may have
+    // BUILT an AudioContext before the untrusted click, voice or no voice.
+    type AudioRead = { osc: (number | null)[]; buf: number; state: string | null; constructed: number };
+    const booted = await s.evaluate<AudioRead>(AUDIO_READ);
+    console.log(`[${TAG}] garage audio at boot: ${JSON.stringify(booted)}`);
+    expect(
+      booted.constructed === 0,
+      `garage: ${booted.constructed} AudioContext(s) constructed before any gesture -- the mixer must wait for one`
+    );
     // Untrusted, in the page: the card's own handler, and no gesture.
     await s.evaluate(
       '(() => { document.querySelector(\'.rl-garage__card[data-unit="at_team"]\').click(); })()'
     );
     await s.waitForSelector('.rl-garage__card[data-unit="at_team"][aria-selected="true"]');
-    const before = await s.evaluate<{ osc: (number | null)[]; buf: number; state: string | null }>(AUDIO_READ);
+    const before = await s.evaluate<AudioRead>(AUDIO_READ);
+    expect(
+      before.constructed === 0,
+      `garage: ${before.constructed} AudioContext(s) constructed by the untrusted card click -- it is not a gesture`
+    );
     expect(
       before.osc.length + before.buf === 0,
       `garage: ${before.osc.length + before.buf} voice(s) before the first Buy -- the leg is not testing a first gesture`
@@ -1216,7 +1239,7 @@ try {
     // The first gesture of the session, for real.
     await s.locator('.rl-garage__board .rl-garage__buy-tier:enabled:visible').first().click();
     await s.waitForTimeout(500);
-    const heard = await s.evaluate<{ osc: (number | null)[]; buf: number; state: string | null }>(AUDIO_READ);
+    const heard = await s.evaluate<AudioRead>(AUDIO_READ);
     console.log(`[${TAG}] garage first Buy: ${JSON.stringify(heard)}`);
     expect(heard.osc.length + heard.buf > 0, "garage: a session's first Buy made no sound (spec §9)");
     expect(
