@@ -601,22 +601,24 @@ describe('toGeometry', () => {
     expect(withNormals.getAttribute('normal').count).toBe(3);
   });
 
-  it('uploads the sand mask when the builder computed one, and none when it did not', () => {
-    expect(toGeometry(base).getAttribute('sandMask')).toBeUndefined();
-    const masked = toGeometry({ ...base, sandMask: Float32Array.from([1, 1, 0]) });
-    expect(masked.getAttribute('sandMask').count).toBe(3);
-    expect(masked.getAttribute('sandMask').itemSize).toBe(1);
+  it('uploads the wall-albedo attribute when the builder computed one, and none when it did not', () => {
+    // The one per-vertex albedo fact left after Task 7 retired the seven
+    // masks this suite used to pin here (`sandMask`/`rockMask` among them) --
+    // `wallAlbedo -- the one per-vertex surface fact left (R-5)` above is
+    // where that attribute's own upload is pinned in full; this is only the
+    // present/absent shape every optional `MeshData` field shares.
+    expect(toGeometry(base).getAttribute('wallAlbedo')).toBeUndefined();
+    const walled = toGeometry({ ...base, wallAlbedo: Float32Array.from([1, 1, 0]) });
+    expect(walled.getAttribute('wallAlbedo').count).toBe(3);
+    expect(walled.getAttribute('wallAlbedo').itemSize).toBe(1);
   });
 
-  it('uploads the rock mask and the albedo UVs when present, and none when absent', () => {
-    expect(toGeometry(base).getAttribute('rockMask')).toBeUndefined();
+  it('uploads the albedo UVs when present, and none when absent', () => {
     expect(toGeometry(base).getAttribute('groundUv')).toBeUndefined();
     const full = toGeometry({
       ...base,
-      rockMask: Float32Array.from([0, 1, 1]),
       groundUv: Float32Array.from([0, 0, 1, 0, 1, 1]),
     });
-    expect(full.getAttribute('rockMask').count).toBe(3);
     expect(full.getAttribute('groundUv').itemSize).toBe(2);
     // Deliberately NOT three.js's reserved `uv` name -- see toGeometry.
     expect(full.getAttribute('uv')).toBeUndefined();

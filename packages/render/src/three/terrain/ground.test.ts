@@ -3,15 +3,7 @@
  * screen or quietly stops applying. These tests assert it directly.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  buildGround,
-  roadAxisAt,
-  ROAD_AXIS_EAST_WEST,
-  ROAD_AXIS_JUNCTION,
-  ROAD_AXIS_NORTH_SOUTH,
-  SCRUB_TIER_STRENGTH,
-  groundAlbedoSlotsUsed,
-} from './ground';
+import { buildGround, SCRUB_TIER_STRENGTH, groundAlbedoSlotsUsed } from './ground';
 import { WORLD_PER_LEVEL } from './shared';
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD } from './shared';
 import { SURFACE_OVERSHOOT_LEVELS, SURFACE_SUBDIVISIONS } from './surface';
@@ -391,16 +383,21 @@ describe('buildGround', () => {
     }
   });
 
-  it('shares no vertex BETWEEN tiles, so a road tone cannot bleed into the ground beside it', () => {
+  it('shares no vertex BETWEEN tiles, even where both sides now carry the same tone', () => {
     // The rule that survived the rewrite. Colour is still decided once per
     // tile and written to every vertex of that tile; a vertex shared across
     // a tile boundary would interpolate two tones and put an off-palette
     // gradient on the ground -- which is a different exemption from the one
     // taken, and not one that was taken.
     //
-    // Proven by construction rather than by counting: for every tile
-    // boundary vertex there are at least two vertices at that exact
-    // position, and their colours differ wherever the tones do.
+    // A road, specifically, because it is the one tile kind that stays on
+    // the smooth/interpolated path (unlike a `^` ridge or a building pad,
+    // both terraces) while ALSO being the case this file's "not shared"
+    // claim used to prove by colour difference -- until Task 7 (R-3, below)
+    // made a road tile's own vertex tone identical to the open ground
+    // beside it. Sharing is now proven by the vertex COUNT at the boundary
+    // position, not by a colour difference this fixture can no longer
+    // produce between two smooth neighbours.
     const input = flat(3, 1);
     input.elevation = new Uint8Array([1, 2, 1]);
     input.decor = new Uint8Array([0, 1, 0]); // middle tile is road
@@ -414,7 +411,43 @@ describe('buildGround', () => {
       colorsAt.push([0, 1, 2].map((k) => m.colors[i + k].toFixed(6)).join(','));
     }
     expect(colorsAt.length, 'no duplicated vertex on the tile boundary -- vertices are being shared').toBeGreaterThan(1);
-    expect(new Set(colorsAt).size, 'both sides of a road edge carry the same tone').toBeGreaterThan(1);
+    // R-3's own consequence, not a weaker check: a road's tone equals the
+    // open ground's now, by design, so both entries found above agree.
+    expect(new Set(colorsAt).size, 'a road tile no longer carries a distinct tone from open ground (R-3)').toBe(1);
+  });
+
+  it('carries no surface masks, only wallAlbedo', () => {
+    // The seven per-vertex albedo channels this builder used to emit
+    // (`sandMask`/`rockMask`/`roadMask`/`roadAxis`/`scrubMask`/`groveMask`/
+    // `knollMask`) stopped reaching the shader when Tasks 5 and 6 moved the
+    // per-fragment decision to the control map and the road's own distance
+    // field. This is where `buildGround` stops emitting them.
+    const m = buildGround(flat(4, 4), TONES, '#14150F');
+    for (const k of ['sandMask', 'rockMask', 'roadMask', 'roadAxis', 'scrubMask', 'groveMask', 'knollMask'])
+      expect((m as unknown as Record<string, unknown>)[k], k).toBeUndefined();
+    expect(m.wallAlbedo?.length).toBe(m.positions.length / 3);
+  });
+
+  it("gives a road tile the open ground's tone (R-3)", () => {
+    // Until Task 7 a road took `groundTone`'s own DECOR_ROAD branch --
+    // `tones.road` composited over the open wash -- so its vertex colour
+    // would step at every tile edge whatever the shader's own road drew on
+    // top of it. The road's tone is the shader's job now, drawn from control
+    // B's distance field (Task 6, #226) over whatever is beneath it, and
+    // what belongs beneath it is the open ground's own wash.
+    //
+    // On a FLAT map (F-7): a flat tile's four vertices sit at its own
+    // corners, none of them strictly inside the tile, so a search for "the
+    // vertex near this tile's centre" finds nothing on either side and the
+    // comparison would pass by finding nothing to compare. Read by INDEX
+    // instead: `buildGround` visits tiles in scan order and the flat/terrace
+    // path emits exactly 4 fresh vertices per tile, so tile `t`'s are
+    // `4t..4t+3`.
+    const input = flat(3, 1);
+    input.decor = Uint8Array.from([0, DECOR_ROAD, 0]);
+    const m = buildGround(input, TONES, '#14150F');
+    const colourOfTile = (t: number): number[] => Array.from(m.colors.slice(t * 4 * 3, t * 4 * 3 + 3));
+    expect(colourOfTile(1)).toEqual(colourOfTile(0));
   });
 
   it('subdivides a smooth tile into SURFACE_SUBDIVISIONS squared quads', () => {
@@ -434,165 +467,6 @@ describe('buildGround', () => {
       if (kindOf(a, b, c) === 'surface patch' || kindOf(a, b, c) === 'tile top') patch++;
     }
     expect(patch).toBe(9 * 2 * SURFACE_SUBDIVISIONS * SURFACE_SUBDIVISIONS);
-  });
-
-  it('masks sand onto open interpolated ground, rock onto the ridge, and neither onto a road, a building or a flat map', () => {
-    // The other half of the palette exemption's scope. The ground albedo
-    // (`mesh.ts`'s `uSand`) is allowed on the interpolated OPEN surface and
-    // nowhere else: a road keeps its authored tone so it still reads as a
-    // road, a terrace top and a wall keep theirs so a ridge face stays the
-    // `FACE_ALPHA` composite it always was, and a map with no relief is
-    // untouched entirely.
-    // Six tiles, and tile 5 is the one that makes this test able to fail: a
-    // BLOCKED tile standing above its neighbours with NO ridge decor -- a
-    // building footprint. It draws walls exactly as the ridge does, so
-    // without it every wall in the fixture is a ridge wall and "the rock mask
-    // is only on ridge walls" is unfalsifiable. (It was, at first: setting
-    // the ridge test to `true` unconditionally left this test green.)
-    const W = 6;
-    const input = flat(W, 1);
-    input.elevation = new Uint8Array([1, 2, 1, 3, 1, 3]);
-    input.decor = new Uint8Array([0, DECOR_ROAD, 0, DECOR_RIDGE, 0, 0]);
-    input.blocked = new Uint8Array([0, 0, 0, 1, 0, 1]);
-    const isRidge = (t: number): boolean => t >= 0 && t < W && input.decor![t] === DECOR_RIDGE;
-    const m = buildGround(input, TONES, '#14150F');
-    expect(m.sandMask).toBeDefined();
-    expect(m.sandMask!.length).toBe(m.colors.length / 3);
-
-    // Bucketed per TRIANGLE, by its own centroid, so a wall vertex sitting on
-    // a tile boundary is attributed to the wall rather than to whichever tile
-    // it happens to touch. Bucketing by vertex X alone put a rim wall's
-    // vertices in tile 0 and made this assertion read a mixed set.
-    const sandPerTile: Array<Set<number>> = Array.from({ length: W }, () => new Set<number>());
-    const rockPerTile: Array<Set<number>> = Array.from({ length: W }, () => new Set<number>());
-    // Walls, bucketed by whether either tile sharing the edge is a ridge --
-    // computed from the fixture's own decor array, not from anything
-    // `buildGround` exports.
-    const ridgeWallRock = new Set<number>();
-    const plainWallRock = new Set<number>();
-    const wallSand = new Set<number>();
-    let ridgeWalls = 0;
-    let plainWalls = 0;
-    for (let i = 0; i < m.indices.length; i += 3) {
-      const tri = [m.indices[i], m.indices[i + 1], m.indices[i + 2]];
-      const a = vertex(m, tri[0]);
-      const b = vertex(m, tri[1]);
-      const c = vertex(m, tri[2]);
-      const kind = kindOf(a, b, c);
-      if (kind === 'east face' || kind === 'south face') {
-        for (const v of tri) wallSand.add(m.sandMask![v]);
-        // An east face at world X sits between tiles X-1 and X; the fixture
-        // is one row deep, so a south face at Z = 1 belongs to the tile under
-        // its own X.
-        const onRidge =
-          kind === 'east face'
-            ? isRidge(a[0] - 1) || isRidge(a[0])
-            : isRidge(Math.floor(Math.min(a[0], b[0], c[0])));
-        if (onRidge) {
-          ridgeWalls++;
-          for (const v of tri) ridgeWallRock.add(m.rockMask![v]);
-        } else {
-          plainWalls++;
-          for (const v of tri) plainWallRock.add(m.rockMask![v]);
-        }
-        continue;
-      }
-      const cx = tri.reduce((acc, v) => acc + m.positions[v * 3], 0) / 3;
-      const t = Math.min(W - 1, Math.max(0, Math.floor(cx)));
-      for (const v of tri) {
-        sandPerTile[t].add(m.sandMask![v]);
-        rockPerTile[t].add(m.rockMask![v]);
-      }
-    }
-    expect(sandPerTile[0], 'open interpolated ground must take the sand tile').toEqual(new Set([1]));
-    expect(sandPerTile[2], 'open interpolated ground must take the sand tile').toEqual(new Set([1]));
-    expect(sandPerTile[1], 'a road must NOT take the sand tile').toEqual(new Set([0]));
-    expect(sandPerTile[3], 'a ridge terrace must NOT take the sand tile').toEqual(new Set([0]));
-    expect(sandPerTile[5], 'a building footprint must NOT take the sand tile').toEqual(new Set([0]));
-    expect(wallSand, 'a wall must NOT take the sand tile').toEqual(new Set([0]));
-
-    // The ROCK mask is the ridge and only the ridge: its flat top and the
-    // cliff faces below it. A BUILDING is blocked and terraced exactly like a
-    // ridge and draws the same walls, and must get none of it -- a structure
-    // pad is not bedrock.
-    expect(rockPerTile[3], 'a ridge TOP must take the rock tile').toEqual(new Set([1]));
-    expect(rockPerTile[5], 'a building footprint must NOT take the rock tile').toEqual(new Set([0]));
-    expect(rockPerTile[0], 'open ground must NOT take the rock tile').toEqual(new Set([0]));
-    expect(rockPerTile[1], 'a road must NOT take the rock tile').toEqual(new Set([0]));
-    expect(ridgeWalls, 'the fixture drew no ridge wall at all').toBeGreaterThan(0);
-    expect(plainWalls, 'the fixture drew no NON-ridge wall -- the rock rule would be unfalsifiable').toBeGreaterThan(0);
-    expect(ridgeWallRock, 'a ridge cliff face must take the rock tile').toEqual(new Set([1]));
-    expect(plainWallRock, "a building's own wall must NOT take the rock tile").toEqual(new Set([0]));
-    // No vertex anywhere is both.
-    for (let i = 0; i < m.sandMask!.length; i++) {
-      expect(m.sandMask![i] * m.rockMask![i], `vertex ${i} is both sand and rock`).toBe(0);
-    }
-
-    // Nothing else on the relief fixture is rock either.
-    expect(rockPerTile[2], 'open ground must NOT take the rock tile').toEqual(new Set([0]));
-
-    // The albedo UVs: a horizontal quad projects straight down, a wall does
-    // not. An east wall spans one world X, so if its UVs used that X every
-    // fragment on it would share a U and one column of the image would smear
-    // down the whole cliff.
-    expect(m.groundUv).toBeDefined();
-    expect(m.groundUv!.length).toBe(m.sandMask!.length * 2);
-    for (let i = 0; i < m.indices.length; i += 3) {
-      const tri = [m.indices[i], m.indices[i + 1], m.indices[i + 2]];
-      const kind = kindOf(vertex(m, tri[0]), vertex(m, tri[1]), vertex(m, tri[2]));
-      const us = tri.map((v) => m.groundUv![v * 2]);
-      const vs = tri.map((v) => m.groundUv![v * 2 + 1]);
-      if (kind === 'east face') {
-        // U from world Z, V from world Y -- so both vary across the face.
-        expect(new Set(us).size + new Set(vs).size, 'an east wall UV is degenerate').toBeGreaterThan(2);
-        for (const k of [0, 1, 2]) expect(vs[k]).toBeCloseTo(m.positions[tri[k] * 3 + 1], 6);
-      } else if (kind !== 'south face') {
-        // Horizontal: exactly (world x, world z).
-        for (const k of [0, 1, 2]) {
-          expect(us[k]).toBeCloseTo(m.positions[tri[k] * 3], 6);
-          expect(vs[k]).toBeCloseTo(m.positions[tri[k] * 3 + 2], 6);
-        }
-      }
-    }
-
-    // A map with no relief takes the SAME sand, and the same two exclusions.
-    // It was held out at first -- that kept three golden baselines at a
-    // literal zero -- and the project lead overruled it: the default sandbox
-    // map is a flat one, so holding it out would have greeted a player with
-    // untextured palette ground while the two relief maps were sand. Flat
-    // sand is still sand.
-    //
-    // This is also the first real test of the ROAD mask on a road NETWORK
-    // rather than a single strip: the four shipped flat maps carry 82, 39, 26
-    // and 43 road tiles between them.
-    const flatMap = flat(4, 3);
-    flatMap.decor = new Uint8Array(12);
-    flatMap.decor[5] = DECOR_ROAD;
-    flatMap.blocked = new Uint8Array(12);
-    flatMap.blocked[6] = 1; // a building footprint
-    const fm = buildGround(flatMap, TONES, '#14150F');
-    // Bucketed per TRIANGLE by its own centroid, not per vertex by its x:
-    // the flat path emits four UNSHARED corners per tile, so a vertex sitting
-    // on a tile boundary belongs to two buckets and reads as a mixed set.
-    // (It did, first time round.)
-    const perFlatTile: Array<Set<number>> = Array.from({ length: 12 }, () => new Set<number>());
-    for (let i = 0; i < fm.indices.length; i += 3) {
-      const tri = [fm.indices[i], fm.indices[i + 1], fm.indices[i + 2]];
-      const cx = tri.reduce((a, v) => a + fm.positions[v * 3], 0) / 3;
-      const cz = tri.reduce((a, v) => a + fm.positions[v * 3 + 2], 0) / 3;
-      const t = Math.floor(cz) * 4 + Math.floor(cx);
-      for (const v of tri) perFlatTile[t].add(fm.sandMask![v]);
-    }
-    expect(perFlatTile[0], 'open ground on a flat map must take the sand tile').toEqual(new Set([1]));
-    expect(perFlatTile[5], 'a road on a flat map must NOT take the sand tile').toEqual(new Set([0]));
-    expect(perFlatTile[6], 'a building footprint must NOT take the sand tile').toEqual(new Set([0]));
-    // Nothing on a flat map is rock -- no shipped flat map has a `^` tile at
-    // all, and this pins that the ridge branch is the only thing that grants
-    // it rather than "flat" doing so by accident.
-    expect(new Set(Array.from(fm.rockMask!))).toEqual(new Set([0]));
-    // The geometry is still the pre-2026-09-03 two triangles per tile: the
-    // sand is a fragment-stage mask on the SAME mesh, not a rebuild of it.
-    expect(fm.indices.length).toBe(4 * 3 * 6);
   });
 
   it('reaches every groundTone branch: open, road, cover, blocked, ridge', () => {
@@ -632,266 +506,28 @@ describe('buildGround', () => {
   });
 });
 
-/**
- * The six ground albedos (2026-09-03; the knoll joined them 2026-09-08).
- *
- * `buildGround` decides, per tile, WHICH of `groundSurfaceMaterial`'s six
- * albedo slots that tile's fragments sample. These tests assert the decision
- * through the mesh it actually emits, not through the private function that
- * makes it -- so a mask that stops reaching the GPU fails here too.
- */
-describe('the ground albedo masks', () => {
-  /**
-   * Every vertex index belonging to tile `(x, y)`, found through the
-   * TRIANGLES rather than by a bounding box on the positions.
-   *
-   * A box does not work and the failure is silent: tile boundaries are
-   * integers and a flat tile's four corners sit exactly on them, so tile
-   * (5,1)'s box also catches tile (4,1)'s right-hand corners and the
-   * "one value per tile" check below sees two. A triangle's centroid is
-   * strictly inside its own tile, on every path this builder has.
-   */
-  const verticesOf = (m: MeshData, x: number, y: number): number[] => {
-    const out = new Set<number>();
-    for (let t = 0; t < m.indices.length; t += 3) {
-      const a = m.indices[t];
-      const b = m.indices[t + 1];
-      const c = m.indices[t + 2];
-      const cx = (m.positions[a * 3] + m.positions[b * 3] + m.positions[c * 3]) / 3;
-      const cz = (m.positions[a * 3 + 2] + m.positions[b * 3 + 2] + m.positions[c * 3 + 2]) / 3;
-      if (Math.floor(cx) !== x || Math.floor(cz) !== y) continue;
-      out.add(a);
-      out.add(b);
-      out.add(c);
-    }
-    return [...out];
-  };
-
-  /** The one mask value shared by every vertex of tile `(x, y)`. Throws if
-   *  the tile's own vertices disagree, which would mean colour and albedo
-   *  had stopped being decided once per tile. */
-  const maskOf = (m: MeshData, name: keyof MeshData, x: number, y: number): number => {
-    const arr = m[name] as Float32Array;
-    const idx = verticesOf(m, x, y);
-    expect(idx.length, `no vertices in tile ${x},${y}`).toBeGreaterThan(0);
-    const values = new Set(idx.map((i) => arr[i]));
-    expect(values.size, `${String(name)} disagrees within tile ${x},${y}`).toBe(1);
-    return [...values][0];
-  };
-
-  /** A 6x6 flat map carrying one of every surface this file now draws. */
-  function everySurface(): TerrainInput {
-    const w = 6;
-    const input = flat(w, w);
-    const decor = new Uint8Array(w * w);
-    const cover = new Uint8Array(w * w);
-    const at = (x: number, y: number): number => y * w + x;
-    // A road running north-south down column 1, turning east along row 3.
-    for (const y of [1, 2, 3]) decor[at(1, y)] = DECOR_ROAD;
-    for (const x of [2, 3]) decor[at(x, 3)] = DECOR_ROAD;
-    // Cover tiers 1, 2, 3 in column 4.
-    cover[at(4, 0)] = 1;
-    cover[at(4, 1)] = 2;
-    cover[at(4, 2)] = 3;
-    // A grove: cover 1 AND decor grove, which is exactly what `o` is.
-    decor[at(5, 0)] = DECOR_GROVE;
-    cover[at(5, 0)] = 1;
-    // A knoll: cover 2 AND decor knoll, which is exactly what `n` is.
-    decor[at(5, 1)] = DECOR_KNOLL;
-    cover[at(5, 1)] = 2;
-    input.decor = decor;
-    input.cover = cover;
-    return input;
-  }
-
-  it('gives a road tile the road albedo, and no longer masks it out of everything', () => {
-    // Until this change a road was masked OUT of the only albedo there was,
-    // so its authored tone would keep reading as navigation. It has one of
-    // its own now -- applied as a ratio to its own mean, so the tile still
-    // AVERAGES to that same authored tone.
-    const m = buildGround(everySurface(), TONES, '#14150F');
-    expect(maskOf(m, 'roadMask', 1, 2)).toBe(1);
-    expect(maskOf(m, 'sandMask', 1, 2)).toBe(0);
-  });
-
-  it('runs the ruts along the road, and crosses them at a junction', () => {
-    const m = buildGround(everySurface(), TONES, '#14150F');
-    // (1,1) and (1,2) have road above and below only: north-south.
-    expect(maskOf(m, 'roadAxis', 1, 1)).toBe(ROAD_AXIS_NORTH_SOUTH);
-    expect(maskOf(m, 'roadAxis', 1, 2)).toBe(ROAD_AXIS_NORTH_SOUTH);
-    // (2,3) and (3,3) have road left and right only: east-west.
-    expect(maskOf(m, 'roadAxis', 2, 3)).toBe(ROAD_AXIS_EAST_WEST);
-    expect(maskOf(m, 'roadAxis', 3, 3)).toBe(ROAD_AXIS_EAST_WEST);
-    // (1,3) is the corner -- road above and road to the right. Both axes,
-    // so the two samples are averaged and the tile draws a crossing.
-    expect(maskOf(m, 'roadAxis', 1, 3)).toBe(ROAD_AXIS_JUNCTION);
-  });
-
-  it('reads a T and a crossroads as junctions too, not just a corner', () => {
-    const w = 5;
-    const input = flat(w, w);
-    const decor = new Uint8Array(w * w);
-    // A full cross centred on (2,2).
-    for (const [x, y] of [[2, 0], [2, 1], [2, 2], [2, 3], [2, 4], [0, 2], [1, 2], [3, 2], [4, 2]]) {
-      decor[y * w + x] = DECOR_ROAD;
-    }
-    input.decor = decor;
-    const m = buildGround(input, TONES, '#14150F');
-    expect(maskOf(m, 'roadAxis', 2, 2)).toBe(ROAD_AXIS_JUNCTION);
-    // The four arms are straight and keep their own axis.
-    expect(maskOf(m, 'roadAxis', 2, 1)).toBe(ROAD_AXIS_NORTH_SOUTH);
-    expect(maskOf(m, 'roadAxis', 1, 2)).toBe(ROAD_AXIS_EAST_WEST);
-    // Remove one arm to make a T: the centre is still a junction.
-    decor[0 * w + 2] = 0;
-    decor[1 * w + 2] = 0;
-    const t = buildGround(input, TONES, '#14150F');
-    expect(maskOf(t, 'roadAxis', 2, 2)).toBe(ROAD_AXIS_JUNCTION);
-  });
-
-  it('gives a lone road tile the directionless patch, since it has no run to agree with', () => {
-    const input = flat(3, 3);
-    const decor = new Uint8Array(9);
-    decor[1 * 3 + 1] = DECOR_ROAD;
-    input.decor = decor;
-    const m = buildGround(input, TONES, '#14150F');
-    expect(maskOf(m, 'roadAxis', 1, 1)).toBe(ROAD_AXIS_JUNCTION);
-  });
-
-  it('roadAxisAt is deterministic and ignores everything but the four neighbours', () => {
-    // Never `tileHash`: an authored road must not change orientation because
-    // a tile was added somewhere else on the map.
-    const input = everySurface();
-    const first = roadAxisAt(input, 1, 2);
-    expect(roadAxisAt(input, 1, 2)).toBe(first);
-    // A cover tile three columns away cannot move it.
-    input.cover[2 * input.width + 4] = 3;
-    expect(roadAxisAt(input, 1, 2)).toBe(first);
-  });
-
-  it('steps the three cover tiers through the scrub albedo, and only the plain symbols', () => {
-    const m = buildGround(everySurface(), TONES, '#14150F');
-    // `toBeCloseTo`, not `toBe`: the mask arrives through a Float32Array,
-    // so 0.4 comes back as 0.4000000059604645.
-    expect(maskOf(m, 'scrubMask', 4, 0)).toBeCloseTo(SCRUB_TIER_STRENGTH[0], 6);
-    expect(maskOf(m, 'scrubMask', 4, 1)).toBeCloseTo(SCRUB_TIER_STRENGTH[1], 6);
-    expect(maskOf(m, 'scrubMask', 4, 2)).toBeCloseTo(SCRUB_TIER_STRENGTH[2], 6);
-    // ...and they lose the open-ground albedo, so the two never multiply.
-    expect(maskOf(m, 'sandMask', 4, 0)).toBe(0);
-  });
-
-  it('SCRUB_TIER_STRENGTH is a strictly rising ladder ending at full strength', () => {
+describe('SCRUB_TIER_STRENGTH', () => {
+  it('is a strictly rising ladder ending at full strength', () => {
     // The one thing that makes tier 3 separable from tier 2 at all. If these
     // ever collapse to one value, the tiers stop reading apart -- which is
     // the defect measured on `qarn_hadid` and the reason this ladder exists.
+    // `SCRUB_TIER_STRENGTH` itself outlived Task 7 unchanged -- `tileSurface`
+    // (`control-map.ts`) reads it now, in place of the deleted `albedoFor`,
+    // for the identical per-tier strength.
     expect(SCRUB_TIER_STRENGTH[0]).toBeLessThan(SCRUB_TIER_STRENGTH[1]);
     expect(SCRUB_TIER_STRENGTH[1]).toBeLessThan(SCRUB_TIER_STRENGTH[2]);
     expect(SCRUB_TIER_STRENGTH[2]).toBe(1);
     expect(SCRUB_TIER_STRENGTH[0]).toBeGreaterThan(0);
-  });
-
-  it('draws an olive grove as orchard floor, NOT as scrub -- `o` is cover 1', () => {
-    // The ordering trap: `o` carries cover 1 in `@lions/data`'s own LEGEND,
-    // so a cover test placed before the grove test would draw every olive
-    // grove in the game as scrub. Falsify by swapping those two branches in
-    // `albedoFor` and this goes red.
-    const m = buildGround(everySurface(), TONES, '#14150F');
-    expect(maskOf(m, 'groveMask', 5, 0)).toBe(1);
-    expect(maskOf(m, 'scrubMask', 5, 0)).toBe(0);
-    expect(maskOf(m, 'sandMask', 5, 0)).toBe(0);
-  });
-
-  it('draws an `n` rocky knoll as scree, NOT as scrub and NOT as open ground -- `n` is cover 2', () => {
-    // The same ordering trap the grove has, one tier up: `n` carries cover 2
-    // in `@lions/data`'s own LEGEND, so a cover test placed before the knoll
-    // test would draw every knoll in the game as scrub. Falsify by swapping
-    // those two branches in `albedoFor` and this goes red.
-    //
-    // It drew SAND until 2026-09-08 -- 1,084 tiles across 19 maps, the last
-    // untextured ground in the game -- because the 2026-09-03 pass had no
-    // art for it. `sandMask` going to 0 here is that change.
-    const m = buildGround(everySurface(), TONES, '#14150F');
-    expect(maskOf(m, 'knollMask', 5, 1)).toBe(1);
-    expect(maskOf(m, 'scrubMask', 5, 1)).toBe(0);
-    expect(maskOf(m, 'sandMask', 5, 1)).toBe(0);
-  });
-
-  it('never gives one vertex two albedos', () => {
-    // The property the whole design rests on: the shader multiplies all six
-    // slots in sequence, so two non-zero masks on one vertex would multiply
-    // two images onto one fragment and the result would be neither.
-    const m = buildGround(everySurface(), TONES, '#14150F');
-    const n = m.colors.length / 3;
-    for (let i = 0; i < n; i++) {
-      const on = [
-        m.sandMask![i],
-        m.rockMask![i],
-        m.roadMask![i],
-        m.scrubMask![i],
-        m.groveMask![i],
-        m.knollMask![i],
-      ].filter((v) => v !== 0);
-      expect(on.length, `vertex ${i} samples ${on.length} albedos`).toBeLessThanOrEqual(1);
-    }
-  });
-
-  it('keeps all seven albedo channels in lockstep with the vertex count', () => {
-    // A `push` missed on one path and not another would silently misalign
-    // every vertex after it -- the mask arrays are read by index.
-    const input = everySurface();
-    input.elevation = new Uint8Array(input.width * input.height).map((_, ti) => ti % 4);
-    input.blocked[2 * input.width + 2] = 1;
-    input.decor![2 * input.width + 2] = DECOR_RIDGE;
-    const m = buildGround(input, TONES, '#14150F');
-    const n = m.colors.length / 3;
-    for (const key of [
-      'sandMask',
-      'rockMask',
-      'roadMask',
-      'roadAxis',
-      'scrubMask',
-      'groveMask',
-      'knollMask',
-    ] as const) {
-      expect((m[key] as Float32Array).length, `${key} length`).toBe(n);
-    }
-    expect(m.normals!.length).toBe(n * 3);
-    expect(m.groundUv!.length).toBe(n * 2);
-  });
-
-  it('gives a ridge WALL rock and nothing else -- a wall is bedrock or it is nothing', () => {
-    const w = 4;
-    const input = flat(w, w);
-    const decor = new Uint8Array(w * w);
-    const elevation = new Uint8Array(w * w);
-    decor[1 * w + 1] = DECOR_RIDGE;
-    input.blocked[1 * w + 1] = 1;
-    elevation[1 * w + 1] = 3;
-    input.decor = decor;
-    input.elevation = elevation;
-    const m = buildGround(input, TONES, '#14150F');
-    // Every wall vertex (three equal X or three equal Z on its triangle) is
-    // found through the mesh's own faces; simpler here: any vertex with a
-    // non-zero rockMask must have zero everywhere else.
-    let rockVertices = 0;
-    for (let i = 0; i < m.colors.length / 3; i++) {
-      if (m.rockMask![i] === 0) continue;
-      rockVertices++;
-      expect(m.sandMask![i]).toBe(0);
-      expect(m.roadMask![i]).toBe(0);
-      expect(m.scrubMask![i]).toBe(0);
-      expect(m.groveMask![i]).toBe(0);
-    }
-    // The ridge top (4) plus its east and south faces.
-    expect(rockVertices).toBeGreaterThan(4);
   });
 });
 
 /**
  * `groundAlbedoSlotsUsed` -- the derivation `packages/app`'s ground-texture
  * loader (2026-09-06) relies on to skip fetching an image no tile on the
- * current map could ever sample. Asserted against `albedoFor`'s own
- * decision, walked through the real `buildGround` masks above, not
- * re-derived by a second reading of the map symbols.
+ * current map could ever sample. Asserted against `tileSurface`'s own
+ * decision (`control-map.ts`), the same per-tile decision the control map
+ * itself is built from, not re-derived by a second reading of the map
+ * symbols.
  */
 describe('groundAlbedoSlotsUsed', () => {
   it('reports only sand on ground with no ridge, road, cover or grove', () => {
@@ -917,14 +553,13 @@ describe('groundAlbedoSlotsUsed', () => {
     input.decor = decor;
     input.cover = cover;
     const used = groundAlbedoSlotsUsed(input);
-    // `road` excepted for ONE task (ground plan Task 6, ruling F-4): the road
-    // left `GROUND_SLOTS` when it became a distance field, and
-    // `groundAlbedoSlotsUsed` still reports it -- as "fetch the knoll image,
-    // for the grain" -- until Task 7 folds that rule in and drops `road` here.
-    for (const slot of used) if (slot !== 'road') expect(GROUND_SLOTS).toContain(slot);
+    // No exception left: since Task 7 folded the road's own rule in (a road
+    // reports `sand` + `knoll`, never `road` -- R-7), every value this
+    // function can ever return is one of `GROUND_SLOTS`.
+    for (const slot of used) expect(GROUND_SLOTS).toContain(slot);
   });
 
-  it('finds every slot a map actually uses -- road, grove, scrub, rock and sand together', () => {
+  it('finds every slot a map actually uses -- a road (as knoll, for its grain), grove, scrub, rock and sand together', () => {
     const w = 6;
     const input = flat(w, w);
     const decor = new Uint8Array(w * w);
@@ -938,7 +573,7 @@ describe('groundAlbedoSlotsUsed', () => {
     input.blocked[at(4, 4)] = 1;
     input.decor = decor;
     input.cover = cover;
-    expect(groundAlbedoSlotsUsed(input)).toEqual(new Set(['sand', 'road', 'grove', 'scrub', 'rock']));
+    expect(groundAlbedoSlotsUsed(input)).toEqual(new Set(['sand', 'knoll', 'grove', 'scrub', 'rock']));
   });
 
   it('omits a slot the map genuinely never lands on -- no ridge means no rock', () => {
@@ -951,7 +586,14 @@ describe('groundAlbedoSlotsUsed', () => {
     expect(used.has('rock')).toBe(false);
     expect(used.has('grove')).toBe(false);
     expect(used.has('scrub')).toBe(false);
-    expect(used).toEqual(new Set(['sand', 'road']));
+    // `road` -> sand + knoll (R-7), not `road` -- there is no such slot.
+    expect(used).toEqual(new Set(['sand', 'knoll']));
+  });
+
+  it('never answers "road" -- a road needs the knoll image for its grain (R-7)', () => {
+    const input = flat(4, 1);
+    input.decor = Uint8Array.from([0, DECOR_ROAD, DECOR_ROAD, 0]);
+    expect(groundAlbedoSlotsUsed(input)).toEqual(new Set(['sand', 'knoll']));
   });
 
   it('an `n` knoll pulls in the scree and NOT scrub -- it is cover 2 with its own decor kind', () => {

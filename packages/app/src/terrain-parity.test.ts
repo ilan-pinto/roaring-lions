@@ -84,6 +84,7 @@ import {
   levelAt,
   SURFACE_SUBDIVISIONS,
   SURFACE_OVERSHOOT_LEVELS,
+  DECOR_ROAD,
   type TerrainInput,
   type MeshData,
   type StructureFootprint,
@@ -413,47 +414,54 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
     expect(surfaceTris).toBe(expectedSurfaceTriangles(input));
   });
 
-  it('gives every vertex at most one ground albedo, on real map data', () => {
-    // `groundSurfaceMaterial` multiplies its six albedo slots in sequence,
-    // so two non-zero masks on one vertex would multiply two images onto one
-    // fragment and the result would be neither surface. `ground.ts`'s
-    // `albedoFor` is a chain of exclusions, so this holds by construction --
-    // but only for the symbol COMBINATIONS someone thought of. This runs it
-    // over every symbol every shipped map actually authors, which is the
-    // half a fixture cannot cover: `o` carrying cover 1 and `n` carrying
-    // cover 2 are exactly the sort of thing that is true in `@lions/data`'s
-    // LEGEND and not in anybody's head.
-    const mesh = buildGround(input, tones, BACKGROUND);
-    const masks = [mesh.sandMask, mesh.rockMask, mesh.roadMask, mesh.scrubMask, mesh.groveMask];
-    for (const m of masks) expect(m, 'a ground albedo mask is missing entirely').toBeDefined();
-    const n = mesh.colors.length / 3;
-    for (const m of masks) expect(m!.length).toBe(n);
-    let doubled = 0;
-    for (let i = 0; i < n; i++) {
-      if (masks.filter((m) => m![i] !== 0).length > 1) doubled++;
-    }
-    expect(doubled, `${doubled} vertices sample two albedos`).toBe(0);
-  });
-
-  it('puts a road albedo on every road tile and nowhere else', () => {
-    // The wiring, end to end, on authored roads rather than a fixture --
-    // `beit_sahwan_outskirts` has 82 road tiles and `marj_perimeter` 39.
-    // Counted through the TRIANGLES, so a mask that is set but on geometry
-    // nothing draws still fails.
-    const mesh = buildGround(input, tones, BACKGROUND);
-    const roadTiles = new Set<number>();
+  it("gives a road tile the open ground's tone, on real map data (R-3)", () => {
+    // Since Task 7 a road tile no longer takes `groundTone`'s own DECOR_ROAD
+    // branch (`tones.road` composited over the open wash): the road itself
+    // is drawn by the shader now, from control B's distance field (Task 6,
+    // #226), and what the vertex carries underneath it is the plain
+    // open-ground wash -- the SAME tone the tile would carry with no road
+    // decor at all.
+    //
+    // Proven against a second mesh built from a copy of the map with every
+    // road tile's decor cleared, rather than against a hand-recomputed tone:
+    // decor never changes `blocked`/`elevation`, so the two meshes share the
+    // identical topology and the only thing that can differ is colour.
+    // Tile-by-tile, located by its own TOP/PATCH triangles' centroid rather
+    // than by position -- a shared boundary position resolves to more than
+    // one vertex (`ground.test.ts`'s "shares no vertex BETWEEN tiles"), and a
+    // WALL triangle's centroid can sit on the wrong side of that boundary
+    // entirely, so both are excluded by `kindOfTriangle`.
+    const roadTiles: number[] = [];
     for (let t = 0; t < input.width * input.height; t++) {
-      if ((input.decor ? input.decor[t] : 0) === 1) roadTiles.add(t);
+      if ((input.decor ? input.decor[t] : 0) === DECOR_ROAD) roadTiles.push(t);
     }
-    const drawn = new Set<number>();
-    for (let i = 0; i < mesh.indices.length; i += 3) {
-      const [a, b, c] = [mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2]];
-      if (mesh.roadMask![a] === 0) continue;
-      const cx = (mesh.positions[a * 3] + mesh.positions[b * 3] + mesh.positions[c * 3]) / 3;
-      const cz = (mesh.positions[a * 3 + 2] + mesh.positions[b * 3 + 2] + mesh.positions[c * 3 + 2]) / 3;
-      drawn.add(Math.floor(cz) * input.width + Math.floor(cx));
+    if (roadTiles.length === 0) return; // this map authors no road at all
+
+    const strippedDecor = input.decor ? Uint8Array.from(input.decor) : null;
+    if (strippedDecor) for (const t of roadTiles) strippedDecor[t] = 0;
+    const stripped: TerrainInput = { ...input, decor: strippedDecor };
+
+    const colourPerTile = (mesh: MeshData): Map<number, string> => {
+      const out = new Map<number, string>();
+      for (let i = 0; i < mesh.indices.length; i += 3) {
+        const [ia, ib, ic] = [mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2]];
+        const [a, b, c] = [vtx(mesh, ia), vtx(mesh, ib), vtx(mesh, ic)];
+        const kind = kindOfTriangle(a, b, c);
+        if (kind === 'east face' || kind === 'south face') continue;
+        const t = Math.floor((a[2] + b[2] + c[2]) / 3) * input.width + Math.floor((a[0] + b[0] + c[0]) / 3);
+        if (!out.has(t)) out.set(t, [0, 1, 2].map((k) => mesh.colors[ia * 3 + k].toFixed(6)).join(','));
+      }
+      return out;
+    };
+    const withRoad = colourPerTile(buildGround(input, tones, BACKGROUND));
+    const withoutRoad = colourPerTile(buildGround(stripped, tones, BACKGROUND));
+
+    for (const t of roadTiles) {
+      expect(withRoad.get(t), `tile ${t}: no top/patch triangle found`).toBeDefined();
+      expect(withRoad.get(t), `tile ${t}: road tone differs from the open ground's own`).toEqual(
+        withoutRoad.get(t)
+      );
     }
-    expect([...drawn].sort((p, q) => p - q)).toEqual([...roadTiles].sort((p, q) => p - q));
   });
 
   it('draws NO wall between two open tiles -- open ground ramps, and only a blocked tile or the map edge is a cliff', () => {

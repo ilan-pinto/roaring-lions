@@ -100,28 +100,14 @@ export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.Bu
     for (let i = 1; i < up.length; i += 3) up[i] = 1;
     geometry.setAttribute('normal', new THREE.BufferAttribute(up, 3));
   }
-  // Ground-albedo mask -- `ground.ts` only, and 1 on exactly the vertices
-  // allowed to sample the sand tile. Absent for every other builder, whose
-  // material declares none, the same shape `sway` above already uses.
-  if (data.sandMask) geometry.setAttribute('sandMask', new THREE.BufferAttribute(data.sandMask, 1));
-  if (data.rockMask) geometry.setAttribute('rockMask', new THREE.BufferAttribute(data.rockMask, 1));
-  // The three surfaces added on 2026-09-03, each its own mask for the reason
-  // `types.ts` gives for keeping sand and rock apart: they are separate
-  // decisions about separate surfaces, each asserted on its own.
-  if (data.roadMask) geometry.setAttribute('roadMask', new THREE.BufferAttribute(data.roadMask, 1));
-  // Not a mask at all -- which axis this road tile's ruts run along. Uploaded
-  // beside `roadMask` rather than folded into it because a mask of 0 and an
-  // axis of 0 are different facts, and packing them would make "no road here"
-  // indistinguishable from "a road running north-south".
-  if (data.roadAxis) geometry.setAttribute('roadAxis', new THREE.BufferAttribute(data.roadAxis, 1));
-  if (data.scrubMask) geometry.setAttribute('scrubMask', new THREE.BufferAttribute(data.scrubMask, 1));
-  if (data.groveMask) geometry.setAttribute('groveMask', new THREE.BufferAttribute(data.groveMask, 1));
-  if (data.knollMask) geometry.setAttribute('knollMask', new THREE.BufferAttribute(data.knollMask, 1));
   // Top or which kind of wall -- the one per-vertex surface fact the shader
   // still reads now the control map carries the surfaces (R-5; `ground.ts`'s
-  // `WALL_ALBEDO_*`). The masks above -- `roadMask` and `roadAxis` too, since
-  // Task 6 drew the road from control B -- are still uploaded and no longer
-  // read by `GroundMaterial`; Task 7 retires them.
+  // `WALL_ALBEDO_*`). The seven per-vertex albedo masks this used to upload
+  // alongside it (`sandMask`/`rockMask`/`roadMask`/`roadAxis`/`scrubMask`/
+  // `groveMask`/`knollMask`) stopped being read by `GroundMaterial` when
+  // Tasks 5 and 6 moved the decision to the control map and the road's
+  // distance field; Task 7 is where `ground.ts` stops emitting them, and this
+  // is where uploading them stops.
   if (data.wallAlbedo) geometry.setAttribute('wallAlbedo', new THREE.BufferAttribute(data.wallAlbedo, 1));
   // Albedo sampling coordinates. Under a custom name rather than three.js's
   // reserved `uv`, so nothing in three's own shader chunks can be surprised
