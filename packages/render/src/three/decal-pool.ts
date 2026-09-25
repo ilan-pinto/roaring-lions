@@ -243,7 +243,8 @@ export function gridTriangles(n: number): number {
 
 /**
  * Writes ring `slot`'s share of the STATIC index buffer for an `n`-per-side
- * grid: `gridTriangles(n) * 3` indices, offset so slot `k`'s vertices
+ * grid: `gridTriangles(n) * 3` indices, written from `out[0]` -- the caller
+ * hands in that slot's own `subarray` -- with VALUES offset so slot `k`'s vertices
  * (written by `writeDecalGrid`/`writeDecalOffsets` at the same `slot`) are
  * the only ones this call's indices ever reference. Every slot in a pool
  * shares this same INDEX shape (a decal's grid topology never changes,
@@ -715,8 +716,13 @@ export class DecalPool {
     // STATIC index: a decal's grid topology never changes, only its vertex
     // data does.
     const indices = new Uint32Array(capacity * this.trisPerDecal * 3);
+    const perSlot = this.trisPerDecal * 3;
     for (let slot = 0; slot < capacity; slot++) {
-      writeGridIndices(indices, slot, grid);
+      // `writeGridIndices` writes from index 0 of the array it is handed (it
+      // offsets the VALUES by the slot, not the write position), so each slot
+      // gets its own share. Handing it the whole array stacked every slot's
+      // indices on top of slot 0's: one draw call, no visible pixels.
+      writeGridIndices(indices.subarray(slot * perSlot, (slot + 1) * perSlot), slot, grid);
     }
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.setDrawRange(0, 0);

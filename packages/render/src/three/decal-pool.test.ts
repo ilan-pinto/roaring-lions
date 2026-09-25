@@ -165,6 +165,22 @@ describe('DecalPool', () => {
     expect(pos.getX(0)).toBeCloseTo(3 - 0.5, 6); // slot 0 now holds the fourth stamp
     expect(p.mesh.geometry.drawRange.count).toBe(3 * 18 * 3);
   });
+  // Found by Task 12's photographs: every slot's indices were written at the
+  // start of the buffer, so the first slot's triangles referenced the LAST
+  // slot's vertices and every other triangle was degenerate (all zeros). The
+  // pool drew one call and no pixels, and no test looked at the index buffer.
+  it("gives every slot its own share of the index buffer, referencing only that slot's vertices", () => {
+    const n = 4;
+    const perSlot = gridTriangles(n) * 3;
+    const p = new DecalPool({ capacity: 3, grid: n, renderOrder: 0, material: material() });
+    const idx = p.mesh.geometry.getIndex();
+    expect(idx?.count).toBe(3 * perSlot);
+    for (let slot = 0; slot < 3; slot++) {
+      const share = Array.from((idx?.array as Uint32Array).subarray(slot * perSlot, (slot + 1) * perSlot));
+      expect(Math.min(...share), `slot ${slot}`).toBe(slot * n * n);
+      expect(Math.max(...share), `slot ${slot}`).toBe(slot * n * n + n * n - 1);
+    }
+  });
   // The AO pre-pass and the shadow pass must never see a decal (spec §8, "AO pre-pass").
   it('stays out of the shadow and AO passes, and draws in its named band', () => {
     const p = new DecalPool({ capacity: 2, grid: 2, renderOrder: DECAL_FADING_RENDER_ORDER, material: material() });
