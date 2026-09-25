@@ -71,6 +71,7 @@ import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { CUE_SET } from './ui/garage-model';
+import { kitSummary, type KitSummary } from './ui/kit-sign';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
@@ -1238,6 +1239,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const params = req.query;
   const audio = battleAudio();
   const { boughtUnits, ownedTiers } = accountState();
+  /** The kit on each KDF type, for the HUD card (WP-S3g §3.4): tiers are
+   *  type-wide and fixed for the mission (brigade D3), so one summary per type,
+   *  read once from the account through `accountState()`. It is built from the
+   *  SAME `ownedTiers` the `applyUpgrades` pre-pass below registers with the
+   *  sim, so the card shows the kit this mission actually runs with -- never
+   *  the account as it stands later, which a garage visit can change. */
+  const kitByType = new Map<string, KitSummary>();
+  for (const u of Object.values(units)) {
+    if (u.faction === 'kdf') kitByType.set(u.id, kitSummary(u as unknown as UpgradableUnit, ownedTiers[u.id] ?? {}));
+  }
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -2557,6 +2568,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     keyFor: (id) => (isAction(id) ? keyLabel(bindings[id]) : id),
     portrait: (typeId) => portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
+    kitOf: (typeId) => kitByType.get(typeId) ?? null,
     // A closure over `runtime`, not a snapshot of it: the Hud is constructed
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.

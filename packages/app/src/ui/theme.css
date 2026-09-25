@@ -2265,6 +2265,9 @@ body {
   margin-left: auto;
   white-space: nowrap;
 }
+/* The kit (WP-S3g §3.4, D2): three tracks' pips beside the veterancy stars --
+   bought, per type, in steel, where the stars are earned, per unit, in gold. */
+.rl-card__kit { display: inline-flex; margin-left: var(--s1); vertical-align: middle; }
 .rl-card .rl-track {
   margin: 3px 0;
 }

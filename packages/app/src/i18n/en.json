@@ -140,7 +140,6 @@
   "garage.bucket.drone": "Drones",
   "garage.bucket.gunship": "Air",
   "garage.bucket.kamikaze": "Loitering",
-  "garage.chip.owned": "Owned",
   "garage.chip.locked": "Locked · {why}",
   "garage.card.noSprite": "{id} — no sprite sheet",
   "garage.plate.none": "{id} — no plate photographed",
