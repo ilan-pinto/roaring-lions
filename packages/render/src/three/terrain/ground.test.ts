@@ -917,7 +917,11 @@ describe('groundAlbedoSlotsUsed', () => {
     input.decor = decor;
     input.cover = cover;
     const used = groundAlbedoSlotsUsed(input);
-    for (const slot of used) expect(GROUND_SLOTS).toContain(slot);
+    // `road` excepted for ONE task (ground plan Task 6, ruling F-4): the road
+    // left `GROUND_SLOTS` when it became a distance field, and
+    // `groundAlbedoSlotsUsed` still reports it -- as "fetch the knoll image,
+    // for the grain" -- until Task 7 folds that rule in and drops `road` here.
+    for (const slot of used) if (slot !== 'road') expect(GROUND_SLOTS).toContain(slot);
   });
 
   it('finds every slot a map actually uses -- road, grove, scrub, rock and sand together', () => {

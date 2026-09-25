@@ -182,6 +182,8 @@ import {
 import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
 import { terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import { buildControlMap, buildMacroField, neutralTint } from './terrain/control-map';
+import { ROAD_GRAIN_GAIN } from './terrain/road-graph';
+import { hexToLinear } from './terrain/shared';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
   buildDecorMesh,
@@ -1026,10 +1028,18 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Fetches the six ground albedo tiles `RendererOptions` names -- open
-   * ground, `^` ridge, `r` road, cover, `o` grove, `n` knoll -- and, as each arrives,
+   * Fetches the five ground albedo tiles `RendererOptions` names -- open
+   * ground, `^` ridge, cover, `o` grove, `n` knoll -- and, as each arrives,
    * switches its own slot on. Each is independent: a rock tile that 404s
    * costs the ridges their texture and leaves the other four alone.
+   *
+   * `roadTextureUrl` is no longer fetched (#226): the road is drawn from
+   * control B's distance field, and its grain is the KNOLL image. So the
+   * knoll image is fetched on a map with roads even where no knoll tile
+   * stands, and its arrival switches the road grain on as well
+   * (`uRoadGrainGain`, 0 until then -- F-12: before it lands `uKnoll` is the
+   * white pixel, and a live gain would draw every road about 1.6x too
+   * bright; a knoll 404 leaves the road on its flat palette tone).
    *
    * **The image's own mean and repeat come from `GROUND_ALBEDOS`, keyed by
    * the URL's basename, not from the slot.** That is the whole reason the
@@ -1080,9 +1090,9 @@ export class ThreeRenderer implements Renderer {
     // `groundTexturesSettled` open. Each only ever RESOLVES: a failed tile is
     // fail-soft here, and must be the same to anyone awaiting it.
     const settles: Promise<void>[] = [];
-    const load = (url: string | undefined, slot: GroundSlot, what: string): void => {
+    const load = (url: string | undefined, slot: GroundSlot, what: string, used = usedSlots.has(slot)): void => {
       if (!url) return;
-      if (!usedSlots.has(slot)) return;
+      if (!used) return;
       // The basename, with any query string or extension stripped: `BASE`
       // may be a full origin and a bundler may append a hash-free query.
       const id = (url.split('?')[0].split('/').pop() ?? '').replace(/\.[a-z0-9]+$/i, '');
@@ -1110,6 +1120,9 @@ export class ThreeRenderer implements Renderer {
           // move the surface's average colour, only how hard its texture is
           // driven, which is what a 16x minification costs a fine source.
           this.groundMat.uniforms[u.strength].value = albedo.gain;
+          // The knoll image is also the road's grain (R-7), whose gain waits
+          // for it (F-12) -- see this method's doc comment.
+          if (slot === 'knoll') this.groundMat.uniforms.uRoadGrainGain.value = ROAD_GRAIN_GAIN;
           this.groundMat.needsUpdate = true;
           // The skirt beyond the map carries the OPEN-GROUND image and only
           // that one -- it is a continuation of the ground, not of the rock
@@ -1129,12 +1142,12 @@ export class ThreeRenderer implements Renderer {
           // The minimap's photograph is of ground that did not have this
           // texture on it, so it is dropped here for the same reason the
           // terrain rebuild drops it -- see `invalidateGroundPhoto`. These
-          // six loads are fire-and-forget and `init()` does not await them,
+          // five loads are fire-and-forget and `init()` does not await them,
           // so a capture taken at map load RACES them: on a sandbox or the
           // tutorial, where nothing holds the player at a briefing, the
           // photograph can be taken before some tiles land and would
           // otherwise show those slots' flat palette tone for the whole
-          // mission, quietly and forever. Bounded at six extra captures per
+          // mission, quietly and forever. Bounded at five extra captures per
           // map, at boot, before any fight.
           this.invalidateGroundPhoto();
           // LAST, so whoever awaits this tile wakes to it on the ground.
@@ -1149,10 +1162,18 @@ export class ThreeRenderer implements Renderer {
     };
     load(this.opts.groundTextureUrl, 'sand', 'open ground');
     load(this.opts.rockTextureUrl, 'rock', 'rock ridge');
-    load(this.opts.roadTextureUrl, 'road', 'road');
     load(this.opts.scrubTextureUrl, 'scrub', 'cover scrub');
     load(this.opts.groveTextureUrl, 'grove', 'grove floor');
-    load(this.opts.knollTextureUrl, 'knoll', 'rocky knoll');
+    // Knoll OR road: the road's grain samples the knoll image. The cast keeps
+    // this compiling once Task 7 narrows `GroundAlbedoSlot` to drop 'road'
+    // (and folds this rule into `groundAlbedoSlotsUsed`); Task 9 simplifies it
+    // to `usedSlots.has('knoll')`.
+    load(
+      this.opts.knollTextureUrl,
+      'knoll',
+      'rocky knoll',
+      usedSlots.has('knoll') || (usedSlots as ReadonlySet<string>).has('road')
+    );
     this.groundTexturesPending = Promise.all(settles).then(() => undefined);
   }
 
@@ -2084,6 +2105,18 @@ export class ThreeRenderer implements Renderer {
     );
     (this.groundMat.uniforms.uMacroDark.value as THREE.Vector3).fromArray(
       neutralTint(this.overlayColor('dust.1', '#D1A668'))
+    );
+    // The road's three palette tones (#226, spec 3.2), as LINEAR light: they
+    // are mixed into `diffuseColor`, which holds the vertex colour `toGeometry`
+    // already decoded to linear. The surface is the theme's own road tone; the
+    // bleached shoulder is `limestone.2` and the ruts `limestone.6` on every
+    // theme, resolved through `overlayColor` like the tints above.
+    (this.groundMat.uniforms.uRoadTone.value as THREE.Vector3).fromArray(hexToLinear(opts.terrainTones.road));
+    (this.groundMat.uniforms.uShoulderTone.value as THREE.Vector3).fromArray(
+      hexToLinear(this.overlayColor('limestone.2', '#D9C7A7'))
+    );
+    (this.groundMat.uniforms.uRutTone.value as THREE.Vector3).fromArray(
+      hexToLinear(this.overlayColor('limestone.6', '#8C7659'))
     );
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
@@ -3066,9 +3099,10 @@ export class ThreeRenderer implements Renderer {
     for (const light of this.flashLights.lights) light.intensity = 0;
   }
 
-  /** Backs `setDebugLayerVisible('ground-albedo', ...)`: the six slot
-   *  strengths to 0 and back, idempotently, and nothing else -- see
-   *  `GroundMaterial.setAlbedoVisible` for why the macro is NOT part of it. */
+  /** Backs `setDebugLayerVisible('ground-albedo', ...)`: the five slot
+   *  strengths and the road's grain gain to 0 and back, idempotently, and
+   *  nothing else -- see `GroundMaterial.setAlbedoVisible` for why the macro
+   *  is NOT part of it. */
   private setGroundAlbedoOn(on: boolean): number {
     return this.groundMat.setAlbedoVisible(on);
   }

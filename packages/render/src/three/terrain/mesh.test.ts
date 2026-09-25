@@ -34,6 +34,19 @@ import {
 } from './mesh';
 import { buildControlMap, buildMacroField, HEIGHT_BLEND, MACRO_HUE, MACRO_LUMINANCE } from './control-map';
 import { buildGround, WALL_ALBEDO_NONE, WALL_ALBEDO_ROCK, WALL_ALBEDO_TOP } from './ground';
+import {
+  ROAD_EDGE_BEND,
+  ROAD_EDGE_FALLOFF,
+  ROAD_HALF_WIDTH,
+  RUT_ALPHA,
+  RUT_JUNCTION_FADE,
+  RUT_OFFSET,
+  RUT_WIDTH,
+  ROAD_GRAIN_GAIN,
+  ROAD_GRAIN_TILES,
+  SHOULDER_ALPHA,
+  SHOULDER_TILES,
+} from './road-graph';
 import { DECOR_RIDGE, DECOR_ROAD, srgbToLinear } from './shared';
 import type { MeshData, TerrainInput } from './types';
 
@@ -194,6 +207,89 @@ describe('GroundMaterial samples the control map', () => {
   });
 });
 
+describe('the road shader (#226)', () => {
+  const src = compiledFragmentSource(new GroundMaterial());
+  it('has no road slot and no axis blend any more', () => {
+    expect(GROUND_SLOTS).toEqual(['sand', 'rock', 'scrub', 'grove', 'knoll']);
+    for (const gone of ['uRoad;', 'uRoadStrength', 'vRoadAxis', 'vRoadMask', 'rlRoadUv']) expect(src).not.toContain(gone);
+  });
+  it('draws surface, shoulder and ruts from control B with the tested profile constants', () => {
+    for (const k of [
+      ROAD_HALF_WIDTH,
+      ROAD_EDGE_FALLOFF,
+      ROAD_EDGE_BEND,
+      SHOULDER_TILES,
+      SHOULDER_ALPHA,
+      RUT_OFFSET,
+      RUT_WIDTH,
+      RUT_ALPHA,
+      RUT_JUNCTION_FADE,
+    ])
+      expect(src).toContain(k.toFixed(3));
+    for (const u of ['uRoadOn', 'uRoadTone', 'uShoulderTone', 'uRutTone', 'uRoadGrainTiles', 'uRoadGrainGain'])
+      expect(src).toContain(u);
+  });
+  it('derives the edge and rut bands from the tested constants rather than from retyped literals (F-3)', () => {
+    // `roadProfile`'s edgeLo/edgeHi and rutLo/rutHi, spelled as expressions of
+    // the exported constants so a drifted base constant moves the shader too.
+    const h = ROAD_HALF_WIDTH.toFixed(3);
+    const f = ROAD_EDGE_FALLOFF.toFixed(3);
+    const w = RUT_WIDTH.toFixed(3);
+    expect(src).toContain(`(${h} - 0.5 * ${f})`);
+    expect(src).toContain(`(${h} + 0.5 * ${f})`);
+    expect(src).toContain(`(0.5 * ${w} - 0.010)`);
+    expect(src).toContain(`(0.5 * ${w} + 0.010)`);
+    // Neither the old nor the derived value appears as a bare literal.
+    for (const derived of ['0.270', '0.450', '0.020']) expect(src).not.toContain(derived);
+  });
+  it('takes its grain from the knoll sampler -- one shared image, no road asset (R-7)', () => {
+    expect(src).toMatch(/texture2D\s*\(\s*uKnoll\s*,\s*vRlWorldXZ\s*\/\s*uRoadGrainTiles\s*\)/);
+  });
+  it('lets the road cover the surfaces beneath it', () => {
+    expect(src).toMatch(/rlW0\s*\*=\s*\(1\.0\s*-\s*rlRoadSurf\)/);
+    for (let i = 1; i < 5; i++) expect(src).toContain(`rlW${i} *= (1.0 - rlRoadSurf);`);
+    // ...after the height-bias rescale, which would otherwise hand the covered
+    // weight straight back.
+    expect(src.indexOf('rlW0 *= (1.0 - rlRoadSurf)')).toBeGreaterThan(src.indexOf('rlW4 = rlB4 * rlRescale;'));
+  });
+  it('paints the tones before the ratio multiply, and adds the grain as a ratio term of its own', () => {
+    // The albedo is a RATIO to the palette tone, so the road's tone has to be
+    // in `diffuseColor` before the multiply -- mixed in after it, the ratio
+    // would scale the road tone instead of the tile's.
+    const mul = src.indexOf('diffuseColor.rgb *= rlAlbedo * rlMacro;');
+    for (const t of ['uRoadTone, rlRoadSurf)', 'uShoulderTone, rlShoulder)', 'uRutTone, rlRut)']) {
+      const at = src.indexOf(`diffuseColor.rgb = mix(diffuseColor.rgb, ${t};`);
+      expect(at, t).toBeGreaterThan(-1);
+      expect(at, t).toBeLessThan(mul);
+    }
+    expect(src).toMatch(/\+\s*rlRoadSurf\s*\*\s*\(mix\(vec3\(1\.0\),\s*rlGrain,\s*uRoadGrainGain\)\s*-\s*1\.0\)/);
+  });
+  it('is a top-only surface, switched by uRoadOn', () => {
+    // A road never paints a wall (`rlTop`), and the `roads` layer (Task 9)
+    // removes it by writing uRoadOn = 0.
+    expect(src).toMatch(/float rlRoadSurf = uRoadOn \* rlTop \*/);
+    expect(src).toMatch(/float rlShoulder = uRoadOn \* rlTop \*/);
+  });
+  it('fails soft: the grain is off until the knoll image lands (F-12), the road on', () => {
+    // Before the image lands `uKnoll` is the 1x1 white pixel, which reads as
+    // 1 / uKnollMean -- about 1.6x -- and a live gain would brighten every
+    // road by that much. 0 until `ThreeRenderer`'s knoll load sets it.
+    const u = new GroundMaterial().uniforms;
+    expect(u.uRoadGrainGain.value).toBe(0);
+    expect(u.uRoadOn.value).toBe(1);
+    expect(u.uRoadGrainTiles.value).toBe(ROAD_GRAIN_TILES);
+  });
+  it('stashes the grain gain with the slot strengths when ground-albedo hides, and puts it back', () => {
+    const m = new GroundMaterial();
+    m.uniforms.uRoadGrainGain.value = ROAD_GRAIN_GAIN;
+    m.setAlbedoVisible(false);
+    expect(m.uniforms.uRoadGrainGain.value).toBe(0);
+    m.setAlbedoVisible(false);
+    m.setAlbedoVisible(true);
+    expect(m.uniforms.uRoadGrainGain.value).toBe(ROAD_GRAIN_GAIN);
+  });
+});
+
 describe('wallAlbedo -- the one per-vertex surface fact left (R-5)', () => {
   it('is -1 on every top, 1 on a ridge wall, 0 on a building wall', () => {
     const data = buildGround(reliefWithRidgeAndBuilding(), TONES, BACKGROUND);
@@ -218,7 +314,7 @@ describe('wallAlbedo -- the one per-vertex surface fact left (R-5)', () => {
 });
 
 describe('GroundMaterial', () => {
-  it('is a lit, vertex-coloured, double-sided standard material with the six albedo slots as uniforms', () => {
+  it('is a lit, vertex-coloured, double-sided standard material with the five albedo slots as uniforms', () => {
     const m = new GroundMaterial();
     expect(m.isMeshStandardMaterial).toBe(true);
     expect(m.vertexColors).toBe(true);
@@ -328,7 +424,7 @@ describe('the ground albedo tile', () => {
     expect(sand.x - sand.z).toBeGreaterThan(rock.x - rock.z);
   });
 
-  it('gives every slot all four uniforms, and only the road a per-vertex mask', () => {
+  it('gives every slot all four uniforms, and no slot a per-vertex mask', () => {
     // The failure this exists to stop: a slot wired into `GROUND_SLOTS` (so
     // `ThreeRenderer` fetches its image and writes its uniforms) whose
     // uniforms or mask the shader never declares. Nothing throws -- the
@@ -346,20 +442,16 @@ describe('the ground albedo tile', () => {
       // palette tone rather than white or undefined.
       expect(m.uniforms[u.strength].value).toBe(0);
       expect(m.uniforms[u.map].value.image.width).toBe(1);
-      // The control map says which surface a fragment is on now. Only the
-      // road keeps its per-vertex mask, until Task 6 moves it to control B;
-      // the other five must be GONE, or a stale mask is still switching a
-      // surface the map is also weighting.
+      // The control map says which surface a fragment is on -- the road too,
+      // since Task 6 moved it to control B's distance field. A stale mask
+      // still read here would be switching a surface the map also weights.
       const mask = `${slot}Mask`;
       const vMask = `v${slot.charAt(0).toUpperCase()}${slot.slice(1)}Mask`;
-      if (slot === 'road') {
-        expect(vert, `no ${mask} attribute`).toContain(`attribute float ${mask};`);
-        expect(frag, `shader never reads ${vMask}`).toContain(vMask);
-      } else {
-        expect(vert, `${mask} is still an attribute`).not.toContain(`attribute float ${mask};`);
-        expect(frag, `shader still reads ${vMask}`).not.toContain(vMask);
-      }
+      expect(vert, `${mask} is still an attribute`).not.toContain(`attribute float ${mask};`);
+      expect(frag, `shader still reads ${vMask}`).not.toContain(vMask);
     }
+    expect(vert).not.toContain('attribute float roadMask;');
+    expect(vert).not.toContain('attribute float roadAxis;');
   });
 
   it('every slot default names an image the albedo table knows', () => {
@@ -398,7 +490,6 @@ describe('the ground albedo tile', () => {
     const expected: Record<string, keyof typeof GROUND_ALBEDOS> = {
       sand: 'desert_sand_tile',
       rock: 'rock_ground_tile',
-      road: 'road_track_tile',
       scrub: 'rough_scrub_tile',
       grove: 'orchard_floor_tile',
       knoll: 'knoll_scree_tile',
@@ -435,11 +526,9 @@ describe('the ground albedo tile', () => {
     for (const slot of GROUND_SLOTS) {
       const u = slotUniforms(slot);
       const cap = slot.charAt(0).toUpperCase() + slot.slice(1);
-      // The road still multiplies by its own mask (until Task 6); every other
-      // slot's weight comes from the control map, outside the mix.
-      const weight = slot === 'road' ? `\\s*\\*\\s*v${cap}Mask` : '';
+      // Every slot's weight comes from the control map, outside the mix.
       const pattern = new RegExp(
-        `mix\\s*\\(\\s*vec3\\(1\\.0\\)\\s*,\\s*rl${cap}\\s*,\\s*${u.strength}${weight}\\s*\\)`
+        `mix\\s*\\(\\s*vec3\\(1\\.0\\)\\s*,\\s*rl${cap}\\s*,\\s*${u.strength}\\s*\\)`
       );
       expect(src, `${slot} is not applied as a mix from vec3(1.0)`).toMatch(pattern);
       // ...and each is a ratio to its own measured mean, never the raw texel.
@@ -447,20 +536,15 @@ describe('the ground albedo tile', () => {
     }
   });
 
-  it('blends the road between two samples, and only the road', () => {
-    // The road is the one slot whose image is directional -- a single wheel
-    // track -- so it is the one slot that fetches twice and mixes by an
-    // axis. If that mix ever disappears, every junction on every map goes
-    // back to being a road that runs one way and stops.
+  it('fetches every slot exactly once -- the road no longer takes a second, axis-swapped tap', () => {
+    // The old road was the one directional image, fetched twice and mixed by
+    // a per-vertex axis. The distance field has no axis, so no slot may pay
+    // for a second fetch of its own image any more.
     const src = compiled(new GroundMaterial()).fragmentShader;
-    expect(src).toMatch(/mix\s*\(\s*texture2D\s*\(\s*uRoad\s*,\s*rlRoadUv\s*\)\.rgb\s*,/);
-    expect(src).toMatch(/texture2D\s*\(\s*uRoad\s*,\s*rlRoadUv\.yx\s*\)\.rgb\s*,\s*vRoadAxis\s*\)/);
-    // ...and no other slot does, which is what keeps the extra tap paid for
-    // once rather than five times.
     for (const slot of GROUND_SLOTS) {
-      if (slot === 'road') continue;
       const stem = slotUniforms(slot).map;
-      expect(src.split(`texture2D(${stem},`).length - 1, `${slot} fetches more than once`).toBe(1);
+      const own = src.split(`texture2D(${stem}, vGroundUv`).length - 1;
+      expect(own, `${slot} fetches its own albedo more than once`).toBe(1);
     }
   });
 
@@ -572,7 +656,7 @@ describe('toGeometry colour space and normals', () => {
 });
 
 describe('GroundMaterial debug toggles -- ground-albedo and macro', () => {
-  it('ground-albedo hides the six slots and NOT the macro, because a 404 leaves the macro on', () => {
+  it('ground-albedo hides the five slots and NOT the macro, because a 404 leaves the macro on', () => {
     // The `ground-albedo` check measures "the texture never arrived". A real
     // 404 leaves the macro field on, so a hide that also removed the macro
     // would credit the macro's contribution to the tiles -- and keep that
