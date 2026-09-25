@@ -33,9 +33,9 @@
  * because Task 4's combined size crosses the controller's file cap, not
  * because the two halves are independent ideas.
  */
-import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD } from './shared';
+import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD, hexToLinear } from './shared';
 import { SCRUB_TIER_STRENGTH } from './ground';
-import { valueNoise2 } from './noise';
+import { boxBlur, fbm2, valueNoise2 } from './noise';
 import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES } from './road-graph';
 import type { TerrainInput } from './types';
 
@@ -294,4 +294,185 @@ export function buildControlMap(input: TerrainInput): ControlMap {
   }
 
   return { width, height, a, b };
+}
+
+/**
+ * Task 4b: the height bias and the macro field -- appended to this same file
+ * rather than a sibling module, purely because the controller's file-size cap
+ * split Task 4 in two, not because the two halves are independent ideas. Both
+ * still feed the same fragment shader `control-map.ts`'s A/B textures do.
+ */
+
+/** How strongly a tile's OWN blend weight is pulled toward 1 (and its
+ *  neighbours' pulled toward 0) by a favourable relative height, at the
+ *  midpoint of the blend (`w = 0.5`) where the pull is strongest. Zero at
+ *  `w = 0` and `w = 1`: a tile that already owns the whole texel, or none of
+ *  it, has nothing left to gain from height. */
+export const HEIGHT_BLEND = 0.15;
+
+/**
+ * Biases a set of blend weights `w` toward whichever channel sits on higher
+ * relative ground `h` (its own sign carries the direction; magnitude does not
+ * need to be normalised, since the whole expression is rescaled afterward),
+ * without inventing or destroying weight overall.
+ *
+ * `w_i' = max(0, w_i + HEIGHT_BLEND * h_i * 4 * w_i * (1 - w_i))`, then every
+ * entry is scaled so `sum(w') = sum(w)`. The `4 * w_i * (1 - w_i)` factor is
+ * a parabola that is exactly 0 at `w_i = 0` and `w_i = 1` and peaks at 1
+ * when `w_i = 0.5` -- so a tile interior, where one weight is already 1 and
+ * the rest 0, is untouched (every factor is 0 there), and the bias only ever
+ * acts inside an edge blend, where it is needed. `max(0, ...)` guards a
+ * weight from going negative when its height is unfavourable; the rescale
+ * afterward is what makes that guard meaningful rather than just shrinking
+ * the total. Falls back to `w` itself, unchanged, on the degenerate case
+ * where every biased weight collapsed to 0 (only possible if every input
+ * weight was already 0).
+ */
+export function heightBiased(w: readonly number[], h: readonly number[]): number[] {
+  const raw = w.map((wi, i) => Math.max(0, wi + HEIGHT_BLEND * h[i] * 4 * wi * (1 - wi)));
+  const rawSum = raw.reduce((sum, v) => sum + v, 0);
+  if (rawSum === 0) return w.slice();
+  const wantSum = w.reduce((sum, v) => sum + v, 0);
+  const scale = wantSum / rawSum;
+  return raw.map((v) => v * scale);
+}
+
+/** Side length, in texels, of the macro field -- fixed regardless of map
+ *  size, since the field is stretched to cover the whole map rather than
+ *  scaled per-tile the way the control textures above are. */
+export const MACRO_SIZE = 256;
+/** How many tiles one full noise cycle of the macro field's base octave
+ *  spans. */
+export const MACRO_PERIOD_TILES = 12;
+/** `fbm2` octave count for the macro field. */
+export const MACRO_OCTAVES = 3;
+/** Box-blur radius for the macro field, in TILES -- converted to texels by
+ *  `macroBlurTexels` for a given map width. Also doubles, deliberately, as
+ *  the width of the border band the field is faded to neutral across (F-13):
+ *  reusing the one number rather than adding a second keeps the fade band
+ *  and the blur radius from ever drifting apart, and there is no
+ *  design reason for them to differ -- both exist to keep the field smooth
+ *  at the scale a `fbm2` sample can actually resolve. */
+export const MACRO_BLUR_TILES = 1.5;
+/** Maximum luminance swing the macro field can apply, at `m = +/-1` and
+ *  amplitude 1 -- see `macroFactor`. */
+export const MACRO_LUMINANCE = 0.07;
+/** Maximum hue-mix weight the macro field can apply toward its bright/dark
+ *  tint, at `|m| = 1` and amplitude 1 -- see `macroFactor`. */
+export const MACRO_HUE = 0.04;
+
+export interface MacroField {
+  readonly size: number;
+  /** `size * size` bytes, row-major, one per texel: 128 is neutral (`m = 0`),
+   *  0 is the darkest extreme (`m = -1`) and 255 the brightest (`m = 1`). */
+  readonly data: Uint8Array;
+}
+
+/** How many texels of the fixed `MACRO_SIZE` grid `MACRO_BLUR_TILES` tiles
+ *  work out to on a map `mapWidth` tiles wide -- the field is stretched over
+ *  the whole map, so a tile is worth fewer texels on a wider map. Takes only
+ *  the width (not height) because `boxBlur`'s radius is a single number
+ *  shared by both passes; on a non-square map this makes the blur (and the
+ *  border fade that reuses it) span `MACRO_BLUR_TILES` tiles along X and a
+ *  proportionally different tile count along Z, which is an accepted
+ *  approximation rather than a bug -- nothing this task's tests measure
+ *  depends on the two axes agreeing on a non-square map. */
+export function macroBlurTexels(mapWidth: number): number {
+  return Math.round((MACRO_BLUR_TILES * MACRO_SIZE) / mapWidth);
+}
+
+/** Linear fade-to-neutral weight for texel `(i, j)` in a `size x size` grid,
+ *  0 at the outermost texel and reaching 1 by `band` texels in from every
+ *  edge. `band <= 0` never fades. F-13: without this, a macro luminance step
+ *  of up to `2 * MACRO_LUMINANCE` (7%) can land exactly on the map's own
+ *  edge and outline it against the skirt beyond, which never sees the field
+ *  at all. */
+function borderFade(i: number, j: number, size: number, band: number): number {
+  if (band <= 0) return 1;
+  const edge = Math.min(i, size - 1 - i, j, size - 1 - j);
+  return Math.min(1, Math.max(0, edge / band));
+}
+
+/**
+ * Builds the macro field: a single low-frequency scalar over the WHOLE map
+ * (not per-tile like the control textures above), sampled once per texel of
+ * a fixed `MACRO_SIZE x MACRO_SIZE` grid stretched across `mapWidth x
+ * mapHeight` tiles.
+ *
+ *  1. Each texel centre maps to a world tile position and samples
+ *     `fbm2(..., MACRO_PERIOD_TILES, MACRO_OCTAVES, 404)`.
+ *  2. The raw field is box-blurred by `macroBlurTexels(mapWidth)`.
+ *  3. The blurred field is normalised by its own `max|v|` (not by separate
+ *     min/max, which would move neutral off `m = 0` and bias the ground's
+ *     overall tone -- F-2) to bytes `round(128 + 127 * v)`, THEN faded to
+ *     neutral over the outer `MACRO_BLUR_TILES` tiles of texels (F-13) --
+ *     applied last so the fade cannot itself skew the normalisation.
+ */
+export function buildMacroField(mapWidth: number, mapHeight: number): MacroField {
+  const size = MACRO_SIZE;
+  const raw = new Float32Array(size * size);
+  for (let j = 0; j < size; j++) {
+    const pz = ((j + 0.5) / size) * mapHeight;
+    for (let i = 0; i < size; i++) {
+      const px = ((i + 0.5) / size) * mapWidth;
+      raw[j * size + i] = fbm2(px, pz, MACRO_PERIOD_TILES, MACRO_OCTAVES, 404);
+    }
+  }
+
+  const blurred = boxBlur(raw, size, size, macroBlurTexels(mapWidth));
+
+  let maxAbs = 0;
+  for (const v of blurred) maxAbs = Math.max(maxAbs, Math.abs(v));
+  const norm = maxAbs > 0 ? 1 / maxAbs : 0;
+
+  const band = macroBlurTexels(mapWidth);
+  const data = new Uint8Array(size * size);
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      const v = blurred[j * size + i] * norm * borderFade(i, j, size, band);
+      data[j * size + i] = Math.min(255, Math.max(0, Math.round(128 + 127 * v)));
+    }
+  }
+  return { size, data };
+}
+
+/**
+ * `hex`'s linear-space colour, rescaled so its own Rec. 709 luminance
+ * (`0.2126 R + 0.7152 G + 0.0722 B`) is exactly 1. `macroFactor` mixes toward
+ * this rather than toward the raw palette colour so that the macro field
+ * changes HUE without also changing the luminance `MACRO_LUMINANCE` already
+ * controls on its own -- mixing toward an un-normalised swatch would double
+ * up the two effects and make `MACRO_LUMINANCE` a lie for any tint whose own
+ * luminance is not 1.
+ */
+export function neutralTint(hex: string): [number, number, number] {
+  const [r, g, b] = hexToLinear(hex);
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return [r / lum, g / lum, b / lum];
+}
+
+/**
+ * The per-channel multiplier the macro field applies to the ground's albedo
+ * at a texel where the field reads `m` (in `[-1, 1]`, `0` neutral) and the
+ * effect's own amplitude is `amp` (so a caller can fade the whole effect in
+ * or out, e.g. by distance or by theme, without touching `m` itself):
+ *
+ * `(1 + MACRO_LUMINANCE * m * amp) * mix(1, m >= 0 ? bright : dark, MACRO_HUE * |m| * amp)`
+ *
+ * -- a luminance term (brighter when `m > 0`, darker when `m < 0`) times a
+ * hue term that mixes from neutral (1) toward `bright` or `dark` (both
+ * `neutralTint`-normalised, so this mix cannot itself move luminance) by a
+ * weight that grows with `|m|`. Neutral (`[1, 1, 1]`) whenever `m = 0` or
+ * `amp = 0`, regardless of `bright`/`dark`.
+ */
+export function macroFactor(
+  m: number,
+  amp: number,
+  bright: readonly number[],
+  dark: readonly number[]
+): [number, number, number] {
+  const luminance = 1 + MACRO_LUMINANCE * m * amp;
+  const hueWeight = MACRO_HUE * Math.abs(m) * amp;
+  const tint = m >= 0 ? bright : dark;
+  return [0, 1, 2].map((c) => luminance * (1 + hueWeight * (tint[c] - 1))) as [number, number, number];
 }

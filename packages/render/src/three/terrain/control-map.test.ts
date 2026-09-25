@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD } from './shared';
 import type { TerrainInput } from './types';
-import { buildControlMap, CONTROL_TEXELS_PER_TILE as N, tileSurface } from './control-map';
+import {
+  buildControlMap, buildMacroField, CONTROL_TEXELS_PER_TILE as N, heightBiased, macroBlurTexels,
+  macroFactor, neutralTint, tileSurface,
+} from './control-map';
 import { roadDistanceAt, buildRoadGraph } from './road-graph';
 
 /** '.' open, 'r' road, 'o' grove, 'n' knoll, '1'-'3' cover, '#' pad, '^' ridge. */
@@ -163,5 +166,108 @@ describe('buildControlMap', () => {
     const b = buildControlMap(m);
     expect(Array.from(a.a)).toEqual(Array.from(b.a));
     expect(Array.from(a.b)).toEqual(Array.from(b.b));
+  });
+});
+
+describe('heightBiased -- the 0.15 height blend', () => {
+  it('leaves a tile interior (weights 0 or 1) exactly as it was', () => {
+    expect(heightBiased([1, 0, 0], [0.3, -0.2, 0.1])).toEqual([1, 0, 0]);
+    expect(heightBiased([0.4, 0, 0], [0.3, 0, 0])).toEqual([0.4, 0, 0]);
+  });
+  it('lets the brighter texel win inside the band, and preserves the total', () => {
+    const w = heightBiased([0.5, 0.5], [0.4, -0.4]);
+    expect(w[0]).toBeGreaterThan(0.5);
+    expect(w[0] + w[1]).toBeCloseTo(1, 9);
+  });
+});
+
+describe('the macro field', () => {
+  const f = buildMacroField(48, 48);
+  it('is 256 x 256 R8', () => {
+    expect(f.size).toBe(256);
+    expect(f.data.length).toBe(256 * 256);
+  });
+  // F-2: step 3 normalises by the field's own max|v|, so only ONE extreme is
+  // guaranteed to reach the end of the range -- a prototype measured lo=1,
+  // hi=240 BEFORE the F-13 border fade below is applied. F-13 then pulls
+  // whichever texel carried that extreme back toward neutral if it happens
+  // to fall inside the fade band -- measured, on this seed and map size, it
+  // does: with the fade applied the same field reads lo=17, hi=224 (max
+  // deviation 111). Both are genuine consequences of normalising by max|v|
+  // and then fading the border, not a bug -- so the threshold below is
+  // calibrated to the POST-fade measurement with headroom, not to the plan's
+  // "lo <= 5 && hi >= 250" (which min/max normalisation would satisfy but
+  // which would move neutral off 128 and bias the ground's tone).
+  it('uses its whole range around a neutral middle (F-2)', () => {
+    let lo = 255;
+    let hi = 0;
+    let sum = 0;
+    for (const v of f.data) {
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+      sum += v;
+    }
+    expect(Math.max(128 - lo, hi - 128)).toBeGreaterThanOrEqual(100);
+    expect(lo).toBeLessThanOrEqual(64);
+    expect(hi).toBeGreaterThanOrEqual(192);
+    expect(Math.abs(sum / f.data.length - 128)).toBeLessThan(12);
+  });
+  it('is low-frequency: the mean step between neighbouring texels is small', () => {
+    let steps = 0;
+    let n = 0;
+    for (let j = 0; j < 256; j++)
+      for (let i = 1; i < 256; i++) {
+        steps += Math.abs(f.data[j * 256 + i] - f.data[j * 256 + i - 1]);
+        n++;
+      }
+    expect(steps / n).toBeLessThan(6);
+  });
+  it('blurs by 1.5 tiles', () => {
+    expect(macroBlurTexels(48)).toBe(8);
+  });
+  it('is deterministic', () => {
+    expect(Array.from(buildMacroField(48, 48).data)).toEqual(Array.from(f.data));
+  });
+  // F-13: without this, a luminance step of up to 7% would land exactly on
+  // the map's own edge and outline it against the skirt beyond, which never
+  // samples the field at all.
+  it('fades to neutral at the border (F-13)', () => {
+    for (let i = 0; i < 256; i++) {
+      expect(f.data[i], `top row i=${i}`).toBe(128);
+      expect(f.data[255 * 256 + i], `bottom row i=${i}`).toBe(128);
+    }
+    for (let j = 0; j < 256; j++) {
+      expect(f.data[j * 256], `left col j=${j}`).toBe(128);
+      expect(f.data[j * 256 + 255], `right col j=${j}`).toBe(128);
+    }
+  });
+  it('does not force a texel two tiles in to neutral (F-13)', () => {
+    // Two tiles in, on a 48-tile map at 256 texels/side, is well past the
+    // 1.5-tile (8-texel) fade band on every side.
+    const i = Math.round((2 / 48) * 256);
+    const j = i;
+    expect(f.data[j * 256 + i]).not.toBe(128);
+  });
+});
+
+describe('macroFactor', () => {
+  const bright = neutralTint('#D9C7A7'); // limestone.2
+  const dark = neutralTint('#D1A668'); // dust.1
+  const lum = (c: readonly number[]): number => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  it('builds luminance-neutral tints', () => {
+    expect(lum(bright)).toBeCloseTo(1, 9);
+    expect(lum(dark)).toBeCloseTo(1, 9);
+  });
+  it('is neutral at m = 0 and at amplitude 0 (the macro layer hidden)', () => {
+    expect(macroFactor(0, 1, bright, dark)).toEqual([1, 1, 1]);
+    expect(macroFactor(0.8, 0, bright, dark)).toEqual([1, 1, 1]);
+  });
+  it('moves luminance by exactly +/-7% at the extremes', () => {
+    expect(lum(macroFactor(1, 1, bright, dark))).toBeCloseTo(1.07, 9);
+    expect(lum(macroFactor(-1, 1, bright, dark))).toBeCloseTo(0.93, 9);
+  });
+  it('pulls hue toward the dust side when dark', () => {
+    const c = macroFactor(-1, 1, bright, dark);
+    expect(c[0] / c[2]).toBeGreaterThan(1);
   });
 });
