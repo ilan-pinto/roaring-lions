@@ -9,8 +9,12 @@ deformation of one rig. Three reasons, in order of weight:
 
   * It is deterministic and reviewable as code. A rig's pose is data in a .blend
     that nobody can diff; `figure(posture="kneeling")` is a line in a script.
-  * It drops `art/src/soldier_kolos.fbx`, whose licence is unverified -- one of
-    the three CONTRIBUTING.md violations the rig-contract spec recorded.
+  * It needs no rigged source model. The only one the project ever held,
+    `art/src/soldier_kolos.fbx` (KolosStudios, licence never verified -- one of
+    the three CONTRIBUTING.md violations the rig-contract spec recorded), was
+    never read by this file and was deleted from HEAD on 2026-09-25. Every
+    proportion below is a constant in this file (FIGURE_H and what derives from
+    it), so rebuilding infantry depends on no external model at all.
   * It is enough. ART_PIPELINE.md section 0 states that at 40-80 px model quality
     is nearly irrelevant, and the rig contract measured infantry at 25 px wide.
     Blocky is the correct budget at that size, not a compromise.
