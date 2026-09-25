@@ -65,3 +65,55 @@ export function trackForDigit(key: string, tracks: readonly string[]): string | 
   if (!/^[1-9]$/.test(key)) return null;
   return tracks[Number(key) - 1] ?? null;
 }
+
+/** What a Buy asked the store for (§3.5): a unit's own unlock, or one tier of
+ *  one of its tracks. `answer()` in `brigade.ts` holds it across the redraw
+ *  so it can ask `purchaseLanded` whether the account now says yes. */
+export type PurchaseAsk =
+  | { readonly kind: 'unit'; readonly unitId: string }
+  | { readonly kind: 'upgrade'; readonly unitId: string; readonly track: string; readonly tier: number };
+
+/** The two sounds a purchase makes (§3.5), one per kind of thing bought. */
+export type PurchaseCue = 'purchase' | 'upgrade';
+
+/** Each cue's manifest set, by name -- what Task 11 hands `playUi`. Two sets,
+ *  never one: a unit and a tier are different news. */
+export const CUE_SET: Readonly<Record<PurchaseCue, string>> = { purchase: 'ui_purchase', upgrade: 'ui_upgrade' };
+
+/** Spec §6's numbers. The stamp sits inside the wallet's 600 ms spend beat,
+ *  and the count (400) lands after the bars (300). */
+export const STAMP_MS = 240;
+export const BAR_GROW_MS = 300;
+export const WALLET_COUNT_MS = 400;
+
+/** Did the store actually do what was asked? Read off the ANSWER, never off
+ *  the click: a refusal answers too (off the true state), and a refusal must
+ *  neither sound nor stamp. An upgrade has landed when the account owns at
+ *  least the asked tier; a unit when the roster lists it bought. */
+export function purchaseLanded(
+  ask: PurchaseAsk,
+  next: {
+    readonly units: readonly { readonly id: string; readonly unlock?: { readonly bought?: boolean } }[];
+    readonly owned?: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  }
+): boolean {
+  if (ask.kind === 'upgrade') return (next.owned?.[ask.unitId]?.[ask.track] ?? 0) >= ask.tier;
+  return next.units.find((u) => u.id === ask.unitId)?.unlock?.bought === true;
+}
+
+export function cueFor(ask: PurchaseAsk): PurchaseCue {
+  return ask.kind === 'unit' ? 'purchase' : 'upgrade';
+}
+
+/** The wallet's figure `elapsedMs` into a `durMs` count from `from` to `to`:
+ *  an ease-out cubic (fast off the mark, settling onto the balance), in whole
+ *  credits, clamped to `from` before the window and to `to` after it. Because
+ *  it reads elapsed time rather than counting frames, a dropped frame costs a
+ *  step, never the landing -- the last frame always reads `to`. */
+export function countAt(from: number, to: number, elapsedMs: number, durMs: number): number {
+  if (durMs <= 0 || elapsedMs >= durMs) return to;
+  if (elapsedMs <= 0) return from;
+  const p = elapsedMs / durMs;
+  const eased = 1 - (1 - p) ** 3;
+  return Math.round(from + (to - from) * eased);
+}

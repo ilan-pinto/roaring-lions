@@ -42,11 +42,25 @@ import { PANEL_PATHS, statPanel, type StatPanel } from './garage-stats';
 import { t } from '../i18n/t';
 import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
-import { cardStatus, restoreFocus, retainSelection, rovingStep, trackForDigit } from './garage-model';
+import {
+  BAR_GROW_MS,
+  STAMP_MS,
+  WALLET_COUNT_MS,
+  cardStatus,
+  countAt,
+  cueFor,
+  purchaseLanded,
+  restoreFocus,
+  retainSelection,
+  rovingStep,
+  trackForDigit,
+  type PurchaseAsk,
+  type PurchaseCue,
+} from './garage-model';
 import { kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
-import { flash } from './motion';
+import { flash, prefersReducedMotion } from './motion';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
@@ -146,6 +160,14 @@ export interface BrigadeOptions {
    *  alongside `credits` -- both present or neither, the same rule the unit-unlock Buy
    *  control follows. */
   onBuyUpgrade?: (unitId: string, track: string, tier: number, price: number) => GarageState | void;
+  /** Sounded once per purchase the store actually made (§3.5) -- never on a
+   *  refusal, never on a reset. The screen names the cue; the caller owns the
+   *  audio (`CUE_SET` maps each to its manifest set). */
+  onCue?: (cue: PurchaseCue) => void;
+  /** Whether to drop the purchase's movement (the count steps, the bars jump).
+   *  Absent reads `motion.ts`'s `prefersReducedMotion()` -- the setting, then
+   *  the OS. A seam for tests, which have neither. */
+  reducedMotion?: () => boolean;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -160,6 +182,10 @@ const CARD_MARK = 22;
 /** And inside the bay's own reserved-plate hatch, which is the whole width of
  *  the bay rather than a chip. */
 const BAY_MARK = 72;
+
+/** Each stat row's base and kit bar widths, by `PANEL_PATHS` path -- what a
+ *  purchase's bars grow FROM (§3.5). */
+type BarWidths = Map<string, { fill: string; kit: string }>;
 
 /** The rail's tab order. `roleBucket`'s seven buckets (`ui/role.ts`) are what
  *  this codebase already has for "what kind of thing is this", and they are
@@ -301,11 +327,25 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   }
   renderWallet();
 
+  // The purchase event's own clocks (§3.5): every flash's timeout and the
+  // wallet count's frame, held here so the disposer can stop all of them.
+  // A timer that outlives the screen reaches a node nobody draws any more.
+  // Ids already fired stay in the set (a handful per purchase); clearing a
+  // spent timeout is a no-op, and pruning would cost a second timer apiece.
+  const timers: number[] = [];
+  let countRaf = 0;
+  /** `motion.ts`'s `flash`, with its timeout kept for the disposer. */
+  const pulse = (target: Element | null, className: string, ms: number): void => {
+    if (target instanceof HTMLElement) timers.push(flash(target, className, ms));
+  };
+  /** The setting, then the OS -- or the caller's own answer (tests). */
+  const reduced = (): boolean => opts.reducedMotion?.() ?? prefersReducedMotion();
+
   /** Spent: the wallet flashes on the click that asks for a purchase. The
    *  wallet node persists across the redraw that answers it, so the flash is
    *  seen through to its end. */
   const spend = (): void => {
-    if (wallet !== null) flash(wallet, 'rl-garage__wallet--spent', 600);
+    pulse(wallet, 'rl-garage__wallet--spent', 600);
   };
 
   // --- the roster, classified and ordered exactly as it always was ---------
@@ -749,7 +789,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         buy.addEventListener('click', () => {
           buy.disabled = true; // one purchase per render; the answer redraws
           spend();
-          answer(opts.onBuy?.(u.id, price), 'unit-buy');
+          answer(opts.onBuy?.(u.id, price), 'unit-buy', { kind: 'unit', unitId: u.id });
         });
         bay.appendChild(buy);
         if (credits < price) {
@@ -777,7 +817,12 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
                 credits: state.credits,
                 onBuy: (tier, price, asked) => {
                   spend();
-                  answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), asked);
+                  answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), asked, {
+                    kind: 'upgrade',
+                    unitId: u.id,
+                    track: trackName,
+                    tier,
+                  });
                 },
               }
             : undefined;
@@ -867,10 +912,26 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  2 closed that at the source instead of patching it here: `activeTrack`
    *  is SET-ONLY now (no `focusout`/`mouseleave` listener exists anywhere on
    *  the accordion to clear it), so it survives a purchase's redraw
-   *  unchanged and needs no re-assertion after the fact. */
-  function answer(next: GarageState | void, asked: string | null): void {
+   *  unchanged and needs no re-assertion after the fact.
+   *
+   *  `ask` is what a Buy asked for (a reset asks for nothing). When the answer
+   *  says the store did it, the purchase is an event (§3.5): `celebrate`
+   *  below. The figures it animates FROM are read here, before the redraw
+   *  replaces them. */
+  function answer(next: GarageState | void, asked: string | null, ask?: PurchaseAsk): void {
     if (next === undefined) return; // a caller that answers nothing: as before
     const scroll = { rail: cards.scrollTop, bay: bay.scrollTop, board: board.scrollTop };
+    // The figure ON SCREEN, not `state.credits`: a second purchase landing
+    // mid-count carries on down from where the eye is rather than jumping
+    // back up to the last true balance.
+    const shown = walletN !== null ? Number(walletN.textContent) : Number.NaN;
+    const fromCredits = Number.isFinite(shown) ? shown : state.credits;
+    const fromBars = barWidths();
+    // Whatever answers -- a refusal, a reset, or the next purchase -- the
+    // count in flight stops here: its target is the OLD answer, and it would
+    // otherwise keep writing over the figure `renderWallet` is about to set.
+    cancelAnimationFrame(countRaf);
+    countRaf = 0;
     state = next;
     rows = classify();
     selectedId = retainSelection(selectedId, rows.map((r) => r.u.id));
@@ -906,10 +967,118 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       restoreFocus(asked, keys.map((e) => e.dataset.focusKey ?? ''), selectedId) ??
       (asked !== null ? `tab:${bucket}` : null);
     keys.find((e) => e.dataset.focusKey === want)?.focus({ preventScroll: true });
+    if (ask !== undefined && purchaseLanded(ask, next)) celebrate(ask, fromCredits, fromBars);
+  }
+
+  /** Each stat row's base and kit widths, by path, as the panel draws them
+   *  now -- the "old" a purchase's bars grow from. */
+  function barWidths(): BarWidths {
+    const out = new Map<string, { fill: string; kit: string }>();
+    for (const row of bay.querySelectorAll<HTMLElement>('.rl-garage__stat[data-path]')) {
+      const fill = row.querySelector<HTMLElement>('.rl-garage__stat-fill');
+      const kit = row.querySelector<HTMLElement>('.rl-garage__stat-kit');
+      if (fill === null || kit === null) continue;
+      out.set(row.dataset.path ?? '', { fill: fill.style.width, kit: kit.style.width });
+    }
+    return out;
+  }
+
+  /** A purchase the store made, made to feel like one (§3.5): the cue, the
+   *  wallet counted down, the rung and its pip swept into the kit colour, the
+   *  plate's mark stamped (on EVERY purchase, level change or not), the bars
+   *  grown old -> new, and for a unit the plate's hatch lifted under an
+   *  ENLISTED stamp. Runs after the redraw, on the nodes it left behind.
+   *
+   *  Reduced motion: the count and the bars STEP -- they are movement and
+   *  nothing else. The stamps and the sweep still go on as classes, because
+   *  the sheet's own global reduced-motion rules (`theme.css`, both the media
+   *  query and `data-motion='reduce'`, the same two checks `reduced()` makes)
+   *  already collapse their durations to 1 ms, and what is left is the
+   *  colour, which reports. */
+  function celebrate(ask: PurchaseAsk, fromCredits: number | undefined, fromBars: BarWidths): void {
+    opts.onCue?.(cueFor(ask));
+    countWallet(fromCredits, state.credits);
+    pulse(bay.querySelector('.rl-garage__plate-kit'), 'rl-garage__plate-kit--stamp', STAMP_MS);
+    if (ask.kind === 'upgrade') {
+      const track = `[data-track="${ask.track}"]`;
+      const rung = board.querySelector(`.rl-garage__track${track} .rl-garage__rung[data-tier="${ask.tier}"]`);
+      pulse(rung, 'rl-garage__rung--stamp', STAMP_MS);
+      const pips = cardEls.get(ask.unitId)?.querySelectorAll(`.rl-kit-pips__col${track} .rl-kit-pips__pip`);
+      pulse(pips?.[ask.tier - 1] ?? null, 'rl-kit-pips__pip--new', STAMP_MS);
+    } else {
+      const plate = bay.querySelector('.rl-garage__plate');
+      if (plate instanceof HTMLElement) {
+        plate.appendChild(el('div', 'rl-garage__stamp', t('garage.plate.enlisted')));
+        pulse(plate, 'rl-garage__plate--enlisted', 900);
+      }
+    }
+    growBars(fromBars);
+  }
+
+  /** The bars, old -> new over `BAR_GROW_MS`. The width transition exists ONLY
+   *  under `rl-garage__stats--grow` (theme.css), so picking another unit --
+   *  which rebuilds the panel at its own widths -- never animates. Order is
+   *  the whole trick: old widths written and laid out first, THEN the class,
+   *  THEN the new widths, so the transition's start is the old figure. A
+   *  frame lost anywhere in the middle still ends on the new widths, which
+   *  are written here synchronously; the class coming off early only cuts
+   *  the tween short. */
+  function growBars(fromBars: BarWidths): void {
+    if (reduced() || panel === null) return;
+    const rows: { fill: HTMLElement; kit: HTMLElement; to: { fill: string; kit: string } }[] = [];
+    for (const row of panel.el.querySelectorAll<HTMLElement>('.rl-garage__stat[data-path]')) {
+      const from = fromBars.get(row.dataset.path ?? '');
+      const fill = row.querySelector<HTMLElement>('.rl-garage__stat-fill');
+      const kit = row.querySelector<HTMLElement>('.rl-garage__stat-kit');
+      if (from === undefined || fill === null || kit === null) continue;
+      rows.push({ fill, kit, to: { fill: fill.style.width, kit: kit.style.width } });
+      fill.style.width = from.fill;
+      kit.style.width = from.kit;
+    }
+    if (rows.length === 0) return;
+    void panel.el.offsetWidth;
+    pulse(panel.el, 'rl-garage__stats--grow', BAR_GROW_MS);
+    for (const r of rows) {
+      r.fill.style.width = r.to.fill;
+      r.kit.style.width = r.to.kit;
+    }
+  }
+
+  /** The wallet's figure from `from` down to `to` over `WALLET_COUNT_MS`.
+   *  `data-value` already holds the true balance (`renderWallet`), so only the
+   *  TEXT counts. The clock starts on the FIRST FRAME's own timestamp, never
+   *  `performance.now()` -- the two are not the same clock in a harness that
+   *  fakes one and not the other -- and `requestAnimationFrame` is the bare
+   *  global, looked up at call time: a reference captured at module load
+   *  would miss both a test's fake and a frame-loop freeze. */
+  function countWallet(from: number | undefined, to: number | undefined): void {
+    cancelAnimationFrame(countRaf);
+    countRaf = 0;
+    if (walletN === null || to === undefined) return;
+    const figure = walletN;
+    if (from === undefined || from === to || reduced()) {
+      figure.textContent = String(to);
+      return;
+    }
+    figure.textContent = String(from);
+    let start: number | null = null;
+    const step = (now: number): void => {
+      start ??= now;
+      const v = countAt(from, to, now - start, WALLET_COUNT_MS);
+      figure.textContent = String(v);
+      countRaf = v === to ? 0 : requestAnimationFrame(step);
+    };
+    countRaf = requestAnimationFrame(step);
   }
 
   host.appendChild(wrap);
-  return () => wrap.remove();
+  // Leaving mid-purchase stops the count's frame and every flash's timeout
+  // BEFORE the node goes, so nothing this screen started writes to it after.
+  return () => {
+    cancelAnimationFrame(countRaf);
+    for (const id of timers) window.clearTimeout(id);
+    wrap.remove();
+  };
 }
 
 /** The unit's own one-line description, when its JSON carries one.

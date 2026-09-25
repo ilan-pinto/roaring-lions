@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { cardStatus, restoreFocus, retainSelection, rovingStep, trackForDigit } from './garage-model';
+import {
+  CUE_SET,
+  cardStatus,
+  countAt,
+  cueFor,
+  purchaseLanded,
+  restoreFocus,
+  retainSelection,
+  rovingStep,
+  trackForDigit,
+} from './garage-model';
 
 describe('retainSelection', () => {
   it('keeps the unit in the bay while it is still on the roster', () => {
@@ -67,5 +77,45 @@ describe('cardStatus (R-11)', () => {
     expect(cardStatus({ locked: false, bought: true, maxed: true })).toBe('maxed');
     expect(cardStatus({ locked: false, bought: true, maxed: false })).toBe('bought');
     expect(cardStatus({ locked: false, bought: false, maxed: false })).toBe('earned');
+  });
+});
+
+describe('purchaseLanded', () => {
+  const units = [{ id: 'at_team' }, { id: 'mbt_lavi', unlock: { bought: true } }];
+  it('reads an upgrade as landed when the account holds the tier', () => {
+    const ask = { kind: 'upgrade', unitId: 'at_team', track: 'firepower', tier: 2 } as const;
+    expect(purchaseLanded(ask, { units, owned: { at_team: { firepower: 2 } } })).toBe(true);
+    expect(purchaseLanded(ask, { units, owned: { at_team: { firepower: 1 } } })).toBe(false);
+    expect(purchaseLanded(ask, { units })).toBe(false);
+  });
+  it('reads a unit as landed when the account lists it bought', () => {
+    expect(purchaseLanded({ kind: 'unit', unitId: 'mbt_lavi' }, { units })).toBe(true);
+    expect(purchaseLanded({ kind: 'unit', unitId: 'at_team' }, { units })).toBe(false);
+  });
+});
+
+describe('cueFor / CUE_SET', () => {
+  it('sounds a unit as a purchase and a tier as an upgrade, each its own set', () => {
+    expect(cueFor({ kind: 'unit', unitId: 'x' })).toBe('purchase');
+    expect(cueFor({ kind: 'upgrade', unitId: 'x', track: 'armour', tier: 1 })).toBe('upgrade');
+    expect(CUE_SET).toEqual({ purchase: 'ui_purchase', upgrade: 'ui_upgrade' });
+  });
+});
+
+describe('countAt', () => {
+  it('starts at from, lands exactly on to, and clamps outside the window', () => {
+    expect(countAt(2400, 2225, 0, 400)).toBe(2400);
+    expect(countAt(2400, 2225, 400, 400)).toBe(2225);
+    expect(countAt(2400, 2225, 9999, 400)).toBe(2225);
+    expect(countAt(2400, 2225, -5, 400)).toBe(2400);
+  });
+  it('counts down in whole credits, never overshooting', () => {
+    const seq = [0, 50, 100, 200, 300, 399].map((ms) => countAt(2400, 2225, ms, 400));
+    for (const v of seq) expect(Number.isInteger(v)).toBe(true);
+    for (let i = 1; i < seq.length; i++) expect(seq[i]).toBeLessThanOrEqual(seq[i - 1]);
+    expect(Math.min(...seq)).toBeGreaterThanOrEqual(2225);
+  });
+  it('is the answer at once for a zero duration', () => {
+    expect(countAt(10, 3, 0, 0)).toBe(3);
   });
 });

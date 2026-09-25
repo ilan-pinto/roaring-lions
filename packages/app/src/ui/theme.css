@@ -3807,6 +3807,22 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-kit-pips__pip[data-on='1'] {
   background: var(--kit);
 }
+/* The pip a purchase just filled (brigade.ts's `celebrate`, §3.5): one
+   beat of scale, 160% -> 100%, over the stamp's own 240 ms. Like every
+   garage purchase beat below, it needs no reduced-motion rule of its own --
+   the sheet's two global rules (the media query and `data-motion='reduce'`)
+   collapse it to 1 ms and the pip is simply on. */
+.rl-kit-pips__pip--new {
+  animation: rl-kit-pip-new 240ms var(--ease);
+}
+@keyframes rl-kit-pip-new {
+  from {
+    scale: 1.6;
+  }
+  to {
+    scale: 1;
+  }
+}
 .rl-kit-mark {
   color: var(--kit);
 }
@@ -4144,6 +4160,51 @@ button.rl-menu__item[data-kind='aside'] {
     var(--panel-frame) 0.75rem
   );
 }
+/* A unit just bought (§3.5): the plate's hatch LIFTS for the beat -- a veil
+   of the plate's own floor rises over the stripes until they read at 35%,
+   then settles, so "reserved" gives way to "enlisted" while the stamp lands.
+   A veil rather than the stripes' own opacity because the stripes are the
+   plate's background, which carries the role mark and the stamp on top of
+   it. The role mark is lifted above the veil for the same beat. */
+.rl-garage__plate--enlisted[data-noplate='1']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--tile-bg);
+  opacity: 0;
+  animation: rl-garage-lift 900ms var(--ease);
+}
+.rl-garage__plate--enlisted[data-noplate='1'] > svg {
+  position: relative;
+}
+@keyframes rl-garage-lift {
+  30%,
+  70% {
+    opacity: 0.65;
+  }
+}
+/* The ENLISTED stamp: a rubber stamp struck across the middle of the plate,
+   in the kit's steel, tilted further than the corner's Maxed so the two never
+   read as one register. `inset: 0` plus `margin: auto` centres it without a
+   transform, which leaves `transform` for the tilt and `scale` for the
+   stamp's own beat (`rl-garage-stamp`, below the kit mark). */
+.rl-garage__stamp {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: max-content;
+  height: max-content;
+  margin: auto;
+  padding: 0 var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-h2);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--kit);
+  border: 2px solid var(--kit);
+  transform: rotate(-6deg);
+  animation: rl-garage-stamp 240ms var(--ease);
+}
 /* The kit mark, pinned in the plate's own corner (`.rl-garage__plate` is the
    positioning context above): the bevelled bars-and-level badge
    (`kit-sign.ts`'s `kitSymbolSvg`) beside its own `Kit I`/`II`/`III` label.
@@ -4160,6 +4221,21 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__plate-kit svg {
   width: 3rem;
   height: 3rem;
+}
+/* Struck on every landed purchase (§3.5, and the controller's T10 ruling:
+   not only one that moves the level): 130% -> 100%, the same beat the
+   ENLISTED stamp above lands with. `scale`, not `transform`, so it composes
+   with the stamp's own tilt. */
+.rl-garage__plate-kit--stamp {
+  animation: rl-garage-stamp 240ms var(--ease);
+}
+@keyframes rl-garage-stamp {
+  from {
+    scale: 1.3;
+  }
+  to {
+    scale: 1;
+  }
 }
 .rl-garage__plate-kit-label {
   font-family: var(--font-display);
@@ -4438,6 +4514,14 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__stat-delta {
   background: var(--good);
 }
+/* A purchase grows the bars old -> new (§3.5). The transition lives ONLY
+   under this class, which brigade.ts's `growBars` holds for the 300 ms and no
+   longer: picking another unit rebuilds the panel at its own widths and must
+   never be seen sliding there. */
+.rl-garage__stats--grow .rl-garage__stat-fill,
+.rl-garage__stats--grow .rl-garage__stat-kit {
+  transition: width 300ms var(--ease);
+}
 .rl-garage__stat-n {
   font-family: var(--font-mono);
   color: var(--ink);
@@ -4481,6 +4565,19 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__rung[data-state='owned'] {
   border-left-color: var(--friendly);
   background: color-mix(in srgb, var(--friendly) 12%, transparent);
+}
+/* The rung a purchase just bought (§3.5) sweeps out of the kit's steel into
+   the owned tint above, 240 ms. Under reduced motion it is simply owned. */
+.rl-garage__rung--stamp {
+  animation: rl-garage-sweep 240ms var(--ease);
+}
+@keyframes rl-garage-sweep {
+  from {
+    background-color: var(--kit);
+  }
+  to {
+    background-color: color-mix(in srgb, var(--friendly) 12%, transparent);
+  }
 }
 /* A future rung is read-only speculation, several purchases away, and reads
    dimmer than the owned and next rungs either side of it -- its own head
