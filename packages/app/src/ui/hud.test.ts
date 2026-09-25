@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { units } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
+import type { KitSummary } from './kit-sign';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
 
@@ -2101,3 +2102,45 @@ function withFocusoutOnRemoval(body: () => void): void {
     Object.defineProperty(Element.prototype, 'innerHTML', real);
   }
 }
+
+describe('the single-unit card — kit (WP-S3g §3.4, D2)', () => {
+  const summary = (over: Partial<KitSummary> = {}): KitSummary => ({
+    level: 1,
+    maxed: false,
+    pips: [
+      { track: 'armour', owned: 2, length: 3 },
+      { track: 'sensors', owned: 1, length: 3 },
+      { track: 'firepower', owned: 0, length: 3 },
+    ],
+    hpKit: 750,
+    spent: 385,
+    total: 1655,
+    ...over,
+  });
+
+  it('draws all three tracks’ pips and the kit’s share of the hit points', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { kitOf: () => summary() }, world);
+    const card = r.host.querySelector('.rl-card');
+    expect(card?.querySelectorAll('.rl-card__kit .rl-kit-pips__col')).toHaveLength(3);
+    expect(card?.querySelector('.rl-card__hp')?.textContent).toMatch(/ · \+750 kit$/);
+  });
+
+  it('draws a fresh account’s card exactly as it did before', () => {
+    const a = makeForce();
+    const plain = clusterRig(() => [a.namer], {}, a).host.querySelector('.rl-card')?.innerHTML;
+    const b = makeForce();
+    const zero = clusterRig(() => [b.namer], { kitOf: () => summary({ level: 0, hpKit: 0, spent: 0 }) }, b).host.querySelector(
+      '.rl-card'
+    )?.innerHTML;
+    expect(zero).toBe(plain);
+  });
+
+  it('never marks a unit the player does not command', () => {
+    const world = makeForce();
+    const enemy = world.sim.spawn(world.sim.state.typeIdx[world.namer], 1, fx.from(6), fx.from(6));
+    const r = clusterRig(() => [enemy], { kitOf: () => summary() }, world);
+    expect(r.host.querySelector('.rl-card .rl-kit-pips')).toBeNull();
+    expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
+  });
+});

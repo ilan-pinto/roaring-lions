@@ -33,6 +33,7 @@ import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { escapeHtml } from './escape-html';
+import { kitPipsHtml, type KitSummary } from './kit-sign';
 import { flash, leave, titleCard } from './motion';
 import { LOGISTICS_GLYPH } from './glyphs';
 import { markSvg } from './mark';
@@ -212,6 +213,13 @@ export interface HudDeps {
    *  (the same lookup `units[type]?.name ?? type` the debrief uses) -- never a
    *  raw sim type id -- so `cardHtml`'s own fallback never has to resolve one. */
   predecessorOf?: (slot: number) => { name?: string; type: string } | undefined;
+  /** The kit a KDF type carried INTO this mission (WP-S3g §3.4, D2): three
+   *  tracks' pips and the hit points it bought, or null for a type with no
+   *  account behind it. Tiers are type-wide and fixed for the mission (brigade
+   *  D3), so `main.ts` reads them once at boot -- the account can change
+   *  between missions, and the card must show what the sim actually applied.
+   *  Only ever asked about side 0; absent in tests that do not exercise it. */
+  kitOf?: (typeId: string) => KitSummary | null;
   /** Narrow the selection to one chip's sub-group. */
   setSelection?: (ids: number[]) => void;
   /** Game speed as a multiplier: 0 paused, 1 normal, 2 double. The strip owns
@@ -1677,6 +1685,11 @@ export class Hud {
     const hpPct = hpMax > 0 ? Math.max(0, hpNow / hpMax) : 0;
     const vet = st.veterancy[id];
     const bucket = roleBucket(type);
+    // The kit (WP-S3g §3.4): side 0 only -- an enemy's kit is not the player's
+    // to read -- and a level-0 or absent summary adds NOTHING, so a fresh
+    // account's card, and every gated golden frame, draws byte-identical.
+    const kit = st.side[id] === 0 ? (this.deps.kitOf?.(type.id) ?? null) : null;
+    const kitted = kit !== null && kit.level !== 0;
 
     // Callsign and service record, from the campaign roster this unit was
     // drawn from -- both absent for a fresh spawn with no history.
@@ -1763,7 +1776,10 @@ export class Hud {
       callsign +
       `<span class="rl-card__name">${escapeHtml(type.name)}</span>` +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
-      `<span class="rl-card__hp rl-dim">${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}</span>` +
+      (kitted ? `<span class="rl-card__kit">${kitPipsHtml(kit.pips)}</span>` : '') +
+      `<span class="rl-card__hp rl-dim">${t('hud.card.hp', { now: hpNow.toFixed(0), max: hpMax.toFixed(0) })}` +
+      (kitted && kit.hpKit > 0 ? ` · ${t('hud.card.kit', { n: kit.hpKit })}` : '') +
+      `</span>` +
       `</div>` +
       record +
       replaces +
