@@ -46,13 +46,23 @@
 			}
 		}
 	],
-	// Per-request URL logs would carry the ?tester= label in plain text;
-	// invocation_logs stays off so a tester's name never lands in Cloudflare's
-	// log storage.
+	// Workers Logs and traces, full sampling, persisted. invocation_logs stays
+	// off. NOTE: redact_query_string is false, so a traced request URL keeps its
+	// query string -- including a ?tester= label -- in Cloudflare's storage.
 	"observability": {
 		"enabled": true,
+		"head_sampling_rate": 1,
+		"redact_query_string": false,
 		"logs": {
-			"invocation_logs": false
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"invocation_logs": false,
+			"persist": true
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"persist": true
 		}
 	}
 }
