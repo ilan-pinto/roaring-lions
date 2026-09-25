@@ -7,6 +7,19 @@ export function retainSelection(prev: string, ids: readonly string[]): string {
   return ids.includes(prev) ? prev : (ids[0] ?? '');
 }
 
+/** The rail card's status chip (R-11): Locked outranks everything a locked
+ *  unit might also read as (a bought-then-relocked D1 unit, say), and among
+ *  the available three, Maxed outranks Bought outranks Earned -- a unit
+ *  bought AND fully kitted reads as Maxed, not Bought. */
+export type CardStatus = 'locked' | 'maxed' | 'bought' | 'earned';
+
+export function cardStatus(s: { locked: boolean; bought: boolean; maxed: boolean }): CardStatus {
+  if (s.locked) return 'locked';
+  if (s.maxed) return 'maxed';
+  if (s.bought) return 'bought';
+  return 'earned';
+}
+
 /** Where focus goes after a re-render the control with key `asked` caused
  *  (R-4). A Buy's key names its TRACK, so the same key is the next tier's
  *  Buy; when that track is maxed, the track itself; when a unit Buy has done

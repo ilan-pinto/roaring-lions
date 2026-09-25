@@ -40,7 +40,8 @@ import { gateSentence, gateShort } from '../gate-sentence';
 import { t } from '../i18n/t';
 import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
-import { restoreFocus, retainSelection } from './garage-model';
+import { cardStatus, restoreFocus, retainSelection } from './garage-model';
+import { kitPipsHtml, kitSummary } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
 import { flash } from './motion';
@@ -417,6 +418,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       card.dataset.focusKey = `card:${u.id}`;
       card.setAttribute('role', 'option');
 
+      // Status and kit (WP-S3g T5, §3.1): the same `applyUpgrades`-ready merge
+      // the bay itself builds, so a card's Maxed reading can never disagree
+      // with what the board would show for the same unit.
+      const merged: UpgradableUnit = { ...opts.baseOf(u.id), id: u.id, upgrades: u.upgrades };
+      const kit = kitSummary(merged, ownedTiers(u, state.owned));
+      const status = cardStatus({ locked: row.locked, bought: u.unlock?.bought === true, maxed: kit.maxed });
+      card.dataset.status = status;
+      card.dataset.kit = String(kit.level);
+
       const src = opts.portrait?.(u.id) ?? null;
       if (src !== null) {
         const img = document.createElement('img');
@@ -451,11 +461,21 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         el(
           'div',
           'rl-garage__card-chip',
-          row.locked ? t('garage.chip.locked', { why: row.short }) : t('garage.chip.owned')
+          row.locked ? t('garage.chip.locked', { why: row.short }) : t(`garage.chip.${status}`)
         )
       );
       if (row.locked) card.title = row.reason;
       card.appendChild(text);
+
+      // The kit, drawn only for a type that HAS tracks -- a card with none
+      // carries no pip column at all rather than three empty ones, and
+      // `data-kit="0"` (set above regardless) is what a type-with-no-tracks
+      // reads as.
+      if (u.upgrades !== undefined && Object.keys(u.upgrades).length > 0) {
+        const pips = el('span', 'rl-garage__card-kit');
+        pips.innerHTML = kitPipsHtml(kit.pips);
+        card.appendChild(pips);
+      }
 
       card.addEventListener('click', () => {
         selectedId = u.id;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { restoreFocus, retainSelection } from './garage-model';
+import { cardStatus, restoreFocus, retainSelection } from './garage-model';
 
 describe('retainSelection', () => {
   it('keeps the unit in the bay while it is still on the roster', () => {
@@ -29,5 +29,16 @@ describe('restoreFocus', () => {
   it('asks for nothing when nothing asked, or nothing is left', () => {
     expect(restoreFocus(null, keys, 'inf_squad')).toBeNull();
     expect(restoreFocus('buy:armour', [], 'inf_squad')).toBeNull();
+  });
+});
+
+describe('cardStatus (R-11)', () => {
+  it('reads Locked before anything a locked unit might also be', () => {
+    expect(cardStatus({ locked: true, bought: false, maxed: true })).toBe('locked');
+  });
+  it('reads Maxed over Bought over Earned', () => {
+    expect(cardStatus({ locked: false, bought: true, maxed: true })).toBe('maxed');
+    expect(cardStatus({ locked: false, bought: true, maxed: false })).toBe('bought');
+    expect(cardStatus({ locked: false, bought: false, maxed: false })).toBe('earned');
   });
 });
