@@ -1,5 +1,5 @@
 // The stat panel: one reading of a unit's numbers -- base, kit and (while a
-// rung is hovered) preview -- that Task 6b wires into the bay.
+// rung is hovered) preview -- that the bay draws under the unit's name (T6b).
 //
 // This module owns the arithmetic and the DOM for that one panel. It is
 // split out of `brigade.ts` (WP-S3g Task 6) so the pure half -- `previewDeltas`
@@ -22,8 +22,8 @@ import { asPercent, benefitLabel, type BenefitUnitKind } from './upgrade-benefit
 
 /** The six stats the bay's panel reads, in the order it draws them. Paths, not
  *  field names, because these are the SAME whitelist paths a tier's patch
- *  names. Moved here from `brigade.ts` (WP-S3g T6); a duplicate copy stays
- *  there until Task 6b deletes it. */
+ *  names. Moved here from `brigade.ts` (WP-S3g T6); this is the only copy --
+ *  `brigade.ts` imports it for the roster maxima the bars scale against. */
 export const PANEL_PATHS: readonly string[] = [
   'hull.hp',
   'hull.armor.front',

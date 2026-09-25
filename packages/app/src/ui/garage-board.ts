@@ -114,12 +114,13 @@ export interface TrackDeps {
     readonly credits: number;
     readonly onBuy: (tier: number, price: number, asked: string) => void;
   };
-  /** F7: the unit is not in the brigade yet, so this track is read-only
-   *  speculation rather than a decision. Every tier reads as if nothing were
-   *  owned -- tier 1 is `next`, expanded with its price and benefits, exactly
-   *  as an unbought track always draws -- but where a Buy would sit on that
-   *  rung, `.rl-garage__track-lock` says "Unlock first" instead. No Buy is
-   *  ever drawn while this is true, even if `buy` is also supplied. */
+  /** F7: the unit is not in the brigade -- never unlocked, or re-locked by a
+   *  gate it no longer clears -- so this track is read-only. Tiers it owns
+   *  draw as owned all the same (M3, ruling L2: kept, dormant), and the next
+   *  rung is expanded with its price and benefits exactly as an open track
+   *  draws it; but where its Buy would sit, `.rl-garage__track-lock` says
+   *  "Unlock first" instead. No Buy is ever drawn while this is true, even
+   *  if `buy` is also supplied. */
   readonly locked?: boolean;
   readonly preview: (d: ReadonlyMap<string, number> | null) => void;
   /** The accordion's own one signal (fix round 2, issue 2): this track was
@@ -154,13 +155,15 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   const translated = t(trackKey);
   const trackLabel = translated === trackKey ? humanised : translated;
 
-  // F7: a locked unit owns nothing on this track no matter what the account
-  // says -- it is not in the brigade yet, so `deps.owned` (whatever a stray
-  // account entry might carry) is never the number this draws from.
+  // F7: a locked unit is read-only -- no Buy anywhere on its board. What it
+  // OWNS is still drawn (M3, lead ruling L2): a unit that re-locks (a Conduct
+  // gate after a bad mission) keeps the tiers it bought, dormant, and the
+  // sim's `applyUpgrades` pre-pass applies them regardless of the gate. The
+  // board used to read every tier as unbought here, beside rail pips, a kit
+  // mark and a kit total that all read the account and said otherwise.
   const locked = deps.locked === true;
-  const effectiveOwned = locked ? 0 : deps.owned;
 
-  const summary = trackSummary(track, effectiveOwned);
+  const summary = trackSummary(track, deps.owned);
 
   const trackWrap = el('div', 'rl-garage__track');
   trackWrap.dataset.track = trackName;
@@ -170,16 +173,30 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   trackWrap.dataset.state = summary.next === null ? 'maxed' : 'active';
 
   // --- the head: glyph, name, pips, tier, spend -----------------------------
-  // The focus key lives HERE now, not on the track container the way Task 3
-  // left it (a controller ruling on this task): a key that could sit on
-  // either of two elements is a key `restoreFocus` could find on the wrong
-  // one, and the container itself carries no `tabIndex` to receive it any
-  // more.
-  const head = el('div', 'rl-garage__track-head');
+  // The focus key lives HERE, not on the track container the way Task 3 left
+  // it (a controller ruling on T7): a key that could sit on either of two
+  // elements is a key `restoreFocus` could find on the wrong one.
+  //
+  // A real `<button>` (final review I1), inside the track's own heading --
+  // the disclosure pattern: `aria-expanded` says whether its ladder is open
+  // (`brigade.ts`'s `applyExpansion` keeps it true to `data-expanded`),
+  // `aria-controls` names the ladder, and Enter or Space opens it natively,
+  // through the click below. The accordion (T9) made a collapsed ladder
+  // `display: none`, and with the head a `tabIndex = -1` div a keyboard
+  // player had NO route into another track but the digit keys, which
+  // nothing on screen mentions. Its children are spans, since a button holds
+  // phrasing content only.
+  const heading = el('h3', 'rl-garage__track-heading');
+  const head = document.createElement('button');
+  head.type = 'button';
+  head.className = 'rl-garage__track-head';
   head.dataset.focusKey = `track:${trackName}`;
-  head.tabIndex = -1;
+  const ladderId = `rl-garage-rungs-${deps.unitId}-${trackName}`;
+  head.setAttribute('aria-controls', ladderId);
+  head.setAttribute('aria-expanded', 'false');
+  heading.appendChild(head);
 
-  const glyph = el('div', 'rl-garage__track-glyph');
+  const glyph = el('span', 'rl-garage__track-glyph');
   // A kit track (armour/sensors/firepower) draws its own symbol
   // (`kit-sign.ts`); anything else -- a content author's own track, the
   // underscored `fire_control` fixture's case -- draws the reserved hatch
@@ -188,8 +205,8 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   if (isKitTrack(trackName)) glyph.innerHTML = kitSymbolSvg(trackName, 40);
   head.appendChild(glyph);
 
-  const headLine = el('div', 'rl-garage__track-line');
-  headLine.appendChild(el('h3', 'rl-garage__track-name', trackLabel));
+  const headLine = el('span', 'rl-garage__track-line');
+  headLine.appendChild(el('span', 'rl-garage__track-name', trackLabel));
   const pips = el('span', 'rl-garage__track-pips');
   for (let i = 0; i < summary.length; i++) {
     const pip = document.createElement('i');
@@ -204,20 +221,21 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
 
   head.appendChild(
     el(
-      'div',
+      'span',
       'rl-garage__track-spend',
       summary.next === null
         ? t('garage.track.spentMaxed', { spent: summary.spent })
         : t('garage.track.spent', { spent: summary.spent, toMax: summary.toMax })
     )
   );
-  trackWrap.appendChild(head);
+  trackWrap.appendChild(heading);
 
   // --- the ladder ------------------------------------------------------------
   const ladder = el('div', 'rl-garage__rungs');
+  ladder.id = ladderId;
   for (let tier = track.tiers.length; tier >= 1; tier--) {
-    const state = rungState(tier, effectiveOwned);
-    const owned = tier <= effectiveOwned;
+    const state = rungState(tier, deps.owned);
+    const owned = tier <= deps.owned;
 
     const rung = el('div', 'rl-garage__rung');
     rung.dataset.tier = String(tier);
@@ -250,8 +268,8 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
         rung.appendChild(el('div', 'rl-garage__track-lock', t('garage.locked.unlockFirst')));
       } else if (deps.buy) {
         const { credits, onBuy } = deps.buy;
-        const price = nextTierPrice(deps.unit, trackName, effectiveOwned);
-        // `tier === effectiveOwned + 1 <= track.tiers.length` here by
+        const price = nextTierPrice(deps.unit, trackName, deps.owned);
+        // `tier === deps.owned + 1 <= track.tiers.length` here by
         // construction, so `nextTierPrice` disagreeing about the track's own
         // length would be a programming error, not data to fall through
         // silently for.
@@ -292,7 +310,7 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
     // rung previews nothing (F5) -- never `previewDeltas` on it, which would
     // read as a re-buy.
     const on = (): void =>
-      deps.preview(state === 'owned' ? null : previewDeltas(deps.unit, trackName, effectiveOwned, tier));
+      deps.preview(state === 'owned' ? null : previewDeltas(deps.unit, trackName, deps.owned, tier));
     const off = (): void => deps.preview(null);
     rung.addEventListener('mouseenter', on);
     rung.addEventListener('mouseleave', off);
@@ -329,7 +347,11 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   //     the last track pointed at stays open through anything short of
   //     pointing at a different one, so there is nothing for a "leaving"
   //     event to usefully do.
+  //   - `click` on the head (I1) is the keyboard's own way in -- Enter and
+  //     Space activate a button natively -- and a mouse click on a head the
+  //     cursor has already opened by entering it changes nothing.
   head.addEventListener('mouseenter', () => deps.onActivate?.());
+  head.addEventListener('click', () => deps.onActivate?.());
   trackWrap.addEventListener('focusin', () => deps.onActivate?.());
 
   return trackWrap;

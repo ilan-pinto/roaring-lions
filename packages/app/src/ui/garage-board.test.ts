@@ -67,6 +67,20 @@ describe('trackEl', () => {
     expect(el.querySelector('.rl-garage__track-head')?.getAttribute('data-focus-key')).toBe('track:armour');
   });
 
+  // I1: the head is the track's own Tab stop and its disclosure control.
+  it('makes the head a button that controls the ladder and asks to open it (I1)', () => {
+    let asked = 0;
+    const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ onActivate: () => void (asked += 1) }));
+    const head = el.querySelector<HTMLButtonElement>('.rl-garage__track-head');
+    expect(head?.tagName).toBe('BUTTON');
+    expect(head?.type).toBe('button');
+    expect(head?.tabIndex).toBe(0);
+    expect(head?.getAttribute('aria-controls')).toBe(el.querySelector('.rl-garage__rungs')?.id);
+    expect(head?.getAttribute('aria-controls')).toBe('rl-garage-rungs-mbt_lavi-armour');
+    head?.click();
+    expect(asked).toBe(1);
+  });
+
   it('expands only the next rung: price, benefits, Buy; the rest are one line with their lines a hover away', () => {
     const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ buy: { credits: 5000, onBuy: () => {} } }));
     expect([...el.querySelectorAll('.rl-garage__rung')].map((r) => [r.getAttribute('data-tier'), r.getAttribute('data-state')])).toEqual([
@@ -134,13 +148,17 @@ describe('trackEl — locked (F7)', () => {
     expect(el.querySelector('.rl-garage__track-max')).toBeNull();
   });
 
-  // A stray account entry must never leak through: `owned` here is nonzero,
-  // but this unit is not in the brigade, so the track still reads as if
-  // nothing were owned.
-  it('ignores a nonzero `owned` while locked', () => {
-    const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ owned: 2, locked: true }));
-    const first = el.querySelector('.rl-garage__rung[data-tier="1"]');
-    expect(first?.getAttribute('data-state')).toBe('next');
-    expect(el.querySelector('.rl-garage__rung[data-owned="1"]')).toBeNull();
+  // M3, lead ruling L2: a unit that RE-locks (a Conduct gate after a bad
+  // mission) keeps what it bought, dormant -- the sim's pre-pass applies the
+  // tiers regardless of the gate. The board draws them owned, read-only; only
+  // the Buy is withheld. It used to read every tier as unbought.
+  it('draws the tiers a re-locked unit still owns, and withholds only the Buy (M3)', () => {
+    const el = trackEl('armour', track('mbt_lavi', 'armour'), deps({ owned: 2, locked: true, buy: { credits: 5000, onBuy: () => {} } }));
+    expect(el.querySelectorAll('.rl-garage__rung[data-owned="1"]')).toHaveLength(2);
+    expect(el.querySelector('.rl-garage__rung[data-tier="3"]')?.getAttribute('data-state')).toBe('next');
+    expect(el.querySelector('.rl-garage__rung[data-tier="3"] .rl-garage__track-lock')?.textContent).toBe('Unlock first');
+    expect(el.querySelectorAll('.rl-garage__track-pips [data-on="1"]')).toHaveLength(2);
+    expect(el.querySelector('.rl-garage__track-tier')?.textContent).toBe('tier 2 of 3');
+    expect(el.querySelector('.rl-garage__buy-tier')).toBeNull();
   });
 });
