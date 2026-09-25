@@ -97,7 +97,7 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     groundTextureUrl: `${base}textures/${TERRAIN_GROUND_TEXTURE[map.terrain]}.jpg`,
     // Each of the four below is one surface, one image, and one independent
     // failure: a ridge that loses its texture is still a ridge. The road has
-    // no image of its own any more (#226): it is drawn procedurally from
+    // no image of its own any more (GH-226): it is drawn procedurally from
     // control texture B's distance field, tone and grain both, and no
     // longer asks for `roadTextureUrl` at all.
     rockTextureUrl: `${base}textures/rock_ground_tile.jpg`,
