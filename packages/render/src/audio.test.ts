@@ -4,7 +4,7 @@
 // gesture listeners on `window`, and the AudioContext this file stands in for
 // is only ever built from inside one of them.
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BattleAudio, busGain, musicVolume, uiSetGain } from './audio';
 
 describe('audio gains', () => {
@@ -37,6 +37,8 @@ class FakeContext {
   static made: FakeContext[] = [];
   readonly oscillators: unknown[] = [];
   readonly sources: unknown[] = [];
+  /** Every oscillator's `stop(t)` time, in context seconds. */
+  readonly stops: number[] = [];
   state = 'running';
   currentTime = 0;
   destination = {};
@@ -47,12 +49,13 @@ class FakeContext {
     return { gain: { value: 0, setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} }, connect: (n: unknown) => n };
   }
   createOscillator(): unknown {
+    const stops = this.stops;
     const o = {
       type: '',
       frequency: { value: 0, setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
       connect: (n: unknown) => n,
       start: () => {},
-      stop: () => {},
+      stop: (t: number) => void stops.push(t),
     };
     this.oscillators.push(o);
     return o;
@@ -122,5 +125,73 @@ describe('playUi', () => {
     expect(audio.toggle()).toBe(false);
     audio.playUi('ui_alert');
     expect(ctx.oscillators.length).toBeGreaterThan(0);
+  });
+});
+
+describe('playUi — the garage’s two cues (WP-S3g §3.5, R-2)', () => {
+  const freqs = (ctx: FakeContext): number[] =>
+    ctx.oscillators.map((o) => (o as { frequency: { value: number } }).frequency.value);
+
+  it('a purchase rises, where an alert falls', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attached();
+      audio.playUi('ui_purchase');
+      vi.advanceTimersByTime(250);
+      const up = freqs(ctx);
+      expect(up).toHaveLength(2);
+      expect(up[1]).toBeGreaterThan(up[0]);
+      ctx.oscillators.length = 0;
+      audio.playUi('ui_alert');
+      vi.advanceTimersByTime(250);
+      const down = freqs(ctx);
+      expect(down[1]).toBeLessThan(down[0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an upgrade ratchets, then lands on a note above the purchase’s', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attached();
+      audio.playUi('ui_upgrade');
+      vi.advanceTimersByTime(250);
+      const f = freqs(ctx);
+      expect(f.length).toBeGreaterThanOrEqual(3);
+      expect(f[f.length - 1]).toBeGreaterThan(294);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('both finish inside 250 ms (spec §6)', () => {
+    vi.useFakeTimers();
+    try {
+      for (const set of ['ui_purchase', 'ui_upgrade']) {
+        const { audio, ctx } = attached();
+        audio.playUi(set);
+        vi.advanceTimersByTime(100); // every voice has started by 100 ms...
+        const started = ctx.oscillators.length;
+        vi.advanceTimersByTime(400);
+        expect(ctx.oscillators.length).toBe(started);
+        for (const s of ctx.stops) expect(s).toBeLessThanOrEqual(0.15); // ...and none rings past 150 ms more
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an unknown name still falls -- the one meaning a garage cue must never borrow', () => {
+    vi.useFakeTimers();
+    try {
+      const { audio, ctx } = attached();
+      audio.playUi('ui_nope');
+      vi.advanceTimersByTime(250);
+      const f = freqs(ctx);
+      expect(f[1]).toBeLessThan(f[0]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
