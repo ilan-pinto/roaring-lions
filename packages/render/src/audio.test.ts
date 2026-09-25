@@ -5,7 +5,7 @@
 // is only ever built from inside one of them.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BattleAudio, busGain, musicVolume, uiSetGain } from './audio';
+import { BattleAudio, busGain, decodeOrder, musicVolume, uiSetGain, type AudioSet } from './audio';
 
 describe('audio gains', () => {
   it('music is the manifest gain times the track gain times the user master and music', () => {
@@ -193,5 +193,30 @@ describe('playUi — the garage’s two cues (WP-S3g §3.5, R-2)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// The garage uplift's parked item (c), as the final review re-scoped it: the
+// UI clips decode FIRST. A garage's first Buy is often the session's first
+// gesture, which is what builds the context and starts decoding; with the
+// battle library ahead of them in manifest order, the purchase cue fell back
+// to its synth arm for the whole of that decode. Building a context at mount
+// to decode early is not the answer -- that is a context before a gesture,
+// which `ui:routes` asserts never happens.
+describe('decodeOrder', () => {
+  const set = (event: string): AudioSet => ({ event });
+  it('puts every ui set ahead of the battle sets, each group in manifest order', () => {
+    const order = decodeOrder({
+      rifle: set('fire'),
+      ui_alert: set('ui'),
+      cannon: set('fire'),
+      destroyed: set('destroyed'),
+      ui_purchase: set('ui'),
+      ui_upgrade: set('ui'),
+    }).map(([name]) => name);
+    expect(order).toEqual(['ui_alert', 'ui_purchase', 'ui_upgrade', 'rifle', 'cannon', 'destroyed']);
+  });
+  it('reads an absent manifest section as nothing to decode', () => {
+    expect(decodeOrder(undefined)).toEqual([]);
   });
 });

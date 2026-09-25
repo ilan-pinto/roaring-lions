@@ -56,6 +56,25 @@ export interface AudioManifest {
   sets?: Record<string, AudioSet>;
 }
 
+/**
+ * The order `decodeAll` fetches and decodes a manifest's sets in: every `ui`
+ * set first, then the rest, each group in manifest order.
+ *
+ * The garage uplift's parked item (c), as its final review re-scoped it. A
+ * session's first gesture is what builds the AudioContext and starts
+ * decoding, and on the garage that gesture is often the first Buy -- so with
+ * thirty-odd battle clips ahead of them in manifest order, the purchase and
+ * upgrade cues played their synth arms for as long as that decode took. They
+ * are a few kilobytes and a screen can be waiting on them; the battle
+ * library cannot be heard before a mission starts anyway. Building a context
+ * at mount to decode sooner was rejected: that is a context before a gesture,
+ * which is exactly what `ui:routes`' constructor count forbids.
+ */
+export function decodeOrder(sets: Record<string, AudioSet> | undefined): [string, AudioSet][] {
+  const all = Object.entries(sets ?? {});
+  return [...all.filter(([, s]) => s.event === 'ui'), ...all.filter(([, s]) => s.event !== 'ui')];
+}
+
 /** The three user-facing levels the settings screen drives, each 0..1. */
 export interface AudioGains {
   master: number;
@@ -284,7 +303,7 @@ export class BattleAudio {
     const ctx = this.ctx;
     const man = this.manifest;
     if (!ctx || !man) return;
-    for (const [name, spec] of Object.entries(man.sets ?? {})) {
+    for (const [name, spec] of decodeOrder(man.sets)) {
       const variants = spec.variants ?? [];
       if (variants.length === 0) continue;
       const buffers: AudioBuffer[] = [];
