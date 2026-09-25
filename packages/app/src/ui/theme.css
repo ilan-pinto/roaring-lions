@@ -5012,8 +5012,18 @@ button.rl-menu__item[data-kind='aside'] {
   gap: var(--s1);
   color: var(--ink);
 }
-.rl-credits__libs a {
+.rl-credits__libs a,
+.rl-credits__asset a {
   color: var(--ink);
+}
+.rl-credits__asset p {
+  margin: 0;
+}
+.rl-credits__uri {
+  font-family: var(--font-mono);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+  overflow-wrap: anywhere;
 }
 /* A font's disclosure widget -- the OFL body is fetched lazily (credits.ts)
    and lands in here the first time it is opened. */

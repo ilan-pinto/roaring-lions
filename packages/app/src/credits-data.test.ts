@@ -51,6 +51,20 @@ describe('CREDITS', () => {
     const families = files.filter((f) => f.endsWith('.woff2')).map((f) => f.split('-')[0]);
     for (const fam of new Set(families)) expect(CREDITS.fonts.some((f) => f.licenceFile.toLowerCase().includes(fam.replace(/[^a-z]/gi, '').toLowerCase().slice(0, 5))), `${fam} has no credit`).toBe(true);
   });
+  it("carries each CC BY work's title, author and URIs verbatim from the licensor's own page", () => {
+    // Only one attributed work ships (the Namer sheets). Its licence page is
+    // committed beside where its source would sit; the credit must not drift
+    // from it, since a CC BY credit that misnames the work is no credit.
+    const page = readFileSync(`${ROOT}art/src/ifv_dmm08_LICENSE.html`, 'utf8');
+    const namer = CREDITS.assets.find((a) => a.source === 'BlendSwap #75225');
+    expect(namer).toBeDefined();
+    expect(page).toContain(`${namer?.title} by ${namer?.author}`);
+    expect(page).toContain(`href="${namer?.sourceUrl}"`);
+    expect(page).toContain('href="http://creativecommons.org/licenses/by/3.0"');
+    expect(namer?.licenceUrl).toBe('https://creativecommons.org/licenses/by/3.0/');
+    const en = JSON.parse(readFileSync(`${ROOT}packages/app/src/i18n/en.json`, 'utf8')) as Record<string, string>;
+    for (const a of CREDITS.assets) expect(en[a.useKey], a.useKey).toBeTruthy();
+  });
   it('states the licences the repository states', () => {
     const licence = readFileSync(`${ROOT}LICENSE`, 'utf8');
     expect(licence.startsWith('# PolyForm Noncommercial License 1.0.0')).toBe(true);

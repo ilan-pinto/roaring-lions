@@ -27,6 +27,25 @@ describe('showCredits', () => {
     expect(text).toContain(`Build ${'0.68.0-test'}`);
   });
 
+  it('gives each CC BY work its title, author, source URI, licence URI and use', () => {
+    const stage = document.createElement('div');
+    showCredits(stage, deps());
+    const items = [...stage.querySelectorAll('.rl-credits__asset')];
+    expect(items.length).toBe(CREDITS.assets.length);
+    CREDITS.assets.forEach((a, i) => {
+      const li = items[i]!;
+      const text = li.textContent ?? '';
+      expect(text).toContain(`“${a.title}”`);
+      expect(text).toContain(a.author);
+      expect(text).toContain(a.licence);
+      expect(text).not.toContain(a.useKey);
+      // The URIs are printed as link TEXT, not hidden behind a label.
+      const hrefs = [...li.querySelectorAll('a')].map((el) => [el.getAttribute('href'), el.textContent]);
+      expect(hrefs).toContainEqual([a.sourceUrl, a.sourceUrl]);
+      expect(hrefs).toContainEqual([a.licenceUrl, a.licenceUrl]);
+    });
+  });
+
   it('names every font and the licence, unresolved until its details is opened', () => {
     const stage = document.createElement('div');
     const fetchText = vi.fn().mockResolvedValue('licence body text');

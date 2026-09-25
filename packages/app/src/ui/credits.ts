@@ -113,9 +113,35 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
   const art = section(p.body, t('credits.artAndModels'));
   const assets = document.createElement('ul');
   assets.className = 'rl-credits__assets';
+  // Every URI is printed as its own link text, not hidden behind a label: a
+  // CC BY credit has to carry the URI itself, and a player reading this
+  // screen in a build where links do not open should still be able to copy it.
+  const link = (href: string): HTMLAnchorElement => {
+    const el = document.createElement('a');
+    el.href = href;
+    el.target = '_blank';
+    el.rel = 'noopener noreferrer';
+    el.textContent = href;
+    return el;
+  };
   for (const a of CREDITS.assets) {
     const li = document.createElement('li');
-    li.textContent = `${a.what} — ${a.author}, ${a.licence} (${a.source})`;
+    li.className = 'rl-credits__asset';
+    const line = document.createElement('p');
+    line.textContent = t('credits.asset.line', {
+      title: a.title,
+      author: a.author,
+      source: a.source,
+      licence: a.licence,
+      use: t(a.useKey),
+    });
+    const src = document.createElement('p');
+    src.className = 'rl-credits__uri';
+    src.append(document.createTextNode(t('credits.asset.sourceLabel')), link(a.sourceUrl));
+    const lic = document.createElement('p');
+    lic.className = 'rl-credits__uri';
+    lic.append(document.createTextNode(t('credits.asset.licenceLabel')), link(a.licenceUrl));
+    li.append(line, src, lic);
     assets.appendChild(li);
   }
   art.appendChild(assets);
