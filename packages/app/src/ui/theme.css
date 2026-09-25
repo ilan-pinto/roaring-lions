@@ -2266,8 +2266,29 @@ body {
   white-space: nowrap;
 }
 /* The kit (WP-S3g §3.4, D2): three tracks' pips beside the veterancy stars --
-   bought, per type, in steel, where the stars are earned, per unit, in gold. */
-.rl-card__kit { display: inline-flex; margin-left: var(--s1); vertical-align: middle; }
+   bought, per type, in steel, where the stars are earned, per unit, in gold.
+   Sized to fit INSIDE the top line rather than stretch it (the final review's
+   parked item (d)): the garage's pip is a content-box 0.375rem square plus a
+   hairline border each side, so a three-tier column stood 31 pixels tall
+   against a 25-pixel line and a kitted card sat 16.7 pixels taller than the
+   same unit's card without kit (measured: 162 vs 145.3 at 1920x1080),
+   jumping as the selection moved between types. Border-box pips at 0.3125rem
+   with a hairline gap make the column 17 pixels, centred on the line; the
+   card is the same height either way (`ui:routes` measures it). Scoped to
+   the card -- the garage's own pips are unchanged. */
+.rl-card__kit { display: inline-flex; align-self: center; margin-left: var(--s1); }
+.rl-card__kit .rl-kit-pips,
+.rl-card__kit .rl-kit-pips__col {
+  gap: 1px; /* px-ok */
+}
+.rl-card__kit .rl-kit-pips__col {
+  min-width: 0.3125rem;
+}
+.rl-card__kit .rl-kit-pips__pip {
+  box-sizing: border-box;
+  width: 0.3125rem;
+  height: 0.3125rem;
+}
 .rl-card .rl-track {
   margin: 3px 0;
 }

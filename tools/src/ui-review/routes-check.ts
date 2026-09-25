@@ -1448,6 +1448,48 @@ try {
     await tabCtx.close();
   }
 
+  // --- the HUD card does not jump for kit (final review, parked item (d)) --
+  //
+  // The kit pips sat in the card's top line at the garage's own size: a
+  // content-box 0.375rem square plus a 1px border each side, so a three-tier
+  // column stood taller than the line and a kitted card measured 16.7px
+  // taller than the same unit's card without kit (162 vs 145.3 at
+  // 1920x1080, before the fix) -- the card jumped as the selection moved
+  // between a kitted type and an unkitted one. Same unit type, same map, two
+  // accounts: the seed (inf_squad armour 2, sensors 1) and a fresh one. The
+  // heights must be EQUAL, not merely close.
+  const CARD_SELECT =
+    '(() => { var L = window.__lions; if (!L) return false;' +
+    ' var u = L.units().find(function (x) { return x.type === "inf_squad"; });' +
+    ' if (!u) return false; L.sel([u.id]); return true; })()';
+  const CARD_READ =
+    '(() => { var c = document.querySelector(".rl-card");' +
+    ' return { card: c ? c.getBoundingClientRect().height : null, kit: document.querySelector(".rl-card__kit") !== null }; })()';
+  const cardHeights: { card: number | null; kit: boolean }[] = [];
+  for (const seeded of [false, true]) {
+    const cardCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    if (seeded) await cardCtx.addInitScript(garageSeedScript());
+    const c = await cardCtx.newPage();
+    c.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    c.on('pageerror', (err) => errors.push(String(err)));
+    await c.goto(`http://localhost:${PORT}/free-play/beit_sahwan_outskirts`, { waitUntil: 'load' });
+    await c.waitForFunction('window.__lions !== undefined', null, { timeout: 90_000 });
+    expect(await c.evaluate<boolean>(CARD_SELECT), 'HUD card: the sandbox force has no inf_squad to select');
+    await c.waitForSelector('.rl-card');
+    await c.waitForTimeout(300);
+    cardHeights.push(await c.evaluate<{ card: number | null; kit: boolean }>(CARD_READ));
+    await cardCtx.close();
+  }
+  console.log(`[${TAG}] HUD card height, no kit vs kitted: ${JSON.stringify(cardHeights)}`);
+  expect(
+    cardHeights[0].kit === false && cardHeights[1].kit === true,
+    `HUD card: the two accounts did not produce one card without kit and one with: ${JSON.stringify(cardHeights)}`
+  );
+  expect(
+    cardHeights[0].card !== null && cardHeights[0].card === cardHeights[1].card,
+    `HUD card (d): ${cardHeights[1].card}px kitted vs ${cardHeights[0].card}px without kit -- the card jumps`
+  );
+
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {
   if (browser) await browser.close();
