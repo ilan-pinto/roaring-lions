@@ -4,6 +4,17 @@
 // The animations themselves live in theme.css so they cost nothing at runtime
 // and cannot stall the 20 Hz tick. These functions only start and stop them.
 
+/** `settings.ts` writes `data-motion` on the root; the OS preference is the
+ *  media query. Either one means reduced motion. The same two checks
+ *  `scene-host.ts`'s own (private) `defaultReducedMotion` makes -- kept here
+ *  too, rather than importing that module, so a caller that only wants
+ *  "should this scroll smoothly" never pulls in the renderer-selection code
+ *  that lives beside it. */
+export function prefersReducedMotion(): boolean {
+  if (document.documentElement.dataset.motion === 'reduce') return true;
+  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 /**
  * Restart a one-shot animation class.
  *

@@ -1023,6 +1023,16 @@ try {
     await g.evaluate(GARAGE_FORCE_RAIL_REFLOW);
     await g.evaluate(GARAGE_ARM); // string: scroll the rail to 120, remember the screen node, start a 40-frame blank counter
     const railBefore = await g.$eval('.rl-garage__cards', (e) => e.scrollTop);
+    // Fix round 1: the board is an accordion now, and `armour` -- at_team's
+    // first non-maxed track -- opens by default, not firepower. Pointing at
+    // it needs a real `mouseenter` on `.rl-garage__track` itself
+    // (`garage-board.ts`'s own listener, not delegated) -- a genuine
+    // `page.hover()` moves the cursor there across the board first, and
+    // crossing armour's own (currently expanded, taller) box on the way
+    // collapses/expands tracks mid-transit and never lets Playwright's own
+    // stability check settle. `dispatchEvent` fires the event directly, with
+    // no cursor path to cross anything on.
+    await g.dispatchEvent('.rl-garage__track[data-track="firepower"]', 'mouseenter');
     await g.click('.rl-garage__track[data-track="firepower"] .rl-garage__buy-tier');
     await g.waitForFunction('window.__rlFrames >= 40');
     const after = await g.evaluate<{
@@ -1142,7 +1152,14 @@ try {
       }
 
       if (unit === 'at_team') {
-        await f.hover('.rl-garage__track[data-track="firepower"] .rl-garage__rung[data-state="next"]');
+        // Fix round 1: point at firepower first so the accordion expands it
+        // -- `armour` (the first non-maxed track) is what opens by default,
+        // and a rung under a collapsed track cannot be hovered at all.
+        // `dispatchEvent`, not `page.hover()`, for the same reason as the
+        // garage-buy leg above: a real cursor path here crosses armour's own
+        // (taller, expanded) box first, which never lets the layout settle.
+        await f.dispatchEvent('.rl-garage__track[data-track="firepower"]', 'mouseenter');
+        await f.dispatchEvent('.rl-garage__track[data-track="firepower"] .rl-garage__rung[data-state="next"]', 'mouseenter');
         const hv = await f.evaluate<{
           text: string | null;
           top: number | null;

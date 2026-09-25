@@ -72,6 +72,20 @@ export function trackSummary(track: UpgradeTrack, owned: number): TrackSummary {
   return { owned: clamped, length, spent, toMax, next: clamped < length ? clamped + 1 : null };
 }
 
+/** The accordion (fix round 1, §2 goal 3): which one of the board's tracks
+ *  shows its ladder. `active` is whatever the player is currently pointed
+ *  at -- mouse hover or keyboard focus landing anywhere inside a track, or a
+ *  digit jump (`brigade.ts` owns combining those into one value; this
+ *  function only makes the choice from it). A track the player is pointed
+ *  at wins outright, maxed or not -- reading what is already bought is still
+ *  a reason to open one. Absent that, the first track still worth a
+ *  decision opens by default; a fully maxed board (or an empty one) expands
+ *  nothing. */
+export function expandedTrack(order: readonly string[], maxed: ReadonlySet<string>, active: string | null): string | null {
+  if (active !== null && order.includes(active)) return active;
+  return order.find((name) => !maxed.has(name)) ?? null;
+}
+
 /** F6: a line whose `before` and `after` read the same number is not a
  *  benefit. `upgradeBenefits` still reports it -- a tier's cumulative patch
  *  can net to zero at a path it nonetheless names -- and this is the one
@@ -108,6 +122,14 @@ export interface TrackDeps {
    *  ever drawn while this is true, even if `buy` is also supplied. */
   readonly locked?: boolean;
   readonly preview: (d: ReadonlyMap<string, number> | null) => void;
+  /** The accordion's own two raw signals (fix round 1) -- mouse hover and
+   *  keyboard focus, each landing anywhere inside this track's own wrapper.
+   *  `brigade.ts` combines both tracks' worth of these into one active
+   *  track and decides expansion (`expandedTrack`); this module only
+   *  reports what its own DOM saw. Optional so a caller with no accordion
+   *  (none exists today, but a future read-only embed might) need not wire
+   *  it. */
+  readonly onPoint?: (kind: 'hover' | 'focus', over: boolean) => void;
 }
 
 /**
@@ -279,6 +301,18 @@ export function trackEl(trackName: string, track: UpgradeTrack, deps: TrackDeps)
   if (!locked && deps.buy && summary.next === null) {
     trackWrap.appendChild(el('div', 'rl-garage__track-max', t('garage.track.maxed')));
   }
+
+  // The accordion's own two signals (fix round 1): the DOM is always built
+  // in full above -- this module never decides which track is expanded,
+  // only reports that the player pointed at THIS one. `mouseenter`/
+  // `mouseleave` do not bubble, so listening directly on `trackWrap` is what
+  // makes hovering any of its descendants (the head, a rung) count as
+  // hovering the track; `focusin`/`focusout` do bubble and are attached the
+  // same way for the one shape both signals share.
+  trackWrap.addEventListener('mouseenter', () => deps.onPoint?.('hover', true));
+  trackWrap.addEventListener('mouseleave', () => deps.onPoint?.('hover', false));
+  trackWrap.addEventListener('focusin', () => deps.onPoint?.('focus', true));
+  trackWrap.addEventListener('focusout', () => deps.onPoint?.('focus', false));
 
   return trackWrap;
 }

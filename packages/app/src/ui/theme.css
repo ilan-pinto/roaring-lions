@@ -394,7 +394,7 @@ body {
 .rl-world__scroll,
 .rl-garage__body,
 .rl-garage__cards,
-.rl-garage__bay,
+.rl-garage__stats,
 .rl-garage__board,
 .rl-settings,
 .rl-credits__licence-text,
@@ -416,7 +416,7 @@ body {
 .rl-world__scroll::-webkit-scrollbar,
 .rl-garage__body::-webkit-scrollbar,
 .rl-garage__cards::-webkit-scrollbar,
-.rl-garage__bay::-webkit-scrollbar,
+.rl-garage__stats::-webkit-scrollbar,
 .rl-garage__board::-webkit-scrollbar,
 .rl-settings::-webkit-scrollbar,
 .rl-credits__licence-text::-webkit-scrollbar,
@@ -437,7 +437,7 @@ body {
 .rl-world__scroll::-webkit-scrollbar-track,
 .rl-garage__body::-webkit-scrollbar-track,
 .rl-garage__cards::-webkit-scrollbar-track,
-.rl-garage__bay::-webkit-scrollbar-track,
+.rl-garage__stats::-webkit-scrollbar-track,
 .rl-garage__board::-webkit-scrollbar-track,
 .rl-settings::-webkit-scrollbar-track,
 .rl-credits__licence-text::-webkit-scrollbar-track,
@@ -457,7 +457,7 @@ body {
 .rl-world__scroll::-webkit-scrollbar-thumb,
 .rl-garage__body::-webkit-scrollbar-thumb,
 .rl-garage__cards::-webkit-scrollbar-thumb,
-.rl-garage__bay::-webkit-scrollbar-thumb,
+.rl-garage__stats::-webkit-scrollbar-thumb,
 .rl-garage__board::-webkit-scrollbar-thumb,
 .rl-settings::-webkit-scrollbar-thumb,
 .rl-credits__licence-text::-webkit-scrollbar-thumb,
@@ -486,8 +486,8 @@ body {
 .rl-garage__body::-webkit-scrollbar-thumb:active,
 .rl-garage__cards::-webkit-scrollbar-thumb:hover,
 .rl-garage__cards::-webkit-scrollbar-thumb:active,
-.rl-garage__bay::-webkit-scrollbar-thumb:hover,
-.rl-garage__bay::-webkit-scrollbar-thumb:active,
+.rl-garage__stats::-webkit-scrollbar-thumb:hover,
+.rl-garage__stats::-webkit-scrollbar-thumb:active,
 .rl-garage__board::-webkit-scrollbar-thumb:hover,
 .rl-garage__board::-webkit-scrollbar-thumb:active,
 .rl-settings::-webkit-scrollbar-thumb:hover,
@@ -4068,12 +4068,18 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* --- the bay ------------------------------------------------------------ */
+/* Fix round 1 (F4): the bay itself no longer scrolls -- the plate, name,
+   role, kit-total and blurb all keep their natural size (`flex-shrink: 0`
+   on each below) and the STAT PANEL is the one flexible child, taking
+   whatever room is left and scrolling internally for the rest. A bay that
+   scrolled as a whole used to carry the plate away with it just to reach
+   the bottom of the panel; this way the plate, name and role stay put. */
 .rl-garage__bay {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
 }
 /* The plate is a photograph of the unit on lit sand; the vignette under it is
    what makes the sand read as a FLOOR the unit is standing on rather than a
@@ -4176,6 +4182,21 @@ button.rl-menu__item[data-kind='aside'] {
   border: 2px solid var(--kit);
   padding: 0 var(--s2);
   transform: rotate(-4deg);
+}
+/* Fix round 1 (F4): every other direct child of the bay keeps its full,
+   natural size -- `.rl-garage__stats` above is the only one that gives up
+   height when the bay runs short of it. Without this, a flex column's
+   default `flex-shrink: 1` would let the name/role/blurb/kit-total/gate/
+   buy/short also lose height first, which is not what "the panel scrolls,
+   the rest stays put" means. */
+.rl-garage__name,
+.rl-garage__role,
+.rl-garage__blurb,
+.rl-garage__kit-total,
+.rl-garage__gate,
+.rl-garage__buy,
+.rl-garage__short {
+  flex-shrink: 0;
 }
 .rl-garage__name {
   margin: 0;
@@ -4331,9 +4352,21 @@ button.rl-menu__item[data-kind='aside'] {
   background: var(--well);
   border: 1px solid var(--panel-frame);
 }
+/* Fix round 1 (F4): the one flexible, scrollable child of the bay --
+   `flex: 1 1 0` so it fills whatever the plate/name/role/kit-total/blurb
+   (all `flex-shrink: 0` now) leave behind, `min-height: 0` so a flex child
+   is actually allowed to be shorter than its own content, and its own
+   `overflow-y: auto` with the same themed scrollbar tokens the bay used to
+   carry. It never disappears -- a hovered rung's preview is still read here,
+   just scrolled to (`garage-stats.ts`'s `paint` calls `scrollIntoView` on
+   the changed row) rather than guaranteed to already be on screen. */
 .rl-garage__stats {
   gap: var(--s2);
   padding: var(--s3);
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 /* Tighter than the stats panel's own padding and inter-row gap (§2 goal 3,
    F9): three real tracks (the Lavi's own armour/firepower/sensors, each
@@ -4343,6 +4376,19 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__track {
   gap: var(--s1);
   padding: var(--s2) var(--s3);
+}
+/* Fix round 1 (§2 goal 3): the accordion. Only one track's ladder shows at a
+   time -- `brigade.ts`'s `applyExpansion` sets this from `expandedTrack`
+   (`garage-board.ts`), off whichever track the player is pointed at (mouse
+   hover or keyboard focus landing anywhere in the track, or a digit jump),
+   falling back to the first track still worth a decision. The DOM is built
+   in full regardless (`trackEl` never omits the ladder) -- this hides it,
+   which is also why a real Tab walk skips a collapsed track's Buy button:
+   `display: none` removes it from the focus order same as it removes it
+   from the screen. */
+.rl-garage__track[data-expanded='0'] .rl-garage__rungs,
+.rl-garage__track[data-expanded='0'] .rl-garage__track-max {
+  display: none;
 }
 /* F7: read-only speculation, not a decision -- a dashed frame instead of the
    solid one every buyable track draws, and text a shade dimmer throughout so
