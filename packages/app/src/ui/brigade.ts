@@ -42,7 +42,7 @@ import { PANEL_PATHS, statPanel, type StatPanel } from './garage-stats';
 import { t } from '../i18n/t';
 import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
-import { cardStatus, restoreFocus, retainSelection } from './garage-model';
+import { cardStatus, restoreFocus, retainSelection, rovingStep, trackForDigit } from './garage-model';
 import { kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
@@ -388,6 +388,22 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     tabEls.set(b, tab);
     tabs.appendChild(tab);
   }
+  // Left/Right/Home/End only (F8) -- Up/Down are the cards' own keys, one
+  // row below, and a tablist that also answered to them would make a
+  // vertical arrow ambiguous between the two rails. Moves the filter WITH
+  // focus: `syncTabs` below resets the roving card stop, since the filter
+  // this lands on may hide the card that used to hold it.
+  tabs.addEventListener('keydown', (ev: KeyboardEvent) => {
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight' && ev.key !== 'Home' && ev.key !== 'End') return;
+    const order = [...tabEls.entries()];
+    const at = order.findIndex(([, tab]) => tab === document.activeElement);
+    const to = rovingStep(ev.key, at, order.length);
+    if (to === null) return;
+    ev.preventDefault();
+    bucket = order[to][0];
+    syncTabs();
+    order[to][1].focus();
+  });
   rail.appendChild(tabs);
 
   const cards = el('div', 'rl-garage__cards');
@@ -481,35 +497,83 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   renderCards();
   rail.appendChild(cards);
 
-  // Arrows move, Enter selects. A `<button>` already fires `click` on Enter
-  // and Space in a real browser, so only the movement needs wiring — and it
-  // moves FOCUS, not the selection, which is what lets a keyboard player read
-  // down the roster the way a mouse player reads down it with the cursor.
+  // Listbox semantics (F8): selection follows focus. An arrow both moves
+  // focus AND picks the card it lands on -- unlike the tabs' own rail, where
+  // moving off a role filter would be a strange thing for a Buy click to
+  // answer to, a card IS the thing a mouse player picks by looking at it, so
+  // a keyboard player's arrow does the same job a click already does.
   cards.addEventListener('keydown', (ev: KeyboardEvent) => {
     const order = [...cardEls.values()].filter((c) => !c.hidden);
-    if (order.length === 0) return;
     const at = order.indexOf(document.activeElement as HTMLButtonElement);
-    let to = -1;
-    if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') to = at < 0 ? 0 : (at + 1) % order.length;
-    else if (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft') to = at < 0 ? order.length - 1 : (at - 1 + order.length) % order.length;
-    else if (ev.key === 'Home') to = 0;
-    else if (ev.key === 'End') to = order.length - 1;
-    if (to < 0) return;
+    const to = rovingStep(ev.key, at, order.length);
+    if (to === null) return;
     ev.preventDefault();
+    selectedId = order[to].dataset.unit ?? selectedId;
+    syncCards();
+    renderBay();
     order[to].focus();
   });
 
+  // 1-9 jumps straight to a track's own next decision (F8): the digit maps
+  // onto the BOARD's own order (`trackForDigit`), never a fixed
+  // armour/sensors/firepower slot, so a unit missing a track shifts every
+  // digit after it. Left alone for an `input`/`textarea` target -- none
+  // lives on this screen today, but a content author's stray one must never
+  // have its own digits hijacked by the board.
+  wrap.addEventListener('keydown', (ev: KeyboardEvent) => {
+    const target = ev.target instanceof HTMLElement ? ev.target : null;
+    if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+    const trackNames = [...board.querySelectorAll<HTMLElement>('[data-track]')].map((e) => e.dataset.track ?? '');
+    const trackName = trackForDigit(ev.key, trackNames);
+    if (trackName === null) return;
+    const trackWrap = board.querySelector<HTMLElement>(`.rl-garage__track[data-track="${trackName}"]`);
+    const landing =
+      trackWrap?.querySelector<HTMLElement>('.rl-garage__rung[data-state="next"]') ??
+      trackWrap?.querySelector<HTMLElement>('.rl-garage__track-head') ??
+      null;
+    if (landing === null) return;
+    ev.preventDefault();
+    landing.focus();
+  });
+
+  // Enter on a rung buys it -- the digit jump's own landing spot, and the
+  // only way this screen puts real keyboard focus ON a rung at all (a rung's
+  // own `tabIndex` is -1, script-focusable only). Silent when there is
+  // nothing to buy: an owned or future rung's disabled/absent Buy, or a
+  // locked unit's "Unlock first" in its place.
+  board.addEventListener('keydown', (ev: KeyboardEvent) => {
+    if (ev.key !== 'Enter') return;
+    const target = ev.target instanceof HTMLElement ? ev.target : null;
+    const rung = target?.closest<HTMLElement>('.rl-garage__rung') ?? null;
+    const buy = rung?.querySelector<HTMLButtonElement>('.rl-garage__buy-tier') ?? null;
+    if (buy !== null && !buy.disabled) buy.click();
+  });
+
   function syncTabs(): void {
-    for (const [b, tab] of tabEls) tab.setAttribute('aria-selected', b === bucket ? 'true' : 'false');
+    for (const [b, tab] of tabEls) {
+      const isSelected = b === bucket;
+      tab.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+      tab.tabIndex = isSelected ? 0 : -1;
+    }
     for (const row of rows) {
       const card = cardEls.get(row.u.id);
       if (card === undefined) continue;
       card.hidden = !bucketVisible(roleBucket(row.u), bucket);
     }
+    // Controller ruling (T9): a filter change can hide the card the roving
+    // tab stop was on, and a stop Tab can no longer reach is worse than one
+    // on the wrong unit -- every tab change resets it.
+    syncCards();
   }
 
   function syncCards(): void {
-    for (const [id, card] of cardEls) card.setAttribute('aria-selected', id === selectedId ? 'true' : 'false');
+    const visible = [...cardEls.values()].filter((c) => !c.hidden);
+    const selectedCard = cardEls.get(selectedId);
+    const stop = selectedCard !== undefined && !selectedCard.hidden ? selectedCard : (visible[0] ?? null);
+    for (const [id, card] of cardEls) {
+      card.setAttribute('aria-selected', id === selectedId ? 'true' : 'false');
+      card.tabIndex = card === stop ? 0 : -1;
+    }
   }
 
   // --- the bay and the board ------------------------------------------------
@@ -695,7 +759,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   }
 
   syncTabs();
-  syncCards();
   renderBay();
 
   // --- footer ---------------------------------------------------------------
@@ -758,7 +821,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     renderWallet();
     renderCards();
     syncTabs();
-    syncCards();
     renderBay();
     resetUi();
     // Children replaced under a scroller clamp its offset to the new height
