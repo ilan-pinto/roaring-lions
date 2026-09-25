@@ -13,7 +13,11 @@ import {
   readingAccepted,
   subjectVotesOn,
   sampleLadder,
+  parseSettleResult,
+  settleLine,
+  settleScript,
   sheetIndex,
+  steadyRunEnd,
 } from './blast-captures';
 
 describe('the ten-second ladder', () => {
@@ -338,5 +342,59 @@ describe('each layer is photographed where it is a witness (fix round 1)', () =>
         ).toBeGreaterThanOrEqual(f.toggleAtMs);
       }
     }
+  });
+});
+
+describe('the settle waits for steady frames, not for a duration', () => {
+  // The boot shape measured on beit_sahwan_outskirts on both this branch and
+  // main (8d525c81): one ~6 s block, a ~170 ms frame, then ~100 ms steadily.
+  // A fixed 2500 ms settle froze inside it on both trees.
+  const boot = [6075, 167, 100, 92, 100, 109, 100, 100];
+
+  it('ends on the fifth consecutive frame inside the band, not before', () => {
+    expect(steadyRunEnd(boot, 5, 150)).toBe(6);
+    expect(steadyRunEnd(boot.slice(0, 6), 5, 150)).toBe(-1);
+  });
+
+  it('restarts the run on any frame over the band', () => {
+    // Fast frames on either side of a boot block must not add up to a run.
+    expect(steadyRunEnd([90, 90, 90, 900, 90, 90], 5, 150)).toBe(-1);
+    expect(steadyRunEnd([90, 90, 90, 900, 90, 90, 90, 90, 90], 5, 150)).toBe(8);
+  });
+
+  it('counts a frame exactly at the band as steady', () => {
+    expect(steadyRunEnd([150, 150, 150, 150, 150], 5, 150)).toBe(4);
+    expect(steadyRunEnd([150, 150, 150, 150, 150.1], 5, 150)).toBe(-1);
+  });
+
+  it('prints every frame it waited over the band, and says when it hit the ceiling', () => {
+    const ok = settleLine('g', { steady: true, waitedMs: 4210, frames: boot.slice(0, 7) });
+    expect(ok).toContain('reached');
+    expect(ok).toContain('#0 6075.0, #1 167.0');
+    expect(ok).not.toContain('DISAGREE');
+    const ceiling = settleLine('g', { steady: false, waitedMs: 30000, frames: [1600, 1580, 1610] });
+    expect(ceiling).toContain('DID NOT reach');
+    expect(ceiling).not.toContain('DISAGREE');
+  });
+
+  it('flags a page that claims steady on frames the rule rejects', () => {
+    expect(settleLine('g', { steady: true, waitedMs: 1, frames: [900, 90] })).toContain('DISAGREE');
+  });
+
+  it('ships the in-page rule with the same constants and the ceiling it was given', () => {
+    const src = settleScript(12345);
+    expect(src).toContain('n = 5, maxMs = 150, timeoutMs = 12345');
+    // No helper esbuild could have injected: the string is what the page runs.
+    expect(src).not.toContain('__name');
+  });
+
+  it('refuses a malformed page result rather than reading it as settled', () => {
+    expect(() => parseSettleResult(undefined)).toThrow(/no result/);
+    expect(() => parseSettleResult({ steady: true, waitedMs: 1, frames: ['x'] })).toThrow(/malformed/);
+    expect(parseSettleResult({ steady: false, waitedMs: 2, frames: [1, 2] })).toEqual({
+      steady: false,
+      waitedMs: 2,
+      frames: [1, 2],
+    });
   });
 });

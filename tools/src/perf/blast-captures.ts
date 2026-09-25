@@ -305,14 +305,19 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     x: 20,
     y: 20,
     ladderMs: SHORT_LADDER_MS,
-    abstains: ['blast-light'],
+    handTick: true,
     why:
       "qarn_hadid's shoulder gate: the scorch seats on ONE centre ground sample, and this tile " +
       'is crest 6 in a gap four tiles wide with the rock wall at x=17 and x=22 and the ground ' +
       'falling to 5 on both sides -- a full-power mark is 1.6 tiles of radius across all of it. ' +
-      "ABSTAINS from `blast-light`: this map's own latched `step(1)` frame measured 936.70 ms " +
-      "against the emitter's 500 ms `decay_ms`, so the light is retired before rung zero here " +
-      'whatever the renderer does -- a confound, not a reading',
+      'HAND-TICKED, and it VOTES on both layers since 2026-09-25. It used to abstain from ' +
+      "`blast-light`, because this map's latched `step(1)` frame measured 936.70 ms against the " +
+      "emitter's 500 ms `decay_ms`, so the light was retired before rung zero. That was a " +
+      'confound, not a reading. The steady-frame settle (`SETTLE_TIMEOUT_MS`) removed it: the ' +
+      'light then cleared its floor at 32906 px / 10.0892, and the self-cleaning rule failed the ' +
+      "run. This map's steady frame is 190-233 ms, though, which sits ON the 200 ms rung, so a " +
+      "kill through `step(1)` would be skipped on roughly two runs in five. `handTick` takes the " +
+      'latched frame out of the kill entirely, which is the remedy the skip message itself names',
   },
   {
     id: 'scorch_tel_ridge',
@@ -532,9 +537,9 @@ export const LAYER_FLOORS = {
       'is both decal pools now -- crater, scorch, oil and rubble in the persistent one, tread and ' +
       'tyre in the fading one -- so it should read at or above the scorch-only figures, and it ' +
       'does. 3 runs on darwin-arm64, same crop, zoom and 2000 ms rung, `--toggles-only`, taken ' +
-      'with `--settle-ms=6000` (see that flag: at the 2500 ms default the comparison group ' +
+      'with a FIXED 6000 ms settle (at the old 2500 ms fixed settle the comparison group ' +
       'latched a 511-782 ms boot frame and was skipped on four attempts, so the three subjects ' +
-      'that set this floor went unmeasured). Latched jumps 96.60 / 95.80 / 107.30 ms on that ' +
+      'that set this floor went unmeasured; see `SETTLE_TIMEOUT_MS`). Latched jumps 96.60 / 95.80 / 107.30 ms on that ' +
       'group. `mbt_lavi` 0 px / 0.6270, 0.6270, 0.6270 (scorch-only 0.5818); `apc_eitan` 0 / ' +
       '0.2588, 0.2363, 0.2363 (0.2092-0.2273); `mortar_team` 7507 / 1.7808 on all three (7251 / ' +
       '1.4411); `scorch_qarn_shoulder` 0 / 0.5057, 0.5647, 0.5619 (0.2020, one run); ' +
@@ -542,7 +547,12 @@ export const LAYER_FLOORS = {
       'three; `shake_probe` 7507 / 1.7808 on all three; `blast_nomesh` 4021 / 2.9134 on all ' +
       'three. The smallest is `apc_eitan`\'s 0.2363, a third of which is 0.0788: the 0.07 floor ' +
       'still sits under a third of the weakest witness, and `measured` above is left as the ' +
-      'scorch-only signal the floor was derived from.',
+      'scorch-only signal the floor was derived from. ' +
+      '**`scorch_qarn_shoulder` re-recorded the same day, hand-ticked** (its kill no longer ' +
+      'goes through `step(1)`; see that subject), under the steady-frame settle at its 30000 ms ' +
+      'default ceiling. 3 runs: 0 px / 0.4741, 0.4390, 0.4741. It reads lower than the ' +
+      '`step(1)` figures above because the mark is photographed at a true 2000 ms rather than ' +
+      'at 2000 plus a ~1.6 s latched frame, so the shroud is younger. It is still 6x the floor.',
   },
   'blast-light': {
     minDiffPixels: 1750,
@@ -560,7 +570,10 @@ export const LAYER_FLOORS = {
       '11%, which is the same `lastFrameMs` sensitivity every number here has -- it is why the ' +
       'floor is a third of the smallest rather than a band around a mean. **This layer read 0 ' +
       'px / 0.0000 on every kill subject until `catastrophic_kill` was registered in ' +
-      '`vfxEmitters`**; these are the first readings of a working kill light.',
+      '`vfxEmitters`**; these are the first readings of a working kill light. ' +
+      '**`scorch_qarn_shoulder` votes here since 2026-09-25**, hand-ticked, under the ' +
+      'steady-frame settle. 3 runs: 24496 px / 9.9325, 34749 / 10.5923, 24954 / 9.9812. The ' +
+      'floor is unchanged, and all three clear it by 14x on pixels.',
   },
 } satisfies Record<string, LayerFloor>;
 
@@ -739,10 +752,127 @@ const FIREFIGHT_WARMUP_TICKS = 60;
  *  resolve against this. */
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
-/** How long the app's own frame loop is left running before it is frozen.
- *  See its use site: this is what keeps `lastFrameMs` a steady-state frame
- *  rather than a boot-time GLB load. */
-const SETTLE_MS = 2500;
+/**
+ * The settle: how the harness decides the app's frame loop has reached
+ * steady state before freezing it. See its use site for why that matters:
+ * the freeze latches the last live frame's cost into every `step()`.
+ *
+ * **It waits for frames, not for time.** Until 2026-09-25 this was a fixed
+ * 2500 ms, and the fixed number stopped working. A rAF probe of
+ * `beit_sahwan_outskirts` at the settle viewport found the first real loop
+ * frame 3.6-3.9 s after `__lions` appears, as ONE ~6 s main-thread block,
+ * then ~170 ms, then 92-109 ms steadily. That is the same shape on this
+ * branch and on `8d525c81` (main before any ground code), 3 runs each. Each
+ * tree's own harness, at the fixed 2500 ms, latched 753.6-818.9 ms on that
+ * group and SKIPPED it, on both trees, so the three subjects that set both
+ * floors went unmeasured. The boot got slower than the constant, and the
+ * fix is to stop guessing a duration.
+ *
+ * `SETTLE_STEADY_MAX_FRAME_MS` is 150 because steady frames measure 82-109
+ * ms here (the calibration's ~93) while the earliest toggle rung is 200 ms.
+ * The run of `SETTLE_STEADY_FRAMES` consecutive frames is what tells a
+ * settled loop from a single fast frame between two boot blocks.
+ *
+ * `SETTLE_TIMEOUT_MS` is a ceiling, not a guess. A scene whose steady frame
+ * is slower than the band (`qarn_hadid` latched ~1.6 s under a fixed 6 s
+ * settle) runs to it and freezes anyway. `step(1)`'s own jump guard is the
+ * backstop: if the latched frame outruns a voting rung, it skips the group
+ * loudly instead of mis-measuring it. `--settle-ms` overrides the ceiling.
+ */
+const SETTLE_STEADY_FRAMES = 5;
+const SETTLE_STEADY_MAX_FRAME_MS = 150;
+const SETTLE_TIMEOUT_MS = 30_000;
+
+/** What the settle saw: every frame interval it waited through, in order,
+ *  and whether it ended on a steady run or on the ceiling. */
+export interface SettleResult {
+  readonly steady: boolean;
+  readonly waitedMs: number;
+  readonly frames: readonly number[];
+}
+
+/**
+ * Where a run of `n` consecutive frames at or under `maxMs` first
+ * completes. Returns the index of that run's last frame, or -1 if none.
+ * The in-page settle loop applies the same rule; this pure copy is what the
+ * spec pins and what the printed summary re-checks, so a page-side slip
+ * shows up as a disagreement on the sheet rather than as a quiet
+ * mis-settle.
+ */
+export function steadyRunEnd(frames: readonly number[], n: number, maxMs: number): number {
+  let run = 0;
+  for (let i = 0; i < frames.length; i++) {
+    run = frames[i] <= maxMs ? run + 1 : 0;
+    if (run >= n) return i;
+  }
+  return -1;
+}
+
+/**
+ * The in-page half of the settle, as a STRING rather than a function. tsx
+ * runs this file through esbuild with `keepNames`, which wraps any named
+ * inner function in a `__name(...)` call. Serialised into the page, that
+ * helper does not exist and the evaluate throws `ReferenceError: __name is
+ * not defined` (measured on the first run of this settle).
+ * `FREEZE_FRAME_LOOP_SCRIPT` is a string for the same reason. It applies
+ * `steadyRunEnd`'s rule frame by frame, and `settleLine` re-checks it.
+ */
+export function settleScript(timeoutMs: number): string {
+  return `new Promise((resolve) => {
+  const n = ${SETTLE_STEADY_FRAMES}, maxMs = ${SETTLE_STEADY_MAX_FRAME_MS}, timeoutMs = ${timeoutMs};
+  const t0 = performance.now();
+  const frames = [];
+  let last = -1;
+  let run = 0;
+  function tick(t) {
+    if (last >= 0) {
+      const d = t - last;
+      frames.push(Math.round(d * 10) / 10);
+      run = d <= maxMs ? run + 1 : 0;
+    }
+    last = t;
+    const waitedMs = performance.now() - t0;
+    if (run >= n) resolve({ steady: true, waitedMs, frames });
+    else if (waitedMs >= timeoutMs) resolve({ steady: false, waitedMs, frames });
+    else requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})`;
+}
+
+/** Narrows what the page returned. A string evaluate is `unknown` on this
+ *  side, and a malformed result must throw rather than read as "settled". */
+export function parseSettleResult(v: unknown): SettleResult {
+  if (typeof v !== 'object' || v === null) throw new Error('settle: page returned no result');
+  const r = v as Record<string, unknown>;
+  const frames = r.frames;
+  if (
+    typeof r.steady !== 'boolean' ||
+    typeof r.waitedMs !== 'number' ||
+    !Array.isArray(frames) ||
+    !frames.every((f): f is number => typeof f === 'number')
+  ) {
+    throw new Error(`settle: malformed result ${JSON.stringify(v)}`);
+  }
+  return { steady: r.steady, waitedMs: r.waitedMs, frames };
+}
+
+/** One line for the console and the sheet's notes: how long the settle
+ *  waited, how it ended, every frame over the band, and the run it ended on. */
+export function settleLine(key: string, r: SettleResult): string {
+  const over = r.frames
+    .map((d, i) => [i, d] as const)
+    .filter(([, d]) => d > SETTLE_STEADY_MAX_FRAME_MS)
+    .map(([i, d]) => `#${i} ${d.toFixed(1)}`);
+  const tail = r.frames.slice(-SETTLE_STEADY_FRAMES).map((d) => d.toFixed(1));
+  const agrees = (steadyRunEnd(r.frames, SETTLE_STEADY_FRAMES, SETTLE_STEADY_MAX_FRAME_MS) >= 0) === r.steady;
+  return (
+    `${key}: settle ${r.steady ? 'reached' : 'DID NOT reach'} ${SETTLE_STEADY_FRAMES} frames <= ` +
+    `${SETTLE_STEADY_MAX_FRAME_MS} ms after ${r.waitedMs.toFixed(0)} ms and ${r.frames.length} frame(s); ` +
+    `over the band: ${over.length > 0 ? over.join(', ') : 'none'}; last ${tail.length}: ${tail.join(', ')} ms` +
+    (agrees ? '' : ' -- PAGE AND NODE DISAGREE ON THE STEADY RULE')
+  );
+}
 /** The viewport the settle runs at, before the capture viewport is put back.
  *  See `main()`: a SwiftShader frame of the real 1400x900 scene costs
  *  hundreds of milliseconds, and `step(1)` latches exactly one of those into
@@ -891,18 +1021,9 @@ async function main(): Promise<void> {
   // frame lands slightly differently. Hence three runs and a floor at a third
   // of the smallest, rather than one run and a tight band.
   const togglesOnly = has('toggles-only');
-  // The settle, overridable and defaulting to `SETTLE_MS` unchanged. Added
-  // 2026-09-25 (ground plan 1, Task 13) because the default stopped
-  // satisfying its own documented purpose on `beit_sahwan_outskirts`: a rAF
-  // probe of that sandbox at the settle viewport read frames of 942, 541, 517
-  // and 783 ms from 1.4 s to 3.5 s after `__lions` appears -- main-thread
-  // boot work with no new shader program behind it (`info.programs` held at
-  // 37) -- and ~92-100 ms steadily after. Freezing at 2.5 s latches one of
-  // those, the jump guard below rightly skips the group, and the three
-  // subjects that set both floors are never measured. A flag rather than a
-  // new default so the value a sheet was taken under is a stated condition
-  // (it is printed there) and the calibrated default is not moved silently.
-  const settleMs = Number(arg('settle-ms', String(SETTLE_MS)));
+  // The settle's CEILING (see `SETTLE_TIMEOUT_MS`). The settle itself waits
+  // for steady frames, and this only bounds how long it may wait.
+  const settleMs = Number(arg('settle-ms', String(SETTLE_TIMEOUT_MS)));
   if (!Number.isFinite(settleMs) || settleMs < 0) throw new Error(`--settle-ms must be a non-negative number`);
   fs.mkdirSync(out, { recursive: true });
 
@@ -971,7 +1092,14 @@ async function main(): Promise<void> {
       // `capture()`'s own reason for freezing first is a repeatable absolute
       // tick for a stored baseline. This harness pins no tick and stores no
       // baseline, so it pays none of that.
-      await page.waitForTimeout(settleMs);
+      // Waits for `SETTLE_STEADY_FRAMES` consecutive rAF intervals at or
+      // under `SETTLE_STEADY_MAX_FRAME_MS`, or for the ceiling. A rAF
+      // callback's own interval is the app loop's `frameMs`: both run in
+      // the same frame, so this measures the number the freeze will latch.
+      const settle = parseSettleResult(await page.evaluate(settleScript(settleMs)));
+      const settleNote = settleLine(key, settle);
+      console.log(`  ${settleNote}`);
+      notes.push(settleNote);
       await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
       await page.setViewportSize({ ...VIEWPORT });
       // The renderer follows the host through a `ResizeObserver`
@@ -1738,8 +1866,11 @@ function writeIndex(
     `  (${CLOSE_CROP.width}x${CLOSE_CROP.height} crop, lifted ${CLOSE_CROP_LIFT_PX} px)`,
     `- frame loop: frozen (FREEZE_FRAME_LOOP_SCRIPT); every ladder frame pumped by hand at ${FRAME_MS} ms`,
     `- \`step(1)\` frame jump: ${conditions.stepJumpMs.toFixed(2)} ms, measured at boot (see the module header)`,
-    `- settle before the freeze: ${conditions.settleMs} ms at ${SETTLE_VIEWPORT.width}x${SETTLE_VIEWPORT.height}` +
-      (conditions.settleMs === SETTLE_MS ? ' (the default)' : ` (\`--settle-ms\`; the default is ${SETTLE_MS})`),
+    `- settle before the freeze: until ${SETTLE_STEADY_FRAMES} consecutive frames <= ` +
+      `${SETTLE_STEADY_MAX_FRAME_MS} ms at ${SETTLE_VIEWPORT.width}x${SETTLE_VIEWPORT.height}, ceiling ` +
+      `${conditions.settleMs} ms` +
+      (conditions.settleMs === SETTLE_TIMEOUT_MS ? ' (the default)' : ` (\`--settle-ms\`; the default is ${SETTLE_TIMEOUT_MS})`) +
+      ' -- per-group frames in the notes',
     `- mode: ${conditions.togglesOnly ? '`--toggles-only` (calibration: no ladder photographed)' : 'full ladder'}`,
   ];
   const layerLines = [
@@ -1815,7 +1946,9 @@ function writeIndex(
           frameMs: FRAME_MS,
           stepJumpMs: conditions.stepJumpMs,
           togglesOnly: conditions.togglesOnly,
-          settleMs: conditions.settleMs,
+          settleTimeoutMs: conditions.settleMs,
+          settleSteadyFrames: SETTLE_STEADY_FRAMES,
+          settleSteadyMaxFrameMs: SETTLE_STEADY_MAX_FRAME_MS,
           sampleMs: SAMPLE_MS,
         },
         subjects: BLAST_SUBJECTS,
