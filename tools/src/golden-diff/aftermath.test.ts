@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
 import { applyTerrain, maps, parseMap } from '@lions/data';
 import { buildTerrainSurface } from '../../../packages/render/src/three/terrain/surface';
-import { showcaseSites } from '../../../packages/render/src/three/decal-showcase';
+import { SHOWCASE_CLEAR_TILES, showcaseAnchor, showcaseSites } from '../../../packages/render/src/three/decal-showcase';
 import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
 import { unknownParams } from '../../../packages/app/src/sandbox-help';
 import { AFTERMATH_SCENARIO, SCENARIOS, threeUrl } from './capture-protocol';
@@ -27,10 +27,22 @@ describe('the aftermath scenario frames the showcase it exists for', () => {
   applyTerrain(pm, sim);
   const input = { width: pm.width, height: pm.height, decor: pm.decor, elevation: pm.elevation, blocked: sim.blocked, cover: sim.cover };
   const [ax, ay] = sandboxAnchors(maps.qarn_hadid).friendly;
-  const sites = showcaseSites(input, buildTerrainSurface(input), { x: ax, y: ay });
+  const surface = buildTerrainSurface(input);
+  // The renderer's own two steps: anchor clear of the force, then the sites.
+  const sites = showcaseSites(input, surface, showcaseAnchor(input, surface, { x: ax, y: ay }));
 
   it('finds all three sites on qarn_hadid', () => {
     expect(sites.map((s) => s.kind).sort()).toEqual(['flat', 'relief', 'road']);
+  });
+
+  // Fix wave I-2: the frame is judged whole, and every idle mesh unit and
+  // every live effect in it moves between two captures of the same commit.
+  it('stands every site clear of the sandbox force, and flies no unit over them', () => {
+    for (const s of sites) {
+      expect(Math.hypot(s.x - ax, s.y - ay), `${s.kind}@${s.x},${s.y}`).toBeGreaterThanOrEqual(SHOWCASE_CLEAR_TILES);
+    }
+    expect(AFTERMATH_SCENARIO.orders).toBeUndefined();
+    expect(AFTERMATH_SCENARIO.zoom).toBe(2.2);
   });
 
   it('points its camera at their centroid', () => {

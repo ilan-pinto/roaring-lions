@@ -692,7 +692,7 @@ describe('BASELINES layerChecks', () => {
     // AND `aftermath`'s diagonal qarn_hadid road. The macro field is
     // witnessed only where the pure `buildMacroField` predicts mean |m| >= 0.2
     // over the crop (F-18): quiet 0.253, open-ground 0.381 and aftermath
-    // 0.2645 clear it, relief (0.181) does not and must not declare it -- see
+    // 0.2130 (0.2645 before the fix wave's reframe) clear it, relief (0.181) does not and must not declare it -- see
     // that scenario's own comment.
     expect(byLayer.get('roads')?.sort()).toEqual(['aftermath', 'quiet']);
     expect(byLayer.get('macro')?.sort()).toEqual(['aftermath', 'open-ground', 'quiet']);
@@ -762,20 +762,17 @@ describe('BASELINES layerChecks', () => {
         // 0.2858` against the OLD one-rectangle skirt, whole-frame.
         skirt: { px: 2705, mean: 3.0455 },
       },
-      // Ground Task 17 (D4, the `aftermath` scenario), 2026-09-25, 3
-      // consecutive full-gate runs (`--scenario=aftermath`). Unlike the other
-      // entries these were NOT bit-identical -- a small (<1%) run-to-run
-      // spread with the repaint control at a literal 0 on every run (see
-      // `GROUND_T17` in `baseline.ts`) -- so the SMALLEST of the three is
-      // recorded here, per the ruling. No darwin baseline exists for this
-      // scenario in ANY environment, so these are exactly what a runner with
-      // none is judged by.
+      // Ground fix wave (I-2), 2026-09-25: `aftermath` reframed off the
+      // sandbox force (zoom 2.2, no drone). 23 consecutive fresh-process
+      // full-gate runs, BIT-IDENTICAL on every check (`GROUND_T17` in
+      // `baseline.ts`); Task 17's <1% spread was the force's animating units
+      // and live fight, now out of frame.
       aftermath: {
-        decals: { px: 29979, mean: 1.5346 },
-        roads: { px: 982, mean: 0.2565 },
-        // 21 px is under SUB_THRESHOLD_PX -- the pixel floor is 0 below.
-        macro: { px: 21, mean: 0.7833 },
-        scatter: { px: 5195, mean: 0.6546 },
+        decals: { px: 124019, mean: 6.2238 },
+        roads: { px: 1453, mean: 0.4848 },
+        // 3 px is under SUB_THRESHOLD_PX -- the pixel floor is 0 below.
+        macro: { px: 3, mean: 0.7082 },
+        scatter: { px: 6193, mean: 0.7816 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the

@@ -873,6 +873,34 @@ export function settleLine(key: string, r: SettleResult): string {
     (agrees ? '' : ' -- PAGE AND NODE DISAGREE ON THE STEADY RULE')
   );
 }
+/**
+ * A settle that ended on the CEILING, not on a steady run, is not a place to
+ * trigger a kill from (final review, parked item). `step(1)` latches the last
+ * live frame into the effect's age, and a page that never steadied is still
+ * producing the 190-940 ms frames the steady settle exists to wait out -- so a
+ * `step(1)` subject there measures the machine's load, not the renderer.
+ * `settleLine` used to print "DID NOT reach" and the run carried on. Now the
+ * group is refused, and the run fails at the end, exactly as an overshooting
+ * trigger is (`skipped`). A `handTick` subject never goes through `step(1)`,
+ * so an unsteady page cannot age its effect, and a group of them only is let
+ * through. Returns the refusal, or null when the group may proceed.
+ */
+export function unsteadySettleRefusal(
+  key: string,
+  settle: SettleResult,
+  subjects: readonly Pick<BlastSubject, 'id' | 'handTick'>[]
+): string | null {
+  if (settle.steady) return null;
+  const stepped = subjects.filter((s) => s.handTick !== true).map((s) => s.id);
+  if (stepped.length === 0) return null;
+  return (
+    `${key}: SKIPPED. The settle hit its ${settle.waitedMs.toFixed(0)} ms ceiling without ` +
+    `${SETTLE_STEADY_FRAMES} frames <= ${SETTLE_STEADY_MAX_FRAME_MS} ms, and ${stepped.join(', ')} ` +
+    'trigger through step(1), which would latch one of those frames into the effect. Re-run on a ' +
+    'quieter machine, raise --settle-ms, or give the subject `handTick`.'
+  );
+}
+
 /** The viewport the settle runs at, before the capture viewport is put back.
  *  See `main()`: a SwiftShader frame of the real 1400x900 scene costs
  *  hundreds of milliseconds, and `step(1)` latches exactly one of those into
@@ -1100,6 +1128,14 @@ async function main(): Promise<void> {
       const settleNote = settleLine(key, settle);
       console.log(`  ${settleNote}`);
       notes.push(settleNote);
+      const refusal = unsteadySettleRefusal(key, settle, subjects);
+      if (refusal !== null) {
+        console.error(`  ${refusal}`);
+        notes.push(refusal);
+        skipped.push(key);
+        await page.close();
+        continue;
+      }
       await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
       await page.setViewportSize({ ...VIEWPORT });
       // The renderer follows the host through a `ResizeObserver`

@@ -559,73 +559,61 @@ export const RELIEF_SCENARIO: Scenario = {
  *  a decal regression that only shows on sloped ground would be invisible on
  *  every flat-map scenario.
  *
- *  WHY `&decals`. `showcaseSites` needs an anchor to search around
- *  (`SHOWCASE_RING`, 4-9 tiles), and `sandboxAnchors(maps.qarn_hadid).friendly`
- *  is exactly the anchor `main.ts` hands `RendererOptions.decalShowcase` when
- *  the flag is on (`kdf_start` at (24,39), matched by `FRIENDLY_HINTS`'
- *  `/^kdf[_-]/`) -- so the camera below is computed the SAME way the app
- *  computes the showcase's own site list, not a copy that could drift from
- *  it. Without the flag there is nothing to photograph: `stampDecalShowcase`
- *  (`ThreeRenderer.ts`) is a no-op when `opts.decalShowcase` is undefined.
+ *  WHY `&decals`. `main.ts` hands `RendererOptions.decalShowcase` the
+ *  sandbox's friendly anchor (`kdf_start` at (24,39) here, matched by
+ *  `FRIENDLY_HINTS`' `/^kdf[_-]/`), and the renderer anchors the showcase
+ *  CLEAR of it (`showcaseAnchor`, `decal-showcase.ts`) -- the camera below is
+ *  computed the SAME way, not from a copy that could drift. Without the flag
+ *  there is nothing to photograph: `stampDecalShowcase` (`ThreeRenderer.ts`)
+ *  is a no-op when `opts.decalShowcase` is undefined.
  *
  *  THE CAMERA is the three sites' own centroid, `((x+0.5) averaged, (y+0.5)
  *  averaged)` rounded to the nearest half-tile -- `aftermath.test.ts` recomputes
- *  this from `showcaseSites` directly rather than asserting a literal, so a
- *  site-picker change that moves the sites re-fails this scenario's OWN test
- *  rather than silently leaving the camera pointed at empty ground. Measured
- *  on the shipped map: road (24,35), relief (30,39), flat (20,39) -> centroid
- *  (25.17, 38.17) -> (25, 38). Confirmed by photograph at zoom 1: all three
- *  sites, the diagonal road connecting them, and the `hollow_floor` marker
- *  (38,38) at this map's own bowl rim all land inside the 1400x900 capture
- *  rect (isoX span [-34.9, 8.9] around x-y=-13, isoY span [34.9, 91.1] around
- *  x+y=63 -- `hollow_floor`'s (0, 76) sits inside both).
+ *  this from `showcaseAnchor` + `showcaseSites` rather than asserting a
+ *  literal, so a site-picker change that moves the sites re-fails this
+ *  scenario's OWN test rather than silently leaving the camera pointed at
+ *  empty ground. Measured on the shipped map: anchor (34,35), road (30,28),
+ *  relief (34,31), flat (38,36) -> centroid (34.50, 32.17) -> (34.5, 32).
  *
- *  WHY `orders` AND `recon_drone` -- the identical trap `RELIEF_SCENARIO`
- *  documents, for the identical reason: fog of war is computed from LIVING
- *  SIDE-0 UNITS ONLY, and the sandbox force spawns at the friendly anchor
- *  itself, which is 4-9 tiles short of every showcase site by construction
- *  (`SHOWCASE_RING`'s inner radius). A camera pointed at the centroid with
- *  nobody watching it photographs mostly fog. `recon_drone` is id 11 in
- *  `SANDBOX_KDF` on every map (it is the table's twelfth entry, independent
- *  of which map is loaded -- confirmed here exactly as `RELIEF_SCENARIO`
- *  confirms it for `tel_marum`), `domain: air` so it needs no route through
- *  qarn_hadid's rock wall, and `sight_tiles: 16` covers all three sites from
- *  one hover point over their own centroid. Ordered there at tick 20, same as
- *  `RELIEF_SCENARIO`.
+ *  WHY THE SHOWCASE MOVED OFF THE FORCE (fix wave I-2). It used to be anchored
+ *  ON the friendly anchor, its sites 4-9 tiles out, inside the column of
+ *  fourteen idle mesh units the sandbox spawns there -- and the drone this
+ *  scenario flew over them started a fight with the nearest hostiles, so a
+ *  fireball and a missile streak sat over the marks too. Every one of those
+ *  animates on the frame clock, and `step()` advances that clock by a frame
+ *  time latched from the real loop, which differs process to process
+ *  (`smokeClockMs` read 20715-20933 at the same tick over three runs). Two
+ *  captures of the same commit differed by 519-656 px / 0.040-0.047 against
+ *  this scenario's 40 px / 0.004 budget. Now every site stands at least
+ *  `SHOWCASE_CLEAR_TILES` (10) from the force.
  *
- *  `targetTick: 300` -- 15 sim-seconds -- rather than `RELIEF_SCENARIO`'s 500:
- *  the drone only has to cross the showcase's own ring (at most 9 tiles from
- *  the anchor it spawns 4 tiles from) rather than `RELIEF_SCENARIO`'s ~30-tile
- *  crossing, and every stamp in the showcase is dated `simMs: 0` (R-14, D4),
- *  so its fade depends only on the tick a capture pins -- not on how long the
- *  drone took to arrive. 300 gives the drone's short flight (needing under 5s
- *  at 2.2 tiles/s) ten seconds of settled slack before the capture, the same
- *  margin `RELIEF_SCENARIO` reasons from. `zoom: 1` -- inside the in-game
- *  wheel clamp `[0.35, 2.5]`, same as `RELIEF_SCENARIO`'s 2 -- because a
- *  showcase is meant to be read, not merely detected: at 1 the whole 3x4
- *  lattice at each site resolves clearly rather than smearing into a stain
- *  the way `open-ground`'s deliberate 3 would. */
+ *  WHY `zoom: 2.2` AND NO `orders`. At zoom 1 the frame spans about 31 x 31
+ *  tiles, which on a 48-tile map takes in both forces wherever the camera
+ *  sits; at 2.0 the column's west edge (the `inf_squad` at (26.5,34.5)) still
+ *  reaches the frame's left edge (390-500 px of noise over three runs); at
+ *  2.2 no unit of either side is in frame and three fresh-process captures
+ *  were bit-identical, raw. 2.2 is inside the wheel clamp `[0.35, 2.5]` and
+ *  still frames all three sites and the diagonal road the `road` site sits
+ *  on. The recon drone is NOT flown here any more: from its spawn in the
+ *  force it already lifts the fog over the sites (`sight_tiles: 16`, the
+ *  farthest site 13.2 tiles away), and flying it over the marks would put an
+ *  animating unit back in the frame this move exists to empty.
+ *
+ *  `targetTick: 300` -- 15 sim-seconds. Every stamp in the showcase is dated
+ *  `simMs: 0` (R-14, D4), so its fade depends only on the tick a capture
+ *  pins. */
 export const AFTERMATH_SCENARIO: Scenario = {
   id: 'aftermath',
   description:
-    'qarn_hadid @ the decal showcase centroid, zoom 1, tick 300 -- the fixed crater/scorch/oil/' +
-    'rubble/tread/tyre showcase on its road, relief and flat sites, revealed by the sandbox recon ' +
-    'drone. The only shipped map with a relief showcase site.',
+    'qarn_hadid @ the decal showcase centroid, zoom 2.2, tick 300 -- the fixed crater/scorch/oil/' +
+    'rubble/tread/tyre showcase on its road, relief and flat sites, anchored clear of the sandbox ' +
+    'force so no unit or live effect is in frame. The only shipped map with a relief showcase site.',
   sandboxMap: 'qarn_hadid',
   sandboxFlags: ['decals'],
-  cameraTile: [25, 38],
+  cameraTile: [34.5, 32],
   ticks: 20, // unused when targetTick is set; kept as documentation of the original relative advance
   targetTick: 300,
-  zoom: 1,
-  orders: {
-    atTick: 20,
-    commands: [
-      // id 11 is `recon_drone` in `SANDBOX_KDF` -- see this scenario's own
-      // comment for why the fog makes this order mandatory rather than
-      // decorative.
-      "window.__lions.sim.queueCommand({ kind: 'move', ids: [11], x: Math.round(25 * 65536), y: Math.round(38 * 65536) });",
-    ],
-  },
+  zoom: 2.2,
 };
 
 /** Every scenario this harness knows about. `golden-diff-gate.ts` runs all of

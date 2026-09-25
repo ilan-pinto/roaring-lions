@@ -18,6 +18,7 @@ import {
   settleScript,
   sheetIndex,
   steadyRunEnd,
+  unsteadySettleRefusal,
 } from './blast-captures';
 
 describe('the ten-second ladder', () => {
@@ -396,5 +397,29 @@ describe('the settle waits for steady frames, not for a duration', () => {
       waitedMs: 2,
       frames: [1, 2],
     });
+  });
+});
+
+// Final review, parked item: a settle that never steadied was only LOGGED.
+describe('an unsteady settle refuses every step(1) subject', () => {
+  const unsteady = { steady: false, waitedMs: 30000, frames: [210, 190, 233] };
+  const steady = { steady: true, waitedMs: 900, frames: [90, 90, 90, 90, 90] };
+  it('refuses a group with a step(1) subject when the settle hit its ceiling', () => {
+    const r = unsteadySettleRefusal('g', unsteady, [{ id: 'a' }, { id: 'b', handTick: true }]);
+    expect(r).toContain('SKIPPED');
+    expect(r).toContain('a');
+    expect(r).not.toContain('b ');
+  });
+  it('lets a steady settle through, and an unsteady one through for hand-ticked subjects only', () => {
+    expect(unsteadySettleRefusal('g', steady, [{ id: 'a' }])).toBeNull();
+    expect(unsteadySettleRefusal('g', unsteady, [{ id: 'b', handTick: true }])).toBeNull();
+  });
+  it('is applied to every group in main, before anything is triggered', () => {
+    const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'blast-captures.ts'), 'utf8');
+    const at = src.indexOf('unsteadySettleRefusal(key, settle, subjects)');
+    expect(at).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(src.indexOf('L.step(1);'));
+    // ...and a refusal skips the group into the run's failure list.
+    expect(src).toMatch(/if \(refusal !== null\) \{\s*console\.error\(` {2}\$\{refusal\}`\);\s*notes\.push\(refusal\);\s*skipped\.push\(key\);\s*await page\.close\(\);\s*continue;/);
   });
 });
