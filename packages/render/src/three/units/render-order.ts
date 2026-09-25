@@ -316,3 +316,28 @@ export const STRUCTURE_RENDER_ORDER = HULL_RENDER_ORDER;
  * file's own text already named.
  */
 export const TRAIL_RENDER_ORDER = HULL_RENDER_ORDER;
+
+/**
+ * Task 10 (`docs/superpowers/plans/2026-09-25-ground-plan-1.md`): the shared
+ * decal pool's PERSISTENT mesh (crater/scorch/oil/rubble) -- an alias of
+ * `WORLD_RENDER_ORDER`, under everything that moves, for the identical
+ * reason `scorch-decals.ts`'s own `ScorchDecalMesh` already draws there
+ * (see that module's "Colour and render order" section): a decal is world
+ * geometry, the same tier a mesh building's opaque hull occupies, not an FX
+ * band, and setting it explicitly by name is what stops a later "fix" from
+ * moving it into a tier where it would paint over a unit standing on the
+ * ground it marks.
+ */
+export const DECAL_PERSISTENT_RENDER_ORDER = WORLD_RENDER_ORDER;
+
+/**
+ * Task 10: the shared decal pool's FADING mesh (tread/tyre) -- an alias of
+ * `TRAIL_RENDER_ORDER`, the same band `trail-mesh.ts`'s `TrailMesh` draws
+ * in. A tread print has to sit over an older, persistent decal (a crater or
+ * an oil pool) that shares the same ground, but never over a unit standing
+ * on top of it -- the exact ordering `TRAIL_RENDER_ORDER` already
+ * guarantees against `HULL_RENDER_ORDER`/`TURRET_RENDER_ORDER` (this file's
+ * own "never band 1" argument for that constant applies here without
+ * change, since both are real `depthTest`/`depthWrite` ground geometry).
+ */
+export const DECAL_FADING_RENDER_ORDER = TRAIL_RENDER_ORDER;
