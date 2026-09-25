@@ -1,135 +1,13 @@
 /**
  * Vehicle track marks: tread ruts and tyre marks left on the ground behind a
- * moving GROUND vehicle, persisting for minutes rather than the sub-second
- * lifetime every other effect in this backend uses. Three-only -- there is
- * no Pixi counterpart and none is owed (CLAUDE.md: "VFX are exempt from this
- * diff as of 2026-08-30... an effect that exists only in three is the
- * intended end state"). `data/vfx/vehicle_dust.json`'s puff is a DIFFERENT
- * effect (a cloud thrown up while driving, ~0.5s); this module is the mark
- * left BEHIND once the dust has settled. `./trail-mesh.ts` is a third,
- * unrelated thing again -- tunnel spoil/identified-route lines, ported from
- * `PixiRenderer.drawTrail`. All three coexist; none of this module reuses
- * their code, because none of their shapes fit: dust is a bursty particle
- * pool sized for a fraction-of-a-second lifetime (`PARTICLE_CAPACITY`
- * 2,048 total, `vehicle_dust` particles live 0.45-0.7s), and tunnel trail is
- * a full-map rebuild-from-`Sim`-state-every-5Hz-tick mesh with no memory of
- * its own between rebuilds -- neither shape survives a 180-second lifetime
- * or an INCREMENTAL "this vehicle drove another half tile" write pattern.
- *
- * ## Why a ring buffer, not a particle pool
- *
- * `mbt_lavi` moves at 1.1 tiles/s: 198 tiles in three minutes. Stamped every
- * half tile that is ~400 marks for ONE vehicle; ten moving vehicles is
- * ~4,000 LIVE marks at once if nothing ever recycled. That is roughly 400x
- * `vehicle_dust`'s own particle lifetime and would starve the shared
- * particle pool (2,048 total, every weapon and destruction effect on the
- * map draws from it) many times over. A bounded ring buffer sidesteps the
- * question instead of hoping vehicle counts stay low: `TRACK_POOL_CAPACITY`
- * (4,096 individual marks -- matching `TRACER_CAPACITY`'s own order of
- * magnitude, `units/fx.ts`) covers roughly five vehicles' worth of
- * continuous full-fidelity three-minute driving at this module's own
- * pair-stamping rate (198 tiles / 0.5 spacing * 2 treads = 792 marks per
- * vehicle), then starts recycling the OLDEST mark first, oldest-first,
- * forever -- the same "keep the newest N, drop the oldest" policy
- * `writeTracerInstances` already uses for the identical reason (a busy
- * battle should lose its stalest evidence, not blink everything at once).
- * "A tank that outlives the buffer should degrade gracefully, not blink" is
- * satisfied by construction: `VehicleTrackMesh.stamp` always writes the
- * NEXT ring slot in a strictly advancing cursor, so wraparound only ever
- * evicts the least-recently-stamped mark in the whole pool, one at a time.
- * Under LIGHT traffic a mark can easily outlive the nominal 180s (nothing
- * forces early recycling if the pool never fills); under HEAVY traffic
- * (several vehicles driving continuously for the whole persistence window)
- * a mark's REALISED lifetime shrinks below 180s as the pool comes under
- * pressure -- the explicitly accepted "graceful degradation" trade, not a
- * bug, and preferable to an unbounded array a battle-scale mission could
- * grow without limit.
- *
- * ## Translucent decals (Phase 0 of the art uplift; was "palette exactness:
- * opaque, one colour, never blended")
- *
- * This module shipped fully opaque (`transparent: false`, alpha pinned to
- * 1.0) because the renderer it was built for had no real lighting: every
- * material on screen was a flat, palette-quantised colour, and that task's
- * own report had to sample live framebuffer pixels and prove each one was
- * exactly one of the 65 `data/palette.json` hexes. A partial-alpha blend
- * against whatever terrain happened to sit underneath would have produced a
- * continuum, not a fixed set of exact matches, so `createTrackMaterial`
- * pinned alpha to 1.0 unconditionally in the fragment shader -- the
- * identical mechanism `units/fx.ts`'s `hotCore` particles used to stay
- * on-palette by construction, not a `NormalBlending` fade.
- *
- * Phase 0 of the art uplift retired that guarantee: the scene now has a real
- * sun, real shadows (Task 9) and an ACES/sRGB output pass, so a live-sampled
- * pixel is already a shaded, tonemapped continuum for every OTHER material on
- * screen -- the exact-hex proof this module alone was still paying for no
- * longer holds anywhere else, and buying it here bought nothing. Worse, once
- * real shadows exist, a flat-coloured, fully opaque rectangle laid on top of
- * properly lit, shaded ground reads as exactly what it is: a solid plank of
- * one flat colour, taped across the sand, unmistakably fake next to
- * everything shaded around it. `createTrackMaterial` now draws at a fixed
- * `TRACK_OPACITY` (0.35, `transparent: true`) instead of 1.0 -- still ONE
- * uniform colour with no graduated fade (a mark still holds its one alpha for
- * its whole life and then is gone; "persist flat then vanish" is unchanged),
- * just blended enough to read as a mark ON the ground rather than a separate
- * solid object sitting on it. The whole mesh still draws from ONE material
- * uniform (`opts.terrainTones.rut`, resolved once at construction exactly
- * like `TrailMesh` resolves `terrainTones.spoil`), and `rut` is still not a
- * new colour choice: it is the SAME palette entry (`dust.5`, `#806032`)
- * CLAUDE.md's own "Known scaling debts" names as the STATIC rut tone already
- * painted into open ground (`renderer.ts`'s `rut` stroke, `TerrainTones.rut`)
- * -- this module is still that same tone, drawn dynamically instead of baked
- * into the terrain art, just no longer forced to full opacity to prove it
- * stays on-palette.
- *
- * ## Fog: no separate visibility gate, because depth-tested ground geometry does not need one
- *
- * `FogOfWarPass` (`./fog-pass.ts`) already dims every pixel by the shroud
- * value at the world position that pixel's own DEPTH reports -- 85% for
- * never-explored (fog level 0), 40% for explored-but-unobserved (level 1)
- * -- whatever geometry drew there. That is the
- * SAME mechanism that already hides/dims a wreck or a building standing on
- * unexplored ground; a mark drawn as depth-tested ground geometry (this
- * module's own recipe, see below -- opaque or not makes no difference here,
- * since fog reads DEPTH, not colour or alpha) gets that guarantee for free,
- * with no extra `Sim.sideSeesTile`-style query of its own. Concretely: an
- * enemy vehicle's track crossing ground the player has never explored is
- * dimmed into the shroud with the ground it sits on; once explored,
- * the track becomes visible, dimmed to the same "remembered terrain" look
- * every other permanent ground feature gets, even after the player's own
- * sight has moved on. This leaks nothing the player has not earned -- it is
- * exactly the same information a building or a wreck standing on that tile
- * already leaks, and gating a track mark more strictly than terrain itself
- * would be an arbitrary inconsistency, not an extra safeguard. `TrailMesh`'s
- * OWN spoil rung is a deliberately stricter case for a different reason
- * (`Sim.sideSeesTile`, CURRENT sight only) -- that gates a LIVE mechanic
- * ("something is being dug right now nearby"), not a permanent decal, and
- * this module has no equivalent live signal to gate on nor a reason to
- * invent one. Nothing about this depends on render order any more, in
- * either queue: fog runs AFTER the whole scene is drawn, so there is no
- * band a mark could claim that would put it outside the shroud. (This
- * paragraph used to turn on the opaque queue being submitted before the
- * transparent one `FogMesh` drew in; that dependency is retired with the
- * mesh -- see `units/render-order.ts`'s band-10 row.)
- *
- * ## Render order and depth recipe
- *
- * `TRAIL_RENDER_ORDER` (`units/render-order.ts`, an alias of
- * `HULL_RENDER_ORDER`) is reused verbatim, per that file's own closing
- * paragraphs: a mark is flat, depth-tested ground geometry, "belongs at or
- * below `HULL_RENDER_ORDER` -- never band 1" (the TURRET band, which sits
- * ABOVE every hull). `depthTest: true`, `depthWrite: false` -- now the SAME
- * recipe `TrailMesh` already uses, and for the identical reason (that file's
- * own doc comment): now that a mark is translucent (`TRACK_OPACITY`,
- * "Translucent decals" above), a second mark stamped over ground an earlier
- * mark already covers -- a vehicle re-tracing its own tread line, or a
- * `'tracked'`/`'wheeled'` pair's two marks overlapping on a tight turn --
- * would depth-fight and clobber rather than blend if this mesh wrote depth;
- * `depthWrite: false` avoids that the same way it protects `TrailMesh`'s own
- * graduated fade. Each mark sits `MARK_EPSILON` above its own tile's true top
- * (`terrain/shared.ts`'s constant, the same one every scatter/grove/trail
- * mark already uses) to avoid z-fighting the terrain quad directly beneath
- * it.
+ * moving GROUND vehicle. Drawing them is the shared decal pool's job now
+ * (`decal-pool.ts`, D5) -- `DecalPool`'s `'tread'`/`'tyre'` kinds generalise
+ * this module's own ring-buffer/conforming-grid shape to every decal, and
+ * fade on the SIM clock rather than a frame-time accumulator (`decal-pool
+ * .ts`'s own "The sim-time clock (R-14)"). What is left here is the maths
+ * that decides WHICH vehicles leave a mark, of what shape, and where along
+ * their path -- `ThreeRenderer` calls these functions and hands the results
+ * to `DecalPool.stamp` as a `'tread'`/`'tyre'` `DecalStamp`.
  *
  * ## Vehicles only, and why `isSoft` is the WRONG gate here
  *
@@ -191,24 +69,17 @@
  * Every read here is `Sim` state already exposed read-only elsewhere in
  * this backend (`curX`/`curY`, `state.facing`, `state.alive`,
  * `unitTypes[...].id`/`isAir`) -- this module writes nothing back to `Sim`,
- * and nothing it decides (which tile gets a mark, when one expires) can
+ * and nothing it decides (which tile gets a mark, what shape it is) can
  * ever be read BACK by the sim in a way that could change a combat outcome.
- * The one per-frame/per-tick clock this module needs (`nowMs`, for TTL
- * expiry) is threaded in by the caller from `ThreeRenderer`'s own
- * accumulated `dtMs` total -- never `Date.now()`/`performance.now()` --
- * matching `Renderer.frame`'s own documented contract ("a backend that
- * reads its own [clock] would make a frame depend on when it happened").
+ * The per-tick bookkeeping here (`stepTrackAccum`) is pure distance
+ * arithmetic with no clock of its own; the one clock a stamped mark's FADE
+ * needs is `decal-pool.ts`'s sim-time clock (R-14), not a frame-time
+ * accumulator this module used to own.
  */
-import * as THREE from 'three';
-import { hexToLinear, MARK_EPSILON } from './terrain/shared';
-import { groundWorldY, type ElevationSource } from './ground-height';
-import { tracerIndexBuffer } from './units/fx';
-import { TRAIL_RENDER_ORDER } from './units/render-order';
 
 // ---------------------------------------------------------------------------
-// Pure: vehicle classification, stamp-distance bookkeeping, and mark
-// geometry. No THREE.* below this line -- mirrors trail-mesh.ts's own split,
-// exercised directly with plain numbers in vehicle-tracks.test.ts.
+// Pure: vehicle classification and stamp-distance bookkeeping. Exercised
+// directly with plain numbers in vehicle-tracks.test.ts.
 // ---------------------------------------------------------------------------
 
 /** `'single'` is the motorcycle case -- one mark per stamp, not a pair. See
@@ -268,21 +139,12 @@ export const TRACK_FOOTPRINT: Readonly<Record<VehicleTrackKind, TrackFootprint>>
  * second) still scales with speed as a consequence -- a fast vehicle
  * crosses 0.5 tile sooner and so stamps more often in wall-clock time --
  * but that is a side effect of the distance rule, not a second, independent
- * speed scaling. 0.5 tiles matches this task's own worked capacity example
- * (`mbt_lavi`, ~198 tiles / 3 min -> ~400 single-mark stamps), so
- * `TRACK_POOL_CAPACITY`'s own sizing note stays directly comparable to it.
+ * speed scaling. 0.5 tiles is also `decal-pool.ts`'s own
+ * `TRACK_STAMP_HALF_LENGTH` derivation input, so the two files' geometry
+ * agrees by construction rather than by two authored numbers happening to
+ * match.
  */
 export const STAMP_SPACING_TILES = 0.5;
-
-/** Individual marks, not stamp events (a `'tracked'`/`'wheeled'` stamp
- *  consumes two of these). See this file's top comment, "Why a ring buffer,
- *  not a particle pool", for the sizing derivation. */
-export const TRACK_POOL_CAPACITY = 4096;
-
-/** "At least 3 min" -- the project lead's literal ask -- under normal load;
- *  see this file's top comment for the pool-pressure case where a mark's
- *  realised lifetime can fall short, by deliberate design. */
-export const TRACK_PERSIST_MS = 180_000;
 
 /**
  * A single-tick displacement above this (tiles) is treated as a teleport
@@ -386,275 +248,4 @@ export function trackMarkCorners(
     [center.x - fwdX - perpX, center.y - fwdY - perpY],
     [center.x - fwdX + perpX, center.y - fwdY + perpY],
   ];
-}
-
-/**
- * Writes one mark's 4 corner vertices (xyz, world space) into `out` at the
- * given ring `slot` (`out[slot*12 .. slot*12+11]`) -- the same "pure
- * function fills the caller's typed array" contract `writeTrailInstances`/
- * `writeFogInstances` already use. Sampled ONCE at the mark's own centre
- * tile (`groundWorldY`), not per corner -- a mark is small enough that
- * sub-tile elevation interpolation would not be visible, matching how
- * `TrailMesh` -- and the retired `FogMesh` before it -- sample per TILE,
- * never per vertex.
- */
-export function writeTrackMarkVertices(
-  center: TrackMarkCenter,
-  facingNorm: number,
-  halfLength: number,
-  halfWidth: number,
-  elevation: ElevationSource,
-  mapWidth: number,
-  mapHeight: number,
-  out: Float32Array,
-  slot: number
-): void {
-  const corners = trackMarkCorners(center, facingNorm, halfLength, halfWidth);
-  const y = groundWorldY(elevation, mapWidth, mapHeight, center.x, center.y) + MARK_EPSILON;
-  const base = slot * 12;
-  for (let i = 0; i < 4; i++) {
-    out[base + i * 3] = corners[i][0];
-    out[base + i * 3 + 1] = y;
-    out[base + i * 3 + 2] = corners[i][1];
-  }
-}
-
-/**
- * Collapses a slot's 4 vertices onto its OWN last-written centre (zero
- * area -- the two triangles degenerate to nothing, so the slot draws no
- * pixels) rather than the world origin: `(0, 0, 0)` is a real, potentially
- * on-screen map tile, and snapping an expired mark there would flash a
- * visible artefact at a location that has nothing to do with the mark that
- * just expired. Collapsing onto the mark's own position is invisible
- * regardless of where on the map it happened to be.
- */
-export function collapseTrackMarkVertices(out: Float32Array, slot: number): void {
-  const base = slot * 12;
-  const x = out[base];
-  const y = out[base + 1];
-  const z = out[base + 2];
-  for (let i = 0; i < 4; i++) {
-    out[base + i * 3] = x;
-    out[base + i * 3 + 1] = y;
-    out[base + i * 3 + 2] = z;
-  }
-}
-
-/**
- * Scans the WRITTEN prefix (`writtenCount`, which is `capacity` after the
- * first wrap and grows toward it before that -- `VehicleTrackMesh`'s own
- * bookkeeping) for slots whose TTL has elapsed and have not already been
- * marked `collapsed`. Mutates `collapsed` in place for each one found (so a
- * later call never re-reports it) and fills `outSlots` with their indices,
- * returning the count written -- the same "pure function mutates the
- * caller's own scratch buffers" contract every other write function in this
- * file uses, so a per-frame call allocates nothing.
- *
- * `writtenCount` is at most `TRACK_POOL_CAPACITY` (4,096) -- a flat scan of
- * that many `Float64Array`/`Uint8Array` entries once a frame is a constant,
- * small cost that cannot grow with map size or route count, unlike the
- * genuine O(width * height * routes) trail scan CLAUDE.md's own "Known
- * scaling debts" flags; there is nothing to stagger here.
- */
-export function sweepExpiredTrackSlots(
-  spawnMs: Float64Array,
-  collapsed: Uint8Array,
-  writtenCount: number,
-  nowMs: number,
-  persistMs: number,
-  outSlots: Int32Array
-): number {
-  let n = 0;
-  for (let i = 0; i < writtenCount; i++) {
-    if (collapsed[i] === 1) continue;
-    if (nowMs - spawnMs[i] < persistMs) continue;
-    collapsed[i] = 1;
-    if (n < outSlots.length) outSlots[n] = i;
-    n++;
-  }
-  return n;
-}
-
-// ---------------------------------------------------------------------------
-// GPU-facing: everything below touches THREE.* GPU-side construction
-// (BufferGeometry, Mesh, ShaderMaterial). Constructed and inspected by
-// vehicle-tracks.test.ts since 2026-09-14 -- `createTrackMaterial`'s
-// transparency, `uOpacity` and `TRACK_OPACITY` are all asserted there -- but
-// still never DRAWN by it, for the same reason trail-mesh.ts's own GPU half
-// is not: three.js accepts these buffers under `environment: 'node'`, while
-// using them end to end needs a real WebGLRenderer. The browser half is the
-// visual gate.
-// ---------------------------------------------------------------------------
-
-/** Fixed alpha every track mark draws at -- see this file's top comment,
- *  "Translucent decals", for why 0.35 rather than the fully opaque 1.0 this
- *  module shipped with before real shadows existed. */
-export const TRACK_OPACITY = 0.35;
-
-/**
- * Flat-shaded, single-uniform-colour, translucent DECAL material -- see this
- * file's top comment, "Translucent decals", for why alpha is now pinned to
- * `TRACK_OPACITY` (0.35) unconditionally rather than 1.0: every fragment
- * this material ever writes is exactly `color` at that one fixed alpha, with
- * no per-instance/per-vertex attribute and no graduated fade -- still a
- * single flat value, just no longer an opaque one. `uColor` is LINEAR
- * (`hexToLinear`, not `hexToUnit`): this is a live shader uniform read by a
- * `ShaderMaterial`, and the composer's `OutputPass` encodes the whole frame
- * to sRGB once at the end (`terrain/shared.ts`'s own `srgbToLinear` doc
- * comment, "spec §1") -- feeding it an un-linearised sRGB hex here would get
- * encoded a second time and land brighter than the palette entry authored.
- */
-export function createTrackMaterial(color: string): THREE.ShaderMaterial {
-  const [r, g, b] = hexToLinear(color);
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      uColor: { value: new THREE.Vector3(r, g, b) },
-      uOpacity: { value: TRACK_OPACITY },
-    },
-    vertexShader: /* glsl */ `
-      void main() {
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      void main() {
-        gl_FragColor = vec4(uColor, uOpacity);
-      }
-    `,
-    transparent: true,
-    depthTest: true,
-    depthWrite: false,
-    // DoubleSide, matching TracerBatch's own reasoning (`units/fx.ts`) even
-    // though the specific hazard differs: a tracer's winding varies per shot
-    // bearing and cannot be proven once, where this mesh's winding IS
-    // constant across every `facingNorm` (an easy fact to get backwards by
-    // hand, not one that varies at runtime) -- but the material carries no
-    // lighting term to depend on face direction either way, so removing the
-    // "did I get the corner order right" risk costs nothing real.
-    side: THREE.DoubleSide,
-  });
-}
-
-/**
- * Every live (and recently-expired-but-not-yet-collapsed) mark, one batched
- * (not instanced) `THREE.Mesh`, one draw call -- the same shape
- * `TracerBatch` (`units/fx.ts`) uses and for the identical reason: each
- * mark's quad varies in both position AND facing per stamp, so this writes
- * real per-vertex positions into one large `BufferGeometry` rather than
- * scaling a shared local quad through a per-instance `Matrix4`.
- *
- * UNLIKE `TracerBatch`, this is not rebuilt from a live list every frame --
- * a mark is written ONCE, at `stamp()`, and never moves again until it is
- * either recycled by ring-buffer wraparound or expires via `update()`'s TTL
- * sweep. `positionAttr.needsUpdate` is therefore only set when something
- * actually changed this call, not unconditionally every frame.
- */
-export class VehicleTrackMesh {
-  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
-  private readonly positionAttr: THREE.BufferAttribute;
-  private readonly spawnMs: Float64Array;
-  private readonly collapsed: Uint8Array;
-  private readonly expiredScratch: Int32Array;
-  private writeCursor = 0;
-  /** `min(total marks ever stamped, capacity)` -- the drawn prefix before
-   *  the first wrap; `capacity` forever after (every slot has been written
-   *  at least once, whether still active or already collapsed). */
-  private writtenCount = 0;
-
-  constructor(capacity: number, color: string) {
-    const geometry = new THREE.BufferGeometry();
-    this.positionAttr = new THREE.BufferAttribute(new Float32Array(capacity * 4 * 3), 3);
-    this.positionAttr.setUsage(THREE.DynamicDrawUsage);
-    geometry.setAttribute('position', this.positionAttr);
-    geometry.setIndex(new THREE.BufferAttribute(tracerIndexBuffer(capacity), 1));
-    geometry.setDrawRange(0, 0);
-
-    this.mesh = new THREE.Mesh(geometry, createTrackMaterial(color));
-    // See this file's top comment, "Render order and depth recipe" -- flat,
-    // depth-tested ground geometry belongs at or below HULL_RENDER_ORDER,
-    // the same band TrailMesh already draws in.
-    this.mesh.renderOrder = TRAIL_RENDER_ORDER;
-    // Marks can appear anywhere a vehicle has driven, exactly like fog/trail
-    // span the whole map -- see UnitInstancer's identical field and comment.
-    this.mesh.frustumCulled = false;
-
-    this.spawnMs = new Float64Array(capacity);
-    this.collapsed = new Uint8Array(capacity);
-    this.expiredScratch = new Int32Array(capacity);
-  }
-
-  get capacity(): number {
-    return this.spawnMs.length;
-  }
-
-  /**
-   * Writes one stamp event's mark(s) -- one for `'single'`, two for
-   * `'tracked'`/`'wheeled'` -- into the next ring slot(s), advancing the
-   * cursor and overwriting the oldest content there unconditionally (the
-   * graceful-degradation wraparound this file's top comment describes).
-   * `nowMs` is the caller's own accumulated clock, never a direct
-   * `Date.now()`/`performance.now()` read -- see this file's top comment,
-   * "Determinism (invariant 4)".
-   */
-  stamp(
-    cx: number,
-    cy: number,
-    facingNorm: number,
-    kind: VehicleTrackKind,
-    elevation: ElevationSource,
-    mapWidth: number,
-    mapHeight: number,
-    nowMs: number
-  ): void {
-    const footprint = TRACK_FOOTPRINT[kind];
-    const centers = trackStampCenters(cx, cy, facingNorm, kind);
-    const positions = this.positionAttr.array as Float32Array;
-    for (const center of centers) {
-      const slot = this.writeCursor;
-      this.writeCursor = (this.writeCursor + 1) % this.capacity;
-      this.writtenCount = Math.min(this.writtenCount + 1, this.capacity);
-      writeTrackMarkVertices(
-        center,
-        facingNorm,
-        footprint.halfLengthTiles,
-        footprint.halfWidthTiles,
-        elevation,
-        mapWidth,
-        mapHeight,
-        positions,
-        slot
-      );
-      this.spawnMs[slot] = nowMs;
-      this.collapsed[slot] = 0;
-    }
-    this.positionAttr.needsUpdate = true;
-    this.mesh.geometry.setDrawRange(0, this.writtenCount * 6);
-  }
-
-  /** TTL sweep -- called once a frame from `ThreeRenderer.frame()`, matching
-   *  `smokeMesh.update()`'s own "no dirty gate, runs every frame()"
-   *  precedent (this is cheap; see `sweepExpiredTrackSlots`'s own doc
-   *  comment for the cost bound). `nowMs` is the same accumulated-`dtMs`
-   *  clock `stamp()` uses. */
-  update(nowMs: number): void {
-    const n = sweepExpiredTrackSlots(
-      this.spawnMs,
-      this.collapsed,
-      this.writtenCount,
-      nowMs,
-      TRACK_PERSIST_MS,
-      this.expiredScratch
-    );
-    if (n === 0) return;
-    const positions = this.positionAttr.array as Float32Array;
-    for (let i = 0; i < n; i++) collapseTrackMarkVertices(positions, this.expiredScratch[i]);
-    this.positionAttr.needsUpdate = true;
-  }
-
-  dispose(): void {
-    this.mesh.geometry.dispose();
-    this.mesh.material.dispose();
-  }
 }

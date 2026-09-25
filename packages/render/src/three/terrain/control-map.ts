@@ -34,7 +34,6 @@
  * because the two halves are independent ideas.
  */
 import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD, hexToLinear } from './shared';
-import { SCRUB_TIER_STRENGTH } from './ground';
 import { boxBlur, fbm2, valueNoise2 } from './noise';
 import { buildRoadGraph, junctionDistanceAt, roadDistanceAt, ROAD_EDGE_BEND_CYCLES } from './road-graph';
 import type { TerrainInput } from './types';
@@ -67,6 +66,43 @@ export const ROAD_DISTANCE_RANGE_TILES = 1;
 /** The road edge's wander noise seed -- control B's alpha channel. Named so
  *  `decal-ground-tone.ts` reads the same wander the shader does. */
 export const ROAD_BEND_SEED = 303;
+
+/**
+ * How strongly each cover tier samples the scrub albedo -- the mix weight
+ * toward the image's own variation, so tier 1 is faintly rough ground and
+ * tier 3 is a thicket.
+ *
+ * **A contrast ladder, not a tone ladder, and that was decided by
+ * measurement rather than taste.** The obvious move is to branch `groundTone`
+ * on cover and composite the already-authored `tones.cover[tier - 1]` over
+ * the open wash, which would give each tier its own palette entry. It does
+ * not work, twice over. Quantisation eats it: sweeping the alpha for `arid`,
+ * everything below 0.5 snaps all three tiers back onto `limestone.3` -- the
+ * open-ground tone itself -- so there is no gentle version. And at the 0.6
+ * where three distinct entries finally appear, the entries are
+ * `limestone.2` / `dust.1` / `dust.0`, whose luminances are 193 / 175 / 185
+ * against open ground's 182: three different colours in no order at all.
+ * That triple was authored for TUFTS, which need to contrast with the ground
+ * they sit on, not for a density ramp. Inventing new palette keys to fix
+ * that is a palette change, not a terrain one.
+ *
+ * Contrast is also the physically right cue. Seen from above, sparse bushes
+ * on open ground are mostly the open ground, so the tile's variation is low;
+ * a thicket is all highlight and shadow. The scrub source's per-pixel std is
+ * 29.1 grey levels on a mean of 92, so the ratio it applies swings roughly
+ * 0.6-1.5 -- at strength 0.4 that is a +/-24% mottle and at 1.0 a +/-60% one.
+ *
+ * The tuft marks `scatter.ts` already places (`cover + 2` of them, in the
+ * tier's own authored tone) are KEPT on top and are the second, palette-legal
+ * cue: count and colour, over contrast and texture.
+ *
+ * Lives here, not in `ground.ts` (which re-exports it for its existing
+ * callers): `tileSurface` below is this constant's only reader, and
+ * `ground.ts` importing `tileSurface` from this module while this module
+ * imported `SCRUB_TIER_STRENGTH` back from `ground.ts` was an import cycle
+ * between the two files.
+ */
+export const SCRUB_TIER_STRENGTH: readonly [number, number, number] = [0.4, 0.65, 1.0];
 
 /** The seven things `tileSurface` can call a tile. `'pad'` is a building
  *  footprint -- not ground, and carries no channel of its own in either

@@ -36,7 +36,8 @@
  *    error at all.
  * 2. `layerCost` skips (rather than throws on) a layer name that does not
  *    resolve on this tree and reports `n/a` for it, so the one tool measures
- *    both main's `scorch` and this branch's not-yet-shipped `decals`.
+ *    both main's `scorch` (retired on this branch, D5/R-17) and this
+ *    branch's `decals`.
  * 3. `--decals` boots each map with `&decals` appended to the sandbox URL.
  *    Before Task 16 ships the flag, the app only warns about it by name
  *    (`sandbox-help.ts`'s unknown-parameter warning) -- this script does not
@@ -164,8 +165,9 @@ export function viewsFor(mapId: string, rows: readonly string[]): readonly MapVi
 
 /** What `layerCost` measures the price of, in the order it reports them.
  *  `decals` sits before `scorch` deliberately -- see this file's header,
- *  difference 2: on THIS branch `decals` throws and `scorch` does not, and on
- *  main it is the other way round, so the one array measures both trees. */
+ *  difference 2: after Task 13, on THIS branch `decals` resolves and
+ *  `scorch` throws (retired, D5/R-17), and on main it is the other way
+ *  round, so the one array measures both trees. */
 export const COST_LAYERS: readonly string[] = ['scatter', 'decor', 'units', 'buildings', 'decals', 'scorch'];
 
 // ============================================================================

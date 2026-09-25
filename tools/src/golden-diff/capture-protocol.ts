@@ -639,8 +639,10 @@ return JSON.stringify({ tick: window.__lions.sim.tickCount });
 
 /** Repaints the canvas WITHOUT advancing anything: no sim tick, and zero
  *  presentation milliseconds, so every clock `frame()` accumulates
- *  (`smokeClockMs`, `trackClockMs`, `windClockMs`, every animation mixer,
- *  every particle age) is handed 0 and stands still.
+ *  (`smokeClockMs`, `windClockMs`, every animation mixer, every particle
+ *  age) is handed 0 and stands still -- and, since `tickCount`/`alpha` are
+ *  also unchanged, the decal pool's own sim-time clock (`decal-pool.ts`'s
+ *  `uNowSec`, R-14) stands still with them, by the same repaint.
  *
  *  That is what makes the toggle A/B below a measurement of the LAYER rather
  *  than of the layer plus one frame of animation. Two consecutive evaluations

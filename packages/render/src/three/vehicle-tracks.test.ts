@@ -1,26 +1,19 @@
 /**
- * Pure geometry/bookkeeping for vehicle track marks, exercised without a
- * `WebGLRenderer` -- same split `trail-mesh.test.ts`/`fog-mesh.test.ts` and
- * `units/vehicle-fx.test.ts` already establish. See `vehicle-tracks.ts`'s
- * top comment for the full design account.
+ * Pure geometry/bookkeeping for vehicle track marks -- vehicle
+ * classification, stamp-distance bookkeeping, and mark-corner geometry. See
+ * `vehicle-tracks.ts`'s top comment for the full design account; drawing the
+ * mark itself is `decal-pool.ts`'s job now (D5).
  */
 import { describe, it, expect } from 'vitest';
 import {
   VEHICLE_TRACK_KIND,
   TRACK_FOOTPRINT,
   STAMP_SPACING_TILES,
-  TRACK_POOL_CAPACITY,
-  TRACK_PERSIST_MS,
-  TRACK_OPACITY,
   MAX_PLAUSIBLE_TRACK_STEP_TILES,
   trackKindFor,
   stepTrackAccum,
   trackStampCenters,
   trackMarkCorners,
-  writeTrackMarkVertices,
-  collapseTrackMarkVertices,
-  sweepExpiredTrackSlots,
-  createTrackMaterial,
 } from './vehicle-tracks';
 
 describe('trackKindFor', () => {
@@ -168,98 +161,5 @@ describe('trackMarkCorners', () => {
     }
     expect(sx / 4).toBeCloseTo(7);
     expect(sy / 4).toBeCloseTo(-3);
-  });
-});
-
-describe('writeTrackMarkVertices / collapseTrackMarkVertices', () => {
-  it('writes 4 vertices at the expected slot offset, lifted above flat ground', () => {
-    const out = new Float32Array(2 * 12);
-    writeTrackMarkVertices({ x: 1, y: 2 }, 0, 0.3, 0.05, null, 10, 10, out, 1);
-    // Slot 0 untouched.
-    expect(out[0]).toBe(0);
-    // Slot 1: 4 verts * 3 floats starting at index 12.
-    const y0 = out[12 + 1];
-    const y1 = out[12 + 4];
-    const y2 = out[12 + 7];
-    const y3 = out[12 + 10];
-    expect(y0).toBeGreaterThan(0); // MARK_EPSILON lift on flat (elevation-null) ground
-    expect(y0).toBeCloseTo(y1);
-    expect(y0).toBeCloseTo(y2);
-    expect(y0).toBeCloseTo(y3);
-  });
-
-  it('collapse zeroes the quad area by snapping every vertex onto the first', () => {
-    const out = new Float32Array(12);
-    writeTrackMarkVertices({ x: 4, y: 4 }, 0.1, 0.3, 0.05, null, 10, 10, out, 0);
-    collapseTrackMarkVertices(out, 0);
-    for (let i = 1; i < 4; i++) {
-      expect(out[i * 3]).toBeCloseTo(out[0]);
-      expect(out[i * 3 + 1]).toBeCloseTo(out[1]);
-      expect(out[i * 3 + 2]).toBeCloseTo(out[2]);
-    }
-    // Collapsed onto the mark's OWN last position, never the world origin
-    // (which is a real, potentially on-screen tile) -- see this module's
-    // own doc comment for why that distinction matters.
-    expect(out[0]).not.toBe(0);
-  });
-});
-
-describe('sweepExpiredTrackSlots', () => {
-  it('reports nothing before TTL has elapsed', () => {
-    const spawnMs = new Float64Array([0, 0, 0]);
-    const collapsed = new Uint8Array(3);
-    const outSlots = new Int32Array(3);
-    const n = sweepExpiredTrackSlots(spawnMs, collapsed, 3, TRACK_PERSIST_MS - 1, TRACK_PERSIST_MS, outSlots);
-    expect(n).toBe(0);
-  });
-
-  it('reports and marks exactly the slots whose TTL has elapsed', () => {
-    const spawnMs = new Float64Array([0, 100, 200]);
-    const collapsed = new Uint8Array(3);
-    const outSlots = new Int32Array(3);
-    const n = sweepExpiredTrackSlots(spawnMs, collapsed, 3, TRACK_PERSIST_MS + 50, TRACK_PERSIST_MS, outSlots);
-    // Slot 0 (age = TRACK_PERSIST_MS + 50) and slot 1 (age = TRACK_PERSIST_MS - 50 ... wait, recompute) expired.
-    expect(n).toBeGreaterThan(0);
-    expect(collapsed[0]).toBe(1);
-  });
-
-  it('never re-reports an already-collapsed slot', () => {
-    const spawnMs = new Float64Array([0]);
-    const collapsed = new Uint8Array(1);
-    const outSlots = new Int32Array(1);
-    const first = sweepExpiredTrackSlots(spawnMs, collapsed, 1, TRACK_PERSIST_MS, TRACK_PERSIST_MS, outSlots);
-    expect(first).toBe(1);
-    const second = sweepExpiredTrackSlots(spawnMs, collapsed, 1, TRACK_PERSIST_MS + 10_000, TRACK_PERSIST_MS, outSlots);
-    expect(second).toBe(0);
-  });
-
-  it('only scans the written prefix, ignoring never-written slots', () => {
-    const spawnMs = new Float64Array(5); // all zero -- would "expire" if scanned
-    const collapsed = new Uint8Array(5);
-    const outSlots = new Int32Array(5);
-    const n = sweepExpiredTrackSlots(spawnMs, collapsed, 2, TRACK_PERSIST_MS + 1, TRACK_PERSIST_MS, outSlots);
-    expect(n).toBe(2);
-  });
-});
-
-describe('capacity sizing sanity', () => {
-  it('the pool is sized in the same order of magnitude as this task\'s own worked example', () => {
-    // mbt_lavi at 1.1 tiles/s covers ~198 tiles in 3 min; at
-    // STAMP_SPACING_TILES spacing and PAIR stamping that is ~792 marks for
-    // one vehicle's full-fidelity 3-minute drive.
-    const tilesIn3Min = 1.1 * 180;
-    const marksPerVehicle = (tilesIn3Min / STAMP_SPACING_TILES) * 2;
-    expect(TRACK_POOL_CAPACITY / marksPerVehicle).toBeGreaterThan(1);
-    expect(TRACK_POOL_CAPACITY / marksPerVehicle).toBeLessThan(20);
-  });
-});
-
-describe('createTrackMaterial', () => {
-  it('track marks are translucent decals: 0.35 alpha, no depth write, 180 s life unchanged', () => {
-    const mat = createTrackMaterial('#4E5433');
-    expect(mat.transparent).toBe(true);
-    expect(mat.depthWrite).toBe(false);
-    expect(mat.uniforms.uOpacity.value).toBe(TRACK_OPACITY);
-    expect(TRACK_OPACITY).toBe(0.35);
   });
 });

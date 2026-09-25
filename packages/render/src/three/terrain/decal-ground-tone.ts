@@ -26,6 +26,20 @@
  *   centre happened to land on a rut would be divided by a darker tone than
  *   the rest of its footprint stands on.
  *
+ * **The straddle case is a known, accepted limitation, not an oversight.**
+ * A decal takes exactly ONE ground tone -- this function's own return value,
+ * sampled once at the decal's own centre `(x, z)` -- and `DecalPool.stamp`
+ * writes that single tone onto every vertex of the decal's grid (`aGround`).
+ * A decal that physically straddles two different surfaces (a scorch mark
+ * half on the road, half on open grass) therefore divides its ENTIRE
+ * footprint by whichever surface its centre happens to sit on: the grass
+ * half of that mark is divided by the road's tone, not its own, and reads
+ * off. This mirrors `ground.ts`'s own per-TILE (not per-vertex) tone
+ * decision -- a decal is smaller than the band this could visibly matter
+ * over, and a per-vertex sample would need the same control-map lookup the
+ * shader itself does, which is exactly the fragment-level machinery this
+ * function's single centre sample exists to avoid paying twice.
+ *
  * Linear light throughout (`hexToLinear`), like the shader's.
  *
  * The shader reads the road through the control map, 8 texels a tile and 8

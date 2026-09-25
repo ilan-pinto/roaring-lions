@@ -60,7 +60,7 @@ import {
   SURFACE_SUBDIVISIONS,
   type TerrainSurface,
 } from './surface';
-import { tileSurface } from './control-map';
+import { SCRUB_TIER_STRENGTH, tileSurface } from './control-map';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
@@ -80,36 +80,12 @@ export const FACE_ALPHA_SOUTH = 0.85;
  *  here -- see `surface.ts`'s `SURFACE_SHADING_EXEMPTION`. */
 const UP_NORMAL: readonly [number, number, number] = [0, 1, 0];
 
-/**
- * How strongly each cover tier samples the scrub albedo -- the mix weight
- * toward the image's own variation, so tier 1 is faintly rough ground and
- * tier 3 is a thicket.
- *
- * **A contrast ladder, not a tone ladder, and that was decided by
- * measurement rather than taste.** The obvious move is to branch `groundTone`
- * on cover and composite the already-authored `tones.cover[tier - 1]` over
- * the open wash, which would give each tier its own palette entry. It does
- * not work, twice over. Quantisation eats it: sweeping the alpha for `arid`,
- * everything below 0.5 snaps all three tiers back onto `limestone.3` -- the
- * open-ground tone itself -- so there is no gentle version. And at the 0.6
- * where three distinct entries finally appear, the entries are
- * `limestone.2` / `dust.1` / `dust.0`, whose luminances are 193 / 175 / 185
- * against open ground's 182: three different colours in no order at all.
- * That triple was authored for TUFTS, which need to contrast with the ground
- * they sit on, not for a density ramp. Inventing new palette keys to fix
- * that is a palette change, not a terrain one.
- *
- * Contrast is also the physically right cue. Seen from above, sparse bushes
- * on open ground are mostly the open ground, so the tile's variation is low;
- * a thicket is all highlight and shadow. The scrub source's per-pixel std is
- * 29.1 grey levels on a mean of 92, so the ratio it applies swings roughly
- * 0.6-1.5 -- at strength 0.4 that is a +/-24% mottle and at 1.0 a +/-60% one.
- *
- * The tuft marks `scatter.ts` already places (`cover + 2` of them, in the
- * tier's own authored tone) are KEPT on top and are the second, palette-legal
- * cue: count and colour, over contrast and texture.
- */
-export const SCRUB_TIER_STRENGTH: readonly [number, number, number] = [0.4, 0.65, 1.0];
+/** How strongly each cover tier samples the scrub albedo. Owned by
+ *  `control-map.ts` now (`tileSurface`'s only reader) -- re-exported here so
+ *  this module's own existing callers and `ground.test.ts` are unaffected.
+ *  See that module's own doc comment for the full account of why a contrast
+ *  ladder rather than a tone ladder, and why it moved. */
+export { SCRUB_TIER_STRENGTH };
 
 /**
  * The one per-vertex surface fact the fragment shader still reads now the
@@ -203,6 +179,29 @@ export function groundAlbedoSlotsUsed(input: TerrainInput): ReadonlySet<GroundAl
 }
 
 /**
+ * The palette tone a tile's TOP vertices carry -- what `diffuseColor` holds
+ * before `GroundMaterial` mixes the road in and multiplies the albedo and
+ * macro ratio fields over it. One function for `buildGround` and for the
+ * decal pool's local ground tone (`decal-ground-tone.ts`), so the two cannot
+ * disagree about what the ground under a decal is.
+ *
+ * A road tile does not take `groundTone`'s own DECOR_ROAD branch
+ * (`tones.road` composited over the open wash): the road's tone is the
+ * shader's job, drawn from control B's distance field over whatever is
+ * beneath it (Task 6, #226), and what belongs beneath it is the open
+ * ground's own wash -- `groundTone`'s open branch, transcribed rather than
+ * reached through `groundTone` itself so this one exception does not have to
+ * route through (and risk disturbing) every other branch that function
+ * still owns.
+ */
+export function tileBaseToneHex(input: TerrainInput, tones: TerrainTones, ti: number, background: string): string {
+  const decorHere = input.decor ? input.decor[ti] : 0;
+  return decorHere === DECOR_ROAD
+    ? quantise(composite(background, tones.open, 1), PALETTE_HEXES)
+    : groundTone(input, tones, ti, PALETTE_HEXES, background);
+}
+
+/**
  * Builds the ground mesh's `positions`/`colors`/`normals`/`indices` and its
  * one remaining per-vertex surface fact, `wallAlbedo`.
  *
@@ -226,29 +225,6 @@ export function groundAlbedoSlotsUsed(input: TerrainInput): ReadonlySet<GroundAl
  * shader by the time this function still emitted them; this is where they
  * stop being emitted too.
  */
-/**
- * The palette tone a tile's TOP vertices carry -- what `diffuseColor` holds
- * before `GroundMaterial` mixes the road in and multiplies the albedo and
- * macro ratio fields over it. One function for `buildGround` and for the
- * decal pool's local ground tone (`decal-ground-tone.ts`), so the two cannot
- * disagree about what the ground under a decal is.
- *
- * A road tile does not take `groundTone`'s own DECOR_ROAD branch
- * (`tones.road` composited over the open wash): the road's tone is the
- * shader's job, drawn from control B's distance field over whatever is
- * beneath it (Task 6, #226), and what belongs beneath it is the open
- * ground's own wash -- `groundTone`'s open branch, transcribed rather than
- * reached through `groundTone` itself so this one exception does not have to
- * route through (and risk disturbing) every other branch that function
- * still owns.
- */
-export function tileBaseToneHex(input: TerrainInput, tones: TerrainTones, ti: number, background: string): string {
-  const decorHere = input.decor ? input.decor[ti] : 0;
-  return decorHere === DECOR_ROAD
-    ? quantise(composite(background, tones.open, 1), PALETTE_HEXES)
-    : groundTone(input, tones, ti, PALETTE_HEXES, background);
-}
-
 export function buildGround(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
   const { width, height } = input;
   const surface = buildTerrainSurface(input);

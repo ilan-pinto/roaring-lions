@@ -741,6 +741,17 @@ function decalSeed(kind: DecalKind, x: number, z: number): number {
   return tileHash(Math.floor(8 * x), Math.floor(8 * z) + 977 * DECAL_KIND_INDEX[kind]);
 }
 
+/**
+ * The road shoulder's bleached tone: `data/palette.json`'s `limestone.2`.
+ * Named once so `rebuildTerrain`'s `uShoulderTone` uniform and
+ * `decalGround`'s own copy (`terrain/decal-ground-tone.ts`'s
+ * `DecalGroundSource.shoulder`, the decal pool's local-tone denominator)
+ * resolve through the same key and the same fallback hex rather than two
+ * copies that could drift apart by a retyped literal.
+ */
+const SHOULDER_TONE_KEY = 'limestone.2';
+const SHOULDER_TONE_FALLBACK = '#D9C7A7';
+
 /** How strong a HOVER preview's envelope is, as a fraction of the same
  *  unit's envelope when it is selected. One multiplier over all three bands
  *  rather than three more tuned numbers: a preview is the same shape, said
@@ -2187,7 +2198,7 @@ export class ThreeRenderer implements Renderer {
     // theme, resolved through `overlayColor` like the tints above.
     (this.groundMat.uniforms.uRoadTone.value as THREE.Vector3).fromArray(hexToLinear(opts.terrainTones.road));
     (this.groundMat.uniforms.uShoulderTone.value as THREE.Vector3).fromArray(
-      hexToLinear(this.overlayColor('limestone.2', '#D9C7A7'))
+      hexToLinear(this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK))
     );
     (this.groundMat.uniforms.uRutTone.value as THREE.Vector3).fromArray(
       hexToLinear(this.overlayColor('limestone.6', '#8C7659'))
@@ -8035,7 +8046,7 @@ export class ThreeRenderer implements Renderer {
       input: composed.input,
       tones: this.opts.terrainTones,
       background: this.opts.background,
-      shoulder: this.overlayColor('limestone.2', '#D9C7A7'),
+      shoulder: this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK),
       graph: buildRoadGraph(composed.input),
     };
     this.controlTex?.a.dispose();

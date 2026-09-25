@@ -320,9 +320,7 @@ export const TRAIL_RENDER_ORDER = HULL_RENDER_ORDER;
 /**
  * Task 10 (`docs/superpowers/plans/2026-09-25-ground-plan-1.md`): the shared
  * decal pool's PERSISTENT mesh (crater/scorch/oil/rubble) -- an alias of
- * `WORLD_RENDER_ORDER`, under everything that moves, for the identical
- * reason `scorch-decals.ts`'s own `ScorchDecalMesh` already draws there
- * (see that module's "Colour and render order" section): a decal is world
+ * `WORLD_RENDER_ORDER`, under everything that moves: a decal is world
  * geometry, the same tier a mesh building's opaque hull occupies, not an FX
  * band, and setting it explicitly by name is what stops a later "fix" from
  * moving it into a tier where it would paint over a unit standing on the
