@@ -9,7 +9,27 @@
  */
 export interface LibraryCredit { name: string; version: string; licence: string; url: string }
 export interface FontCredit { family: string; licenceFile: string; holder: string }
-export interface AssetCredit { what: string; author: string; licence: string; source: string }
+/**
+ * One third-party work whose licence requires a credit. The fields are exactly
+ * what Creative Commons Attribution 3.0 section 4(b) asks a credit to carry:
+ * the author, the work's own title as its licensor published it, the URI the
+ * licensor associated with it, and -- because every such work here was
+ * adapted -- a line identifying how it is used (`useKey`, an en.json key,
+ * since that line is prose rather than a name). Section 4(a) adds the licence's
+ * own URI, which is `licenceUrl`.
+ */
+export interface AssetCredit {
+  title: string;
+  author: string;
+  /** Short licence name, e.g. 'CC BY 3.0'. */
+  licence: string;
+  licenceUrl: string;
+  /** Short label for where the work was published, e.g. 'BlendSwap #75225'. */
+  source: string;
+  /** The licensor's own URI for the work, verbatim from its licence page. */
+  sourceUrl: string;
+  useKey: string;
+}
 
 export const CREDITS = {
   people: ['Ilan Pinto and the Roaring Lions contributors'],
@@ -23,7 +43,16 @@ export const CREDITS = {
     { family: 'IBM Plex Mono', licenceFile: 'OFL-IBMPlexMono.txt', holder: 'IBM Corp.' },
   ],
   assets: [
-    { what: 'Namer IFV model (sprite sheets NAMER_HULL, NAMER_TURR)', author: 'Mutte', licence: 'CC BY 3.0', source: 'BlendSwap #75225' },
+    // Verbatim from art/src/ifv_dmm08_LICENSE.html, the licensor's own page.
+    {
+      title: 'VEHICLE IFV DMM08',
+      author: 'Mutte',
+      licence: 'CC BY 3.0',
+      licenceUrl: 'https://creativecommons.org/licenses/by/3.0/',
+      source: 'BlendSwap #75225',
+      sourceUrl: 'http://www.blendswap.com/blends/view/75225',
+      useKey: 'credits.asset.namer.use',
+    },
   ],
   codeLicence: 'PolyForm Noncommercial 1.0.0',
   artLicence: 'all rights reserved',

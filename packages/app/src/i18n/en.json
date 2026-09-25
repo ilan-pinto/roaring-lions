@@ -91,6 +91,10 @@
   "credits.licence.line": "Code: {code}. Art and data: {art}.",
   "credits.font.summary": "{family} — {holder}",
   "credits.font.unavailable": "licence text unavailable offline",
+  "credits.asset.line": "“{title}” by {author} ({source}), licensed under {licence}. {use}",
+  "credits.asset.sourceLabel": "Source: ",
+  "credits.asset.licenceLabel": "Licence: ",
+  "credits.asset.namer.use": "Modified: rendered into the Namer IFV sprite sheets (NAMER_HULL, NAMER_TURR) and recoloured to the game palette.",
 
   "nav.campaignMap": "campaign map",
   "nav.menu": "menu",
