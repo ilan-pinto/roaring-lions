@@ -2139,7 +2139,10 @@ export class ThreeRenderer implements Renderer {
       rubbleB: this.overlayColor('limestone.7', '#75624A'),
       tread: opts.terrainTones.rut,
       tyre: this.overlayColor('limestone.6', '#8C7659'),
-    });
+    }, opts.terrainTones.open);
+    // `terrainTones.open` is the ground's own palette tone: each decal
+    // writes its tone as a ratio over it and is MULTIPLIED onto the lit
+    // ground (F-22), so a crater lip in a building's shadow stays in shadow.
     // One material, two pools, one band each (`render-order.ts`'s decal
     // aliases): the persistent marks in the world band, the fading prints
     // one above so a fresh tread lies over an old crater.

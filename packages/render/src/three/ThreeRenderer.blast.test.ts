@@ -46,8 +46,7 @@ import * as THREE from 'three';
 import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
-import { MARK_EPSILON } from './terrain/shared';
-import { terrainSurfaceFrom } from './terrain/surface';
+import { isTerrace, terrainSurfaceFrom } from './terrain/surface';
 import { groundWorldY } from './ground-height';
 import { isAoOccluder } from './post-chain';
 import { STAMP_SPACING_TILES } from './vehicle-tracks';
@@ -56,6 +55,7 @@ import {
   PERSISTENT_CAPACITY,
   PERSISTENT_GRID,
   rubbleRadiusTiles,
+  writeDecalGrid,
   type DecalStamp,
 } from './decal-pool';
 import { buildVehicleMeshTemplate, vehicleShroudBounds, type VehicleMeshTemplate } from './units/mesh-vehicle';
@@ -810,14 +810,22 @@ describe('the ground remembers (spec §3.3)', () => {
     expect(call).toBeGreaterThanOrEqual(0);
     expect(spy.mock.results[call].value).toBe(true);
     expect(priv.decalsPersistent.liveCount).toBe(1);
-    // ...and at the NEW height: every grid vertex sits on the surface built
-    // from the cleared mask, not on the pad's old terrace.
+    // ...and at the NEW height: the grid is exactly what `writeDecalGrid`
+    // lays on the surface built from the cleared mask (sag lift included),
+    // not on the pad's old terrace.
     const surface = terrainSurfaceFrom(twoLevelRelief(), sim.blocked, MAP, MAP);
+    const s = spy.mock.calls[call][0];
+    const expected = new Float32Array(PERSISTENT_GRID * PERSISTENT_GRID * 3);
+    writeDecalGrid(
+      expected,
+      0,
+      PERSISTENT_GRID,
+      { cx: s.x, cz: s.z, halfLength: s.halfLength, halfWidth: s.halfWidth, facingRad: s.facingRad },
+      (x, z) => groundWorldY(surface, MAP, MAP, x, z),
+      (x, z) => isTerrace(surface, Math.floor(x), Math.floor(z))
+    );
     const pos = (priv.decalsPersistent as unknown as { mesh: THREE.Mesh }).mesh.geometry.getAttribute('position');
-    for (let v = 0; v < PERSISTENT_GRID * PERSISTENT_GRID; v++) {
-      const expected = groundWorldY(surface, MAP, MAP, pos.getX(v), pos.getZ(v)) + MARK_EPSILON;
-      expect(pos.getY(v)).toBeCloseTo(expected, 5);
-    }
+    for (let v = 0; v < PERSISTENT_GRID * PERSISTENT_GRID; v++) expect(pos.getY(v)).toBeCloseTo(expected[v * 3 + 1], 5);
     r.dispose();
   });
   it('lays tread behind a tracked vehicle and tyre behind a wheeled one, into the fading pool', () => {

@@ -596,7 +596,9 @@ yours; each one records what the next phase inherits.
   geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
   not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
   toon ramp materials, the blob shadows and the black fog quads are all
-  deleted.
+  deleted. Ground decals (`decal-pool.ts`) are MULTIPLY-blended albedo ratios
+  over the lit ground, so they need the HalfFloat scene target: a pale mark is
+  a ratio above 1, and an 8-bit target would clamp it.
   **Two rules survive and both still cost a bug if broken.** Vertex colours
   and shader-uniform colours must be LINEAR — `hexToLinear`, and `toGeometry`
   decodes on the way in — because nothing between them and the frame buffer

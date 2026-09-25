@@ -136,13 +136,13 @@
  *   pass-through linear (`palette-material.ts`), so an sRGB-unit colour
  *   here would draw darker than the palette entry it names. No colour is
  *   written in the GLSL.
- * - **Unlit, with one multiply point (F-22).** The kinds are blended
- *   unlit in a lit scene; a pale kind (crater lip, rubble, tyre) may glow
- *   inside a cast shadow. That is judged in Task 12's photographs. If it
- *   glows, the remedy is ONE presentation uniform (the ground's sun
- *   factor) applied at the single line in the fragment shader that turns
- *   `colour` into the output -- the shader keeps exactly one such point so
- *   that uniform lands without rework.
+ * - **An albedo ratio, multiplied onto the lit ground (F-22).** Blended
+ *   unlit with an ordinary "over", a pale kind glowed inside a cast shadow
+ *   -- Task 12 photographed a crater lip at 1.6x the shaded ground around
+ *   it. The single output line now writes `decalMultiplier`: the kind's
+ *   tone over the ground's palette tone, mixed toward 1 by alpha, and the
+ *   material multiplies it onto the ground AFTER lighting and shadow. The
+ *   scene target is HalfFloat, so a ratio above 1 (a pale lip) survives.
  * - **Polygon offset (F-23).** At full-power scorch (radius 1.6) a 4x4
  *   cell spans about 1.07 tiles, and the linear chord between two grid
  *   vertices can sit below the bicubic crest by more than `MARK_EPSILON`.
@@ -289,6 +289,19 @@ export interface GridPlacement {
 }
 
 /**
+ * F-23 (fix round 1): how finely `writeDecalGrid` samples each cell when it
+ * measures the chord's sag under the surface -- `DECAL_SAG_STEPS + 1` points
+ * per cell edge, corners and edges included, so the shared edge between two
+ * cells is measured by both. 4 puts a sample at every quarter of a cell.
+ */
+export const DECAL_SAG_STEPS = 4;
+
+/** Reused across calls (single-threaded; no re-entrancy), so a stamp
+ *  allocates nothing. Grown on demand to `n * n`. */
+let sagScratch = new Float64Array(16);
+let cellSagScratch = new Float64Array(9);
+
+/**
  * Writes one decal's `n * n` vertex POSITIONS into `out` at ring `slot`
  * (`out[slot*n*n*3 .. ]`), conforming to the ground -- see this file's top
  * comment, "The conforming grid", for the full account including R-19's
@@ -300,7 +313,25 @@ export interface GridPlacement {
  *
  * `x = cx + s*halfLength*cos(f) - t*halfWidth*sin(f)`
  * `z = cz + s*halfLength*sin(f) + t*halfWidth*cos(f)`
- * `y = (isTerrace(x, z) ? sampleY(cx, cz) : sampleY(x, z)) + MARK_EPSILON`
+ * `h(x, z) = isTerrace(x, z) ? sampleY(cx, cz) : sampleY(x, z)`
+ * `y = h(x, z) + lift(i, j) + MARK_EPSILON`
+ *
+ * **The lift (F-23, fix round 1).** Between vertices the grid is a pair of
+ * flat triangles, and over a bicubic crest that chord passes UNDER the
+ * ground -- measured 0.21-0.35 world units on tel_marum's shoulders for a
+ * full-power scorch on this 4x4 grid, 20-35x `MARK_EPSILON`, which no
+ * polygon offset covers. So each cell's sag is measured: the largest
+ * `h - chord` over a `DECAL_SAG_STEPS` lattice of the cell, through the SAME
+ * two triangles the index buffer draws (`writeGridIndices`' diagonal a-c).
+ * Every vertex is then lifted by the largest sag of the cells that touch it,
+ * never by less than 0. A cell whose four corners all rise by at least its
+ * own sag has a chord at least that much higher everywhere, so the lattice
+ * points of every cell end on or above the ground. On a plane the chord IS
+ * the ground and the lift is 0 (to rounding), so a flat map and a straight
+ * slope are unchanged; over a hollow the chord is already above the ground
+ * and nothing moves either. Only a crest lifts, and there a decal may float
+ * a little over the hollows beside it -- the trade the controller ruled
+ * for, against a vertex-shader depth bias that would draw over unit feet.
  */
 export function writeDecalGrid(
   out: Float32Array,
@@ -313,17 +344,61 @@ export function writeDecalGrid(
   const base = slot * n * n * 3;
   const cosF = Math.cos(p.facingRad);
   const sinF = Math.sin(p.facingRad);
+  const centreY = sampleY(p.cx, p.cz);
+  // Grid-local (gi, gj) in [0, n-1], fractional inside a cell.
+  const worldX = (gi: number, gj: number): number => {
+    const s = -1 + (2 * gi) / (n - 1);
+    const t = -1 + (2 * gj) / (n - 1);
+    return p.cx + s * p.halfLength * cosF - t * p.halfWidth * sinF;
+  };
+  const worldZ = (gi: number, gj: number): number => {
+    const s = -1 + (2 * gi) / (n - 1);
+    const t = -1 + (2 * gj) / (n - 1);
+    return p.cz + s * p.halfLength * sinF + t * p.halfWidth * cosF;
+  };
+  const h = (x: number, z: number): number => (isTerrace(x, z) ? centreY : sampleY(x, z));
+
+  if (sagScratch.length < n * n) sagScratch = new Float64Array(n * n);
+  const cells = (n - 1) * (n - 1);
+  if (cellSagScratch.length < cells) cellSagScratch = new Float64Array(cells);
+  const baseY = sagScratch;
   for (let j = 0; j < n; j++) {
-    const t = -1 + (2 * j) / (n - 1);
+    for (let i = 0; i < n; i++) baseY[j * n + i] = h(worldX(i, j), worldZ(i, j));
+  }
+
+  // Each cell's sag, through the index buffer's own two triangles.
+  for (let j = 0; j < n - 1; j++) {
+    for (let i = 0; i < n - 1; i++) {
+      const ya = baseY[j * n + i];
+      const yb = baseY[j * n + i + 1];
+      const yc = baseY[(j + 1) * n + i + 1];
+      const yd = baseY[(j + 1) * n + i];
+      let sag = 0;
+      for (let sv = 0; sv <= DECAL_SAG_STEPS; sv++) {
+        const v = sv / DECAL_SAG_STEPS;
+        for (let su = 0; su <= DECAL_SAG_STEPS; su++) {
+          const u = su / DECAL_SAG_STEPS;
+          const chord = u >= v ? ya + u * (yb - ya) + v * (yc - yb) : ya + v * (yd - ya) + u * (yc - yd);
+          const d = h(worldX(i + u, j + v), worldZ(i + u, j + v)) - chord;
+          if (d > sag) sag = d;
+        }
+      }
+      cellSagScratch[j * (n - 1) + i] = sag;
+    }
+  }
+
+  for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
-      const s = -1 + (2 * i) / (n - 1);
-      const x = p.cx + s * p.halfLength * cosF - t * p.halfWidth * sinF;
-      const z = p.cz + s * p.halfLength * sinF + t * p.halfWidth * cosF;
-      const y = (isTerrace(x, z) ? sampleY(p.cx, p.cz) : sampleY(x, z)) + MARK_EPSILON;
+      let lift = 0;
+      for (let cj = Math.max(0, j - 1); cj <= Math.min(n - 2, j); cj++) {
+        for (let ci = Math.max(0, i - 1); ci <= Math.min(n - 2, i); ci++) {
+          lift = Math.max(lift, cellSagScratch[cj * (n - 1) + ci]);
+        }
+      }
       const vBase = base + (j * n + i) * 3;
-      out[vBase] = x;
-      out[vBase + 1] = y;
-      out[vBase + 2] = z;
+      out[vBase] = worldX(i, j);
+      out[vBase + 1] = baseY[j * n + i] + lift + MARK_EPSILON;
+      out[vBase + 2] = worldZ(i, j);
     }
   }
 }
@@ -530,6 +605,35 @@ const COLOUR_RUBBLE_A = 4;
 const COLOUR_RUBBLE_B = 5;
 const COLOUR_TREAD = 6;
 const COLOUR_TYRE = 7;
+
+/**
+ * F-22 (fix round 1): what a decal fragment MULTIPLIES the lit ground by.
+ *
+ * The decal is drawn with multiply blending (`DstColor x SrcColor`) onto the
+ * ground AFTER the ground is lit and shadowed, so it cannot glow in shade:
+ * it scales whatever light is already on the pixel. What it writes is the
+ * ALBEDO RATIO of the decal's tone to the ground's own palette tone -- the
+ * same ratio-over-palette-tone model the ground itself uses -- mixed toward
+ * 1 by its alpha: `1 + alpha * (decal / ground - 1)`, per channel, linear.
+ * On ground whose albedo is its palette tone this is exactly the old "over"
+ * blend lit like the ground: `ground * (1 - a) + decal * a`, so an approved
+ * alpha still means "covers that fraction of the change from ground tone to
+ * decal tone". A pale kind (crater lip, rubble, tyre) is a ratio above 1,
+ * which the scene target carries: it is HalfFloat (`post-chain.ts`), so
+ * nothing clamps before `OutputPass`. `ground` is floored at 1e-4 per channel
+ * so a black palette tone could never divide by zero.
+ */
+export function decalMultiplier(
+  decal: readonly [number, number, number],
+  ground: readonly [number, number, number],
+  alpha: number
+): [number, number, number] {
+  const m = (c: number): number => 1 + alpha * (decal[c] / Math.max(ground[c], DECAL_GROUND_FLOOR) - 1);
+  return [m(0), m(1), m(2)];
+}
+
+/** `decalMultiplier`'s divide-by-zero floor -- see its doc comment. */
+export const DECAL_GROUND_FLOOR = 1e-4;
 
 /** One fragment's worth of `decalAlpha`: its opacity, and which palette
  *  entry (`DECAL_PALETTE_ORDER` index) it draws in. */
@@ -831,6 +935,7 @@ const f = glslFloat;
 /** `decalAlpha`, transcribed. Keep the two in step line for line. */
 const DECAL_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uColors[${DECAL_PALETTE_ORDER.length}];
+  uniform vec3 uGroundTone;
   uniform float uNowSec;
   varying vec2 vOffset;
   flat varying vec4 vDecal;
@@ -898,9 +1003,12 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
 
     if (a <= 0.0) discard;
     vec3 colour = uColors[ci];
-    // F-22: the ONE point where colour becomes output. A presentation sun
-    // factor, if Task 12's photographs call for one, multiplies here.
-    gl_FragColor = vec4(colour, a);
+    // F-22 (fix round 1): the ONE point where colour becomes output --
+    // \`decalMultiplier\`, transcribed. Written as an albedo ratio over the
+    // ground's palette tone and multiplied onto the LIT ground by the blend
+    // state, so a lip in shade stays in shade. Alpha is unused by the blend.
+    vec3 ratio = colour / max(uGroundTone, ${f(DECAL_GROUND_FLOOR)});
+    gl_FragColor = vec4(1.0 + a * (ratio - 1.0), 1.0);
   }
 `;
 
@@ -910,24 +1018,37 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
  * `DECAL_PALETTE_ORDER` (linear, via `hexToLinear`), and `uNowSec`, the
  * SIM clock in seconds, starting at 0 -- the renderer sets it every frame
  * from `presentationSimMs(tickCount, alpha) / 1000`, never from a frame
- * timestamp. Translucent, depth-tested, not depth-writing, with F-23's
- * polygon offset; `DoubleSide` for the same reason `createScorchMaterial`
+ * timestamp. `groundTone` is the map's open-ground palette tone, the
+ * denominator of `decalMultiplier`'s albedo ratio. Multiply-blended onto the
+ * lit ground (F-22, fix round 1), depth-tested, not depth-writing, with
+ * F-23's polygon offset; `DoubleSide` for the same reason `createScorchMaterial`
  * gives -- no lighting term depends on the winding, so the winding is not a
  * risk worth carrying.
  */
-export function createDecalMaterial(palette: DecalPalette): THREE.ShaderMaterial {
+export function createDecalMaterial(palette: DecalPalette, groundTone: string): THREE.ShaderMaterial {
   const colours = DECAL_PALETTE_ORDER.map((key) => {
     const [r, g, b] = hexToLinear(palette[key]);
     return new THREE.Vector3(r, g, b);
   });
+  const [gr, gg, gb] = hexToLinear(groundTone);
   return new THREE.ShaderMaterial({
     uniforms: {
       uColors: { value: colours },
+      uGroundTone: { value: new THREE.Vector3(gr, gg, gb) },
       uNowSec: { value: 0 },
     },
     vertexShader: DECAL_VERTEX_SHADER,
     fragmentShader: DECAL_FRAGMENT_SHADER,
     transparent: true,
+    // F-22 (fix round 1): multiply onto the lit ground -- see
+    // `decalMultiplier`. dst.rgb = src.rgb * dst.rgb; dst.a kept.
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.DstColorFactor,
+    blendDst: THREE.ZeroFactor,
+    blendEquationAlpha: THREE.AddEquation,
+    blendSrcAlpha: THREE.ZeroFactor,
+    blendDstAlpha: THREE.OneFactor,
     depthTest: true,
     depthWrite: false,
     polygonOffset: true,

@@ -22,6 +22,8 @@ import {
   craterRadiusTiles,
   createDecalMaterial,
   decalAlpha,
+  decalMultiplier,
+  DECAL_SAG_STEPS,
   DECAL_PALETTE_ORDER,
   DecalPool,
   FADING_CAPACITY,
@@ -288,7 +290,8 @@ describe('createDecalMaterial', () => {
     tread: '#806032',
     tyre: '#8C7659',
   };
-  const m = createDecalMaterial(palette);
+  const GROUND = '#C8B494';
+  const m = createDecalMaterial(palette, GROUND);
   it('is a translucent, depth-tested, non-writing decal', () => {
     expect(m.transparent).toBe(true);
     expect(m.depthTest).toBe(true);
@@ -312,6 +315,19 @@ describe('createDecalMaterial', () => {
     expect(DECAL_PALETTE_ORDER).toEqual(['craterBowl', 'craterLip', 'scorch', 'oil', 'rubbleA', 'rubbleB', 'tread', 'tyre']);
     DECAL_PALETTE_ORDER.forEach((key, i) => expect(c[i].toArray()).toEqual(hexToLinear(palette[key])));
   });
+  // F-22 (fix round 1): multiplied onto the LIT ground, so a lip in shade
+  // stays in shade. The ratio's denominator is the ground's palette tone.
+  it('multiplies onto the lit ground, as an albedo ratio over the ground tone (F-22)', () => {
+    expect(m.blending).toBe(THREE.CustomBlending);
+    expect(m.blendEquation).toBe(THREE.AddEquation);
+    expect(m.blendSrc).toBe(THREE.DstColorFactor);
+    expect(m.blendDst).toBe(THREE.ZeroFactor);
+    expect(m.blendSrcAlpha).toBe(THREE.ZeroFactor);
+    expect(m.blendDstAlpha).toBe(THREE.OneFactor);
+    expect((m.uniforms.uGroundTone.value as THREE.Vector3).toArray()).toEqual(hexToLinear(GROUND));
+    expect(m.fragmentShader).toContain('colour / max(uGroundTone');
+    expect(m.fragmentShader).toContain('gl_FragColor = vec4(1.0 + a * (ratio - 1.0), 1.0)');
+  });
   it('carries the tested constants', () => {
     for (const k of [SCORCH_ALPHA, TRACK_ALPHA, TRACK_FADE_SEC]) expect(m.fragmentShader).toContain(k.toFixed(3));
     expect(m.uniforms.uNowSec.value).toBe(0);
@@ -330,5 +346,98 @@ describe('createDecalMaterial', () => {
     };
     for (let x = 59; x <= 69; x++) for (let y = 59; y <= 1069; y += 37) expect(mirror(x, y)).toBe(tileHash(x, y));
     for (const k of [TILE_HASH_MX, TILE_HASH_MY, TILE_HASH_MIX]) expect(m.fragmentShader).toContain(`${k}u`);
+  });
+});
+
+describe('decalMultiplier -- the albedo ratio (F-22, fix round 1)', () => {
+  const ground = hexToLinear('#C8B494');
+  const lip = hexToLinear('#E6D8BE');
+  const bowl = hexToLinear('#23241F');
+  it('leaves the ground untouched at alpha 0', () => {
+    expect(decalMultiplier(lip, ground, 0)).toEqual([1, 1, 1]);
+  });
+  // The approved alphas keep their meaning: on ground whose albedo is its
+  // palette tone, multiplying by this under ANY light L is the old "over"
+  // blend lit by L -- a lip in shade (L small) stays in shade.
+  it('is the over blend lit like the ground, in sun and in shade alike', () => {
+    for (const light of [1, 0.2]) {
+      for (const [tone, a] of [
+        [lip, CRATER_LIP_ALPHA],
+        [bowl, CRATER_BOWL_ALPHA],
+      ] as const) {
+        const mult = decalMultiplier(tone, ground, a);
+        for (let c = 0; c < 3; c++) {
+          expect(ground[c] * light * mult[c]).toBeCloseTo(light * (ground[c] * (1 - a) + tone[c] * a), 12);
+        }
+      }
+    }
+  });
+  it('writes a pale kind as a ratio above 1, which the HalfFloat scene target carries', () => {
+    for (const v of decalMultiplier(lip, ground, 1)) expect(v).toBeGreaterThan(1);
+  });
+});
+
+describe('the sag lift (F-23, fix round 1)', () => {
+  const place = { cx: 0, cz: 0, halfLength: 1, halfWidth: 1, facingRad: 0.3 };
+  it('is 0 on a plane', () => {
+    const plane = (x: number, z: number): number => 0.4 * x - 0.25 * z + 0.1;
+    const pos = new Float32Array(16 * 3);
+    writeDecalGrid(pos, 0, 4, place, plane, never);
+    for (let v = 0; v < 16; v++) {
+      expect(pos[v * 3 + 1] - MARK_EPSILON).toBeCloseTo(plane(pos[v * 3], pos[v * 3 + 2]), 6);
+    }
+  });
+  // One cell over a crest y = -x^2 across x in [-1, 1]: all four corners sit
+  // at -1, the chord is the plane y = -1, and the ground rises to 0 at the
+  // cell's middle -- a sag of exactly 1, which every corner is lifted by.
+  it('lifts every vertex by its cell\'s sag over a crest', () => {
+    const crest = (x: number): number => -x * x;
+    const pos = new Float32Array(4 * 3);
+    writeDecalGrid(pos, 0, 2, { cx: 0, cz: 0, halfLength: 1, halfWidth: 1, facingRad: 0 }, crest, never);
+    for (let v = 0; v < 4; v++) {
+      expect(crest(pos[v * 3])).toBeCloseTo(-1, 6);
+      expect(pos[v * 3 + 1]).toBeCloseTo(-1 + 1 + MARK_EPSILON, 6);
+    }
+  });
+  // Measured through the triangles the index buffer DRAWS (diagonal a-c).
+  // A ridge along the other diagonal (b-d) sags 4 under the drawn chord at
+  // the cell's centre, and only 1 under the undrawn one.
+  it('measures the sag through the drawn diagonal, not the other one', () => {
+    const ridge = (x: number, z: number): number => -((x + z) ** 2);
+    const pos = new Float32Array(4 * 3);
+    writeDecalGrid(pos, 0, 2, { cx: 0, cz: 0, halfLength: 1, halfWidth: 1, facingRad: 0 }, ridge, never);
+    for (let v = 0; v < 4; v++) {
+      expect(pos[v * 3 + 1] - MARK_EPSILON - ridge(pos[v * 3], pos[v * 3 + 2])).toBeCloseTo(4, 6);
+    }
+  });
+  // The guarantee the lift buys, on the persistent grid over a 2-D crest:
+  // at every point of the sag lattice, both triangles of every cell are on
+  // or above the ground. Without the lift this crest sags by ~0.1.
+  it('keeps every cell of a 4x4 grid on or above a crest at its sample lattice', () => {
+    const crest = (x: number, z: number): number => -0.6 * (x * x + z * z) + 0.3 * Math.sin(3 * x);
+    const n = 4;
+    const pos = new Float32Array(n * n * 3);
+    writeDecalGrid(pos, 0, n, { cx: 0.2, cz: -0.1, halfLength: 1.6, halfWidth: 1.6, facingRad: 0.4 }, crest, never);
+    const at = (i: number, j: number): [number, number, number] => {
+      const k = (j * n + i) * 3;
+      return [pos[k], pos[k + 1], pos[k + 2]];
+    };
+    let worst = Infinity;
+    for (let j = 0; j < n - 1; j++) {
+      for (let i = 0; i < n - 1; i++) {
+        const a = at(i, j), b = at(i + 1, j), c = at(i + 1, j + 1), d = at(i, j + 1);
+        for (let sv = 0; sv <= DECAL_SAG_STEPS; sv++) {
+          for (let su = 0; su <= DECAL_SAG_STEPS; su++) {
+            const u = su / DECAL_SAG_STEPS;
+            const v = sv / DECAL_SAG_STEPS;
+            // The same diagonal as writeGridIndices (a-c).
+            const lerp = (k: number): number =>
+              u >= v ? a[k] + u * (b[k] - a[k]) + v * (c[k] - b[k]) : a[k] + v * (d[k] - a[k]) + u * (c[k] - d[k]);
+            worst = Math.min(worst, lerp(1) - crest(lerp(0), lerp(2)));
+          }
+        }
+      }
+    }
+    expect(worst).toBeGreaterThanOrEqual(MARK_EPSILON - 1e-6);
   });
 });
