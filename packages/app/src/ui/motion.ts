@@ -22,12 +22,16 @@ export function prefersReducedMotion(): boolean {
  * sees no change. An objective completing twice, or ROE dropping twice in a
  * second, has to flash twice, so the class comes off and a forced reflow makes
  * the re-add a real change.
+ *
+ * Returns the timeout that takes the class off again, so a screen that can be
+ * left mid-flash (the garage, WP-S3g T10) can clear it on the way out rather
+ * than leave a timer holding a node it no longer owns.
  */
-export function flash(el: HTMLElement, className: string, ms: number): void {
+export function flash(el: HTMLElement, className: string, ms: number): number {
   el.classList.remove(className);
   void el.offsetWidth;
   el.classList.add(className);
-  window.setTimeout(() => el.classList.remove(className), ms);
+  return window.setTimeout(() => el.classList.remove(className), ms);
 }
 
 /** Mark children for the staggered menu entrance. */

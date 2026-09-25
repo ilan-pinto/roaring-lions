@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { RosterEntry } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import { t } from '../i18n/t';
@@ -1234,5 +1234,187 @@ describe('showBrigade — the bay carries the kit (§3.1, F4, F5)', () => {
     expect(hp()).toBe('480'); // 400 base + tier 2's own cumulative +80
     rung1?.dispatchEvent(new MouseEvent('mouseenter'));
     expect(hp()).toBe('480');
+  });
+});
+
+describe('showBrigade — a purchase is an event (§3.5)', () => {
+  function buyer(over: Partial<BrigadeOptions> = {}): { host: HTMLElement; dispose: () => void; cues: string[] } {
+    const cues: string[] = [];
+    let owned: Record<string, Record<string, number>> = {};
+    const live = mountLive({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits: 999,
+      owned,
+      reducedMotion: () => true,
+      onCue: (c) => void cues.push(c),
+      onBuyUpgrade: (id, track, tier) => {
+        owned = { [id]: { [track]: tier } };
+        return { units, credits: 799, owned };
+      },
+      ...over,
+    });
+    return { ...live, cues };
+  }
+  const buyArmour = (host: HTMLElement): void =>
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+
+  it('cues an upgrade once, only when it landed, and stamps its rung and its pip', () => {
+    const { host, dispose, cues } = buyer();
+    buyArmour(host);
+    expect(cues).toEqual(['upgrade']);
+    expect(host.querySelector('.rl-garage__rung[data-tier="1"]')?.classList.contains('rl-garage__rung--stamp')).toBe(true);
+    const pip = host.querySelector(
+      '.rl-garage__card[data-unit="inf_squad"] .rl-kit-pips__col[data-track="armour"] .rl-kit-pips__pip'
+    );
+    expect(pip?.classList.contains('rl-kit-pips__pip--new')).toBe(true);
+    dispose();
+  });
+
+  // Controller ruling (T10): the mark is stamped on EVERY landed purchase,
+  // not only one that moves the kit level. Six tiers, so one owned and two
+  // owned both read level 1 (`ceil(3 * owned / available)`): the purchase
+  // below leaves the level exactly where it was, and must stamp anyway.
+  it('stamps the plate’s kit mark on every purchase, level change or not', () => {
+    const tier = (hp: number): { price: number; patch: Record<string, number> } => ({ price: 100, patch: { 'hull.hp': hp } });
+    const six: BrigadeUnit[] = [
+      { ...units[0], upgrades: { armour: { tiers: [tier(10), tier(20), tier(30), tier(40), tier(50), tier(60)] } } },
+    ];
+    let owned: Record<string, Record<string, number>> = { inf_squad: { armour: 1 } };
+    const { host, dispose } = buyer({
+      units: six,
+      owned,
+      onBuyUpgrade: (id, track, n) => {
+        owned = { [id]: { [track]: n } };
+        return { units: six, credits: 899, owned };
+      },
+    });
+    const level = (): string | null | undefined => host.querySelector('.rl-garage__plate')?.getAttribute('data-kit');
+    expect(level()).toBe('1');
+    buyArmour(host); // armour 1 -> 2 of 6: still level 1
+    expect(level()).toBe('1');
+    expect(host.querySelector('.rl-garage__plate-kit')?.classList.contains('rl-garage__plate-kit--stamp')).toBe(true);
+    dispose();
+  });
+
+  it('stays silent and unstamped when the store refused', () => {
+    const { host, dispose, cues } = buyer({ onBuyUpgrade: () => ({ units, credits: 999, owned: {} }) });
+    buyArmour(host);
+    expect(cues).toEqual([]);
+    expect(host.querySelector('.rl-garage__rung--stamp')).toBeNull();
+    dispose();
+  });
+
+  it('cues a unit purchase as a purchase, and stamps Enlisted on the plate', () => {
+    const roster: BrigadeUnit[] = units.map((u) =>
+      u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 850 } } : u
+    );
+    const { host, dispose, cues } = buyer({
+      units: roster,
+      onBuy: (unitId) => ({
+        units: roster.map((u) => (u.id === unitId && u.unlock ? { ...u, unlock: { ...u.unlock, bought: true } } : u)),
+        credits: 149,
+        owned: {},
+      }),
+    });
+    select(host, 'breach_team');
+    host.querySelector<HTMLButtonElement>('.rl-garage__buy')?.click();
+    expect(cues).toEqual(['purchase']);
+    expect(text(host, '.rl-garage__stamp')).toBe('Enlisted');
+    dispose();
+  });
+
+  it('steps the wallet at once under reduced motion', () => {
+    const { host, dispose } = buyer();
+    buyArmour(host);
+    expect(text(host, '.rl-garage__wallet-n')).toBe('799');
+    dispose();
+  });
+
+  it('counts the wallet down over 400 ms, landing exactly on the balance', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+    try {
+      const { host, dispose } = buyer({ reducedMotion: () => false });
+      buyArmour(host);
+      const n = (): number => Number(text(host, '.rl-garage__wallet-n'));
+      expect(n()).toBe(999);
+      vi.advanceTimersByTime(200);
+      expect(n()).toBeLessThan(999);
+      expect(n()).toBeGreaterThan(799);
+      vi.advanceTimersByTime(400);
+      expect(n()).toBe(799);
+      expect(host.querySelector<HTMLElement>('.rl-garage__wallet-n')?.dataset.value).toBe('799');
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Controller ruling (T10): cleared just before `dispose()` and counted
+  // exactly, so this goes red when the DISPOSER's own cancel is removed --
+  // `countWallet`'s cancel on the way in would otherwise satisfy a bare
+  // `toHaveBeenCalled()` by itself. The timer count is the other half: a
+  // stamp's or the spend flash's timeout left pending would reach a node
+  // this screen no longer owns.
+  it('stops counting when the screen is left', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+    const cancel = vi.spyOn(globalThis, 'cancelAnimationFrame');
+    try {
+      const { host, dispose } = buyer({ reducedMotion: () => false });
+      buyArmour(host);
+      vi.advanceTimersByTime(50); // mid-count
+      cancel.mockClear();
+      dispose();
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+    } finally {
+      cancel.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  // A count in flight is headed for the OLD answer; the next answer -- here a
+  // reset, back to 999 -- must stop it, or it keeps writing 799 over the
+  // figure the reset just set.
+  it('stops a count in flight when the next answer lands', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+    try {
+      const { host, dispose } = buyer({ reducedMotion: () => false, onReset: () => ({ units, credits: 999, owned: {} }) });
+      buyArmour(host);
+      vi.advanceTimersByTime(100);
+      const reset = host.querySelector<HTMLButtonElement>('.rl-garage__reset');
+      reset?.click();
+      reset?.click();
+      vi.advanceTimersByTime(600);
+      expect(text(host, '.rl-garage__wallet-n')).toBe('999');
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // §3.5: the bars grow old -> new, and only under the grow class -- which a
+  // purchase adds and a selection change never does.
+  it('grows the bought stat from its old width, under a class the selection never sets', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'requestAnimationFrame', 'cancelAnimationFrame'] });
+    try {
+      const { host, dispose } = buyer({ reducedMotion: () => false });
+      const kit = (): string | undefined =>
+        host.querySelector<HTMLElement>('.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-kit')?.style.width;
+      const stats = (): Element | null => host.querySelector('.rl-garage__stats');
+      expect(kit()).toBe('0%');
+      buyArmour(host);
+      expect(stats()?.classList.contains('rl-garage__stats--grow')).toBe(true);
+      expect(kit()).not.toBe('0%'); // the NEW width, written last
+      vi.advanceTimersByTime(300);
+      expect(stats()?.classList.contains('rl-garage__stats--grow')).toBe(false);
+      select(host, 'ifv_namer');
+      expect(stats()?.classList.contains('rl-garage__stats--grow')).toBe(false);
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
