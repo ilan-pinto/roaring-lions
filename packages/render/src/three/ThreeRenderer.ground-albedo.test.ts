@@ -706,7 +706,6 @@ describe('the road', () => {
     const r = new ThreeRenderer(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), {
       ...makeOpts(),
       knollTextureUrl: 'https://example.test/assets/knoll_scree_tile.jpg',
-      roadTextureUrl: 'https://example.test/assets/road_track_tile.jpg',
     });
     const decor = new Uint8Array(TOWN_TILES);
     for (let x = 0; x < 8; x++) decor[3 * 8 + x] = DECOR_ROAD;

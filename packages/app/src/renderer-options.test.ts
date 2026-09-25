@@ -23,8 +23,15 @@ describe('rendererOptionsFor', () => {
 
   it('serves every ground texture from the deploy base', () => {
     const o = rendererOptionsFor(arid, HIGH, '/roaring-lions/');
-    const urls = [o.groundTextureUrl, o.rockTextureUrl, o.roadTextureUrl, o.scrubTextureUrl, o.groveTextureUrl, o.knollTextureUrl];
+    const urls = [o.groundTextureUrl, o.rockTextureUrl, o.scrubTextureUrl, o.groveTextureUrl, o.knollTextureUrl];
     for (const url of urls) expect(url?.startsWith('/roaring-lions/textures/'), String(url)).toBe(true);
+  });
+
+  it('no longer asks for a road image', () => {
+    // #226: the road is drawn procedurally from control texture B's
+    // distance field, tone and grain both -- there is no wheel-track image
+    // left for `RendererOptions` to name.
+    expect('roadTextureUrl' in rendererOptionsFor(arid, HIGH, '/')).toBe(false);
   });
 
   it('carries the player quality preset by identity', () => {

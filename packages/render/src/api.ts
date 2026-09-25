@@ -140,7 +140,7 @@ export interface RendererOptions {
    * The file's BASENAME is significant: the renderer looks the image's mean
    * colour and repeat scale up in `GROUND_ALBEDOS` by it, and refuses to bind
    * one the table does not name rather than dividing by a number nobody
-   * measured. Same for all five fields below.
+   * measured. Same for all four fields below.
    */
   groundTextureUrl?: string;
   /**
@@ -150,15 +150,6 @@ export interface RendererOptions {
    * `GroundMaterial`, optional, and fail-soft.
    */
   rockTextureUrl?: string;
-  /**
-   * URL of the `r` dirt-road albedo tile --
-   * `assets/textures/road_track_tile.jpg`. Same contract.
-   *
-   * The image is a single wheel track, and which way it points is decided
-   * per tile by the renderer from the road's own neighbours
-   * (`terrain/ground.ts`'s `roadAxisAt`), not here.
-   */
-  roadTextureUrl?: string;
   /**
    * URL of the cover-tile albedo -- `assets/textures/rough_scrub_tile.jpg`.
    * Same contract. One image for all three tiers; how strongly each tier

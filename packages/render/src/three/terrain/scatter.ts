@@ -1,7 +1,7 @@
 /**
  * Ground grain: limestone flecks, sward blades, bushes/tussocks, cover
- * rubble, knolls, ridges, road ruts and slope-face dressing. Everything
- * `buildGround` deliberately leaves flat and untextured.
+ * rubble, knolls, ridges and slope-face dressing. Everything `buildGround`
+ * deliberately leaves flat and untextured.
  *
  * Pixi draws every mark in screen pixels, relative to a tile's own centre --
  * it has no other coordinate system to draw in. Three.js needs those marks on
@@ -22,7 +22,7 @@
  * it reads as a blade from the isometric view without literal 3D extrusion.
  */
 import { FACE_ALPHA_EAST, FACE_ALPHA_SOUTH } from './ground';
-import { TILE_W, TILE_H, ELEV_STEP, isoX, isoY } from '../../project';
+import { TILE_W, TILE_H } from '../../project';
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
 import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
@@ -531,18 +531,18 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
         // bands in `drawSlopeFace` above, for the same reason.
       } else {
         if (decorHere === DECOR_ROAD) {
-          // Road ruts: two lines, tone at 0.30 over the road's own groundTone
-          // (renderer.ts:1526-1535). The parity pick uses the same screen
-          // pixel Pixi's own `cx + cyG` does -- `isoX`/`isoY` at this tile's
-          // own lifted height -- not a fresh hash, so the two backends pick
-          // the same depth on the same tile.
-          const cxPx = isoX(cx, cz);
-          const cyPx = isoY(cx, cz) - levelHere * ELEV_STEP;
-          const rut = (cxPx + cyPx) % 2 === 0 ? 5 : 7;
-          const rutHex = quantise(composite(baseHex, tones.rut, 0.3), PALETTE_HEXES);
-          const halfW = TILE_W / 2 - 6;
-          pushMark(cx, cz, MARK_EPSILON, 0, -rut, rectCorners(halfW, -0.75, 0.75), rutHex, needsContainment);
-          pushMark(cx, cz, MARK_EPSILON, 0, rut, rectCorners(halfW, -0.75, 0.75), rutHex, needsContainment);
+          // Road ruts retired (#226): the road is a worn track drawn
+          // straight from the control map's own distance field in the
+          // ground shader now (`GroundMaterial`'s `uRoadTone`/`uRutTone`),
+          // tone, shoulder and wheel-wear together. A synthetic dash pair
+          // stamped on top of that procedural surface duplicated the wear
+          // the shader already draws, disagreed with it (it was keyed to
+          // this tile's own `DECOR_ROAD` flag and a Pixi-parity hash, not
+          // to the shader's distance field, so it could not track a
+          // two-wide street's collapsed centreline at all -- Task 6), and
+          // read as a loud, out-of-register scatter of dashes over a
+          // packed surface. No marks here now: the road owns its own
+          // weathering.
         } else if (decorHere === DECOR_KNOLL) {
           // Knoll: 4 blobs with a highlight, smaller than a ridge's
           // (renderer.ts:1543-1553).
