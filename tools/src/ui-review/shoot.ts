@@ -293,7 +293,16 @@ async function garageStates(browser: Browser, res: { width: number; height: numb
   // 03c-brigade-preview: a unit the seed left one tier short (F4's own
   // "scrolled away" preview panel), a track's next rung hovered so the stat
   // panel shows the change before the money is spent.
+  //
+  // Fix round 1: the board is an accordion now, and `armour` -- at_team's
+  // first non-maxed track -- opens by default, not firepower, so its rung is
+  // not there to hover yet. `dispatchEvent` points at the track directly (no
+  // cursor path to cross armour's own taller box on the way, which is what
+  // made a genuine `page.hover()` here time out); the SECOND hover, on the
+  // now-visible rung itself, is real -- `.rl-garage__rung:hover` is live CSS
+  // (the accent border/background) and this capture is meant to show it.
   await page.click('.rl-garage__card[data-unit="at_team"]');
+  await page.dispatchEvent('.rl-garage__track[data-track="firepower"]', 'mouseenter');
   await page.hover('.rl-garage__track[data-track="firepower"] .rl-garage__rung[data-tier="2"]');
   await settle(page, 400);
   await shot(page, dir, '03c-brigade-preview');

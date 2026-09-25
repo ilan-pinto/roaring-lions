@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { units, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
-import { rungState, trackEl, trackSummary, visibleBenefits, type TrackDeps } from './garage-board';
+import { expandedTrack, rungState, trackEl, trackSummary, visibleBenefits, type TrackDeps } from './garage-board';
 import { upgradeBenefits } from './upgrade-benefit';
 
 const kdf = (id: keyof typeof units): UpgradableUnit => units[id] as unknown as UpgradableUnit;
@@ -28,6 +28,23 @@ describe('trackSummary (§4 "spent 360 · 1315 to max")', () => {
   });
   it('has no next tier once maxed, and clamps an owned tier past the track', () => {
     expect(trackSummary(track('mbt_lavi', 'armour'), 9)).toEqual({ owned: 3, length: 3, spent: 1675, toMax: 0, next: null });
+  });
+});
+
+describe('expandedTrack (fix round 1, §2 goal 3)', () => {
+  const order = ['armour', 'sensors', 'firepower'];
+
+  it('opens the first track still worth a decision when nothing is pointed at', () => {
+    expect(expandedTrack(order, new Set(['armour']), null)).toBe('sensors');
+  });
+  it('the pointed-at track wins outright, maxed or not', () => {
+    expect(expandedTrack(order, new Set(['armour']), 'armour')).toBe('armour');
+  });
+  it('falls back to the default when the active name is not one of this board’s own tracks', () => {
+    expect(expandedTrack(order, new Set(), 'rockets')).toBe('armour');
+  });
+  it('expands nothing once every track is maxed and nothing is pointed at', () => {
+    expect(expandedTrack(order, new Set(order), null)).toBeNull();
   });
 });
 

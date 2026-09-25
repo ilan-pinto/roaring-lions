@@ -37,7 +37,7 @@ import { applyUpgrades, maxTiers, readPath, type UpgradableUnit, type UpgradeTra
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { gateSentence, gateShort } from '../gate-sentence';
-import { trackEl, type TrackDeps } from './garage-board';
+import { expandedTrack, trackEl, type TrackDeps } from './garage-board';
 import { PANEL_PATHS, statPanel, type StatPanel } from './garage-stats';
 import { t } from '../i18n/t';
 import type { CampaignLedger } from '../ledger-store';
@@ -487,6 +487,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
       card.addEventListener('click', () => {
         selectedId = u.id;
+        // A different unit: the accordion starts over rather than carrying
+        // an old track name across (fix round 1).
+        hoveredTrack = null;
+        focusedTrack = null;
         syncCards();
         renderBay();
       });
@@ -509,6 +513,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     if (to === null) return;
     ev.preventDefault();
     selectedId = order[to].dataset.unit ?? selectedId;
+    // A different unit: the accordion starts over (fix round 1).
+    hoveredTrack = null;
+    focusedTrack = null;
     syncCards();
     renderBay();
     order[to].focus();
@@ -526,6 +533,11 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     const trackNames = [...board.querySelectorAll<HTMLElement>('[data-track]')].map((e) => e.dataset.track ?? '');
     const trackName = trackForDigit(ev.key, trackNames);
     if (trackName === null) return;
+    // The accordion (fix round 1): a digit jump points at its own track too,
+    // and has to expand it BEFORE the search below -- a rung under
+    // `display: none` cannot receive focus at all.
+    focusedTrack = trackName;
+    applyExpansion();
     const trackWrap = board.querySelector<HTMLElement>(`.rl-garage__track[data-track="${trackName}"]`);
     const landing =
       trackWrap?.querySelector<HTMLElement>('.rl-garage__rung[data-state="next"]') ??
@@ -582,6 +594,30 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  is why it lives in a variable that outlives one `renderBay` call rather
    *  than being read back out of the DOM. */
   let panel: StatPanel | null = null;
+
+  // The accordion's own state (fix round 1, §2 goal 3): which track the
+  // player is pointed at by mouse and by keyboard focus, tracked separately
+  // because either alone should keep a track open. Both persist ACROSS a
+  // `renderBay()` call on purpose -- a purchase rebuilds the board's DOM
+  // (`board.replaceChildren()` below) but the track the player was just
+  // buying into should stay the one that is expanded, so focus can land back
+  // on its own next tier's Buy. Reset only where a different UNIT is picked
+  // (the card click and card-arrow handlers below), never by `renderBay`
+  // itself.
+  let hoveredTrack: string | null = null;
+  let focusedTrack: string | null = null;
+
+  /** Sets `data-expanded` on every track wrapper the board currently holds,
+   *  off `expandedTrack`'s own decision. Reads each track's `data-state`
+   *  (set by `trackEl` itself) rather than recomputing `trackSummary`, so
+   *  this never has its own opinion about what "maxed" means. */
+  function applyExpansion(): void {
+    const wraps = [...board.querySelectorAll<HTMLElement>('.rl-garage__track')];
+    const order = wraps.map((w) => w.dataset.track ?? '');
+    const maxed = new Set(wraps.filter((w) => w.dataset.state === 'maxed').map((w) => w.dataset.track ?? ''));
+    const expanded = expandedTrack(order, maxed, hoveredTrack ?? focusedTrack);
+    for (const w of wraps) w.dataset.expanded = w.dataset.track === expanded ? '1' : '0';
+  }
 
   function renderBay(): void {
     bay.replaceChildren();
@@ -752,9 +788,19 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             buy,
             locked: row.locked,
             preview: (d) => panel?.preview(d),
+            onPoint: (kind, over) => {
+              if (kind === 'hover') hoveredTrack = over ? trackName : null;
+              else focusedTrack = over ? trackName : null;
+              applyExpansion();
+            },
           })
         );
       }
+      // The accordion's own first paint for this unit (fix round 1): decides
+      // off whatever `hoveredTrack`/`focusedTrack` already are -- both null
+      // for a freshly picked unit, carried over from before a purchase's
+      // redraw.
+      applyExpansion();
     }
   }
 

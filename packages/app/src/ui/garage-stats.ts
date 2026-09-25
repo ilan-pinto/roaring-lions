@@ -17,6 +17,7 @@
 // found).
 import { readPath, type UpgradableUnit, type UpgradeTrack } from '@lions/data';
 import { t } from '../i18n/t';
+import { prefersReducedMotion } from './motion';
 import { asPercent, benefitLabel, type BenefitUnitKind } from './upgrade-benefit';
 
 /** The six stats the bay's panel reads, in the order it draws them. Paths, not
@@ -124,6 +125,10 @@ interface PanelRow {
   readonly base: number | undefined;
   readonly owned: number | undefined;
   readonly max: number;
+  /** The whole row (fix round 1, F4): scrolled into view when its own
+   *  preview changes, now that the panel scrolls internally rather than
+   *  being guaranteed to already be on screen. */
+  readonly el: HTMLElement;
   readonly fill: HTMLElement;
   readonly kitBar: HTMLElement;
   readonly deltaBar: HTMLElement;
@@ -171,6 +176,7 @@ export function statPanel(
       base: readPath(base, path),
       owned: readPath(asOwned, path),
       max: rosterMax.get(path) ?? 0,
+      el: stat,
       fill,
       kitBar,
       deltaBar,
@@ -189,6 +195,16 @@ export function statPanel(
       row.num.textContent = bar.figure;
       row.kitN.textContent = bar.kit ?? '';
       row.kitN.hidden = bar.kit === null;
+      // Fix round 1 (F4): the panel now scrolls inside its own region
+      // instead of being guaranteed to fit whole, so a rung's preview has to
+      // bring its own row along. `block: 'nearest'` moves only as far as
+      // needed -- a row already on screen does not jump -- and reduced
+      // motion drops the smoothing, never the scroll itself. jsdom carries
+      // no `scrollIntoView` at all (`brigade.test.ts` hits every hover/focus
+      // path this drives), so this is a no-op there rather than a throw.
+      if (preview !== 0 && typeof row.el.scrollIntoView === 'function') {
+        row.el.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+      }
     }
   }
 
