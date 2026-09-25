@@ -283,6 +283,95 @@ describe('showBrigade — the header and the rail', () => {
       expect(asked).toEqual([['inf_squad', 'armour', 1, 200]]);
       dispose();
     });
+
+    // Fix round 2 (issue 1): a unit whose SECOND track is not the board's
+    // default (armour, first and still non-maxed, opens by default) --
+    // buying into it by keyboard used to be the one path where `renderBay`'s
+    // own `board.replaceChildren()` blurred the just-focused rung before the
+    // accordion's own `applyExpansion()` ran, collapsing the very track just
+    // bought into. Fix round 2, issue 2 closed it at the source: `activeTrack`
+    // is set-only now, with no `focusout` listener anywhere on the accordion
+    // to have reacted to that blur in the first place -- this test's own
+    // manual `focusout` dispatch (there in an earlier revision, to simulate a
+    // real browser's blur-on-removal, which jsdom does not fire on its own)
+    // is gone because there is no longer a listener for it to reach.
+    it('keeps the just-bought track expanded, and focus on something actually rendered, after a keyboard purchase', () => {
+      const twoTrack: BrigadeUnit = {
+        id: 'two_track',
+        name: 'Two Track',
+        role: 'infantry',
+        isKamikaze: false,
+        transportSlots: 0,
+        isSoft: true,
+        upgrades: {
+          armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }, { price: 100, patch: { 'hull.hp': 10 } }] },
+          firepower: { tiers: [{ price: 50, patch: { 'weapons[0].accuracy': 0.05 } }, { price: 50, patch: { 'weapons[0].accuracy': 0.05 } }] },
+        },
+      };
+      const { host, dispose } = mountLive({
+        units: [twoTrack],
+        ledger: {},
+        possibleStars: 78,
+        credits: 999,
+        // A genuinely NEW account each call -- `answer()` must really redraw,
+        // not treat this as "the caller answered nothing".
+        onBuyUpgrade: (u, tr, tier, price) => ({ units: [twoTrack], credits: 999 - price, owned: { [u]: { [tr]: tier } } }),
+      });
+      // '2' is the board's SECOND track (firepower), not the default-expanded first.
+      host.querySelector('.rl-menu--garage')?.dispatchEvent(new KeyboardEvent('keydown', { key: '2', bubbles: true }));
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(host.querySelector('.rl-garage__track[data-track="firepower"]')?.getAttribute('data-expanded')).toBe('1');
+      expect(document.activeElement?.closest('[data-expanded="0"]')).toBeNull();
+      expect(focusKey()).toBe('buy:firepower');
+      dispose();
+    });
+
+    // Fix round 2 (issue 1, part 2): `restoreFocus`'s own `unit-buy` fallback
+    // -- "the first tier Buy the unit now has" -- picks the first `buy:` key
+    // in DOCUMENT order, not the first EXPANDED one. A collapsed track's own
+    // Buy sits earlier in the board than whichever track the player actually
+    // pointed at, so without the `isRendered` filter it wins by pure DOM
+    // order even though it is not there to click. This one needs no manual
+    // `focusout` -- the unit-level Buy lives in the bay, not inside any
+    // track, so nothing here blurs the rung the digit jump focused; the bug
+    // is the naive filter itself, not the blur timing fix round 2's first
+    // part addresses.
+    it('does not let a unit unlock land on a collapsed track’s Buy (fix round 2, issue 1)', () => {
+      const roster: BrigadeUnit[] = units.map((u) =>
+        u.id === 'breach_team'
+          ? {
+              ...u,
+              unlock: { starsMin: 12, price: 850 },
+              upgrades: {
+                armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] },
+                firepower: { tiers: [{ price: 50, patch: { 'weapons[0].accuracy': 0.05 } }] },
+              },
+            }
+          : u
+      );
+      const { host, dispose } = mountLive({
+        units: roster,
+        ledger: {},
+        possibleStars: 78,
+        credits: 999,
+        // Needed only so the tracks draw a real Buy at all once unlocked --
+        // a locked track never does (F7), regardless of this callback -- it
+        // is never itself invoked by this test.
+        onBuyUpgrade: () => undefined,
+        onBuy: (unitId, price) => ({
+          units: roster.map((u) => (u.id === unitId && u.unlock ? { ...u, unlock: { ...u.unlock, bought: true } } : u)),
+          credits: 999 - price,
+          owned: {},
+        }),
+      });
+      select(host, 'breach_team');
+      // Point at firepower -- the board's SECOND track -- before unlocking.
+      host.querySelector('.rl-menu--garage')?.dispatchEvent(new KeyboardEvent('keydown', { key: '2', bubbles: true }));
+      host.querySelector<HTMLButtonElement>('.rl-garage__buy')?.click();
+      expect(host.querySelector('.rl-garage__track[data-track="firepower"]')?.getAttribute('data-expanded')).toBe('1');
+      expect(focusKey()).toBe('buy:firepower');
+      dispose();
+    });
   });
 });
 

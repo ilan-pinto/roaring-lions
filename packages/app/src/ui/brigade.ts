@@ -488,9 +488,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       card.addEventListener('click', () => {
         selectedId = u.id;
         // A different unit: the accordion starts over rather than carrying
-        // an old track name across (fix round 1).
-        hoveredTrack = null;
-        focusedTrack = null;
+        // an old track name across (fix round 1). The one deliberate place
+        // `activeTrack` is ever cleared (fix round 2, issue 2) -- everywhere
+        // else it is only ever set to a new track, never reset to null.
+        activeTrack = null;
         syncCards();
         renderBay();
       });
@@ -514,8 +515,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     ev.preventDefault();
     selectedId = order[to].dataset.unit ?? selectedId;
     // A different unit: the accordion starts over (fix round 1).
-    hoveredTrack = null;
-    focusedTrack = null;
+    activeTrack = null;
     syncCards();
     renderBay();
     order[to].focus();
@@ -536,7 +536,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     // The accordion (fix round 1): a digit jump points at its own track too,
     // and has to expand it BEFORE the search below -- a rung under
     // `display: none` cannot receive focus at all.
-    focusedTrack = trackName;
+    activeTrack = trackName;
     applyExpansion();
     const trackWrap = board.querySelector<HTMLElement>(`.rl-garage__track[data-track="${trackName}"]`);
     const landing =
@@ -595,17 +595,19 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
    *  than being read back out of the DOM. */
   let panel: StatPanel | null = null;
 
-  // The accordion's own state (fix round 1, §2 goal 3): which track the
-  // player is pointed at by mouse and by keyboard focus, tracked separately
-  // because either alone should keep a track open. Both persist ACROSS a
-  // `renderBay()` call on purpose -- a purchase rebuilds the board's DOM
-  // (`board.replaceChildren()` below) but the track the player was just
-  // buying into should stay the one that is expanded, so focus can land back
-  // on its own next tier's Buy. Reset only where a different UNIT is picked
-  // (the card click and card-arrow handlers below), never by `renderBay`
-  // itself.
-  let hoveredTrack: string | null = null;
-  let focusedTrack: string | null = null;
+  // The accordion's own state: which track the player last pointed at, by
+  // mouse or by keyboard (fix round 1, §2 goal 3). Fix round 2, issue 2's
+  // ruling made this SET-ONLY: nothing in this screen ever nulls it except
+  // picking a different unit (the card click and card-arrow handlers below).
+  // Leaving a track's head, or blurring out of it, asks for nothing -- the
+  // last track pointed at stays expanded through anything short of pointing
+  // at a different one, which is also what makes a keyboard purchase safe
+  // (`renderBay`'s own `board.replaceChildren()` blurs the focused rung, but
+  // with no `focusout` listener anywhere on the accordion, that blur has
+  // nothing to clear). Persists ACROSS a `renderBay()` call on purpose -- a
+  // purchase rebuilds the board's DOM but the track just bought into must
+  // stay the one expanded, so focus can land back on its own next Buy.
+  let activeTrack: string | null = null;
 
   /** Sets `data-expanded` on every track wrapper the board currently holds,
    *  off `expandedTrack`'s own decision. Reads each track's `data-state`
@@ -615,7 +617,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     const wraps = [...board.querySelectorAll<HTMLElement>('.rl-garage__track')];
     const order = wraps.map((w) => w.dataset.track ?? '');
     const maxed = new Set(wraps.filter((w) => w.dataset.state === 'maxed').map((w) => w.dataset.track ?? ''));
-    const expanded = expandedTrack(order, maxed, hoveredTrack ?? focusedTrack);
+    const expanded = expandedTrack(order, maxed, activeTrack);
     for (const w of wraps) w.dataset.expanded = w.dataset.track === expanded ? '1' : '0';
   }
 
@@ -788,18 +790,16 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
             buy,
             locked: row.locked,
             preview: (d) => panel?.preview(d),
-            onPoint: (kind, over) => {
-              if (kind === 'hover') hoveredTrack = over ? trackName : null;
-              else focusedTrack = over ? trackName : null;
+            onActivate: () => {
+              activeTrack = trackName;
               applyExpansion();
             },
           })
         );
       }
       // The accordion's own first paint for this unit (fix round 1): decides
-      // off whatever `hoveredTrack`/`focusedTrack` already are -- both null
-      // for a freshly picked unit, carried over from before a purchase's
-      // redraw.
+      // off whatever `activeTrack` already is -- null for a freshly picked
+      // unit, carried over from before a purchase's redraw otherwise.
       applyExpansion();
     }
   }
@@ -857,7 +857,17 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
   /** The caller's answer to a purchase or a reset: the account as the store
    *  holds it now (R-3). Redraws around it -- same screen node, same tab,
-   *  same unit, same scroll -- and puts focus where `restoreFocus` says. */
+   *  same unit, same scroll -- and puts focus where `restoreFocus` says.
+   *
+   *  A keyboard purchase used to strand focus here: `renderBay`'s own
+   *  `board.replaceChildren()` blurs the just-focused rung, and on the old
+   *  hover/focus-tracked accordion that blur's `focusout` nulled the active
+   *  track, collapsing the very one just bought into before this function's
+   *  own `applyExpansion` (inside `renderBay`) ever ran. Fix round 2, issue
+   *  2 closed that at the source instead of patching it here: `activeTrack`
+   *  is SET-ONLY now (no `focusout`/`mouseleave` listener exists anywhere on
+   *  the accordion to clear it), so it survives a purchase's redraw
+   *  unchanged and needs no re-assertion after the fact. */
   function answer(next: GarageState | void, asked: string | null): void {
     if (next === undefined) return; // a caller that answers nothing: as before
     const scroll = { rail: cards.scrollTop, bay: bay.scrollTop, board: board.scrollTop };
@@ -874,14 +884,21 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     cards.scrollTop = scroll.rail;
     bay.scrollTop = scroll.bay;
     board.scrollTop = scroll.board;
-    // Only controls a player can see are candidates. A card the current tab
-    // hides still carries its key, and `focus()` on it is refused by a real
-    // browser, which drops focus to <body>. The tabs, the bay and the board
-    // are never hidden, so the one hidden element that can occur is the card
-    // itself; `closest` covers a control nested under one anyway.
-    const keys = [...wrap.querySelectorAll<HTMLElement>('[data-focus-key]')].filter(
-      (e) => e.closest('[hidden]') === null
-    );
+    // Only controls a player can actually SEE are candidates. A card the
+    // current tab hides still carries its key, and so does a rung under a
+    // track the accordion has collapsed (`trackEl` always builds the full
+    // ladder; `[data-expanded='0']` is what hides it) -- `.focus()` on
+    // either is refused by a real browser, which drops focus to `<body>`
+    // silently. `checkVisibility()` is the real check where a browser has it
+    // (it already accounts for every ancestor's `display`, not just this
+    // element's own); jsdom carries no such method at all, so the fallback
+    // -- no `[hidden]` ancestor and no collapsed-track ancestor -- is what
+    // `brigade.test.ts` actually exercises.
+    const isRendered = (e: HTMLElement): boolean =>
+      typeof e.checkVisibility === 'function'
+        ? e.checkVisibility()
+        : e.closest('[hidden]') === null && e.closest('[data-expanded="0"]') === null;
+    const keys = [...wrap.querySelectorAll<HTMLElement>('[data-focus-key]')].filter(isRendered);
     // Nothing closer is left when the unit's own card is filtered out (the
     // bay keeps a unit the tab has hidden): the tab the player is on is the
     // nearest visible control to where they were.
