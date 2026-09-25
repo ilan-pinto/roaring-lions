@@ -1047,6 +1047,165 @@ try {
     await garageCtx.close();
   }
 
+  // --- the garage fits the screen, measured (WP-S3g T9, F4, F9, §2 goal 3) --
+  //
+  // Task 7 shrank the box to the viewport and Task 6 capped the plate so the
+  // stat panel stays in the bay; jsdom lays out nothing, so no unit test can
+  // see a box bottom past the fold or a scrollbar on the board. Two units,
+  // because a box that fits one unit's board can still overflow another's:
+  // `mbt_lavi` (the seed's fully-kitted unit -- three tracks, every rung
+  // `owned`, no Buy anywhere) and `at_team` (part-kitted -- firepower carries
+  // a live `next` rung with its benefits and a Buy expanded). Three sizes,
+  // because the board's own overflow budget is only asked of the two widest
+  // (`garage-board.ts`'s own header: the wide-screen gist allowance).
+  //
+  // `FIT_READ`/`FIT_HOVER_READ` are strings, not functions, for the same
+  // `__name` reason `GARAGE_ARM`/`GARAGE_READ` above are.
+  const FIT_SIZES: readonly { width: number; height: number }[] = [
+    { width: 1400, height: 900 },
+    { width: 1920, height: 1080 },
+    { width: 2560, height: 1440 },
+  ];
+  const FIT_UNITS = ['mbt_lavi', 'at_team'] as const;
+  const FIT_READ =
+    '(() => {' +
+    '  var wrap = document.querySelector(".rl-menu--garage");' +
+    '  var stats = document.querySelector(".rl-garage__stats");' +
+    '  var bay = document.querySelector(".rl-garage__bay");' +
+    '  var board = document.querySelector(".rl-garage__board");' +
+    '  var wr = wrap ? wrap.getBoundingClientRect() : null;' +
+    '  var sr = stats ? stats.getBoundingClientRect() : null;' +
+    '  var br = bay ? bay.getBoundingClientRect() : null;' +
+    '  return {' +
+    '    boxBottom: wr ? wr.bottom : null,' +
+    '    innerHeight: window.innerHeight,' +
+    '    statsBottom: sr ? sr.bottom : null,' +
+    '    bayBottom: br ? br.bottom : null,' +
+    '    boardOverflow: board ? board.scrollHeight - board.clientHeight : null,' +
+    '  };' +
+    '})()';
+  // The garage's own trick a list cannot do (`brigade.ts`'s header): the
+  // panel shows the change before the money is spent. That preview has to
+  // land ON SCREEN to be worth anything, so this reads the AT team's
+  // firepower `next` rung -- hovered, not clicked -- and its
+  // `weapons[0].accuracy` reading, which `garage-stats.ts`'s `statBar` prints
+  // as `{before} → {after}` only while a preview is live.
+  const FIT_HOVER_READ =
+    '(() => {' +
+    '  var stat = document.querySelector(\'.rl-garage__stat[data-path="weapons[0].accuracy"] .rl-garage__stat-n\');' +
+    '  var r = stat ? stat.getBoundingClientRect() : null;' +
+    '  return {' +
+    '    text: stat ? stat.textContent : null,' +
+    '    top: r ? r.top : null,' +
+    '    left: r ? r.left : null,' +
+    '    bottom: r ? r.bottom : null,' +
+    '    right: r ? r.right : null,' +
+    '  };' +
+    '})()';
+  for (const { width, height } of FIT_SIZES) {
+    for (const unit of FIT_UNITS) {
+      const fitCtx = await browser.newContext({ viewport: { width, height } });
+      await fitCtx.addInitScript(garageSeedScript());
+      const f = await fitCtx.newPage();
+      f.setDefaultTimeout(ACTION_TIMEOUT_MS);
+      f.on('console', (m: ConsoleMessage) => {
+        if (m.type() === 'error') errors.push(m.text());
+      });
+      f.on('pageerror', (e) => errors.push(String(e)));
+      await f.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+      await f.waitForSelector(`.rl-garage__card[data-unit="${unit}"]`);
+      await f.click(`.rl-garage__card[data-unit="${unit}"]`);
+      const m = await f.evaluate<{
+        boxBottom: number | null;
+        innerHeight: number;
+        statsBottom: number | null;
+        bayBottom: number | null;
+        boardOverflow: number | null;
+      }>(FIT_READ);
+      console.log(
+        `[${TAG}] garage fit ${width}x${height} ${unit}: box bottom ${m.boxBottom}/${m.innerHeight}, ` +
+          `stats ${m.statsBottom} vs bay ${m.bayBottom}, board overflow ${m.boardOverflow}`
+      );
+      expect(
+        m.boxBottom !== null && m.boxBottom <= m.innerHeight + 0.5,
+        `garage ${width}x${height} ${unit}: the screen ends ${((m.boxBottom ?? 0) - m.innerHeight).toFixed(1)}px below the viewport (F9)`
+      );
+      expect(
+        m.statsBottom !== null && m.bayBottom !== null && m.statsBottom <= m.bayBottom + 0.5,
+        `garage ${width}x${height} ${unit}: the stat panel is scrolled out of the bay (F4)`
+      );
+      if (width === 1920 || width === 2560) {
+        expect(
+          m.boardOverflow !== null && m.boardOverflow <= 1,
+          `garage ${width}x${height} ${unit}: the board scrolls ${m.boardOverflow}px: three tracks do not fit (§2 goal 3)`
+        );
+      }
+
+      if (unit === 'at_team') {
+        await f.hover('.rl-garage__track[data-track="firepower"] .rl-garage__rung[data-state="next"]');
+        const hv = await f.evaluate<{
+          text: string | null;
+          top: number | null;
+          left: number | null;
+          bottom: number | null;
+          right: number | null;
+        }>(FIT_HOVER_READ);
+        const onScreen =
+          hv.top !== null &&
+          hv.left !== null &&
+          hv.bottom !== null &&
+          hv.right !== null &&
+          hv.top >= 0 &&
+          hv.left >= 0 &&
+          hv.bottom <= height + 0.5 &&
+          hv.right <= width + 0.5;
+        console.log(`[${TAG}] garage fit ${width}x${height} at_team preview: "${hv.text}" onScreen=${onScreen}`);
+        expect(
+          hv.text !== null && hv.text.includes('→') && onScreen,
+          `garage ${width}x${height}: the preview landed off-screen (F4)`
+        );
+      }
+
+      await fitCtx.close();
+    }
+  }
+
+  // --- the garage by keyboard: two Tab stops before the bay/board (F8) -----
+  //
+  // T9's controller ruling: the seeded screen opens on `mbt_lavi`, fully
+  // kitted and Buy-less everywhere on its board, so a Tab walk from there
+  // never reaches a real control under `.rl-garage__bay`/`.rl-garage__board`
+  // at all -- this leg selects `at_team` first, the seed's own part-kitted
+  // unit, so a Buy button actually exists to Tab onto.
+  {
+    const tabCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await tabCtx.addInitScript(garageSeedScript());
+    const tPage = await tabCtx.newPage();
+    tPage.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    tPage.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+    });
+    tPage.on('pageerror', (e) => errors.push(String(e)));
+    await tPage.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await tPage.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    await tPage.click('.rl-garage__card[data-unit="at_team"]');
+    await tPage.focus('.rl-garage__tab[aria-selected="true"]');
+    // A string, not a function -- the same `__name` reason as above.
+    const REACHED_BAY_OR_BOARD =
+      '(() => document.activeElement !== null && ' +
+      'document.activeElement.closest(".rl-garage__bay, .rl-garage__board") !== null)()';
+    let presses = 0;
+    let reached = false;
+    while (presses < 10 && !reached) {
+      await tPage.keyboard.press('Tab');
+      presses += 1;
+      reached = await tPage.evaluate<boolean>(REACHED_BAY_OR_BOARD);
+    }
+    console.log(`[${TAG}] garage F8: ${presses} Tab press(es) to reach the bay/board (reached=${reached})`);
+    expect(reached && presses <= 3, `F8: ${presses} Tab stops before the bay (the audit counted 25)`);
+    await tabCtx.close();
+  }
+
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {
   if (browser) await browser.close();

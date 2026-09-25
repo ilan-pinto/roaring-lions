@@ -40,3 +40,28 @@ export function restoreFocus(asked: string | null, present: readonly string[], s
   const card = `card:${selectedId}`;
   return has(card) ? card : null;
 }
+
+/** A roving tab stop's next position (WP-S3g T9, F8): the arrows move and
+ *  wrap, `Home`/`End` jump to an end, and everything else is not this
+ *  control's key. `at` of `-1` (nothing in this list is focused yet) starts
+ *  at the end the direction of travel would reach first, and an empty list
+ *  has no position to move to at all. Shared by the rail's tabs (Left/Right
+ *  only, from `brigade.ts`'s own key filter) and its cards (all four). */
+export function rovingStep(key: string, at: number, count: number): number | null {
+  if (count === 0) return null;
+  if (key === 'ArrowDown' || key === 'ArrowRight') return at < 0 ? 0 : (at + 1) % count;
+  if (key === 'ArrowUp' || key === 'ArrowLeft') return at < 0 ? count - 1 : (at - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return null;
+}
+
+/** A digit key onto the board's own tracks, in the order the board actually
+ *  drew them (F8): `'2'` is the SECOND track this unit's board has, never a
+ *  fixed armour/sensors/firepower slot -- a unit missing a track shifts every
+ *  digit after it. `null` for anything that is not a bare digit 1-9, or for a
+ *  digit past however many tracks this board drew. */
+export function trackForDigit(key: string, tracks: readonly string[]): string | null {
+  if (!/^[1-9]$/.test(key)) return null;
+  return tracks[Number(key) - 1] ?? null;
+}

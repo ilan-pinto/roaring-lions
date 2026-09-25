@@ -230,19 +230,59 @@ describe('showBrigade — the header and the rail', () => {
     expect(text(host, '.rl-garage__card[data-unit="b"] .rl-garage__card-chip')).toBe('Locked · Conduct 75');
   });
 
-  it('moves focus down the rail on an arrow, without changing the selection', () => {
-    const host = mount({ units, ledger: {}, possibleStars: 78 });
-    document.body.appendChild(host);
-    const first = host.querySelector<HTMLButtonElement>('.rl-garage__card[data-unit="inf_squad"]');
-    first?.focus();
-    host
-      .querySelector('.rl-garage__cards')
-      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    expect(document.activeElement?.getAttribute('data-unit')).toBe('ifv_namer');
-    // Focus moved; the bay did not.
-    expect(text(host, '.rl-garage__name')).toBe('Rifle Squad');
-    expect(first?.getAttribute('aria-selected')).toBe('true');
-    host.remove();
+  describe('showBrigade — keyboard (F8)', () => {
+    const stops = (host: HTMLElement, sel: string): number =>
+      [...host.querySelectorAll<HTMLElement>(sel)].filter((e) => e.tabIndex >= 0).length;
+
+    it('is one Tab stop for the tabs and one for the cards', () => {
+      const { host, dispose } = mountLive({ units, ledger: {}, possibleStars: 78 });
+      expect(stops(host, '.rl-garage__tab')).toBe(1);
+      expect(stops(host, '.rl-garage__card')).toBe(1);
+      expect(host.querySelector<HTMLElement>('.rl-garage__card[aria-selected="true"]')?.tabIndex).toBe(0);
+      dispose();
+    });
+
+    it('moves focus AND the selection down the rail on an arrow', () => {
+      const { host, dispose } = mountLive({ units, ledger: {}, possibleStars: 78 });
+      host.querySelector<HTMLButtonElement>('.rl-garage__card[data-unit="inf_squad"]')?.focus();
+      host.querySelector('.rl-garage__cards')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(document.activeElement?.getAttribute('data-unit')).toBe('ifv_namer');
+      expect(host.querySelector('.rl-garage__card[aria-selected="true"]')?.getAttribute('data-unit')).toBe('ifv_namer');
+      expect(text(host, '.rl-garage__name')).toBe('Namer IFV');
+      expect(stops(host, '.rl-garage__card')).toBe(1);
+      dispose();
+    });
+
+    it('moves the tab with the arrows, filtering as it goes, and keeps the card stop on a visible card', () => {
+      const { host, dispose } = mountLive({ units, ledger: {}, possibleStars: 78 });
+      host.querySelector<HTMLButtonElement>('.rl-garage__tab[data-bucket="all"]')?.focus();
+      host.querySelector('.rl-garage__tabs')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(document.activeElement?.getAttribute('data-bucket')).toBe('transport');
+      expect(host.querySelector('.rl-garage__tab[aria-selected="true"]')?.getAttribute('data-bucket')).toBe('transport');
+      // inf_squad is still in the bay but hidden by the filter: the one card stop moves to a visible card.
+      const stop = [...host.querySelectorAll<HTMLButtonElement>('.rl-garage__card')].find((c) => c.tabIndex === 0);
+      expect(stop?.getAttribute('data-unit')).toBe('ifv_namer');
+      dispose();
+    });
+
+    it('jumps to a track on 1-3, landing on its next rung', () => {
+      const { host, dispose } = mountLive({ units, ledger: {}, possibleStars: 78, credits: 999, onBuyUpgrade: () => undefined });
+      host.querySelector('.rl-menu--garage')?.dispatchEvent(new KeyboardEvent('keydown', { key: '2', bubbles: true }));
+      expect(focusKey()).toBe('rung:sensors:1');
+      dispose();
+    });
+
+    it('buys the focused next tier on Enter', () => {
+      const asked: [string, string, number, number][] = [];
+      const { host, dispose } = mountLive({
+        units, ledger: {}, possibleStars: 78, credits: 999,
+        onBuyUpgrade: (u, tr, tier, price) => void asked.push([u, tr, tier, price]),
+      });
+      host.querySelector('.rl-menu--garage')?.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true }));
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(asked).toEqual([['inf_squad', 'armour', 1, 200]]);
+      dispose();
+    });
   });
 });
 
