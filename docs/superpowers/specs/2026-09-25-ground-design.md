@@ -1,6 +1,6 @@
 # The ground — design (WP-A2, art Phase 2, #182 with #226)
 
-**Date:** 2026-09-25 · **Status:** draft for the lead's review; nothing renders until §5 is approved.
+**Date:** 2026-09-25 · **Status:** plan 1 landed `64afcf3b` (on `feat/ground`; merge and bless 1 wait for the lead's word on the zoom-0.35 captures). §5 and D8 were approved by the lead on 25 Sep. Plan 2 has not started. What plan 1 did differently from this text is in §9, Deviations.
 **Lands as:** two plans, two blesses, `perf:units` re-run after the scatter. **Constraint:** Meshy credits
 arrive in early October, so everything here is procedural or Blender. Meshy appears only as a later, optional
 swap with a credit estimate.
@@ -257,3 +257,160 @@ between A2's two.
 - **Blesses.** All four gated scenarios move in each plan, and `relief`'s baseline currently contains G5.
 - **Recorded, out of scope.** The ditch (38k tris × 19 on `qarn_hadid`, 727k a pass) is the next ground cost
   after the olive.
+
+## 9. Deviations (plan 1, as landed)
+
+Plan 1 is `docs/superpowers/plans/2026-09-25-ground-plan-1.md`. Its ledger is
+`.superpowers/sdd/2026-09-25-ground-plan-1/progress.md`, which is git-ignored.
+
+Every number in this section was taken on ANGLE Metal on an M3 Pro unless it says otherwise. The
+costs and their conditions are in `docs/PERFORMANCE.md`, "The ground, plan 1 (WP-A2)".
+
+### The plan's own deviations, R-1 to R-21
+
+- **R-1: eighteen tasks, not eleven.** The 5-file cap held, so the fold ran as Tasks 0–18.
+  - Task 4 split again, into 4a (the control map) and 4b (the macro field).
+  - So did Task 6: the distance-field road first, then the two-wide street fix.
+- **R-2: the road graph came before the material.** That let one shader task retire the road
+  slot's two taps and `roadAxis` together.
+- **R-3: a road tile's vertex colour is the open wash.** The road tone is mixed in the shader. A
+  red test proves it: with the road tone left in the vertex, the SDF road steps at every tile edge.
+- **R-4: pads keep a hard edge.** G3's pad item stays open for plan 2. The band is one-sided at a
+  terrace. A ridge throws a 0.5-tile rock apron onto open ground only, and a pad is excluded from
+  the box average.
+- **R-5: `wallAlbedo` is the one per-vertex surface fact left.** It is −1 on tops, 0 on building
+  walls and 1 on ridge walls.
+- **R-6: control B's other two channels.** B.b is junction distance and B.a is the road-edge bend
+  noise. Both are baked in TypeScript and unit-tested.
+- **R-7: road grain shares `uKnoll`**, at a 2-tile repeat and 0.6 gain.
+  - The road slot, `roadAxis` and `roadTextureUrl` are retired.
+  - `road_track_tile.jpg` and its `GROUND_ALBEDOS` entry remain. Deleting them is a follow-up.
+- **R-8: road tones are arid `limestone.4` and green `dust.3`** (D2), in `TERRAIN_THEMES`.
+  - Pixi's roads change colour as well. That diff is report-only, and `renderer.ts` is untouched.
+  - The A/B against Task 7, in px: `quiet` 9346, `open-ground` 311, `vehicle` 3892, `relief` 0.
+- **R-9: macro hue pulls toward `limestone.2` and `dust.1` on both themes.** The measurement, and
+  the calls it left:
+  - With the F-13 edge fade, the texel range reaches lo 17 and hi 224. The F-2 test asks for a
+    range of at least 100, and one extreme reached.
+  - On `open-ground`, the luminance spread moved from 0.82–2.55% to 1.10–2.62%. The spec's "~6%"
+    compared screenshot bytes with linear values.
+  - ±7% was not retuned (F-16).
+  - On green it barely shows at 0.35 (review capture 09). The lead judges it there.
+- **R-10: the persistent pool is 1024 decals on a 4×4 grid, and the fading pool 4096 on 2×2.**
+  Measured at full pools on the real renderer: **2 calls, 26,624 triangles**.
+- **R-11: decal calls are net +0.** Measured on every view of four maps: total calls are identical
+  to main. `decals` is worth 2 calls, against main's `scorch` at 1 call plus the retired
+  `VehicleTrackMesh`.
+- **R-12: rubble seeds in the `structureDestroyed` branch.** The draw mask and surface are
+  refreshed first (F-10), and a relief test covers it.
+- **R-13: crater radius is `0.15 + power`** tiles: 0.45 for a mortar and 0.6 for a Grad.
+- **R-14: the clock is sim time.** A stamp is dated `tickCount × 50` ms. A frame presents
+  `(tickCount − 1 + alpha) × 50` ms, clamped at 0. The showcase is dated 0 ms. F-11 places stamps
+  back along the motion by the leftover distance, and prints exactly 0.5 tiles apart.
+- **R-15: tread stamps are 0.58 tiles long**, one spacing plus a 0.08 feather. A red test with a
+  short feather proves it.
+- **R-16: the showcase is `RendererOptions.decalShowcase`**, which the app sets only for sandbox
+  `&decals`. On `qarn_hadid` it finds all three sites: flat, road and relief.
+- **R-17: the `scorch` debug layer is removed, not aliased.** `blast:capture`'s floor was renamed
+  `decals` with its numbers kept. The re-recorded readings are at or above scorch-only on every
+  subject; the weakest is 0.2363 against a floor of 0.07.
+- **R-18: decals sample through `groundWorldY`**, which dispatches to `surfaceWorldY`.
+- **R-19: a terrace centre is not stamped, and a vertex on a terrace takes the centre's height.**
+  Measured cost (see "The lift cap" below): at a ridge foot, the chord cuts under the rising apron
+  by up to 0.62 wu on `qarn_hadid`.
+- **R-20: the relief `skirt` floor would have fallen, so Task 2 stopped.** The ring removes the G5
+  interior leak the old floor was calibrated on.
+  - Whole-frame, the fixed signal read 2705 px / 0.0880, against a floor of 0.095.
+  - Ruling: scope the check to the corner region {0,0,260,140}. It reads 2705 px / 3.0455, the same
+    on three runs.
+  - The new floors are 900 px / 1.01, which is 10.6× stricter in magnitude.
+  - `quiet`'s whole-frame `skirt` check still covers the rest of the frame.
+- **R-21: the control textures carry mips.** Measured: A and B are 786,424 B each and the macro
+  field 87,381 B, so **1.58 MiB** a 48×48 map (1.19 MiB without mips). `renderer.info` reads +2
+  textures.
+
+### Rulings made during execution
+
+- **The macro TOGGLE moved from Task 9 to Task 5; the macro CHECK stayed in Task 9.**
+  - The first ruling had hiding `ground-albedo` also zero the macro amplitude. It restored the
+    scatter tone check, but masked `ground-albedo`'s "texture never arrives" check on `quiet`
+    (0.4626 against a floor of 0.34).
+  - Revised ruling: `ground-albedo` hides the slot strengths only, and the tone backdrop hides
+    `ground-albedo` and `macro` together.
+  - Result: the scatter defect fails its tone check again (0.58 / 0.65), and the texture-404 check
+    fails on all three scenarios.
+- **A street authored two tiles wide is one street.** 2×2 road blocks are solid, at distance 0,
+  and ladder rungs are not junctions. The graph had read a two-wide street as a ladder, with 12 of
+  16 points counted as junctions and a hole at each 2×2 centre, on the four Beit Sahwan maps and
+  `marj_perimeter`. Three-wide is unhandled, and no shipped map has one.
+- **Decals are ratio decals** (F-22, then Task 12 fix round 2).
+  - The first cut glowed in shade: a lip read 107 against the ground's 65.
+  - Decals now multiply albedo ratios onto the lit ground. That needs the HalfFloat scene target,
+    and the no-composer path is unsupported.
+  - Each decal divides by its OWN ground tone, sampled at stamp time (`decalGroundTone`). Dividing
+    by the map's open tone gave green maps wrong hues on 10 of 21 cases: a salmon lip on road, red
+    tyres on grass.
+  - Measured lip-to-scorch ratio: 1.048 in sun and 1.069 in shade.
+- **The sag lift is capped at 0.08 wu** (F-23, then fix round 2). Uncapped, the lift darkened a
+  squad standing in a full-power scorch by p90 16 grey levels; capped, 8.
+  - 0.08 is the smallest round cap that clears craters and the mortar scorch at tel_marum's three
+    steepest shoulder sites.
+  - Re-measured over the whole of `qarn_hadid` (level 0–7) at Task 18: every centre on a
+    quarter-tile lattice, and every drawn triangle at 8×8. Where all grid vertices are on open
+    ground:
+
+    | Mark | Worst below ground | Centres over 0.01 wu |
+    |---|---|---|
+    | Craters | 0 | — |
+    | Mortar scorch | 0.025 wu | 9 |
+    | Grad scorch | 0.067 wu | — |
+    | Full-power scorch | **0.203 wu** | 3,749 of 22,464 |
+
+    The full-power case is photographed as a straight cut edge at zoom 2.5. On `tel_marum` the same
+    scan reads 0.170 wu.
+  - Two other mechanisms clip harder, and no cap reaches them:
+    - at a ridge foot, the R-19 hold: 0.62 wu;
+    - within a radius of the map edge, where off-map vertices sample height 0: 0.38 wu on qarn's
+      level-2 rim.
+  - The chord also floats up to 0.26 wu over hollows at any cap.
+- **The blast harness waits for 5 steady frames of 150 ms or less, with a 30 s cap**, instead of
+  a fixed 2500 ms settle.
+  - The fixed settle latched a 511–942 ms boot frame on main and on the branch alike, and skipped
+    the comparison subjects.
+  - A main-versus-branch probe put the branch's boot +5% longer. Task 18 attributes that to
+    `buildControlMap` running once per terrain rebuild, 3–5 times a boot: see `PERFORMANCE.md`.
+- **`handTick: true` on `scorch_qarn_shoulder`, and its `blast-light` exemption deleted.**
+  `qarn_hadid` steadies at 190–233 ms and runs to the 30 s ceiling. With the boot confound gone,
+  the abstained light cleared its floor, and the harness's self-cleaning rule failed the run.
+  Hand-ticked readings over 3 runs:
+
+  | Layer | Readings | Floor |
+  |---|---|---|
+  | `blast-light` | 24–35k px / 9.9–10.6 | 1750 / 1.75 |
+  | `decals` | 0.44–0.47 | 0.07 |
+
+- **`buildControlMap` above 60 ms (Task 5's stop condition).**
+  - The per-query allocations in `roadDistanceAt` were removed.
+  - Warm builds now run at 58.8 ms or less on every map; the first call is 67–82 ms.
+  - Not stopped on, because the first build sits behind the loading screen. Its boot cost is
+    measured in `PERFORMANCE.md`.
+- **`aftermath` is a gated scenario** (D4): `qarn_hadid&decals` at the showcase centroid, zoom 1,
+  tick 300.
+  - Checks and floors, each a third of the smallest of three runs:
+
+    | Check | Floor |
+    |---|---|
+    | `decals` | 9900 / 0.5 |
+    | `roads` | 300 / 0.08 |
+    | `macro` | 0 / 0.26 |
+    | `scatter` | 1700 / 0.21 |
+
+  - Its readings vary by under 1% run to run.
+  - Until the bless, CI's `visual` job reports "no baseline entry" (exit 1).
+- **Budgets at Task 18.**
+  - Calls: +0, inside the +4 budget.
+  - Decal triangles: 26,624, inside 27k.
+  - Frame p95 delta: at most +0.76 ms (`qarn_hadid` z1.6), inside +1.5.
+  - `perf:units` at 300: 7.50 and 7.30 ms, inside 7.5 (main read 7.60 in the same session).
+  - **The absolute 14.5 ms ceiling is missed on `qarn_hadid`, on main and branch alike.** At z2.5
+    the tail is the `decor` layer's. At z1.6 the branch's cpu p95 crosses the line: 13.90 → 14.62.

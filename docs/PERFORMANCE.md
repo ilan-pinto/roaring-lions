@@ -879,3 +879,177 @@ above, and it is the one that was run.
   units move every frame and their shadows have to follow. The fix recorded
   above is the opposite scope — the flag is cleared and restored around
   GTAO's own nested render only, and never spans a `RenderPass`.
+
+## The ground, plan 1 (WP-A2) — 2026-09-25
+
+What the splat control map, the macro field, the road SDF, the skirt ring and the shared decal
+pool cost. Spec: `docs/superpowers/specs/2026-09-25-ground-design.md`, plan
+`docs/superpowers/plans/2026-09-25-ground-plan-1.md` (Task 18).
+
+### Capture conditions
+
+- **One machine**: Apple M3 Pro, macOS, ANGLE Metal. Every tool printed `ANGLE (Apple, ANGLE Metal
+  Renderer: Apple M3 Pro, Unspecified Version)`, so this is real hardware and not SwiftShader.
+  Node v25.9.0, pnpm 11.17.0.
+- **Before** is `8d525c81`: main plus the spec, and no ground code. Its first numbers were taken
+  earlier the same day (`.superpowers/ground/cost-t0/README.txt`). The frame, unit-curve and boot
+  numbers below were **re-taken in the same session as the after**, from a throwaway detached
+  worktree, because p95 moves by more than the effect between sessions.
+- **After** is `feat/ground` at `64afcf3b`.
+- Each tree had its own dev server, in its own process group. Runs were **sequential and
+  interleaved** (branch, main, branch, main), never concurrent.
+
+### Draw calls and triangles: `pnpm ground:capture`
+
+Viewport 1400x900, DPR 1, frame loop frozen, `frame(1, 0)` read through `renderer.info`. Centre of
+each map, zoom 1, no fog:
+
+| Map | Calls, before → after | Triangles, before → after | Textures |
+|---|---|---|---|
+| `beit_sahwan_outskirts` | 346 → 346 | 2,229,870 → 2,229,226 (−644) | 90 → 92 |
+| `tel_marum` | 260 → 260 | 1,948,524 → 1,948,536 (+12) | 84 → 86 |
+| `qarn_hadid` | 378 → 378 | 5,436,294 → 5,435,866 (−428) | 90 → 92 |
+| `wadi_halam_basin` | 667 → 667 | 11,186,149 → 11,185,817 (−332) | 89 → 91 |
+
+**Calls are +0 on every view of every map**: zoom 0.35, 0.5, 1, 2.5, fogged and the road
+close-up. That is inside the budget (≤ +4 planned, capped at +6). Each triangle delta is the same
+at every zoom of a map, and splits exactly into two parts:
+- **+12** is the skirt ring (G5), per map;
+- **−656 / −440 / −344** is the retired rut-dash scatter on the three maps with roads. `tel_marum`
+  has no road, so its delta is 0.
+
+The terrain itself adds no triangles.
+
+**Decal calls are net +0 (R-11).** Hiding `decals` on an empty map moves 2 calls and 0 triangles,
+against main's `scorch` at 1 call and 0 triangles. Totals are identical, so the other call is
+main's retired `VehicleTrackMesh`, which drew under no named layer. With `--decals`, hiding the
+layer at the centre moves 2 calls and 240–720 triangles, depending on how much of the showcase is
+in frame.
+
+**Textures +2**: control A, control B and the macro field came in, and the road image went out.
+
+### Decals at the aftermath view, and at full pools
+
+Measured with `.superpowers/ground/t18/probe.ts` at 1400x900, DPR 1, on `qarn_hadid&decals`
+at (25,38), zoom 1:
+
+| Condition | Calls | Triangles | Hiding `decals` moves |
+|---|---|---|---|
+| Showcase, fog on or off | 348 | 5,181,999 | 2 calls, 738 triangles |
+| Full pools: 1024 persistent + 4096 fading, through `stampGroundDecal` | 349 | 5,214,873 | **2 calls, 26,624 triangles** |
+
+The full-pool figure is R-10's number exactly, and inside the ≤ 27k budget. The index draw ranges
+read 55,296 and 24,576, which is (1024×18 + 4096×2) × 3.
+
+A full pool costs no measurable frame time at that view. Over 240 frames with `gl.finish()`, p95
+reads:
+- showcase only: 5.4 ms;
+- full pools: 5.7 ms;
+- full pools with decals hidden: 5.4–5.8 ms.
+
+**The AO and shadow exclusion, proven on the real renderer.** `renderBufferDirect` was wrapped for
+one frame, and the shadow map was forced to update:
+
+| Object | Draws per frame | Passes |
+|---|---|---|
+| Each decal pool | **1** | main pass only |
+| Ground mesh | 2 | main + GTAO; it does not cast shadows |
+| Visible shadow caster (78 of them) | 3 | main + GTAO + shadow |
+
+Both pools have `castShadow` false and no `normal` attribute, which is what `isAoOccluder` drops.
+
+### Control and macro memory (R-21)
+
+Read off the bound `DataTexture`s on a 48x48 map, counting the full mip chain:
+
+| Texture | Size | Bytes with mips |
+|---|---|---|
+| Control A, RGBA8 | 384² | 786,424 |
+| Control B, RGBA8 | 384² | 786,424 |
+| Macro, R8 | 256² | 87,381 |
+| **Total** | | **1,660,229 (1.58 MiB)** |
+
+That matches R-21's "about 1.6 MiB". Without mips it would be 1.19 MiB, the spec's 1.2.
+`renderer.info.memory` gives counts only, and reads +2 textures, as above.
+
+### Frame cost at the acceptance views: `render-frame-cost.ts`
+
+Viewport 1440x900, DPR 2, so the drawing buffer is 2880x1800. Each figure is p95 over the tool's
+240 (cpu) or 120 (gpu, `gl.finish`-bracketed) frames, and is the mean of n runs per tree, with the
+range in brackets.
+
+| View | n | cpu p95, before → after | gpu p95, before → after | Δ gpu |
+|---|---|---|---|---|
+| beit (5,22) z2.5 | 2 | 13.35 [13.3–13.4] → 13.55 [13.5–13.6] | 13.50 [13.3–13.7] → 13.85 [13.6–14.1] | +0.35 |
+| beit (22,24) z0.5 | 2 | 12.90 → 12.90 | 12.90 [12.7–13.1] → 12.80 | −0.10 |
+| beit (26,22) z1.6 | 2 | 13.15 → 13.50 | 13.05 [12.9–13.2] → 13.15 [12.6–13.7] | +0.10 |
+| qarn (5,22) z2.5 | 5 | 17.62 [17.3–18.0] → 17.82 [17.4–18.4] | 19.28 [19.1–19.4] → 19.28 [19.0–19.4] | +0.00 |
+| qarn (22,24) z0.5 | 5 | 14.14 [13.7–14.4] → 14.32 [13.9–14.5] | 14.74 [14.5–15.3] → 14.72 [14.4–15.0] | −0.02 |
+| qarn (26,22) z1.6 | 5 | 13.90 [13.5–14.2] → 14.62 [14.3–15.2] | 14.64 [14.2–15.2] → 15.40 [14.8–16.1] | **+0.76** |
+
+**The delta budget (≤ +1.5 ms) is met on every view.** The largest move is qarn z1.6, at +0.76
+gpu and +0.72 cpu. There the gpu median moved +0.30 (11.64 → 11.94), consistent with the ground
+shader's extra taps. That cannot be isolated with the debug toggles: hiding `macro` or `roads`
+zeroes a uniform, and the taps still run.
+
+**The absolute ceiling (every view ≤ 14.5 ms p95) is MISSED on `qarn_hadid`, and main misses it
+too:**
+- **z2.5 (19.3 gpu, 17.8 cpu) is pre-existing and owned by the `decor` layer.** Hiding `decor`
+  takes that view's gpu p95 from 17.2 to 13.0 on the branch, and from 16.6 to 12.7 on main
+  (`.superpowers/ground/t18/layer-frame-cost.ts`, 120 frames, a noisy instrument). This is the
+  ditch and boulder geometry the spec already records as the next ground cost.
+- **z0.5** is just over on gpu on both trees (14.74 → 14.72) and under on cpu (14.14 → 14.32).
+- **z1.6** is over on gpu on both trees (14.64 before, 15.40 after), and the branch's +0.76 takes
+  its cpu p95 over the line (13.90 → 14.62).
+
+`beit_sahwan_outskirts` is inside 14.5 on every view.
+
+### 300-figure curve: `backend-curve-gate.ts`
+
+Viewport 1280x720, DPR 1, `--port=5198`. Rows are "target 300, living 266":
+
+| Backend | Render p95, before | Render p95, after | Render avg, before → after |
+|---|---|---|---|
+| three, real shipped meshes | 7.20 (earlier today), 7.60 (same session) | **7.50, 7.30** | 5.64 / 5.49 → 5.54 / 5.58 |
+| three, billboards | 2.40, 2.60 | 2.70, 2.90 | 3.09 / 3.07 → 2.96 / 3.22 |
+
+**`perf:units` at 300 is ≤ 7.5 ms p95 on both after runs**, so the budget is met. Main itself read
+7.60 in the same session, so this line sits inside run-to-run noise on both trees. The ground adds
+nothing distinguishable here.
+
+### Boot time
+
+Measured with `.superpowers/ground/t18/boot-probe.ts`. Conditions:
+- viewport 320x200, which is Task 13's probe;
+- one warm-up load, then 3 runs on beit and 2 on qarn;
+- a CDP sampling profile at 100 µs. The profiler inflates JS time, so read the profiled
+  milliseconds as proportions.
+
+"Boot" is navigation start to the first animation frame with `__lions` present:
+
+| Map | Before | After | Δ |
+|---|---|---|---|
+| `beit_sahwan_outskirts` | 1107 / 1113 / 1136 ms | 1206 / 1191 / 1208 ms | **+~80 ms (+7%)** |
+| `qarn_hadid` | 1186 / 1176 ms | 1271 / 1232 ms | +~70 ms |
+
+**Where it comes from: `buildControlMap`, paid once per terrain rebuild, and a boot rebuilds the
+terrain 3–5 times.** `terrainDirty` fires as structure templates finish loading. That already
+happened on main; plan 1 makes each rebuild heavier.
+
+| Map | Rebuilds | `rebuildTerrain` bursts, before → after | `buildControlMap` inside each |
+|---|---|---|---|
+| beit | 3 | 79–94 ms → 136–159 ms | 60–68 ms |
+| qarn | 5 | 87–126 ms → 131–179 ms | 49–60 ms |
+
+Total per boot is +~180 ms on beit and +~255 ms on qarn, in profiled time.
+
+The `ThreeRenderer` constructor grows from 11.9 to 24.5 ms. `buildMacroField` is 10.6 ms of that,
+and both `DecalPool`s together are ~0.9 ms.
+
+The rebuilds that land AFTER `__lions` show up as a hitch: the longest post-boot frame reads
+- beit: 98–108 ms before, 173–178 ms after;
+- qarn: 145–151 ms before, 196–202 ms after.
+
+Task 13 read this as a ~6.05 s → ~6.35 s "first frame" (+5%) with a different probe. The +5–7% and
+its cause agree. **Not fixed here.** The obvious remedy is to rebuild the control map only when
+its inputs change, or once after the templates settle. It is recorded for the lead, not done.
