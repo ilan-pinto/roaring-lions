@@ -51,7 +51,6 @@ import {
   names,
   parseMap,
   applyTerrain,
-  applyUpgrades,
   applyMissionLocale,
   DECOR,
   paletteColor,
@@ -71,7 +70,7 @@ import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { CUE_SET } from './ui/garage-model';
-import { kitSummary, type KitSummary } from './ui/kit-sign';
+import { upgradePrepass } from './upgrade-prepass';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
@@ -1242,16 +1241,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const params = req.query;
   const audio = battleAudio();
   const { boughtUnits, ownedTiers } = accountState();
-  /** The kit on each KDF type, for the HUD card (WP-S3g §3.4): tiers are
-   *  type-wide and fixed for the mission (brigade D3), so one summary per type,
-   *  read once from the account through `accountState()`. It is built from the
-   *  SAME `ownedTiers` the `applyUpgrades` pre-pass below registers with the
-   *  sim, so the card shows the kit this mission actually runs with -- never
-   *  the account as it stands later, which a garage visit can change. */
-  const kitByType = new Map<string, KitSummary>();
-  for (const u of Object.values(units)) {
-    if (u.faction === 'kdf') kitByType.set(u.id, kitSummary(u as unknown as UpgradableUnit, ownedTiers[u.id] ?? {}));
-  }
+  /** The bought kit, read ONCE from the account through `accountState()`
+   *  (WP-S3g §3.4): tiers are type-wide and fixed for the mission (brigade
+   *  D3). `upgradePrepass` is one loop that yields both the unit types
+   *  registered with the sim below and the HUD card's kit per type, from the
+   *  same per-type read, so the card shows the kit this mission actually
+   *  runs with -- never the account as it stands later, which a garage visit
+   *  can change. */
+  const prepass = upgradePrepass(Object.values(units), ownedTiers);
+  const kitByType = prepass.kitByType;
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -1533,12 +1531,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
 
   const typeOf = new Map<string, number>();
-  for (const u of Object.values(units)) {
-    // Enemy units never go through the pre-pass -- only a KDF unit can carry
-    // a bought tier, and `unitInfo` (cost/gate lookup) below still reads the
-    // raw JSON, never this patched copy, because cost is not patchable.
-    const registered = u.faction === 'kdf' ? applyUpgrades(u, ownedTiers[u.id] ?? {}) : u;
-    typeOf.set(u.id, sim.addUnitType(registered));
+  // The pre-pass's own output (`upgradePrepass`, above): enemy units pass
+  // through untouched -- only a KDF unit can carry a bought tier -- and
+  // `unitInfo` (cost/gate lookup) below still reads the raw JSON, never this
+  // patched copy, because cost is not patchable.
+  for (const registered of prepass.registered) {
+    typeOf.set(registered.id, sim.addUnitType(registered));
   }
 
   // Which ROE reasons have already been narrated, so the advice attached to a
