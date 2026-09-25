@@ -143,7 +143,9 @@ export interface LayerCheckSpec {
  *   over TEXTURED ground -- every mark shows, including one whose colour has
  *     collapsed into the ground's own tone, because a flat mark still flattens
  *     the texture under it;
- *   over FLAT ground (`over` hidden, which is the material's own 404 path) --
+ *   over FLAT ground (the `over` layers hidden: `ground-albedo`, the
+ *     material's own 404 path, AND `macro`, since ground Task 5 -- a 404
+ *     leaves the macro on, and scatter marks carry none) --
  *     only a mark that is genuinely a different tone shows at all.
  *
  * So the ratio flat/textured is "what fraction of this layer's marks are a
@@ -172,10 +174,18 @@ export interface LayerCheckSpec {
  * vacuous 1.0.
  */
 export interface ToneCollapseSpec {
-  /** The layer to hide to flatten the backdrop -- `ground-albedo` in every
-   *  case today, because driving the five texture strengths to 0 is the
-   *  renderer's own fail-soft path rather than a synthetic state. */
-  over: string;
+  /** The layers hidden TOGETHER to flatten the backdrop, in order (and put
+   *  back in reverse) -- `['ground-albedo', 'macro']` in every case today.
+   *  `ground-albedo` drives the six texture strengths to 0, the renderer's own
+   *  fail-soft path rather than a synthetic state; `macro` (ground Task 5)
+   *  takes the macro field's amplitude to 0 as well. Both are needed: scatter
+   *  marks carry no macro, so over macro-shaded ground a mark whose colour has
+   *  collapsed into its tile's tone still differs by the macro factor, and the
+   *  671acdb no-op then PASSED this check (quiet 0.9328, open-ground 0.9675,
+   *  measured with only `ground-albedo` hidden). `ground-albedo` alone is kept
+   *  macro-free on purpose -- its own check means "the texture never arrived",
+   *  and a 404 leaves the macro on. */
+  over: readonly string[];
   /** Fails when the flat-ground footprint is smaller than this fraction of
    *  the textured-ground one. */
   minFootprintRatio: number;
@@ -355,7 +365,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 700,
         minMeanAbsChannelDelta: 0.13,
         toneCheck: {
-          over: 'ground-albedo',
+          over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
             'the grain mesh covers 52767-52768 px of this frame over textured ground and 49082 px ' +
@@ -370,7 +380,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             '8794 / 5212 = 0.5927. The sun moved the defective ratio UP by 0.077 -- exactly the ' +
             'direction predicted (a lit mark differs from lit ground by its own micro-relief ' +
             'shading even when its colour has collapsed into the ground tone) -- and the gap is ' +
-            'now 0.67 to 0.93 rather than 0.59 to 0.93. Still a gap, not a fitted line.',
+            'now 0.67 to 0.93 rather than 0.59 to 0.93. Still a gap, not a fitted line. ' +
+            'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): the backdrop is now `ground-albedo` + `macro` hidden ' +
+            'together, and the footprints read 52200 / 48994 = 0.9386 clean and 49619 / 28646 = ' +
+            '0.5773 with the no-op re-injected -- a wider gap than before the splat. With ' +
+            '`ground-albedo` ALONE hidden the macro survived the flattening and the no-op read ' +
+            '0.9328 and PASSED: scatter marks carry no macro, so a colour-collapsed mark still ' +
+            'differed from macro-shaded ground. That is why `over` names both layers.',
         },
         rationale:
           PRE_LIT +
@@ -417,7 +433,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'here for exactly the reason `LayerCheckSpec` gives for allowing it -- the contribution ' +
           'is sub-threshold and the magnitude is the whole check. A texture that never arrives ' +
           'still reads 0.0000 and still fails. If a future environment reads a big pixel count ' +
-          'here, that is a rasteriser difference worth understanding, not a floor worth raising.',
+          'here, that is a rasteriser difference worth understanding, not a floor worth raising. ' +
+          'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): 26 px / 0.9531. The hide drives the six strengths ONLY -- ' +
+          'the macro field stays on, as it does on a real 404 -- so this delta is still the ' +
+          'tiles\' own contribution. Falsified by making every tile top ignore the control map ' +
+          '(the splat\'s `rlTop` step moved past -1): 0 px / 0.0537, FAIL; the residue is the ' +
+          'road\'s per-vertex slot, which that mutation does not reach.',
       },
       {
         layer: 'buildings',
@@ -515,7 +536,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 1200,
         minMeanAbsChannelDelta: 0.53,
         toneCheck: {
-          over: 'ground-albedo',
+          over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
             'the grain mesh covers 10170 px of this crop over textured ground and 9417 px over ' +
@@ -527,7 +548,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             '6183 = 0.6938. The clean ratio fell 0.03 toward the floor when the lights landed ' +
             'and the defective one rose 0.02 toward it, leaving 0.71 to 0.93 -- 0.09 of headroom ' +
             'below and 0.13 above. Re-measure this entry first if anything about the ground ' +
-            'texture, the sun or the scatter composites changes again.',
+            'texture, the sun or the scatter composites changes again. ' +
+            'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): with `ground-albedo` + `macro` hidden together it reads ' +
+            '10057 / 9422 = 0.9369 clean and 9922 / 6474 = 0.6525 with the no-op -- 0.15 of ' +
+            'headroom below and 0.14 above, no longer the tightest pair. With `ground-albedo` ' +
+            'alone hidden the no-op read 0.9675 and PASSED (the macro survived the flattening).',
         },
         rationale:
           PRE_LIT +
@@ -572,7 +597,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'because the extra headroom came from 35 `n` knoll tiles that someone might edit away. ' +
           'That argument did not survive the relight -- the 2.66 here is the sand and road over ' +
           'the whole crop, not the knolls, and holding a 1.84 floor against a 2.66 signal would ' +
-          'leave only 31% of headroom on the metric this check actually rests on.',
+          'leave only 31% of headroom on the metric this check actually rests on. ' +
+          'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): 196 px / 2.4182. The hide drives the six strengths ONLY -- ' +
+          'the macro stays on, as on a real 404 -- so that is the tiles\' contribution with the ' +
+          'macro\'s own removed, and the PIXEL margin is now about 1.3x the 150 px floor ' +
+          '(magnitude 2.7x). Recorded, not re-floored. Falsified by making every tile top ' +
+          'ignore the control map: 0 px / 0.0000, FAIL.',
       },
     ],
     rationale:
@@ -756,7 +786,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 1400,
         minMeanAbsChannelDelta: 0.15,
         toneCheck: {
-          over: 'ground-albedo',
+          over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
             'the grain mesh covers 91990 px of this frame over textured ground and 91394 px over ' +
@@ -778,7 +808,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             'against a 0.004 budget, and the two other scenarios\' tone checks both fail. What ' +
             'is lost is reference-free coverage of THIS defect on THIS map -- which matters only ' +
             'on a runner with no blessed baseline. Closing it properly needs a witness that is ' +
-            'not a footprint ratio; see docs/superpowers/specs/2026-09-14-lit-renderer-design.md.',
+            'not a footprint ratio; see docs/superpowers/specs/2026-09-14-lit-renderer-design.md. ' +
+            'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): with `ground-albedo` + `macro` hidden together it reads ' +
+            '91988 / 91165 = 0.9911 clean and 91063 / 80907 = 0.8885 with the no-op -- still a ' +
+            'PASS, still a texture witness rather than a defect witness, the gap now 0.10; and ' +
+            'the two other scenarios\' tone checks fail on the no-op again (0.5773, 0.6525).',
         },
         rationale:
           PRE_LIT +
@@ -819,7 +853,10 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'it is a strong one: a texture that never arrives reads 0.0000 against a 0.63 floor. ' +
           'Still covers the rock slot as well as sand -- tel_marum is the only gated map with `^` ' +
           'ridge walls -- and the base map authors no `n`, which keeps this the control that says ' +
-          'the knoll scree reached knoll tiles and nowhere else.',
+          'the knoll scree reached knoll tiles and nowhere else. ' +
+          'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): 7 px / 1.8280, the six strengths only (the macro stays on, ' +
+          'as on a real 404). Falsified by making every tile top ignore the control map: ' +
+          '2 px / 0.1652, FAIL on magnitude; the residue is the road\'s per-vertex slot.',
       },
       {
         layer: 'vignette',

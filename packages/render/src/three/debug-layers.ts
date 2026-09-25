@@ -50,10 +50,15 @@
  *                 starts at 0 and a 404 leaves it there). Hiding it therefore
  *                 reproduces exactly "the texture never arrived", and the
  *                 delta is the whole contribution of the shipped tiles.
- *                 Since ground Task 5 it also drives the macro field's
- *                 amplitude to 0, so hidden still means the FLAT vertex
+ *                 It does NOT touch the macro field: a 404 leaves the macro
+ *                 on, so neither does this (`GroundMaterial.setAlbedoVisible`).
+ * - `macro`       the ground's macro field (ground Task 5), its amplitude
+ *                 driven to 0 (`GroundMaterial.setMacroVisible`). Hidden
+ *                 TOGETHER with `ground-albedo` it gives the flat vertex
  *                 palette tone the `scatter` tone check flattens to
- *                 (`GroundMaterial.setAlbedoVisible`).
+ *                 (`ToneCollapseSpec.over`); scatter marks carry no macro,
+ *                 so leaving it on would blind that check. No layer check of
+ *                 its own yet -- that is ground Task 9's, under F-18.
  * - `buildings`   structure boxes, mesh building clones (idle and wreck) and
  *                 the billboard structure instancers.
  *
@@ -204,6 +209,7 @@ export const DEBUG_LAYERS = [
   'scatter',
   'decor',
   'ground-albedo',
+  'macro',
   'buildings',
   'units',
   'vignette',

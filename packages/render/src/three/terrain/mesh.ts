@@ -865,22 +865,23 @@ vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
     };
   }
 
-  /** Non-null only while the `ground-albedo` debug layer is hidden: what
-   *  `setAlbedoVisible(true)` puts back -- the per-slot strengths in
-   *  `GROUND_SLOTS` order, and the macro amplitude. */
-  private albedoStash: { strengths: number[]; macroAmp: number } | null = null;
+  /** Non-null only while the `ground-albedo` debug layer is hidden: the
+   *  per-slot strengths `setAlbedoVisible(true)` puts back, in `GROUND_SLOTS`
+   *  order. */
+  private albedoStash: number[] | null = null;
+  /** Non-null only while the `macro` debug layer is hidden: the amplitude
+   *  `setMacroVisible(true)` puts back. */
+  private macroStash: number | null = null;
 
   /**
    * Backs `setDebugLayerVisible('ground-albedo', ...)`: hidden, every slot's
-   * strength AND the macro amplitude go to 0, so the ground is exactly its
-   * flat vertex palette tone -- the backdrop the `scatter` tone check
-   * (`tools/src/golden-diff/baseline.ts`, `ToneCollapseSpec`) was built
-   * around. The macro has to go with the slots: scatter marks do not carry
-   * it, so over a macro-shaded "flat" ground a mark whose colour has
-   * collapsed into its tile's tone still differs by the macro factor, and the
-   * tone check stops seeing the defect it exists for (measured: the 671acdb
-   * no-op read 0.9328 / 0.9675 on quiet / open-ground with the macro left on,
-   * PASSING a 0.8 floor it fails at 0.5779 / 0.6512 with it off).
+   * strength goes to 0 -- the material's own fail-soft path, exactly what a
+   * 404 leaves behind -- and NOTHING ELSE. In particular the macro field stays
+   * on, because a texture that never arrives leaves it on: this layer's check
+   * measures "the texture never arrived", and a hide that also removed the
+   * macro would credit the macro's contribution to the tiles and keep that
+   * check passing on a real 404. A backdrop that needs the ground truly flat
+   * (the `scatter` tone check) hides `macro` as well -- see `setMacroVisible`.
    *
    * Idempotent in both directions: hiding twice must not stash a set of
    * zeroes as the value to restore, which would leave the ground permanently
@@ -888,26 +889,46 @@ vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
    * many uniforms it drove -- the gate prints it as a diagnostic.
    */
   setAlbedoVisible(visible: boolean): number {
-    const driven = GROUND_SLOTS.length + 1;
     if (!visible) {
       if (this.albedoStash === null) {
-        this.albedoStash = {
-          strengths: GROUND_SLOTS.map((slot) => this.uniforms[slotUniforms(slot).strength].value as number),
-          macroAmp: this.uniforms.uMacroAmp.value as number,
-        };
+        this.albedoStash = GROUND_SLOTS.map((slot) => this.uniforms[slotUniforms(slot).strength].value as number);
       }
       for (const slot of GROUND_SLOTS) this.uniforms[slotUniforms(slot).strength].value = 0;
-      this.uniforms.uMacroAmp.value = 0;
-      return driven;
+      return GROUND_SLOTS.length;
     }
     const stash = this.albedoStash;
     if (stash === null) return 0;
     GROUND_SLOTS.forEach((slot, i) => {
-      this.uniforms[slotUniforms(slot).strength].value = stash.strengths[i];
+      this.uniforms[slotUniforms(slot).strength].value = stash[i];
     });
-    this.uniforms.uMacroAmp.value = stash.macroAmp;
     this.albedoStash = null;
-    return driven;
+    return GROUND_SLOTS.length;
+  }
+
+  /**
+   * Backs `setDebugLayerVisible('macro', ...)`: `uMacroAmp` to 0 and back,
+   * idempotently, the same stash shape as `setAlbedoVisible`. Hidden, the
+   * macro factor is exactly `vec3(1.0)` (`macroFactor` at amplitude 0).
+   *
+   * Its own layer rather than part of `ground-albedo`, because the two
+   * answer different questions: `ground-albedo` alone is "the texture never
+   * arrived" (the macro survives a 404), and `ground-albedo` + `macro`
+   * together are the FLAT vertex palette tone the `scatter` tone check
+   * flattens to -- scatter marks carry no macro, so over macro-shaded ground a
+   * mark whose colour has collapsed into its tile's tone still differs by the
+   * macro factor and the check stops seeing the defect it exists for.
+   */
+  setMacroVisible(visible: boolean): number {
+    if (!visible) {
+      if (this.macroStash === null) this.macroStash = this.uniforms.uMacroAmp.value as number;
+      this.uniforms.uMacroAmp.value = 0;
+      return 1;
+    }
+    const stash = this.macroStash;
+    if (stash === null) return 0;
+    this.uniforms.uMacroAmp.value = stash;
+    this.macroStash = null;
+    return 1;
   }
 
   override customProgramCacheKey(): string {

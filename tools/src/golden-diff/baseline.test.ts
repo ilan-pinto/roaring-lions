@@ -815,7 +815,7 @@ describe('layerToggleScript', () => {
 });
 
 describe('evaluateToneCheck', () => {
-  const check = { over: 'ground-albedo', minFootprintRatio: 0.8, rationale: 'test' };
+  const check = { over: ['ground-albedo', 'macro'], minFootprintRatio: 0.8, rationale: 'test' };
 
   it('fails the measured scatter no-op on every scenario that declares it', () => {
     // The defect, re-injected into this tree and captured with an EMPTY
@@ -877,8 +877,39 @@ describe('evaluateToneCheck', () => {
       for (const c of spec.layerChecks ?? []) {
         if (!c.toneCheck) continue;
         const declared = (spec.layerChecks ?? []).map((x) => x.layer);
-        expect(declared, `scenario "${id}"`).toContain(c.toneCheck.over);
+        expect(c.toneCheck.over, `scenario "${id}"`).toContain('ground-albedo');
+        expect(declared, `scenario "${id}"`).toContain('ground-albedo');
+      }
+    }
+  });
+
+  it('flattens to the macro-free palette tone: hides ground-albedo AND macro, and only renderer layers', () => {
+    // Scatter marks carry no macro field, so over macro-shaded ground a mark
+    // whose colour has collapsed into its tile's tone still differs by the
+    // macro factor -- measured: the 671acdb no-op PASSED at 0.9328 / 0.9675
+    // on quiet / open-ground with `ground-albedo` alone hidden. And
+    // `ground-albedo` must stay macro-free itself (a 404 leaves the macro
+    // on), so the backdrop names the two layers rather than one hiding both.
+    const known = debugLayersFromRendererSourceForTone();
+    for (const [id, spec] of Object.entries(BASELINES)) {
+      for (const c of spec.layerChecks ?? []) {
+        if (!c.toneCheck) continue;
+        expect(c.toneCheck.over, `scenario "${id}"`).toEqual(['ground-albedo', 'macro']);
+        for (const layer of c.toneCheck.over) expect(known, `scenario "${id}" over "${layer}"`).toContain(layer);
       }
     }
   });
 });
+
+/** `DEBUG_LAYERS` read as TEXT from the renderer source, for the tone-check
+ *  backdrop test above -- the same technique `BASELINES layerChecks` uses. */
+function debugLayersFromRendererSourceForTone(): string[] {
+  const src = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../packages/render/src/three/debug-layers.ts'),
+    'utf8'
+  );
+  const m = /export const DEBUG_LAYERS = \[([^\]]*)\] as const;/.exec(src);
+  if (!m) throw new Error('could not find DEBUG_LAYERS in packages/render/src/three/debug-layers.ts');
+  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+}
+

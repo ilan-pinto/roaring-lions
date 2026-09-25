@@ -278,16 +278,28 @@ describe('DEBUG_LAYERS', () => {
     const i = internals(r);
     i.groundMat.uniforms.uSandStrength.value = 0.7;
     i.groundMat.uniforms.uRockStrength.value = 0.4;
-    // Six slot strengths plus the macro amplitude (ground Task 5): hidden
-    // must mean the FLAT palette tone the scatter tone check flattens to,
-    // and the macro field would otherwise survive the hide.
-    expect(r.setDebugLayerVisible('ground-albedo', false)).toBe(7);
+    expect(r.setDebugLayerVisible('ground-albedo', false)).toBe(6);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0);
     expect(i.groundMat.uniforms.uRockStrength.value).toBe(0);
-    expect(i.groundMat.uniforms.uMacroAmp.value).toBe(0);
+    // A 404 leaves the macro field on, so the "texture never arrived" hide
+    // must too -- otherwise the macro's contribution is credited to the tiles.
+    expect(i.groundMat.uniforms.uMacroAmp.value).toBe(1);
     r.setDebugLayerVisible('ground-albedo', true);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0.7);
     expect(i.groundMat.uniforms.uRockStrength.value).toBe(0.4);
+    r.dispose();
+  });
+
+  it('drives the macro field to amplitude 0 and back, and touches no albedo slot', () => {
+    // `macro` + `ground-albedo` together are the flat palette tone the scatter
+    // tone check flattens to (`ToneCollapseSpec.over`).
+    const r = makeRenderer();
+    const i = internals(r);
+    i.groundMat.uniforms.uSandStrength.value = 0.7;
+    expect(r.setDebugLayerVisible('macro', false)).toBe(1);
+    expect(i.groundMat.uniforms.uMacroAmp.value).toBe(0);
+    expect(i.groundMat.uniforms.uSandStrength.value).toBe(0.7);
+    r.setDebugLayerVisible('macro', true);
     expect(i.groundMat.uniforms.uMacroAmp.value).toBe(1);
     r.dispose();
   });

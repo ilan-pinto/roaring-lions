@@ -2979,6 +2979,12 @@ export class ThreeRenderer implements Renderer {
         // (`GROUND_ALBEDOS[id].gain`, never a hardcoded 1), which is why the
         // previous values are stashed rather than recomputed.
         return this.setGroundAlbedoOn(visible);
+      case 'macro':
+        // A uniform, like `ground-albedo` above: the macro field's amplitude
+        // to 0 and back (`GroundMaterial.setMacroVisible`). Nothing per-frame
+        // writes `uMacroAmp`, so the plain write holds across the gate's
+        // repaint.
+        return this.groundMat.setMacroVisible(visible);
       case 'overlays': {
         // Unlike `units`, a plain `setObjectsVisible` is correct for the
         // three batches -- `debug-layers.ts`'s own doc comment for
@@ -3061,8 +3067,8 @@ export class ThreeRenderer implements Renderer {
   }
 
   /** Backs `setDebugLayerVisible('ground-albedo', ...)`: the six slot
-   *  strengths AND the macro amplitude to 0 and back, idempotently -- see
-   *  `GroundMaterial.setAlbedoVisible` for why the macro goes with them. */
+   *  strengths to 0 and back, idempotently, and nothing else -- see
+   *  `GroundMaterial.setAlbedoVisible` for why the macro is NOT part of it. */
   private setGroundAlbedoOn(on: boolean): number {
     return this.groundMat.setAlbedoVisible(on);
   }

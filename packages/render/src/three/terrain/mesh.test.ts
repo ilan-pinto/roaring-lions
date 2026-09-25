@@ -163,9 +163,27 @@ describe('GroundMaterial samples the control map', () => {
       expect(tex.colorSpace).toBe(THREE.NoColorSpace);
       expect(tex.flipY).toBe(false);
       expect(tex.wrapS).toBe(THREE.ClampToEdgeWrapping);
+      expect(tex.wrapT).toBe(THREE.ClampToEdgeWrapping);
       expect(tex.generateMipmaps).toBe(true);
+      // Filtered and mipmapped: at zoom 0.35 a fragment spans several control
+      // texels, and an unfiltered minification shimmers every splat edge.
+      expect(tex.magFilter).toBe(THREE.LinearFilter);
+      expect(tex.minFilter).toBe(THREE.LinearMipmapLinearFilter);
+      // One byte a texel on the macro field: a 4-byte row alignment would
+      // skew every row after the first on any width not a multiple of 4.
+      expect(tex.unpackAlignment).toBe(1);
     }
     expect(t.macro.format).toBe(THREE.RedFormat);
+  });
+  it('rescales the height-biased weights back to their own sum, as heightBiased does', () => {
+    // Without the rescale the bias INVENTS or DESTROYS weight: a tile
+    // interior's single weight would drift off its strength, and the "every
+    // interior is the old chain of mixes exactly" claim would be false.
+    expect(src).toContain('4.0 * w * (1.0 - w)');
+    expect(src).toMatch(
+      /if \(rlBSum > 0\.0\) \{\s*float rlRescale = \(rlW0 \+ rlW1 \+ rlW2 \+ rlW3 \+ rlW4\) \/ rlBSum;/
+    );
+    for (let i = 0; i < 5; i++) expect(src).toContain(`rlW${i} = rlB${i} * rlRescale;`);
   });
   it('reads the wall attribute and the world position in the vertex stage', () => {
     const vert = compiled(new GroundMaterial()).vertexShader;
@@ -553,21 +571,33 @@ describe('toGeometry colour space and normals', () => {
   });
 });
 
-describe('GroundMaterial.setAlbedoVisible -- the ground-albedo debug layer', () => {
-  it('hides the macro with the slots, so hidden means the flat palette tone, and restores both', () => {
-    // The scatter tone check flattens the ground by hiding this layer and
-    // compares a mark's footprint over it. Scatter marks carry no macro, so a
-    // macro left on makes a colour-collapsed mark visible over "flat" ground
-    // and the check stops failing on the defect it exists for.
+describe('GroundMaterial debug toggles -- ground-albedo and macro', () => {
+  it('ground-albedo hides the six slots and NOT the macro, because a 404 leaves the macro on', () => {
+    // The `ground-albedo` check measures "the texture never arrived". A real
+    // 404 leaves the macro field on, so a hide that also removed the macro
+    // would credit the macro's contribution to the tiles -- and keep that
+    // check passing on a texture that never arrives.
     const m = new GroundMaterial();
     m.uniforms.uSandStrength.value = 1;
-    m.setAlbedoVisible(false);
-    expect(m.uniforms.uMacroAmp.value).toBe(0);
+    expect(m.setAlbedoVisible(false)).toBe(GROUND_SLOTS.length);
     for (const slot of GROUND_SLOTS) expect(m.uniforms[slotUniforms(slot).strength].value).toBe(0);
+    expect(m.uniforms.uMacroAmp.value).toBe(1);
     // Idempotent: a second hide must not stash the zeroes.
     m.setAlbedoVisible(false);
     m.setAlbedoVisible(true);
-    expect(m.uniforms.uMacroAmp.value).toBe(1);
     expect(m.uniforms.uSandStrength.value).toBe(1);
+  });
+  it('macro hides the amplitude alone, idempotently, and restores it', () => {
+    // Hidden together with ground-albedo it is the flat palette tone the
+    // scatter tone check flattens to: scatter marks carry no macro.
+    const m = new GroundMaterial();
+    m.uniforms.uSandStrength.value = 1;
+    expect(m.setMacroVisible(false)).toBe(1);
+    expect(m.uniforms.uMacroAmp.value).toBe(0);
+    expect(m.uniforms.uSandStrength.value).toBe(1);
+    m.setMacroVisible(false);
+    expect(m.setMacroVisible(true)).toBe(1);
+    expect(m.uniforms.uMacroAmp.value).toBe(1);
+    expect(m.setMacroVisible(true)).toBe(0);
   });
 });
