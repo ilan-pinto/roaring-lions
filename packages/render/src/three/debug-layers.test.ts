@@ -97,7 +97,7 @@ function internals(r: ThreeRenderer): {
  *  above reaches the terrain's -- kept separate so `internals`' own list
  *  stays the terrain/post-chain one it has always been. */
 function blastInternals(r: ThreeRenderer): {
-  scorchDecals: { mesh: THREE.Mesh };
+  decalsPersistent: { mesh: THREE.Mesh };
 } {
   return r as unknown as ReturnType<typeof blastInternals>;
 }
@@ -406,8 +406,9 @@ describe('DEBUG_LAYERS', () => {
 
   it('hides the scorch decal mesh with a plain visible flag', () => {
     // `overlays`/`skirt`'s rule: nothing in `frame()` ever writes
-    // `scorchDecals.mesh.visible` -- a mark is written once at `stamp()` and
-    // never touched again -- so a plain toggle holds across the gate's
+    // `decalsPersistent.mesh.visible` (INTERIM, Task 12: the scorch lives in
+    // the persistent decal pool now, and Task 13 renames this layer) -- a
+    // mark is written once at `stamp()` -- so a plain toggle holds across the gate's
     // repaint. Its sibling `blast-light` follows the OTHER rule and is
     // pinned in `ThreeRenderer.blast.test.ts` instead, because proving that
     // one needs a live flash in the pool: with an empty pool
@@ -418,9 +419,9 @@ describe('DEBUG_LAYERS', () => {
     const r = makeRenderer();
     const b = blastInternals(r);
     expect(r.setDebugLayerVisible('scorch', false)).toBe(1);
-    expect(b.scorchDecals.mesh.visible).toBe(false);
+    expect(b.decalsPersistent.mesh.visible).toBe(false);
     expect(r.setDebugLayerVisible('scorch', true)).toBe(1);
-    expect(b.scorchDecals.mesh.visible).toBe(true);
+    expect(b.decalsPersistent.mesh.visible).toBe(true);
     r.dispose();
   });
 });

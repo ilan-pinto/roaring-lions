@@ -143,7 +143,25 @@ import {
   BLAST_SMOKE_FADE_MS,
 } from './units/smoke-plume';
 import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
-import { ScorchDecalMesh, SCORCH_CAPACITY } from './scorch-decals';
+import { scorchRadiusTiles } from './scorch-decals';
+import {
+  DecalPool,
+  createDecalMaterial,
+  craterRadiusTiles,
+  isFadingKind,
+  presentationSimMs,
+  rubbleRadiusTiles,
+  stampSimMs,
+  DECAL_KIND_INDEX,
+  FADING_CAPACITY,
+  FADING_GRID,
+  OIL_RADIUS_TILES,
+  PERSISTENT_CAPACITY,
+  PERSISTENT_GRID,
+  TRACK_STAMP_HALF_LENGTH,
+  type DecalKind,
+  type DecalStamp,
+} from './decal-pool';
 import {
   BLAST_EMITTER_ID,
   SHELL_IMPACT_EMITTER_ID,
@@ -180,7 +198,7 @@ import {
   type GroundSlot,
 } from './terrain/mesh';
 import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
-import { terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
+import { isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
 import { buildControlMap, buildMacroField, neutralTint } from './terrain/control-map';
 import { ROAD_GRAIN_GAIN } from './terrain/road-graph';
 import { hexToLinear } from './terrain/shared';
@@ -251,7 +269,12 @@ import {
   structureAliveAlpha,
   resolveRoofPx,
 } from './units/structures';
-import { STRUCTURE_RENDER_ORDER, FX_RENDER_ORDER } from './units/render-order';
+import {
+  STRUCTURE_RENDER_ORDER,
+  FX_RENDER_ORDER,
+  DECAL_PERSISTENT_RENDER_ORDER,
+  DECAL_FADING_RENDER_ORDER,
+} from './units/render-order';
 import { unitIsObserved } from './units/observed';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
@@ -328,7 +351,13 @@ import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
-import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
+import {
+  trackKindFor,
+  stepTrackAccum,
+  trackStampCenters,
+  STAMP_SPACING_TILES,
+  TRACK_FOOTPRINT,
+} from './vehicle-tracks';
 import {
   billboardPoint,
   objectiveZoneCorners,
@@ -700,6 +729,16 @@ const OVERLAY_VERTICES_PER_ENTITY = 200;
  *  that reason, designed together with the fill rather than beside it.
  *  Nothing measured contradicts it. */
 const MAX_RANGE_HOOP_ALPHA = 0.22;
+
+/**
+ * A decal's presentation seed in `[0, 1)`: `tileHash` of the stamp's centre
+ * quantised to eighths of a tile, with the kind folded into the second
+ * coordinate so a crater and the scorch stamped over it never share a
+ * wobble. Presentation only -- nothing here reaches the sim.
+ */
+function decalSeed(kind: DecalKind, x: number, z: number): number {
+  return tileHash(Math.floor(8 * x), Math.floor(8 * z) + 977 * DECAL_KIND_INDEX[kind]);
+}
 
 /** How strong a HOVER preview's envelope is, as a fraction of the same
  *  unit's envelope when it is selected. One multiplier over all three bands
@@ -1266,20 +1305,36 @@ export class ThreeRenderer implements Renderer {
    *  `useEmitters`, the same two-phase shape every other manager here uses. */
   private readonly collapseShrouds = new CollapseShroudManager();
   /**
-   * The persistent scorch marks a blast leaves on the ground
-   * (`../scorch-decals.ts`) -- one `THREE.Mesh` and one ring buffer for the
-   * whole map, `SCORCH_CAPACITY` marks, oldest slot overwritten once full.
+   * The ground's memory of the battle (spec 3.3, D5): one kind shader
+   * (`./decal-pool.ts`'s `createDecalMaterial`), two ring pools drawn
+   * through it. `decalsPersistent` holds what stays for the mission --
+   * crater, scorch, oil, rubble -- on the 4x4 conforming grid;
+   * `decalsFading` holds tread and tyre prints, which age out over
+   * `TRACK_FADE_SEC` of SIM time on the cheaper 2x2 grid (R-10). Every stamp
+   * goes through `stampGroundDecal`, the one entry, which is also the one
+   * place R-19's terrace refusal lives.
    *
-   * Built in the constructor rather than initialised here because its colour
-   * is resolved through `overlayColor` (the same "colour is looked up, never
-   * computed" rule `trailMesh`/`vehicleTrackMesh` follow one field group
-   * down), and `this.opts` is a parameter property -- available in the
-   * constructor body, not at field-initialiser time.
-   *
-   * It takes no `step()`: a mark never moves, never fades and has no TTL, so
-   * the only per-frame cost it could have is one it does not pay.
+   * Built in the constructor rather than initialised here because the
+   * palette resolves through `overlayColor`, and `this.opts` is a parameter
+   * property -- available in the constructor body, not at field-initialiser
+   * time. `decalMaterial.uniforms.uNowSec` is written once a frame from the
+   * sim clock (`presentationSimMs`), never from `dtMs`, so the visual gate's
+   * zero-elapsed repaint reads every fade exactly where the first
+   * photograph left it.
    */
-  private readonly scorchDecals: ScorchDecalMesh;
+  private readonly decalMaterial: THREE.ShaderMaterial;
+  private readonly decalsPersistent: DecalPool;
+  private readonly decalsFading: DecalPool;
+  /** `stampGroundDecal`'s two samplers, built once rather than per stamp:
+   *  the drawn surface's height, and R-19's terrace test on the same
+   *  surface. Both read `this.retained.elevation` at CALL time, so a
+   *  `refreshSurface` between two stamps is seen by the second. */
+  private readonly decalSampleY = (x: number, z: number): number =>
+    groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
+  private readonly decalIsTerrace = (x: number, z: number): boolean => {
+    const surface = this.retained.elevation;
+    return surface !== null && isTerrace(surface, Math.floor(x), Math.floor(z));
+  };
   /**
    * Every live screen shake, as the pure model's own immutable state
    * (`./blast-shake.ts`). Written at the two dispatch sites (a vehicle kill,
@@ -1966,33 +2021,29 @@ export class ThreeRenderer implements Renderer {
   private trailMeshDirty = true;
 
   /**
-   * Vehicle track marks (tread ruts, tyre prints) -- see `./vehicle-tracks
-   * .ts`'s own top comment for the full design account. `vehicleTrackAccumTiles`
-   * is the per-entity distance-since-last-stamp accumulator `stepTrackAccum`
+   * Vehicle track marks (tread ruts, tyre prints), now stamped into
+   * `decalsFading` -- see `./vehicle-tracks.ts`'s own top comment for the
+   * roster and footprint account. `vehicleTrackAccumTiles` is the
+   * per-entity distance-since-last-stamp accumulator `stepTrackAccum`
    * carries forward; `vehicleTrackSeeded` mirrors `turretSeeded`/
    * `animSeeded`'s own pattern -- an entity's first tick only records its
    * position, so a freshly spawned or reinforced vehicle does not stamp a
    * phantom line from `(0, 0)` (the `Float64Array` zero-fill) to its actual
-   * spawn tile. `trackClockMs` is this class's own accumulated `dtMs` total
-   * (never `Date.now()`), the "now" both the stamp TTL and the expiry sweep
-   * read -- see `Renderer.frame`'s own documented contract for why a
-   * backend must not read its own clock.
+   * spawn tile. There is no track clock of its own any more: a print is
+   * dated `stampSimMs(tickCount)` and aged by the decal material's sim-time
+   * `uNowSec`.
    */
-  private readonly vehicleTrackMesh: VehicleTrackMesh;
   private readonly vehicleTrackAccumTiles: Float64Array;
   private readonly vehicleTrackSeeded: Uint8Array;
-  private trackClockMs = 0;
-  /** `groveMat`'s `uTime` uniform, in the same "accumulated `dtMs`, never
-   *  `Date.now()`" shape as `trackClockMs` immediately above and for the
-   *  identical reason (`Renderer.frame`'s documented contract) -- a separate
-   *  field rather than reusing `trackClockMs` itself so the wind's own
-   *  period stays independent of whatever `vehicleTrackMesh` does with its
-   *  clock. Converted from ms to seconds only at the point `frame()` writes
+  /** `groveMat`'s `uTime` uniform, in the "accumulated `dtMs`, never
+   *  `Date.now()`" shape `Renderer.frame`'s documented contract asks for --
+   *  its own field, so the wind's period stays independent of every other
+   *  presentation clock here. Converted from ms to seconds only at the point `frame()` writes
    *  the uniform; see `terrain/mesh.ts`'s `GroveMaterial` doc comment for
    *  the shader-side use. */
   private windClockMs = 0;
   /** GH #144: `SmokeMesh`'s own animation clock, the same "accumulated
-   *  `dtMs`, never `Date.now()`" shape as `trackClockMs`/`windClockMs`
+   *  `dtMs`, never `Date.now()`" shape as `windClockMs`
    *  immediately above and for the identical reason (`Renderer.frame`'s
    *  documented contract) -- a separate field, not a reuse of either, so
    *  smoke's own drift/billow/breathing periods stay independent of what
@@ -2072,20 +2123,38 @@ export class ThreeRenderer implements Renderer {
     // re-resolving per frame -- see trail-mesh.ts's own top comment for why
     // one uniform colour serves the whole mesh.
     this.trailMesh = new TrailMesh(sim.width, sim.height, opts.terrainTones.spoil);
-    // Same "resolve the palette-key colour once, at construction" pattern
-    // as trailMesh just above -- opts.terrainTones.rut is the SAME resolved
-    // hex the static rut painting already uses (`renderer.ts`'s own `rut`
-    // stroke), so a driven-over tile and a hand-painted one read as the
-    // same material. See vehicle-tracks.ts's own top comment for the full
-    // palette/fog/pool-sizing account.
-    this.vehicleTrackMesh = new VehicleTrackMesh(TRACK_POOL_CAPACITY, opts.terrainTones.rut);
-    // Same "resolve the palette-key colour once, at construction" pattern as
-    // the two meshes above. `shadow.0` is the darkest-but-one shadow tone,
-    // which is what `scorch-decals.ts` names as its own fallback -- passed
-    // through `overlayColor` here so a caller that supplied a resolver gets
-    // the real palette entry and one that did not (this backend's own tests)
-    // still gets an on-palette hex rather than magenta.
-    this.scorchDecals = new ScorchDecalMesh(SCORCH_CAPACITY, this.overlayColor('shadow.0', '#23241F'));
+    // The decal kinds' eight colours, resolved once through `overlayColor`
+    // exactly as the meshes above resolve theirs -- a caller with a resolver
+    // gets the real palette entry, and one without (this backend's own
+    // tests) still gets the on-palette hex that key names today rather
+    // than magenta. `tread` is the SAME resolved rut tone the ground's
+    // own road ruts use, so a driven-over tile and a road rut read as one
+    // material.
+    this.decalMaterial = createDecalMaterial({
+      craterBowl: this.overlayColor('shadow.0', '#23241F'),
+      craterLip: this.overlayColor('limestone.1', '#E6D8BE'),
+      scorch: this.overlayColor('shadow.0', '#23241F'),
+      oil: this.overlayColor('shadow.1', '#14150F'),
+      rubbleA: this.overlayColor('limestone.5', '#A28C6E'),
+      rubbleB: this.overlayColor('limestone.7', '#75624A'),
+      tread: opts.terrainTones.rut,
+      tyre: this.overlayColor('limestone.6', '#8C7659'),
+    });
+    // One material, two pools, one band each (`render-order.ts`'s decal
+    // aliases): the persistent marks in the world band, the fading prints
+    // one above so a fresh tread lies over an old crater.
+    this.decalsPersistent = new DecalPool({
+      capacity: PERSISTENT_CAPACITY,
+      grid: PERSISTENT_GRID,
+      renderOrder: DECAL_PERSISTENT_RENDER_ORDER,
+      material: this.decalMaterial,
+    });
+    this.decalsFading = new DecalPool({
+      capacity: FADING_CAPACITY,
+      grid: FADING_GRID,
+      renderOrder: DECAL_FADING_RENDER_ORDER,
+      material: this.decalMaterial,
+    });
     // The ground's macro field (spec 3.1, G4): built once, since it depends
     // on the map's size alone. Its hue pull resolves through `overlayColor`
     // exactly as the decals above do, and is `neutralTint`ed so it moves hue
@@ -2246,17 +2315,13 @@ export class ThreeRenderer implements Renderer {
     // only so a reader scanning this constructor sees the ground-plane
     // meshes grouped together.
     this.scene.add(this.trailMesh.mesh);
-    // Same ground-band placement as trailMesh just above, for the same
-    // "scene-graph position is cosmetic here, renderOrder plus real depth
-    // does the real work" reason -- see vehicle-tracks.ts's own top comment.
-    this.scene.add(this.vehicleTrackMesh.mesh);
-    // The scorch marks draw in the same WORLD band as the tracks just above
-    // and lie on the same ground plane, so they are grouped with them for
-    // the same reader's-eye reason -- scene-graph position carries no
-    // draw-order meaning in this backend (`renderOrder` plus the real depth
-    // buffer does). Added here once and never removed: the pool is fixed and
-    // the mesh outlives every mark in it.
-    this.scene.add(this.scorchDecals.mesh);
+    // Both decal pools lie on the same ground plane as the trail, so they
+    // are grouped with it for the same reader's-eye reason -- scene-graph
+    // position carries no draw-order meaning in this backend (`renderOrder`
+    // plus the real depth buffer does). Added once and never removed: each
+    // pool is fixed-size and its mesh outlives every mark in it.
+    this.scene.add(this.decalsPersistent.mesh);
+    this.scene.add(this.decalsFading.mesh);
     // `SMOKE_RENDER_ORDER` sits above the overlay tier -- see
     // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
     // here for the identical reason it is for `trailMesh` (three.js
@@ -2677,8 +2742,11 @@ export class ThreeRenderer implements Renderer {
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
-    // the FX batches above -- one geometry and one ShaderMaterial.
-    this.scorchDecals.dispose();
+    // the FX batches above: each pool owns its geometry only, and the one
+    // material they share is disposed once, here.
+    this.decalsPersistent.dispose();
+    this.decalsFading.dispose();
+    this.decalMaterial.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -2733,9 +2801,6 @@ export class ThreeRenderer implements Renderer {
     // "added once in the constructor, no scene.remove needed" reasoning
     // just above.
     this.trailMesh.dispose();
-    // Same "added once in the constructor, no scene.remove needed" shape as
-    // trailMesh just above.
-    this.vehicleTrackMesh.dispose();
     // BEFORE the renderer goes, and nulled: the composer owns three
     // full-screen render targets plus SMAA's two lookup textures, none of
     // which `WebGLRenderer.dispose()` reaches, and they have to be deleted
@@ -2883,7 +2948,7 @@ export class ThreeRenderer implements Renderer {
     // No dirty gate -- Pixi's own smoke loop redraws every `frame()` call,
     // not behind `fogDirty` (`smokeMesh`'s own doc comment above).
     // GH #144: `smokeClockMs` is real accumulated frame time, exactly like
-    // `trackClockMs`/`windClockMs` just below -- never the sim's own tick.
+    // `windClockMs` just below -- never the sim's own tick.
     this.smokeClockMs += dtMs;
     this.smokeMesh.update(
       this.sim.smoke,
@@ -2896,15 +2961,13 @@ export class ThreeRenderer implements Renderer {
       this.trailMesh.update(this.buildTrailInput());
       this.trailMeshDirty = false;
     }
-    // No dirty gate, matching smokeMesh's own "runs every frame()" above --
-    // the sweep is a flat, bounded (TRACK_POOL_CAPACITY) scan, cheap enough
-    // to just always run; see sweepExpiredTrackSlots's own doc comment.
-    // trackClockMs is this backend's own accumulated dtMs total, never a
-    // direct clock read -- see the field's own doc comment.
-    this.trackClockMs += dtMs;
-    this.vehicleTrackMesh.update(this.trackClockMs);
-    // No dirty gate, same "cheap enough to just always run" reasoning as
-    // vehicleTrackMesh's own sweep just above -- one uniform write.
+    // The decals' age is SIM time (R-14), never `dtMs`: the tick the sim has
+    // reached and the fraction of the way to it this frame presents. A
+    // repaint at zero elapsed time -- the visual gate's second photograph --
+    // and a stalled tab's 5-second frame alike leave every fade where it
+    // was; only a tick moves it. `alpha` is the held one under a hit-stop.
+    this.decalMaterial.uniforms.uNowSec.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    // No dirty gate -- one uniform write.
     this.windClockMs += dtMs;
     this.groveMat.uniforms.uTime.value = this.windClockMs / 1000;
     this.updateSilhouetteOutlineWidth();
@@ -3073,12 +3136,13 @@ export class ThreeRenderer implements Renderer {
           return this.fogPass === null || was === reveal ? 0 : 1;
         }
       case 'scorch':
-        // An ordinary `visible` flag, `skirt`'s shape: the mesh is added once
-        // in the constructor and nothing per-frame writes its visibility --
-        // a mark is written once at `stamp()` and never touched again
-        // (`scorch-decals.ts`'s own "No TTL"), so there is no `step()` to
-        // undo this the way `flashLights.step` would undo the layer below.
-        return setObjectsVisible(visible, this.scorchDecals.mesh);
+        // INTERIM (Task 12 -> Task 13 renames it): the scorch now lives in
+        // the persistent decal pool beside crater/oil/rubble, so this hides
+        // that pool's one mesh. An ordinary `visible` flag, `skirt`'s shape:
+        // the mesh is added once in the constructor and nothing per-frame
+        // writes its visibility, so there is no `step()` to undo this the
+        // way `flashLights.step` would undo the layer below.
+        return setObjectsVisible(visible, this.decalsPersistent.mesh);
       case 'blast-light':
         // The second layer that CANNOT be a plain write, `units`' shape and
         // for the identical reason: `flashLights.step` rewrites every pooled
@@ -3491,17 +3555,36 @@ export class ThreeRenderer implements Renderer {
               this.vehicleTrackAccumTiles[i] = r.accumTiles;
               if (r.stamps > 0) {
                 const facingNorm = fx.toNumber(st.facing[i]);
+                const decalKind = kind === 'tracked' ? 'tread' : 'tyre';
+                const footprint = TRACK_FOOTPRINT[kind];
+                const simMs = stampSimMs(this.sim.tickCount);
+                // F-11: the accumulator crossed each 0.5 BEHIND where the
+                // vehicle now is -- by the leftover `accumTiles` for the last
+                // stamp, and a further spacing for each earlier one -- so each
+                // stamp is placed back along this tick's motion by exactly
+                // that much. Stamping at the current position instead makes
+                // consecutive spacings 0.5 plus-or-minus a tick's travel,
+                // and R-15's feather overlap (sized for exactly 0.5) doubles
+                // or gaps at every seam.
+                const dist = Math.hypot(dx, dy);
+                const ux = dx / dist;
+                const uy = dy / dist;
                 for (let s = 0; s < r.stamps; s++) {
-                  this.vehicleTrackMesh.stamp(
-                    this.curX[i],
-                    this.curY[i],
-                    facingNorm,
-                    kind,
-                    this.retained.elevation,
-                    this.sim.width,
-                    this.sim.height,
-                    this.trackClockMs
-                  );
+                  const back = r.accumTiles + (r.stamps - 1 - s) * STAMP_SPACING_TILES;
+                  const ox = this.curX[i] - ux * back;
+                  const oy = this.curY[i] - uy * back;
+                  for (const c of trackStampCenters(ox, oy, facingNorm, kind)) {
+                    this.stampGroundDecal({
+                      kind: decalKind,
+                      x: c.x,
+                      z: c.y,
+                      halfLength: TRACK_STAMP_HALF_LENGTH,
+                      halfWidth: footprint.halfWidthTiles,
+                      facingRad: facingNorm * Math.PI * 2,
+                      seed: decalSeed(decalKind, c.x, c.y),
+                      simMs,
+                    });
+                  }
                 }
               }
             }
@@ -3744,7 +3827,11 @@ export class ThreeRenderer implements Renderer {
           }
           this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
           this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(blast, killPower));
-          this.scorchDecals.stamp(dx, dy, worldY, killPower);
+          // The ground remembers the kill (spec 3.3): a scorch sized by the
+          // blast, and the hull's oil at a fixed size, through the one entry.
+          const scorchR = scorchRadiusTiles(killPower);
+          this.stampGroundDecal(this.persistentStamp('scorch', dx, dy, scorchR));
+          this.stampGroundDecal(this.persistentStamp('oil', dx, dy, OIL_RADIUS_TILES));
           this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
         }
       } else if (e.kind === 'structureHit') {
@@ -3824,6 +3911,23 @@ export class ThreeRenderer implements Renderer {
         // `tunnel_collapse.json` reach that method with no structure at all,
         // so neither can reach this line and neither is touched.
         this.beginCollapseShroud(deadStruct, bx, by);
+        // Rubble over the footprint (R-12). F-10: the surface is refreshed
+        // HERE, not left to the next frame's `rebuildTerrain` -- the sim has
+        // already cleared the pad's `blocked` tiles, but until the surface
+        // is rebuilt from that mask the pad still reads as a terrace, and
+        // R-19 would refuse the one kind aimed at a pad on every relief map
+        // (or, had it stamped, would lay it at the pad's old height, which
+        // the rebuild then turns into hillside). The rebuild's own refresh
+        // repeats this pass; it is one walk over the map.
+        this.refreshSurface();
+        {
+          const st = this.sim.structures;
+          const minX = st.minX[deadStruct];
+          const minY = st.minY[deadStruct];
+          const maxX = st.maxX[deadStruct];
+          const maxY = st.maxY[deadStruct];
+          this.stampGroundDecal(this.persistentStamp('rubble', bx, by, rubbleRadiusTiles(minX, minY, maxX, maxY)));
+        }
         if (!this.spawnCollapseFx('structure_collapse', bx, by, collapsePower, collapseYawTurns)) {
           for (let k = 0; k < 14; k++) {
             const a = tileHash(k * 7 + deadStruct, k * 13 + deadStruct);
@@ -7061,7 +7165,42 @@ export class ThreeRenderer implements Renderer {
     }
     this.shakeState = pushShake(this.shakeState, blastShake(em, power), s.tx, s.ty);
     this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
-    this.scorchDecals.stamp(s.tx, s.ty, worldY, power);
+    // The crater first, then the scorch over it: both persistent, both at
+    // the ROUND's own power (R-13's `0.15 + power` for the crater).
+    this.stampGroundDecal(this.persistentStamp('crater', s.tx, s.ty, craterRadiusTiles(power)));
+    this.stampGroundDecal(this.persistentStamp('scorch', s.tx, s.ty, scorchRadiusTiles(power)));
+  }
+
+  /**
+   * The ONE entry every ground decal goes through (spec 3.3). Refuses a
+   * stamp whose centre tile is a terrace (R-19) -- a pad or a `^` wall is
+   * vertical, and a mark centred on one would hang in the air or wrap a
+   * wall -- and returns whether it stamped. Routes tread/tyre to the fading
+   * pool and every other kind to the persistent one. Heights come from the
+   * drawn surface (`retained.elevation`) through `groundWorldY`, the same
+   * function every unit and particle here stands on.
+   */
+  private stampGroundDecal(s: DecalStamp): boolean {
+    if (this.decalIsTerrace(s.x, s.z)) return false;
+    const pool = isFadingKind(s.kind) ? this.decalsFading : this.decalsPersistent;
+    pool.stamp(s, this.decalSampleY, this.decalIsTerrace);
+    return true;
+  }
+
+  /** A round persistent mark of radius `r` tiles at `(x, z)`, dated this
+   *  tick. Facing 0: every persistent kind is radially symmetric but for
+   *  its seeded wobble, which the seed already turns. */
+  private persistentStamp(kind: DecalKind, x: number, z: number, r: number): DecalStamp {
+    return {
+      kind,
+      x,
+      z,
+      halfLength: r,
+      halfWidth: r,
+      facingRad: 0,
+      seed: decalSeed(kind, x, z),
+      simMs: stampSimMs(this.sim.tickCount),
+    };
   }
 
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
