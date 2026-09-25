@@ -260,11 +260,12 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
-  // No sprite-rig script of its own (`tools/render_jeep.py` renders
-  // JEEP_HULL from a DIFFERENT, licence-unverified `art/src/jeep_shoded.blend`
-  // and defines NO `ROLE_PALETTE` at all -- the project lead's own repaint
+  // No ROLE_PALETTE of its own anywhere: JEEP_HULL is rendered from this same
+  // GLB by `tools/render_vehicle_glb.py` in one flat olive (since 2026-09-25;
+  // the downloaded model it was first rendered from is retired, see
+  // docs/ASSET_PROVENANCE.md) -- the project lead's own repaint
   // instruction, "olive drab", is this table's source rather than a
-  // ROLE_PALETTE this vehicle never had). Same judgement call as `mbt_lavi`/
+  // ROLE_PALETTE this vehicle never had. Same judgement call as `mbt_lavi`/
   // `ifv_namer` above and the same values, for the same reason: native KDF
   // armour (`jeep_shoded` is on the KDF roster, `data/units/kdf/
   // jeep_shoded.json`), `apc_eitan` the only real KDF vehicle table in the

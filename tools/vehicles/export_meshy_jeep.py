@@ -645,8 +645,9 @@ def export():
             "Shoded Jeep -- AI-generated (Meshy), image-to-3d-texture export, disclosed per "
             "CONTRIBUTING.md; one welded mesh, cut into hull_hull/hull_rubber/hull_metal/"
             "hull_plate for this repository along Meshy's own part-segmentation seams plus "
-            "the measured wheel cut (see this file's own docstring). Replaces a "
-            "jeep_shoded.blend sourced with LICENCE UNVERIFIED (see tools/render_jeep.py). "
+            "the measured wheel cut (see this file's own docstring). Replaces the "
+            "downloaded jeep model the JEEP_HULL sprites were first rendered from, retired "
+            "2026-09-25 (docs/ASSET_PROVENANCE.md). "
             "Ships the source's own base_color bake (project lead direction, 2026-09-07)."
         )
     )
