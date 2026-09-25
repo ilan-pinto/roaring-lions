@@ -3146,14 +3146,17 @@ export class ThreeRenderer implements Renderer {
           if (this.fogPass) this.fogPass.uniforms.uRevealAll.value = reveal ? 1 : 0;
           return this.fogPass === null || was === reveal ? 0 : 1;
         }
-      case 'scorch':
-        // INTERIM (Task 12 -> Task 13 renames it): the scorch now lives in
-        // the persistent decal pool beside crater/oil/rubble, so this hides
-        // that pool's one mesh. An ordinary `visible` flag, `skirt`'s shape:
-        // the mesh is added once in the constructor and nothing per-frame
-        // writes its visibility, so there is no `step()` to undo this the
-        // way `flashLights.step` would undo the layer below.
-        return setObjectsVisible(visible, this.decalsPersistent.mesh);
+      case 'decals':
+        // Both decal pools under one name (D5, R-17 -- it replaced `scorch`
+        // when the scorch folded into the persistent pool beside crater, oil
+        // and rubble, and the tracks into the fading one). An ordinary
+        // `visible` flag on each pool's one mesh, `skirt`'s shape: both
+        // meshes are added once in the constructor and nothing per-frame
+        // writes their visibility -- the fading pool ages a mark by alpha,
+        // not by `visible` -- so there is no `step()` to undo this the way
+        // `flashLights.step` would undo the layer below. Returns 2, and a
+        // count of 1 means a pool dropped out of the layer.
+        return setObjectsVisible(visible, this.decalsPersistent.mesh, this.decalsFading.mesh);
       case 'blast-light':
         // The second layer that CANNOT be a plain write, `units`' shape and
         // for the identical reason: `flashLights.step` rewrites every pooled

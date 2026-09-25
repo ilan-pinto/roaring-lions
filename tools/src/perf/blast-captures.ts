@@ -237,7 +237,7 @@ export const SHORT_LADDER_MS: readonly number[] = [0, 200, 400, 600, 1000, 2000,
  * held frame with no jolt in it and read as broken. It runs to 1000 ms because
  * the authored `duration_ms` is 420 and the whole claim is that the jolt
  * happens AFTER the hold and is over well inside a second. The last rung is
- * 2000 and is not about the jolt at all: `scorch`'s own toggle rung is there
+ * 2000 and is not about the jolt at all: `decals`' own toggle rung is there
  * (`LayerFloor.toggleAtMs`), because a mark photographed while a fireball sits
  * on it is not a measurement of the mark.
  */
@@ -272,7 +272,7 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     x: 18,
     y: 3,
     why:
-      "wheeled, and a different wreck recipe from the Lavi's. The WEAKEST `scorch` witness in " +
+      "wheeled, and a different wreck recipe from the Lavi's. The WEAKEST `decals` witness in " +
       'the set and deliberately still a voting one: hp 1600 gives power 0.533 and ' +
       '`scorchRadiusTiles` its square root, so the mark is 1.17 tiles of radius against the ' +
       "Lavi's 1.6, and its own wreck covers most of that -- which is what sets that layer's floor",
@@ -373,7 +373,7 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       "Task 7 removed the vehicle-kill branch's outer mesh-readiness guard, so a blast fires on " +
       'the billboard path now -- light, shake, hit-stop and scorch, and NO shroud, because a ' +
       'shroud is sized from measured mesh bounds there are none of here. Also the STRONGEST ' +
-      '`scorch` witness in the set, and the subject that proved the pixel count is the wrong ' +
+      '`decals` witness in the set, and the subject that proved the pixel count is the wrong ' +
       'metric for this layer: nothing covers the mark here (the fireball and the plume are both ' +
       'GLBs `&nomesh` never fetches), hiding it moves 65293 pixels by up to 30/255, and ' +
       "pixelmatch at its 0.1 perceptual threshold counts **0** of them. That is the gate's own " +
@@ -456,7 +456,7 @@ export interface LayerFloor {
    * A blast light lives 500 ms, so it has to be photographed early. A scorch
    * mark is permanent and, for the first second or so, almost entirely COVERED
    * by the fireball and the collapse shroud sitting on top of it -- at 200 ms
-   * the `scorch` toggle reads 0 px / 0.3423 on `mbt_lavi` and 37-89 px / 0.23
+   * the `decals` toggle (then `scorch`) reads 0 px / 0.3423 on `mbt_lavi` and 37-89 px / 0.23
    * on `mortar_team`, against 42119 px / 11.18 for `blast-light` on the same
    * frame. (It read 12326 px there before the radial fade landed, and the
    * difference is the square's CORNERS: they reached 1.414x the radius, well
@@ -493,7 +493,7 @@ export interface LayerFloor {
  * baseline moves a toggle delta by almost nothing.
  */
 export const LAYER_FLOORS = {
-  scorch: {
+  decals: {
     // ZERO, and it is a decision with a precedent rather than a gap.
     // `baseline.ts`'s own `relief`/`ground-albedo` check does the same and
     // gives the reason: "a third of EIGHT pixels is not a floor". Measured
@@ -527,7 +527,22 @@ export const LAYER_FLOORS = {
       'against the weakest one measured three times. (Before the radial fade landed the same ' +
       '200 ms rung read 12326 px on `mbt_lavi`. That was the SQUARE\'s corners, which reached ' +
       '1.414x the radius and stuck out well past the shroud. A rounder mark is a worse witness ' +
-      'at 200 ms and a better mark.)',
+      'at 200 ms and a better mark.) ' +
+      '**Re-recorded 2026-09-25 under the name `decals` (D5, R-17), floors unchanged.** The layer ' +
+      'is both decal pools now -- crater, scorch, oil and rubble in the persistent one, tread and ' +
+      'tyre in the fading one -- so it should read at or above the scorch-only figures, and it ' +
+      'does. 3 runs on darwin-arm64, same crop, zoom and 2000 ms rung, `--toggles-only`, taken ' +
+      'with `--settle-ms=6000` (see that flag: at the 2500 ms default the comparison group ' +
+      'latched a 511-782 ms boot frame and was skipped on four attempts, so the three subjects ' +
+      'that set this floor went unmeasured). Latched jumps 96.60 / 95.80 / 107.30 ms on that ' +
+      'group. `mbt_lavi` 0 px / 0.6270, 0.6270, 0.6270 (scorch-only 0.5818); `apc_eitan` 0 / ' +
+      '0.2588, 0.2363, 0.2363 (0.2092-0.2273); `mortar_team` 7507 / 1.7808 on all three (7251 / ' +
+      '1.4411); `scorch_qarn_shoulder` 0 / 0.5057, 0.5647, 0.5619 (0.2020, one run); ' +
+      '`scorch_tel_ridge` 0 / 0.4624, 0.4272, 0.4272; `blast_in_firefight` 0 / 0.5186 on all ' +
+      'three; `shake_probe` 7507 / 1.7808 on all three; `blast_nomesh` 4021 / 2.9134 on all ' +
+      'three. The smallest is `apc_eitan`\'s 0.2363, a third of which is 0.0788: the 0.07 floor ' +
+      'still sits under a third of the weakest witness, and `measured` above is left as the ' +
+      'scorch-only signal the floor was derived from.',
   },
   'blast-light': {
     minDiffPixels: 1750,
@@ -535,9 +550,9 @@ export const LAYER_FLOORS = {
     measured: { minDiffPixels: 5169, minMeanAbsChannelDelta: 5.2263, runs: 3 },
     toggleAtMs: 200,
     rationale:
-      'Calibrated 2026-09-20 over the same 3 runs and conditions as `scorch` above, at the ' +
+      'Calibrated 2026-09-20 over the same 3 runs and conditions as `decals` (then `scorch`) above, at the ' +
       '200 ms rung -- inside the emitter\'s own `decay_ms` (500 for a kill, 380 for an impact), ' +
-      'which is why this layer cannot share the scorch\'s rung. `mbt_lavi` 42119 px / 11.1762 ' +
+      'which is why this layer cannot share the decals\' rung. `mbt_lavi` 42119 px / 11.1762 ' +
       '(bit-identical on all three), `apc_eitan` 5169 / 6.0333, 5169 / 6.0333, 11540 / 6.6842, ' +
       '`mortar_team` 14174 / 5.3246, 14138 / 5.2582, 13816 / 5.2263. The floor is a third of ' +
       'the smallest of each column, which is `apc_eitan` on pixels and `mortar_team` on ' +
@@ -554,7 +569,7 @@ export const LAYER_FLOORS = {
  * sheet -- factored out so the phrasing can be asserted directly rather than
  * read back out of a whole rendered document.
  *
- * `minDiffPixels === 0` is a stated DECISION (see `LAYER_FLOORS.scorch`'s own
+ * `minDiffPixels === 0` is a stated DECISION (see `LAYER_FLOORS.decals`' own
  * comment), not an unset floor, so printing the bare `0 px` beside it reads as
  * a check that gates on nothing at all -- three lines under a banner that
  * says "a zero is a FAILURE here". This spells out which column actually
@@ -867,7 +882,7 @@ async function main(): Promise<void> {
   //
   // It measures the same thing the full run does, and the agreement was
   // MEASURED rather than argued: `mortar_team` reads 7287 px / 1.1295 for
-  // `scorch` and 14308 / 5.4267 for `blast-light` on a full run against 7329 /
+  // `scorch` (now `decals`) and 14308 / 5.4267 for `blast-light` on a full run against 7329 /
   // 1.1312 and 14315 / 5.4340 here -- 0.6% and 0.05%. `mbt_lavi`'s `scorch`
   // spreads wider (12326 / 2.6119 full, 11964 / 2.4749 here, 3% and 5%), and
   // that is NOT the mode: it is `lastFrameMs`, which differs run to run (97.80
@@ -876,6 +891,19 @@ async function main(): Promise<void> {
   // frame lands slightly differently. Hence three runs and a floor at a third
   // of the smallest, rather than one run and a tight band.
   const togglesOnly = has('toggles-only');
+  // The settle, overridable and defaulting to `SETTLE_MS` unchanged. Added
+  // 2026-09-25 (ground plan 1, Task 13) because the default stopped
+  // satisfying its own documented purpose on `beit_sahwan_outskirts`: a rAF
+  // probe of that sandbox at the settle viewport read frames of 942, 541, 517
+  // and 783 ms from 1.4 s to 3.5 s after `__lions` appears -- main-thread
+  // boot work with no new shader program behind it (`info.programs` held at
+  // 37) -- and ~92-100 ms steadily after. Freezing at 2.5 s latches one of
+  // those, the jump guard below rightly skips the group, and the three
+  // subjects that set both floors are never measured. A flag rather than a
+  // new default so the value a sheet was taken under is a stated condition
+  // (it is printed there) and the calibrated default is not moved silently.
+  const settleMs = Number(arg('settle-ms', String(SETTLE_MS)));
+  if (!Number.isFinite(settleMs) || settleMs < 0) throw new Error(`--settle-ms must be a non-negative number`);
   fs.mkdirSync(out, { recursive: true });
 
   const cells: SheetCell[] = [];
@@ -943,7 +971,7 @@ async function main(): Promise<void> {
       // `capture()`'s own reason for freezing first is a repeatable absolute
       // tick for a stored baseline. This harness pins no tick and stores no
       // baseline, so it pays none of that.
-      await page.waitForTimeout(SETTLE_MS);
+      await page.waitForTimeout(settleMs);
       await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
       await page.setViewportSize({ ...VIEWPORT });
       // The renderer follows the host through a `ResizeObserver`
@@ -1115,6 +1143,7 @@ async function main(): Promise<void> {
       stepJumpMs: firstStepJumpMs,
       port,
       togglesOnly,
+      settleMs,
     });
   } finally {
     await browser.close();
@@ -1690,7 +1719,7 @@ function writeIndex(
   notes: readonly string[],
   layers: readonly LayerReading[],
   probes: Readonly<Record<string, readonly ProbeSample[]>>,
-  conditions: { gl: string; stepJumpMs: number; port: number; togglesOnly: boolean }
+  conditions: { gl: string; stepJumpMs: number; port: number; togglesOnly: boolean; settleMs: number }
 ): void {
   const machine = `${process.platform}-${process.arch}, node ${process.version}`;
   const condLines = [
@@ -1709,6 +1738,8 @@ function writeIndex(
     `  (${CLOSE_CROP.width}x${CLOSE_CROP.height} crop, lifted ${CLOSE_CROP_LIFT_PX} px)`,
     `- frame loop: frozen (FREEZE_FRAME_LOOP_SCRIPT); every ladder frame pumped by hand at ${FRAME_MS} ms`,
     `- \`step(1)\` frame jump: ${conditions.stepJumpMs.toFixed(2)} ms, measured at boot (see the module header)`,
+    `- settle before the freeze: ${conditions.settleMs} ms at ${SETTLE_VIEWPORT.width}x${SETTLE_VIEWPORT.height}` +
+      (conditions.settleMs === SETTLE_MS ? ' (the default)' : ` (\`--settle-ms\`; the default is ${SETTLE_MS})`),
     `- mode: ${conditions.togglesOnly ? '`--toggles-only` (calibration: no ladder photographed)' : 'full ladder'}`,
   ];
   const layerLines = [
@@ -1784,6 +1815,7 @@ function writeIndex(
           frameMs: FRAME_MS,
           stepJumpMs: conditions.stepJumpMs,
           togglesOnly: conditions.togglesOnly,
+          settleMs: conditions.settleMs,
           sampleMs: SAMPLE_MS,
         },
         subjects: BLAST_SUBJECTS,

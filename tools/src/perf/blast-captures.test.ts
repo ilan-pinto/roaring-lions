@@ -139,14 +139,14 @@ describe('the toggle A/B votes now (R-M)', () => {
   // that resolves to no objects produces a zero delta, and a check that
   // passed on zero would read a deleted layer as a healthy one.
   it('fails a zero delta rather than passing it', () => {
-    expect(layerVerdict('scorch', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
+    expect(layerVerdict('decals', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
     expect(layerVerdict('blast-light', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
   });
 
   it('passes a delta comfortably over the measured floor', () => {
-    const floor = LAYER_FLOORS.scorch;
+    const floor = LAYER_FLOORS.decals;
     expect(
-      layerVerdict('scorch', {
+      layerVerdict('decals', {
         diffPixels: floor.minDiffPixels * 3,
         meanAbsChannelDelta: floor.minMeanAbsChannelDelta * 3,
       }).ok
@@ -154,7 +154,7 @@ describe('the toggle A/B votes now (R-M)', () => {
   });
 
   it('fails on EITHER metric, not only their conjunction', () => {
-    // On `blast-light`, whose two floors are both positive. `scorch` cannot
+    // On `blast-light`, whose two floors are both positive. `decals` cannot
     // express this case at all -- its pixel floor is 0 on purpose (see the
     // next spec), so a reading with 0 pixels clears that half by definition.
     const f = LAYER_FLOORS['blast-light'];
@@ -178,7 +178,7 @@ describe('the toggle A/B votes now (R-M)', () => {
       expect(f.minMeanAbsChannelDelta, `${layer}: magnitude floor carries the whole check`).toBeGreaterThan(0);
     }
     // And a zero reading still fails, which is the whole point.
-    expect(layerVerdict('scorch', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
+    expect(layerVerdict('decals', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
   });
 
   it('records a sample size beside every floor, because a range with no n is an anecdote', () => {
@@ -234,16 +234,16 @@ describe('the toggle A/B votes now (R-M)', () => {
   });
 
   it('names the tone column rather than printing a bare "0 px" for a zero-pixel floor', () => {
-    // `LAYER_FLOORS.scorch.minDiffPixels` is 0 by decision (see its own
+    // `LAYER_FLOORS.decals.minDiffPixels` is 0 by decision (see its own
     // comment), and the sheet's banner three lines above this listing says
     // "a zero is a FAILURE here" -- a bare `0 px` beside a floor that is
     // *supposed* to be zero reads as the opposite of what the banner claims.
     // The "a third of 0 px" clause further along the SAME line is a report of
     // the historical MEASUREMENT, not the floor, so it is deliberately left
     // alone -- only the floor's own leading number is replaced.
-    expect(LAYER_FLOORS.scorch.minDiffPixels).toBe(0);
-    const line = floorLine('scorch', LAYER_FLOORS.scorch);
-    expect(line).not.toContain('scorch`: 0 px');
+    expect(LAYER_FLOORS.decals.minDiffPixels).toBe(0);
+    const line = floorLine('decals', LAYER_FLOORS.decals);
+    expect(line).not.toContain('decals`: 0 px');
     expect(line).toContain('pixel count does not gate this layer -- the tone column votes');
   });
 
@@ -271,8 +271,8 @@ describe('abstaining from a layer is a named, self-cleaning exemption', () => {
   });
 
   it('defaults to voting on every layer', () => {
-    expect(subjectVotesOn({}, 'scorch')).toBe(true);
-    expect(subjectVotesOn({ abstains: ['blast-light'] }, 'scorch')).toBe(true);
+    expect(subjectVotesOn({}, 'decals')).toBe(true);
+    expect(subjectVotesOn({ abstains: ['blast-light'] }, 'decals')).toBe(true);
     expect(subjectVotesOn({ abstains: ['blast-light'] }, 'blast-light')).toBe(false);
   });
 
@@ -321,7 +321,7 @@ describe('each layer is photographed where it is a witness (fix round 1)', () =>
   it('photographs the scorch after the fireball that covers it', () => {
     // EXPLOSION_BURST_DEFAULT_DURATION_MS is 450 and the collapse shroud holds
     // full density to 840 ms.
-    expect(LAYER_FLOORS.scorch.toggleAtMs).toBeGreaterThan(840);
+    expect(LAYER_FLOORS.decals.toggleAtMs).toBeGreaterThan(840);
   });
 
   it('gives every ladder a rung for every layer', () => {

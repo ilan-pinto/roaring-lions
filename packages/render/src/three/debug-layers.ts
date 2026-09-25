@@ -174,13 +174,25 @@
  * the two rules above -- which is the whole reason they are described
  * together rather than as one name:
  *
- * - `scorch`      the persistent scorch decal mesh (`../scorch-decals.ts`),
- *                 a plain `visible` on the one `THREE.Mesh` the whole pool
- *                 draws through. It follows the `overlays`/`skirt` rule:
- *                 checked directly, nothing in `frame()` ever writes
- *                 `scorchDecals.mesh.visible` -- a mark is written once at
- *                 `stamp()` and never touched again (that class's own "No
- *                 TTL" comment), so there is no per-frame path to undo it.
+ * - `decals`      both decal pools (`../decal-pool.ts`) -- TWO meshes,
+ *                 `ThreeRenderer.decalsPersistent.mesh` (crater, scorch,
+ *                 oil, rubble: what the battle leaves for the mission) and
+ *                 `ThreeRenderer.decalsFading.mesh` (tread and tyre prints,
+ *                 which age out) -- each hidden by a plain `visible` flag on
+ *                 the one `THREE.Mesh` that pool draws through. It follows
+ *                 the `overlays`/`skirt` rule, and that is checked by grep
+ *                 rather than assumed: nothing in `ThreeRenderer.ts`,
+ *                 `decal-pool.ts` or `vehicle-tracks.ts` writes either
+ *                 mesh's `.visible` outside this layer's own switch arm --
+ *                 a mark is written once at `stamp()`, and the fading pool
+ *                 ages a mark through its alpha, never through visibility --
+ *                 so there is no per-frame path to undo the toggle. This
+ *                 name REPLACED `scorch` (D5, R-17) when the scorch mesh
+ *                 folded into the persistent pool beside crater, oil and
+ *                 rubble, and the track mesh into the fading one; `scorch`
+ *                 was removed rather than aliased, so a harness still
+ *                 asking for it throws instead of silently measuring a
+ *                 layer that now carries four more kinds of mark.
  * - `blast-light` the eight pooled `THREE.PointLight`s
  *                 (`../flash-light.ts`), driven to intensity 0. It follows
  *                 the `units` rule, and it MUST: `FlashLightManager.step`
@@ -238,7 +250,7 @@ export const DEBUG_LAYERS = [
   'skirt',
   'overlays',
   'fog',
-  'scorch',
+  'decals',
   'blast-light',
 ] as const;
 
