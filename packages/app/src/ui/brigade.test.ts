@@ -467,23 +467,21 @@ describe('showBrigade — the board', () => {
     expect(rungs[1].querySelector('.rl-garage__rung-owned')?.textContent).toBe('Owned');
   });
 
-  it('prints every rung’s benefit lines verbatim from formatBenefit', async () => {
+  it('prints the next rung’s lines verbatim from formatBenefit, and the rest one hover away', async () => {
     const { formatBenefit, upgradeBenefits } = await import('./upgrade-benefit');
     const host = mount({ units, ledger: {}, possibleStars: 78 });
     const armour = host.querySelector('.rl-garage__track[data-track="armour"]');
     const lines = (tier: string): string[] =>
-      [...(armour?.querySelectorAll(`.rl-garage__rung[data-tier="${tier}"] .rl-garage__benefit`) ?? [])].map(
-        (l) => l.textContent ?? ''
-      );
-    // Cumulative patches: tier 2 reads 440 -> 480, not 400 -> 480.
-    expect(lines('1')).toEqual(['Hit points 400 → 440']);
-    expect(lines('2')).toEqual(['Hit points 440 → 480']);
-    // And the strings on screen are the module's own, not a second spelling.
+      [...(armour?.querySelectorAll(`.rl-garage__rung[data-tier="${tier}"] .rl-garage__benefit`) ?? [])].map((l) => l.textContent ?? '');
+    expect(lines('1')).toEqual(['Hit points 400 → 440']); // nothing owned: tier 1 is next
+    expect(lines('2')).toEqual([]);
     const unitJson = { ...BASE.inf_squad, upgrades: units[0].upgrades } as never;
-    expect(lines('2')).toEqual(upgradeBenefits(unitJson, 'armour', 2).map(formatBenefit));
-    expect([...host.querySelectorAll('.rl-garage__track[data-track="sensors"] .rl-garage__benefit')].map(
-      (l) => l.textContent
-    )).toEqual(['Sight 8 → 9 tiles']);
+    expect(armour?.querySelector('.rl-garage__rung[data-tier="2"]')?.getAttribute('title')).toBe(
+      upgradeBenefits(unitJson, 'armour', 2).map(formatBenefit).join('\n')
+    );
+    expect([...host.querySelectorAll('.rl-garage__track[data-track="sensors"] .rl-garage__benefit')].map((l) => l.textContent)).toEqual([
+      'Sight 8 → 9 tiles',
+    ]);
   });
 
   it('previews a rung in the stat panel on hover, and puts it back on leave', () => {

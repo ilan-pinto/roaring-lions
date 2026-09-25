@@ -33,11 +33,12 @@
 //     leaves the screen exactly as the click left it.
 //   * The two-click reset, and the rule that a Buy control renders only when
 //     the caller supplied BOTH a balance and a callback.
-import { applyUpgrades, maxTiers, nextTierPrice, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
+import { applyUpgrades, maxTiers, readPath, type UpgradableUnit, type UpgradeTracks } from '@lions/data';
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { gateSentence, gateShort } from '../gate-sentence';
-import { PANEL_PATHS, previewDeltas, statPanel, type StatPanel } from './garage-stats';
+import { trackEl, type TrackDeps } from './garage-board';
+import { PANEL_PATHS, statPanel, type StatPanel } from './garage-stats';
 import { t } from '../i18n/t';
 import type { CampaignLedger } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
@@ -49,7 +50,6 @@ import { flash } from './motion';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
-import { formatBenefit, upgradeBenefits } from './upgrade-benefit';
 
 export interface BrigadeUnit {
   id: string;
@@ -643,114 +643,36 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
     // --- the tracks ---
     // A locked unit is not in the brigade yet, so there is nothing on it to
-    // upgrade: no board rungs at all, exactly as before.
+    // upgrade: no board rungs at all, exactly as before. Task 7 moved the
+    // track's own DOM into `garage-board.ts`'s `trackEl`; this loop's only
+    // job now is to hand it the one unit's numbers and the purchase/preview
+    // callbacks -- the Task 3 answer path, unchanged.
     if (!row.locked && u.upgrades) {
       for (const [trackName, track] of Object.entries(u.upgrades)) {
         const owned = tiers[trackName] ?? 0;
-        // Display only: `trackName` itself stays the raw JSON key everywhere
-        // it is used as a lookup or passed to a callback (nextTierPrice,
-        // onBuyUpgrade) -- only the text a player reads is translated.
-        //
-        // Found by the I5 pseudo pass (final review): this heading was the
-        // raw key with underscores turned to spaces, so the garage's three
-        // track titles read "ARMOUR" / "FIREPOWER" / "SENSORS" in every
-        // locale and came back UNBRACKETED under `?pseudo=1` -- a chrome
-        // string that never went through `t()`, on the phase's newest and most
-        // text-dense screen. `validate_i18n.mjs` cannot see it: the value
-        // reaches the sink through a variable, which is blind spot #2 its own
-        // header names.
-        //
-        // The humanised key remains the fallback rather than printing the raw
-        // key, because a track a content author adds tomorrow should read as
-        // an English word on the day it ships and not as `t()`'s
-        // key-as-its-own-text. `trackLabel` therefore degrades exactly as it
-        // used to.
-        const trackKey = `garage.track.${trackName}`;
-        const humanised = trackName.replace(/_/g, ' ');
-        const translated = t(trackKey);
-        const trackLabel = translated === trackKey ? humanised : translated;
-        const trackEl = el('div', 'rl-garage__track');
-        trackEl.dataset.track = trackName;
-        // Focusable by script only, so focus has somewhere to land when a
-        // purchase maxes this track and its Buy is gone (R-4).
-        trackEl.dataset.focusKey = `track:${trackName}`;
-        trackEl.tabIndex = -1;
-        trackEl.appendChild(el('h3', 'rl-garage__track-name', trackLabel));
-
-        const ladder = el('div', 'rl-garage__rungs');
-        // Tier 1 at the BOTTOM: a ladder is climbed, and the rung a player is
-        // about to buy should sit next to the one they already own rather
-        // than at the far end of the list from it.
-        for (let tier = track.tiers.length; tier >= 1; tier--) {
-          const rung = el('div', 'rl-garage__rung');
-          rung.dataset.tier = String(tier);
-          rung.dataset.owned = tier <= owned ? '1' : '0';
-          rung.tabIndex = 0;
-
-          const rungHead = el('div', 'rl-garage__rung-head');
-          rungHead.appendChild(el('span', 'rl-garage__rung-tier', t('garage.rung.tier', { tier })));
-          rungHead.appendChild(el('span', 'rl-garage__rung-price', String(track.tiers[tier - 1].price)));
-          if (tier <= owned) rungHead.appendChild(el('span', 'rl-garage__rung-owned', t('garage.rung.owned')));
-          rung.appendChild(rungHead);
-
-          const lines = upgradeBenefits(upgradable, trackName, tier);
-          const benefits = el('div', 'rl-garage__benefits');
-          for (const line of lines) {
-            benefits.appendChild(el('div', 'rl-garage__benefit', formatBenefit(line)));
-          }
-          rung.appendChild(benefits);
-
-          // The garage's one trick a list cannot do: the panel above shows
-          // what this rung would make of the unit, before the money is spent.
-          // Guarded at this call site too (belt and suspenders over
-          // `previewDeltas`'s own `tier <= owned` check): an owned rung must
-          // never preview as a re-buy (F5).
-          const on = (): void => panel?.preview(tier <= owned ? null : previewDeltas(upgradable, trackName, owned, tier));
-          const off = (): void => panel?.preview(null);
-          rung.addEventListener('mouseenter', on);
-          rung.addEventListener('mouseleave', off);
-          rung.addEventListener('focus', on);
-          rung.addEventListener('blur', off);
-
-          // The control (Buy or "maxed") renders only when the caller supplied
-          // both a balance and a purchase callback -- without them, this is a
-          // read-only view of what a track offers and what has been bought.
-          if (state.credits !== undefined && opts.onBuyUpgrade && tier === owned + 1) {
-            const credits = state.credits;
-            const price = nextTierPrice(upgradable, trackName, owned);
-            // `tier === owned + 1 <= track.tiers.length` here, so
-            // `nextTierPrice` returning null would mean it disagrees with
-            // `track` about the track's own length -- a programming error,
-            // not data to fall through silently for.
-            if (price === null) {
-              throw new Error(`showBrigade: ${u.id} has no tier ${tier} on track "${trackName}"`);
-            }
-            const buy = document.createElement('button');
-            buy.type = 'button';
-            buy.className = 'rl-btn rl-garage__buy-tier';
-            buy.textContent = t('garage.rung.buy', { tier, price });
-            buy.setAttribute(
-              'aria-label',
-              t('garage.rung.buy.aria', { name: u.name, track: trackLabel, tier, price })
-            );
-            // Named by its TRACK, not its tier, so the next tier's Buy after a
-            // purchase answers to the same key and `restoreFocus` finds it.
-            buy.dataset.focusKey = `buy:${trackName}`;
-            buy.disabled = credits < price;
-            buy.addEventListener('click', () => {
-              buy.disabled = true; // one purchase per render; the answer redraws
-              spend();
-              answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), `buy:${trackName}`);
-            });
-            rung.appendChild(buy);
-          }
-          ladder.appendChild(rung);
-        }
-        trackEl.appendChild(ladder);
-        if (state.credits !== undefined && opts.onBuyUpgrade && owned >= track.tiers.length) {
-          trackEl.appendChild(el('div', 'rl-garage__track-max', t('garage.track.maxed')));
-        }
-        board.appendChild(trackEl);
+        // The control (Buy or "maxed") renders only when the caller supplied
+        // both a balance and a purchase callback -- without them, this is a
+        // read-only view of what a track offers and what has been bought.
+        const buy: TrackDeps['buy'] =
+          state.credits !== undefined && opts.onBuyUpgrade
+            ? {
+                credits: state.credits,
+                onBuy: (tier, price, asked) => {
+                  spend();
+                  answer(opts.onBuyUpgrade?.(u.id, trackName, tier, price), asked);
+                },
+              }
+            : undefined;
+        board.appendChild(
+          trackEl(trackName, track, {
+            unit: upgradable,
+            unitId: u.id,
+            unitName: u.name,
+            owned,
+            buy,
+            preview: (d) => panel?.preview(d),
+          })
+        );
       }
     }
   }
