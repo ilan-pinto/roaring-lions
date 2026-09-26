@@ -134,7 +134,7 @@
  * it today, and a `layerChecks` entry can still be added later if a scenario
  * ever wants to gate it). HP
  * bars, suppression bars, selection/threat rings, control-group badges and
- * their numerals, the veterancy chevron, order/objective markers -- every
+ * their numerals, the veterancy chevron, the kit mark, order/objective markers -- every
  * unit AND structure overlay this backend draws, because all of it funnels
  * through the same three meshes (`units/overlays.ts`'s `OverlayBatch`,
  * `NumeralBatch`, `ChevronBatch`; one shared name rather than three, since a
@@ -237,6 +237,20 @@
  * outside this one case, so nothing per-frame re-asserts it and a plain
  * uniform write holds across the repaint the way `vignette`'s `enabled`
  * flip does and `units`' plain `visible` write could not.
+ *
+ * `kit-mark`, ADDED FOR THE GARAGE UPLIFT (WP-S3g plan 2, GH-238): the steel
+ * plate and its one to three bars drawn over every own unit whose type has
+ * bought kit (`units/kit-mark.ts`). It follows the `units` rule, not the
+ * `overlays` one, and for a structural reason rather than a per-frame one:
+ * the mark is triangles INSIDE `OverlayBatch`, the same mesh that carries
+ * every HP bar, suppression bar, ring and badge ring, so a `visible` write on
+ * that mesh would hide the whole tier and the toggle would measure all of it
+ * rather than the mark. It is therefore a FLAG
+ * (`ThreeRenderer.kitMarkDebugHidden`) that the overlay pass consults, and
+ * since that pass rebuilds the batch every frame the flag holds across the
+ * gate's repaint by construction. `overlays` above hides the mark too, with
+ * the rest of the tier. The scenario that judges it is `kit` (plan 2,
+ * Task 7), the one gated frame with kitted own units in it.
  */
 export const DEBUG_LAYERS = [
   'scatter',
@@ -252,6 +266,7 @@ export const DEBUG_LAYERS = [
   'fog',
   'decals',
   'blast-light',
+  'kit-mark',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
