@@ -13,6 +13,7 @@
  * `sandboxSpawns` itself stayed in `main.ts`: it needs `Sim`, `fx` and the
  * open-tile spiral, none of which this file should grow a dependency on.
  */
+import type { UpgradableUnit } from '@lions/data';
 
 /** One placement: unit type id, then dx/dy from the anchor. */
 export type SandboxPlacement = readonly [string, number, number];
@@ -138,4 +139,50 @@ export function sandboxUnitTypes(extras: SandboxExtras): Set<string> {
   if (extras.sur) for (const [id] of SANDBOX_SUR) out.add(id);
   if (extras.civ) for (const [id] of SANDBOX_CIV) out.add(id);
   return out;
+}
+
+/** `&kit` (sandbox only, WP-S3g plan 2): a fixed kit level per type the
+ *  sandbox force fields, so one frame shows all three levels on both overlay
+ *  radii -- soft rifles, AT and mortar; hard APC, IFV and MBT (N12). The gate's
+ *  `kit` scenario photographs exactly this. */
+export const SANDBOX_KIT_LEVELS: Readonly<Record<string, 1 | 2 | 3>> = {
+  inf_squad: 1,
+  apc_eitan: 1,
+  jeep_shoded: 1,
+  at_team: 2,
+  ifv_namer: 2,
+  recon_drone: 2,
+  heli_peten: 2,
+  mortar_team: 3,
+  mbt_lavi: 3,
+  dozer_d9: 3,
+};
+
+/** Every track of a laddered type at its level, clamped to the track's length.
+ *  Uniform tiers read back as exactly that level for three-tier tracks, which
+ *  every shipped KDF track is -- the test above holds it to that. */
+export function sandboxKitTiers(roster: readonly UpgradableUnit[]): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const u of roster) {
+    if (!Object.prototype.hasOwnProperty.call(SANDBOX_KIT_LEVELS, u.id)) continue;
+    const level = SANDBOX_KIT_LEVELS[u.id];
+    const tiers: Record<string, number> = {};
+    for (const [name, track] of Object.entries(u.upgrades ?? {})) tiers[name] = Math.min(level, track.tiers.length);
+    out[u.id] = tiers;
+  }
+  return out;
+}
+
+/** The tiers a battlefield boots with -- handed to the ONE `upgradePrepass`
+ *  call, so the sim, the HUD card and the mark always read the same object.
+ *  The account's, except a sandbox under `&kit`, which REPLACES it with the
+ *  ladder (the gate boots a fresh account anyway, and a mixed state would be a
+ *  picture nobody can reproduce). A mission never takes the ladder: a dev flag
+ *  must not change how a real mission plays. */
+export function bootTiers(
+  account: Readonly<Record<string, Readonly<Record<string, number>>>>,
+  boot: { readonly mission: boolean; readonly kitFlag: boolean },
+  roster: readonly UpgradableUnit[]
+): Readonly<Record<string, Readonly<Record<string, number>>>> {
+  return !boot.mission && boot.kitFlag ? sandboxKitTiers(roster) : account;
 }

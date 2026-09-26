@@ -8,12 +8,16 @@
 // on, so a miss is an invisible crowd rather than a sprite where a model
 // should be.
 import { describe, expect, it } from 'vitest';
+import { kitLevel, units } from '@lions/data';
 import {
   SANDBOX_CIV,
   SANDBOX_ENEMY,
   SANDBOX_KDF,
+  SANDBOX_KIT_LEVELS,
   SANDBOX_SUR,
   SANDBOX_TUNNEL_KDF,
+  bootTiers,
+  sandboxKitTiers,
   sandboxUnitTypes,
 } from './sandbox-force';
 import { RIGGED_UNIT_MESHES } from './mesh-catalogue';
@@ -71,5 +75,47 @@ describe('the &civ crowd', () => {
     const ys = SANDBOX_CIV.map(([, , dy]) => dy);
     expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(4);
     expect(new Set(SANDBOX_CIV.map(([, dx, dy]) => `${dx},${dy}`)).size).toBe(SANDBOX_CIV.length);
+  });
+});
+
+describe('the &kit ladder (N12)', () => {
+  const roster = Object.values(units);
+
+  it('covers every type the sandbox force fields, and nothing else', () => {
+    expect(Object.keys(SANDBOX_KIT_LEVELS).sort()).toEqual([...new Set(SANDBOX_KDF.map(([id]) => id))].sort());
+  });
+
+  it('puts each level on at least four placements, so one frame shows all three', () => {
+    const count = [0, 0, 0, 0];
+    for (const [id] of SANDBOX_KDF) count[SANDBOX_KIT_LEVELS[id] ?? 0]++;
+    expect(count[0]).toBe(0);
+    expect(count.slice(1).every((n) => n >= 4)).toBe(true);
+  });
+
+  it('makes tiers that read back as exactly the ladder level, so sim, card and mark agree', () => {
+    const tiers = sandboxKitTiers(roster);
+    expect(Object.keys(tiers).sort()).toEqual(Object.keys(SANDBOX_KIT_LEVELS).sort());
+    for (const [id, level] of Object.entries(SANDBOX_KIT_LEVELS)) {
+      const unit = roster.find((u) => u.id === id);
+      if (unit === undefined) throw new Error(`fixture: no unit "${id}" in @lions/data`);
+      expect(kitLevel(unit, tiers[id] ?? {}), id).toBe(level);
+    }
+  });
+});
+
+describe('bootTiers', () => {
+  const roster = Object.values(units);
+  const account = { mbt_lavi: { armour: 1 } };
+
+  it('is the account on a mission, whatever the URL says', () => {
+    expect(bootTiers(account, { mission: true, kitFlag: true }, roster)).toBe(account);
+  });
+
+  it('is the account in a sandbox without &kit', () => {
+    expect(bootTiers(account, { mission: false, kitFlag: false }, roster)).toBe(account);
+  });
+
+  it('is the ladder, not the account, in a sandbox with &kit', () => {
+    expect(bootTiers(account, { mission: false, kitFlag: true }, roster)).toEqual(sandboxKitTiers(roster));
   });
 });
