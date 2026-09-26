@@ -56,6 +56,10 @@
         "support"
       ]
     },
+    "voice": {
+      "description": "Which voice pool answers for this unit (WP-AU1 §3). Optional: absent, it follows the role -- infantry, at_team, sniper, support, artillery -> infantry; mbt, ifv, apc, technical, recon, aa -> crew; engineer, eod -> engineer; drone, gunship -> air. Declare it only where the role is wrong, the way `mobility.wheeled` is declared where the role default is wrong. Presentation only: the sim never reads it.",
+      "enum": ["infantry", "crew", "engineer", "air"]
+    },
     "cost": {
       "type": "object",
       "required": [

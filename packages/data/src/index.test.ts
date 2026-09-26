@@ -250,3 +250,33 @@ describe('front data files are all imported by index.ts', () => {
     }
   });
 });
+
+describe('the unit voice field (WP-AU1 §3)', () => {
+  const declared = (): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const u of Object.values(units)) {
+      // Read through a plain shape: before the field exists no JSON module type
+      // declares it, and `'voice' in u` would narrow to `never`.
+      const rec = u as { id: string; voice?: unknown };
+      if (rec.voice !== undefined) out[rec.id] = rec.voice;
+    }
+    return out;
+  };
+
+  // Role alone is wrong three times (spec §3), the trap `mobility.wheeled`
+  // already records: a truck under `artillery`, a foot team under `aa` (#247
+  // tracks the same unit's sim bug), a paraglider under `support`. Nothing
+  // else may override, or the role default stops being the rule.
+  it('is declared by exactly the three units whose role would voice them wrongly', () => {
+    expect(declared()).toEqual({ manpad_team: 'infantry', paramotor: 'air', rocket_battery: 'crew' });
+  });
+
+  it('the schema offers exactly the four classes, and the field stays optional', () => {
+    const schema = JSON.parse(readFileSync(path.join(DATA_ROOT, 'schemas/unit.schema.json'), 'utf8')) as {
+      required: string[];
+      properties: Record<string, { enum?: string[] } | undefined>;
+    };
+    expect(schema.properties.voice?.enum).toEqual(['infantry', 'crew', 'engineer', 'air']);
+    expect(schema.required).not.toContain('voice');
+  });
+});
