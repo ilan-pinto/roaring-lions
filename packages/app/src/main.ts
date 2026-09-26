@@ -134,6 +134,7 @@ import {
   SANDBOX_ENEMY,
   SANDBOX_SUR,
   SANDBOX_TUNNEL_KDF,
+  bootTiers,
   sandboxUnitTypes,
   type SandboxExtras,
 } from './sandbox-force';
@@ -1249,7 +1250,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  same per-type read, so the card shows the kit this mission actually
    *  runs with -- never the account as it stands later, which a garage visit
    *  can change. */
-  const prepass = upgradePrepass(Object.values(units), ownedTiers);
+  const roster = Object.values(units);
+  /** `&kit` (sandbox only, WP-S3g plan 2) swaps the account's tiers for the
+   *  fixed ladder BEFORE the one prepass, so the swap reaches the sim, the HUD
+   *  card and the map mark together; a mission never takes it (`bootTiers`). */
+  const bootKit = bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: readFlags(params).kit }, roster);
+  const prepass = upgradePrepass(roster, bootKit);
   const kitByType = prepass.kitByType;
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
@@ -1628,6 +1634,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       { colorVision: cvdVariant, quality: req.settings.get().video.quality },
       BASE
     ),
+    // The same per-type loop that fed the sim's tiers and the HUD card's kit
+    // (`bootKit`/`prepass`, above) -- so the mark on a unit always agrees with
+    // both.
+    unitKit: prepass.unitKit,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals

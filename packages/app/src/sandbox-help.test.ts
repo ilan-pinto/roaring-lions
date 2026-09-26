@@ -54,6 +54,13 @@ describe('readFlags', () => {
     expect(readFlags(new URLSearchParams('?sandbox=qarn_hadid&decals')).decals).toBe(true);
     expect(readFlags(new URLSearchParams('?sandbox=qarn_hadid')).decals).toBe(false);
   });
+
+  it('reads &kit, off by default, and does not warn about it', () => {
+    expect(readFlags(new URLSearchParams('?sandbox=beit_sahwan_outskirts&kit')).kit).toBe(true);
+    expect(readFlags(new URLSearchParams('?sandbox=beit_sahwan_outskirts')).kit).toBe(false);
+    expect(unknownParams(new URLSearchParams('?sandbox=beit_sahwan_outskirts&kit'))).toEqual([]);
+    expect(sandboxUrl('beit_sahwan_outskirts', { kit: true })).toBe('?sandbox=beit_sahwan_outskirts&kit');
+  });
 });
 
 describe('sandboxUrl', () => {
