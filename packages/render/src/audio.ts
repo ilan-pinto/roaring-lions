@@ -151,6 +151,83 @@ export const PLACEHOLDER_HZ = { move: 1318, attack: 1480, task: 1661, death: 124
 export const PLACEHOLDER_S = 0.12;
 /** The dev placeholder's gain (R-10). */
 export const PLACEHOLDER_GAIN = 0.15;
+/** How often the music element's duck steps its volume, in ms (N12, R-2). */
+export const MUSIC_DUCK_STEP_MS = 20;
+
+/** N4 and N5 as one pure rule. `active` is oldest-first. */
+export function admitVoice(
+  active: readonly { id: number; priority: VoicePriority }[],
+  incoming: VoicePriority,
+  cap = VOICE_CAP
+): { play: boolean; cut: number[] } {
+  const cut: number[] = [];
+  let rest = active;
+  if (incoming === 'order') {
+    for (const v of active) if (v.priority === 'order') cut.push(v.id);
+    rest = active.filter((v) => v.priority !== 'order');
+  }
+  if (rest.length < cap) return { play: true, cut };
+  let low = rest[0];
+  for (const v of rest) if (VOICE_RANK[v.priority] < VOICE_RANK[low.priority]) low = v;
+  // A tie loses to what is already speaking: a queued line describes the past.
+  if (VOICE_RANK[low.priority] >= VOICE_RANK[incoming]) return { play: false, cut: [] };
+  return { play: true, cut: [...cut, low.id] };
+}
+
+/** A linear ramp's value `elapsedMs` into it, holding `to` once it is over (N12). */
+export function duckRamp(from: number, to: number, elapsedMs: number, durMs: number): number {
+  if (elapsedMs >= durMs) return to;
+  return from + ((to - from) * elapsedMs) / durMs;
+}
+
+/** Where a placed sound sits relative to the listener. */
+export interface Placement {
+  audible: boolean;
+  gain: number;
+  pan: number;
+  lowpassHz: number;
+}
+
+/** `playSet`'s placement arithmetic, lifted verbatim so a placed voice and a
+ *  battle clip cannot drift. `gain` excludes the set's own gain. */
+export function placement(dx: number, dy: number): Placement {
+  const dist = Math.hypot(dx, dy);
+  if (dist > AUDIBLE_TILES) return { audible: false, gain: 0, pan: 0, lowpassHz: 0 };
+  const atten = 1 - dist / AUDIBLE_TILES;
+  return {
+    audible: true,
+    gain: atten * atten,
+    // Screen-space left/right: in 2:1 dimetric, +x is right, +y is left.
+    pan: Math.max(-1, Math.min(1, (dx - dy) / (AUDIBLE_TILES * 0.7))),
+    // Distance dulls as well as quietens -- high frequencies go first.
+    lowpassHz: 1200 + atten * atten * 12000,
+  };
+}
+
+/** The dev tick's pitch for a key: its trigger's own, and one shared pitch for
+ *  every order verb, so the ear can tell the line CLASS apart (R-10). */
+function placeholderHz(key: string): number {
+  const trigger = key.split('.')[2];
+  switch (trigger) {
+    case 'move':
+    case 'attack':
+    case 'task':
+    case 'death':
+    case 'ack':
+      return PLACEHOLDER_HZ[trigger];
+    default:
+      return PLACEHOLDER_HZ.verb;
+  }
+}
+
+/** One line sounding now. */
+interface ActiveVoice {
+  id: number;
+  priority: VoicePriority;
+  src: AudioScheduledSourceNode;
+  /** The line's own gain, which a cut fades. */
+  gain: GainNode;
+}
 
 /**
  * The order `decodeAll` fetches and decodes a manifest's sets in: every `ui`
@@ -339,6 +416,19 @@ export class BattleAudio {
    *  a 404 or an undecodable file does not change while the page is open. */
   private readonly voiceFailed = new Set<string>();
   private voicePlaceholder = false;
+  /** The manifest's line gain, under the Voices slider (N11). */
+  private voiceGain = 1;
+  /** Lines sounding now, oldest first (N5). */
+  private activeVoices: ActiveVoice[] = [];
+  private nextVoiceId = 1;
+  /** The duck is applied (N12). */
+  private ducked = false;
+  /** The music element's duck factor, 1 when no voice speaks (N12, R-2). */
+  private musicDuck = 1;
+  /** The music duck's next step, while one is ramping. */
+  private musicDuckTimer: number | null = null;
+  /** A thrown voice pass has been noted once already (R-9). */
+  private voicePassNoted = false;
   /** The voice pass in flight; every new one chains after it, so two never
    *  run at once and a key is never decoded twice. It never rejects. */
   private voiceJob: Promise<void> = Promise.resolve();
@@ -418,6 +508,11 @@ export class BattleAudio {
     this.baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     this.masterGain = manifest.master_gain ?? 0.9;
     this.voices = manifest.voices ?? null;
+    this.voiceGain = clamp01(manifest.voices?.gain ?? 1);
+    // A new manifest can name different files, or the same ones now present:
+    // what the last one could not fetch, or could not fit, is not remembered.
+    this.voiceFailed.clear();
+    this.voiceBudgetSkipped.clear();
     // Re-apply the user's own sliders now that the manifest's level is known,
     // so the two compose whichever order they arrive in (a manifest can load
     // after the settings screen has already set gains, or before).
@@ -449,7 +544,16 @@ export class BattleAudio {
     if (this.master) this.master.gain.value = bus.master;
     if (this.sfx) this.sfx.gain.value = bus.sfx;
     if (this.voice) this.voice.gain.value = bus.voice;
-    if (this.music) this.music.volume = musicVolume(this.masterGain, this.manifest?.music?.gain ?? 1, this.user);
+    this.applyMusicVolume();
+  }
+
+  /** The music element's volume: its level times the duck under a voice. */
+  private musicLevel(): number {
+    return musicVolume(this.masterGain, this.manifest?.music?.gain ?? 1, this.user) * this.musicDuck;
+  }
+
+  private applyMusicVolume(): void {
+    if (this.music) this.music.volume = this.musicLevel();
   }
 
   gains(): AudioGains {
@@ -509,8 +613,19 @@ export class BattleAudio {
     // A pass that throws must not stall every pass after it, nor the battle
     // library that `decodeAll` decodes once this resolves. The lines it did
     // not reach stay undecoded, which is `missing` (R-9): nothing plays.
-    this.voiceJob = this.voiceJob.then(() => this.decodeVoices()).catch(() => {});
+    this.voiceJob = this.voiceJob.then(() => this.decodeVoices()).catch(() => this.notePassThrown());
     return this.voiceJob;
+  }
+
+  /**
+   * A thrown pass is information, not a fault (R-9): one `console.info` per
+   * instance, and only in a dev session -- which, inside the mixer, is the
+   * placeholder switch, the one flag only a dev build can turn on (R-10).
+   */
+  private notePassThrown(): void {
+    if (!this.voicePlaceholder || this.voicePassNoted) return;
+    this.voicePassNoted = true;
+    console.info('[voice] a decode pass stopped early; the lines it did not reach play nothing until the next pass');
   }
 
   /**
@@ -518,6 +633,10 @@ export class BattleAudio {
    * queued since, has settled. Before a gesture there is none, and it
    * resolves at once. A readback for tests and the sandbox; playback never
    * waits on it.
+   *
+   * A test/dev drain ONLY. It does not settle while a fetch is stalled (a
+   * fetch has no timeout here), so game code must never await it: a line
+   * that has not decoded yet is `missing` (R-9), not something to wait for.
    */
   async decoded(): Promise<void> {
     await this.decoding.catch(() => {});
@@ -610,7 +729,7 @@ export class BattleAudio {
       bytes: this.voiceBytes,
       overBudget: this.voiceOverBudget,
       placeholder: this.voicePlaceholder,
-      active: 0,
+      active: this.activeVoices.length,
     };
   }
 
@@ -659,7 +778,7 @@ export class BattleAudio {
     if (tracks.length === 0) return;
     const el = new Audio();
     el.preload = 'auto';
-    el.volume = musicVolume(this.masterGain, spec?.gain ?? 1, this.user);
+    el.volume = this.musicLevel();
     el.loop = tracks.length === 1;
 
     // Where the previous document left off, if this tab has one.
@@ -771,6 +890,145 @@ export class BattleAudio {
     }
   }
 
+  /**
+   * Speak one line (WP-AU1 §7). Unplaced lines go through the radio band
+   * (N13); a placed one -- an enemy death -- sits in the world like a battle
+   * clip, on the voice bus so the Voices slider still owns it (R-14). Two
+   * lines at most (N5); a new order cuts the last order (N4); every line
+   * ducks sfx and music until the last one ends (N12).
+   *
+   * The status order is part of the contract: nothing is made, and nothing
+   * ducks, for a line nobody can hear.
+   */
+  playVoice(p: VoicePlay): VoiceResult {
+    const none = (status: VoiceStatus): VoiceResult => ({ status, seconds: 0, en: null, cut: 0 });
+    // Mute first, and HERE, for playUi's reason: `m` is one flag the HUD reports.
+    if (this.muted) return none('muted');
+    const ctx = this.ctx;
+    const bus = this.voice;
+    const radio = this.radioIn;
+    if (!ctx || !bus || !radio) return none('no-context');
+    if ((this.user.voice ?? 1) === 0 || this.user.master === 0) return none('volume-zero');
+    const place = p.at ? placement(p.at.x - this.listener.x, p.at.y - this.listener.y) : null;
+    if (place && !place.audible) return none('too-far');
+    const line = this.voiceLines.get(p.key);
+    // Not recorded, or not decoded yet: both play nothing (R-9). The tick
+    // stands in only when a dev session asked for it (R-10).
+    if (!line && !this.voicePlaceholder) return none('missing');
+    const admit = admitVoice(this.activeVoices, p.priority);
+    if (!admit.play) return none('dropped');
+    for (const id of admit.cut) this.cutVoice(id);
+
+    const t = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.value = (line ? this.voiceGain : PLACEHOLDER_GAIN) * (place ? place.gain : 1);
+    let head: AudioNode = g;
+    if (place) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = place.lowpassHz;
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = place.pan;
+      lp.connect(pan).connect(g).connect(bus);
+      head = lp;
+    } else {
+      g.connect(radio);
+    }
+
+    let src: AudioScheduledSourceNode;
+    let seconds: number;
+    let en: string | null = null;
+    if (line) {
+      const i = Math.floor(this.rand() * line.buffers.length);
+      const b = ctx.createBufferSource();
+      b.buffer = line.buffers[i];
+      seconds = line.buffers[i].duration;
+      en = line.en[i] ?? null;
+      src = b;
+    } else {
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = placeholderHz(p.key);
+      seconds = PLACEHOLDER_S;
+      src = o;
+    }
+    src.connect(head);
+    const id = this.nextVoiceId++;
+    this.activeVoices.push({ id, priority: p.priority, src, gain: g });
+    src.onended = () => this.voiceEnded(id);
+    src.start();
+    if (!line) src.stop(t + PLACEHOLDER_S);
+    this.duck(true);
+    return { status: line ? 'played' : 'placeholder', seconds, en, cut: admit.cut.length };
+  }
+
+  /** Fade every line out and let go of the duck: a mission leave. */
+  stopVoices(): void {
+    for (const v of [...this.activeVoices]) this.cutVoice(v.id);
+    this.duck(false);
+  }
+
+  /** Cut one line short with a VOICE_CUT_S fade (N4). */
+  private cutVoice(id: number): void {
+    const i = this.activeVoices.findIndex((v) => v.id === id);
+    const ctx = this.ctx;
+    if (i < 0 || !ctx) return;
+    const [v] = this.activeVoices.splice(i, 1);
+    const t = ctx.currentTime;
+    // A cut line is not an ending: it must not release the duck under the
+    // line that replaced it.
+    v.src.onended = null;
+    v.gain.gain.cancelScheduledValues(t);
+    v.gain.gain.setValueAtTime(v.gain.gain.value, t);
+    v.gain.gain.linearRampToValueAtTime(0, t + VOICE_CUT_S);
+    v.src.stop(t + VOICE_CUT_S);
+  }
+
+  private voiceEnded(id: number): void {
+    this.activeVoices = this.activeVoices.filter((v) => v.id !== id);
+    if (this.activeVoices.length === 0) this.duck(false);
+  }
+
+  /** Duck sfx and music under a voice, or let them go (N12). Idempotent. */
+  private duck(on: boolean): void {
+    if (this.ducked === on) return;
+    this.ducked = on;
+    const ctx = this.ctx;
+    const d = this.sfxDuck;
+    if (ctx && d) {
+      const t = ctx.currentTime;
+      d.gain.cancelScheduledValues(t);
+      d.gain.setValueAtTime(d.gain.value, t);
+      d.gain.linearRampToValueAtTime(on ? DUCK.sfx : 1, t + (on ? DUCK.attackS : DUCK.releaseS));
+    }
+    this.rampMusic(on ? DUCK.music : 1, (on ? DUCK.attackS : DUCK.releaseS) * 1000);
+  }
+
+  /**
+   * Step the music element's duck towards `to` over `ms`. The element is not
+   * in the AudioContext, so it has no AudioParam to automate (R-2): its volume
+   * is stepped every MUSIC_DUCK_STEP_MS instead. Steps are counted rather than
+   * timed from a clock, so fake timers drive it exactly.
+   */
+  private rampMusic(to: number, ms: number): void {
+    if (this.musicDuckTimer !== null) window.clearTimeout(this.musicDuckTimer);
+    this.musicDuckTimer = null;
+    if (!this.music) {
+      this.musicDuck = to;
+      return;
+    }
+    const from = this.musicDuck;
+    let step = 0;
+    const tick = (): void => {
+      step++;
+      const elapsed = step * MUSIC_DUCK_STEP_MS;
+      this.musicDuck = duckRamp(from, to, elapsed, ms);
+      this.applyMusicVolume();
+      this.musicDuckTimer = elapsed < ms ? window.setTimeout(tick, MUSIC_DUCK_STEP_MS) : null;
+    };
+    this.musicDuckTimer = window.setTimeout(tick, MUSIC_DUCK_STEP_MS);
+  }
+
   onEvents(events: SimEvent[], sim: Sim): void {
     if (this.muted || this.ctx === null || this.ctx.state !== 'running') return;
     const st = sim.state;
@@ -829,27 +1087,20 @@ export class BattleAudio {
     const set = this.sets.get(setName);
     if (!set || set.buffers.length === 0) return false;
 
-    const dx = wx - this.listener.x;
-    const dy = wy - this.listener.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > AUDIBLE_TILES) return true; // audible sound exists, just too far
-    const atten = 1 - dist / AUDIBLE_TILES;
+    const p = placement(wx - this.listener.x, wy - this.listener.y);
+    if (!p.audible) return true; // audible sound exists, just too far
 
     const src = ctx.createBufferSource();
     src.buffer = set.buffers[Math.floor(this.rand() * set.buffers.length)];
     if (set.jitter > 0) src.playbackRate.value = 1 + (this.rand() * 2 - 1) * set.jitter;
 
-    // Screen-space left/right: in 2:1 dimetric, +x is right, +y is left.
     const pan = ctx.createStereoPanner();
-    pan.pan.value = Math.max(-1, Math.min(1, (dx - dy) / (AUDIBLE_TILES * 0.7)));
-
-    // Distance dulls as well as quietens — high frequencies go first.
+    pan.pan.value = p.pan;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 1200 + atten * atten * 12000;
-
+    lp.frequency.value = p.lowpassHz;
     const g = ctx.createGain();
-    g.gain.value = set.gain * atten * atten;
+    g.gain.value = set.gain * p.gain;
 
     src.connect(lp).connect(pan).connect(g).connect(sfx);
     src.start();

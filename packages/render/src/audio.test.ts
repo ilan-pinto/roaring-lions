@@ -6,16 +6,25 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  admitVoice,
   BattleAudio,
   busGain,
   decodeOrder,
+  DUCK,
+  duckRamp,
   musicVolume,
+  placement,
+  PLACEHOLDER_HZ,
+  PLACEHOLDER_S,
   RADIO_BAND_HZ,
   uiSetGain,
+  VOICE_CUT_S,
   VOICE_DECODE_BUDGET_BYTES,
   type AudioManifest,
   type AudioSet,
   type VoiceManifest,
+  type VoicePlay,
+  type VoicePriority,
   type VoiceVariant,
 } from './audio';
 
@@ -556,5 +565,256 @@ describe('voice decoding -- the edges (N16, R-9)', () => {
     audio.setVoiceLanguages(['he']);
     await audio.decoded();
     expect(audio.voiceStats().keys).toBe(3);
+  });
+});
+
+describe('admitVoice (N4, N5)', () => {
+  const v = (id: number, priority: VoicePriority): { id: number; priority: VoicePriority } => ({ id, priority });
+  it('plays into a free slot', () => {
+    expect(admitVoice([], 'enemy_death')).toEqual({ play: true, cut: [] });
+    expect(admitVoice([v(1, 'order')], 'kdf_death')).toEqual({ play: true, cut: [] });
+  });
+  it('a new order cuts the last order, whatever else is playing (N4)', () => {
+    expect(admitVoice([v(1, 'order')], 'order')).toEqual({ play: true, cut: [1] });
+    expect(admitVoice([v(1, 'order'), v(2, 'kdf_death')], 'order')).toEqual({ play: true, cut: [1] });
+  });
+  it('full: the lowest-ranked voice goes, oldest first; a tie or a loser is dropped, not queued (N5)', () => {
+    expect(admitVoice([v(1, 'kdf_death'), v(2, 'kdf_death')], 'order')).toEqual({ play: true, cut: [1] });
+    expect(admitVoice([v(1, 'kdf_death'), v(2, 'enemy_death')], 'order')).toEqual({ play: true, cut: [2] });
+    expect(admitVoice([v(1, 'enemy_death'), v(2, 'kdf_death')], 'kdf_death')).toEqual({ play: true, cut: [1] });
+    expect(admitVoice([v(1, 'kdf_death'), v(2, 'kdf_death')], 'kdf_death')).toEqual({ play: false, cut: [] });
+    expect(admitVoice([v(1, 'kdf_death'), v(2, 'kdf_death')], 'enemy_death')).toEqual({ play: false, cut: [] });
+  });
+});
+
+describe('duckRamp and placement', () => {
+  it('ramps linearly and holds its target once the time is up (N12)', () => {
+    expect(duckRamp(1, 0.5, 0, 80)).toBe(1);
+    expect(duckRamp(1, 0.5, 40, 80)).toBeCloseTo(0.75);
+    expect(duckRamp(1, 0.5, 80, 80)).toBe(0.5);
+    expect(duckRamp(1, 0.5, 500, 80)).toBe(0.5);
+  });
+  it('is playSet’s own arithmetic, unchanged: gain atten², lowpass, pan, and a hard edge at 26 tiles', () => {
+    expect(placement(0, 0)).toEqual({ audible: true, gain: 1, pan: 0, lowpassHz: 13_200 });
+    const half = placement(13, 0);
+    expect(half.gain).toBeCloseTo(0.25);
+    expect(half.lowpassHz).toBeCloseTo(4200);
+    expect(half.pan).toBeCloseTo(13 / 18.2);
+    expect(placement(0, 13).pan).toBeCloseTo(-13 / 18.2);
+    expect(placement(27, 0).audible).toBe(false);
+  });
+});
+
+describe('playVoice (WP-AU1 §7)', () => {
+  /** A context whose Hebrew (and, if asked, Arabic) lines have decoded. */
+  async function ready(langs: string[] = ['he'], manifest: AudioManifest = MANIFEST) {
+    stubFetch();
+    const r = attachedWith((a) => {
+      a.useManifest(manifest, '/a/');
+      a.setVoiceLanguages(langs);
+    });
+    await vi.waitFor(() => expect(r.audio.voiceStats().keys).toBe(langs.includes('ar') ? 4 : 3));
+    const [, , sfxDuck, voice] = r.ctx.gains;
+    const [hp] = r.ctx.filters;
+    if (!sfxDuck || !voice || !hp) throw new Error('attach() did not build the voice graph');
+    return { ...r, sfxDuck, voice, hp };
+  }
+  const order = (key: string): VoicePlay => ({ key, priority: 'order' });
+  const last = <T>(xs: T[]): T => {
+    const x = xs.at(-1);
+    if (x === undefined) throw new Error('nothing was created');
+    return x;
+  };
+
+  it('is safe before attach, and says why nothing played', () => {
+    expect(new BattleAudio().playVoice(order('he.infantry.move')).status).toBe('no-context');
+  });
+
+  it('plays an order over the radio band at the line gain, and hands back its meaning and length', async () => {
+    const { audio, ctx, hp } = await ready();
+    expect(audio.playVoice(order('he.infantry.move'))).toEqual({ status: 'played', seconds: 1.2, en: 'moving', cut: 0 });
+    const line = last(ctx.sources).to as FakeGain;
+    expect(line.gain.value).toBeCloseTo(0.8);
+    expect(line.to).toBe(hp);
+  });
+
+  it('a missing line plays nothing and is not an error: status missing, no node made (R-9)', async () => {
+    const { audio, ctx } = await ready();
+    const before = ctx.sources.length + ctx.oscillators.length;
+    expect(audio.playVoice({ key: 'he.crew.death', priority: 'kdf_death' }).status).toBe('missing'); // declared, empty
+    expect(audio.playVoice(order('he.nope.move')).status).toBe('missing'); // not declared at all
+    expect(ctx.sources.length + ctx.oscillators.length).toBe(before);
+  });
+
+  it('plays nothing muted, at Voices 0 or at Master 0 -- and does not duck for a voice nobody hears', async () => {
+    const { audio, ctx, sfxDuck } = await ready();
+    audio.setVoicePlaceholder(true); // not even the dev tick
+    expect(audio.toggle()).toBe(true);
+    expect(audio.playVoice(order('he.infantry.move')).status).toBe('muted');
+    expect(audio.toggle()).toBe(false);
+    audio.setGains({ master: 1, music: 1, sfx: 1, voice: 0 });
+    expect(audio.playVoice(order('he.infantry.move')).status).toBe('volume-zero');
+    expect(audio.playVoice(order('he.crew.move')).status).toBe('volume-zero');
+    audio.setGains({ master: 0, music: 1, sfx: 1, voice: 1 });
+    expect(audio.playVoice(order('he.infantry.move')).status).toBe('volume-zero');
+    expect(ctx.sources).toEqual([]);
+    expect(ctx.oscillators).toEqual([]);
+    expect(sfxDuck.gain.events.filter((e) => e[0] === 'linear')).toEqual([]);
+  });
+
+  it('ducks sfx −4 dB in 80 ms under a voice and lets go over 300 ms when the LAST one ends (N12)', async () => {
+    const { audio, ctx, sfxDuck } = await ready();
+    audio.playVoice(order('he.infantry.move'));
+    const first = last(ctx.sources);
+    audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
+    const second = last(ctx.sources);
+    expect(sfxDuck.gain.events).toContainEqual(['linear', DUCK.sfx, DUCK.attackS]);
+    first.onended?.();
+    expect(sfxDuck.gain.events).not.toContainEqual(['linear', 1, DUCK.releaseS]);
+    second.onended?.();
+    expect(sfxDuck.gain.events).toContainEqual(['linear', 1, DUCK.releaseS]);
+  });
+
+  it('ducks the music element −3 dB and brings it back (N12, R-2)', async () => {
+    const withMusic: AudioManifest = { ...MANIFEST, music: { gain: 0.4, tracks: [{ file: 'music/t.mp3' }] } };
+    const { audio, ctx } = await ready(['he'], withMusic);
+    const els = document.querySelectorAll('audio');
+    const el = els[els.length - 1];
+    if (!el) throw new Error('no music element');
+    expect(el.volume).toBeCloseTo(0.4);
+    vi.useFakeTimers();
+    try {
+      audio.playVoice(order('he.infantry.move'));
+      vi.advanceTimersByTime(100);
+      expect(el.volume).toBeCloseTo(0.4 * DUCK.music);
+      last(ctx.sources).onended?.();
+      vi.advanceTimersByTime(400);
+      expect(el.volume).toBeCloseTo(0.4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a new order cuts the last order with a 40 ms fade (N4)', async () => {
+    const { audio, ctx } = await ready();
+    audio.playVoice(order('he.infantry.move'));
+    const first = last(ctx.sources);
+    expect(audio.playVoice(order('he.common.ack'))).toMatchObject({ status: 'played', cut: 1 });
+    expect(first.stoppedAt).toBeCloseTo(VOICE_CUT_S);
+    expect((first.to as FakeGain).gain.events).toContainEqual(['linear', 0, VOICE_CUT_S]);
+  });
+
+  it('holds two voices: a losing death is dropped, an order takes the oldest lowest slot (N5)', async () => {
+    const { audio, ctx } = await ready(['he', 'ar']);
+    audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
+    const oldest = last(ctx.sources);
+    audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
+    const made = ctx.sources.length;
+    expect(audio.playVoice({ key: 'ar.infantry.death', priority: 'enemy_death', at: { x: 1, y: 1 } }).status).toBe('dropped');
+    expect(ctx.sources.length).toBe(made);
+    expect(audio.playVoice(order('he.infantry.move'))).toMatchObject({ status: 'played', cut: 1 });
+    expect(oldest.stoppedAt).toBeCloseTo(VOICE_CUT_S);
+    expect(audio.voiceStats().active).toBe(2);
+  });
+
+  it('places an enemy death in the world, off the radio band, on the voice bus (R-14)', async () => {
+    const { audio, ctx, hp, voice } = await ready(['he', 'ar']);
+    expect(audio.playVoice({ key: 'ar.infantry.death', priority: 'enemy_death', at: { x: 3, y: 4 } }).status).toBe('played');
+    const lp = last(ctx.sources).to as FakeFilter;
+    expect(lp).not.toBe(hp);
+    expect(lp.type).toBe('lowpass');
+    const pan = lp.to as FakePanner;
+    const g = pan.to as FakeGain;
+    expect(g.to).toBe(voice);
+    const made = ctx.sources.length;
+    expect(audio.playVoice({ key: 'ar.infantry.death', priority: 'enemy_death', at: { x: 30, y: 0 } }).status).toBe('too-far');
+    expect(ctx.sources.length).toBe(made);
+  });
+
+  it('the dev placeholder: one tick per line class through the same chain, only when asked (R-10)', async () => {
+    const { audio, ctx, hp } = await ready();
+    expect(audio.playVoice({ key: 'he.crew.death', priority: 'kdf_death' }).status).toBe('missing');
+    expect(ctx.oscillators).toEqual([]);
+    audio.setVoicePlaceholder(true);
+    expect(audio.voiceStats().placeholder).toBe(true);
+    expect(audio.playVoice({ key: 'he.crew.death', priority: 'kdf_death' })).toEqual({
+      status: 'placeholder', seconds: PLACEHOLDER_S, en: null, cut: 0,
+    });
+    const tick = last(ctx.oscillators);
+    expect(tick.frequency.value).toBe(PLACEHOLDER_HZ.death);
+    expect((tick.to as FakeGain).to).toBe(hp);
+    expect(tick.stoppedAt).toBeCloseTo(PLACEHOLDER_S);
+    audio.playVoice(order('he.common.halt'));
+    expect(last(ctx.oscillators).frequency.value).toBe(PLACEHOLDER_HZ.verb);
+    // A recorded line always wins over the tick.
+    const ticks = ctx.oscillators.length;
+    expect(audio.playVoice(order('he.infantry.move')).status).toBe('played');
+    expect(ctx.oscillators.length).toBe(ticks);
+  });
+
+  it('stopVoices fades everything out and lets go of the duck -- a mission leave', async () => {
+    const { audio, ctx, sfxDuck } = await ready();
+    audio.playVoice(order('he.infantry.move'));
+    audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
+    audio.stopVoices();
+    for (const s of ctx.sources) expect(s.stoppedAt).toBeCloseTo(VOICE_CUT_S);
+    expect(audio.voiceStats().active).toBe(0);
+    expect(sfxDuck.gain.events).toContainEqual(['linear', 1, DUCK.releaseS]);
+  });
+});
+
+describe('voice decoding -- carried from Task 4 (R-9)', () => {
+  it('a second manifest does not inherit the first one’s 404 memo', async () => {
+    const take = '/a/voice/he/infantry/move_01a.ogg';
+    let gone = true;
+    const fetched = stubFetch((url) => (url === take && gone ? NOT_FOUND : OK));
+    const { audio } = attachedWith((a) => {
+      a.useManifest(MANIFEST, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await audio.decoded();
+    expect(audio.voiceStats().keys).toBe(2);
+    gone = false; // the file is there now, under a manifest that was reloaded
+    audio.useManifest(MANIFEST, '/a/');
+    audio.setVoiceLanguages(['he']);
+    await audio.decoded();
+    expect(fetched.filter((u) => u === take)).toHaveLength(2);
+    expect(audio.voiceStats().keys).toBe(3);
+  });
+
+  it('a thrown pass is one dev-only info line, never a warning or an error', async () => {
+    stubFetch();
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const throwing = (dev: boolean): Promise<void> => {
+        const flaky: VoiceManifest = {};
+        Object.defineProperty(flaky, 'lines', {
+          get: () => {
+            throw new Error('a pass that throws');
+          },
+        });
+        const { audio } = attachedWith((a) => {
+          a.useManifest({ ...MANIFEST, voices: flaky }, '/a/');
+          a.setVoicePlaceholder(dev);
+          a.setVoiceLanguages(['he']);
+        });
+        audio.setVoiceLanguages(['he']); // a second pass, which throws too
+        return audio.decoded();
+      };
+      await throwing(false);
+      expect(info).not.toHaveBeenCalled(); // not a dev session: silent
+      await throwing(true);
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(String(info.mock.calls[0]?.[0])).toMatch(/^\[voice\]/);
+      expect(String(info.mock.calls[0]?.[0])).not.toMatch(/error|fail/i);
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      info.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
   });
 });
