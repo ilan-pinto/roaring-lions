@@ -211,7 +211,7 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
  *  than cast, because the variants genuinely differ -- `ids` for most kinds,
  *  `riders` for mount, `carriers` for dismount -- and a cast would silently
  *  return undefined for the two that don't have `ids`. */
-function idsOf(intent: PlayerIntent): number[] {
+export function idsOf(intent: PlayerIntent): number[] {
   switch (intent.kind) {
     case 'select':
     case 'order':
