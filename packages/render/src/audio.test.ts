@@ -15,6 +15,7 @@ import {
   VOICE_DECODE_BUDGET_BYTES,
   type AudioManifest,
   type AudioSet,
+  type VoiceManifest,
   type VoiceVariant,
 } from './audio';
 
@@ -174,25 +175,51 @@ function attachedWith(setup: (a: BattleAudio) => void): { audio: BattleAudio; ct
   globalThis.AudioContext = FakeContext as unknown as typeof AudioContext;
   const audio = new BattleAudio();
   setup(audio);
-  audio.attach();
-  window.dispatchEvent(new KeyboardEvent('keydown'));
+  // Record every window listener this instance adds, so `afterEach` can take
+  // them off again: left on, the NEXT test's keydown would wake this one too.
+  const spy = vi.spyOn(window, 'addEventListener');
+  try {
+    audio.attach();
+    window.dispatchEvent(new KeyboardEvent('keydown'));
+  } finally {
+    const added = spy.mock.calls.map(([type, fn]) => [type, fn] as const);
+    spy.mockRestore();
+    live.push({ audio, added });
+  }
   const ctx = FakeContext.made[0];
   if (!ctx) throw new Error('attach() built no AudioContext');
   return { audio, ctx };
 }
 const attached = (): { audio: BattleAudio; ctx: FakeContext } => attachedWith(() => {});
 
-/** Every URL `fetch` was asked for, in order; every answer is four bytes. */
-function stubFetch(): string[] {
+/** Every instance `attachedWith` built this test, with the listeners it added. */
+const live: { audio: BattleAudio; added: (readonly [string, EventListenerOrEventListenerObject | null])[] }[] = [];
+
+interface FakeResponse {
+  ok: boolean;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+const OK: FakeResponse = { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
+const NOT_FOUND: FakeResponse = { ok: false, arrayBuffer: async () => new ArrayBuffer(0) };
+
+/** Every URL `fetch` was asked for, in order; every answer is four bytes
+ *  unless `answer` says otherwise. */
+function stubFetch(answer: (url: string) => FakeResponse | Promise<FakeResponse> = () => OK): string[] {
   const fetched: string[] = [];
   vi.stubGlobal('fetch', async (url: string) => {
     fetched.push(url);
-    return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
+    return answer(url);
   });
   return fetched;
 }
 
-afterEach(() => {
+afterEach(async () => {
+  // Drain first, while this test's fetch stub is still the global: an
+  // in-flight pass must never reach the next test's stub.
+  for (const { audio, added } of live.splice(0)) {
+    await audio.decoded();
+    for (const [type, fn] of added) if (fn) window.removeEventListener(type, fn);
+  }
   globalThis.AudioContext = realAudioContext;
   vi.unstubAllGlobals();
   FakeContext.nextBuffer = { ...LINE_BUFFER };
@@ -432,5 +459,102 @@ describe('voice decoding (N16, spec §7 decode order)', () => {
     await vi.waitFor(() => expect(audio.voiceStats().overBudget).toBe(true));
     expect(audio.voiceStats().keys).toBe(1);
     expect(audio.voiceStats().bytes).toBeLessThanOrEqual(VOICE_DECODE_BUDGET_BYTES);
+  });
+});
+
+describe('voice decoding -- the edges (N16, R-9)', () => {
+  it('a language that leaves while its key is decoding is not stored', async () => {
+    let release: (r: FakeResponse) => void = () => {
+      throw new Error('the voice fetch was never asked for');
+    };
+    const held = new Promise<FakeResponse>((r) => {
+      release = r;
+    });
+    const fetched = stubFetch((url) => (url.includes('/voice/') ? held : OK));
+    const { audio } = attachedWith((a) => {
+      a.useManifest(MANIFEST, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(fetched).toContain('/a/voice/he/infantry/move_01a.ogg'));
+    audio.setVoiceLanguages([]); // the roster changes mid-decode
+    release(OK);
+    await audio.decoded();
+    expect(audio.voiceStats()).toMatchObject({ languages: [], keys: 0, bytes: 0 });
+  });
+
+  it('a manifest with no voices section decodes nothing, and throws nothing', async () => {
+    const fetched = stubFetch();
+    const { audio } = attachedWith((a) => {
+      a.useManifest({ master_gain: 1, sets: { ui_alert: { event: 'ui', variants: [{ file: 'ui/alert_01.ogg' }] } } }, '/a/');
+      a.setVoiceLanguages(['he', 'ar']);
+    });
+    await audio.decoded();
+    expect(() => audio.setVoiceLanguages(['he'])).not.toThrow();
+    await audio.decoded();
+    expect(fetched).toEqual(['/a/ui/alert_01.ogg']);
+    expect(audio.voiceStats()).toMatchObject({ keys: 0, bytes: 0, overBudget: false });
+  });
+
+  it('a take that 404s is never fetched again this session', async () => {
+    const gone = '/a/voice/he/infantry/move_01a.ogg';
+    const fetched = stubFetch((url) => (url === gone ? NOT_FOUND : OK));
+    const { audio } = attachedWith((a) => {
+      a.useManifest(MANIFEST, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await audio.decoded();
+    expect(audio.voiceStats().keys).toBe(2);
+    audio.setVoiceLanguages(['ar', 'he']); // a second pass over every he key
+    await audio.decoded();
+    expect(audio.voiceStats().keys).toBe(3);
+    expect(fetched.filter((u) => u === gone)).toHaveLength(1);
+  });
+
+  it('a key kept out by the budget is not re-decoded until a language leaves, then it is', async () => {
+    const fetched = stubFetch();
+    FakeContext.nextBuffer = { duration: 50, length: 48_000 * 50, numberOfChannels: 1 }; // 9.6 MB decoded
+    const { audio } = attachedWith((a) => {
+      a.useManifest(MANIFEST, '/a/');
+      a.setVoiceLanguages(['ar', 'he']);
+    });
+    await audio.decoded();
+    expect(audio.voiceStats()).toMatchObject({ keys: 1, overBudget: true }); // he.infantry.move
+    const arLine = '/a/voice/ar/infantry/death_01a.ogg';
+    expect(fetched.filter((u) => u === arLine)).toHaveLength(1);
+    audio.setVoiceLanguages(['ar', 'he']); // same roster, nothing freed
+    await audio.decoded();
+    expect(fetched.filter((u) => u === arLine)).toHaveLength(1);
+    expect(audio.voiceStats().overBudget).toBe(true); // still silent for the budget
+    audio.setVoiceLanguages(['ar']); // he leaves: 9.6 MB freed
+    await audio.decoded();
+    expect(fetched.filter((u) => u === arLine)).toHaveLength(2);
+    expect(audio.voiceStats()).toMatchObject({ languages: ['ar'], keys: 1, overBudget: false });
+  });
+
+  it('a voice pass that throws stalls neither the battle library nor the next pass', async () => {
+    const fetched = stubFetch();
+    const voices = MANIFEST.voices;
+    if (!voices?.lines) throw new Error('MANIFEST has no voice lines');
+    const lines = voices.lines;
+    let throws = true;
+    const flaky: VoiceManifest = { gain: voices.gain, languages: voices.languages };
+    Object.defineProperty(flaky, 'lines', {
+      get: () => {
+        if (throws) {
+          throws = false;
+          throw new Error('a pass that throws');
+        }
+        return lines;
+      },
+    });
+    const { audio } = attachedWith((a) => {
+      a.useManifest({ ...MANIFEST, voices: flaky }, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await audio.decoded();
+    expect(fetched).toEqual(['/a/ui/alert_01.ogg', '/a/battle/tank_gun_01.ogg']);
+    audio.setVoiceLanguages(['he']);
+    await audio.decoded();
+    expect(audio.voiceStats().keys).toBe(3);
   });
 });

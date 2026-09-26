@@ -51,8 +51,7 @@ export interface MusicSpec {
   tracks?: MusicTrack[];
 }
 
-/** One recorded take of a voice line. The four extra fields are provenance
- *  and the caption: `validate:audio` requires them, the engine reads `en`. */
+/** One recorded take (spec §6, D9): provenance plus `en`, the caption (R-18). */
 export interface VoiceVariant extends AudioVariant {
   generator?: string;
   /** The line as spoken, in its own script. */
@@ -109,6 +108,7 @@ export type VoiceStatus =
   | 'no-context'
   | 'too-far';
 
+/** What `playVoice` did (N4, N5, R-9): status, length, caption, lines cut. */
 export interface VoiceResult {
   status: VoiceStatus;
   /** How long the line lasts, 0 when nothing plays. */
@@ -119,7 +119,7 @@ export interface VoiceResult {
   cut: number;
 }
 
-/** A readback for the sandbox and the tests: what is decoded and what plays. */
+/** The decode and playback readback (N16, R-10): languages, keys, bytes, budget. */
 export interface VoiceStats {
   /** The roster's languages, sorted. */
   languages: string[];
@@ -330,11 +330,20 @@ export class BattleAudio {
   private readonly voiceLines = new Map<string, LoadedVoice>();
   /** Decoded voice PCM held, in bytes. */
   private voiceBytes = 0;
+  /** The latest voice pass skipped a line for the budget (N16). */
   private voiceOverBudget = false;
+  /** Keys a pass left out for the budget. Not retried until bytes are freed:
+   *  retrying sooner would decode them only to throw them away again. */
+  private readonly voiceBudgetSkipped = new Set<string>();
+  /** Take files that would not fetch or decode. Never retried this session:
+   *  a 404 or an undecodable file does not change while the page is open. */
+  private readonly voiceFailed = new Set<string>();
   private voicePlaceholder = false;
-  /** The voice decode in flight; every new one chains after it, so two never
-   *  run at once and a key is never decoded twice. */
+  /** The voice pass in flight; every new one chains after it, so two never
+   *  run at once and a key is never decoded twice. It never rejects. */
   private voiceJob: Promise<void> = Promise.resolve();
+  /** The decode the first gesture started. */
+  private decoding: Promise<void> = Promise.resolve();
 
   /** set name → decoded clips. Empty/missing means "use the synth". */
   private readonly sets = new Map<string, LoadedSet>();
@@ -385,7 +394,7 @@ export class BattleAudio {
         this.master.gain.value = bus.master;
         this.sfx.gain.value = bus.sfx;
         this.voice.gain.value = bus.voice;
-        void this.decodeAll();
+        this.decoding = this.decodeAll();
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume();
       this.startMusic();
@@ -497,29 +506,66 @@ export class BattleAudio {
   /** Decode whatever the roster wants and is not yet loaded, after any
    *  decode already in flight. */
   private queueVoiceDecode(): Promise<void> {
-    this.voiceJob = this.voiceJob.then(() => this.decodeVoices());
+    // A pass that throws must not stall every pass after it, nor the battle
+    // library that `decodeAll` decodes once this resolves. The lines it did
+    // not reach stay undecoded, which is `missing` (R-9): nothing plays.
+    this.voiceJob = this.voiceJob.then(() => this.decodeVoices()).catch(() => {});
     return this.voiceJob;
   }
 
   /**
-   * Decode the wanted languages' lines, in manifest order, until the next take
-   * would cross the budget (N16). A take over budget is skipped and flagged
-   * rather than decoded: 16 MB of PCM is the ceiling, not a target.
+   * Resolves once the decode the first gesture started, and every voice pass
+   * queued since, has settled. Before a gesture there is none, and it
+   * resolves at once. A readback for tests and the sandbox; playback never
+   * waits on it.
+   */
+  async decoded(): Promise<void> {
+    await this.decoding.catch(() => {});
+    let job: Promise<void>;
+    do {
+      job = this.voiceJob;
+      await job;
+    } while (job !== this.voiceJob);
+  }
+
+  /**
+   * Decode the wanted languages' lines, in manifest order, within the budget
+   * (N16). A take that would cross it is skipped and flagged rather than
+   * kept: 16 MB of PCM is the ceiling, not a target.
+   *
+   * A pass does not stop at the ceiling. A take's size is known only once it
+   * is decoded, and a shorter take later in the manifest can still fit; the
+   * brief's rule is "skip the variant", not "stop". What stops the waste is
+   * `voiceBudgetSkipped`: a key left out once is not decoded again until
+   * bytes are freed. The battle library after this pass is not voice PCM and
+   * is not held to this budget, so the ui -> voice -> battle order stands.
    */
   private async decodeVoices(): Promise<void> {
+    this.voiceOverBudget = false;
     const ctx = this.ctx;
     const lines = this.voices?.lines;
     if (!ctx || !lines) return;
     for (const [key, line] of Object.entries(lines)) {
       const lang = voiceLanguage(key);
       if (!this.voiceWanted.has(lang) || this.voiceLines.has(key)) continue;
+      if (this.voiceBudgetSkipped.has(key)) {
+        // Still silent for the budget, so this pass is over it too.
+        this.voiceOverBudget = true;
+        continue;
+      }
       const loaded: LoadedVoice = { buffers: [], en: [], bytes: 0 };
+      let skipped = false;
       for (const v of line.variants ?? []) {
+        if (this.voiceFailed.has(v.file)) continue;
         const b = await this.fetchDecode(ctx, v);
-        if (!b) continue;
+        if (!b) {
+          this.voiceFailed.add(v.file);
+          continue;
+        }
         const bytes = b.length * b.numberOfChannels * 4;
         if (this.voiceBytes + loaded.bytes + bytes > VOICE_DECODE_BUDGET_BYTES) {
           this.voiceOverBudget = true;
+          skipped = true;
           continue;
         }
         loaded.buffers.push(b);
@@ -528,7 +574,11 @@ export class BattleAudio {
       }
       // The roster can change while a key decodes; a language that left
       // meanwhile is not stored, so its bytes are never counted.
-      if (loaded.buffers.length === 0 || !this.voiceWanted.has(lang)) continue;
+      if (!this.voiceWanted.has(lang)) continue;
+      if (loaded.buffers.length === 0) {
+        if (skipped) this.voiceBudgetSkipped.add(key);
+        continue;
+      }
       this.voiceLines.set(key, loaded);
       this.voiceBytes += loaded.bytes;
     }
@@ -541,11 +591,15 @@ export class BattleAudio {
    */
   setVoiceLanguages(langs: readonly string[]): void {
     this.voiceWanted = new Set(langs);
+    let freed = 0;
     for (const [key, loaded] of this.voiceLines) {
       if (this.voiceWanted.has(voiceLanguage(key))) continue;
       this.voiceLines.delete(key);
       this.voiceBytes -= loaded.bytes;
+      freed += loaded.bytes;
     }
+    // Room under the budget again: what it kept out may fit now.
+    if (freed > 0) this.voiceBudgetSkipped.clear();
     if (this.ctx) void this.queueVoiceDecode();
   }
 
