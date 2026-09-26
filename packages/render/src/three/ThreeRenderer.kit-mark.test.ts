@@ -121,7 +121,9 @@ function kitCalls(calls: readonly TriangleCall[], r: number, level: KitMarkLevel
   return calls.filter(([, pts]) => mine.includes(pts));
 }
 
-const steelCalls = (calls: readonly TriangleCall[]): number => calls.filter(([, , c]) => c === STEEL).length;
+/** Every kit call at either radius and any level: edge, steel and bars alike. */
+const anyKitCalls = (calls: readonly TriangleCall[]): number =>
+  [7, 11].reduce((n, r) => n + ([1, 2, 3] as const).reduce((m, l) => m + kitCalls(calls, r, l).length, 0), 0);
 
 describe('the kit mark on the map (WP-S3g plan 2)', () => {
   it("draws a level-2 dozer's plate, steel and two bars, in that order and those colours", () => {
@@ -156,7 +158,7 @@ describe('the kit mark on the map (WP-S3g plan 2)', () => {
     for (const kit of kits) {
       const { priv, triangle } = setUp(kit, [{ type: 'dozer', side: 0 }]);
       priv.updateOverlays(1);
-      expect(steelCalls(triangle.mock.calls as TriangleCall[]), JSON.stringify(kit)).toBe(0);
+      expect(anyKitCalls(triangle.mock.calls as TriangleCall[]), JSON.stringify(kit)).toBe(0);
     }
   });
 
@@ -169,19 +171,19 @@ describe('the kit mark on the map (WP-S3g plan 2)', () => {
     // Precondition, asserted: both units reached the pass -- two HP-bar
     // backgrounds, told from the full-health fill (same span) by alpha 0.8.
     expect(rect.mock.calls.filter((c) => c[1] === -12 && c[3] === 12 && c[6] === 0.8)).toHaveLength(2);
-    expect(steelCalls(triangle.mock.calls as TriangleCall[])).toBe(0);
+    expect(anyKitCalls(triangle.mock.calls as TriangleCall[])).toBe(0);
   });
 
   it('hides with the kit-mark layer and nothing else, and comes back', () => {
     const { renderer, priv, triangle, rect } = setUp({ dozer_d9: 1 }, [{ type: 'dozer', side: 0 }]);
     expect(renderer.setDebugLayerVisible('kit-mark', false)).toBe(1);
     priv.updateOverlays(1);
-    expect(steelCalls(triangle.mock.calls as TriangleCall[])).toBe(0);
+    expect(anyKitCalls(triangle.mock.calls as TriangleCall[])).toBe(0);
     expect(rect).toHaveBeenCalled(); // the HP bar shares the batch and still draws
     expect(renderer.setDebugLayerVisible('kit-mark', true)).toBe(1);
     triangle.mockClear();
     priv.updateOverlays(1);
-    expect(steelCalls(triangle.mock.calls as TriangleCall[])).toBe(1);
+    expect(kitCalls(triangle.mock.calls as TriangleCall[], 11, 1)).toHaveLength(3);
   });
 
   it('gives a veteran both registers: the gold chevron and the steel plate', () => {
@@ -197,6 +199,10 @@ describe('the kit mark on the map (WP-S3g plan 2)', () => {
 
   it('resolves a type registered after the renderer was built', () => {
     const { sim, renderer, priv, triangle } = setUp({ dozer_d9: 1, at_team: 2 }, [{ type: 'dozer', side: 0 }]);
+    // One pass first, so the table is already built at two types when the
+    // third arrives: it has to REBUILD on the count changing, not merely
+    // build lazily once.
+    priv.updateOverlays(1);
     // A real id (closed tables), soft like the rifles, registered late.
     const late = sim.addUnitType({ ...RIFLES, id: 'at_team' });
     sim.spawn(late, 0, fx.from(9.5), fx.from(9.5));

@@ -47,7 +47,7 @@ export const KIT_MARK = Object.freeze({
   /** One pixel over the HP bar, whose top edge is r + 10 above the anchor. */
   bottomAboveR: 11,
   bevelUpPx: 3,
-  /** `mark.ts`'s chevron: 14 across for every 24 up (`CHEVRON_SWEEP`, `kit-sign.ts`). */
+  /** `packages/app/src/ui/mark.ts`'s chevron: 14 across for every 24 up (`CHEVRON_SWEEP`, `kit-sign.ts`). */
   bevelSweep: 14 / 24,
   outlinePx: 1,
   barWidthPx: 4,
@@ -184,12 +184,16 @@ export function kitLevelsByType(
   return out;
 }
 
-const cache = new Map<string, KitMarkTriangles>();
+/** Keyed `r * 4 + level`, a number, so a lookup allocates nothing: this is
+ *  called per own kitted unit per frame. r is the zoom-1 overlay radius
+ *  (`unitOverlayRadiusPx`, an integer), and level is 1-3, so no two pairs
+ *  share a key. */
+const cache = new Map<number, KitMarkTriangles>();
 
 /** The mark for a unit of overlay radius `r` at kit `level`, built once per
  *  (r, level) and returned as the same frozen object on every later call. */
 export function kitMarkTriangles(r: number, level: KitMarkLevel): KitMarkTriangles {
-  const key = `${r}:${level}`;
+  const key = r * 4 + level;
   const hit = cache.get(key);
   if (hit) return hit;
   const built: KitMarkTriangles = Object.freeze({
