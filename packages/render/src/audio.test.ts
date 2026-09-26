@@ -5,7 +5,18 @@
 // is only ever built from inside one of them.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BattleAudio, busGain, decodeOrder, musicVolume, uiSetGain, type AudioSet } from './audio';
+import {
+  BattleAudio,
+  busGain,
+  decodeOrder,
+  musicVolume,
+  RADIO_BAND_HZ,
+  uiSetGain,
+  VOICE_DECODE_BUDGET_BYTES,
+  type AudioManifest,
+  type AudioSet,
+  type VoiceVariant,
+} from './audio';
 
 describe('audio gains', () => {
   it('music is the manifest gain times the track gain times the user master and music', () => {
@@ -18,52 +29,135 @@ describe('audio gains', () => {
     expect(musicVolume(0.9, -1, { master: 1, music: 1, sfx: 1 })).toBe(0);
   });
   it('the master bus carries the manifest master times the user master; the sfx bus the user sfx', () => {
-    expect(busGain(0.9, { master: 0.5, music: 1, sfx: 0.25 })).toEqual({ master: 0.45, sfx: 0.25 });
+    expect(busGain(0.9, { master: 0.5, music: 1, sfx: 0.25 })).toEqual({ master: 0.45, sfx: 0.25, voice: 1 });
   });
 });
 
+/** One AudioParam, recording every automation call as [method, value, time]. */
+interface FakeParam {
+  value: number;
+  readonly events: [string, number, number][];
+  setValueAtTime(v: number, t: number): void;
+  linearRampToValueAtTime(v: number, t: number): void;
+  exponentialRampToValueAtTime(v: number, t: number): void;
+  cancelScheduledValues(t: number): void;
+}
+function param(value: number): FakeParam {
+  const events: [string, number, number][] = [];
+  return {
+    value,
+    events,
+    setValueAtTime: (v, t) => void events.push(['set', v, t]),
+    linearRampToValueAtTime: (v, t) => void events.push(['linear', v, t]),
+    exponentialRampToValueAtTime: (v, t) => void events.push(['exp', v, t]),
+    cancelScheduledValues: (t) => void events.push(['cancel', 0, t]),
+  };
+}
+/** Every node remembers the ONE node it feeds, so a test can walk a chain. */
+class FakeNode {
+  to: unknown = null;
+  connect<T>(n: T): T {
+    this.to = n;
+    return n;
+  }
+  disconnect(): void {
+    this.to = null;
+  }
+}
+class FakeGain extends FakeNode {
+  readonly gain = param(1);
+}
+class FakeFilter extends FakeNode {
+  type = '';
+  readonly frequency = param(350);
+  readonly Q = param(1);
+}
+class FakePanner extends FakeNode {
+  readonly pan = param(0);
+}
+class FakeSource extends FakeNode {
+  buffer: unknown = null;
+  readonly playbackRate = param(1);
+  onended: (() => void) | null = null;
+  stoppedAt: number | null = null;
+  start(): void {}
+  stop(t = 0): void {
+    this.stoppedAt = t;
+  }
+}
+class FakeOscillator extends FakeSource {
+  type = '';
+  readonly frequency = param(0);
+  constructor(private readonly stops: number[]) {
+    super();
+  }
+  override stop(t = 0): void {
+    super.stop(t);
+    this.stops.push(t);
+  }
+}
+interface FakeBuffer {
+  duration: number;
+  length: number;
+  numberOfChannels: number;
+}
+const LINE_BUFFER: FakeBuffer = { duration: 1.2, length: 57_600, numberOfChannels: 1 };
 /**
  * A recording stand-in for the WebAudio context.
  *
- * The seam is `createOscillator`: with no manifest registered there are no
- * decoded buffers, so `playUi` takes its synth fallback and every cue it
- * plays is one or two oscillators. Counting them is the only attach-free
- * observation this class offers -- `muted` is private, the gain nodes are
- * driven by the volume sliders and never by the mute flag, and a cue that
- * was suppressed and a cue that was played are otherwise identical from
- * outside.
+ * The seam for the cue tests is `createOscillator`: with no manifest
+ * registered there are no decoded buffers, so `playUi` takes its synth
+ * fallback and every cue it plays is one or two oscillators. Counting them is
+ * the only attach-free observation this class offers -- `muted` is private,
+ * the gain nodes are driven by the volume sliders and never by the mute flag,
+ * and a cue that was suppressed and a cue that was played are otherwise
+ * identical from outside. The graph tests walk `to` from node to node.
  */
 class FakeContext {
   static made: FakeContext[] = [];
-  readonly oscillators: unknown[] = [];
-  readonly sources: unknown[] = [];
+  /** What the next `decodeAudioData` resolves to. */
+  static nextBuffer: FakeBuffer = { ...LINE_BUFFER };
+  readonly oscillators: FakeOscillator[] = [];
+  readonly sources: FakeSource[] = [];
+  readonly gains: FakeGain[] = [];
+  readonly filters: FakeFilter[] = [];
   /** Every oscillator's `stop(t)` time, in context seconds. */
   readonly stops: number[] = [];
   state = 'running';
   currentTime = 0;
-  destination = {};
+  sampleRate = 48_000;
+  destination = new FakeNode();
   constructor() {
     FakeContext.made.push(this);
   }
-  createGain(): unknown {
-    return { gain: { value: 0, setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} }, connect: (n: unknown) => n };
+  createGain(): FakeGain {
+    const g = new FakeGain();
+    this.gains.push(g);
+    return g;
   }
-  createOscillator(): unknown {
-    const stops = this.stops;
-    const o = {
-      type: '',
-      frequency: { value: 0, setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
-      connect: (n: unknown) => n,
-      start: () => {},
-      stop: (t: number) => void stops.push(t),
-    };
+  createBiquadFilter(): FakeFilter {
+    const f = new FakeFilter();
+    this.filters.push(f);
+    return f;
+  }
+  createStereoPanner(): FakePanner {
+    return new FakePanner();
+  }
+  createOscillator(): FakeOscillator {
+    const o = new FakeOscillator(this.stops);
     this.oscillators.push(o);
     return o;
   }
-  createBufferSource(): unknown {
-    const s = { buffer: null, connect: (n: unknown) => n, start: () => {} };
+  createBufferSource(): FakeSource {
+    const s = new FakeSource();
     this.sources.push(s);
     return s;
+  }
+  createBuffer(_channels: number, n: number): { getChannelData(): Float32Array } {
+    return { getChannelData: () => new Float32Array(n) };
+  }
+  decodeAudioData(): Promise<FakeBuffer> {
+    return Promise.resolve({ ...FakeContext.nextBuffer });
   }
   resume(): Promise<void> {
     return Promise.resolve();
@@ -72,23 +166,61 @@ class FakeContext {
 
 const realAudioContext = globalThis.AudioContext;
 
-/** An attached `BattleAudio` whose context is the recorder above. `attach()`
- *  only builds the context from inside its own gesture listeners, so the
- *  keydown is what brings it into being. */
-function attached(): { audio: BattleAudio; ctx: FakeContext } {
+/** An attached `BattleAudio` whose context is the recorder above; `setup` runs
+ *  before `attach()`, which only builds the context inside its own gesture
+ *  listeners, so the keydown is what brings it into being. */
+function attachedWith(setup: (a: BattleAudio) => void): { audio: BattleAudio; ctx: FakeContext } {
   FakeContext.made.length = 0;
   globalThis.AudioContext = FakeContext as unknown as typeof AudioContext;
   const audio = new BattleAudio();
+  setup(audio);
   audio.attach();
   window.dispatchEvent(new KeyboardEvent('keydown'));
   const ctx = FakeContext.made[0];
   if (!ctx) throw new Error('attach() built no AudioContext');
   return { audio, ctx };
 }
+const attached = (): { audio: BattleAudio; ctx: FakeContext } => attachedWith(() => {});
+
+/** Every URL `fetch` was asked for, in order; every answer is four bytes. */
+function stubFetch(): string[] {
+  const fetched: string[] = [];
+  vi.stubGlobal('fetch', async (url: string) => {
+    fetched.push(url);
+    return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) };
+  });
+  return fetched;
+}
 
 afterEach(() => {
   globalThis.AudioContext = realAudioContext;
+  vi.unstubAllGlobals();
+  FakeContext.nextBuffer = { ...LINE_BUFFER };
 });
+
+const V = (file: string, en: string): VoiceVariant => ({
+  file, license: 'LicenseRef-owned', source: 'test', generator: 'test', text: 't', translit: 't', en,
+});
+/** A manifest with one ui set, one battle set and five voice keys: three
+ *  Hebrew lines, one declared-empty Hebrew key, one Arabic line. */
+const MANIFEST: AudioManifest = {
+  master_gain: 1,
+  sets: {
+    tank_gun: { event: 'fire', weapon_classes: ['apfsds'], variants: [{ file: 'battle/tank_gun_01.ogg' }] },
+    ui_alert: { event: 'ui', variants: [{ file: 'ui/alert_01.ogg' }] },
+  },
+  voices: {
+    gain: 0.8,
+    languages: { kdf: 'he', sarim: 'ar' },
+    lines: {
+      'he.infantry.move': { variants: [V('voice/he/infantry/move_01a.ogg', 'moving')] },
+      'he.infantry.death': { variants: [V('voice/he/infantry/death_01a.ogg', 'we are hit')] },
+      'he.common.ack': { variants: [V('voice/he/common/ack_01a.ogg', 'copy')] },
+      'he.crew.death': { variants: [] },
+      'ar.infantry.death': { variants: [V('voice/ar/infantry/death_01a.ogg', 'we are hit')] },
+    },
+  },
+};
 
 describe('playUi', () => {
   it('is on the public surface and is safe before attach()', () => {
@@ -218,5 +350,87 @@ describe('decodeOrder', () => {
   });
   it('reads an absent manifest section as nothing to decode', () => {
     expect(decodeOrder(undefined)).toEqual([]);
+  });
+});
+
+describe('the voice bus (WP-AU1 §7, N11, N13, R-11)', () => {
+  it('busGain carries the Voices slider, and gains without one read it as 1', () => {
+    expect(busGain(0.9, { master: 0.5, music: 1, sfx: 0.25, voice: 0.4 })).toEqual({ master: 0.45, sfx: 0.25, voice: 0.4 });
+    expect(busGain(0.9, { master: 1, music: 1, sfx: 1 })).toEqual({ master: 0.9, sfx: 1, voice: 1 });
+    expect(busGain(1, { master: 1, music: 1, sfx: 1, voice: 7 }).voice).toBe(1);
+  });
+
+  it('attach builds master, sfx, the sfx duck and the voice bus, and the radio band feeds the voice bus', () => {
+    const { ctx } = attached();
+    const [master, sfx, sfxDuck, voice] = ctx.gains;
+    if (!master || !sfx || !sfxDuck || !voice) throw new Error('attach() built fewer than four gains');
+    expect(master.to).toBe(ctx.destination);
+    expect(sfx.to).toBe(sfxDuck);
+    expect(sfxDuck.to).toBe(master);
+    expect(voice.to).toBe(master);
+    const [hp, lp] = ctx.filters;
+    if (!hp || !lp) throw new Error('attach() built no radio band');
+    expect([hp.type, hp.frequency.value, hp.to]).toEqual(['highpass', RADIO_BAND_HZ.low, lp]);
+    expect([lp.type, lp.frequency.value, lp.to]).toEqual(['lowpass', RADIO_BAND_HZ.high, voice]);
+  });
+
+  it('the Voices slider drives the voice bus live, and leaves sfx alone', () => {
+    const { audio, ctx } = attached();
+    audio.setGains({ master: 1, music: 1, sfx: 0.5, voice: 0.25 });
+    expect(ctx.gains[3]?.gain.value).toBe(0.25);
+    expect(ctx.gains[1]?.gain.value).toBe(0.5);
+  });
+});
+
+describe('voice decoding (N16, spec §7 decode order)', () => {
+  it('fetches nothing before the first gesture, whatever the roster says', () => {
+    const fetched = stubFetch();
+    const a = new BattleAudio();
+    a.useManifest(MANIFEST, '/a/');
+    a.setVoiceLanguages(['he', 'ar']);
+    expect(fetched).toEqual([]);
+    expect(a.voiceStats()).toMatchObject({ languages: ['ar', 'he'], keys: 0, bytes: 0 });
+  });
+
+  it('decodes ui, then the roster’s voices, then the battle library -- and no other language', async () => {
+    const fetched = stubFetch();
+    attachedWith((a) => {
+      a.useManifest(MANIFEST, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(fetched).toHaveLength(5));
+    expect(fetched).toEqual([
+      '/a/ui/alert_01.ogg',
+      '/a/voice/he/infantry/move_01a.ogg',
+      '/a/voice/he/infantry/death_01a.ogg',
+      '/a/voice/he/common/ack_01a.ogg',
+      '/a/battle/tank_gun_01.ogg',
+    ]);
+  });
+
+  it('a language that joins the roster later decodes then; one that leaves is freed', async () => {
+    const fetched = stubFetch();
+    const { audio } = attachedWith((a) => {
+      a.useManifest(MANIFEST, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(audio.voiceStats().keys).toBe(3));
+    audio.setVoiceLanguages(['ar', 'he']);
+    await vi.waitFor(() => expect(audio.voiceStats().keys).toBe(4));
+    expect(fetched.filter((u) => u.includes('/voice/ar/'))).toEqual(['/a/voice/ar/infantry/death_01a.ogg']);
+    audio.setVoiceLanguages(['ar']);
+    expect(audio.voiceStats()).toMatchObject({ languages: ['ar'], keys: 1, bytes: LINE_BUFFER.length * 4 });
+  });
+
+  it('stops at 16 MB of decoded PCM and says so, rather than growing without bound', async () => {
+    stubFetch();
+    FakeContext.nextBuffer = { duration: 50, length: 48_000 * 50, numberOfChannels: 1 }; // 9.6 MB decoded
+    const { audio } = attachedWith((a) => {
+      a.useManifest(MANIFEST, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await vi.waitFor(() => expect(audio.voiceStats().overBudget).toBe(true));
+    expect(audio.voiceStats().keys).toBe(1);
+    expect(audio.voiceStats().bytes).toBeLessThanOrEqual(VOICE_DECODE_BUDGET_BYTES);
   });
 });
