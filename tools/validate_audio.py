@@ -21,6 +21,11 @@ Checks (all fail the build):
                   exists/format checks as a clip, with its own size ceiling.
                   A one-shot has no business over 512 KB; a looping track is
                   minutes long and streams, so it gets 8 MB.
+  6. VOICES    -- licence/source/generator/text/translit/en on every voice
+                  variant; ASCII voice/<lang>/<class>/<trigger>_<nn><take>.ogg|m4a
+                  paths filed under their own key; keys in a language some
+                  faction speaks; civilians silent. Duration and loudness
+                  (N9, N10) are measured by the asset plan's tool, not here.
 
 Empty variant lists are legal and expected: BattleAudio falls back to its
 procedural synth, so the game ships with sound from day one and real
@@ -29,6 +34,7 @@ recordings can land one file at a time.
 
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -61,20 +67,34 @@ MAX_MUSIC_BYTES = 8 * 1024 * 1024  # a looping track streams; it is never decode
 MAX_GAIN = 1.5
 MAX_JITTER = 0.5
 
+UNIT_SCHEMA = os.path.join(ROOT, "data", "schemas", "unit.schema.json")
+# D9 (WP-AU1 R-7): owned or commissioned voice is neither CC0 nor CC-BY. It is
+# allowed HERE and nowhere else, and its `source` must name the release or
+# session record -- or, for generated speech, the plan and the date (D5).
+VOICE_LICENSES = dict(ALLOWED_LICENSES, **{"LicenseRef-owned": False})
+VOICE_KEY = re.compile(r"^([a-z]{2})\.(infantry|crew|engineer|air|common)\.([a-z_]+)$")
+VOICE_PATH = re.compile(r"^voice/([a-z]{2})/([a-z]+)/([a-z_]+)_(\d{2})([a-z])\.(ogg|m4a)$")
+VOICE_TEXT_FIELDS = ("generator", "text", "translit", "en")
 
-def check_licensed_file(entry, failures, max_bytes, roles=("file", "alt")):
+
+def unit_factions():
+    with open(UNIT_SCHEMA) as fh:
+        return set(json.load(fh)["properties"]["faction"]["enum"])
+
+
+def check_licensed_file(entry, failures, max_bytes, roles=("file", "alt"), licenses=ALLOWED_LICENSES, audio_dir=AUDIO_DIR):
     """The load-bearing checks, shared by battle clips and music tracks:
     redistribution-safe license (with credit where the license obliges it),
     a checkable source, and every declared encoding present, playable and
     under the ceiling. `entry` is one manifest object carrying `file`."""
     f = entry.get("file")
     lic = entry.get("license")
-    if lic not in ALLOWED_LICENSES:
+    if lic not in licenses:
         failures.append(
             f"{f}: license '{lic}' is not redistribution-safe "
-            f"(allowed: {', '.join(sorted(ALLOWED_LICENSES))})"
+            f"(allowed: {', '.join(sorted(licenses))})"
         )
-    elif ALLOWED_LICENSES[lic] and not entry.get("credit"):
+    elif licenses[lic] and not entry.get("credit"):
         failures.append(f"{f}: license {lic} requires a 'credit' line")
     if not entry.get("source"):
         failures.append(f"{f}: no 'source' URL -- provenance must be checkable")
@@ -86,12 +106,61 @@ def check_licensed_file(entry, failures, max_bytes, roles=("file", "alt")):
         ext = os.path.splitext(rel)[1].lower()
         if ext not in ALLOWED_EXT:
             failures.append(f"{rel}: extension {ext} not one of {sorted(ALLOWED_EXT)} ({role})")
-        path = os.path.join(AUDIO_DIR, rel)
+        path = os.path.join(audio_dir, rel)
         if not os.path.exists(path):
             failures.append(f"{rel}: declared in the manifest but missing from assets/audio/")
         elif os.path.getsize(path) > max_bytes:
             kb = os.path.getsize(path) // 1024
             failures.append(f"{rel}: {kb} KB exceeds the {max_bytes // 1024} KB ceiling")
+
+
+def check_voices(voices, failures, factions, audio_dir=AUDIO_DIR):
+    """The `voices` section (WP-AU1 §6). Returns every file it declares, for
+    the undeclared-file sweep. Key COMPLETENESS is a vitest (lines.test.ts,
+    R-6): the vocabulary lives in TypeScript, and this file does not copy it."""
+    declared = set()
+    if voices is None:
+        return declared
+    gain = voices.get("gain", 1.0)
+    if not 0 <= gain <= 1:
+        failures.append(f"voices: gain {gain} outside 0..1 (a voice is unplaced, like a UI cue)")
+    langs = voices.get("languages", {})
+    for faction, lang in langs.items():
+        if faction == "civilian":
+            failures.append("voices: civilians never speak (D10) -- 'civilian' must not map to a language")
+        elif faction not in factions:
+            failures.append(f"voices: language for unknown faction '{faction}'")
+        if not re.fullmatch(r"[a-z]{2}", str(lang)):
+            failures.append(f"voices: faction '{faction}' maps to '{lang}', not a two-letter language")
+    spoken = set(langs.values())
+    for key, line in voices.get("lines", {}).items():
+        m = VOICE_KEY.match(key)
+        if not m:
+            failures.append(f"voices: key '{key}' is not <lang>.<class>.<trigger>")
+            continue
+        if m.group(1) not in spoken:
+            failures.append(f"voices: key '{key}' is in a language no faction speaks")
+        for v in line.get("variants", []):
+            f = v.get("file")
+            if not f:
+                failures.append(f"voices '{key}': variant with no file")
+                continue
+            for field in VOICE_TEXT_FIELDS:
+                if not v.get(field):
+                    failures.append(f"{f}: no '{field}' -- a voice line carries its script, transliteration, meaning and generator")
+            for role in ("file", "alt"):
+                rel = v.get(role)
+                if rel is None:
+                    continue
+                pm = VOICE_PATH.match(rel)
+                if not pm:
+                    failures.append(f"{rel}: not voice/<lang>/<class>/<trigger>_<nn><take>.ogg|m4a in ASCII [a-z0-9_]")
+                    continue
+                if pm.group(1, 2, 3) != m.group(1, 2, 3):
+                    failures.append(f"{rel}: filed under a different key than '{key}'")
+                declared.add(rel)
+            check_licensed_file(v, failures, MAX_BYTES, licenses=VOICE_LICENSES, audio_dir=audio_dir)
+    return declared
 
 
 def main():
@@ -150,6 +219,14 @@ def main():
                 continue
             check_licensed_file(t, failures, MAX_MUSIC_BYTES)
 
+    # Voices: WP-AU1 §6. Key completeness is a vitest (lines.test.ts, R-6);
+    # this checks each key's shape and each variant's rights.
+    voices = man.get("voices")
+    declared_voice = check_voices(voices, failures, unit_factions())
+    total_voice_variants = sum(
+        len(line.get("variants", [])) for line in (voices or {}).get("lines", {}).values()
+    )
+
     # Files on disk that nothing references are dead weight nobody will notice.
     if os.path.isdir(AUDIO_DIR):
         declared = {
@@ -165,6 +242,7 @@ def main():
             for rel in (t.get("file"), t.get("alt"))
             if rel
         }
+        declared |= declared_voice
         for dirpath, _, files in os.walk(AUDIO_DIR):
             for fn in files:
                 if os.path.splitext(fn)[1].lower() not in ALLOWED_EXT:
@@ -180,10 +258,11 @@ def main():
         return 1
 
     music_note = f", {total_tracks} music track(s)" if total_tracks else ""
+    voice_note = f", {total_voice_variants} voice variant(s)" if total_voice_variants else ""
     if total_variants == 0:
-        print(f"audio gate passed: manifest valid, no recordings yet (procedural synth in use){music_note}")
+        print(f"audio gate passed: manifest valid, no recordings yet (procedural synth in use){music_note}{voice_note}")
     else:
-        print(f"audio gate passed: {total_variants} clip(s){music_note}, all licensed for redistribution")
+        print(f"audio gate passed: {total_variants} clip(s){music_note}{voice_note}, all licensed for redistribution")
     return 0
 
 

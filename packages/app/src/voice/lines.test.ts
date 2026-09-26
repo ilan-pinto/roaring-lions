@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { units } from '@lions/data';
+import { audioManifest, units } from '@lions/data';
 import {
   ORDER_VERBS,
   VOICE_CLASSES,
@@ -107,5 +107,24 @@ describe('rosterLanguages (N16)', () => {
     expect(rosterLanguages(['inf_squad', 'civilians'], factionOf, LANGS)).toEqual(['he']);
     expect(rosterLanguages(['sarim_rifles', 'inf_squad', 'technical'], factionOf, LANGS)).toEqual(['ar', 'he']);
     expect(rosterLanguages(['nope'], factionOf, LANGS)).toEqual([]);
+  });
+});
+
+describe('data/audio.json declares the director’s whole vocabulary (spec §6, R-6)', () => {
+  const voices = (audioManifest as {
+    voices?: { gain?: number; languages?: Record<string, string>; lines?: Record<string, unknown> };
+  }).voices;
+
+  it('maps the four fighting factions and leaves civilians silent (D10)', () => {
+    expect(voices?.languages).toEqual({ kdf: 'he', ashwar: 'ar', sarim: 'ar', rif: 'ar' });
+  });
+
+  it('declares every key the director can ask for, and nothing else', () => {
+    const langs = Object.values(voices?.languages ?? {});
+    expect(Object.keys(voices?.lines ?? {}).sort()).toEqual(allLineKeys(langs).sort());
+  });
+
+  it('carries N11’s line gain', () => {
+    expect(voices?.gain).toBe(0.8);
   });
 });
