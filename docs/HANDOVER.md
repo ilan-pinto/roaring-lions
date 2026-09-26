@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-26 (repo PUBLIC since 25 Sep, CI works again; garage uplift plan 1 #244 and ground plan 1 #249 LANDED) · main: 2eadc0b0 (v0.84.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
+Updated: 2026-09-26 (repo PUBLIC since 25 Sep, CI works again; garage uplift plan 1 #244 and ground plan 1 #249 LANDED) · main: 165eb966 (v0.84.0 + re-bless) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -9,7 +9,7 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
 | A (packages/app) | #243 garage comparison + Shift+Tab minor · WP-S3g plan 2: kit tier mark on the map · S3e #178 Tasks 11–12 wait for G1 | `feat/garage-tier-mark` | S3g spec approved (#239, D1–D9 accepted); plan 1 landed (#244 → 115377b1) | plan 2 (map mark) being written | land S3g plan 2 before A2 plan 2 touches `ThreeRenderer.ts`; triage #243; S3e Tasks 11–12 after G1 |
-| B (render · art · data) | A3.1 #179 waits for G1 · A3.2 #185 tunnel visuals #227 · #250 ATGM missile animation (after A2 plan 2) · WP-AU1 #245/#246 unit voices | — | voices: spec + engine plan drafting; D2 military calls only, D5 samples are ElevenLabs output pending a commercial licence | A2 ground plan 1 LANDED (#249 → 2eadc0b0); A3.1 idle until G1 | A3.1 after G1 (2 Oct); A2 plan 2 after S3g plan 2 clears `ThreeRenderer.ts`; #250 after A2 plan 2; any Meshy call is announced with a credit estimate first |
+| B (render · art · data) | A3.1 #179 waits for G1 · A3.2 #185 tunnel visuals #227 · #250 ATGM missile animation (after A2 plan 2) · WP-AU1 #245/#246 unit voices | — | voices: spec LANDED (#246, 25 Sep); engine plan drafting; D2 military calls only, D5 samples are ElevenLabs output pending a commercial licence | A2 ground plan 1 LANDED (#249 → 2eadc0b0); A3.1 idle until G1 | A3.1 after G1 (2 Oct); A2 plan 2 after S3g plan 2 clears `ThreeRenderer.ts`; #250 after A2 plan 2; any Meshy call is announced with a credit estimate first |
 | C (packages/sim) | #247 manpad_team treated as wheeled (sim/data fix, filed 26 Sep) | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
@@ -51,16 +51,17 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 - 2026-09-26 · releases v0.82.0 → v0.84.0 cut across the 24–26 Sep landings below
 - 2026-09-26 · **#249 → 2eadc0b0 ground plan 1 (WP-A2)** · splat terrain, the #226 road, a decal pool, and the new gated `aftermath` scenario · visual baseline re-blessed from CI numbers at 165eb966: quiet 12222, open-ground 502, vehicle 4726, relief 704, aftermath new
-- 2026-09-26 · **#248 asset-provenance fix** · TNK/JEEP sprites re-rendered from our own GLBs; Namer CC-BY credit added; Kolos FBX removed; history kept, by the lead's decision · closes the pre-public audit's one finding
-- 2026-09-26 · **#244 → 115377b1 garage uplift plan 1 (WP-S3g, app lane)** · an accordion board, kit pips, a Maxed stamp, a stat panel, and purchase events with sound; one Enter press buys one tier · decisions: L1 the accordion; L2 a re-locked unit's tiers kept but dormant
+- 2026-09-25 · **#248 asset-provenance fix** · TNK/JEEP sprites re-rendered from our own GLBs; Namer CC-BY credit added; Kolos FBX removed; history kept, by the lead's decision · closes the pre-public audit's one finding
+- 2026-09-25 · **#246 the unit voices spec (WP-AU1, #245)** · KDF in Hebrew, others in Arabic, military calls only; samples ElevenLabs, uncommitted until a commercial licence is confirmed
+- 2026-09-25 · **#244 → 115377b1 garage uplift plan 1 (WP-S3g, app lane)** · an accordion board, kit pips, a Maxed stamp, a stat panel, and purchase events with sound; one Enter press buys one tier · decisions: L1 the accordion; L2 a re-locked unit's tiers kept but dormant
 - 2026-09-25 · **#242 Worker observability** · logs and traces, `redact_query_string` false, as the lead supplied
 - 2026-09-25 · **#241 the ground spec (WP-A2)** · the lead approved its numbers and D8
-- 2026-09-25 · **#240 the garage filter fix** (closes #237)
-- 2026-09-25 · **#239 the garage uplift spec (WP-S3g)** · merging it accepted D1–D9
-- 2026-09-25 · **#236 win screen credits** (closes #234) · the win screen shows credits paid and the running total
 - 2026-09-25 · the lead made the repo PUBLIC; GitHub Actions works again (it had been blocked by billing on the private repo from 24 Sep ~20:34 UTC)
 - 2026-09-25 · a pre-public history audit: clean for secrets, sensitive files, personal data and large files; found unverified-licence art, fixed at HEAD by #248
 - 2026-09-25 · the repo's git `user.email` is now `pint12@gmail.com` (repo-level config)
+- 2026-09-24 · **#240 the garage filter fix** (closes #237)
+- 2026-09-24 · **#239 the garage uplift spec (WP-S3g)** · merging it accepted D1–D9
+- 2026-09-24 · **#236 win screen credits** (closes #234) · the win screen shows credits paid and the running total
 - 2026-09-24 · **S3e scene host (#178 stays open for Tasks 11–12)** · PR #232 → 193f8144 (merge commit: the branch carries two main merges) · a live Beit Sahwan diorama behind the menu through a thin door (`@lions/render/three-front`) over a stock `ThreeRenderer`; a plate `menu_host_plate.jpg` from `pnpm plate:host` for Pixi, reduced motion, no WebGL2, failure or a 15 s deadline; the menu's context released on leave · gate: `menu-scene-host` path/contribution/register votes (+~42 s locally) · `ui:routes` three leaves with no WebGL/DRACO/Worker warning · 10 tasks + final opus review + one fix wave · CI `visual` GREEN on Linux on the first run, no bless · spec D-52…D-64 · memory budgets checked only through the lost-context proxy
 - 2026-09-24 · **#233 (closes #229)** → 130a56c9 · the dock tooltip clears the whole dock (`computeTipPosition`); a readable "N credits" chip in the dock header; ▣ on every tile cost; "logistics"/"intel" words on the strip · `ui:routes` asserts the tip covers no tile · visual GREEN, no bless
 - 2026-09-24 · **#231 (closes #230)** → 89306e89 · a Share button on `/stats` makes `<origin>/?tester=<name>`, with one builder shared by module and page and a guard against keepNames' `__name`
@@ -152,8 +153,8 @@ HANDOFF — Roaring Lions · 2026-09-26 · from session "docs ledger update"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
       M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027 · M5 Steam F2P (after G7).
 PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207, #218, #223, #226, #227, #236–#250)
-STATUS: repo is PUBLIC again (25 Sep), CI works · main 2eadc0b0 (v0.84.0) · landed 25–26 Sep: #236 win credits, #239 garage uplift spec (D1–D9), #240 garage filter fix, #241 ground spec (D8), #242 Worker observability, #244 garage uplift plan 1, #248 asset-provenance fix, #249 ground plan 1 (WP-A2, rebless 165eb966)
-        IN FLIGHT: WP-S3g plan 2 (kit tier mark on the map) in `feat/garage-tier-mark` · WP-AU1 unit voices (#245 spec + #246 engine plan) drafting
+STATUS: repo is PUBLIC again (25 Sep), CI works · main 165eb966 (v0.84.0 + re-bless) · landed 24–26 Sep: #236 win credits, #239 garage uplift spec (D1–D9), #240 garage filter fix, #241 ground spec (D8), #242 Worker observability, #244 garage uplift plan 1, #248 asset-provenance fix, #249 ground plan 1 (WP-A2, rebless 165eb966)
+        IN FLIGHT: WP-S3g plan 2 (kit tier mark on the map) in `feat/garage-tier-mark` · WP-AU1 unit voices (#245; spec landed as #246) engine plan drafting
         merges: the LEAD merges
 DECISIONS THIS SESSION: none — ledger update only, facts as supplied by the controller
 NEXT STEP (exact):
