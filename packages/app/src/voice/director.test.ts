@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerIntent } from '../input/intents';
 import { cursorFor } from '../input/cursor';
-import { INITIAL_DIRECTOR, VOICE_TIMING, decideOrder, gestureVerb, type DirectorLook, type DirectorState, type Gesture } from './director';
+import {
+  INITIAL_DIRECTOR,
+  VOICE_TIMING,
+  decideDeaths,
+  decideOrder,
+  gestureVerb,
+  type DirectorLook,
+  type DirectorState,
+  type Gesture,
+} from './director';
 import type { OrderVerb, VoiceClass } from './lines';
+import type { SimEvent } from '@lions/sim';
 
 const LANGS = { kdf: 'he', ashwar: 'ar', sarim: 'ar', rif: 'ar' };
 const UNITS: Record<number, { faction: string; voice: VoiceClass } | undefined> = {
@@ -142,5 +152,103 @@ describe('the repeat window and the class cooldown (N2, N3, R-12, R-13)', () => 
     expect(Object.isFrozen(INITIAL_DIRECTOR.spoke)).toBe(true);
     expect(() => once(g([order(1)]))).not.toThrow();
     expect(INITIAL_DIRECTOR.run).toBeNull();
+  });
+});
+
+describe('death calls (N6, N7, D6, D10)', () => {
+  const DEATH_UNITS: Record<number, { faction: string; voice: VoiceClass } | undefined> = {
+    ...UNITS,
+    10: { faction: 'sarim', voice: 'crew' },
+    11: { faction: 'ashwar', voice: 'infantry' },
+    12: { faction: 'civilian', voice: 'infantry' },
+    13: { faction: 'ashwar', voice: 'infantry' },
+    14: { faction: 'ashwar', voice: 'infantry' },
+  };
+  const SIDE: Record<number, number> = { 10: 1, 11: 1, 12: 2, 13: 1, 14: 1 };
+  const POS: Record<number, { x: number; y: number } | undefined> = {
+    10: { x: 5, y: 5 }, 11: { x: 30, y: 0 }, 13: { x: 18, y: 0 }, 14: { x: 18.01, y: 0 },
+  };
+  const deathLook = (over: Partial<DirectorLook> = {}): DirectorLook => ({
+    unitOf: (id) => DEATH_UNITS[id] ?? null,
+    side: (id) => SIDE[id] ?? 0,
+    pos: (id) => POS[id] ?? { x: 0, y: 0 },
+    isVisible: () => true,
+    camera: () => ({ x: 0, y: 0 }),
+    ...over,
+  });
+  const destroyed = (entity: number): SimEvent => ({ kind: 'destroyed', tick: 1, entity, by: 99 });
+  const removed = (entity: number, side: number): SimEvent => ({ kind: 'removed', tick: 1, entity, side });
+  function deaths(lk: DirectorLook = deathLook()) {
+    let s: DirectorState = INITIAL_DIRECTOR;
+    return (ms: number, ...ids: number[]): [string, string | null][] => {
+      const d = decideDeaths(s, ids.map(destroyed), lk, LANGS, ms);
+      s = d.state;
+      return d.notes.map((n) => [n.why, n.cue?.key ?? null]);
+    };
+  }
+
+  it('a KDF death is a radio call from its class pool: unplaced, KDF priority', () => {
+    const d = decideDeaths(INITIAL_DIRECTOR, [destroyed(1)], deathLook(), LANGS, 0);
+    expect(d.notes).toHaveLength(1);
+    expect(d.notes[0]?.cue).toEqual({
+      key: 'he.infantry.death', lang: 'he', speaker: 'infantry', trigger: 'death', priority: 'kdf_death', at: null,
+    });
+  });
+
+  it('many KDF deaths in one tick are one call (N6)', () => {
+    const d = decideDeaths(INITIAL_DIRECTOR, [destroyed(1), destroyed(3), destroyed(5)], deathLook(), LANGS, 0);
+    expect(d.notes.filter((n) => n.cue !== null).map((n) => n.cue?.key)).toEqual(['he.infantry.death']);
+  });
+
+  it('4 s per class and 2.5 s across all KDF (N6)', () => {
+    const at = deaths();
+    expect(at(0, 1)).toEqual([['line', 'he.infantry.death']]);
+    expect(at(1000, 3)).toEqual([['silent:throttle', null]]); // global
+    expect(at(2600, 1)).toEqual([['silent:throttle', null]]); // infantry's own 4 s
+    expect(at(2600, 3)).toEqual([['line', 'he.crew.death']]);
+    expect(at(4000, 1)).toEqual([['silent:throttle', null]]); // global, from 2600
+    expect(at(5100, 1)).toEqual([['line', 'he.infantry.death']]);
+  });
+
+  it('a salvo whose first death is throttled still gets its one call from the next', () => {
+    const at = deaths();
+    expect(at(0, 1)).toEqual([['line', 'he.infantry.death']]);
+    expect(at(2600, 1, 3)).toEqual([['silent:throttle', null], ['line', 'he.crew.death']]);
+  });
+
+  it('an enemy death speaks Arabic, placed where it fell, at enemy priority (D6, R-14)', () => {
+    const d = decideDeaths(INITIAL_DIRECTOR, [destroyed(10)], deathLook(), LANGS, 0);
+    expect(d.notes[0]?.cue).toEqual({
+      key: 'ar.crew.death', lang: 'ar', speaker: 'crew', trigger: 'death', priority: 'enemy_death', at: { x: 5, y: 5 },
+    });
+  });
+
+  it('only when the player can see it, and within 18 tiles of the camera (N7)', () => {
+    expect(deaths(deathLook({ isVisible: () => false }))(0, 10)).toEqual([['silent:unseen', null]]);
+    expect(deaths()(0, 11)).toEqual([['silent:far', null]]);
+    expect(deaths()(0, 13)).toEqual([['line', 'ar.infantry.death']]); // exactly 18
+    expect(deaths()(0, 14)).toEqual([['silent:far', null]]);
+  });
+
+  it('one enemy call per 6 s (N7)', () => {
+    const at = deaths();
+    expect(at(0, 10)).toEqual([['line', 'ar.crew.death']]);
+    expect(at(5999, 10)).toEqual([['silent:throttle', null]]);
+    expect(at(VOICE_TIMING.enemyDeathGlobalMs, 10)).toEqual([['line', 'ar.crew.death']]);
+  });
+
+  it('a KDF death and an enemy death in one tick are two calls; the mixer arbitrates', () => {
+    const d = decideDeaths(INITIAL_DIRECTOR, [destroyed(10), destroyed(1)], deathLook(), LANGS, 0);
+    expect(d.notes.map((n) => n.cue?.priority)).toEqual(['enemy_death', 'kdf_death']);
+  });
+
+  it('civilians and removals are silent, and leave no note (D10: an abduction is not a death)', () => {
+    const d = decideDeaths(INITIAL_DIRECTOR, [destroyed(12), removed(1, 0)], deathLook(), LANGS, 0);
+    expect(d.notes).toEqual([]);
+  });
+
+  it('a death call is speech: it holds its class’s order cooldown too (R-12)', () => {
+    const d = decideDeaths(INITIAL_DIRECTOR, [destroyed(1)], deathLook(), LANGS, 0);
+    expect(decideOrder(d.state, g([order(2)]), look, LANGS, 500).why).toBe('ack:cooldown');
   });
 });

@@ -23,8 +23,10 @@
 import type { PlayerIntent } from '../input/intents';
 import { idsOf, winningVerb } from '../input/cursor';
 import type { VoicePriority } from '@lions/render';
+import type { SimEvent } from '@lions/sim';
 import {
   ackLineKey,
+  deathLineKey,
   languageOf,
   lineTriggerOf,
   orderLineKey,
@@ -76,8 +78,8 @@ export interface DirectorState {
   /** `${lang}.${class}` -> the wall-clock ms this class last spoke, ack or
    *  full line alike (a class's cooldown starts on any line it speaks). */
   readonly spoke: Readonly<Record<string, number>>;
-  /** Reserved for the death director (a later task): per-class and global
-   *  KDF death throttles. */
+  /** `decideDeaths`' own clocks: per-class and global KDF death throttles,
+   *  and the global enemy-death throttle. */
   readonly kdfDeathByClass: Readonly<Record<string, number>>;
   readonly kdfDeathAt: number;
   readonly enemyDeathAt: number;
@@ -267,4 +269,107 @@ export function decideOrder(
   };
   const state: DirectorState = { ...s, run, spoke: { ...s.spoke, [spokeKey]: nowMs } };
   return { state, cue, why, trigger: verb.verb };
+}
+
+/**
+ * The death director (WP-AU1 §5/§6, Task 8): one KDF radio call and one seen
+ * enemy call per tick, each throttled on its own clock.
+ *
+ * Walks `events` in order, looking only at `kind === 'destroyed'` -- a
+ * `removed` unit (captured/abducted, D10) and every non-death event produce
+ * no note at all, and neither does a `destroyed` entity with no known unit
+ * or whose faction has no mapped language (civilians). Everything else is
+ * "considered": a note is returned for it even when the outcome is silence,
+ * so a caller can tell "this death was seen but throttled" apart from "this
+ * death was never in the running."
+ *
+ * Side 0 (KDF) speaks unplaced (`at: null`) from its own class pool,
+ * `kdf_death` priority -- the player does not need a battlefield position
+ * for their own unit's death, only the radio call (N6). At most one KDF
+ * call is returned per `decideDeaths` invocation: once this tick has
+ * produced a KDF line, every later side-0 death is skipped with NO note
+ * (it was never considered) rather than a throttle note, which is reserved
+ * for a death that WAS considered and lost to the clock. A considered death
+ * is throttled if it is within `kdfDeathGlobalMs` of the last KDF call
+ * (any class) or within `kdfDeathClassMs` of its own class's last call.
+ * Speaking stamps `kdfDeathAt`, `kdfDeathByClass[cls]` and the shared
+ * `spoke[lang.cls]` clock `decideOrder` also reads (R-12: a death is speech
+ * like any other).
+ *
+ * Any other side speaks placed (`at: pos`), `enemy_death` priority, in the
+ * language of the faction that died (D6, R-14) -- this is combat information
+ * the player is allowed to hear, not a KDF report. Only one enemy call is
+ * returned per invocation, on the same "skip once spoken, no note" rule.
+ * A considered enemy death is silent, in this order: `silent:throttle` if
+ * within `enemyDeathGlobalMs` of the last enemy call (there is no per-class
+ * enemy throttle); `silent:unseen` if `look.isVisible` says the player's fog
+ * does not cover the tile; `silent:far` if it is (strictly) more than
+ * `enemyDeathTiles` from the camera (N7) -- exactly at the limit still
+ * speaks. Speaking stamps `enemyDeathAt` and `spoke[lang.cls]`.
+ */
+export function decideDeaths(
+  s: DirectorState,
+  events: readonly SimEvent[],
+  look: DirectorLook,
+  languages: Readonly<Record<string, string>>,
+  nowMs: number
+): { state: DirectorState; notes: { why: Why; cue: VoiceCue | null }[] } {
+  let state = s;
+  let kdfSpokenThisTick = false;
+  let enemySpokenThisTick = false;
+  const notes: { why: Why; cue: VoiceCue | null }[] = [];
+
+  for (const event of events) {
+    if (event.kind !== 'destroyed') continue;
+    const unit = look.unitOf(event.entity);
+    if (!unit) continue;
+    const lang = languageOf(unit.faction, languages);
+    if (lang === null) continue;
+
+    const cls = unit.voice;
+    const spokeKey = `${lang}.${cls}`;
+
+    if (look.side(event.entity) === 0) {
+      if (kdfSpokenThisTick) continue;
+      const throttled =
+        nowMs - s.kdfDeathAt < VOICE_TIMING.kdfDeathGlobalMs ||
+        nowMs - (s.kdfDeathByClass[cls] ?? Number.NEGATIVE_INFINITY) < VOICE_TIMING.kdfDeathClassMs;
+      if (throttled) {
+        notes.push({ why: 'silent:throttle', cue: null });
+        continue;
+      }
+      const cue: VoiceCue = { key: deathLineKey(lang, cls), lang, speaker: cls, trigger: 'death', priority: 'kdf_death', at: null };
+      state = {
+        ...state,
+        kdfDeathAt: nowMs,
+        kdfDeathByClass: { ...state.kdfDeathByClass, [cls]: nowMs },
+        spoke: { ...state.spoke, [spokeKey]: nowMs },
+      };
+      kdfSpokenThisTick = true;
+      notes.push({ why: 'line', cue });
+      continue;
+    }
+
+    if (enemySpokenThisTick) continue;
+    if (nowMs - s.enemyDeathAt < VOICE_TIMING.enemyDeathGlobalMs) {
+      notes.push({ why: 'silent:throttle', cue: null });
+      continue;
+    }
+    const pos = look.pos(event.entity);
+    if (!look.isVisible(pos.x, pos.y)) {
+      notes.push({ why: 'silent:unseen', cue: null });
+      continue;
+    }
+    const camera = look.camera();
+    if (Math.hypot(pos.x - camera.x, pos.y - camera.y) > VOICE_TIMING.enemyDeathTiles) {
+      notes.push({ why: 'silent:far', cue: null });
+      continue;
+    }
+    const cue: VoiceCue = { key: deathLineKey(lang, cls), lang, speaker: cls, trigger: 'death', priority: 'enemy_death', at: pos };
+    state = { ...state, enemyDeathAt: nowMs, spoke: { ...state.spoke, [spokeKey]: nowMs } };
+    enemySpokenThisTick = true;
+    notes.push({ why: 'line', cue });
+  }
+
+  return { state, notes };
 }
