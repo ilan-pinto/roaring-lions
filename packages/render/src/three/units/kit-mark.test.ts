@@ -2,12 +2,16 @@
 // table the lead approved at G-N; `KIT_MARK` is its code form, and the first
 // test compares them one for one so a drifted constant cannot pass as a
 // reasoned one.
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   KIT_MARK,
   KIT_COLOR_KEY,
   KIT_EDGE_COLOR_KEY,
   kitBarRects,
+  kitLevelsByType,
   kitMarkTriangles,
   kitMarkVertexCount,
   kitPlateOutline,
@@ -206,5 +210,31 @@ describe('kitMarkTriangles', () => {
     expect(kitMarkTriangles(7, 2)).toBe(kitMarkTriangles(7, 2));
     expect(Object.isFrozen(kitMarkTriangles(11, 3).bars)).toBe(true);
     expect(Object.isFrozen(kitMarkTriangles(11, 3).bars[0])).toBe(true);
+  });
+});
+
+describe('kitLevelsByType', () => {
+  it("resolves each sim type index to its type's level", () => {
+    expect([...kitLevelsByType(['inf_squad', 'mbt_lavi', 'militia_cell'], { inf_squad: 1, mbt_lavi: 3 })]).toEqual([1, 3, 0]);
+  });
+
+  it('is all zero with no option: a renderer built without one draws no mark', () => {
+    expect([...kitLevelsByType(['inf_squad', 'mbt_lavi'], undefined)]).toEqual([0, 0]);
+  });
+
+  it('draws nothing for a value that is not a level, rather than a wrong mark', () => {
+    expect([...kitLevelsByType(['a', 'b', 'c', 'd', 'e'], { a: 4, b: -1, c: 1.5, d: Number.NaN, e: 0 })]).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it("reads only the record's own keys, never an inherited one", () => {
+    const inherited = Object.create({ inf_squad: 2 }) as Record<string, number>;
+    expect([...kitLevelsByType(['inf_squad'], inherited)]).toEqual([0]);
+  });
+});
+
+describe('the Pixi backend', () => {
+  it('never reads unitKit: the mark is three-only, permanently (spec §3.4, R-8)', () => {
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../renderer.ts'), 'utf8');
+    expect(src).not.toContain('unitKit');
   });
 });

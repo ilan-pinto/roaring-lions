@@ -167,6 +167,23 @@ function place(points: readonly MarkPoint[], r: number): readonly MarkPoint[] {
   return Object.freeze(points.map(([x, y]) => Object.freeze([x - KIT_MARK.widthPx / 2, top + y] as const)));
 }
 
+/** `RendererOptions.unitKit` as one byte per sim type index, rebuilt by the
+ *  caller when the sim's type count changes. Own keys only, and only an
+ *  integer 1-3 is a level: anything else draws no mark, never a wrong one. */
+export function kitLevelsByType(
+  typeIds: readonly string[],
+  unitKit: Readonly<Record<string, number>> | undefined
+): Uint8Array {
+  const out = new Uint8Array(typeIds.length);
+  if (unitKit === undefined) return out;
+  typeIds.forEach((id, i) => {
+    if (!Object.prototype.hasOwnProperty.call(unitKit, id)) return;
+    const v = unitKit[id];
+    if (v === 1 || v === 2 || v === 3) out[i] = v;
+  });
+  return out;
+}
+
 const cache = new Map<string, KitMarkTriangles>();
 
 /** The mark for a unit of overlay radius `r` at kit `level`, built once per
