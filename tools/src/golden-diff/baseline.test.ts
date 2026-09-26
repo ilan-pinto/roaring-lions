@@ -671,7 +671,7 @@ describe('BASELINES layerChecks', () => {
         byLayer.set(check.layer, [...(byLayer.get(check.layer) ?? []), id]);
       }
     }
-    expect(byLayer.get('scatter')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
+    expect(byLayer.get('scatter')?.sort()).toEqual(['aftermath', 'open-ground', 'quiet', 'relief']);
     expect(byLayer.get('decor')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
     expect(byLayer.get('ground-albedo')?.sort()).toEqual(['open-ground', 'quiet', 'relief']);
     // Only two scenarios frame a building at all; `open-ground` and `relief`
@@ -687,6 +687,18 @@ describe('BASELINES layerChecks', () => {
     // out of the vignette's fall-off.
     expect(byLayer.get('vignette')?.sort()).toEqual(['quiet', 'relief']);
     expect(byLayer.get('skirt')?.sort()).toEqual(['quiet', 'relief']);
+    // Ground Task 9, and Task 17's `aftermath` joins both as a second map.
+    // The road is now witnessed on `quiet`'s cardinal outskirts crossroads
+    // AND `aftermath`'s diagonal qarn_hadid road. The macro field is
+    // witnessed only where the pure `buildMacroField` predicts mean |m| >= 0.2
+    // over the crop (F-18): quiet 0.253, open-ground 0.381 and aftermath
+    // 0.2130 (0.2645 before the fix wave's reframe) clear it, relief (0.181) does not and must not declare it -- see
+    // that scenario's own comment.
+    expect(byLayer.get('roads')?.sort()).toEqual(['aftermath', 'quiet']);
+    expect(byLayer.get('macro')?.sort()).toEqual(['aftermath', 'open-ground', 'quiet']);
+    // Task 17 (D4): the two decal pools draw nowhere else in the gate, so
+    // `aftermath` is their only witness.
+    expect(byLayer.get('decals')).toEqual(['aftermath']);
   });
 
   it('sets every floor strictly below the signal it was measured from, on both metrics', () => {
@@ -722,23 +734,45 @@ describe('BASELINES layerChecks', () => {
         // the layer erased rather than merely toggled.
         vignette: { px: 20583, mean: 2.192 },
         skirt: { px: 21455, mean: 0.8442 },
+        // Ground Task 9, 2026-09-25, 3 consecutive full-gate runs,
+        // bit-identical (`GROUND_T9` in `baseline.ts`). `macro`'s 6 px is
+        // sub-threshold, so its pixel floor is 0 and the magnitude carries it.
+        roads: { px: 187, mean: 0.468 },
+        macro: { px: 6, mean: 0.4798 },
       },
       'open-ground': {
         scatter: { px: 3615, mean: 1.6088 },
         decor: { px: 1025, mean: 0.646 },
         'ground-albedo': { px: 470, mean: 2.6616 },
+        // Ground Task 9, as above: 0 px, the whole contribution sub-threshold.
+        macro: { px: 0, mean: 0.8773 },
       },
       relief: {
         scatter: { px: 4344, mean: 0.4536 },
         decor: { px: 52587, mean: 4.7771 },
         'ground-albedo': { px: 8, mean: 1.9043 },
-        // Shell upgrade Phase 0 Task 9, as for quiet above. `skirt` is the
-        // weakest layer signal in the whole gate (3403 px / 0.2858) because
-        // this framing is zoomed to a corridor and only its corners reach
-        // past the map edge -- which is exactly why it is declared on two
-        // maps rather than on its strongest one alone.
         vignette: { px: 59402, mean: 3.4137 },
-        skirt: { px: 3403, mean: 0.2858 },
+        // G5 (`skirtRing`, 2026-09-25): region-scoped to `{x:0,y:0,w:260,
+        // h:140}`, the frame corner the ring draws in on this corridor-zoomed
+        // framing -- see `baseline.ts`'s rationale for the controller ruling
+        // and why (the fix's whole-frame reading, 2705 px / 0.0880, falls
+        // BELOW the old whole-frame floor of 1100 px / 0.095; scoping the
+        // region rather than lowering that floor keeps the check's
+        // sensitivity where the layer actually draws). This was `3403 px /
+        // 0.2858` against the OLD one-rectangle skirt, whole-frame.
+        skirt: { px: 2705, mean: 3.0455 },
+      },
+      // Ground fix wave (I-2), 2026-09-25: `aftermath` reframed off the
+      // sandbox force (zoom 2.2, no drone). 23 consecutive fresh-process
+      // full-gate runs, BIT-IDENTICAL on every check (`GROUND_T17` in
+      // `baseline.ts`); Task 17's <1% spread was the force's animating units
+      // and live fight, now out of frame.
+      aftermath: {
+        decals: { px: 124019, mean: 6.2238 },
+        roads: { px: 1453, mean: 0.4848 },
+        // 3 px is under SUB_THRESHOLD_PX -- the pixel floor is 0 below.
+        macro: { px: 3, mean: 0.7082 },
+        scatter: { px: 6193, mean: 0.7816 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the
@@ -812,7 +846,7 @@ describe('layerToggleScript', () => {
 });
 
 describe('evaluateToneCheck', () => {
-  const check = { over: 'ground-albedo', minFootprintRatio: 0.8, rationale: 'test' };
+  const check = { over: ['ground-albedo', 'macro'], minFootprintRatio: 0.8, rationale: 'test' };
 
   it('fails the measured scatter no-op on every scenario that declares it', () => {
     // The defect, re-injected into this tree and captured with an EMPTY
@@ -874,8 +908,39 @@ describe('evaluateToneCheck', () => {
       for (const c of spec.layerChecks ?? []) {
         if (!c.toneCheck) continue;
         const declared = (spec.layerChecks ?? []).map((x) => x.layer);
-        expect(declared, `scenario "${id}"`).toContain(c.toneCheck.over);
+        expect(c.toneCheck.over, `scenario "${id}"`).toContain('ground-albedo');
+        expect(declared, `scenario "${id}"`).toContain('ground-albedo');
+      }
+    }
+  });
+
+  it('flattens to the macro-free palette tone: hides ground-albedo AND macro, and only renderer layers', () => {
+    // Scatter marks carry no macro field, so over macro-shaded ground a mark
+    // whose colour has collapsed into its tile's tone still differs by the
+    // macro factor -- measured: the 671acdb no-op PASSED at 0.9328 / 0.9675
+    // on quiet / open-ground with `ground-albedo` alone hidden. And
+    // `ground-albedo` must stay macro-free itself (a 404 leaves the macro
+    // on), so the backdrop names the two layers rather than one hiding both.
+    const known = debugLayersFromRendererSourceForTone();
+    for (const [id, spec] of Object.entries(BASELINES)) {
+      for (const c of spec.layerChecks ?? []) {
+        if (!c.toneCheck) continue;
+        expect(c.toneCheck.over, `scenario "${id}"`).toEqual(['ground-albedo', 'macro']);
+        for (const layer of c.toneCheck.over) expect(known, `scenario "${id}" over "${layer}"`).toContain(layer);
       }
     }
   });
 });
+
+/** `DEBUG_LAYERS` read as TEXT from the renderer source, for the tone-check
+ *  backdrop test above -- the same technique `BASELINES layerChecks` uses. */
+function debugLayersFromRendererSourceForTone(): string[] {
+  const src = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../packages/render/src/three/debug-layers.ts'),
+    'utf8'
+  );
+  const m = /export const DEBUG_LAYERS = \[([^\]]*)\] as const;/.exec(src);
+  if (!m) throw new Error('could not find DEBUG_LAYERS in packages/render/src/three/debug-layers.ts');
+  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+}
+

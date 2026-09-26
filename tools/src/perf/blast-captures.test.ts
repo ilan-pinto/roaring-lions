@@ -13,7 +13,12 @@ import {
   readingAccepted,
   subjectVotesOn,
   sampleLadder,
+  parseSettleResult,
+  settleLine,
+  settleScript,
   sheetIndex,
+  steadyRunEnd,
+  unsteadySettleRefusal,
 } from './blast-captures';
 
 describe('the ten-second ladder', () => {
@@ -139,14 +144,14 @@ describe('the toggle A/B votes now (R-M)', () => {
   // that resolves to no objects produces a zero delta, and a check that
   // passed on zero would read a deleted layer as a healthy one.
   it('fails a zero delta rather than passing it', () => {
-    expect(layerVerdict('scorch', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
+    expect(layerVerdict('decals', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
     expect(layerVerdict('blast-light', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
   });
 
   it('passes a delta comfortably over the measured floor', () => {
-    const floor = LAYER_FLOORS.scorch;
+    const floor = LAYER_FLOORS.decals;
     expect(
-      layerVerdict('scorch', {
+      layerVerdict('decals', {
         diffPixels: floor.minDiffPixels * 3,
         meanAbsChannelDelta: floor.minMeanAbsChannelDelta * 3,
       }).ok
@@ -154,7 +159,7 @@ describe('the toggle A/B votes now (R-M)', () => {
   });
 
   it('fails on EITHER metric, not only their conjunction', () => {
-    // On `blast-light`, whose two floors are both positive. `scorch` cannot
+    // On `blast-light`, whose two floors are both positive. `decals` cannot
     // express this case at all -- its pixel floor is 0 on purpose (see the
     // next spec), so a reading with 0 pixels clears that half by definition.
     const f = LAYER_FLOORS['blast-light'];
@@ -178,7 +183,7 @@ describe('the toggle A/B votes now (R-M)', () => {
       expect(f.minMeanAbsChannelDelta, `${layer}: magnitude floor carries the whole check`).toBeGreaterThan(0);
     }
     // And a zero reading still fails, which is the whole point.
-    expect(layerVerdict('scorch', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
+    expect(layerVerdict('decals', { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(false);
   });
 
   it('records a sample size beside every floor, because a range with no n is an anecdote', () => {
@@ -234,16 +239,16 @@ describe('the toggle A/B votes now (R-M)', () => {
   });
 
   it('names the tone column rather than printing a bare "0 px" for a zero-pixel floor', () => {
-    // `LAYER_FLOORS.scorch.minDiffPixels` is 0 by decision (see its own
+    // `LAYER_FLOORS.decals.minDiffPixels` is 0 by decision (see its own
     // comment), and the sheet's banner three lines above this listing says
     // "a zero is a FAILURE here" -- a bare `0 px` beside a floor that is
     // *supposed* to be zero reads as the opposite of what the banner claims.
     // The "a third of 0 px" clause further along the SAME line is a report of
     // the historical MEASUREMENT, not the floor, so it is deliberately left
     // alone -- only the floor's own leading number is replaced.
-    expect(LAYER_FLOORS.scorch.minDiffPixels).toBe(0);
-    const line = floorLine('scorch', LAYER_FLOORS.scorch);
-    expect(line).not.toContain('scorch`: 0 px');
+    expect(LAYER_FLOORS.decals.minDiffPixels).toBe(0);
+    const line = floorLine('decals', LAYER_FLOORS.decals);
+    expect(line).not.toContain('decals`: 0 px');
     expect(line).toContain('pixel count does not gate this layer -- the tone column votes');
   });
 
@@ -271,8 +276,8 @@ describe('abstaining from a layer is a named, self-cleaning exemption', () => {
   });
 
   it('defaults to voting on every layer', () => {
-    expect(subjectVotesOn({}, 'scorch')).toBe(true);
-    expect(subjectVotesOn({ abstains: ['blast-light'] }, 'scorch')).toBe(true);
+    expect(subjectVotesOn({}, 'decals')).toBe(true);
+    expect(subjectVotesOn({ abstains: ['blast-light'] }, 'decals')).toBe(true);
     expect(subjectVotesOn({ abstains: ['blast-light'] }, 'blast-light')).toBe(false);
   });
 
@@ -321,7 +326,7 @@ describe('each layer is photographed where it is a witness (fix round 1)', () =>
   it('photographs the scorch after the fireball that covers it', () => {
     // EXPLOSION_BURST_DEFAULT_DURATION_MS is 450 and the collapse shroud holds
     // full density to 840 ms.
-    expect(LAYER_FLOORS.scorch.toggleAtMs).toBeGreaterThan(840);
+    expect(LAYER_FLOORS.decals.toggleAtMs).toBeGreaterThan(840);
   });
 
   it('gives every ladder a rung for every layer', () => {
@@ -338,5 +343,83 @@ describe('each layer is photographed where it is a witness (fix round 1)', () =>
         ).toBeGreaterThanOrEqual(f.toggleAtMs);
       }
     }
+  });
+});
+
+describe('the settle waits for steady frames, not for a duration', () => {
+  // The boot shape measured on beit_sahwan_outskirts on both this branch and
+  // main (8d525c81): one ~6 s block, a ~170 ms frame, then ~100 ms steadily.
+  // A fixed 2500 ms settle froze inside it on both trees.
+  const boot = [6075, 167, 100, 92, 100, 109, 100, 100];
+
+  it('ends on the fifth consecutive frame inside the band, not before', () => {
+    expect(steadyRunEnd(boot, 5, 150)).toBe(6);
+    expect(steadyRunEnd(boot.slice(0, 6), 5, 150)).toBe(-1);
+  });
+
+  it('restarts the run on any frame over the band', () => {
+    // Fast frames on either side of a boot block must not add up to a run.
+    expect(steadyRunEnd([90, 90, 90, 900, 90, 90], 5, 150)).toBe(-1);
+    expect(steadyRunEnd([90, 90, 90, 900, 90, 90, 90, 90, 90], 5, 150)).toBe(8);
+  });
+
+  it('counts a frame exactly at the band as steady', () => {
+    expect(steadyRunEnd([150, 150, 150, 150, 150], 5, 150)).toBe(4);
+    expect(steadyRunEnd([150, 150, 150, 150, 150.1], 5, 150)).toBe(-1);
+  });
+
+  it('prints every frame it waited over the band, and says when it hit the ceiling', () => {
+    const ok = settleLine('g', { steady: true, waitedMs: 4210, frames: boot.slice(0, 7) });
+    expect(ok).toContain('reached');
+    expect(ok).toContain('#0 6075.0, #1 167.0');
+    expect(ok).not.toContain('DISAGREE');
+    const ceiling = settleLine('g', { steady: false, waitedMs: 30000, frames: [1600, 1580, 1610] });
+    expect(ceiling).toContain('DID NOT reach');
+    expect(ceiling).not.toContain('DISAGREE');
+  });
+
+  it('flags a page that claims steady on frames the rule rejects', () => {
+    expect(settleLine('g', { steady: true, waitedMs: 1, frames: [900, 90] })).toContain('DISAGREE');
+  });
+
+  it('ships the in-page rule with the same constants and the ceiling it was given', () => {
+    const src = settleScript(12345);
+    expect(src).toContain('n = 5, maxMs = 150, timeoutMs = 12345');
+    // No helper esbuild could have injected: the string is what the page runs.
+    expect(src).not.toContain('__name');
+  });
+
+  it('refuses a malformed page result rather than reading it as settled', () => {
+    expect(() => parseSettleResult(undefined)).toThrow(/no result/);
+    expect(() => parseSettleResult({ steady: true, waitedMs: 1, frames: ['x'] })).toThrow(/malformed/);
+    expect(parseSettleResult({ steady: false, waitedMs: 2, frames: [1, 2] })).toEqual({
+      steady: false,
+      waitedMs: 2,
+      frames: [1, 2],
+    });
+  });
+});
+
+// Final review, parked item: a settle that never steadied was only LOGGED.
+describe('an unsteady settle refuses every step(1) subject', () => {
+  const unsteady = { steady: false, waitedMs: 30000, frames: [210, 190, 233] };
+  const steady = { steady: true, waitedMs: 900, frames: [90, 90, 90, 90, 90] };
+  it('refuses a group with a step(1) subject when the settle hit its ceiling', () => {
+    const r = unsteadySettleRefusal('g', unsteady, [{ id: 'a' }, { id: 'b', handTick: true }]);
+    expect(r).toContain('SKIPPED');
+    expect(r).toContain('a');
+    expect(r).not.toContain('b ');
+  });
+  it('lets a steady settle through, and an unsteady one through for hand-ticked subjects only', () => {
+    expect(unsteadySettleRefusal('g', steady, [{ id: 'a' }])).toBeNull();
+    expect(unsteadySettleRefusal('g', unsteady, [{ id: 'b', handTick: true }])).toBeNull();
+  });
+  it('is applied to every group in main, before anything is triggered', () => {
+    const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'blast-captures.ts'), 'utf8');
+    const at = src.indexOf('unsteadySettleRefusal(key, settle, subjects)');
+    expect(at).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(src.indexOf('L.step(1);'));
+    // ...and a refusal skips the group into the run's failure list.
+    expect(src).toMatch(/if \(refusal !== null\) \{\s*console\.error\(` {2}\$\{refusal\}`\);\s*notes\.push\(refusal\);\s*skipped\.push\(key\);\s*await page\.close\(\);\s*continue;/);
   });
 });

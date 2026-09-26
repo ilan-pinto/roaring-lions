@@ -292,7 +292,7 @@ TERRAIN_PALETTE_EXEMPTION = (
     "the surface still AVERAGES to its data/palette.json tone:",
     "  open ground   desert_sand_tile (arid) / green_basin_tile (green)",
     "  ^ rock ridge  rock_ground_tile",
-    "  r dirt road   road_track_tile",
+    "  r dirt road   knoll_scree_tile as grain, 2-tile repeat (road_track_tile unbound)",
     "  1/2/3 cover   rough_scrub_tile, at a per-tier strength",
     "  o grove floor orchard_floor_tile",
     "  n rocky knoll knoll_scree_tile",

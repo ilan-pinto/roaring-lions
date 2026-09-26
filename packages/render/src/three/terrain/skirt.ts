@@ -13,18 +13,34 @@
  *
  * Four things about it are deliberate, and three of them were nearly wrong.
  *
- * **It sits `MARK_EPSILON` BELOW the map's base level, not at it.** The quad
- * spans the map's own footprint as well as the ground around it (it is one
- * rectangle, not a ring), and a flat map's terrain is at exactly y = 0 -- so
- * coplanar at base level it would z-fight the entire playable area. The
- * repo's own mark epsilon is the right size for the opposite reason it was
- * chosen (`shared.ts`: under 4% of a terrace step, and it clears one
- * orthographic depth-buffer step with room to spare), and it is what makes
- * the step at the map edge invisible. **`polygonOffset` is NOT the fix
- * here**, tempting as it looks: `GTAOPass` re-renders the scene through its
- * own `MeshNormalMaterial`, which carries its own offset state, so the
- * z-fight would come straight back in the AO G-buffer and scatter occlusion
- * noise over the whole map.
+ * **It sits `MARK_EPSILON` BELOW the map's base level, not at it.** A flat
+ * map's terrain is at exactly y = 0, so coplanar at base level the skirt
+ * would z-fight the entire playable area. The repo's own mark epsilon is the
+ * right size for the opposite reason it was chosen (`shared.ts`: under 4% of
+ * a terrace step, and it clears one orthographic depth-buffer step with room
+ * to spare), and it is what makes the step at the map edge invisible.
+ * **`polygonOffset` is NOT the fix here**, tempting as it looks: `GTAOPass`
+ * re-renders the scene through its own `MeshNormalMaterial`, which carries
+ * its own offset state, so the z-fight would come straight back in the AO
+ * G-buffer and scatter occlusion noise over the whole map.
+ *
+ * **G5: the geometry is a RING, not a rectangle, and that is not tidiness --
+ * it is the fix for a real defect.** It used to be one rectangle spanning the
+ * map's own footprint as well as the ground around it, relying on `SKIRT_Y`
+ * sitting below y = 0 to keep it hidden under the map's own terrain. That
+ * stopped being true when the ground surface went from flat terraces to
+ * Catmull-Rom bicubic over tile centres (`ground.ts`): the curve UNDERSHOOTS
+ * between authored heights, and on `tel_marum` it dips to -0.077 -- nearly 8x
+ * past the skirt's -0.01. Wherever the smoothed surface dipped below the
+ * skirt, the skirt showed THROUGH it: a flat, uniformly dark, desaturated
+ * patch of the wrong ground colour bleeding through relief, photographed as
+ * blue-grey bands. `SKIRT_Y` cannot be lowered to fix this -- the whole point
+ * of that number is to be barely below y = 0, and -0.077 is already most of
+ * a terrace step; chasing the undershoot down would just move the z-fight
+ * risk back onto a shallower one. `skirtRing` instead removes the footprint
+ * `[0,w]x[0,h]` from the quad entirely (see its own doc comment below), so
+ * there is no skirt geometry left for the ground to dip below -- the fix is
+ * geometric, not a tolerance.
  *
  * **The albedo is applied as a RATIO, exactly as the ground applies it.**
  * `desert_sand_tile` is not a colour, it is a variation field measured
@@ -117,7 +133,64 @@ function writeSkirtUv(geometry: THREE.BufferGeometry, tilesPerRepeat: number): v
 }
 
 /**
- * The skirt quad for a `width` x `height` map. Add it to the scene where the
+ * The ring of eight vertices and eight triangles `buildSkirt` draws: the
+ * outer rectangle `o0..o3` from `skirtBounds`, then the map's own footprint
+ * `i0=(0,0) i1=(w,0) i2=(w,h) i3=(0,h)`, both at `SKIRT_Y`. Four trapezoids,
+ * one per edge of the rectangle, each split into two triangles -- covering
+ * the margin between the two rectangles and NOTHING inside the inner one, so
+ * there is no skirt geometry left for the smoothed ground to dip below (see
+ * this module's header, "G5").
+ *
+ * Pure, and exported so `skirt.test.ts` can check the geometry directly
+ * without going through a `THREE.Mesh`.
+ *
+ * Each trapezoid is wound `[o_k, o_{k+1}, i_{k+1}, i_k]` and split with
+ * `pushPolygon`'s UNFLIPPED fan, `(0, i+1, i)` over that four-point list --
+ * `(o_k, i_{k+1}, o_{k+1})` then `(o_k, i_k, i_{k+1})` -- the same fan
+ * `buildSkirt` always used for its one rectangle, applied per edge instead of
+ * once. That is what points every triangle's front face at +Y; the obvious
+ * winding points it at the ground, and with `FrontSide` culling the skirt
+ * then draws nothing at all. `skirt.test.ts` computes each face normal from
+ * the geometry rather than reading the `normal` attribute, so it catches
+ * exactly that.
+ */
+export function skirtRing(
+  width: number,
+  height: number
+): { positions: Float32Array; indices: Uint16Array } {
+  const { x0, x1, z0, z1 } = skirtBounds(width, height);
+  const outer: ReadonlyArray<readonly [number, number]> = [
+    [x0, z0],
+    [x1, z0],
+    [x1, z1],
+    [x0, z1],
+  ];
+  const inner: ReadonlyArray<readonly [number, number]> = [
+    [0, 0],
+    [width, 0],
+    [width, height],
+    [0, height],
+  ];
+  const positions = new Float32Array(8 * 3);
+  for (let k = 0; k < 4; k++) {
+    positions[k * 3] = outer[k][0];
+    positions[k * 3 + 1] = SKIRT_Y;
+    positions[k * 3 + 2] = outer[k][1];
+    positions[(4 + k) * 3] = inner[k][0];
+    positions[(4 + k) * 3 + 1] = SKIRT_Y;
+    positions[(4 + k) * 3 + 2] = inner[k][1];
+  }
+  const indices: number[] = [];
+  for (let k = 0; k < 4; k++) {
+    const kn = (k + 1) % 4;
+    indices.push(k, 4 + kn, kn);
+    indices.push(k, 4 + k, 4 + kn);
+  }
+  return { positions, indices: new Uint16Array(indices) };
+}
+
+/**
+ * The skirt mesh for a `width` x `height` map. Add it to the scene where the
  * ground goes; dispose it with the ground.
  *
  * `renderOrder` is the world band (-1), the same band mesh buildings draw
@@ -126,28 +199,13 @@ function writeSkirtUv(geometry: THREE.BufferGeometry, tilesPerRepeat: number): v
  * tier's sort.
  */
 export function buildSkirt(width: number, height: number): SkirtMesh {
-  const { x0, x1, z0, z1 } = skirtBounds(width, height);
+  const { positions, indices } = skirtRing(width, height);
   const geometry = new THREE.BufferGeometry();
-  // The same perimeter order and index fan `ground.ts`'s own `pushQuad` uses
-  // for an up-facing tile top: the perimeter (x0,z0), (x1,z0), (x1,z1),
-  // (x0,z1) with `pushPolygon`'s UNFLIPPED fan, which is `(0, i+1, i)` --
-  // (0,2,1) and (0,3,2), not the (0,1,2) a reader expects. That order is
-  // what points the front face at +Y; the obvious one points it at the
-  // ground, and with `FrontSide` culling the skirt then draws nothing at
-  // all. `skirt.test.ts` computes the face normal from the geometry rather
-  // than reading the `normal` attribute, so it catches exactly that.
-  geometry.setAttribute(
-    'position',
-    new THREE.BufferAttribute(
-      new Float32Array([x0, SKIRT_Y, z0, x1, SKIRT_Y, z0, x1, SKIRT_Y, z1, x0, SKIRT_Y, z1]),
-      3
-    )
-  );
-  geometry.setAttribute(
-    'normal',
-    new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]), 3)
-  );
-  geometry.setIndex([0, 2, 1, 0, 3, 2]);
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const normals = new Float32Array(positions.length);
+  for (let i = 1; i < normals.length; i += 3) normals[i] = 1;
+  geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   writeSkirtUv(geometry, DEFAULT_TILES_PER_REPEAT);
 
   const material = new THREE.MeshStandardMaterial({

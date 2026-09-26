@@ -3,18 +3,21 @@
  * proves for the ground mesh, plus properties specific to it: every mark
  * near an elevation edge stays inside the tile that placed it, a mark on a
  * raised tile sits on that tile's own top rather than at elevation 0, and
- * a mark whose design spans the tile (the road rut) keeps Pixi's own
- * placement -- overhang and all -- when there is no elevation edge to
- * protect against.
+ * (since #226) a road tile draws no scatter marks of its own at all -- the
+ * ground shader's own distance field owns the road's wear now.
  */
 import { describe, it, expect } from 'vitest';
 import { buildScatter, HIGHLIGHT_EPSILON, FACE_BAND_HALF_Y } from './scatter';
-import { WORLD_PER_LEVEL, screenOffsetToWorld } from './shared';
+import { WORLD_PER_LEVEL, screenOffsetToWorld, DECOR_ROAD } from './shared';
 import { PALETTE_HEXES } from './tones';
 import { VIEW_DIRECTION } from '../camera';
-import { TILE_W, TILE_H, ELEV_STEP, isoX, isoY } from '../../project';
-import type { TerrainInput } from './types';
+import { TILE_W, TILE_H, isoX, isoY } from '../../project';
+import type { TerrainInput, MeshData } from './types';
 import type { TerrainTones } from '../../api';
+
+/** The clear colour every fixture in this file composites its ground tone
+ *  against, matching `buildScatter`'s own `background` parameter. */
+const BACKGROUND = '#14150F';
 
 const TONES = {
   open: '#C8B494', cover: ['#8F9464', '#6E7449', '#4E5433'] as [string, string, string],
@@ -81,6 +84,23 @@ function colorAt(colors: Float32Array, i: number): string {
       .join('')
       .toUpperCase()
   );
+}
+
+/** Counts triangles in `m` whose centroid's (x, z) lies inside tile `(tx,
+ *  tz)`'s own unit square -- a mark-agnostic way to ask "did this tile draw
+ *  anything at all", independent of which branch of `buildScatter` might
+ *  have produced it (or, since #226, no longer does). */
+function marksOnTile(m: MeshData, tx: number, tz: number): number {
+  let count = 0;
+  for (let i = 0; i < m.indices.length; i += 3) {
+    const ia = m.indices[i] * 3;
+    const ib = m.indices[i + 1] * 3;
+    const ic = m.indices[i + 2] * 3;
+    const cx = (m.positions[ia] + m.positions[ib] + m.positions[ic]) / 3;
+    const cz = (m.positions[ia + 2] + m.positions[ib + 2] + m.positions[ic + 2]) / 3;
+    if (cx >= tx && cx < tx + 1 && cz >= tz && cz < tz + 1) count++;
+  }
+  return count;
 }
 
 describe('screenOffsetToWorld', () => {
@@ -177,6 +197,19 @@ describe('buildScatter', () => {
     expect(maxY).toBeCloseTo(topY + HIGHLIGHT_EPSILON, 5);
   });
 
+  it('draws no rut dashes on a road -- the ground shader owns the road now (#226)', () => {
+    // The two synthetic rut lines this branch used to stamp -- always at
+    // this exact tile's centre, `needsContainment`-clamped or not -- are
+    // gone: the road's own wear is drawn procedurally from the control
+    // map's distance field in the shader (Task 6), and a mark on top of it
+    // duplicated that wear and could not track a two-wide street's own
+    // collapsed centreline at all.
+    const input = flat(3, 1);
+    input.decor = Uint8Array.from([0, DECOR_ROAD, 0]);
+    const withRoad = buildScatter(input, TONES, BACKGROUND);
+    expect(marksOnTile(withRoad, 1, 0)).toBe(0);
+  });
+
   describe('keeps every mark inside its own tile near an elevation edge', () => {
     // Containment is conditional -- see `hasElevationEdge`'s doc comment in
     // scatter.ts -- so this must actually put a tile next to a different
@@ -192,13 +225,16 @@ describe('buildScatter', () => {
       ['open ground, stone scatter', nearElevationEdge(() => {}), TONES],
       ['open ground, sward scatter', nearElevationEdge(() => {}), SWARD_TONES],
       ['knoll', nearElevationEdge((i) => { i.decor = new Uint8Array([3, 0]); }), TONES],
-      ['road', nearElevationEdge((i) => { i.decor = new Uint8Array([1, 0]); }), TONES],
       ['cover rubble', nearElevationEdge((i) => { i.cover[0] = 3; }), TONES],
-      // 'ridge (blocked)' used to be the sixth case here and is gone: a `^`
-      // ridge emits no grain at all now, so it has nothing to contain and
-      // the case would have passed by checking an empty loop -- exactly what
-      // this block's own `sawTileZeroVertex` guard exists to catch. The rule
-      // that replaced it is asserted positively, just below.
+      // 'ridge (blocked)' used to be a case here and is gone: a `^` ridge
+      // emits no grain at all, so it has nothing to contain and the case
+      // would have passed by checking an empty loop -- exactly what this
+      // block's own `sawTileZeroVertex` guard exists to catch. 'road' is
+      // gone for the identical reason since #226: a road tile draws no
+      // grain of its own any more (the ground shader owns the road), so
+      // this fixture's tile 0 would emit nothing to contain. Both rules are
+      // asserted positively instead -- the ridge one just below, the road
+      // one in the "draws no rut dashes" test above.
     ];
 
     for (const [label, input, tones] of cases) {
@@ -282,115 +318,6 @@ describe('buildScatter', () => {
     expect(building.positions.length / 3 - ridge.positions.length / 3).toBe(STRATA_VERTS);
     // Neither is empty, so this is not a difference between two nothings.
     expect(ridge.positions.length).toBeGreaterThan(0);
-  });
-
-  describe('road rut fidelity on flat ground (no elevation edge)', () => {
-    it('achieves Pixi\'s full separation and width when containment does not engage', () => {
-      // Every shipped map except Tel Marum is flat, so a road tile's own
-      // neighbours never differ in elevation and `hasElevationEdge` is
-      // false there -- the rut renders at its raw, unclamped extent,
-      // exactly Pixi's own placement. This is the regression a prior
-      // version of this fix round introduced: clamping every mark
-      // unconditionally pinned every rut's centre at ~0.05 tiles
-      // regardless of the intended offset, collapsing the two lines to
-      // within 0.1 tile of each other against Pixi's authored 0.3125 (this
-      // tile's rut, see the parity test below) -- a systematic distortion
-      // on every road tile, not a rare hash-extreme correction.
-      const input = flat(1, 1);
-      input.decor = new Uint8Array([1]); // DECOR_ROAD
-      const m = buildScatter(input, TONES, '#14150F');
-      // A road tile emits exactly the two rut marks and nothing else --
-      // 2 marks * 4 vertices = 8 vertices, in emission order.
-      expect(m.positions.length).toBe(24);
-
-      const centroid = (base: number): [number, number, number] => {
-        let x = 0, y = 0, z = 0;
-        for (let k = 0; k < 4; k++) {
-          x += m.positions[(base + k) * 3];
-          y += m.positions[(base + k) * 3 + 1];
-          z += m.positions[(base + k) * 3 + 2];
-        }
-        return [x / 4, y / 4, z / 4];
-      };
-      const extentX = (base: number): number => {
-        let min = Infinity, max = -Infinity;
-        for (let k = 0; k < 4; k++) {
-          const x = m.positions[(base + k) * 3];
-          min = Math.min(min, x);
-          max = Math.max(max, x);
-        }
-        return max - min;
-      };
-
-      const [ax, , az] = centroid(0);
-      const [bx, , bz] = centroid(4);
-      // rut is always 5 for this tile (see the parity test below), so the
-      // two lines' intended separation is 2 * 5 / 16 = 0.3125 tiles.
-      expect(Math.abs(bx - ax)).toBeCloseTo(0.3125, 5);
-      expect(Math.abs(bz - az)).toBeCloseTo(0.3125, 5);
-
-      // Full width, not shrunk: each mark's own X-extent is the whole
-      // unscaled rect (2 * (TILE_W/2 - 6), converted), not compressed
-      // toward its centre by a clamp that never should have engaged here.
-      expect(extentX(0)).toBeCloseTo(0.859375, 5);
-      expect(extentX(4)).toBeCloseTo(0.859375, 5);
-
-      // And the overhang this fidelity implies is real, not just assumed:
-      // some corner of these marks genuinely sits outside [0, 1] -- proof
-      // containment is off here, not merely that it happened not to
-      // trigger. Matches Pixi: its own rut ends run past this tile's own
-      // screen-space diamond too (renderer.ts:1526-1530 -- at 26px out
-      // horizontally the diamond's own half-height is down to ~3px), and
-      // it does not matter there because a flat run of road tiles has
-      // nothing to float over. The same reasoning is why this is safe here.
-      let anyOutside = false;
-      for (let i = 0; i < m.positions.length; i += 3) {
-        if (m.positions[i] < -1e-6 || m.positions[i] > 1 + 1e-6) anyOutside = true;
-      }
-      expect(anyOutside).toBe(true);
-    });
-
-    it('stays bounded near an elevation edge, at the cost of separation', () => {
-      // The other side of the same trade-off, stated rather than left for a
-      // reviewer to find: if a road tile ever DOES sit next to a drop (no
-      // shipped map does today), containment engages and the two rut lines'
-      // separation compresses -- but the result stays a valid, non-
-      // degenerate, correctly-wound quad rather than escaping onto a
-      // differently-elevated neighbour. Bounded-but-compressed is the
-      // correct trade near a real drop; full-fidelity-but-unbounded is not.
-      const input = nearElevationEdge((i) => {
-        i.decor = new Uint8Array([1, 0]);
-      });
-      const m = buildScatter(input, TONES, '#14150F');
-      for (let i = 0; i < m.positions.length; i += 3) {
-        if (m.positions[i] >= 1) continue; // tile 1's own geometry
-        expect(m.positions[i]).toBeGreaterThanOrEqual(-1e-6);
-        expect(m.positions[i]).toBeLessThanOrEqual(1 + 1e-6);
-      }
-    });
-
-    it('the parity check always selects 5, never 7, for any integer tile and elevation', () => {
-      // Not a deviation introduced by this port: Pixi's own alternation
-      // (renderer.ts:1532, `(cx + cyG) % 2 === 0 ? 5 : 7`) can never
-      // actually select 7. cx = isoX(x+0.5, y+0.5) = (x - y) * 32 -- always
-      // a multiple of 32, hence even. cyG = isoY(x+0.5, y+0.5) -
-      // level*ELEV_STEP = (x + y + 1) * 16 - level * 10 -- a multiple of 16
-      // minus a multiple of 10, hence also always even. Their sum is
-      // therefore always even for any integer x, y, level, so the "7"
-      // branch is dead code in both backends -- this test proves it swept
-      // broadly rather than only algebraically.
-      let sawOdd = false;
-      for (let x = 0; x < 12; x++) {
-        for (let y = 0; y < 12; y++) {
-          for (let level = 0; level < 10; level++) {
-            const cxPx = isoX(x + 0.5, y + 0.5);
-            const cyPx = isoY(x + 0.5, y + 0.5) - level * ELEV_STEP;
-            if ((cxPx + cyPx) % 2 !== 0) sawOdd = true;
-          }
-        }
-      }
-      expect(sawOdd).toBe(false);
-    });
   });
 
   describe('stone-grain fleck stays visible when a theme\'s rockLit coincides with its open tone', () => {

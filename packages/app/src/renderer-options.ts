@@ -95,11 +95,12 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     // independent copy of that state here just to answer the same question
     // twice is exactly the risk of two answers drifting apart.
     groundTextureUrl: `${base}textures/${TERRAIN_GROUND_TEXTURE[map.terrain]}.jpg`,
-    // Each of the five below is one surface, one image, and one independent
-    // failure: a ridge that loses its texture is still a ridge, and a road
-    // that loses its wheel track is still the authored road tone.
+    // Each of the four below is one surface, one image, and one independent
+    // failure: a ridge that loses its texture is still a ridge. The road has
+    // no image of its own any more (GH-226): it is drawn procedurally from
+    // control texture B's distance field, tone and grain both, and no
+    // longer asks for `roadTextureUrl` at all.
     rockTextureUrl: `${base}textures/rock_ground_tile.jpg`,
-    roadTextureUrl: `${base}textures/road_track_tile.jpg`,
     scrubTextureUrl: `${base}textures/rough_scrub_tile.jpg`,
     groveTextureUrl: `${base}textures/orchard_floor_tile.jpg`,
     knollTextureUrl: `${base}textures/knoll_scree_tile.jpg`,

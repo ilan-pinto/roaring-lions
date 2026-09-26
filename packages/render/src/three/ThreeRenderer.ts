@@ -143,7 +143,26 @@ import {
   BLAST_SMOKE_FADE_MS,
 } from './units/smoke-plume';
 import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
-import { ScorchDecalMesh, SCORCH_CAPACITY } from './scorch-decals';
+import { scorchRadiusTiles } from './scorch-decals';
+import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
+import {
+  DecalPool,
+  createDecalMaterial,
+  craterRadiusTiles,
+  isFadingKind,
+  presentationSimMs,
+  rubbleRadiusTiles,
+  stampSimMs,
+  DECAL_KIND_INDEX,
+  FADING_CAPACITY,
+  FADING_GRID,
+  OIL_RADIUS_TILES,
+  PERSISTENT_CAPACITY,
+  PERSISTENT_GRID,
+  TRACK_STAMP_HALF_LENGTH,
+  type DecalKind,
+  type DecalStamp,
+} from './decal-pool';
 import {
   BLAST_EMITTER_ID,
   SHELL_IMPACT_EMITTER_ID,
@@ -162,6 +181,7 @@ import {
   type HitStopState,
 } from './blast-shake';
 import { buildGround, groundAlbedoSlotsUsed } from './terrain/ground';
+import { decalBaseTone, makeDecalGroundSource, type DecalGroundSource } from './terrain/decal-ground-tone';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
 import { buildScatter } from './terrain/scatter';
 import { buildBuildings, type StructureFootprint } from './terrain/buildings';
@@ -173,13 +193,24 @@ import {
   prepareGroundTexture,
   albedoMean,
   slotUniforms,
+  controlTexturePair,
+  macroTexture,
   GROUND_ALBEDOS,
-  GROUND_SLOTS,
   type GroundAlbedoId,
   type GroundSlot,
 } from './terrain/mesh';
 import { isDebugLayer, unknownDebugLayerMessage } from './debug-layers';
-import { terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
+import { isTerrace, terrainSurfaceFrom, type TerrainSurface } from './terrain/surface';
+import {
+  buildControlMap,
+  buildMacroField,
+  controlInputsMatch,
+  neutralTint,
+  snapshotControlInputs,
+  type ControlInputs,
+} from './terrain/control-map';
+import { ROAD_GRAIN_GAIN, buildRoadGraph } from './terrain/road-graph';
+import { hexToLinear } from './terrain/shared';
 import type { TerrainInput, MeshData } from './terrain/types';
 import {
   buildDecorMesh,
@@ -247,7 +278,12 @@ import {
   structureAliveAlpha,
   resolveRoofPx,
 } from './units/structures';
-import { STRUCTURE_RENDER_ORDER, FX_RENDER_ORDER } from './units/render-order';
+import {
+  STRUCTURE_RENDER_ORDER,
+  FX_RENDER_ORDER,
+  DECAL_PERSISTENT_RENDER_ORDER,
+  DECAL_FADING_RENDER_ORDER,
+} from './units/render-order';
 import { unitIsObserved } from './units/observed';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
@@ -315,7 +351,7 @@ import type { MeshFaction } from './units/mesh-role';
  *  at compile time, so it cannot pull three.js back into the main chunk --
  *  the regression this entry point exists to prevent. */
 export type { MeshFaction } from './units/mesh-role';
-import { groundWorldY } from './ground-height';
+import { decalGroundY, groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
@@ -324,7 +360,13 @@ import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
-import { VehicleTrackMesh, trackKindFor, stepTrackAccum, TRACK_POOL_CAPACITY } from './vehicle-tracks';
+import {
+  trackKindFor,
+  stepTrackAccum,
+  trackStampCenters,
+  STAMP_SPACING_TILES,
+  TRACK_FOOTPRINT,
+} from './vehicle-tracks';
 import {
   billboardPoint,
   objectiveZoneCorners,
@@ -697,6 +739,27 @@ const OVERLAY_VERTICES_PER_ENTITY = 200;
  *  Nothing measured contradicts it. */
 const MAX_RANGE_HOOP_ALPHA = 0.22;
 
+/**
+ * A decal's presentation seed in `[0, 1)`: `tileHash` of the stamp's centre
+ * quantised to eighths of a tile, with the kind folded into the second
+ * coordinate so a crater and the scorch stamped over it never share a
+ * wobble. Presentation only -- nothing here reaches the sim.
+ */
+function decalSeed(kind: DecalKind, x: number, z: number): number {
+  return tileHash(Math.floor(8 * x), Math.floor(8 * z) + 977 * DECAL_KIND_INDEX[kind]);
+}
+
+/**
+ * The road shoulder's bleached tone: `data/palette.json`'s `limestone.2`.
+ * Named once so `rebuildTerrain`'s `uShoulderTone` uniform and
+ * `decalGround`'s own copy (`terrain/decal-ground-tone.ts`'s
+ * `DecalGroundSource.shoulder`, the decal pool's local-tone denominator)
+ * resolve through the same key and the same fallback hex rather than two
+ * copies that could drift apart by a retyped literal.
+ */
+const SHOULDER_TONE_KEY = 'limestone.2';
+const SHOULDER_TONE_FALLBACK = '#D9C7A7';
+
 /** How strong a HOVER preview's envelope is, as a fraction of the same
  *  unit's envelope when it is selected. One multiplier over all three bands
  *  rather than three more tuned numbers: a preview is the same shape, said
@@ -812,6 +875,13 @@ export class ThreeRenderer implements Renderer {
    * since a mesh built from a null elevation is valid, just flat.
    */
   private terrainDirty = true;
+  /**
+   * `RendererOptions.decalShowcase` is still owed (D4, R-16). Cleared by the
+   * first `frame()` that finds a terrain build behind it -- `decalGround` is
+   * that build's own record -- so the showcase is stamped exactly once, on
+   * the ground it was built for. See `stampDecalShowcase`.
+   */
+  private showcasePending: boolean;
   private terrainMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
   /** The grain -- flecks, blades, bushes, cover rubble, knolls, ridges,
    *  ruts, slope-face dressing -- as a second mesh sharing the ground's own
@@ -982,11 +1052,19 @@ export class ThreeRenderer implements Renderer {
   private readonly terrainMat: THREE.MeshStandardMaterial = vertexColorMaterial();
   /** The ground mesh's own material -- see `rebuildTerrain`. */
   private readonly groundMat: GroundMaterial = new GroundMaterial();
-  /** Non-null only while `setDebugLayerVisible('ground-albedo', false)` is in
-   *  force: the per-slot strengths to put back, in `GROUND_SLOTS` order. Not
-   *  a live rendering concern -- it is null in every frame the gate is not
-   *  driving. */
-  private groundAlbedoStrengths: number[] | null = null;
+  /** The control map's two textures, bound on `groundMat` as `uControlA`/
+   *  `uControlB` -- rebuilt by every `rebuildTerrain`, because a destroyed
+   *  structure turns its pad back into open ground, and the previous pair is
+   *  disposed there. Null until the first rebuild, when the material's own
+   *  1x1 "nothing here" defaults are bound instead (`GroundMaterial`). */
+  private controlTex: { a: THREE.DataTexture; b: THREE.DataTexture } | null = null;
+  /** What `controlTex` (and `decalGround.graph`) were last built from, so
+   *  `rebuildTerrain` can skip an unchanged rebuild (fix wave I-1). */
+  private controlInputs: ControlInputs | null = null;
+  /** The macro field's texture, bound as `uMacro`. Built once, in the
+   *  constructor: it depends on the map's size alone, never on the terrain,
+   *  so no rebuild has anything to change in it. */
+  private readonly macroTex: THREE.DataTexture;
   /** The minimap's photograph of this map's ground, kept so the answer is
    *  computed once per map rather than once per caller -- see
    *  `captureGroundAlbedo`. Dropped whenever the terrain is rebuilt, so a
@@ -1019,10 +1097,18 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * Fetches the six ground albedo tiles `RendererOptions` names -- open
-   * ground, `^` ridge, `r` road, cover, `o` grove, `n` knoll -- and, as each arrives,
+   * Fetches the five ground albedo tiles `RendererOptions` names -- open
+   * ground, `^` ridge, cover, `o` grove, `n` knoll -- and, as each arrives,
    * switches its own slot on. Each is independent: a rock tile that 404s
    * costs the ridges their texture and leaves the other four alone.
+   *
+   * `roadTextureUrl` is no longer fetched (#226): the road is drawn from
+   * control B's distance field, and its grain is the KNOLL image. So the
+   * knoll image is fetched on a map with roads even where no knoll tile
+   * stands, and its arrival switches the road grain on as well
+   * (`uRoadGrainGain`, 0 until then -- F-12: before it lands `uKnoll` is the
+   * white pixel, and a live gain would draw every road about 1.6x too
+   * bright; a knoll 404 leaves the road on its flat palette tone).
    *
    * **The image's own mean and repeat come from `GROUND_ALBEDOS`, keyed by
    * the URL's basename, not from the slot.** That is the whole reason the
@@ -1103,6 +1189,9 @@ export class ThreeRenderer implements Renderer {
           // move the surface's average colour, only how hard its texture is
           // driven, which is what a 16x minification costs a fine source.
           this.groundMat.uniforms[u.strength].value = albedo.gain;
+          // The knoll image is also the road's grain (R-7), whose gain waits
+          // for it (F-12) -- see this method's doc comment.
+          if (slot === 'knoll') this.groundMat.uniforms.uRoadGrainGain.value = ROAD_GRAIN_GAIN;
           this.groundMat.needsUpdate = true;
           // The skirt beyond the map carries the OPEN-GROUND image and only
           // that one -- it is a continuation of the ground, not of the rock
@@ -1122,12 +1211,12 @@ export class ThreeRenderer implements Renderer {
           // The minimap's photograph is of ground that did not have this
           // texture on it, so it is dropped here for the same reason the
           // terrain rebuild drops it -- see `invalidateGroundPhoto`. These
-          // six loads are fire-and-forget and `init()` does not await them,
+          // five loads are fire-and-forget and `init()` does not await them,
           // so a capture taken at map load RACES them: on a sandbox or the
           // tutorial, where nothing holds the player at a briefing, the
           // photograph can be taken before some tiles land and would
           // otherwise show those slots' flat palette tone for the whole
-          // mission, quietly and forever. Bounded at six extra captures per
+          // mission, quietly and forever. Bounded at five extra captures per
           // map, at boot, before any fight.
           this.invalidateGroundPhoto();
           // LAST, so whoever awaits this tile wakes to it on the ground.
@@ -1142,9 +1231,11 @@ export class ThreeRenderer implements Renderer {
     };
     load(this.opts.groundTextureUrl, 'sand', 'open ground');
     load(this.opts.rockTextureUrl, 'rock', 'rock ridge');
-    load(this.opts.roadTextureUrl, 'road', 'road');
     load(this.opts.scrubTextureUrl, 'scrub', 'cover scrub');
     load(this.opts.groveTextureUrl, 'grove', 'grove floor');
+    // The road's grain samples the knoll image too, and `groundAlbedoSlotsUsed`
+    // already says so: a road tile adds 'knoll' to the set, so a road-only map
+    // still fetches it.
     load(this.opts.knollTextureUrl, 'knoll', 'rocky knoll');
     this.groundTexturesPending = Promise.all(settles).then(() => undefined);
   }
@@ -1244,20 +1335,50 @@ export class ThreeRenderer implements Renderer {
    *  `useEmitters`, the same two-phase shape every other manager here uses. */
   private readonly collapseShrouds = new CollapseShroudManager();
   /**
-   * The persistent scorch marks a blast leaves on the ground
-   * (`../scorch-decals.ts`) -- one `THREE.Mesh` and one ring buffer for the
-   * whole map, `SCORCH_CAPACITY` marks, oldest slot overwritten once full.
+   * The ground's memory of the battle (spec 3.3, D5): one kind shader
+   * (`./decal-pool.ts`'s `createDecalMaterial`), two ring pools drawn
+   * through it. `decalsPersistent` holds what stays for the mission --
+   * crater, scorch, oil, rubble -- on the 4x4 conforming grid;
+   * `decalsFading` holds tread and tyre prints, which age out over
+   * `TRACK_FADE_SEC` of SIM time on the cheaper 2x2 grid (R-10). Every stamp
+   * goes through `stampGroundDecal`, the one entry, which is also the one
+   * place R-19's terrace refusal lives.
    *
-   * Built in the constructor rather than initialised here because its colour
-   * is resolved through `overlayColor` (the same "colour is looked up, never
-   * computed" rule `trailMesh`/`vehicleTrackMesh` follow one field group
-   * down), and `this.opts` is a parameter property -- available in the
-   * constructor body, not at field-initialiser time.
-   *
-   * It takes no `step()`: a mark never moves, never fades and has no TTL, so
-   * the only per-frame cost it could have is one it does not pay.
+   * Built in the constructor rather than initialised here because the
+   * palette resolves through `overlayColor`, and `this.opts` is a parameter
+   * property -- available in the constructor body, not at field-initialiser
+   * time. `decalMaterial.uniforms.uNowSec` is written once a frame from the
+   * sim clock (`presentationSimMs`), never from `dtMs`, so the visual gate's
+   * zero-elapsed repaint reads every fade exactly where the first
+   * photograph left it.
    */
-  private readonly scorchDecals: ScorchDecalMesh;
+  private readonly decalMaterial: THREE.ShaderMaterial;
+  private readonly decalsPersistent: DecalPool;
+  private readonly decalsFading: DecalPool;
+  /** `stampGroundDecal`'s two samplers, built once rather than per stamp:
+   *  the height a decal grid vertex takes, and R-19's terrace test for the
+   *  decal's CENTRE. Both read `this.retained.elevation` at CALL time, so a
+   *  `refreshSurface` between two stamps is seen by the second.
+   *
+   *  The height is the SMOOTH field (`decalGroundY`), not `groundWorldY`
+   *  (fix wave I-4). On open ground the two are the same function; under a
+   *  terrace the smooth field continues the apron (so the chord no longer
+   *  cuts under a ridge foot by up to 0.62 wu), and off the map it is the
+   *  edge-clamped field rather than 0 (so a rim mark no longer dives by up to
+   *  0.38 wu). Before a surface exists it falls back to `groundWorldY`. */
+  private readonly decalSampleY = (x: number, z: number): number =>
+    decalGroundY(this.retained.elevation, this.sim.width, this.sim.height, x, z);
+  /** What `decalBaseTone` reads -- the last terrain build's own input
+   *  (draw mask, decor, tones) and road graph. `null` until the first build;
+   *  a stamp before it divides by the map's open tone, which is what every
+   *  tile is before a build has said otherwise. Its draw mask is refreshed
+   *  when a structure falls (`structureDestroyed`), for the same F-10 reason
+   *  the surface is. */
+  private decalGround: DecalGroundSource | null = null;
+  private readonly decalIsTerrace = (x: number, z: number): boolean => {
+    const surface = this.retained.elevation;
+    return surface !== null && isTerrace(surface, Math.floor(x), Math.floor(z));
+  };
   /**
    * Every live screen shake, as the pure model's own immutable state
    * (`./blast-shake.ts`). Written at the two dispatch sites (a vehicle kill,
@@ -1944,33 +2065,29 @@ export class ThreeRenderer implements Renderer {
   private trailMeshDirty = true;
 
   /**
-   * Vehicle track marks (tread ruts, tyre prints) -- see `./vehicle-tracks
-   * .ts`'s own top comment for the full design account. `vehicleTrackAccumTiles`
-   * is the per-entity distance-since-last-stamp accumulator `stepTrackAccum`
+   * Vehicle track marks (tread ruts, tyre prints), now stamped into
+   * `decalsFading` -- see `./vehicle-tracks.ts`'s own top comment for the
+   * roster and footprint account. `vehicleTrackAccumTiles` is the
+   * per-entity distance-since-last-stamp accumulator `stepTrackAccum`
    * carries forward; `vehicleTrackSeeded` mirrors `turretSeeded`/
    * `animSeeded`'s own pattern -- an entity's first tick only records its
    * position, so a freshly spawned or reinforced vehicle does not stamp a
    * phantom line from `(0, 0)` (the `Float64Array` zero-fill) to its actual
-   * spawn tile. `trackClockMs` is this class's own accumulated `dtMs` total
-   * (never `Date.now()`), the "now" both the stamp TTL and the expiry sweep
-   * read -- see `Renderer.frame`'s own documented contract for why a
-   * backend must not read its own clock.
+   * spawn tile. There is no track clock of its own any more: a print is
+   * dated `stampSimMs(tickCount)` and aged by the decal material's sim-time
+   * `uNowSec`.
    */
-  private readonly vehicleTrackMesh: VehicleTrackMesh;
   private readonly vehicleTrackAccumTiles: Float64Array;
   private readonly vehicleTrackSeeded: Uint8Array;
-  private trackClockMs = 0;
-  /** `groveMat`'s `uTime` uniform, in the same "accumulated `dtMs`, never
-   *  `Date.now()`" shape as `trackClockMs` immediately above and for the
-   *  identical reason (`Renderer.frame`'s documented contract) -- a separate
-   *  field rather than reusing `trackClockMs` itself so the wind's own
-   *  period stays independent of whatever `vehicleTrackMesh` does with its
-   *  clock. Converted from ms to seconds only at the point `frame()` writes
+  /** `groveMat`'s `uTime` uniform, in the "accumulated `dtMs`, never
+   *  `Date.now()`" shape `Renderer.frame`'s documented contract asks for --
+   *  its own field, so the wind's period stays independent of every other
+   *  presentation clock here. Converted from ms to seconds only at the point `frame()` writes
    *  the uniform; see `terrain/mesh.ts`'s `GroveMaterial` doc comment for
    *  the shader-side use. */
   private windClockMs = 0;
   /** GH #144: `SmokeMesh`'s own animation clock, the same "accumulated
-   *  `dtMs`, never `Date.now()`" shape as `trackClockMs`/`windClockMs`
+   *  `dtMs`, never `Date.now()`" shape as `windClockMs`
    *  immediately above and for the identical reason (`Renderer.frame`'s
    *  documented contract) -- a separate field, not a reuse of either, so
    *  smoke's own drift/billow/breathing periods stay independent of what
@@ -1989,6 +2106,7 @@ export class ThreeRenderer implements Renderer {
     // `units/gltf-loader.ts` holds it for the whole module graph, because the
     // decoder is a property of the runtime rather than of any one asset.
     if (opts.dracoDecoderPath) setDracoDecoderPath(opts.dracoDecoderPath);
+    this.showcasePending = opts.decalShowcase !== undefined;
     this.unitGroup = new Uint8Array(sim.capacity);
     const n = sim.capacity;
     this.prevX = new Float64Array(n);
@@ -2050,20 +2168,83 @@ export class ThreeRenderer implements Renderer {
     // re-resolving per frame -- see trail-mesh.ts's own top comment for why
     // one uniform colour serves the whole mesh.
     this.trailMesh = new TrailMesh(sim.width, sim.height, opts.terrainTones.spoil);
-    // Same "resolve the palette-key colour once, at construction" pattern
-    // as trailMesh just above -- opts.terrainTones.rut is the SAME resolved
-    // hex the static rut painting already uses (`renderer.ts`'s own `rut`
-    // stroke), so a driven-over tile and a hand-painted one read as the
-    // same material. See vehicle-tracks.ts's own top comment for the full
-    // palette/fog/pool-sizing account.
-    this.vehicleTrackMesh = new VehicleTrackMesh(TRACK_POOL_CAPACITY, opts.terrainTones.rut);
-    // Same "resolve the palette-key colour once, at construction" pattern as
-    // the two meshes above. `shadow.0` is the darkest-but-one shadow tone,
-    // which is what `scorch-decals.ts` names as its own fallback -- passed
-    // through `overlayColor` here so a caller that supplied a resolver gets
-    // the real palette entry and one that did not (this backend's own tests)
-    // still gets an on-palette hex rather than magenta.
-    this.scorchDecals = new ScorchDecalMesh(SCORCH_CAPACITY, this.overlayColor('shadow.0', '#23241F'));
+    // The decal kinds' eight colours, resolved once through `overlayColor`
+    // exactly as the meshes above resolve theirs -- a caller with a resolver
+    // gets the real palette entry, and one without (this backend's own
+    // tests) still gets the on-palette hex that key names today rather
+    // than magenta. `tread` is `dust.5` on every theme, as spec §5 gives it
+    // (fix wave M-2): the ground's own road ruts are a different tone again
+    // (`limestone.6`, `uRutTone`), and the retired line here that called
+    // tread "the SAME rut tone" was wrong twice -- it read the theme's
+    // `terrainTones.rut`, which is `dust.6` on green.
+    //
+    // The second argument hands the decal shader the ground's OWN road
+    // uniform objects (fix wave I-3), so the per-fragment road mix reads the
+    // control map `rebuildTerrain` binds and the `roads` toggle with no
+    // second write.
+    this.decalMaterial = createDecalMaterial(
+      {
+        craterBowl: this.overlayColor('shadow.0', '#23241F'),
+        craterLip: this.overlayColor('limestone.1', '#E6D8BE'),
+        scorch: this.overlayColor('shadow.0', '#23241F'),
+        oil: this.overlayColor('shadow.1', '#14150F'),
+        rubbleA: this.overlayColor('limestone.5', '#A28C6E'),
+        rubbleB: this.overlayColor('limestone.7', '#75624A'),
+        tread: this.overlayColor('dust.5', '#806032'),
+        tyre: this.overlayColor('limestone.6', '#8C7659'),
+      },
+      {
+        uControlB: this.groundMat.uniforms.uControlB,
+        uMapSize: this.groundMat.uniforms.uMapSize,
+        uRoadTone: this.groundMat.uniforms.uRoadTone,
+        uShoulderTone: this.groundMat.uniforms.uShoulderTone,
+        uRoadOn: this.groundMat.uniforms.uRoadOn,
+      }
+    );
+    // Each decal writes its tone as a ratio over the ground tone under it
+    // (`decalGround`, captured per stamp) and is MULTIPLIED onto the lit
+    // ground (F-22), so a crater lip in a building's shadow stays in shadow.
+    // One material, two pools, one band each (`render-order.ts`'s decal
+    // aliases): the persistent marks in the world band, the fading prints
+    // one above so a fresh tread lies over an old crater.
+    this.decalsPersistent = new DecalPool({
+      capacity: PERSISTENT_CAPACITY,
+      grid: PERSISTENT_GRID,
+      renderOrder: DECAL_PERSISTENT_RENDER_ORDER,
+      material: this.decalMaterial,
+    });
+    this.decalsFading = new DecalPool({
+      capacity: FADING_CAPACITY,
+      grid: FADING_GRID,
+      renderOrder: DECAL_FADING_RENDER_ORDER,
+      material: this.decalMaterial,
+    });
+    // The ground's macro field (spec 3.1, G4): built once, since it depends
+    // on the map's size alone. Its hue pull resolves through `overlayColor`
+    // exactly as the decals above do, and is `neutralTint`ed so it moves hue
+    // and never luminance -- `MACRO_LUMINANCE` owns that. The control map
+    // itself is the terrain's, and is bound by `rebuildTerrain`.
+    this.macroTex = macroTexture(buildMacroField(sim.width, sim.height));
+    this.groundMat.uniforms.uMacro.value = this.macroTex;
+    (this.groundMat.uniforms.uMapSize.value as THREE.Vector2).set(sim.width, sim.height);
+    (this.groundMat.uniforms.uMacroBright.value as THREE.Vector3).fromArray(
+      neutralTint(this.overlayColor('limestone.2', '#D9C7A7'))
+    );
+    (this.groundMat.uniforms.uMacroDark.value as THREE.Vector3).fromArray(
+      neutralTint(this.overlayColor('dust.1', '#D1A668'))
+    );
+    // The road's three palette tones (#226, spec 3.2), as LINEAR light: they
+    // are mixed into `diffuseColor`, which holds the vertex colour `toGeometry`
+    // already decoded to linear. The surface is the theme's own road tone; the
+    // bleached shoulder is `limestone.2` and the ruts `limestone.6` on every
+    // theme, resolved through `overlayColor` like the tints above.
+    (this.groundMat.uniforms.uRoadTone.value as THREE.Vector3).fromArray(hexToLinear(opts.terrainTones.road));
+    (this.groundMat.uniforms.uShoulderTone.value as THREE.Vector3).fromArray(
+      hexToLinear(this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK))
+    );
+    (this.groundMat.uniforms.uRutTone.value as THREE.Vector3).fromArray(
+      hexToLinear(this.overlayColor('limestone.6', '#8C7659'))
+    );
     // Phase C: sized off sim.capacity, not a bare constant -- see
     // OVERLAY_VERTICES_PER_ENTITY's own doc comment for the per-entity
     // budget this multiplies, and the "+ 8192" headroom for the handful of
@@ -2198,17 +2379,13 @@ export class ThreeRenderer implements Renderer {
     // only so a reader scanning this constructor sees the ground-plane
     // meshes grouped together.
     this.scene.add(this.trailMesh.mesh);
-    // Same ground-band placement as trailMesh just above, for the same
-    // "scene-graph position is cosmetic here, renderOrder plus real depth
-    // does the real work" reason -- see vehicle-tracks.ts's own top comment.
-    this.scene.add(this.vehicleTrackMesh.mesh);
-    // The scorch marks draw in the same WORLD band as the tracks just above
-    // and lie on the same ground plane, so they are grouped with them for
-    // the same reader's-eye reason -- scene-graph position carries no
-    // draw-order meaning in this backend (`renderOrder` plus the real depth
-    // buffer does). Added here once and never removed: the pool is fixed and
-    // the mesh outlives every mark in it.
-    this.scene.add(this.scorchDecals.mesh);
+    // Both decal pools lie on the same ground plane as the trail, so they
+    // are grouped with it for the same reader's-eye reason -- scene-graph
+    // position carries no draw-order meaning in this backend (`renderOrder`
+    // plus the real depth buffer does). Added once and never removed: each
+    // pool is fixed-size and its mesh outlives every mark in it.
+    this.scene.add(this.decalsPersistent.mesh);
+    this.scene.add(this.decalsFading.mesh);
     // `SMOKE_RENDER_ORDER` sits above the overlay tier -- see
     // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
     // here for the identical reason it is for `trailMesh` (three.js
@@ -2495,6 +2672,13 @@ export class ThreeRenderer implements Renderer {
     this.disposeTexturedDecorSet(this.texturedDecorSet);
     this.terrainMat.dispose();
     this.groveMat.dispose();
+    // The ground's data textures: the control pair `rebuildTerrain` last
+    // bound, and the macro field the constructor built.
+    this.controlTex?.a.dispose();
+    this.controlTex?.b.dispose();
+    this.controlTex = null;
+    this.controlInputs = null;
+    this.macroTex.dispose();
     for (const instancer of this.unitInstancers.values()) instancer.dispose();
     this.unitInstancers.clear();
     for (const instancer of this.turretInstancers.values()) instancer.dispose();
@@ -2623,8 +2807,11 @@ export class ThreeRenderer implements Renderer {
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
-    // the FX batches above -- one geometry and one ShaderMaterial.
-    this.scorchDecals.dispose();
+    // the FX batches above: each pool owns its geometry only, and the one
+    // material they share is disposed once, here.
+    this.decalsPersistent.dispose();
+    this.decalsFading.dispose();
+    this.decalMaterial.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -2679,9 +2866,6 @@ export class ThreeRenderer implements Renderer {
     // "added once in the constructor, no scene.remove needed" reasoning
     // just above.
     this.trailMesh.dispose();
-    // Same "added once in the constructor, no scene.remove needed" shape as
-    // trailMesh just above.
-    this.vehicleTrackMesh.dispose();
     // BEFORE the renderer goes, and nulled: the composer owns three
     // full-screen render targets plus SMAA's two lookup textures, none of
     // which `WebGLRenderer.dispose()` reaches, and they have to be deleted
@@ -2797,6 +2981,10 @@ export class ThreeRenderer implements Renderer {
       // photograph nobody invalidated would outlive its own subject.
       this.invalidateGroundPhoto();
     }
+    // After the rebuild, not inside it: `groundPhoto` can build the terrain
+    // before any frame has run, and the showcase must still be stamped by
+    // the next frame rather than lost to whichever caller built first.
+    if (this.showcasePending) this.stampDecalShowcase();
     this.updateUnits(alpha, dtMs);
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
@@ -2829,7 +3017,7 @@ export class ThreeRenderer implements Renderer {
     // No dirty gate -- Pixi's own smoke loop redraws every `frame()` call,
     // not behind `fogDirty` (`smokeMesh`'s own doc comment above).
     // GH #144: `smokeClockMs` is real accumulated frame time, exactly like
-    // `trackClockMs`/`windClockMs` just below -- never the sim's own tick.
+    // `windClockMs` just below -- never the sim's own tick.
     this.smokeClockMs += dtMs;
     this.smokeMesh.update(
       this.sim.smoke,
@@ -2842,15 +3030,13 @@ export class ThreeRenderer implements Renderer {
       this.trailMesh.update(this.buildTrailInput());
       this.trailMeshDirty = false;
     }
-    // No dirty gate, matching smokeMesh's own "runs every frame()" above --
-    // the sweep is a flat, bounded (TRACK_POOL_CAPACITY) scan, cheap enough
-    // to just always run; see sweepExpiredTrackSlots's own doc comment.
-    // trackClockMs is this backend's own accumulated dtMs total, never a
-    // direct clock read -- see the field's own doc comment.
-    this.trackClockMs += dtMs;
-    this.vehicleTrackMesh.update(this.trackClockMs);
-    // No dirty gate, same "cheap enough to just always run" reasoning as
-    // vehicleTrackMesh's own sweep just above -- one uniform write.
+    // The decals' age is SIM time (R-14), never `dtMs`: the tick the sim has
+    // reached and the fraction of the way to it this frame presents. A
+    // repaint at zero elapsed time -- the visual gate's second photograph --
+    // and a stalled tab's 5-second frame alike leave every fade where it
+    // was; only a tick moves it. `alpha` is the held one under a hit-stop.
+    this.decalMaterial.uniforms.uNowSec.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    // No dirty gate -- one uniform write.
     this.windClockMs += dtMs;
     this.groveMat.uniforms.uTime.value = this.windClockMs / 1000;
     this.updateSilhouetteOutlineWidth();
@@ -2952,6 +3138,21 @@ export class ThreeRenderer implements Renderer {
         // (`GROUND_ALBEDOS[id].gain`, never a hardcoded 1), which is why the
         // previous values are stashed rather than recomputed.
         return this.setGroundAlbedoOn(visible);
+      case 'macro':
+        // A uniform, like `ground-albedo` above: the macro field's amplitude
+        // to 0 and back (`GroundMaterial.setMacroVisible`), 1 when it changed
+        // and 0 when it was already there. Nothing per-frame writes
+        // `uMacroAmp` -- its only writers are `groundUniforms()` and that
+        // method -- so the plain write holds across the gate's repaint.
+        return this.groundMat.setMacroVisible(visible);
+      case 'roads':
+        // `uRoadOn` to 0 and back (`GroundMaterial.setRoadsVisible`), 1 when
+        // it changed and 0 when it was already there. The same shape as
+        // `macro` and for the same reason: its only writers are
+        // `groundUniforms()` and that method, so nothing in `frame()`
+        // re-asserts it. What it removes -- the whole road, grain and ruts
+        // included -- is that method's own doc comment.
+        return this.groundMat.setRoadsVisible(visible);
       case 'overlays': {
         // Unlike `units`, a plain `setObjectsVisible` is correct for the
         // three batches -- `debug-layers.ts`'s own doc comment for
@@ -3003,13 +3204,17 @@ export class ThreeRenderer implements Renderer {
           if (this.fogPass) this.fogPass.uniforms.uRevealAll.value = reveal ? 1 : 0;
           return this.fogPass === null || was === reveal ? 0 : 1;
         }
-      case 'scorch':
-        // An ordinary `visible` flag, `skirt`'s shape: the mesh is added once
-        // in the constructor and nothing per-frame writes its visibility --
-        // a mark is written once at `stamp()` and never touched again
-        // (`scorch-decals.ts`'s own "No TTL"), so there is no `step()` to
-        // undo this the way `flashLights.step` would undo the layer below.
-        return setObjectsVisible(visible, this.scorchDecals.mesh);
+      case 'decals':
+        // Both decal pools under one name (D5, R-17 -- it replaced `scorch`
+        // when the scorch folded into the persistent pool beside crater, oil
+        // and rubble, and the tracks into the fading one). An ordinary
+        // `visible` flag on each pool's one mesh, `skirt`'s shape: both
+        // meshes are added once in the constructor and nothing per-frame
+        // writes their visibility -- the fading pool ages a mark by alpha,
+        // not by `visible` -- so there is no `step()` to undo this the way
+        // `flashLights.step` would undo the layer below. Returns 2, and a
+        // count of 1 means a pool dropped out of the layer.
+        return setObjectsVisible(visible, this.decalsPersistent.mesh, this.decalsFading.mesh);
       case 'blast-light':
         // The second layer that CANNOT be a plain write, `units`' shape and
         // for the identical reason: `flashLights.step` rewrites every pooled
@@ -3021,6 +3226,13 @@ export class ThreeRenderer implements Renderer {
         this.flashLightsDebugHidden = !visible;
         if (this.flashLightsDebugHidden) this.zeroFlashLights();
         return this.flashLights.lights.length;
+      default:
+        // A name `DEBUG_LAYERS` lists and this switch does not handle. The
+        // compiler already refuses it (`name` is `never` here), but a build
+        // that skips the typecheck -- vite's dev server is one -- would
+        // otherwise return `undefined`, toggle nothing and read as a layer
+        // that draws nothing. Throwing makes it a capture failure instead.
+        throw new Error(unknownDebugLayerMessage(name));
     }
   }
 
@@ -3033,27 +3245,12 @@ export class ThreeRenderer implements Renderer {
     for (const light of this.flashLights.lights) light.intensity = 0;
   }
 
-  /** Backs `setDebugLayerVisible('ground-albedo', ...)`. Idempotent in both
-   *  directions: hiding twice must not stash a set of zeroes as the value to
-   *  restore, which would leave the ground permanently flat and make every
-   *  later toggle read a delta of nothing. */
+  /** Backs `setDebugLayerVisible('ground-albedo', ...)`: the five slot
+   *  strengths and the road's grain gain to 0 and back, idempotently, and
+   *  nothing else -- see `GroundMaterial.setAlbedoVisible` for why the macro
+   *  is NOT part of it. */
   private setGroundAlbedoOn(on: boolean): number {
-    if (!on) {
-      if (this.groundAlbedoStrengths === null) {
-        this.groundAlbedoStrengths = GROUND_SLOTS.map(
-          (slot) => this.groundMat.uniforms[slotUniforms(slot).strength].value as number
-        );
-      }
-      for (const slot of GROUND_SLOTS) this.groundMat.uniforms[slotUniforms(slot).strength].value = 0;
-      return GROUND_SLOTS.length;
-    }
-    const stashed = this.groundAlbedoStrengths;
-    if (stashed === null) return 0;
-    GROUND_SLOTS.forEach((slot, i) => {
-      this.groundMat.uniforms[slotUniforms(slot).strength].value = stashed[i];
-    });
-    this.groundAlbedoStrengths = null;
-    return GROUND_SLOTS.length;
+    return this.groundMat.setAlbedoVisible(on);
   }
 
   /**
@@ -3430,17 +3627,36 @@ export class ThreeRenderer implements Renderer {
               this.vehicleTrackAccumTiles[i] = r.accumTiles;
               if (r.stamps > 0) {
                 const facingNorm = fx.toNumber(st.facing[i]);
+                const decalKind = kind === 'tracked' ? 'tread' : 'tyre';
+                const footprint = TRACK_FOOTPRINT[kind];
+                const simMs = stampSimMs(this.sim.tickCount);
+                // F-11: the accumulator crossed each 0.5 BEHIND where the
+                // vehicle now is -- by the leftover `accumTiles` for the last
+                // stamp, and a further spacing for each earlier one -- so each
+                // stamp is placed back along this tick's motion by exactly
+                // that much. Stamping at the current position instead makes
+                // consecutive spacings 0.5 plus-or-minus a tick's travel,
+                // and R-15's feather overlap (sized for exactly 0.5) doubles
+                // or gaps at every seam.
+                const dist = Math.hypot(dx, dy);
+                const ux = dx / dist;
+                const uy = dy / dist;
                 for (let s = 0; s < r.stamps; s++) {
-                  this.vehicleTrackMesh.stamp(
-                    this.curX[i],
-                    this.curY[i],
-                    facingNorm,
-                    kind,
-                    this.retained.elevation,
-                    this.sim.width,
-                    this.sim.height,
-                    this.trackClockMs
-                  );
+                  const back = r.accumTiles + (r.stamps - 1 - s) * STAMP_SPACING_TILES;
+                  const ox = this.curX[i] - ux * back;
+                  const oy = this.curY[i] - uy * back;
+                  for (const c of trackStampCenters(ox, oy, facingNorm, kind)) {
+                    this.stampGroundDecal({
+                      kind: decalKind,
+                      x: c.x,
+                      z: c.y,
+                      halfLength: TRACK_STAMP_HALF_LENGTH,
+                      halfWidth: footprint.halfWidthTiles,
+                      facingRad: facingNorm * Math.PI * 2,
+                      seed: decalSeed(decalKind, c.x, c.y),
+                      simMs,
+                    });
+                  }
                 }
               }
             }
@@ -3683,7 +3899,11 @@ export class ThreeRenderer implements Renderer {
           }
           this.shakeState = pushShake(this.shakeState, blastShake(blast, killPower), dx, dy);
           this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(blast, killPower));
-          this.scorchDecals.stamp(dx, dy, worldY, killPower);
+          // The ground remembers the kill (spec 3.3): a scorch sized by the
+          // blast, and the hull's oil at a fixed size, through the one entry.
+          const scorchR = scorchRadiusTiles(killPower);
+          this.stampGroundDecal(this.persistentStamp('scorch', dx, dy, scorchR));
+          this.stampGroundDecal(this.persistentStamp('oil', dx, dy, OIL_RADIUS_TILES));
           this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
         }
       } else if (e.kind === 'structureHit') {
@@ -3763,6 +3983,32 @@ export class ThreeRenderer implements Renderer {
         // `tunnel_collapse.json` reach that method with no structure at all,
         // so neither can reach this line and neither is touched.
         this.beginCollapseShroud(deadStruct, bx, by);
+        // Rubble over the footprint (R-12). F-10: the surface is refreshed
+        // HERE, not left to the next frame's `rebuildTerrain` -- the sim has
+        // already cleared the pad's `blocked` tiles, but until the surface
+        // is rebuilt from that mask the pad still reads as a terrace, and
+        // R-19 would refuse the one kind aimed at a pad on every relief map
+        // (or, had it stamped, would lay it at the pad's old height, which
+        // the rebuild then turns into hillside). The rebuild's own refresh
+        // repeats this pass; it is one walk over the map.
+        this.refreshSurface();
+        // ...and the decal tone's draw mask, for the same reason: until the
+        // rebuild the pad still reads as `underBuilding`, and rubble divided
+        // by that dark tone would draw far too pale.
+        if (this.decalGround !== null) {
+          this.decalGround = {
+            ...this.decalGround,
+            input: { ...this.decalGround.input, blocked: drawBlockedMask(this.sim) },
+          };
+        }
+        {
+          const st = this.sim.structures;
+          const minX = st.minX[deadStruct];
+          const minY = st.minY[deadStruct];
+          const maxX = st.maxX[deadStruct];
+          const maxY = st.maxY[deadStruct];
+          this.stampGroundDecal(this.persistentStamp('rubble', bx, by, rubbleRadiusTiles(minX, minY, maxX, maxY)));
+        }
         if (!this.spawnCollapseFx('structure_collapse', bx, by, collapsePower, collapseYawTurns)) {
           for (let k = 0; k < 14; k++) {
             const a = tileHash(k * 7 + deadStruct, k * 13 + deadStruct);
@@ -7000,7 +7246,70 @@ export class ThreeRenderer implements Renderer {
     }
     this.shakeState = pushShake(this.shakeState, blastShake(em, power), s.tx, s.ty);
     this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
-    this.scorchDecals.stamp(s.tx, s.ty, worldY, power);
+    // The crater first, then the scorch over it: both persistent, both at
+    // the ROUND's own power (R-13's `0.15 + power` for the crater).
+    this.stampGroundDecal(this.persistentStamp('crater', s.tx, s.ty, craterRadiusTiles(power)));
+    this.stampGroundDecal(this.persistentStamp('scorch', s.tx, s.ty, scorchRadiusTiles(power)));
+  }
+
+  /**
+   * The ONE entry every ground decal goes through (spec 3.3). Refuses a
+   * stamp whose centre tile is a terrace (R-19) -- a pad or a `^` wall is
+   * vertical, and a mark centred on one would hang in the air or wrap a
+   * wall -- and returns whether it stamped. Routes tread/tyre to the fading
+   * pool and every other kind to the persistent one. Heights come from the
+   * drawn surface's SMOOTH field (`decalSampleY`, fix wave I-4): the drawn
+   * ground itself on open ground, continued under terraces and past the map
+   * edge rather than held at the centre's height or dropped to 0.
+   */
+  private stampGroundDecal(s: DecalStamp): boolean {
+    if (this.decalIsTerrace(s.x, s.z)) return false;
+    const pool = isFadingKind(s.kind) ? this.decalsFading : this.decalsPersistent;
+    // The ratio's denominator is the ground under THIS decal (fix round 2),
+    // not the map's open tone: a green map's road is dust, not grass.
+    // Fix wave I-3: the TILE tone only -- the shader mixes the road and its
+    // shoulder in per fragment, from the same control B the ground reads.
+    const ground =
+      this.decalGround === null ? hexToLinear(this.opts.terrainTones.open) : decalBaseTone(this.decalGround, s.x, s.z);
+    pool.stamp(s, this.decalSampleY, ground);
+    return true;
+  }
+
+  /**
+   * D4: lays `RendererOptions.decalShowcase` once, through
+   * `stampGroundDecal` -- the entry every real event uses, so the showcase
+   * photographs the code a battle runs rather than a copy of it. Waits for
+   * the first terrain build (`decalGround` is its record), because the sites
+   * are chosen from that build's own input: the draw mask, the decor and the
+   * drawn surface, exactly what the marks will lie on. Every stamp is dated
+   * sim time 0 (R-14), so the fades a capture sees do not depend on how many
+   * ticks ran before it.
+   */
+  private stampDecalShowcase(): void {
+    const anchor = this.opts.decalShowcase;
+    const ground = this.decalGround;
+    const surface = this.retained.elevation;
+    if (anchor === undefined || ground === null || surface === null) return;
+    // Fix wave I-2: clear of the force the anchor names, not on it.
+    const at = showcaseAnchor(ground.input, surface, anchor);
+    for (const s of decalShowcase(showcaseSites(ground.input, surface, at))) this.stampGroundDecal(s);
+    this.showcasePending = false;
+  }
+
+  /** A round persistent mark of radius `r` tiles at `(x, z)`, dated this
+   *  tick. Facing 0: every persistent kind is radially symmetric but for
+   *  its seeded wobble, which the seed already turns. */
+  private persistentStamp(kind: DecalKind, x: number, z: number, r: number): DecalStamp {
+    return {
+      kind,
+      x,
+      z,
+      halfLength: r,
+      halfWidth: r,
+      facingRad: 0,
+      seed: decalSeed(kind, x, z),
+      simMs: stampSimMs(this.sim.tickCount),
+    };
   }
 
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
@@ -7795,6 +8104,43 @@ export class ThreeRenderer implements Renderer {
       this.opts.background
     );
 
+    // The control map is built from `composed.input` -- the SAME draw mask
+    // the ground itself was, so a live low-profile structure stays open
+    // ground here too -- and here rather than inside `composeTerrain`, which
+    // `terrain-parity.test.ts` calls ~80 times with no GPU to feed (F-21).
+    // A destroyed structure lands here through `terrainDirty`, which is what
+    // turns its pad back into open ground in the map.
+    //
+    // Fix wave I-1: only when its inputs changed. Most of a boot's 3-5
+    // rebuilds change neither the decor, the draw mask nor the cover (a
+    // building template landing, a decor set loading, `setElevation`), and
+    // each used to pay 48-80 ms for a map byte-identical to the one bound.
+    // `controlInputsMatch` compares the masks by CONTENT -- see its doc
+    // comment for why a reference compare is wrong in both directions.
+    const controlReused =
+      this.controlTex !== null && this.decalGround !== null && controlInputsMatch(this.controlInputs, composed.input);
+    const graph =
+      controlReused && this.decalGround !== null ? this.decalGround.graph : buildRoadGraph(composed.input);
+    if (!controlReused) {
+      const control = controlTexturePair(buildControlMap(composed.input));
+      this.controlTex?.a.dispose();
+      this.controlTex?.b.dispose();
+      this.controlTex = control;
+      this.controlInputs = snapshotControlInputs(composed.input);
+      this.groundMat.uniforms.uControlA.value = control.a;
+      this.groundMat.uniforms.uControlB.value = control.b;
+    }
+    // The decal pool's local ground tone reads the same input the ground and
+    // the control map were built from (fix round 2) -- refreshed on every
+    // rebuild, since its draw mask is the one the ground just drew.
+    this.decalGround = makeDecalGroundSource(
+      composed.input,
+      this.opts.terrainTones,
+      this.opts.background,
+      this.overlayColor(SHOULDER_TONE_KEY, SHOULDER_TONE_FALLBACK),
+      graph
+    );
+
     // The GROUND alone draws through `GroundMaterial` -- the one material here
     // that carries the six-slot albedo blend. Scatter, groves, the residual
     // layer and every building box take the plain vertex-coloured
@@ -8429,6 +8775,11 @@ export interface ComposedBuildingBox {
 /** `composeTerrain`'s full result -- one entry per terrain layer
  *  `rebuildTerrain` used to build inline before Task B3.9 lifted this out. */
 export interface ComposedTerrain {
+  /** The `TerrainInput` every layer below was built from -- the DRAW mask,
+   *  not the sim's. Surfaced so `rebuildTerrain` builds the ground's control
+   *  map from exactly the grid the ground itself saw (F-21), without this
+   *  pure function paying for a GPU-only grid on every test call. */
+  readonly input: TerrainInput;
   readonly ground: MeshData;
   readonly scatter: MeshData;
   readonly groves: MeshData;
@@ -8563,5 +8914,5 @@ export function composeTerrain(
     });
   }
 
-  return { ground, scatter, groves, residual, buildings, decorPlacements: decorPlacements(input) };
+  return { input, ground, scatter, groves, residual, buildings, decorPlacements: decorPlacements(input) };
 }

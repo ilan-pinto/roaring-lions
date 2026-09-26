@@ -27,13 +27,17 @@
  *    tiles: a shared vertex would interpolate a road tone into the open
  *    ground beside it. Within a tile they are shared freely -- one colour,
  *    nothing to smear.
- *  - **The exemption is the fragment stage.** `groundSurfaceMaterial`
- *    multiplies by a smooth normal-driven shade and by a sampled albedo --
- *    sand on the interpolated open ground, rock on a `^` ridge. Every OTHER
- *    vertex this builder emits carries the UP normal, where that shade term
- *    is exactly 1.0, and a zero in both masks, where the albedo term is
- *    exactly 1.0 -- so its pixels are the same palette bytes they always
- *    were.
+ *  - **The exemption is the fragment stage.** `GroundMaterial` multiplies by
+ *    a lit shade and by an albedo blend read from the control map at the
+ *    fragment's own position (`control-map.ts`) -- sand on the interpolated
+ *    open ground, rock on a `^` ridge, and so on. This builder no longer
+ *    carries a per-vertex opinion about WHICH surface a fragment samples; the
+ *    one per-vertex fact it still emits is `wallAlbedo`, which tells a WALL
+ *    vertex (sitting exactly on the control map's own texel boundary, where
+ *    the map cannot answer) apart from a top, which can. Every vertex still
+ *    carries a colour that is a palette entry, and every wall still carries
+ *    the UP normal, where the shade term is exactly 1.0 -- so its pixels are
+ *    the same palette bytes they always were.
  *
  * ## A map with no relief takes the old path, byte for byte
  *
@@ -46,16 +50,7 @@
  * noise floor across this change while `relief` moves wholesale.
  */
 import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
-import {
-  DECOR_GROVE,
-  DECOR_KNOLL,
-  DECOR_RIDGE,
-  DECOR_ROAD,
-  hexToUnit,
-  levelAt,
-  pushPolygon,
-  WORLD_PER_LEVEL,
-} from './shared';
+import { DECOR_RIDGE, DECOR_ROAD, hexToUnit, levelAt, pushPolygon, WORLD_PER_LEVEL } from './shared';
 import {
   buildTerrainSurface,
   hasWall,
@@ -65,6 +60,7 @@ import {
   SURFACE_SUBDIVISIONS,
   type TerrainSurface,
 } from './surface';
+import { SCRUB_TIER_STRENGTH, tileSurface } from './control-map';
 import type { MeshData, TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
 
@@ -84,191 +80,76 @@ export const FACE_ALPHA_SOUTH = 0.85;
  *  here -- see `surface.ts`'s `SURFACE_SHADING_EXEMPTION`. */
 const UP_NORMAL: readonly [number, number, number] = [0, 1, 0];
 
+/** How strongly each cover tier samples the scrub albedo. Owned by
+ *  `control-map.ts` now (`tileSurface`'s only reader) -- re-exported here so
+ *  this module's own existing callers and `ground.test.ts` are unaffected.
+ *  See that module's own doc comment for the full account of why a contrast
+ *  ladder rather than a tone ladder, and why it moved. */
+export { SCRUB_TIER_STRENGTH };
+
 /**
- * Which of `groundSurfaceMaterial`'s six albedo slots a vertex draws, and
- * how strongly.
+ * The one per-vertex surface fact the fragment shader still reads now the
+ * control map carries the surfaces (R-5): whether a vertex belongs to a TOP
+ * -- which samples the control map -- or to a WALL, and which kind.
  *
- * One value per slot rather than one enum, because they are six separate
- * decisions about six separate surfaces and each is asserted on its own
- * (`types.ts` gives the same reason for keeping `sandMask` and `rockMask`
- * apart). They are nevertheless MUTUALLY EXCLUSIVE by construction -- a tile
- * is one surface -- and `ground.test.ts` asserts that on every shipped map,
- * because two non-zero slots would multiply two albedos onto one fragment
- * and the result would be neither.
+ * A wall cannot ask the control map. A vertical face sits exactly on the
+ * texel boundary between the two tiles it separates, so the map would answer
+ * with whichever side the rasteriser's rounding lands on -- and a ridge wall
+ * and a building wall read the same there anyway. So the builder, which knows,
+ * says: `WALL_ALBEDO_ROCK` is a ridge's cliff face and draws the rock image at
+ * full weight; `WALL_ALBEDO_NONE` is a building's wall and keeps its authored
+ * `FACE_ALPHA_*` composite untextured. `GroundMaterial` reads the value
+ * directly as the wall's rock weight, which is why ROCK is 1 and NONE is 0
+ * rather than any other pair of codes.
  */
-interface Albedo {
-  /** Open ground: sand on an `arid` map, dry sward on a `green` one. */
-  readonly sand: number;
-  /** A `^` rock ridge: its flat top, and the cliff faces below it. */
-  readonly rock: number;
-  /** An `r` dirt road. */
-  readonly road: number;
-  /** Which way this road tile's ruts run -- see `roadAxisAt`. Meaningless,
-   *  and 0, wherever `road` is 0. */
-  readonly roadAxis: number;
-  /** A `1`/`2`/`3` cover tile, at its tier's own strength. */
-  readonly scrub: number;
-  /** An `o` olive grove's floor. */
-  readonly grove: number;
-  /** An `n` rocky knoll. */
-  readonly knoll: number;
-}
-
-/** No albedo at all: the palette tone, untouched. A building footprint, and
- *  every wall that is not a ridge face. */
-const NO_ALBEDO: Albedo = { sand: 0, rock: 0, road: 0, roadAxis: 0, scrub: 0, grove: 0, knoll: 0 };
-const SAND_ALBEDO: Albedo = { ...NO_ALBEDO, sand: 1 };
-const RIDGE_ALBEDO: Albedo = { ...NO_ALBEDO, rock: 1 };
-const GROVE_ALBEDO: Albedo = { ...NO_ALBEDO, grove: 1 };
-const KNOLL_ALBEDO: Albedo = { ...NO_ALBEDO, knoll: 1 };
+export const WALL_ALBEDO_TOP = -1;
+export const WALL_ALBEDO_NONE = 0;
+export const WALL_ALBEDO_ROCK = 1;
 
 /**
- * How strongly each cover tier samples the scrub albedo -- the mix weight
- * toward the image's own variation, so tier 1 is faintly rough ground and
- * tier 3 is a thicket.
- *
- * **A contrast ladder, not a tone ladder, and that was decided by
- * measurement rather than taste.** The obvious move is to branch `groundTone`
- * on cover and composite the already-authored `tones.cover[tier - 1]` over
- * the open wash, which would give each tier its own palette entry. It does
- * not work, twice over. Quantisation eats it: sweeping the alpha for `arid`,
- * everything below 0.5 snaps all three tiers back onto `limestone.3` -- the
- * open-ground tone itself -- so there is no gentle version. And at the 0.6
- * where three distinct entries finally appear, the entries are
- * `limestone.2` / `dust.1` / `dust.0`, whose luminances are 193 / 175 / 185
- * against open ground's 182: three different colours in no order at all.
- * That triple was authored for TUFTS, which need to contrast with the ground
- * they sit on, not for a density ramp. Inventing new palette keys to fix
- * that is a palette change, not a terrain one.
- *
- * Contrast is also the physically right cue. Seen from above, sparse bushes
- * on open ground are mostly the open ground, so the tile's variation is low;
- * a thicket is all highlight and shadow. The scrub source's per-pixel std is
- * 29.1 grey levels on a mean of 92, so the ratio it applies swings roughly
- * 0.6-1.5 -- at strength 0.4 that is a +/-24% mottle and at 1.0 a +/-60% one.
- *
- * The tuft marks `scatter.ts` already places (`cover + 2` of them, in the
- * tier's own authored tone) are KEPT on top and are the second, palette-legal
- * cue: count and colour, over contrast and texture.
- */
-export const SCRUB_TIER_STRENGTH: readonly [number, number, number] = [0.4, 0.65, 1.0];
-
-/**
- * Which axis a road tile's ruts run along: 0 north-south, 1 east-west, 0.5
- * both at once. `groundSurfaceMaterial` blends its two samples of the wheel
- * track by this -- see the fragment shader.
- *
- * The source is a single track running down the image, so an unrotated
- * sample IS a north-south road; the swap is east-west; and the average of
- * the two is a plus-shaped patch of lane with the gravel left in the four
- * corners, which is what a junction looks like from above.
- *
- * The rule is `decor-place.ts`'s `ditchYawTurns`, case for case, because it
- * is the same question about the same neighbourhood:
- *
- *  * STRAIGHT (road neighbours on one axis only) -- that axis.
- *  * JUNCTION (neighbours on BOTH axes: a corner, a T, a crossroads) -- the
- *    blend. A corner takes it too, and pays for it with two arms of lane
- *    that run to the tile edge and stop. That is the honest trade: the
- *    alternative is picking one of the corner's two axes, which leaves the
- *    OTHER arm's neighbour running its lane into a tile that has no lane
- *    where it joins -- a break in the road rather than a widening of it.
- *  * ISOLATED (no road neighbour at all) -- the blend as well, and unlike
- *    the ditch's arbitrary-but-fixed choice this one is not arbitrary: a
- *    lone `r` tile is a patch of hardstanding with no run to agree with, so
- *    the directionless answer is the correct one.
- *
- * Deterministic, and never `tileHash`: an authored road must not change
- * orientation because a tile was added somewhere else on the map.
- */
-export const ROAD_AXIS_NORTH_SOUTH = 0;
-export const ROAD_AXIS_EAST_WEST = 1;
-export const ROAD_AXIS_JUNCTION = 0.5;
-
-export function roadAxisAt(input: TerrainInput, x: number, y: number): number {
-  const { width, height } = input;
-  const isRoad = (rx: number, ry: number): boolean =>
-    rx >= 0 &&
-    rx < width &&
-    ry >= 0 &&
-    ry < height &&
-    (input.decor ? input.decor[ry * width + rx] : 0) === DECOR_ROAD;
-  const eastWest = isRoad(x - 1, y) || isRoad(x + 1, y);
-  const northSouth = isRoad(x, y - 1) || isRoad(x, y + 1);
-  if (eastWest && northSouth) return ROAD_AXIS_JUNCTION;
-  if (eastWest) return ROAD_AXIS_EAST_WEST;
-  if (northSouth) return ROAD_AXIS_NORTH_SOUTH;
-  return ROAD_AXIS_JUNCTION;
-}
-
-/**
- * The albedo of tile `(x, y)`'s own TOP surface -- the one decision, in one
- * place, for both the flat/terrace quad and the interpolated patch.
- *
- * Ordered as a chain of exclusions, and the order is the meaning:
- *
- *  1. **Blocked.** A `^` ridge is bedrock and takes rock. Every other
- *     blocked tile is a building footprint and takes NOTHING -- a structure
- *     pad is not ground, and `groundTone`'s own `underBuilding` wash is what
- *     belongs there.
- *  2. **A road** (`r`) takes the wheel track, at the axis its neighbours
- *     imply.
- *  3. **A grove** (`o`) takes the orchard floor, and **a knoll** (`n`) the
- *     scree. Both reach this line before the cover test deliberately: `o` IS
- *     cover 1 and `n` IS cover 2 (`@lions/data`'s `LEGEND`), so without the
- *     ordering every olive grove and every knoll in the game would draw as
- *     scrub.
- *  4. **A plain cover tile** (`1`/`2`/`3` -- cover with no decor kind) takes
- *     scrub at its tier's strength. Keyed on the SYMBOL, not on the cover
- *     number, which is what lets three surfaces sharing a cover tier draw
- *     three different materials.
- *  5. **Everything else** is open ground and takes sand. A `b` boulder field
- *     and a `d` anti-tank ditch land here, as they did before: both are open
- *     ground the sim charges nothing for on foot, and both already carry
- *     their own drawn object on top.
- */
-function albedoFor(input: TerrainInput, x: number, y: number): Albedo {
-  const ti = y * input.width + x;
-  const decorHere = input.decor ? input.decor[ti] : 0;
-  if (input.blocked[ti] !== 0) return decorHere === DECOR_RIDGE ? RIDGE_ALBEDO : NO_ALBEDO;
-  if (decorHere === DECOR_ROAD) return { ...NO_ALBEDO, road: 1, roadAxis: roadAxisAt(input, x, y) };
-  if (decorHere === DECOR_GROVE) return GROVE_ALBEDO;
-  if (decorHere === DECOR_KNOLL) return KNOLL_ALBEDO;
-  // DECOR none is 0 -- `shared.ts` names every kind but that one, since
-  // "no decor" is the absence of an entry rather than a kind of its own.
-  const tier = decorHere === 0 ? input.cover[ti] : 0;
-  if (tier > 0) return { ...NO_ALBEDO, scrub: SCRUB_TIER_STRENGTH[Math.min(tier, 3) - 1] };
-  return SAND_ALBEDO;
-}
-
-/**
- * The six ground-albedo slots `mesh.ts`'s `GROUND_SLOTS` names, spelled out
+ * The five ground-albedo slots `mesh.ts`'s `GROUND_SLOTS` names, spelled out
  * again here rather than imported: `mesh.ts` is the one file in this
  * directory that touches `THREE.*` (`toGeometry`'s `BufferAttribute`,
  * `whitePixel`'s `DataTexture`), and this barrel's own doc comment
  * (`terrain/index.ts`) is explicit that nothing in it may drag three.js in.
  * `mesh.test.ts` pins that the two lists agree.
+ *
+ * `road` is not one of them -- since Task 6 (#226) the road is drawn from
+ * control B's distance field, not from a slot of its own -- but a road tile
+ * still needs the knoll image fetched, for its grain (R-7); see
+ * `groundAlbedoSlotsUsed` below for where that rule now lives.
  */
-export type GroundAlbedoSlot = 'sand' | 'rock' | 'road' | 'scrub' | 'grove' | 'knoll';
+export type GroundAlbedoSlot = 'sand' | 'rock' | 'scrub' | 'grove' | 'knoll';
 
 /**
- * Which of the six ground-albedo slots a map's own tiles can ever land on --
- * derived by walking every tile through `albedoFor`, the SAME per-tile
- * decision `buildGround` itself makes, rather than a second, hand-kept rule
- * about which map symbols imply which texture (a hand-kept list is exactly
- * the `SPRITE_MAP` failure mode CLAUDE.md already names elsewhere, and it
- * would go stale the same silent way).
+ * Which of the five ground-albedo slots a map's own tiles can ever land on --
+ * derived by walking every tile through `tileSurface` (`control-map.ts`),
+ * the SAME per-tile decision the control map itself is built from, rather
+ * than a second, hand-kept rule about which map symbols imply which texture
+ * (a hand-kept list is exactly the `SPRITE_MAP` failure mode CLAUDE.md
+ * already names elsewhere, and it would go stale the same silent way).
  *
  * The one caller today is `packages/app`'s ground-texture loader
- * (`ground-textures.ts`): a map with no `^` ridge has no use for
+ * (`ThreeRenderer.loadGroundTexture`): a map with no `^` ridge has no use for
  * `rock_ground_tile.jpg`, one with no `o` grove has no use for
- * `orchard_floor_tile.jpg`, and so on -- fetching an image no vertex will
+ * `orchard_floor_tile.jpg`, and so on -- fetching an image no fragment will
  * ever sample costs bytes and a request for nothing. `sand` covers BOTH
  * open-ground images (`desert_sand_tile`/`green_basin_tile`); which one a
  * caller resolves it to is a `map.terrain` decision this function has no
  * opinion on, the same split `TERRAIN_GROUND_TEXTURE` already keeps.
  *
- * Short-circuits once all six slots have been seen: a slot already present
+ * A `road` tile reports BOTH `sand` (the open wash its vertex colour now
+ * carries, since it draws through the ordinary top-surface path) AND
+ * `knoll` -- not because a road samples the knoll ALBEDO slot, but because
+ * the road's own grain, drawn from the distance field, borrows the knoll
+ * IMAGE wholesale (R-7: one shared image, no road asset). Skipping the
+ * fetch on a road map would leave that grain permanently white.
+ *
+ * A `pad` (a building footprint with no ridge decor) contributes nothing:
+ * it is not ground, and `groundTone`'s own `underBuilding` wash is what
+ * belongs there.
+ *
+ * Short-circuits once all five slots have been seen: a slot already present
  * cannot become "more present" by scanning further tiles, so a large map
  * that uses everything pays for a partial scan, not a full one.
  */
@@ -277,51 +158,52 @@ export function groundAlbedoSlotsUsed(input: TerrainInput): ReadonlySet<GroundAl
   const { width, height } = input;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const a = albedoFor(input, x, y);
-      if (a.sand > 0) used.add('sand');
-      if (a.rock > 0) used.add('rock');
-      if (a.road > 0) used.add('road');
-      if (a.scrub > 0) used.add('scrub');
-      if (a.grove > 0) used.add('grove');
-      if (a.knoll > 0) used.add('knoll');
-      if (used.size === 6) return used;
+      const { kind } = tileSurface(input, x, y);
+      switch (kind) {
+        case 'open':
+          used.add('sand');
+          break;
+        case 'road':
+          used.add('sand');
+          used.add('knoll');
+          break;
+        case 'pad':
+          break;
+        default:
+          used.add(kind);
+      }
+      if (used.size === 5) return used;
     }
   }
   return used;
 }
 
-/** The seven per-vertex albedo channels, as the plain arrays `buildGround`
- *  accumulates before they become `Float32Array`s. One struct rather than
- *  seven positional parameters: `pushSmoothTile` and `pushWall` already took
- *  fifteen arguments apiece. */
-interface AlbedoArrays {
-  sand: number[];
-  rock: number[];
-  road: number[];
-  roadAxis: number[];
-  scrub: number[];
-  grove: number[];
-  knoll: number[];
-}
-
-/** Appends `a` to every channel of `into`, `times` times -- one call per
- *  vertex batch, keeping all six arrays in lockstep with `colors` by
- *  construction rather than by six remembered `push` calls. */
-function pushAlbedo(into: AlbedoArrays, a: Albedo, times: number): void {
-  for (let i = 0; i < times; i++) {
-    into.sand.push(a.sand);
-    into.rock.push(a.rock);
-    into.road.push(a.road);
-    into.roadAxis.push(a.roadAxis);
-    into.scrub.push(a.scrub);
-    into.grove.push(a.grove);
-    into.knoll.push(a.knoll);
-  }
+/**
+ * The palette tone a tile's TOP vertices carry -- what `diffuseColor` holds
+ * before `GroundMaterial` mixes the road in and multiplies the albedo and
+ * macro ratio fields over it. One function for `buildGround` and for the
+ * decal pool's local ground tone (`decal-ground-tone.ts`), so the two cannot
+ * disagree about what the ground under a decal is.
+ *
+ * A road tile does not take `groundTone`'s own DECOR_ROAD branch
+ * (`tones.road` composited over the open wash): the road's tone is the
+ * shader's job, drawn from control B's distance field over whatever is
+ * beneath it (Task 6, #226), and what belongs beneath it is the open
+ * ground's own wash -- `groundTone`'s open branch, transcribed rather than
+ * reached through `groundTone` itself so this one exception does not have to
+ * route through (and risk disturbing) every other branch that function
+ * still owns.
+ */
+export function tileBaseToneHex(input: TerrainInput, tones: TerrainTones, ti: number, background: string): string {
+  const decorHere = input.decor ? input.decor[ti] : 0;
+  return decorHere === DECOR_ROAD
+    ? quantise(composite(background, tones.open, 1), PALETTE_HEXES)
+    : groundTone(input, tones, ti, PALETTE_HEXES, background);
 }
 
 /**
  * Builds the ground mesh's `positions`/`colors`/`normals`/`indices` and its
- * albedo masks.
+ * one remaining per-vertex surface fact, `wallAlbedo`.
  *
  * It used to build a parallel `litColors` array as well -- every vertex's
  * tone recomputed through this same pipeline against a ramp-shifted "lit"
@@ -332,6 +214,16 @@ function pushAlbedo(into: AlbedoArrays, a: Albedo, times: number): void {
  * which nothing else called. Every vertex colour emitted here is still a
  * `quantise`d palette entry, and `surface.ts`'s `SURFACE_SHADING_EXEMPTION`
  * still says so.
+ *
+ * It used to build seven per-vertex albedo channels as well -- one for
+ * WHICH surface a fragment was allowed to texture, mutually exclusive by
+ * construction. Task 5 of the ground plan moved that decision to the
+ * control map (`control-map.ts`'s `tileSurface`/`surfaceWeightsAt`), sampled
+ * per FRAGMENT rather than decided per vertex, and Task 6 moved the road off
+ * a slot entirely and onto control B's own distance field. Both channels
+ * (all seven, `roadMask`/`roadAxis` included) had stopped reaching the
+ * shader by the time this function still emitted them; this is where they
+ * stop being emitted too.
  */
 export function buildGround(input: TerrainInput, tones: TerrainTones, background: string): MeshData {
   const { width, height } = input;
@@ -339,7 +231,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
   const positions: number[] = [];
   const colors: number[] = [];
   const normals: number[] = [];
-  const albedo: AlbedoArrays = { sand: [], rock: [], road: [], roadAxis: [], scrub: [], grove: [], knoll: [] };
+  const wallAlbedo: number[] = [];
   const groundUv: number[] = [];
   const indices: number[] = [];
 
@@ -374,24 +266,23 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     p2: [number, number, number],
     p3: [number, number, number],
     color: [number, number, number],
-    flip: boolean,
-    tileAlbedo: Albedo
+    flip: boolean
   ): void => {
     pushPolygon(positions, colors, indices, [p0, p1, p2, p3], color, flip);
     // A horizontal quad: the albedo projects straight down, so its sampling
     // coordinates are its own world (x, z).
     for (const p of [p0, p1, p2, p3]) groundUv.push(p[0], p[2]);
     // `pushPolygon` already pushed 4 fresh vertices into `positions`/`colors`
-    // and their triangles into `indices` -- `normals` and the albedo channels
-    // need no positions or indices of their own, only 4 more entries in the
-    // same vertex order, so appending them directly (rather than calling
+    // and their triangles into `indices` -- `normals` and `wallAlbedo` need
+    // no positions or indices of their own, only 4 more entries in the same
+    // vertex order, so appending them directly (rather than calling
     // `pushPolygon` a second time, which would duplicate
     // `positions`/`indices`) keeps every array's vertex count in lockstep
     // with `colors`.
     for (let i = 0; i < 4; i++) {
       normals.push(UP_NORMAL[0], UP_NORMAL[1], UP_NORMAL[2]);
+      wallAlbedo.push(WALL_ALBEDO_TOP);
     }
-    pushAlbedo(albedo, tileAlbedo, 4);
   };
 
   for (let y = 0; y < height; y++) {
@@ -399,12 +290,9 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
       const ti = y * width + x;
       const levelHere = levelAt(input, x, y);
       const topY = levelHere * WORLD_PER_LEVEL;
-      // One decision per tile, made once and used by whichever of the two
-      // top-surface paths this tile takes -- see `albedoFor`.
-      const tileAlbedo = albedoFor(input, x, y);
 
-      const toneHex = groundTone(input, tones, ti, PALETTE_HEXES, background);
-      const toneColor = hexToUnit(toneHex);
+      // See `tileBaseToneHex` for the road tile's exception.
+      const toneColor = hexToUnit(tileBaseToneHex(input, tones, ti, background));
 
       if (surface.flat || isTerrace(surface, x, y)) {
         // Tile top: a flat quad at its own height, four fresh vertices, no
@@ -413,47 +301,16 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
         // This is the pre-2026-09-03 path verbatim, and it is what a map
         // with no relief draws for every one of its tiles.
         //
-        // Which albedo it draws is `albedoFor`'s single decision, and it
-        // needs no `surface.flat` guard of its own -- worth stating, because
-        // an obvious one looks like it is doing work here and is not.
-        // `isTerrace` IS `blocked !== 0` (`surface.ts`), so a relief map's
-        // terrace already takes `albedoFor`'s first branch (rock for a `^`
-        // ridge, nothing for a building pad) and a flat map's ordinary
-        // ground falls through it to the same open-ground answer a hill's
-        // does. "Flat sand is still sand" is the project lead's own call,
-        // made once he saw that `beit_sahwan_outskirts`, the DEFAULT sandbox
-        // map, would otherwise greet a player with untextured palette ground
-        // while `qarn_hadid` and `tel_marum` were sand.
-        //
         // No shipped flat map has a single `^` tile (counted: 0 on all
-        // four), so the rock branch is only ever reached on relief today --
-        // but the rule is written as the rule rather than guarded on
-        // `surface.flat`, so a flat map that ever authors a ridge gets the
-        // same bedrock every other ridge gets instead of a silent
-        // palette-grey exception.
-        pushQuad(
-          [x, topY, y],
-          [x + 1, topY, y],
-          [x + 1, topY, y + 1],
-          [x, topY, y + 1],
-          toneColor,
-          false,
-          tileAlbedo
-        );
+        // four), and a flat map's ordinary ground takes the same open-ground
+        // tone a hill's does. "Flat sand is still sand" is the project
+        // lead's own call, made once he saw that `beit_sahwan_outskirts`,
+        // the DEFAULT sandbox map, would otherwise greet a player with
+        // untextured palette ground while `qarn_hadid` and `tel_marum` were
+        // sand.
+        pushQuad([x, topY, y], [x + 1, topY, y], [x + 1, topY, y + 1], [x, topY, y + 1], toneColor, false);
       } else {
-        pushSmoothTile(
-          positions,
-          colors,
-          normals,
-          albedo,
-          groundUv,
-          indices,
-          surface,
-          x,
-          y,
-          toneColor,
-          tileAlbedo
-        );
+        pushSmoothTile(positions, colors, normals, wallAlbedo, groundUv, indices, surface, x, y, toneColor);
       }
 
       if (surface.flat) {
@@ -475,7 +332,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
           positions,
           colors,
           normals,
-          albedo,
+          wallAlbedo,
           groundUv,
           indices,
           surface,
@@ -491,7 +348,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
           positions,
           colors,
           normals,
-          albedo,
+          wallAlbedo,
           groundUv,
           indices,
           surface,
@@ -509,13 +366,7 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
     positions: Float32Array.from(positions),
     colors: Float32Array.from(colors),
     normals: Float32Array.from(normals),
-    sandMask: Float32Array.from(albedo.sand),
-    rockMask: Float32Array.from(albedo.rock),
-    roadMask: Float32Array.from(albedo.road),
-    roadAxis: Float32Array.from(albedo.roadAxis),
-    scrubMask: Float32Array.from(albedo.scrub),
-    groveMask: Float32Array.from(albedo.grove),
-    knollMask: Float32Array.from(albedo.knoll),
+    wallAlbedo: Float32Array.from(wallAlbedo),
     groundUv: Float32Array.from(groundUv),
     indices: Uint32Array.from(indices),
   };
@@ -542,14 +393,13 @@ function pushSmoothTile(
   positions: number[],
   colors: number[],
   normals: number[],
-  albedo: AlbedoArrays,
+  wallAlbedo: number[],
   groundUv: number[],
   indices: number[],
   surface: TerrainSurface,
   x: number,
   y: number,
-  color: readonly [number, number, number],
-  tileAlbedo: Albedo
+  color: readonly [number, number, number]
 ): void {
   const n = SURFACE_SUBDIVISIONS;
   const base = positions.length / 3;
@@ -561,11 +411,9 @@ function pushSmoothTile(
       colors.push(color[0], color[1], color[2]);
       const nrm = smoothNormal(surface, px, pz);
       normals.push(nrm[0], nrm[1], nrm[2]);
-      // The tile's own albedo, verbatim -- never ROCK in practice, since
-      // rock is the `^` ridge and a ridge is a terrace that never reaches
-      // this function, but `albedoFor` is the one decision and this path
-      // does not get to hold a second opinion about it.
-      pushAlbedo(albedo, tileAlbedo, 1);
+      // Every vertex an interpolated patch emits is a TOP: rock is the `^`
+      // ridge and a ridge is a terrace that never reaches this function.
+      wallAlbedo.push(WALL_ALBEDO_TOP);
       // A (near-)horizontal surface: project straight down.
       groundUv.push(px, pz);
     }
@@ -614,7 +462,7 @@ function pushWall(
   positions: number[],
   colors: number[],
   normals: number[],
-  albedo: AlbedoArrays,
+  wallAlbedo: number[],
   groundUv: number[],
   indices: number[],
   surface: TerrainSurface,
@@ -698,11 +546,11 @@ function pushWall(
       colors.push(color[0], color[1], color[2]);
       normals.push(UP_NORMAL[0], UP_NORMAL[1], UP_NORMAL[2]);
     }
-    // A wall is bedrock or it is nothing. Not sand, not a road, not scrub,
-    // not an orchard floor: the four surfaces added on 2026-09-03 are all
-    // things that lie ON ground, and a wall is the cut through it. A
-    // building's wall is the `NO_ALBEDO` case and keeps its authored
-    // `FACE_ALPHA_EAST`/`SOUTH` composite.
-    pushAlbedo(albedo, rock !== 0 ? RIDGE_ALBEDO : NO_ALBEDO, 4);
+    // A wall is bedrock or it is nothing. Not sand, not scrub, not an orchard
+    // floor: every OTHER surface lies ON ground, and a wall is the cut
+    // through it. A building's wall keeps its authored
+    // `FACE_ALPHA_EAST`/`SOUTH` composite untextured.
+    const wall = rock !== 0 ? WALL_ALBEDO_ROCK : WALL_ALBEDO_NONE;
+    for (let i = 0; i < 4; i++) wallAlbedo.push(wall);
   }
 }

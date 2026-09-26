@@ -49,6 +49,11 @@ describe('readFlags', () => {
   it('treats an explicit value as on too, since &roe=1 means the same thing', () => {
     expect(readFlags(new URLSearchParams('?roe=1')).roe).toBe(true);
   });
+
+  it('reads &decals, off by default', () => {
+    expect(readFlags(new URLSearchParams('?sandbox=qarn_hadid&decals')).decals).toBe(true);
+    expect(readFlags(new URLSearchParams('?sandbox=qarn_hadid')).decals).toBe(false);
+  });
 });
 
 describe('sandboxUrl', () => {
@@ -88,6 +93,13 @@ describe('sandboxUrl', () => {
   it('never produces a URL that unknownParams reports as a typo', () => {
     const all = Object.fromEntries(SANDBOX_FLAGS.map((f) => [f.name, true]));
     expect(unknownParams(new URLSearchParams(sandboxUrl('tel_marum', all)))).toEqual([]);
+  });
+
+  it("builds and accepts the aftermath scenario's URL", () => {
+    expect(sandboxUrl('qarn_hadid', { decals: true })).toBe('?sandbox=qarn_hadid&decals');
+    expect(
+      unknownParams(new URLSearchParams('?sandbox=qarn_hadid&decals&renderer=three'))
+    ).toEqual([]);
   });
 });
 

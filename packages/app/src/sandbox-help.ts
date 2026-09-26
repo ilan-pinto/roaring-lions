@@ -16,7 +16,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'nomesh';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'nomesh' | 'decals';
 
 export interface UrlParam {
   name: string;
@@ -46,6 +46,11 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
     // out its URL syntax.
     blurb:
       'draw billboards instead of meshes — the diagnostic half of the old mesh-opt-in switch',
+  },
+  {
+    name: 'decals',
+    blurb:
+      'a fixed showcase of every ground mark -- craters, scorch, oil, rubble, tread and tyre -- near the friendly anchor',
   },
 ];
 

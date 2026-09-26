@@ -143,7 +143,9 @@ export interface LayerCheckSpec {
  *   over TEXTURED ground -- every mark shows, including one whose colour has
  *     collapsed into the ground's own tone, because a flat mark still flattens
  *     the texture under it;
- *   over FLAT ground (`over` hidden, which is the material's own 404 path) --
+ *   over FLAT ground (the `over` layers hidden: `ground-albedo`, the
+ *     material's own 404 path, AND `macro`, since ground Task 5 -- a 404
+ *     leaves the macro on, and scatter marks carry none) --
  *     only a mark that is genuinely a different tone shows at all.
  *
  * So the ratio flat/textured is "what fraction of this layer's marks are a
@@ -172,10 +174,18 @@ export interface LayerCheckSpec {
  * vacuous 1.0.
  */
 export interface ToneCollapseSpec {
-  /** The layer to hide to flatten the backdrop -- `ground-albedo` in every
-   *  case today, because driving the five texture strengths to 0 is the
-   *  renderer's own fail-soft path rather than a synthetic state. */
-  over: string;
+  /** The layers hidden TOGETHER to flatten the backdrop, in order (and put
+   *  back in reverse) -- `['ground-albedo', 'macro']` in every case today.
+   *  `ground-albedo` drives the six texture strengths to 0, the renderer's own
+   *  fail-soft path rather than a synthetic state; `macro` (ground Task 5)
+   *  takes the macro field's amplitude to 0 as well. Both are needed: scatter
+   *  marks carry no macro, so over macro-shaded ground a mark whose colour has
+   *  collapsed into its tile's tone still differs by the macro factor, and the
+   *  671acdb no-op then PASSED this check (quiet 0.9328, open-ground 0.9675,
+   *  measured with only `ground-albedo` hidden). `ground-albedo` alone is kept
+   *  macro-free on purpose -- its own check means "the texture never arrived",
+   *  and a 404 leaves the macro on. */
+  over: readonly string[];
   /** Fails when the flat-ground footprint is smaller than this fraction of
    *  the textured-ground one. */
   minFootprintRatio: number;
@@ -329,6 +339,34 @@ const PRE_LIT =
   'layer check EXCEPT vehicle/units, whose own entry states its spread. Floors are a third of ' +
   'the SMALLEST of the five. ';
 
+/**
+ * Every figure in a `roads` or `macro` rationale below, and the conditions it
+ * was taken under.
+ */
+const GROUND_T9 =
+  'measured 2026-09-25 on ground Task 9 (the `roads` and `macro` debug layers, #226), 3 ' +
+  'consecutive full-gate runs (`--scenario=quiet,open-ground,relief`) on macOS 15 / M3 Pro, ' +
+  'headless Chromium, software SwiftShader, frame loop frozen. Every figure below was ' +
+  'bit-identical across the three, and the repaint control read 0 px / 0.0000 on all three ' +
+  'scenarios, so the whole delta is the layer. Floors are a third, rounded down. ';
+
+/**
+ * Every figure in an `aftermath` rationale below, and the conditions it was
+ * taken under.
+ */
+const GROUND_T17 =
+  'measured 2026-09-25 on the ground fix wave (I-2), after `aftermath` moved OFF the sandbox force: ' +
+  'the showcase now anchors clear of it (`showcaseAnchor`, every site >= 10 tiles out) and the ' +
+  'camera frames it at (34.5, 32), zoom 2.2, with no drone order. 23 consecutive full-gate runs ' +
+  '(`--scenario=aftermath`, each its own fresh dev-server and browser process) on macOS 15 / M3 Pro, ' +
+  'headless Chromium, software SwiftShader, frame loop frozen: every layer reading below was ' +
+  'BIT-IDENTICAL across all 23, and the repaint control read 0 px / 0.0000 on every run. Task 17 ' +
+  'measured these at the OLD framing (on the force, zoom 1) with a spread under 1% and blamed it on ' +
+  '"process to process" -- the cause was animating mesh units and a live fight (a fireball and a ' +
+  'missile streak over the marks) on the FRAME clock, which `step()` advances by a latched real ' +
+  'frame time that differs per process (`smokeClockMs` 20715-20933 at the same tick). With nothing ' +
+  'in frame on that clock the spread is gone. Floors are a third of the reading, rounded down. ';
+
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
@@ -355,7 +393,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 700,
         minMeanAbsChannelDelta: 0.13,
         toneCheck: {
-          over: 'ground-albedo',
+          over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
             'the grain mesh covers 52767-52768 px of this frame over textured ground and 49082 px ' +
@@ -370,7 +408,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             '8794 / 5212 = 0.5927. The sun moved the defective ratio UP by 0.077 -- exactly the ' +
             'direction predicted (a lit mark differs from lit ground by its own micro-relief ' +
             'shading even when its colour has collapsed into the ground tone) -- and the gap is ' +
-            'now 0.67 to 0.93 rather than 0.59 to 0.93. Still a gap, not a fitted line.',
+            'now 0.67 to 0.93 rather than 0.59 to 0.93. Still a gap, not a fitted line. ' +
+            'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): the backdrop is now `ground-albedo` + `macro` hidden ' +
+            'together, and the footprints read 52200 / 48994 = 0.9386 clean and 49619 / 28646 = ' +
+            '0.5773 with the no-op re-injected -- a wider gap than before the splat. With ' +
+            '`ground-albedo` ALONE hidden the macro survived the flattening and the no-op read ' +
+            '0.9328 and PASSED: scatter marks carry no macro, so a colour-collapsed mark still ' +
+            'differed from macro-shaded ground. That is why `over` names both layers.',
         },
         rationale:
           PRE_LIT +
@@ -417,7 +461,51 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'here for exactly the reason `LayerCheckSpec` gives for allowing it -- the contribution ' +
           'is sub-threshold and the magnitude is the whole check. A texture that never arrives ' +
           'still reads 0.0000 and still fails. If a future environment reads a big pixel count ' +
-          'here, that is a rasteriser difference worth understanding, not a floor worth raising.',
+          'here, that is a rasteriser difference worth understanding, not a floor worth raising. ' +
+          'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): 26 px / 0.9531. The hide drives the six strengths ONLY -- ' +
+          'the macro field stays on, as it does on a real 404 -- so this delta is still the ' +
+          'tiles\' own contribution. Falsified by making every tile top ignore the control map ' +
+          '(the splat\'s `rlTop` step moved past -1): 0 px / 0.0537, FAIL; the residue is the ' +
+          'road\'s per-vertex slot, which that mutation does not reach.',
+      },
+      {
+        layer: 'roads',
+        minDiffPixels: 62,
+        minMeanAbsChannelDelta: 0.156,
+        rationale:
+          GROUND_T9 +
+          'driving `uRoadOn` to 0 -- the procedural road (#226) gone whole: its packed surface ' +
+          'tone, the bleached shoulder, both wheel ruts and the knoll-image grain, with the ' +
+          'ground it was painted over showing through -- moves 187 px / 0.4680 here, identical on ' +
+          'all three runs. Floor a third, rounded down: 62 px / 0.156. This framing is the ' +
+          'outskirts crossroads, and an exact (unthresholded) compare of the two photographs ' +
+          'changes 66343 px inside x[275,1043] y[245,623] -- the crossroads and nothing else. ' +
+          'The pixelmatch count is small against that because the road tone and the ground ' +
+          'beside it are one or two palette steps apart, which is why the magnitude is the ' +
+          'primary floor. It measures the ROAD, not its texture: the ruts\' breakup reads the ' +
+          'knoll image\'s luminance even at grain gain 0 (Task 6 review, advisory C), so ' +
+          '`ground-albedo` hidden still leaves the road and broken ruts on screen, but every ' +
+          'road band -- ruts included -- is multiplied by `uRoadOn`. Falsified by baking control ' +
+          'B\'s road distance (B.g) to 255 in `buildControlMap`, so no tile is within range of a ' +
+          'road: 0 px / 0.0000, FAIL on both floors.',
+      },
+      {
+        layer: 'macro',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.1599,
+        rationale:
+          GROUND_T9 +
+          'driving the macro field\'s amplitude to 0 moves 6 px / 0.4798 here, identical on all ' +
+          'three runs. Floor a third of the magnitude, rounded down: 0.1599. SIX pixels is not ' +
+          'a count a third can be taken of, so `minDiffPixels` is 0 for the reason ' +
+          '`LayerCheckSpec` allows it, exactly as `ground-albedo` here: the field is a +/-7% ' +
+          'luminance ratio over a 12-tile period, so removing it shifts a wide area smoothly ' +
+          'and stays under pixelmatch\'s 0.1 threshold almost everywhere. F-18: the pure ' +
+          '`buildMacroField(48, 48)` predicts mean |m| 0.253 over this frame\'s 1198-tile ' +
+          'footprint (0.251 per pixel), above the 0.2 the ruling asks for. Not in the plan\'s ' +
+          'list (open-ground and relief); declared here because relief FAILED the F-18 test ' +
+          'and this is the second witness that passed it, on a second map. Falsified by ' +
+          'initialising `uMacroAmp` to 0 in `groundUniforms()`: 0 px / 0.0000, FAIL.',
       },
       {
         layer: 'buildings',
@@ -515,7 +603,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 1200,
         minMeanAbsChannelDelta: 0.53,
         toneCheck: {
-          over: 'ground-albedo',
+          over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
             'the grain mesh covers 10170 px of this crop over textured ground and 9417 px over ' +
@@ -527,7 +615,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             '6183 = 0.6938. The clean ratio fell 0.03 toward the floor when the lights landed ' +
             'and the defective one rose 0.02 toward it, leaving 0.71 to 0.93 -- 0.09 of headroom ' +
             'below and 0.13 above. Re-measure this entry first if anything about the ground ' +
-            'texture, the sun or the scatter composites changes again.',
+            'texture, the sun or the scatter composites changes again. ' +
+            'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): with `ground-albedo` + `macro` hidden together it reads ' +
+            '10057 / 9422 = 0.9369 clean and 9922 / 6474 = 0.6525 with the no-op -- 0.15 of ' +
+            'headroom below and 0.14 above, no longer the tightest pair. With `ground-albedo` ' +
+            'alone hidden the no-op read 0.9675 and PASSED (the macro survived the flattening).',
         },
         rationale:
           PRE_LIT +
@@ -538,6 +630,22 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'part in a thousand (3615 / 1.6071 front-lit, the same 3615 pixels), because this ' +
           'crop holds no vertical face for an azimuth to change. Still the strongest scatter ' +
           'witness on magnitude, which is what the crop was chosen for.',
+      },
+      {
+        layer: 'macro',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.2924,
+        rationale:
+          GROUND_T9 +
+          'driving the macro field\'s amplitude to 0 moves 0 px / 0.8773 inside this crop, ' +
+          'identical on all three runs. Floor a third of the magnitude, rounded down: 0.2924. ' +
+          'ZERO pixels: the whole contribution is under pixelmatch\'s 0.1 threshold, so ' +
+          '`minDiffPixels` is 0 and the magnitude is the check, as on quiet. The strongest ' +
+          'macro witness in the gate. F-18: the pure `buildMacroField(48, 48)` predicts mean ' +
+          '|m| 0.381 over this crop\'s 35-tile footprint (0.344 per pixel), above 0.2 -- a ' +
+          '450x400 crop at zoom 3 spans about six tiles of a 12-tile-period field, and here it ' +
+          'sits on a lobe rather than a zero crossing. Falsified by initialising `uMacroAmp` to ' +
+          '0 in `groundUniforms()`: 0 px / 0.0000, FAIL.',
       },
       {
         layer: 'decor',
@@ -572,7 +680,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'because the extra headroom came from 35 `n` knoll tiles that someone might edit away. ' +
           'That argument did not survive the relight -- the 2.66 here is the sand and road over ' +
           'the whole crop, not the knolls, and holding a 1.84 floor against a 2.66 signal would ' +
-          'leave only 31% of headroom on the metric this check actually rests on.',
+          'leave only 31% of headroom on the metric this check actually rests on. ' +
+          'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): 196 px / 2.4182. The hide drives the six strengths ONLY -- ' +
+          'the macro stays on, as on a real 404 -- so that is the tiles\' contribution with the ' +
+          'macro\'s own removed, and the PIXEL margin is now about 1.3x the 150 px floor ' +
+          '(magnitude 2.7x). Recorded, not re-floored. Falsified by making every tile top ' +
+          'ignore the control map: 0 px / 0.0000, FAIL.',
       },
     ],
     rationale:
@@ -756,7 +869,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 1400,
         minMeanAbsChannelDelta: 0.15,
         toneCheck: {
-          over: 'ground-albedo',
+          over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
             'the grain mesh covers 91990 px of this frame over textured ground and 91394 px over ' +
@@ -778,7 +891,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
             'against a 0.004 budget, and the two other scenarios\' tone checks both fail. What ' +
             'is lost is reference-free coverage of THIS defect on THIS map -- which matters only ' +
             'on a runner with no blessed baseline. Closing it properly needs a witness that is ' +
-            'not a footprint ratio; see docs/superpowers/specs/2026-09-14-lit-renderer-design.md.',
+            'not a footprint ratio; see docs/superpowers/specs/2026-09-14-lit-renderer-design.md. ' +
+            'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): with `ground-albedo` + `macro` hidden together it reads ' +
+            '91988 / 91165 = 0.9911 clean and 91063 / 80907 = 0.8885 with the no-op -- still a ' +
+            'PASS, still a texture witness rather than a defect witness, the gap now 0.10; and ' +
+            'the two other scenarios\' tone checks fail on the no-op again (0.5773, 0.6525).',
         },
         rationale:
           PRE_LIT +
@@ -789,6 +906,16 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'carries its own slope shading and a mark on a lit slope separates from it by less than ' +
           'it did from a flat palette tone. The only scatter witness on a map with relief.',
       },
+      // NO `macro` check, by F-18 and not by measurement. The pure
+      // `buildMacroField(48, 48)` predicts mean |m| 0.181 over this frame's
+      // 324-tile footprint (0.175 per pixel), under the 0.2 the ruling asks
+      // a witness to clear: the corridor sits near one of the field's zero
+      // crossings. The toggle does move this frame -- 1 px / 0.4284 on all
+      // three ground Task 9 runs -- but on ground where the field is this
+      // weak a small change to the field (its period, its seed, the border
+      // fade) could move the crop onto the crossing, and a floor set there
+      // would flicker on content rather than on a fault. quiet and
+      // open-ground carry the check instead.
       {
         layer: 'decor',
         minDiffPixels: 17500,
@@ -819,7 +946,10 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'it is a strong one: a texture that never arrives reads 0.0000 against a 0.63 floor. ' +
           'Still covers the rock slot as well as sand -- tel_marum is the only gated map with `^` ' +
           'ridge walls -- and the base map authors no `n`, which keeps this the control that says ' +
-          'the knoll scree reached knoll tiles and nowhere else.',
+          'the knoll scree reached knoll tiles and nowhere else. ' +
+          'GROUND TASK 5 (2026-09-25: the control-map splat under the macro field; bit-identical over 3 full-gate runs for ground-albedo, 2 for the tone pairs): 7 px / 1.8280, the six strengths only (the macro stays on, ' +
+          'as on a real 404). Falsified by making every tile top ignore the control map: ' +
+          '2 px / 0.1652, FAIL on magnitude; the residue is the road\'s per-vertex slot.',
       },
       {
         layer: 'vignette',
@@ -833,16 +963,38 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'skirt',
-        minDiffPixels: 1100,
-        minMeanAbsChannelDelta: 0.095,
+        // CONTROLLER RULING (G5 follow-up, 2026-09-25): region-scoped rather
+        // than a whole-frame floor lowered. Before `skirtRing` the skirt was
+        // one quad spanning the map's own footprint, hidden under real
+        // terrain by `SKIRT_Y` alone -- so hiding it moved pixels wherever
+        // the smoothed ground's Catmull-Rom undershoot let it show through
+        // (the G5 defect this task fixes), scattered well outside any one
+        // corner, which is what the OLD floor (1100 px / 0.095, `SHELL_P0`)
+        // was calibrated against. After the fix the ring draws ONLY past the
+        // map edge, and on this corridor-zoomed framing that is a single
+        // frame corner: the exact-diff bounding box between the shown and
+        // skirt-hidden captures is x[0,212] y[0,99] (`layer-shown.png` vs
+        // `layer-skirt-hidden.png`, pixel-exact RGB compare, not pixelmatch's
+        // thresholded count). `{x:0,y:0,w:260,h:140}` adds a ~50/40px margin
+        // around that box. Scoping is not a threshold widening -- the check
+        // keeps its sensitivity exactly where the layer draws; a whole-frame
+        // floor recalibrated on the fixed geometry would have to shrink
+        // instead, diluted by the ~1.26M pixels the ring no longer touches.
+        region: { x: 0, y: 0, w: 260, h: 140 },
+        minDiffPixels: 900,
+        minMeanAbsChannelDelta: 1.01,
         rationale:
-          SHELL_P0 +
-          'hiding the ground beyond the map moves 3403 px / 0.2858 here -- 6x less than on quiet, ' +
-          'because this framing is zoomed to a corridor and only its far corners reach past the ' +
-          'map. Declared anyway, and that is the point of having two: quiet and relief are ' +
-          'different maps at different zooms, so a skirt that failed to build on one map alone ' +
-          'cannot hide behind the other. The weakest layer signal in the gate, which is why the ' +
-          'floor is a third of a small number rather than a round one.',
+          'measured 2026-09-25 on this fix, 3 consecutive full-gate runs on macOS 15 / M3 Pro, ' +
+          'headless Chromium, software SwiftShader, frame loop frozen: bit-identical across all ' +
+          'three at 2705 px / 3.0455. Floor is a third, rounded down: 900 px / 1.01 -- 9.5x and ' +
+          '10.6x the OLD whole-frame floor (1100 px / 0.095) on the same two metrics, because the ' +
+          'region excludes the ~1.26M pixels the ring never touches rather than averaging over ' +
+          'them. The whole-frame reading of the identical fix is 2705 px / 0.0880 (see the task-2 ' +
+          'report for the R-20 stop this replaces) -- BELOW the old floor on magnitude alone, which ' +
+          'is why this check is scoped rather than recalibrated in place. Falsified: with the skirt ' +
+          'mesh never added to the scene (the erasure case, not merely toggled) this reads a literal ' +
+          '0 px / 0.0000 in-region too and fails both floors, exactly like every other layer check in ' +
+          'this file.',
       },
     ],
     rationale:
@@ -855,6 +1007,106 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       'the thresholds -- while quiet, open-ground and vehicle did not move outside their own noise ' +
       'at all. The scatter defect also fired here, at 86 px / 0.1452, so this is map coverage ' +
       'rather than a single-feature tripwire.',
+  },
+  aftermath: {
+    // No darwin baseline exists for this scenario -- it ships in the same
+    // commit that adds it, so there is nothing to compare a capture against
+    // yet (`golden-baseline` exits 3 here, never a silent pass). What votes
+    // in that state is the reference-free layer checks below, exactly the
+    // regime `three-baseline-gate.ts`'s own top comment describes.
+    region: null,
+    // Copied from `quiet`, and now MEASURED (fix wave I-2): 22 fresh-process
+    // captures against a provisional local baseline (a scratch directory,
+    // never committed) read 0 px / 0.0000 on all 22. At the old framing, on
+    // the sandbox force, two captures of one commit differed by 519-656 px /
+    // 0.040-0.047 -- 13-16x this budget -- from idle mesh units and a live
+    // fight on the frame clock. The thresholds were not raised; the camera
+    // and the showcase moved (see `AFTERMATH_SCENARIO`).
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
+    layerChecks: [
+      {
+        layer: 'decals',
+        minDiffPixels: 41000,
+        minMeanAbsChannelDelta: 2.07,
+        rationale:
+          GROUND_T17 +
+          'hiding both decal pools erases the whole showcase -- every crater, scorch, oil and ' +
+          'rubble mark plus both tread and tyre runs, at all three sites -- moving 124019 px / ' +
+          '6.2238 (29979 / 1.5346 at the old zoom-1 framing, floor 9900 / 0.5). This is the scenario the showcase exists to be judged on: the two decal pools ' +
+          '(`decal-pool.ts`) draw nothing anywhere else in the gate (no other scenario stamps a ' +
+          'mark), so this is the only witness for whether the showcase drew at all. Falsified by ' +
+          'commenting out `stampDecalShowcase`\'s call in `ThreeRenderer` (R-16\'s D4 entry point): ' +
+          '0 px / 0.0000, FAIL.',
+      },
+      {
+        layer: 'roads',
+        minDiffPixels: 480,
+        minMeanAbsChannelDelta: 0.16,
+        rationale:
+          GROUND_T17 +
+          'driving `uRoadOn` to 0 removes the diagonal road this map\'s own `road` showcase site sits ' +
+          'on, packed surface tone, shoulder, ruts and knoll grain together, moving 1453 px / 0.4848 ' +
+          '(982 / 0.2565 at the old framing, floor 300 / 0.08). ' +
+          'A second witness for `roads` on a second map (`quiet`\'s outskirts crossroads is the ' +
+          'first) -- this one on a diagonal road rather than a cardinal one, which the shipped ' +
+          'road-graph code does not special-case, so agreement here is real coverage rather than a ' +
+          'restatement. Smaller than quiet\'s 187/0.468 in absolute pixel count but larger in ' +
+          'magnitude, because this crop is closer to the road than the outskirts crossroads shot is. ' +
+          'Falsified by baking control B\'s road distance (B.g) to 255 in `buildControlMap`: ' +
+          '0 px / 0.0000, FAIL on both floors.',
+      },
+      {
+        layer: 'macro',
+        minDiffPixels: 0,
+        // The one floor the reframe LOWERED (0.26 -> 0.23): the reading fell
+        // from 0.7833 to 0.7082, and a third of it is 0.236.
+        minMeanAbsChannelDelta: 0.23,
+        rationale:
+          GROUND_T17 +
+          'driving the macro field\'s amplitude to 0 moves 3 px / 0.7082 (21 px / 0.7833 at the old ' +
+          'framing, floor 0.26 -- the one floor the reframe lowered). THREE pixels is under ' +
+          'SUB_THRESHOLD_PX (100), so `minDiffPixels` is 0 for the reason `LayerCheckSpec` allows it, ' +
+          'exactly as on `quiet` and `open-ground`: the field is a ratio shift over a wide area, mostly ' +
+          'under pixelmatch\'s 0.1 threshold, and the magnitude is the whole check. The STRONGEST macro ' +
+          'magnitude witness in the gate (0.7082 against quiet\'s 0.4798 and open-ground\'s 0.8773\'s ' +
+          'own crop -- this one is a whole 1400x900 frame, not a crop, yet still reads high because ' +
+          'the centroid camera sits over sloped ground the field shades unevenly). F-18: the pure ' +
+          '`buildMacroField(48, 48)` predicts mean |m| 0.2130 over this frame\'s 253-tile footprint ' +
+          '(0.2645 over 961 tiles at the old zoom-1 framing) ' +
+          '(elevation-aware projection, the same `tileToCapture` `baseline.test.ts` already trusts ' +
+          'for `RELIEF_SCENARIO framing`, at this scenario\'s own camera/zoom) -- above the 0.2 the ' +
+          'ruling asks a witness to clear, and the third map (after `quiet` and `open-ground`) to do ' +
+          'so; `relief` does not and does not declare the check (see that entry). Falsified by ' +
+          'initialising `uMacroAmp` to 0 in `groundUniforms()`: 0 px / 0.0000, FAIL.',
+      },
+      {
+        layer: 'scatter',
+        minDiffPixels: 2000,
+        minMeanAbsChannelDelta: 0.26,
+        rationale:
+          GROUND_T17 +
+          'hiding the grain mesh moves 6193 px / 0.7816 here (5195 / 0.6546 at the old framing, ' +
+          'floor 1700 / 0.21). A fourth scatter witness (after ' +
+          '`quiet`, `open-ground` and `relief`), on ground that carries BOTH a diagonal road and ' +
+          'freshly-stamped decals under the same scatter mesh -- the composite order between scatter ' +
+          'and a ground mark was never exercised by an existing scenario. No `toneCheck` declared: ' +
+          'the tone-collapse ratio depends on the SAME `ground-albedo` + `macro` backdrop every other ' +
+          'scatter witness uses, and this scenario adds nothing that ratio needs a fresh floor for -- ' +
+          'declaring one here without a distinct measured population would only restate `open-ground`\'s ' +
+          '0.9260/0.7109 gap on different ground. Falsified by making `buildScatter` return an empty ' +
+          'array: 0 px / 0.0000, FAIL.',
+      },
+    ],
+    rationale:
+      'whole frame, qarn_hadid decal showcase centroid @ (34.5,32), zoom 2.2, tick 300 -- the ' +
+      'fixed D4 crater/scorch/oil/rubble/tread/tyre showcase on its road, relief and flat sites, ' +
+      'anchored clear of the sandbox force so no unit and no live effect is in frame. The only ' +
+      'shipped map with a relief showcase site, and the only gated scenario that stamps any ground ' +
+      'decal at all. Noise measured 2026-09-25 (fix wave I-2): 0 px / 0.0000 on 22 of 22 ' +
+      'fresh-process captures against a provisional local baseline; at the old framing on the ' +
+      'force, 519-656 px / 0.040-0.047 between two captures of the same commit. No committed ' +
+      'baseline yet in any environment -- see `GROUND_T17`.',
   },
   combat: {
     // NOT GATED, and this is a finding rather than a gap. Real deaths, wrecks,

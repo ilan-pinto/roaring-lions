@@ -35,7 +35,11 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     cover: [paletteColor('limestone.2'), paletteColor('dust.1'), paletteColor('dust.0')],
     blocked: paletteColor('limestone.4'),
     underBuilding: paletteColor('shadow.0'),
-    road: paletteColor('dust.3'),
+    // The approved arid road tone (ground plan Task 8, D2/F-8): the road is
+    // now a procedural surface drawn from the control map's own distance
+    // field, not a decorated tile tone, so it reads as packed limestone
+    // rather than the loose dust `dust.3` gave it.
+    road: paletteColor('limestone.4'),
     rut: paletteColor('dust.5'),
     rock: paletteColor('limestone.6'),
     rockLit: paletteColor('limestone.3'),
@@ -69,7 +73,10 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     // compromise, and it ties the village to the dry-stone terrace walls.
     blocked: paletteColor('limestone.4'),
     underBuilding: paletteColor('shadow.0'),
-    road: paletteColor('dust.4'),
+    // D2/F-8: `dust.3`, not the darker `dust.4` -- the same approved tone
+    // family the arid theme takes, one ramp step lighter to sit on a green
+    // basin's own wash instead of limestone.
+    road: paletteColor('dust.3'),
     rut: paletteColor('dust.6'),
     // A knoll in the basin is a dry-stone terrace wall, so it stays limestone
     // in both themes rather than becoming a green rock.

@@ -46,13 +46,26 @@ import * as THREE from 'three';
 import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
-import { SCORCH_CAPACITY } from './scorch-decals';
+import { terrainSurfaceFrom } from './terrain/surface';
+import { decalGroundY } from './ground-height';
+import { SHOWCASE_CLEAR_TILES } from './decal-showcase';
+import { isAoOccluder } from './post-chain';
+import { STAMP_SPACING_TILES } from './vehicle-tracks';
+import {
+  OIL_RADIUS_TILES,
+  PERSISTENT_CAPACITY,
+  PERSISTENT_GRID,
+  rubbleRadiusTiles,
+  writeDecalGrid,
+  type DecalStamp,
+} from './decal-pool';
 import { buildVehicleMeshTemplate, vehicleShroudBounds, type VehicleMeshTemplate } from './units/mesh-vehicle';
 import { parseRigidFixture } from './units/rigid-mesh-fixture';
 import catastrophic from '../../../../data/vfx/catastrophic_kill.json';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
 import { shakeOffsetPx, initShakeState, type ShakeState } from './blast-shake';
 import type { EmitterSpec } from '../vfx/emitters';
+import type { ShellModel } from './units/shells';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -157,7 +170,10 @@ const SOFT: UnitTypeJson = {
 interface BlastPrivate {
   flashLights: { liveCount: number; lights: readonly THREE.PointLight[] };
   flashLightsDebugHidden: boolean;
-  scorchDecals: { liveCount: number };
+  decalsPersistent: { liveCount: number };
+  decalsFading: { liveCount: number };
+  decalMaterial: THREE.ShaderMaterial;
+  stampGroundDecal(s: DecalStamp): boolean;
   collapseShrouds: { liveCount: number };
   vehicleMeshBounds: Map<string, THREE.Vector3>;
   hitStop: { remainingMs: number };
@@ -236,7 +252,8 @@ describe('a vehicle kill runs the whole sequence', () => {
 
     expect(priv.flashLights.liveCount).toBe(1);
     expect(priv.collapseShrouds.liveCount).toBe(1);
-    expect(priv.scorchDecals.liveCount).toBe(1);
+    // Scorch and oil (spec 3.3).
+    expect(priv.decalsPersistent.liveCount).toBe(2);
     expect(priv.hitStop.remainingMs).toBe(70);
     renderer.dispose();
   });
@@ -251,7 +268,7 @@ describe('a vehicle kill runs the whole sequence', () => {
     kill(sim, renderer, riflemanId);
 
     expect(priv.flashLights.liveCount).toBe(0);
-    expect(priv.scorchDecals.liveCount).toBe(0);
+    expect(priv.decalsPersistent.liveCount).toBe(0);
     expect(priv.collapseShrouds.liveCount).toBe(0);
     expect(priv.hitStop.remainingMs).toBe(0);
     renderer.dispose();
@@ -268,17 +285,17 @@ describe('a vehicle kill runs the whole sequence', () => {
 
     expect(priv.collapseShrouds.liveCount).toBe(0);
     expect(priv.flashLights.liveCount).toBe(1);
-    expect(priv.scorchDecals.liveCount).toBe(1);
+    expect(priv.decalsPersistent.liveCount).toBe(2);
     renderer.dispose();
   });
 
-  it('never stamps more scorch than the pool holds', () => {
+  it('never stamps more than the persistent pool holds', () => {
     const { renderer } = worldWithTank();
     const priv = renderer as unknown as BlastPrivate;
-    for (let i = 0; i < SCORCH_CAPACITY + 8; i++) {
+    for (let i = 0; i < PERSISTENT_CAPACITY + 8; i++) {
       priv.spawnShellImpactFx({ kind: 'mortar', tx: i % 30, ty: 3 });
     }
-    expect(priv.scorchDecals.liveCount).toBe(SCORCH_CAPACITY);
+    expect(priv.decalsPersistent.liveCount).toBe(PERSISTENT_CAPACITY);
     renderer.dispose();
   });
 });
@@ -298,7 +315,8 @@ describe('the mortar half shares at its own power (G0 #14)', () => {
     expect(mortarStop).toBeGreaterThan(0);
     expect(mortarStop).toBeLessThan(70);
     expect(priv.flashLights.liveCount).toBe(1);
-    expect(priv.scorchDecals.liveCount).toBe(1);
+    // Crater and scorch.
+    expect(priv.decalsPersistent.liveCount).toBe(2);
     renderer.dispose();
   });
 
@@ -318,7 +336,7 @@ describe('the mortar half shares at its own power (G0 #14)', () => {
     const { renderer } = worldWithTank();
     const priv = renderer as unknown as BlastPrivate;
     priv.spawnShellImpactFx({ kind: 'bolt', tx: 5, ty: 5 });
-    expect(priv.scorchDecals.liveCount).toBe(0);
+    expect(priv.decalsPersistent.liveCount).toBe(0);
     expect(priv.flashLights.liveCount).toBe(0);
     expect(priv.hitStop.remainingMs).toBe(0);
     renderer.dispose();
@@ -611,4 +629,309 @@ describe('the shake offset goes through the dimetric inverse (fix round 1)', () 
       renderer.dispose();
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Task 12 (ground plan 1): the decal pools, wired. Everything below builds its
+// world through `harness` -- an empty map with the unit types registered and
+// nothing spawned, so each helper places exactly what its test is about.
+// ---------------------------------------------------------------------------
+
+/** `data/units/kdf/jeep_shoded.json` in the fields these paths read: soft
+ *  and wheeled, so `trackKindFor` makes it a `'wheeled'` (tyre) print. */
+const JEEP: UnitTypeJson = {
+  id: 'jeep_shoded',
+  role: 'apc',
+  hull: { hp: 400, armor: { front: 8, side: 8, rear: 8 } },
+  mobility: { speed_tiles_s: 6, wheeled: true },
+  sensors: { optics: 2, sight_tiles: 10, signature: 1 },
+};
+
+const MAP = 24;
+
+interface Harness {
+  r: ThreeRenderer;
+  priv: BlastPrivate;
+  sim: Sim;
+}
+
+/**
+ * F-32: `terraceAt` authors a REAL two-level relief, because `isTerrace` is
+ * false on a flat surface by construction (`terrain/surface.ts`) -- a pad on
+ * an all-zero map would never be refused and the R-19 test would pass for
+ * the wrong reason. The west half is level 0, the east half level 2, and a
+ * one-tile structure blocks the named tile so the drawn surface makes it a
+ * terrace.
+ */
+function harness(
+  opts: { terraceAt?: readonly [number, number]; decalShowcase?: RendererOptions['decalShowcase'] } = {}
+): Harness {
+  const sim = new Sim({ seed: 1, width: MAP, height: MAP, capacity: 16 });
+  sim.addUnitType(HARD);
+  sim.addUnitType(SOFT);
+  sim.addUnitType(JEEP);
+  const r = new ThreeRenderer(sim, {
+    ...makeOpts(),
+    ...(opts.decalShowcase ? { decalShowcase: opts.decalShowcase } : {}),
+  });
+  const priv = r as unknown as BlastPrivate;
+  priv.cssWidth = 1400;
+  priv.cssHeight = 900;
+  if (opts.terraceAt) {
+    const [tx, ty] = opts.terraceAt;
+    const hut = sim.addStructureType({ id: 'hut', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
+    sim.addStructure(hut, [ty * MAP + tx]);
+    r.setElevation(twoLevelRelief());
+  }
+  return { r, priv, sim };
+}
+
+/** Level 0 west of x = 6, level 2 from x = 6 east. */
+function twoLevelRelief(): Uint8Array {
+  const levels = new Uint8Array(MAP * MAP);
+  for (let y = 0; y < MAP; y++) for (let x = 6; x < MAP; x++) levels[y * MAP + x] = 2;
+  return levels;
+}
+
+function simOf(r: ThreeRenderer): Sim {
+  return (r as unknown as { sim: Sim }).sim;
+}
+
+function typeIndex(sim: Sim, id: string): number {
+  const i = sim.unitTypes.findIndex((t) => t.id === id);
+  if (i < 0) throw new Error(`harness has no unit type ${id}`);
+  return i;
+}
+
+/** Spawn, seed the renderer's positions (the first snapshot only seeds),
+ *  then kill it the way `onEvents` hears it from the sim. */
+function killVehicle(r: ThreeRenderer, id: string, x: number, y: number): void {
+  const sim = simOf(r);
+  const e = sim.spawn(typeIndex(sim, id), 0, fx.from(x), fx.from(y));
+  r.snapshot();
+  r.snapshot();
+  kill(sim, r, e);
+}
+
+/** An arcing round whose flight ends inside the next frame, so the frame
+ *  clock (`shellHasLanded`) detonates it -- not the sim's `impact` event. */
+function landShell(r: ThreeRenderer, kind: 'mortar' | 'rocket', x: number, y: number): void {
+  const flightMs = 16;
+  const shells = (r as unknown as { shells: ShellModel[] }).shells;
+  shells.push({ sx: x - 3, sy: y, tx: x, ty: y, side: 0, kind, apexPx: 40, duration: flightMs / 2000, t: 0 });
+  r.frame(1, flightMs);
+}
+
+interface Footprint {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+/** A real structure over the footprint (so it blocks its tiles, as a
+ *  mission's buildings do before the map's elevation arrives). */
+function addBlock(r: ThreeRenderer, b: Footprint): number {
+  const sim = simOf(r);
+  const type = sim.addStructureType({ id: 'block', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
+  const tiles: number[] = [];
+  for (let y = b.minY; y <= b.maxY; y++) for (let x = b.minX; x <= b.maxX; x++) tiles.push(y * MAP + x);
+  return sim.addStructure(type, tiles);
+}
+
+/** Levelled through the sim's own path (so `blocked` clears exactly as it
+ *  does in a mission), then the event handed to the renderer. */
+function levelBlock(r: ThreeRenderer, id: number): void {
+  const sim = simOf(r);
+  sim.debugDestroyStructure(id);
+  r.onEvents([{ kind: 'structureDestroyed', tick: sim.tickCount, structure: id, by: -1 } as unknown as SimEvent]);
+}
+
+function destroyStructure(r: ThreeRenderer, b: Footprint): void {
+  levelBlock(r, addBlock(r, b));
+}
+
+/**
+ * Spawns the type, then drives it east through the sim's own command path,
+ * snapshotting every tick exactly as `main.ts` does. F-32: 20 ticks, not 10,
+ * and it ASSERTS that the drive stamped -- at a real vehicle's speed a
+ * ten-tick drive whose first tick only seeds can stamp nothing, and a test
+ * built on it would be about the fixture.
+ */
+function driveTiles(r: ThreeRenderer, id: string, tiles: number, ticks: number, y = 12.5): void {
+  const sim = simOf(r);
+  const priv = r as unknown as BlastPrivate;
+  const x0 = 3.5;
+  const e = sim.spawn(typeIndex(sim, id), 0, fx.from(x0), fx.from(y));
+  r.snapshot();
+  const before = priv.decalsFading.liveCount;
+  sim.queueCommand({ kind: 'move', ids: [e], x: fx.from(x0 + tiles), y: fx.from(y) });
+  for (let t = 0; t < ticks; t++) {
+    sim.tick();
+    r.snapshot();
+  }
+  expect(fx.toNumber(sim.state.posX[e]) - x0, `${id} did not move`).toBeGreaterThan(tiles * 0.9);
+  expect(priv.decalsFading.liveCount - before, `${id} stamped nothing`).toBeGreaterThanOrEqual(1);
+}
+
+function driveOneTile(r: ThreeRenderer, id: string): void {
+  driveTiles(r, id, 1, 20);
+}
+
+describe('the ground remembers (spec §3.3)', () => {
+  it('puts scorch and oil under a killed vehicle, through the one entry', () => {
+    const { r, priv } = harness();
+    const spy = vi.spyOn(priv, 'stampGroundDecal');
+    killVehicle(r, 'mbt_lavi', 10, 10);
+    expect(spy.mock.calls.map(([s]) => s.kind).sort()).toEqual(['oil', 'scorch']);
+    expect(spy.mock.calls.find(([s]) => s.kind === 'oil')?.[0].halfLength).toBe(OIL_RADIUS_TILES);
+    r.dispose();
+  });
+  it('leaves a crater where a mortar bomb lands, sized by its power', () => {
+    const { r, priv } = harness();
+    const spy = vi.spyOn(priv, 'stampGroundDecal');
+    landShell(r, 'mortar', 12, 12);
+    const crater = spy.mock.calls.find(([s]) => s.kind === 'crater')?.[0];
+    expect(crater?.halfLength).toBeCloseTo(0.45, 9);
+    r.dispose();
+  });
+  it("spills rubble over a collapsed structure's footprint (R-12)", () => {
+    const { r, priv } = harness();
+    const spy = vi.spyOn(priv, 'stampGroundDecal');
+    destroyStructure(r, { minX: 4, minY: 4, maxX: 5, maxY: 4 });
+    const rubble = spy.mock.calls.find(([s]) => s.kind === 'rubble')?.[0];
+    expect(rubble?.halfLength).toBeCloseTo(rubbleRadiusTiles(4, 4, 5, 4), 9);
+    r.dispose();
+  });
+  // F-10. On relief the collapsed pad is a terrace until the surface is
+  // rebuilt from the sim's cleared `blocked` mask; the flat test above cannot
+  // see that, because nothing is a terrace on a flat map.
+  it('spills rubble on a relief map too, on the ground the rebuild will draw (F-10)', () => {
+    const { r, priv, sim } = harness();
+    const id = addBlock(r, { minX: 6, minY: 8, maxX: 7, maxY: 8 });
+    r.setElevation(twoLevelRelief());
+    const spy = vi.spyOn(priv, 'stampGroundDecal');
+    levelBlock(r, id);
+    const call = spy.mock.results.findIndex((_, i) => spy.mock.calls[i][0].kind === 'rubble');
+    expect(call).toBeGreaterThanOrEqual(0);
+    expect(spy.mock.results[call].value).toBe(true);
+    expect(priv.decalsPersistent.liveCount).toBe(1);
+    // ...and at the NEW height: the grid is exactly what `writeDecalGrid`
+    // lays on the surface built from the cleared mask (sag lift included),
+    // not on the pad's old terrace.
+    const surface = terrainSurfaceFrom(twoLevelRelief(), sim.blocked, MAP, MAP);
+    const s = spy.mock.calls[call][0];
+    const expected = new Float32Array(PERSISTENT_GRID * PERSISTENT_GRID * 3);
+    writeDecalGrid(
+      expected,
+      0,
+      PERSISTENT_GRID,
+      { cx: s.x, cz: s.z, halfLength: s.halfLength, halfWidth: s.halfWidth, facingRad: s.facingRad },
+      (x, z) => decalGroundY(surface, MAP, MAP, x, z)
+    );
+    const pos = (priv.decalsPersistent as unknown as { mesh: THREE.Mesh }).mesh.geometry.getAttribute('position');
+    for (let v = 0; v < PERSISTENT_GRID * PERSISTENT_GRID; v++) expect(pos.getY(v)).toBeCloseTo(expected[v * 3 + 1], 5);
+    r.dispose();
+  });
+  it('lays tread behind a tracked vehicle and tyre behind a wheeled one, into the fading pool', () => {
+    const { r, priv } = harness();
+    const spy = vi.spyOn(priv, 'stampGroundDecal');
+    driveOneTile(r, 'mbt_lavi');
+    const tracked = new Set(spy.mock.calls.map(([s]) => s.kind));
+    spy.mockClear();
+    driveOneTile(r, 'jeep_shoded');
+    const wheeled = new Set(spy.mock.calls.map(([s]) => s.kind));
+    expect([...tracked]).toEqual(['tread']);
+    expect([...wheeled]).toEqual(['tyre']);
+    expect(priv.decalsFading.liveCount).toBeGreaterThan(0);
+    expect(priv.decalsPersistent.liveCount).toBe(0);
+    r.dispose();
+  });
+  // F-11. R-15's seam guarantee (feather overlap = exactly one feather) holds
+  // only if prints are EXACTLY `STAMP_SPACING_TILES` apart. The accumulator
+  // crosses 0.5 somewhere inside a tick, not at its end, so a print placed at
+  // the vehicle's current position is off by up to one tick's travel.
+  it('spaces consecutive prints exactly one stamp spacing apart on the real stepping path (F-11)', () => {
+    const { r, priv } = harness();
+    const spy = vi.spyOn(priv, 'stampGroundDecal');
+    driveTiles(r, 'mbt_lavi', 8, 60);
+    // A tracked stamp is a PAIR straddling the vehicle; the pair's midpoint
+    // is the stamp's own origin, which is independent of facing.
+    const calls = spy.mock.calls.map(([s]) => s);
+    expect(calls.length % 2).toBe(0);
+    const mids: { x: number; z: number }[] = [];
+    for (let k = 0; k < calls.length; k += 2) {
+      mids.push({ x: (calls[k].x + calls[k + 1].x) / 2, z: (calls[k].z + calls[k + 1].z) / 2 });
+    }
+    expect(mids.length).toBeGreaterThanOrEqual(10);
+    for (let k = 1; k < mids.length; k++) {
+      const gap = Math.hypot(mids[k].x - mids[k - 1].x, mids[k].z - mids[k - 1].z);
+      expect(gap, `spacing ${k}`).toBeCloseTo(STAMP_SPACING_TILES, 9);
+    }
+    r.dispose();
+  });
+  it('stamps nothing on a terrace (R-19)', () => {
+    const { r, priv } = harness({ terraceAt: [7, 7] });
+    expect(
+      priv.stampGroundDecal({ kind: 'crater', x: 7.5, z: 7.5, halfLength: 0.5, halfWidth: 0.5, facingRad: 0, seed: 0, simMs: 0 })
+    ).toBe(false);
+    expect(priv.decalsPersistent.liveCount).toBe(0);
+    // ...and the same stamp one tile west, on open hillside, does land --
+    // so the refusal is about the terrace, not about the stamp.
+    expect(
+      priv.stampGroundDecal({ kind: 'crater', x: 5.5, z: 7.5, halfLength: 0.5, halfWidth: 0.5, facingRad: 0, seed: 0, simMs: 0 })
+    ).toBe(true);
+    expect(priv.decalsPersistent.liveCount).toBe(1);
+    r.dispose();
+  });
+  // Sim time, not frame time: the gate's repaint and a long frame alike leave fades where they are.
+  it('ages tracks on the sim clock only', () => {
+    const { r, priv, sim } = harness();
+    r.frame(1, 0);
+    const t0 = priv.decalMaterial.uniforms.uNowSec.value;
+    r.frame(1, 5000);
+    expect(priv.decalMaterial.uniforms.uNowSec.value).toBe(t0);
+    sim.tick();
+    r.snapshot();
+    r.frame(1, 0);
+    expect(priv.decalMaterial.uniforms.uNowSec.value).toBeCloseTo(t0 + 0.05, 9);
+    r.dispose();
+  });
+  it('stamps the showcase on the first frame, through the entry the event path calls (D4)', () => {
+    const { r, priv } = harness({ decalShowcase: { x: 15, y: 15 } });
+    const spy = vi.spyOn(priv, 'stampGroundDecal');
+    r.frame(1, 16);
+    // At least one site (12 persistent + 12 tread/tyre), every kind present.
+    const first = spy.mock.calls.length;
+    expect(first).toBeGreaterThanOrEqual(24);
+    expect(new Set(spy.mock.calls.map(([s]) => s.kind))).toEqual(
+      new Set(['crater', 'scorch', 'oil', 'rubble', 'tread', 'tyre'])
+    );
+    expect(new Set(spy.mock.calls.map(([s]) => s.simMs))).toEqual(new Set([0]));
+    // Once only.
+    r.frame(1, 16);
+    r.frame(1, 16);
+    expect(spy.mock.calls.length).toBe(first);
+    // Clear of the force the option names (fix wave I-2): no mark within
+    // SHOWCASE_CLEAR_TILES less a lattice's half-extent of it.
+    for (const [s] of spy.mock.calls) {
+      expect(Math.hypot(s.x - 15.5, s.z - 15.5), `${s.kind}@${s.x},${s.z}`).toBeGreaterThan(SHOWCASE_CLEAR_TILES - 2);
+    }
+    r.dispose();
+  });
+  it('stamps nothing without the option', () => {
+    const { r, priv } = harness();
+    r.frame(1, 16);
+    expect(priv.decalsPersistent.liveCount + priv.decalsFading.liveCount).toBe(0);
+    r.dispose();
+  });
+  it('keeps both pools out of the shadow and AO passes', () => {
+    const { r, priv } = harness();
+    for (const p of [priv.decalsPersistent, priv.decalsFading]) {
+      const mesh = (p as unknown as { mesh: THREE.Mesh }).mesh;
+      expect(isAoOccluder(mesh)).toBe(false);
+      expect(mesh.castShadow).toBe(false);
+    }
+    r.dispose();
+  });
 });

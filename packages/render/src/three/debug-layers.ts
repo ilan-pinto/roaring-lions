@@ -50,6 +50,36 @@
  *                 starts at 0 and a 404 leaves it there). Hiding it therefore
  *                 reproduces exactly "the texture never arrived", and the
  *                 delta is the whole contribution of the shipped tiles.
+ *                 It does NOT touch the macro field: a 404 leaves the macro
+ *                 on, so neither does this (`GroundMaterial.setAlbedoVisible`).
+ * - `macro`       the ground's macro field (ground Task 5), its amplitude
+ *                 driven to 0 (`GroundMaterial.setMacroVisible`). Hidden
+ *                 TOGETHER with `ground-albedo` it gives the flat vertex
+ *                 palette tone the `scatter` tone check flattens to
+ *                 (`ToneCollapseSpec.over`); scatter marks carry no macro,
+ *                 so leaving it on would blind that check. Its OWN check
+ *                 (ground Task 9) is declared only on a framing where the
+ *                 pure `buildMacroField` predicts real signal -- mean |m|
+ *                 of at least 0.2 over the crop's tile footprint (F-18) --
+ *                 because the field is 12 tiles to a period and a crop that
+ *                 sits near a zero crossing would carry a floor set at noise.
+ *                 A plain uniform write that nothing in `frame()` re-asserts:
+ *                 the only writers of `uMacroAmp` are `groundUniforms()` and
+ *                 `setMacroVisible` (grepped), so it holds across the gate's
+ *                 repaint, the `fog` layer's standard.
+ * - `roads`       the procedural road (#226), `uRoadOn` driven to 0
+ *                 (`GroundMaterial.setRoadsVisible`). Everything road-shaped
+ *                 on the ground goes with it -- the packed surface tone, the
+ *                 bleached shoulder, both wheel ruts and the knoll-image
+ *                 grain the road carries -- and the ground it was painted
+ *                 over shows through. That makes it a witness for the road
+ *                 ITSELF rather than for its texture: the ruts' breakup reads
+ *                 the knoll image's luminance even at grain gain 0 (Task 6
+ *                 review, advisory C), so hiding `ground-albedo` leaves the
+ *                 road and its broken ruts on screen, while hiding `roads`
+ *                 leaves none of it. Also a plain uniform write that nothing
+ *                 per-frame re-asserts: `uRoadOn`'s only writers are
+ *                 `groundUniforms()` and `setRoadsVisible` (grepped).
  * - `buildings`   structure boxes, mesh building clones (idle and wreck) and
  *                 the billboard structure instancers.
  *
@@ -144,13 +174,25 @@
  * the two rules above -- which is the whole reason they are described
  * together rather than as one name:
  *
- * - `scorch`      the persistent scorch decal mesh (`../scorch-decals.ts`),
- *                 a plain `visible` on the one `THREE.Mesh` the whole pool
- *                 draws through. It follows the `overlays`/`skirt` rule:
- *                 checked directly, nothing in `frame()` ever writes
- *                 `scorchDecals.mesh.visible` -- a mark is written once at
- *                 `stamp()` and never touched again (that class's own "No
- *                 TTL" comment), so there is no per-frame path to undo it.
+ * - `decals`      both decal pools (`../decal-pool.ts`) -- TWO meshes,
+ *                 `ThreeRenderer.decalsPersistent.mesh` (crater, scorch,
+ *                 oil, rubble: what the battle leaves for the mission) and
+ *                 `ThreeRenderer.decalsFading.mesh` (tread and tyre prints,
+ *                 which age out) -- each hidden by a plain `visible` flag on
+ *                 the one `THREE.Mesh` that pool draws through. It follows
+ *                 the `overlays`/`skirt` rule, and that is checked by grep
+ *                 rather than assumed: nothing in `ThreeRenderer.ts`,
+ *                 `decal-pool.ts` or `vehicle-tracks.ts` writes either
+ *                 mesh's `.visible` outside this layer's own switch arm --
+ *                 a mark is written once at `stamp()`, and the fading pool
+ *                 ages a mark through its alpha, never through visibility --
+ *                 so there is no per-frame path to undo the toggle. This
+ *                 name REPLACED `scorch` (D5, R-17) when the scorch mesh
+ *                 folded into the persistent pool beside crater, oil and
+ *                 rubble, and the track mesh into the fading one; `scorch`
+ *                 was removed rather than aliased, so a harness still
+ *                 asking for it throws instead of silently measuring a
+ *                 layer that now carries four more kinds of mark.
  * - `blast-light` the eight pooled `THREE.PointLight`s
  *                 (`../flash-light.ts`), driven to intensity 0. It follows
  *                 the `units` rule, and it MUST: `FlashLightManager.step`
@@ -200,13 +242,15 @@ export const DEBUG_LAYERS = [
   'scatter',
   'decor',
   'ground-albedo',
+  'macro',
+  'roads',
   'buildings',
   'units',
   'vignette',
   'skirt',
   'overlays',
   'fog',
-  'scorch',
+  'decals',
   'blast-light',
 ] as const;
 

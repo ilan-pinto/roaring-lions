@@ -140,7 +140,7 @@ export interface RendererOptions {
    * The file's BASENAME is significant: the renderer looks the image's mean
    * colour and repeat scale up in `GROUND_ALBEDOS` by it, and refuses to bind
    * one the table does not name rather than dividing by a number nobody
-   * measured. Same for all five fields below.
+   * measured. Same for all four fields below.
    */
   groundTextureUrl?: string;
   /**
@@ -150,15 +150,6 @@ export interface RendererOptions {
    * `GroundMaterial`, optional, and fail-soft.
    */
   rockTextureUrl?: string;
-  /**
-   * URL of the `r` dirt-road albedo tile --
-   * `assets/textures/road_track_tile.jpg`. Same contract.
-   *
-   * The image is a single wheel track, and which way it points is decided
-   * per tile by the renderer from the road's own neighbours
-   * (`terrain/ground.ts`'s `roadAxisAt`), not here.
-   */
-  roadTextureUrl?: string;
   /**
    * URL of the cover-tile albedo -- `assets/textures/rough_scrub_tile.jpg`.
    * Same contract. One image for all three tiers; how strongly each tier
@@ -205,6 +196,21 @@ export interface RendererOptions {
    * renderer built before the preset existed.
    */
   quality?: RenderQuality;
+  /**
+   * Stamp the ground-mark showcase (`three/decal-showcase.ts`, D4) around
+   * this tile once the terrain has been built: craters, scorch, oil, rubble,
+   * tread and tyre, three sizes each, on a flat, a sloped and a road site
+   * where the map has them.
+   *
+   * Three-only and sandbox-only (R-16). `PixiRenderer` ignores it, like
+   * `shellColors`; the app sets it from the sandbox's friendly anchor under
+   * `&decals` and never on a mission, whose ground must remember only its
+   * own battle. An option rather than a `Renderer` method, so `app` gains no
+   * reach into a backend-only member. The marks go through the same entry a
+   * real kill or impact uses and are dated sim time 0, so a capture pinned to
+   * a tick sees them identically every run.
+   */
+  decalShowcase?: { readonly x: number; readonly y: number };
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */

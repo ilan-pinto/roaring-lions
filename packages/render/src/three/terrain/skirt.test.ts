@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
-import { buildSkirt, disposeSkirt, setSkirtAlbedo, skirtBounds, SKIRT_TONE, SKIRT_Y } from './skirt';
+import {
+  buildSkirt,
+  disposeSkirt,
+  setSkirtAlbedo,
+  skirtBounds,
+  skirtRing,
+  SKIRT_TONE,
+  SKIRT_Y,
+} from './skirt';
 import { WORLD_RENDER_ORDER } from '../units/render-order';
 import { MARK_EPSILON, WORLD_PER_LEVEL } from './shared';
 import { albedoMean, GROUND_ALBEDOS } from './mesh';
@@ -21,10 +29,12 @@ describe('buildSkirt', () => {
     expect((b.z0 + b.z1) / 2).toBe(20);
   });
 
-  it('is a flat, up-facing quad just BELOW the map base level', () => {
+  it('is a flat, up-facing ring just BELOW the map base level', () => {
     const mesh = buildSkirt(12, 8);
     const pos = mesh.geometry.getAttribute('position');
-    expect(pos.count).toBe(4);
+    // Eight vertices -- the outer rectangle then the map's own footprint
+    // (G5, `skirtRing`) -- not the four of the old one-rectangle quad.
+    expect(pos.count).toBe(8);
     // `toBeCloseTo`, not `toBe`: the attribute is a Float32Array and
     // -0.01 has no exact single-precision representation.
     for (let i = 0; i < pos.count; i++) expect(pos.getY(i)).toBeCloseTo(SKIRT_Y, 7);
@@ -35,21 +45,28 @@ describe('buildSkirt', () => {
     expect(SKIRT_Y).toBeLessThan(0);
     expect(Math.abs(SKIRT_Y)).toBe(MARK_EPSILON);
     expect(Math.abs(SKIRT_Y)).toBeLessThan(WORLD_PER_LEVEL * 0.04);
-    // Up-facing, computed from the INDEXED triangle rather than read off the
-    // `normal` attribute -- a correct attribute over a back-facing winding
-    // would otherwise pass here and draw nothing on screen under
-    // `FrontSide` culling. This assertion caught exactly that: the obvious
-    // (0,1,2)/(0,2,3) fan over this perimeter faces the GROUND, because
+    // Up-facing on every one of the ring's eight triangles, computed from the
+    // INDEXED triangles rather than read off the `normal` attribute -- a
+    // correct attribute over a back-facing winding would otherwise pass here
+    // and draw nothing on screen under `FrontSide` culling. This assertion
+    // caught exactly that on the old single rectangle: the obvious
+    // (0,1,2)/(0,2,3) fan over its perimeter faces the GROUND, because
     // `pushPolygon`'s unflipped fan is `(0, i+1, i)`.
     const idx = mesh.geometry.getIndex();
     expect(idx).not.toBeNull();
+    expect(idx!.count).toBe(24);
     const p = (i: number): THREE.Vector3 =>
       new THREE.Vector3().fromBufferAttribute(pos, idx!.getX(i));
-    const face = new THREE.Vector3()
-      .subVectors(p(1), p(0))
-      .cross(new THREE.Vector3().subVectors(p(2), p(0)))
-      .normalize();
-    expect(face.y).toBeCloseTo(1, 6);
+    for (let t = 0; t < idx!.count / 3; t++) {
+      const a = p(t * 3);
+      const b = p(t * 3 + 1);
+      const c = p(t * 3 + 2);
+      const face = new THREE.Vector3()
+        .subVectors(b, a)
+        .cross(new THREE.Vector3().subVectors(c, a))
+        .normalize();
+      expect(face.y, `triangle ${t}`).toBeGreaterThan(0);
+    }
     for (let i = 0; i < pos.count; i++) expect(mesh.geometry.getAttribute('normal').getY(i)).toBe(1);
     disposeSkirt(mesh);
   });
@@ -126,6 +143,55 @@ describe('setSkirtAlbedo', () => {
     // skirt would be a coupling nothing here would catch breaking.
     expect(mesh.material.map?.repeat.x).toBe(1);
     expect(mesh.material.map?.repeat.y).toBe(1);
+    disposeSkirt(mesh);
+  });
+});
+
+describe('skirtRing -- G5', () => {
+  const tri = (r: ReturnType<typeof skirtRing>, t: number): THREE.Vector3[] =>
+    [0, 1, 2].map((k) => {
+      const i = r.indices[t * 3 + k];
+      return new THREE.Vector3(r.positions[i * 3], r.positions[i * 3 + 1], r.positions[i * 3 + 2]);
+    });
+
+  // Catmull-Rom undershoots to -0.077 on tel_marum (spec G5), well below the
+  // skirt's -0.01. So no skirt triangle may cover ANY point of the footprint:
+  // that is the whole fix.
+  it('covers no point strictly inside the map footprint', () => {
+    const r = skirtRing(48, 40);
+    for (let t = 0; t < r.indices.length / 3; t++) {
+      const [a, b, c] = tri(r, t);
+      const cx = (a.x + b.x + c.x) / 3;
+      const cz = (a.z + b.z + c.z) / 3;
+      const inside = cx > 0 && cx < 48 && cz > 0 && cz < 40;
+      expect(inside, `triangle ${t} centroid (${cx}, ${cz})`).toBe(false);
+    }
+  });
+
+  it('still covers the whole margin: ring area = outer - footprint', () => {
+    const r = skirtRing(48, 40);
+    let area = 0;
+    for (let t = 0; t < r.indices.length / 3; t++) {
+      const [a, b, c] = tri(r, t);
+      area += Math.abs((b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z)) / 2;
+    }
+    const { x0, x1, z0, z1 } = skirtBounds(48, 40);
+    expect(area).toBeCloseTo((x1 - x0) * (z1 - z0) - 48 * 40, 6);
+  });
+
+  it('faces up on every triangle (FrontSide culling draws nothing otherwise)', () => {
+    const r = skirtRing(12, 8);
+    for (let t = 0; t < r.indices.length / 3; t++) {
+      const [a, b, c] = tri(r, t);
+      const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+      expect(n.y, `triangle ${t}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('is what buildSkirt draws', () => {
+    const mesh = buildSkirt(12, 8);
+    expect(mesh.geometry.getAttribute('position').count).toBe(8);
+    expect(mesh.geometry.getIndex()?.count).toBe(24);
     disposeSkirt(mesh);
   });
 });

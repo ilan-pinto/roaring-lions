@@ -152,6 +152,15 @@ export interface Scenario {
    *  comment, "has not left its assembly point"). Pair with `orders` to make
    *  anything actually happen. */
   mission?: string;
+  /** Sandbox-only opt-in flags (`packages/app/src/sandbox-help.ts`'s
+   *  `SandboxFlagName`), appended to the URL in order as bare `&<flag>`
+   *  tokens -- `sceneParam` writes `&decals`, never `&decals=true`, matching
+   *  `routes.sandbox`'s own value-less spelling (`shell/links.ts`) and
+   *  `readFlags`' `has` check. Exists for `AFTERMATH_SCENARIO`, which needs
+   *  `&decals` to stamp the showcase this scenario exists to photograph; a
+   *  `mission` scenario has no such flags today, but nothing here refuses
+   *  one. */
+  sandboxFlags?: readonly string[];
   /** A named marker on the map, OR omit this and set `cameraTile` instead --
    *  see that field for why a scenario would need the latter. */
   cameraMarker?: string;
@@ -534,6 +543,79 @@ export const RELIEF_SCENARIO: Scenario = {
   },
 };
 
+/** The decal showcase (D4, ground plan Task 15/16/17): `qarn_hadid` under
+ *  `&decals`, framed on the showcase's own three sites -- road, relief and
+ *  flat -- so the gate has a witness that the ground can remember a battle.
+ *
+ *  WHY THIS MAP. `qarn_hadid` is "the terrain map" (CLAUDE.md): the only one
+ *  carrying all ten terrain symbols, elevation range 0-7 (every other map
+ *  tops out at 4), and a rock wall with two ways through. That gives the
+ *  showcase's own site picker (`showcaseSites`, `decal-showcase.ts`) a real
+ *  `relief` candidate -- a tile whose drawn-surface normal tips far enough
+ *  from vertical -- which `tel_marum`'s corridor floor (flat but for the
+ *  boulders themselves) does not reliably offer near ITS friendly anchor, and
+ *  a real `road` candidate from the diagonal `r` tiles this map authors. The
+ *  same reason `RELIEF_SCENARIO` exists for map coverage applies again here:
+ *  a decal regression that only shows on sloped ground would be invisible on
+ *  every flat-map scenario.
+ *
+ *  WHY `&decals`. `main.ts` hands `RendererOptions.decalShowcase` the
+ *  sandbox's friendly anchor (`kdf_start` at (24,39) here, matched by
+ *  `FRIENDLY_HINTS`' `/^kdf[_-]/`), and the renderer anchors the showcase
+ *  CLEAR of it (`showcaseAnchor`, `decal-showcase.ts`) -- the camera below is
+ *  computed the SAME way, not from a copy that could drift. Without the flag
+ *  there is nothing to photograph: `stampDecalShowcase` (`ThreeRenderer.ts`)
+ *  is a no-op when `opts.decalShowcase` is undefined.
+ *
+ *  THE CAMERA is the three sites' own centroid, `((x+0.5) averaged, (y+0.5)
+ *  averaged)` rounded to the nearest half-tile -- `aftermath.test.ts` recomputes
+ *  this from `showcaseAnchor` + `showcaseSites` rather than asserting a
+ *  literal, so a site-picker change that moves the sites re-fails this
+ *  scenario's OWN test rather than silently leaving the camera pointed at
+ *  empty ground. Measured on the shipped map: anchor (34,35), road (30,28),
+ *  relief (34,31), flat (38,36) -> centroid (34.50, 32.17) -> (34.5, 32).
+ *
+ *  WHY THE SHOWCASE MOVED OFF THE FORCE (fix wave I-2). It used to be anchored
+ *  ON the friendly anchor, its sites 4-9 tiles out, inside the column of
+ *  fourteen idle mesh units the sandbox spawns there -- and the drone this
+ *  scenario flew over them started a fight with the nearest hostiles, so a
+ *  fireball and a missile streak sat over the marks too. Every one of those
+ *  animates on the frame clock, and `step()` advances that clock by a frame
+ *  time latched from the real loop, which differs process to process
+ *  (`smokeClockMs` read 20715-20933 at the same tick over three runs). Two
+ *  captures of the same commit differed by 519-656 px / 0.040-0.047 against
+ *  this scenario's 40 px / 0.004 budget. Now every site stands at least
+ *  `SHOWCASE_CLEAR_TILES` (10) from the force.
+ *
+ *  WHY `zoom: 2.2` AND NO `orders`. At zoom 1 the frame spans about 31 x 31
+ *  tiles, which on a 48-tile map takes in both forces wherever the camera
+ *  sits; at 2.0 the column's west edge (the `inf_squad` at (26.5,34.5)) still
+ *  reaches the frame's left edge (390-500 px of noise over three runs); at
+ *  2.2 no unit of either side is in frame and three fresh-process captures
+ *  were bit-identical, raw. 2.2 is inside the wheel clamp `[0.35, 2.5]` and
+ *  still frames all three sites and the diagonal road the `road` site sits
+ *  on. The recon drone is NOT flown here any more: from its spawn in the
+ *  force it already lifts the fog over the sites (`sight_tiles: 16`, the
+ *  farthest site 13.2 tiles away), and flying it over the marks would put an
+ *  animating unit back in the frame this move exists to empty.
+ *
+ *  `targetTick: 300` -- 15 sim-seconds. Every stamp in the showcase is dated
+ *  `simMs: 0` (R-14, D4), so its fade depends only on the tick a capture
+ *  pins. */
+export const AFTERMATH_SCENARIO: Scenario = {
+  id: 'aftermath',
+  description:
+    'qarn_hadid @ the decal showcase centroid, zoom 2.2, tick 300 -- the fixed crater/scorch/oil/' +
+    'rubble/tread/tyre showcase on its road, relief and flat sites, anchored clear of the sandbox ' +
+    'force so no unit or live effect is in frame. The only shipped map with a relief showcase site.',
+  sandboxMap: 'qarn_hadid',
+  sandboxFlags: ['decals'],
+  cameraTile: [34.5, 32],
+  ticks: 20, // unused when targetTick is set; kept as documentation of the original relative advance
+  targetTick: 300,
+  zoom: 2.2,
+};
+
 /** Every scenario this harness knows about. `golden-diff-gate.ts` runs all of
  *  them, each against its own budget. Add a new one here rather than
  *  building another ad-hoc scenario by hand.
@@ -547,6 +629,7 @@ export const SCENARIOS: readonly Scenario[] = [
   OPEN_GROUND_SCENARIO,
   VEHICLE_SCENARIO,
   RELIEF_SCENARIO,
+  AFTERMATH_SCENARIO,
   COMBAT_SCENARIO,
 ];
 
@@ -566,8 +649,13 @@ function sceneParam(scenario: Scenario): string {
   if (scenario.sandboxMap !== undefined && scenario.mission !== undefined) {
     throw new Error(`scenario "${scenario.id}" sets both sandboxMap and mission -- exactly one is allowed`);
   }
-  if (scenario.mission !== undefined) return `mission=${scenario.mission}`;
-  if (scenario.sandboxMap !== undefined) return `sandbox=${scenario.sandboxMap}`;
+  // Bare tokens (`&decals`), never `&decals=true`: `routes.sandbox`'s own
+  // links and `readFlags`' `has` check both treat the flag as value-less, and
+  // `URLSearchParams.has('decals')` reads a bare token exactly as it reads
+  // `decals=`, so this is the simpler spelling with nothing lost.
+  const flags = (scenario.sandboxFlags ?? []).map((f) => `&${f}`).join('');
+  if (scenario.mission !== undefined) return `mission=${scenario.mission}${flags}`;
+  if (scenario.sandboxMap !== undefined) return `sandbox=${scenario.sandboxMap}${flags}`;
   throw new Error(`scenario "${scenario.id}" sets neither sandboxMap nor mission`);
 }
 
@@ -639,8 +727,10 @@ return JSON.stringify({ tick: window.__lions.sim.tickCount });
 
 /** Repaints the canvas WITHOUT advancing anything: no sim tick, and zero
  *  presentation milliseconds, so every clock `frame()` accumulates
- *  (`smokeClockMs`, `trackClockMs`, `windClockMs`, every animation mixer,
- *  every particle age) is handed 0 and stands still.
+ *  (`smokeClockMs`, `windClockMs`, every animation mixer, every particle
+ *  age) is handed 0 and stands still -- and, since `tickCount`/`alpha` are
+ *  also unchanged, the decal pool's own sim-time clock (`decal-pool.ts`'s
+ *  `uNowSec`, R-14) stands still with them, by the same repaint.
  *
  *  That is what makes the toggle A/B below a measurement of the LAYER rather
  *  than of the layer plus one frame of animation. Two consecutive evaluations

@@ -354,11 +354,13 @@ async function runSelfChecks(
       const { over } = check.toneCheck;
       const flatShown = path.join(dir, `layer-${check.layer}-over-flat-shown.png`);
       const flatHidden = path.join(dir, `layer-${check.layer}-over-flat-hidden.png`);
-      await page.evaluate(layerToggleScript(over, false));
+      // Every `over` layer hidden together (ground-albedo AND macro: the flat
+      // palette tone), and put back in reverse order.
+      for (const layer of over) await page.evaluate(layerToggleScript(layer, false));
       await rephotograph(page, REPAINT_SCRIPT, flatShown, captured.rect);
       await rephotograph(page, layerToggleScript(check.layer, false), flatHidden, captured.rect);
       await page.evaluate(layerToggleScript(check.layer, true));
-      await page.evaluate(layerToggleScript(over, true));
+      for (const layer of [...over].reverse()) await page.evaluate(layerToggleScript(layer, true));
       const flat = computeDiff(flatShown, flatHidden, {
         outDir: dir,
         diffFileName: `diff-layer-${check.layer}-over-flat.png`,

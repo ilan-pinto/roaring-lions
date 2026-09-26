@@ -596,7 +596,23 @@ yours; each one records what the next phase inherits.
   geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
   not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
   toon ramp materials, the blob shadows and the black fog quads are all
-  deleted.
+  deleted. Ground decals (`decal-pool.ts`) are albedo RATIOS: each decal's
+  colour is divided by the ground tone under THAT FRAGMENT and MULTIPLIED
+  (`DstColor * SrcColor`) onto the lit ground, so a crater lip in a building's
+  shadow stays in shadow. The divisor has two halves: the tile's own palette
+  tone, stamped per decal (`terrain/decal-ground-tone.ts`, `decalBaseTone`),
+  and the road and its shoulder, mixed in PER FRAGMENT from the ground's own
+  control B through the ground material's shared uniform objects (fix wave
+  I-3; `decalRoadMix` is the TypeScript mirror). Dividing by the map's one
+  open tone was wrong on every green map (a salmon lip on a dust road, red
+  tyre prints on grass); dividing by the road at a crater's CENTRE was wrong
+  on every road crater, because the lip ring (0.34-0.60 tile out) lies on the
+  road's edge and shoulder -- it drew blue-white, blue multiplied eightfold.
+  A decal straddling two TILE tones still divides both by its centre tile's;
+  that part is accepted. A pale mark is a ratio above 1, so decals need the composer's
+  **HalfFloat** scene target; **the raw-renderer path without the composer is
+  not supported** -- an 8-bit target clamps the source to 1 and every pale lip
+  disappears.
   **Two rules survive and both still cost a bug if broken.** Vertex colours
   and shader-uniform colours must be LINEAR — `hexToLinear`, and `toGeometry`
   decodes on the way in — because nothing between them and the frame buffer
@@ -640,6 +656,13 @@ yours; each one records what the next phase inherits.
   too, so no draw order can falsify it. The band stays -- still correct,
   still free, still where a future opaque occluder belongs -- but it is no
   longer load-bearing.
+  **The ground decals have two named aliases, not bands of their own.**
+  `DECAL_PERSISTENT_RENDER_ORDER` = `WORLD_RENDER_ORDER` (-1) carries
+  craters, scorch, oil and rubble; `DECAL_FADING_RENDER_ORDER` =
+  `TRAIL_RENDER_ORDER` (= `HULL_RENDER_ORDER`, 0) carries tread and tyre
+  prints, so a fresh print lies over an old crater and never over a unit.
+  Set them by those names: a "fix" that moves either into an FX band paints
+  the mark over the unit standing in it.
 - **The occlusion silhouette is an OUTLINE, not a fill** (`units/silhouette.ts`).
   An inverted hull -- the merged silhouette geometry pushed out along a welded
   per-vertex normal by a constant 2.5 SCREEN pixels at any zoom -- with the
@@ -707,7 +730,8 @@ yours; each one records what the next phase inherits.
   were found sampling a tile CORNER and fixed. Cost: +0 draw calls, +1.87% triangles, fixed per map.
   Open ground carries the supplied **sand** PNG (4 tiles per repeat), `^` walls the supplied
   **rock** PNG (2 tiles), both `NoColorSpace` and plain `RepeatWrapping` -- **never mirror-tile
-  them**, it kaleidoscopes -- with roads (`r`) masked out. Terrain is the fourth named palette
+  them**, it kaleidoscopes -- with roads (`r`) drawn by the control map's distance field (next
+  bullet), not masked out as they were. Terrain is the fourth named palette
   exemption, and **since 2026-09-14 only its ALBEDO half survives**: the ground is lit and
   shadowed by the scene sun like everything else, so the *shade* is not an exemption from
   anything any more (`terrain/surface.ts`'s `SURFACE_SHADING_EXEMPTION`, and the paragraph
@@ -721,6 +745,92 @@ yours; each one records what the next phase inherits.
   0.2330 / 6,721 distinct colours against a `<0.95` budget and the gate's only reference-free check
   could no longer fire on the defect class it was built for, or on anything, while printing PASS.
   What replaced it is the visible-toggle A/B — see the visual-gate bullet below.
+- **The ground reads a CONTROL MAP, not per-vertex masks** (WP-A2 plan 1, 2026-09-25;
+  `terrain/control-map.ts`, spec `docs/superpowers/specs/2026-09-25-ground-design.md`, whose
+  Deviations R-1 to R-21 are the record). Two RGBA8 textures at `CONTROL_TEXELS_PER_TILE` = 8
+  texels a tile: A holds open, rock, scrub and grove weights; B holds knoll, road distance,
+  junction distance and the road-edge bend noise (R-6), all baked in TypeScript, so the GLSL is
+  arithmetic and every number in it is unit-tested. Soft edges are a 0.5-tile band (D1: 1.5
+  smeared a lone cover tile past recognition), bent ±0.2 tile by noise. A 256² R8 macro field
+  (±7% luminance, ±0.04 hue) lies over it. Four things a later change will get wrong:
+  **`wallAlbedo` is the ONE per-vertex surface fact left** (R-5): -1 on every top (sample the
+  control map), 0 on a building wall, 1 on a ridge wall. A vertical face sits exactly on a texel
+  boundary, so the map cannot tell the two walls apart. **Terraces stay hard**: a pad and a `^`
+  top are never blended. But a ridge throws a 0.5-tile rock APRON onto the open ground beside it,
+  never the reverse. Pads keep a hard edge on purpose (R-4, the rest of G3 is plan 2's).
+  **Road tone lives in the shader** (R-3): a road tile's VERTEX colour is the open wash, and the
+  road tone is mixed in by the distance field. Put the road tone back in the vertex and the SDF
+  road steps at every tile edge again. A street authored two tiles wide is ONE street (2x2 road
+  blocks are solid, and ladder rungs are not junctions); three-wide is unhandled, and no map has
+  one. **Road grain shares `uKnoll`** (R-7) at its own 2-tile repeat and 0.6 gain. There is no
+  road image any more; `road_track_tile.jpg` is still on disk and in `GROUND_ALBEDOS`, waiting
+  for its own deletion task. Cost, measured on ANGLE/Metal M3 Pro at `64afcf3b`: **+0 draw calls
+  on every view of four maps**, texture count +2 (A, B and macro in; the road image out), and
+  **1.58 MiB** a 48x48 map with mips (A and B 768 KiB each, macro 85 KiB). `buildControlMap`
+  costs ~50-68 ms a call, and **it runs only when what it reads changed** (fix wave I-1,
+  `controlInputsMatch`): the decor array by reference, the draw mask and `cover` by CONTENT.
+  Both halves of that are load-bearing -- `drawBlockedMask` returns a new array every call, so a
+  reference compare never matches, and `sim.cover` is written IN PLACE when a structure dies, so
+  a reference compare always does. A boot fires 3-5 terrain rebuilds (templates, decor sets,
+  `setElevation`) and now builds the map once; a structure collapse still pays a full build,
+  and a dirty-rect rebuild is the follow-up. See `docs/PERFORMANCE.md`, "The ground, plan 1".
+  **The road block in the ground shader is skipped where control B saturates**
+  (`if (rlB.g < 1.0)`): there every road term is exactly 0, the golden A/B read 0 px, and its
+  grain tap is a `textureGrad` whose derivatives are taken OUTSIDE the branch. Keep them there.
+- **Ground decals are ONE pool class, two instances, on the SIM clock** (`decal-pool.ts`, the
+  pure maths in `decal-maths.ts`). Persistent: 1024 stamps on a 4x4 grid (crater, scorch, oil,
+  rubble). Fading: 4096 on 2x2 (tread, tyre). Both share one material and one program, and the
+  oldest stamp is evicted (R-10). At full pools that is exactly **26,624 triangles and 2 draw
+  calls**, measured. `ScorchDecalMesh` and `VehicleTrackMesh` are gone and their calls with them,
+  so the net is +0 (R-11). Four rules. **`stampGroundDecal` is the one entry**: a shell landing
+  (`shellHasLanded`), a vehicle kill (scorch plus oil) and a structure collapse (rubble, R-12)
+  all go through it. It refuses a terrace centre (R-19) and routes by kind. **Age is sim time**
+  (R-14): a stamp is dated `tickCount x 50` ms, and a frame presents `(tickCount - 1 + alpha) x
+  50`. So a frozen gate frame never fades, and wall-clock fades would make `quiet` noisy.
+  **`&decals` is the showcase** (R-16): `RendererOptions.decalShowcase` stamps every kind at
+  three sizes on a flat, a road and a relief site, dated 0 ms, through the same entry. It is
+  sandbox-only, and a mission never sees it. The option names the sandbox FORCE's anchor, and
+  the showcase sits CLEAR of it (`showcaseAnchor`, fix wave I-2): every site at least
+  `SHOWCASE_CLEAR_TILES` (10) from the force, as near as that allows, with the most kinds the
+  map offers -- on `qarn_hadid` road (30,28), relief (34,31), flat (38,36). It used to sit on
+  the force, under fourteen idle mesh units and the fight the drone started, and that frame
+  moved 519-656 px between two captures of the same commit. The search costs ~50-60 ms, once.
+  **`decal-maths.ts` is three-free** (F-27), and that is TIDINESS, not a requirement: `three`
+  loads under node (`decal-pool.test.ts` builds meshes there, and tools resolves it through
+  `packages/render/node_modules`), so nothing breaks if it slips. `decal-maths.test.ts` pins its
+  direct imports.
+  **Rubble is chips, not cells** (fix wave I-5): at most one soft, jittered disc per
+  `RUBBLE_CELL_TILES` (0.1 tile) cell, the lattice turned by `2 pi seed`, thinned by the chip
+  centre's radius from 0.55 r to the rim. The first cut filled whole 0.34-0.5-tile squares in a
+  hard step, and on grass, where the ratio divides by the grass tone, it drew a checkerboard.
+  The GLSL hash (`rlHash`) takes its multipliers AND its two shifts from `tile-hash.ts`'s own
+  exports, which `tileHash` itself reads. **Tread is `dust.5` on every theme** (spec §5): the
+  ground's road ruts are `limestone.6`, and the theme's `rut` tone is `dust.6` on green -- the
+  old comment that called tread "the SAME rut tone" was wrong twice. **A stamp uploads its own
+  slot** (`addUpdateRange`, M-1) rather than the pool's 0.64 MiB of dynamic attributes, and both
+  pools index in 16 bits: 1.81 -> 1.65 MiB of buffers for the two.
+  The AO pre-pass and the shadow pass never see a decal. This is by omission: the pool geometry
+  has no `normal` attribute, so `isAoOccluder` drops it, and `castShadow` is false. **Proved on
+  the real renderer**, by counting `renderBufferDirect` per object over one frame with the shadow
+  map forced: each pool draws **1** time, the ground 2 (main + AO), and a shadow caster 3.
+  **The sag lift is capped at 0.08 wu (`DECAL_LIFT_CAP`, F-23), and clipping remains.** Between
+  vertices the grid is flat triangles, and over a bicubic crest the chord passes under the
+  ground. Each vertex is lifted by the largest sag of its cells, up to the cap. Uncapped, it
+  floated over units standing in the mark, and darkened a squad by p90 16 grey levels (8 capped).
+  Measured on 2026-09-25 by `writeDecalGrid` over every non-terrace centre on a quarter-tile
+  lattice, against the drawn surface, on `qarn_hadid` (level 0-7). Where every grid vertex is on
+  open ground: craters 0; mortar scorch (r 0.876) 0.025 wu worst, 9 centres over 0.01; Grad
+  scorch (r 1.07) 0.067; full-power scorch (r 1.6) **0.203 wu**, 3,749 of 22,464 centres over
+  0.01, photographed as a straight cut edge at zoom 2.5 (`tel_marum`: 0.170). With no wreck
+  over it, that cut reads as a pale, hull-shaped patch inside the scorch on tel_marum's steepest
+  shoulder (review capture 16) -- the one clipping the approved cap leaves. **A grid vertex
+  over a terrace or off the map samples the SMOOTH field** (`decalGroundY`, fix wave I-4): the
+  drawn ground on open tiles, the field `buildTerrainSurface` fills in under a terrace, and the
+  edge-clamped field past the rim; the decal shader discards what hangs past the edge. Holding
+  the terrace vertex at the centre's height cut under a ridge-foot apron by 0.62 wu, and the old
+  off-map 0 dived 0.38 wu on qarn's rim. Re-scanned on `qarn_hadid` at the fix: terrace class
+  full-power 0.624 -> 0.202 wu (now the open-ground cap's own limit), Grad 0.520 -> 0.067,
+  mortar scorch 0.433 -> 0.025, craters 0.21 -> 0; edge class 0.353 -> 0.043, craters 0.376 -> 0.
 - **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
   therefore returns black — that is correct, not a broken renderer. The
   sanctioned way to photograph the scene from inside the renderer is a RENDER
@@ -732,11 +842,14 @@ yours; each one records what the next phase inherits.
   `pnpm golden-baseline` (`tools/src/ci/three-baseline-gate.ts`). Playwright
   captures three.js at a fixed scenario/tick/camera and diffs it against a PNG
   in `tools/golden-baselines/<envKey>/`. It runs in **ci.yml's `visual` job on
-  every PR and every push to main** — **39.2–40.0 s** wall clock for all
-  **five** scenarios including booting its own dev server and running the ten
+  every PR and every push to main** — **39.2–40.0 s** wall clock for what were
+  then **five** scenarios including booting its own dev server and running the ten
   reference-free toggle checks (34.1–35.4 s without them; 3 runs each, same
-  machine, 2026-09-03 — the 32.0–32.9 s this line used to carry predates them)
-  — plus a nightly that files a GitHub issue on failure. Read
+  machine, 2026-09-03 — the 32.0–32.9 s this line used to carry predates them;
+  NOT re-timed since the sixth scenario, `aftermath`, and twelve more checks landed)
+  — plus a nightly that files a GitHub issue on failure. **Six scenarios since
+  WP-A2 plan 1 (2026-09-25)**: `quiet`, `open-ground`, `vehicle`, `relief` and
+  `aftermath` vote; `combat` is report-only. Read
   `tools/src/golden-diff/baseline.ts` before touching a threshold; the things
   below are counter-intuitive and every one was measured.
   **`meanAbsChannelDelta` is the PRIMARY metric and pixelmatch's pixel count is
@@ -781,22 +894,47 @@ yours; each one records what the next phase inherits.
   check that had gone structurally inert.** Hide a named draw layer, repaint
   with zero elapsed presentation time, capture, and require the frame to change
   by a calibrated floor — `BaselineSpec.layerChecks`, with the renderer seam in
-  `packages/render/src/three/debug-layers.ts` (`scatter`, `decor`,
-  `ground-albedo`, `buildings`; ten checks over `quiet`, `open-ground` and
-  `relief`). It is texture-proof by construction: it never asks what the frame
+  `packages/render/src/three/debug-layers.ts`. Since WP-A2 plan 1 there are
+  **22 checks**: `quiet` 8 (`scatter`, `decor`, `ground-albedo`, `roads`, `macro`,
+  `buildings`, `vignette`, `skirt`), `open-ground` 4, `vehicle` 1 (`units`),
+  `relief` 5, and `aftermath` 4 (`decals`, `roads`, `macro`, `scatter`). **`macro`,
+  `roads` and `decals` are new, and `scorch` is gone** (removed, not aliased, R-17:
+  `decals` hides both pools). Hiding `ground-albedo` zeroes only the slot
+  strengths. The scatter TONE backdrop hides `ground-albedo` AND `macro`, because
+  the macro field alone blinded the tone check to the scatter defect (0.93/0.97
+  with the defect; 0.58/0.65 with the macro at 0). `macro` votes only where the
+  pure field predicts a real signal over the crop (F-18): `quiet`, `open-ground`
+  and `aftermath`, and not `relief` (0.181). Re-run F-18 if the field's period or
+  seed changes. Every new floor is a third of the smallest of three runs. It is texture-proof by construction: it never asks what the frame
   looks like, only whether removing a layer changes it. That is exactly what
   `groundTextureCheck` could not survive — it asked how much of a ground crop
   was one flat colour, the sand tile landed, and the answer became a permanent
   0.2330 against a `<0.95` budget. **A reference-free check that asks about
   appearance can be blinded by content added later; one that asks whether a
   layer contributes cannot.**
-  **`DEBUG_LAYERS` carries two more names than this gate judges, and the reason
-  is that no gated scenario contains a blast.** `scorch` and `blast-light`
-  (WP-A1.2) name the ground mark and the pooled `FlashLightManager` that a
-  vehicle kill and a shell impact throw; `vehicle` parks the sandbox force at
-  tick 140 with nothing dying and no round in the air, and `combat` is
-  `gated: false` — so a `layerChecks` entry for either would read 0 px on a
-  perfectly healthy tree. What witnesses them instead is `pnpm blast:capture`
+  **`aftermath` is the gated scenario that sees the ground remember a battle**
+  (`AFTERMATH_SCENARIO`, `capture-protocol.ts`): `qarn_hadid&decals` at the
+  showcase centroid (34.5,32), zoom 2.2, tick 300, with NO drone order -- the
+  force's own sight lifts the fog there. Every stamp is dated 0 ms, so the
+  pinned tick fixes the fades. **Its frame has no unit and no live effect in
+  it, and that is the whole point** (fix wave I-2): at Task 17's framing, on the
+  sandbox force at zoom 1, two captures of one commit differed by 519-656 px /
+  0.040-0.047 against a 40 px / 0.004 budget, because idle mesh units and the
+  fight the drone started animate on the FRAME clock, which `step()` advances
+  by a latched real frame time that differs per process. The showcase now sits
+  clear of the force and 22 of 22 fresh-process captures read 0 px / 0.0000
+  against a provisional baseline; every layer reading is bit-identical over 23
+  runs. Zoom 2.0 still took in the force's west edge (390-500 px). Do not
+  frame units back into it, and do not raise its thresholds. A missing
+  `aftermath` entry in an EXISTING manifest is exit **1**, not 3, so CI's
+  `visual` job stays red until the post-merge bless. That is intended.
+  **`DEBUG_LAYERS` still carries one name no gated scenario can judge, because
+  none contains a blast.** `blast-light` (WP-A1.2) names the pooled
+  `FlashLightManager` that a vehicle kill and a shell impact throw. `vehicle`
+  parks the sandbox force at tick 140 with nothing dying and no round in the
+  air, and `combat` is `gated: false`, so a `layerChecks` entry would read 0 px
+  on a perfectly healthy tree. (`decals` had the same problem as `scorch` until
+  `aftermath` gave it a showcase.) What witnesses them instead is `pnpm blast:capture`
   (`tools/src/perf/blast-captures.ts`), which runs the SAME toggle A/B on a
   frame 200 ms after a detonation and holds it to floors derived the same way
   (a third of a measured signal, with the sample size beside it). It has
@@ -807,6 +945,19 @@ yours; each one records what the next phase inherits.
   under the fireball and reads 0 px / 0.3423 at 200 against 7251 px / 1.4411 at
   2000. A gated `blast` scenario here is the thing that would let this gate see
   the package at all, and it does not exist yet.
+  **The blast harness waits for a STEADY loop, not a fixed time** (2026-09-25).
+  It waits for 5 consecutive frames of 150 ms or less, with a 30 s ceiling
+  (`SETTLE_STEADY_FRAMES`, `SETTLE_STEADY_MAX_FRAME_MS`, `SETTLE_TIMEOUT_MS`;
+  `--settle-ms` overrides the ceiling). The old fixed 2500 ms settle froze the
+  loop inside the boot tail on BOTH main and the branch: a 511–942 ms `step(1)`
+  latch, which the harness's own guard then skipped, so the subjects that set
+  the floors went unmeasured. `qarn_hadid` steadies at 190–233 ms and runs to
+  the ceiling, so `scorch_qarn_shoulder` is `handTick: true`, and its stale
+  `blast-light` exemption is deleted. **A settle that hits its ceiling
+  refuses the group** (`unsteadySettleRefusal`) unless every subject in it is
+  `handTick`, and the run fails at the end, exactly as an overshooting
+  `step(1)` does -- it used to be only logged, so a scene whose frames were all
+  180 ms timed out and still passed.
   Both documented defects now exit **1** with an
   empty baseline directory: erasing every decor object (`decor-place.ts`'s
   `familyFor` → `return null`) drives the `decor` toggle to 0 px / 0.0000 on all
@@ -1649,8 +1800,10 @@ the paragraph above, ~:306) -- nothing new here.
   a pooled point light, a screen shake applied to a COPY of the camera in
   `threeCamera()`, a hit-stop inside `frame()`, a `CollapseShroudManager` cloud
   sized from the vehicle's own measured mesh bounds that covers the living-body →
-  wreck swap, and a `ScorchDecalMesh` mark that is permanent for the mission. A
-  mortar or Grad landing gets the same four minus the shroud, at
+  wreck swap, and a scorch mark that is permanent for the mission (a scorch and
+  an oil stamp in the persistent decal pool since WP-A2 plan 1; it was
+  `ScorchDecalMesh`). A mortar or Grad landing gets the same four minus the
+  shroud (and a crater under its scorch), at
   `SHELL_PROFILES[kind].impactPower`. The vehicle-kill branch's outer
   mesh-readiness guard was removed to do it, so the blast fires on `&nomesh` too
   — with no shroud there, because there are no bounds to size one from.

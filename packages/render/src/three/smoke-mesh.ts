@@ -331,11 +331,16 @@ export function writeSmokeInstances(
 // own byte every frame. The functions below add drift/billow/breathing on
 // top of that unchanged baseline, driven by REAL frame time (`clockMs`, an
 // accumulated `dtMs` total the caller owns -- see `ThreeRenderer.smokeClockMs`
-// -- never `Date.now()`/`performance.now()`, matching `windClockMs`/
-// `trackClockMs`'s identical existing pattern and `Renderer.frame`'s
-// documented contract that a backend must not read its own clock). None of
-// this is sim-tick-driven and none of it can affect simulation outcomes: it
-// only ever reads `sim.smoke`, never writes it.
+// -- never `Date.now()`/`performance.now()`, matching `windClockMs`'s
+// identical existing pattern and `Renderer.frame`'s documented contract that
+// a backend must not read its own clock). A vehicle track mark is the
+// opposite case now, not a sibling of this one: its decal is stamped into
+// `decal-pool.ts` and fades on the SIM clock (`presentationSimMs`, R-14), not
+// a frame-time accumulator like this one -- see that file's own "The
+// sim-time clock" for why smoke's frame-driven animation and a decal's
+// sim-driven fade are deliberately different. None of this is
+// sim-tick-driven and none of it can affect simulation outcomes: it only
+// ever reads `sim.smoke`, never writes it.
 //
 // ## The desync guarantee this design protects, explicitly
 //

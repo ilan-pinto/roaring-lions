@@ -34,6 +34,8 @@ import {
   TRAIL_RENDER_ORDER,
   SILHOUETTE_RENDER_ORDER,
   WORLD_RENDER_ORDER,
+  DECAL_PERSISTENT_RENDER_ORDER,
+  DECAL_FADING_RENDER_ORDER,
 } from './render-order';
 
 describe('render order bands', () => {
@@ -139,5 +141,17 @@ describe('render order bands', () => {
     const RESERVED_TOP = 10;
     expect(SILHOUETTE_RENDER_ORDER).toBeLessThanOrEqual(RESERVED_TOP);
     expect(RESERVED_TOP - FX_RENDER_ORDER_ABOVE).toBeGreaterThanOrEqual(4);
+  });
+
+  it('the decal pool bands are named aliases, not independent numbers, and sit below the turret', () => {
+    // ground-plan-1 Task 10: the persistent decal mesh (crater/scorch/oil/
+    // rubble) draws at the same band a mesh building's opaque hull does --
+    // under everything that moves -- and the fading mesh (tread/tyre) draws
+    // at the same band the tunnel-trail mesh does, so a tread print can sit
+    // over an older crater without ever outranking a unit standing on it.
+    expect(DECAL_PERSISTENT_RENDER_ORDER).toBe(WORLD_RENDER_ORDER);
+    expect(DECAL_FADING_RENDER_ORDER).toBe(TRAIL_RENDER_ORDER);
+    expect(DECAL_PERSISTENT_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+    expect(DECAL_FADING_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
   });
 });

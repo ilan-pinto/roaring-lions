@@ -16,15 +16,40 @@
  * now, lit and shadowed by `lighting.ts`'s one sun: the slope shade the ground
  * used to compute against its own private light is the scene's job, so the
  * arithmetic identity that kept THAT exemption narrow is gone with it. What
- * `mesh.test.ts` still pins is the six-slot albedo blend, which three.js does
+ * `mesh.test.ts` still pins is the five-slot albedo blend, which three.js does
  * not provide and which reaches the GPU through an `onBeforeCompile` string
  * edit -- a seam where every failure is silent and draws a plausible map.
+ * Since Task 5 of the ground plan that blend is WEIGHTED by the control map
+ * (`control-map.ts`) rather than switched by five per-vertex masks, and sits
+ * under the macro field; `controlTextures` below is the one place those two
+ * pure grids become GPU data. Since Task 6 the road is not a slot at all: it
+ * is drawn from control B's distance field (#226).
  * The palette guarantee on the vertex COLOURS is still proved where it
  * always was, in `ground.test.ts`, on data this consumes unchanged.
  */
 import * as THREE from 'three';
 import type { MeshData } from './ground';
 import { srgbToLinear } from './shared';
+import {
+  HEIGHT_BLEND,
+  MACRO_HUE,
+  MACRO_LUMINANCE,
+  ROAD_DISTANCE_RANGE_TILES,
+  type ControlMap,
+  type MacroField,
+} from './control-map';
+import {
+  ROAD_EDGE_BEND,
+  ROAD_EDGE_FALLOFF,
+  ROAD_GRAIN_TILES,
+  ROAD_HALF_WIDTH,
+  RUT_ALPHA,
+  RUT_JUNCTION_FADE,
+  RUT_OFFSET,
+  RUT_WIDTH,
+  SHOULDER_ALPHA,
+  SHOULDER_TILES,
+} from './road-graph';
 
 /**
  * Uploads `data`'s positions, colours and indices as a `BufferGeometry`.
@@ -75,23 +100,15 @@ export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.Bu
     for (let i = 1; i < up.length; i += 3) up[i] = 1;
     geometry.setAttribute('normal', new THREE.BufferAttribute(up, 3));
   }
-  // Ground-albedo mask -- `ground.ts` only, and 1 on exactly the vertices
-  // allowed to sample the sand tile. Absent for every other builder, whose
-  // material declares none, the same shape `sway` above already uses.
-  if (data.sandMask) geometry.setAttribute('sandMask', new THREE.BufferAttribute(data.sandMask, 1));
-  if (data.rockMask) geometry.setAttribute('rockMask', new THREE.BufferAttribute(data.rockMask, 1));
-  // The three surfaces added on 2026-09-03, each its own mask for the reason
-  // `types.ts` gives for keeping sand and rock apart: they are separate
-  // decisions about separate surfaces, each asserted on its own.
-  if (data.roadMask) geometry.setAttribute('roadMask', new THREE.BufferAttribute(data.roadMask, 1));
-  // Not a mask at all -- which axis this road tile's ruts run along. Uploaded
-  // beside `roadMask` rather than folded into it because a mask of 0 and an
-  // axis of 0 are different facts, and packing them would make "no road here"
-  // indistinguishable from "a road running north-south".
-  if (data.roadAxis) geometry.setAttribute('roadAxis', new THREE.BufferAttribute(data.roadAxis, 1));
-  if (data.scrubMask) geometry.setAttribute('scrubMask', new THREE.BufferAttribute(data.scrubMask, 1));
-  if (data.groveMask) geometry.setAttribute('groveMask', new THREE.BufferAttribute(data.groveMask, 1));
-  if (data.knollMask) geometry.setAttribute('knollMask', new THREE.BufferAttribute(data.knollMask, 1));
+  // Top or which kind of wall -- the one per-vertex surface fact the shader
+  // still reads now the control map carries the surfaces (R-5; `ground.ts`'s
+  // `WALL_ALBEDO_*`). The seven per-vertex albedo masks this used to upload
+  // alongside it (`sandMask`/`rockMask`/`roadMask`/`roadAxis`/`scrubMask`/
+  // `groveMask`/`knollMask`) stopped being read by `GroundMaterial` when
+  // Tasks 5 and 6 moved the decision to the control map and the road's
+  // distance field; Task 7 is where `ground.ts` stops emitting them, and this
+  // is where uploading them stops.
+  if (data.wallAlbedo) geometry.setAttribute('wallAlbedo', new THREE.BufferAttribute(data.wallAlbedo, 1));
   // Albedo sampling coordinates. Under a custom name rather than three.js's
   // reserved `uv`, so nothing in three's own shader chunks can be surprised
   // by a `uv` on geometry that has no material expecting one.
@@ -153,7 +170,7 @@ export function vertexColorMaterial(): THREE.MeshStandardMaterial {
  * this same frame's wind would be circular.
  *
  * `uTime` is `ThreeRenderer`'s own accumulated `dtMs` total in seconds --
- * see `ThreeRenderer`'s own `trackClockMs` field doc comment for
+ * see `ThreeRenderer`'s own `windClockMs` field doc comment for
  * the identical "accumulated dtMs, never a direct clock read" shape, which
  * keeps this deterministic-enough for a purely cosmetic effect without
  * reading `Date.now()`/`performance.now()` from render code.
@@ -302,6 +319,13 @@ export const GROUND_ALBEDOS = {
   /**
    * An `r` dirt road.
    *
+   * **Not drawn since ground plan Task 6 (#226).** The road is procedural
+   * now -- a distance field in control B, three palette tones and the KNOLL
+   * image as grain -- and no slot binds this image. The row stays until the
+   * asset itself is deleted (the plan's R-7, out of scope), because
+   * `tools/src/ground-albedo.test.ts` still measures the shipped file against
+   * it; what follows is the record of why it was drawn the way it was.
+   *
    * **1, and this one is not a matter of taste -- it is the only value that
    * works.** The source is not a field of road; it is ONE wheel track,
    * centred, with gravel shoulders either side (the smooth low-variance lane
@@ -382,7 +406,7 @@ export function albedoMean(id: GroundAlbedoId): THREE.Vector3 {
 }
 
 /**
- * The six albedo SLOTS `GroundMaterial` declares, in the order the fragment
+ * The five albedo SLOTS `GroundMaterial` declares, in the order the fragment
  * shader multiplies them, and the uniform-name stem each one uses
  * (`sand` -> `uSand`, `uSandStrength`, `uSandMean`, `uSandTiles`).
  *
@@ -394,11 +418,16 @@ export function albedoMean(id: GroundAlbedoId): THREE.Vector3 {
  *
  * Exported so `ThreeRenderer` can loop rather than repeating four uniform
  * names five times, and so `mesh.test.ts` can assert that every stem here
- * really has all four uniforms and a matching mask attribute in the shader
- * source -- a slot added to one and not the other is otherwise silent (the
- * uniform is simply never written, and the ground draws its flat tone).
+ * really has all four uniforms in the shader source -- a slot added to one
+ * and not the other is otherwise silent (the uniform is simply never written,
+ * and the ground draws its flat tone). Which surface a fragment is ON comes
+ * from the control map now, not from a per-slot mask attribute.
+ *
+ * The road left this list in Task 6 (#226): it is not an image any more but a
+ * distance field in control B, painted in palette tones, whose grain borrows
+ * the `knoll` slot's sampler -- see `GROUND_BLEND_GLSL`.
  */
-export const GROUND_SLOTS = ['sand', 'rock', 'road', 'scrub', 'grove', 'knoll'] as const;
+export const GROUND_SLOTS = ['sand', 'rock', 'scrub', 'grove', 'knoll'] as const;
 export type GroundSlot = (typeof GROUND_SLOTS)[number];
 
 /**
@@ -417,7 +446,6 @@ export type GroundSlot = (typeof GROUND_SLOTS)[number];
 const DEFAULT_ALBEDO_FOR_SLOT: Record<GroundSlot, GroundAlbedoId> = {
   sand: 'desert_sand_tile',
   rock: 'rock_ground_tile',
-  road: 'road_track_tile',
   scrub: 'rough_scrub_tile',
   grove: 'orchard_floor_tile',
   knoll: 'knoll_scree_tile',
@@ -483,6 +511,99 @@ export function prepareGroundTexture(map: THREE.Texture): THREE.Texture {
   return map;
 }
 /**
+ * The sampler state every ground DATA texture takes -- control A, control B
+ * and the macro field alike (the plan's Global Constraints).
+ *
+ * `NoColorSpace` for the same reason `prepareGroundTexture` gives the albedo
+ * tiles: these bytes are weights and a signed scalar, not colours, and an sRGB
+ * tag would have the GPU "decode" a 0.5 blend weight to 0.21. `ClampToEdge`,
+ * not repeat: the map does not tile, and a repeat would bleed the far edge's
+ * surfaces into the near edge's first half-texel. Mipmapped, because at zoom
+ * 0.35 a ground fragment spans several control texels and an unfiltered
+ * minification would shimmer the splat edges as the camera pans. `flipY`
+ * false: row 0 of every grid is world z = 0, and `vRlWorldXZ / uMapSize`
+ * samples v = z / height, so the rows must land in the texture top-first.
+ */
+function asGroundData(tex: THREE.DataTexture): THREE.DataTexture {
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.flipY = false;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  // One byte a texel on the macro field: rows are not 4-byte aligned on a
+  // 1x1 default, and a wrong alignment skews every row after the first.
+  tex.unpackAlignment = 1;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** `data` as a view three's `DataTexture` accepts. The pure grids are typed
+ *  over `ArrayBufferLike`, which admits a `SharedArrayBuffer` a texture upload
+ *  does not; every one of them is in fact a plain `ArrayBuffer`, so this is a
+ *  second VIEW of the same bytes -- no copy -- and copies only in the case
+ *  that never happens. */
+function uploadable(data: Uint8Array): Uint8Array<ArrayBuffer> {
+  const buffer = data.buffer;
+  return buffer instanceof ArrayBuffer ? new Uint8Array(buffer, data.byteOffset, data.length) : new Uint8Array(data);
+}
+
+/** An RGBA8 control texture over `data`, `width x height` texels. */
+function controlTexture(data: Uint8Array, width: number, height: number): THREE.DataTexture {
+  return asGroundData(
+    new THREE.DataTexture(uploadable(data), width, height, THREE.RGBAFormat, THREE.UnsignedByteType)
+  );
+}
+
+/** The macro field as an R8 texture -- one byte a texel, 128 neutral. */
+export function macroTexture(macro: MacroField): THREE.DataTexture {
+  return asGroundData(
+    new THREE.DataTexture(uploadable(macro.data), macro.size, macro.size, THREE.RedFormat, THREE.UnsignedByteType)
+  );
+}
+
+/** Control A and control B as textures, without the macro field -- what
+ *  `ThreeRenderer.rebuildTerrain` rebinds when a destroyed structure changes
+ *  the ground, since the macro field depends on the map's size alone and is
+ *  built once. */
+export function controlTexturePair(cm: ControlMap): { a: THREE.DataTexture; b: THREE.DataTexture } {
+  return { a: controlTexture(cm.a, cm.width, cm.height), b: controlTexture(cm.b, cm.width, cm.height) };
+}
+
+/**
+ * Every ground data texture `GroundMaterial` samples, built from the two pure
+ * grids `control-map.ts` makes: control A (open, rock, scrub, grove), control
+ * B (knoll, road distance, junction distance, road-edge bend) and the macro
+ * field, each with `asGroundData`'s sampler state.
+ */
+export function controlTextures(
+  cm: ControlMap,
+  macro: MacroField
+): { a: THREE.DataTexture; b: THREE.DataTexture; macro: THREE.DataTexture } {
+  return { ...controlTexturePair(cm), macro: macroTexture(macro) };
+}
+
+/**
+ * The 1x1 textures bound before any map lands -- and forever, if building one
+ * fails -- each meaning "nothing here": control A `(0,0,0,0)` is no surface
+ * weight at all, control B `(0,255,255,128)` is no knoll, no road within
+ * range, no junction, neutral bend, and macro `128` is `m = 0`. Every weight
+ * zero makes the albedo sum exactly `vec3(1.0)` and a neutral macro is exactly
+ * 1, so the ground draws its flat palette tone: the same fail-soft the albedo
+ * slots' strength-0 white pixel already gives (`whitePixel`).
+ */
+function defaultControlA(): THREE.DataTexture {
+  return controlTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+}
+export function defaultControlB(): THREE.DataTexture {
+  return controlTexture(new Uint8Array([0, 255, 255, 128]), 1, 1);
+}
+function defaultMacro(): THREE.DataTexture {
+  return macroTexture({ size: 1, data: new Uint8Array([128]) });
+}
+
+/**
  * The vertex attributes the ground geometry carries that three.js's own
  * standard shader knows nothing about, and the varyings that hand them to the
  * fragment stage.
@@ -491,108 +612,259 @@ export function prepareGroundTexture(map: THREE.Texture): THREE.Texture {
  * must agree exactly: a varying declared in one stage and not the other is a
  * link error, and one declared with a different type is worse -- it links and
  * draws nonsense.
+ *
+ * The five surface masks are gone from the shader: the control map carries
+ * them now, per TEXEL rather than per vertex, which is what lets a surface
+ * change fade across a noise-bent band instead of stepping at the tile line
+ * (G3). The road's `roadMask` and `roadAxis` went the same way in Task 6: the
+ * road is drawn from the distance field control B carries (#226).
+ * `wallAlbedo` is the one surface fact a wall still needs per vertex
+ * (`ground.ts`'s `WALL_ALBEDO_*`), and `vRlWorldXZ` is where a fragment sits
+ * on the map, which is what the control map and the macro field are indexed
+ * by.
  */
 const GROUND_ATTRIBUTES_GLSL = /* glsl */ `
-attribute float sandMask;
-attribute float rockMask;
-attribute float roadMask;
-attribute float roadAxis;
-attribute float scrubMask;
-attribute float groveMask;
-attribute float knollMask;
+attribute float wallAlbedo;
 attribute vec2 groundUv;
-varying float vSandMask;
-varying float vRockMask;
-varying float vRoadMask;
-varying float vRoadAxis;
-varying float vScrubMask;
-varying float vGroveMask;
-varying float vKnollMask;
+varying float vWallAlbedo;
 varying vec2 vGroundUv;
+varying vec2 vRlWorldXZ;
 `;
 
-/** The fragment half: one quartet of uniforms per `GROUND_SLOTS` entry, and
- *  the receiving end of every varying above. */
+/** The fragment half: one quartet of uniforms per `GROUND_SLOTS` entry, the
+ *  control map, the macro field and the road, and the receiving end of every
+ *  varying above. */
 const GROUND_VARYINGS_GLSL = /* glsl */ `
 uniform sampler2D uSand; uniform float uSandStrength; uniform vec3 uSandMean; uniform float uSandTiles;
 uniform sampler2D uRock; uniform float uRockStrength; uniform vec3 uRockMean; uniform float uRockTiles;
-uniform sampler2D uRoad; uniform float uRoadStrength; uniform vec3 uRoadMean; uniform float uRoadTiles;
 uniform sampler2D uScrub; uniform float uScrubStrength; uniform vec3 uScrubMean; uniform float uScrubTiles;
 uniform sampler2D uGrove; uniform float uGroveStrength; uniform vec3 uGroveMean; uniform float uGroveTiles;
 uniform sampler2D uKnoll; uniform float uKnollStrength; uniform vec3 uKnollMean; uniform float uKnollTiles;
-varying float vSandMask;
-varying float vRockMask;
-varying float vRoadMask;
-varying float vRoadAxis;
-varying float vScrubMask;
-varying float vGroveMask;
-varying float vKnollMask;
+uniform sampler2D uControlA;
+uniform sampler2D uControlB;
+uniform sampler2D uMacro;
+uniform vec2 uMapSize;
+uniform float uMacroAmp;
+uniform vec3 uMacroBright;
+uniform vec3 uMacroDark;
+uniform float uRoadOn;
+uniform vec3 uRoadTone;
+uniform vec3 uShoulderTone;
+uniform vec3 uRutTone;
+uniform float uRoadGrainTiles;
+uniform float uRoadGrainGain;
+varying float vWallAlbedo;
 varying vec2 vGroundUv;
+varying vec2 vRlWorldXZ;
+// One weight's height bias (control-map.ts's heightBiased, before its
+// rescale): w + HEIGHT_BLEND * h * 4w(1 - w), h being the Rec. 709 luminance
+// deviation of this surface's own strength-scaled texel ratio. A function at
+// global scope, so the constant is written once rather than five times.
+float rlHeightBiased(float w, vec3 ratio) {
+  float h = dot(ratio, vec3(0.2126, 0.7152, 0.0722)) - 1.0;
+  return max(0.0, w + ${HEIGHT_BLEND.toFixed(3)} * h * 4.0 * w * (1.0 - w));
+}
 `;
 
 /**
- * The six-slot albedo blend, verbatim from the retired custom shader: each
- * texel is a RATIO to its image's own mean, so the blend cannot move the
- * surface's average off the palette tone the vertex colour carries.
+ * The five-slot albedo blend, WEIGHTED by the control map and multiplied by the
+ * macro field, with the road drawn over it from its distance field.
  *
- * Six surfaces over one geometry: open ground (sand on an arid map, dry sward
- * on a green one), rock on a `^` ridge, the wheel track on a road, scrub on a
- * cover tile, orchard floor under a grove, scree on an `n` knoll. The masks
- * are mutually exclusive by construction (a tile is one surface), so the
- * multiplies could have been a chain of branches; they are a chain of MIXES
- * because at most one factor is ever anything but exactly `vec3(1.0)` and a
- * mix by 0 is free where a branch is not. Every mask 0, or no image loaded,
- * and the whole block is a no-op on the vertex colour.
+ * Each texel is still a RATIO to its image's own mean, so no surface can move
+ * its average off the palette tone the vertex colour carries. What changed is
+ * how a fragment picks its surface. It used to be five per-vertex masks, one
+ * per surface, mutually exclusive and constant across a tile -- so every
+ * surface change was a hard edge at the tile line (G3). Now it is five weights
+ * read from control A and B at the fragment's own map position, and the
+ * albedo is their weighted sum of ratios:
  *
- * The fetches are unconditional rather than branched: a dynamic branch around
- * a texture fetch forces a gradient the hardware cannot compute, so all seven
- * happen on every ground fragment even though six of them are multiplied by
- * zero. That is seven taps on a single draw call with an overdraw of one, and
- * it was measured rather than assumed.
+ *   `1 + sum_i w_i * (mix(1, texel_i/mean_i, strength_i) - 1)`
  *
- * `vGroundUv`, not a projection taken from the world position: the builder
- * emits the right planar projection per piece of geometry, because projecting
- * straight down is only correct for a HORIZONTAL surface and a cliff face is
- * not one. See `MeshData.groundUv`.
+ * **On every tile interior that is the old chain of mixes, exactly.** There
+ * one weight is the tile's own strength and the rest are 0: an open tile's
+ * `w = 1` gives `mix(1, sand, s)`, and a cover-1 tile's scrub `w = 0.4` gives
+ * `1 + 0.4 * (mix(1, scrub, s) - 1)` = `mix(1, scrub, 0.4 s)` -- today's
+ * `strength x mask`. The weights only differ from the masks inside the
+ * 0.5-tile edge band, which is the point, and the only interior change is the
+ * macro factor below.
  *
- * The ROAD is the one slot that is not rotationally free, and the only one
- * that fetches twice. Its source is a single wheel track running along the
- * image's V axis, so the unrotated sample draws a road running north-south and
- * the coordinate SWAP draws one running east-west. `vRoadAxis` is the blend
- * between them: 0 north-south, 1 east-west, 0.5 at a corner, a T or a
- * crossroads, where the average of the two is a plus-shaped patch of lane with
- * the gravel left in the four corners -- which is what a junction is. See
- * `ground.ts`'s `roadAxisAt` for the neighbour rule that picks it. The swap is
- * done here rather than by emitting swapped coordinates in the builder because
- * a junction needs BOTH at once, and a vertex can only carry one pair.
+ * **Height blend.** Inside a band, each weight is biased by its OWN texel's
+ * luminance deviation (`control-map.ts`'s `heightBiased`, transcribed with its
+ * `HEIGHT_BLEND`): a bright pebble on the scree beats the dark sand beside it
+ * and the edge follows the texture rather than a smooth ramp. The bias reads
+ * the strength-scaled ratio, so an image that has not landed has deviation 0
+ * and biases nothing. A single non-zero weight is left exactly as it was, by
+ * the rescale -- which is what keeps the interior claim above true.
+ *
+ * **Walls** ignore the map (R-5): a vertical face sits on a texel boundary.
+ * `vWallAlbedo` is -1 on a top and is otherwise the wall's rock weight
+ * directly -- 1 on a ridge's cliff, 0 on a building's wall.
+ *
+ * **Macro.** A map-sized scalar `m` in [-1, 1] (`buildMacroField`), applied as
+ * `macroFactor` is: a luminance ratio `1 + MACRO_LUMINANCE m` times a small
+ * hue pull toward `uMacroBright` or `uMacroDark`, which are `neutralTint`s and
+ * so cannot move luminance themselves. The byte decode is the EXACT inverse of
+ * the field's `round(128 + 127 v)` encoding, so the 1x1 default of 128 is
+ * `m = 0` exactly rather than `r * 2 - 1`'s 0.004. `uMacroAmp` is 1 shipped;
+ * 0 removes the field.
+ *
+ * **The road (#226, spec 3.2)** is not a slot. It is `road-graph.ts`'s
+ * `roadProfile` transcribed -- `road-graph.test.ts` is its test -- over the
+ * three road channels of control B: distance to the centreline (G), distance
+ * to the nearest junction (B) and a signed edge-bend sample (A). Three bands
+ * come out of it: the packed SURFACE (1 inside `ROAD_HALF_WIDTH`, softening
+ * across `ROAD_EDGE_FALLOFF`, its edge bent by `ROAD_EDGE_BEND`), a bleached
+ * SHOULDER just past that edge, and two wheel RUTS at `RUT_OFFSET` either side
+ * of the centreline -- one expression, since both read the same unsigned
+ * distance -- faded out within `RUT_JUNCTION_FADE` of a junction so a
+ * crossroads draws no rings. Because the distance is to a graph whose
+ * diagonals are EDGES, a diagonal chain of road tiles draws as one continuous
+ * track rather than a string of diamonds (G2), and no tile boundary appears
+ * anywhere in the result (G1).
+ *   Each band is a palette tone MIXED into `diffuseColor` -- before the ratio
+ * multiply below, because the albedo is a ratio to whatever tone is there,
+ * and the road's tone has to be that tone. The surface also takes the surface
+ * weights beneath it down by `(1 - surface)`, and in their place adds a GRAIN
+ * term of its own, in the same mix-from-1.0 ratio form as every slot, so it
+ * cannot move the road's average off `uRoadTone`. The grain is the KNOLL
+ * image (R-7: one shared image, no road asset), sampled at the road's own
+ * repeat in world space; its luminance also breaks the ruts up, which is the
+ * spec's "world noise". `uRoadGrainGain` is 0 until that image lands (F-12):
+ * before then `uKnoll` is the white pixel, which reads as `1 / uKnollMean`,
+ * about 1.6x, and a live gain would brighten every road by that much.
+ *   The derived band edges are written as EXPRESSIONS of the tested
+ * constants, never as their folded values (the plan's F-3), so a drifted
+ * constant in `road-graph.ts` moves the shader with it; the compiler folds
+ * the arithmetic. `rlTop` keeps the road off every wall. `uRoadOn` is 1; the
+ * `roads` debug layer writes 0 (`GroundMaterial.setRoadsVisible`).
+ *
+ * The five slot fetches are unconditional rather than branched: a dynamic
+ * branch around a texture fetch leaves its implicit gradient undefined, so
+ * those taps happen on every ground fragment even where their weight is zero.
+ * The ROAD block is the one exception (fix wave, the lead's perf item 2): it
+ * sits inside `if (rlB.g < 1.0)`, because where control B's road distance
+ * saturates the bent edge is at least `1 - ROAD_EDGE_BEND` = 0.92, past the
+ * shoulder's outer edge at 0.57, so surface, shoulder and rut are all exactly
+ * 0 and skipping them changes no pixel (golden A/B: 0 px on every scenario).
+ * Its grain tap is a `textureGrad` whose derivatives are taken BEFORE the
+ * branch. Off road that is one tap and about 20 ALU saved; on road it is six
+ * albedo taps plus three data taps, as before, on a single draw call with an
+ * overdraw of one.
+ *
+ * `vGroundUv`, not a projection taken from the world position, for the
+ * ALBEDO: the builder emits the right planar projection per piece of geometry,
+ * because projecting straight down is only correct for a horizontal surface
+ * and a cliff face is not one (`MeshData.groundUv`). The control map and the
+ * macro field are the opposite case -- they describe the map in plan, so they
+ * are indexed by world `xz`.
  *
  * Every local is `rl`-prefixed: this code is spliced into three.js's own
  * `main()`, where a bare `sand` or `road` would be one chunk away from
  * colliding with a name three.js owns. (No backticks anywhere in this shader
  * source: it is a JS template literal and one would close it mid-string.)
+ * The three constants are interpolated from the TypeScript exports their
+ * mirrors are tested against, never retyped, and `mesh.test.ts` pins that the
+ * source contains them -- once each, so a line retyped by hand cannot hide
+ * behind a sibling that was not. The luminance weights are Rec. 709, the same
+ * three `neutralTint` uses; the height bias lives in `rlHeightBiased`, at
+ * global scope in the fragment header, for exactly that once-each reason.
  */
 const GROUND_BLEND_GLSL = /* glsl */ `
 vec3 rlSand = texture2D(uSand, vGroundUv / uSandTiles).rgb / uSandMean;
 vec3 rlRock = texture2D(uRock, vGroundUv / uRockTiles).rgb / uRockMean;
-vec2 rlRoadUv = vGroundUv / uRoadTiles;
-vec3 rlRoad = mix(texture2D(uRoad, rlRoadUv).rgb, texture2D(uRoad, rlRoadUv.yx).rgb, vRoadAxis) / uRoadMean;
 vec3 rlScrub = texture2D(uScrub, vGroundUv / uScrubTiles).rgb / uScrubMean;
 vec3 rlGrove = texture2D(uGrove, vGroundUv / uGroveTiles).rgb / uGroveMean;
 vec3 rlKnoll = texture2D(uKnoll, vGroundUv / uKnollTiles).rgb / uKnollMean;
-vec3 rlAlbedo = vec3(1.0);
-rlAlbedo *= mix(vec3(1.0), rlSand, uSandStrength * vSandMask);
-rlAlbedo *= mix(vec3(1.0), rlRock, uRockStrength * vRockMask);
-rlAlbedo *= mix(vec3(1.0), rlRoad, uRoadStrength * vRoadMask);
-rlAlbedo *= mix(vec3(1.0), rlScrub, uScrubStrength * vScrubMask);
-rlAlbedo *= mix(vec3(1.0), rlGrove, uGroveStrength * vGroveMask);
-rlAlbedo *= mix(vec3(1.0), rlKnoll, uKnollStrength * vKnollMask);
-diffuseColor.rgb *= rlAlbedo;
+vec2 rlCtlUv = vRlWorldXZ / uMapSize;
+vec4 rlA = texture2D(uControlA, rlCtlUv);
+vec4 rlB = texture2D(uControlB, rlCtlUv);
+float rlTop = step(vWallAlbedo, -0.5);
+// Five surface weights: open, rock, scrub, grove, knoll. A wall ignores the map.
+float rlW0 = rlTop * rlA.r;
+float rlW1 = rlTop * rlA.g + (1.0 - rlTop) * max(vWallAlbedo, 0.0);
+float rlW2 = rlTop * rlA.b;
+float rlW3 = rlTop * rlA.a;
+float rlW4 = rlTop * rlB.r;
+vec3 rlF0 = mix(vec3(1.0), rlSand, uSandStrength);
+vec3 rlF1 = mix(vec3(1.0), rlRock, uRockStrength);
+vec3 rlF2 = mix(vec3(1.0), rlScrub, uScrubStrength);
+vec3 rlF3 = mix(vec3(1.0), rlGrove, uGroveStrength);
+vec3 rlF4 = mix(vec3(1.0), rlKnoll, uKnollStrength);
+// Height blend: each weight biased by its own texel's luminance deviation, then rescaled (heightBiased).
+float rlB0 = rlHeightBiased(rlW0, rlF0);
+float rlB1 = rlHeightBiased(rlW1, rlF1);
+float rlB2 = rlHeightBiased(rlW2, rlF2);
+float rlB3 = rlHeightBiased(rlW3, rlF3);
+float rlB4 = rlHeightBiased(rlW4, rlF4);
+float rlBSum = rlB0 + rlB1 + rlB2 + rlB3 + rlB4;
+if (rlBSum > 0.0) {
+  float rlRescale = (rlW0 + rlW1 + rlW2 + rlW3 + rlW4) / rlBSum;
+  rlW0 = rlB0 * rlRescale;
+  rlW1 = rlB1 * rlRescale;
+  rlW2 = rlB2 * rlRescale;
+  rlW3 = rlB3 * rlRescale;
+  rlW4 = rlB4 * rlRescale;
+}
+// The road: roadProfile transcribed (road-graph.test.ts is its test), over control B's G, B and A.
+// Skipped where B.g saturates (no road within ROAD_DISTANCE_RANGE_TILES): there every band below
+// is exactly 0, so the skip is pixel-identical. The grain tap inside the branch takes its gradient
+// from outside it, since implicit derivatives are undefined in non-uniform control flow.
+float rlRoadSurf = 0.0;
+float rlShoulder = 0.0;
+float rlRut = 0.0;
+vec3 rlRoadGrainTerm = vec3(0.0);
+vec2 rlGrainUv = vRlWorldXZ / uRoadGrainTiles;
+vec2 rlGrainDx = dFdx(rlGrainUv);
+vec2 rlGrainDy = dFdy(rlGrainUv);
+if (rlB.g < 1.0) {
+  float rlRoadD = rlB.g * ${ROAD_DISTANCE_RANGE_TILES.toFixed(3)};
+  float rlJuncD = rlB.b * ${ROAD_DISTANCE_RANGE_TILES.toFixed(3)};
+  float rlRoadE = rlRoadD + ${ROAD_EDGE_BEND.toFixed(3)} * (rlB.a * 2.0 - 1.0);
+  float rlRoadH0 = (${ROAD_HALF_WIDTH.toFixed(3)} - 0.5 * ${ROAD_EDGE_FALLOFF.toFixed(3)});
+  float rlRoadH1 = (${ROAD_HALF_WIDTH.toFixed(3)} + 0.5 * ${ROAD_EDGE_FALLOFF.toFixed(3)});
+  float rlRoadEdge = smoothstep(rlRoadH0, rlRoadH1, rlRoadE);
+  rlRoadSurf = uRoadOn * rlTop * (1.0 - rlRoadEdge);
+  rlShoulder = uRoadOn * rlTop * ${SHOULDER_ALPHA.toFixed(3)} * rlRoadEdge
+    * (1.0 - smoothstep(rlRoadH1, rlRoadH1 + ${SHOULDER_TILES.toFixed(3)}, rlRoadE));
+  vec3 rlGrain = textureGrad(uKnoll, rlGrainUv, rlGrainDx, rlGrainDy).rgb / uKnollMean;
+  float rlGrainLum = dot(rlGrain, vec3(0.2126, 0.7152, 0.0722));
+  rlRut = ${RUT_ALPHA.toFixed(3)}
+    * (1.0 - smoothstep((0.5 * ${RUT_WIDTH.toFixed(3)} - 0.010), (0.5 * ${RUT_WIDTH.toFixed(3)} + 0.010), abs(rlRoadD - ${RUT_OFFSET.toFixed(3)})))
+    * smoothstep(0.0, ${RUT_JUNCTION_FADE.toFixed(3)}, rlJuncD) * rlRoadSurf
+    * smoothstep(0.85, 1.05, rlGrainLum); // broken by the grain: the spec's "world noise"
+  rlRoadGrainTerm = rlRoadSurf * (mix(vec3(1.0), rlGrain, uRoadGrainGain) - 1.0);
+}
+rlW0 *= (1.0 - rlRoadSurf);
+rlW1 *= (1.0 - rlRoadSurf);
+rlW2 *= (1.0 - rlRoadSurf);
+rlW3 *= (1.0 - rlRoadSurf);
+rlW4 *= (1.0 - rlRoadSurf);
+diffuseColor.rgb = mix(diffuseColor.rgb, uRoadTone, rlRoadSurf);
+diffuseColor.rgb = mix(diffuseColor.rgb, uShoulderTone, rlShoulder);
+diffuseColor.rgb = mix(diffuseColor.rgb, uRutTone, rlRut);
+vec3 rlAlbedo = vec3(1.0)
+  + rlW0 * (rlF0 - 1.0)
+  + rlW1 * (rlF1 - 1.0)
+  + rlW2 * (rlF2 - 1.0)
+  + rlW3 * (rlF3 - 1.0)
+  + rlW4 * (rlF4 - 1.0)
+  + rlRoadGrainTerm;
+float rlM = (texture2D(uMacro, rlCtlUv).r * 255.0 - 128.0) / 127.0 * uMacroAmp;
+vec3 rlMacro = (1.0 + ${MACRO_LUMINANCE.toFixed(3)} * rlM)
+  * mix(vec3(1.0), rlM >= 0.0 ? uMacroBright : uMacroDark, ${MACRO_HUE.toFixed(3)} * abs(rlM));
+diffuseColor.rgb *= rlAlbedo * rlMacro;
 `;
 
 /** One quartet of uniforms per slot, each starting at its own image's numbers
  *  (`DEFAULT_ALBEDO_FOR_SLOT`) with a valid 1x1 sampler bound and a strength
  *  of 0 -- so a map with no texture, or one whose fetch failed, draws the flat
- *  palette tone it always did rather than a white or undefined one. */
+ *  palette tone it always did rather than a white or undefined one. Plus the
+ *  control map and the macro field at their "nothing here" defaults
+ *  (`defaultControlA` and its siblings), which fail soft the same way, and a
+ *  neutral `(1, 1, 1)` hue pull until `ThreeRenderer` resolves the palette's.
+ *  The road is on, with white tones until `ThreeRenderer` binds the palette's
+ *  -- unseen, since the default control B says no road is within range -- and
+ *  its grain gain 0 until the knoll image lands (F-12). */
 function groundUniforms(): Record<string, THREE.IUniform> {
   const u: Record<string, THREE.IUniform> = {};
   for (const slot of GROUND_SLOTS) {
@@ -603,12 +875,25 @@ function groundUniforms(): Record<string, THREE.IUniform> {
     u[names.mean] = { value: albedoMean(id) };
     u[names.tiles] = { value: GROUND_ALBEDOS[id].tiles };
   }
+  u.uControlA = { value: defaultControlA() };
+  u.uControlB = { value: defaultControlB() };
+  u.uMacro = { value: defaultMacro() };
+  u.uMapSize = { value: new THREE.Vector2(1, 1) };
+  u.uMacroAmp = { value: 1 };
+  u.uMacroBright = { value: new THREE.Vector3(1, 1, 1) };
+  u.uMacroDark = { value: new THREE.Vector3(1, 1, 1) };
+  u.uRoadOn = { value: 1 };
+  u.uRoadTone = { value: new THREE.Vector3(1, 1, 1) };
+  u.uShoulderTone = { value: new THREE.Vector3(1, 1, 1) };
+  u.uRutTone = { value: new THREE.Vector3(1, 1, 1) };
+  u.uRoadGrainTiles = { value: ROAD_GRAIN_TILES };
+  u.uRoadGrainGain = { value: 0 };
   return u;
 }
 
 /**
  * The drawn ground: `MeshStandardMaterial` with the vertex palette tone
- * multiplied by the six-slot albedo blend, lit and shadowed by the scene.
+ * multiplied by the five-slot albedo blend, lit and shadowed by the scene.
  *
  * The retired `groundSurfaceMaterial` shaded slopes itself against a private
  * light; the sun does that now, so `GROUND_RELIEF_STRENGTH` and its floor and
@@ -664,13 +949,124 @@ export class GroundMaterial extends THREE.MeshStandardMaterial {
         .replace(
           '#include <begin_vertex>',
           `#include <begin_vertex>
-vSandMask = sandMask; vRockMask = rockMask; vRoadMask = roadMask; vRoadAxis = roadAxis;
-vScrubMask = scrubMask; vGroveMask = groveMask; vKnollMask = knollMask; vGroundUv = groundUv;`
+vWallAlbedo = wallAlbedo; vGroundUv = groundUv;
+vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
         );
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>\n${GROUND_VARYINGS_GLSL}`)
         .replace('#include <color_fragment>', `#include <color_fragment>\n${GROUND_BLEND_GLSL}`);
     };
+  }
+
+  /** Non-null only while the `ground-albedo` debug layer is hidden: the
+   *  per-slot strengths `setAlbedoVisible(true)` puts back, in `GROUND_SLOTS`
+   *  order, and the road's grain gain after them. */
+  private albedoStash: number[] | null = null;
+  /** Non-null only while the `macro` debug layer is hidden: the amplitude
+   *  `setMacroVisible(true)` puts back. */
+  private macroStash: number | null = null;
+
+  /**
+   * Backs `setDebugLayerVisible('ground-albedo', ...)`: hidden, every slot's
+   * strength goes to 0 -- the material's own fail-soft path, exactly what a
+   * 404 leaves behind -- and so does the road's grain gain, which is the
+   * KNOLL image's texture term on the road and is what a knoll 404 leaves at
+   * 0 (F-12). NOTHING ELSE. The road's palette tones stay: they are the
+   * vertex-tone half of the picture, not a texture. The macro field stays
+   * on, because a texture that never arrives leaves it on: this layer's check
+   * measures "the texture never arrived", and a hide that also removed the
+   * macro would credit the macro's contribution to the tiles and keep that
+   * check passing on a real 404. A backdrop that needs the ground truly flat
+   * (the `scatter` tone check) hides `macro` as well -- see `setMacroVisible`.
+   *
+   * Idempotent in both directions: hiding twice must not stash a set of
+   * zeroes as the value to restore, which would leave the ground permanently
+   * flat and make every later toggle read a delta of nothing. Returns how
+   * many SLOTS it drove -- the gate prints it as a diagnostic. The grain gain
+   * is not counted separately: it is the knoll slot's own image, drawn on
+   * the road.
+   */
+  setAlbedoVisible(visible: boolean): number {
+    if (!visible) {
+      if (this.albedoStash === null) {
+        this.albedoStash = [
+          ...GROUND_SLOTS.map((slot) => this.uniforms[slotUniforms(slot).strength].value as number),
+          this.uniforms.uRoadGrainGain.value as number,
+        ];
+      }
+      for (const slot of GROUND_SLOTS) this.uniforms[slotUniforms(slot).strength].value = 0;
+      this.uniforms.uRoadGrainGain.value = 0;
+      return GROUND_SLOTS.length;
+    }
+    const stash = this.albedoStash;
+    if (stash === null) return 0;
+    GROUND_SLOTS.forEach((slot, i) => {
+      this.uniforms[slotUniforms(slot).strength].value = stash[i];
+    });
+    this.uniforms.uRoadGrainGain.value = stash[GROUND_SLOTS.length];
+    this.albedoStash = null;
+    return GROUND_SLOTS.length;
+  }
+
+  /**
+   * Backs `setDebugLayerVisible('macro', ...)`: `uMacroAmp` to 0 and back,
+   * idempotently, the same stash shape as `setAlbedoVisible`. Hidden, the
+   * macro factor is exactly `vec3(1.0)` (`macroFactor` at amplitude 0).
+   *
+   * Its own layer rather than part of `ground-albedo`, because the two
+   * answer different questions: `ground-albedo` alone is "the texture never
+   * arrived" (the macro survives a 404), and `ground-albedo` + `macro`
+   * together are the FLAT vertex palette tone the `scatter` tone check
+   * flattens to -- scatter marks carry no macro, so over macro-shaded ground a
+   * mark whose colour has collapsed into its tile's tone still differs by the
+   * macro factor and the check stops seeing the defect it exists for.
+   */
+  setMacroVisible(visible: boolean): number {
+    if (!visible) {
+      // A second hide is a no-op and reports it (`was === want ? 0 : 1`,
+      // the `vignette`/`fog` contract): the stash is already the amplitude
+      // to restore, and overwriting it with the 0 just written would leave
+      // the macro off for the rest of the run.
+      if (this.macroStash !== null) return 0;
+      this.macroStash = this.uniforms.uMacroAmp.value as number;
+      this.uniforms.uMacroAmp.value = 0;
+      return 1;
+    }
+    const stash = this.macroStash;
+    if (stash === null) return 0;
+    this.uniforms.uMacroAmp.value = stash;
+    this.macroStash = null;
+    return 1;
+  }
+
+  /**
+   * Backs `setDebugLayerVisible('roads', ...)`: `uRoadOn` to 0 and back.
+   * Returns 1 when it changed the value and 0 when it was already there
+   * (`was === want ? 0 : 1`), so a second hide reports that nothing moved.
+   *
+   * WHAT HIDING IT REMOVES, which is the whole road and nothing else: every
+   * road band in `GROUND_BLEND_GLSL` is multiplied by `uRoadOn` through
+   * `rlRoadSurf` or `rlShoulder` -- the packed surface's palette tone
+   * (`uRoadTone`), the bleached shoulder (`uShoulderTone`), both wheel ruts
+   * (`uRutTone`, gated by `rlRoadSurf`) and the knoll-image grain term
+   * (`rlRoadSurf * (mix(1, rlGrain, uRoadGrainGain) - 1)`) -- and the five
+   * surface weights stop being taken down under the road, so whatever the
+   * road was painted over -- the tile's own vertex tone and its control-map
+   * surface weights -- shows through. The macro field and the slot strengths are
+   * untouched. That is why this check measures the road ITSELF rather than
+   * its texture: the ruts' breakup reads the knoll image's luminance even at
+   * `uRoadGrainGain = 0` (Task 6 review, advisory C), so `ground-albedo`
+   * hidden still leaves broken ruts on screen -- but `uRoadOn = 0` leaves no
+   * rut at all, since the rut is multiplied by `rlRoadSurf`.
+   *
+   * No stash: the shipped value is always 1, and nothing else writes it.
+   */
+  setRoadsVisible(visible: boolean): number {
+    const u = this.uniforms.uRoadOn;
+    const want = visible ? 1 : 0;
+    const was = u.value as number;
+    u.value = want;
+    return was === want ? 0 : 1;
   }
 
   override customProgramCacheKey(): string {

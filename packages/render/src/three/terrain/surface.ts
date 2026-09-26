@@ -176,8 +176,11 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *        the same read that picks the tone bundle -- before 2026-09-03 it was
  *        the sand unconditionally, so the Naharin river basin drew as desert.
  *      * a `^` rock ridge, top and cliff face: `rock_ground_tile.jpg`.
- *      * an `r` dirt road: `road_track_tile.jpg`, a single wheel track whose
- *        axis is decided per tile from the road's own neighbours.
+ *      * an `r` dirt road: `knoll_scree_tile.jpg` again, as the road's own
+ *        grain at a 2-tile world repeat (ground plan 1, R-7). The road is a
+ *        distance field in the shader now; `road_track_tile.jpg`, the single
+ *        wheel track it used to be, is still listed in `GROUND_ALBEDOS` and
+ *        bound to nothing, pending its deletion.
  *      * a `1`/`2`/`3` cover tile: `rough_scrub_tile.jpg`, at a per-tier
  *        strength so a thicket reads denser than light cover.
  *      * an `o` olive grove's floor: `orchard_floor_tile.jpg`.
@@ -277,7 +280,7 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  * exists.
  */
 export const SURFACE_SHADING_EXEMPTION = {
-  what: "the drawn ground's six sampled albedos, applied as a ratio to each image's own mean, at the fragment stage only -- open ground (desert_sand_tile on arid, green_basin_tile on green), a ^ ridge (rock_ground_tile), an r road (road_track_tile), a 1/2/3 cover tile (rough_scrub_tile), an o grove floor (orchard_floor_tile) and an n rocky knoll (knoll_scree_tile)",
+  what: "the drawn ground's six sampled albedos, applied as a ratio to each image's own mean, at the fragment stage only -- open ground (desert_sand_tile on arid, green_basin_tile on green), a ^ ridge (rock_ground_tile), an r road (knoll_scree_tile as its grain at a 2-tile repeat since R-7; road_track_tile is still listed and bound to nothing), a 1/2/3 cover tile (rough_scrub_tile), an o grove floor (orchard_floor_tile) and an n rocky knoll (knoll_scree_tile)",
   why: 'material and relief are legible; since 2026-09-14 the ground is lit and shadowed by the scene sun like every other object, so the shade term is no longer an exemption from anything',
   notExempt: [
     'every vertex colour emitted by buildGround (still asserted palette-only), cover tiers included -- groundTone still does not branch on cover',

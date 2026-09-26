@@ -157,6 +157,7 @@ describe('the launch URL', () => {
       civ: false,
       ditch: false,
       nomesh: true,
+      decals: false,
     });
     expect(unknownParams(params)).toEqual([]);
   });

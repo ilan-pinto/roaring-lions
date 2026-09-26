@@ -45,6 +45,9 @@ import { Sim } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { BuildingMeshTemplate } from './units/mesh-building';
+import { GROUND_ALBEDOS, type GroundMaterial } from './terrain/mesh';
+import { ROAD_GRAIN_GAIN } from './terrain/road-graph';
+import { DECOR_ROAD, hexToLinear } from './terrain/shared';
 
 /** Set by the fake renderer at the moment it is asked to draw, so a test can
  *  ask what the scene looked like DURING the capture rather than after it. */
@@ -684,5 +687,98 @@ describe('groundTexturesSettled', () => {
     await flush();
     expect(pendingTextures).toHaveLength(1);
     expect(done).toBe(true);
+  });
+});
+
+/**
+ * The road's uniforms (#226, ground plan Task 6). The road is procedural now:
+ * a distance field in control B, painted in three palette tones, with a grain
+ * borrowed from the knoll image -- so what is pinned here is the renderer's
+ * half of that: which tones it binds, that the knoll image is fetched for a
+ * map that has roads and no knolls, and that the grain waits for it (F-12).
+ */
+describe('the road', () => {
+  const groundMat = (r: ThreeRenderer): GroundMaterial => (r as unknown as { groundMat: GroundMaterial }).groundMat;
+
+  /** An 8x8 map with one road row and no knoll, whose knoll URL is set and
+   *  whose loads are queued in `pendingTextures`. */
+  function makeRoadRenderer(): ThreeRenderer {
+    const r = new ThreeRenderer(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), {
+      ...makeOpts(),
+      knollTextureUrl: 'https://example.test/assets/knoll_scree_tile.jpg',
+    });
+    const decor = new Uint8Array(TOWN_TILES);
+    for (let x = 0; x < 8; x++) decor[3 * 8 + x] = DECOR_ROAD;
+    r.setDecor(decor);
+    (r as unknown as { loadGroundTexture(): void }).loadGroundTexture();
+    return r;
+  }
+
+  it('binds the road tones as linear light from the theme and the palette', () => {
+    const r = makeRenderer();
+    const u = groundMat(r).uniforms;
+    expect((u.uRoadTone.value as THREE.Vector3).toArray()).toEqual(hexToLinear(TONES.road));
+    // No resolver in this fixture, so the two palette keys fall back to
+    // their own on-palette hexes: limestone.2 and limestone.6.
+    expect((u.uShoulderTone.value as THREE.Vector3).toArray()).toEqual(hexToLinear('#D9C7A7'));
+    expect((u.uRutTone.value as THREE.Vector3).toArray()).toEqual(hexToLinear('#8C7659'));
+    r.dispose();
+  });
+
+  it('resolves the shoulder and rut tones through the palette resolver when there is one', () => {
+    const seen: string[] = [];
+    const r = new ThreeRenderer(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), {
+      ...makeOpts(),
+      resolveColor: (key: string) => {
+        seen.push(key);
+        return key === 'limestone.2' ? '#010203' : key === 'limestone.6' ? '#040506' : '#000000';
+      },
+    });
+    const u = groundMat(r).uniforms;
+    expect(seen).toEqual(expect.arrayContaining(['limestone.2', 'limestone.6']));
+    expect((u.uShoulderTone.value as THREE.Vector3).toArray()).toEqual(hexToLinear('#010203'));
+    expect((u.uRutTone.value as THREE.Vector3).toArray()).toEqual(hexToLinear('#040506'));
+    r.dispose();
+  });
+
+  it('fetches the knoll image for a map with roads and no knoll, and no road image at all', () => {
+    const r = makeRoadRenderer();
+    // One fetch: the knoll (for the grain). The road slot is retired, so its
+    // URL starts nothing even on a map full of road.
+    expect(pendingTextures).toHaveLength(1);
+    // ...and it is the knoll's: landing it switches the knoll slot on.
+    for (const land of pendingTextures) land();
+    expect(groundMat(r).uniforms.uKnollStrength.value).toBe(GROUND_ALBEDOS.knoll_scree_tile.gain);
+    r.dispose();
+  });
+
+  it('keeps the grain at 0 until the knoll image lands, then drives it at ROAD_GRAIN_GAIN (F-12)', () => {
+    const r = makeRoadRenderer();
+    const u = groundMat(r).uniforms;
+    expect(u.uRoadGrainGain.value).toBe(0);
+    for (const land of pendingTextures) land();
+    expect(u.uRoadGrainGain.value).toBe(ROAD_GRAIN_GAIN);
+    r.dispose();
+  });
+
+  it('a knoll image that 404s leaves the grain at 0 -- the flat palette tone, never a bright road', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = makeRoadRenderer();
+    for (const fail of failTextures) fail();
+    expect(groundMat(r).uniforms.uRoadGrainGain.value).toBe(0);
+    warn.mockRestore();
+    r.dispose();
+  });
+
+  it('stashes and restores the road grain gain with the other texture terms', () => {
+    const r = makeRoadRenderer();
+    for (const land of pendingTextures) land();
+    const u = groundMat(r).uniforms;
+    expect(u.uRoadGrainGain.value).toBe(ROAD_GRAIN_GAIN);
+    r.setDebugLayerVisible('ground-albedo', false);
+    expect(u.uRoadGrainGain.value).toBe(0);
+    r.setDebugLayerVisible('ground-albedo', true);
+    expect(u.uRoadGrainGain.value).toBe(ROAD_GRAIN_GAIN);
+    r.dispose();
   });
 });

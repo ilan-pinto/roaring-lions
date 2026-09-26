@@ -97,7 +97,8 @@ function internals(r: ThreeRenderer): {
  *  above reaches the terrain's -- kept separate so `internals`' own list
  *  stays the terrain/post-chain one it has always been. */
 function blastInternals(r: ThreeRenderer): {
-  scorchDecals: { mesh: THREE.Mesh };
+  decalsPersistent: { mesh: THREE.Mesh };
+  decalsFading: { mesh: THREE.Mesh };
 } {
   return r as unknown as ReturnType<typeof blastInternals>;
 }
@@ -278,12 +279,68 @@ describe('DEBUG_LAYERS', () => {
     const i = internals(r);
     i.groundMat.uniforms.uSandStrength.value = 0.7;
     i.groundMat.uniforms.uRockStrength.value = 0.4;
-    expect(r.setDebugLayerVisible('ground-albedo', false)).toBe(6);
+    expect(r.setDebugLayerVisible('ground-albedo', false)).toBe(5);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0);
     expect(i.groundMat.uniforms.uRockStrength.value).toBe(0);
+    // A 404 leaves the macro field on, so the "texture never arrived" hide
+    // must too -- otherwise the macro's contribution is credited to the tiles.
+    expect(i.groundMat.uniforms.uMacroAmp.value).toBe(1);
     r.setDebugLayerVisible('ground-albedo', true);
     expect(i.groundMat.uniforms.uSandStrength.value).toBe(0.7);
     expect(i.groundMat.uniforms.uRockStrength.value).toBe(0.4);
+    r.dispose();
+  });
+
+  it('drives the macro field to amplitude 0 and back, and touches no albedo slot', () => {
+    // `macro` + `ground-albedo` together are the flat palette tone the scatter
+    // tone check flattens to (`ToneCollapseSpec.over`).
+    const r = makeRenderer();
+    const i = internals(r);
+    i.groundMat.uniforms.uSandStrength.value = 0.7;
+    expect(r.setDebugLayerVisible('macro', false)).toBe(1);
+    expect(i.groundMat.uniforms.uMacroAmp.value).toBe(0);
+    expect(i.groundMat.uniforms.uSandStrength.value).toBe(0.7);
+    r.setDebugLayerVisible('macro', true);
+    expect(i.groundMat.uniforms.uMacroAmp.value).toBe(1);
+    r.dispose();
+  });
+
+  it('names the ground\'s two new contributions', () => {
+    expect(DEBUG_LAYERS).toContain('macro');
+    expect(DEBUG_LAYERS).toContain('roads');
+  });
+
+  it.each([
+    ['macro', 'uMacroAmp'],
+    ['roads', 'uRoadOn'],
+  ])('%s drives %s to 0 and back, and a second hide reports nothing changed', (layer, uniform) => {
+    // `was === want ? 0 : 1`, the vignette/fog contract: the count is what
+    // the gate prints, and a second hide that claimed to change something
+    // would hide a caller that toggles twice.
+    const r = makeRenderer();
+    const u = internals(r).groundMat.uniforms[uniform];
+    expect(u.value).toBe(1);
+    expect(r.setDebugLayerVisible(layer, false)).toBe(1);
+    expect(u.value).toBe(0);
+    expect(r.setDebugLayerVisible(layer, false)).toBe(0);
+    expect(r.setDebugLayerVisible(layer, true)).toBe(1);
+    expect(u.value).toBe(1);
+    expect(r.setDebugLayerVisible(layer, true)).toBe(0);
+    r.dispose();
+  });
+
+  it('hides the road alone: no slot strength, grain gain or macro moves', () => {
+    // The roads check must measure the road itself (Task 6 advisory C), so
+    // the hide must not reach into the texture half the ground-albedo check
+    // already owns.
+    const r = makeRenderer();
+    const g = internals(r).groundMat.uniforms;
+    g.uSandStrength.value = 0.7;
+    g.uRoadGrainGain.value = 0.5;
+    r.setDebugLayerVisible('roads', false);
+    expect(g.uSandStrength.value).toBe(0.7);
+    expect(g.uRoadGrainGain.value).toBe(0.5);
+    expect(g.uMacroAmp.value).toBe(1);
     r.dispose();
   });
 
@@ -337,34 +394,48 @@ describe('DEBUG_LAYERS', () => {
   });
 
   it('names the two blast layers, so a typo throws instead of reading as a layer that draws nothing', () => {
-    // Both subjects only exist once Task 7 wires them, which is why the
-    // names land in the same commit as the things they hide -- a
-    // `DEBUG_LAYERS` entry whose `switch` arm draws nothing is exactly the
-    // false green this module's own header is about.
-    expect(DEBUG_LAYERS).toContain('scorch');
+    // Both subjects only exist once they are wired, which is why the names
+    // land in the same commit as the things they hide -- a `DEBUG_LAYERS`
+    // entry whose `switch` arm draws nothing is exactly the false green this
+    // module's own header is about.
+    expect(DEBUG_LAYERS).toContain('decals');
     expect(DEBUG_LAYERS).toContain('blast-light');
-    expect(isDebugLayer('scorch')).toBe(true);
+    expect(isDebugLayer('decals')).toBe(true);
     expect(isDebugLayer('blast-light')).toBe(true);
-    expect(unknownDebugLayerMessage('scorchh')).toContain('scorch');
+    expect(unknownDebugLayerMessage('decalz')).toContain('decals');
   });
 
-  it('hides the scorch decal mesh with a plain visible flag', () => {
-    // `overlays`/`skirt`'s rule: nothing in `frame()` ever writes
-    // `scorchDecals.mesh.visible` -- a mark is written once at `stamp()` and
-    // never touched again -- so a plain toggle holds across the gate's
-    // repaint. Its sibling `blast-light` follows the OTHER rule and is
-    // pinned in `ThreeRenderer.blast.test.ts` instead, because proving that
-    // one needs a live flash in the pool: with an empty pool
-    // `FlashLightManager.step` writes 0 to every slot anyway, so a toggle
-    // test on a quiet scene passes whether the flag is consulted or not.
-    // (Measured -- deleting the `frame()` consult left an earlier version of
-    // this test green.)
+  it('names the decal pool as one layer, and no longer knows "scorch"', () => {
+    // R-17: `scorch` is REMOVED, not aliased. A caller still asking for it
+    // is a harness that was not migrated, and the loud throw is how it
+    // finds out -- an alias would keep it green while it measured a layer
+    // that now also carries oil, rubble, craters and tracks.
+    expect(DEBUG_LAYERS).toContain('decals');
+    expect(isDebugLayer('scorch')).toBe(false);
+    expect(() => makeRenderer().setDebugLayerVisible('scorch', false)).toThrow(/unknown layer "scorch"/);
+  });
+
+  it('hides both pools with one name', () => {
+    // `overlays`/`skirt`'s rule: nothing in `frame()` ever writes either
+    // pool's `mesh.visible` -- a mark is written once at `stamp()` and the
+    // fading pool ages marks by alpha, not by visibility -- so a plain
+    // toggle holds across the gate's repaint. The count is 2 because the
+    // layer is BOTH pools (D5): the persistent one (craters, scorch, oil,
+    // rubble) and the fading one (tread and tyre prints). Its sibling
+    // `blast-light` follows the OTHER rule and is pinned in
+    // `ThreeRenderer.blast.test.ts` instead, because proving that one needs
+    // a live flash in the pool: with an empty pool `FlashLightManager.step`
+    // writes 0 to every slot anyway, so a toggle test on a quiet scene
+    // passes whether the flag is consulted or not. (Measured -- deleting the
+    // `frame()` consult left an earlier version of this test green.)
     const r = makeRenderer();
     const b = blastInternals(r);
-    expect(r.setDebugLayerVisible('scorch', false)).toBe(1);
-    expect(b.scorchDecals.mesh.visible).toBe(false);
-    expect(r.setDebugLayerVisible('scorch', true)).toBe(1);
-    expect(b.scorchDecals.mesh.visible).toBe(true);
+    expect(r.setDebugLayerVisible('decals', false)).toBe(2);
+    expect(b.decalsPersistent.mesh.visible).toBe(false);
+    expect(b.decalsFading.mesh.visible).toBe(false);
+    expect(r.setDebugLayerVisible('decals', true)).toBe(2);
+    expect(b.decalsPersistent.mesh.visible).toBe(true);
+    expect(b.decalsFading.mesh.visible).toBe(true);
     r.dispose();
   });
 });
