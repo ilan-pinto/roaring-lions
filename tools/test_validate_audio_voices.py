@@ -84,9 +84,24 @@ def main():
         f, _ = run(mod, voices({"he.infantry.move": {"variants": [variant(**{field: None})]}}), [good["file"]])
         check(f"no {field} fails", f, f"no '{field}'")
 
-    spaced = variant(file="voice/he/infantry/move 01a.ogg")
-    f, _ = run(mod, voices({"he.infantry.move": {"variants": [spaced]}}), [spaced["file"]])
-    check("a space in the path fails", f, "not voice/")
+    # This fixture has no underscore anywhere, not merely a space standing in
+    # for one -- it exercises the missing `_<nn><take>` delimiter, not space
+    # rejection specifically. Kept as its own case; see the two below for the
+    # space itself, which review (fix round 1) found this one did not cover.
+    no_underscore = variant(file="voice/he/infantry/move 01a.ogg")
+    f, _ = run(mod, voices({"he.infantry.move": {"variants": [no_underscore]}}), [no_underscore["file"]])
+    check("a filename missing the _<nn><take> delimiter fails", f, "not voice/")
+
+    # A space where an ASCII path character is otherwise legal, with the
+    # `_<nn><take>.ext` suffix left intact -- isolates space rejection from
+    # the missing-underscore case above (fix round 1, review finding).
+    spaced_trigger = variant(file="voice/he/infantry/move x_01a.ogg")
+    f, _ = run(mod, voices({"he.infantry.move": {"variants": [spaced_trigger]}}), [spaced_trigger["file"]])
+    check("a space in the trigger segment fails", f, "not voice/")
+
+    spaced_segment = variant(file="voice/he/infan try/move_01a.ogg")
+    f, _ = run(mod, voices({"he.infantry.move": {"variants": [spaced_segment]}}), [spaced_segment["file"]])
+    check("a space in the class segment fails", f, "not voice/")
 
     hebrew = variant(file="voice/he/infantry/זזים_01a.ogg")
     f, _ = run(mod, voices({"he.infantry.move": {"variants": [hebrew]}}), [hebrew["file"]])
@@ -95,6 +110,10 @@ def main():
     wrong = variant(file="voice/he/crew/move_01a.ogg")
     f, _ = run(mod, voices({"he.infantry.move": {"variants": [wrong]}}), [wrong["file"]])
     check("a file filed under another key fails", f, "different key")
+
+    outside = variant(file="battle/x_01a.ogg")
+    f, _ = run(mod, voices({"he.infantry.move": {"variants": [outside]}}), [outside["file"]])
+    check("a file outside voice/ entirely fails", f, "not voice/")
 
     alt = variant(alt="voice/he/infantry/move_01a.m4a")
     f, _ = run(mod, voices({"he.infantry.move": {"variants": [alt]}}), [alt["file"], alt["alt"]])
