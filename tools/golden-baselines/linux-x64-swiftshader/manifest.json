@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "a387a6a2068622501367e44f109dbb86caa8f88b",
-  "blessedAt": "2026-09-23T11:51:25.506Z",
-  "reason": "Shell upgrade Phase 2 second landing (PR #210, main a387a6a2): the minimap draws a render-target photograph of the map's own lit ground (Task 15), and range rings are one desaturated fill that draws nothing in a gated frame (Task 16). CI runs 35853227506 (PR) and 35854331619 (main) on linux-x64-swiftshader against the 03fad18 baseline: quiet 6278 px / 0.6724, open-ground 1940 / 3.3034, vehicle 6338 / 0.6762, relief 14645 / 0.9220; every layer self-check PASSED (22 of 22). Looked at: the diff image is confined to the 210 px minimap box on every scenario; relief's minimap shows Tel Marum's rock wall in the upper third with the saddle gap (north at the top), friendly units at the bottom, enemy at the saddle, camera frame on the corridor; quiet's shows the buildings, roads, units and camera frame. Captured twice (PR run and main run): quiet, vehicle and relief byte-identical, open-ground 240 px apart and all of them outside the minimap box, so the photograph is deterministic.",
+  "commit": "2eadc0b00b310a607a0cde34c74be336fcbc5526",
+  "blessedAt": "2026-09-26T16:39:25.191Z",
+  "reason": "Ground plan 1 (WP-A2, PR #249, main 2eadc0b0): splat terrain with a macro field, the distance-field road (#226), the ratio-multiply decal pool, and the new gated 'aftermath' scenario. Lead approved the review captures on 2026-09-26. CI numbers on 2eadc0b0: quiet 12222 px, open-ground 502, vehicle 4726, relief 704 (identical to the PR run within vehicle noise; local A/B vs main 8d525c81 gave the same figures); aftermath had no baseline entry; all 22 layer self-checks PASS.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "10d3312b7099152333391368ce535704312181f44e95358790af43c07cad4e9b"
+      "sha256": "45a1670b4434d9084b08d2ac921606bbca4ae148add799a2daddd73026ab786c"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "7b08c15d8a7cc6819572cac4f29469986eecdb0c2a4aca4b890bf565773f9676"
+      "sha256": "54387eefa75844285b3c4bc3e007cbee3384f8e294d06c429cbb4f99b05a60c2"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "1fc93165835eed49936eef1aac5b1417fff1edb36a6c71251e62e6e23e5a9569"
+      "sha256": "8136dcd3e45da1ced09f99fe51656537b2c7afae9dbfbc6b7a172556a3cb2c8f"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,21 @@
         "h": 900
       },
       "region": null,
-      "sha256": "3b373255798178afa76f9e4220f2c8b3a023a9d7fbd5536e839b7c5a3595aa42"
+      "sha256": "fedeb973053d9b4bd3852be4b8e73745746fb6cac889c621c23a6a823bcd3b98"
+    },
+    "aftermath": {
+      "tick": 300,
+      "camera": {
+        "x": 34.5,
+        "y": 32,
+        "zoom": 2.2
+      },
+      "rect": {
+        "w": 1400,
+        "h": 900
+      },
+      "region": null,
+      "sha256": "f2efe0f4ca9fcb9ae03266ab6c695b3a63fd6d6037a81e973019828ae2ecea03"
     }
   }
 }
