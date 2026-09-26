@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-24 late (scene host #232, the Saves/Credits fix #224, /stats share #231 and the dock tooltip/credits fix #233 LANDED; #234 win credits in flight) · main: 193f8144 (v0.81.0; the scene-host merge releases next) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 1 done early, Stage 2 opens after G1 · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art adds #226 (roads, in A2) and #227 (tunnels, in A3.2)
+Updated: 2026-09-26 (repo PUBLIC since 25 Sep, CI works again; garage uplift plan 1 #244 and ground plan 1 #249 LANDED) · main: 2eadc0b0 (v0.84.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,15 +8,15 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | #234 win credits (PR #236) · #237 garage filter · WP-S3g #238 garage uplift spec · S3e #178 Tasks 11–12 wait for G1 | `feat/win-credits` (PR #236) · `fix/garage-filter` in `/Users/ilpinto/dev/roaring-lions-ep/garage-filter` · `docs/garage-uplift-spec` in `/Users/ilpinto/dev/roaring-lions-ep/garage-spec` | S3g: spec `docs/superpowers/specs/2026-09-25-garage-uplift-design.md` (drafting) | #236 approved; filter fix and spec draft running | the lead merges #236; review the filter fix → PR; the S3g spec to the lead (decisions: tier mark, sound source, image route) |
-| B (render · art · data) | A3.1 #179 waits for G1 · adds filed 24 Sep: #226 road visual (inside A2 #182), #227 tunnel visuals (inside A3.2 #185) | — | — | idle; #219 and #220 landed | A3.1 after G1 (2 Oct); roads with A2 in Stage 3; tunnels with A3.2 in Stage 4; any Meshy call is announced with a credit estimate first |
-| C (packages/sim) | — | — | — | closed until Stage 4 | — |
+| A (packages/app) | #243 garage comparison + Shift+Tab minor · WP-S3g plan 2: kit tier mark on the map · S3e #178 Tasks 11–12 wait for G1 | `feat/garage-tier-mark` | S3g spec approved (#239, D1–D9 accepted); plan 1 landed (#244 → 115377b1) | plan 2 (map mark) being written | land S3g plan 2 before A2 plan 2 touches `ThreeRenderer.ts`; triage #243; S3e Tasks 11–12 after G1 |
+| B (render · art · data) | A3.1 #179 waits for G1 · A3.2 #185 tunnel visuals #227 · #250 ATGM missile animation (after A2 plan 2) · WP-AU1 #245/#246 unit voices | — | voices: spec + engine plan drafting; D2 military calls only, D5 samples are ElevenLabs output pending a commercial licence | A2 ground plan 1 LANDED (#249 → 2eadc0b0); A3.1 idle until G1 | A3.1 after G1 (2 Oct); A2 plan 2 after S3g plan 2 clears `ThreeRenderer.ts`; #250 after A2 plan 2; any Meshy call is announced with a credit estimate first |
+| C (packages/sim) | #247 manpad_team treated as wheeled (sim/data fix, filed 26 Sep) | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: #236 → #237 filter fix → S3g #238 spec approved → S3e #178 Tasks 11–12 (after G1) → S3a #180 + S3g build (Stage 3, together) → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186
-- B: (A1.3 landed) → A3.1 #179 bible + Meshy batches → G-E5 #181 → A2 #182 (with the road visual #226) → A3.2 #185 (with tunnel visuals #227, an add)
-- C: G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
+- A: S3g plan 2 (kit tier mark, `feat/garage-tier-mark`) → #243 garage comparison + Shift+Tab → S3e #178 Tasks 11–12 (after G1) → S3a #180 + further S3g build (Stage 3, together) → S-F #184, A4 #186
+- B: A3.1 #179 bible + Meshy batches (after G1, 2 Oct) → G-E5 #181 → A2 plan 2 (after S3g plan 2 clears `ThreeRenderer.ts`) → A3.2 #185 (tunnel visuals #227) → #250 ATGM missile animation → WP-AU1 #245/#246 unit voices engine plan
+- C: #247 manpad_team wheeled fix (Stage 4) → G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
 
 ## 3. Gates — open decisions, defaults, dates, answers
@@ -49,6 +49,18 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-26 · releases v0.82.0 → v0.84.0 cut across the 24–26 Sep landings below
+- 2026-09-26 · **#249 → 2eadc0b0 ground plan 1 (WP-A2)** · splat terrain, the #226 road, a decal pool, and the new gated `aftermath` scenario · visual baseline re-blessed from CI numbers at 165eb966: quiet 12222, open-ground 502, vehicle 4726, relief 704, aftermath new
+- 2026-09-26 · **#248 asset-provenance fix** · TNK/JEEP sprites re-rendered from our own GLBs; Namer CC-BY credit added; Kolos FBX removed; history kept, by the lead's decision · closes the pre-public audit's one finding
+- 2026-09-26 · **#244 → 115377b1 garage uplift plan 1 (WP-S3g, app lane)** · an accordion board, kit pips, a Maxed stamp, a stat panel, and purchase events with sound; one Enter press buys one tier · decisions: L1 the accordion; L2 a re-locked unit's tiers kept but dormant
+- 2026-09-25 · **#242 Worker observability** · logs and traces, `redact_query_string` false, as the lead supplied
+- 2026-09-25 · **#241 the ground spec (WP-A2)** · the lead approved its numbers and D8
+- 2026-09-25 · **#240 the garage filter fix** (closes #237)
+- 2026-09-25 · **#239 the garage uplift spec (WP-S3g)** · merging it accepted D1–D9
+- 2026-09-25 · **#236 win screen credits** (closes #234) · the win screen shows credits paid and the running total
+- 2026-09-25 · the lead made the repo PUBLIC; GitHub Actions works again (it had been blocked by billing on the private repo from 24 Sep ~20:34 UTC)
+- 2026-09-25 · a pre-public history audit: clean for secrets, sensitive files, personal data and large files; found unverified-licence art, fixed at HEAD by #248
+- 2026-09-25 · the repo's git `user.email` is now `pint12@gmail.com` (repo-level config)
 - 2026-09-24 · **S3e scene host (#178 stays open for Tasks 11–12)** · PR #232 → 193f8144 (merge commit: the branch carries two main merges) · a live Beit Sahwan diorama behind the menu through a thin door (`@lions/render/three-front`) over a stock `ThreeRenderer`; a plate `menu_host_plate.jpg` from `pnpm plate:host` for Pixi, reduced motion, no WebGL2, failure or a 15 s deadline; the menu's context released on leave · gate: `menu-scene-host` path/contribution/register votes (+~42 s locally) · `ui:routes` three leaves with no WebGL/DRACO/Worker warning · 10 tasks + final opus review + one fix wave · CI `visual` GREEN on Linux on the first run, no bless · spec D-52…D-64 · memory budgets checked only through the lost-context proxy
 - 2026-09-24 · **#233 (closes #229)** → 130a56c9 · the dock tooltip clears the whole dock (`computeTipPosition`); a readable "N credits" chip in the dock header; ▣ on every tile cost; "logistics"/"intel" words on the strip · `ui:routes` asserts the tip covers no tile · visual GREEN, no bless
 - 2026-09-24 · **#231 (closes #230)** → 89306e89 · a Share button on `/stats` makes `<origin>/?tester=<name>`, with one builder shared by module and page and a guard against keepNames' `__name`
@@ -101,10 +113,13 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - The Conduct floors cannot spread on the optimal ladder (mission 1 scores 97): measure against a middling-player ladder first, change the gate shape only if that shows no spread either · G1 #165 · 2 Oct
 - E5 is three units (~12 tasks), not two · Stage 3 lane B is heavier; its buffer absorbs it or A2's second plan slips a week · R1
 - The `version` CI job races when PRs merge minutes apart (2026-09-18: one cut v0.72.0, two failed on the tag; 2026-09-24 again with four merges a minute apart) · each run bumps from ITS OWN commit, so only the newest can push · fix: check out `main`'s tip in that job plus a non-cancelling concurrency group, so the first run releases everything and later ones find nothing new · FIXED by PR #220 (a tip check: an older run steps aside with a notice) · every landing
-- `ThreeRenderer.ts` is shared by both lanes · schedule interleave (A1.2 → S2b; A1.3 → scene host) · every stage
+- `ThreeRenderer.ts` is shared by both lanes · schedule interleave (A1.2 → S2b; A1.3 → scene host; S3g plan 2 → A2 plan 2) · every stage
+- `qarn_hadid` z1.6 frame time is 14.86 ms against a 14.5 ms ceiling; the lead accepted the overage · perf-analyst · watch as more relief maps ship
+- The control map's first build adds ~65 ms to boot · perf-analyst · watch on `pnpm dev` boot
 - Meshy balance 454 credits vs ~540 for eighteen bakes · G1 · Stage 2
 - The private repository's Actions artifact quota filled on 24 Sep ("Artifact storage quota has been hit"): the `visual` upload failed on all of that day's merges while the gate and route walk passed, which skipped `version` · FIXED by PR #220 (upload non-fatal, 3 days, not 14; v0.79.0 cut after it) · recalculated every 6–12 h; a bless still uploads its captures for 14 days · watch any bless
-- The repo went private ~21–23 Sep; GitHub Pages is gone and the build deploys from Cloudflare Workers Builds (a `Workers Builds: roaring-lions` check now appears on PRs) · WP-T1 #218 LANDED (#225): `pages.yml` retired, `/stats` behind a password login because Cloudflare Zero Trust asks for payment details · open: does Workers Builds build a `[skip ci]` release commit, so the live build carries the new version number · next release
+- The repo went private ~21–23 Sep; GitHub Pages is gone and the build deploys from Cloudflare Workers Builds (a `Workers Builds: roaring-lions` check now appears on PRs) · WP-T1 #218 LANDED (#225): `pages.yml` retired, `/stats` behind a password login because Cloudflare Zero Trust asks for payment details · the repo went PUBLIC again 25 Sep, restoring free Actions minutes · open: does Workers Builds build a `[skip ci]` release commit, so the live build carries the new version number · next release
+- GitHub Actions was blocked by billing on the private repo from 24 Sep ~20:34 UTC (private repos have limited free minutes) · RESOLVED 25 Sep when the lead made the repo PUBLIC again, CI works · a pre-public history audit ran clean (secrets, sensitive files, personal data, large files); its one finding, unverified-licence art, is fixed at HEAD by #248 · 25 Sep
 - Fable weekly cap · switch the session to Opus at 90%, findings written first · any long run (hit 20 Sep; the session moved to Opus 5.5 on 23 Sep)
 - Local Node 25 gives vitest's jsdom a bare `{}` localStorage while CI's Node 22 gives a real Storage, so a storage spec can pass locally and fail in CI · specs install the storage shape they need · any storage test
 - Clean worktrees under `.claude/worktrees/` were removed between sessions (20→23 Sep) and took the git-ignored SDD ledgers with them; branches survived · mirror every ledger to the session scratchpad, run `git worktree list` before trusting a path · every session gap
@@ -133,24 +148,21 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 ## 8. Latest handoff prompt — verbatim, replaced at every handoff
 
 ```
-HANDOFF — Roaring Lions · 2026-09-24 night · from session "Execution plan"
+HANDOFF — Roaring Lions · 2026-09-26 · from session "docs ledger update"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
       M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027 · M5 Steam F2P (after G7).
-PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207, #218, #223, #226, #227)
-STATUS: Stage 1 done early · main 193f8144 (v0.81.0 + scene host) · landed 24 Sep: #214–#217, #219–#221, #224, #225 WP-T1, #228, #231, #232 scene host, #233
-        scene host: feat/scene-host in /Users/ilpinto/dev/roaring-lions-ep/scenehost-exec, Tasks 0 and 2–7 done (Task 1 was #214)
-        IN FLIGHT: #234 win credits (feat/win-credits); no PRs open
-        merges: the LEAD merges — this session's `gh pr merge` was refused by the permission check on 24 Sep
-DECISIONS THIS SESSION: scene-host §10 numbers approved as shown · scrollbar option A (standard properties, themed everywhere) ·
-        telemetry: no Cloudflare Access (Zero Trust asks for payment details) → a password login on /stats ·
-        roads (#226) and tunnels (#227) join A2 and A3.2 as items, Meshy a candidate route for each
+PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207, #218, #223, #226, #227, #236–#250)
+STATUS: repo is PUBLIC again (25 Sep), CI works · main 2eadc0b0 (v0.84.0) · landed 25–26 Sep: #236 win credits, #239 garage uplift spec (D1–D9), #240 garage filter fix, #241 ground spec (D8), #242 Worker observability, #244 garage uplift plan 1, #248 asset-provenance fix, #249 ground plan 1 (WP-A2, rebless 165eb966)
+        IN FLIGHT: WP-S3g plan 2 (kit tier mark on the map) in `feat/garage-tier-mark` · WP-AU1 unit voices (#245 spec + #246 engine plan) drafting
+        merges: the LEAD merges
+DECISIONS THIS SESSION: none — ledger update only, facts as supplied by the controller
 NEXT STEP (exact):
-  1. `git worktree list`; #237 in garage-filter (review, PR); the S3g spec in garage-spec (to the lead)
-  2. G1 #165 on 2 Oct unblocks A3.1 #179 and S3e Tasks 11–12
-  3. Watch whether Workers Builds builds the `[skip ci]` release commit (the live version number)
-CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time
+  1. `git worktree list`; finish and land WP-S3g plan 2 (`feat/garage-tier-mark`), then sequence A2 plan 2 on `ThreeRenderer.ts`
+  2. G1 #165 on 2 Oct unblocks A3.1 #179 and S3e Tasks 11–12; Meshy credits arrive early October
+  3. Review #243 (garage comparison + Shift+Tab); triage #247 (manpad_team wheeled, Stage 4) and #250 (ATGM missile animation, after A2 plan 2)
+CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time (S3g plan 2 before A2 plan 2)
 READ FIRST: each plan's head + its SDD ledger · CLAUDE.md "The three.js backend" · memory: clean-worktrees-get-removed · land-commits-through-a-main-worktree
 VERIFY BEFORE BELIEVING: pnpm lint && pnpm typecheck && pnpm test && pnpm test:determinism && pnpm validate:data
                          && pnpm validate:ui && pnpm playtest && pnpm balance · gh run list --branch main --workflow ci.yml --limit 3
-OPEN FOR THE LEAD: G1 items (by 2 Oct) · G7 #199 (by 30 Oct) · one click on the live /stats Share button
+OPEN FOR THE LEAD: G1 items (by 2 Oct) · G7 #199 (by 30 Oct) · WP-AU1 D5 (ElevenLabs commercial licence before committing samples)
 ```
