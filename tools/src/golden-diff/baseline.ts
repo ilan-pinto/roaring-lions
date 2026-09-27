@@ -460,7 +460,7 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       {
         layer: 'props',
         minDiffPixels: 767,
-        minMeanAbsChannelDelta: 0.0466,
+        minMeanAbsChannelDelta: 0.0465,
         rationale:
           'measured 2026-09-27 on ground plan 2, Task 5 (the one prop batch, `terrain/prop-mesh.ts`), ' +
           '3 consecutive runs (`--scenario=quiet,aftermath`) on macOS 15 / M3 Pro, headless Chromium, ' +
@@ -476,7 +476,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'RE-DERIVED 2026-09-28 after the lead\'s two answers to Task 5 (SCATTER_DENSITY 0.75; the ' +
           'tyre pile\'s `rubber` lifted one palette step, #14150F -> #23241F): 2302 px / 0.1400 on 3 ' +
           'bit-identical runs, so the floor is 767 / 0.0466 (was 769 / 0.0468) -- lower by two ' +
-          'pixels, because a lighter tyre sits nearer the ground tone, re-derived on the lead\'s word.',
+          'pixels, because a lighter tyre sits nearer the ground tone, re-derived on the lead\'s word. ' +
+          'RE-DERIVED AGAIN 2026-09-28 (Task 7, carried item) after the lead\'s third answer, "Use the ' +
+          'dark-grey \'gunmetal\' ramp": `rubber` is gunmetal[3] alone, #23241F -> #363B39. 2302 px / ' +
+          '0.1397 on 3 bit-identical runs (`t7a-r{1,2,3}`), so the floor is 767 / 0.0465 (was 767 / ' +
+          '0.0466): the pixel floor holds, the magnitude floor drops 0.0001 because a grey tyre sits ' +
+          'nearer the sand it lies on than a black one did. 151 px of the frame change between the two ' +
+          'tones; their mean moves from RGB 6.8/6.1/4.2 to 9.3/9.1/6.8 through ACES.',
       },
       {
         layer: 'ground-albedo',
