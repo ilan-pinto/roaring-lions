@@ -1,6 +1,7 @@
 """Rebuild the seven `art/meshes/props/*.glb` from the lead-approved Meshy
-base models, replacing Task 3's code-authored kit (commit fcde4da0). Ground
-plan 2, Task 3b: "Use all 7" (lead, 2026-09-27).
+REMESHED models, replacing the collapsed decimations of commit 93bafd30
+(Task 3c's own predecessor). Ground plan 2, Task 3c: "Use these" (lead,
+2026-09-27), superseding Task 3b's preview-mode sources.
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --factory-startup --python tools/terrain/export_meshy_props.py
@@ -16,16 +17,23 @@ under that kind's own `PROP_TRI_CAPS`, height <= 1.7 m.
 
 ## SOURCES
 
-`art/meshy/<kind-with-dashes>-20260927-<task-id>/model.glb`, downloaded via
-the Meshy text-to-3D API in PREVIEW mode (`art/meshy/ledger.jsonl`), one
-task per kind, approved by the lead 2026-09-27 ("Use all 7"). Preview mode
-ships geometry only -- every one of the seven was inspected before this
-script was written and every one carries exactly one mesh, one node, zero
-materials, zero images, zero textures (no refine/texture pass was run, and
-none is needed: the prop contract strips materials anyway). Per
-`docs/ASSET_PROVENANCE.md`'s own precedent for every other Meshy source in
-this tree (`export_meshy_decor.py`'s `SRC_DIR`, `export_meshy_camp.py`'s),
-Meshy SOURCE files are not committed to git -- only the exported GLB is.
+`art/meshy/<kind-with-dashes>-20260927-<task-id>/model.glb`, one task per
+kind, each a REMESH of the Task 3b preview the lead reviewed on the same
+day (`art/meshy/ledger.jsonl`, `kind: "remesh"` entries keyed by `name`).
+`_remesh_task_id`/`_source_path` resolve the directory from the ledger's
+task id rather than a glob, because each kind's `art/meshy/` prefix now
+matches TWO directories -- the original preview and the remesh -- and only
+the ledger says which is current. Every one of the seven remeshed sources
+was inspected before this script was written: each still carries exactly
+one mesh, one node, zero materials, zero images, zero textures in the GLB
+JSON itself (a `texture_0_normal.png` sits beside `model.glb` from the
+remesh job but is not referenced by it -- the prop contract strips
+materials anyway, so it would not matter if it were). Unlike the Task 3b
+previews, six of the seven remeshed sources arrive already AT OR UNDER
+their `PROP_TRI_CAPS` (see "DECIMATION"). Per `docs/ASSET_PROVENANCE.md`'s
+own precedent for every other Meshy source in this tree
+(`export_meshy_decor.py`'s `SRC_DIR`, `export_meshy_camp.py`'s), Meshy
+SOURCE files are not committed to git -- only the exported GLB is.
 `art/meshy/` therefore stays untracked here exactly as `art/blend/` stays
 gitignored for every other Meshy pipeline in this repo; the ledger and task
 ids are the provenance record, carried into `docs/ASSET_PROVENANCE.md`.
@@ -96,28 +104,37 @@ the scale further if the length/footprint-calibrated size would break it.
 This makes the height ceiling a hard invariant of the script rather than a
 per-kind judgement call that could be measured wrong.
 
-## DECIMATION -- reusing `_decimate` exactly, no new algorithm
+## DECIMATION -- the remesh sources need little or none
 
-Every source arrives at 2,000-25,000 triangles against caps of 120-400 --
-`export_meshy_decor.py`'s `_decimate` (escalating merge-by-distance, then
-`DECIMATE`/`COLLAPSE` against a triangulated face count, then bmesh
-loose-vertex cleanup so glTF's own face-less-vertex drop cannot silently
-undercount the shipped extent) is exactly this problem and is reused
-unmodified via `_decor._decimate(ob, target_tris, label)`; its own
-docstring already recorded that COLLAPSE has a source-dependent floor and
-that a fixed merge threshold cannot be trusted to reach an arbitrary
-target, so this script inherits that finding rather than re-discovering it
-per prop.
+Measured 2026-09-27 against the remeshed sources: `jersey_barrier` (101),
+`satellite_dish` (154), `laundry_line` (156), `rebar` (87) and `wrecked_car`
+(353) all arrive AT OR UNDER their own `PROP_TRI_CAPS` (120/180/160/140/400)
+and ship untouched -- no decimation call at all. Only `water_tank` (226 vs
+220) and `tyre_pile` (272 vs 260) are over, each by a single-digit
+percentage. `_decimate_to_cap` (this file, not `export_meshy_decor.py`'s
+`_decimate`) handles both cases: it is a no-op when already at/under cap,
+and otherwise applies the smallest deterministic trim -- one direct
+`DECIMATE`/`COLLAPSE` modifier at `ratio = tri_cap / before`, applied, plus
+the same bmesh loose-vertex cleanup `_decor._decimate` uses so glTF's own
+face-less-vertex drop cannot silently undercount the shipped extent -- with
+extra passes only as a safety net if that single pass overshoots.
+`export_meshy_decor.py`'s own `_decimate` (escalating merge-by-distance) is
+built for the opposite problem -- raw scans at 2,000-25,000+ triangles, far
+denser than anything a single COLLAPSE ratio can reliably reach in one
+step -- and is deliberately NOT reused here: these sources have no such
+distance to close, and running that heavier pipeline on a mesh already this
+close to its cap would risk over-simplifying a shape with little slack left
+to give, for no benefit.
 
 ## DETERMINISM
 
 Nothing in this file calls `mathutils.noise`. The only per-object
-randomness anywhere in the whole pipeline (`_decimate`'s merge escalation,
-`_align_horizontal`'s PCA) is exact arithmetic on the source's own fixed
-vertex data -- same input file, same floats, every run. Export-twice-and-md5
-is the falsification in the task report, not repeated here.
+randomness anywhere in the whole pipeline (`_decimate_to_cap`'s COLLAPSE
+passes, `_align_horizontal`'s PCA) is exact arithmetic on the source's own
+fixed vertex data -- same input file, same floats, every run.
+Export-twice-and-md5 is the falsification in the task report, not repeated
+here.
 """
-import glob
 import json
 import math
 import os
@@ -155,7 +172,7 @@ else:
 CREDIT = (
     "Small ground props (jersey barrier, water tank, satellite dish, "
     "laundry line, tyre pile, rebar, wrecked car) -- AI-generated (Meshy "
-    "text-to-3D, preview mode), disclosed per CONTRIBUTING.md; decimated, "
+    "text-to-3D, remesh mode), disclosed per CONTRIBUTING.md; decimated, "
     "re-scaled and role-tagged for Roaring Lions"
 )
 
@@ -199,13 +216,33 @@ def _clear_scene():
             bpy.data.meshes.remove(mesh)
 
 
+def _remesh_task_id(kind):
+    """Look up the REMESH task id for `kind` from `art/meshy/ledger.jsonl` --
+    the ledger, not a glob, is the source of truth for which of the two
+    directories under each kind's prefix (the original preview, and the
+    2026-09-27 remesh the lead approved with "Use these") is current. A
+    glob over `{prefix}-20260927-*` matches both and cannot disambiguate."""
+    ledger_path = os.path.join(MESHY_DIR, "ledger.jsonl")
+    with open(ledger_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            if entry.get("kind") == "remesh" and entry.get("name") == kind:
+                return entry["id"]
+    raise SystemExit(f"[{kind}] no kind=remesh entry for name={kind!r} in {ledger_path}")
+
+
 def _source_path(kind):
     prefix = kind.replace("_", "-")
-    matches = sorted(glob.glob(os.path.join(MESHY_DIR, f"{prefix}-20260927-*", "model.glb")))
-    if len(matches) != 1:
-        raise SystemExit(f"[{kind}] expected exactly one Meshy source under "
-                          f"{MESHY_DIR}/{prefix}-20260927-*/model.glb, found {matches}")
-    return matches[0]
+    task_id = _remesh_task_id(kind)
+    short_id = task_id.split("-")[0]
+    path = os.path.join(MESHY_DIR, f"{prefix}-20260927-{short_id}", "model.glb")
+    if not os.path.isfile(path):
+        raise SystemExit(f"[{kind}] expected remesh source at {path} (ledger task "
+                          f"{task_id}), not found")
+    return path
 
 
 def _align_horizontal(ob, label):
@@ -230,14 +267,28 @@ def _align_horizontal(ob, label):
 
 
 def _decimate_to_cap(ob, tri_cap, label):
-    """`_decor._decimate`'s own ratio (`target_tris / before_t`) is a request
-    to `DECIMATE`/`COLLAPSE`, not a guarantee -- measured overshooting the
-    cap by a handful of triangles on `wrecked_car` (400 -> 406) because
-    COLLAPSE's ratio is approximate on a mesh this small. Finish with direct
-    COLLAPSE passes (plus the same face-less-vertex cleanup `_decimate`
-    itself uses) until the shipped count is actually at or under the cap --
-    a hard invariant this script owns rather than trusting the first pass."""
-    _decor._decimate(ob, tri_cap, label)
+    """The 2026-09-27 remesh sources arrive AT OR NEAR each kind's own
+    `PROP_TRI_CAPS` already (101-353 tris against caps of 120-400), not the
+    2,000-25,000-triangle raw scans `export_meshy_decor.py`'s `_decimate`
+    was built for (see that function's own docstring on why a single
+    threshold cannot reach an arbitrary target on a mesh THAT dense). Running
+    the heavy merge-escalation pipeline on a mesh already this small is both
+    unnecessary and liable to over-simplify a shape that has no slack left to
+    give -- so a kind already at or under its cap is shipped untouched, and a
+    kind over its cap (measured 2026-09-27: `water_tank` 226 vs 220,
+    `tyre_pile` 272 vs 260, both single-digit-percent over) gets the
+    smallest deterministic trim: one direct COLLAPSE modifier at
+    `ratio = tri_cap / before`, applied, with the same face-less-vertex
+    cleanup `_decor._decimate` itself uses so glTF's own face-less-vertex
+    drop cannot silently undercount the shipped extent. Extra passes only
+    run if that single pass overshoots (COLLAPSE's ratio is approximate on a
+    mesh this small), so the guard below is a safety net, not the intended
+    path."""
+    before0 = len(ob.data.polygons)
+    if before0 <= tri_cap:
+        print(f"[{label}] {before0} tris already at/under cap {tri_cap} -- "
+              f"shipped untouched, no decimation")
+        return
     guard = 0
     while len(ob.data.polygons) > tri_cap:
         guard += 1
@@ -258,7 +309,7 @@ def _decimate_to_cap(ob, tri_cap, label):
         bm.to_mesh(ob.data)
         bm.free()
         ob.data.update()
-        print(f"[{label}] cap pass {guard}: ratio={ratio:.5f} {before} -> "
+        print(f"[{label}] trim pass {guard}: ratio={ratio:.5f} {before} -> "
               f"{len(ob.data.polygons)} tris")
 
 
@@ -292,7 +343,7 @@ def export_one(kind):
     ob.name = kind
     if ob.data.materials or ob.data.color_attributes:
         raise SystemExit(f"[{kind}] source unexpectedly carries a material or "
-                          f"vertex colour -- preview-mode inspection found none; "
+                          f"vertex colour -- remesh-source inspection found none; "
                           f"re-check the source")
 
     if kind in ALIGN_HORIZONTAL:

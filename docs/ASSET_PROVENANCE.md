@@ -141,42 +141,52 @@ commercial build, and the retirements below are unblocked.
 
 ---
 
-## The seven ground props (Meshy text-to-3D, preview mode)
+## The seven ground props (Meshy text-to-3D, remeshed)
 
 Ground plan 2, Task 3b (2026-09-27, lead: "Use all 7"), replacing Task 3's
 code-authored kit (`fcde4da0`). Generated as Meshy **text-to-3D, preview
 mode** (geometry only — no refine/texture pass was run or needed, since the
 prop mesh contract strips materials at export anyway), disclosed per
-`CONTRIBUTING.md`:
+`CONTRIBUTING.md`. Task 3c (2026-09-27, same day, lead: "Use these")
+replaced every one of the seven previews with a Meshy **remesh** of the
+same source, after Task 3b's own `export_meshy_props.py` run (commit
+`93bafd30`) shipped collapsed, over-decimated geometry:
 
-| File | Meshy task id | Prompt |
-|---|---|---|
-| `art/meshes/props/jersey_barrier.glb` | `01a0e3ad-5d4d-77ad-a85b-1d26511355ef` | "a single low-poly game-ready concrete jersey road barrier..." |
-| `art/meshes/props/water_tank.glb` | `01a0e3ae-8a5d-773f-8487-63b99507ed54` | "a single low-poly game-ready cylindrical rooftop water storage tank on a short metal stand..." |
-| `art/meshes/props/satellite_dish.glb` | `01a0e3b0-b3bb-745d-92fb-28012a542500` | "a single low-poly game-ready small satellite dish antenna mounted on a thin pole..." |
-| `art/meshes/props/laundry_line.glb` | `01a0e3b2-8328-70f0-86d1-6cc8c278367e` | "a single low-poly game-ready laundry line: two wooden poles holding up a horizontal clothesline with a few hanging cloth garments..." |
-| `art/meshes/props/tyre_pile.glb` | `01a0e3b8-7ac9-7304-b72f-6f82e3e7d547` | "a single low-poly game-ready small stack of old car tyres piled on top of each other..." |
-| `art/meshes/props/rebar.glb` | `01a0e3ba-f609-76f5-9ce6-6002a21054f9` | "a single low-poly game-ready broken concrete stub with several bent rusty rebar rods sticking up out of it..." |
-| `art/meshes/props/wrecked_car.glb` | `01a0e3bc-885e-708d-b7ec-a15893a71e66` | "a single low-poly game-ready burnt-out wrecked small sedan car..." |
+| File | Preview task id | Remesh task id (shipped) | Prompt |
+|---|---|---|---|
+| `art/meshes/props/jersey_barrier.glb` | `01a0e3ad-5d4d-77ad-a85b-1d26511355ef` | `01a0e41c-3760-77eb-bd64-aa4ca9ae775c` | "a single low-poly game-ready concrete jersey road barrier..." |
+| `art/meshes/props/water_tank.glb` | `01a0e3ae-8a5d-773f-8487-63b99507ed54` | `01a0e41d-3485-7710-a11d-dfd7290a9482` | "a single low-poly game-ready cylindrical rooftop water storage tank on a short metal stand..." |
+| `art/meshes/props/satellite_dish.glb` | `01a0e3b0-b3bb-745d-92fb-28012a542500` | `01a0e41e-06df-77ce-ba7e-454fffe588fd` | "a single low-poly game-ready small satellite dish antenna mounted on a thin pole..." |
+| `art/meshes/props/laundry_line.glb` | `01a0e3b2-8328-70f0-86d1-6cc8c278367e` | `01a0e41f-1be9-7430-b412-d1ee116821e0` | "a single low-poly game-ready laundry line: two wooden poles holding up a horizontal clothesline with a few hanging cloth garments..." |
+| `art/meshes/props/tyre_pile.glb` | `01a0e3b8-7ac9-7304-b72f-6f82e3e7d547` | `01a0e41f-ed58-76f8-978b-075a35e5470f` | "a single low-poly game-ready small stack of old car tyres piled on top of each other..." |
+| `art/meshes/props/rebar.glb` | `01a0e3ba-f609-76f5-9ce6-6002a21054f9` | `01a0e420-bc80-718a-b1c0-dba2ca8d88a5` | "a single low-poly game-ready broken concrete stub with several bent rusty rebar rods sticking up out of it..." |
+| `art/meshes/props/wrecked_car.glb` | `01a0e3bc-885e-708d-b7ec-a15893a71e66` | `01a0e421-75ac-703e-9055-e1a401c5f92e` | "a single low-poly game-ready burnt-out wrecked small sedan car..." |
 
-Generated 2026-09-27, all approved by the project lead the same day. Every
-one arrived as one mesh with zero materials/images/textures (verified
-before the export script was written). `tools/terrain/export_meshy_props.py`
-then, per prop: aligned the horizontal footprint to +X where the shape has
-a real long axis, decimated (Blender's own `DECIMATE`/`COLLAPSE`, plus the
-merge-by-distance escalation and face-less-vertex cleanup
-`export_meshy_decor.py`'s own `_decimate` already carries) down to the
-contract's own per-kind triangle cap (120-400, unchanged from Task 3),
-re-scaled to a judged real-world size, and stripped to zero materials with
-one `rl_role` per prop from the closed `PROP_ROLES` vocabulary. Full prompts
-are in `art/meshy/ledger.jsonl`.
+Both generated 2026-09-27, both approved by the project lead the same day;
+the remesh is what is shipped. Every remesh arrived as one mesh with zero
+materials/images/textures in the GLB itself (a `texture_0_normal.png` sits
+alongside `model.glb` from the remesh job but is not referenced by it —
+verified before the export script was updated) and, unlike the previews,
+six of the seven arrive already at or under the prop contract's own
+per-kind triangle cap (101-353 tris against caps of 120-400); only
+`water_tank` (226 vs 220) and `tyre_pile` (272 vs 260) needed trimming.
+`tools/terrain/export_meshy_props.py` then, per prop: aligned the
+horizontal footprint to +X where the shape has a real long axis, decimated
+only where over cap (a single direct `DECIMATE`/`COLLAPSE` pass at
+`ratio = cap / before`, not `export_meshy_decor.py`'s heavier merge-by-
+distance escalation, which is built for raw scans two to three orders of
+magnitude denser than these remesh sources), re-scaled to a judged
+real-world size, and stripped to zero materials with one `rl_role` per prop
+from the closed `PROP_ROLES` vocabulary. Full prompts are in
+`art/meshy/ledger.jsonl`.
 
-Full ledger entries and the seven downloaded `model.glb` sources live under
-`art/meshy/<name>-20260927-<task-id>/`, **not committed** — same convention
-`export_meshy_decor.py`'s own `SRC_DIR` and `export_meshy_camp.py`'s follow
-for every other Meshy source in this tree (an untracked working directory;
-see "The supplied Meshy assets" above for why sources generally are not kept
-in git here). The ledger and task ids above are the provenance record.
+Full ledger entries and the fourteen downloaded `model.glb` sources (seven
+previews, seven remeshes) live under `art/meshy/<name>-20260927-<task-id>/`,
+**not committed** — same convention `export_meshy_decor.py`'s own `SRC_DIR`
+and `export_meshy_camp.py`'s follow for every other Meshy source in this
+tree (an untracked working directory; see "The supplied Meshy assets" above
+for why sources generally are not kept in git here). The ledger and task
+ids above are the provenance record.
 
 ---
 
