@@ -245,6 +245,27 @@ export const CAMPAIGN_MESHES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The props Blender kit (ground plan 2, Task 3 -- ART_PIPELINE §6). Keyed by
+ * `PropKind` (`packages/render/src/three/terrain/prop-role.ts`), the same
+ * way `DECOR_MESHES` is keyed by family rather than by unit type: nothing in
+ * the sim has a "jersey barrier".
+ *
+ * Listed here so `mesh-catalogue.test.ts` sees the seven shipped GLBs
+ * claimed, the same way `CAMPAIGN_MESHES` above is listed ahead of the
+ * screen that loads it -- nothing loads these yet. Ground plan 2 Task 4
+ * ("props batch, placement") adds the scatter and the per-mission fetch.
+ */
+export const PROP_MESHES: Readonly<Record<string, string>> = {
+  jersey_barrier: 'props/jersey_barrier.glb',
+  water_tank: 'props/water_tank.glb',
+  satellite_dish: 'props/satellite_dish.glb',
+  laundry_line: 'props/laundry_line.glb',
+  tyre_pile: 'props/tyre_pile.glb',
+  rebar: 'props/rebar.glb',
+  wrecked_car: 'props/wrecked_car.glb',
+};
+
+/**
  * Shipped GLBs that are deliberately never loaded, each with the reason.
  *
  * This is the ONLY way a file under `art/meshes/**` may go unclaimed:
@@ -333,6 +354,7 @@ export function claimedMeshFiles(): Set<string> {
   for (const files of Object.values(DECOR_MESHES)) for (const f of files) out.add(f);
   for (const f of Object.values(VFX_MESHES)) out.add(f);
   for (const f of Object.values(CAMPAIGN_MESHES)) out.add(f);
+  for (const f of Object.values(PROP_MESHES)) out.add(f);
   return out;
 }
 

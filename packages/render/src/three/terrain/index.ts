@@ -27,6 +27,9 @@
  * the same discipline applies to this barrel too: it names no `ThreeRenderer`
  * import, directly or by re-export, now or later.
  *
+ * `prop-role.ts` is exported for the same reason `decor-role.ts` is: pure and
+ * three-free.
+ *
  * `types.ts`'s `MeshData`/`TerrainInput` are re-exported redundantly by
  * `ground.ts` and `scatter.ts` as well (each states `export type { MeshData,
  * TerrainInput }` for its own module's readability) -- all three trace back
@@ -64,3 +67,4 @@ export * from './buildings';
 export * from './clamp';
 export * from './decor-role';
 export * from './decor-place';
+export * from './prop-role';
