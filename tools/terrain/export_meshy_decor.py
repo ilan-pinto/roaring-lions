@@ -205,7 +205,7 @@ because the procedural crown differs.
 
 ## DESERT CROWN -- N-13/N-14, a procedural crown replacing the bush's own foliage
 
-`_build_crown(variant, trunk_objs, seed)` deletes nothing the caller has not
+`_build_crown(variant, trunk_objs)` deletes nothing the caller has not
 already decided to discard (the bush-hued foliage objects, removed outright
 via `bpy.data.objects.remove`, not merely left unselected -- `_finalize_and
 _export` exports with `use_selection=False`, so an unselected-but-present
@@ -214,15 +214,24 @@ in its place: one centred on the trunk's own top, the rest spaced around a
 ring at 0.72-0.95 of the trunk's height (fraction and angle both from
 `_crown_hash01`, never `mathutils.noise` -- see "Determinism" below).
 
-Each clump starts as an icosphere (`DESERT_CROWN_ICOSPHERE_SUBDIV` = 2),
-decimated by TRIANGLE count (same reasoning as `_decimate` above: triangulate
-first, then `DECIMATE`/`COLLAPSE` against the triangulated face count) to a
-per-clump target hashed into `DESERT_CROWN_TRIS_PER_CLUMP` (150-220), then
-scaled to an ellipsoid -- `DESERT_CROWN_CLUMP_RADIUS_M` (0.32, inside the
-approved 0.28-0.45 m band) in X/Y, flattened to `DESERT_CROWN_CLUMP_FLATTEN_Z`
-(0.7) in Z -- and finally every vertex is pushed outward along its own
-(unit-sphere) normal by hand-rolled value noise for a ragged, leafy edge
-rather than a smooth ball.
+Each clump starts as an icosphere at `DESERT_CROWN_ICOSPHERE_SUBDIV` = 3 (320
+faces -- FIX ROUND 1: this was wrongly documented as 2 here. Blender's own
+`create_icosphere(subdivisions=N)` starts N=1 at the bare 20-face icosahedron
+and quadruples per level, so N=2 gives only 80 faces -- already BELOW every
+`DESERT_CROWN_TRIS_PER_CLUMP` target, and `_crown_clump`'s decimate step only
+ever reduces, so 2 would leave it nothing to do. See that constant's own
+comment), decimated by TRIANGLE count (same reasoning as `_decimate` above:
+triangulate first, then `DECIMATE`/`COLLAPSE` against the triangulated face
+count) to a per-clump target SOLVED from the trunk's own measured triangle
+count and `DESERT_CROWN_TRIS`'s midpoint, clamped into
+`DESERT_CROWN_TRIS_PER_CLUMP` (150-220) -- FIX ROUND 1: this was wrongly
+documented as merely "hashed into" that range; see `_build_crown`'s own
+docstring for why a fixed per-clump range alone can miss the WHOLE-TREE band
+this is actually gated on -- then scaled to an ellipsoid --
+`DESERT_CROWN_CLUMP_RADIUS_M` (0.32, inside the approved 0.28-0.45 m band) in
+X/Y, flattened to `DESERT_CROWN_CLUMP_FLATTEN_Z` (0.7) in Z -- and finally
+every vertex is pushed outward along its own (unit-sphere) normal by
+hand-rolled value noise for a ragged, leafy edge rather than a smooth ball.
 
 **Solving the ring radius in closed form, not by guess-and-check.** The
 clumps are built in the SAME raw (pre-`_bake_scale_and_ground`), arbitrary
@@ -471,6 +480,12 @@ TREE_MERGE_DIAG_FRAC_INITIAL = 0.010
 TREE_MERGE_GROWTH = 1.15
 TREE_MERGE_OVERSHOOT = 1.3   # merge target: within 30% of TREE_TARGET_TRIS, then COLLAPSE finishes it
 TREE_MERGE_MAX_ITERS = 20
+# Fix round 1: `_decimate` raises rather than ships silently off target. A
+# result above TREE_TARGET_TRIS is always an error; a result below this
+# fraction of it means TREE_TARGET_TRIS was set above what the merge
+# escalation alone naturally settles at on this source -- see `_decimate`'s
+# own docstring, "honesty correction".
+TREE_UNDERSHOOT_FLOOR = 0.8
 DESERT_TREE_TARGET_HEIGHT = 2.90  # shorter/airier than the olive -- see docstring "SCALE"
 
 # Desert crown (N-13, N-14, approved by the lead 2026-09-27): per variant,
@@ -764,7 +779,7 @@ def _crown_clump(name, radius_raw, seed, target_tris):
     return ob
 
 
-def _build_crown(variant, trunk_objs, seed):
+def _build_crown(variant, trunk_objs):
     """Grow `DESERT_CROWN[variant][0]` leafy clumps around `trunk_objs`' own
     top -- one centred on the apex, the rest on a ring at 0.72-0.95 of the
     trunk's height. Returns the (unjoined) clump objects; the caller joins
@@ -883,7 +898,13 @@ def _export_desert_tree_variant(label, src, out_path, variant):
     for ob in foliage_objs:
         bpy.data.objects.remove(ob, do_unlink=True)
 
-    crown_objs = _build_crown(variant, trunk_objs, seed=variant)
+    # fix round 1: `_build_crown` used to take a separate `seed` parameter
+    # here, always called as `seed=variant` -- a second name for the same
+    # value it already receives as `variant`, and never read as anything
+    # else inside the function (every hash call used `variant` directly).
+    # Removed rather than wired up to something real, since there was
+    # nothing for a second seed to distinguish.
+    crown_objs = _build_crown(variant, trunk_objs)
 
     joined = {}
     for role, objs in (("trunk", trunk_objs), ("foliage", crown_objs)):
@@ -897,9 +918,45 @@ def _export_desert_tree_variant(label, src, out_path, variant):
         _strip(target_ob)
         joined[role] = target_ob
 
+    # Fix round 1: assert DESERT_CROWN_TRIS on the JOINED whole tree -- this
+    # is the number the vitest gate actually reads off the shipped GLB
+    # (`glbTris`, trunk + foliage together), and `_build_crown`'s own
+    # per-clump solve is only an ESTIMATE toward it (it works from the
+    # trunk's PRE-join polygon count and a jittered per-clump target, not the
+    # final triangulated whole-tree count). A polygon is not always a
+    # triangle at this point (`trunk_objs` come straight from the bush
+    # source's own quads/ngons, never triangulated by this function), so
+    # this counts by `len(vertices) - 2` per polygon -- the same triangle
+    # count glTF's own implicit triangulation ships -- rather than trusting
+    # `len(polygons)`, which would undercount a mesh with any quad in it.
+    def _tris(ob):
+        return sum(len(p.vertices) - 2 for p in ob.data.polygons)
+    total_tris = _tris(joined["trunk"]) + _tris(joined["foliage"])
+    lo_tris, hi_tris = DESERT_CROWN_TRIS
+    if not (lo_tris <= total_tris <= hi_tris):
+        raise SystemExit(
+            f"[{label}] whole tree is {total_tris} tris, outside "
+            f"DESERT_CROWN_TRIS={DESERT_CROWN_TRIS} -- adjust `_build_crown`'s "
+            f"per-clump solve or DESERT_CROWN's clump count, do not ship this mesh")
+
     extent = _extent(list(joined.values()), axis="z")
     mpu = metres_per_unit(extent, DESERT_TREE_TARGET_HEIGHT)
     _bake_scale_and_ground(list(joined.values()), mpu, label)
+
+    # MEASURED footprint (post-bake, real metres) -- printed rather than only
+    # the pre-build TARGET `_build_crown` already prints, so the export log
+    # states what the crown actually came out at, not just what it aimed for.
+    # `export_yup=True` swaps Blender's Z-up frame for glTF's Y-up on export
+    # (Blender Z, height -> glTF Y; Blender Y -> glTF Z), so the horizontal
+    # footprint the vitest gate reads as glTF (X, Z) is Blender (X, Y) here,
+    # NOT (X, Z) -- Blender Z at this point is still height.
+    foliage_extent = _extent([joined["foliage"]])
+    foliage_pts = _world_verts(joined["foliage"])
+    fw = max(p.x for p in foliage_pts) - min(p.x for p in foliage_pts)
+    fd = max(p.y for p in foliage_pts) - min(p.y for p in foliage_pts)
+    print(f"[{label}] MEASURED whole tree: {total_tris} tris (band {lo_tris}-{hi_tris}); "
+          f"MEASURED crown footprint: {fw:.3f} x {fd:.3f} m (longest axis {foliage_extent:.3f} m)")
+
     return _finalize_and_export(joined, out_path, label)
 
 
@@ -933,17 +990,32 @@ def _decimate(ob, target_tris, label):
     `target_tris` also means COLLAPSE never has real work to do, which
     quietly breaks the interface: raising `target_tris` would change
     nothing, since the merge alone would still be the only thing setting
-    the final count. Instead, `TREE_MERGE_DIAG_FRAC` (a threshold scaled to
-    the mesh's own bounding-box diagonal, never a fixed absolute distance,
-    so it generalises across sources of different scale) is escalated
-    geometrically -- `bpy.ops.mesh.remove_doubles`, repeated with a LARGER
-    threshold each time it is still needed -- until the mesh is merged down
-    to within `TREE_MERGE_OVERSHOOT` of `target_tris`, a size COLLAPSE
-    measurably CAN close from (a single pass reliably clears ~10-15% at
-    that scale). `target_tris` is then the real final word: COLLAPSE always
-    has genuine work left to finish it, so changing the constant changes
-    the shipped geometry end to end, not just the merge's own neighbourhood
-    of it."""
+    the final count. Instead, `TREE_MERGE_DIAG_FRAC_INITIAL` (a threshold
+    scaled to the mesh's own bounding-box diagonal, never a fixed absolute
+    distance, so it generalises across sources of different scale) is
+    escalated geometrically -- `bpy.ops.mesh.remove_doubles`, repeated with a
+    LARGER threshold each time it is still needed -- until the mesh is
+    merged down to within `TREE_MERGE_OVERSHOOT` of `target_tris`, a size
+    COLLAPSE measurably CAN close from (a single pass reliably clears
+    ~10-15% at that scale).
+
+    FIX ROUND 1 -- honesty correction. The paragraph above used to end
+    "`target_tris` is then the real final word ... changing the constant
+    changes the shipped geometry end to end", which is true only when
+    `target_tris` is SMALL enough that the escalation loop still has to work
+    to get near it. It is measurably false the other way: set `target_tris`
+    to 12000 (this file's own falsification, see the module test suite) and
+    the escalation loop stops the moment the merge alone drops BELOW 12000 x
+    `TREE_MERGE_OVERSHOOT`, at 7,567 tris -- `ratio = min(1.0, target_tris /
+    before_t)` then clamps to 1.0 and COLLAPSE does NOTHING, so the merge's
+    own settled count ships, not `target_tris`. For a `target_tris` in the
+    range this file actually ships at (3000, well below the merge's own
+    natural floor for either source), COLLAPSE always has genuine work left
+    and the constant genuinely controls the outcome -- but that is a property
+    of the CHOSEN value, not a guarantee the mechanism gives for free. Rather
+    than leave that mismatch silent, this function now raises loudly instead
+    of shipping a mesh that quietly missed the request: see the three
+    `SystemExit` checks below."""
     pts = _world_verts(ob)
     dx = max(p.x for p in pts) - min(p.x for p in pts)
     dy = max(p.y for p in pts) - min(p.y for p in pts)
@@ -966,6 +1038,18 @@ def _decimate(ob, target_tris, label):
         if merged_t <= target_tris * TREE_MERGE_OVERSHOOT:
             break
         frac *= TREE_MERGE_GROWTH
+    else:
+        # The `for` completed every iteration without ever `break`ing --
+        # exhausted, not merely slow. Shipping whatever `merged_t` happened
+        # to be at that point would be exactly the silent off-target mesh
+        # this whole escalation exists to avoid.
+        raise SystemExit(
+            f"[{label}] merge escalation exhausted after {TREE_MERGE_MAX_ITERS} "
+            f"iteration(s) (final frac={frac:.5f}) without reaching "
+            f"{target_tris * TREE_MERGE_OVERSHOOT:.0f} tris (target_tris="
+            f"{target_tris} x TREE_MERGE_OVERSHOOT={TREE_MERGE_OVERSHOOT}) -- "
+            f"still at {merged_t}; raise TREE_MERGE_MAX_ITERS or TREE_MERGE_GROWTH, "
+            f"do not ship this mesh silently off target")
     merged_v = len(ob.data.vertices)
 
     tri_mod = ob.modifiers.new("decor_triangulate", type="TRIANGULATE")
@@ -1003,6 +1087,30 @@ def _decimate(ob, target_tris, label):
 
     after_v = len(ob.data.vertices)
     after_t = len(ob.data.polygons)
+
+    # No silent off-target mesh (fix round 1). `after_t > target_tris` means
+    # a mesh shipped ABOVE the number this whole function exists to enforce
+    # -- COLLAPSE should never leave more than requested, and if it does,
+    # something about this source changed and needs a fresh look, not a
+    # quiet ship. `after_t < target_tris * TREE_UNDERSHOOT_FLOOR` is the
+    # mirror case the module docstring's "honesty correction" describes: a
+    # `target_tris` set larger than what the merge escalation naturally
+    # settles at (the 12000 -> 7,567 case) ships something far below what was
+    # asked for with `ratio` clamped to a no-op decimate -- this makes THAT
+    # silent mismatch loud instead.
+    if after_t > target_tris:
+        raise SystemExit(
+            f"[{label}] shipped {after_t} tris, ABOVE target_tris={target_tris} -- "
+            f"COLLAPSE should never leave more than requested; do not ship this mesh")
+    if after_t < target_tris * TREE_UNDERSHOOT_FLOOR:
+        raise SystemExit(
+            f"[{label}] shipped {after_t} tris, below the {TREE_UNDERSHOOT_FLOOR:.0%} "
+            f"floor of target_tris={target_tris} ({target_tris * TREE_UNDERSHOOT_FLOOR:.0f}) "
+            f"-- target_tris is likely set larger than what the merge escalation alone "
+            f"settles at on this source (see this function's own docstring, 'honesty "
+            f"correction'); lower target_tris or redesign the escalation, do not ship "
+            f"this mesh silently off target")
+
     print(f"[{label}] merge-by-distance: {merge_iters} escalation(s), final threshold="
           f"{merge_threshold:.5f} (diag={diag:.4f}) -> {merged_v} verts, {merged_t} tris; "
           f"decimate ratio={ratio:.5f}: {before_v} -> {after_v} verts, "
