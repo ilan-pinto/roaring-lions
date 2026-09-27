@@ -1,0 +1,518 @@
+/**
+ * The ATGM motion sheet (GH-250, spec
+ * `docs/superpowers/specs/2026-09-28-atgm-animation-design.md`, "Capture
+ * protocol"): ten seconds of a guided or unguided round leaving the launcher,
+ * flying, and landing, judged IN MOTION through a flip page -- never a still.
+ *
+ *   pnpm atgm:capture -- --label=before --port=5197
+ *   pnpm atgm:capture -- --label=after --port=5198 --only=spike,rpg
+ *
+ * A retarget of `blast-captures.ts`, and it keeps that file's three paid-for
+ * behaviours: the frame loop is FROZEN (`FREEZE_FRAME_LOOP_SCRIPT`), every
+ * frame is pumped by hand (rAF is throttled in a hidden tab), and subjects are
+ * spawned, never found. It differs in one: the sim is driven in LOCKSTEP by
+ * hand (plan P-6) -- `sim.tick()`, `renderer.snapshot()`,
+ * `renderer.onEvents(events)` once per 50 ms of pumped frame time -- and never
+ * through `__lions.step`, whose closing `frame(1, lastFrameMs)` would age
+ * every rung by whatever the freeze latched.
+ *
+ * It takes NO frame-cost numbers: other headless browsers share the machine,
+ * so the sheet records the load average instead, as a capture condition.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// ---------------------------------------------------------------------------
+// The pure half, imported by the spec. Nothing here may pull in playwright.
+// ---------------------------------------------------------------------------
+
+export const ATGM_WINDOW_MS = 10_000;
+/** Dense through the flight: the slowest round, a Kornet at 8 tiles, is ~1.6 s. */
+export const ATGM_DENSE_UNTIL_MS = 3_000;
+export const ATGM_DENSE_EVERY_MS = 50;
+export const ATGM_SPARSE_EVERY_MS = 250;
+
+/** 0..3000 every 50 ms, then 3250..10000 every 250 ms: 61 + 28 = 89 rungs. */
+export function atgmLadder(): number[] {
+  const out: number[] = [];
+  for (let t = 0; t <= ATGM_DENSE_UNTIL_MS; t += ATGM_DENSE_EVERY_MS) out.push(t);
+  for (let t = ATGM_DENSE_UNTIL_MS + ATGM_SPARSE_EVERY_MS; t <= ATGM_WINDOW_MS; t += ATGM_SPARSE_EVERY_MS) out.push(t);
+  return out;
+}
+
+export const ATGM_LADDER_MS: readonly number[] = atgmLadder();
+
+export interface AtgmSubject {
+  id: string;
+  shooter: string;
+  shooterSide: 0 | 1;
+  target: string;
+  targetSide: 0 | 1;
+  /** Shooter tile; the target stands at `(x + gapTiles, y)`. */
+  x: number;
+  y: number;
+  gapTiles: number;
+  expectVariant: 'top_attack' | 'guided' | 'unguided';
+  why: string;
+}
+
+/** The four pairs of the spec's capture protocol, on the open northern band
+ *  (rows 0-7 of `beit_sahwan_outskirts`). They run one after another and each
+ *  pair is removed after its window (plan P-7), so rows may repeat. */
+export const ATGM_SUBJECTS: readonly AtgmSubject[] = [
+  {
+    id: 'spike',
+    shooter: 'at_team',
+    shooterSide: 0,
+    target: 'technical',
+    targetSide: 1,
+    x: 4,
+    y: 3,
+    gapTiles: 7,
+    expectVariant: 'top_attack',
+    why: 'The only top-attack profile: a Spike that climbs and dives onto the roof rather than flying flat.',
+  },
+  {
+    id: 'kornet',
+    shooter: 'atgm_cell',
+    shooterSide: 1,
+    target: 'jeep_shoded',
+    targetSide: 0,
+    x: 4,
+    y: 4,
+    gapTiles: 8,
+    expectVariant: 'guided',
+    why: 'The longest ground-launched guided flight, into a target with no APS, so nothing intercepts it.',
+  },
+  {
+    id: 'hellfire',
+    shooter: 'heli_peten',
+    shooterSide: 0,
+    target: 'technical',
+    targetSide: 1,
+    x: 4,
+    y: 5,
+    gapTiles: 8,
+    expectVariant: 'guided',
+    why: 'The air launch: the round starts at rotor height, and at 8 tiles the 7.5-tile chain gun is out of range.',
+  },
+  {
+    id: 'rpg',
+    shooter: 'rpg_team',
+    shooterSide: 1,
+    target: 'jeep_shoded',
+    targetSide: 0,
+    x: 4,
+    y: 3,
+    gapTiles: 4,
+    expectVariant: 'unguided',
+    why: 'The short unguided rocket: the whole flight fits in about a dozen dense rungs.',
+  },
+];
+
+/** How a stretch of pumped time is driven: one sim tick per `tickMs`, and
+ *  frames of at most `frameMs` with the exact remainder, so the accumulated
+ *  frame time lands ON the rung rather than near it. */
+export function lockstepPlan(ms: number, tickMs: number, frameMs: number): { ticks: number; frames: number[] } {
+  const frames: number[] = [];
+  let left = ms;
+  while (left >= frameMs) {
+    frames.push(frameMs);
+    left -= frameMs;
+  }
+  if (left > 0) frames.push(left);
+  return { ticks: Math.floor(ms / tickMs), frames };
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** One self-contained page that plays the frames at their REAL timestamps
+ *  (so the sparse tail runs at the pace it was captured at), holds a second,
+ *  and loops. No external script, no URL: it opens from disk. */
+export function flipHtml(label: string, frames: readonly { file: string; tMs: number }[]): string {
+  // `<` escaped inside the script so a file name can never close the tag.
+  const files = JSON.stringify(frames.map((f) => f.file)).replace(/</g, '\\u003c');
+  const times = JSON.stringify(frames.map((f) => f.tMs));
+  const first = frames.length > 0 ? escapeHtml(frames[0].file) : '';
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>ATGM flip -- ${escapeHtml(label)}</title>
+<style>body{margin:16px;font:14px sans-serif}img{display:block;image-rendering:pixelated;max-width:100%}</style>
+</head><body>
+<h1>ATGM flip -- ${escapeHtml(label)}</h1>
+<p><label>speed <select id="s"><option value="1">1x</option><option value="0.5">0.5x</option><option value="0.25">0.25x</option></select></label>
+<button id="p" type="button">pause</button> <span id="t"></span> (plays at real timestamps, holds 1 s, then loops)</p>
+<img id="f" src="${first}" alt="frame">
+<script>
+const T=${times};
+const F=${files};
+const img=document.getElementById('f'),sel=document.getElementById('s'),btn=document.getElementById('p'),lab=document.getElementById('t');
+let i=0,paused=false,timer=0;
+function show(){img.src=F[i];lab.textContent='t = '+T[i]+' ms ('+(i+1)+'/'+F.length+')';}
+function next(){
+  if(paused||F.length===0)return;
+  const speed=Number(sel.value);
+  const loop=i>=F.length-1;
+  const wait=loop?1000:(T[i+1]-T[i])/speed;
+  timer=setTimeout(function(){i=loop?0:i+1;show();next();},wait);
+}
+btn.onclick=function(){paused=!paused;btn.textContent=paused?'play':'pause';clearTimeout(timer);if(!paused)next();};
+sel.onchange=function(){clearTimeout(timer);next();};
+for(const f of F){const p=new Image();p.src=f;}
+show();next();
+</script>
+</body></html>
+`;
+}
+
+export interface AtgmCell {
+  subject: string;
+  tMs: number;
+  tick: number;
+  zoom: number;
+  /** Rounds in flight after this rung: `missileFx.missiles.length`, or on a
+   *  build without it (the before-set) `bolts.length`. */
+  inFlight: number;
+  file: string;
+}
+
+export function atgmSheetIndex(label: string, env: string, cells: readonly AtgmCell[]): string {
+  return [
+    `# ATGM capture sheet -- ${label}`,
+    ``,
+    `Capture conditions: ${env}`,
+    ``,
+    `Ladder: ${ATGM_LADDER_MS.length} rungs a subject -- every ${ATGM_DENSE_EVERY_MS} ms to ${ATGM_DENSE_UNTIL_MS} ms, ` +
+      `then every ${ATGM_SPARSE_EVERY_MS} ms to ${ATGM_WINDOW_MS} ms -- in lockstep: one sim tick per 50 ms of pumped ` +
+      `frame time. Judge the flip pages, not the stills.`,
+    ``,
+    `| subject | t (ms) | tick | zoom | in flight | file |`,
+    `|---|---|---|---|---|---|`,
+    ...cells.map((c) => `| ${c.subject} | ${c.tMs} | ${c.tick} | ${c.zoom} | ${c.inFlight} | \`${c.file}\` |`),
+    ``,
+  ].join('\n');
+}
+
+/** Task 7 measures these; until then the toggle is recorded, not judged. */
+export const ATGM_LAYER_FLOORS: Record<
+  'missiles',
+  { minDiffPixels: number; minMeanAbsChannelDelta: number; measured: string }
+> = { missiles: { minDiffPixels: 0, minMeanAbsChannelDelta: 0, measured: 'not yet measured (Task 7)' } };
+
+// ---------------------------------------------------------------------------
+// The browser half.
+// ---------------------------------------------------------------------------
+
+const PORTS: readonly number[] = [5197, 5198];
+const VIEWPORT = { width: 1400, height: 900 } as const;
+const SETTLE_VIEWPORT = { width: 320, height: 200 } as const;
+const LADDER_ZOOM = 2.0;
+const ESTABLISH_ZOOM = 1.0;
+const CROP = { width: 600, height: 400 } as const;
+const CROP_LIFT_PX = 40;
+const TICK_MS = 50;
+const FRAME_MS = 16;
+const FIRE_TICK_CAP = 1200;
+const TOGGLE_RUNG_MS = 600;
+const DRAIN_TICKS = 20;
+/** 16 ms frames pumped after the drain ticks, at most, waiting for the air to clear. */
+const DRAIN_FRAME_CAP = 400;
+const FIXED = 65536;
+const STEP_TIMEOUT_MS = 120_000;
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+interface LionsWindow {
+  __lions: {
+    renderer: {
+      camera: { x: number; y: number; zoom: number };
+      frame(alpha: number, dtMs: number): void;
+      snapshot(): void;
+      onEvents(events: unknown[]): void;
+      worldToScreen(x: number, y: number): { x: number; y: number };
+      bolts?: unknown[];
+      missileFx?: { missiles: unknown[] };
+    };
+    sim: {
+      tickCount: number;
+      unitTypes: { id: string }[];
+      state: { alive: Int8Array | Uint8Array };
+      spawn(typeIdx: number, side: number, x: number, y: number): number;
+      tick(): { kind: string; shooter?: number; weaponId?: string }[];
+      removeFromPlay(id: number): void;
+    };
+  };
+}
+
+interface ToggleReading {
+  subject: string;
+  layer: string;
+  available: boolean;
+  diffPixels: number;
+  meanAbsChannelDelta: number;
+  note: string;
+}
+
+function arg(name: string): string {
+  const hit = process.argv.slice(2).find((a) => a.startsWith(`--${name}=`));
+  return hit ? hit.slice(name.length + 3) : '';
+}
+
+function load(): string {
+  const [a, b, c] = os.loadavg();
+  return `load ${a.toFixed(2)}/${b.toFixed(2)}/${c.toFixed(2)} on ${os.cpus().length} cpus`;
+}
+
+/** Drives `ms` of lockstep time in the page and returns the tick and the
+ *  in-flight count afterwards. A tick lands on the frame that crosses each
+ *  50 ms boundary. NO named function expressions in an evaluate body: esbuild
+ *  wraps them in `__name`, which the page does not have. */
+async function pump(
+  page: import('playwright').Page,
+  ms: number
+): Promise<{ tick: number; inFlight: number; fires: { tick: number; shooter: number; weaponId: string }[] }> {
+  const plan = lockstepPlan(ms, TICK_MS, FRAME_MS);
+  return page.evaluate(
+    ([frames, ticks, tickMs]) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      let pumped = 0;
+      let done = 0;
+      const fires: { tick: number; shooter: number; weaponId: string }[] = [];
+      for (const f of frames) {
+        L.renderer.frame(1, f);
+        pumped += f;
+        while (done < ticks && pumped >= (done + 1) * tickMs) {
+          const events = L.sim.tick();
+          L.renderer.snapshot();
+          L.renderer.onEvents(events);
+          for (const e of events) {
+            if (e.kind === 'fire') fires.push({ tick: L.sim.tickCount, shooter: e.shooter ?? -1, weaponId: e.weaponId ?? '?' });
+          }
+          done++;
+        }
+      }
+      const r = L.renderer;
+      const inFlight = r.missileFx !== undefined ? r.missileFx.missiles.length : (r.bolts ?? []).length;
+      return { tick: L.sim.tickCount, inFlight, fires };
+    },
+    [plan.frames, plan.ticks, TICK_MS] as const
+  );
+}
+
+/** Centres the camera on the pair at `zoom`, repaints at zero elapsed time,
+ *  and returns the 600x400 crop around the midpoint, lifted 40 px. */
+async function frameOn(page: import('playwright').Page, s: AtgmSubject, zoom: number) {
+  const mx = s.x + s.gapTiles / 2;
+  const at = await page.evaluate(
+    ([x, y, z]) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      L.renderer.camera.x = x;
+      L.renderer.camera.y = y;
+      L.renderer.camera.zoom = z;
+      L.renderer.frame(1, 0);
+      return L.renderer.worldToScreen(x, y);
+    },
+    [mx, s.y, zoom] as const
+  );
+  return {
+    x: Math.min(Math.max(0, at.x - CROP.width / 2), VIEWPORT.width - CROP.width),
+    y: Math.min(Math.max(0, at.y - CROP.height / 2 - CROP_LIFT_PX), VIEWPORT.height - CROP.height),
+    width: CROP.width,
+    height: CROP.height,
+  };
+}
+
+async function main(): Promise<void> {
+  const { chromium } = await import('playwright');
+  const { ensureDevServer, stopDevServer, readUnmaskedRenderer } = await import('../golden-diff/browser');
+  const { FREEZE_FRAME_LOOP_SCRIPT, REPAINT_SCRIPT, layerToggleScript } = await import('../golden-diff/capture-protocol');
+  const { computeDiff } = await import('../golden-diff/diff');
+  const { settleScript, parseSettleResult, settleLine } = await import('./blast-captures');
+
+  const label = arg('label');
+  if (label !== 'before' && label !== 'after') throw new Error('--label=before|after is required');
+  const port = Number(arg('port'));
+  if (port === 5173 || !PORTS.includes(port)) {
+    throw new Error(`--port must be one of ${PORTS.join('/')} (got "${arg('port')}"); 5173 and every other port are someone else's`);
+  }
+  const onlyIds = arg('only').split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+  for (const id of onlyIds) {
+    if (!ATGM_SUBJECTS.some((s) => s.id === id)) throw new Error(`--only=${id} names no subject`);
+  }
+  const wanted = onlyIds.length > 0 ? ATGM_SUBJECTS.filter((s) => onlyIds.includes(s.id)) : ATGM_SUBJECTS;
+  const out = path.join(REPO_ROOT, '.superpowers', 'art-captures', 'atgm', label);
+  fs.mkdirSync(path.join(out, 'toggles'), { recursive: true });
+
+  const server = await ensureDevServer(port, REPO_ROOT, 'atgm-captures');
+  if (server === null) {
+    console.error(`port ${port} is not ours -- pick the other of 5197/5198`);
+    process.exitCode = 2;
+    return;
+  }
+  const cells: AtgmCell[] = [];
+  const notes: string[] = [`machine at start: ${load()}`];
+  const toggles: ToggleReading[] = [];
+  const windowFires: Record<string, { tick: number; shooter: number; weaponId: string }[]> = {};
+  const fired: Record<string, { tick: number; weaponId: string; ticksWaited: number } | null> = {};
+  let env = '';
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const gl = (await readUnmaskedRenderer(browser)).replace(/\|/g, '/');
+    env = `${process.platform}-${process.arch} ${gl} ${VIEWPORT.width}x${VIEWPORT.height} dsf1`;
+    const page = await browser.newPage({ viewport: { ...SETTLE_VIEWPORT }, deviceScaleFactor: 1 });
+    page.setDefaultTimeout(STEP_TIMEOUT_MS);
+    page.on('pageerror', (err) => console.log('  page error:', err.message));
+    await page.goto(`http://localhost:${port}/?sandbox=beit_sahwan_outskirts&renderer=three`, { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined');
+    await page.evaluate(() => document.fonts.ready);
+    const settle = parseSettleResult(await page.evaluate(settleScript(30_000)));
+    notes.push(settleLine('beit_sahwan_outskirts', settle));
+    await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
+    await page.setViewportSize({ ...VIEWPORT });
+    await page.waitForFunction(
+      ([w, h]) => {
+        const c = document.querySelector('canvas');
+        return c !== null && c.clientWidth === w && c.clientHeight === h;
+      },
+      [VIEWPORT.width, VIEWPORT.height] as const
+    );
+
+    let establishing = true;
+    for (const s of wanted) {
+      console.log(`${label}: ${s.id} (${s.shooter} -> ${s.target}, ${s.gapTiles} tiles)`);
+      const start = await page.evaluate(
+        ([row, fixed, cap]) => {
+          const L = (window as unknown as LionsWindow).__lions;
+          const si = L.sim.unitTypes.findIndex((t) => t.id === row.shooter);
+          const ti = L.sim.unitTypes.findIndex((t) => t.id === row.target);
+          if (si < 0 || ti < 0) throw new Error(`${row.shooter}/${row.target} not in this build`);
+          const shooter = L.sim.spawn(si, row.shooterSide, row.x * fixed, row.y * fixed);
+          const target = L.sim.spawn(ti, row.targetSide, (row.x + row.gapTiles) * fixed, row.y * fixed);
+          for (let n = 1; n <= cap; n++) {
+            const events = L.sim.tick();
+            L.renderer.snapshot();
+            L.renderer.onEvents(events);
+            const hit = events.find((e) => e.kind === 'fire' && e.shooter === shooter);
+            if (hit !== undefined) return { shooter, target, n, tick: L.sim.tickCount, weaponId: hit.weaponId ?? '?' };
+          }
+          return { shooter, target, n: -1, tick: L.sim.tickCount, weaponId: '' };
+        },
+        [s, FIXED, FIRE_TICK_CAP] as const
+      );
+      if (start.n < 0) {
+        notes.push(`${s.id}: ${s.shooter} did not fire in ${FIRE_TICK_CAP} ticks -- subject skipped, no rung recorded`);
+        fired[s.id] = null;
+        process.exitCode = 1;
+      } else {
+        fired[s.id] = { tick: start.tick, weaponId: start.weaponId, ticksWaited: start.n };
+        console.log(`  fire (${start.weaponId}) at tick ${start.tick}, after ${start.n} ticks`);
+        let prev = 0;
+        const seen: { tick: number; shooter: number; weaponId: string }[] = [];
+        windowFires[s.id] = seen;
+        for (const tMs of ATGM_LADDER_MS) {
+          const st = await pump(page, tMs - prev);
+          prev = tMs;
+          seen.push(...st.fires);
+          const clip = await frameOn(page, s, LADDER_ZOOM);
+          const file = `${s.id}-${String(tMs).padStart(5, '0')}.png`;
+          await page.screenshot({ path: path.join(out, file), clip });
+          cells.push({ subject: s.id, tMs, tick: st.tick, zoom: LADDER_ZOOM, inFlight: st.inFlight, file });
+          if (tMs !== TOGGLE_RUNG_MS) continue;
+          const shown = path.join(out, 'toggles', `${s.id}-missiles-shown.png`);
+          const hidden = path.join(out, 'toggles', `${s.id}-missiles-hidden.png`);
+          await page.evaluate(REPAINT_SCRIPT);
+          await page.screenshot({ path: shown, clip });
+          try {
+            await page.evaluate(layerToggleScript('missiles', false));
+            await page.screenshot({ path: hidden, clip });
+            await page.evaluate(layerToggleScript('missiles', true));
+            const d = computeDiff(shown, hidden, { outDir: path.join(out, 'toggles'), diffFileName: `${s.id}-missiles-diff.png` });
+            toggles.push({ subject: s.id, layer: 'missiles', available: true, ...d, note: 'recorded; floors land in Task 7' });
+          } catch (err) {
+            const first = (err instanceof Error ? err.message : String(err)).split('\n')[0];
+            toggles.push({ subject: s.id, layer: 'missiles', available: false, diffPixels: 0, meanAbsChannelDelta: 0, note: `layer not in this build (${first})` });
+          }
+          // The zoom-1.0 establishing still, of the first pair at its rung 600.
+          // Taken HERE rather than after the loop because the pair is removed
+          // at the end of its window; a zero-time repaint moves no clock.
+          if (establishing) {
+            establishing = false;
+            await frameOn(page, s, ESTABLISH_ZOOM);
+            const est = `${s.id}-establish-z1-${String(tMs).padStart(5, '0')}.png`;
+            await page.screenshot({ path: path.join(out, est) });
+            cells.push({ subject: s.id, tMs, tick: st.tick, zoom: ESTABLISH_ZOOM, inFlight: st.inFlight, file: est });
+          }
+        }
+      }
+      await page.evaluate(
+        ([ids]) => {
+          const L = (window as unknown as LionsWindow).__lions;
+          for (const id of ids) if (L.sim.state.alive[id] === 1) L.sim.removeFromPlay(id);
+        },
+        [[start.shooter, start.target]] as const
+      );
+      // The drain is DRAIN_TICKS lockstep ticks WITH their frames, then frames
+      // until nothing is in flight. Ticks alone age no round: a round is
+      // stepped by frame time, and a Hellfire fired at 10 s was measured still
+      // flying through the next subject's first 700 ms.
+      let drained = await pump(page, DRAIN_TICKS * TICK_MS);
+      for (let n = 0; drained.inFlight > 0 && n < DRAIN_FRAME_CAP; n++) drained = await pump(page, FRAME_MS);
+      if (drained.inFlight > 0) notes.push(`${s.id}: ${drained.inFlight} round(s) still in flight after the drain`);
+      const flight = cells.filter((c) => c.subject === s.id && c.zoom === LADDER_ZOOM);
+      fs.writeFileSync(path.join(out, `flip-${s.id}.html`), flipHtml(`${label} / ${s.id}`, flight));
+    }
+    await page.close();
+  } finally {
+    await browser.close();
+    stopDevServer(server, 'atgm-captures');
+  }
+  notes.push(`machine at end: ${load()}`);
+
+  const perSubject = wanted.map((s) => {
+    const f = fired[s.id];
+    const ladder = cells.filter((c) => c.subject === s.id && c.zoom === LADDER_ZOOM);
+    const later = (windowFires[s.id] ?? []).map((e) => `${e.weaponId}@${e.tick}`).join(', ');
+    return `${s.id}: ${ladder.length} frames, fire ${f ? `${f.weaponId} at tick ${f.tick}` : 'NONE'}, ` +
+      `${ladder.filter((c) => c.inFlight >= 1).length} rungs with inFlight >= 1; fires later in the window: ${later || 'none'}`;
+  });
+  const md = [
+    atgmSheetIndex(label, env, cells),
+    `## Summary`,
+    ``,
+    ...perSubject.map((l) => `- ${l}`),
+    ``,
+    `## Toggle A/B (\`missiles\`, rung ${TOGGLE_RUNG_MS} ms)`,
+    ``,
+    `| subject | available | diff px | mean abs channel delta | note |`,
+    `|---|---|---|---|---|`,
+    ...toggles.map((t) => `| ${t.subject} | ${t.available ? 'yes' : 'no'} | ${t.diffPixels} | ${t.meanAbsChannelDelta.toFixed(4)} | ${t.note.replace(/\|/g, '/')} |`),
+    ``,
+    `## Notes`,
+    ``,
+    `- port ${port}, \`?sandbox=beit_sahwan_outskirts&renderer=three\`, frame loop frozen, lockstep ${TICK_MS} ms ticks / ${FRAME_MS} ms frames, crop ${CROP.width}x${CROP.height} lifted ${CROP_LIFT_PX} px; no frame-cost numbers are taken`,
+    ...notes.map((n) => `- ${n}`),
+    ``,
+  ].join('\n');
+  fs.writeFileSync(path.join(out, 'sheet.md'), md);
+  fs.writeFileSync(
+    path.join(out, 'sheet.json'),
+    JSON.stringify({ label, env, port, subjects: wanted, fired, windowFires, cells, toggles, floors: ATGM_LAYER_FLOORS, notes }, null, 2) + '\n'
+  );
+  console.log(perSubject.join('\n'));
+  console.log(`sheet at ${path.join(out, 'sheet.md')}`);
+}
+
+// Only when run as a script: the spec imports the pure half without booting a browser.
+const invokedDirectly =
+  process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) {
+  main().then(
+    () => process.exit(process.exitCode ?? 0),
+    (err: unknown) => {
+      console.error(err);
+      process.exit(1);
+    }
+  );
+}
