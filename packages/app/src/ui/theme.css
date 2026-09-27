@@ -1873,7 +1873,14 @@ body {
   font-size: var(--t-read);
   font-style: italic;
   color: var(--ink);
-  white-space: nowrap;
+  /* A recorded line's own English caption is prose, not a HUD label like
+     .rl-hint below it: nowrap let a long one run off both edges of the
+     screen. It wraps now, capped at the feed's own width above it, so a
+     wrapped caption reads as a short paragraph in the same column rather
+     than a banner wider than the map. */
+  white-space: normal;
+  max-width: 35rem;
+  text-align: center;
   pointer-events: none;
 }
 .rl-caption[hidden] {
