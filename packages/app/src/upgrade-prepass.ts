@@ -5,11 +5,11 @@
 // tiers are type-wide and fixed for the mission). Three things need that
 // kit: the unit types `bootBattlefield` registers with the sim, patched by
 // `applyUpgrades`; the HUD card, which draws each KDF type's pips and the
-// hit points they bought; and the renderer's mark over each own-side unit
-// (WP-S3g plan 2). They used to be two loops over `ownedTiers` -- the card's
+// hit points they bought; and the kit sign on each own unit's icon
+// (WP-S3g plan 2b). They used to be two loops over `ownedTiers` -- the card's
 // behind an `as unknown as UpgradableUnit` cast -- and separate loops over
 // one read are separate places a filter or a default can drift, after which
-// the card, or the mark, shows a kit the mission is not running. Here all
+// the card, or an icon, shows a kit the mission is not running. Here all
 // three come out of ONE loop, from the SAME per-type tiers object, so they
 // cannot disagree.
 import { applyUpgrades, type KitLevel, type UpgradableUnit } from '@lions/data';
@@ -23,8 +23,10 @@ export interface UpgradePrepass<T> {
   /** The kit on each KDF type, for the HUD card -- every KDF type, bought or
    *  not (level 0 draws nothing), and no other faction. */
   readonly kitByType: Map<string, KitSummary>;
-  /** The renderer's mark, from the same summary the card draws -- every KDF
-   *  type, bought or not, and no other faction. */
+  /** The kit sign's level on every unit icon (chips, card frame, dock tiles)
+   *  -- from the same summary the card draws; every KDF type, bought or not,
+   *  and no other faction. The world mark this once fed was rejected
+   *  (plan 2b). */
   readonly unitKit: Readonly<Record<string, KitLevel>>;
 }
 

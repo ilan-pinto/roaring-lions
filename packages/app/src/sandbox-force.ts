@@ -141,10 +141,10 @@ export function sandboxUnitTypes(extras: SandboxExtras): Set<string> {
   return out;
 }
 
-/** `&kit` (sandbox only, WP-S3g plan 2): a fixed kit level per type the
- *  sandbox force fields, so one frame shows all three levels on both overlay
- *  radii -- soft rifles, AT and mortar; hard APC, IFV and MBT (N12). The gate's
- *  `kit` scenario photographs exactly this. */
+/** `&kit` (sandbox only, WP-S3g plan 2b): a fixed kit level per type the
+ *  sandbox force fields, so one selection shows all three levels on the unit
+ *  icons at once (N12). The dock never shows it: the dock is mission-only,
+ *  and `&kit` never reaches a mission. */
 export const SANDBOX_KIT_LEVELS: Readonly<Record<string, 1 | 2 | 3>> = {
   inf_squad: 1,
   apc_eitan: 1,

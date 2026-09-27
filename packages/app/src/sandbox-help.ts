@@ -54,7 +54,8 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
   },
   {
     name: 'kit',
-    blurb: 'the sandbox force pre-kitted, level 1–3 by type — the kit mark and the HUD card to walk',
+    blurb:
+      'the sandbox force pre-kitted, level 1–3 by type — the kit sign on the unit icons and the HUD card to walk',
   },
 ];
 

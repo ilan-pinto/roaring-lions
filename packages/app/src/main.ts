@@ -1253,7 +1253,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const roster = Object.values(units);
   /** `&kit` (sandbox only, WP-S3g plan 2) swaps the account's tiers for the
    *  fixed ladder BEFORE the one prepass, so the swap reaches the sim, the HUD
-   *  card and the map mark together; a mission never takes it (`bootTiers`). */
+   *  card and the unit icons together; a mission never takes it (`bootTiers`). */
   const bootKit = bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: readFlags(params).kit }, roster);
   const prepass = upgradePrepass(roster, bootKit);
   const kitByType = prepass.kitByType;
