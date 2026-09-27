@@ -3,6 +3,7 @@ import { CAMPAIGN_ORDER, MISSION_TARGET_MINUTES } from './campaign-order';
 import { STATS_HTML } from './stats-page';
 import { loginPageHtml } from './login-page';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
+import type { TelemetryOrderVerb } from '@lions/data/telemetry';
 
 export interface StatsFilter {
   since: number;
@@ -188,6 +189,116 @@ export async function testers(db: D1Like, f: StatsFilter) {
   return rows.results.map((r) => ({ ...r, furthestWon: furthestByTester.get(r.tester) ?? null }));
 }
 
+/** The latest `accounts` snapshot per real player (D3/D4 -- rebuildable from
+ *  events, truncated ids). `accounts.t/dev/tester` match `where()`'s columns
+ *  directly, so no prefix or join is needed. */
+export async function accounts(db: D1Like, f: StatsFilter) {
+  const w = where(f);
+  const rows = await db
+    .prepare(`SELECT player, t, credits, earned, unlocks, tiers, tester FROM accounts WHERE ${w.sql} ORDER BY t DESC LIMIT 500`)
+    .bind(...w.args)
+    .all<{ player: string; t: number; credits: number; earned: number; unlocks: string; tiers: string; tester: string | null }>();
+  return rows.results.map((r) => ({
+    player: r.player.slice(0, 8),
+    tester: r.tester,
+    lastSeen: r.t,
+    credits: r.credits,
+    earned: r.earned,
+    unlocks: JSON.parse(r.unlocks) as string[],
+    tiers: JSON.parse(r.tiers) as string[],
+  }));
+}
+
+interface LoadoutUnitAcc {
+  deployed: number;
+  fromRoster: number;
+  bought: number;
+}
+
+interface LoadoutMissionAcc {
+  runs: number;
+  loadoutRuns: number;
+  endedRuns: number;
+  units: Map<string, LoadoutUnitAcc>;
+  orders: Map<TelemetryOrderVerb, number>;
+}
+
+/** Per-mission loadout and order means, folded in TypeScript from raw
+ *  `mission_start`/`mission_end` payloads (spec S4, D3). An old client sends
+ *  neither `deployed` nor `orders`; that run still counts in `runs`, but never
+ *  contributes a zero to a mean -- `loadoutRuns`/`endedRuns` are the
+ *  denominators, counted from the runs that actually carry the fields. */
+export async function loadouts(db: D1Like, f: StatsFilter) {
+  const w = where(f);
+  const rows = await db
+    .prepare(`SELECT mission, type, payload FROM events WHERE ${w.sql} AND type IN ('mission_start','mission_end') AND mission IS NOT NULL`)
+    .bind(...w.args)
+    .all<{ mission: string; type: string; payload: string }>();
+
+  const byMission = new Map<string, LoadoutMissionAcc>();
+  const missionAcc = (mission: string): LoadoutMissionAcc => {
+    let a = byMission.get(mission);
+    if (!a) {
+      a = { runs: 0, loadoutRuns: 0, endedRuns: 0, units: new Map(), orders: new Map() };
+      byMission.set(mission, a);
+    }
+    return a;
+  };
+  const unitAcc = (a: LoadoutMissionAcc, id: string): LoadoutUnitAcc => {
+    let u = a.units.get(id);
+    if (!u) {
+      u = { deployed: 0, fromRoster: 0, bought: 0 };
+      a.units.set(id, u);
+    }
+    return u;
+  };
+
+  for (const row of rows.results) {
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(row.payload) as Record<string, unknown>;
+    } catch {
+      continue; // a row ingest could never have written, but the fold must not 500 the page over it
+    }
+    const a = missionAcc(row.mission);
+    if (row.type === 'mission_start') {
+      a.runs++;
+      const deployed = payload.deployed as Record<string, number> | undefined;
+      if (deployed !== undefined) {
+        a.loadoutRuns++;
+        const fromRoster = (payload.fromRoster as Record<string, number> | undefined) ?? {};
+        for (const [id, n] of Object.entries(deployed)) unitAcc(a, id).deployed += n;
+        for (const [id, n] of Object.entries(fromRoster)) unitAcc(a, id).fromRoster += n;
+      }
+    } else {
+      const orders = payload.orders as Partial<Record<TelemetryOrderVerb, number>> | undefined;
+      if (orders !== undefined) {
+        a.endedRuns++;
+        const bought = (payload.bought as Record<string, number> | undefined) ?? {};
+        for (const [id, n] of Object.entries(bought)) unitAcc(a, id).bought += n;
+        for (const [verb, n] of Object.entries(orders) as [TelemetryOrderVerb, number][]) {
+          a.orders.set(verb, (a.orders.get(verb) ?? 0) + n);
+        }
+      }
+    }
+  }
+
+  return CAMPAIGN_ORDER.filter((m) => byMission.has(m)).map((mission) => {
+    const a = byMission.get(mission)!;
+    const units = [...a.units.entries()]
+      .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
+      .map(([id, u]) => ({
+        unit: id,
+        deployed: a.loadoutRuns > 0 ? u.deployed / a.loadoutRuns : null,
+        fromRoster: a.loadoutRuns > 0 ? u.fromRoster / a.loadoutRuns : null,
+        bought: a.endedRuns > 0 ? u.bought / a.endedRuns : null,
+      }));
+    const orders: Partial<Record<TelemetryOrderVerb, number>> = {};
+    for (const [verb, sum] of a.orders) orders[verb] = sum / a.endedRuns;
+    return { mission, runs: a.runs, loadoutRuns: a.loadoutRuns, endedRuns: a.endedRuns, units, orders };
+  });
+}
+
 export async function timeline(db: D1Like, tester: string) {
   const rows = await db
     .prepare(
@@ -284,6 +395,10 @@ export async function handleStats(req: Request, env: Env, now: number): Promise<
         return json(await testers(env.DB, f));
       case '/stats/api/timeline':
         return json(await timeline(env.DB, url.searchParams.get('tester') ?? ''));
+      case '/stats/api/accounts':
+        return json(await accounts(env.DB, f));
+      case '/stats/api/loadouts':
+        return json(await loadouts(env.DB, f));
       default:
         return new Response('Not found', { status: 404, headers: NO_STORE });
     }
