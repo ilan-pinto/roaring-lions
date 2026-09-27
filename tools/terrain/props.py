@@ -4,6 +4,14 @@ pile, rebar and wrecked car") entirely in code -- no Meshy, no source .blend
 files at all. Ground plan 2, Task 3 (D7: "Props: Blender now, Meshy only on a
 failed review", approved 2026-09-27).
 
+**Superseded as the source of the CURRENTLY SHIPPED `art/meshes/props/*.glb`
+by Task 3b (2026-09-27): the lead reviewed Meshy base models for all seven
+kinds and approved them ("Use all 7"), so the committed GLBs now come from
+`export_meshy_props.py` (same directory) instead of this file. This module
+is kept, unmodified and still runnable, as the documented fallback if a
+future review sends any kind back to Blender-only -- see D7's own "Meshy
+only on a failed review" and `export_meshy_props.py`'s own module docstring.
+
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --factory-startup --python tools/terrain/props.py
 
