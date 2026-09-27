@@ -11,9 +11,9 @@
 // function is one assertion.
 
 import { TICKS_PER_SECOND, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
+import type { KitLevel } from '@lions/data';
 import { gateSentence } from '../gate-sentence';
 import { t } from '../i18n/t';
-import type { KitLevel } from '@lions/data';
 import type { RoleBucket } from './role';
 
 /** A type the player may build, as the dock needs it. Assembled in `main.ts`,

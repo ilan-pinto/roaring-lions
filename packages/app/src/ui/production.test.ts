@@ -695,30 +695,30 @@ describe('destroy', () => {
     // installed is the one that came off, not merely that something did.
     expect(removeSpy).toHaveBeenCalledWith('keydown', listener);
   });
+});
 
-  describe('the kit sign on a tile (WP-S3g plan 2b)', () => {
-    it("signs a kitted type's tile with its level, as the tile's own child, and leaves the others alone", () => {
-      const r = rig([
-        dockUnit({ kit: 1 }),
-        dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT', kit: 3 }),
-        dockUnit({ id: 'at_team', name: 'Spike AT' }),
-      ]);
-      expect(r.tile('inf_squad').querySelector<HTMLElement>(':scope > .rl-kit-icon')?.dataset.kit).toBe('1');
-      expect(r.tile('mbt_lavi').querySelector<HTMLElement>(':scope > .rl-kit-icon')?.dataset.kit).toBe('3');
-      expect(r.tile('at_team').querySelector('.rl-kit-icon')).toBeNull();
-    });
+describe('the kit sign on a tile (WP-S3g plan 2b)', () => {
+  it("signs a kitted type's tile with its level, as the tile's own child, and leaves the others alone", () => {
+    const r = rig([
+      dockUnit({ kit: 1 }),
+      dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT', kit: 3 }),
+      dockUnit({ id: 'at_team', name: 'Spike AT' }),
+    ]);
+    expect(r.tile('inf_squad').querySelector<HTMLElement>(':scope > .rl-kit-icon')?.dataset.kit).toBe('1');
+    expect(r.tile('mbt_lavi').querySelector<HTMLElement>(':scope > .rl-kit-icon')?.dataset.kit).toBe('3');
+    expect(r.tile('at_team').querySelector('.rl-kit-icon')).toBeNull();
+  });
 
-    it('builds an unkitted tile exactly as before', () => {
-      const plain = rig([dockUnit()]).tile('inf_squad').outerHTML;
-      const zero = rig([dockUnit({ kit: 0 })]).tile('inf_squad').outerHTML;
-      expect(zero).toBe(plain);
-    });
+  it('builds an unkitted tile exactly as before', () => {
+    const plain = rig([dockUnit()]).tile('inf_squad').outerHTML;
+    const zero = rig([dockUnit({ kit: 0 })]).tile('inf_squad').outerHTML;
+    expect(zero).toBe(plain);
+  });
 
-    it('keeps one sign through the 4 Hz repaint', () => {
-      const r = rig([dockUnit({ kit: 2 })]);
-      r.dock.refresh();
-      r.dock.refresh();
-      expect(r.tile('inf_squad').querySelectorAll('.rl-kit-icon')).toHaveLength(1);
-    });
+  it('keeps one sign through the 4 Hz repaint', () => {
+    const r = rig([dockUnit({ kit: 2 })]);
+    r.dock.refresh();
+    r.dock.refresh();
+    expect(r.tile('inf_squad').querySelectorAll('.rl-kit-icon')).toHaveLength(1);
   });
 });
