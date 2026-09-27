@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import type { TelemetryEvent } from '@lions/data/telemetry';
-import { Sender, browserTransport, type Transport } from './sender';
+import { Sender, browserTransport, SENDER_MAX_BYTES, type Transport } from './sender';
 
 const e = (tick: number): TelemetryEvent => ({
   v: 1, player: '0f8fad5b-d9cb-469f-a165-70867728950e', session: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
@@ -62,6 +62,36 @@ describe('Sender', () => {
     expect(() => s.flush()).not.toThrow();
     expect(() => s.flush(true)).not.toThrow();
     expect(s.pending).toBe(0); // dropped, never retried in a loop
+  });
+});
+
+describe('Sender: byte cap (GH-254 R-7)', () => {
+  const fat = (n: number): TelemetryEvent => ({
+    v: 1, player: '0f8fad5b-d9cb-469f-a165-70867728950e', session: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+    build: '0.78.0', t: n, type: 'account', reason: 'reset', credits: 0, earned: 0,
+    unlocks: Array.from({ length: 17 }, (_, i) => `unit_number_${i}`),
+    tiers: Array.from({ length: 49 }, (_, i) => `unit_number_${i % 17}.firepower.${(i % 3) + 1}`),
+  });
+
+  it('closes a batch before the body passes SENDER_MAX_BYTES, and loses nothing', () => {
+    const f = fake();
+    const s = new Sender(f.t);
+    for (let n = 0; n < 50; n++) s.push(fat(n));
+    s.flush();
+    expect(f.posts.length).toBeGreaterThan(1);
+    for (const b of f.posts) expect(b.length).toBeLessThanOrEqual(SENDER_MAX_BYTES);
+    const ts = f.posts.flatMap((b) => (JSON.parse(b) as { events: { t: number }[] }).events.map((e) => e.t));
+    expect(ts).toEqual(Array.from({ length: 50 }, (_, n) => n));
+  });
+
+  it('still sends a single event larger than the cap on its own, rather than looping', () => {
+    const f = fake();
+    const s = new Sender(f.t, 50, 500, 100);
+    s.push(fat(1));
+    s.push(fat(2));
+    s.flush();
+    expect(f.posts).toHaveLength(2);
+    expect(s.pending).toBe(0);
   });
 });
 

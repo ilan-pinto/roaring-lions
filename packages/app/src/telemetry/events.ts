@@ -1,5 +1,16 @@
-import type { TelemetryEnvelope, TelemetryEvent, TelemetryScreen } from '@lions/data/telemetry';
+import {
+  UNIT_ID_PATTERN,
+  TIER_PATTERN,
+  MISSION_PATTERN as MISSION_RE,
+  type AccountReason,
+  type CountMap,
+  type TelemetryEnvelope,
+  type TelemetryEvent,
+  type TelemetryOrderVerb,
+  type TelemetryScreen,
+} from '@lions/data/telemetry';
 import type { DefeatCause } from '@lions/sim';
+import type { PlayerIntent } from '../input/intents';
 
 /** What the builders read from a live mission. Built by the caller from
  *  `MissionRuntime` and `sim.tickCount` -- a read, never a write (invariant 4). */
@@ -14,6 +25,103 @@ export interface RuntimeView {
 }
 
 const int = (n: number): number => Math.max(0, Math.round(n));
+
+/** What the account builders read from the brigade account. A read, never a
+ *  write (invariant 4) -- the caller owns the real account shape. */
+export interface AccountLike {
+  readonly balance: number;
+  readonly earned_total: number;
+  readonly unlocks: readonly string[];
+  readonly upgrades: Readonly<Record<string, Readonly<Record<string, number>>>>;
+}
+export interface AccountSnapshot {
+  credits: number;
+  earned: number;
+  unlocks: string[];
+  tiers: string[];
+}
+export interface AccountExtra {
+  mission?: string;
+  item?: string;
+  price?: number;
+  paid?: number;
+}
+export interface Loadout {
+  deployed: CountMap;
+  fromRoster: CountMap;
+}
+export interface MissionCounts {
+  bought: CountMap;
+  orders: Partial<Record<TelemetryOrderVerb, number>>;
+}
+
+const ITEM_RE = /^[a-z0-9_]{1,32}(\.[a-z0-9_]{1,32}\.[1-9])?$/;
+const MAX_UNLOCKS = 64;
+const MAX_TIERS = 256;
+const COUNT_MAX = 100_000;
+
+export function accountSnapshot(a: AccountLike): AccountSnapshot {
+  const unlocks = [...new Set(a.unlocks)].filter((u) => UNIT_ID_PATTERN.test(u)).sort().slice(0, MAX_UNLOCKS);
+  const tiers: string[] = [];
+  for (const [unit, tracks] of Object.entries(a.upgrades)) {
+    for (const [track, tier] of Object.entries(tracks)) {
+      const s = `${unit}.${track}.${tier}`;
+      if (TIER_PATTERN.test(s)) tiers.push(s); // tier 0, junk ids and tier >= 10 all fail the pattern
+    }
+  }
+  tiers.sort();
+  return { credits: int(a.balance), earned: int(a.earned_total), unlocks, tiers: tiers.slice(0, MAX_TIERS) };
+}
+
+export function accountEvent(
+  env: TelemetryEnvelope,
+  reason: AccountReason,
+  s: AccountSnapshot,
+  extra: AccountExtra = {}
+): TelemetryEvent {
+  return {
+    ...env,
+    type: 'account',
+    reason,
+    credits: Math.min(COUNT_MAX, s.credits),
+    earned: Math.min(COUNT_MAX, s.earned),
+    unlocks: s.unlocks,
+    tiers: s.tiers,
+    ...(extra.mission !== undefined && MISSION_RE.test(extra.mission) ? { mission: extra.mission } : {}),
+    ...(extra.item !== undefined && ITEM_RE.test(extra.item) ? { item: extra.item } : {}),
+    ...(extra.price !== undefined ? { price: Math.min(COUNT_MAX, int(extra.price)) } : {}),
+    ...(extra.paid !== undefined ? { paid: Math.min(COUNT_MAX, int(extra.paid)) } : {}),
+  };
+}
+
+export function orderVerbOf(i: PlayerIntent): TelemetryOrderVerb | null {
+  switch (i.kind) {
+    case 'order':
+      return i.verb;
+    case 'garrison':
+    case 'demolish':
+    case 'chargeTunnel':
+    case 'mount':
+    case 'dismount':
+    case 'smoke':
+    case 'halt':
+      return i.kind;
+    case 'support':
+      return i.accepted ? i.call : null;
+    case 'select':
+    case 'group':
+    case 'overlay':
+      return null;
+  }
+}
+
+export function tally(m: CountMap, key: string): void {
+  if (!UNIT_ID_PATTERN.test(key) && !/^[a-zA-Z]{1,16}$/.test(key)) return;
+  m[key] = Math.min(COUNT_MAX, (m[key] ?? 0) + 1);
+}
+
+const nonZero = <K extends string>(m: Partial<Record<K, number>>): Record<K, number> =>
+  Object.fromEntries(Object.entries(m).filter(([, v]) => typeof v === 'number' && v > 0)) as Record<K, number>;
 
 export function causeString(c: DefeatCause | undefined): string | undefined {
   if (c === undefined) return undefined;
@@ -55,8 +163,17 @@ export const tutorialStep = (env: TelemetryEnvelope, step: number, steps: number
   ...env, type: 'tutorial_step', step: int(step), steps: int(steps), prevMs: int(prevMs),
 });
 
-export const missionStart = (env: TelemetryEnvelope, mission: string, replay: boolean): TelemetryEvent => ({
-  ...env, type: 'mission_start', mission, replay,
+export const missionStart = (
+  env: TelemetryEnvelope,
+  mission: string,
+  replay: boolean,
+  loadout?: Loadout
+): TelemetryEvent => ({
+  ...env,
+  type: 'mission_start',
+  mission,
+  replay,
+  ...(loadout ? { deployed: nonZero(loadout.deployed), fromRoster: nonZero(loadout.fromRoster) } : {}),
 });
 
 export function objectiveEvent(
@@ -72,7 +189,13 @@ export function objectiveEvent(
   return { ...env, type: 'objective', mission, objective: o.id, objectiveType: o.type, primary: o.primary, status, tick: int(tick) };
 }
 
-export function missionEnd(env: TelemetryEnvelope, mission: string, view: RuntimeView, abandoned: boolean): TelemetryEvent {
+export function missionEnd(
+  env: TelemetryEnvelope,
+  mission: string,
+  view: RuntimeView,
+  abandoned: boolean,
+  counts?: MissionCounts
+): TelemetryEvent {
   const result = abandoned || view.result === 'ongoing' ? 'abandoned' : view.result;
   const cause = result === 'defeat' ? causeString(view.defeatCause) : undefined;
   return {
@@ -87,6 +210,7 @@ export function missionEnd(env: TelemetryEnvelope, mission: string, view: Runtim
     lost: int(view.lost),
     objectivesDone: view.objectives.filter((o) => o.status === 'complete').length,
     objectivesTotal: view.objectives.length,
+    ...(counts ? { bought: nonZero(counts.bought), orders: nonZero(counts.orders) } : {}),
   };
 }
 
