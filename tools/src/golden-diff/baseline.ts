@@ -390,12 +390,18 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'scatter',
-        minDiffPixels: 700,
-        minMeanAbsChannelDelta: 0.13,
+        minDiffPixels: 586,
+        minMeanAbsChannelDelta: 0.07,
         toneCheck: {
           over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
+            'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims (stone flecks halve ' +
+            'from 3-7 a tile to 2-4, the earth disc retires), the tone footprint re-measures at ' +
+            '31150 / 28785 = 0.9241 on all 3 of this task\'s re-derivation runs (bit-identical), ' +
+            'comfortably above the 0.8 floor. The ratio floor does not move under N-7 -- only the ' +
+            'toggle floor below does -- so 0.8 stays; re-derived under N-7, approved by the lead ' +
+            'on 2026-09-27. ' +
             'the grain mesh covers 52767-52768 px of this frame over textured ground and 49082 px ' +
             'over the flat palette tone -- ratio 0.9301-0.9302 over the 5 side-light runs, the ' +
             'one-pixel spread being the only tone footprint in the gate that is not bit-identical ' +
@@ -424,7 +430,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'the sun\'s Y stayed at 0.819, so the ground the marks sit on is lit exactly as it was ' +
           'and only the shading of the marks\' own micro-relief changed. The weakest of the three ' +
           'scatter witnesses -- this camera looks at a town, not at open ground -- which is why ' +
-          'open-ground carries the same check at 1.7x the signal.',
+          'open-ground carries the same check at 1.7x the signal. ' +
+          'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, hiding the grain mesh ' +
+          'moves 1758 px / 0.2242 here, bit-identical across 3 consecutive full-gate runs ' +
+          '(r1-r3). Floor re-derived per N-7 as a third of the smallest of the three readings, ' +
+          'rounded down: 586 px / 0.07, down from the pre-D9 700 px / 0.13 -- a fall, not a ' +
+          'tightening, so it is kept rather than held at the higher pre-D9 number. Re-derived ' +
+          'under N-7, approved by the lead on 2026-09-27.',
       },
       {
         layer: 'decor',
@@ -600,12 +612,18 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'scatter',
-        minDiffPixels: 1200,
-        minMeanAbsChannelDelta: 0.53,
+        minDiffPixels: 1159,
+        minMeanAbsChannelDelta: 0.46,
         toneCheck: {
           over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
+            'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, the tone footprint ' +
+            're-measures at 8149 / 7798 = 0.9569 on all 3 of this task\'s re-derivation runs ' +
+            '(bit-identical), above the 0.8 floor with more headroom than before the trims (the ' +
+            'flecks that survive keep the composite-order gap this check reads). The ratio floor ' +
+            'does not move under N-7 -- only the toggle floor below does -- so 0.8 stays; ' +
+            're-derived under N-7, approved by the lead on 2026-09-27. ' +
             'the grain mesh covers 10170 px of this crop over textured ground and 9417 px over ' +
             'the flat palette tone -- ratio 0.9260, identical on the 5 side-light runs (10254 / ' +
             '9487 = 0.9252 under the front-lit sun; 8967 / 8558 = 0.9544 before the lights). THE ' +
@@ -629,7 +647,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'already and the sun shades mark and ground together. The side light moved it by one ' +
           'part in a thousand (3615 / 1.6071 front-lit, the same 3615 pixels), because this ' +
           'crop holds no vertical face for an azimuth to change. Still the strongest scatter ' +
-          'witness on magnitude, which is what the crop was chosen for.',
+          'witness on magnitude, which is what the crop was chosen for. ' +
+          'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, hiding the grain mesh ' +
+          'moves 3479 px / 1.4086 here, bit-identical across 3 consecutive full-gate runs ' +
+          '(r1-r3). Floor re-derived per N-7 as a third of the smallest of the three readings, ' +
+          'rounded down: 1159 px / 0.46, down from the pre-D9 1200 px / 0.53 -- a fall, kept as ' +
+          'such. Re-derived under N-7, approved by the lead on 2026-09-27.',
       },
       {
         layer: 'macro',
@@ -866,12 +889,19 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'scatter',
-        minDiffPixels: 1400,
-        minMeanAbsChannelDelta: 0.15,
+        minDiffPixels: 1375,
+        minMeanAbsChannelDelta: 0.10,
         toneCheck: {
           over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
+            'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, the tone footprint ' +
+            're-measures at 79711 / 79387 = 0.9959 on all 3 of this task\'s re-derivation runs ' +
+            '(bit-identical), still comfortably above 0.8 -- as the entry below already ' +
+            'establishes, this scenario\'s tone check is a texture witness rather than a defect ' +
+            'witness, and that has not changed. The floor stays at 0.8, unmoved, per N-7 (which ' +
+            'approves a fall in the toggle floor below, never a change to the ratio floor). ' +
+            're-derived under N-7, approved by the lead on 2026-09-27. ' +
             'the grain mesh covers 91990 px of this frame over textured ground and 91394 px over ' +
             'the flat palette tone -- ratio 0.9935, identical on the 5 side-light runs (93062 / ' +
             '92076 = 0.9894 under the front-lit sun; 23915 / 22426 = 0.9377 before the lights, the ' +
@@ -904,7 +934,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'against a pre-lit 7146 px / 0.4093 ' +
           '-- the magnitude held and the pixel count fell 39%, because tel_marum\'s relief now ' +
           'carries its own slope shading and a mark on a lit slope separates from it by less than ' +
-          'it did from a flat palette tone. The only scatter witness on a map with relief.',
+          'it did from a flat palette tone. The only scatter witness on a map with relief. ' +
+          'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, hiding the grain mesh ' +
+          'moves 4126 px / 0.3294 here, bit-identical across 3 consecutive full-gate runs ' +
+          '(r1-r3). Floor re-derived per N-7 as a third of the smallest of the three readings, ' +
+          'rounded down: 1375 px / 0.10, down from the pre-D9 1400 px / 0.15 -- a fall, kept as ' +
+          'such. Re-derived under N-7, approved by the lead on 2026-09-27.',
       },
       // NO `macro` check, by F-18 and not by measurement. The pure
       // `buildMacroField(48, 48)` predicts mean |m| 0.181 over this frame's
@@ -1082,8 +1117,8 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'scatter',
-        minDiffPixels: 2000,
-        minMeanAbsChannelDelta: 0.26,
+        minDiffPixels: 1990,
+        minMeanAbsChannelDelta: 0.19,
         rationale:
           GROUND_T17 +
           'hiding the grain mesh moves 6193 px / 0.7816 here (5195 / 0.6546 at the old framing, ' +
@@ -1095,7 +1130,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'scatter witness uses, and this scenario adds nothing that ratio needs a fresh floor for -- ' +
           'declaring one here without a distinct measured population would only restate `open-ground`\'s ' +
           '0.9260/0.7109 gap on different ground. Falsified by making `buildScatter` return an empty ' +
-          'array: 0 px / 0.0000, FAIL.',
+          'array: 0 px / 0.0000, FAIL. ' +
+          'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, hiding the grain mesh ' +
+          'moves 5970 px / 0.5948 here, bit-identical across 3 consecutive full-gate runs ' +
+          '(r1-r3). Floor re-derived per N-7 as a third of the smallest of the three readings, ' +
+          'rounded down: 1990 px / 0.19, down from the pre-D9 2000 px / 0.26 -- a fall, kept as ' +
+          'such. No `toneCheck` on this scenario, so N-7\'s ratio-floor rule does not apply here. ' +
+          'Re-derived under N-7, approved by the lead on 2026-09-27.',
       },
     ],
     rationale:
