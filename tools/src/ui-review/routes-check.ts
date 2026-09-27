@@ -48,6 +48,7 @@ import { ACCOUNT_KEY } from '../../../packages/app/src/brigade-account';
 import { garageSeedScript } from './garage-seed';
 import { claimPort } from './port';
 import { PLACEHOLDER_HZ } from '../../../packages/render/src/audio';
+import { VOICE_TIMING } from '../../../packages/app/src/voice/director';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -1264,7 +1265,7 @@ try {
   // real input event through the real handler.
   {
     const VOICE_HZ = new Set<number>(Object.values(PLACEHOLDER_HZ));
-    type VoiceEntry = { source: string; trigger: string | null; key: string | null; why: string; status: string | null };
+    type VoiceEntry = { at: number; source: string; trigger: string | null; key: string | null; why: string; status: string | null };
     type VoiceRead = { entries: VoiceEntry[]; placeholder: boolean; osc: (number | null)[]; constructed: number };
     const VOICE_READ =
       '(() => { var log = window.__lions.voiceLog(); return { entries: log.entries,' +
@@ -1368,11 +1369,17 @@ try {
       `voices (a): the halt key made ${JSON.stringify(orderEntries(a3).slice(2))}`
     );
 
-    // (b) A quick repeat is throttled (N2). Three right-clicks inside a second,
-    // one task apart -- real clicks cost seconds each under SwiftShader, which
-    // would outrun the 4 s window this leg is about. Each is dispatched through
-    // the canvas's own `contextmenu` listener, a macrotask apart, so each is its
-    // own gesture (R-3).
+    // (b) A quick repeat is throttled (N2). Three right-clicks, each its own
+    // gesture but with NO macrotask between them -- a `setTimeout(0)` yields to
+    // the frame loop, and under SwiftShader a frame can cost seconds, so the
+    // third click landed outside the director's own repeatWindowMs and opened a
+    // fresh run instead of being throttled (observed on CI: a burst spanning
+    // 7028.6ms, gh run 36301745600 job 108570532068). The runtime flushes a
+    // gesture on a queued microtask (`deps.schedule = queueMicrotask`), so
+    // waiting on two microtask turns after each dispatch lets that flush run
+    // while never yielding to a frame -- three distinct gestures, no window to
+    // outrun. Each is dispatched through the canvas's own `contextmenu`
+    // listener (R-3).
     const q = await aim([lavi.id], lavi);
     const b0 = await read();
     await v.evaluate(async ({ x, y }) => {
@@ -1380,13 +1387,21 @@ try {
       if (!c) throw new Error('no battlefield canvas');
       for (let i = 0; i < 3; i++) {
         c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2 }));
-        await new Promise((r) => setTimeout(r, 0));
+        await new Promise<void>((r) => queueMicrotask(r));
+        await new Promise<void>((r) => queueMicrotask(r));
       }
     }, q);
     await v.waitForTimeout(300);
     const b1 = await read();
     const burst = b1.entries.slice(b0.entries.length);
     console.log(`[${TAG}] voices (b) burst: ${JSON.stringify(burst)}`);
+    expect(burst.length === 3, `voices (b): a three-click burst produced ${burst.length} log entries, not 3`);
+    const burstSpan = (burst.at(-1)?.at ?? 0) - (burst[0]?.at ?? 0);
+    expect(
+      burstSpan < VOICE_TIMING.repeatWindowMs,
+      `voices (b): the burst itself spanned ${burstSpan}ms, over the ${VOICE_TIMING.repeatWindowMs}ms repeat window -- ` +
+        'this leg measures the runner, not the throttle; a slow runner opened a fresh run instead of repeating (N2)'
+    );
     expect(
       burst.map((e) => e.why).join() === 'line,ack:repeat,silent:repeat',
       `voices (b): a three-click burst read ${burst.map((e) => e.why).join()} (N2)`
