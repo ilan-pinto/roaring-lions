@@ -1865,6 +1865,21 @@ body {
   transition: opacity var(--dur-fast) var(--ease);
 }
 
+/* --- voice caption (WP-AU1 D8) ------------------------------------------
+   One slot under the notice feed, never inside it: the feed is for what
+   happened, and a caption only repeats what a unit said. Off unless the
+   player asks for it (Settings, Accessibility). */
+.rl-caption {
+  font-size: var(--t-read);
+  font-style: italic;
+  color: var(--ink);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.rl-caption[hidden] {
+  display: none;
+}
+
 /* --- bottom-centre controls hint -------------------------------------- */
 
 /* The last child of .rl-sel now (hud.ts, fix round 1), not its own

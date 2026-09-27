@@ -39,6 +39,7 @@ import { LOGISTICS_GLYPH } from './glyphs';
 import { markSvg } from './mark';
 import { roleBadgeSvg, roleBucket } from './role';
 import { bindDelegatedTip, bindTip } from './tooltip';
+import { VoiceCaption } from './voice-caption';
 import {
   beatDwellMs,
   conductDefinition,
@@ -297,6 +298,9 @@ export class Hud {
   private chipViews: ChipView[] = [];
   private readonly clock: HTMLDivElement;
   private readonly feed: HTMLDivElement;
+  /** WP-AU1 D8: the caption slot under the feed, never inside it -- see
+   *  `voice-caption.ts`. Owns its own hold timer, released in `destroy()`. */
+  private readonly captionBox = new VoiceCaption();
   private readonly hint: HTMLDivElement;
   private readonly fire: HTMLDivElement;
   private readonly cmd: HTMLDivElement;
@@ -646,6 +650,11 @@ export class Hud {
     // the feed sits above the order row and the card, separated by the
     // column's own gap, rather than floating over either at a fixed offset.
     this.sel.prepend(this.feed);
+    // WP-AU1 D8: the caption slot goes right after the feed, never inside
+    // it -- a caption is not a notice, and the feed's own `note()` prepends
+    // and caps at FEED_LINES, which would eventually push a caption element
+    // living among the notices clean off the end.
+    this.feed.after(this.captionBox.el);
 
     this.hint = document.createElement('div');
     // A plate, not the shadow halo -- .rl-onmap alone measured ~1.3:1 over
@@ -768,6 +777,11 @@ export class Hud {
    * follows it.
    */
   destroy(): void {
+    // WP-AU1 D8: the caption's own pending `setTimeout` first -- R-18, a DOM
+    // builder whose timer dies with it. `roots.remove()` below takes the
+    // element off the host either way, but only `dispose()` clears the timer
+    // that would otherwise fire against a node nobody holds any more.
+    this.captionBox.dispose();
     // `dismiss()` releases the card's two window listeners and its timer, then
     // fades it over 250 ms before removing the node -- so the element is still
     // on the host when this returns. Teardown has to be synchronous (the
@@ -937,6 +951,16 @@ export class Hud {
     // Notices are punctuation, not a log — the roll feed in the debug overlay
     // is where history lives. These clear themselves so the map stays visible.
     window.setTimeout(() => leave(el), 9000);
+  }
+
+  /** WP-AU1 D8: show a unit's spoken line as text, in the caption slot under
+   *  the feed. The voice runtime (T9) calls this with the manifest line's
+   *  own `en` text and its length in seconds, and only once a line actually
+   *  played -- gated upstream by `accessibility.captions` (T6), off by
+   *  default, so a HUD built without that setting on never calls this at
+   *  all. */
+  caption(text: string, seconds: number): void {
+    this.captionBox.show(text, seconds);
   }
 
   /**
