@@ -2177,6 +2177,26 @@ describe('the kit sign on the HUD’s icons (WP-S3g plan 2b)', () => {
     expect(zero).toBe(plain);
   });
 
+  it('marks a kitted own chip’s root with its level for the border tint, and an unkitted one not at all (G-P3)', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [...world.squads, world.at, world.namer],
+      { kitLevelOf: levels({ inf_squad: 1, at_team: 2, ifv_namer: 3 }) },
+      world
+    );
+    expect(chipOf(r, 'inf_squad')?.dataset.kit).toBe('1');
+    expect(chipOf(r, 'at_team')?.dataset.kit).toBe('2');
+    expect(chipOf(r, 'ifv_namer')?.dataset.kit).toBe('3');
+    const b = makeForce();
+    const zero = clusterRig(() => [...b.squads, b.at], { kitLevelOf: () => 0 }, b);
+    for (const c of zero.chips()) expect(c.hasAttribute('data-kit'), c.dataset.type).toBe(false);
+    // A chip the player does not wholly command is not tinted either.
+    const w2 = makeForce();
+    const enemy = w2.sim.spawn(w2.sim.state.typeIdx[w2.namer], 1, fx.from(6), fx.from(6));
+    const mixed = clusterRig(() => [w2.namer, enemy], { kitLevelOf: levels({ ifv_namer: 3 }) }, w2);
+    expect(chipOf(mixed, 'ifv_namer')?.hasAttribute('data-kit')).toBe(false);
+  });
+
   it('never signs a chip that holds a unit the player does not command', () => {
     const world = makeForce();
     const enemy = world.sim.spawn(world.sim.state.typeIdx[world.namer], 1, fx.from(6), fx.from(6));

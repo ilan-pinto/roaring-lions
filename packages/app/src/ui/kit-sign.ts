@@ -2,9 +2,12 @@
 //
 // Veterancy is EARNED, per named unit, and it is stars and gold chevrons.
 // Kit is BOUGHT, per type, and it is a steel plate. Nothing on this page may
-// borrow a shape or a colour from the other register -- which is why the
-// mark is a bevelled plate with bars, never a chevron or a star, and why its
-// colour is `--kit` and never `--commend`.
+// borrow a colour from the other register -- which is why every kit glyph is
+// `--kit` and never `--commend`. The garage's own mark is a bevelled plate
+// with bars; the sign on a unit's ICON is 1-3 six-pointed Stars of David, by
+// the lead's G-P3 call (2026-09-27, "Steel Stars of David"), which overrode
+// this header's old "never a star" rule for that one surface -- so steel,
+// not shape, is what keeps it apart from veterancy's gold there.
 //
 // The glyphs are PLACEHOLDERS. The S3e symbol family is not drawn yet (G1,
 // GH-165), and these four join its addendum (D8). Until the sheet is approved
@@ -73,36 +76,79 @@ export function kitSymbolSvg(id: KitSymbolId, size: number, level: 1 | 2 | 3 = 1
  *  parameter here (see `kitIconSignHtml`). `px` is each size at `--ui-scale`
  *  1, written into the svg's own attributes as a floor; the stylesheet's rem
  *  rule wins, so the sign follows the UI scale. The G-N2 recommendation was
- *  one size everywhere -- 1.25rem, the smallest at which the level-1 bar
- *  clears the plate by a whole pixel (R-6). The lead's G-N2 FINAL answer
- *  split it instead: *"B, but 20 px on the chip"* -- the selection chip alone
- *  keeps that legible 1.25rem/20 px (`chip`); the card frame, the dock tile
- *  and the garage rail all take the smaller 1rem/16 px (`small`)
- *  `kit-sign.test.ts` was built to reject, and records why it is accepted
- *  anyway. */
+ *  one size everywhere -- 1.25rem, the smallest at which the (then) mark's
+ *  level-1 bar cleared its plate by a whole pixel (R-6). The lead's G-N2
+ *  FINAL answer split it instead: *"B, but 20 px on the chip"* -- the
+ *  selection chip alone keeps 1.25rem/20 px (`chip`); the card frame, the
+ *  dock tile and the garage rail take the smaller 1rem/16 px (`small`).
+ *  Since G-P3 the sign is stars, and these are the SIGN BOX: three stars fill
+ *  its width, each 7.06 px tall on the chip and 5.65 px on `small`. */
 export const KIT_ICON_SIGN = {
   chip: { rem: 1.25, px: 20 },
   small: { rem: 1, px: 16 },
 } as const;
 
-/** The garage bay's own mark (`kitSymbolSvg('kit')`), sized for an icon's
- *  corner. Nothing at level 0 -- an unkitted icon must not change by a byte
- *  (every gated golden frame boots a fresh account). The markup never names
- *  a surface or a size: the svg's own attributes are the smaller `small`
- *  size (CSS wins), and `theme.css` sizes the chip UP through a selector
- *  keyed on the chip's own art class (`hud.ts`'s `renderChips`,
+/** A Star of David, point up: the hexagram's twelve-vertex outline (tip,
+ *  notch, tip ... clockwise from the top), one closed absolute M/L/Z path,
+ *  tips on radius `r` and notches on `r / sqrt(3)` -- the same figure as two
+ *  overlapping equilateral triangles, drawn as their filled union. Measured
+ *  at the sign's sizes (G-P3, 2026-09-27): filled reads as a six-pointed star
+ *  at 6-7 px, where the two stroked triangles and the even-odd (hollow
+ *  centre) form both collapse into a ring. */
+export function starOfDavidPath(cx: number, cy: number, r: number): string {
+  const n = (v: number): string => String(Math.round(v * 1000) / 1000);
+  const pts: string[] = [];
+  for (let k = 0; k < 12; k++) {
+    const rad = k % 2 === 0 ? r : r / Math.sqrt(3);
+    const a = ((-90 + 30 * k) * Math.PI) / 180;
+    pts.push(`${n(cx + rad * Math.cos(a))} ${n(cy + rad * Math.sin(a))}`);
+  }
+  return `M${pts.join(' L')} Z`;
+}
+
+/** The kit sign's stars in the svg's 24-unit box (G-P3): three in a row
+ *  exactly fill its width, `GAP` apart, so every level draws the same size of
+ *  star and the COUNT is what reads. A point-up hexagram is sqrt(3)/2 as wide
+ *  as it is tall, which is what lets three of them stand 7 px tall inside the
+ *  chip's 20 px square (`kit-sign.test.ts` pins the floor). */
+const STAR_GAP = 1;
+const STAR_W = (24 - 2 * STAR_GAP) / 3;
+const STAR_R = STAR_W / Math.sqrt(3);
+
+/** `level` steel Stars of David in a row along the top of a square svg,
+ *  right-aligned so the corner star holds still as the count grows. */
+function kitStarsSvg(level: 1 | 2 | 3, size: number): string {
+  let body = '';
+  for (let i = 0; i < level; i++) {
+    const cx = 24 - STAR_W / 2 - i * (STAR_W + STAR_GAP);
+    body += `<path d="${starOfDavidPath(cx, STAR_R, STAR_R)}" fill="currentColor"/>`;
+  }
+  return (
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" ` + `aria-hidden="true" focusable="false">${body}</svg>`
+  );
+}
+
+/** The kit level on a unit's ICON: 1-3 steel Stars of David (G-P3, the
+ *  lead, 2026-09-27: "Steel Stars of David" -- steel through `.rl-kit-mark`'s
+ *  `--kit`, never gold, which is veterancy and credits, D3). The garage bay
+ *  keeps its own bevelled mark (`kitSymbolSvg('kit')`); this is the icon
+ *  sign only. Nothing at level 0 -- an unkitted icon must not change by a
+ *  byte (every gated golden frame boots a fresh account). The markup never
+ *  names a surface or a size: the svg's own attributes are the smaller
+ *  `small` size (CSS wins), and `theme.css` sizes the chip UP through a
+ *  selector keyed on the chip's own art class (`hud.ts`'s `renderChips`,
  *  `rl-chip__art`), not on which caller happened to ask. A review round on
- *  this task's first pass had `kitIconSignHtml`/`withKitSign` take a
- *  `surface` argument instead; the controller reverted it (fix round 1):
- *  an omitted argument at the chip's own call site would have silently
- *  drawn it at the 16 px the lead rejected there, where a selector cannot be
- *  forgotten per call site. */
+ *  Task 3's first pass had `kitIconSignHtml`/`withKitSign` take a `surface`
+ *  argument instead; the controller reverted it (fix round 1): an omitted
+ *  argument at the chip's own call site would have silently drawn it at the
+ *  16 px the lead rejected there, where a selector cannot be forgotten per
+ *  call site. */
 export function kitIconSignHtml(level: KitLevel): string {
   if (level === 0) return '';
   return (
     `<span class="rl-kit-icon rl-kit-mark" data-kit="${level}" role="img" ` +
     `aria-label="${escapeHtml(kitLevelLabel(level))}">` +
-    kitSymbolSvg('kit', KIT_ICON_SIGN.small.px, level) +
+    kitStarsSvg(level, KIT_ICON_SIGN.small.px) +
     `</span>`
   );
 }

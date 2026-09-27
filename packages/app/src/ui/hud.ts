@@ -1617,11 +1617,16 @@ export class Hud {
     this.cluster.innerHTML = chips
       .map((c, i) => {
         const tone = c.statusTone === null ? 'rl-dim' : textToneClass(c.statusTone);
+        const kit = c.own ? this.kitLevel(c.typeId) : 0;
         return (
           `<div class="rl-chip" data-type="${escapeHtml(c.typeId)}" ` +
           `data-tip="${escapeHtml(c.typeId)}" ` +
-          `data-focus="${i === this.chipFocus ? '1' : '0'}">` +
-          withKitSign(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK), c.own ? this.kitLevel(c.typeId) : 0) +
+          `data-focus="${i === this.chipFocus ? '1' : '0'}"` +
+          // G-P3 "Tinted border": the chip root carries the level for
+          // theme.css's per-level border tint. Absent at level 0, so an
+          // unkitted chip is byte-identical to one drawn before the kit.
+          `${kit > 0 ? ` data-kit="${kit}"` : ''}>` +
+          withKitSign(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK), kit) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
           // The name in its own span: `text-overflow`/wrapping does nothing
