@@ -106,11 +106,21 @@ This census covers every place `packages/app` draws a picture of one of the play
 
 ## G-N2: the numbers the lead approves before any icon code is committed
 
+**G-N2 FINAL — the lead, 2026-09-27, quoted verbatim (after seeing the B-halo
+L1 crops):** *"B, but 20 px on the chip."* Read with the ledger's fuller
+record of the same answer: halo style (no plate), top-right corner, the
+plan's own insets, own units at level ≥ 1, hidden on a locked tile — all as
+recommended below — but the **size splits by surface**: the selection chip
+keeps **1.25 rem** (20 px at `--ui-scale` 1); the card frame, the dock tile
+and the garage rail all drop to **1 rem** (16 px). The garage rail is kept.
+I2 and I3 below are amended in place to record the split; every other row is
+unchanged from the recommendation.
+
 | # | Item | Number (recommended) | Alternatives shown in the mock | Reason |
 |---|---|---|---|---|
 | I1 | Glyph | `kitSymbolSvg('kit', 20, L)`: the garage bay's own bevelled plate with L bars, unchanged | none | R-4 |
-| I2 | Size | **A: 1.25 rem**, which is 20 / 23 / 28 px at `--ui-scale` 1 / 1.15 / 1.4 | B: 1 rem (16 / 18.4 / 22.4 px) | R-6: B puts the level-1 bar 0.83 / 0.96 px off the plate at 1400 and 1920, and it fuses |
-| I3 | Legibility at A, `--ui-scale` 1 | stroke 2.08 px; bars 2.5 px; gaps 1.25 px; lowest bar to plate 1.04 px | none | Task 3's test enforces each as ≥ 1 px (bars ≥ 2 px) |
+| I2 | Size | **Final: per surface.** Chip **1.25 rem** (20 / 23 / 28 px at `--ui-scale` 1 / 1.15 / 1.4); card frame, dock tile and garage rail **1 rem** (16 / 18.4 / 22.4 px) | A (1.25 rem on every surface) was the G-N2 recommendation; B (1 rem on every surface) is the alternative the lead split from | R-6, refined by the lead's own split after the B-halo L1 crop |
+| I3 | Legibility at `--ui-scale` 1 | **Chip** (1.25 rem): stroke 2.08 px; bars 2.5 px; gaps 1.25 px; lowest bar to plate 1.04 px — clears R-6's ≥ 1 px floor. **Card frame / dock tile / garage rail** (1 rem): stroke 1.67 px; bars 2 px; gaps 1 px; lowest bar to plate **0.83 px** — under the floor; the lead saw this fuse in the crop and chose it anyway for these three surfaces | none | Task 3's test enforces the chip's ≥ 1 px floor and records the smaller size's 0.83 px as the lead's accepted number, not a requirement |
 | I4 | Corner | **top-right on every surface** | none | R-5; the census's "corners already taken" |
 | I5 | Insets (from the padding edge) | chip 0; rail 0; card frame 0.1875 rem (3 px, the role badge's own margin); dock tile 0.125 rem (2 px, the art's own inset) | none | Each sits where that surface's own corner mark sits |
 | I6 | Colour | glyph `--kit` (`gunmetal-0` #C3C7C4) through `.rl-kit-mark`; a 1 px `--kit-edge` (`shadow-0` #23241F) `drop-shadow` halo; **no box** | C: plated, a `--well` square with a 1 px `--kit-edge` border behind the glyph | R-7; D3 steel, clear of gold (veterancy, credits), team blue and lime selection |
