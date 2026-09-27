@@ -1,14 +1,20 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { units, type UpgradableUnit } from '@lions/data';
 import {
   CHEVRON_SWEEP,
+  KIT_ICON_SIGN,
   KIT_SYMBOLS,
   KIT_TRACKS,
+  kitIconSignHtml,
   kitLevelLabel,
   kitPipsHtml,
   kitSummary,
   kitSymbolSvg,
+  withKitSign,
   type KitSymbolId,
 } from './kit-sign';
 
@@ -159,5 +165,161 @@ describe('kitPipsHtml', () => {
 
   it('labels a level for the plate', () => {
     expect([kitLevelLabel(1), kitLevelLabel(2), kitLevelLabel(3)]).toEqual(['Kit I', 'Kit II', 'Kit III']);
+  });
+});
+
+// NOT `new URL('./theme.css', import.meta.url)`: under this file's jsdom
+// environment Vite's client transform special-cases exactly that syntactic
+// pattern into a dev-server asset URL (`http://localhost:.../theme.css`),
+// discarding the filesystem path -- measured directly, not assumed. Building
+// the path in two steps keeps the plain runtime semantics.
+const THEME = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'theme.css'), 'utf8');
+
+/** A rule's body by its exact selector at the start of a line, so
+ *  `.rl-kit-icon` never matches `.rl-kit-icon svg` or `.rl-tile > .rl-kit-icon`. */
+function ruleBody(selector: string): string {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\>]/g, '\\$&');
+  const body = new RegExp(`\\n${esc}\\s*\\{([^}]*)\\}`).exec(THEME)?.[1];
+  if (body === undefined) throw new Error(`fixture: theme.css has no rule "${selector}"`);
+  return body;
+}
+
+/** The mark's own geometry, read back out of the markup the garage draws --
+ *  never restated -- in the sheet's 24-unit box: the plate's inner bottom
+ *  edge, and each bar's [top, bottom]. */
+function markGeometry(level: 1 | 2 | 3): { plateInnerBottom: number; bars: [number, number][] } {
+  const svg = kitSymbolSvg('kit', 24, level);
+  const d = /<path d="([^"]+)"/.exec(svg)?.[1];
+  const stroke = Number(/stroke-width="([\d.]+)"/.exec(svg)?.[1]);
+  if (d === undefined || !Number.isFinite(stroke)) throw new Error('fixture: the kit mark has no stroked plate');
+  const ys = [...d.matchAll(/[ML]\s*[\d.]+\s+([\d.]+)/g)].map((m) => Number(m[1]));
+  const bars = [...svg.matchAll(/<rect x="[\d.]+" y="([\d.]+)" width="[\d.]+" height="([\d.]+)"/g)].map(
+    (m): [number, number] => [Number(m[1]), Number(m[1]) + Number(m[2])]
+  );
+  return { plateInnerBottom: Math.max(...ys) - stroke / 2, bars };
+}
+
+/** jsdom (30.x) always serializes a foreign SVG element with an explicit
+ *  closing tag, even one built from self-closing source markup (`<path
+ *  d="…"/>` round-trips as `<path d="…"></path>`) -- measured directly, not
+ *  a real-browser rule. Comparing `element.innerHTML` against a raw
+ *  `kitSymbolSvg(...)` string is therefore a DOM-vs-string comparison that
+ *  fails on syntax alone; round-tripping the expected side through the same
+ *  parser makes it a DOM-vs-DOM comparison of the markup that matters. */
+function parseSvg(svg: string): string {
+  const div = document.createElement('div');
+  div.innerHTML = svg;
+  return div.innerHTML;
+}
+
+describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
+  const ICON = '<img class="rl-chip__art" src="/x.png" alt="" draggable="false">';
+
+  it('is the approved per-surface sizes, and the stylesheet draws each at exactly that size', () => {
+    // G-N2 FINAL, the lead, 2026-09-27: "B, but 20 px on the chip." The
+    // plan's original single 1.25rem (G-N2's recommendation, R-6) survives
+    // only on the chip; every other surface takes the smaller 1rem ('icon').
+    expect(KIT_ICON_SIGN).toEqual({ chip: { rem: 1.25, px: 20 }, icon: { rem: 1, px: 16 } });
+    expect(KIT_ICON_SIGN.chip.px).toBe(KIT_ICON_SIGN.chip.rem * 16);
+    expect(KIT_ICON_SIGN.icon.px).toBe(KIT_ICON_SIGN.icon.rem * 16);
+    const base = ruleBody('.rl-kit-icon svg');
+    expect(base).toMatch(new RegExp(`width:\\s*${KIT_ICON_SIGN.icon.rem}rem`));
+    expect(base).toMatch(new RegExp(`height:\\s*${KIT_ICON_SIGN.icon.rem}rem`));
+    const chip = ruleBody('.rl-kit-icon--chip svg');
+    expect(chip).toMatch(new RegExp(`width:\\s*${KIT_ICON_SIGN.chip.rem}rem`));
+    expect(chip).toMatch(new RegExp(`height:\\s*${KIT_ICON_SIGN.chip.rem}rem`));
+  });
+
+  it('keeps every bar a clear pixel apart, and off the plate, on the chip at the smallest UI scale (R-6)', () => {
+    // Only the chip is held to R-6's floor: it is the one surface the lead
+    // kept at the legible size ("B, but 20 px on the chip", G-N2 FINAL).
+    const scale = KIT_ICON_SIGN.chip.px / 24; // --ui-scale 1: the smallest the sign is ever drawn
+    for (const level of [1, 2, 3] as const) {
+      const { plateInnerBottom, bars } = markGeometry(level);
+      expect(bars).toHaveLength(level);
+      const lowestFirst = [...bars].sort((a, b) => b[0] - a[0]);
+      expect((plateInnerBottom - lowestFirst[0][1]) * scale, `L${level}: lowest bar to plate`).toBeGreaterThanOrEqual(1);
+      for (let i = 1; i < lowestFirst.length; i++) {
+        expect((lowestFirst[i - 1][0] - lowestFirst[i][1]) * scale, `L${level}: gap ${i}`).toBeGreaterThanOrEqual(1);
+      }
+      for (const [top, bottom] of bars) expect((bottom - top) * scale, `L${level}: bar height`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('is smaller everywhere but the chip, at a clearance the lead accepted below R-6’s own floor', () => {
+    // The card frame, the dock tile and the garage rail all take the 16 px
+    // 'icon' size R-6 measured and rejected (0.83 px of clearance, under the
+    // 1 px floor -- the level-1 bar fusing into the plate). The lead saw the
+    // B-halo L1 crop this produces and chose it anyway for every surface but
+    // the chip ("B, but 20 px on the chip", G-N2 FINAL, 2026-09-27). This
+    // test records the accepted number; it does not gate on the floor.
+    const scale = KIT_ICON_SIGN.icon.px / 24;
+    const { plateInnerBottom, bars } = markGeometry(1);
+    const [, bottom] = bars[0];
+    expect((plateInnerBottom - bottom) * scale).toBeCloseTo(0.83, 2);
+  });
+
+  it('draws nothing at level 0 on either size, and leaves an unkitted icon byte-identical', () => {
+    expect(kitIconSignHtml(0)).toBe('');
+    expect(kitIconSignHtml(0, 'chip')).toBe('');
+    expect(withKitSign(ICON, 0)).toBe(ICON);
+    expect(withKitSign(ICON, 0, 'chip')).toBe(ICON);
+  });
+
+  it('is the garage’s own mark, at the level and surface size asked, and names the level for a screen reader', () => {
+    for (const level of [1, 2, 3] as const) {
+      for (const surface of ['icon', 'chip'] as const) {
+        const host = document.createElement('div');
+        host.innerHTML = kitIconSignHtml(level, surface);
+        const sign = host.querySelector<HTMLElement>('.rl-kit-icon');
+        expect(sign?.dataset.kit).toBe(String(level));
+        expect(sign?.classList.contains('rl-kit-mark')).toBe(true); // --kit through currentColor
+        expect(sign?.classList.contains('rl-kit-icon--chip')).toBe(surface === 'chip');
+        expect(sign?.getAttribute('role')).toBe('img');
+        expect(sign?.getAttribute('aria-label')).toBe(kitLevelLabel(level));
+        expect(sign?.innerHTML).toBe(parseSvg(kitSymbolSvg('kit', KIT_ICON_SIGN[surface].px, level)));
+        expect(sign?.querySelectorAll('rect')).toHaveLength(level);
+      }
+    }
+  });
+
+  it('defaults to the smaller icon size when no surface is named', () => {
+    const host = document.createElement('div');
+    host.innerHTML = kitIconSignHtml(2);
+    const sign = host.querySelector<HTMLElement>('.rl-kit-icon');
+    expect(sign?.className).toBe('rl-kit-icon rl-kit-mark');
+    expect(sign?.innerHTML).toBe(parseSvg(kitSymbolSvg('kit', KIT_ICON_SIGN.icon.px, 2)));
+  });
+
+  it('wraps a kitted icon in a host the sign can sit in, icon first', () => {
+    const host = document.createElement('div');
+    host.innerHTML = withKitSign(ICON, 2);
+    const wrap = host.firstElementChild;
+    expect(wrap?.className).toBe('rl-kit-host');
+    expect(wrap?.children).toHaveLength(2);
+    expect(wrap?.children[0]?.className).toBe('rl-chip__art');
+    expect(wrap?.children[1]?.className).toBe('rl-kit-icon rl-kit-mark');
+  });
+
+  it('wraps the chip’s icon at the chip’s own larger size', () => {
+    const host = document.createElement('div');
+    host.innerHTML = withKitSign(ICON, 2, 'chip');
+    const sign = host.querySelector<HTMLElement>('.rl-kit-icon');
+    expect(sign?.className).toBe('rl-kit-icon rl-kit-mark rl-kit-icon--chip');
+    expect(sign?.innerHTML).toBe(parseSvg(kitSymbolSvg('kit', KIT_ICON_SIGN.chip.px, 2)));
+  });
+
+  it('sits top-right, coloured by tokens only, and never changes an icon’s size', () => {
+    const sign = ruleBody('.rl-kit-icon');
+    expect(sign).toMatch(/position:\s*absolute/);
+    expect(sign).toMatch(/top:\s*0/);
+    expect(sign).toMatch(/right:\s*0/);
+    expect(sign).not.toMatch(/\b(left|bottom):/);
+    expect(sign).toMatch(/drop-shadow\([^)]*var\(--kit-edge\)\)/);
+    expect(sign).toMatch(/pointer-events:\s*none/);
+    expect(ruleBody('.rl-kit-host')).toMatch(/position:\s*relative/);
+    expect(ruleBody('.rl-card__frame > .rl-kit-icon')).toMatch(/top:\s*0\.1875rem;\s*right:\s*0\.1875rem/);
+    expect(ruleBody('.rl-tile > .rl-kit-icon')).toMatch(/top:\s*0\.125rem;\s*right:\s*0\.125rem/);
+    expect(ruleBody(".rl-tile[data-locked='1'] > .rl-kit-icon")).toMatch(/display:\s*none/);
   });
 });

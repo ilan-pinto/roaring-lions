@@ -3851,6 +3851,54 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--kit);
 }
 
+/* The kit sign on a unit's ICON (WP-S3g plan 2b, G-N2): the garage bay's own
+   mark (`kit-sign.ts`'s `kitIconSignHtml`) in the icon's top-right corner --
+   the one corner free on every surface it sits on (the card's role badge and
+   the dock's countdown hold top-left, the dock's price bottom-right, its lock
+   and bar the bottom edge). Steel through `.rl-kit-mark`'s currentColor,
+   lifted off the art by a one-pixel --kit-edge halo and NOT a plate: a plated
+   mark over each unit on the map was built and rejected by the lead as ugly
+   (2026-09-27). Absolute, so a kitted chip or card is exactly as tall as an
+   unkitted one (`ui:routes` measures it).
+   Sized PER SURFACE (G-N2 FINAL, the lead, 2026-09-27): "B, but 20 px on the
+   chip" -- the selection chip carries the `rl-kit-icon--chip` modifier for
+   the larger, R-6-legible size below; every other surface (the card frame,
+   the dock tile, the garage rail) draws at the smaller default, a size
+   `kit-sign.test.ts` documents as sub-pixel on R-6's own floor and records
+   as accepted rather than required. */
+.rl-kit-icon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  line-height: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1px var(--kit-edge));
+}
+.rl-kit-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+.rl-kit-icon--chip svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+/* The chip's and the rail's art are bare flex items: a host the size of the
+   art, drawn only for a kitted icon (`withKitSign`). */
+.rl-kit-host {
+  position: relative;
+  flex: 0 0 auto;
+  display: block;
+  line-height: 0;
+}
+/* The card frame and the dock tile are already positioned; the sign steps in
+   by the margin that surface's own corner mark uses -- the role badge's 3 px,
+   the art's 2 px. */
+.rl-card__frame > .rl-kit-icon { top: 0.1875rem; right: 0.1875rem; }
+.rl-tile > .rl-kit-icon { top: 0.125rem; right: 0.125rem; }
+/* A locked tile asks what to earn next, and its art is already drained (plan
+   2b R-8). Hidden, not removed: it is back the moment the lock lifts. */
+.rl-tile[data-locked='1'] > .rl-kit-icon { display: none; }
+
 /* ---------------------------------------------------------------------- */
 /* The garage (ui/brigade.ts)                                             */
 /* ---------------------------------------------------------------------- */

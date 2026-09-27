@@ -68,6 +68,51 @@ export function kitSymbolSvg(id: KitSymbolId, size: number, level: 1 | 2 | 3 = 1
   );
 }
 
+/** G-N2 (plan 2b): the kit sign on a unit's ICON, sized per surface. `px` is
+ *  each surface's size at `--ui-scale` 1, written into the svg's own
+ *  attributes; `theme.css`'s `.rl-kit-icon svg` rule (and its `--chip`
+ *  modifier) set the rem value and win, so the sign follows the UI scale.
+ *  The G-N2 recommendation was one size everywhere -- 1.25rem, the smallest
+ *  at which the level-1 bar clears the plate by a whole pixel (R-6). The
+ *  lead's G-N2 FINAL answer split it instead: *"B, but 20 px on the chip"* --
+ *  the chip alone keeps that legible 1.25rem/20px; the card frame, the dock
+ *  tile and the garage rail all take the smaller 1rem/16px `kit-sign.test.ts`
+ *  was built to reject, and record why it is accepted anyway. */
+export const KIT_ICON_SIGN = {
+  chip: { rem: 1.25, px: 20 },
+  icon: { rem: 1, px: 16 },
+} as const;
+
+/** Which of `KIT_ICON_SIGN`'s two sizes a surface draws the sign at.
+ *  `'chip'` is the selection chip, the one surface the lead kept at the
+ *  R-6-legible size; every other surface -- the card frame, the dock tile,
+ *  the garage rail -- takes the `'icon'` default. */
+export type KitIconSignSurface = keyof typeof KIT_ICON_SIGN;
+
+/** The garage bay's own mark (`kitSymbolSvg('kit')`), sized for an icon's
+ *  corner. Nothing at level 0 -- an unkitted icon must not change by a byte
+ *  (every gated golden frame boots a fresh account). `surface` selects the
+ *  size (G-N2 FINAL); the chip's own `rl-kit-icon--chip` modifier class
+ *  carries the larger size, so `theme.css` needs no selector keyed on an
+ *  ancestor to tell the surfaces apart. */
+export function kitIconSignHtml(level: KitLevel, surface: KitIconSignSurface = 'icon'): string {
+  if (level === 0) return '';
+  const cls = surface === 'chip' ? 'rl-kit-icon rl-kit-mark rl-kit-icon--chip' : 'rl-kit-icon rl-kit-mark';
+  return (
+    `<span class="${cls}" data-kit="${level}" role="img" ` +
+    `aria-label="${escapeHtml(kitLevelLabel(level))}">` +
+    kitSymbolSvg('kit', KIT_ICON_SIGN[surface].px, level) +
+    `</span>`
+  );
+}
+
+/** An icon that is a bare flex item (the chip's, the rail's) gets a host the
+ *  sign can be absolute inside, sized by the art itself -- at L >= 1 only,
+ *  so an unkitted icon's markup is returned untouched (plan 2b R-9). */
+export function withKitSign(iconHtml: string, level: KitLevel, surface: KitIconSignSurface = 'icon'): string {
+  return level === 0 ? iconHtml : `<span class="rl-kit-host">${iconHtml}${kitIconSignHtml(level, surface)}</span>`;
+}
+
 export interface TrackPip {
   readonly track: KitTrack;
   readonly owned: number;
