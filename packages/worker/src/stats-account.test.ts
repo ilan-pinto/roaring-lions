@@ -66,6 +66,40 @@ describe('loadouts (GH-254)', () => {
     const { db } = await seeded();
     expect((await stats.loadouts(db, all)).map((r) => r.mission)).toEqual(['beit_sahwan_breach']);
   });
+
+  it('a mission whose runs are all old-client yields units [], orders {}, and no NaN/Infinity anywhere', async () => {
+    const db = openTestD1();
+    const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
+    const send = (events: unknown[]) => handleIngest(new Request('https://g.dev/api/events', { method: 'POST', body: JSON.stringify({ events }) }), env, T0);
+    // Two old-client runs of a different mission: no `deployed`, no `orders`.
+    await send([
+      base(9, T0, { type: 'mission_start', mission: 'wadi_halam_1_fords', replay: false }),
+      end(9, T0 + 1, { mission: 'wadi_halam_1_fords' }),
+      base(10, T0, { type: 'mission_start', mission: 'wadi_halam_1_fords', replay: false }),
+      end(10, T0 + 1, { mission: 'wadi_halam_1_fords' }),
+    ]);
+    const [row] = await stats.loadouts(db, all);
+    expect(row).toMatchObject({ mission: 'wadi_halam_1_fords', runs: 2, loadoutRuns: 0, endedRuns: 0 });
+    expect(row.units).toEqual([]);
+    expect(row.orders).toEqual({});
+    const flat = JSON.stringify(row);
+    expect(flat).not.toContain('null'); // NaN/Infinity both serialise to null in JSON.stringify
+  });
+});
+
+describe('accounts (GH-254 fix): a malformed row must not 500 the whole page', () => {
+  it('falls back to [] for unlocks/tiers on just the bad row, and still returns every other row', async () => {
+    const { db } = await seeded();
+    // Hand-insert a second row whose JSON columns are not JSON at all.
+    await db.raw.exec(
+      `INSERT INTO accounts (player, t, credits, earned, unlocks, tiers, tester, dev) VALUES ('badplayer', ${T0 + 10}, 5, 5, 'not json', 'also not json', NULL, 0)`
+    );
+    const rows = await stats.accounts(db, all);
+    expect(rows).toEqual([
+      { player: 'badplaye', tester: null, lastSeen: T0 + 10, credits: 5, earned: 5, unlocks: [], tiers: [] },
+      { player: '00000000', tester: 'dani', lastSeen: T0 + 5, credits: 185, earned: 300, unlocks: [], tiers: ['inf_squad.armour.1'] },
+    ]);
+  });
 });
 
 describe('routes', () => {

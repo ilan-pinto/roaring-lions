@@ -66,13 +66,14 @@ const esc=(s)=>String(s??'').replace(/[&<>"]/g,(c)=>({'&':'&amp;','<':'&lt;','>'
 const fmt=(n,d=1)=>n==null?'—':Number(n).toFixed(d);
 const qs=()=>{const p=new URLSearchParams({range:$('range').value,who:$('who').value});if($('tester').value)p.set('tester',$('tester').value);return p};
 const get=(path,p=qs())=>fetch('/stats/api/'+path+'?'+p).then((r)=>r.json());
+const getOr=(path,fallback)=>Promise.resolve().then(()=>get(path)).catch(()=>fallback);
 const table=(el,head,rows)=>{el.innerHTML='<tr>'+head.map((h)=>'<th>'+h+'</th>').join('')+'</tr>'+rows.join('')};
 const VERBS=${JSON.stringify(TELEMETRY_ORDER_VERBS)};
 function accountRow(a){
   return '<tr>'+'<td>'+esc(a.player)+'</td>'+'<td>'+esc(a.tester??'—')+'</td>'+'<td class="n">'+fmt(a.credits,0)+'</td>'+'<td class="n">'+fmt(a.earned,0)+'</td>'+'<td class="n" title="'+esc(a.unlocks.join(', '))+'">'+fmt(a.unlocks.length,0)+'</td>'+'<td>'+esc(a.tiers.map((t)=>t.replace(/\\./g,' ')).join(', '))+'</td>'+'<td>'+esc(new Date(a.lastSeen).toISOString().slice(0,16).replace('T',' '))+'</td>'+'</tr>';
 }
 async function load(){
-  const [s,days,fun,mis,tes,acc,loads]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers'),get('accounts'),get('loadouts')]);
+  const [s,days,fun,mis,tes,acc,loads]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers'),getOr('accounts',[]),getOr('loadouts',[])]);
   $('summary').innerHTML=[['Players',s.players,0],['Sessions',s.sessions,0],['Hours played',s.hoursPlayed,1],['Median min / player',s.medianMinutesPerPlayer,0],['Came back another day',s.returnedDay2,0,' ('+Math.round(100*s.returnRate)+'%)']]
     .map(([l,v,d,suffix])=>'<div class="stat"><b>'+fmt(v,d)+(suffix||'')+'</b>'+l+'</div>').join('');
   const maxDay=Math.max(1,...days.map((d)=>d.new+d.returning));

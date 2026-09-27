@@ -198,14 +198,21 @@ export async function accounts(db: D1Like, f: StatsFilter) {
     .prepare(`SELECT player, t, credits, earned, unlocks, tiers, tester FROM accounts WHERE ${w.sql} ORDER BY t DESC LIMIT 500`)
     .bind(...w.args)
     .all<{ player: string; t: number; credits: number; earned: number; unlocks: string; tiers: string; tester: string | null }>();
+  const parseArray = (s: string): string[] => {
+    try {
+      return JSON.parse(s) as string[];
+    } catch {
+      return []; // a row ingest could never have written, but one bad row must not 500 the whole page
+    }
+  };
   return rows.results.map((r) => ({
     player: r.player.slice(0, 8),
     tester: r.tester,
     lastSeen: r.t,
     credits: r.credits,
     earned: r.earned,
-    unlocks: JSON.parse(r.unlocks) as string[],
-    tiers: JSON.parse(r.tiers) as string[],
+    unlocks: parseArray(r.unlocks),
+    tiers: parseArray(r.tiers),
   }));
 }
 

@@ -55,8 +55,8 @@ describe('STATS_HTML: accounts and loadouts (GH-254)', () => {
   });
 
   it('loads both new endpoints with the same filter as the rest of the page', () => {
-    expect(STATS_HTML).toContain("get('accounts')");
-    expect(STATS_HTML).toContain("get('loadouts')");
+    expect(STATS_HTML).toContain("getOr('accounts',[])");
+    expect(STATS_HTML).toContain("getOr('loadouts',[])");
   });
 
   it('drift guard: the verb columns are generated from TELEMETRY_ORDER_VERBS, not a hand-copied list', () => {
@@ -73,6 +73,29 @@ describe('STATS_HTML: accounts and loadouts (GH-254)', () => {
     // wherever on the page it appears, not only inside the gh254 markers.
     const rawTdValue = /'[^']*<td(?:\s[^>']*)?>'\+(?!esc\(|fmt\()/;
     expect(STATS_HTML).not.toMatch(rawTdValue);
+  });
+
+  it('load() guards the accounts and loadouts fetches with getOr, not a bare get(), so a missing migration or bad row cannot blank the existing tables', () => {
+    expect(STATS_HTML).toMatch(/getOr\('accounts',\[\]\)/);
+    expect(STATS_HTML).toMatch(/getOr\('loadouts',\[\]\)/);
+  });
+
+  it('getOr resolves to the given fallback when the underlying fetch fails, and to the real value when it succeeds', async () => {
+    const getOrSrc = STATS_HTML.match(/const getOr=(\([\s\S]*?\));/);
+    expect(getOrSrc).not.toBeNull();
+    const makeGetOr = (mockGet: (path: string) => Promise<unknown>) =>
+      new Function('get', `return (${getOrSrc![1]});`)(mockGet) as (path: string, fallback: unknown) => Promise<unknown>;
+
+    const failing = makeGetOr(() => Promise.reject(new Error('boom')));
+    await expect(failing('accounts', [])).resolves.toEqual([]);
+
+    const throwingSync = makeGetOr(() => {
+      throw new Error('synchronous failure, e.g. building the query string');
+    });
+    await expect(throwingSync('loadouts', [])).resolves.toEqual([]);
+
+    const succeeding = makeGetOr(() => Promise.resolve([{ player: 'x' }]));
+    await expect(succeeding('accounts', [])).resolves.toEqual([{ player: 'x' }]);
   });
 
   it('regression: the real accountRow rendering shows a readable Upgrades cell for a tier, never a stray comma', () => {
