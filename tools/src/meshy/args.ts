@@ -156,16 +156,16 @@ export function assertYesOrInteractive(yes: boolean, isTTY: boolean): void {
 
 /**
  * Whether `main()` (`cli.ts`) must refuse `command` outright when no API key
- * is configured. `text`/`image` are the one pair that may run with no key at
- * all, and only when `dryRun` is true: both print the request and return
- * before ever calling the network (`runText`/`runImage` enforce this
- * themselves too, by throwing if ever called with no client outside a dry
- * run). Every other command that reaches this check always needs a real
- * key -- `estimate`, `spent` and `help` never reach it, since `cli.ts`
- * returns for those before the key check runs at all.
+ * is configured. `text`/`image`/`remesh` are the trio that may run with no
+ * key at all, and only when `dryRun` is true: all three print the request and
+ * return before ever calling the network (`runText`/`runImage`/`runRemesh`
+ * enforce this themselves too, by throwing if ever called with no client
+ * outside a dry run). Every other command that reaches this check always
+ * needs a real key -- `estimate`, `spent` and `help` never reach it, since
+ * `cli.ts` returns for those before the key check runs at all.
  */
 export function commandNeedsApiKey(command: string, dryRun: boolean): boolean {
-  if ((command === 'text' || command === 'image') && dryRun) return false;
+  if ((command === 'text' || command === 'image' || command === 'remesh') && dryRun) return false;
   return true;
 }
 
@@ -336,6 +336,76 @@ export function parseEstimateImageArgs(argv: readonly string[]): EstimateImageOp
     textureResolution,
     json: options.get('json') === 'true',
   };
+}
+
+// ---------------------------------------------------------------------------
+// remesh
+// ---------------------------------------------------------------------------
+
+const REMESH_BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['yes', 'json']);
+const REMESH_VALUED_FLAGS: ReadonlySet<string> = new Set(['polycount', 'topology', 'kind', 'name', 'formats']);
+
+export interface RemeshOptions {
+  readonly inputTaskId: string;
+  readonly polycount: number;
+  readonly topology: Topology;
+  /** Informational only -- names the source task's kind (`text`/`image`,
+   *  occasionally `remesh` for a re-remesh) in the printed plan line.
+   *  `input_task_id` works the same regardless on the real API, so this is
+   *  never sent in the request body. */
+  readonly kind: TaskKind | undefined;
+  readonly formats: readonly TargetFormat[];
+  readonly name: string | undefined;
+  readonly yes: boolean;
+  readonly json: boolean;
+}
+
+/** Remesh's own polycount range (100-300,000) is not model-type-dependent --
+ *  there is no `model_type` in a remesh request at all -- so this reuses
+ *  `assertPolycountInRange`'s "standard" range rather than adding a second
+ *  range table for one caller. */
+export function parseRemeshArgs(argv: readonly string[], ctx: { readonly isTTY: boolean }): RemeshOptions {
+  const { positionals, options } = parseKnownFlags(argv, { boolean: REMESH_BOOLEAN_FLAGS, valued: REMESH_VALUED_FLAGS });
+  if (positionals.length === 0) throw new Error('remesh: missing required <input-task-id> argument');
+  if (positionals.length > 1) {
+    throw new Error(`remesh: unexpected extra argument(s): ${positionals.slice(1).join(' ')}`);
+  }
+  const polycount = parseIntFlag(options, 'polycount');
+  if (polycount === undefined) throw new Error('remesh: --polycount is required');
+  assertPolycountInRange(polycount, 'standard');
+  const topology = options.has('topology') ? asTopology(options.get('topology') as string) : 'triangle';
+  const kind = options.has('kind') ? asTaskKind(options.get('kind') as string) : undefined;
+  const formats = options.has('formats') ? parseTargetFormats(options.get('formats') as string) : (['glb'] as const);
+  const yes = options.get('yes') === 'true';
+  assertYesOrInteractive(yes, ctx.isTTY);
+  return {
+    inputTaskId: positionals[0],
+    polycount,
+    topology,
+    kind,
+    formats,
+    name: options.get('name'),
+    yes,
+    json: options.get('json') === 'true',
+  };
+}
+
+export interface EstimateRemeshOptions {
+  readonly json: boolean;
+}
+
+const ESTIMATE_REMESH_BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['json']);
+const ESTIMATE_REMESH_VALUED_FLAGS: ReadonlySet<string> = new Set();
+
+/** Remesh's price never varies with any option (flat 5 credits -- see
+ *  `pricing.ts`), so this takes no flag but `--json`. */
+export function parseEstimateRemeshArgs(argv: readonly string[]): EstimateRemeshOptions {
+  const { positionals, options } = parseKnownFlags(argv, {
+    boolean: ESTIMATE_REMESH_BOOLEAN_FLAGS,
+    valued: ESTIMATE_REMESH_VALUED_FLAGS,
+  });
+  if (positionals.length > 0) throw new Error(`estimate remesh: unexpected argument(s): ${positionals.join(' ')}`);
+  return { json: options.get('json') === 'true' };
 }
 
 // ---------------------------------------------------------------------------

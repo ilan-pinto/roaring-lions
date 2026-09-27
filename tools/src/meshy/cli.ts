@@ -1,35 +1,38 @@
 /**
  * `pnpm meshy -- <command>` -- a token-disciplined proxy over the Meshy
- * text-to-3D and image-to-3D APIs. See `docs/ART_PIPELINE.md`'s "Meshy API"
- * section for the workflow and policy this enforces: estimate before you
- * spend, announce the plan, download into `art/meshy/`, log every spend to
- * `art/meshy/ledger.jsonl`.
+ * text-to-3D, image-to-3D and remesh APIs. See `docs/ART_PIPELINE.md`'s
+ * "Meshy API" section for the workflow and policy this enforces: estimate
+ * before you spend, announce the plan, download into `art/meshy/`, log every
+ * spend to `art/meshy/ledger.jsonl`.
  *
  * This file is the only one in the package that does network I/O, reads the
  * key, writes files, or prompts on stdin -- every other module here is pure
- * and independently testable. `MESHY_DRY_RUN=1` short-circuits both generate
- * commands right before the POST that would submit a task, which is the knob
- * this file's own manual smoke tests (`MESHY_DRY_RUN=1 pnpm meshy -- ...`,
- * see docs/ART_PIPELINE.md) are driven through, since a real submit would
- * spend credits. `runText`/`runImage` are additionally exported and covered
- * by `cli.test.ts` against a fake `TextTaskClient`/`ImageTaskClient`
- * (`client.ts`) and a temp `MeshyPaths` override, so the ledger-patch and
- * dry-run wiring below are exercised by vitest too, still with no network.
+ * and independently testable. `MESHY_DRY_RUN=1` short-circuits all three
+ * generate commands right before the POST that would submit a task, which is
+ * the knob this file's own manual smoke tests (`MESHY_DRY_RUN=1 pnpm meshy --
+ * ...`, see docs/ART_PIPELINE.md) are driven through, since a real submit
+ * would spend credits. `runText`/`runImage`/`runRemesh` are additionally
+ * exported and covered by `cli.test.ts` against a fake
+ * `TextTaskClient`/`ImageTaskClient`/`RemeshTaskClient` (`client.ts`) and a
+ * temp `MeshyPaths` override, so the ledger-patch and dry-run wiring below
+ * are exercised by vitest too, still with no network.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
-import type { ImageToThreeDRequest, ImageToThreeDTask, TextPreviewRequest, TextRefineRequest, TextToThreeDTask } from './api-types';
+import type { ImageToThreeDRequest, ImageToThreeDTask, RemeshRequest, RemeshTask, TextPreviewRequest, TextRefineRequest, TextToThreeDTask } from './api-types';
 import {
   commandNeedsApiKey,
   parseBalanceArgs,
   parseDownloadArgs,
   parseEstimateImageArgs,
+  parseEstimateRemeshArgs,
   parseEstimateTextArgs,
   parseImageArgs,
   parseListArgs,
+  parseRemeshArgs,
   parseSpentArgs,
   parseStatusArgs,
   parseTextArgs,
@@ -37,11 +40,12 @@ import {
   type DownloadOptions,
   type ImageOptions,
   type ListOptions,
+  type RemeshOptions,
   type SpentOptions,
   type StatusOptions,
   type TextOptions,
 } from './args';
-import { MeshyApiError, MeshyClient, type ImageTaskClient, type TextTaskClient } from './client';
+import { MeshyApiError, MeshyClient, type ImageTaskClient, type RemeshTaskClient, type TextTaskClient } from './client';
 import { loadMeshyConfig, type MeshyConfig } from './config';
 import {
   appendLedgerEntry,
@@ -108,7 +112,7 @@ async function downloadFile(url: string, dest: string): Promise<void> {
 /** Every format in `model_urls`, the thumbnail(s), and every texture map --
  *  whatever the finished task actually carries, nothing hardcoded to one
  *  format list. */
-async function downloadTaskOutputs(task: TextToThreeDTask | ImageToThreeDTask, dir: string): Promise<readonly string[]> {
+async function downloadTaskOutputs(task: TextToThreeDTask | ImageToThreeDTask | RemeshTask, dir: string): Promise<readonly string[]> {
   mkdirSync(dir, { recursive: true });
   const jobs: { url: string; filename: string }[] = [];
 
@@ -166,9 +170,19 @@ function priceCaption(credits: number, usdPerCredit: number): string {
 
 function runEstimate(rest: readonly string[], usdPerCredit: number): number {
   const subkind = rest[0];
-  if (subkind !== 'text' && subkind !== 'image') {
-    console.error('estimate: expected "text" or "image" as the first argument');
+  if (subkind !== 'text' && subkind !== 'image' && subkind !== 'remesh') {
+    console.error('estimate: expected "text", "image" or "remesh" as the first argument');
     return 1;
+  }
+  if (subkind === 'remesh') {
+    const opts = parseEstimateRemeshArgs(rest.slice(1));
+    const credits = estimateCredits('remesh');
+    if (opts.json) {
+      console.log(JSON.stringify({ kind: 'remesh', credits, usd: estimateUsd(credits, usdPerCredit), usdPerCredit, source: PRICING_SOURCE }));
+    } else {
+      console.log(`estimate: remesh ${priceCaption(credits, usdPerCredit)}`);
+    }
+    return 0;
   }
   if (subkind === 'text') {
     const opts = parseEstimateTextArgs(rest.slice(1));
@@ -493,18 +507,101 @@ export async function runImage(
 }
 
 // ---------------------------------------------------------------------------
+// remesh
+// ---------------------------------------------------------------------------
+
+function buildRemeshRequest(opts: RemeshOptions): RemeshRequest {
+  return {
+    input_task_id: opts.inputTaskId,
+    target_formats: opts.formats,
+    topology: opts.topology,
+    target_polycount: opts.polycount,
+  };
+}
+
+export async function runRemesh(
+  client: RemeshTaskClient | undefined,
+  config: MeshyConfig,
+  opts: RemeshOptions,
+  paths: MeshyPaths = DEFAULT_PATHS
+): Promise<number> {
+  const credits = estimateCredits('remesh');
+
+  console.log(
+    `plan: remesh ${opts.inputTaskId}${opts.kind ? ` (${opts.kind} source)` : ''} -> ${opts.polycount} tri, ${opts.topology} topology`
+  );
+  console.log(`estimate: ${priceCaption(credits, config.usdPerCredit)}`);
+
+  const body = buildRemeshRequest(opts);
+
+  if (process.env.MESHY_DRY_RUN === '1') {
+    console.log('MESHY_DRY_RUN=1 -- printing the request and stopping before any POST:');
+    console.log(JSON.stringify(body, null, 2));
+    return 0;
+  }
+
+  if (!client) {
+    // Unreachable from `main()`: it only omits the client when
+    // MESHY_DRY_RUN=1, which already returned above.
+    throw new Error('internal: runRemesh called with no client outside MESHY_DRY_RUN=1');
+  }
+
+  if (!(await confirmSpend(credits, estimateUsd(credits, config.usdPerCredit), opts.yes))) {
+    console.log('aborted -- nothing was spent');
+    return 1;
+  }
+
+  const submitted = await client.submitRemeshTask(body);
+  const id = submitted.result;
+  appendLedgerEntry(paths.ledgerPath, ledgerEntry('remesh', 'remesh', id, { name: opts.name }, credits, config.usdPerCredit));
+  console.log(`submitted remesh task ${id}`);
+
+  const finalTask = await pollTask(() => client.getRemeshTask(id), `remesh ${id}`);
+  if (finalTask.status !== 'SUCCEEDED') {
+    console.error(`remesh task ${id} ended ${finalTask.status}: ${finalTask.task_error?.message ?? '(no message)'}`);
+    return 1;
+  }
+  if (finalTask.consumed_credits !== undefined) {
+    patchLedgerCreditsConsumed(paths.ledgerPath, id, finalTask.consumed_credits);
+  }
+
+  const dirName = taskDirName(opts.name ?? opts.inputTaskId, id);
+  const dir = path.join(paths.artDir, dirName);
+  await downloadTaskOutputs(finalTask, dir);
+  writeTaskJson(dir, {
+    request: body,
+    response: finalTask,
+    consumed_credits: finalTask.consumed_credits,
+    timestamps: {
+      created_at: finalTask.created_at,
+      started_at: finalTask.started_at,
+      finished_at: finalTask.finished_at,
+    },
+    usd_estimated: estimateUsd(credits, config.usdPerCredit),
+  });
+  console.log(`downloaded outputs into ${path.relative(REPO_ROOT, dir)}`);
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // status / download / list
 // ---------------------------------------------------------------------------
+
+async function fetchTaskByKind(client: MeshyClient, id: string, kind: TaskKind): Promise<TextToThreeDTask | ImageToThreeDTask | RemeshTask> {
+  if (kind === 'text') return client.getTextTask(id);
+  if (kind === 'image') return client.getImageTask(id);
+  return client.getRemeshTask(id);
+}
 
 async function fetchEitherKind(
   client: MeshyClient,
   id: string,
   kind: TaskKind | undefined
-): Promise<{ kind: TaskKind; task: TextToThreeDTask | ImageToThreeDTask } | undefined> {
-  const kinds: readonly TaskKind[] = kind ? [kind] : ['text', 'image'];
+): Promise<{ kind: TaskKind; task: TextToThreeDTask | ImageToThreeDTask | RemeshTask } | undefined> {
+  const kinds: readonly TaskKind[] = kind ? [kind] : ['text', 'image', 'remesh'];
   for (const k of kinds) {
     try {
-      const task = k === 'text' ? await client.getTextTask(id) : await client.getImageTask(id);
+      const task = await fetchTaskByKind(client, id, k);
       return { kind: k, task };
     } catch (err) {
       if (err instanceof MeshyApiError && err.status === 404) continue;
@@ -517,7 +614,7 @@ async function fetchEitherKind(
 async function runStatus(client: MeshyClient, opts: StatusOptions): Promise<number> {
   const found = await fetchEitherKind(client, opts.id, opts.kind);
   if (!found) {
-    console.error(`no ${opts.kind ?? 'text or image'} task found for id ${opts.id}`);
+    console.error(`no ${opts.kind ?? 'text, image or remesh'} task found for id ${opts.id}`);
     return 1;
   }
   const { kind, task } = found;
@@ -534,7 +631,7 @@ async function runStatus(client: MeshyClient, opts: StatusOptions): Promise<numb
 async function runDownload(client: MeshyClient, opts: DownloadOptions): Promise<number> {
   const found = await fetchEitherKind(client, opts.id, opts.kind);
   if (!found) {
-    console.error(`no ${opts.kind ?? 'text or image'} task found for id ${opts.id}`);
+    console.error(`no ${opts.kind ?? 'text, image or remesh'} task found for id ${opts.id}`);
     return 1;
   }
   const { kind, task } = found;
@@ -550,10 +647,19 @@ async function runDownload(client: MeshyClient, opts: DownloadOptions): Promise<
   return 0;
 }
 
+async function listTasksByKind(client: MeshyClient, kind: TaskKind, pageNum: number): Promise<readonly { id: string; status: string; progress: number }[]> {
+  if (kind === 'text') return client.listTextTasks({ pageNum });
+  if (kind === 'image') return client.listImageTasks({ pageNum });
+  return client.listRemeshTasks({ pageNum });
+}
+
+/** Defaults to `text`+`image` with no `--kind`, same as before `remesh`
+ *  existed -- `--kind remesh` opts in explicitly rather than every listing
+ *  growing a third request. */
 async function runList(client: MeshyClient, opts: ListOptions): Promise<number> {
   const kinds: readonly TaskKind[] = opts.kind ? [opts.kind] : ['text', 'image'];
   for (const kind of kinds) {
-    const tasks = kind === 'text' ? await client.listTextTasks({ pageNum: opts.page }) : await client.listImageTasks({ pageNum: opts.page });
+    const tasks = await listTasksByKind(client, kind, opts.page);
     if (opts.json) {
       console.log(JSON.stringify({ kind, tasks }));
     } else {
@@ -574,13 +680,14 @@ Commands (network, need a key):
   balance                       credit balance
   text "<prompt>" [options]     text-to-3d, preview (+ --refine)
   image <path-or-url> [options] image-to-3d
-  status <id> [--kind text|image]
+  remesh <input-task-id> --polycount N [options]  retopologize a finished task
+  status <id> [--kind text|image|remesh]
   download <id> [--kind ...] [--name ...]
   list [--kind ...] [--page N]
 
 Local only (no key needed):
-  estimate text|image [options]  credit/USD cost, no API call
-  spent                          sums art/meshy/ledger.jsonl
+  estimate text|image|remesh [options]  credit/USD cost, no API call
+  spent                                 sums art/meshy/ledger.jsonl
 
 Every command accepts --json. See docs/ART_PIPELINE.md's
 "Meshy API -- generating a base model" section for the full workflow.`;
@@ -606,18 +713,22 @@ async function main(): Promise<number> {
 
   const dryRun = process.env.MESHY_DRY_RUN === '1';
 
-  if (command === 'text' || command === 'image') {
-    // The one pair of commands that may run without a key: MESHY_DRY_RUN=1
+  if (command === 'text' || command === 'image' || command === 'remesh') {
+    // The trio of commands that may run without a key: MESHY_DRY_RUN=1
     // prints the request and stops before any POST (see `commandNeedsApiKey`),
     // so `client` stays undefined rather than forcing a key nobody is about
-    // to use -- `runText`/`runImage` never touch it past that point.
+    // to use -- `runText`/`runImage`/`runRemesh` never touch it past that
+    // point. `MeshyClient` satisfies `TextTaskClient`, `ImageTaskClient` and
+    // `RemeshTaskClient` structurally, so the same instance serves all three.
     if (!config.apiKey && commandNeedsApiKey(command, dryRun)) {
       console.error(noKeyMessage(config.keyFile));
       return 1;
     }
     const client = config.apiKey ? new MeshyClient(config.apiKey) : undefined;
     const ctx = { isTTY: process.stdin.isTTY === true };
-    return command === 'text' ? runText(client, config, parseTextArgs(rest, ctx)) : runImage(client, config, parseImageArgs(rest, ctx));
+    if (command === 'text') return runText(client, config, parseTextArgs(rest, ctx));
+    if (command === 'image') return runImage(client, config, parseImageArgs(rest, ctx));
+    return runRemesh(client, config, parseRemeshArgs(rest, ctx));
   }
 
   if (!config.apiKey) {

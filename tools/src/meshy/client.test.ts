@@ -114,6 +114,61 @@ describe('MeshyClient', () => {
     expect(res).toEqual({ result: 'img-task-1' });
   });
 
+  it('submitRemeshTask POSTs to /openapi/v1/remesh', async () => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      expect(String(url)).toBe(`${DEFAULT_BASE_URL}/openapi/v1/remesh`);
+      expect(init?.method).toBe('POST');
+      const body = JSON.parse(String(init?.body)) as { input_task_id?: string; target_polycount?: number };
+      expect(body.input_task_id).toBe('preview-task-1');
+      expect(body.target_polycount).toBe(180);
+      return jsonResponse({ result: 'remesh-task-1' });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new MeshyClient(FAKE_KEY);
+    const res = await client.submitRemeshTask({
+      input_task_id: 'preview-task-1',
+      target_formats: ['glb'],
+      topology: 'triangle',
+      target_polycount: 180,
+    });
+    expect(res).toEqual({ result: 'remesh-task-1' });
+  });
+
+  it('getRemeshTask GETs /openapi/v1/remesh/:id', async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      expect(String(url)).toBe(`${DEFAULT_BASE_URL}/openapi/v1/remesh/remesh-task-1`);
+      return jsonResponse({ id: 'remesh-task-1', type: 'remesh', status: 'SUCCEEDED', progress: 100 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new MeshyClient(FAKE_KEY);
+    await expect(client.getRemeshTask('remesh-task-1')).resolves.toMatchObject({ status: 'SUCCEEDED', type: 'remesh' });
+  });
+
+  it('listRemeshTasks builds a query string from page params', async () => {
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      expect(String(url)).toBe(`${DEFAULT_BASE_URL}/openapi/v1/remesh?page_num=1&page_size=5`);
+      return jsonResponse([]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new MeshyClient(FAKE_KEY);
+    await client.listRemeshTasks({ pageNum: 1, pageSize: 5 });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('deleteRemeshTask sends DELETE', async () => {
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      expect(init?.method).toBe('DELETE');
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new MeshyClient(FAKE_KEY);
+    await expect(client.deleteRemeshTask('remesh-task-1')).resolves.toBeUndefined();
+  });
+
   it('throws MeshyApiError with status and body on a non-2xx response, without echoing the key', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ message: 'invalid api key' }, 401));
     vi.stubGlobal('fetch', fetchMock);

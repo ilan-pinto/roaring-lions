@@ -181,12 +181,27 @@ replacement for `tools/units/kit.py`, `render_rig.py`, or the mesh pipeline
 in `CLAUDE.md`'s "Mesh units" section.
 
 **Announce the plan before you spend.** Every generate command
-(`text`/`image`) prints its credit and USD estimate before doing anything
-chargeable, and `estimate text|image` prints the same numbers with no API
-call at all — run that first, tell the project lead the plan and the
-estimate, and only then run the real command. `--yes` skips the interactive
-`[y/N]` confirmation for scripted use; with no `--yes` and no TTY to prompt
-on, the CLI refuses outright rather than risk a silent spend.
+(`text`/`image`/`remesh`) prints its credit and USD estimate before doing
+anything chargeable, and `estimate text|image|remesh` prints the same numbers
+with no API call at all — run that first, tell the project lead the plan and
+the estimate, and only then run the real command. `--yes` skips the
+interactive `[y/N]` confirmation for scripted use; with no `--yes` and no TTY
+to prompt on, the CLI refuses outright rather than risk a silent spend.
+
+**`remesh` retopologizes a model already on Meshy's side** — a flat 5
+credits, regardless of target polycount or topology, per
+[the pricing page](https://docs.meshy.ai/en/api/pricing). It takes the
+*task id* of a finished text-to-3d or image-to-3d task, not a local file:
+
+```
+pnpm meshy -- remesh <input-task-id> --polycount 180 [--topology triangle|quad] [--kind text|image] [--yes]
+```
+
+`--kind` is purely cosmetic here (it only labels the source in the printed
+plan line) — `input_task_id` resolves the same way on Meshy's side no matter
+which endpoint produced it. `status`/`download`/`list` all accept `--kind
+remesh` to address a remesh task by id the same way they already do for
+`text`/`image`.
 
 **The key lives outside the repository.** `~/.config/roaring-lions/meshy.env`
 (mode 600), read by the CLI or via a `MESHY_API_KEY` environment variable —
@@ -205,8 +220,9 @@ downloads are meant to be committed**: they are the base model, i.e. the same
 kind of source `art/meshes/**` already needs.
 
 **Every spend is logged.** `art/meshy/ledger.jsonl` gets one line per
-submitted preview/refine/image task — `pnpm meshy -- spent` sums it, so "how
-much have we spent" never depends on anyone's memory or the Meshy dashboard.
+submitted preview/refine/image/remesh task — `pnpm meshy -- spent` sums it, so
+"how much have we spent" never depends on anyone's memory or the Meshy
+dashboard.
 
 **Disclosure is still required.** A model built via this CLI is AI-generated
 art exactly like the ten Meshy assets already shipped, and CONTRIBUTING.md's

@@ -1,8 +1,8 @@
 /**
- * `art/meshy/ledger.jsonl` — one line per SPEND (a submitted preview, refine
- * or image task), appended by `cli.ts` right after a successful submit. This
- * is the project's answer to "how much have we spent": `pnpm meshy -- spent`
- * sums it, and nothing else in the tool reads or writes it.
+ * `art/meshy/ledger.jsonl` — one line per SPEND (a submitted preview, refine,
+ * image or remesh task), appended by `cli.ts` right after a successful
+ * submit. This is the project's answer to "how much have we spent": `pnpm
+ * meshy -- spent` sums it, and nothing else in the tool reads or writes it.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -11,7 +11,7 @@ import type { TaskKind } from './options';
 export interface LedgerEntry {
   readonly at: string; // ISO 8601
   readonly kind: TaskKind;
-  readonly mode: 'preview' | 'refine' | 'image';
+  readonly mode: 'preview' | 'refine' | 'image' | 'remesh';
   readonly id: string;
   readonly name?: string;
   readonly prompt?: string;
