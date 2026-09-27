@@ -58,7 +58,7 @@ import {
   type PurchaseAsk,
   type PurchaseCue,
 } from './garage-model';
-import { kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
+import { kitIconSignHtml, kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
 import { flash, prefersReducedMotion } from './motion';
@@ -492,24 +492,38 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       card.dataset.kit = String(kit.level);
 
       const src = opts.portrait?.(u.id) ?? null;
+      let art: HTMLElement;
       if (src !== null) {
         const img = document.createElement('img');
         img.className = 'rl-garage__card-art';
         img.src = src;
         img.alt = '';
         if (opts.iconIds?.has(u.id) === true) img.dataset.icon = '1';
-        card.appendChild(img);
+        art = img;
       } else {
         // The HUD's own "reserved, not broken" hatch — the role mark on top,
         // never a bare frame, so a type with no sheet (`civilians` is the
         // shipped case) reads as reserved rather than as a broken image.
-        const art = el('div', 'rl-garage__card-art');
-        art.dataset.nosprite = '1';
+        const hatch = el('div', 'rl-garage__card-art');
+        hatch.dataset.nosprite = '1';
         // Named, not silent: the hatch says WHICH type has no sheet, which is
         // the difference between "reserved" and "this build is broken" for
         // anyone looking at the roster.
-        art.title = t('garage.card.noSprite', { id: u.id });
-        art.innerHTML = roleBadgeSvg(roleBucket(u), CARD_MARK);
+        hatch.title = t('garage.card.noSprite', { id: u.id });
+        hatch.innerHTML = roleBadgeSvg(roleBucket(u), CARD_MARK);
+        art = hatch;
+      }
+
+      // The kit sign on the icon (plan 2b), from the SAME `kit` this card's
+      // pips and `data-kit` read -- the garage is the account itself, so
+      // there is no mission prepass here. Wrapped only at L >= 1: an
+      // unkitted card's markup is unchanged (R-9).
+      if (kit.level !== 0) {
+        const host = el('span', 'rl-kit-host');
+        host.append(art);
+        host.insertAdjacentHTML('beforeend', kitIconSignHtml(kit.level));
+        card.appendChild(host);
+      } else {
         card.appendChild(art);
       }
 

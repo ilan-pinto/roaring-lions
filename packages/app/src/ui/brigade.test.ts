@@ -1656,4 +1656,44 @@ describe('showBrigade — the final review’s fix wave', () => {
       }
     });
   });
+
+  describe('showBrigade — the kit sign on the rail’s icons (WP-S3g plan 2b)', () => {
+    const portrait = (id: string): string => `/ui/icons/units/${id}.png`;
+    const card = (host: HTMLElement, id: string): Element | null => host.querySelector(`.rl-garage__card[data-unit="${id}"]`);
+
+    it('signs a kitted card’s icon with the level its own pips sum to, and no other card', () => {
+      const host = mount({ units, ledger: {}, possibleStars: 78, portrait, owned: { inf_squad: { armour: 1 } } });
+      const sign = card(host, 'inf_squad')?.querySelector<HTMLElement>(':scope > .rl-kit-host > .rl-garage__card-art + .rl-kit-icon');
+      expect(sign?.dataset.kit).toBe('1');
+      expect(sign?.dataset.kit).toBe(card(host, 'inf_squad')?.getAttribute('data-kit'));
+      expect(card(host, 'ifv_namer')?.querySelector('.rl-kit-icon')).toBeNull();
+    });
+
+    it('leaves an unkitted rail byte-identical', () => {
+      const a = mount({ units, ledger: {}, possibleStars: 78, portrait });
+      const b = mount({ units, ledger: {}, possibleStars: 78, portrait, owned: {} });
+      expect(b.querySelector('.rl-garage__cards')?.innerHTML).toBe(a.querySelector('.rl-garage__cards')?.innerHTML);
+      expect(a.querySelector('.rl-garage__cards .rl-kit-host')).toBeNull();
+    });
+
+    it('stamps the sign the moment a purchase lifts the level', () => {
+      let owned: Record<string, Record<string, number>> = {};
+      const { host, dispose } = mountLive({
+        units,
+        ledger: {},
+        possibleStars: 78,
+        portrait,
+        credits: 999,
+        owned,
+        onBuyUpgrade: (id, track, tier) => {
+          owned = { [id]: { [track]: tier } };
+          return { units, credits: 799, owned };
+        },
+      });
+      expect(card(host, 'inf_squad')?.querySelector('.rl-kit-icon')).toBeNull();
+      host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+      expect(card(host, 'inf_squad')?.querySelector<HTMLElement>('.rl-kit-icon')?.dataset.kit).toBe('1');
+      dispose();
+    });
+  });
 });
