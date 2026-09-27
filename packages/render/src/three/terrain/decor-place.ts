@@ -17,6 +17,7 @@
  */
 import type { GroveFamily } from '../../api';
 import { tileHash } from '../../tile-hash';
+import { ROAD_EDGE_FALLOFF, ROAD_HALF_WIDTH, buildRoadGraph, roadDistanceAt, type RoadGraph } from './road-graph';
 import {
   DECOR_DITCH,
   DECOR_GROVE,
@@ -55,10 +56,7 @@ export const VARIANTS_PER_FAMILY = 3;
  *  rock's 0.75": `b` is a mechanic (a wall to wheels and tracks), not an
  *  aesthetic scatter, and a roll that skipped even one boulder tile would
  *  draw a gap a vehicle could see straight through. */
-const DENSITY: Record<DecorFamily, number> = {
-  grass: 0.34,
-  sand: 0.18,
-  bush: 0.3,
+const DENSITY: Record<Exclude<DecorFamily, 'grass' | 'sand' | 'bush'>, number> = {
   tree: 1.0,
   // Same 1.0 as the olive, and for the same reason: a grove tile is an
   // authored `o`, so every one of them draws its tree. The species differs
@@ -106,20 +104,147 @@ const DITCH_SCALE = 1;
  *  and punch exactly the holes `DENSITY.ditch = 1.0` exists to prevent. */
 const DITCH_VARIANT = 0;
 
-/** Which family this tile offers, or null for "nothing grows here".
+// -- Clustered grass and sand (spec §3.4, G8) --------------------------
+//
+// Grass and sand no longer roll independently per open tile (that read even
+// at 0.27-0.34 an open tile, well above the Clark-Evans-ratio-~1 a uniform
+// Poisson scatter gives). Instead an open tile occasionally seeds a CLUMP --
+// a handful of grass or sand objects gathered within a tile or so of each
+// other -- plus, on the seed roll's own stream (unaffected by clustering), a
+// sparser scatter of lone singletons at roughly the density the old code
+// produced for a single roll. `familyFor` below returns the sentinel
+// `'open'` for exactly the tiles the old code rolled grass/sand on; the main
+// loop skips those (nothing is placed for them there), and `decorPlacements`
+// makes a second pass over the grid to roll seeds and singletons.
+//
+// A member's candidate position is checked against `isOpenScatterAt` --
+// blocked/cover/decor/boulder at its own tile, AND road clearance (R-3) --
+// because a cluster's radius (up to `CLUSTER_R_MAX`, over a tile) can carry a
+// member onto a neighbouring tile the seed tile itself never touches.
+
+/** Chance an open tile seeds a clump, before the density dial.
+ *
+ *  Raised from 0.09 (lead, 2026-09-27, "Raise seeds to hit 0.9"): the
+ *  original 0.09/0.15 pair (see `SINGLETON_P`) measured 0.75 objects an open
+ *  tile on the all-open synthetic fixture and 0.585-0.735 across all 26
+ *  shipped maps with >=500 open tiles -- below the approved 0.8-0.95
+ *  synthetic band and, on three maps, below the 0.65 real-map floor. R-3's
+ *  road/terrain clearance (`isOpenScatterAt`) drops real terrain's density
+ *  well below the raw seed x mean-count + singleton sum: measured at ~22%
+ *  of raw on the real 26-map population (not the ~12% a single synthetic
+ *  road+cover probe suggested -- real maps carry more terrain variety).
+ *  0.114 (a 1.267x raise, same ratio as `SINGLETON_P`'s raise) was found by
+ *  measuring `decorPlacements` against all 26 maps and the synthetic
+ *  fixture together at several scale factors: it is the LARGEST raise that
+ *  keeps every real map above the 0.65 floor (min 0.731) while keeping the
+ *  synthetic fixture under its own 0.95 ceiling (0.947); 1.28x already
+ *  pushes the fixture to 0.9501. Real maps land 0.731-0.920, mean 0.862 --
+ *  the closest to the approved 0.9 the fixture's own ceiling allows. */
+export const CLUSTER_SEED_P = 0.114;
+/** A clump's member count is drawn uniformly from this inclusive range. */
+export const CLUSTER_MIN = 6;
+export const CLUSTER_MAX = 10;
+/** A member's distance from its seed tile's centre, in tiles. */
+export const CLUSTER_R_MIN = 0.5;
+export const CLUSTER_R_MAX = 1.2;
+/** Chance an open tile places a single, unclustered object, on the same
+ *  stream (and at the same roll) the old unconditional per-tile object used
+ *  -- "a singleton lands where an object used to". Raised from 0.15 to 0.19
+ *  in the same 1.267x, ratio-preserving move as `CLUSTER_SEED_P` -- see its
+ *  doc comment for the full derivation and the lead's approval. */
+export const SINGLETON_P = 0.19;
+/** N-4: grass must never stand taller than the units it hides behind. Sand
+ *  keeps the old 0.8-1.2 scale jitter; only grass is capped down. */
+export const GRASS_SCALE_MIN = 0.7;
+export const GRASS_SCALE_MAX = 0.9;
+/** N-5: a bush is a thicker read of cover, not a flat rate -- the multiplier
+ *  cover-1/2/3 apply to below, replacing the old flat `DENSITY.bush`. */
+export const BUSH_COVER_BASE = 0.6;
+/** `ROAD_HALF_WIDTH + ROAD_EDGE_FALLOFF` (road-graph.ts): 0.54 tile. Grass and
+ *  sand keep this far from a road's packed surface and its soft edge --
+ *  matching every other family's respect for the road, just asserted as one
+ *  named constant since it now has two call sites (seed-tile placement and
+ *  the density-dial real-map test). */
+export const SCATTER_ROAD_CLEAR = ROAD_HALF_WIDTH + ROAD_EDGE_FALLOFF;
+/** The shed dial (spec §8, N-22): scales seed and singleton probability
+ *  only -- never cluster size, radius, family or scale, so thinning the
+ *  scatter for a frame-cost emergency cannot also change how a clump looks
+ *  when it does draw. */
+export const SCATTER_DENSITY = 1;
+
+const TAU = Math.PI * 2;
+
+/** Which family a plain open tile (`familyFor` returned `'open'` for it)
+ *  would draw, and the scale roll [0, 1) mapped into that family's own
+ *  range: `GRASS_SCALE_MIN..MAX` for grass, the old 0.8-1.2 for sand. */
+function openObjectFamily(seedTileHash: number): 'grass' | 'sand' {
+  return seedTileHash < 0.6 ? 'grass' : 'sand';
+}
+
+function openObjectScale(family: 'grass' | 'sand', roll: number): number {
+  return family === 'grass'
+    ? GRASS_SCALE_MIN + roll * (GRASS_SCALE_MAX - GRASS_SCALE_MIN)
+    : 0.8 + roll * 0.4;
+}
+
+/** What `buildRoadGraph` returns for an input with no `r` tile at all: no
+ *  nodes, no edges, an all-`-1` `nodeAt`, an all-zero `solid`. Building the
+ *  real thing for that answer is pure waste on a map or fixture that never
+ *  calls `setDecor` -- most unit tests, and every sandbox screen before a
+ *  road is authored -- so `decorPlacements` reaches for this instead of
+ *  `buildRoadGraph` whenever its own scan already saw no `DECOR_ROAD` tile. */
+function emptyRoadGraph(width: number, height: number): RoadGraph {
+  return {
+    width,
+    height,
+    nodes: [],
+    edges: [],
+    degree: [],
+    incident: [],
+    nodeAt: new Int32Array(width * height).fill(-1),
+    solid: new Uint8Array(width * height),
+    branches: [],
+  };
+}
+
+/**
+ * Whether a grass/sand object may stand at world `(px, pz)`: inside the map,
+ * on a tile with no blocking, cover, decor (road/grove/knoll/ridge/ditch) or
+ * boulder, and clear of the road's packed surface and soft edge (R-3).
+ *
+ * Takes an already-built `RoadGraph` rather than building one itself --
+ * `decorPlacements` builds it exactly once per call and reuses it for every
+ * candidate; a road graph per member would run `buildRoadGraph` thousands of
+ * times per map rebuild for no reason.
+ */
+export function isOpenScatterAt(input: TerrainInput, graph: RoadGraph, px: number, pz: number): boolean {
+  const { width, height, blocked, cover, decor, boulder } = input;
+  const x = Math.floor(px);
+  const y = Math.floor(pz);
+  if (x < 0 || y < 0 || x >= width || y >= height) return false;
+  const t = y * width + x;
+  if (blocked[t] !== 0) return false;
+  if (cover[t] !== 0) return false;
+  if (boulder && boulder[t] !== 0) return false;
+  if (decor && decor[t] !== 0) return false;
+  return roadDistanceAt(graph, px, pz) >= SCATTER_ROAD_CLEAR;
+}
+
+/** Which family this tile offers, `'open'` for plain ground (a grass/sand
+ *  candidate, resolved by the caller's own clustering pass rather than
+ *  here), or null for "nothing grows here".
  *  `boulder` is checked first and unconditionally: `map.ts`'s own legend
  *  ties the `b` symbol to blocked=0/decor=none/cover=0 always, which is
- *  exactly the shape every branch below already reads as "roll grass or
- *  sand" -- so a boulder tile that fell through to those branches would draw
+ *  exactly the shape every branch below already reads as "open ground" --
+ *  so a boulder tile that fell through to those branches would draw
  *  as bare, walkable ground with a tuft on it, the T1-C bug this exists to
  *  fix. */
 function familyFor(
   decor: number,
   cover: number,
-  roll: number,
   boulder: boolean,
   grove: GroveFamily
-): DecorFamily | null {
+): Exclude<DecorFamily, 'grass' | 'sand'> | 'open' | null {
   // BEFORE the boulder branch, and that order is load-bearing. A `d` tile
   // sets `boulder` too -- the two symbols share one vehicle-only mask by
   // design -- so a ditch that fell through to the branch below would draw a
@@ -133,7 +258,7 @@ function familyFor(
   if (decor === DECOR_KNOLL) return 'rock';
   if (decor === DECOR_RIDGE) return 'slab';
   if (cover > 0) return 'bush';
-  return roll < 0.6 ? 'grass' : 'sand';
+  return 'open';
 }
 
 /**
@@ -205,7 +330,7 @@ const DITCH_YAW_HORIZONTAL: readonly number[] = [0];
 const DITCH_YAW_VERTICAL: readonly number[] = [0.25];
 const DITCH_YAW_BOTH: readonly number[] = [0, 0.25];
 
-export function decorPlacements(input: TerrainInput): DecorPlacement[] {
+export function decorPlacements(input: TerrainInput, density: number = SCATTER_DENSITY): DecorPlacement[] {
   const { width, height, blocked, cover, decor, boulder } = input;
   // Absent means arid means a desert tree -- see `TerrainInput.groveFamily`
   // for why that is the safe default rather than the olive.
@@ -221,10 +346,20 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
   // every one of the four maps with no elevation grid are unmoved.
   const surface = buildTerrainSurface(input);
   const out: DecorPlacement[] = [];
+  // Piggybacked on the main loop below, which already reads `d` for every
+  // tile before deciding whether to skip it -- free to track here, and it
+  // lets the clustering pass skip `buildRoadGraph` entirely on a map with no
+  // `r` tile at all (every sandbox/unit-test fixture that never calls
+  // `setDecor`), rather than paying for a graph whose answer is always
+  // "no road anywhere" (`ThreeRenderer.ground-control.test.ts`'s I-1 fix
+  // pins that a redundant rebuild must not grow the road-graph build count;
+  // a decor-free map is exactly its fixture).
+  let sawRoad = false;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const t = y * width + x;
       const d = decor ? decor[t] : 0;
+      if (d === DECOR_ROAD) sawRoad = true;
       // A ridge is the one blocked tile that is not a building --
       // `buildings.ts`'s own doc comment says so explicitly, and skips
       // exactly it before ever asking whether a structure stands there.
@@ -235,20 +370,26 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       if (blocked[t] !== 0 && d !== DECOR_RIDGE) continue;
       const c = cover[t];
       const isBoulder = boulder ? boulder[t] !== 0 : false;
-      const family = familyFor(d, c, tileHash(x + 977, y + 311), isBoulder, grove);
+      const family = familyFor(d, c, isBoulder, grove);
       if (family === null) continue;
+      // Grass and sand ('open') are handled entirely by the clustering pass
+      // below -- nothing is placed for them here.
+      if (family === 'open') continue;
 
       // Cover level thickens a bush tile; every other family keeps its base
       // density. Clamped so a cover-3 tile cannot exceed 1.
-      const density =
-        family === 'bush' ? Math.min(1, DENSITY.bush * (0.5 + 0.5 * c)) : DENSITY[family];
+      const tileDensity =
+        family === 'bush' ? Math.min(1, BUSH_COVER_BASE * (0.5 + 0.5 * c)) : DENSITY[family];
       // Own offset stream, like every other roll in this file -- NOT the
       // bare `tileHash(x, y)` scatter.ts's ground grain uses for its own
       // pebble/fleck gate (`rnd > 0.9`, `rnd > 0.84`). Sharing that stream
       // anti-correlates decor density with grain density across the whole
-      // map: a grass tuft (density 0.34) could never land on a tile grain
-      // calls "pebbled" (>0.84), because the two ranges never overlap.
-      if (tileHash(x + 449, y + 823) >= density) continue;
+      // map: a bush tile (density up to 1.0) could never land on a tile
+      // grain calls "pebbled" (>0.84) if the ranges never overlapped -- they
+      // do here, but the point of a dedicated stream still holds: this
+      // module's placement gate must not move in lockstep with the ground's
+      // own grain.
+      if (tileHash(x + 449, y + 823) >= tileDensity) continue;
 
       // A ditch is placed, not scattered. Every other family below jitters
       // its position, rolls a variant, rolls a yaw and rolls a scale, which
@@ -336,5 +477,71 @@ export function decorPlacements(input: TerrainInput): DecorPlacement[] {
       }
     }
   }
+
+  // Second pass: clustered grass and sand (G8, spec §3.4). Built once here
+  // rather than per candidate -- `buildRoadGraph` walks the whole grid, and
+  // a cluster's own members are the only thing in this file that needs a
+  // road distance at all. Skipped entirely when the map carries no road tile
+  // (`emptyRoadGraph` is exactly what `buildRoadGraph` would have produced
+  // for that input, so `isOpenScatterAt`'s road check is unaffected) --
+  // `sawRoad` above already paid for this answer.
+  const graph = sawRoad ? buildRoadGraph(input) : emptyRoadGraph(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = y * width + x;
+      if (blocked[t] !== 0) continue;
+      const d = decor ? decor[t] : 0;
+      const c = cover[t];
+      const isBoulder = boulder ? boulder[t] !== 0 : false;
+      if (familyFor(d, c, isBoulder, grove) !== 'open') continue;
+
+      if (tileHash(x + 2203, y + 1499) < CLUSTER_SEED_P * density) {
+        const clusterFamily = openObjectFamily(tileHash(x + 977, y + 311));
+        const count =
+          CLUSTER_MIN + Math.floor(tileHash(x + 3301, y + 709) * (CLUSTER_MAX - CLUSTER_MIN + 1));
+        for (let k = 0; k < count; k++) {
+          const angle = tileHash(x * 7 + k + 3001, y * 5 + k + 1709) * TAU;
+          const radius =
+            CLUSTER_R_MIN + tileHash(x * 5 + k + 1201, y * 3 + k + 4409) * (CLUSTER_R_MAX - CLUSTER_R_MIN);
+          const mx = x + 0.5 + Math.cos(angle) * radius;
+          const mz = y + 0.5 + Math.sin(angle) * radius;
+          if (!isOpenScatterAt(input, graph, mx, mz)) continue;
+          out.push({
+            family: clusterFamily,
+            variant: Math.floor(tileHash(x * 19 + k + 8101, y * 23 + k + 5407) * VARIANTS_PER_FAMILY),
+            x: mx,
+            z: mz,
+            y: surfaceWorldY(surface, mx, mz),
+            yawTurns: tileHash(x * 29 + k + 9203, y * 31 + k + 6301),
+            scale: openObjectScale(clusterFamily, tileHash(x * 37 + k + 4801, y * 41 + k + 2003)),
+          });
+        }
+      }
+
+      // The old unconditional per-tile object, still gated on its own old
+      // stream (449/823) -- reused here as the singleton roll rather than a
+      // fresh offset, and every other roll below (position, variant, yaw,
+      // scale) is the exact formula that tile's one object used to get.
+      if (tileHash(x + 449, y + 823) < SINGLETON_P * density) {
+        const singletonFamily = openObjectFamily(tileHash(x + 977, y + 311));
+        const jx = tileHash(x + 101, y + 7) - 0.5;
+        const jy = tileHash(x + 13, y + 401) - 0.5;
+        const sx = x + 0.5 + jx * 0.6;
+        const sz = y + 0.5 + jy * 0.6;
+        if (isOpenScatterAt(input, graph, sx, sz)) {
+          out.push({
+            family: singletonFamily,
+            variant: Math.floor(tileHash(x + 53, y + 991) * VARIANTS_PER_FAMILY),
+            x: sx,
+            z: sz,
+            y: surfaceWorldY(surface, sx, sz),
+            yawTurns: tileHash(x + 617, y + 29),
+            scale: openObjectScale(singletonFamily, tileHash(x + 71, y + 137)),
+          });
+        }
+      }
+    }
+  }
+
   return out;
 }
