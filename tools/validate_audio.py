@@ -122,7 +122,9 @@ def check_voices(voices, failures, factions, audio_dir=AUDIO_DIR):
     if voices is None:
         return declared
     gain = voices.get("gain", 1.0)
-    if not 0 <= gain <= 1:
+    if isinstance(gain, bool) or not isinstance(gain, (int, float)):
+        failures.append(f"voices: gain {gain!r} is not a number")
+    elif not 0 <= gain <= 1:
         failures.append(f"voices: gain {gain} outside 0..1 (a voice is unplaced, like a UI cue)")
     langs = voices.get("languages", {})
     for faction, lang in langs.items():

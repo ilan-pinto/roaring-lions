@@ -137,6 +137,9 @@ def main():
     f, _ = run(mod, voices({}, gain=1.2))
     check("a voice gain above 1 fails -- a voice is unplaced, like a UI cue", f, "outside 0..1")
 
+    f, _ = run(mod, voices({}, gain="loud"))
+    check("a non-numeric voice gain fails cleanly, not a traceback", f, "is not a number")
+
     # R-7: the owned licence is for voices only; a battle clip stays CC0/CC-BY.
     with tempfile.TemporaryDirectory() as d:
         os.makedirs(os.path.join(d, "battle"))
