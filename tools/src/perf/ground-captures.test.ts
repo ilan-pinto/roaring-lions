@@ -64,6 +64,6 @@ describe('viewsFor', () => {
 
 describe('COST_LAYERS', () => {
   it('measures decals ahead of scorch, so the one array reads both trees', () => {
-    expect(COST_LAYERS).toEqual(['scatter', 'decor', 'units', 'buildings', 'decals', 'scorch']);
+    expect(COST_LAYERS).toEqual(['scatter', 'decor', 'props', 'units', 'buildings', 'decals', 'scorch']);
   });
 });

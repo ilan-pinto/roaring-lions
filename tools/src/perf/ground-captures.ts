@@ -167,8 +167,10 @@ export function viewsFor(mapId: string, rows: readonly string[]): readonly MapVi
  *  `decals` sits before `scorch` deliberately -- see this file's header,
  *  difference 2: after Task 13, on THIS branch `decals` resolves and
  *  `scorch` throws (retired, D5/R-17), and on main it is the other way
- *  round, so the one array measures both trees. */
-export const COST_LAYERS: readonly string[] = ['scatter', 'decor', 'units', 'buildings', 'decals', 'scorch'];
+ *  round, so the one array measures both trees. `props` (ground plan 2,
+ *  Task 5) reads `n/a` on a tree that predates the prop batch, by the same
+ *  rule. */
+export const COST_LAYERS: readonly string[] = ['scatter', 'decor', 'props', 'units', 'buildings', 'decals', 'scorch'];
 
 // ============================================================================
 // Browser half

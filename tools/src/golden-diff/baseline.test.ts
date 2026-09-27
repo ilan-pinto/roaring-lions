@@ -739,6 +739,9 @@ describe('BASELINES layerChecks', () => {
         // sub-threshold, so its pixel floor is 0 and the magnitude carries it.
         roads: { px: 187, mean: 0.468 },
         macro: { px: 6, mean: 0.4798 },
+        // Ground plan 2, Task 5, 2026-09-27: the prop batch, 3 runs,
+        // bit-identical; 18 props in frame.
+        props: { px: 2307, mean: 0.1404 },
       },
       'open-ground': {
         scatter: { px: 3615, mean: 1.6088 },
@@ -773,6 +776,9 @@ describe('BASELINES layerChecks', () => {
         // 3 px is under SUB_THRESHOLD_PX -- the pixel floor is 0 below.
         macro: { px: 3, mean: 0.7082 },
         scatter: { px: 6193, mean: 0.7816 },
+        // Ground plan 2, Task 5, 2026-09-27: one wrecked car in frame, 3 runs,
+        // bit-identical.
+        props: { px: 5351, mean: 0.4518 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the

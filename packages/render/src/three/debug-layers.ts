@@ -44,6 +44,7 @@
  *                 (`terrain/decor-mesh.ts`, `terrain/decor-textured-mesh.ts`).
  *                 One name, because one authoring fault (`decor-place.ts`'s
  *                 `familyFor`) empties both.
+ * - `props`       the one prop batch (`terrain/prop-mesh.ts`); `decor` does not hide it.
  * - `ground-albedo` the six ground texture slots, driven to strength 0 --
  *                 which is not a visibility flag but the material's OWN
  *                 documented fail-soft path (`GROUND_SLOTS`; every strength
@@ -241,6 +242,7 @@
 export const DEBUG_LAYERS = [
   'scatter',
   'decor',
+  'props',
   'ground-albedo',
   'macro',
   'roads',

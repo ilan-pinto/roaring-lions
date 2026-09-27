@@ -12,6 +12,8 @@
  * `environment: 'node'`, so the same `vi.mock` stand-in `ThreeRenderer.test.ts`
  * established is used here, for the same reason and with the same scope.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { Sim } from '@lions/sim';
@@ -78,6 +80,7 @@ function internals(r: ThreeRenderer): {
   residualMesh: THREE.Mesh | null;
   decorGroup: THREE.Object3D | null;
   texturedDecorGroup: THREE.Object3D | null;
+  propMesh: THREE.BatchedMesh | null;
   structureBoxes: Map<number, THREE.Mesh>;
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
   groundMat: GroundMaterial;
@@ -245,6 +248,42 @@ describe('DEBUG_LAYERS', () => {
     expect(i.decorGroup.visible).toBe(false);
     expect(i.texturedDecorGroup.visible).toBe(false);
     r.dispose();
+  });
+
+  it('names props as their own layer, and decor does not hide them (ground plan 2, Task 5)', () => {
+    // Each layer is its own witness: a `props` check that `decor` also
+    // cleared would let a prop erasure hide behind the decor delta, and the
+    // other way round.
+    expect(DEBUG_LAYERS).toContain('props');
+    expect(isDebugLayer('props')).toBe(true);
+    const r = makeRenderer();
+    const i = internals(r);
+    i.decorGroup = new THREE.Group();
+    i.texturedDecorGroup = new THREE.Group();
+    // A real `BatchedMesh`, because `dispose()` disposes it as one.
+    i.propMesh = new THREE.BatchedMesh(1, 3, 3, new THREE.MeshStandardMaterial());
+    expect(r.setDebugLayerVisible('decor', false)).toBe(2);
+    expect(i.propMesh.visible).toBe(true);
+    expect(r.setDebugLayerVisible('props', false)).toBe(1);
+    expect(i.propMesh.visible).toBe(false);
+    expect(i.decorGroup.visible).toBe(false);
+    r.setDebugLayerVisible('decor', true);
+    expect(i.propMesh.visible).toBe(false);
+    expect(r.setDebugLayerVisible('props', true)).toBe(1);
+    expect(i.propMesh.visible).toBe(true);
+    r.dispose();
+  });
+
+  it('documents props in the layer list, one entry saying what it hides and that decor does not', () => {
+    // The doc block above `DEBUG_LAYERS` is the list a harness author reads;
+    // a name there with no entry is a layer nobody can reason about.
+    const src = readFileSync(fileURLToPath(new URL('./debug-layers.ts', import.meta.url)), 'utf8');
+    const doc = src.slice(0, src.indexOf('export const DEBUG_LAYERS'));
+    const entry = /^ \* - `props` +(.*)$/m.exec(doc);
+    expect(entry).not.toBeNull();
+    const text = entry === null ? '' : entry[1];
+    expect(text).toMatch(/prop/i);
+    expect(text).toMatch(/`decor` does not/);
   });
 
   it('reaches every building collection, palette boxes and mesh clones alike', () => {

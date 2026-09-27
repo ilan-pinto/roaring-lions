@@ -458,6 +458,23 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'stands between that and a pass.',
       },
       {
+        layer: 'props',
+        minDiffPixels: 769,
+        minMeanAbsChannelDelta: 0.0468,
+        rationale:
+          'measured 2026-09-27 on ground plan 2, Task 5 (the one prop batch, `terrain/prop-mesh.ts`), ' +
+          '3 consecutive runs (`--scenario=quiet,aftermath`) on macOS 15 / M3 Pro, headless Chromium, ' +
+          'software SwiftShader, frame loop frozen; bit-identical across the three, repaint control ' +
+          '0 px / 0.0000. Floors are a third of the smallest reading, rounded down. ' +
+          'hiding the prop batch moves 2307 px / 0.1404 here, with all 18 of the map\'s placed props ' +
+          'projecting inside the frame (water tanks and dishes in the yards, a jersey barrier and a ' +
+          'wrecked car by the crossroads, tyre piles). A small magnitude over a wide spread: every ' +
+          'prop is a few dozen pixels at zoom 1, most of them beside a building that already owns ' +
+          'the ground around it. `decor` does not hide props (`debug-layers.ts`), so this is the ' +
+          'props\' own witness. Falsified by making `composeTerrain` place no props ' +
+          '(`propPlacements: []`, the pure tests untouched): 0 px / 0.0000, FAIL.',
+      },
+      {
         layer: 'ground-albedo',
         minDiffPixels: 0,
         minMeanAbsChannelDelta: 0.34,
@@ -1060,6 +1077,25 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
+      {
+        layer: 'props',
+        minDiffPixels: 1783,
+        minMeanAbsChannelDelta: 0.1505,
+        rationale:
+          'measured 2026-09-27 on ground plan 2, Task 5 (the one prop batch, `terrain/prop-mesh.ts`), ' +
+          '3 consecutive runs (`--scenario=quiet,aftermath`) on macOS 15 / M3 Pro, headless Chromium, ' +
+          'software SwiftShader, frame loop frozen; bit-identical across the three, repaint control ' +
+          '0 px / 0.0000. Floors are a third of the smallest reading, rounded down. ' +
+          'hiding the prop batch moves 5351 px / 0.4518 here, from ONE prop -- the wrecked car ' +
+          'at the road\'s edge above the north showcase site, which is the only one of the map\'s 15 ' +
+          'whose origin projects inside this zoom-2.2 frame; the car and the shadow it throws ' +
+          'across the crater are the whole signal. One object is a thin witness, and it is named ' +
+          'as one: moving the camera or the placement rule can take it out of frame, and that ' +
+          'reads as 0 px here. The second map for the props check, and the stronger one. ' +
+          'Floor 0.1505, not 0.1506: a third of 0.4518 is 0.15059999... in binary floating point. ' +
+          'Falsified by making `composeTerrain` place no props (`propPlacements: []`, the pure ' +
+          'tests untouched): 0 px / 0.0000, FAIL.',
+      },
       {
         layer: 'decals',
         minDiffPixels: 41000,

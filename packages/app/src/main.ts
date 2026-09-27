@@ -1879,6 +1879,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // spread. `<family>_<variant>` keys, not unit type ids -- nothing in
         // the sim has a "bush", which is the point.
         three.loadDecorMeshes(meshManifest.decor),
+        // Props (ground plan 2): one call for the kit, keyed by kind. Empty on
+        // a map with no road and no building tile (`propKindsFor`), which
+        // loads nothing and places nothing.
+        three.loadPropMeshes(meshManifest.props),
       ]).catch((err: unknown) => {
         teardown();
         throw err;

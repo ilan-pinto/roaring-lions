@@ -220,6 +220,14 @@ import {
 } from './terrain/decor-mesh';
 import { decorPlacements, type DecorPlacement } from './terrain/decor-place';
 import { isDecorMeshRole, type DecorMeshRole } from './terrain/decor-role';
+import { propPlacements, type PropPlacement } from './terrain/prop-place';
+import { isPropMeshRole, PROP_MESH_ROLES, type PropKind, type PropMeshRole } from './terrain/prop-role';
+import {
+  bakePropColors,
+  buildPropMesh,
+  disposePropMesh,
+  type PropGeometrySet,
+} from './terrain/prop-mesh';
 import {
   buildTexturedDecorMesh,
   disposeTexturedDecorMesh,
@@ -959,6 +967,15 @@ export class ThreeRenderer implements Renderer {
   /** The current textured-decor batch, rebuilt wholesale by `rebuildTerrain`
    *  alongside `decorGroup`. */
   private texturedDecorGroup: THREE.Group | null = null;
+  /** Ground plan 2, Task 5: every prop GLB's role-tagged geometry, keyed by
+   *  kind, colour already baked per vertex (`loadPropMeshes`). Empty until
+   *  that load lands, which `buildPropMesh` treats as "no props", so Pixi,
+   *  `&nomesh` and a map with no road or building tile draw none. */
+  private propSet: PropGeometrySet = { parts: new Map() };
+  /** The one prop batch (`terrain/prop-mesh.ts`), rebuilt wholesale by
+   *  `rebuildTerrain` beside `decorGroup`. `null` before the first rebuild
+   *  and whenever nothing is placed or nothing loaded. */
+  private propMesh: THREE.BatchedMesh | null = null;
   /**
    * Task B3.9: the renderer-side counterpart of `PixiRenderer`'s own
    * `structureWear` (`renderer.ts:1792`'s `bumpStructureWear`) -- one
@@ -2670,6 +2687,11 @@ export class ThreeRenderer implements Renderer {
     if (this.texturedDecorGroup) disposeTexturedDecorMesh(this.texturedDecorGroup);
     this.disposeDecorGeometrySet(this.decorSet);
     this.disposeTexturedDecorSet(this.texturedDecorSet);
+    // Props: the batch and the source clones `loadPropMeshes` owns, the same
+    // two owners as decor just above.
+    if (this.propMesh) disposePropMesh(this.propMesh);
+    this.propMesh = null;
+    this.disposePropGeometrySet(this.propSet);
     this.terrainMat.dispose();
     this.groveMat.dispose();
     // The ground's data textures: the control pair `rebuildTerrain` last
@@ -3086,6 +3108,11 @@ export class ThreeRenderer implements Renderer {
         return setObjectsVisible(visible, this.scatterMesh);
       case 'decor':
         return setObjectsVisible(visible, this.decorGroup, this.texturedDecorGroup);
+      case 'props':
+        // Its own name, deliberately not folded into `decor`: each layer is
+        // its own witness. Nothing per-frame writes `propMesh.visible`
+        // (grepped), so a plain flag holds across the gate's repaint.
+        return setObjectsVisible(visible, this.propMesh);
       case 'buildings':
         return setObjectsVisible(
           visible,
@@ -5379,6 +5406,64 @@ export class ThreeRenderer implements Renderer {
    * whole life (or until a reload replaces them) rather than one rebuild's.
    */
   private disposeDecorGeometrySet(set: DecorGeometrySet): void {
+    for (const list of set.parts.values()) {
+      for (const part of list) part.geometry.dispose();
+    }
+  }
+
+  /**
+   * Ground plan 2, Task 5: loads every prop GLB (`urls` keyed by kind, one
+   * entry per `art/meshes/props/*.glb` the map's plan asks for) into
+   * `propSet`. `loadDecorMeshes`' shape exactly -- `MESH_SCALE` on the root,
+   * each mesh's geometry cloned into world space and stripped to position +
+   * normal -- with one step added: `bakePropColors` writes the role's lit
+   * tone into a `color` attribute, because the prop batch is ONE material for
+   * every kind (`prop-mesh.ts`'s top comment) and a role can no longer be a
+   * material.
+   *
+   * A role outside `PROP_MESH_ROLES` THROWS, naming the kind. `validate:meshes`
+   * already refuses such a file, so reaching here means a GLB nobody checked;
+   * guessing a colour would hide that.
+   *
+   * `terrainDirty = true` afterwards, as `loadDecorMeshes` does: a late load
+   * rebuilds the terrain, and with it the prop batch.
+   */
+  async loadPropMeshes(urls: ReadonlyMap<PropKind, string>): Promise<void> {
+    const parts = new Map<PropKind, { role: PropMeshRole; geometry: THREE.BufferGeometry }[]>();
+    await Promise.all(
+      [...urls].map(async ([kind, url]) => {
+        const gltf = await gltfLoader().loadAsync(url);
+        gltf.scene.scale.setScalar(MESH_SCALE);
+        const list: { role: PropMeshRole; geometry: THREE.BufferGeometry }[] = [];
+        gltf.scene.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const role = (mesh.userData as { rl_role?: string }).rl_role;
+          if (role === undefined || !isPropMeshRole(role)) {
+            throw new Error(
+              `loadPropMeshes: "${kind}" carries rl_role "${String(role)}", not one of ` +
+                `${PROP_MESH_ROLES.join(', ')} -- validate:meshes refuses this file`
+            );
+          }
+          mesh.updateWorldMatrix(true, false);
+          list.push({
+            role,
+            geometry: bakePropColors(
+              stripToBatchAttributes(mesh.geometry.clone().applyMatrix4(mesh.matrixWorld)),
+              role
+            ),
+          });
+        });
+        if (list.length > 0) parts.set(kind, list);
+      })
+    );
+    this.disposePropGeometrySet(this.propSet);
+    this.propSet = { parts };
+    this.terrainDirty = true;
+  }
+
+  /** `disposeDecorGeometrySet`'s counterpart for the prop set's source clones. */
+  private disposePropGeometrySet(set: PropGeometrySet): void {
     for (const list of set.parts.values()) {
       for (const part of list) part.geometry.dispose();
     }
@@ -8090,6 +8175,11 @@ export class ThreeRenderer implements Renderer {
       this.scene.remove(this.texturedDecorGroup);
       disposeTexturedDecorMesh(this.texturedDecorGroup);
     }
+    if (this.propMesh !== null) {
+      this.scene.remove(this.propMesh);
+      disposePropMesh(this.propMesh);
+      this.propMesh = null;
+    }
 
     const composed = composeTerrain(
       this.sim,
@@ -8207,6 +8297,11 @@ export class ThreeRenderer implements Renderer {
       this.texturedDecorSet
     );
     this.scene.add(this.texturedDecorGroup);
+
+    // Ground plan 2, Task 5: the one prop batch, from the same `input` as
+    // the decor above. `null` when nothing is placed or nothing loaded.
+    this.propMesh = buildPropMesh(composed.propPlacements, this.propSet);
+    if (this.propMesh !== null) this.scene.add(this.propMesh);
   }
 
   /**
@@ -8805,6 +8900,9 @@ export interface ComposedTerrain {
    * state" split `ground`/`scatter`/`groves`/`buildings` already draw.
    */
   readonly decorPlacements: readonly DecorPlacement[];
+  /** Ground plan 2, Task 5: `propPlacements(input)` over the same `input` as
+   *  `decorPlacements`. Plain data, like it. */
+  readonly propPlacements: readonly PropPlacement[];
 }
 
 /** `sim.blocked`, with every currently-live structure's own tiles zeroed
@@ -8914,5 +9012,14 @@ export function composeTerrain(
     });
   }
 
-  return { input, ground, scatter, groves, residual, buildings, decorPlacements: decorPlacements(input) };
+  return {
+    input,
+    ground,
+    scatter,
+    groves,
+    residual,
+    buildings,
+    decorPlacements: decorPlacements(input),
+    propPlacements: propPlacements(input),
+  };
 }
