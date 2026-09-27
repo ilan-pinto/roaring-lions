@@ -1,4 +1,5 @@
 import palette from '../../../data/palette.json';
+import { TELEMETRY_ORDER_VERBS } from '@lions/data/telemetry';
 import { testerLink } from './tester-link';
 
 const ramp = (name: string, i: number): string =>
@@ -47,6 +48,8 @@ th{font:600 12px 'IBM Plex Mono',monospace;text-transform:uppercase;color:var(--
 <h2>Campaign funnel</h2><div class="wrap"><table id="funnel"></table></div>
 <h2>Tutorial funnel</h2><div class="wrap"><table id="tutorial"></table></div>
 <h2>Missions</h2><div class="wrap"><table id="missions"></table></div>
+<h2>Brigade accounts</h2><div class="wrap"><table id="accounts"></table></div>
+<h2>Loadouts</h2><div class="wrap"><table id="loadout-units"></table></div><div class="wrap"><table id="loadout-orders"></table></div>
 <h2>Testers</h2>
 <div class="controls">
 <input id="share-name" placeholder="tester name" maxlength="32" autocomplete="off">
@@ -64,8 +67,9 @@ const fmt=(n,d=1)=>n==null?'—':Number(n).toFixed(d);
 const qs=()=>{const p=new URLSearchParams({range:$('range').value,who:$('who').value});if($('tester').value)p.set('tester',$('tester').value);return p};
 const get=(path,p=qs())=>fetch('/stats/api/'+path+'?'+p).then((r)=>r.json());
 const table=(el,head,rows)=>{el.innerHTML='<tr>'+head.map((h)=>'<th>'+h+'</th>').join('')+'</tr>'+rows.join('')};
+const VERBS=${JSON.stringify(TELEMETRY_ORDER_VERBS)};
 async function load(){
-  const [s,days,fun,mis,tes]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers')]);
+  const [s,days,fun,mis,tes,acc,loads]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers'),get('accounts'),get('loadouts')]);
   $('summary').innerHTML=[['Players',s.players,0],['Sessions',s.sessions,0],['Hours played',s.hoursPlayed,1],['Median min / player',s.medianMinutesPerPlayer,0],['Came back another day',s.returnedDay2,0,' ('+Math.round(100*s.returnRate)+'%)']]
     .map(([l,v,d,suffix])=>'<div class="stat"><b>'+fmt(v,d)+(suffix||'')+'</b>'+l+'</div>').join('');
   const maxDay=Math.max(1,...days.map((d)=>d.new+d.returning));
@@ -78,6 +82,13 @@ async function load(){
   table($('missions'),['Mission','Attempts','Win %','Median min','Target','Top loss cause','Mean ROE','Most-failed objective'],mis.map((m)=>'<tr><td>'+esc(m.mission)+'</td><td class="n">'+m.attempts+'</td><td class="n">'+(m.winRate==null?'—':Math.round(100*m.winRate))+'</td><td class="n'+(m.medianWinMinutes!=null&&m.targetMinutes!=null&&m.medianWinMinutes>m.targetMinutes?' over':'')+'">'+fmt(m.medianWinMinutes)+'</td><td class="n">'+fmt(m.targetMinutes,0)+'</td><td>'+esc(m.topCause??'—')+'</td><td class="n">'+fmt(m.meanRoe,0)+'</td><td>'+esc(m.mostFailedObjective??'—')+'</td></tr>'));
   table($('testers'),['Tester','Missions won','Furthest won','Hours','Last seen'],tes.map((t)=>'<tr><td><button data-t="'+esc(t.tester)+'">'+esc(t.tester)+'</button> <button data-t="'+esc(t.tester)+'" data-share title="Create and copy a link for this tester">Share</button></td><td class="n">'+t.missionsWon+'</td><td>'+esc(t.furthestWon??'—')+'</td><td class="n">'+fmt(t.hours)+'</td><td>'+new Date(t.lastSeen).toISOString().slice(0,16).replace('T',' ')+'</td></tr>'));
   const sel=$('tester'),cur=sel.value;sel.innerHTML='<option value="">Any tester</option>'+tes.map((t)=>'<option'+(t.tester===cur?' selected':'')+'>'+esc(t.tester)+'</option>').join('');
+  /*gh254*/
+  table($('accounts'),['Player','Tester','Credits','Earned','Units unlocked','Upgrades','Last seen'],acc.map((a)=>'<tr>'+'<td>'+esc(a.player)+'</td>'+'<td>'+esc(a.tester??'—')+'</td>'+'<td class="n">'+fmt(a.credits,0)+'</td>'+'<td class="n">'+fmt(a.earned,0)+'</td>'+'<td class="n" title="'+esc(a.unlocks.join(', '))+'">'+fmt(a.unlocks.length,0)+'</td>'+'<td>'+esc(a.tiers.map((t)=>t.replace(/\\./g,' ')).join(', '))+'</td>'+'<td>'+esc(new Date(a.lastSeen).toISOString().slice(0,16).replace('T',' '))+'</td>'+'</tr>'));
+  const unitRows=[];
+  for(const m of loads){for(const u of m.units){unitRows.push('<tr>'+'<td>'+esc(m.mission)+'</td>'+'<td>'+esc(u.unit)+'</td>'+'<td class="n">'+fmt(u.deployed)+'</td>'+'<td class="n">'+fmt(u.fromRoster)+'</td>'+'<td class="n">'+fmt(u.bought)+'</td>'+'<td class="n">'+fmt(m.runs,0)+' ('+fmt(m.loadoutRuns,0)+' with data)</td>'+'</tr>')}}
+  table($('loadout-units'),['Mission','Unit','Deployed / run','From roster / run','Bought / run','Runs'],unitRows);
+  table($('loadout-orders'),['Mission',...VERBS],loads.map((m)=>'<tr>'+'<td>'+esc(m.mission)+'</td>'+VERBS.map((v)=>'<td class="n">'+fmt(m.orders[v])+'</td>').join('')+'</tr>'));
+  /*/gh254*/
 }
 async function showTimeline(name){
   const rows=await get('timeline',new URLSearchParams({tester:name}));

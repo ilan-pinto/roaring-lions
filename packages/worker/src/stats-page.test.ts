@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TESTER_PATTERN } from '@lions/data/telemetry';
+import { TESTER_PATTERN, TELEMETRY_ORDER_VERBS } from '@lions/data/telemetry';
 import { STATS_HTML } from './stats-page';
 import { testerLink } from './tester-link';
 
@@ -42,5 +42,31 @@ describe('STATS_HTML: Share with a tester (issue #230)', () => {
     const rebuilt = new Function(`return (${match![1]});`)() as typeof testerLink;
     expect(rebuilt('https://g.dev/', 'dani')).toEqual({ ok: true, url: 'https://g.dev/?tester=dani' });
     expect(rebuilt('https://g.dev', 'bad name').ok).toBe(false);
+  });
+});
+
+describe('STATS_HTML: accounts and loadouts (GH-254)', () => {
+  it('has the three tables under their headings, after Missions and before Testers', () => {
+    const at = (s: string) => STATS_HTML.indexOf(s);
+    for (const id of ['id="accounts"', 'id="loadout-units"', 'id="loadout-orders"']) expect(STATS_HTML).toContain(id);
+    expect(at('<h2>Missions</h2>')).toBeLessThan(at('<h2>Brigade accounts</h2>'));
+    expect(at('<h2>Brigade accounts</h2>')).toBeLessThan(at('<h2>Loadouts</h2>'));
+    expect(at('<h2>Loadouts</h2>')).toBeLessThan(at('<h2>Testers</h2>'));
+  });
+
+  it('loads both new endpoints with the same filter as the rest of the page', () => {
+    expect(STATS_HTML).toContain("get('accounts')");
+    expect(STATS_HTML).toContain("get('loadouts')");
+  });
+
+  it('drift guard: the verb columns are generated from TELEMETRY_ORDER_VERBS, not a hand-copied list', () => {
+    expect(STATS_HTML).toContain(`const VERBS=${JSON.stringify(TELEMETRY_ORDER_VERBS)};`);
+  });
+
+  it('every value the new tables print goes through esc() or fmt()', () => {
+    const block = STATS_HTML.slice(STATS_HTML.indexOf('/*gh254*/'), STATS_HTML.indexOf('/*/gh254*/'));
+    expect(block.length).toBeGreaterThan(0);
+    // Every `r.` / `u.` / `a.` read inside a cell is wrapped.
+    expect(block).not.toMatch(/'<td>'\+(?!esc\(|fmt\()/);
   });
 });
