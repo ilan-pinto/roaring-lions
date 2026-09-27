@@ -215,17 +215,23 @@ function parseSvg(svg: string): string {
 describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
   const ICON = '<img class="rl-chip__art" src="/x.png" alt="" draggable="false">';
 
-  it('is the approved per-surface sizes, and the stylesheet draws each at exactly that size', () => {
+  it('is the approved sizes, and the stylesheet draws the chip and everything else at exactly those sizes', () => {
     // G-N2 FINAL, the lead, 2026-09-27: "B, but 20 px on the chip." The
     // plan's original single 1.25rem (G-N2's recommendation, R-6) survives
-    // only on the chip; every other surface takes the smaller 1rem ('icon').
-    expect(KIT_ICON_SIGN).toEqual({ chip: { rem: 1.25, px: 20 }, icon: { rem: 1, px: 16 } });
+    // only on the chip; every other surface takes the smaller 1rem ('small').
+    // Fix round 1 (review): the size is picked by a CSS selector, never by a
+    // JS parameter -- `kitIconSignHtml`/`withKitSign` take no surface
+    // argument at all, so there is nothing here for a call site to omit.
+    expect(KIT_ICON_SIGN).toEqual({ chip: { rem: 1.25, px: 20 }, small: { rem: 1, px: 16 } });
     expect(KIT_ICON_SIGN.chip.px).toBe(KIT_ICON_SIGN.chip.rem * 16);
-    expect(KIT_ICON_SIGN.icon.px).toBe(KIT_ICON_SIGN.icon.rem * 16);
+    expect(KIT_ICON_SIGN.small.px).toBe(KIT_ICON_SIGN.small.rem * 16);
     const base = ruleBody('.rl-kit-icon svg');
-    expect(base).toMatch(new RegExp(`width:\\s*${KIT_ICON_SIGN.icon.rem}rem`));
-    expect(base).toMatch(new RegExp(`height:\\s*${KIT_ICON_SIGN.icon.rem}rem`));
-    const chip = ruleBody('.rl-kit-icon--chip svg');
+    expect(base).toMatch(new RegExp(`width:\\s*${KIT_ICON_SIGN.small.rem}rem`));
+    expect(base).toMatch(new RegExp(`height:\\s*${KIT_ICON_SIGN.small.rem}rem`));
+    // The chip-only size: an ancestor/sibling selector keyed on the chip's
+    // own art class (hud.ts's renderChips, ~line 1611), read straight out of
+    // theme.css -- not a class the JS output adds for this purpose.
+    const chip = ruleBody('.rl-chip__art + .rl-kit-icon svg');
     expect(chip).toMatch(new RegExp(`width:\\s*${KIT_ICON_SIGN.chip.rem}rem`));
     expect(chip).toMatch(new RegExp(`height:\\s*${KIT_ICON_SIGN.chip.rem}rem`));
   });
@@ -246,49 +252,41 @@ describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
     }
   });
 
-  it('is smaller everywhere but the chip, at a clearance the lead accepted below R-6’s own floor', () => {
+  it('is smaller everywhere but the chip, at every level, at a clearance the lead accepted below R-6’s own floor', () => {
     // The card frame, the dock tile and the garage rail all take the 16 px
-    // 'icon' size R-6 measured and rejected (0.83 px of clearance, under the
-    // 1 px floor -- the level-1 bar fusing into the plate). The lead saw the
-    // B-halo L1 crop this produces and chose it anyway for every surface but
-    // the chip ("B, but 20 px on the chip", G-N2 FINAL, 2026-09-27). This
+    // 'small' size R-6 measured and rejected (0.83 px of clearance, under
+    // the 1 px floor -- the level-1 bar fusing into the plate). The lead saw
+    // the B-halo L1 crop this produces and chose it anyway for every surface
+    // but the chip ("B, but 20 px on the chip", G-N2 FINAL, 2026-09-27; fix
+    // round 1 extended this record from level 1 alone to every level, since
+    // the lowest bar -- the one R-6 measured -- sits at the same place in
+    // the 24-unit box regardless of how many bars are drawn above it). This
     // test records the accepted number; it does not gate on the floor.
-    const scale = KIT_ICON_SIGN.icon.px / 24;
-    const { plateInnerBottom, bars } = markGeometry(1);
-    const [, bottom] = bars[0];
-    expect((plateInnerBottom - bottom) * scale).toBeCloseTo(0.83, 2);
-  });
-
-  it('draws nothing at level 0 on either size, and leaves an unkitted icon byte-identical', () => {
-    expect(kitIconSignHtml(0)).toBe('');
-    expect(kitIconSignHtml(0, 'chip')).toBe('');
-    expect(withKitSign(ICON, 0)).toBe(ICON);
-    expect(withKitSign(ICON, 0, 'chip')).toBe(ICON);
-  });
-
-  it('is the garage’s own mark, at the level and surface size asked, and names the level for a screen reader', () => {
+    const scale = KIT_ICON_SIGN.small.px / 24;
     for (const level of [1, 2, 3] as const) {
-      for (const surface of ['icon', 'chip'] as const) {
-        const host = document.createElement('div');
-        host.innerHTML = kitIconSignHtml(level, surface);
-        const sign = host.querySelector<HTMLElement>('.rl-kit-icon');
-        expect(sign?.dataset.kit).toBe(String(level));
-        expect(sign?.classList.contains('rl-kit-mark')).toBe(true); // --kit through currentColor
-        expect(sign?.classList.contains('rl-kit-icon--chip')).toBe(surface === 'chip');
-        expect(sign?.getAttribute('role')).toBe('img');
-        expect(sign?.getAttribute('aria-label')).toBe(kitLevelLabel(level));
-        expect(sign?.innerHTML).toBe(parseSvg(kitSymbolSvg('kit', KIT_ICON_SIGN[surface].px, level)));
-        expect(sign?.querySelectorAll('rect')).toHaveLength(level);
-      }
+      const { plateInnerBottom, bars } = markGeometry(level);
+      const lowestFirst = [...bars].sort((a, b) => b[0] - a[0]);
+      expect((plateInnerBottom - lowestFirst[0][1]) * scale, `L${level}`).toBeCloseTo(0.83, 2);
     }
   });
 
-  it('defaults to the smaller icon size when no surface is named', () => {
-    const host = document.createElement('div');
-    host.innerHTML = kitIconSignHtml(2);
-    const sign = host.querySelector<HTMLElement>('.rl-kit-icon');
-    expect(sign?.className).toBe('rl-kit-icon rl-kit-mark');
-    expect(sign?.innerHTML).toBe(parseSvg(kitSymbolSvg('kit', KIT_ICON_SIGN.icon.px, 2)));
+  it('draws nothing at level 0, and leaves an unkitted icon byte-identical', () => {
+    expect(kitIconSignHtml(0)).toBe('');
+    expect(withKitSign(ICON, 0)).toBe(ICON);
+  });
+
+  it('is the garage’s own mark, at the level asked, drawn at the smaller size (CSS sizes the chip up), and names the level for a screen reader', () => {
+    for (const level of [1, 2, 3] as const) {
+      const host = document.createElement('div');
+      host.innerHTML = kitIconSignHtml(level);
+      const sign = host.querySelector<HTMLElement>('.rl-kit-icon');
+      expect(sign?.dataset.kit).toBe(String(level));
+      expect(sign?.className).toBe('rl-kit-icon rl-kit-mark'); // no size modifier class -- CSS alone decides
+      expect(sign?.getAttribute('role')).toBe('img');
+      expect(sign?.getAttribute('aria-label')).toBe(kitLevelLabel(level));
+      expect(sign?.innerHTML).toBe(parseSvg(kitSymbolSvg('kit', KIT_ICON_SIGN.small.px, level)));
+      expect(sign?.querySelectorAll('rect')).toHaveLength(level);
+    }
   });
 
   it('wraps a kitted icon in a host the sign can sit in, icon first', () => {
@@ -301,12 +299,15 @@ describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
     expect(wrap?.children[1]?.className).toBe('rl-kit-icon rl-kit-mark');
   });
 
-  it('wraps the chip’s icon at the chip’s own larger size', () => {
+  it('places the sign directly after the chip’s own art, so the chip-only size selector can reach it', () => {
+    // The whole point of fix round 1: `.rl-chip__art + .rl-kit-icon` only
+    // works because `withKitSign` never puts anything between the icon it is
+    // given and the sign it appends. This pins that adjacency directly,
+    // rather than trusting the CSS selector test above to catch a reorder.
     const host = document.createElement('div');
-    host.innerHTML = withKitSign(ICON, 2, 'chip');
-    const sign = host.querySelector<HTMLElement>('.rl-kit-icon');
-    expect(sign?.className).toBe('rl-kit-icon rl-kit-mark rl-kit-icon--chip');
-    expect(sign?.innerHTML).toBe(parseSvg(kitSymbolSvg('kit', KIT_ICON_SIGN.chip.px, 2)));
+    host.innerHTML = withKitSign(ICON, 2);
+    const art = host.querySelector('.rl-chip__art');
+    expect(art?.nextElementSibling?.className).toBe('rl-kit-icon rl-kit-mark');
   });
 
   it('sits top-right, coloured by tokens only, and never changes an icon’s size', () => {
