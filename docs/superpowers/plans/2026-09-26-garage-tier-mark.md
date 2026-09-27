@@ -1,5 +1,9 @@
 # The Garage Uplift, Plan 2 (Lane B, Renderer): the Kit Mark on the Map
 
+**Superseded in part (2026-09-27).** Tasks 1–3 were built and reverted after the lead rejected
+the world mark at G-P; Tasks 6–8 were never run; Tasks 4–5 stand and feed plan 2b
+(`2026-09-27-garage-kit-on-icons.md`).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Show a unit's bought kit on the map, in a mission. Every living player unit whose type carries kit gets a small steel plate over its HP bar, with one bar per kit level (1–3). The level is the same `kitLevel` the garage and the HUD card show. It reaches the renderer from the same `upgradePrepass` loop that patches the unit types the sim runs, so the mark cannot disagree with the sim or the card. The mark goes into the existing overlay batch and costs **+0 draw calls**, measured with `renderer.info`. It scales with zoom like every other overlay. A `kit-mark` debug layer and a new gated golden scenario, `kit`, make it a mark the visual gate can see. Pixi draws nothing, and that is permanent.

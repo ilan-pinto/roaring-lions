@@ -376,7 +376,12 @@ The combat model is the product. Everything else is scaffolding around it.
   tunnels, terrain and civilians, and a dev flag must never change how a real
   mission scores. The synthesised route is NOT identified by construction — a
   `mark_tunnel` carrier still has to see it, which is the mechanic the charge
-  cursor depends on.
+  cursor depends on. `&kit` replaces the account's tiers with
+  `SANDBOX_KIT_LEVELS` before the one `upgradePrepass` runs (`bootTiers`), so
+  the sim, the HUD card and the unit icons all see the ladder together; a
+  mission never takes it, and since the reinforcement dock is mission-only,
+  `&kit` cannot reach it — the dock's sign is proved on plan 1's garage seed
+  instead.
 - **`&civ` walks the whole civilian loop, and the rule it walks is the mission's
   own.** `stepCivilians` and the arrival half of `evacuate_before` moved out of
   `MissionRuntime` into `packages/sim/src/civilians.ts` (`CivilianFlight`) so the
@@ -567,6 +572,15 @@ yours; each one records what the next phase inherits.
 
 **Rules specific to this backend, each of which has already cost a bug:**
 
+- **There is no kit mark in the world, on purpose.** A steel plate over the HP
+  bar in `OverlayBatch` (plan 2, Tasks 1–3, measured at +0 draw calls) was
+  built and shown to the lead at the picture gate, who rejected it on sight:
+  *"The mark is ugly maybe it should only show on the icons."* It was reverted
+  in a follow-up commit (`38fe0075`), and `packages/render` is `main`'s bytes
+  again. Kit reads on the unit ICONS instead — selection chips, the HUD unit
+  card, dock tiles, the garage rail — through `kitIconSignHtml`, fed by
+  `upgradePrepass.unitKit`. The sign is DOM, not canvas, so both backends draw
+  it identically. Do not reintroduce a world overlay for kit without the lead.
 - **`three` may only be imported under `packages/render/src/three/**`**, enforced
   by eslint. Note the rule's `paths` entry does NOT catch subpath imports like
   `three/addons/loaders/GLTFLoader.js` — keep those inside by discipline.
