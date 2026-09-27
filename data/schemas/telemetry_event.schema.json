@@ -7,7 +7,7 @@
   "required": ["v", "type", "player", "session", "build", "t"],
   "properties": {
     "v": { "const": 1 },
-    "type": { "enum": ["session_start", "heartbeat", "tutorial_step", "mission_start", "objective", "mission_end", "campaign_progress"] },
+    "type": { "enum": ["session_start", "heartbeat", "tutorial_step", "mission_start", "objective", "mission_end", "campaign_progress", "account"] },
     "player": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
     "session": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
     "tester": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,32}$" },
@@ -47,7 +47,9 @@
       "properties": {
         "type": { "const": "mission_start" },
         "mission": { "$ref": "#/$defs/mission" },
-        "replay": { "type": "boolean" }
+        "replay": { "type": "boolean" },
+        "deployed": { "$ref": "#/$defs/unitCounts" },
+        "fromRoster": { "$ref": "#/$defs/unitCounts" }
       },
       "required": ["mission", "replay"]
     },
@@ -74,7 +76,9 @@
         "fielded": { "$ref": "#/$defs/count" },
         "lost": { "$ref": "#/$defs/count" },
         "objectivesDone": { "$ref": "#/$defs/count" },
-        "objectivesTotal": { "$ref": "#/$defs/count" }
+        "objectivesTotal": { "$ref": "#/$defs/count" },
+        "bought": { "$ref": "#/$defs/unitCounts" },
+        "orders": { "$ref": "#/$defs/orderCounts" }
       },
       "required": ["mission", "result", "tick", "roe", "fielded", "lost", "objectivesDone", "objectivesTotal"]
     },
@@ -85,12 +89,41 @@
         "missionsWon": { "$ref": "#/$defs/count" }
       },
       "required": ["mission", "missionsWon"]
+    },
+    {
+      "properties": {
+        "type": { "const": "account" },
+        "reason": { "enum": ["mission_start", "payout", "purchase", "reset"] },
+        "mission": { "$ref": "#/$defs/mission" },
+        "credits": { "$ref": "#/$defs/count" },
+        "earned": { "$ref": "#/$defs/count" },
+        "unlocks": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/unitId" } },
+        "tiers": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/tier" } },
+        "item": { "type": "string", "pattern": "^[a-z0-9_]{1,32}(\\.[a-z0-9_]{1,32}\\.[1-9])?$" },
+        "price": { "$ref": "#/$defs/count" },
+        "paid": { "$ref": "#/$defs/count" }
+      },
+      "required": ["reason", "credits", "earned", "unlocks", "tiers"]
     }
   ],
   "unevaluatedProperties": false,
   "$defs": {
     "mission": { "type": "string", "pattern": "^[a-z0-9_]{1,64}$" },
     "tick": { "type": "integer", "minimum": 0, "maximum": 1000000000 },
-    "count": { "type": "integer", "minimum": 0, "maximum": 100000 }
+    "count": { "type": "integer", "minimum": 0, "maximum": 100000 },
+    "unitId": { "type": "string", "pattern": "^[a-z0-9_]{1,32}$" },
+    "tier": { "type": "string", "pattern": "^[a-z0-9_]{1,32}\\.[a-z0-9_]{1,32}\\.[1-9]$" },
+    "orderVerb": { "enum": ["move", "attackMove", "garrison", "demolish", "chargeTunnel", "mount", "dismount", "smoke", "halt", "strike", "sweep"] },
+    "unitCounts": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": { "$ref": "#/$defs/unitId" },
+      "additionalProperties": { "$ref": "#/$defs/count" }
+    },
+    "orderCounts": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/orderVerb" },
+      "additionalProperties": { "$ref": "#/$defs/count" }
+    }
   }
 }

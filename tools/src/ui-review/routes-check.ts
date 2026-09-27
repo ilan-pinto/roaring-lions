@@ -35,6 +35,12 @@
 // What catches it is the left mission's tick counter, read twice after the
 // leave below -- a loop still running is still calling `runTick()`.
 //
+// Plus (GH-254): any request at all to the telemetry ingest path, `/api/events`,
+// from any context the walk opens fails the run. A dev or CI run must send
+// nothing; `telemetryEnabled` says so, and this is the run agreeing with it
+// end to end. Its own message names the requests, so it does not rest on the
+// console rule catching the dev server's 404.
+//
 // Seen red: with `onDispose(() => cancelAnimationFrame(rafId))` commented out
 // of `bootBattlefield`, this exits 1. The output of both runs is in this
 // task's report.
@@ -47,6 +53,7 @@ import { boardCanvasVerdict } from './board-canvases';
 import { ACCOUNT_KEY } from '../../../packages/app/src/brigade-account';
 import { garageSeedScript, GARAGE_SEED_ACCOUNT } from './garage-seed';
 import { claimPort } from './port';
+import { watchTelemetry } from './telemetry-guard';
 import { kitIconFailures, type IconRead } from './kit-icons';
 import { SANDBOX_KIT_LEVELS } from '../../../packages/app/src/sandbox-force';
 import { kitLevel, units, type UpgradableUnit } from '@lions/data';
@@ -229,7 +236,23 @@ const devServer = await ensureDevServer(PORT, REPO_ROOT, TAG);
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
   browser = await chromium.launch();
+  // GH-254: the off switch, proved by the run. Every context this walk opens
+  // is watched for a request to the telemetry ingest path, through ONE wrapper
+  // on `newContext` rather than an edit at each of its call sites below, so a
+  // context added later is watched without anyone remembering to.
+  const telemetryHits: string[] = [];
+  const origNewContext = browser.newContext.bind(browser);
+  const newContext: typeof browser.newContext = async (...a) => {
+    const c = await origNewContext(...a);
+    watchTelemetry(c, telemetryHits);
+    return c;
+  };
+  browser.newContext = newContext;
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  // `newPage` makes its own context. Playwright 1.62 builds it through
+  // `this.newContext`, so the wrapper already sees it; this line does not rely
+  // on that, and `watchTelemetry` is idempotent per context.
+  watchTelemetry(page.context(), telemetryHits);
   page.setDefaultTimeout(ACTION_TIMEOUT_MS);
   const started = Date.now();
   const at = (): string => `${((Date.now() - started) / 1000).toFixed(1)} s`;
@@ -1899,6 +1922,10 @@ try {
     await ctx.close();
   }
 
+  expect(
+    telemetryHits.length === 0,
+    `telemetry is on in a dev/CI run (${telemetryHits.length} request(s)): ${telemetryHits.slice(0, 3).join(', ')}`,
+  );
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {
   if (browser) await browser.close();

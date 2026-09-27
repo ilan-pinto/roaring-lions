@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { TelemetryEvent } from '@lions/data/telemetry';
+import { isTelemetryEvent } from '@lions/data/telemetry';
 import type { MissionEvent } from '@lions/sim';
 import { createTelemetry, NOOP_TELEMETRY, type TelemetryDeps } from './index';
 import type { RuntimeView } from './events';
@@ -170,5 +171,69 @@ describe('Telemetry', () => {
     expect(ends2).toHaveLength(2);
     expect(ends2[0]).toMatchObject({ mission: 'm1', result: 'abandoned' });
     expect(ends2[1]).toMatchObject({ mission: 'm2', result: 'abandoned' });
+  });
+
+  it('mission_start carries the loadout it was given', () => {
+    reset();
+    const h = harness();
+    h.tel.missionStarted('m1', false, view, { deployed: { inf_squad: 3 }, fromRoster: { inf_squad: 2 } });
+    expect(h.sent.find((e) => e.type === 'mission_start')).toMatchObject({ deployed: { inf_squad: 3 }, fromRoster: { inf_squad: 2 } });
+  });
+
+  it('counts orders by verb and dock buys by type, and delivers them on the one mission_end', () => {
+    reset();
+    const h = harness();
+    const m = h.tel.missionStarted('m1', false, view);
+    m.onIntent({ kind: 'order', verb: 'move', ids: [1], x: 0, y: 0, append: false });
+    m.onIntent({ kind: 'order', verb: 'move', ids: [1], x: 1, y: 1, append: false });
+    m.onIntent({ kind: 'select', ids: [1], via: 'click' });
+    m.onIntent({ kind: 'support', call: 'strike', x: 0, y: 0, accepted: false });
+    m.onBought('inf_squad');
+    m.onBought('inf_squad');
+    m.onBought('mbt_lavi');
+    state = { ...state, result: 'victory' };
+    m.onEvent(endEvent('victory'));
+    m.onIntent({ kind: 'halt', ids: [1] }); // after the end: not counted, not sent
+    m.end();
+    const ends = h.sent.filter((e) => e.type === 'mission_end');
+    expect(ends).toHaveLength(1);
+    expect(ends[0]).toMatchObject({ orders: { move: 2 }, bought: { inf_squad: 2, mbt_lavi: 1 } });
+    expect(ends[0]).not.toHaveProperty('orders.halt');
+  });
+
+  it('counts start from zero for each mission', () => {
+    reset();
+    const h = harness();
+    const a = h.tel.missionStarted('m1', false, view);
+    a.onIntent({ kind: 'halt', ids: [1] });
+    const b = h.tel.missionStarted('m2', false, view); // auto-ends m1 as abandoned
+    b.end();
+    const ends = h.sent.filter((e) => e.type === 'mission_end');
+    expect(ends.map((e) => (e.type === 'mission_end' ? e.orders : null))).toEqual([{ halt: 1 }, {}]);
+  });
+
+  it('account() sends a contract-valid snapshot with its extras', () => {
+    const h = harness();
+    h.tel.account('purchase', { balance: 60, earned_total: 900, unlocks: ['mbt_lavi'], upgrades: { inf_squad: { armour: 1 } } }, { item: 'inf_squad.armour.1', price: 115 });
+    expect(h.sent).toEqual([expect.objectContaining({ type: 'account', reason: 'purchase', credits: 60, tiers: ['inf_squad.armour.1'], item: 'inf_squad.armour.1', price: 115 })]);
+    expect(isTelemetryEvent(h.sent[0])).toBe(true);
+  });
+
+  it('a throwing account read is swallowed, never thrown into the game', () => {
+    const h = harness();
+    const bad = { get balance(): number { throw new Error('storage blew up'); }, earned_total: 0, unlocks: [], upgrades: {} };
+    expect(() => h.tel.account('reset', bad)).not.toThrow();
+    expect(h.sent).toEqual([]);
+  });
+
+  it('the no-op has every new method, and none of them reads its arguments', () => {
+    const trap = new Proxy({}, { get: () => { throw new Error('read'); } });
+    expect(() => {
+      NOOP_TELEMETRY.account('reset', trap as never);
+      const m = NOOP_TELEMETRY.missionStarted('m', false, () => { throw new Error('never read'); }, trap as never);
+      m.onIntent(trap as never);
+      m.onBought('inf_squad');
+      m.end();
+    }).not.toThrow();
   });
 });

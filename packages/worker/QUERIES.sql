@@ -46,3 +46,15 @@ SELECT tester, COUNT(DISTINCT session) AS sessions,
        datetime(MAX(t) / 1000, 'unixepoch') AS last_seen
 FROM events WHERE tester IS NOT NULL
 GROUP BY tester ORDER BY last_seen DESC;
+
+-- GH-254: rebuild the accounts summary from raw events. Terminal -- run once,
+-- by hand, only if 0002_accounts.sql was applied to a database that already
+-- held `account` events (i.e. the migration landed after the Worker started
+-- receiving them). Not part of normal ingest, which upserts `accounts`
+-- itself on every request; this is the recovery path for the gap before that.
+INSERT OR REPLACE INTO accounts (player, t, credits, earned, unlocks, tiers, tester, dev)
+SELECT e.player, e.t, json_extract(e.payload, '$.credits'), json_extract(e.payload, '$.earned'),
+       json_extract(e.payload, '$.unlocks'), json_extract(e.payload, '$.tiers'), e.tester, e.dev
+FROM events e
+WHERE e.type = 'account'
+  AND e.t = (SELECT MAX(t) FROM events x WHERE x.type = 'account' AND x.player = e.player);

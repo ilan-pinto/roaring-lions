@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isTelemetryEvent, type TelemetryEnvelope } from '@lions/data/telemetry';
+import { isTelemetryEvent, type TelemetryEnvelope, type TelemetryOrderVerb } from '@lions/data/telemetry';
+import { INTENT_KINDS, type PlayerIntent } from '../input/intents';
 import * as ev from './events';
 
 const env: TelemetryEnvelope = {
@@ -62,5 +63,205 @@ describe('event builders', () => {
     expect(s('/free-play/tel_marum')).toBe('sandbox');
     expect(s('/settings')).toBe('other');
     expect(ev.screenFor('/roaring-lions/campaign', '/roaring-lions/', 'x')).toBe('campaign');
+  });
+});
+
+const acct = {
+  balance: 340, earned_total: 900,
+  unlocks: ['mbt_lavi', 'apc_eitan', 'mbt_lavi'],
+  upgrades: { inf_squad: { sensors: 1, armour: 2, firepower: 0 }, 'Bad Unit': { armour: 1 }, at_team: { 'fire power': 1 } },
+};
+
+describe('account snapshot (GH-254)', () => {
+  it('flattens tiers, sorts, drops tier 0 and anything that is not an id, and dedupes unlocks', () => {
+    expect(ev.accountSnapshot(acct)).toEqual({
+      credits: 340, earned: 900, unlocks: ['apc_eitan', 'mbt_lavi'], tiers: ['inf_squad.armour.2', 'inf_squad.sensors.1'],
+    });
+  });
+
+  it('every account builder output passes the contract', () => {
+    const s = ev.accountSnapshot(acct);
+    const all = [
+      ev.accountEvent(env, 'mission_start', s, { mission: 'beit_sahwan_breach' }),
+      ev.accountEvent(env, 'payout', s, { mission: 'beit_sahwan_breach', paid: 120.4 }),
+      ev.accountEvent(env, 'purchase', s, { item: 'inf_squad.armour.2', price: 175 }),
+      ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi', price: 900 }),
+      ev.accountEvent(env, 'reset', ev.accountSnapshot({ balance: 0, earned_total: 0, unlocks: [], upgrades: {} })),
+    ];
+    for (const e of all) expect(isTelemetryEvent(e), JSON.stringify(e)).toBe(true);
+  });
+
+  it('drops an item that is not an id rather than sending text', () => {
+    const e = ev.accountEvent(env, 'purchase', ev.accountSnapshot(acct), { item: 'Lavi MBT', price: 900 });
+    expect('item' in e).toBe(false);
+    expect(isTelemetryEvent(e)).toBe(true);
+  });
+
+  it('caps a hand-edited account at the contract limits instead of losing the event', () => {
+    const many = Array.from({ length: 80 }, (_, i) => `unit_${i}`);
+    const s = ev.accountSnapshot({ balance: 1, earned_total: 1, unlocks: many, upgrades: {} });
+    expect(s.unlocks).toHaveLength(64);
+    expect(isTelemetryEvent(ev.accountEvent(env, 'reset', s))).toBe(true);
+  });
+});
+
+/** One intent of each kind, so the verb table is pinned against INTENT_KINDS itself. */
+function sample(kind: PlayerIntent['kind']): PlayerIntent {
+  switch (kind) {
+    case 'select': return { kind, ids: [1], via: 'click' };
+    case 'order': return { kind, verb: 'attackMove', ids: [1], x: 1, y: 1, append: false };
+    case 'garrison': return { kind, ids: [1], structure: 2 };
+    case 'demolish': return { kind, ids: [1], structure: 2 };
+    case 'chargeTunnel': return { kind, ids: [1], tunnel: 0 };
+    case 'mount': return { kind, riders: [1], carrier: 2 };
+    case 'dismount': return { kind, carriers: [2] };
+    case 'smoke': return { kind, ids: [1], x: 1, y: 1 };
+    case 'halt': return { kind, ids: [1] };
+    case 'group': return { kind, slot: 1, action: 'assign' };
+    case 'overlay': return { kind, on: true };
+    case 'support': return { kind, call: 'strike', x: 1, y: 1, accepted: true };
+  }
+}
+
+describe('order verbs (GH-254, D2: per intent)', () => {
+  it('maps every intent kind: commands to their verb, presentation to null', () => {
+    expect(Object.fromEntries(INTENT_KINDS.map((k) => [k, ev.orderVerbOf(sample(k))]))).toEqual({
+      select: null, order: 'attackMove', garrison: 'garrison', demolish: 'demolish', chargeTunnel: 'chargeTunnel',
+      mount: 'mount', dismount: 'dismount', smoke: 'smoke', halt: 'halt', group: null, overlay: null, support: 'strike',
+    });
+  });
+
+  it('a plain move is move, a sweep is sweep, and a refused support call is not an order', () => {
+    expect(ev.orderVerbOf({ kind: 'order', verb: 'move', ids: [1], x: 0, y: 0, append: true })).toBe('move');
+    expect(ev.orderVerbOf({ kind: 'support', call: 'sweep', x: 0, y: 0, accepted: true })).toBe('sweep');
+    expect(ev.orderVerbOf({ kind: 'support', call: 'strike', x: 0, y: 0, accepted: false })).toBeNull();
+  });
+
+  it('tallyVerb counts, and refuses a key that is not a real order verb', () => {
+    const m: Partial<Record<TelemetryOrderVerb, number>> = {};
+    ev.tallyVerb(m, 'move');
+    ev.tallyVerb(m, 'move');
+    ev.tallyVerb(m, 'Lavi MBT');
+    expect(m).toEqual({ move: 2 });
+  });
+
+  it('tallyVerb refuses a unit-id-shaped key that is not one of the eleven verbs, even though it would pass the unit-id pattern', () => {
+    const m: Partial<Record<TelemetryOrderVerb, number>> = {};
+    ev.tallyVerb(m, 'mbt_lavi');
+    expect(m).toEqual({});
+  });
+});
+
+describe('tallyUnit', () => {
+  it('counts a unit id, and refuses anything that fails the unit-id pattern', () => {
+    const m: Record<string, number> = {};
+    ev.tallyUnit(m, 'mbt_lavi');
+    ev.tallyUnit(m, 'mbt_lavi');
+    ev.tallyUnit(m, 'Lavi MBT');
+    expect(m).toEqual({ mbt_lavi: 2 });
+  });
+});
+
+describe('the loadout and the counts ride on start and end (R-1)', () => {
+  it('mission_start carries deployed and fromRoster, and passes the contract', () => {
+    const e = ev.missionStart(env, 'beit_sahwan_breach', false, { deployed: { inf_squad: 3 }, fromRoster: { inf_squad: 2 } });
+    expect(e).toMatchObject({ deployed: { inf_squad: 3 }, fromRoster: { inf_squad: 2 } });
+    expect(isTelemetryEvent(e)).toBe(true);
+  });
+
+  it('mission_start without a loadout is the old shape exactly', () => {
+    const e = ev.missionStart(env, 'm', false);
+    expect('deployed' in e || 'fromRoster' in e).toBe(false);
+  });
+
+  it('mission_end carries the counts with zero entries dropped, even when both maps end up empty', () => {
+    const e = ev.missionEnd(env, 'm', view({ result: 'victory' }), false, { bought: { inf_squad: 0, mbt_lavi: 1 }, orders: { move: 3, halt: 0 } });
+    const body = e as unknown as { bought: unknown; orders: unknown };
+    expect(body.bought).toEqual({ mbt_lavi: 1 });
+    expect(body.orders).toEqual({ move: 3 });
+    const empty = ev.missionEnd(env, 'm', view(), true, { bought: {}, orders: {} });
+    const emptyBody = empty as unknown as { bought: unknown; orders: unknown };
+    expect(emptyBody.bought).toEqual({});
+    expect(emptyBody.orders).toEqual({});
+    expect(isTelemetryEvent(e) && isTelemetryEvent(empty)).toBe(true);
+  });
+});
+
+describe('accountEvent enforces reason-specific fields (GH-254 T2 fix round 2, item 1)', () => {
+  it('throws on a purchase missing item or price -- a purchase with neither is a caller bug, not an event to send half-built', () => {
+    const s = ev.accountSnapshot(acct);
+    expect(() => ev.accountEvent(env, 'purchase', s, { price: 100 })).toThrow();
+    expect(() => ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi' })).toThrow();
+    expect(() => ev.accountEvent(env, 'purchase', s, {})).toThrow();
+  });
+
+  it('throws on a payout missing paid', () => {
+    const s = ev.accountSnapshot(acct);
+    expect(() => ev.accountEvent(env, 'payout', s, { mission: 'beit_sahwan_breach' })).toThrow();
+    expect(() => ev.accountEvent(env, 'payout', s, {})).toThrow();
+  });
+
+  it('does not throw on a well-formed purchase or payout', () => {
+    const s = ev.accountSnapshot(acct);
+    expect(() => ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi', price: 900 })).not.toThrow();
+    expect(() => ev.accountEvent(env, 'payout', s, { paid: 50 })).not.toThrow();
+  });
+
+  it('a reset carries none of item, price or paid, even when the caller supplies them', () => {
+    const s = ev.accountSnapshot(acct);
+    const e = ev.accountEvent(env, 'reset', s, { item: 'mbt_lavi', price: 900, paid: 50 });
+    expect('item' in e).toBe(false);
+    expect('price' in e).toBe(false);
+    expect('paid' in e).toBe(false);
+    expect(isTelemetryEvent(e)).toBe(true);
+  });
+
+  it('a purchase drops a supplied paid, and a payout drops a supplied item and price', () => {
+    const s = ev.accountSnapshot(acct);
+    const purchase = ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi', price: 900, paid: 50 });
+    expect('paid' in purchase).toBe(false);
+    const payout = ev.accountEvent(env, 'payout', s, { paid: 50, item: 'mbt_lavi', price: 900 });
+    expect('item' in payout).toBe(false);
+    expect('price' in payout).toBe(false);
+    expect(isTelemetryEvent(purchase) && isTelemetryEvent(payout)).toBe(true);
+  });
+});
+
+describe('tallyVerb refuses anything that is not a real order verb (GH-254 T2 fix round 2, item 3)', () => {
+  it('a junk key that used to pass a bare-alpha check never reaches the map', () => {
+    const m: Partial<Record<TelemetryOrderVerb, number>> = {};
+    ev.tallyVerb(m, 'Sweep'); // capitalised -- not the verb 'sweep', and uppercase fails the unit-id pattern too
+    ev.tallyVerb(m, 'NotAVerb');
+    ev.tallyVerb(m, 'sweep');
+    expect(m).toEqual({ sweep: 1 });
+  });
+
+  it('accepts every real order verb, mixed case included', () => {
+    const m: Partial<Record<TelemetryOrderVerb, number>> = {};
+    ev.tallyVerb(m, 'attackMove');
+    ev.tallyVerb(m, 'chargeTunnel');
+    expect(m).toEqual({ attackMove: 1, chargeTunnel: 1 });
+  });
+});
+
+describe('account snapshot caps and clamps (GH-254 T2 fix round 2, item 4)', () => {
+  it('caps tiers at MAX_TIERS (256) instead of dropping the account event', () => {
+    const upgrades: Record<string, Record<string, number>> = {};
+    for (let i = 0; i < 300; i++) upgrades[`unit_${i}`] = { armour: 1 };
+    const s = ev.accountSnapshot({ balance: 1, earned_total: 1, unlocks: [], upgrades });
+    expect(s.tiers).toHaveLength(256);
+    expect(isTelemetryEvent(ev.accountEvent(env, 'reset', s))).toBe(true);
+  });
+
+  it('clamps credits, earned, price and paid at COUNT_MAX (100000) rather than rejecting the event', () => {
+    const s = ev.accountSnapshot({ balance: 500_000, earned_total: 500_000, unlocks: [], upgrades: {} });
+    const reset = ev.accountEvent(env, 'reset', s) as unknown as { credits: number; earned: number };
+    expect(reset.credits).toBe(100_000);
+    expect(reset.earned).toBe(100_000);
+    const purchase = ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi', price: 999_999 }) as unknown as { price: number };
+    expect(purchase.price).toBe(100_000);
+    const payout = ev.accountEvent(env, 'payout', s, { paid: 999_999 }) as unknown as { paid: number };
+    expect(payout.paid).toBe(100_000);
+    expect(isTelemetryEvent(reset) && isTelemetryEvent(purchase) && isTelemetryEvent(payout)).toBe(true);
   });
 });
