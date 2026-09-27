@@ -17,18 +17,25 @@
 // Writes <out>/<WxH>/NN-<state>.png for the twenty-five states below (Phase
 // 0 shipped seventeen; Phase 2's Task 14 added 18-hud-alert, 19-objectives,
 // 20-keys, 21-tooltip, 22-groups and 23-minimap-ping; Phase 3's Task 6 added
-// 25-outcome-defeat and 24-outcome-victory), plus the four garage-uplift
-// states below (WP-S3g T4/T8): 03b-brigade-kitted, 03c-brigade-preview,
-// 03d-brigade-locked and 07c-hud-card-kitted, every one shot on a SEEDED
-// page (`./garage-seed.ts`) rather than the fresh, kit-less account
-// `03-brigade` itself photographs. Every later task's acceptance is read off
-// these files -- see .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/,
-// .superpowers/sdd/2026-09-18-shell-upgrade-phase-2/ and
-// .superpowers/sdd/2026-09-25-garage-uplift-app/.
+// 25-outcome-defeat and 24-outcome-victory), plus the seven garage-uplift
+// states below (WP-S3g T4/T8, plan 2b T7): 03b-brigade-kitted,
+// 03c-brigade-preview, 03d-brigade-locked, 07c-hud-card-kitted,
+// 07d-hud-chips-kitted, 07e-hud-card-kit-sign and 26-dock-kitted. The first
+// four are shot on the SEEDED page (`./garage-seed.ts`) rather than the
+// fresh, kit-less account `03-brigade` itself photographs; 07d/07e are shot
+// on the sandbox's own kit ladder (`&kit`, `SANDBOX_KIT_LEVELS`) instead,
+// which puts every level on the chips at once where the three-type account
+// seed cannot; 26 is the seeded account again, on the one dock-bearing
+// mission the garage-uplift plan drives elsewhere (`beit_sahwan_breach`).
+// Every later task's acceptance is read off these files -- see
+// .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/,
+// .superpowers/sdd/2026-09-18-shell-upgrade-phase-2/,
+// .superpowers/sdd/2026-09-25-garage-uplift-app/ and
+// .superpowers/sdd/2026-09-27-garage-kit-on-icons/.
 //
-// `--only=garage` narrows a run to the garage's own four states: each
+// `--only=garage` narrows a run to the garage's own seven states: each
 // resolution shoots `03-brigade` on the unseeded page (the "before" the
-// garage shots are read against) and then the four states above, skipping
+// garage shots are read against) and then the seven states above, skipping
 // the menu/campaign/HUD walk entirely -- Task 8's look tasks drive this
 // instead of hand-rolling a server visit. Any other `--only` value is
 // refused, exit 2, before a browser or a server starts, the same convention
@@ -349,6 +356,73 @@ async function garageStates(browser: Browser, res: { width: number; height: numb
     if (!centred) console.log('  07c skipped: the sandbox force has no inf_squad to centre on');
     await settle(page, 700);
     await shot(page, dir, '07c-hud-card-kitted');
+  }
+
+  // 07d-hud-chips-kitted / 07e-hud-card-kit-sign (WP-S3g plan 2b T7): the
+  // sandbox's own kit ladder (`&kit`, `SANDBOX_KIT_LEVELS`), not the seeded
+  // account -- one selection puts every level on the chips at once, which
+  // the account seed above cannot do (it kits only three types). Reuses this
+  // same context/page: `&kit` REPLACES the prepass with the ladder
+  // regardless of the seeded localStorage account, so the seed already on
+  // this page is harmless. Same timeout-is-not-a-defect treatment as 07c.
+  await page.goto(url('/free-play/beit_sahwan_outskirts?kit'), { waitUntil: 'load' });
+  const reachedLionsKit = await page
+    .waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined, null, {
+      timeout: 60000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (!reachedLionsKit) {
+    console.log(`  07d/07e skipped: window.__lions did not appear within 60 s`);
+  } else {
+    const selectedAllOwn = await page.evaluate(() => {
+      const L = (window as LionsWindow).__lions;
+      if (!L) return 0;
+      const ids = L.units().map((u) => u.id);
+      L.sel(ids);
+      return ids.length;
+    });
+    if (selectedAllOwn === 0) {
+      console.log('  07d skipped: the sandbox force has no own units to select');
+    } else {
+      await settle(page, 700);
+      await shot(page, dir, '07d-hud-chips-kitted');
+    }
+
+    const centredLavi = await page.evaluate(() => {
+      const L = (window as LionsWindow).__lions;
+      if (!L) return false;
+      const lavi = L.units().find((u) => u.type === 'mbt_lavi');
+      if (!lavi) return false;
+      L.sel([lavi.id]);
+      L.renderer.camera.x = lavi.x;
+      L.renderer.camera.y = lavi.y;
+      return true;
+    });
+    if (!centredLavi) {
+      console.log('  07e skipped: the sandbox force has no mbt_lavi to centre on');
+    } else {
+      await settle(page, 700);
+      await shot(page, dir, '07e-hud-card-kit-sign');
+    }
+  }
+
+  // 26-dock-kitted (WP-S3g plan 2b T7): the reinforcement dock's tiles, on the
+  // seeded ACCOUNT (missions never take `&kit` -- N12/K5), the same
+  // dock-bearing mission `routes-check.ts`'s K4 leg drives. Same
+  // timeout-is-not-a-defect treatment: a deploy gate that never clears is
+  // logged and skipped, never a thrown failure.
+  await page.goto(url('/mission/beit_sahwan_breach'), { waitUntil: 'load' });
+  const deployedForDock = await dismissDeployGate(page, `${TAG} 26`)
+    .then(() => true)
+    .catch((e: unknown) => {
+      console.log(`  26 skipped: the deploy gate never cleared (${String(e)})`);
+      return false;
+    });
+  if (deployedForDock) {
+    await page.evaluate(() => (window as LionsWindow).__lions?.step(40));
+    await settle(page, 700);
+    await shot(page, dir, '26-dock-kitted');
   }
 
   await ctx.close();
