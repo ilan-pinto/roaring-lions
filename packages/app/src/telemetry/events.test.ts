@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isTelemetryEvent, type TelemetryEnvelope } from '@lions/data/telemetry';
+import { isTelemetryEvent, type TelemetryEnvelope, type TelemetryOrderVerb } from '@lions/data/telemetry';
 import { INTENT_KINDS, type PlayerIntent } from '../input/intents';
 import * as ev from './events';
 
@@ -137,12 +137,28 @@ describe('order verbs (GH-254, D2: per intent)', () => {
     expect(ev.orderVerbOf({ kind: 'support', call: 'strike', x: 0, y: 0, accepted: false })).toBeNull();
   });
 
-  it('tally counts, and refuses a key that is not an id', () => {
-    const m: Record<string, number> = {};
-    ev.tally(m, 'move');
-    ev.tally(m, 'move');
-    ev.tally(m, 'Lavi MBT');
+  it('tallyVerb counts, and refuses a key that is not a real order verb', () => {
+    const m: Partial<Record<TelemetryOrderVerb, number>> = {};
+    ev.tallyVerb(m, 'move');
+    ev.tallyVerb(m, 'move');
+    ev.tallyVerb(m, 'Lavi MBT');
     expect(m).toEqual({ move: 2 });
+  });
+
+  it('tallyVerb refuses a unit-id-shaped key that is not one of the eleven verbs, even though it would pass the unit-id pattern', () => {
+    const m: Partial<Record<TelemetryOrderVerb, number>> = {};
+    ev.tallyVerb(m, 'mbt_lavi');
+    expect(m).toEqual({});
+  });
+});
+
+describe('tallyUnit', () => {
+  it('counts a unit id, and refuses anything that fails the unit-id pattern', () => {
+    const m: Record<string, number> = {};
+    ev.tallyUnit(m, 'mbt_lavi');
+    ev.tallyUnit(m, 'mbt_lavi');
+    ev.tallyUnit(m, 'Lavi MBT');
+    expect(m).toEqual({ mbt_lavi: 2 });
   });
 });
 
@@ -211,19 +227,19 @@ describe('accountEvent enforces reason-specific fields (GH-254 T2 fix round 2, i
   });
 });
 
-describe('tally refuses anything that is not a real order verb or a unit id (GH-254 T2 fix round 2, item 3)', () => {
+describe('tallyVerb refuses anything that is not a real order verb (GH-254 T2 fix round 2, item 3)', () => {
   it('a junk key that used to pass a bare-alpha check never reaches the map', () => {
-    const m: Record<string, number> = {};
-    ev.tally(m, 'Sweep'); // capitalised -- not the verb 'sweep', and uppercase fails the unit-id pattern too
-    ev.tally(m, 'NotAVerb');
-    ev.tally(m, 'sweep');
+    const m: Partial<Record<TelemetryOrderVerb, number>> = {};
+    ev.tallyVerb(m, 'Sweep'); // capitalised -- not the verb 'sweep', and uppercase fails the unit-id pattern too
+    ev.tallyVerb(m, 'NotAVerb');
+    ev.tallyVerb(m, 'sweep');
     expect(m).toEqual({ sweep: 1 });
   });
 
   it('accepts every real order verb, mixed case included', () => {
-    const m: Record<string, number> = {};
-    ev.tally(m, 'attackMove');
-    ev.tally(m, 'chargeTunnel');
+    const m: Partial<Record<TelemetryOrderVerb, number>> = {};
+    ev.tallyVerb(m, 'attackMove');
+    ev.tallyVerb(m, 'chargeTunnel');
     expect(m).toEqual({ attackMove: 1, chargeTunnel: 1 });
   });
 });

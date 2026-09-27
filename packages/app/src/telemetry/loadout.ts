@@ -5,7 +5,7 @@
 import type { CountMap } from '@lions/data/telemetry';
 import type { LedgerRosterEntry, MissionJson } from '@lions/sim';
 import { drawFromPool } from '../ui/deploy-roster';
-import { tally, type Loadout } from './events';
+import { tallyUnit, type Loadout } from './events';
 
 /** The four sim arrays and one type lookup the loadout reads. */
 export interface SideView {
@@ -25,9 +25,9 @@ export function startLoadout(
   for (let i = 0; i < v.count; i++) {
     if (v.side[i] !== 0 || v.alive[i] === 0) continue;
     const id = v.typeId(v.typeIdx[i]);
-    // `tally` would accept the string "undefined" as a unit id, so an
+    // `tallyUnit` would accept the string "undefined" as a unit id, so an
     // unknown index is skipped here rather than stringified.
-    if (id !== undefined) tally(deployed, id);
+    if (id !== undefined) tallyUnit(deployed, id);
   }
 
   // Stand-ins BEFORE the draw, as `defaultSelection` builds them: only `type`
@@ -36,7 +36,7 @@ export function startLoadout(
   const fromRoster: CountMap = {};
   if (pool) {
     const standIns: LedgerRosterEntry[] = pool.map((e) => ({ type: e.type, veterancy: 0 }));
-    for (const i of drawFromPool(standIns, startingForce)) tally(fromRoster, standIns[i].type);
+    for (const i of drawFromPool(standIns, startingForce)) tallyUnit(fromRoster, standIns[i].type);
   }
   return { deployed, fromRoster };
 }

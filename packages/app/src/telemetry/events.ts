@@ -147,12 +147,22 @@ export function orderVerbOf(i: PlayerIntent): TelemetryOrderVerb | null {
   }
 }
 
-/** `orders` counts one of the eleven `TelemetryOrderVerb`s; `bought` counts a
- *  unit id. Anything else is refused rather than silently tallied under a key
- *  the contract (or a real order verb) would never recognise. */
-export function tally(m: CountMap, key: string): void {
-  if (!UNIT_ID_PATTERN.test(key) && !ORDER_VERB_SET.has(key)) return;
-  m[key] = Math.min(COUNT_MAX, (m[key] ?? 0) + 1);
+/** `bought` counts a unit id; anything that does not match the unit-id
+ *  pattern is refused rather than silently tallied under a key the contract
+ *  would never recognise. */
+export function tallyUnit(m: CountMap, id: string): void {
+  if (!UNIT_ID_PATTERN.test(id)) return;
+  m[id] = Math.min(COUNT_MAX, (m[id] ?? 0) + 1);
+}
+
+/** `orders` counts one of the eleven `TelemetryOrderVerb`s; anything else is
+ *  refused rather than silently tallied under a key the contract would never
+ *  recognise. Takes `string` (not `TelemetryOrderVerb`) so the runtime check
+ *  stays load-bearing even if a caller's static typing is wrong or bypassed. */
+export function tallyVerb(m: Partial<Record<TelemetryOrderVerb, number>>, verb: string): void {
+  if (!ORDER_VERB_SET.has(verb)) return;
+  const v = verb as TelemetryOrderVerb;
+  m[v] = Math.min(COUNT_MAX, (m[v] ?? 0) + 1);
 }
 
 const nonZero = <K extends string>(m: Partial<Record<K, number>>): Record<K, number> =>

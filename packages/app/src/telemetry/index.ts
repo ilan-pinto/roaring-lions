@@ -133,6 +133,7 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
           HEARTBEAT_MS
         );
         const finish = (abandoned: boolean, viaPagehide = false): void => {
+          // finish() has already built (and sent) the mission_end event on its first call; this guard is defence in depth against a late listener firing again after end().
           if (ended) return;
           ended = true;
           d.clearInterval(hb);
@@ -157,10 +158,10 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
           onIntent: safe((i: PlayerIntent) => {
             if (ended) return;
             const v = ev.orderVerbOf(i);
-            if (v) ev.tally(orders, v);
+            if (v) ev.tallyVerb(orders, v);
           }),
           onBought: safe((u: string) => {
-            if (!ended) ev.tally(bought, u);
+            if (!ended) ev.tallyUnit(bought, u);
           }),
         };
         current = m;
