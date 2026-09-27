@@ -127,12 +127,23 @@ independently and confirmed by re-rendering the classification as vertex
 colour (see report's four preview renders): raw Z height. Below
 `TREE_TRUNK_Z` (-0.20, in the source's own centred, unscaled frame) is
 gnarled trunk and root flare -- narrow radius, no leaves; above it the canopy
-spreads out. This is applied to the mesh AFTER decimation (order matters: a
-977 vert = 0 float will move slightly and it must not cross the seam it was
-measured against; decimation was checked to leave the split visually
-identical -- see report) and is a geometric rule about *shape*, not colour,
-so it survives the material strip that removes the only signal an image-
-based split would have used anyway.
+spreads out. It is a geometric rule about *shape*, not colour, so it
+survives the material strip that removes the only signal an image-based
+split would have used anyway.
+
+**FIX ROUND 2 correction, 2026-09-27 ("split trunk and leaves").** This used
+to say the split is "applied to the mesh AFTER decimation (order matters: ...
+it must not cross the seam it was measured against)". That was Fix round 1's
+design and it is retired: splitting on ALREADY-decimated geometry let one
+shared merge-by-distance pass relocate vertices near `TREE_TRUNK_Z` across
+the threshold, which measurably moved the trunk/foliage colour boundary (a
+limb that read trunk-brown before that merge read foliage-green after it --
+see `.superpowers/ground2/trees-preview/compare-full.png`) and skewed the
+whole-tree p1-p99 depth check by 15.7% (`task-6-report.md`, fix round 1, item
+1). The split now runs FIRST, on the untouched source, and decimation runs
+per-part afterward (`_export_tree_variant`'s own docstring) -- classification
+by construction cannot drift, because decimating an object already on one
+side of the split can never move a vertex to the other object.
 
 **Decimated by TRIANGLE count, not vertex count (D8, R-9, approved by the
 lead 2026-09-27).** `TREE_TARGET_TRIS` (3000) replaces the earlier
@@ -486,6 +497,16 @@ TREE_MERGE_MAX_ITERS = 20
 # escalation alone naturally settles at on this source -- see `_decimate`'s
 # own docstring, "honesty correction".
 TREE_UNDERSHOOT_FLOOR = 0.8
+# Fix round 2 (lead decision 2026-09-27, "split trunk and leaves"): the
+# trunk's own decimation target is `TREE_TARGET_TRIS * (trunk's share of the
+# RAW, pre-decimation triangle count)`, clamped into this band -- never a
+# fixed absolute number (today's two sources would need different ones,
+# ~330-390, and a THIRD source's own proportions would silently go stale)
+# and never a fixed fraction of TREE_TARGET_TRIS (that would bake in today's
+# sources' own ~11-13% raw share as if it meant something universal). See
+# `_export_tree_variant`'s own docstring.
+TREE_TRUNK_TARGET_MIN = 100
+TREE_TRUNK_TARGET_MAX = 600
 DESERT_TREE_TARGET_HEIGHT = 2.90  # shorter/airier than the olive -- see docstring "SCALE"
 
 # Desert crown (N-13, N-14, approved by the lead 2026-09-27): per variant,
@@ -1174,7 +1195,41 @@ def _split_tree_by_height(ob, label):
     return trunk_ob, foliage_ob
 
 
+def _tri_count(ob):
+    """Triangle count by `len(vertices) - 2` per polygon -- correct for a
+    mesh that may still carry quads/ngons (both `trunk_ob` and `foliage_ob`
+    are, straight off `mesh.separate`, before either is triangulated),
+    unlike trusting `len(polygons)` directly."""
+    return sum(len(p.vertices) - 2 for p in ob.data.polygons)
+
+
 def _export_tree_variant(label, src, out_path):
+    """Fix round 2 (lead decision 2026-09-27, "split trunk and leaves"):
+    split trunk from foliage FIRST, on the untouched source geometry, THEN
+    decimate each part separately. Fix round 1's design decimated the WHOLE
+    mesh (a single shared merge-by-distance pass) and split by height
+    afterward -- which let that shared merge relocate vertices near
+    TREE_TRUNK_Z across the threshold (the trunk/foliage colour boundary
+    measurably moved: a limb that read trunk-brown before the merge read
+    foliage-green after it, see `.superpowers/ground2/trees-preview/
+    compare-full.png`), and skewed the trunk's share of the combined
+    point cloud enough to fail the whole-tree p1-p99 depth check by 15.7%
+    (task-6-report.md, fix round 1, item 1). Both defects are now
+    structurally impossible: classification runs on ORIGINAL coordinates,
+    and decimating an object already on one side of the split can never
+    move a vertex to the other object.
+
+    The trunk gets its OWN target, proportionate to its share of the RAW
+    (pre-decimation) triangle count -- not a fixed number (today's two
+    sources would need different ones) and not a fixed fraction of
+    `TREE_TARGET_TRIS` (that would bake in today's sources' own ~11-13% raw
+    share as if it meant something universal for a still-undiscovered third
+    source). Measured (task-6-report.md, fix round 2): plain DECIMATE
+    COLLAPSE, even on the trunk ALONE, hits its own version of the same
+    quadric-plateau floor `_decimate`'s own docstring describes for the
+    whole tree -- so the trunk gets the SAME merge-then-decimate treatment,
+    just with a much smaller target, which is what makes it "a much lighter
+    pass" rather than a different mechanism."""
     bpy.ops.wm.open_mainfile(filepath=src)
     meshes = _meshes()
     if len(meshes) != 1 or meshes[0].name != "mesh_node":
@@ -1184,10 +1239,46 @@ def _export_tree_variant(label, src, out_path):
     if len(ob.data.materials) != 1:
         raise SystemExit(f"[{label}] expected exactly one material to strip, "
                           f"found {len(ob.data.materials)}")
-    _decimate(ob, TREE_TARGET_TRIS, label)
+
     trunk_ob, foliage_ob = _split_tree_by_height(ob, label)
     _strip(trunk_ob)
     _strip(foliage_ob)
+
+    trunk_raw_tris = _tri_count(trunk_ob)
+    foliage_raw_tris = _tri_count(foliage_ob)
+    raw_total = trunk_raw_tris + foliage_raw_tris
+    if raw_total <= 0:
+        raise SystemExit(f"[{label}] trunk+foliage raw triangle count is {raw_total} "
+                          f"-- cannot proportion a decimation budget")
+    trunk_share = trunk_raw_tris / raw_total
+    trunk_target = round(TREE_TARGET_TRIS * trunk_share)
+    trunk_target = max(TREE_TRUNK_TARGET_MIN, min(TREE_TRUNK_TARGET_MAX, trunk_target))
+    print(f"[{label}] raw trunk={trunk_raw_tris} foliage={foliage_raw_tris} tris "
+          f"(trunk share {trunk_share:.1%}) -> trunk_target={trunk_target}")
+
+    _decimate(trunk_ob, trunk_target, f"{label}_trunk")
+    trunk_final_tris = _tri_count(trunk_ob)
+    foliage_target = TREE_TARGET_TRIS - trunk_final_tris
+    if foliage_target < TREE_TRUNK_TARGET_MIN:
+        raise SystemExit(f"[{label}] trunk alone is {trunk_final_tris} tris, leaving only "
+                          f"{foliage_target} for foliage out of TREE_TARGET_TRIS="
+                          f"{TREE_TARGET_TRIS} -- raise TREE_TARGET_TRIS or lower "
+                          f"TREE_TRUNK_TARGET_MAX")
+    _decimate(foliage_ob, foliage_target, f"{label}_foliage")
+
+    # The whole-tree total, once more at the top level -- `_decimate`'s own
+    # guards already enforce this per PART, but this is the number the
+    # vitest gate (and D8's own target) reads off the shipped GLB.
+    total_tris = _tri_count(trunk_ob) + _tri_count(foliage_ob)
+    if total_tris > TREE_TARGET_TRIS:
+        raise SystemExit(f"[{label}] whole tree is {total_tris} tris, ABOVE "
+                          f"TREE_TARGET_TRIS={TREE_TARGET_TRIS} -- do not ship this mesh")
+    if total_tris < TREE_TARGET_TRIS * TREE_UNDERSHOOT_FLOOR:
+        raise SystemExit(f"[{label}] whole tree is {total_tris} tris, below the "
+                          f"{TREE_UNDERSHOOT_FLOOR:.0%} floor of TREE_TARGET_TRIS="
+                          f"{TREE_TARGET_TRIS} -- do not ship this mesh")
+    print(f"[{label}] whole tree: {total_tris} tris (trunk={trunk_final_tris}, "
+          f"foliage={_tri_count(foliage_ob)}), target={TREE_TARGET_TRIS}")
 
     extent = _extent([trunk_ob, foliage_ob], axis="z")
     mpu = metres_per_unit(extent, TREE_TARGET_HEIGHT)

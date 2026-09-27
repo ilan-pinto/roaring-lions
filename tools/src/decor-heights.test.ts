@@ -186,26 +186,23 @@ describe('the olive LOD (D8, N-15)', () => {
     within10(whole.w, BASE_WHOLE[v].w);
   });
 
-  // KNOWN RED for tree_1/tree_2 -- reported, not widened (fix round 1, item
-  // 1: "if head tree_0's whole-tree p1-p99 depth is still > 10% off, stop
-  // and report the numbers rather than widening"). tree_0 passes (measured
-  // +4.7%). tree_1/2 do not (measured +15.7%, see task-6-report.md's fix
-  // round 1 section for the full numbers and the explanation: the merge
-  // pass barely touches the trunk -- already coarse before this task, its
-  // OWN extent moved under 5% -- while it shrinks the much denser foliage
-  // hard, so the trunk's unchanged shape is a much bigger fraction of the
-  // combined point cloud than it used to be, and a density-weighted
-  // percentile of trunk+foliage together shifts toward it. The trunk-only
-  // and foliage-only extents each individually stay inside the 10% band).
-  // `it.skip`, not a widened number or a deleted check, so this stays
-  // visible in every future test run until a lead decision lands.
-  it('tree_0 keeps its WHOLE-TREE depth within 10% of fcde4da0 (p1-p99)', () => {
-    const whole = percentileExtent(join(DECOR, 'tree_0.glb'), null);
-    within10(whole.d, BASE_WHOLE[0].d);
-  });
-  it.skip('tree_1 keeps its WHOLE-TREE depth within 10% of fcde4da0 (p1-p99) -- KNOWN RED, see task-6-report.md fix round 1', () => {
-    const whole = percentileExtent(join(DECOR, 'tree_1.glb'), null);
-    within10(whole.d, BASE_WHOLE[1].d);
+  // UN-SKIPPED (fix round 2, lead decision 2026-09-27 "split trunk and
+  // leaves"): fix round 1 left this RED for tree_1/2 (+15.7%, reported not
+  // widened, see task-6-report.md's fix round 1 section) because a single
+  // merge-by-distance pass shared by trunk and foliage barely touched the
+  // already-coarse trunk while shrinking the much denser foliage hard,
+  // skewing the density-weighted whole-tree percentile toward the trunk's
+  // unchanged shape. Fix round 2 splits trunk from foliage FIRST (on the
+  // untouched source) and decimates each SEPARATELY, the trunk to its own
+  // small target proportionate to its share of the RAW triangle count --
+  // this cannot happen anymore, because decimating an object already on one
+  // side of the split can never move a vertex to the other object. Measured
+  // (task-6-report.md, fix round 2): tree_0 whole-tree depth -9.5%, tree_1
+  // +3.9% -- both back inside the SAME 10% band this test always asserted;
+  // the band was never widened, only the export changed.
+  it.each([0, 1])('tree_%i keeps its WHOLE-TREE depth within 10%% of fcde4da0 (p1-p99)', (v) => {
+    const whole = percentileExtent(join(DECOR, `tree_${v}.glb`), null);
+    within10(whole.d, BASE_WHOLE[v].d);
   });
 
   it.each([0, 1])('tree_%i keeps its FOLIAGE footprint within 10%% of fcde4da0 (p1-p99)', (v) => {
