@@ -34,7 +34,7 @@ import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { escapeHtml } from './escape-html';
-import { kitIconSignHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
+import { kitIconSignDecorHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
 import { flash, leave, titleCard } from './motion';
 import { LOGISTICS_GLYPH } from './glyphs';
 import { markSvg } from './mark';
@@ -1789,7 +1789,9 @@ export class Hud {
         ? `<span class="rl-card__badge">${roleBadgeSvg(bucket, CARD_BADGE)}</span>`
         : '') +
       // The frame's summary level, beside the name's three-track pips (D2).
-      kitIconSignHtml(st.side[id] === 0 ? this.kitLevel(type.id) : 0) +
+      // `kitPipsHtml` below already names the level to a screen reader, so
+      // this copy is decorative only -- one announcement, not two.
+      kitIconSignDecorHtml(st.side[id] === 0 ? this.kitLevel(type.id) : 0) +
       `</div>` +
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +

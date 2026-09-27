@@ -165,6 +165,21 @@ export function kitIconSignHtml(level: KitLevel): string {
   );
 }
 
+/** The same sign, drawn `aria-hidden` with no `role`/`aria-label` of its own --
+ *  for a surface that already names the level to a screen reader some other
+ *  way (the HUD card's own `kitPipsHtml`, the garage rail's pip columns), so
+ *  the level is announced exactly once per surface rather than twice. The
+ *  chip and the dock tile keep `kitIconSignHtml`: neither draws pips, so the
+ *  sign is that surface's only announcement. */
+export function kitIconSignDecorHtml(level: KitLevel): string {
+  if (level === 0) return '';
+  return (
+    `<span class="rl-kit-icon rl-kit-mark" data-kit="${level}" aria-hidden="true">` +
+    kitStarsSvg(level, KIT_ICON_SIGN.small.px) +
+    `</span>`
+  );
+}
+
 /** An icon that is a bare flex item (the chip's, the rail's) gets a host the
  *  sign can be absolute inside, sized by the art itself -- at L >= 1 only,
  *  so an unkitted icon's markup is returned untouched (plan 2b R-9). The

@@ -58,7 +58,7 @@ import {
   type PurchaseAsk,
   type PurchaseCue,
 } from './garage-model';
-import { kitIconSignHtml, kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
+import { kitIconSignDecorHtml, kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
 import { flash, prefersReducedMotion } from './motion';
@@ -517,12 +517,13 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       // The kit sign on the icon (plan 2b), from the SAME `kit` this card's
       // pips and `data-kit` read -- the garage is the account itself, so
       // there is no mission prepass here. Wrapped only at L >= 1: an
-      // unkitted card's markup is unchanged (R-9).
+      // unkitted card's markup is unchanged (R-9). Decorative only: the
+      // pips built below already name the level to a screen reader.
       if (kit.level !== 0) {
-        const host = el('span', 'rl-kit-host');
-        host.append(art);
-        host.insertAdjacentHTML('beforeend', kitIconSignHtml(kit.level));
-        card.appendChild(host);
+        const iconHost = el('span', 'rl-kit-host');
+        iconHost.append(art);
+        iconHost.insertAdjacentHTML('beforeend', kitIconSignDecorHtml(kit.level));
+        card.appendChild(iconHost);
       } else {
         card.appendChild(art);
       }

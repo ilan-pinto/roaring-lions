@@ -1674,6 +1674,26 @@ describe('showBrigade — the final review’s fix wave', () => {
       const b = mount({ units, ledger: {}, possibleStars: 78, portrait, owned: {} });
       expect(b.querySelector('.rl-garage__cards')?.innerHTML).toBe(a.querySelector('.rl-garage__cards')?.innerHTML);
       expect(a.querySelector('.rl-garage__cards .rl-kit-host')).toBeNull();
+      expect(a.querySelector('.rl-garage__cards .rl-kit-icon')).toBeNull();
+    });
+
+    it('announces a kitted card’s level exactly once — the pips, never the icon’s sign', () => {
+      const host = mount({ units, ledger: {}, possibleStars: 78, portrait, owned: { inf_squad: { armour: 1 } } });
+      const sign = card(host, 'inf_squad')?.querySelector<HTMLElement>('.rl-kit-icon');
+      expect(sign?.getAttribute('aria-hidden')).toBe('true');
+      expect(sign?.hasAttribute('role')).toBe(false);
+      expect(sign?.hasAttribute('aria-label')).toBe(false);
+      const pips = card(host, 'inf_squad')?.querySelector('.rl-kit-pips');
+      expect(pips?.getAttribute('role')).toBe('img');
+      expect(pips?.getAttribute('aria-label')).toMatch(/^Kit:/);
+    });
+
+    it('mounts a hatch-path card’s icon and sign without a portrait', () => {
+      const host = mount({ units, ledger: {}, possibleStars: 78, owned: { inf_squad: { armour: 1 } } });
+      const sign = card(host, 'inf_squad')?.querySelector(
+        ':scope > .rl-kit-host > .rl-garage__card-art[data-nosprite] + .rl-kit-icon'
+      );
+      expect(sign?.getAttribute('data-kit')).toBe('1');
     });
 
     it('stamps the sign the moment a purchase lifts the level', () => {
