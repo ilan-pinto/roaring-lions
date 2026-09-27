@@ -174,8 +174,14 @@ export const SCATTER_ROAD_CLEAR = ROAD_HALF_WIDTH + ROAD_EDGE_FALLOFF;
 /** The shed dial (spec §8, N-22): scales seed and singleton probability
  *  only -- never cluster size, radius, family or scale, so thinning the
  *  scatter for a frame-cost emergency cannot also change how a clump looks
- *  when it does draw. */
-export const SCATTER_DENSITY = 1;
+ *  when it does draw.
+ *
+ *  0.75 SINCE 2026-09-28, the lead's pick of the ladder's first rung
+ *  ("Density 0.75"): at 1, beit_sahwan_outskirts (22,24) z0.5 read +1.18 ms
+ *  gpu p95 over main (n = 5 interleaved) against a +0.74 budget. N-1's
+ *  0.9-an-open-tile band is still the rule at dial 1, and the tests measure
+ *  it there; what ships is three quarters of it. */
+export const SCATTER_DENSITY = 0.75;
 
 const TAU = Math.PI * 2;
 

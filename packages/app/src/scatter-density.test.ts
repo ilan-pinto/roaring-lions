@@ -14,6 +14,7 @@ import { applyTerrain, maps, parseMap, structures as structureCatalogue, type Ma
 import {
   DECOR_GROVE,
   PROP_CAP,
+  SCATTER_DENSITY,
   SCATTER_ROAD_CLEAR,
   buildRoadGraph,
   decorPlacements,
@@ -63,7 +64,10 @@ function openTileCount(i: TerrainInput): number {
 
 describe.each(MAP_IDS)('scatter density on %s', (id) => {
   const input = loadInput(id);
-  const open = decorPlacements(input).filter((p) => p.family === 'grass' || p.family === 'sand');
+  // N-1's band is the UNSHED rule (dial 1). What ships is the lead's shed,
+  // SCATTER_DENSITY 0.75 (2026-09-28), checked as a ratio of it just below.
+  const open = decorPlacements(input, 1).filter((p) => p.family === 'grass' || p.family === 'sand');
+  const shipped = decorPlacements(input).filter((p) => p.family === 'grass' || p.family === 'sand');
 
   // Measured, not derived: members that land on a road, a building or off the
   // map are dropped (R-3), so a map with more edges reads under the all-open
@@ -75,8 +79,15 @@ describe.each(MAP_IDS)('scatter density on %s', (id) => {
     expect(perTile).toBeGreaterThan(0.65);
     expect(perTile).toBeLessThan(1.0);
   });
+  it('ships SCATTER_DENSITY of that (the lead\'s 0.75 shed)', () => {
+    if (openTileCount(input) < 500) return;
+    const ratio = shipped.length / open.length;
+    expect(ratio).toBeGreaterThan(SCATTER_DENSITY - 0.08);
+    expect(ratio).toBeLessThan(SCATTER_DENSITY + 0.08);
+  });
   it('keeps every grass and sand object off the road (N-3)', () => {
     const graph = buildRoadGraph(input);
+    for (const p of shipped) expect(roadDistanceAt(graph, p.x, p.z)).toBeGreaterThanOrEqual(SCATTER_ROAD_CLEAR);
     for (const p of open) expect(roadDistanceAt(graph, p.x, p.z)).toBeGreaterThanOrEqual(SCATTER_ROAD_CLEAR);
   });
 });

@@ -10,11 +10,16 @@ describe('prop roles (N-12)', () => {
     ['concrete', 'limestone', 2],
     ['metal', 'gunmetal', 1],
     ['rust', 'dust', 5],
-    ['rubber', 'shadow', 0],
     ['cloth', 'water', 0],
   ] as const)('%s is %s from %i', (role, band, from) => {
     expect(rampForPropRole(role)).toEqual(readRamp(band).slice(from));
     expect(liftTone(rampForPropRole(role))).toMatch(/^#[0-9A-F]{6}$/i);
+  });
+  it('rubber is shadow lifted one step (the lead, 2026-09-28): its lit tone is the band\'s lightest', () => {
+    // The whole band lifts to its middle tone; one step lighter is index 0.
+    expect(liftTone(readRamp('shadow'))).toBe(readRamp('shadow')[1]);
+    expect(rampForPropRole('rubber')).toEqual(readRamp('shadow').slice(0, 2));
+    expect(liftTone(rampForPropRole('rubber'))).toBe(readRamp('shadow')[0]);
   });
   it('throws on a role outside the vocabulary', () => {
     expect(() => rampForPropRole('foliage')).toThrow(/prop role/);

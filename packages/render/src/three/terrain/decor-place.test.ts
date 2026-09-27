@@ -7,6 +7,7 @@ import {
   GRASS_SCALE_MAX,
   GRASS_SCALE_MIN,
   isOpenScatterAt,
+  SCATTER_DENSITY,
   SCATTER_ROAD_CLEAR,
   VARIANTS_PER_FAMILY,
   type DecorPlacement,
@@ -573,7 +574,9 @@ describe('clustered grass and sand (spec §3.4, N-1)', () => {
   // open tile") and Ripley's K are both measured HERE, because K(1 tile) is
   // itself a density-scaled COUNT (how many neighbours fall within a tile)
   // and its own >1.4 floor was measured at this rate.
-  const placed = openObjects(decorPlacements(open));
+  // Dial 1 explicitly: N-1's band and the clump shape are the UNSHED rule.
+  // The shipped default is the lead's shed (0.75, 2026-09-28), pinned below.
+  const placed = openObjects(decorPlacements(open, 1));
   // Dial 0.3 (the shed dial, spec §8, N-22 -- scales seed/singleton
   // probability only, NEVER cluster radius, member count or family split):
   // Clark-Evans and the family-agreement check below are measured at a
@@ -722,12 +725,23 @@ describe('bush on cover doubles (N-5)', () => {
 });
 
 describe('the density dial (R-4, N-22)', () => {
+  it('ships at 0.75, the lead\'s shed (2026-09-28): a quarter fewer open-ground objects than dial 1', () => {
+    // Task 5 measured beit_sahwan_outskirts (22,24) z0.5 at +1.18 ms gpu p95
+    // over main at dial 1, against a +0.74 budget; the lead chose the ladder's
+    // first rung. The default is the shipped number, so it is pinned.
+    expect(SCATTER_DENSITY).toBe(0.75);
+    const m = input(48, 48);
+    const ratio = openObjects(decorPlacements(m)).length / openObjects(decorPlacements(m, 1)).length;
+    expect(ratio).toBeGreaterThan(0.69);
+    expect(ratio).toBeLessThan(0.81);
+  });
+
   it('halves open-ground objects at 0.5 and leaves every other family alone', () => {
     const m = input(48, 48, (_i, decor, _b, cover) => {
       for (let t = 0; t < 48 * 48; t += 5) decor[t] = DECOR_GROVE;
       for (let t = 2; t < 48 * 48; t += 11) cover[t] = 1;
     });
-    const full = decorPlacements(m);
+    const full = decorPlacements(m, 1);
     const half = decorPlacements(m, 0.5);
     const ratio = openObjects(half).length / openObjects(full).length;
     expect(ratio).toBeGreaterThan(0.44);

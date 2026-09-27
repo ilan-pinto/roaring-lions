@@ -44,11 +44,13 @@ const PROP_ROLE_PALETTE: Record<PropMeshRole, readonly string[]> = {
   // (index 5 of 7) so rust reads distinctly darker and more orange than the
   // `rust`-free `dust` tones scattered ground decor already uses.
   rust: sliceFrom('dust', 5),
-  // Tyre pile: matte black rubber. `shadow` is the ramp `mesh-role.ts` keeps
-  // for cast shadow and night base -- a stack of worn tyres is exactly that
-  // dark, and taking the WHOLE band (index 0) keeps its lightest step legible
-  // rather than crushing every tyre to the ramp's own darkest tone.
-  rubber: sliceFrom('shadow', 0),
+  // Tyre pile: matte black rubber, on `shadow`, the ramp `mesh-role.ts` keeps
+  // for cast shadow and night base. LIGHTENED ONE STEP by the lead
+  // (2026-09-28, "Lighten one palette step"): the whole band lifted to its
+  // middle tone (#14150F) and a tyre pile read as a black hole at gameplay
+  // zoom. Dropping the band's darkest step leaves two, so `liftTone` takes
+  // the ramp's lightest (#23241F) -- one step up, still from the ramp.
+  rubber: readRamp('shadow').slice(0, 2),
   // Laundry line washing: pale cloth catching the sky, not the ground.
   // `water` is the ramp used for sky gradient and cisterns -- the only pale,
   // cool-toned two-step band on the palette, and the one that reads as cloth
