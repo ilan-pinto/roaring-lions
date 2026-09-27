@@ -160,9 +160,13 @@ describe('the loadout and the counts ride on start and end (R-1)', () => {
 
   it('mission_end carries the counts with zero entries dropped, even when both maps end up empty', () => {
     const e = ev.missionEnd(env, 'm', view({ result: 'victory' }), false, { bought: { inf_squad: 0, mbt_lavi: 1 }, orders: { move: 3, halt: 0 } });
-    expect(e).toMatchObject({ bought: { mbt_lavi: 1 }, orders: { move: 3 } });
+    const body = e as unknown as { bought: unknown; orders: unknown };
+    expect(body.bought).toEqual({ mbt_lavi: 1 });
+    expect(body.orders).toEqual({ move: 3 });
     const empty = ev.missionEnd(env, 'm', view(), true, { bought: {}, orders: {} });
-    expect(empty).toMatchObject({ bought: {}, orders: {} });
+    const emptyBody = empty as unknown as { bought: unknown; orders: unknown };
+    expect(emptyBody.bought).toEqual({});
+    expect(emptyBody.orders).toEqual({});
     expect(isTelemetryEvent(e) && isTelemetryEvent(empty)).toBe(true);
   });
 });
