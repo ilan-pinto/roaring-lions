@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyUpgrades, units } from '@lions/data';
+import { applyUpgrades, kitLevel, units } from '@lions/data';
 import { kitSummary } from './ui/kit-sign';
 import { upgradePrepass } from './upgrade-prepass';
 
@@ -39,5 +39,24 @@ describe('upgradePrepass', () => {
     if (enemy === undefined) throw new Error('fixture: the roster has no enemy unit');
     const { registered } = upgradePrepass(roster, { ...owned, [enemy.id]: { armour: 3 } });
     expect(registered.find((u) => u.id === enemy.id)).toBe(enemy);
+  });
+
+  it('hands the renderer the level the card shows, for every KDF type and no other', () => {
+    const { kitByType, unitKit } = upgradePrepass(roster, owned);
+    expect(Object.keys(unitKit).sort()).toEqual([...kitByType.keys()].sort());
+    for (const [id, summary] of kitByType) expect(unitKit[id], id).toBe(summary.level);
+    expect(unitKit.mbt_lavi).toBe(kitLevel(units.mbt_lavi, owned.mbt_lavi));
+  });
+
+  it('reads the audit seed as the spec did: Lavi 3, rifles 1, AT 1, and the sim runs that Lavi', () => {
+    const seed = {
+      inf_squad: { armour: 2, sensors: 1 },
+      at_team: { firepower: 1 },
+      mbt_lavi: { armour: 3, sensors: 3, firepower: 3 },
+    };
+    const { unitKit, registered } = upgradePrepass(roster, seed);
+    expect([unitKit.mbt_lavi, unitKit.inf_squad, unitKit.at_team, unitKit.ifv_namer]).toEqual([3, 1, 1, 0]);
+    // Spec §1 F2: 3000 -> 3750 on the maxed Lavi. The mark and the sim read one object.
+    expect(registered.find((u) => u.id === 'mbt_lavi')?.hull.hp).toBe(3750);
   });
 });

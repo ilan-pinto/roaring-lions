@@ -696,3 +696,50 @@ describe('destroy', () => {
     expect(removeSpy).toHaveBeenCalledWith('keydown', listener);
   });
 });
+
+describe('the kit sign on a tile (WP-S3g plan 2b)', () => {
+  it("signs a kitted type's tile with its level, as the tile's own child, and leaves the others alone", () => {
+    const r = rig([
+      dockUnit({ kit: 1 }),
+      dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT', kit: 3 }),
+      dockUnit({ id: 'at_team', name: 'Spike AT' }),
+    ]);
+    expect(r.tile('inf_squad').querySelector<HTMLElement>(':scope > .rl-kit-icon')?.dataset.kit).toBe('1');
+    expect(r.tile('mbt_lavi').querySelector<HTMLElement>(':scope > .rl-kit-icon')?.dataset.kit).toBe('3');
+    expect(r.tile('at_team').querySelector('.rl-kit-icon')).toBeNull();
+  });
+
+  it('builds an unkitted tile exactly as before', () => {
+    const plainTile = rig([dockUnit()]).tile('inf_squad');
+    const zeroTile = rig([dockUnit({ kit: 0 })]).tile('inf_squad');
+    expect(zeroTile.outerHTML).toBe(plainTile.outerHTML);
+    expect(plainTile.querySelector('.rl-kit-host')).toBeNull();
+    expect(plainTile.querySelector('.rl-kit-icon')).toBeNull();
+    expect(zeroTile.querySelector('.rl-kit-host')).toBeNull();
+    expect(zeroTile.querySelector('.rl-kit-icon')).toBeNull();
+  });
+
+  it('keeps one sign through the 4 Hz repaint', () => {
+    const r = rig([dockUnit({ kit: 2 })]);
+    r.dock.refresh();
+    r.dock.refresh();
+    expect(r.tile('inf_squad').querySelectorAll('.rl-kit-icon')).toHaveLength(1);
+  });
+
+  it('adds the kit level to the tile’s aria-label only, never to its title, and only when unlocked', () => {
+    const r = rig([dockUnit({ kit: 2 })]);
+    const t = r.tile('inf_squad');
+    expect(t.getAttribute('aria-label')).toBe('Rifle Squad — 292 logistics, Kit II');
+    expect(t.title).toBe('Rifle Squad — 292 logistics');
+
+    const rt = fakeRuntime({ blocked: { inf_squad: 'locked' } });
+    const locked = rig([dockUnit({ kit: 2, unlock: { roeMin: 1 } })], rt).tile('inf_squad');
+    expect(locked.getAttribute('aria-label')).not.toContain('Kit');
+    expect(locked.getAttribute('aria-label')).toBe(locked.title);
+  });
+
+  it('leaves an unkitted tile’s aria-label exactly as before', () => {
+    const r = rig([dockUnit({ kit: 0 })]);
+    expect(r.tile('inf_squad').getAttribute('aria-label')).toBe('Rifle Squad — 292 logistics');
+  });
+});

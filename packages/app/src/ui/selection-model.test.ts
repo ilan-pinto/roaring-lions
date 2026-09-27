@@ -229,3 +229,20 @@ describe('chip focus', () => {
     expect(stepFocus(0, 0)).toBe(0);
   });
 });
+
+describe('a chip’s own-side reading (the kit sign, plan 2b)', () => {
+  it('is own only when every unit in it is the player’s', () => {
+    const chips = groupChips([
+      unit({ typeId: 'inf_squad', own: true }),
+      unit({ typeId: 'inf_squad', own: true }),
+      unit({ typeId: 'ifv_namer', name: 'Namer', bucket: 'armour', own: true }),
+      unit({ typeId: 'ifv_namer', name: 'Namer', bucket: 'armour', own: false }),
+      unit({ typeId: 'mbt_lavi', name: 'Lavi', bucket: 'armour' }),
+    ]);
+    expect(chips.map((c) => [c.typeId, c.own])).toEqual([
+      ['inf_squad', true],
+      ['ifv_namer', false],
+      ['mbt_lavi', false],
+    ]);
+  });
+});

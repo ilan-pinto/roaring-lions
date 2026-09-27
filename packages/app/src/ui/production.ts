@@ -23,6 +23,7 @@ import { LOGISTICS_GLYPH } from './glyphs';
 import { roleBadgeSvg } from './role';
 import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
+import { kitIconSignHtml, kitLevelLabel } from './kit-sign';
 import type { Tone } from './hud';
 
 export type SupportKind = 'sweep' | 'strike';
@@ -242,6 +243,9 @@ export class ReinforcementDock {
       el.appendChild(art);
     }
 
+    // R-8: the stylesheet hides the sign on a locked tile.
+    el.insertAdjacentHTML('beforeend', kitIconSignHtml(unit.kit ?? 0));
+
     const cost = document.createElement('span');
     cost.className = 'rl-tile__cost';
     // GH-229 fix round 2: a bare number here read as credits once the dock's
@@ -420,7 +424,14 @@ export class ReinforcementDock {
       // text is the cost badge — so without this a screen reader announces a
       // tile as "292". `B` puts the keyboard here, so the name has to be a
       // sentence rather than a number.
-      tile.el.setAttribute('aria-label', title);
+      //
+      // The kit level is added to the ARIA name only, never to `title`: the
+      // sign on the art already says it visually (`kitIconSignHtml` below),
+      // and a hover tooltip repeating what is already on screen would be
+      // noise. A screen reader has no equivalent of hovering the icon, so its
+      // one text has to carry both facts. Locked out, same as the sign.
+      const kit = state.lock === null ? (tile.unit.kit ?? 0) : 0;
+      tile.el.setAttribute('aria-label', kit === 0 ? title : `${title}, ${kitLevelLabel(kit)}`);
     }
     for (const { el, cost } of this.supportTiles) {
       el.dataset.poor = rt.intel >= cost ? '0' : '1';

@@ -2114,6 +2114,22 @@ body {
   cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease);
 }
+/* G-P3 "Tinted border" (the lead, 2026-09-27): an own chip whose type
+   carries kit (`hud.ts` sets data-kit only at level 1-3) tints its border
+   steel, stronger per level -- --kit mixed toward --kit-edge, so level 3 is
+   the full steel of the stars on its icon. Border colour only: the chip's
+   inside and its 1px width are unchanged, so a kitted chip is exactly as big
+   as an unkitted one. These rules sit BEFORE :hover and [data-focus] on
+   purpose -- same specificity, so hover and the focused sub-group still win. */
+.rl-chip[data-kit='1'] {
+  border-color: color-mix(in srgb, var(--kit) 40%, var(--kit-edge));
+}
+.rl-chip[data-kit='2'] {
+  border-color: color-mix(in srgb, var(--kit) 70%, var(--kit-edge));
+}
+.rl-chip[data-kit='3'] {
+  border-color: color-mix(in srgb, var(--kit) 100%, var(--kit-edge));
+}
 .rl-chip:hover {
   border-color: var(--accent);
 }
@@ -3872,6 +3888,68 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-kit-mark {
   color: var(--kit);
 }
+
+/* The kit sign on a unit's ICON (WP-S3g plan 2b, G-N2; G-P3): 1-3 steel Stars
+   of David, one per kit level (`kit-sign.ts`'s `kitIconSignHtml`; the garage
+   bay keeps its own bevelled mark), in the icon's top-right corner --
+   the one corner free on every surface it sits on (the card's role badge and
+   the dock's countdown hold top-left, the dock's price bottom-right, its lock
+   and bar the bottom edge). Steel through `.rl-kit-mark`'s currentColor,
+   lifted off the art by a one-pixel --kit-edge halo and NOT a plate: a plated
+   mark over each unit on the map was built and rejected by the lead as ugly
+   (2026-09-27). Absolute, so a kitted chip or card is exactly as tall as an
+   unkitted one (`ui:routes` measures it).
+   Sized PER SURFACE (G-N2 FINAL, the lead, 2026-09-27): "B, but 20 px on the
+   chip", then "Bigger stars" after G-P3 -- every surface draws at the
+   smaller `.rl-kit-icon svg` default below (stars 0.5rem, 8 px tall at
+   scale 1, `KIT_ICON_SIGN.small`), EXCEPT the selection chip, which the next
+   rule sizes up to 0.625rem (10 px, `KIT_ICON_SIGN.chip`) by selector, not by a class
+   the markup adds: fix round 1 (review, 2026-09-27) reverted an earlier
+   `rl-kit-icon--chip` modifier class that `kitIconSignHtml`/`withKitSign`
+   set from a `surface` argument -- an argument a call site can simply omit,
+   which would have silently drawn the chip at the size the lead rejected
+   for it. A selector keyed on markup the chip already emits for an
+   unrelated reason (`hud.ts`'s `renderChips`, `rl-chip__art`) cannot be
+   forgotten per call site the way an optional parameter can. */
+.rl-kit-icon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  line-height: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1px var(--kit-edge));
+}
+.rl-kit-icon svg {
+  /* One star tall; the row's width follows from the svg's own viewBox, so a
+     level-3 sign is three stars wide and grows LEFTWARD from the corner
+     ("Bigger stars", the lead, 2026-09-27, after G-P3). */
+  width: auto;
+  height: 0.5rem;
+}
+/* The chip's own art sits immediately before its sign inside `.rl-kit-host`
+   (`withKitSign`: icon, then sign, siblings, nothing between) -- so this
+   adjacent-sibling selector reaches the chip's sign, and only the chip's,
+   with no dependence on which JS call built the markup. */
+.rl-chip__art + .rl-kit-icon svg {
+  width: auto;
+  height: 0.625rem;
+}
+/* The chip's and the rail's art are bare flex items: a host the size of the
+   art, drawn only for a kitted icon (`withKitSign`). */
+.rl-kit-host {
+  position: relative;
+  flex: 0 0 auto;
+  display: block;
+  line-height: 0;
+}
+/* The card frame and the dock tile are already positioned; the sign steps in
+   by the margin that surface's own corner mark uses -- the role badge's 3 px,
+   the art's 2 px. */
+.rl-card__frame > .rl-kit-icon { top: 0.1875rem; right: 0.1875rem; }
+.rl-tile > .rl-kit-icon { top: 0.125rem; right: 0.125rem; }
+/* A locked tile asks what to earn next, and its art is already drained (plan
+   2b R-8). Hidden, not removed: it is back the moment the lock lifts. */
+.rl-tile[data-locked='1'] > .rl-kit-icon { display: none; }
 
 /* ---------------------------------------------------------------------- */
 /* The garage (ui/brigade.ts)                                             */

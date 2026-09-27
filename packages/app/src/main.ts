@@ -58,6 +58,7 @@ import {
   audioManifest,
   vfxEmitters,
   menuDiorama,
+  type KitLevel,
   type MapJson,
   type MissionLocaleOverlay,
   type UpgradableUnit,
@@ -136,6 +137,7 @@ import {
   SANDBOX_ENEMY,
   SANDBOX_SUR,
   SANDBOX_TUNNEL_KDF,
+  bootTiers,
   sandboxUnitTypes,
   type SandboxExtras,
 } from './sandbox-force';
@@ -1263,8 +1265,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  same per-type read, so the card shows the kit this mission actually
    *  runs with -- never the account as it stands later, which a garage visit
    *  can change. */
-  const prepass = upgradePrepass(Object.values(units), ownedTiers);
+  const roster = Object.values(units);
+  /** `&kit` (sandbox only, WP-S3g plan 2) swaps the account's tiers for the
+   *  fixed ladder BEFORE the one prepass, so the swap reaches the sim, the HUD
+   *  card and the unit icons together; a mission never takes it (`bootTiers`). */
+  const bootKit = bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: readFlags(params).kit }, roster);
+  const prepass = upgradePrepass(roster, bootKit);
   const kitByType = prepass.kitByType;
+  /** The one level every unit ICON reads (WP-S3g plan 2b): the prepass's own
+   *  `unitKit`, never re-derived -- the loop that registered the sim's types
+   *  and filled the card's pips. 0 for any type the prepass did not see. */
+  const kitLevelOf = (typeId: string): KitLevel => prepass.unitKit[typeId] ?? 0;
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -2614,6 +2625,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     portrait: (typeId) => portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
     kitOf: (typeId) => kitByType.get(typeId) ?? null,
+    kitLevelOf,
     // A closure over `runtime`, not a snapshot of it: the Hud is constructed
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.
@@ -2990,6 +3002,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // disagree and neither goes stale when a rig renames its files.
             sprite: portraits[u.id] ?? null,
             spriteIsIcon: portraitIcons.has(u.id),
+            // The same one read the chips and the card make.
+            kit: kitLevelOf(u.id),
             tags: doctrineTags(bucket, abilities),
             blurb: 'blurb' in u ? (u.blurb as string) : undefined,
             // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's

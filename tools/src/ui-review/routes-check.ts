@@ -45,8 +45,11 @@ import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { boardCanvasVerdict } from './board-canvases';
 import { ACCOUNT_KEY } from '../../../packages/app/src/brigade-account';
-import { garageSeedScript } from './garage-seed';
+import { garageSeedScript, GARAGE_SEED_ACCOUNT } from './garage-seed';
 import { claimPort } from './port';
+import { kitIconFailures, type IconRead } from './kit-icons';
+import { SANDBOX_KIT_LEVELS } from '../../../packages/app/src/sandbox-force';
+import { kitLevel, units, type UpgradableUnit } from '@lions/data';
 import { PLACEHOLDER_HZ } from '../../../packages/render/src/audio';
 import { VOICE_TIMING } from '../../../packages/app/src/voice/director';
 
@@ -1679,6 +1682,222 @@ try {
     cardHeights[0].card !== null && cardHeights[0].card === cardHeights[1].card,
     `HUD card (d): ${cardHeights[1].card}px kitted vs ${cardHeights[0].card}px without kit -- the card jumps`
   );
+
+  // --- the kit sign on every icon (WP-S3g plan 2b, T7) ---
+  //
+  // `kit-icons.ts`'s `kitIconFailures` is the reference-free verdict; every
+  // leg below only has to get an honest `IconRead[]` off the live DOM and
+  // hand it over. Each leg opens its OWN context, so a seed never leaks into
+  // a later leg (the isolation `garageStates` already uses), waits for
+  // `window.__lions`, then 400 ms for the 4 Hz HUD rebuild before reading.
+  const READ_ICONS =
+    '(() => { var out = [];' +
+    ' var box = function (e) { if (!e) return null; var r = e.getBoundingClientRect();' +
+    '  return r.width > 0 ? { x: r.x, y: r.y, w: r.width, h: r.height } : null; };' +
+    ' var sign = function (host) { var s = host ? host.querySelector(".rl-kit-icon") : null;' +
+    '  return s ? { kit: s.getAttribute("data-kit"), rect: box(s) } : { kit: null, rect: null }; };' +
+    ' document.querySelectorAll(".rl-chip").forEach(function (c) { var s = sign(c);' +
+    '  out.push({ surface: "chip", type: c.getAttribute("data-type"), kit: s.kit, sign: s.rect,' +
+    '   icon: box(c.querySelector(".rl-kit-host") || c.querySelector(".rl-chip__art")) }); });' +
+    ' document.querySelectorAll(".rl-card").forEach(function (c) { var f = c.querySelector(".rl-card__frame"); var s = sign(f);' +
+    '  out.push({ surface: "card", type: c.getAttribute("data-type"), kit: s.kit, sign: s.rect, icon: box(f) }); });' +
+    ' document.querySelectorAll(".rl-tile[data-unit]").forEach(function (t) { var s = sign(t);' +
+    '  out.push({ surface: "tile", type: t.getAttribute("data-unit"), kit: s.kit, sign: s.rect, icon: box(t),' +
+    '   locked: t.getAttribute("data-locked") === "1" }); });' +
+    ' return { reads: out, rootPx: parseFloat(getComputedStyle(document.documentElement).fontSize) }; })()';
+  const SELECT_ALL_OWN =
+    '(() => { var L = window.__lions; if (!L) return 0; var ids = L.units().map(function (u) { return u.id; });' +
+    ' L.sel(ids); return ids.length; })()';
+  interface IconsPage {
+    reads: IconRead[];
+    rootPx: number;
+  }
+  const kitPage = async (
+    urlPath: string,
+    seed: boolean,
+    where: string
+  ): Promise<{ ctx: Awaited<ReturnType<Awaited<ReturnType<typeof chromium.launch>>['newContext']>>; page: Page }> => {
+    const ctx = await browser!.newContext({ viewport: { width: 1400, height: 900 } });
+    if (seed) await ctx.addInitScript(garageSeedScript());
+    const kp = await ctx.newPage();
+    kp.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    kp.on('pageerror', (e) => errors.push(String(e)));
+    await kp.goto(`http://localhost:${PORT}${urlPath}`, { waitUntil: 'load' });
+    if (urlPath.startsWith('/mission/')) await dismissDeployGate(kp, where);
+    await kp.waitForFunction('window.__lions !== undefined', null, { timeout: 90_000 });
+    return { ctx, page: kp };
+  };
+
+  // --- K1: the ladder on the chips, at two resolutions ----------------------
+  for (const viewport of [
+    { width: 1400, height: 900 },
+    { width: 1920, height: 1080 },
+  ]) {
+    const ctx = await browser.newContext({ viewport });
+    const p = await ctx.newPage();
+    p.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    p.on('pageerror', (e) => errors.push(String(e)));
+    await p.goto(`http://localhost:${PORT}/free-play/beit_sahwan_outskirts?kit`, { waitUntil: 'load' });
+    await p.waitForFunction('window.__lions !== undefined', null, { timeout: 90_000 });
+    await p.waitForTimeout(400);
+    const selected = await p.evaluate<number>(SELECT_ALL_OWN);
+    await p.waitForTimeout(400);
+    const { reads, rootPx } = await p.evaluate<IconsPage>(READ_ICONS);
+    const chipReads = reads.filter((r) => r.surface === 'chip');
+    const k1Failures = kitIconFailures(chipReads, SANDBOX_KIT_LEVELS, rootPx);
+    console.log(
+      `[${TAG}] K1 @ ${viewport.width}x${viewport.height}: ${selected} own unit(s) selected, ` +
+        `${chipReads.length} chip(s) read at root ${rootPx}px, ${k1Failures.length} failure(s)`
+    );
+    expect(
+      chipReads.length >= 8,
+      `K1 @ ${viewport.width}x${viewport.height}: only ${chipReads.length} chip(s) read, need >= 8`
+    );
+    for (const f of k1Failures) expect(false, `K1 @ ${viewport.width}x${viewport.height}: ${f}`);
+    await ctx.close();
+  }
+
+  // --- K2: the card, own then enemy ------------------------------------------
+  {
+    const { ctx, page: p } = await kitPage('/free-play/beit_sahwan_outskirts?kit', false, `${TAG} K2`);
+    await p.waitForTimeout(400);
+    const SELECT_LAVI =
+      '(() => { var L = window.__lions; if (!L) return false;' +
+      ' var u = L.units().find(function (x) { return x.type === "mbt_lavi"; }); if (!u) return false;' +
+      ' L.sel([u.id]); return true; })()';
+    expect(await p.evaluate<boolean>(SELECT_LAVI), 'K2: the sandbox force has no mbt_lavi to select');
+    await p.waitForTimeout(400);
+    const own = await p.evaluate<IconsPage>(READ_ICONS);
+    const ownCard = own.reads.filter((r) => r.surface === 'card');
+    const ownFailures = kitIconFailures(ownCard, { mbt_lavi: 3 }, own.rootPx);
+    const pips = await p.evaluate<number>('document.querySelectorAll(".rl-kit-pips__pip[data-on=\\"1\\"]").length');
+    console.log(
+      `[${TAG}] K2 own mbt_lavi: ${ownCard.length} card(s) read, ${pips} lit pip(s), ${ownFailures.length} failure(s)`
+    );
+    for (const f of ownFailures) expect(false, `K2 (own): ${f}`);
+    expect(pips === 9, `K2: the card holds ${pips} lit pip(s), want 9 -- the pips and the sign must agree`);
+
+    const SELECT_ENEMY =
+      '(() => { var L = window.__lions; if (!L) return false; var u = L.units(1)[0]; if (!u) return false;' +
+      ' L.sel([u.id]); return true; })()';
+    expect(await p.evaluate<boolean>(SELECT_ENEMY), 'K2: no enemy unit to select');
+    await p.waitForTimeout(400);
+    const enemy = await p.evaluate<IconsPage>(READ_ICONS);
+    const enemyCard = enemy.reads.filter((r) => r.surface === 'card');
+    const enemyFailures = kitIconFailures(enemyCard, {}, enemy.rootPx);
+    console.log(`[${TAG}] K2 enemy: ${enemyCard.length} card(s) read, ${enemyFailures.length} failure(s)`);
+    for (const f of enemyFailures) expect(false, `K2 (enemy): ${f}`);
+    await ctx.close();
+  }
+
+  // --- K3: no layout change, chip and card alike -----------------------------
+  {
+    const READ_CHIP_HEIGHTS =
+      '(() => { var out = {}; document.querySelectorAll(".rl-chip").forEach(function (c) {' +
+      '  var t = c.getAttribute("data-type"); if (t) out[t] = c.getBoundingClientRect().height; }); return out; })()';
+    const chipHeightsFor = async (withKit: boolean): Promise<Record<string, number>> => {
+      const { ctx, page: p } = await kitPage(
+        `/free-play/beit_sahwan_outskirts${withKit ? '?kit' : ''}`,
+        false,
+        `${TAG} K3`
+      );
+      await p.waitForTimeout(400);
+      await p.evaluate(SELECT_ALL_OWN);
+      await p.waitForTimeout(400);
+      const heights = await p.evaluate<Record<string, number>>(READ_CHIP_HEIGHTS);
+      await ctx.close();
+      return heights;
+    };
+    const noKit = await chipHeightsFor(false);
+    const kitted = await chipHeightsFor(true);
+    const types = Object.keys(noKit).filter((t) => t in kitted);
+    console.log(
+      `[${TAG}] K3 chips: ${types.length} type(s) present with and without &kit: ` +
+        `${JSON.stringify(noKit)} vs ${JSON.stringify(kitted)}`
+    );
+    expect(types.length > 0, 'K3: no chip type present with and without &kit to compare');
+    for (const t of types) {
+      expect(noKit[t] === kitted[t], `K3: chip ${t} height ${kitted[t]}px kitted vs ${noKit[t]}px without -- the chip jumps`);
+    }
+
+    const SELECT_LAVI =
+      '(() => { var L = window.__lions; if (!L) return false;' +
+      ' var u = L.units().find(function (x) { return x.type === "mbt_lavi"; }); if (!u) return false;' +
+      ' L.sel([u.id]); return true; })()';
+    const cardHeightFor = async (withKit: boolean): Promise<number | null> => {
+      const { ctx, page: p } = await kitPage(
+        `/free-play/beit_sahwan_outskirts${withKit ? '?kit' : ''}`,
+        false,
+        `${TAG} K3-card`
+      );
+      const ok = await p.evaluate<boolean>(SELECT_LAVI);
+      await p.waitForTimeout(400);
+      const h = ok
+        ? await p.evaluate<number | null>(
+            '(() => { var c = document.querySelector(".rl-card"); return c ? c.getBoundingClientRect().height : null; })()'
+          )
+        : null;
+      await ctx.close();
+      return h;
+    };
+    const cardNoKit = await cardHeightFor(false);
+    const cardKit = await cardHeightFor(true);
+    console.log(`[${TAG}] K3 card (mbt_lavi): ${cardNoKit}px without &kit vs ${cardKit}px with`);
+    expect(
+      cardNoKit !== null && cardNoKit === cardKit,
+      `K3: card height ${cardKit}px kitted vs ${cardNoKit}px without -- the card jumps`
+    );
+  }
+
+  // --- K4: the account pass, on a mission with a dock ------------------------
+  {
+    const { ctx, page: p } = await kitPage('/mission/beit_sahwan_breach', true, `${TAG} K4`);
+    await p.evaluate(() => (window as unknown as { __lions?: { step(n: number): void } }).__lions?.step(40));
+    await p.waitForTimeout(400);
+    const selected = await p.evaluate<number>(SELECT_ALL_OWN);
+    await p.waitForTimeout(400);
+    const { reads, rootPx } = await p.evaluate<IconsPage>(READ_ICONS);
+    const expected: Record<string, number> = {};
+    for (const id of Object.keys(GARAGE_SEED_ACCOUNT.upgrades)) {
+      expected[id] = kitLevel(
+        units[id as keyof typeof units] as unknown as UpgradableUnit,
+        GARAGE_SEED_ACCOUNT.upgrades[id] ?? {}
+      );
+    }
+    const tileReads = reads.filter((r) => r.surface === 'tile');
+    const k4Failures = kitIconFailures(reads, expected, rootPx);
+    console.log(
+      `[${TAG}] K4: expected ${JSON.stringify(expected)}, ${selected} own unit(s) selected, ` +
+        `${tileReads.length} tile(s) read, ${k4Failures.length} failure(s)`
+    );
+    expect(tileReads.length > 0, 'K4: no dock tile was read');
+    for (const f of k4Failures) expect(false, `K4: ${f}`);
+    await ctx.close();
+  }
+
+  // --- K5: a dev flag never changes a mission --------------------------------
+  {
+    const { ctx, page: p } = await kitPage('/mission/beit_sahwan_1_recon?kit', false, `${TAG} K5`);
+    await p.waitForTimeout(400);
+    await p.evaluate(SELECT_ALL_OWN);
+    await p.waitForTimeout(400);
+    const count = await p.evaluate<number>('document.querySelectorAll(".rl-kit-icon").length');
+    console.log(`[${TAG}] K5: ${count} .rl-kit-icon element(s) on a mission booted with &kit`);
+    expect(count === 0, `K5: &kit drew ${count} kit sign(s) on a mission -- a dev flag must never change one`);
+    await ctx.close();
+  }
+
+  // --- K6: what the golden gate sees ------------------------------------------
+  {
+    const { ctx, page: p } = await kitPage('/free-play/beit_sahwan_outskirts', false, `${TAG} K6`);
+    await p.waitForTimeout(400);
+    await p.evaluate(SELECT_ALL_OWN);
+    await p.waitForTimeout(400);
+    const count = await p.evaluate<number>('document.querySelectorAll(".rl-kit-icon").length');
+    console.log(`[${TAG}] K6: ${count} .rl-kit-icon element(s) on a fresh account with no &kit`);
+    expect(count === 0, `K6: ${count} kit sign(s) drawn with no &kit -- this is what the golden gate boots`);
+    await ctx.close();
+  }
 
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {

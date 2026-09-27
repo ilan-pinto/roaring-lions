@@ -27,13 +27,14 @@
 // same number twice, and so that "can this selection unload" is answered once.
 
 import { fx, type Sim } from '@lions/sim';
+import type { KitLevel } from '@lions/data';
 import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { escapeHtml } from './escape-html';
-import { kitPipsHtml, type KitSummary } from './kit-sign';
+import { kitIconSignDecorHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
 import { flash, leave, titleCard } from './motion';
 import { LOGISTICS_GLYPH } from './glyphs';
 import { markSvg } from './mark';
@@ -221,6 +222,10 @@ export interface HudDeps {
    *  between missions, and the card must show what the sim actually applied.
    *  Only ever asked about side 0; absent in tests that do not exercise it. */
   kitOf?: (typeId: string) => KitSummary | null;
+  /** The kit level every HUD icon carries (plan 2b): main.ts's one read of
+   *  upgradePrepass.unitKit. Asked only about side 0; absent reads as 0
+   *  everywhere. */
+  kitLevelOf?: (typeId: string) => KitLevel;
   /** Narrow the selection to one chip's sub-group. */
   setSelection?: (ids: number[]) => void;
   /** Game speed as a multiplier: 0 paused, 1 normal, 2 double. The strip owns
@@ -1591,6 +1596,13 @@ export class Hud {
     return `<div class="rl-tip__head"><span class="rl-tip__name">${label}</span></div>${does}${why}`;
   }
 
+  /** The kit level `deps.kitLevelOf` reports for a type, or 0 when the dep is
+   *  absent -- the same "no dep, no change" rule every optional `HudDeps`
+   *  field follows. */
+  private kitLevel(typeId: string): KitLevel {
+    return this.deps.kitLevelOf?.(typeId) ?? 0;
+  }
+
   // ------------------------------------------------------------------
   // Multi-select: one chip per unit type.
   // ------------------------------------------------------------------
@@ -1610,6 +1622,7 @@ export class Hud {
         pinned: st.pinned[i] === 1,
         moving: st.moving[i] === 1,
         aboard: st.carriedBy[i] >= 0,
+        own: st.side[i] === 0,
         ...(type.hasAps
           ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine } }
           : {}),
@@ -1628,11 +1641,16 @@ export class Hud {
     this.cluster.innerHTML = chips
       .map((c, i) => {
         const tone = c.statusTone === null ? 'rl-dim' : textToneClass(c.statusTone);
+        const kit = c.own ? this.kitLevel(c.typeId) : 0;
         return (
           `<div class="rl-chip" data-type="${escapeHtml(c.typeId)}" ` +
           `data-tip="${escapeHtml(c.typeId)}" ` +
-          `data-focus="${i === this.chipFocus ? '1' : '0'}">` +
-          this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK) +
+          `data-focus="${i === this.chipFocus ? '1' : '0'}"` +
+          // G-P3 "Tinted border": the chip root carries the level for
+          // theme.css's per-level border tint. Absent at level 0, so an
+          // unkitted chip is byte-identical to one drawn before the kit.
+          `${kit > 0 ? ` data-kit="${kit}"` : ''}>` +
+          withKitSign(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK), kit) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
           // The name in its own span: `text-overflow`/wrapping does nothing
@@ -1794,6 +1812,10 @@ export class Hud {
       (this.deps.portrait?.(type.id) != null
         ? `<span class="rl-card__badge">${roleBadgeSvg(bucket, CARD_BADGE)}</span>`
         : '') +
+      // The frame's summary level, beside the name's three-track pips (D2).
+      // `kitPipsHtml` below already names the level to a screen reader, so
+      // this copy is decorative only -- one announcement, not two.
+      kitIconSignDecorHtml(st.side[id] === 0 ? this.kitLevel(type.id) : 0) +
       `</div>` +
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +

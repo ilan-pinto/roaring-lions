@@ -11,6 +11,7 @@
 // function is one assertion.
 
 import { TICKS_PER_SECOND, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
+import type { KitLevel } from '@lions/data';
 import { gateSentence } from '../gate-sentence';
 import { t } from '../i18n/t';
 import type { RoleBucket } from './role';
@@ -45,6 +46,8 @@ export interface DockUnit {
   tags: readonly string[];
   /** The one-line description, from the unit JSON's optional `blurb`. */
   blurb?: string;
+  /** The type's kit level this mission (plan 2b) -- main.ts's kitLevelOf, the same read the chips and the card make. Absent or 0: no sign. */
+  kit?: KitLevel;
   /** The campaign gate, structured -- the same `kdfUnlockGate(u)` `main.ts` already
    *  hands `MissionRuntime`'s own `unitInfo`. `lockLabel`/`tileState` read this
    *  directly through `gateSentence` rather than parsing the runtime's own

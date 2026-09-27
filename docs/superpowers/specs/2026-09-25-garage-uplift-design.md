@@ -1,8 +1,11 @@
 # The garage uplift — design (WP-S3g, #238)
 
 **Date:** 2026-09-25 · **Status:** approved (merged as #239); plan 1 (the app half) is built on
-`feat/garage-uplift-app`. **Builds with:** S3a #180 (the plates are re-rendered once, not twice). **Out of
-scope:** the filter bug #237, which is being fixed separately and is only noted here.
+`feat/garage-uplift-app`; plan 2 built on `feat/garage-tier-mark`, its world mark **rejected at
+G-P (2026-09-27)** and reverted; plan 2b puts the sign on the unit icons
+(`docs/superpowers/plans/2026-09-27-garage-kit-on-icons.md`). **Builds with:** S3a #180 (the plates
+are re-rendered once, not twice). **Out of scope:** the filter bug #237, which is being fixed
+separately and is only noted here.
 
 ## 1. Status and problem
 
@@ -105,6 +108,14 @@ number per type, `RendererOptions.unitKit?: Record<typeId, 0|1|2|3>`. The sim is
 bar (r+7…r+10), clear of the group badge (top-left) and veterancy (top-right) at both radii.
 Side 0 only. **The HUD card** (lane A, DOM) gains kit pips and the delta (`3750 hp · +750 kit`);
 it holds its size at every zoom, so it is the legible read at 0.35.
+
+Option A was built and rejected on sight by the lead at the picture gate (plan 2, Tasks 1–3,
+"The mark is ugly maybe it should only show on the icons"); it was reverted, and the kit now
+reads on the unit icons instead — selection chips, the HUD card, dock tiles, the garage rail —
+sized at G-N2's numbers but drawn as 1–3 steel Stars of David with a per-level chip border tint,
+the glyph the lead asked to reopen at G-P2 and approved at G-P3
+(`docs/superpowers/plans/2026-09-27-garage-kit-on-icons.md`'s G-P3 addendum). This does not
+affect option B (the kitted GLBs of plan 3, the art phase).
 
 ### 3.5 Purchase feedback
 
