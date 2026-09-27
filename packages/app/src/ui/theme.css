@@ -3878,10 +3878,10 @@ button.rl-menu__item[data-kind='aside'] {
    (2026-09-27). Absolute, so a kitted chip or card is exactly as tall as an
    unkitted one (`ui:routes` measures it).
    Sized PER SURFACE (G-N2 FINAL, the lead, 2026-09-27): "B, but 20 px on the
-   chip" -- every surface draws at the smaller `.rl-kit-icon svg` default
-   below (1rem, 16 px at scale 1, `KIT_ICON_SIGN.small`), EXCEPT the
-   selection chip, which the next rule sizes up to 1.25rem (20 px at scale 1,
-   `KIT_ICON_SIGN.chip`, R-6's own legible floor) by selector, not by a class
+   chip", then "Bigger stars" after G-P3 -- every surface draws at the
+   smaller `.rl-kit-icon svg` default below (stars 0.5rem, 8 px tall at
+   scale 1, `KIT_ICON_SIGN.small`), EXCEPT the selection chip, which the next
+   rule sizes up to 0.625rem (10 px, `KIT_ICON_SIGN.chip`) by selector, not by a class
    the markup adds: fix round 1 (review, 2026-09-27) reverted an earlier
    `rl-kit-icon--chip` modifier class that `kitIconSignHtml`/`withKitSign`
    set from a `surface` argument -- an argument a call site can simply omit,
@@ -3898,16 +3898,19 @@ button.rl-menu__item[data-kind='aside'] {
   filter: drop-shadow(0 0 1px var(--kit-edge));
 }
 .rl-kit-icon svg {
-  width: 1rem;
-  height: 1rem;
+  /* One star tall; the row's width follows from the svg's own viewBox, so a
+     level-3 sign is three stars wide and grows LEFTWARD from the corner
+     ("Bigger stars", the lead, 2026-09-27, after G-P3). */
+  width: auto;
+  height: 0.5rem;
 }
 /* The chip's own art sits immediately before its sign inside `.rl-kit-host`
    (`withKitSign`: icon, then sign, siblings, nothing between) -- so this
    adjacent-sibling selector reaches the chip's sign, and only the chip's,
    with no dependence on which JS call built the markup. */
 .rl-chip__art + .rl-kit-icon svg {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: auto;
+  height: 0.625rem;
 }
 /* The chip's and the rail's art are bare flex items: a host the size of the
    art, drawn only for a kitted icon (`withKitSign`). */

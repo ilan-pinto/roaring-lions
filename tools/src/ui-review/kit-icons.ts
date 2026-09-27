@@ -11,14 +11,17 @@
 // round on Task 3 reverted that, precisely so a call site cannot silently
 // pick the wrong size). What differs per surface is CSS alone: the chip's art
 // is followed by its sign inside `.rl-kit-host`, and `theme.css` sizes that
-// one pairing up to `KIT_ICON_SIGN.chip` (1.25rem, the lead's G-N2 FINAL "20
-// px on the chip"); the card frame, the dock tile and the garage rail all
-// draw at the base `.rl-kit-icon svg` rule, `KIT_ICON_SIGN.small` (1rem).
+// one pairing up to `KIT_ICON_SIGN.chip`; the card frame, the dock tile and
+// the garage rail all draw at the base `.rl-kit-icon svg` rule,
+// `KIT_ICON_SIGN.small`. Since the lead's "Bigger stars" (2026-09-27, after
+// G-P3) the sign is NOT square: its height is one Star of David (0.625rem on
+// the chip, 0.5rem elsewhere) and its width is `kitSignAspect(level)` times
+// that -- the row of stars grows leftward from the top-right corner.
 // Corner placement is the other per-surface fact: the card frame and the
 // dock tile are already positioned elements with their own 1px border, so
 // their sign steps in by that border plus the corner margin their own mark
 // uses (`SIGN_INSET`); the chip and the rail have no border to step past.
-import { KIT_ICON_SIGN } from '../../../packages/app/src/ui/kit-sign';
+import { KIT_ICON_SIGN, kitSignAspect } from '../../../packages/app/src/ui/kit-sign';
 
 export interface Rect {
   readonly x: number;
@@ -51,7 +54,7 @@ export const SIGN_INSET: Readonly<Record<IconRead['surface'], { rem: number; px:
   tile: { rem: 0.125, px: 1 },
 };
 
-/** The sign's own size per surface, in rem -- `KIT_ICON_SIGN.chip` on the
+/** The sign's HEIGHT per surface (one star), in rem -- `KIT_ICON_SIGN.chip` on the
  *  selection chip alone (`.rl-chip__art + .rl-kit-icon svg`), and
  *  `KIT_ICON_SIGN.small` on the card, the tile and the rail, which draw at
  *  the base `.rl-kit-icon svg` rule with no size class of their own. */
@@ -103,10 +106,12 @@ export function kitIconFailures(
       continue;
     }
 
-    const wantPx = SIGN_REM[surface] * rootPx;
-    if (!near(sign.w, wantPx) || !near(sign.h, wantPx)) {
+    const wantH = SIGN_REM[surface] * rootPx;
+    const wantW = wantH * kitSignAspect(want as 1 | 2 | 3);
+    if (!near(sign.w, wantW) || !near(sign.h, wantH)) {
       out.push(
-        `${label}: sign ${sign.w}x${sign.h} px, want ${Math.round(wantPx)} (${SIGN_REM[surface]}rem at ${rootPx} px)`
+        `${label}: sign ${sign.w}x${sign.h} px, want ${wantW.toFixed(1)}x${wantH.toFixed(1)} ` +
+          `(${want} star(s), ${SIGN_REM[surface]}rem tall at ${rootPx} px)`
       );
       continue;
     }

@@ -12,6 +12,7 @@ import {
   kitIconSignHtml,
   kitLevelLabel,
   kitPipsHtml,
+  kitSignAspect,
   kitSummary,
   starOfDavidPath,
   kitSymbolSvg,
@@ -187,13 +188,21 @@ function ruleBody(selector: string): string {
 
 /** Every star the icon sign draws, read back out of its markup -- never
  *  restated -- as vertex lists in the svg's 24-unit box, left to right. */
-function signStars(level: 1 | 2 | 3): [number, number][][] {
+function signSvg(level: 1 | 2 | 3): SVGSVGElement {
   const host = document.createElement('div');
   host.innerHTML = kitIconSignHtml(level);
   const svg = host.querySelector('svg');
   if (svg === null) throw new Error('fixture: the sign has no svg');
-  expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
-  return [...svg.querySelectorAll('path')]
+  return svg;
+}
+/** The svg's viewBox as [width, height]; it always starts at 0 0. */
+function viewBox(level: 1 | 2 | 3): [number, number] {
+  const vb = (signSvg(level).getAttribute('viewBox') ?? '').split(' ').map(Number);
+  expect(vb.slice(0, 2)).toEqual([0, 0]);
+  return [vb[2] ?? NaN, vb[3] ?? NaN];
+}
+function signStars(level: 1 | 2 | 3): [number, number][][] {
+  return [...signSvg(level).querySelectorAll('path')]
     .map((path) => {
       const d = path.getAttribute('d') ?? '';
       return [...d.matchAll(/[ML]\s*(-?[\d.]+)\s+(-?[\d.]+)/g)].map((m): [number, number] => [Number(m[1]), Number(m[2])]);
@@ -215,50 +224,48 @@ describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
     // Fix round 1 (review): the size is picked by a CSS selector, never by a
     // JS parameter -- `kitIconSignHtml`/`withKitSign` take no surface
     // argument at all, so there is nothing here for a call site to omit.
-    expect(KIT_ICON_SIGN).toEqual({ chip: { rem: 1.25, px: 20 }, small: { rem: 1, px: 16 } });
+    // "Bigger stars" (the lead, 2026-09-27, judging the G-P3 captures): each
+    // size is now ONE STAR's height -- about 10 px on the chip, 8 px on the
+    // card, the dock tile and the rail -- and the sign's width follows from
+    // the level (`kitSignAspect`), so the stylesheet sets the height only.
+    expect(KIT_ICON_SIGN).toEqual({ chip: { rem: 0.625, px: 10 }, small: { rem: 0.5, px: 8 } });
     expect(KIT_ICON_SIGN.chip.px).toBe(KIT_ICON_SIGN.chip.rem * 16);
     expect(KIT_ICON_SIGN.small.px).toBe(KIT_ICON_SIGN.small.rem * 16);
     const base = ruleBody('.rl-kit-icon svg');
-    expect(base).toMatch(new RegExp(`width:\\s*${KIT_ICON_SIGN.small.rem}rem`));
+    expect(base).toMatch(/width:\s*auto;/);
     expect(base).toMatch(new RegExp(`height:\\s*${KIT_ICON_SIGN.small.rem}rem`));
     // The chip-only size: an ancestor/sibling selector keyed on the chip's
     // own art class (hud.ts's renderChips, ~line 1611), read straight out of
     // theme.css -- not a class the JS output adds for this purpose.
     const chip = ruleBody('.rl-chip__art + .rl-kit-icon svg');
-    expect(chip).toMatch(new RegExp(`width:\\s*${KIT_ICON_SIGN.chip.rem}rem`));
+    expect(chip).toMatch(/width:\s*auto;/);
     expect(chip).toMatch(new RegExp(`height:\\s*${KIT_ICON_SIGN.chip.rem}rem`));
   });
 
-  it('draws a star at least 7 px tall on the chip at the smallest UI scale, three of them fitting the box a clear gap apart (G-P3)', () => {
-    // G-P3 (the lead, 2026-09-27): "Steel Stars of David" -- the level is a
-    // COUNT of stars, one size at every level so the count is what reads.
-    // Three in a row must fit the sign's own square box (ui:routes' K legs
-    // measure that box and are unchanged), so a star is sized by its height,
-    // tip to tip: a point-up hexagram is only sqrt(3)/2 as wide as it is tall.
-    const chip = KIT_ICON_SIGN.chip.px / 24; // --ui-scale 1: the smallest the sign is ever drawn
+  it('draws every star the sign’s full height -- 10 px on the chip, 8 px elsewhere -- a clear gap apart, in a row as wide as the level asks', () => {
+    // "Bigger stars": one star per level, all the same size so the COUNT is
+    // what reads, the row growing leftward from the top-right corner.
     for (const level of [1, 2, 3] as const) {
+      const [vbW, vbH] = viewBox(level);
+      expect(vbW / vbH, `L${level}: aspect`).toBeCloseTo(kitSignAspect(level), 3);
       const stars = signStars(level);
       for (const s of stars) {
         const [y0, y1] = extent(s, 1);
         const [x0, x1] = extent(s, 0);
-        expect((y1 - y0) * chip, `L${level}: star height`).toBeGreaterThanOrEqual(7);
-        expect(x0, `L${level}: inside the box`).toBeGreaterThanOrEqual(0);
-        expect(x1).toBeLessThanOrEqual(24);
-        expect(y0).toBeGreaterThanOrEqual(0);
+        expect(((y1 - y0) / vbH) * KIT_ICON_SIGN.chip.px, `L${level}: chip star height`).toBeCloseTo(10, 2);
+        expect(((y1 - y0) / vbH) * KIT_ICON_SIGN.small.px, `L${level}: small star height`).toBeCloseTo(8, 2);
+        expect(x0, `L${level}: inside the box`).toBeGreaterThanOrEqual(-1e-3);
+        expect(x1).toBeLessThanOrEqual(vbW + 1e-3);
       }
       for (let i = 1; i < stars.length; i++) {
         const gap = extent(stars[i], 0)[0] - extent(stars[i - 1], 0)[1];
-        expect(gap * chip, `L${level}: gap ${i}`).toBeGreaterThanOrEqual(0.8);
+        expect((gap / vbH) * KIT_ICON_SIGN.chip.px, `L${level}: gap ${i}`).toBeGreaterThanOrEqual(0.8);
       }
     }
-  });
-
-  it('records the smaller star every other surface draws, at the size the lead kept there (G-N2 FINAL)', () => {
-    // The card frame, the dock tile and the garage rail draw at 16 px
-    // ('small'). The 7 px floor is the chip's; this records the number.
-    const small = KIT_ICON_SIGN.small.px / 24;
-    const [y0, y1] = extent(signStars(1)[0], 1);
-    expect((y1 - y0) * small).toBeCloseTo(5.65, 2);
+    // Three stars on the chip: about 30 px (27.65), one star 8.66 px wide.
+    expect(kitSignAspect(1) * KIT_ICON_SIGN.chip.px).toBeCloseTo(8.66, 2);
+    expect(kitSignAspect(3) * KIT_ICON_SIGN.chip.px).toBeCloseTo(27.65, 2);
+    expect(kitSignAspect(3) * KIT_ICON_SIGN.small.px).toBeCloseTo(22.12, 2);
   });
 
   it('draws each star as a closed six-pointed figure: twelve vertices, alternating tip and notch', () => {
@@ -277,16 +284,22 @@ describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
     for (const level of [1, 2, 3] as const) {
       const stars = signStars(level);
       expect(stars, `L${level}`).toHaveLength(level);
-      expect(extent(stars[stars.length - 1], 0)[1], `L${level}: flush with the right edge`).toBeCloseTo(24, 6);
+      expect(extent(stars[stars.length - 1], 0)[1], `L${level}: flush with the right edge`).toBeCloseTo(viewBox(level)[0], 2);
       const html = kitIconSignHtml(level);
       expect(html).toContain('currentColor');
       expect(html).not.toMatch(/#[0-9a-fA-F]{3}/);
       expect(html).not.toContain('var(--');
     }
-    // Every level's rightmost star sits in the same place: the corner holds still as the count grows.
-    const right = ([1, 2, 3] as const).map((l) => extent(signStars(l).at(-1) ?? [], 0));
-    expect(right[1]).toEqual(right[0]);
-    expect(right[2]).toEqual(right[0]);
+    // Every level's corner star sits the same distance from the right edge:
+    // anchored top-right, the corner holds still and the row grows leftward.
+    const fromRight = ([1, 2, 3] as const).map((l) => {
+      const [x0, x1] = extent(signStars(l).at(-1) ?? [], 0);
+      return [viewBox(l)[0] - x1, viewBox(l)[0] - x0];
+    });
+    expect(fromRight[1][0]).toBeCloseTo(fromRight[0][0], 2);
+    expect(fromRight[1][1]).toBeCloseTo(fromRight[0][1], 2);
+    expect(fromRight[2][0]).toBeCloseTo(fromRight[0][0], 2);
+    expect(fromRight[2][1]).toBeCloseTo(fromRight[0][1], 2);
   });
 
   it('draws nothing at level 0, and leaves an unkitted icon byte-identical', () => {
@@ -304,7 +317,7 @@ describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
       expect(sign?.getAttribute('role')).toBe('img');
       expect(sign?.getAttribute('aria-label')).toBe(kitLevelLabel(level));
       const svg = sign?.querySelector('svg');
-      expect(svg?.getAttribute('width')).toBe(String(KIT_ICON_SIGN.small.px));
+      expect(Number(svg?.getAttribute('width'))).toBeCloseTo(KIT_ICON_SIGN.small.px * kitSignAspect(level), 2);
       expect(svg?.getAttribute('height')).toBe(String(KIT_ICON_SIGN.small.px));
       expect(svg?.getAttribute('aria-hidden')).toBe('true');
       expect(sign?.querySelectorAll('path')).toHaveLength(level);

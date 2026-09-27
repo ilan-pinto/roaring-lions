@@ -71,21 +71,22 @@ export function kitSymbolSvg(id: KitSymbolId, size: number, level: 1 | 2 | 3 = 1
   );
 }
 
-/** G-N2 (plan 2b): the two sizes the kit sign draws at, as DATA only -- which
- *  one a given icon gets is decided by `theme.css`'s selectors, never by a
- *  parameter here (see `kitIconSignHtml`). `px` is each size at `--ui-scale`
- *  1, written into the svg's own attributes as a floor; the stylesheet's rem
- *  rule wins, so the sign follows the UI scale. The G-N2 recommendation was
- *  one size everywhere -- 1.25rem, the smallest at which the (then) mark's
- *  level-1 bar cleared its plate by a whole pixel (R-6). The lead's G-N2
- *  FINAL answer split it instead: *"B, but 20 px on the chip"* -- the
- *  selection chip alone keeps 1.25rem/20 px (`chip`); the card frame, the
- *  dock tile and the garage rail take the smaller 1rem/16 px (`small`).
- *  Since G-P3 the sign is stars, and these are the SIGN BOX: three stars fill
- *  its width, each 7.06 px tall on the chip and 5.65 px on `small`. */
+/** The two sizes the kit sign draws at, as DATA only -- which one a given
+ *  icon gets is decided by `theme.css`'s selectors, never by a parameter here
+ *  (see `kitIconSignHtml`). Each is the height of ONE STAR, tip to tip, in
+ *  rem and in px at `--ui-scale` 1 (the px is written into the svg's own
+ *  attributes as a floor; the stylesheet's rem rule wins, so the sign follows
+ *  the UI scale). History: G-N2 FINAL (*"B, but 20 px on the chip"*) sized a
+ *  square plate-and-bars mark, 20 px on the chip and 16 px elsewhere; G-P3
+ *  made it stars inside that square (7.06 / 5.65 px each); the lead then
+ *  judged those captures and asked for *"Bigger stars"* (2026-09-27) -- about
+ *  10 px on the chip and 8 px on the card, the dock tile and the garage rail,
+ *  the row growing LEFTWARD along the icon's top edge from the top-right
+ *  corner. So the sign box is no longer square: its height is one star and
+ *  its width is `kitSignAspect(level)` times that. */
 export const KIT_ICON_SIGN = {
-  chip: { rem: 1.25, px: 20 },
-  small: { rem: 1, px: 16 },
+  chip: { rem: 0.625, px: 10 },
+  small: { rem: 0.5, px: 8 },
 } as const;
 
 /** A Star of David, point up: the hexagram's twelve-vertex outline (tip,
@@ -106,25 +107,36 @@ export function starOfDavidPath(cx: number, cy: number, r: number): string {
   return `M${pts.join(' L')} Z`;
 }
 
-/** The kit sign's stars in the svg's 24-unit box (G-P3): three in a row
- *  exactly fill its width, `GAP` apart, so every level draws the same size of
- *  star and the COUNT is what reads. A point-up hexagram is sqrt(3)/2 as wide
- *  as it is tall, which is what lets three of them stand 7 px tall inside the
- *  chip's 20 px square (`kit-sign.test.ts` pins the floor). */
-const STAR_GAP = 1;
-const STAR_W = (24 - 2 * STAR_GAP) / 3;
-const STAR_R = STAR_W / Math.sqrt(3);
+/** The sign's stars in svg units: one star is `STAR_H` tall (a unit is a
+ *  pixel on the chip at scale 1), `STAR_W` wide -- a point-up hexagram is
+ *  sqrt(3)/2 as wide as it is tall -- and `STAR_GAP` apart, the 0.83 px gap
+ *  the G-P3 captures had on the chip. */
+const STAR_H = 10;
+const STAR_R = STAR_H / 2;
+const STAR_W = STAR_R * Math.sqrt(3);
+const STAR_GAP = 5 / 6;
 
-/** `level` steel Stars of David in a row along the top of a square svg,
- *  right-aligned so the corner star holds still as the count grows. */
-function kitStarsSvg(level: 1 | 2 | 3, size: number): string {
+/** The sign's width over its height at `level`: `level` stars and the gaps
+ *  between them, over one star's height. `theme.css` sets only the height;
+ *  the svg's viewBox carries this ratio, and the K1 verdict reads it. */
+export function kitSignAspect(level: 1 | 2 | 3): number {
+  return (level * STAR_W + (level - 1) * STAR_GAP) / STAR_H;
+}
+
+/** `level` steel Stars of David in a row, the svg exactly as wide as the row
+ *  and one star tall. Anchored top-right by `.rl-kit-icon`, so the corner
+ *  star holds still and the row grows leftward as the count grows. */
+function kitStarsSvg(level: 1 | 2 | 3, heightPx: number): string {
+  const w = level * STAR_W + (level - 1) * STAR_GAP;
+  const n = (v: number): string => String(Math.round(v * 1000) / 1000);
   let body = '';
   for (let i = 0; i < level; i++) {
-    const cx = 24 - STAR_W / 2 - i * (STAR_W + STAR_GAP);
+    const cx = w - STAR_W / 2 - i * (STAR_W + STAR_GAP);
     body += `<path d="${starOfDavidPath(cx, STAR_R, STAR_R)}" fill="currentColor"/>`;
   }
   return (
-    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" ` + `aria-hidden="true" focusable="false">${body}</svg>`
+    `<svg width="${n(heightPx * kitSignAspect(level))}" height="${heightPx}" viewBox="0 0 ${n(w)} ${STAR_H}" ` +
+    `aria-hidden="true" focusable="false">${body}</svg>`
   );
 }
 
