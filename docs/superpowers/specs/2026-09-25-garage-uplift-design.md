@@ -112,8 +112,10 @@ it holds its size at every zoom, so it is the legible read at 0.35.
 Option A was built and rejected on sight by the lead at the picture gate (plan 2, Tasks 1–3,
 "The mark is ugly maybe it should only show on the icons"); it was reverted, and the kit now
 reads on the unit icons instead — selection chips, the HUD card, dock tiles, the garage rail —
-at the numbers the lead approved at G-N2 (`docs/superpowers/plans/2026-09-27-garage-kit-on-icons.md`'s
-table). This does not affect option B (the kitted GLBs of plan 3, the art phase).
+sized at G-N2's numbers but drawn as 1–3 steel Stars of David with a per-level chip border tint,
+the glyph the lead asked to reopen at G-P2 and approved at G-P3
+(`docs/superpowers/plans/2026-09-27-garage-kit-on-icons.md`'s G-P3 addendum). This does not
+affect option B (the kitted GLBs of plan 3, the art phase).
 
 ### 3.5 Purchase feedback
 

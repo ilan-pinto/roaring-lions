@@ -133,6 +133,50 @@ unchanged from the recommendation.
 
 ---
 
+## G-P3: Steel Stars of David (I1 and I6 above superseded)
+
+G-N2 approved a glyph and a colour: `kitSymbolSvg('kit', …, L)` — the garage
+bay's own bevelled plate with L bars — in `--kit` steel, no box, a
+`--kit-edge` halo. After Task 7's `ui:shots` captures went to the lead at
+G-P2, the lead asked to reopen the glyph itself: *"what about using the Stars
+(maybe Golden David Stars) design in Meshy + changing the chip color for
+upgraded units?"* That is a redesign of I1 and a new ask (a chip tint), not
+what G-N2 approved, so it reopened as **G-P3** rather than landing on the
+G-P2 nod.
+
+**G-P3 decisions, the lead, 2026-09-27, quoted verbatim in order:**
+1. *"Steel Stars of David"* — the icon sign becomes 1–3 six-pointed Stars of
+   David, one per kit level, drawn **steel** (`--kit`/`--kit-edge`, the same
+   tokens I6 set), never gold — gold stays veterancy's stars and the credits
+   readout (D3). Only the icon sign's glyph changes; the garage bay keeps its
+   own plate-and-bars mark (`kitSymbolSvg('kit', …)`) unchanged.
+2. *"Tinted border"* — a kitted chip's own border also carries the level, a
+   `color-mix(in srgb, var(--kit) …%, var(--kit-edge))` border-colour rule
+   keyed on `data-kit`, stronger at each step (40% / 70% / 100%). Nothing
+   else about the chip changes: not its fill, not its size.
+3. *"SVG now"* — the stars are hand-drawn SVG paths (`starOfDavidPath`),
+   not a Meshy render: a 3D medal downsampled to a 16–20 px flat glyph
+   blurs, an SVG stays crisp at any `--ui-scale`, and Meshy credits are the
+   October budget's anyway. A Meshy medal look stays open to revisit once
+   those credits land.
+4. *"Bigger stars"* (recommended, after judging the first stars capture) —
+   each star drawn its own full sign height rather than shrunk to fit inside
+   G-N2's square box: **10 px tall on the chip, 8 px on the card frame, the
+   dock tile and the garage rail**, at `--ui-scale` 1. The row grows
+   **leftward from the top-right corner** as the level rises — the corner
+   star holds still and the sign's width follows the count
+   (`kitSignAspect(level)`) rather than staying a fixed square. `KIT_ICON_SIGN`
+   carries the two heights only; the width is derived, never a third stored
+   number.
+5. *"Approve"* — on the re-shot captures at the bigger size, closing G-P3.
+
+I2–I5, I7–I12 above are unchanged: surfaces, corner, insets, sizing method
+(now heights, not a square edge) and who gets the sign all still read as
+G-N2 recorded them. Only the glyph (I1) and the colour row (I6, which gains
+the border tint alongside the unchanged halo) move under G-P3.
+
+---
+
 ## File structure
 
 | File | Responsibility | Task | Est. lines |

@@ -581,6 +581,10 @@ yours; each one records what the next phase inherits.
   card, dock tiles, the garage rail — through `kitIconSignHtml`, fed by
   `upgradePrepass.unitKit`. The sign is DOM, not canvas, so both backends draw
   it identically. Do not reintroduce a world overlay for kit without the lead.
+  The glyph on those icons is not the garage bay's own plate-with-bars mark —
+  the lead reopened it at G-P2 and settled on 1–3 steel Stars of David with a
+  per-level chip border tint (G-P3, `docs/superpowers/plans/2026-09-27-garage-kit-on-icons.md`),
+  drawn as SVG rather than a Meshy render so it stays crisp at 8–10 px.
 - **`three` may only be imported under `packages/render/src/three/**`**, enforced
   by eslint. Note the rule's `paths` entry does NOT catch subpath imports like
   `three/addons/loaders/GLTFLoader.js` — keep those inside by discipline.
