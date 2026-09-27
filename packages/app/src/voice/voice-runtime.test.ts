@@ -100,6 +100,20 @@ describe('VoiceRuntime (WP-AU1 §7, R-3)', () => {
     expect(r.rt.log().map((e) => e.status)).toEqual(['missing', 'missing', 'missing']);
   });
 
+  it('a noted set shared by two runtimes notes a key once per document, not once per battlefield', () => {
+    const noted = new Set<string>();
+    const first = rig({ noted });
+    first.rt.observe(order(1));
+    first.flush();
+    first.rt.dispose(); // the player leaves; a second battlefield boots
+    const second = rig({ noted });
+    second.rt.observe(order(1));
+    second.flush();
+    expect(first.infos).toHaveLength(1);
+    expect(second.infos).toEqual([]);
+    expect(second.rt.log().map((e) => e.status)).toEqual(['missing']);
+  });
+
   it('captions a played line with its meaning and length, and nothing else (D8)', () => {
     const r = rig();
     r.setResult({ status: 'played', seconds: 1.2, en: 'moving', cut: 0 });

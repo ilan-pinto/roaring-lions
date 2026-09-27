@@ -817,4 +817,28 @@ describe('voice decoding -- carried from Task 4 (R-9)', () => {
       error.mockRestore();
     }
   });
+
+  it('a dev build notes a thrown pass without asking for the tick', async () => {
+    stubFetch();
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const flaky: VoiceManifest = {};
+      Object.defineProperty(flaky, 'lines', {
+        get: () => {
+          throw new Error('a pass that throws');
+        },
+      });
+      const { audio } = attachedWith((a) => {
+        a.useManifest({ ...MANIFEST, voices: flaky }, '/a/');
+        a.setDev(true); // the app's own build flag; no `?voicetick`
+        a.setVoiceLanguages(['he']);
+      });
+      await audio.decoded();
+      expect(audio.voiceStats().placeholder).toBe(false);
+      expect(info).toHaveBeenCalledTimes(1);
+      expect(String(info.mock.calls[0]?.[0])).toMatch(/^\[voice\]/);
+    } finally {
+      info.mockRestore();
+    }
+  });
 });

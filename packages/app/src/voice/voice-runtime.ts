@@ -59,6 +59,10 @@ export interface VoiceRuntimeDeps {
   caption(text: string, seconds: number): void;
   /** `console.info` in a dev build, a no-op in production. */
   info(message: string): void;
+  /** The keys already noted as missing. The app passes ONE set for the whole
+   *  document, so a second battlefield boot does not note a key again; left
+   *  out, the runtime keeps its own. */
+  noted?: Set<string>;
 }
 
 /** One voiced decision, silent ones included. `status` is the mixer's answer,
@@ -83,10 +87,11 @@ export class VoiceRuntime {
   private scheduled = false;
   private disposed = false;
   private readonly entries: VoiceLogEntry[] = [];
-  private readonly noted = new Set<string>();
+  private readonly noted: Set<string>;
 
   constructor(deps: VoiceRuntimeDeps) {
     this.deps = deps;
+    this.noted = deps.noted ?? new Set<string>();
   }
 
   /** The pointing site's hint for the gesture it is about to dispatch. */

@@ -416,6 +416,8 @@ export class BattleAudio {
    *  a 404 or an undecodable file does not change while the page is open. */
   private readonly voiceFailed = new Set<string>();
   private voicePlaceholder = false;
+  /** The app's own build flag (`import.meta.env.DEV`), set by `setDev`. */
+  private dev = false;
   /** The manifest's line gain, under the Voices slider (N11). */
   private voiceGain = 1;
   /** Lines sounding now, oldest first (N5). */
@@ -619,11 +621,11 @@ export class BattleAudio {
 
   /**
    * A thrown pass is information, not a fault (R-9): one `console.info` per
-   * instance, and only in a dev session -- which, inside the mixer, is the
-   * placeholder switch, the one flag only a dev build can turn on (R-10).
+   * instance, and only in a dev session -- a dev build (`setDev`), or the
+   * placeholder switch, which only a dev build can turn on (R-10).
    */
   private notePassThrown(): void {
-    if (!this.voicePlaceholder || this.voicePassNoted) return;
+    if (!(this.dev || this.voicePlaceholder) || this.voicePassNoted) return;
     this.voicePassNoted = true;
     console.info('[voice] a decode pass stopped early; the lines it did not reach play nothing until the next pass');
   }
@@ -731,6 +733,12 @@ export class BattleAudio {
       placeholder: this.voicePlaceholder,
       active: this.activeVoices.length,
     };
+  }
+
+  /** Whether this is a dev build: the app passes `import.meta.env.DEV`, which
+   *  the render package cannot read for itself. Only the dev notes read it. */
+  setDev(on: boolean): void {
+    this.dev = on;
   }
 
   /** The dev placeholder tick (R-10): a line with no take plays a tick instead. */
