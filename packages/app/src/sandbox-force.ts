@@ -143,7 +143,7 @@ export function sandboxUnitTypes(extras: SandboxExtras): Set<string> {
 
 /** `&kit` (sandbox only, WP-S3g plan 2b): a fixed kit level per type the
  *  sandbox force fields, so one selection shows all three levels on the unit
- *  icons at once (N12). The dock never shows it: the dock is mission-only,
+ *  icons at once. The dock never shows it: the dock is mission-only,
  *  and `&kit` never reaches a mission. */
 export const SANDBOX_KIT_LEVELS: Readonly<Record<string, 1 | 2 | 3>> = {
   inf_squad: 1,
@@ -160,7 +160,7 @@ export const SANDBOX_KIT_LEVELS: Readonly<Record<string, 1 | 2 | 3>> = {
 
 /** Every track of a laddered type at its level, clamped to the track's length.
  *  Uniform tiers read back as exactly that level for three-tier tracks, which
- *  every shipped KDF track is -- the test above holds it to that. */
+ *  every shipped KDF track is -- `sandbox-force.test.ts` holds it to that. */
 export function sandboxKitTiers(roster: readonly UpgradableUnit[]): Record<string, Record<string, number>> {
   const out: Record<string, Record<string, number>> = {};
   for (const u of roster) {
@@ -174,7 +174,7 @@ export function sandboxKitTiers(roster: readonly UpgradableUnit[]): Record<strin
 }
 
 /** The tiers a battlefield boots with -- handed to the ONE `upgradePrepass`
- *  call, so the sim, the HUD card and the mark always read the same object.
+ *  call, so the sim, the HUD card and the unit icons always read the same object.
  *  The account's, except a sandbox under `&kit`, which REPLACES it with the
  *  ladder (the gate boots a fresh account anyway, and a mixed state would be a
  *  picture nobody can reproduce). A mission never takes the ladder: a dev flag

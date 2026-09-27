@@ -187,7 +187,8 @@ function ruleBody(selector: string): string {
 }
 
 /** Every star the icon sign draws, read back out of its markup -- never
- *  restated -- as vertex lists in the svg's 24-unit box, left to right. */
+ *  restated -- as vertex lists in the svg's own viewBox (`0 0 w STAR_H`,
+ *  `w` following the level), left to right. */
 function signSvg(level: 1 | 2 | 3): SVGSVGElement {
   const host = document.createElement('div');
   host.innerHTML = kitIconSignHtml(level);
@@ -220,7 +221,7 @@ describe('the kit sign on a unit icon (plan 2b, G-N2)', () => {
   it('is the approved sizes, and the stylesheet draws the chip and everything else at exactly those sizes', () => {
     // G-N2 FINAL, the lead, 2026-09-27: "B, but 20 px on the chip." The
     // plan's original single 1.25rem (G-N2's recommendation, R-6) survives
-    // only on the chip; every other surface takes the smaller 1rem ('small').
+    // only on the chip; every other surface takes the smaller 0.5rem ('small').
     // Fix round 1 (review): the size is picked by a CSS selector, never by a
     // JS parameter -- `kitIconSignHtml`/`withKitSign` take no surface
     // argument at all, so there is nothing here for a call site to omit.
