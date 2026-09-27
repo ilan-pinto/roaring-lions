@@ -272,7 +272,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
   );
 
   section(table, t('settings.audio'));
-  const live = (k: 'master' | 'music' | 'sfx') => (v: number): void => {
+  const live = (k: 'master' | 'music' | 'sfx' | 'voice') => (v: number): void => {
     const g: AudioGains = { ...deps.get().audio, [k]: v };
     deps.audio?.setGains(g);
   };
@@ -280,6 +280,7 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
     ['master', t('settings.audio.master')],
     ['music', t('settings.audio.music')],
     ['sfx', t('settings.audio.sfx')],
+    ['voice', t('settings.audio.voice')],
   ] as const) {
     row(
       table,
@@ -329,6 +330,16 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
         })
     ),
     t('settings.colorVision.hint')
+  );
+  row(
+    table,
+    t('settings.captions'),
+    checkbox('captions', s.accessibility.captions, (v) =>
+      update((n) => {
+        n.accessibility.captions = v;
+      })
+    ),
+    t('settings.captions.hint')
   );
 
   if (deps.keymap) {

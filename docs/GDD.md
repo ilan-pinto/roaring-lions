@@ -51,6 +51,8 @@ and the geography sets the order of the war: **proximity, then standoff, then so
   Marj's tunnels and Sur's rocket stocks running through it. Last, because cutting
   supply is only decisive once the fronts it feeds are contained.
 
+**Voice.** KDF units speak Hebrew; units of the three enemy doctrines speak Arabic, in a standard military register with no regional dialect. Neither side speaks a religious phrase, a slogan or a real call sign. Language is the one real-world marker the game admits, and it admits it symmetrically; faith and ethnicity stay excluded.
+
 Every region is defined by terrain and doctrine, never by a people — see `CONTRIBUTING.md`.
 
 ---
