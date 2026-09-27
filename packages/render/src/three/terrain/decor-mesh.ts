@@ -11,6 +11,49 @@ import * as THREE from 'three';
 import { rampMaterial } from '../world-materials';
 import { rampForDecorRole, type DecorMeshRole } from './decor-role';
 import type { DecorPlacement } from './decor-place';
+import { swayVertexChunk } from './sway';
+
+/**
+ * The two uniforms every swaying foliage material shares BY REFERENCE:
+ * `ThreeRenderer` owns one of these and writes `time` once a frame (sim time,
+ * `sway.ts`'s top comment) and `amp` only from the `wind` debug layer, and
+ * every rebuild's foliage batch reads the same two objects -- so a rebuild
+ * never needs to be told the clock.
+ */
+export interface SwayUniforms {
+  readonly time: { value: number };
+  readonly amp: { value: number };
+}
+
+const SWAY_ANCHOR = '#include <project_vertex>';
+
+/**
+ * `rampMaterial(ramp)`, plus the crown sway spliced after
+ * `#include <project_vertex>` (`sway.ts`'s `swayVertexChunk` says why there).
+ * Throws at compile when three's vertex shader no longer carries that chunk:
+ * a splice that silently matched nothing would ship trees that stand still
+ * and a `wind` check that fails for no visible reason.
+ */
+export function swayingFoliageMaterial(
+  ramp: readonly string[],
+  sway: SwayUniforms
+): THREE.MeshStandardMaterial {
+  const material = rampMaterial(ramp);
+  material.onBeforeCompile = (shader) => {
+    if (!shader.vertexShader.includes(SWAY_ANCHOR)) {
+      throw new Error(
+        `swayingFoliageMaterial: the vertex shader has no "${SWAY_ANCHOR}" to splice the sway after`
+      );
+    }
+    shader.uniforms.uSwayTime = sway.time;
+    shader.uniforms.uSwayAmp = sway.amp;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uSwayTime;\nuniform float uSwayAmp;')
+      .replace(SWAY_ANCHOR, `${SWAY_ANCHOR}\n${swayVertexChunk()}`);
+  };
+  material.customProgramCacheKey = () => 'rl-foliage-sway';
+  return material;
+}
 
 /** Keyed `${family}_${variant}`, each a role-tagged geometry list. */
 export interface DecorGeometrySet {
@@ -59,9 +102,15 @@ export function stripToBatchAttributes(geometry: THREE.BufferGeometry): THREE.Bu
 
 const TAU = Math.PI * 2;
 
+/**
+ * `sway`, when given, makes the `foliage` batch sway (`swayingFoliageMaterial`);
+ * every other role keeps the plain ramp material. Each batch is named
+ * `decor-<role>`.
+ */
 export function buildDecorMesh(
   placements: readonly DecorPlacement[],
-  set: DecorGeometrySet
+  set: DecorGeometrySet,
+  sway?: SwayUniforms
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'decor';
@@ -136,12 +185,14 @@ export function buildDecorMesh(
   // exhausted.
   for (const [role, acc] of byRole) {
     const maxInstances = live.length * acc.maxPartsPerKey;
+    const ramp = rampForDecorRole(role);
     const mesh = new THREE.BatchedMesh(
       maxInstances,
       acc.verts,
       acc.idx,
-      rampMaterial(rampForDecorRole(role))
+      role === 'foliage' && sway !== undefined ? swayingFoliageMaterial(ramp, sway) : rampMaterial(ramp)
     );
+    mesh.name = `decor-${role}`;
     // Both, for every role. A boulder casts onto the ground it sits on and
     // takes a building's shadow across it; foliage is no different -- a tree
     // that took no shadow would be the one object on the map lit from

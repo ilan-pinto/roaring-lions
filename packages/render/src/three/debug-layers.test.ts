@@ -76,7 +76,7 @@ function makeRenderer(): ThreeRenderer {
 function internals(r: ThreeRenderer): {
   scatterMesh: THREE.Mesh | null;
   terrainMesh: THREE.Mesh | null;
-  groveMesh: THREE.Mesh | null;
+  sway: { time: { value: number }; amp: { value: number } };
   residualMesh: THREE.Mesh | null;
   decorGroup: THREE.Object3D | null;
   texturedDecorGroup: THREE.Object3D | null;
@@ -274,6 +274,41 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
+  it('drives the crown sway amplitude to 0 and back, and only it (ground plan 2, Task 7)', () => {
+    expect(isDebugLayer('wind')).toBe(true);
+    const r = makeRenderer();
+    const i = internals(r);
+    expect(i.sway.amp.value).toBe(1);
+    expect(r.setDebugLayerVisible('wind', false)).toBe(1);
+    expect(i.sway.amp.value).toBe(0);
+    // Hidden twice changes nothing and says so.
+    expect(r.setDebugLayerVisible('wind', false)).toBe(0);
+    // The frame writes the clock, never the amplitude: a repaint cannot undo it.
+    r.frame(1, 0);
+    expect(i.sway.amp.value).toBe(0);
+    expect(r.setDebugLayerVisible('wind', true)).toBe(1);
+    expect(i.sway.amp.value).toBe(1);
+    r.dispose();
+  });
+
+  it('sways on SIM time: a zero-time repaint moves nothing, and a tick does', () => {
+    const sim = new Sim({ seed: 1, width: 4, height: 4, capacity: 1 });
+    const r = new ThreeRenderer(sim, makeOpts());
+    const i = internals(r);
+    for (let k = 0; k < 10; k++) sim.tick();
+    r.frame(1, 16);
+    const at = i.sway.time.value;
+    expect(at).toBeCloseTo((10 - 1 + 1) * 0.05, 12);
+    // Wall-clock passing without a tick must not move the crowns.
+    r.frame(1, 5000);
+    r.frame(1, 0);
+    expect(i.sway.time.value).toBe(at);
+    sim.tick();
+    r.frame(1, 16);
+    expect(i.sway.time.value).toBeCloseTo(at + 0.05, 12);
+    r.dispose();
+  });
+
   it('documents props in the layer list, one entry saying what it hides and that decor does not', () => {
     // The doc block above `DEBUG_LAYERS` is the list a harness author reads;
     // a name there with no entry is a layer nobody can reason about.
@@ -388,9 +423,8 @@ describe('DEBUG_LAYERS', () => {
     // comment -- receiving is universal (every terrain layer is ground or
     // lies on it and must darken under a building or a tank), casting is
     // not. Nothing pinned it, so a stray `castShadow = true` on the ground
-    // heightfield (acne along every slope) or a lost `false` on the grove
-    // canopy (a flat card edge-on to the sun casting a sliver) would only
-    // show up as a re-blessed golden baseline.
+    // heightfield (acne along every slope) would only show up as a
+    // re-blessed golden baseline.
     const sim = new Sim({ seed: 1, width: 4, height: 4, capacity: 1 });
     const hut = sim.addStructureType({ id: 'hut', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
     sim.addStructure(hut, [5]);
@@ -402,7 +436,6 @@ describe('DEBUG_LAYERS', () => {
       ['ground', i.terrainMesh],
       ['scatter', i.scatterMesh],
       ['residual', i.residualMesh],
-      ['grove', i.groveMesh],
     ] as const) {
       expect(mesh, `${name} mesh was not built`).not.toBeNull();
       expect(mesh!.receiveShadow, `${name} must receive`).toBe(true);

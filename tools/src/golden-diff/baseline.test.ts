@@ -741,8 +741,12 @@ describe('BASELINES layerChecks', () => {
         macro: { px: 6, mean: 0.4798 },
         // Ground plan 2, Task 5, 2026-09-27: the prop batch, 3 runs,
         // bit-identical; 18 props in frame. Re-measured 2026-09-28 after
-        // density 0.75 and the lighter tyre (the lead's answers).
-        props: { px: 2302, mean: 0.14 },
+        // density 0.75 and the lighter tyre (the lead's answers), and again
+        // after the gunmetal rubber (Task 7, carried item).
+        props: { px: 2302, mean: 0.1397 },
+        // Ground plan 2, Task 7, 2026-09-28: `uSwayAmp` to 0 at tick 200,
+        // 3 runs, bit-identical.
+        wind: { px: 1218, mean: 0.0853 },
       },
       'open-ground': {
         scatter: { px: 3615, mean: 1.6088 },

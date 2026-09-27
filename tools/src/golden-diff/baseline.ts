@@ -485,6 +485,23 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'tones; their mean moves from RGB 6.8/6.1/4.2 to 9.3/9.1/6.8 through ACES.',
       },
       {
+        layer: 'wind',
+        minDiffPixels: 406,
+        minMeanAbsChannelDelta: 0.0284,
+        rationale:
+          'measured 2026-09-28 on ground plan 2, Task 7 (the crowns sway on sim time, `terrain/sway.ts`), ' +
+          '3 consecutive runs (`--scenario=quiet`, `t7-r{1,2,3}`) on macOS / M3 Pro, headless Chromium, ' +
+          'software SwiftShader, frame loop frozen; bit-identical across the three (the three captures ' +
+          'are byte-equal files), repaint control 0 px / 0.0000. Hiding `wind` drives `uSwayAmp` to 0, ' +
+          'so every foliage vertex stands at rest at the SAME tick: 1218 px / 0.0853 each run, the olive ' +
+          'crowns in the frame changing from edge to edge (the crown is faceted, so a lean of up to ~2 px ' +
+          'reshades its whole face, not just its rim); trunks and cast shadows do not move. Floors are a ' +
+          'third of the smallest reading, rounded down: 406 / 0.0284. It repeats because the sway clock ' +
+          'is `presentationSimMs(tickCount, alpha)`, not accumulated frame time: tick 200 is t = 10.0 s ' +
+          'on every run. Falsified by initialising `uSwayAmp` to 0 in `ThreeRenderer` (the crowns never ' +
+          'sway): 0 px / 0.0000, FAIL.',
+      },
+      {
         layer: 'ground-albedo',
         minDiffPixels: 0,
         minMeanAbsChannelDelta: 0.34,

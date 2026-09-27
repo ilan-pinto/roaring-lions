@@ -31,7 +31,9 @@
  * three-free. `prop-place.ts` (ground plan 2, Task 4) is exported for the
  * same reason `decor-place.ts` is -- pure and three-free -- and
  * `prop-mesh.ts`, its `three`-importing sibling, is excluded for the same
- * reason `mesh.ts`/`decor-mesh.ts` are.
+ * reason `mesh.ts`/`decor-mesh.ts` are. `sway.ts` (Task 7) is exported for
+ * the same reason again: the crown-sway maths and the GLSL string it builds
+ * are pure and three-free; `decor-mesh.ts` is what splices it into a material.
  *
  * `types.ts`'s `MeshData`/`TerrainInput` are re-exported redundantly by
  * `ground.ts` and `scatter.ts` as well (each states `export type { MeshData,
@@ -72,3 +74,4 @@ export * from './decor-role';
 export * from './decor-place';
 export * from './prop-role';
 export * from './prop-place';
+export * from './sway';

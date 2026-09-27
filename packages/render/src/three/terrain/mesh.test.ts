@@ -22,7 +22,6 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
   GroundMaterial,
-  GroveMaterial,
   vertexColorMaterial,
   toGeometry,
   GROUND_ALBEDOS,
@@ -359,22 +358,6 @@ describe('GroundMaterial', () => {
       shader.fragmentShader.indexOf('diffuseColor.rgb *= rlAlbedo * rlMacro;')
     );
     expect(m.customProgramCacheKey()).toBe('rl-ground');
-  });
-});
-
-describe('GroveMaterial', () => {
-  it('injects the wind offset into the vertex shader and exposes uTime', () => {
-    const m = new GroveMaterial();
-    const shader = {
-      uniforms: {} as Record<string, THREE.IUniform>,
-      vertexShader: THREE.ShaderChunk.meshphysical_vert,
-      fragmentShader: THREE.ShaderChunk.meshphysical_frag,
-    };
-    m.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
-    expect(shader.uniforms.uTime).toBe(m.uniforms.uTime);
-    expect(shader.vertexShader).toContain('attribute float sway;');
-    expect(shader.vertexShader).toContain('transformed += vec3(rlWind, 0.0, -rlWind);');
-    expect(m.customProgramCacheKey()).toBe('rl-grove');
   });
 });
 

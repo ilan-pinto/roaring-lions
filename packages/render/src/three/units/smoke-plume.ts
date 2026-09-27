@@ -399,8 +399,8 @@ export const SMOKE_PLUME_LEAN_TILES = 0.9;
 
 /**
  * Which way "downwind" is, as a world `(x, z)` unit vector. NOT a new
- * choice: `terrain/mesh.ts`'s `groveMaterial` already leans every tree
- * along `(+wind, 0, -wind)`, "the SAME `(dx, -dx)` shape
+ * choice: `terrain/sway.ts` leans every crown along `SWAY_DIR_X/Z`,
+ * `(+x, 0, -x)` (the retired grove wind used the same axis), "the SAME `(dx, -dx)` shape
  * `screenOffsetToWorld(dx, 0)` produces for a pure camera-right screen
  * offset". Smoke drifting the same way the trees lean reads as weather;
  * smoke drifting some other way reads as a bug in one of the two. Shared as

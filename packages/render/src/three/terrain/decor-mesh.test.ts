@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
-import { buildDecorMesh, disposeDecorMesh, stripToBatchAttributes } from './decor-mesh';
+import { buildDecorMesh, disposeDecorMesh, stripToBatchAttributes, swayingFoliageMaterial } from './decor-mesh';
+import { swayVertexChunk } from './sway';
 import type { DecorGeometrySet } from './decor-mesh';
 import type { DecorPlacement } from './decor-place';
 
@@ -224,5 +225,76 @@ describe('buildDecorMesh', () => {
     expect(materialDispose).toHaveBeenCalledTimes(1);
     expect(meshDispose).toHaveBeenCalledTimes(1);
     expect(g.children.length).toBe(0);
+  });
+});
+
+/** mesh.test.ts's meshphysical harness, copied: the standard material's own
+ *  sources with this material's injection applied. */
+function compiled(material: THREE.Material): {
+  uniforms: Record<string, THREE.IUniform>;
+  vertexShader: string;
+  fragmentShader: string;
+} {
+  const shader = {
+    uniforms: {} as Record<string, THREE.IUniform>,
+    vertexShader: THREE.ShaderChunk.meshphysical_vert,
+    fragmentShader: THREE.ShaderChunk.meshphysical_frag,
+  };
+  material.onBeforeCompile(
+    shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    {} as THREE.WebGLRenderer
+  );
+  return shader;
+}
+
+/** One bush (foliage + trunk), one rock, one sand: every decor role once. */
+function geometrySetOfEveryRole(): DecorGeometrySet {
+  return {
+    parts: new Map([
+      ['bush_0', [{ role: 'foliage', geometry: new THREE.BoxGeometry() }, { role: 'trunk', geometry: new THREE.BoxGeometry() }]],
+      ['rock_0', [{ role: 'rock', geometry: new THREE.BoxGeometry() }]],
+      ['sand_0', [{ role: 'sand', geometry: new THREE.BoxGeometry() }]],
+    ]),
+  };
+}
+function placementsOfEveryRole(): DecorPlacement[] {
+  return (['bush', 'rock', 'sand'] as const).map((family, i) => ({
+    family, variant: 0, x: i, z: 0, y: 0, yawTurns: 0, scale: 1,
+  }));
+}
+
+describe('the foliage batch sways (Task 7)', () => {
+  const sway = { time: { value: 0 }, amp: { value: 1 } };
+  it('splices the sway chunk after project_vertex and shares the two uniforms', () => {
+    const shader = compiled(swayingFoliageMaterial(['#6E7446', '#5A5F39', '#474B2D'], sway));
+    const at = shader.vertexShader.indexOf('#include <project_vertex>');
+    expect(at).toBeGreaterThanOrEqual(0);
+    // The brief wrote `indexOf('uSwayTime')`, but GLSL needs the uniform
+    // DECLARED at global scope, which is before `main` and so before the
+    // anchor. What must sit after the anchor is its use: the chunk itself.
+    expect(shader.vertexShader.indexOf(swayVertexChunk())).toBeGreaterThan(at);
+    expect(shader.vertexShader.lastIndexOf('uSwayTime')).toBeGreaterThan(at);
+    expect(shader.vertexShader.indexOf('uniform float uSwayTime;')).toBeLessThan(shader.vertexShader.indexOf('void main'));
+    expect(shader.uniforms.uSwayTime).toBe(sway.time);
+    expect(shader.uniforms.uSwayAmp).toBe(sway.amp);
+  });
+  it('throws when three no longer has the chunk it splices after', () => {
+    const m = swayingFoliageMaterial(['#6E7446'], sway);
+    const shader = { uniforms: {}, vertexShader: 'void main(){}', fragmentShader: '' };
+    expect(() => m.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer)).toThrow(/project_vertex/);
+  });
+  it('is only the foliage role: trunks, rock and sand keep the plain ramp material', () => {
+    const group = buildDecorMesh(placementsOfEveryRole(), geometrySetOfEveryRole(), sway);
+    expect(group.children.map((c) => c.name).sort()).toEqual(['decor-foliage', 'decor-rock', 'decor-sand', 'decor-trunk']);
+    for (const child of group.children) {
+      const mat = (child as THREE.BatchedMesh).material as THREE.Material;
+      expect(mat.customProgramCacheKey() === 'rl-foliage-sway').toBe(child.name === 'decor-foliage');
+    }
+  });
+  it('does not sway at all without the uniforms: no caller, no sway', () => {
+    const group = buildDecorMesh(placementsOfEveryRole(), geometrySetOfEveryRole());
+    for (const child of group.children) {
+      expect(((child as THREE.BatchedMesh).material as THREE.Material).customProgramCacheKey()).not.toBe('rl-foliage-sway');
+    }
   });
 });

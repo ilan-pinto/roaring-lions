@@ -45,6 +45,11 @@
  *                 One name, because one authoring fault (`decor-place.ts`'s
  *                 `familyFor`) empties both.
  * - `props`       the one prop batch (`terrain/prop-mesh.ts`); `decor` does not hide it.
+ * - `wind`        the crown sway (`terrain/sway.ts`), its amplitude uniform
+ *                 driven to 0 so every foliage vertex stands at rest. A
+ *                 uniform, `macro`'s shape: the sway CLOCK is written every
+ *                 frame but the amplitude is not (its only writer is this
+ *                 layer), so the plain write holds across the gate's repaint.
  * - `ground-albedo` the six ground texture slots, driven to strength 0 --
  *                 which is not a visibility flag but the material's OWN
  *                 documented fail-soft path (`GROUND_SLOTS`; every strength
@@ -243,6 +248,7 @@ export const DEBUG_LAYERS = [
   'scatter',
   'decor',
   'props',
+  'wind',
   'ground-albedo',
   'macro',
   'roads',

@@ -189,7 +189,6 @@ import {
   toGeometry,
   vertexColorMaterial,
   GroundMaterial,
-  GroveMaterial,
   prepareGroundTexture,
   albedoMean,
   slotUniforms,
@@ -217,6 +216,7 @@ import {
   disposeDecorMesh,
   stripToBatchAttributes,
   type DecorGeometrySet,
+  type SwayUniforms,
 } from './terrain/decor-mesh';
 import { decorPlacements, type DecorPlacement } from './terrain/decor-place';
 import { isDecorMeshRole, type DecorMeshRole } from './terrain/decor-role';
@@ -897,11 +897,6 @@ export class ThreeRenderer implements Renderer {
    *  itself (`buildGround` and `buildScatter` are two independent builders
    *  over the same `TerrainInput`). */
   private scatterMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
-  /** Olive groves -- trunk and crown, standing above the ground rather than
-   *  lying on it -- as a third mesh sharing the same material and rebuild
-   *  path. `buildGroves` is a third independent builder over the identical
-   *  `TerrainInput`, exactly like `buildScatter`. */
-  private groveMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material> | null = null;
   /**
    * Task B3.9: buildings stopped being one fourth mesh. A blocked,
    * non-ridge tile with no live structure at all (the fallback case
@@ -955,7 +950,7 @@ export class ThreeRenderer implements Renderer {
   private decorSet: DecorGeometrySet = { parts: new Map() };
   /** Task 6: the current scattered-decor batch (`BatchedMesh` per role,
    *  `decor-mesh.ts`'s own top comment), rebuilt wholesale by
-   *  `rebuildTerrain` alongside ground/scatter/groves/buildings. `null`
+   *  `rebuildTerrain` alongside ground/scatter/buildings. `null`
    *  before the first rebuild. */
   private decorGroup: THREE.Group | null = null;
   /** The textured half of the decor set -- geometry AND its own baked map,
@@ -1289,12 +1284,16 @@ export class ThreeRenderer implements Renderer {
   groundTexturesSettled(): Promise<void> {
     return this.disposed ? Promise.resolve() : this.groundTexturesPending;
   }
-  /** `groveMesh` alone -- see `terrain/mesh.ts`'s own `GroveMaterial` doc
-   *  comment for why the wind-sway shader needs to be a separate material
-   *  from `terrainMat` rather than a flag on it (the `sway` attribute this
-   *  shader reads exists ONLY on grove geometry -- `toGeometry`'s own
-   *  comment). Reused across rebuilds for the same reason `terrainMat` is. */
-  private readonly groveMat: GroveMaterial = new GroveMaterial();
+  /**
+   * The crown sway's two uniforms (ground plan 2, Task 7; `terrain/sway.ts`),
+   * shared BY REFERENCE with every foliage batch `buildDecorMesh` builds, so a
+   * terrain rebuild never needs to be told the clock. `time` is SIM time,
+   * written once a frame in `frame()` from `presentationSimMs` -- read from
+   * the sim, never written to it (invariant 4), and interpolated by `alpha`
+   * so the crowns move at 60 fps while the sim ticks at 20. `amp` is 1 and
+   * only the `wind` debug layer writes it; nothing in `frame()` does.
+   */
+  private readonly sway: SwayUniforms = { time: { value: 0 }, amp: { value: 1 } };
   /**
    * Owns the muzzle-flash/blast light pool (`./flash-light.ts`'s own top
    * comment) -- one instance for the whole renderer, `FLASH_CAPACITY` real
@@ -2096,20 +2095,11 @@ export class ThreeRenderer implements Renderer {
    */
   private readonly vehicleTrackAccumTiles: Float64Array;
   private readonly vehicleTrackSeeded: Uint8Array;
-  /** `groveMat`'s `uTime` uniform, in the "accumulated `dtMs`, never
-   *  `Date.now()`" shape `Renderer.frame`'s documented contract asks for --
-   *  its own field, so the wind's period stays independent of every other
-   *  presentation clock here. Converted from ms to seconds only at the point `frame()` writes
-   *  the uniform; see `terrain/mesh.ts`'s `GroveMaterial` doc comment for
-   *  the shader-side use. */
-  private windClockMs = 0;
-  /** GH #144: `SmokeMesh`'s own animation clock, the same "accumulated
-   *  `dtMs`, never `Date.now()`" shape as `windClockMs`
-   *  immediately above and for the identical reason (`Renderer.frame`'s
-   *  documented contract) -- a separate field, not a reuse of either, so
-   *  smoke's own drift/billow/breathing periods stay independent of what
-   *  the vehicle-track sweep or the grove-wind shader do with their own
-   *  clocks. See `smoke-mesh.ts`'s own "Presentation animation (GH #144)"
+  /** GH #144: `SmokeMesh`'s own animation clock, in the "accumulated
+   *  `dtMs`, never `Date.now()`" shape `Renderer.frame`'s documented
+   *  contract asks for -- its own field, so smoke's own
+   *  drift/billow/breathing periods stay independent of every other
+   *  presentation clock here. See `smoke-mesh.ts`'s own "Presentation animation (GH #144)"
    *  section comment for what this clock drives. */
   private smokeClockMs = 0;
 
@@ -2674,7 +2664,6 @@ export class ThreeRenderer implements Renderer {
     disposeGltfLoader();
     this.terrainMesh?.geometry.dispose();
     this.scatterMesh?.geometry.dispose();
-    this.groveMesh?.geometry.dispose();
     this.residualMesh?.geometry.dispose();
     for (const mesh of this.structureBoxes.values()) mesh.geometry.dispose();
     this.structureBoxes.clear();
@@ -2693,7 +2682,6 @@ export class ThreeRenderer implements Renderer {
     this.propMesh = null;
     this.disposePropGeometrySet(this.propSet);
     this.terrainMat.dispose();
-    this.groveMat.dispose();
     // The ground's data textures: the control pair `rebuildTerrain` last
     // bound, and the macro field the constructor built.
     this.controlTex?.a.dispose();
@@ -3038,8 +3026,8 @@ export class ThreeRenderer implements Renderer {
     }
     // No dirty gate -- Pixi's own smoke loop redraws every `frame()` call,
     // not behind `fogDirty` (`smokeMesh`'s own doc comment above).
-    // GH #144: `smokeClockMs` is real accumulated frame time, exactly like
-    // `windClockMs` just below -- never the sim's own tick.
+    // GH #144: `smokeClockMs` is real accumulated frame time -- never the
+    // sim's own tick.
     this.smokeClockMs += dtMs;
     this.smokeMesh.update(
       this.sim.smoke,
@@ -3058,9 +3046,10 @@ export class ThreeRenderer implements Renderer {
     // and a stalled tab's 5-second frame alike leave every fade where it
     // was; only a tick moves it. `alpha` is the held one under a hit-stop.
     this.decalMaterial.uniforms.uNowSec.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
-    // No dirty gate -- one uniform write.
-    this.windClockMs += dtMs;
-    this.groveMat.uniforms.uTime.value = this.windClockMs / 1000;
+    // The crowns sway on the SAME clock (ground plan 2, Task 7): a pinned
+    // tick repeats, and the gate's zero-time repaint moves no leaf. One
+    // uniform write, shared by reference with every foliage batch.
+    this.sway.time.value = presentationSimMs(this.sim.tickCount, alpha) / 1000;
     this.updateSilhouetteOutlineWidth();
     // `threeCamera()` reconfigures the ONE camera the composer's RenderPass
     // already holds, so this call has to happen whether or not the composer
@@ -3113,6 +3102,16 @@ export class ThreeRenderer implements Renderer {
         // its own witness. Nothing per-frame writes `propMesh.visible`
         // (grepped), so a plain flag holds across the gate's repaint.
         return setObjectsVisible(visible, this.propMesh);
+      case 'wind': {
+        // `uSwayAmp` to 0 and back, 1 when it changed and 0 when it was
+        // already there -- `macro`'s shape. `frame()` writes the sway CLOCK
+        // every frame and never the amplitude, so this holds across the
+        // gate's repaint; with the crowns at rest the delta is the lean alone.
+        const next = visible ? 1 : 0;
+        const changed = this.sway.amp.value === next ? 0 : 1;
+        this.sway.amp.value = next;
+        return changed;
+      }
       case 'buildings':
         return setObjectsVisible(
           visible,
@@ -8100,8 +8099,8 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * (Re)builds the ground mesh, its scatter (grain) mesh, its grove (olive
-   * trunk/crown) mesh, the residual (fallback-only) buildings mesh, and one
+   * (Re)builds the ground mesh, its scatter (grain) mesh, the decor and prop
+   * batches, the residual (fallback-only) buildings mesh, and one
    * small mesh per LIVE, un-arted structure, from the sim's static layout
    * (`width`, `height`, `blocked`, `cover`, `structures`) plus whatever
    * `setElevation`/`setDecor` have retained -- via `composeTerrain` below,
@@ -8114,19 +8113,17 @@ export class ThreeRenderer implements Renderer {
    * is load-bearing rather than a style choice. Task B3.9 adds a second
    * trigger for this same full rebuild: `applyStructureDestroyed` sets
    * `terrainDirty = true` too, since a structure's death is the one event
-   * that changes the ground/scatter/grove tone under its own footprint
-   * (open ground where a building's box used to stand), and those three
+   * that changes the ground/scatter tone under its own footprint
+   * (open ground where a building's box used to stand), and those
    * layers have no per-structure invalidation of their own -- see
    * `applyStructureDestroyed`'s own doc comment for the measured reasoning.
    *
    * Disposes each outgoing geometry before dropping the reference to it: a
    * rebuilt terrain that leaks its predecessor is invisible until a mission
    * rebuilds terrain a few hundred times, and then it is a memory bug nobody
-   * can attribute. Neither material is disposed -- `terrainMat` and
-   * `groveMat` are both reused across rebuilds, not replaced (every mesh
-   * this method builds shares one or the other, `structureBoxes` and
-   * `groveMesh` included respectively -- see `groveMat`'s own field doc
-   * comment for why the grove mesh alone uses the second one).
+   * can attribute. `terrainMat` is not disposed -- it is reused across
+   * rebuilds, not replaced (every mesh this method builds shares it,
+   * `structureBoxes` included).
    *
    * What this closes: a destroyed, un-arted structure's box now disappears
    * and its ground tone reverts to open the next time THIS method runs --
@@ -8148,10 +8145,6 @@ export class ThreeRenderer implements Renderer {
     if (this.scatterMesh) {
       this.scene.remove(this.scatterMesh);
       this.scatterMesh.geometry.dispose();
-    }
-    if (this.groveMesh) {
-      this.scene.remove(this.groveMesh);
-      this.groveMesh.geometry.dispose();
     }
     if (this.residualMesh) {
       this.scene.remove(this.residualMesh);
@@ -8232,7 +8225,7 @@ export class ThreeRenderer implements Renderer {
     );
 
     // The GROUND alone draws through `GroundMaterial` -- the one material here
-    // that carries the six-slot albedo blend. Scatter, groves, the residual
+    // that carries the six-slot albedo blend. Scatter, the residual
     // layer and every building box take the plain vertex-coloured
     // `terrainMat`; every one of them is lit by the same scene sun now, which
     // is what the ground's own private light used to do for it alone.
@@ -8256,14 +8249,6 @@ export class ThreeRenderer implements Renderer {
     this.scatterMesh.receiveShadow = true;
     this.scene.add(this.scatterMesh);
 
-    this.groveMesh = new THREE.Mesh(toGeometry(composed.groves), this.groveMat);
-    // A canopy billboard is a flat card standing edge-on to the sun: what it
-    // would cast is a sliver, which is worse than the tree's own painted
-    // ground shadow (`grove.ts`'s `pushShadow`) that is already there.
-    this.groveMesh.receiveShadow = true;
-    this.groveMesh.castShadow = false;
-    this.scene.add(this.groveMesh);
-
     this.residualMesh = new THREE.Mesh(toGeometry(composed.residual), this.terrainMat);
     this.residualMesh.receiveShadow = true;
     this.scene.add(this.residualMesh);
@@ -8285,7 +8270,7 @@ export class ThreeRenderer implements Renderer {
     // function's own doc comment for why giving `composeTerrain` a decor
     // layer, rather than reconstructing an `input` here, is the coherent
     // choice (this method has no `TerrainInput` of its own to reach for).
-    this.decorGroup = buildDecorMesh(composed.decorPlacements, this.decorSet);
+    this.decorGroup = buildDecorMesh(composed.decorPlacements, this.decorSet, this.sway);
     this.scene.add(this.decorGroup);
 
     // The textured half of the same placement list. `buildDecorMesh` above
@@ -8877,7 +8862,6 @@ export interface ComposedTerrain {
   readonly input: TerrainInput;
   readonly ground: MeshData;
   readonly scatter: MeshData;
-  readonly groves: MeshData;
   /** The fallback-only layer: a blocked, non-ridge tile that belongs to no
    *  live structure at all (`buildBuildings`'s own `FALLBACK_HEIGHT_PX`
    *  case, "never reached on any shipped map" per that file's own doc
@@ -8897,7 +8881,7 @@ export interface ComposedTerrain {
    * data, not GPU geometry (unlike every other field on this interface):
    * `rebuildTerrain` is what turns it into a `THREE.Group` via
    * `buildDecorMesh`, the same "compose is pure, the caller builds GPU
-   * state" split `ground`/`scatter`/`groves`/`buildings` already draw.
+   * state" split `ground`/`scatter`/`buildings` already draw.
    */
   readonly decorPlacements: readonly DecorPlacement[];
   /** Ground plan 2, Task 5: `propPlacements(input)` over the same `input` as
@@ -8939,7 +8923,7 @@ function withoutLiveStructures(sim: Sim, footprints: ReadonlyMap<number, Indexed
  * `buildGround` the ART-MASKED blocked array instead of the raw one, which
  * would make an arted structure's own ground tile read as open instead of
  * `underBuilding`-washed the moment its sheet finished loading -- this
- * function's own shape (ground/scatter/groves built from the untouched
+ * function's own shape (ground/scatter built from the untouched
  * `input`, buildings alone built from a filtered view) is what a test can
  * now assert directly against a real `Sim` with `hasArt` both true and
  * false for the same structure.
@@ -8979,7 +8963,7 @@ export function composeTerrain(
     blocked: drawBlockedMask(sim),
     cover: sim.cover,
     // Read only by `decorPlacements`'s `boulder` family below -- ground/
-    // scatter/groves/buildings are indifferent to it, the same reason a
+    // scatter/buildings are indifferent to it, the same reason a
     // ridge's `^` needs no layer of its own here either.
     boulder: sim.boulder,
     // The theme's grove species, read only by `decorPlacements` below.
@@ -8987,16 +8971,10 @@ export function composeTerrain(
   };
   const ground = buildGround(input, tones, background);
   const scatter = buildScatter(input, tones, background);
-  // buildGroves is retired (Task 7): grove tiles now get real tree meshes
-  // from `decor-place.ts`'s `tree` family (including its own twin rule,
-  // added in the same task so the mesh replacement does not thin the
-  // canopy), drawn in the decor batch below. The builder and its own test
-  // suite (`grove.ts`, `grove.test.ts`) stay in the tree for one release --
-  // `ASSET_PROVENANCE.md`'s own precedent for a superseded sprite -- so
-  // reverting to the procedural canopy is one line, not a restore. An empty
-  // `MeshData` produces an empty geometry, which `toGeometry` already
-  // handles (`buildScatter` returns one for a map with no marks).
-  const groves: MeshData = { positions: new Float32Array(0), colors: new Float32Array(0), indices: new Uint32Array(0) };
+  // Grove tiles draw real tree meshes from `decor-place.ts`'s `tree` family,
+  // in the decor batch (ground Task 7). `buildGroves` is not called; ground
+  // plan 2, Task 7 retired the empty `groves` layer this used to return and
+  // the wind material that drew it. `grove.ts` itself stays (R-11).
 
   const footprints = walkStructureFootprints(sim);
   const residualInput: TerrainInput = { ...input, blocked: withoutLiveStructures(sim, footprints) };
@@ -9016,7 +8994,6 @@ export function composeTerrain(
     input,
     ground,
     scatter,
-    groves,
     residual,
     buildings,
     decorPlacements: decorPlacements(input),

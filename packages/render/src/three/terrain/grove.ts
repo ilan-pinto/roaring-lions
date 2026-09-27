@@ -165,20 +165,6 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
   const colors: number[] = [];
   const indices: number[] = [];
   /**
-   * Wind-sway weight, one entry per vertex pushed, same order as
-   * `colors`/`positions` -- see `types.ts`'s own `MeshData.sway` doc
-   * comment for the full field contract. `pushPolygon` below keeps this in
-   * lockstep with every vertex it writes (defaulting to 0, "does not
-   * sway," when a caller passes none), so the array is always exactly as
-   * long as every other per-vertex buffer regardless of which caller wrote
-   * a given vertex -- required because this mesh's flat ground-shadow
-   * marks and its swaying trunk/crown billboards share ONE draw call, and
-   * a GPU attribute array shorter than `positions` is a corrupt buffer, not
-   * a partial one.
-   */
-  const sway: number[] = [];
-
-  /**
    * One flat-shaded convex polygon, fan-triangulated from its own first
    * vertex. A single shared winding for every polygon in this file: every
    * one of them lies in one of exactly two planes (a tree's camera-facing
@@ -198,18 +184,12 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
    * Delegates to `shared.ts`'s `pushPolygon` (default `flip: false`, this
    * module's only winding) -- `shared.test.ts` proves that shared fan is
    * this exact formula for any point count, so nothing about this file's
-   * own geometry changes by routing through it. `swayValues`, when given,
-   * must be the same length as `points` (`pushBillboard` below is the one
-   * caller that ever passes one); omitted for `pushShadow`'s flat marks,
-   * which is exactly "0 for every vertex" -- a ground mark never sways.
+   * own geometry changes by routing through it. (It also wrote a per-vertex
+   * wind-sway weight until ground plan 2, Task 7 retired the grove wind path:
+   * nothing has drawn this builder's output since the decor trees replaced it.)
    */
-  const pushPolygon = (
-    points: readonly [number, number, number][],
-    color: [number, number, number],
-    swayValues?: readonly number[]
-  ): void => {
+  const pushPolygon = (points: readonly [number, number, number][], color: [number, number, number]): void => {
     sharedPushPolygon(positions, colors, indices, points, color);
-    for (let k = 0; k < points.length; k++) sway.push(swayValues ? swayValues[k] : 0);
   };
 
   /**
@@ -315,23 +295,11 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
       return [originX + g.dx * scale, topY + corner[1] * WORLD_Y_PER_LIFT_PIXEL * scale + epsilon, originZ + g.dy * scale];
     };
 
-    // Wind-sway weight for one corner: height above THIS tree's own ground
-    // anchor, in world-Y units -- the same `corner[1] * WORLD_Y_PER_LIFT_
-    // PIXEL * scale` term `toWorld` above adds onto `topY`, captured
-    // separately (without `topY`/`epsilon`) so it reads as "how high up the
-    // tree is this vertex," independent of the tile's own terrain
-    // elevation. Floored at 0: every corner in this file sits at or above
-    // its own tree's base by construction, but flooring costs nothing and
-    // removes any doubt for a future crown shape whose lowest lobe fringe
-    // dips near its anchor.
-    const swayFor = (corner: Corner): number => Math.max(0, corner[1] * WORLD_Y_PER_LIFT_PIXEL * scale);
-
     const pushBillboard = (quad: readonly Corner[], colorHex: string, epsilon: number): void => {
       const color = hexToUnit(colorHex);
       pushPolygon(
         quad.map((c) => toWorld(c, epsilon)),
-        color,
-        quad.map(swayFor)
+        color
       );
     };
 
@@ -404,6 +372,5 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
     positions: Float32Array.from(positions),
     colors: Float32Array.from(colors),
     indices: Uint32Array.from(indices),
-    sway: Float32Array.from(sway),
   };
 }
