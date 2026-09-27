@@ -68,22 +68,25 @@ const qs=()=>{const p=new URLSearchParams({range:$('range').value,who:$('who').v
 const get=(path,p=qs())=>fetch('/stats/api/'+path+'?'+p).then((r)=>r.json());
 const table=(el,head,rows)=>{el.innerHTML='<tr>'+head.map((h)=>'<th>'+h+'</th>').join('')+'</tr>'+rows.join('')};
 const VERBS=${JSON.stringify(TELEMETRY_ORDER_VERBS)};
+function accountRow(a){
+  return '<tr>'+'<td>'+esc(a.player)+'</td>'+'<td>'+esc(a.tester??'—')+'</td>'+'<td class="n">'+fmt(a.credits,0)+'</td>'+'<td class="n">'+fmt(a.earned,0)+'</td>'+'<td class="n" title="'+esc(a.unlocks.join(', '))+'">'+fmt(a.unlocks.length,0)+'</td>'+'<td>'+esc(a.tiers.map((t)=>t.replace(/\\./g,' ')).join(', '))+'</td>'+'<td>'+esc(new Date(a.lastSeen).toISOString().slice(0,16).replace('T',' '))+'</td>'+'</tr>';
+}
 async function load(){
   const [s,days,fun,mis,tes,acc,loads]=await Promise.all([get('summary'),get('per-day'),get('funnel'),get('missions'),get('testers'),get('accounts'),get('loadouts')]);
   $('summary').innerHTML=[['Players',s.players,0],['Sessions',s.sessions,0],['Hours played',s.hoursPlayed,1],['Median min / player',s.medianMinutesPerPlayer,0],['Came back another day',s.returnedDay2,0,' ('+Math.round(100*s.returnRate)+'%)']]
     .map(([l,v,d,suffix])=>'<div class="stat"><b>'+fmt(v,d)+(suffix||'')+'</b>'+l+'</div>').join('');
   const maxDay=Math.max(1,...days.map((d)=>d.new+d.returning));
-  table($('perday'),['Day','New','Returning',''],days.map((d)=>'<tr><td>'+esc(d.day)+'</td><td class="n">'+d.new+'</td><td class="n">'+d.returning+'</td><td style="width:40%"><div class="bar" style="width:'+(100*(d.new+d.returning)/maxDay)+'%"></div></td></tr>'));
+  table($('perday'),['Day','New','Returning',''],days.map((d)=>'<tr><td>'+esc(d.day)+'</td><td class="n">'+fmt(d.new,0)+'</td><td class="n">'+fmt(d.returning,0)+'</td><td style="width:40%"><div class="bar" style="width:'+(100*(d.new+d.returning)/maxDay)+'%"></div></td></tr>'));
   const top=Math.max(1,fun.campaign[0]?.started||0);let worst=-1,worstAt=-1;
   fun.campaign.forEach((r,i)=>{if(i>0){const drop=fun.campaign[i-1].started-r.started;if(drop>worst){worst=drop;worstAt=i}}});
-  table($('funnel'),['Mission','Started','Won','Reached'],fun.campaign.map((r,i)=>'<tr><td>'+esc(r.mission)+'</td><td class="n">'+r.started+'</td><td class="n">'+r.won+'</td><td style="width:35%"><div class="bar'+(i===worstAt?' drop':'')+'" style="width:'+(100*r.started/top)+'%"></div></td></tr>'));
+  table($('funnel'),['Mission','Started','Won','Reached'],fun.campaign.map((r,i)=>'<tr><td>'+esc(r.mission)+'</td><td class="n">'+fmt(r.started,0)+'</td><td class="n">'+fmt(r.won,0)+'</td><td style="width:35%"><div class="bar'+(i===worstAt?' drop':'')+'" style="width:'+(100*r.started/top)+'%"></div></td></tr>'));
   const tTop=Math.max(1,fun.tutorial[0]?.players||0);
-  table($('tutorial'),['Step','Players',''],fun.tutorial.map((r)=>'<tr><td>'+(r.step+1)+'</td><td class="n">'+r.players+'</td><td style="width:50%"><div class="bar" style="width:'+(100*r.players/tTop)+'%"></div></td></tr>'));
-  table($('missions'),['Mission','Attempts','Win %','Median min','Target','Top loss cause','Mean ROE','Most-failed objective'],mis.map((m)=>'<tr><td>'+esc(m.mission)+'</td><td class="n">'+m.attempts+'</td><td class="n">'+(m.winRate==null?'—':Math.round(100*m.winRate))+'</td><td class="n'+(m.medianWinMinutes!=null&&m.targetMinutes!=null&&m.medianWinMinutes>m.targetMinutes?' over':'')+'">'+fmt(m.medianWinMinutes)+'</td><td class="n">'+fmt(m.targetMinutes,0)+'</td><td>'+esc(m.topCause??'—')+'</td><td class="n">'+fmt(m.meanRoe,0)+'</td><td>'+esc(m.mostFailedObjective??'—')+'</td></tr>'));
-  table($('testers'),['Tester','Missions won','Furthest won','Hours','Last seen'],tes.map((t)=>'<tr><td><button data-t="'+esc(t.tester)+'">'+esc(t.tester)+'</button> <button data-t="'+esc(t.tester)+'" data-share title="Create and copy a link for this tester">Share</button></td><td class="n">'+t.missionsWon+'</td><td>'+esc(t.furthestWon??'—')+'</td><td class="n">'+fmt(t.hours)+'</td><td>'+new Date(t.lastSeen).toISOString().slice(0,16).replace('T',' ')+'</td></tr>'));
+  table($('tutorial'),['Step','Players',''],fun.tutorial.map((r)=>'<tr><td>'+fmt(r.step+1,0)+'</td><td class="n">'+fmt(r.players,0)+'</td><td style="width:50%"><div class="bar" style="width:'+(100*r.players/tTop)+'%"></div></td></tr>'));
+  table($('missions'),['Mission','Attempts','Win %','Median min','Target','Top loss cause','Mean ROE','Most-failed objective'],mis.map((m)=>'<tr><td>'+esc(m.mission)+'</td><td class="n">'+fmt(m.attempts,0)+'</td><td class="n">'+esc(m.winRate==null?'—':Math.round(100*m.winRate))+'</td><td class="n'+(m.medianWinMinutes!=null&&m.targetMinutes!=null&&m.medianWinMinutes>m.targetMinutes?' over':'')+'">'+fmt(m.medianWinMinutes)+'</td><td class="n">'+fmt(m.targetMinutes,0)+'</td><td>'+esc(m.topCause??'—')+'</td><td class="n">'+fmt(m.meanRoe,0)+'</td><td>'+esc(m.mostFailedObjective??'—')+'</td></tr>'));
+  table($('testers'),['Tester','Missions won','Furthest won','Hours','Last seen'],tes.map((t)=>'<tr><td><button data-t="'+esc(t.tester)+'">'+esc(t.tester)+'</button> <button data-t="'+esc(t.tester)+'" data-share title="Create and copy a link for this tester">Share</button></td><td class="n">'+fmt(t.missionsWon,0)+'</td><td>'+esc(t.furthestWon??'—')+'</td><td class="n">'+fmt(t.hours)+'</td><td>'+esc(new Date(t.lastSeen).toISOString().slice(0,16).replace('T',' '))+'</td></tr>'));
   const sel=$('tester'),cur=sel.value;sel.innerHTML='<option value="">Any tester</option>'+tes.map((t)=>'<option'+(t.tester===cur?' selected':'')+'>'+esc(t.tester)+'</option>').join('');
   /*gh254*/
-  table($('accounts'),['Player','Tester','Credits','Earned','Units unlocked','Upgrades','Last seen'],acc.map((a)=>'<tr>'+'<td>'+esc(a.player)+'</td>'+'<td>'+esc(a.tester??'—')+'</td>'+'<td class="n">'+fmt(a.credits,0)+'</td>'+'<td class="n">'+fmt(a.earned,0)+'</td>'+'<td class="n" title="'+esc(a.unlocks.join(', '))+'">'+fmt(a.unlocks.length,0)+'</td>'+'<td>'+esc(a.tiers.map((t)=>t.replace(/\\./g,' ')).join(', '))+'</td>'+'<td>'+esc(new Date(a.lastSeen).toISOString().slice(0,16).replace('T',' '))+'</td>'+'</tr>'));
+  table($('accounts'),['Player','Tester','Credits','Earned','Units unlocked','Upgrades','Last seen'],acc.map(accountRow));
   const unitRows=[];
   for(const m of loads){for(const u of m.units){unitRows.push('<tr>'+'<td>'+esc(m.mission)+'</td>'+'<td>'+esc(u.unit)+'</td>'+'<td class="n">'+fmt(u.deployed)+'</td>'+'<td class="n">'+fmt(u.fromRoster)+'</td>'+'<td class="n">'+fmt(u.bought)+'</td>'+'<td class="n">'+fmt(m.runs,0)+' ('+fmt(m.loadoutRuns,0)+' with data)</td>'+'</tr>')}}
   table($('loadout-units'),['Mission','Unit','Deployed / run','From roster / run','Bought / run','Runs'],unitRows);
@@ -93,7 +96,7 @@ async function load(){
 async function showTimeline(name){
   const rows=await get('timeline',new URLSearchParams({tester:name}));
   $('tl-title').hidden=false;$('tl-title').textContent='Timeline: '+name;
-  table($('timeline'),['When','Event','Mission','Result','Minutes'],rows.map((r)=>'<tr><td>'+new Date(r.t).toISOString().slice(0,16).replace('T',' ')+'</td><td>'+esc(r.type)+'</td><td>'+esc(r.mission??'')+'</td><td>'+esc(r.result??'')+'</td><td class="n">'+(r.tick==null?'':fmt(r.tick/1200))+'</td></tr>'));
+  table($('timeline'),['When','Event','Mission','Result','Minutes'],rows.map((r)=>'<tr><td>'+esc(new Date(r.t).toISOString().slice(0,16).replace('T',' '))+'</td><td>'+esc(r.type)+'</td><td>'+esc(r.mission??'')+'</td><td>'+esc(r.result??'')+'</td><td class="n">'+esc(r.tick==null?'':fmt(r.tick/1200))+'</td></tr>'));
 }
 const testerLink=${testerLink.toString()};
 function paintShare(msg){$('share-msg').textContent=msg}

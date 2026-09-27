@@ -63,10 +63,52 @@ describe('STATS_HTML: accounts and loadouts (GH-254)', () => {
     expect(STATS_HTML).toContain(`const VERBS=${JSON.stringify(TELEMETRY_ORDER_VERBS)};`);
   });
 
-  it('every value the new tables print goes through esc() or fmt()', () => {
-    const block = STATS_HTML.slice(STATS_HTML.indexOf('/*gh254*/'), STATS_HTML.indexOf('/*/gh254*/'));
-    expect(block.length).toBeGreaterThan(0);
-    // Every `r.` / `u.` / `a.` read inside a cell is wrapped.
-    expect(block).not.toMatch(/'<td>'\+(?!esc\(|fmt\()/);
+  it('every value the page prints in a table cell goes through esc() or fmt(), everywhere on the page (not just the new tables)', () => {
+    const gh254 = STATS_HTML.slice(STATS_HTML.indexOf('/*gh254*/'), STATS_HTML.indexOf('/*/gh254*/'));
+    expect(gh254.length).toBeGreaterThan(0);
+    // Any string literal that opens (or re-opens, fused onto a preceding
+    // </td> or <tr>) a <td tag -- with or without attributes -- must be
+    // immediately followed by esc(...) or fmt(...), never a raw read.
+    // Catches '<td>'+x, '<td class="n">'+x, '</td><td>'+x, '<tr><td>'+x,
+    // wherever on the page it appears, not only inside the gh254 markers.
+    const rawTdValue = /'[^']*<td(?:\s[^>']*)?>'\+(?!esc\(|fmt\()/;
+    expect(STATS_HTML).not.toMatch(rawTdValue);
+  });
+
+  it('regression: the real accountRow rendering shows a readable Upgrades cell for a tier, never a stray comma', () => {
+    // Extracts esc/fmt/accountRow verbatim from the page script (the
+    // testerLink precedent above) and runs them with sample data, so this
+    // exercises the actual runtime code rather than a re-implementation.
+    const escSrc = STATS_HTML.match(/const esc=(\([\s\S]*?\));/);
+    const fmtSrc = STATS_HTML.match(/const fmt=(\([\s\S]*?\));/);
+    const rowSrc = STATS_HTML.match(/function accountRow\(a\)\{[\s\S]*?\n\}/);
+    expect(escSrc).not.toBeNull();
+    expect(fmtSrc).not.toBeNull();
+    expect(rowSrc).not.toBeNull();
+    const accountRow = new Function(`
+      const esc=${escSrc![1]};
+      const fmt=${fmtSrc![1]};
+      ${rowSrc![0]}
+      return accountRow;
+    `)() as (a: {
+      player: string;
+      tester: string | null;
+      credits: number;
+      earned: number;
+      unlocks: string[];
+      tiers: string[];
+      lastSeen: number;
+    }) => string;
+    const row = accountRow({
+      player: 'a1b2c3d4',
+      tester: 'dani',
+      credits: 100,
+      earned: 200,
+      unlocks: ['inf_squad'],
+      tiers: ['inf_squad.armour.1'],
+      lastSeen: 1700000000000,
+    });
+    expect(row).toContain('inf_squad armour 1');
+    expect(row).not.toContain('<td>,</td>');
   });
 });
