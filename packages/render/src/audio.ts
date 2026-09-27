@@ -764,6 +764,10 @@ export class BattleAudio {
       if (this.muted) this.music.pause();
       else tryPlay(this.music);
     }
+    // `m` is one flag the HUD reports as "audio muted" -- a line left
+    // sounding (and its duck still held) through a mute would make that
+    // claim false the moment a voice was speaking when the player pressed it.
+    if (this.muted) this.stopVoices();
     return this.muted;
   }
 
@@ -915,7 +919,11 @@ export class BattleAudio {
     const ctx = this.ctx;
     const bus = this.voice;
     const radio = this.radioIn;
-    if (!ctx || !bus || !radio) return none('no-context');
+    // A context can exist and still not be running -- suspended until the
+    // browser's autoplay gate lifts, same as `onEvents` already guards (N16's
+    // sibling check): a line scheduled against a clock that is not advancing
+    // would hold a slot and a duck for audio that never actually sounds.
+    if (!ctx || !bus || !radio || ctx.state !== 'running') return none('no-context');
     if ((this.user.voice ?? 1) === 0 || this.user.master === 0) return none('volume-zero');
     const place = p.at ? placement(p.at.x - this.listener.x, p.at.y - this.listener.y) : null;
     if (place && !place.audible) return none('too-far');

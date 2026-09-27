@@ -630,6 +630,16 @@ describe('playVoice (WP-AU1 §7)', () => {
     expect(new BattleAudio().playVoice(order('he.infantry.move')).status).toBe('no-context');
   });
 
+  it('a suspended context admits nothing: no-context, no caption, no slot, no duck (mirrors onEvents’ own gate)', async () => {
+    const { audio, ctx, sfxDuck } = await ready();
+    ctx.state = 'suspended';
+    expect(audio.playVoice(order('he.infantry.move'))).toEqual({ status: 'no-context', seconds: 0, en: null, cut: 0 });
+    expect(ctx.sources).toEqual([]);
+    expect(ctx.oscillators).toEqual([]);
+    expect(audio.voiceStats().active).toBe(0);
+    expect(sfxDuck.gain.events.filter((e) => e[0] === 'linear')).toEqual([]);
+  });
+
   it('plays an order over the radio band at the line gain, and hands back its meaning and length', async () => {
     const { audio, ctx, hp } = await ready();
     expect(audio.playVoice(order('he.infantry.move'))).toEqual({ status: 'played', seconds: 1.2, en: 'moving', cut: 0 });
@@ -758,6 +768,16 @@ describe('playVoice (WP-AU1 §7)', () => {
     audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
     audio.stopVoices();
     for (const s of ctx.sources) expect(s.stoppedAt).toBeCloseTo(VOICE_CUT_S);
+    expect(audio.voiceStats().active).toBe(0);
+    expect(sfxDuck.gain.events).toContainEqual(['linear', 1, DUCK.releaseS]);
+  });
+
+  it('muting mid-line stops it and releases the duck (m is not merely a future gate)', async () => {
+    const { audio, ctx, sfxDuck } = await ready();
+    audio.playVoice(order('he.infantry.move'));
+    const src = last(ctx.sources);
+    expect(audio.toggle()).toBe(true);
+    expect(src.stoppedAt).toBeCloseTo(VOICE_CUT_S);
     expect(audio.voiceStats().active).toBe(0);
     expect(sfxDuck.gain.events).toContainEqual(['linear', 1, DUCK.releaseS]);
   });
