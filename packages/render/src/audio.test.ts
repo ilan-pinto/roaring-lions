@@ -540,6 +540,27 @@ describe('voice decoding -- the edges (N16, R-9)', () => {
     expect(audio.voiceStats()).toMatchObject({ languages: ['ar'], keys: 1, overBudget: false });
   });
 
+  it('useManifest clears voiceBudgetSkipped, so a re-registered manifest retries a key the budget kept out', async () => {
+    const fetched = stubFetch();
+    FakeContext.nextBuffer = { duration: 50, length: 48_000 * 50, numberOfChannels: 1 }; // 9.6 MB decoded
+    const { audio } = attachedWith((a) => {
+      a.useManifest(MANIFEST, '/a/');
+      a.setVoiceLanguages(['he']);
+    });
+    await audio.decoded();
+    expect(audio.voiceStats()).toMatchObject({ keys: 1, overBudget: true }); // he.infantry.move only
+    const deathFile = '/a/voice/he/infantry/death_01a.ogg';
+    expect(fetched.filter((u) => u === deathFile)).toHaveLength(1);
+    // Nothing is freed and the roster does not change -- useManifest is the
+    // only new thing here, and it must forget what the budget kept out (a new
+    // manifest can name different files, or the same ones now present, R-9's
+    // own reasoning for clearing voiceFailed alongside it).
+    audio.useManifest(MANIFEST, '/a/');
+    audio.setVoiceLanguages(['he']); // re-arm a pass; the roster itself is unchanged
+    await audio.decoded();
+    expect(fetched.filter((u) => u === deathFile)).toHaveLength(2);
+  });
+
   it('a voice pass that throws stalls neither the battle library nor the next pass', async () => {
     const fetched = stubFetch();
     const voices = MANIFEST.voices;
@@ -683,6 +704,23 @@ describe('playVoice (WP-AU1 §7)', () => {
     expect(sfxDuck.gain.events).not.toContainEqual(['linear', 1, DUCK.releaseS]);
     second.onended?.();
     expect(sfxDuck.gain.events).toContainEqual(['linear', 1, DUCK.releaseS]);
+  });
+
+  it('the duck tracks how many voices are live, not the order they end in: the SECOND ending first holds it, the FIRST ending after releases it', async () => {
+    const { audio, ctx, sfxDuck } = await ready();
+    audio.playVoice(order('he.infantry.move'));
+    const first = last(ctx.sources);
+    audio.playVoice({ key: 'he.infantry.death', priority: 'kdf_death' });
+    const second = last(ctx.sources);
+    expect(sfxDuck.gain.events).toContainEqual(['linear', DUCK.sfx, DUCK.attackS]);
+    // The line started SECOND ends FIRST: one voice is still live, so the duck holds.
+    second.onended?.();
+    expect(sfxDuck.gain.events).not.toContainEqual(['linear', 1, DUCK.releaseS]);
+    expect(audio.voiceStats().active).toBe(1);
+    // Now the line started FIRST ends: nothing is left live, so the duck releases.
+    first.onended?.();
+    expect(sfxDuck.gain.events).toContainEqual(['linear', 1, DUCK.releaseS]);
+    expect(audio.voiceStats().active).toBe(0);
   });
 
   it('ducks the music element −3 dB and brings it back (N12, R-2)', async () => {

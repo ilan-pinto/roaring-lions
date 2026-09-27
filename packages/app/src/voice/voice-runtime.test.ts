@@ -149,14 +149,35 @@ describe('VoiceRuntime (WP-AU1 §7, R-3)', () => {
     expect(r.rt.log()[0]).toMatchObject({ source: 'death', trigger: 'death', why: 'line' });
   });
 
-  it('keeps the last 64 entries', () => {
+  it('keeps the last 64 entries, oldest evicted first (recency)', () => {
     const r = rig();
-    for (let i = 0; i < VOICE_LOG_SIZE + 10; i++) {
+    const total = VOICE_LOG_SIZE + 10;
+    for (let i = 0; i < total; i++) {
       r.setNow(i * 10_000);
       r.rt.observe(order(1));
       r.flush();
     }
-    expect(r.rt.log()).toHaveLength(VOICE_LOG_SIZE);
+    const log = r.rt.log();
+    expect(log).toHaveLength(VOICE_LOG_SIZE);
+    // The oldest 10 pushes were evicted: what remains starts at push #10...
+    expect(log[0]?.at).toBe(10 * 10_000);
+    // ...and ends at the very last push, #(total - 1).
+    expect(log.at(-1)?.at).toBe((total - 1) * 10_000);
+  });
+
+  it('mutating a log() result does not change the ring', () => {
+    const r = rig();
+    r.rt.observe(order(1));
+    r.flush();
+    const snapshot = r.rt.log();
+    expect(snapshot).toHaveLength(1);
+    // Mutate the returned array and one of its entries...
+    snapshot[0].key = 'tampered';
+    snapshot.push({ at: 999, source: 'order', trigger: 'x', key: 'x', why: 'line', status: null });
+    // ...and neither change reaches the runtime's own ring.
+    const again = r.rt.log();
+    expect(again).toHaveLength(1);
+    expect(again[0]?.key).toBe('he.infantry.move');
   });
 
   it('after dispose, a gesture already in flight and a later tick both play nothing', () => {
