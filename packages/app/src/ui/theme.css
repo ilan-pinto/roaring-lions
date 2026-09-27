@@ -4114,6 +4114,32 @@ button.rl-menu__item[data-kind='aside'] {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
+/* Sort by kit level (GH-243, spec §4 "Comparison"): a toggle beside the role
+   tabs, drawn in their register so it reads as one more way to arrange the
+   rail, and in the KIT colour once pressed -- it orders by what was bought,
+   and the steel is what "bought" looks like everywhere else on this screen.
+   Right-aligned under the tabs, so the tab row keeps its own wrap. */
+.rl-garage__sort {
+  align-self: flex-end;
+  padding: var(--s1) var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px dashed var(--panel-frame);
+  cursor: pointer;
+}
+.rl-garage__sort:hover {
+  color: var(--ink);
+}
+.rl-garage__sort[aria-pressed='true'] {
+  color: var(--ink);
+  border-style: solid;
+  border-color: var(--kit);
+  background: color-mix(in srgb, var(--kit) 14%, transparent);
+}
 .rl-garage__cards {
   display: flex;
   flex-direction: column;
@@ -4151,6 +4177,12 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-garage__card[aria-selected='true'] {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, var(--well));
+}
+/* The card whose bars are ghosted in the bay (GH-243): the same dashed ink
+   outline the ghost itself draws, so the eye can pair the two. */
+.rl-garage__card[data-compare='1'] {
+  border-style: dashed;
+  border-color: var(--ink);
 }
 /* Bigger than the HUD chip's 2.5rem frame it otherwise shares every rule
    with (see `.rl-chip__art, .rl-garage__card-art` above): a rail card is the
@@ -4593,6 +4625,23 @@ button.rl-menu__item[data-kind='aside'] {
   overflow-y: auto;
   scrollbar-gutter: stable;
 }
+/* The panel's title line, shared with the comparison caption (GH-243) so a
+   comparison starting costs no height and moves no row. */
+.rl-garage__stats-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+  min-width: 0;
+}
+.rl-garage__compare {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-small);
+  color: var(--ink-dim);
+}
 /* Tighter than the stats panel's own padding and inter-row gap (§2 goal 3,
    F9): three real tracks (the Lavi's own armour/firepower/sensors, each
    three tiers deep) have to fit the board column at 1920x1080 with no
@@ -4611,10 +4660,12 @@ button.rl-menu__item[data-kind='aside'] {
    on a head, or a digit jump; falling back to the first track still worth a
    decision. Leaving asks for nothing: the last track pointed at stays open.
    The DOM is built in full regardless (`trackEl` never omits the ladder) --
-   this hides it, which is also why a real Tab walk skips a collapsed
-   track's Buy button: `display: none` removes it from the focus order same
-   as it removes it from the screen. The head stays in the Tab order (I1),
-   so every track is still one Tab stop away. */
+   this hides it, and `display: none` removes a collapsed track's Buy from
+   the focus order same as it removes it from the screen. The head stays in
+   the Tab order (I1), so every track is still one Tab stop away, and its
+   `focusin` opens the track before a forward Tab looks for the Buy; a
+   Shift+Tab walk is handled in `brigade.ts`, which opens the track behind
+   before the browser picks the stop (GH-243). */
 .rl-garage__track[data-expanded='0'] .rl-garage__rungs,
 .rl-garage__track[data-expanded='0'] .rl-garage__track-max {
   display: none;
@@ -4666,6 +4717,25 @@ button.rl-menu__item[data-kind='aside'] {
    the one thing on this screen that is not yet true. */
 .rl-garage__stat-delta {
   background: var(--good);
+}
+/* The comparison ghost (GH-243, spec §4): another unit's whole number as a
+   dashed outline laid OVER the bar from its own start, against the same
+   roster maximum -- so where the outline ends against where the solid bar
+   ends is the comparison. Out of flow, so it never pushes the three real
+   segments; zero width (and so nothing drawn) when nothing is compared. */
+.rl-garage__stat-bar {
+  position: relative;
+}
+.rl-garage__stat-ghost {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.rl-garage__stat-ghost[data-on='1'] {
+  border: 1px dashed var(--ink);
 }
 /* A purchase grows the bars old -> new (§3.5). The transition lives ONLY
    under this class, which brigade.ts's `growBars` holds for the 300 ms and no

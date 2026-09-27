@@ -54,6 +54,7 @@ import {
   restoreFocus,
   retainSelection,
   rovingStep,
+  sortByKit,
   trackForDigit,
   type PurchaseAsk,
   type PurchaseCue,
@@ -281,6 +282,37 @@ function ownedTiers(u: BrigadeUnit, owned: Record<string, Record<string, number>
   return out;
 }
 
+/** Whether a control is actually drawn, so focus could land on it. A card
+ *  the current tab hides still carries its key, and so does a rung or Buy
+ *  under a track the accordion has collapsed (`trackEl` always builds the
+ *  full ladder; `[data-expanded='0']` is what hides it) -- `.focus()` on
+ *  either is refused by a real browser, which drops focus to `<body>`
+ *  silently, and Tab skips both. `checkVisibility()` is the real check where
+ *  a browser has it (it already accounts for every ancestor's `display`, not
+ *  just this element's own); jsdom carries no such method at all, so the
+ *  fallback -- no `[hidden]` ancestor and nothing a collapsed track hides --
+ *  is what `brigade.test.ts` actually exercises. */
+function isRendered(e: HTMLElement): boolean {
+  return typeof e.checkVisibility === 'function'
+    ? e.checkVisibility()
+    : e.closest('[hidden]') === null && e.closest(COLLAPSED) === null;
+}
+
+/** What `theme.css` hides under a collapsed track -- its ladder and its
+ *  "maxed" line, and NOT its head, which stays a Tab stop (I1). The jsdom
+ *  fallback above has to say exactly that: an ancestor test on the track
+ *  wrapper alone reads a collapsed track's head as hidden too. */
+const COLLAPSED = '[data-expanded="0"] .rl-garage__rungs, [data-expanded="0"] .rl-garage__track-max';
+
+/** The controls a Tab walk stops on inside `root`, in document order (no
+ *  positive `tabindex` exists on this screen, so document order IS tab
+ *  order): enabled, rendered, and not taken out by a roving `tabIndex` -1. */
+function tabStops(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]')].filter(
+    (e) => e.tabIndex >= 0 && !(e as HTMLButtonElement).disabled && isRendered(e)
+  );
+}
+
 export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   /** The account this screen is drawing. Opens as the options hand it in and
    *  is replaced whole by each answer a purchase or a reset gets back
@@ -420,6 +452,14 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   body.append(rail, bay, board);
   wrap.appendChild(body);
 
+  /** The bay's stat panel (`garage-stats.ts`'s `statPanel`), rebuilt with the
+   *  bay. A rung's hover and focus address it through `panel.preview`, which
+   *  is why it lives in a variable that outlives one `renderBay` call rather
+   *  than being read back out of the DOM. */
+  // Declared ahead of the rail: `renderCards` repaints the comparison ghost
+  // into it (GH-243), and runs during construction, before the bay exists.
+  let panel: StatPanel | null = null;
+
   // --- the rail -------------------------------------------------------------
   const present = new Set(rows.map((r) => roleBucket(r.u)));
   const buckets: readonly (RoleBucket | 'all')[] = ['all', ...BUCKET_ORDER.filter((b) => present.has(b))];
@@ -462,6 +502,40 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   });
   rail.appendChild(tabs);
 
+  // Sort by kit level (GH-243, spec §4 "Comparison": "the rail can sort by
+  // kit level beside role"). A toggle, not a third tab row: the role tabs
+  // FILTER and this ORDERS, and the two compose -- "Armour, most kitted
+  // first" is one reading. Outside the tablist on purpose (a tablist holds
+  // tabs only), so it is its own Tab stop between the tabs and the cards.
+  // Off by default: the rail's own order (available first, locked by the gate
+  // that opens soonest) is what every earlier visit showed. Held for the
+  // screen's life, through every purchase's redraw; never persisted.
+  let sortKit = false;
+  const sort = document.createElement('button');
+  sort.type = 'button';
+  sort.className = 'rl-garage__sort';
+  sort.dataset.focusKey = 'sort';
+  sort.textContent = t('garage.sort.kit');
+  sort.setAttribute('aria-pressed', 'false');
+  sort.addEventListener('click', () => {
+    sortKit = !sortKit;
+    sort.setAttribute('aria-pressed', sortKit ? 'true' : 'false');
+    renderCards();
+    syncTabs();
+  });
+  rail.appendChild(sort);
+
+  // --- comparison (GH-243, spec §4): Shift over a card ghosts that type's
+  // bars against the unit in the bay. What is compared is the pointer's card
+  // while Shift is down -- or, for a keyboard player, the card focus sits on
+  // (Shift+arrow walks the rail WITHOUT selecting, see the cards' keydown
+  // below). Never the bay unit against itself.
+  let shiftHeld = false;
+  let hoverId: string | null = null;
+  /** The unit the panel currently ghosts, so an unchanged answer does not
+   *  repaint -- and does not re-announce the caption's live region. */
+  let comparedId: string | null = null;
+
   const cards = el('div', 'rl-garage__cards');
   cards.setAttribute('role', 'listbox');
   const cardEls = new Map<string, HTMLButtonElement>();
@@ -471,7 +545,15 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   function renderCards(): void {
     cards.replaceChildren();
     cardEls.clear();
-    for (const row of rows) {
+    // Status and kit (WP-S3g T5, §3.1): the same `applyUpgrades`-ready merge
+    // the bay itself builds, so a card's Maxed reading can never disagree
+    // with what the board would show for the same unit. Read before the
+    // loop, since the kit-level sort (GH-243) orders by it.
+    const drawn = rows.map((row) => {
+      const merged: UpgradableUnit = { ...opts.baseOf(row.u.id), id: row.u.id, upgrades: row.u.upgrades };
+      return { row, kit: kitSummary(merged, ownedTiers(row.u, state.owned)) };
+    });
+    for (const { row, kit } of sortKit ? sortByKit(drawn, (d) => d.kit.level) : drawn) {
       const { u } = row;
       const card = document.createElement('button');
       card.type = 'button';
@@ -482,11 +564,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       card.dataset.focusKey = `card:${u.id}`;
       card.setAttribute('role', 'option');
 
-      // Status and kit (WP-S3g T5, §3.1): the same `applyUpgrades`-ready merge
-      // the bay itself builds, so a card's Maxed reading can never disagree
-      // with what the board would show for the same unit.
-      const merged: UpgradableUnit = { ...opts.baseOf(u.id), id: u.id, upgrades: u.upgrades };
-      const kit = kitSummary(merged, ownedTiers(u, state.owned));
       const status = cardStatus({ locked: row.locked, bought: u.unlock?.bought === true, maxed: kit.maxed });
       card.dataset.status = status;
       card.dataset.kit = String(kit.level);
@@ -566,9 +643,28 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
         syncCards();
         renderBay();
       });
+      // Comparison (GH-243): which card the pointer is over, and whether
+      // Shift was down as it arrived or moved -- a Shift pressed while the
+      // window lacked focus never reaches the window's own keydown, but it
+      // does ride along on every mouse event.
+      card.addEventListener('mouseenter', (ev: MouseEvent) => {
+        hoverId = u.id;
+        shiftHeld = ev.shiftKey;
+        syncCompare();
+      });
+      card.addEventListener('mousemove', (ev: MouseEvent) => {
+        if (ev.shiftKey === shiftHeld) return;
+        shiftHeld = ev.shiftKey;
+        syncCompare();
+      });
+      card.addEventListener('mouseleave', () => {
+        if (hoverId === u.id) hoverId = null;
+        syncCompare();
+      });
       cardEls.set(u.id, card);
       cards.appendChild(card);
     }
+    syncCompare(true);
   }
   renderCards();
   rail.appendChild(cards);
@@ -578,12 +674,23 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // moving off a role filter would be a strange thing for a Buy click to
   // answer to, a card IS the thing a mouse player picks by looking at it, so
   // a keyboard player's arrow does the same job a click already does.
+  //
+  // Shift+arrow is the one exception (GH-243): it moves focus ONLY, leaving
+  // the bay where it is, so the focused card can be compared against it --
+  // the keyboard's way to do what Shift over a card does for a mouse. Enter
+  // or Space on the card it lands on then selects it, as a click would.
   cards.addEventListener('keydown', (ev: KeyboardEvent) => {
     const order = [...cardEls.values()].filter((c) => !c.hidden);
     const at = order.indexOf(document.activeElement as HTMLButtonElement);
     const to = rovingStep(ev.key, at, order.length);
     if (to === null) return;
     ev.preventDefault();
+    if (ev.shiftKey) {
+      shiftHeld = true;
+      order[to].focus();
+      syncCompare();
+      return;
+    }
     selectedId = order[to].dataset.unit ?? selectedId;
     // A different unit: the accordion starts over (fix round 1).
     activeTrack = null;
@@ -625,6 +732,90 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     if (landing === null) return;
     ev.preventDefault();
     landing.focus();
+  });
+
+  // Focus leaving or reaching a card changes what a held Shift compares (a
+  // Shift+Tab out of the rail, say, must not leave a ghost behind).
+  cards.addEventListener('focusin', () => syncCompare());
+  cards.addEventListener('focusout', () => syncCompare());
+
+  // Shift itself, wherever focus is: the pointer can be over a card while
+  // focus sits anywhere on the page. A window blur loses the key-up with it
+  // (Alt+Tab away with Shift down), so it drops the comparison too.
+  const onShiftDown = (ev: KeyboardEvent): void => {
+    if (ev.key !== 'Shift' || shiftHeld) return;
+    shiftHeld = true;
+    syncCompare();
+  };
+  const onShiftUp = (ev: KeyboardEvent): void => {
+    if (ev.key !== 'Shift') return;
+    shiftHeld = false;
+    syncCompare();
+  };
+  const onBlur = (): void => {
+    shiftHeld = false;
+    syncCompare();
+  };
+  window.addEventListener('keydown', onShiftDown);
+  window.addEventListener('keyup', onShiftUp);
+  window.addEventListener('blur', onBlur);
+
+  /** Paints the comparison off the three facts above. `force` repaints even
+   *  an unchanged answer -- for a panel `renderBay` has just rebuilt, or cards
+   *  `renderCards` has, which carry none of the old paint. */
+  function syncCompare(force = false): void {
+    const active = document.activeElement;
+    const focused = active instanceof HTMLElement && cards.contains(active) ? (active.dataset.unit ?? null) : null;
+    let id = shiftHeld ? (hoverId ?? focused) : null;
+    if (id === selectedId || (id !== null && !rows.some((r) => r.u.id === id))) id = null;
+    if (id === comparedId && !force) return;
+    comparedId = id;
+    for (const [cid, c] of cardEls) {
+      if (cid === id) c.dataset.compare = '1';
+      else delete c.dataset.compare;
+    }
+    const row = id === null ? undefined : rows.find((r) => r.u.id === id);
+    panel?.compare(row === undefined ? null : { name: row.u.name, unit: asOwnedOf(row.u) });
+  }
+
+  /** A unit as it stands -- base JSON plus what the account has bought for
+   *  it -- for the comparison ghost. `renderBay`'s own read of the same
+   *  thing warns on a patch the unit does not declare; this one falls back
+   *  to base quietly, since that warning has already been said once for the
+   *  unit that matters (the one in the bay). */
+  function asOwnedOf(u: BrigadeUnit): UpgradableUnit {
+    const merged: UpgradableUnit = { ...opts.baseOf(u.id), id: u.id, upgrades: u.upgrades };
+    try {
+      return applyUpgrades(merged, ownedTiers(u, state.owned));
+    } catch {
+      return merged;
+    }
+  }
+
+  // Shift+Tab reaches every track's Buy (GH-243, the final review's Minor).
+  // The accordion hides a collapsed track's ladder with `display: none`, so a
+  // walk BACK up the board used to land on the previous track's head and
+  // skip its Buy: the Buy sits after the head in the DOM, and it was not
+  // drawn when the browser chose where Shift+Tab goes. Forward Tab never had
+  // the problem -- it reaches a head first, and the head's own `focusin`
+  // opens the track before the next Tab looks for its Buy. So: when the stop
+  // behind this one is a COLLAPSED track's head, open that track BEFORE the
+  // browser moves focus. The key's default runs after this listener, so the
+  // Buy is then the stop behind, and Shift+Tab lands on it naturally -- no
+  // focus is moved by script. Covers entering the board from below too
+  // (Shift+Tab off the footer lands on the last track's Buy, not its head).
+  wrap.addEventListener('keydown', (ev: KeyboardEvent) => {
+    if (ev.key !== 'Tab' || !ev.shiftKey || ev.altKey || ev.ctrlKey || ev.metaKey) return;
+    const target = ev.target instanceof HTMLElement ? ev.target : null;
+    if (target === null) return;
+    const stops = tabStops(wrap);
+    const at = stops.indexOf(target);
+    const behind = at > 0 ? stops[at - 1] : null;
+    if (behind === null || !behind.classList.contains('rl-garage__track-head')) return;
+    const track = behind.closest<HTMLElement>('.rl-garage__track');
+    if (track === null || track.dataset.expanded !== '0') return;
+    activeTrack = track.dataset.track ?? activeTrack;
+    applyExpansion();
   });
 
   // Enter on a rung buys it -- the digit jump's own landing spot, and the
@@ -680,11 +871,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   }
 
   // --- the bay and the board ------------------------------------------------
-  /** The bay's stat panel (`garage-stats.ts`'s `statPanel`), rebuilt with the
-   *  bay. A rung's hover and focus address it through `panel.preview`, which
-   *  is why it lives in a variable that outlives one `renderBay` call rather
-   *  than being read back out of the DOM. */
-  let panel: StatPanel | null = null;
 
   // The accordion's own state: which track the player last pointed at, by
   // mouse or by keyboard (fix round 1, §2 goal 3). Fix round 2, issue 2's
@@ -923,6 +1109,10 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       // unit, carried over from before a purchase's redraw otherwise.
       applyExpansion();
     }
+    // A new panel carries no ghost: put back whatever is being compared (a
+    // purchase's redraw with Shift still down), or -- a new unit picked
+    // while Shift is held over it -- clear what was.
+    syncCompare(true);
   }
 
   syncTabs();
@@ -1030,20 +1220,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     bay.scrollTop = scroll.bay;
     board.scrollTop = scroll.board;
     if (panel !== null) panel.el.scrollTop = scroll.stats;
-    // Only controls a player can actually SEE are candidates. A card the
-    // current tab hides still carries its key, and so does a rung under a
-    // track the accordion has collapsed (`trackEl` always builds the full
-    // ladder; `[data-expanded='0']` is what hides it) -- `.focus()` on
-    // either is refused by a real browser, which drops focus to `<body>`
-    // silently. `checkVisibility()` is the real check where a browser has it
-    // (it already accounts for every ancestor's `display`, not just this
-    // element's own); jsdom carries no such method at all, so the fallback
-    // -- no `[hidden]` ancestor and no collapsed-track ancestor -- is what
-    // `brigade.test.ts` actually exercises.
-    const isRendered = (e: HTMLElement): boolean =>
-      typeof e.checkVisibility === 'function'
-        ? e.checkVisibility()
-        : e.closest('[hidden]') === null && e.closest('[data-expanded="0"]') === null;
+    // Only controls a player can actually SEE are candidates (`isRendered`).
     const keys = [...wrap.querySelectorAll<HTMLElement>('[data-focus-key]')].filter(isRendered);
     // Nothing closer is left when the unit's own card is filtered out (the
     // bay keeps a unit the tab has hidden): the tab the player is on is the
@@ -1187,6 +1364,9 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // Leaving mid-purchase stops the count's frame and every flash's timeout
   // BEFORE the node goes, so nothing this screen started writes to it after.
   return () => {
+    window.removeEventListener('keydown', onShiftDown);
+    window.removeEventListener('keyup', onShiftUp);
+    window.removeEventListener('blur', onBlur);
     cancelAnimationFrame(countRaf);
     for (const id of timers) window.clearTimeout(id);
     wrap.remove();

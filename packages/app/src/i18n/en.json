@@ -197,6 +197,9 @@
   "garage.locked.unlockFirst": "Unlock first",
   "garage.locked.kitKept": "Kit kept — unit locked",
   "garage.empty.credits": "Credits come from winning missions.",
+  "garage.compare.caption": "Compared with {name}",
+  "garage.compare.figure": "{own} vs {other}",
+  "garage.sort.kit": "Most kitted first",
 
   "debrief.defeat.title": "Withdraw and regroup",
   "debrief.tag": "{result, select, victory {Debrief} other {Defeat}}",

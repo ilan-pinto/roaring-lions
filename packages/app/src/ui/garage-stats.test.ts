@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { applyUpgrades, readPath, units, type UpgradableUnit } from '@lions/data';
-import { PANEL_PATHS, previewDeltas, statBar, statPanel } from './garage-stats';
+import { PANEL_PATHS, ghostBar, previewDeltas, statBar, statPanel } from './garage-stats';
 
 const kdf = (id: keyof typeof units): UpgradableUnit => units[id] as unknown as UpgradableUnit;
 
@@ -120,5 +120,55 @@ describe('statPanel', () => {
     p.preview(null);
     expect(row(p.el, '.rl-garage__stat-n')?.textContent).toBe('428');
     expect(row(p.el, '.rl-garage__stat-delta')?.style.width).toBe('0%');
+  });
+});
+
+describe('ghostBar (GH-243, spec §4 Comparison)', () => {
+  it('draws the other unit against the same roster maximum, and prints both figures', () => {
+    expect(ghostBar({ own: 400, other: 3000, max: 3750, kind: 'hp' })).toEqual({ pct: 80, figure: '400 vs 3000' });
+  });
+  it('writes a percent stat as a percent on both sides', () => {
+    expect(ghostBar({ own: 0.6, other: 0.75, max: 1, kind: 'percent' }).figure).toBe('60% vs 75%');
+  });
+  it('never overflows its track', () => {
+    expect(ghostBar({ own: 1, other: 5000, max: 3750, kind: 'hp' }).pct).toBe(100);
+  });
+  it('draws nothing for a stat the other unit does not declare, and says so', () => {
+    expect(ghostBar({ own: 400, other: undefined, max: 3750, kind: 'hp' })).toEqual({ pct: 0, figure: '400 vs —' });
+  });
+});
+
+describe('statPanel — the comparison ghost (GH-243)', () => {
+  const inf = kdf('inf_squad');
+  const lavi = kdf('mbt_lavi');
+  const max = new Map([['hull.hp', 4000]]);
+  const row = (el: HTMLElement, sel: string): HTMLElement | null =>
+    el.querySelector<HTMLElement>(`.rl-garage__stat[data-path="hull.hp"] ${sel}`);
+
+  it('ghosts the other unit over the bay unit’s own bars, names it, and clears', () => {
+    const p = statPanel(inf, inf, max);
+    expect(row(p.el, '.rl-garage__stat-ghost')?.style.width).toBe('0%');
+    expect(p.el.querySelector<HTMLElement>('.rl-garage__compare')?.textContent).toBe('');
+    p.compare({ name: 'Lavi', unit: lavi });
+    expect(row(p.el, '.rl-garage__stat-ghost')?.style.width).toBe(`${(readPath(lavi, 'hull.hp') ?? 0) / 40}%`);
+    expect(row(p.el, '.rl-garage__stat-ghost')?.dataset.on).toBe('1');
+    expect(row(p.el, '.rl-garage__stat-n')?.textContent).toBe(`${readPath(inf, 'hull.hp')} vs ${readPath(lavi, 'hull.hp')}`);
+    expect(row(p.el, '.rl-garage__stat-fill')?.style.width).toBe(`${(readPath(inf, 'hull.hp') ?? 0) / 40}%`);
+    const caption = p.el.querySelector<HTMLElement>('.rl-garage__compare');
+    expect(caption?.textContent).toBe('Compared with Lavi');
+    expect(caption?.getAttribute('aria-live')).toBe('polite');
+    p.compare(null);
+    expect(row(p.el, '.rl-garage__stat-ghost')?.style.width).toBe('0%');
+    expect(row(p.el, '.rl-garage__stat-ghost')?.dataset.on).toBe('0');
+    expect(row(p.el, '.rl-garage__stat-n')?.textContent).toBe(String(readPath(inf, 'hull.hp')));
+    expect(caption?.textContent).toBe('');
+  });
+  it('lets a rung preview speak over a comparison, and the comparison come back after', () => {
+    const p = statPanel(inf, inf, max);
+    p.compare({ name: 'Lavi', unit: lavi });
+    p.preview(new Map([['hull.hp', 40]]));
+    expect(row(p.el, '.rl-garage__stat-n')?.textContent).toBe('400 → 440');
+    p.preview(null);
+    expect(row(p.el, '.rl-garage__stat-n')?.textContent).toBe(`400 vs ${readPath(lavi, 'hull.hp')}`);
   });
 });

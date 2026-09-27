@@ -107,6 +107,35 @@ export function statBar(i: {
   };
 }
 
+/** The comparison ghost (GH-243, spec §4 "Comparison"): another unit's
+ *  number for one row, drawn as an outline against the SAME roster maximum
+ *  the bay unit's own bars read (R-5) -- so the two lengths are directly
+ *  comparable -- and printed beside the bay unit's own figure. The other
+ *  unit is read as it stands, kit included: that is the unit the player
+ *  would field. */
+export interface GhostBar {
+  readonly pct: number;
+  readonly figure: string;
+}
+
+export function ghostBar(i: {
+  own: number | undefined;
+  other: number | undefined;
+  max: number;
+  kind: BenefitUnitKind;
+}): GhostBar {
+  const fig = (v: number | undefined): string => (v === undefined ? t('garage.stat.none') : statNumber(v, i.kind));
+  const pct = i.other === undefined || i.max <= 0 ? 0 : Math.min(100, (Math.max(0, i.other) * 100) / i.max);
+  return { pct, figure: t('garage.compare.figure', { own: fig(i.own), other: fig(i.other) }) };
+}
+
+/** Who the panel is being compared with: a name for the caption, and the
+ *  unit as it stands (base plus its own kit) to read each row off. */
+export interface CompareWith {
+  readonly name: string;
+  readonly unit: UpgradableUnit;
+}
+
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -117,6 +146,11 @@ const el = (tag: string, cls: string, text?: string): HTMLElement => {
 export interface StatPanel {
   readonly el: HTMLElement;
   preview(deltas: ReadonlyMap<string, number> | null): void;
+  /** Ghost another unit's bars over this one's (GH-243), or clear them with
+   *  `null`. A rung preview, while one is held, speaks over it: the preview
+   *  is the one thing on the screen that is not yet true, and it is what the
+   *  player is pointing at. */
+  compare(other: CompareWith | null): void;
 }
 
 interface PanelRow {
@@ -132,6 +166,7 @@ interface PanelRow {
   readonly fill: HTMLElement;
   readonly kitBar: HTMLElement;
   readonly deltaBar: HTMLElement;
+  readonly ghost: HTMLElement;
   readonly num: HTMLElement;
   readonly kitN: HTMLElement;
 }
@@ -147,7 +182,19 @@ export function statPanel(
   rosterMax: ReadonlyMap<string, number>
 ): StatPanel {
   const wrap = el('div', 'rl-garage__stats');
-  wrap.appendChild(el('h3', 'rl-garage__board-title', t('garage.board.stats')));
+  const head = el('div', 'rl-garage__stats-head');
+  head.appendChild(el('h3', 'rl-garage__board-title', t('garage.board.stats')));
+  // Who the ghosts belong to, said once for the whole panel rather than on
+  // every row -- and said ALOUD: the ghost is an outline and a second figure,
+  // neither of which a screen reader would otherwise announce as a change.
+  // Always in the DOM and never `hidden` (a live region has to be present
+  // and shown before it changes to be heard reliably), empty while nothing
+  // is compared; on the title's own line, so it costs the panel no height
+  // and nothing below it moves when a comparison starts.
+  const caption = el('div', 'rl-garage__compare');
+  caption.setAttribute('aria-live', 'polite');
+  head.appendChild(caption);
+  wrap.appendChild(head);
 
   const rows: PanelRow[] = [];
   for (const path of PANEL_PATHS) {
@@ -161,7 +208,11 @@ export function statPanel(
     const fill = el('span', 'rl-garage__stat-fill');
     const kitBar = el('span', 'rl-garage__stat-kit');
     const deltaBar = el('span', 'rl-garage__stat-delta');
-    bar.append(fill, kitBar, deltaBar);
+    // The comparison ghost: an outline laid OVER the three segments from the
+    // bar's own start, never a fourth segment after them -- it is another
+    // unit's whole number, not an addition to this one's.
+    const ghost = el('span', 'rl-garage__stat-ghost');
+    bar.append(fill, kitBar, deltaBar, ghost);
     stat.appendChild(bar);
 
     const num = el('span', 'rl-garage__stat-n');
@@ -180,19 +231,28 @@ export function statPanel(
       fill,
       kitBar,
       deltaBar,
+      ghost,
       num,
       kitN,
     });
   }
 
-  function paint(deltas: ReadonlyMap<string, number> | null): void {
+  let deltas: ReadonlyMap<string, number> | null = null;
+  let other: CompareWith | null = null;
+
+  function paint(): void {
+    caption.textContent = other === null ? '' : t('garage.compare.caption', { name: other.name });
     for (const row of rows) {
       const preview = deltas?.get(row.path) ?? 0;
       const bar = statBar({ base: row.base, owned: row.owned, preview, max: row.max, kind: row.kind });
       row.fill.style.width = `${bar.basePct}%`;
       row.kitBar.style.width = `${bar.kitPct}%`;
       row.deltaBar.style.width = `${bar.previewPct}%`;
-      row.num.textContent = bar.figure;
+      const ghost =
+        other === null ? null : ghostBar({ own: row.owned, other: readPath(other.unit, row.path), max: row.max, kind: row.kind });
+      row.ghost.style.width = `${ghost?.pct ?? 0}%`;
+      row.ghost.dataset.on = ghost !== null && ghost.pct > 0 ? '1' : '0';
+      row.num.textContent = ghost !== null && deltas === null ? ghost.figure : bar.figure;
       row.kitN.textContent = bar.kit ?? '';
       row.kitN.hidden = bar.kit === null;
       // Fix round 1 (F4): the panel now scrolls inside its own region
@@ -208,7 +268,17 @@ export function statPanel(
     }
   }
 
-  paint(null);
+  paint();
 
-  return { el: wrap, preview: paint };
+  return {
+    el: wrap,
+    preview: (d) => {
+      deltas = d;
+      paint();
+    },
+    compare: (o) => {
+      other = o;
+      paint();
+    },
+  };
 }
