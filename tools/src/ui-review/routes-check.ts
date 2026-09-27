@@ -1271,6 +1271,26 @@ try {
       ' placeholder: log.stats.placeholder, osc: window.__rlAudio.osc.map(function (r) { return r.f; }),' +
       ' constructed: window.__rlAudio.constructed }; })()';
     const tones = (r: VoiceRead): number[] => r.osc.filter((f): f is number => f !== null && VOICE_HZ.has(f));
+    // Only ORDER-sourced entries count a gesture (voice-runtime.ts's
+    // `VoiceLogEntry.source`, 'order' | 'death'): the sandbox force keeps
+    // fighting in the background while these legs run, and a death voiced in
+    // the same window as a click would inflate a raw `entries.length` and
+    // read as an extra gesture that never happened.
+    const orderEntries = (r: VoiceRead): VoiceEntry[] => r.entries.filter((e) => e.source === 'order');
+    const orderCount = (r: VoiceRead): number => orderEntries(r).length;
+    /** Poll (never a fixed sleep) until the log holds at least `n` order
+     *  entries, or fail the run the same way every other `waitForFunction`
+     *  here does. Kept as a page function inline rather than a stored named
+     *  const, for `frameCadence`'s own `__name` reason. */
+    const waitForOrderCount = (n: number): Promise<unknown> =>
+      v.waitForFunction(
+        (target: number) => {
+          const w = window as unknown as { __lions: { voiceLog(): { entries: { source: string }[] } } };
+          return w.__lions.voiceLog().entries.filter((e) => e.source === 'order').length >= target;
+        },
+        n,
+        { timeout: ACTION_TIMEOUT_MS }
+      );
 
     const vCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
     await vCtx.addInitScript(AUDIO_RECORDER);
@@ -1316,12 +1336,16 @@ try {
       );
 
     // (a) One gesture, one voice event: the canvas, the minimap and a key.
+    // Each step polls the log for its own order count rather than sleeping a
+    // fixed 300ms: the flush this leg is waiting on is a queued microtask, not
+    // a scheduled tone, so there is a real condition to wait on and a fixed
+    // sleep either races it under load or wastes time that was never needed.
     const p = await aim([inf.id, lavi.id], inf);
     await v.mouse.click(p.x, p.y, { button: 'right' });
-    await v.waitForTimeout(300);
+    await waitForOrderCount(1);
     const a1 = await read();
     console.log(`[${TAG}] voices (a) canvas: ${JSON.stringify(a1.entries)} tones=${tones(a1).join(',')}`);
-    expect(a1.entries.length === 1, `voices (a): one right-click made ${a1.entries.length} voice events, not 1 (N1)`);
+    expect(orderCount(a1) === 1, `voices (a): one right-click made ${orderCount(a1)} order voice event(s), not 1 (N1)`);
     expect(
       a1.entries[0]?.key === 'he.infantry.move' && a1.entries[0]?.status === 'placeholder',
       `voices (a): expected he.infantry.move as a placeholder, got ${JSON.stringify(a1.entries[0])}`
@@ -1330,15 +1354,18 @@ try {
     const mm = await v.locator('.rl-minimap').boundingBox();
     if (!mm) throw new Error(`[${TAG}] voices: no minimap`);
     await v.mouse.click(mm.x + mm.width / 2, mm.y + mm.height / 2, { button: 'right' });
-    await v.waitForTimeout(300);
+    await waitForOrderCount(2);
     const a2 = await read();
-    expect(a2.entries.length === 2 && tones(a2).length === 2, `voices (a): the minimap order made ${a2.entries.length - 1} events`);
+    expect(
+      orderCount(a2) === 2 && tones(a2).length === 2,
+      `voices (a): the minimap order made ${orderCount(a2) - 1} events`
+    );
     await v.keyboard.press('h');
-    await v.waitForTimeout(300);
+    await waitForOrderCount(3);
     const a3 = await read();
     expect(
-      a3.entries.length === 3 && tones(a3).length === 3 && a3.entries[2]?.trigger === 'halt',
-      `voices (a): the halt key made ${JSON.stringify(a3.entries.slice(2))}`
+      orderCount(a3) === 3 && tones(a3).length === 3 && orderEntries(a3)[2]?.trigger === 'halt',
+      `voices (a): the halt key made ${JSON.stringify(orderEntries(a3).slice(2))}`
     );
 
     // (b) A quick repeat is throttled (N2). Three right-clicks inside a second,
@@ -1390,11 +1417,11 @@ try {
     const z = await aim([inf.id], inf);
     const c0 = await read();
     await v.mouse.click(z.x, z.y, { button: 'right' });
-    await v.waitForTimeout(300);
+    await waitForOrderCount(orderCount(c0) + 1);
     const c1 = await read();
-    const lastEntry = c1.entries.at(-1);
+    const lastEntry = orderEntries(c1).at(-1);
     console.log(`[${TAG}] voices (c) at 0: ${JSON.stringify(lastEntry)} tones ${tones(c0).length} -> ${tones(c1).length}`);
-    expect(c1.entries.length === c0.entries.length + 1, 'voices (c): the order at Voices 0 was not even decided');
+    expect(orderCount(c1) === orderCount(c0) + 1, 'voices (c): the order at Voices 0 was not even decided');
     expect(lastEntry?.status === 'volume-zero', `voices (c): at Voices 0 the mixer said ${String(lastEntry?.status)}`);
     expect(tones(c1).length === tones(c0).length, 'voices (c): a voice sounded with Voices at 0');
     await vCtx.close();
