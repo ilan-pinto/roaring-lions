@@ -58,6 +58,7 @@ import {
   audioManifest,
   vfxEmitters,
   menuDiorama,
+  type KitLevel,
   type MapJson,
   type MissionLocaleOverlay,
   type UpgradableUnit,
@@ -1257,6 +1258,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const bootKit = bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: readFlags(params).kit }, roster);
   const prepass = upgradePrepass(roster, bootKit);
   const kitByType = prepass.kitByType;
+  /** The one level every unit ICON reads (WP-S3g plan 2b): the prepass's own
+   *  `unitKit`, never re-derived -- the loop that registered the sim's types
+   *  and filled the card's pips. 0 for any type the prepass did not see. */
+  const kitLevelOf = (typeId: string): KitLevel => prepass.unitKit[typeId] ?? 0;
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -2595,6 +2600,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     portrait: (typeId) => portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
     kitOf: (typeId) => kitByType.get(typeId) ?? null,
+    kitLevelOf,
     // A closure over `runtime`, not a snapshot of it: the Hud is constructed
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.

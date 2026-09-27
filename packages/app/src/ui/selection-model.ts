@@ -182,6 +182,9 @@ export interface UnitFacts {
   aboard: boolean;
   /** Active protection, where the type has any. */
   aps?: { ammo: number; magazine: number };
+  /** Side 0 -- the player's own. Absent reads as not own, so a chip never
+   *  claims kit it cannot prove (plan 2b). */
+  own?: boolean;
 }
 
 export interface ChipView {
@@ -195,6 +198,8 @@ export interface ChipView {
   /** The chip's one line of condition, and what colour it is in. */
   status: string;
   statusTone: ChipTone;
+  /** Every unit in the chip is the player's -- the kit sign's guard (plan 2b). */
+  own: boolean;
 }
 
 /**
@@ -277,6 +282,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       hpTone: hpTone(pct),
       status,
       statusTone,
+      own: group.every((u) => u.own === true),
     };
   });
 }

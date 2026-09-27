@@ -16,7 +16,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { units } from '@lions/data';
+import { units, type KitLevel } from '@lions/data';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
 import type { KitSummary } from './kit-sign';
@@ -2142,5 +2142,71 @@ describe('the single-unit card — kit (WP-S3g §3.4, D2)', () => {
     const r = clusterRig(() => [enemy], { kitOf: () => summary() }, world);
     expect(r.host.querySelector('.rl-card .rl-kit-pips')).toBeNull();
     expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
+  });
+});
+
+describe('the kit sign on the HUD’s icons (WP-S3g plan 2b)', () => {
+  const levels =
+    (map: Record<string, KitLevel>) =>
+    (typeId: string): KitLevel =>
+      map[typeId] ?? 0;
+  const signOf = (el: Element | null | undefined): string | null =>
+    el?.querySelector<HTMLElement>('.rl-kit-icon')?.dataset.kit ?? null;
+  const chipOf = (r: ClusterRig, type: string): HTMLElement | undefined =>
+    r.chips().find((c) => c.dataset.type === type);
+
+  it('puts each chip’s type level on its icon, and nothing on an unkitted type', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [...world.squads, world.at, world.namer],
+      { kitLevelOf: levels({ inf_squad: 1, at_team: 3 }) },
+      world
+    );
+    expect(signOf(chipOf(r, 'inf_squad'))).toBe('1');
+    expect(signOf(chipOf(r, 'at_team'))).toBe('3');
+    expect(signOf(chipOf(r, 'ifv_namer'))).toBeNull();
+    // On the icon, not in the text column.
+    expect(chipOf(r, 'inf_squad')?.querySelector(':scope > .rl-kit-host > .rl-chip__art + .rl-kit-icon')).not.toBeNull();
+  });
+
+  it('leaves an unkitted selection’s chips byte-identical to a HUD with no kit at all', () => {
+    const a = makeForce();
+    const plain = clusterRig(() => [...a.squads, a.at], {}, a).chips().map((c) => c.outerHTML).join('');
+    const b = makeForce();
+    const zero = clusterRig(() => [...b.squads, b.at], { kitLevelOf: () => 0 }, b).chips().map((c) => c.outerHTML).join('');
+    expect(zero).toBe(plain);
+  });
+
+  it('never signs a chip that holds a unit the player does not command', () => {
+    const world = makeForce();
+    const enemy = world.sim.spawn(world.sim.state.typeIdx[world.namer], 1, fx.from(6), fx.from(6));
+    const r = clusterRig(
+      () => [world.squads[0], world.namer, enemy],
+      { kitLevelOf: levels({ inf_squad: 2, ifv_namer: 3 }) },
+      world
+    );
+    expect(signOf(chipOf(r, 'inf_squad'))).toBe('2');
+    expect(signOf(chipOf(r, 'ifv_namer'))).toBeNull(); // mixed sides: the chip cannot prove it
+  });
+
+  it('puts the level on the single-unit card’s frame, opposite its role badge', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { kitLevelOf: levels({ ifv_namer: 2 }) }, world);
+    const frame = r.host.querySelector('.rl-card__frame');
+    expect(frame?.querySelector<HTMLElement>(':scope > .rl-kit-icon')?.dataset.kit).toBe('2');
+    expect(frame?.querySelector(':scope > .rl-card__badge')).not.toBeNull();
+    expect(r.host.querySelectorAll('.rl-card .rl-kit-icon')).toHaveLength(1);
+  });
+
+  it('draws an unkitted card exactly as before, and never signs a unit the player does not command', () => {
+    const a = makeForce();
+    const plain = clusterRig(() => [a.namer], {}, a).host.querySelector('.rl-card')?.outerHTML;
+    const b = makeForce();
+    const zero = clusterRig(() => [b.namer], { kitLevelOf: () => 0 }, b).host.querySelector('.rl-card')?.outerHTML;
+    expect(zero).toBe(plain);
+    const world = makeForce();
+    const enemy = world.sim.spawn(world.sim.state.typeIdx[world.namer], 1, fx.from(6), fx.from(6));
+    const r = clusterRig(() => [enemy], { kitLevelOf: levels({ ifv_namer: 3 }) }, world);
+    expect(r.host.querySelector('.rl-card .rl-kit-icon')).toBeNull();
   });
 });
