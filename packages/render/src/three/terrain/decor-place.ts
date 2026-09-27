@@ -106,16 +106,21 @@ const DITCH_VARIANT = 0;
 
 // -- Clustered grass and sand (spec §3.4, G8) --------------------------
 //
-// Grass and sand no longer roll independently per open tile (that read even
-// at 0.27-0.34 an open tile, well above the Clark-Evans-ratio-~1 a uniform
-// Poisson scatter gives). Instead an open tile occasionally seeds a CLUMP --
-// a handful of grass or sand objects gathered within a tile or so of each
-// other -- plus, on the seed roll's own stream (unaffected by clustering), a
-// sparser scatter of lone singletons at roughly the density the old code
-// produced for a single roll. `familyFor` below returns the sentinel
-// `'open'` for exactly the tiles the old code rolled grass/sand on; the main
-// loop skips those (nothing is placed for them there), and `decorPlacements`
-// makes a second pass over the grid to roll seeds and singletons.
+// Grass and sand no longer roll independently per open tile. The old code
+// placed at most one object a tile, at a flat per-tile density (grass 0.34,
+// sand 0.18) -- and a flat per-tile roll is, by construction, an even
+// (Poisson) scatter: its Clark-Evans ratio reads ~1 (uniform) no matter how
+// high or low the density constant is tuned, because density and CLUMPING
+// are independent properties of a point pattern. Instead an open tile
+// occasionally seeds a CLUMP -- a handful of grass or sand objects gathered
+// within a tile or so of each other -- plus, independently, on its OWN
+// stream (449/823, the tile's old per-tile density roll -- unaffected by
+// whether the same tile also seeds a clump), a sparser scatter of lone
+// singletons: "a singleton lands where an object used to". `familyFor`
+// below returns the sentinel `'open'` for exactly the tiles the old code
+// rolled grass/sand on; the main loop skips those (nothing is placed for
+// them there), and `decorPlacements` makes a second pass over the grid to
+// roll seeds and singletons.
 //
 // A member's candidate position is checked against `isOpenScatterAt` --
 // blocked/cover/decor/boulder at its own tile, AND road clearance (R-3) --
@@ -205,6 +210,40 @@ function emptyRoadGraph(width: number, height: number): RoadGraph {
     solid: new Uint8Array(width * height),
     branches: [],
   };
+}
+
+/**
+ * Memoises `buildRoadGraph` by the identity of `input.decor` -- NOT
+ * `input.blocked`, which `ThreeRenderer.rebuildTerrain`'s `composeTerrain`
+ * recomputes fresh every call via `drawBlockedMask(sim)` even when nothing
+ * changed, so keying on it would never hit. `decor` is `ThreeRenderer`'s
+ * `retained.decor`: the same array reference survives every rebuild until
+ * `setDecor` installs a new one, which is exactly "the map's roads changed"
+ * -- the one thing this cache must invalidate on, and the one thing a
+ * reference compare (not a content compare, which would cost as much as
+ * building the graph) can answer for free. A `WeakMap` rather than a plain
+ * one so a discarded decor array (a mission unload, a new map) takes its
+ * cached graph with it instead of leaking it for the life of the module.
+ *
+ * `sawRoad` (this file's own per-tile scan, already paid for) answers
+ * "does this map have a road at all" before this is ever consulted: a
+ * road-free map or fixture (most unit tests, every sandbox screen before a
+ * road is authored, and any input with `decor` null) skips this cache
+ * entirely and gets `emptyRoadGraph` -- see the call site.
+ */
+const roadGraphCache = new WeakMap<Uint8Array, RoadGraph>();
+
+function cachedRoadGraph(input: TerrainInput): RoadGraph {
+  const { decor } = input;
+  // Guaranteed non-null by the call site's `sawRoad` check, but TypeScript
+  // cannot see that correlation across two separate bindings -- an explicit
+  // guard (not a non-null assertion) is what lets it narrow `decor` below.
+  if (!decor) return emptyRoadGraph(input.width, input.height);
+  const cached = roadGraphCache.get(decor);
+  if (cached) return cached;
+  const built = buildRoadGraph(input);
+  roadGraphCache.set(decor, built);
+  return built;
 }
 
 /**
@@ -382,13 +421,11 @@ export function decorPlacements(input: TerrainInput, density: number = SCATTER_D
         family === 'bush' ? Math.min(1, BUSH_COVER_BASE * (0.5 + 0.5 * c)) : DENSITY[family];
       // Own offset stream, like every other roll in this file -- NOT the
       // bare `tileHash(x, y)` scatter.ts's ground grain uses for its own
-      // pebble/fleck gate (`rnd > 0.9`, `rnd > 0.84`). Sharing that stream
-      // anti-correlates decor density with grain density across the whole
-      // map: a bush tile (density up to 1.0) could never land on a tile
-      // grain calls "pebbled" (>0.84) if the ranges never overlapped -- they
-      // do here, but the point of a dedicated stream still holds: this
-      // module's placement gate must not move in lockstep with the ground's
-      // own grain.
+      // pebble/fleck gate (`rnd > 0.9`, `rnd > 0.84`). A dedicated stream
+      // keeps this module's placement gate independent of the ground's own
+      // grain roll -- two different rolls reading the same tile, so
+      // whether a tile is "pebbled" tells nothing about whether it also
+      // gets a rock, a bush or a tree, whatever that family's density is.
       if (tileHash(x + 449, y + 823) >= tileDensity) continue;
 
       // A ditch is placed, not scattered. Every other family below jitters
@@ -478,14 +515,16 @@ export function decorPlacements(input: TerrainInput, density: number = SCATTER_D
     }
   }
 
-  // Second pass: clustered grass and sand (G8, spec §3.4). Built once here
-  // rather than per candidate -- `buildRoadGraph` walks the whole grid, and
-  // a cluster's own members are the only thing in this file that needs a
-  // road distance at all. Skipped entirely when the map carries no road tile
-  // (`emptyRoadGraph` is exactly what `buildRoadGraph` would have produced
-  // for that input, so `isOpenScatterAt`'s road check is unaffected) --
-  // `sawRoad` above already paid for this answer.
-  const graph = sawRoad ? buildRoadGraph(input) : emptyRoadGraph(width, height);
+  // Second pass: clustered grass and sand (G8, spec §3.4). The graph is
+  // resolved once here rather than per candidate -- `buildRoadGraph` walks
+  // the whole grid, and a cluster's own members are the only thing in this
+  // file that needs a road distance at all. Skipped entirely when the map
+  // carries no road tile at all (`sawRoad` above already paid for that
+  // answer); otherwise `cachedRoadGraph` memoises the REAL graph by
+  // `input.decor`'s identity, so a `composeTerrain` rebuild that changes
+  // nothing (`ThreeRenderer.ground-control.test.ts`'s I-1 case) never pays
+  // to rebuild it a second time, road-bearing maps included.
+  const graph = sawRoad ? cachedRoadGraph(input) : emptyRoadGraph(width, height);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const t = y * width + x;
