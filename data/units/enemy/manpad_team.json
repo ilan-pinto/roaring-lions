@@ -3,6 +3,7 @@
   "name": "MANPAD Team",
   "faction": "sarim",
   "role": "aa",
+  "voice": "infantry",
   "cost": { "logistics": 210, "build_time_s": 18, "population": 1 },
   "hull": {
     "hp": 320,

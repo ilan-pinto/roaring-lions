@@ -3,6 +3,7 @@
   "name": "Rocket Battery",
   "faction": "sarim",
   "role": "artillery",
+  "voice": "crew",
   "cost": { "logistics": 201, "build_time_s": 40, "population": 3 },
   "hull": {
     "hp": 320,

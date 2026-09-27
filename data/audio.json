@@ -335,5 +335,26 @@
         }
       ]
     }
+  },
+  "voices": {
+    "$comment": "Unit voices (WP-AU1, docs/superpowers/specs/2026-09-25-unit-voices-design.md). Keyed <lang>.<class>.<trigger>; every key the director can ask for is declared, and an empty `variants` list means the line is not recorded yet -- the engine plays nothing for it. A variant carries file, alt, license, source, credit, generator, text, translit and en, and `pnpm validate:audio` enforces them. No file lands before its rights are confirmed (D5).",
+    "gain": 0.8,
+    "languages": { "kdf": "he", "ashwar": "ar", "sarim": "ar", "rif": "ar" },
+    "lines": {
+      "ar.air.attack": { "variants": [] }, "ar.air.death": { "variants": [] }, "ar.air.move": { "variants": [] },
+      "ar.common.ack": { "variants": [] }, "ar.common.charge": { "variants": [] }, "ar.common.dismount": { "variants": [] },
+      "ar.common.garrison": { "variants": [] }, "ar.common.halt": { "variants": [] }, "ar.common.mount": { "variants": [] },
+      "ar.common.smoke": { "variants": [] }, "ar.crew.attack": { "variants": [] }, "ar.crew.death": { "variants": [] },
+      "ar.crew.move": { "variants": [] }, "ar.engineer.death": { "variants": [] }, "ar.engineer.move": { "variants": [] },
+      "ar.engineer.task": { "variants": [] }, "ar.infantry.attack": { "variants": [] }, "ar.infantry.death": { "variants": [] },
+      "ar.infantry.move": { "variants": [] },
+      "he.air.attack": { "variants": [] }, "he.air.death": { "variants": [] }, "he.air.move": { "variants": [] },
+      "he.common.ack": { "variants": [] }, "he.common.charge": { "variants": [] }, "he.common.dismount": { "variants": [] },
+      "he.common.garrison": { "variants": [] }, "he.common.halt": { "variants": [] }, "he.common.mount": { "variants": [] },
+      "he.common.smoke": { "variants": [] }, "he.crew.attack": { "variants": [] }, "he.crew.death": { "variants": [] },
+      "he.crew.move": { "variants": [] }, "he.engineer.death": { "variants": [] }, "he.engineer.move": { "variants": [] },
+      "he.engineer.task": { "variants": [] }, "he.infantry.attack": { "variants": [] }, "he.infantry.death": { "variants": [] },
+      "he.infantry.move": { "variants": [] }
+    }
   }
 }

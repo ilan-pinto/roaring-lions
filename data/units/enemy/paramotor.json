@@ -3,6 +3,7 @@
   "name": "Powered Parachute",
   "faction": "ashwar",
   "role": "support",
+  "voice": "air",
   "cost": {
     "logistics": 275,
     "build_time_s": 11,

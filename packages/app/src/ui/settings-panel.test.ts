@@ -52,7 +52,7 @@ describe('settingsPanel', () => {
     if (!r) throw new Error('no music slider');
     r.value = '0.25';
     r.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(gains).toHaveBeenCalledWith({ master: 1, music: 0.25, sfx: 1 });
+    expect(gains).toHaveBeenCalledWith({ master: 1, music: 0.25, sfx: 1, voice: 1 });
     expect(set).not.toHaveBeenCalled();
     r.dispatchEvent(new Event('change', { bubbles: true }));
     expect(set).toHaveBeenCalledTimes(1);
@@ -181,6 +181,31 @@ describe('settingsPanel', () => {
     edge.dispatchEvent(new Event('change', { bubbles: true }));
     expect(set.mock.calls.at(-1)?.[0].controls.edgePan).toBe(true);
     expect(el.querySelector('input[name="zoomToCursor"]')).not.toBeNull();
+  });
+  it('the Voices slider reaches the mixer while dragged and persists on release (WP-AU1 §7)', () => {
+    const { d, set, gains } = deps();
+    const { el } = settingsPanel(document.body, d);
+    const r = el.querySelector<HTMLInputElement>('input[name="voice"]');
+    if (!r) throw new Error('no voice slider');
+    expect(el.textContent).toContain('Voices');
+    r.value = '0';
+    r.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(gains).toHaveBeenLastCalledWith({ master: 1, music: 1, sfx: 1, voice: 0 });
+    expect(set).not.toHaveBeenCalled();
+    r.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set.mock.calls[0][0].audio.voice).toBe(0);
+  });
+  it('Voice captions are off by default, persist on change, and say what they show (D8)', () => {
+    const { d, set } = deps();
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="captions"]');
+    if (!cb) throw new Error('no captions box');
+    expect(cb.checked).toBe(false);
+    expect(el.textContent).toContain('Voice captions');
+    expect(el.textContent).toContain('in English');
+    cb.checked = true;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set.mock.calls[0][0].accessibility.captions).toBe(true);
   });
   it('showSettings mounts on the stage with a back link and its disposer empties the stage', () => {
     const { d } = deps();

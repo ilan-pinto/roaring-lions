@@ -26,7 +26,7 @@ export type CameraSpeed = 0.5 | 1 | 1.5 | 2;
 export interface Settings {
   version: 1;
   video: { fullscreen: boolean; uiScale: UiScaleSetting; textSize: TextSize; quality: Quality };
-  audio: { master: number; music: number; sfx: number };
+  audio: { master: number; music: number; sfx: number; voice: number };
   controls: {
     cameraSpeed: CameraSpeed;
     bindings: Record<string, string>;
@@ -40,7 +40,7 @@ export interface Settings {
      *  alternative is what shipped before this setting existed. */
     zoomToCursor: boolean;
   };
-  accessibility: { motion: 'system' | 'reduce'; colorVision: ColorVision };
+  accessibility: { motion: 'system' | 'reduce'; colorVision: ColorVision; captions: boolean };
   language: string;
 }
 
@@ -61,9 +61,9 @@ export const CAMERA_SPEEDS: readonly CameraSpeed[] = [0.5, 1, 1.5, 2];
 export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   version: 1,
   video: { fullscreen: false, uiScale: 'auto', textSize: 1, quality: 'high' },
-  audio: { master: 1, music: 1, sfx: 1 },
+  audio: { master: 1, music: 1, sfx: 1, voice: 1 },
   controls: { cameraSpeed: 1, bindings: {}, edgePan: false, zoomToCursor: true },
-  accessibility: { motion: 'system', colorVision: 'default' },
+  accessibility: { motion: 'system', colorVision: 'default', captions: false },
   language: 'en',
 });
 
@@ -105,6 +105,7 @@ export function parseSettings(raw: string | null): Settings {
       master: unit(audio.master, d.audio.master),
       music: unit(audio.music, d.audio.music),
       sfx: unit(audio.sfx, d.audio.sfx),
+      voice: unit(audio.voice, d.audio.voice),
     },
     controls: {
       cameraSpeed: oneOf(CAMERA_SPEEDS, controls.cameraSpeed, d.controls.cameraSpeed),
@@ -115,6 +116,7 @@ export function parseSettings(raw: string | null): Settings {
     accessibility: {
       motion: oneOf(['system', 'reduce'] as const, acc.motion, 'system'),
       colorVision: oneOf(COLOR_VISIONS, acc.colorVision, 'default'),
+      captions: bool(acc.captions, false),
     },
     language: typeof v.language === 'string' && LOCALES.some((l) => l.id === v.language) ? v.language : 'en',
   };

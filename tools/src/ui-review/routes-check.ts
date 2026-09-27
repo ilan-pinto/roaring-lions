@@ -47,6 +47,7 @@ import { boardCanvasVerdict } from './board-canvases';
 import { ACCOUNT_KEY } from '../../../packages/app/src/brigade-account';
 import { garageSeedScript } from './garage-seed';
 import { claimPort } from './port';
+import { PLACEHOLDER_HZ } from '../../../packages/render/src/audio';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -1250,6 +1251,180 @@ try {
       expect(heard.osc[0] !== 520, "garage: the first Buy played the ALERT's falling tone (R-2)");
     }
     await soundCtx.close();
+  }
+
+  // Plus (WP-AU1 T12): a voiced order is one event per gesture, a burst is throttled, and Voices at 0 plays nothing.
+  // --- unit voices (WP-AU1 T12, spec §2 N1 N2, §7) ---------------------------
+  //
+  // Driven with `?voicetick`, the dev-only placeholder (R-10): no voice line
+  // is recorded yet, so without it every gesture plays nothing and "nothing
+  // plays at Voices 0" could not fail. Each placeholder is ONE oscillator at a
+  // frequency nothing else here uses, so the recorder can count voices apart
+  // from the battle synth. `sel`/`goto` choose WHERE to look; every order is a
+  // real input event through the real handler.
+  {
+    const VOICE_HZ = new Set<number>(Object.values(PLACEHOLDER_HZ));
+    type VoiceEntry = { source: string; trigger: string | null; key: string | null; why: string; status: string | null };
+    type VoiceRead = { entries: VoiceEntry[]; placeholder: boolean; osc: (number | null)[]; constructed: number };
+    const VOICE_READ =
+      '(() => { var log = window.__lions.voiceLog(); return { entries: log.entries,' +
+      ' placeholder: log.stats.placeholder, osc: window.__rlAudio.osc.map(function (r) { return r.f; }),' +
+      ' constructed: window.__rlAudio.constructed }; })()';
+    const tones = (r: VoiceRead): number[] => r.osc.filter((f): f is number => f !== null && VOICE_HZ.has(f));
+    // Only ORDER-sourced entries count a gesture (voice-runtime.ts's
+    // `VoiceLogEntry.source`, 'order' | 'death'): the sandbox force keeps
+    // fighting in the background while these legs run, and a death voiced in
+    // the same window as a click would inflate a raw `entries.length` and
+    // read as an extra gesture that never happened.
+    const orderEntries = (r: VoiceRead): VoiceEntry[] => r.entries.filter((e) => e.source === 'order');
+    const orderCount = (r: VoiceRead): number => orderEntries(r).length;
+    /** Poll (never a fixed sleep) until the log holds at least `n` order
+     *  entries, or fail the run the same way every other `waitForFunction`
+     *  here does. Kept as a page function inline rather than a stored named
+     *  const, for `frameCadence`'s own `__name` reason. */
+    const waitForOrderCount = (n: number): Promise<unknown> =>
+      v.waitForFunction(
+        (target: number) => {
+          const w = window as unknown as { __lions: { voiceLog(): { entries: { source: string }[] } } };
+          return w.__lions.voiceLog().entries.filter((e) => e.source === 'order').length >= target;
+        },
+        n,
+        { timeout: ACTION_TIMEOUT_MS }
+      );
+
+    const vCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await vCtx.addInitScript(AUDIO_RECORDER);
+    const v = await vCtx.newPage();
+    v.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    v.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+    });
+    v.on('pageerror', (e) => errors.push(String(e)));
+    await v.goto(`http://localhost:${PORT}/free-play/beit_sahwan_outskirts?voicetick`, { waitUntil: 'load' });
+    await v.waitForFunction('window.__lions !== undefined', null, { timeout: 90_000 });
+    const read = (): Promise<VoiceRead> => v.evaluate<VoiceRead>(VOICE_READ);
+
+    const booted = await read();
+    console.log(`[${TAG}] voices at boot: placeholder=${booted.placeholder} contexts=${booted.constructed}`);
+    expect(booted.placeholder, 'voices: ?voicetick did not reach the mixer -- the legs below would test nothing (R-10)');
+    expect(booted.constructed === 0, `voices: ${booted.constructed} AudioContext(s) on a mission before any gesture`);
+
+    const units = await v.evaluate<{ id: number; type: string; x: number; y: number }[]>('window.__lions.units()');
+    const inf = units.find((u) => u.type === 'inf_squad');
+    const lavi = units.find((u) => u.type === 'mbt_lavi');
+    if (!inf || !lavi) throw new Error(`[${TAG}] voices: the sandbox force has no inf_squad or no mbt_lavi`);
+    /** Centre the camera on `at`, select `ids`, and return `at`'s page point. */
+    const aim = (ids: number[], at: { x: number; y: number }): Promise<{ x: number; y: number }> =>
+      v.evaluate(
+        ({ ids, at }) => {
+          const L = (window as unknown as {
+            __lions: {
+              goto(x: number, y: number): unknown;
+              sel(i: number[]): number[];
+              renderer: { worldToScreen(x: number, y: number): { x: number; y: number } };
+            };
+          }).__lions;
+          L.goto(at.x + 0.5, at.y + 0.5);
+          L.sel(ids);
+          const p = L.renderer.worldToScreen(at.x + 0.5, at.y + 0.5);
+          const c = document.querySelector('#stage canvas');
+          if (!c) throw new Error('no battlefield canvas');
+          const r = c.getBoundingClientRect();
+          return { x: r.left + p.x, y: r.top + p.y };
+        },
+        { ids, at }
+      );
+
+    // (a) One gesture, one voice event: the canvas, the minimap and a key.
+    // Each step polls the log for its own order count rather than sleeping a
+    // fixed 300ms: the flush this leg is waiting on is a queued microtask, not
+    // a scheduled tone, so there is a real condition to wait on and a fixed
+    // sleep either races it under load or wastes time that was never needed.
+    const p = await aim([inf.id, lavi.id], inf);
+    await v.mouse.click(p.x, p.y, { button: 'right' });
+    await waitForOrderCount(1);
+    const a1 = await read();
+    console.log(`[${TAG}] voices (a) canvas: ${JSON.stringify(a1.entries)} tones=${tones(a1).join(',')}`);
+    expect(orderCount(a1) === 1, `voices (a): one right-click made ${orderCount(a1)} order voice event(s), not 1 (N1)`);
+    expect(
+      a1.entries[0]?.key === 'he.infantry.move' && a1.entries[0]?.status === 'placeholder',
+      `voices (a): expected he.infantry.move as a placeholder, got ${JSON.stringify(a1.entries[0])}`
+    );
+    expect(tones(a1).length === 1, `voices (a): ${tones(a1).length} voice tones for one gesture, not 1`);
+    const mm = await v.locator('.rl-minimap').boundingBox();
+    if (!mm) throw new Error(`[${TAG}] voices: no minimap`);
+    await v.mouse.click(mm.x + mm.width / 2, mm.y + mm.height / 2, { button: 'right' });
+    await waitForOrderCount(2);
+    const a2 = await read();
+    expect(
+      orderCount(a2) === 2 && tones(a2).length === 2,
+      `voices (a): the minimap order made ${orderCount(a2) - 1} events`
+    );
+    await v.keyboard.press('h');
+    await waitForOrderCount(3);
+    const a3 = await read();
+    expect(
+      orderCount(a3) === 3 && tones(a3).length === 3 && orderEntries(a3)[2]?.trigger === 'halt',
+      `voices (a): the halt key made ${JSON.stringify(orderEntries(a3).slice(2))}`
+    );
+
+    // (b) A quick repeat is throttled (N2). Three right-clicks inside a second,
+    // one task apart -- real clicks cost seconds each under SwiftShader, which
+    // would outrun the 4 s window this leg is about. Each is dispatched through
+    // the canvas's own `contextmenu` listener, a macrotask apart, so each is its
+    // own gesture (R-3).
+    const q = await aim([lavi.id], lavi);
+    const b0 = await read();
+    await v.evaluate(async ({ x, y }) => {
+      const c = document.querySelector('#stage canvas');
+      if (!c) throw new Error('no battlefield canvas');
+      for (let i = 0; i < 3; i++) {
+        c.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 2 }));
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }, q);
+    await v.waitForTimeout(300);
+    const b1 = await read();
+    const burst = b1.entries.slice(b0.entries.length);
+    console.log(`[${TAG}] voices (b) burst: ${JSON.stringify(burst)}`);
+    expect(
+      burst.map((e) => e.why).join() === 'line,ack:repeat,silent:repeat',
+      `voices (b): a three-click burst read ${burst.map((e) => e.why).join()} (N2)`
+    );
+    expect(
+      burst.map((e) => e.key ?? '-').join() === 'he.crew.move,he.common.ack,-',
+      `voices (b): keys ${burst.map((e) => e.key ?? '-').join()}`
+    );
+    const heard = tones(b1).slice(tones(b0).length);
+    expect(
+      heard.join() === `${PLACEHOLDER_HZ.move},${PLACEHOLDER_HZ.ack}`,
+      `voices (b): the burst sounded ${heard.join() || 'nothing'} -- two voices, move then ack, and a silence`
+    );
+
+    // (c) Voices at 0: nothing plays. The slider is driven through the pause
+    // menu's own settings pane; its value is set and its own input/change
+    // listeners fire (Playwright cannot fill a range input).
+    await v.keyboard.press('Escape');
+    await v.waitForSelector('.rl-pause');
+    await v.locator('.rl-pause [data-tab="settings"]').click();
+    await v.waitForSelector('.rl-pause input[name="voice"]');
+    await v.evaluate(
+      '(() => { var r = document.querySelector(\'.rl-pause input[name="voice"]\'); r.value = "0";' +
+        ' r.dispatchEvent(new Event("input", { bubbles: true })); r.dispatchEvent(new Event("change", { bubbles: true })); })()'
+    );
+    await v.locator('.rl-pause [data-act="resume"]').click();
+    await v.waitForSelector('.rl-pause', { state: 'hidden' });
+    const z = await aim([inf.id], inf);
+    const c0 = await read();
+    await v.mouse.click(z.x, z.y, { button: 'right' });
+    await waitForOrderCount(orderCount(c0) + 1);
+    const c1 = await read();
+    const lastEntry = orderEntries(c1).at(-1);
+    console.log(`[${TAG}] voices (c) at 0: ${JSON.stringify(lastEntry)} tones ${tones(c0).length} -> ${tones(c1).length}`);
+    expect(orderCount(c1) === orderCount(c0) + 1, 'voices (c): the order at Voices 0 was not even decided');
+    expect(lastEntry?.status === 'volume-zero', `voices (c): at Voices 0 the mixer said ${String(lastEntry?.status)}`);
+    expect(tones(c1).length === tones(c0).length, 'voices (c): a voice sounded with Voices at 0');
+    await vCtx.close();
   }
 
   // --- the garage fits the screen, measured (WP-S3g T9, F4, F9, §2 goal 3) --

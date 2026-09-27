@@ -129,6 +129,13 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // walk uses to catch a string that never went through `t()` at all.
     blurb: 'run every screen through the pseudo-locale (accents, padding, brackets) instead of a real language',
   },
+  {
+    name: 'voicetick',
+    // WP-AU1 R-10. Not a SANDBOX_FLAGS entry: it is not a Free play extra,
+    // it works on a mission too, and it changes nothing in the battle --
+    // only what an unrecorded line sounds like, and only in a dev build.
+    blurb: 'dev builds only: a synth tick per voice line class where no line is recorded yet -- never shipped as a voice',
+  },
   ...SANDBOX_FLAGS,
 ];
 
@@ -208,6 +215,6 @@ export function sandboxHelp(ctx: HelpContext): string {
     `  available:`,
     flags,
     `  maps: ${ctx.mapIds.join(', ')}`,
-    `  console: __lions.help() · step(n) · goto(marker) · units() · sel([id]) · cursorKey()`,
+    `  console: __lions.help() · step(n) · goto(marker) · units() · sel([id]) · cursorKey() · voiceLog()`,
   ].join('\n');
 }

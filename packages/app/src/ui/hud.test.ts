@@ -2144,3 +2144,23 @@ describe('the single-unit card — kit (WP-S3g §3.4, D2)', () => {
     expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
   });
 });
+
+describe('the voice caption slot (WP-AU1 D8)', () => {
+  it('sits in the bottom stack right under the feed, never inside it', () => {
+    const r = rig(mission());
+    const feed = r.host.querySelector('.rl-feed');
+    const cap = r.host.querySelector('.rl-caption');
+    expect(cap?.parentElement?.classList.contains('rl-sel')).toBe(true);
+    expect(feed?.nextElementSibling).toBe(cap);
+    r.hud.caption('moving', 1);
+    expect(cap?.textContent).toBe('moving');
+    expect(feed?.textContent ?? '').not.toContain('moving');
+  });
+
+  it('goes down with the HUD', () => {
+    const r = rig(mission());
+    r.hud.caption('moving', 1);
+    r.hud.destroy();
+    expect(r.host.querySelector('.rl-caption')).toBeNull();
+  });
+});

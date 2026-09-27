@@ -120,6 +120,8 @@ import {
   type CursorName,
 } from './input/cursor';
 import { roleBucket } from './ui/role';
+import { rosterLanguages, voiceClassOf } from './voice/lines';
+import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
 import { roeNotice } from './ui/roe-notice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import {
@@ -531,11 +533,23 @@ let mixer: BattleAudio | null = null;
 function battleAudio(): BattleAudio {
   if (mixer === null) {
     mixer = new BattleAudio();
+    // The render package cannot read this build's flag; a thrown voice decode
+    // pass is noted (one `console.info`) in any dev build, not only under
+    // `?voicetick` (R-9).
+    mixer.setDev(import.meta.env.DEV);
     mixer.useManifest(audioManifest as AudioManifest, `${BASE}audio/`);
     mixer.attach();
   }
   return mixer;
 }
+
+/**
+ * The voice lines already noted as missing, for the whole DOCUMENT (R-9): one
+ * `[voice]` info line per key, however many battlefields the router boots.
+ * Each boot's `VoiceRuntime` is new, so a set of its own would repeat every
+ * note on the second mission.
+ */
+const voiceNoted = new Set<string>();
 
 /**
  * What the brigade account says RIGHT NOW: the units bought and the tiers
@@ -1682,6 +1696,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const meshRoster = mission
     ? missionUnitTypes(mission, new Set(Object.keys(units)))
     : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv });
+  // Only the roster's languages decode (N16). The roster is the one the mesh
+  // plan already trusts; a unit it misses still plays -- as `missing` -- and
+  // the dev note names the key. Set here, before the deploy gate's click, so
+  // a first gesture on this page decodes ui -> voice -> battle in that order.
+  const voiceLangs = (audioManifest as AudioManifest).voices?.languages ?? {};
+  const unitJson = units as Record<string, { id: string; faction: string; role: string; voice?: unknown } | undefined>;
+  audio.setVoiceLanguages(rosterLanguages(meshRoster, (id) => unitJson[id]?.faction, voiceLangs));
+  audio.setVoicePlaceholder(voicePlaceholderOn(params, import.meta.env.DEV));
+  // Registered where it is set, not with the runtime below: a boot abandoned
+  // before the runtime exists must not leave the next screen ticking.
+  onDispose(() => audio.setVoicePlaceholder(false));
   // Structure types this map actually stands, plus anything the mission
   // places itself (`camp` is the only one that arrives that way). Kept
   // independently of `meshPlanFor` below -- `spritePlan` further down needs
@@ -2654,6 +2679,38 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Six panes on `document.body`, plus a title card that may still be holding.
   onDispose(() => hud.destroy());
 
+  // Unit voices (WP-AU1 §7). Read-only on the sim (invariant 4): `look` and
+  // `onTick` only read state and events the sim already produced. Its intents
+  // arrive through `intentListeners` below; the pointing sites call `hint`
+  // before they dispatch (R-3).
+  const voice = new VoiceRuntime({
+    now: () => performance.now(),
+    // A microtask, never rAF or a timer: both are throttled in a hidden tab,
+    // and a clamped timer would let a LATER input join this gesture.
+    schedule: (fn) => queueMicrotask(fn),
+    languages: voiceLangs,
+    look: {
+      unitOf: (id) => {
+        const u = unitJson[sim.unitTypes[sim.state.typeIdx[id]].id];
+        return u ? { faction: u.faction, voice: voiceClassOf(u) } : null;
+      },
+      side: (id) => sim.state.side[id],
+      pos: (id) => ({ x: fx.toNumber(sim.state.posX[id]), y: fx.toNumber(sim.state.posY[id]) }),
+      isVisible: (x, y) => renderer.isVisible(x, y),
+      camera: () => renderer.camera,
+    },
+    play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined }),
+    caption: (text, seconds) => {
+      if (req.settings.get().accessibility.captions) hud.caption(text, seconds);
+    },
+    info: import.meta.env.DEV ? (m) => console.info(m) : () => {},
+    noted: voiceNoted,
+  });
+  onDispose(() => {
+    voice.dispose();
+    audio.stopVoices();
+  });
+
   // Task 6: the pause menu. `pause`/`resume` are the only two writers of
   // `paused` -- the frame loop below reads it through `advanceClock`, and
   // `Hud.paintSpeed` reads it through `isPaused` above, so nothing else may
@@ -2827,7 +2884,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // would be two answers to one question, and the one that would drift
       // first is the protected-structure refusal -- invisible on open ground
       // and only reported in the debrief.
-      order: (x, y, mods) => issueOrder(intentWorld, orderSink, myLiving(), x, y, mods),
+      // The minimap has no hover: its order is never "over a hostile" (R-3).
+      order: (x, y, mods) => {
+        voice.hint({ hostile: false });
+        issueOrder(intentWorld, orderSink, myLiving(), x, y, mods);
+      },
       // Local and silent to the sim (R-10): a mark on the minimap and a
       // marker on the field, nothing queued, nothing dispatched, no intent
       // kind. There is no second player to signal.
@@ -3051,6 +3112,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     applyIntent(sim, intent);
     for (const fn of intentListeners) fn(intent);
   };
+  intentListeners.push((intent) => voice.observe(intent));
   /** Where a resolved right-click's three effects land. Built once and passed
    *  to `issueOrder` by both pointing surfaces. */
   const orderSink: OrderSink = {
@@ -3207,6 +3269,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               armed: null,
               confirm: ev.altKey,
             });
+            voice.hint({ hostile: renderer.hoverEntity >= 0 });
             for (const intent of move.intents) dispatch(intent);
             if (move.note) hud.note(move.note.text, move.note.tone);
             if (move.marker) renderer.addOrderMarker(w.x, w.y);
@@ -3317,6 +3380,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // this same contextmenu with ctrlKey true, and ctrl-click is the
     // standard Mac idiom for opening a context menu — that click already
     // means "confirmed attack," not "let me reconsider."
+    voice.hint({ hostile: renderer.hoverEntity >= 0 });
     issueOrder(intentWorld, orderSink, myLiving(), w.x, w.y, {
       append: ev.shiftKey,
       confirm: ev.altKey,
@@ -3676,6 +3740,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.onEvents(events);
     audio.setListener(renderer.camera);
     audio.onEvents(events, sim);
+    voice.onTick(events);
     if (runtime && mission) {
       const missionEvents = runtime.step(events);
       // The renderer subscribes to the MISSION's events as well as the sim's.
@@ -4158,6 +4223,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         renderer.frame(1, lastFrameMs);
         return sim.tickCount;
       },
+
+      /** Every voiced decision this battlefield made, and the mixer's own
+       *  voice stats (WP-AU1 R-10). Read back, never recomputed: the log is
+       *  the runtime's ring and the stats are what the MIXER holds, so a
+       *  wiring fault shows here rather than agreeing with the logic. */
+      voiceLog: () => ({ entries: voice.log(), stats: audio.voiceStats() }),
 
       /** Jump the camera to a named marker, or to a tile. Walking to the far
        *  corner of a 48×48 map to look at one ridge is most of the cost of

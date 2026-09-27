@@ -249,3 +249,11 @@ describe('sandboxHelp', () => {
     expect(sandboxHelp(ctx)).toContain('__lions.help()');
   });
 });
+
+describe('voicetick (WP-AU1 R-10)', () => {
+  it('is a known URL parameter, never a Free play flag, and no typo warning', () => {
+    expect(KNOWN_PARAMS.map((p) => p.name)).toContain('voicetick');
+    expect(SANDBOX_FLAGS.map((f) => f.name as string)).not.toContain('voicetick');
+    expect(unknownParams(new URLSearchParams('voicetick'))).toEqual([]);
+  });
+});

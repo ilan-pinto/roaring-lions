@@ -28,14 +28,14 @@ describe('parseSettings', () => {
       extra: 'dropped',
     }));
     expect(s.video).toEqual({ fullscreen: true, uiScale: 'auto', textSize: 1.15, quality: 'high' });
-    expect(s.audio).toEqual({ master: 0.5, music: 1, sfx: 1 });
-    expect(s.accessibility).toEqual({ motion: 'reduce', colorVision: 'default' });
+    expect(s.audio).toEqual({ master: 0.5, music: 1, sfx: 1, voice: 1 });
+    expect(s.accessibility).toEqual({ motion: 'reduce', colorVision: 'default', captions: false });
     expect(s.language).toBe('en');
     expect('extra' in s).toBe(false);
   });
   it('round-trips through save and load', () => {
     const store = memStore();
-    const s = { ...DEFAULT_SETTINGS, audio: { master: 0.3, music: 0.2, sfx: 0.1 } };
+    const s = { ...DEFAULT_SETTINGS, audio: { master: 0.3, music: 0.2, sfx: 0.1, voice: 0.4 } };
     saveSettings(store, s);
     expect(store.map.get(SETTINGS_KEY)).toBe(JSON.stringify(s));
     expect(loadSettings(store)).toEqual(s);
@@ -54,6 +54,24 @@ describe('parseSettings', () => {
     expect(s.controls.zoomToCursor).toBe(false);
     expect(s.controls.cameraSpeed).toBe(1);      // and its neighbour survives
   });
+  it('audio carries a voice level, default 1, parsed field by field like its neighbours (N11)', () => {
+    expect(DEFAULT_SETTINGS.audio.voice).toBe(1);
+    // A save from before voices keeps its three levels and gains the fourth.
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { master: 0.5, music: 0.2, sfx: 0.3 } })).audio).toEqual({
+      master: 0.5, music: 0.2, sfx: 0.3, voice: 1,
+    });
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { voice: 0 } })).audio.voice).toBe(0);
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { voice: 1.5, sfx: 0.4 } })).audio).toEqual({
+      master: 1, music: 1, sfx: 0.4, voice: 1,
+    });
+  });
+  it('captions are off by default, and a bad value reads as off (D8)', () => {
+    expect(DEFAULT_SETTINGS.accessibility.captions).toBe(false);
+    expect(parseSettings(JSON.stringify({ version: 1, accessibility: { captions: true } })).accessibility.captions).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, accessibility: { captions: 'yes', motion: 'reduce' } })).accessibility).toEqual({
+      motion: 'reduce', colorVision: 'default', captions: false,
+    });
+  });
 });
 
 describe('applySettings', () => {
@@ -64,7 +82,7 @@ describe('applySettings', () => {
     expect(root.style.getPropertyValue('--text-size')).toBe('1');
     expect(root.dataset.motion).toBe('system');
     expect(root.dataset.cvd).toBe('default');
-    applySettings({ ...DEFAULT_SETTINGS, video: { ...DEFAULT_SETTINGS.video, uiScale: 1.4, textSize: 1.3 }, accessibility: { motion: 'reduce', colorVision: 'tritanopia' } }, root);
+    applySettings({ ...DEFAULT_SETTINGS, video: { ...DEFAULT_SETTINGS.video, uiScale: 1.4, textSize: 1.3 }, accessibility: { motion: 'reduce', colorVision: 'tritanopia', captions: false } }, root);
     expect(root.style.getPropertyValue('--ui-scale')).toBe('1.4');
     expect(root.style.getPropertyValue('--text-size')).toBe('1.3');
     expect(root.dataset.motion).toBe('reduce');
