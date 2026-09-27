@@ -31,6 +31,8 @@ By contributing you confirm you have the right to license the work under these t
 
 **This applies to sound exactly as it does to art.** Audio clips go in `assets/audio/` and must be declared in `data/audio.json` with a `license` and a `source` URL; `pnpm validate:audio` fails the build otherwise. CC0 is the safe bar (Freesound filtered to CC0, Kenney.nl, OpenGameArt filtered to CC0); CC-BY is accepted with a `credit` line. Libraries that permit *use* but not redistribution — Zapsplat, most commercial SFX bundles — cannot be committed here even though the game may legally play them.
 
+**Voice lines** (`data/audio.json` `voices`) take the same bar, plus four fields: `generator` (a person for a read, or the tool and plan for generated speech), `text`, `translit` and `en`. Owned or commissioned speech uses `LicenseRef-owned`, and its `source` names the release form, the session record, or the service plan and date. A generated voice is disclosed in the PR. Filenames are ASCII: `voice/<lang>/<class>/<trigger>_<nn><take>.ogg`, never Hebrew or Arabic script. A free-tier TTS output is not licensed for commercial use and cannot be committed.
+
 Safe sources: Kenney.nl (CC0), Quaternius, Poly Pizza, OpenGameArt filtered to CC0.
 
 ---

@@ -103,7 +103,7 @@ finished.
 | `debrief` | end-screen text | Shai / Idit | end | **needed** — the end screen has zero authorable text | `ui/menu.ts` `showEndScreen` |
 | `radio` | mid-mission transmission overlay: speaker, portrait, line | Shai / Idit / villain | on trigger, objective, wave, event | **approved target, unbuilt** — needs a `say` field on `triggers[].do` / objectives and an overlay | `sim/mission.ts` `stepTriggers`, `render-vfx` |
 | `eva` | announcements: objective complete/failed, unit lost, reinforcements | the brigade net | on `MissionEvent` | **approved target, unbuilt** — GH-110; `audio.schema.json` needs a non-weapon set kind | `render/audio.ts` |
-| `bark` | acknowledgement and selection responses | units, keyed by role | on intent | **approved target, unbuilt** — GH-110 | — |
+| `bark` | order acknowledgements and death calls, one line per gesture | units, keyed by voice class; KDF in Hebrew, the three doctrines in Arabic | on an order intent; on a death | **engine live, lines unrecorded** (WP-AU1): every key plays nothing until the asset plan lands (D5) | `app/src/voice/`, `render/audio.ts` `playVoice`, `data/audio.json` `voices` |
 | `board` | campaign map text | — | between missions | **live**: region `faction · doctrine`, town done/total; `world.json` `blurb` is authored and rendered nowhere | `ui/worldmap.ts` |
 | `tutorial` | step machine: `title`/`teach`/`nudge`, `await` predicates over intent, sim and mission events, camera `focus` | — | mid-mission | **live, gated to the tutorial** — the only condition-gated mid-mission text engine; the seed for `radio` | `tutorial/runtime.ts`, `data/schemas/tutorial.schema.json` |
 

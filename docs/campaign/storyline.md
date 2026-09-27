@@ -243,6 +243,8 @@ Binding on every proper noun added downstream.
    side. This binds hardest on voice lines — accent, language and idiom all carry
    it, and GH-110 already says write the rule before recording.
 
+   Language is admitted, and only symmetrically, by GDD §2 **Voice** (WP-AU1 D1, 25 Sep 2026): KDF in Hebrew, the three doctrines in standard military Arabic; faith, dialect, slogan and real call sign stay out, and a native speaker reviews every line before it is recorded.
+
 ---
 
 ## 3. The acts and the mission ladder
