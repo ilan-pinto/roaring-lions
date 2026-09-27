@@ -23,6 +23,7 @@ import { LOGISTICS_GLYPH } from './glyphs';
 import { roleBadgeSvg } from './role';
 import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
+import { kitIconSignHtml } from './kit-sign';
 import type { Tone } from './hud';
 
 export type SupportKind = 'sweep' | 'strike';
@@ -241,6 +242,9 @@ export class ReinforcementDock {
       if (unit.spriteIsIcon === true) art.dataset.icon = '1';
       el.appendChild(art);
     }
+
+    // R-8: the stylesheet hides the sign on a locked tile.
+    el.insertAdjacentHTML('beforeend', kitIconSignHtml(unit.kit ?? 0));
 
     const cost = document.createElement('span');
     cost.className = 'rl-tile__cost';

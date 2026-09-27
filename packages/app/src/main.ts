@@ -2941,6 +2941,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // disagree and neither goes stale when a rig renames its files.
             sprite: portraits[u.id] ?? null,
             spriteIsIcon: portraitIcons.has(u.id),
+            // The same one read the chips and the card make.
+            kit: kitLevelOf(u.id),
             tags: doctrineTags(bucket, abilities),
             blurb: 'blurb' in u ? (u.blurb as string) : undefined,
             // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's
