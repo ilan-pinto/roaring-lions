@@ -1,7 +1,9 @@
 import {
   UNIT_ID_PATTERN,
   TIER_PATTERN,
+  ITEM_PATTERN,
   MISSION_PATTERN as MISSION_RE,
+  TELEMETRY_ORDER_VERBS,
   type AccountReason,
   type CountMap,
   type TelemetryEnvelope,
@@ -55,10 +57,19 @@ export interface MissionCounts {
   orders: Partial<Record<TelemetryOrderVerb, number>>;
 }
 
-const ITEM_RE = /^[a-z0-9_]{1,32}(\.[a-z0-9_]{1,32}\.[1-9])?$/;
 const MAX_UNLOCKS = 64;
 const MAX_TIERS = 256;
 const COUNT_MAX = 100_000;
+const ORDER_VERB_SET = new Set<string>(TELEMETRY_ORDER_VERBS);
+
+/** Which `AccountExtra` fields a reason may carry through at all -- anything
+ *  else supplied is dropped rather than emitted (T2 fix round 2, item 1). */
+const REASON_ALLOWED: Record<AccountReason, readonly (keyof AccountExtra)[]> = {
+  mission_start: ['mission'],
+  payout: ['mission', 'paid'],
+  purchase: ['mission', 'item', 'price'],
+  reset: [],
+};
 
 export function accountSnapshot(a: AccountLike): AccountSnapshot {
   const unlocks = [...new Set(a.unlocks)].filter((u) => UNIT_ID_PATTERN.test(u)).sort().slice(0, MAX_UNLOCKS);
@@ -73,12 +84,33 @@ export function accountSnapshot(a: AccountLike): AccountSnapshot {
   return { credits: int(a.balance), earned: int(a.earned_total), unlocks, tiers: tiers.slice(0, MAX_TIERS) };
 }
 
+/**
+ * A purchase with no `item`, or no `price`, and a payout with no `paid`, are
+ * caller bugs, not data the contract merely declines to send -- the schema
+ * makes them optional (T1), but a reason that names its own required fields
+ * and silently omits them would ship an `account` event that LOOKS like a
+ * purchase and records no purchase at all. Throwing keeps `accountEvent`'s
+ * return type `TelemetryEvent` (not `| null`), which Tasks 3 and 5 already
+ * build against, and surfaces the mistake at the call site instead of in
+ * `/stats` weeks later (T2 fix round 2, item 1).
+ */
 export function accountEvent(
   env: TelemetryEnvelope,
   reason: AccountReason,
   s: AccountSnapshot,
   extra: AccountExtra = {}
 ): TelemetryEvent {
+  if (reason === 'purchase' && (extra.item === undefined || extra.price === undefined)) {
+    throw new Error("accountEvent: reason 'purchase' requires both item and price");
+  }
+  if (reason === 'payout' && extra.paid === undefined) {
+    throw new Error("accountEvent: reason 'payout' requires paid");
+  }
+  const allowed = new Set<keyof AccountExtra>(REASON_ALLOWED[reason]);
+  const mission = allowed.has('mission') ? extra.mission : undefined;
+  const item = allowed.has('item') ? extra.item : undefined;
+  const price = allowed.has('price') ? extra.price : undefined;
+  const paid = allowed.has('paid') ? extra.paid : undefined;
   return {
     ...env,
     type: 'account',
@@ -87,10 +119,10 @@ export function accountEvent(
     earned: Math.min(COUNT_MAX, s.earned),
     unlocks: s.unlocks,
     tiers: s.tiers,
-    ...(extra.mission !== undefined && MISSION_RE.test(extra.mission) ? { mission: extra.mission } : {}),
-    ...(extra.item !== undefined && ITEM_RE.test(extra.item) ? { item: extra.item } : {}),
-    ...(extra.price !== undefined ? { price: Math.min(COUNT_MAX, int(extra.price)) } : {}),
-    ...(extra.paid !== undefined ? { paid: Math.min(COUNT_MAX, int(extra.paid)) } : {}),
+    ...(mission !== undefined && MISSION_RE.test(mission) ? { mission } : {}),
+    ...(item !== undefined && ITEM_PATTERN.test(item) ? { item } : {}),
+    ...(price !== undefined ? { price: Math.min(COUNT_MAX, int(price)) } : {}),
+    ...(paid !== undefined ? { paid: Math.min(COUNT_MAX, int(paid)) } : {}),
   };
 }
 
@@ -115,8 +147,11 @@ export function orderVerbOf(i: PlayerIntent): TelemetryOrderVerb | null {
   }
 }
 
+/** `orders` counts one of the eleven `TelemetryOrderVerb`s; `bought` counts a
+ *  unit id. Anything else is refused rather than silently tallied under a key
+ *  the contract (or a real order verb) would never recognise. */
 export function tally(m: CountMap, key: string): void {
-  if (!UNIT_ID_PATTERN.test(key) && !/^[a-zA-Z]{1,16}$/.test(key)) return;
+  if (!UNIT_ID_PATTERN.test(key) && !ORDER_VERB_SET.has(key)) return;
   m[key] = Math.min(COUNT_MAX, (m[key] ?? 0) + 1);
 }
 

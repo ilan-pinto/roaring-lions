@@ -59,7 +59,7 @@ export const BUILD_PATTERN = /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}$/;
 const OBJECTIVE_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 const OBJECTIVE_TYPE_PATTERN = /^[a-z_]{1,32}$/;
 const CAUSE_PATTERN = /^(force_destroyed|roe_collapse|objective:[A-Za-z0-9_.-]{1,64})$/;
-const ITEM_PATTERN = /^[a-z0-9_]{1,32}(\.[a-z0-9_]{1,32}\.[1-9])?$/;
+export const ITEM_PATTERN = /^[a-z0-9_]{1,32}(\.[a-z0-9_]{1,32}\.[1-9])?$/;
 
 export interface TelemetryEnvelope {
   v: 1;

@@ -170,3 +170,82 @@ describe('the loadout and the counts ride on start and end (R-1)', () => {
     expect(isTelemetryEvent(e) && isTelemetryEvent(empty)).toBe(true);
   });
 });
+
+describe('accountEvent enforces reason-specific fields (GH-254 T2 fix round 2, item 1)', () => {
+  it('throws on a purchase missing item or price -- a purchase with neither is a caller bug, not an event to send half-built', () => {
+    const s = ev.accountSnapshot(acct);
+    expect(() => ev.accountEvent(env, 'purchase', s, { price: 100 })).toThrow();
+    expect(() => ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi' })).toThrow();
+    expect(() => ev.accountEvent(env, 'purchase', s, {})).toThrow();
+  });
+
+  it('throws on a payout missing paid', () => {
+    const s = ev.accountSnapshot(acct);
+    expect(() => ev.accountEvent(env, 'payout', s, { mission: 'beit_sahwan_breach' })).toThrow();
+    expect(() => ev.accountEvent(env, 'payout', s, {})).toThrow();
+  });
+
+  it('does not throw on a well-formed purchase or payout', () => {
+    const s = ev.accountSnapshot(acct);
+    expect(() => ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi', price: 900 })).not.toThrow();
+    expect(() => ev.accountEvent(env, 'payout', s, { paid: 50 })).not.toThrow();
+  });
+
+  it('a reset carries none of item, price or paid, even when the caller supplies them', () => {
+    const s = ev.accountSnapshot(acct);
+    const e = ev.accountEvent(env, 'reset', s, { item: 'mbt_lavi', price: 900, paid: 50 });
+    expect('item' in e).toBe(false);
+    expect('price' in e).toBe(false);
+    expect('paid' in e).toBe(false);
+    expect(isTelemetryEvent(e)).toBe(true);
+  });
+
+  it('a purchase drops a supplied paid, and a payout drops a supplied item and price', () => {
+    const s = ev.accountSnapshot(acct);
+    const purchase = ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi', price: 900, paid: 50 });
+    expect('paid' in purchase).toBe(false);
+    const payout = ev.accountEvent(env, 'payout', s, { paid: 50, item: 'mbt_lavi', price: 900 });
+    expect('item' in payout).toBe(false);
+    expect('price' in payout).toBe(false);
+    expect(isTelemetryEvent(purchase) && isTelemetryEvent(payout)).toBe(true);
+  });
+});
+
+describe('tally refuses anything that is not a real order verb or a unit id (GH-254 T2 fix round 2, item 3)', () => {
+  it('a junk key that used to pass a bare-alpha check never reaches the map', () => {
+    const m: Record<string, number> = {};
+    ev.tally(m, 'Sweep'); // capitalised -- not the verb 'sweep', and uppercase fails the unit-id pattern too
+    ev.tally(m, 'NotAVerb');
+    ev.tally(m, 'sweep');
+    expect(m).toEqual({ sweep: 1 });
+  });
+
+  it('accepts every real order verb, mixed case included', () => {
+    const m: Record<string, number> = {};
+    ev.tally(m, 'attackMove');
+    ev.tally(m, 'chargeTunnel');
+    expect(m).toEqual({ attackMove: 1, chargeTunnel: 1 });
+  });
+});
+
+describe('account snapshot caps and clamps (GH-254 T2 fix round 2, item 4)', () => {
+  it('caps tiers at MAX_TIERS (256) instead of dropping the account event', () => {
+    const upgrades: Record<string, Record<string, number>> = {};
+    for (let i = 0; i < 300; i++) upgrades[`unit_${i}`] = { armour: 1 };
+    const s = ev.accountSnapshot({ balance: 1, earned_total: 1, unlocks: [], upgrades });
+    expect(s.tiers).toHaveLength(256);
+    expect(isTelemetryEvent(ev.accountEvent(env, 'reset', s))).toBe(true);
+  });
+
+  it('clamps credits, earned, price and paid at COUNT_MAX (100000) rather than rejecting the event', () => {
+    const s = ev.accountSnapshot({ balance: 500_000, earned_total: 500_000, unlocks: [], upgrades: {} });
+    const reset = ev.accountEvent(env, 'reset', s) as unknown as { credits: number; earned: number };
+    expect(reset.credits).toBe(100_000);
+    expect(reset.earned).toBe(100_000);
+    const purchase = ev.accountEvent(env, 'purchase', s, { item: 'mbt_lavi', price: 999_999 }) as unknown as { price: number };
+    expect(purchase.price).toBe(100_000);
+    const payout = ev.accountEvent(env, 'payout', s, { paid: 999_999 }) as unknown as { paid: number };
+    expect(payout.paid).toBe(100_000);
+    expect(isTelemetryEvent(reset) && isTelemetryEvent(purchase) && isTelemetryEvent(payout)).toBe(true);
+  });
+});
