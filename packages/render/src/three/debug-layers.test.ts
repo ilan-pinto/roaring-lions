@@ -139,17 +139,6 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
-  it('names the kit mark, and hides it with a flag, not a mesh: HP bars share its batch', () => {
-    expect(DEBUG_LAYERS).toContain('kit-mark');
-    const r = makeRenderer();
-    const i = internals(r);
-    expect(r.setDebugLayerVisible('kit-mark', false)).toBe(1);
-    expect(i.overlayBatch.mesh.visible).toBe(true);
-    expect(r.setDebugLayerVisible('kit-mark', false)).toBe(0);
-    expect(r.setDebugLayerVisible('kit-mark', true)).toBe(1);
-    r.dispose();
-  });
-
   it('also hides the occlusion silhouette -- a different subsystem folded into the same name', () => {
     // Found while framing the key-art plate near a civic structure: a
     // hostile unit standing behind it showed as a thin red occlusion

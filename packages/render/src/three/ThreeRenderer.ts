@@ -412,14 +412,6 @@ import {
   tileRadiusToEllipsePx,
   cachedDesaturate,
 } from './units/overlays';
-import {
-  kitLevelsByType,
-  kitMarkTriangles,
-  KIT_COLOR_KEY,
-  KIT_EDGE_COLOR_KEY,
-  KIT_COLOR_FALLBACK,
-  KIT_EDGE_COLOR_FALLBACK,
-} from './units/kit-mark';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -721,22 +713,13 @@ const VEHICLE_EXHAUST_MAGNITUDE = 0.4;
  * construction (`ThreeRenderer`'s own field init below), not a bare
  * constant -- every living entity can draw an HP bar (2 rects = 12
  * vertices) and a suppression bar (1 rect = 6) unconditionally, plus a
- * selection ring (`OVERLAY_RING_SEGMENTS` * 6 = 96) and a badge fan
- * (`OVERLAY_RING_SEGMENTS` * 3 = 48) when selected and grouped, plus the kit
- * mark (WP-S3g plan 2, `kitMarkVertexCount`: 24 + 6 a level, so 42 at level
- * 3) on an own kitted unit. The worst case for one unit -- selected, grouped,
- * suppressed, kit level 3 -- is therefore 12 + 6 + 96 + 48 + 42 = 204, four
- * over this constant. That is deliberate and left at 200: the pool is
- * `capacity * 200 + 8192`, so every entity at 204 still fits up to a
- * capacity of 2,048 (4 x 2,048 = 8,192), and `main.ts` runs 256. The pool
- * is shared, not per-entity; order markers, the tutorial ring and the hover
- * highlight, which are few and singular, draw from the same slack.
- * Recorded, not fixed: the kill pips (2 x 48) and the air shadow (48) were
- * never in the old "114 worst case" this comment used to carry either, so
- * the per-entity figure has never been a true ceiling -- only the pooled
- * one is. Past the pool, `OverlayBatch` silently drops the newest pushes
- * rather than growing -- the same trade `PARTICLE_CAPACITY`/`TRACER_CAPACITY`
- * already accept.
+ * selection ring (`OVERLAY_RING_SEGMENTS` * 6 = 96) or a badge fan
+ * (`OVERLAY_RING_SEGMENTS` * 3 = 48) when selected/grouped. 200 vertices per
+ * entity is comfortable headroom over that worst case (12 + 6 + 96 = 114)
+ * with room left for order markers, the tutorial ring and the hover
+ * highlight, which are few and singular rather than per-entity. Past this,
+ * `OverlayBatch` silently drops the newest pushes rather than growing --
+ * the same trade `PARTICLE_CAPACITY`/`TRACER_CAPACITY` already accept.
  */
 const OVERLAY_VERTICES_PER_ENTITY = 200;
 
@@ -1952,27 +1935,6 @@ export class ThreeRenderer implements Renderer {
    *  for a constructor-body assignment rather than a field initializer.
    *  See `units/overlays.ts`'s own `ChevronBatch` doc comment. */
   private readonly chevronBatch: ChevronBatch;
-  /** `opts.unitKit` as one kit level per sim type index (`kitLevelsByType`),
-   *  read by the kit mark in `updateOverlays`. Starts empty and is rebuilt by
-   *  `kitLevelOf` whenever the sim's type count differs from its length, so a
-   *  type registered after construction still resolves. */
-  private kitByTypeIdx: Uint8Array = new Uint8Array(0);
-  /**
-   * `setDebugLayerVisible('kit-mark', false)` -- a FLAG the overlay pass
-   * consults, by `unitsDebugHidden`'s rule rather than `overlays`'. The mark
-   * is triangles inside `OverlayBatch`, which also carries every HP bar,
-   * suppression bar, ring and badge ring, so a mesh `visible` write would
-   * hide all of those with it and the toggle would measure the whole tier
-   * rather than the mark. The batch is rebuilt every frame, so the flag
-   * holds across the gate's repaint by construction.
-   */
-  private kitMarkDebugHidden = false;
-  /** The kit mark's steel (`KIT_COLOR_KEY`, `gunmetal.0`), resolved once at
-   *  construction the way the chevron's `STRIPE_COLOR_KEY` is. */
-  private readonly kitSteelHex: string;
-  /** The kit mark's outline and bars (`KIT_EDGE_COLOR_KEY`, `shadow.0`),
-   *  resolved once at construction beside `kitSteelHex`. */
-  private readonly kitEdgeHex: string;
   /**
    * The three occlusion-silhouette team colours (`units/silhouette.ts`),
    * indexed by `silhouetteSideIndex`, resolved once at construction.
@@ -2307,11 +2269,6 @@ export class ThreeRenderer implements Renderer {
     // same swatch `theme.css`'s `--commend` maps to -- NOT `team.neutral`'s
     // `#E8C33A`, which is what this line shipped with.
     this.chevronBatch = new ChevronBatch(sim.capacity, opts.resolveColor ? opts.resolveColor(STRIPE_COLOR_KEY) : '#E0B87A');
-    // The kit mark's two colours (WP-S3g plan 2), resolved here beside the
-    // chevron's and with the same no-resolver fallback shape. Neither key
-    // has a colour-vision variant: `variantAwareResolver` varies only `team.*`.
-    this.kitSteelHex = opts.resolveColor ? opts.resolveColor(KIT_COLOR_KEY) : KIT_COLOR_FALLBACK;
-    this.kitEdgeHex = opts.resolveColor ? opts.resolveColor(KIT_EDGE_COLOR_KEY) : KIT_EDGE_COLOR_FALLBACK;
     // Occlusion silhouettes: three colours for the whole scene, resolved
     // once here rather than per unit type or per entity. Indexed by
     // `silhouetteSideIndex` -- see `units/silhouette.ts` for the mechanism
@@ -3269,16 +3226,6 @@ export class ThreeRenderer implements Renderer {
         this.flashLightsDebugHidden = !visible;
         if (this.flashLightsDebugHidden) this.zeroFlashLights();
         return this.flashLights.lights.length;
-      case 'kit-mark': {
-        // `units`' rule, not `overlays`': the mark is triangles inside
-        // `OverlayBatch`, which also carries every HP bar, suppression bar and
-        // ring, so hiding the mesh would hide all of them. A flag the overlay
-        // pass consults instead; the pass rebuilds the batch every frame, so it
-        // holds across the gate's repaint by construction.
-        const was = !this.kitMarkDebugHidden;
-        this.kitMarkDebugHidden = !visible;
-        return was === visible ? 0 : 1;
-      }
       default:
         // A name `DEBUG_LAYERS` lists and this switch does not handle. The
         // compiler already refuses it (`name` is `never` here), but a build
@@ -7429,17 +7376,6 @@ export class ThreeRenderer implements Renderer {
     for (const instancer of this.turretInstancers.values()) instancer.setOutlineZoom(zoom);
   }
 
-  /** `opts.unitKit` for one sim type index. The table is rebuilt only when the
-   *  sim's type count changes -- in practice once, on the first frame, since
-   *  `bootBattlefield` registers every type before it builds the renderer. */
-  private kitLevelOf(typeIdx: number): number {
-    const types = this.sim.unitTypes;
-    if (this.kitByTypeIdx.length !== types.length) {
-      this.kitByTypeIdx = kitLevelsByType(types.map((t) => t.id), this.opts.unitKit);
-    }
-    return this.kitByTypeIdx[typeIdx] ?? 0;
-  }
-
   /**
    * Phase C: every unit overlay named in the task brief's own "Scope" list
    * -- selection rings, HP bars, suppression bars, control-group badges,
@@ -7631,21 +7567,6 @@ export class ThreeRenderer implements Renderer {
       const stripes = st.veterancy[i];
       if (st.side[i] === 0 && stripes > 0) {
         this.chevronBatch.push(billboardPoint(anchor, r + 4, r + 4), 0, 0, 12, 12, stripes);
-      }
-
-      // Kit mark (WP-S3g plan 2; spec §3.4 A, D1-D3, D6): the type's summary
-      // level as a steel plate over the HP bar, one bar per level. Triangles in
-      // THIS batch (band 4) -- +0 draw calls, exact palette pixels (R-1). Own
-      // units only; zoom-scaled like every overlay here. Skipped under the
-      // `kit-mark` debug layer, which is a flag for the reason its field says.
-      if (side === 0 && !this.kitMarkDebugHidden) {
-        const level = this.kitLevelOf(st.typeIdx[i]);
-        if (level === 1 || level === 2 || level === 3) {
-          const t = kitMarkTriangles(r, level);
-          this.overlayBatch.triangle(anchor, t.edge, this.kitEdgeHex, 1);
-          this.overlayBatch.triangle(anchor, t.steel, this.kitSteelHex, 1);
-          this.overlayBatch.triangle(anchor, t.bars, this.kitEdgeHex, 1);
-        }
       }
     }
 

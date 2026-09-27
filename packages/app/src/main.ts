@@ -1634,10 +1634,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       { colorVision: cvdVariant, quality: req.settings.get().video.quality },
       BASE
     ),
-    // The same per-type loop that fed the sim's tiers and the HUD card's kit
-    // (`bootKit`/`prepass`, above) -- so the mark on a unit always agrees with
-    // both.
-    unitKit: prepass.unitKit,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals

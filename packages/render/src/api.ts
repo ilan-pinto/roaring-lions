@@ -211,25 +211,6 @@ export interface RendererOptions {
    * a tick sees them identically every run.
    */
   decalShowcase?: { readonly x: number; readonly y: number };
-  /**
-   * The kit level each unit **type** carries this mission (garage uplift
-   * spec §3.4, D1/D2; brigade D3: type-wide and fixed for the mission, not
-   * per named unit). Keyed by sim type id, not entity id.
-   *
-   * `app` fills this from `upgradePrepass` -- the same loop that patches the
-   * types the sim runs and feeds the HUD garage card -- so the three cannot
-   * disagree about what a unit's kit is. Only side 0 is marked.
-   *
-   * Optional, and absent means no mark, like `decalShowcase` above. It is
-   * spelled inline as `0 | 1 | 2 | 3` rather than as `@lions/data`'s
-   * `KitLevel`, because this package does not depend on `@lions/data` and
-   * must not start to -- it is structurally identical, so an assignment from
-   * `upgradePrepass` still typechecks, and that typecheck is the guard.
-   *
-   * Three-only, like `shellColors` and `quality` above: `PixiRenderer`
-   * ignores this field permanently, pinned by `kit-mark.test.ts` (R-8).
-   */
-  unitKit?: Readonly<Record<string, 0 | 1 | 2 | 3>>;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */
