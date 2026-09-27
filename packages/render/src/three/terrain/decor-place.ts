@@ -230,10 +230,16 @@ function emptyRoadGraph(width: number, height: number): RoadGraph {
  * road-free map or fixture (most unit tests, every sandbox screen before a
  * road is authored, and any input with `decor` null) skips this cache
  * entirely and gets `emptyRoadGraph` -- see the call site.
+ *
+ * Exported (ground plan 2, Task 4) so `prop-place.ts` shares this exact
+ * cache rather than keeping a second `WeakMap` keyed on the same `input.decor`
+ * identity -- two caches would mean a road-bearing map pays to build the
+ * graph twice on a render where both decor and props are placed, for a
+ * result that is byte-identical either way.
  */
 const roadGraphCache = new WeakMap<Uint8Array, RoadGraph>();
 
-function cachedRoadGraph(input: TerrainInput): RoadGraph {
+export function cachedRoadGraph(input: TerrainInput): RoadGraph {
   const { decor } = input;
   // Guaranteed non-null by the call site's `sawRoad` check, but TypeScript
   // cannot see that correlation across two separate bindings -- an explicit

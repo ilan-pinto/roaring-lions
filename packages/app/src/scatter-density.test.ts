@@ -12,12 +12,16 @@ import { describe, expect, it } from 'vitest';
 import { Sim } from '@lions/sim';
 import { applyTerrain, maps, parseMap, structures as structureCatalogue, type MapId } from '@lions/data';
 import {
+  DECOR_GROVE,
+  PROP_CAP,
   SCATTER_ROAD_CLEAR,
   buildRoadGraph,
   decorPlacements,
+  propPlacements,
   roadDistanceAt,
   type TerrainInput,
 } from '@lions/render/terrain';
+import { propKindsFor } from './mesh-catalogue';
 
 const MAP_IDS = Object.keys(maps) as MapId[];
 
@@ -74,5 +78,28 @@ describe.each(MAP_IDS)('scatter density on %s', (id) => {
   it('keeps every grass and sand object off the road (N-3)', () => {
     const graph = buildRoadGraph(input);
     for (const p of open) expect(roadDistanceAt(graph, p.x, p.z)).toBeGreaterThanOrEqual(SCATTER_ROAD_CLEAR);
+  });
+});
+
+describe.each(MAP_IDS)('prop placement on %s (ground plan 2, Task 4)', (id) => {
+  const input = loadInput(id);
+  const placements = propPlacements(input);
+
+  it('never exceeds PROP_CAP', () => {
+    expect(placements.length).toBeLessThanOrEqual(PROP_CAP);
+  });
+
+  it('never stands on a building, ridge, road surface, grove or cover tile (N-10)', () => {
+    for (const p of placements) {
+      const t = Math.floor(p.z) * input.width + Math.floor(p.x);
+      expect(input.blocked[t], `${p.kind} at (${p.x}, ${p.z})`).toBe(0);
+      expect(input.decor?.[t] === DECOR_GROVE).toBe(false);
+      expect(input.cover[t]).toBe(0);
+    }
+  });
+
+  it('places only kinds propKindsFor allows', () => {
+    const allowed = propKindsFor(parseMap(maps[id]));
+    for (const p of placements) expect(allowed.has(p.kind), p.kind).toBe(true);
   });
 });

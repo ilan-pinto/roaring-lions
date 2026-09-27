@@ -28,7 +28,10 @@
  * import, directly or by re-export, now or later.
  *
  * `prop-role.ts` is exported for the same reason `decor-role.ts` is: pure and
- * three-free.
+ * three-free. `prop-place.ts` (ground plan 2, Task 4) is exported for the
+ * same reason `decor-place.ts` is -- pure and three-free -- and
+ * `prop-mesh.ts`, its `three`-importing sibling, is excluded for the same
+ * reason `mesh.ts`/`decor-mesh.ts` are.
  *
  * `types.ts`'s `MeshData`/`TerrainInput` are re-exported redundantly by
  * `ground.ts` and `scatter.ts` as well (each states `export type { MeshData,
@@ -68,3 +71,4 @@ export * from './clamp';
 export * from './decor-role';
 export * from './decor-place';
 export * from './prop-role';
+export * from './prop-place';
