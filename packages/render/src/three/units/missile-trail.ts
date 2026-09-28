@@ -36,6 +36,7 @@ import {
   missilePointAt,
   missileProgress,
   type MissileModel,
+  type MissilePoint,
 } from './missiles';
 
 export const TRAIL_SPACING_TILES = 0.2;
@@ -129,12 +130,15 @@ export function trailLookFrom(em: EmitterSpec | null, resolve: (key: string) => 
  */
 export class TrailPool {
   readonly capacity: number;
-  private readonly px: Float32Array;
-  private readonly py: Float32Array;
-  private readonly pWorldY: Float32Array;
-  private readonly age: Float32Array;
-  private readonly life: Float32Array;
-  private readonly alive: Uint8Array;
+  // Read-only outside this class: `writeMissileSprites` walks them directly
+  // rather than through `forEachLive`, whose callback would be a fresh
+  // closure every frame (final fix wave). Only `emit`/`step` write them.
+  readonly px: Float32Array;
+  readonly py: Float32Array;
+  readonly pWorldY: Float32Array;
+  readonly age: Float32Array;
+  readonly life: Float32Array;
+  readonly alive: Uint8Array;
   private head = 0;
   private liveCount = 0;
 
@@ -225,6 +229,9 @@ export class TrailPool {
  * `trailWorldYAt` field and `lerpMissileWorldY` for the shape this now
  * enables.
  */
+/** The one point every per-frame sample in this file is written into. */
+const scratchPoint: MissilePoint = { x: 0, y: 0, liftPx: 0 };
+
 export function emitAlongFlight(
   pool: TrailPool,
   m: MissileModel,
@@ -244,9 +251,11 @@ export function emitAlongFlight(
   for (let k = kStart; k * TRAIL_SPACING_TILES <= travelled + 1e-9; k++) {
     const d = k * TRAIL_SPACING_TILES;
     const u = d / groundDist;
-    const pt = missilePointAt(m, u);
+    const pt = missilePointAt(m, u, scratchPoint);
+    const px = pt.x;
+    const py = pt.y;
     const worldY = worldYAt(m, pt.liftPx, u);
-    pool.emit(pt.x, pt.y, worldY, life);
+    pool.emit(px, py, worldY, life);
     last = d;
     emitted++;
   }
@@ -277,13 +286,21 @@ export interface SpriteBuffers {
   softs: Float32Array;
 }
 
+/** What `writeMissileSprites` returns: ONE object, rewritten each call. */
+export interface SpriteCounts {
+  soft: number;
+  core: number;
+}
+const spriteCounts: SpriteCounts = { soft: 0, core: 0 };
+
 /**
  * Writes every ignited missile's halo + core, then every live trail puff,
  * into the two caller-supplied buffers -- `soft` (halo + puffs, blended,
  * depth-tested like the rest of the below-tier particle tier) and `core`
  * (the hot additive glow). Stops at each buffer's own capacity rather than
  * the other's, and never allocates: this runs every frame the same as
- * `writeParticleInstances` does.
+ * `writeParticleInstances` does. The counts come back in one module-owned
+ * object, **valid until the next call** (the landings buffers' contract).
  */
 export function writeMissileSprites(
   missiles: readonly MissileModel[],
@@ -292,7 +309,7 @@ export function writeMissileSprites(
   worldYAt: (m: MissileModel, u: number) => number,
   soft: SpriteBuffers,
   core: SpriteBuffers
-): { soft: number; core: number } {
+): Readonly<SpriteCounts> {
   const softCap = soft.alphas.length;
   const coreCap = core.alphas.length;
   let softCount = 0;
@@ -301,16 +318,19 @@ export function writeMissileSprites(
   for (const m of missiles) {
     if (!missileIgnited(m)) continue;
     const progress = missileProgress(m);
-    const pt = missilePointAt(m, progress);
+    // Read x/y before `worldYAt`, which may sample a point of its own.
+    const pt = missilePointAt(m, progress, scratchPoint);
+    const px = pt.x;
+    const py = pt.y;
     const worldY = worldYAt(m, progress);
     const glow = glowScale(m.t, m.seed);
 
     if (softCount < softCap) {
       const i = softCount;
       const [r, g, b] = cachedHexToLinear(look.haloColor);
-      soft.positions[i * 3] = pt.x;
+      soft.positions[i * 3] = px;
       soft.positions[i * 3 + 1] = worldY;
-      soft.positions[i * 3 + 2] = pt.y;
+      soft.positions[i * 3 + 2] = py;
       soft.colors[i * 3] = r;
       soft.colors[i * 3 + 1] = g;
       soft.colors[i * 3 + 2] = b;
@@ -323,9 +343,9 @@ export function writeMissileSprites(
     if (coreCount < coreCap) {
       const i = coreCount;
       const [r, g, b] = cachedHexToLinear(look.coreColor);
-      core.positions[i * 3] = pt.x;
+      core.positions[i * 3] = px;
       core.positions[i * 3 + 1] = worldY;
-      core.positions[i * 3 + 2] = pt.y;
+      core.positions[i * 3 + 2] = py;
       core.colors[i * 3] = r;
       core.colors[i * 3 + 1] = g;
       core.colors[i * 3 + 2] = b;
@@ -336,8 +356,14 @@ export function writeMissileSprites(
     }
   }
 
-  pool.forEachLive((x, y, worldY, ageFrac) => {
-    if (softCount >= softCap) return;
+  // `forEachLive`'s own walk, inline: a callback here would be a fresh
+  // closure every frame.
+  for (let p = 0; p < pool.capacity && softCount < softCap; p++) {
+    if (pool.alive[p] === 0) continue;
+    const x = pool.px[p];
+    const y = pool.py[p];
+    const worldY = pool.pWorldY[p];
+    const ageFrac = pool.age[p] / pool.life[p];
     const i = softCount;
     const radius = look.radiusPx * sampleLerp(look.sizeCurve, ageFrac, 1);
     const alpha = sampleLerp(look.alphaCurve, ageFrac, 1);
@@ -353,7 +379,9 @@ export function writeMissileSprites(
     soft.scales[i] = radius;
     soft.softs[i] = 1;
     softCount++;
-  });
+  }
 
-  return { soft: softCount, core: coreCount };
+  spriteCounts.soft = softCount;
+  spriteCounts.core = coreCount;
+  return spriteCounts;
 }
