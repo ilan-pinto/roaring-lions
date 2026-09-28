@@ -200,6 +200,11 @@ export interface ChipView {
   statusTone: ChipTone;
   /** Every unit in the chip is the player's -- the kit sign's guard (plan 2b). */
   own: boolean;
+  /** Draw the pinned mark on the chip art (GH-262): at least one unit is
+   *  pinned and none is broken. It follows `chipStatus`'s precedence rather
+   *  than a raw count, so the mark and the status line can never disagree --
+   *  a broken unit's chip says BROKEN and carries no pinned mark. */
+  pinned: boolean;
 }
 
 /**
@@ -283,6 +288,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       status,
       statusTone,
       own: group.every((u) => u.own === true),
+      pinned: pinned > 0 && routed === 0,
     };
   });
 }

@@ -116,6 +116,7 @@ export const RETIRED_DINGBATS = [
   '✹', '⬡', '✈', '✛', '▤', '▲', // ROLE_GLYPH (■ above already covers it)
   '▣', '◎', '✸', // strip and dock
   '↺', '↻', // board
+  '▼', // strip pinned count (GH-262: the drawn `pinned` status mark replaced it)
 ];
 
 // Q10 ruling: the dingbats no G1 round drew stay, tracked as follow-up GH-261
@@ -128,7 +129,7 @@ export const RETIRED_DINGBATS = [
 //     loop (☑/☒/☐ objective status)
 //   input/keymap.ts's `LABELS` (↑ ↓ ← → key-name display)
 //   i18n/en.json: ← → (nav/back links, debrief.next, garage.benefit.*,
-//     roe.notice.head), ♪ (menu.audio.*), ▼ (hud.strip.pinned),
+//     roe.notice.head), ♪ (menu.audio.*),
 //     ⚑ (hud.strip.broken), ⌂ (hud.leave.link), ⚠ (hud.card.weaponHeavy)
 
 // Modules that draw the replacement marks are exempt by NAME, not by content

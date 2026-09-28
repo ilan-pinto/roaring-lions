@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PINNED_CANDIDATES, SYMBOL_IDS, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
+import * as symbolModule from './symbol';
+import { SYMBOL_IDS, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
 
 const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'] as const;
 const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id);
@@ -96,24 +97,22 @@ describe('the HUD order marks are cropped to their own surround', () => {
   });
 });
 
-describe('the pinned mark candidates (G-PIN)', () => {
-  const ids = ['A', 'B', 'C'] as const;
-  it('are three different drawings, each filled only and in currentColor', () => {
-    expect(new Set(ids.map((k) => PINNED_CANDIDATES[k])).size).toBe(3);
-    for (const k of ids) {
-      expect(PINNED_CANDIDATES[k]).toContain('currentColor');
-      expect(PINNED_CANDIDATES[k]).not.toMatch(/stroke|#[0-9a-fA-F]{3}|var\(--/);
-    }
+describe('the pinned mark (A, "pressed flat", picked at G-PIN)', () => {
+  const body = symbolBody('pinned');
+  it('is filled only and in currentColor', () => {
+    expect(body).toContain('currentColor');
+    expect(body).not.toMatch(/stroke|#[0-9a-fA-F]{3}|var\(--/);
   });
-  it('stay inside the 24 box: every coordinate in [0, 24]', () => {
-    for (const k of ids) {
-      const nums = [...PINNED_CANDIDATES[k].matchAll(/-?\d+(\.\d+)?/g)].map((m) => Number(m[0]));
-      for (const n of nums) expect(n >= -24 && n <= 24).toBe(true); // relative arcs may be negative
-    }
+  it('stays inside the 24 box: every coordinate in [0, 24]', () => {
+    const nums = [...body.matchAll(/-?\d+(\.\d+)?/g)].map((m) => Number(m[0]));
+    for (const n of nums) expect(n >= -24 && n <= 24).toBe(true); // relative arcs may be negative
   });
-  it('draws candidate A until the ruling', () => {
-    expect(symbolBody('pinned')).toBe(PINNED_CANDIDATES.A);
+  it('is the ground bar over the down-chevron: two filled paths', () => {
+    expect(body.match(/<path /g)).toHaveLength(2);
     expect(symbolSvg('pinned', 12)).toContain('data-symbol="pinned"');
+  });
+  it('is the one pinned glyph: the G-PIN candidates are gone', () => {
+    expect(Object.keys(symbolModule)).not.toContain('PINNED_CANDIDATES');
   });
   it('carries a pixel of ink at the chip size (12 px)', () => {
     expect((W * 12) / 24).toBeGreaterThanOrEqual(1);

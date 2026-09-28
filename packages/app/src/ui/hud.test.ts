@@ -209,7 +209,7 @@ describe('top strip', () => {
     expect(tip.textContent).toContain('how cleanly you fight');
   });
 
-  it('shows ⚑ broken and ▼ pinned only when there are some', () => {
+  it('shows ⚑ broken and the pinned mark only when there are some', () => {
     const r = rig(mission());
     expect(r.strip()).not.toContain('pinned');
     expect(r.strip()).not.toContain('broken');
@@ -218,8 +218,36 @@ describe('top strip', () => {
     r.sim.state.routed[r.ids[1]] = 1;
     r.sim.state.pinned[r.ids[1]] = 1; // the sim flags a routed unit pinned too
     for (let i = 0; i < 5; i++) r.tick(); // the rebuild is 4 Hz, not every tick
-    expect(r.strip()).toContain('▼ 1 pinned');
+    // GH-262: `▼` is retired; the drawn mark stands where it stood.
+    expect(r.strip()).toContain('1 pinned');
+    expect(r.strip()).not.toContain('▼');
+    expect(r.stripEl().querySelector('[data-tip="pinned"] [data-symbol="pinned"]')).not.toBeNull();
     expect(r.strip()).toContain('⚑ 1 broken');
+  });
+
+  it('draws the pinned mark on chip art, card frame, card flag and strip, and nowhere when nobody is pinned', () => {
+    const sel: number[] = [];
+    const r = rig(mission(), { getSelection: () => sel });
+    const marks = (): number => r.host.querySelectorAll('[data-symbol="pinned"]').length;
+    expect(marks()).toBe(0);
+    r.sim.state.pinned[r.ids[0]] = 1;
+    sel.push(r.ids[0]);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card__frame > .rl-pin-mark [data-symbol="pinned"]')?.getAttribute('width')).toBe('16');
+    expect(r.host.querySelector('.rl-card__frame > .rl-pin-mark')?.getAttribute('aria-label')).toBe('Pinned');
+    expect(r.host.querySelector('.rl-card__cond [data-symbol="pinned"]')).not.toBeNull();
+    expect(r.host.querySelector('.rl-strip [data-symbol="pinned"]')).not.toBeNull();
+    expect(r.strip()).toContain('1 pinned');
+    expect(r.strip()).not.toContain('▼');
+    sel.push(r.ids[1]);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-chip .rl-pin-mark [data-symbol="pinned"]')?.getAttribute('width')).toBe('12');
+    // an unkitted chip still gets a positioned host for the corner mark
+    expect(r.host.querySelector('.rl-chip .rl-kit-host > .rl-chip__art')).not.toBeNull();
+    // and the mark goes when the pin lifts
+    r.sim.state.pinned[r.ids[0]] = 0;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(marks()).toBe(0);
   });
 
   it('omits the secondary count when nothing secondary is open', () => {
