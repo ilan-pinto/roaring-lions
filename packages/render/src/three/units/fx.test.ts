@@ -50,6 +50,7 @@ import {
   SHELL_TAIL_ALPHA,
   ShellBatch,
   shellSegmentQuad,
+  liftedSegmentQuad,
   writeShellInstances,
   type ParticleInstanceBuffers,
   type TracerInstanceBuffers,
@@ -981,5 +982,24 @@ describe('particle soft edge (aSoft)', () => {
   it('the hard-edged circle cutout is still there -- feathering must not silently widen a puff past its own radius', () => {
     const m = (new ParticleInstancer(4, 0, true).mesh.material) as THREE.ShaderMaterial;
     expect(m.fragmentShader).toContain('if (dot(vLocal, vLocal) > 1.0) discard;');
+  });
+});
+
+describe('liftedSegmentQuad is the one segment maths (GH-250 T5)', () => {
+  it('reproduces shellSegmentQuad exactly for every kind, at several points of flight', () => {
+    for (const kind of ['mortar', 'rocket', 'bolt'] as const) {
+      const s = spawnShell(1, 2, 11, 6, 0, kind);
+      for (const [uA, uB] of [[0, 0.1], [0.4, 0.55], [0.9, 1]] as const) {
+        const a = shellPointAt(s, uA);
+        const b = shellPointAt(s, uB);
+        const y = (u: number, lift: number): number =>
+          groundWorldY(null, 0, 0, s.sx, s.sy) +
+          (groundWorldY(null, 0, 0, s.tx, s.ty) - groundWorldY(null, 0, 0, s.sx, s.sy)) * u +
+          (SHELL_LIFT_PX + lift) * WORLD_Y_PER_LIFT_PIXEL;
+        expect(liftedSegmentQuad(a.x, a.y, y(uA, a.liftPx), b.x, b.y, y(uB, b.liftPx), 5, 3)).toEqual(
+          shellSegmentQuad(s, uA, uB, null, 0, 0, 5, 3)
+        );
+      }
+    }
   });
 });
