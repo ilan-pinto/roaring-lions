@@ -46,6 +46,9 @@ const PALETTE = 'data/palette.json';
 const ROOTS = ['packages/app/src', 'assets/campaign'];
 const EXTRA = ['packages/app/index.html', 'packages/render/src/overlay.ts'];
 const EXTS = ['.ts', '.css', '.html', '.svg'];
+// EXTS never reads .json, and that blind spot is how a retired dingbat hid in
+// a catalogue string -- the dingbat sweep below reads this directory itself.
+const I18N_DIR = 'packages/app/src/i18n';
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
@@ -81,6 +84,63 @@ export function pxFailures(file, css) {
     const scanned = line.replace(SHADOW_DECL, '');
     for (const m of scanned.matchAll(/(\d+(?:\.\d+)?)px\b/g)) {
       if (Number(m[1]) >= 4) out.push(`${file}:${i + 1}: ${m[0]} -- use rem (or tag the line /* px-ok */ for a hairline)`);
+    }
+  });
+  return out;
+}
+
+// Retired dingbats -- the Unicode glyphs G1 (#165, 2026-09-28, r2 and r5)
+// replaced with the drawn sheet in ui/symbol.ts. Checked as a NAMED LIST, not
+// a Unicode range, because a range would also catch typography (`°`, `·`).
+// Q4 ruling: the r2 utility marks ▣ ◎ ↺ ↻ ship, so they are on this list too.
+//
+// `★` is a NAMED EXCEPTION (Q5) -- a repeated countable mark (stars earned,
+// veteran rank), not an icon -- so it is deliberately NOT on this list and is
+// never flagged. Its sites, every one re-verified at 9e9b0640:
+//   loading.ts:176 (doc comment at :166-172)
+//   hud.ts:1824 (veteran rank)
+//   debrief.ts:74, :182
+//   worldmap.ts:210, :317
+//   worldmap3d.ts:402
+//   campaign.ts:473
+//   catalogue: en.json:428 dock.lock.stars (rendered via dock-model.ts:117),
+//     en.json:473 gate.short.stars (rendered via gate-sentence.ts:116)
+// Prose-only `★` needing no exemption: roster-cap.ts:4, campaign.ts:494,
+// gate-sentence.ts:92, theme.css:4180.
+export const RETIRED_DINGBATS = [
+  '⟶', '■', '◌', '⤓', '⤒', // order row
+  '✹', '⬡', '✈', '✛', '▤', '▲', // ROLE_GLYPH (■ above already covers it)
+  '▣', '◎', '✸', // strip and dock
+  '↺', '↻', // board
+];
+
+// Q10 ruling: the dingbats no G1 round drew stay, tracked as follow-up GH-261
+// (https://github.com/ilan-pinto/roaring-lions/issues/261), until they get a
+// drawn mark of their own. Not on RETIRED_DINGBATS, so dingbatFailures is
+// silent on every one of these:
+//   hud.ts:508 ▮▮ (pause), :741/:745 ◂/▸ (beat step), :912 🔇/🔊 (mute)
+//   hud-model.ts:197, debrief.ts:157 ☑/☒/☐ (objective status)
+//   input/keymap.ts:265 ↑ ↓ ← → (key-name display)
+//   i18n/en.json: ← → (nav/back links, debrief.next, garage.benefit.*,
+//     roe.notice.head), ♪ (menu.audio.*), ▼ (hud.strip.pinned),
+//     ⚑ (hud.strip.broken), ⌂ (hud.leave.link), ⚠ (hud.card.weaponHeavy)
+
+// Modules that draw the replacement marks are exempt by NAME, not by content
+// scan -- neither holds a dingbat, but a comment in either may quote the
+// retired glyph the mark beside it replaces.
+const DINGBAT_EXEMPT_FILES = ['ui/symbol.ts', 'ui/order-sight.ts'];
+
+/** A retired dingbat anywhere in UI/catalogue source is a defect: draw it
+ *  instead, through ui/symbol.ts's symbolSvg. */
+export function dingbatFailures(file, src) {
+  if (file.endsWith('.test.ts')) return [];
+  if (DINGBAT_EXEMPT_FILES.some((f) => file.endsWith(f))) return [];
+  const out = [];
+  src.split('\n').forEach((line, i) => {
+    for (const ch of RETIRED_DINGBATS) {
+      if (line.includes(ch)) {
+        out.push(`${file}:${i + 1}  retired dingbat ${ch} -- draw it with symbolSvg (ui/symbol.ts)`);
+      }
     }
   });
   return out;
@@ -152,6 +212,16 @@ function main() {
       if (name === '--i') continue;
       failures.push(`${rel}  unknown custom property ${name} — not declared in ${THEME} or ${PALETTE}`);
     }
+  }
+
+  // The retired-dingbat sweep also reads the catalogue: en.json is where a
+  // star gate hid, past EXTS's blind spot for .json.
+  const i18nFiles = readdirSync(join(ROOT, I18N_DIR))
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => join(ROOT, I18N_DIR, f));
+  for (const file of [...files, ...i18nFiles]) {
+    const rel = relative(ROOT, file);
+    failures.push(...dingbatFailures(rel, readFileSync(file, 'utf8')));
   }
 
   // The two-tier rule: only theme.css maps a raw palette entry onto meaning. If

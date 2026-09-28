@@ -5,3 +5,5 @@
 // reason: the gate stays plain Node with no build step (`pnpm validate:ui`
 // runs it directly) — this file exists only for the test's benefit.
 export function pxFailures(file: string, css: string): string[];
+export const RETIRED_DINGBATS: readonly string[];
+export function dingbatFailures(file: string, src: string): string[];

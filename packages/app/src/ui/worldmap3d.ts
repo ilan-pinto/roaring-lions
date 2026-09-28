@@ -453,9 +453,10 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   bearing.dataset.spin = 'north';
   bearing.title = t('world3d.bearing.title');
   bearing.textContent = '000°';
-  // S3e (Q4): round 2's compass-rose marks, not `↺`/`↻`. The mark is
-  // `aria-hidden`, so the button's name is its title, stated as the
-  // aria-label too rather than left to a browser's title fallback.
+  // S3e (Q4): round 2's compass-rose marks, not the retired counter-/clockwise
+  // arrow dingbats. The mark is `aria-hidden`, so the button's name is its
+  // title, stated as the aria-label too rather than left to a browser's title
+  // fallback.
   const spinButton = (dir: 'ccw' | 'cw', mark: 'rotateCcw' | 'rotateCw', title: string): HTMLButtonElement => {
     const b = document.createElement('button');
     b.type = 'button';
