@@ -49,6 +49,15 @@ describe('dingbatFailures', () => {
     expect(dingbatFailures('packages/app/src/input/keymap.ts', "x = '⚑';")).toHaveLength(1);
   });
 
+  it('allows the keymap its arrow only as a key-name LABELS entry, not anywhere else in the file', () => {
+    const keymap = 'packages/app/src/input/keymap.ts';
+    expect(dingbatFailures(keymap, "// press ← to go back")).toEqual([
+      `${keymap}:1  retired dingbat ← -- draw it with symbolSvg (ui/symbol.ts)`,
+    ]);
+    expect(dingbatFailures(keymap, "const back = '←';")).toHaveLength(1);
+    expect(dingbatFailures(keymap, "  arrowleft: '←', hint: '← back',")).toHaveLength(1);
+  });
+
   it('is silent on a .test.ts file', () => {
     expect(dingbatFailures('ui/hud.test.ts', 'expect(x).toBe("▣")')).toEqual([]);
   });

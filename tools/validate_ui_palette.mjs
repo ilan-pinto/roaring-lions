@@ -146,16 +146,20 @@ export const RETIRED_DINGBATS = [
 //     ARE drawn, by menu.ts's end screen and debrief.ts's next link.
 //   input/keymap.ts's `LABELS` (↑ ↓ ← → key-name display): typography by
 //     the lead's ruling, so ← -- retired everywhere else -- is allowed in
-//     that one file by DINGBAT_TYPOGRAPHY below.
+//     that table's entries by DINGBAT_TYPOGRAPHY below.
 
 // Modules that draw the replacement marks are exempt by NAME, not by content
 // scan -- neither holds a dingbat, but a comment in either may quote the
 // retired glyph the mark beside it replaces.
 const DINGBAT_EXEMPT_FILES = ['ui/symbol.ts', 'ui/order-sight.ts'];
 
-// A retired glyph a file may still hold as TYPOGRAPHY, by file and glyph --
-// never a whole file. The keymap names the arrow keys by their arrows.
-const DINGBAT_TYPOGRAPHY = [{ file: 'input/keymap.ts', glyphs: ['←'] }];
+// A retired glyph a file may still hold as TYPOGRAPHY -- by file AND by the
+// exact entry that holds it, never a whole file or a whole line. The keymap's
+// `LABELS` table names the arrow keys by their arrows (`arrowleft: '←'`); each
+// match of `entry` is cut out of the line before the scan, so the same glyph
+// anywhere else in that file -- a comment, another literal, a second entry on
+// the label line -- is still a defect.
+const DINGBAT_TYPOGRAPHY = [{ file: 'input/keymap.ts', entry: /\barrow(?:up|down|left|right): '[↑↓←→]'/g }];
 
 /** A retired dingbat anywhere in UI/catalogue source is a defect: draw it
  *  instead, through ui/symbol.ts's symbolSvg. */
@@ -163,10 +167,10 @@ export function dingbatFailures(file, src) {
   if (file.endsWith('.test.ts')) return [];
   if (DINGBAT_EXEMPT_FILES.some((f) => file.endsWith(f))) return [];
   const out = [];
-  const allowed = DINGBAT_TYPOGRAPHY.filter((a) => file.endsWith(a.file)).flatMap((a) => a.glyphs);
-  src.split('\n').forEach((line, i) => {
+  const allowed = DINGBAT_TYPOGRAPHY.filter((a) => file.endsWith(a.file)).map((a) => a.entry);
+  src.split('\n').forEach((raw, i) => {
+    const line = allowed.reduce((l, entry) => l.replace(entry, ''), raw);
     for (const ch of RETIRED_DINGBATS) {
-      if (allowed.includes(ch)) continue;
       if (line.includes(ch)) {
         out.push(`${file}:${i + 1}  retired dingbat ${ch} -- draw it with symbolSvg (ui/symbol.ts)`);
       }

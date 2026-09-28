@@ -1157,7 +1157,7 @@ export class Hud {
           // two long objectives it was the clock that vanished.
           `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeHtml(deadline.objective.id)}" tabindex="0">` +
             `${objectiveGlyph(deadline.objective.status)} ` +
-            `<b class="${textToneClass(deadline.tone)}">${deadline.text}</b> ` +
+            `<b class="${textToneClass(deadline.tone)}">${escapeHtml(deadline.text)}</b> ` +
             `${escapeHtml(deadline.objective.text)}</span>`
         );
       }
