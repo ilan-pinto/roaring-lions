@@ -78,6 +78,26 @@ describe('the flight time is the sim\'s own (spec D1)', () => {
     expect(missileDurationS(WEAPON_CLASS.atgm, 0)).toBeCloseTo(0.05, 9);
     expect(missileDurationS(WEAPON_CLASS.atgm, 1e6)).toBe(6);
   });
+
+  // Fix round 1: falsification (b) needs a boundary input this platform
+  // actually hits, not just the original 6-tile case (which happens not to
+  // trip it on this Node -- see the report). perTick = 4 * SIM_TICK_S =
+  // 0.2, and 0.2 is not exactly representable in binary float: perTick * 3
+  // is a hair ABOVE the true 0.6 (measured 0.6000000000000001), so dividing
+  // it back by perTick reads a hair above the integer 3
+  // (3.0000000000000004) even though the ground distance IS exactly three
+  // ticks. Without the `- 1e-9` epsilon this rounds up to n = 4 instead of
+  // n = 3, changing the animation's duration by a whole 50 ms tick for a
+  // shot that should resolve in exactly three.
+  it('the epsilon guards a real boundary: 3 exact ticks of atgm flight float-rounds a hair high (spec D1)', () => {
+    const perTick = SIM_PROJ_SPEED_TILES_S.atgm * SIM_TICK_S;
+    const dist = perTick * 3;
+    // Confirms the boundary condition actually exists on this platform;
+    // if this assertion itself ever goes false, the epsilon has nothing
+    // left to guard for this case and the comment above should be revisited.
+    expect(dist / perTick).toBeGreaterThan(3);
+    expect(missileDurationS(WEAPON_CLASS.atgm, dist)).toBeCloseTo((3 - 1) * SIM_TICK_S, 12);
+  });
 });
 
 describe('missileVariantFor (spec D2)', () => {
@@ -153,6 +173,28 @@ describe('the path', () => {
     for (const o of off) expect(o).toBeLessThanOrEqual(MISSILE_PROFILES.guided.weaveTiles + 1e-9);
     expect(Math.abs(missilePointAt(m, 0).y)).toBeLessThan(1e-9);
     expect(Math.abs(missilePointAt(m, 1).y)).toBeLessThan(1e-9);
+  });
+
+  // Fix round 1: falsification (d) needs a sample point where sin() is NOT
+  // already zero, or the decay term is invisible -- at weaveCycles = 1.5 the
+  // sine itself returns to 0 at both u = 0 and u = 1, so the original
+  // endpoint-only assertions above pass with or without `* (1 - p)`. Solving
+  // 2*pi*weaveCycles*p = pi/2 + 2*pi*k for k = 1 gives p = (1.25) / weaveCycles
+  // -- a point near the END of flight (p ~= 0.833 at the shipped 1.5 cycles)
+  // where sin() is exactly +1, so the offset there is decay alone.
+  it('the weave decays by (1 - p) at a point where sin() is not already zero (N5)', () => {
+    const m = spawned();
+    const prof = MISSILE_PROFILES.guided;
+    const p = 1.25 / prof.weaveCycles;
+    const sinAtP = Math.sin(2 * Math.PI * prof.weaveCycles * p);
+    expect(sinAtP).toBeCloseTo(1, 9); // confirms this p actually isolates decay from the sine term
+    const y = missilePointAt(m, p).y;
+    const expected = prof.weaveTiles * sinAtP * (1 - p);
+    expect(y).toBeCloseTo(expected, 9);
+    // Without decay this would read the full weaveTiles (sin = 1, no shrink)
+    // -- nearly 6x the decayed value at this p -- so this bound is the one
+    // that must go red if `* (1 - p)` is dropped.
+    expect(Math.abs(y)).toBeLessThan(prof.weaveTiles * 0.5);
   });
 
   it('unguided flies a flat hump with no weave (N6)', () => {
