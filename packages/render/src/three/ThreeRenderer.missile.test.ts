@@ -198,4 +198,21 @@ describe('an ATGM is a missile, not a bolt (GH-250)', () => {
     expect(r.setDebugLayerVisible('missiles', false)).toBe(3);
     r.dispose();
   });
+
+  it('hands MissileFx the same track object every frame -- bound once, not built per frame', () => {
+    const { sim, events } = fire(SPIKE, 7);
+    const r = rendererFor(sim, events);
+    const seen: unknown[] = [];
+    const fxObj = priv(r).missileFx as unknown as { step: (...a: unknown[]) => MissileLanding[] };
+    const realStep = fxObj.step.bind(fxObj);
+    fxObj.step = (...a: unknown[]): MissileLanding[] => {
+      seen.push(a[1]);
+      return realStep(...a);
+    };
+    priv(r).updateFx(1000 / 60);
+    priv(r).updateFx(1000 / 60);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toBe(seen[0]);
+    r.dispose();
+  });
 });

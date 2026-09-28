@@ -115,4 +115,22 @@ describe('MissileFx', () => {
     expect(fx.missiles).toHaveLength(0);
     fx.dispose();
   });
+
+  it('returns ONE reusable landings buffer from step, and another from intercept -- no per-frame array', () => {
+    const fx = new MissileFx();
+    fx.setLook(TRAIL, resolve);
+    const a = fx.step(1 / 60, TRACK, null, 0, 0);
+    const b = fx.step(1 / 60, TRACK, null, 0, 0);
+    expect(b).toBe(a);
+    fx.launch(LAUNCH);
+    const landed = fx.step(5, TRACK, null, 0, 0);
+    expect(landed).toBe(a);
+    expect(landed).toHaveLength(1);
+    // Valid until the next call: the next step clears it in place.
+    expect(fx.step(1 / 60, TRACK, null, 0, 0)).toHaveLength(0);
+    const i1 = fx.intercept(1);
+    const i2 = fx.intercept(1);
+    expect(i2).toBe(i1);
+    fx.dispose();
+  });
 });
