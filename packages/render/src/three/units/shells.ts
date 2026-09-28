@@ -96,7 +96,7 @@
  * stepped by REAL FRAME SECONDS (`stepShells(shells, dt)`), never by sim
  * ticks.
  *
- * (`units/missiles.ts` copies the `atgm`/`rpg` half of the same table, per
+ * (`units/missiles.ts` copies the `atgm`/`rpg`/`heat` part of the same table, per
  * class, for the same reason.) `bolt` CANNOT copy it, and that is the one place this module invents a
  * number rather than borrowing one: `PROJ_SPEED` is **0** for `apfsds`,
  * `autocannon`, `small_arms` and `hmg` -- the sim models those as arriving
