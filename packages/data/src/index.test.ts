@@ -280,3 +280,44 @@ describe('the unit voice field (WP-AU1 §3)', () => {
     expect(schema.required).not.toContain('voice');
   });
 });
+
+describe('the ATGM emitters (GH-250, spec N9-N16)', () => {
+  const byId = (id: string): { particles: Record<string, unknown>[]; [k: string]: unknown } => {
+    const em = vfxEmitters.find((e) => (e as { id: string }).id === id);
+    if (em === undefined) throw new Error(`no emitter ${id}`);
+    return em as { particles: Record<string, unknown>[]; [k: string]: unknown };
+  };
+
+  it('fire_missile throws an ignition flash, a rear backblast cone and a ground ring (N11, N12)', () => {
+    const em = byId('fire_missile');
+    expect(em.light).toEqual({ color: 'vfx.fire', intensity: 2.0, radius_tiles: 3.0, decay_ms: 180 });
+    const [flash, blast, ring] = em.particles;
+    expect(flash.additive).toBe(true);
+    expect(flash.count).toEqual([3, 4]);
+    expect(blast.direction_offset_deg).toBe(180);
+    expect(blast.cone_deg).toBe(30);
+    expect(blast.count).toEqual([8, 12]);
+    expect(ring.cone_deg).toBe(360);
+    expect(ring.count).toEqual([6, 9]);
+  });
+
+  it('missile_trail carries one layer per role: core, halo, smoke (P-3)', () => {
+    const em = byId('missile_trail');
+    expect(em.trigger).toBe('projectile_trail');
+    expect(em.particles.filter((p) => p.additive === true)).toHaveLength(1);
+    expect(em.particles.filter((p) => p.sprite === 'smoke_puff')).toHaveLength(1);
+    expect(em.particles).toHaveLength(3);
+  });
+
+  it('missile_impact is a HEAT hit, not a mortar bomb: burst, spall, light and shake, and no hit-stop (N13, N15, N16)', () => {
+    const em = byId('missile_impact');
+    expect(em.trigger).toBe('impact_armor');
+    expect(em.hit_stop_ms).toBeUndefined();
+    expect(em.screen_shake).toEqual({ amplitude_px: 2, duration_ms: 140, falloff_tiles: 8 });
+    expect(em.light).toEqual({ color: 'vfx.fire', intensity: 2.6, radius_tiles: 3.5, decay_ms: 200 });
+    expect(em.particles.filter((p) => p.mesh_burst === true)).toHaveLength(1);
+    const spall = em.particles.find((p) => p.sprite === 'shard');
+    expect(spall?.cone_deg).toBe(70);
+    expect(em.particles.some((p) => p.mesh_plume === true)).toBe(false);
+  });
+});
