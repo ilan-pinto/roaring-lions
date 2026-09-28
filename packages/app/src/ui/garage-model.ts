@@ -56,6 +56,19 @@ export function rovingStep(key: string, at: number, count: number): number | nul
   return null;
 }
 
+/** The rail sorted by kit level (GH-243, spec §4 "Comparison": "the rail can
+ *  sort by kit level beside role"): most kitted first, and equals keep the
+ *  order they were handed in -- the rail's own order (available first, locked
+ *  by the gate that opens soonest) is the tiebreak, so the sort never
+ *  invents a second answer to "which of these two comes first". A copy;
+ *  the input is never reordered in place. */
+export function sortByKit<T>(items: readonly T[], level: (item: T) => number): T[] {
+  return items
+    .map((item, i) => ({ item, i, l: level(item) }))
+    .sort((a, b) => b.l - a.l || a.i - b.i)
+    .map((e) => e.item);
+}
+
 /** A digit key onto the board's own tracks, in the order the board actually
  *  drew them (F8): `'2'` is the SECOND track this unit's board has, never a
  *  fixed armour/sensors/firepower slot -- a unit missing a track shifts every

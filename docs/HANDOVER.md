@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-26 (repo PUBLIC since 25 Sep, CI works again; garage uplift plan 1 #244 and ground plan 1 #249 LANDED) · main: 165eb966 (v0.84.0 + re-bless) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
+Updated: 2026-09-28 (voices engine #253, garage kit on icons #255, CI timing fix #256 and /stats accounts+loadouts #257 LANDED) · main: 9e9b0640 (v0.87.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,14 +8,14 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | WP-AU1 unit voices engine BUILT → PR #253 (supersedes #252) · WP-S3g plan 2b kit on the icons BUILT → PR #255 · #254 /stats additions (filed 27 Sep) · #243 · S3e #178 Tasks 11–12 wait for G1 | `feat/unit-voices` (voices-spec) · `feat/garage-tier-mark` (s3g-mark) | voices spec #246, plan 2026-09-26-unit-voices-engine; garage plan 2b 2026-09-27-garage-kit-on-icons; SDD ledgers mirrored in `.superpowers/sdd-archive/` | both PRs await the lead's merge; gates green locally | lead merges #253 and #255; then #254 spec+plan; #243; S3e Tasks 11–12 after G1 |
-| B (render · art · data) | A2 plan 2 next (`ThreeRenderer.ts` free: the world kit mark was rejected by the lead and reverted, so plan 2b never touches render) · #250 ATGM animation · A3.1 #179 waits for G1 · A3.2 #185 tunnels #227 | — | — | A2 ground plan 1 LANDED (#249) | write A2 plan 2; #250 after it; A3.1 after G1 and the October Meshy credits |
+| A (packages/app) | WP-AU1 unit voices engine LANDED (#253) · WP-S3g plan 2b kit on icons LANDED (#255) · CI timing fix LANDED (#256) · #254 /stats accounts+loadouts LANDED (#257, D1 migration 0002_accounts applied) · #243 garage compare + Shift+Tab in build · S3e #178 Tasks 11–12 wait for G1 | `feat/garage-compare` (garage-compare) | SDD ledgers mirrored in `.superpowers/sdd-archive/` | #243 in build; gates green locally | land #243; S3e Tasks 11–12 after G1; S3a #180 after |
+| B (render · art · data) | A2 plan 2 in build (`feat/ground-plan2`, worktree `ground2`): Tasks 1–6 done incl. Meshy props (7 previews 140 cr + 7 remeshes 35 cr; CLI gained `remesh`), olive split-decimation (wadi_halam_basin decor −6.8M tris), Task 5 props on screen at density 0.75 (shed from higher by the lead); Tasks 7–12 (sway, presets, haze, time_of_day, dusk capture, costs + bless) next · #250 ATGM animation spec+plan being written (`feat/atgm-animation`) · A3.1 style bible being written (`docs/a31-style-bible`) | `feat/ground-plan2` (ground2) · `feat/atgm-animation` (atgm) · `docs/a31-style-bible` (a31-bible) | — | Tasks 1–6 LANDED locally on the branch, not yet merged | finish A2 plan 2 Tasks 7–12; #250 spec+plan; A3.1 bible review after G1 |
 | C (packages/sim) | #247 manpad_team treated as wheeled (sim/data fix, filed 26 Sep) | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: merge #253 (voices) and #255 (garage kit on icons) → #254 /stats additions (spec + plan) → #243 garage comparison + Shift+Tab → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186 · voice assets after the D5 licence
-- B: A2 plan 2 (scatter, trees, D8 decimation, haze, time of day) → #250 ATGM missile animation → A3.1 #179 bible + Meshy batches (after G1 and the October credits) → G-E5 #181 → A3.2 #185 (tunnel visuals #227)
+- A: #243 garage comparison + Shift+Tab → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186 · voice assets after the D5 licence
+- B: A2 plan 2 Tasks 7–12 (haze, time of day, dusk capture, costs + bless) → #250 ATGM missile animation → A3.1 #179 bible + Meshy batches (after G1 and the October credits) → G-E5 #181 → A3.2 #185 (tunnel visuals #227)
 - C: #247 manpad_team wheeled fix (Stage 4) → G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
 
@@ -50,6 +50,11 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 ## 4. Landed — append-only, newest first
 
 - 2026-09-28 · S3e symbols (#178) Tasks 1–6 COMPLETE on `feat/s3e-symbols` (plan `docs/superpowers/plans/2026-09-28-s3e-symbols.md`, supersedes Phase 3 Tasks 11–12) · G1's r2/r4/r5-approved sheet ported as the drawn source, dingbat gate (follow-up #261), cursor family colour + halo + CVD variants, frame driver, Q1–Q14 taken at their recommended default · lead captures under `.superpowers/sdd/2026-09-28-s3e-symbols/t6-lead/` · awaiting merge
+- 2026-09-27 · releases v0.85.0 → v0.87.0 cut across the landings below
+- 2026-09-27 · **#257 → af13d84b /stats brigade accounts and loadouts (GH-254)** · an accounts summary table upserted apart from its events, per-mission loadouts, telemetry hooks for orders/buys/account; the lead applied D1 migration 0002_accounts before merge · no bless
+- 2026-09-27 · **#256 → 8bb9ae0c voices CI leg-b timing fix** · the burst's clicks wait on microtask gaps, not a frame · no bless
+- 2026-09-27 · **#255 → b6497c12 garage kit on the icons (WP-S3g plan 2b, GH-238)** · the world kit mark was built, shown to the lead and REJECTED, then reverted; landed instead: steel Stars of David on the dock/card/rail icons and a per-level chip border tint · no bless
+- 2026-09-27 · **#253 → d2d33ba5 unit voices engine (WP-AU1, GH-245)** · orders and deaths in Hebrew (KDF) and Arabic (others), military calls only, no assets yet — samples wait on the D5 ElevenLabs commercial licence · no bless
 - 2026-09-26 · releases v0.82.0 → v0.84.0 cut across the 24–26 Sep landings below
 - 2026-09-26 · **#249 → 2eadc0b0 ground plan 1 (WP-A2)** · splat terrain, the #226 road, a decal pool, and the new gated `aftermath` scenario · visual baseline re-blessed from CI numbers at 165eb966: quiet 12222, open-ground 502, vehicle 4726, relief 704, aftermath new
 - 2026-09-25 · **#248 asset-provenance fix** · TNK/JEEP sprites re-rendered from our own GLBs; Namer CC-BY credit added; Kolos FBX removed; history kept, by the lead's decision · closes the pre-public audit's one finding
@@ -118,7 +123,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - `ThreeRenderer.ts` is shared by both lanes · schedule interleave (A1.2 → S2b; A1.3 → scene host; S3g plan 2 → A2 plan 2) · every stage
 - `qarn_hadid` z1.6 frame time is 14.86 ms against a 14.5 ms ceiling; the lead accepted the overage · perf-analyst · watch as more relief maps ship
 - The control map's first build adds ~65 ms to boot · perf-analyst · watch on `pnpm dev` boot
-- Meshy balance 454 credits vs ~540 for eighteen bakes · G1 · Stage 2
+- Meshy balance ~304 credits after 175 spent on ground plan 2 props (7 previews + 7 remeshes); October top-up still pending · G1 · Stage 2
 - The private repository's Actions artifact quota filled on 24 Sep ("Artifact storage quota has been hit"): the `visual` upload failed on all of that day's merges while the gate and route walk passed, which skipped `version` · FIXED by PR #220 (upload non-fatal, 3 days, not 14; v0.79.0 cut after it) · recalculated every 6–12 h; a bless still uploads its captures for 14 days · watch any bless
 - The repo went private ~21–23 Sep; GitHub Pages is gone and the build deploys from Cloudflare Workers Builds (a `Workers Builds: roaring-lions` check now appears on PRs) · WP-T1 #218 LANDED (#225): `pages.yml` retired, `/stats` behind a password login because Cloudflare Zero Trust asks for payment details · the repo went PUBLIC again 25 Sep, restoring free Actions minutes · open: does Workers Builds build a `[skip ci]` release commit, so the live build carries the new version number · next release
 - GitHub Actions was blocked by billing on the private repo from 24 Sep ~20:34 UTC (private repos have limited free minutes) · RESOLVED 25 Sep when the lead made the repo PUBLIC again, CI works · a pre-public history audit ran clean (secrets, sensitive files, personal data, large files); its one finding, unverified-licence art, is fixed at HEAD by #248 · 25 Sep
@@ -126,6 +131,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - Local Node 25 gives vitest's jsdom a bare `{}` localStorage while CI's Node 22 gives a real Storage, so a storage spec can pass locally and fail in CI · specs install the storage shape they need · any storage test
 - Clean worktrees under `.claude/worktrees/` were removed between sessions (20→23 Sep) and took the git-ignored SDD ledgers with them; branches survived · mirror every ledger to the session scratchpad, run `git worktree list` before trusting a path · every session gap
 - Cross-OS visual equivalence never diffed · per-environment baselines stay · any bless
+- The local darwin visual baseline is stale since 2026-09-03 · bless from CI numbers only · any bless
 - Playtest harness is single-seed (424242) · a second seed flips three lines · Stage 4 re-pins
 - `vehicle` thresholds calibrated against the old noise, not re-derived at the new zero floor · a decision · any bless of `vehicle`
 - WP-G-E2 #174 and WP-G-E4 #176 must read and write the brigade account and the campaign ledger through ONE adapter (the future `LedgerStore` seam), never `localStorage` directly, or ST6 #205 reopens both screens · a ruling in both plans; S3e #178's `DeployRosterView` is already that seam · now, both about to start
@@ -150,19 +156,19 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 ## 8. Latest handoff prompt — verbatim, replaced at every handoff
 
 ```
-HANDOFF — Roaring Lions · 2026-09-26 · from session "docs ledger update"
+HANDOFF — Roaring Lions · 2026-09-28 · from session "docs ledger update"
 GOAL: run gamification E–I, shell 2–4 and art 1–4 on one schedule. M1 commander's HUD + one register 30 Oct ·
       M2 economy with decisions 27 Nov · M3 skirmish 22 Jan 2027 · M4 play with a friend 26 Mar 2027 · M5 Steam F2P (after G7).
-PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207, #218, #223, #226, #227, #236–#250)
-STATUS: repo is PUBLIC again (25 Sep), CI works · main 165eb966 (v0.84.0 + re-bless) · landed 24–26 Sep: #236 win credits, #239 garage uplift spec (D1–D9), #240 garage filter fix, #241 ground spec (D8), #242 Worker observability, #244 garage uplift plan 1, #248 asset-provenance fix, #249 ground plan 1 (WP-A2, rebless 165eb966)
-        IN FLIGHT: WP-S3g plan 2 (kit tier mark on the map) in `feat/garage-tier-mark` · WP-AU1 unit voices (#245; spec landed as #246) engine plan drafting
+PLAN: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · LEDGER: docs/HANDOVER.md on main · GitHub synced (EP M1–M5, #164–#207, #218, #223, #226, #227, #236–#257)
+STATUS: main 9e9b0640 (v0.87.0) · landed since the last handoff: #253 unit voices engine (WP-AU1), #255 garage kit on icons (WP-S3g plan 2b), #256 voices CI timing fix, #257 /stats accounts + loadouts (D1 migration 0002_accounts applied)
+        IN FLIGHT: A2 ground plan 2 on `feat/ground-plan2` (worktree `ground2`) — Tasks 1–6 done (Meshy props, olive decimation, density 0.75), Tasks 7–12 next · #243 garage compare + Shift+Tab in build (`feat/garage-compare`) · #250 ATGM animation spec+plan being written · A3.1 style bible being written
         merges: the LEAD merges
 DECISIONS THIS SESSION: none — ledger update only, facts as supplied by the controller
 NEXT STEP (exact):
-  1. `git worktree list`; finish and land WP-S3g plan 2 (`feat/garage-tier-mark`), then sequence A2 plan 2 on `ThreeRenderer.ts`
-  2. G1 #165 on 2 Oct unblocks A3.1 #179 and S3e Tasks 11–12; Meshy credits arrive early October
-  3. Review #243 (garage comparison + Shift+Tab); triage #247 (manpad_team wheeled, Stage 4) and #250 (ATGM missile animation, after A2 plan 2)
-CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time (S3g plan 2 before A2 plan 2)
+  1. `git worktree list`; finish A2 plan 2 Tasks 7–12 (haze, time_of_day, dusk capture, costs + bless) on `feat/ground-plan2`
+  2. Land #243 (garage compare + Shift+Tab); G1 #165 due 2 Oct unblocks A3.1 #179 and S3e Tasks 11–12
+  3. Sequence #250 (ATGM missile animation) after A2 plan 2 lands; triage #247 (manpad_team wheeled, Stage 4)
+CONSTRAINTS: §7 above; blesses one per landing from CI numbers only; ThreeRenderer.ts one lane at a time (A2 plan 2 before anything else touches render)
 READ FIRST: each plan's head + its SDD ledger · CLAUDE.md "The three.js backend" · memory: clean-worktrees-get-removed · land-commits-through-a-main-worktree
 VERIFY BEFORE BELIEVING: pnpm lint && pnpm typecheck && pnpm test && pnpm test:determinism && pnpm validate:data
                          && pnpm validate:ui && pnpm playtest && pnpm balance · gh run list --branch main --workflow ci.yml --limit 3
