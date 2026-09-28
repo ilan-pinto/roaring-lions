@@ -8,15 +8,45 @@ describe('dingbatFailures', () => {
     ]);
   });
 
-  it('is silent on typography, the star exception and Q10 survivors', () => {
+  it('is silent on typography, the star exception and the Q10 survivors', () => {
     const src = [
       'const label = `${deg}°C, 12·5`;', // typography, not a dingbat
       "el('span', 'rl-commend', '★'.repeat(vet));", // Q5 exception
       "t('garage.benefit.plain', { before, after });", // '→' lives in en.json, not here
-      "const arrow = '→';",
-      "const status = complete ? '☑' : '☐';", // Q10 survivor
+      "const arrow = '→';", // Q10 survivor: before -> after reads as typography
+      "const pinned = '▼';", // Q10 survivor: waits on #262's pinned mark
     ].join('\n');
     expect(dingbatFailures('ui/hud.ts', src)).toEqual([]);
+  });
+
+  // GH-261: the Military set drew these, so each is a defect wherever it
+  // turns up again.
+  it.each([
+    ['▮▮', "{ speed: 0, label: '▮▮' }"],
+    ['◂', "prev.textContent = '◂';"],
+    ['▸', "next.textContent = '▸';"],
+    ['🔇', "chip.textContent = muted ? '🔇' : x;"],
+    ['🔊', "chip.textContent = '🔊';"],
+    ['♪', '"menu.audio.on": "♪ audio on",'],
+    ['☑', "const g = done ? '☑' : x;"],
+    ['☒', "const g = '☒';"],
+    ['☐', "const g = '☐';"],
+    ['←', '"nav.backToMenu": "← main menu",'],
+    ['⌂', '"hud.leave.link": "⌂ leave",'],
+    ['⚠', '"hud.card.weaponHeavy": "⚠ heavy",'],
+    ['⚑', '"hud.strip.broken": "⚑ {n} broken",'],
+  ])('rejects %s, drawn by GH-261', (glyph, line) => {
+    const ch = glyph === '▮▮' ? '▮' : glyph;
+    expect(dingbatFailures('packages/app/src/i18n/en.json', line)).toContain(
+      `packages/app/src/i18n/en.json:1  retired dingbat ${ch} -- draw it with symbolSvg (ui/symbol.ts)`
+    );
+  });
+
+  it("lets the keymap's key names keep their arrow as typography, and nothing else", () => {
+    const labels = "space: 'Space', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→',";
+    expect(dingbatFailures('packages/app/src/input/keymap.ts', labels)).toEqual([]);
+    expect(dingbatFailures('packages/app/src/ui/menu.ts', labels)).toHaveLength(1);
+    expect(dingbatFailures('packages/app/src/input/keymap.ts', "x = '⚑';")).toHaveLength(1);
   });
 
   it('is silent on a .test.ts file', () => {
@@ -37,8 +67,8 @@ describe('dingbatFailures', () => {
   });
 
   it('lists every retired dingbat once, and never the star exception', () => {
-    expect(RETIRED_DINGBATS).toHaveLength(16);
-    expect(new Set(RETIRED_DINGBATS).size).toBe(16);
+    expect(RETIRED_DINGBATS).toHaveLength(29);
+    expect(new Set(RETIRED_DINGBATS).size).toBe(29);
     expect(RETIRED_DINGBATS).not.toContain('★');
   });
 });

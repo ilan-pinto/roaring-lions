@@ -17,6 +17,7 @@
 import type { LedgerData } from '@lions/sim';
 import { campaignRoe } from '../campaign';
 import { t } from '../i18n/t';
+import { symbolLabel } from './symbol';
 import { drawFromPool, type DeployEntry, type DeployRosterView } from './deploy-roster';
 import { defaultSelection, isComplete, slotsLeft, toggleEntry, type DeploySelection } from './deploy-select';
 import { paintMapTerrain, type PreviewMap, type PreviewTones } from './map-preview';
@@ -617,7 +618,7 @@ export function showLoading(
     back = document.createElement('button');
     back.type = 'button';
     back.className = 'rl-btn rl-loading__back';
-    back.textContent = t('nav.backToCampaignMap');
+    back.innerHTML = symbolLabel('back', t('nav.backToCampaignMap'));
   }
 
   // The right-hand column of the spread (Task 3; spec Decision 4: "portrait

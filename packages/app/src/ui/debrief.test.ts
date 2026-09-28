@@ -56,14 +56,17 @@ describe('showDebrief', () => {
     expect(row.getAttribute('data-complete')).toBe('1');
     // The " · carries" suffix goes through the catalogue (`debrief.secondary.carries`);
     // the objective text itself is a param and reads through untouched.
-    expect(row.textContent).toBe('☑ Build the picture · carries');
+    expect(row.textContent?.trim()).toBe('Build the picture · carries');
+    expect(row.querySelector('svg')?.getAttribute('data-symbol')).toBe('objectiveDone');
+    expect(row.querySelector('svg')?.getAttribute('class')).toContain('rl-good');
   });
 
   it('shows the objective text alone, with no suffix, when it does not carry', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ secondaries: [{ text: 'Hold the crossing', complete: false, carries: false }] }));
     const row = host.querySelector('.rl-debrief__secondary')!;
-    expect(row.textContent).toBe('☐ Hold the crossing');
+    expect(row.textContent?.trim()).toBe('Hold the crossing');
+    expect(row.querySelector('svg')?.getAttribute('data-symbol')).toBe('objectiveOpen');
   });
 
   it('announces unlocks and a promotion when there is one', () => {
@@ -95,6 +98,8 @@ describe('showDebrief', () => {
     const a = host.querySelector<HTMLAnchorElement>('a.rl-debrief__next')!;
     expect(a.getAttribute('href')).toBe('/mission/beit_sahwan_4_subterranean');
     expect(a.textContent).toContain('Beit Sahwan IV');
+    expect(a.textContent).not.toContain('→');
+    expect(a.lastElementChild?.getAttribute('data-symbol')).toBe('next'); // GH-261: the arrow follows the words
     expect(text(host, '.rl-debrief__villain')).toBe('The digger.');
   });
 

@@ -39,7 +39,7 @@ import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
-import { symbolSvg } from './symbol';
+import { symbolLabel, symbolSvg } from './symbol';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import {
@@ -505,14 +505,19 @@ export class Hud {
     chips.className = 'rl-strip__chips';
     this.speedCluster = chips;
     for (const spec of [
-      { speed: 0, label: '▮▮', title: 'hud.speed.pause' },
+      // Pause is a drawn mark (GH-261: bars in the unit frame); 1x/2x stay
+      // type -- a figure, not a dingbat.
+      { speed: 0, label: null, title: 'hud.speed.pause' },
       { speed: 1, label: '1×', title: 'hud.speed.normal' },
       { speed: 2, label: '2×', title: 'hud.speed.double' },
     ]) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'rl-strip__chip';
-      b.textContent = spec.label;
+      if (spec.label === null) {
+        b.innerHTML = symbolSvg('pause', STRIP_GLYPH_PX);
+        b.setAttribute('aria-label', t(spec.title)); // the mark is aria-hidden
+      } else b.textContent = spec.label;
       b.title = t(spec.title);
       b.addEventListener('click', () => {
         deps.setSpeed?.(spec.speed);
@@ -540,7 +545,7 @@ export class Hud {
     // clicks it to walk a mission's exit. Styling it by the same hook the
     // walk selects on would make a restyle silently break the walk.
     leaveBtn.className = 'rl-strip__link rl-hud__leave';
-    leaveBtn.textContent = t('hud.leave.link');
+    leaveBtn.innerHTML = symbolLabel('leave', t('hud.leave.link')); // GH-261: line of departure
     leaveBtn.title = t('hud.leave.title');
     leaveBtn.addEventListener('click', () => {
       void confirmDialog(document.body, {
@@ -738,12 +743,15 @@ export class Hud {
     paging.className = 'rl-cmd__page';
     this.cmdPrev = document.createElement('button');
     this.cmdPrev.type = 'button';
-    this.cmdPrev.textContent = '◂';
+    // GH-261: phase-line arrows, the step and the line it lands on.
+    this.cmdPrev.innerHTML = symbolSvg('pagePrev', STRIP_GLYPH_PX);
     this.cmdPrev.title = t('hud.commander.previous');
+    this.cmdPrev.setAttribute('aria-label', t('hud.commander.previous'));
     this.cmdNext = document.createElement('button');
     this.cmdNext.type = 'button';
-    this.cmdNext.textContent = '▸';
+    this.cmdNext.innerHTML = symbolSvg('pageNext', STRIP_GLYPH_PX);
     this.cmdNext.title = t('hud.commander.next');
+    this.cmdNext.setAttribute('aria-label', t('hud.commander.next'));
     this.cmdPrev.addEventListener('click', () => this.pageCommander(-1));
     this.cmdNext.addEventListener('click', () => this.pageCommander(1));
     paging.append(this.cmdPrev, this.cmdNext);
@@ -909,8 +917,10 @@ export class Hud {
   /** Mirror the audio state the `m` key just changed. */
   paintMute(): void {
     const muted = this.deps.isMuted?.() ?? false;
-    this.muteChip.textContent = muted ? '🔇' : '🔊';
+    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    this.muteChip.innerHTML = symbolSvg(muted ? 'audioOff' : 'audioOn', STRIP_GLYPH_PX);
     this.muteChip.title = muted ? t('hud.mute.muted') : t('hud.mute.unmuted');
+    this.muteChip.setAttribute('aria-label', this.muteChip.title);
     this.muteChip.dataset.on = muted ? '0' : '1';
   }
 
@@ -1024,7 +1034,7 @@ export class Hud {
     this.renderCommander();
   }
 
-  /** ◂/▸: always steps the underlying BEAT position, whether or not a `say`
+  /** The pager (prev/next): always steps the underlying BEAT position, whether or not a `say`
    *  line is currently showing over it -- "keep the beat paging working"
    *  means the buttons' enabled state and what they step are unaffected by
    *  the overlay. A manual page is also how a `say` line is dismissed by
@@ -1209,7 +1219,7 @@ export class Hud {
       );
     if (broken > 0)
       info.push(
-        `<span class="rl-bad-text" data-tip="broken" tabindex="0"><b>${t('hud.strip.broken', { n: broken })}</b></span>`
+        `<span class="rl-bad-text" data-tip="broken" tabindex="0">${symbolSvg('broken', STRIP_GLYPH_PX)} <b>${t('hud.strip.broken', { n: broken })}</b></span>`
       );
 
     // Keyboard focus survives the swap (shell upgrade Phase 3, Task 10; the
@@ -1794,7 +1804,7 @@ export class Hud {
         arms.push(
           `<div>${t('hud.card.weapon', { id: escapeHtml(w.id), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
             (pen > 0 ? ` · ${t('hud.card.weaponPen', { n: pen.toFixed(0) })}` : '') +
-            (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${t('hud.card.weaponHeavy')}</span>` : '') +
+            (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${symbolLabel('heavy', t('hud.card.weaponHeavy'))}</span>` : '') +
             `</div>`
         );
       }
