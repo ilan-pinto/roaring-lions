@@ -1746,6 +1746,33 @@ describe('the strip tooltips (final review, C1/C2)', () => {
     expect(keys).toEqual(['broken', 'conduct', 'intel', 'logistics', 'pinned']);
     for (const el of tipped) expect(el.tabIndex).toBe(0);
   });
+
+  // Task 4 (GH-262): one explanation, reachable from all three surfaces a
+  // pinned unit shows up on -- the strip's aggregate count (nothing
+  // selected), the single-unit card's PINNED flag (one selected), and the
+  // chip's status line (more than one selected). Same text everywhere, so a
+  // player who learns what pinned means from any one of them has it for
+  // the other two.
+  it('explains pinned on the strip, the card flag and the chip status', () => {
+    const sel: number[] = [];
+    const r = rig(mission(), { getSelection: () => sel });
+    r.sim.state.pinned[r.ids[0]] = 1;
+    const explain = /Lifts a few seconds after the fire stops/;
+    for (const selection of [[], [r.ids[0]], [r.ids[0], r.ids[1]]]) {
+      sel.splice(0, sel.length, ...selection);
+      for (let i = 0; i < 5; i++) r.tick();
+      const el = r.host.querySelector<HTMLElement>(
+        selection.length === 1
+          ? '.rl-card__cond [data-tip="pinned"]'
+          : selection.length === 2
+            ? '.rl-chip__status[data-tip="pinned"]'
+            : '.rl-strip [data-tip="pinned"]'
+      )!;
+      el.dispatchEvent(new Event('mouseover', { bubbles: true }));
+      expect(r.host.querySelector<HTMLElement>('.rl-tip')!.textContent).toMatch(explain);
+      closeTip();
+    }
+  });
 });
 
 describe('the strip tooltip element (final review, C2)', () => {

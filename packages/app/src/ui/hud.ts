@@ -1678,7 +1678,9 @@ export class Hud {
           `</div>` +
           `<div class="rl-track"><i class="rl-fill-${c.hpTone}" ` +
           `style="width:${(c.hpPct * 100).toFixed(0)}%"></i></div>` +
-          `<div class="rl-chip__status ${tone}">${c.status}</div>` +
+          `<div class="rl-chip__status ${tone}"${
+            c.statusTone === 'hot' ? ' data-tip="pinned" tabindex="0"' : ''
+          }>${c.status}</div>` +
           `</div></div>`
         );
       })
@@ -1692,6 +1694,11 @@ export class Hud {
    *  which `bindDelegatedTip` treats as "no tip here" rather than showing
    *  whatever the last render happened to leave behind. */
   private chipTipHtml(typeId: string | undefined): string | null {
+    // Task 4 (GH-262): the chip's status line and the single-unit card's
+    // PINNED flag share this same delegated binding -- both are drawn into
+    // `this.cluster` -- so the pinned explanation is resolved here, ahead of
+    // the type-id lookup below, rather than in a second resolver.
+    if (typeId === 'pinned') return t('hud.pinned.explain');
     const chip = this.chipViews.find((c) => c.typeId === typeId);
     return chip ? t('hud.chip.selectOnly', { name: escapeHtml(chip.name), count: chip.count }) : null;
   }
@@ -1775,7 +1782,8 @@ export class Hud {
     // layout around it is what GH-153 is changing, not the facts in it.
     const flags: string[] = [];
     if (st.routed[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.broken')}</span>`);
-    else if (st.pinned[id] === 1) flags.push(`<span class="rl-hot">${t('hud.card.pinned')}</span>`);
+    else if (st.pinned[id] === 1)
+      flags.push(`<span class="rl-hot" data-tip="pinned" tabindex="0">${t('hud.card.pinned')}</span>`);
     if (st.garrisonedIn[id] >= 0) flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
     if (st.mobilityKilled[id] === 1) flags.push(`<span class="rl-dim">${t('hud.card.immobilised')}</span>`);
     if (st.firepowerKilled[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.gunsOut')}</span>`);
