@@ -4553,10 +4553,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const tx = Math.floor(hw.x);
   const ty = Math.floor(hw.y);
   const inBounds = tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height;
+  // GH-262: the whole order is pinned -- every id the order intent would
+  // move -- so the click is accepted and nobody goes. Read from the order
+  // intent's ids rather than the selection, so a pinned unit in a demolish
+  // or garrison group never speaks for it. Read every frame, so the cursor
+  // goes back to `move` the tick the pin lifts, with no re-hover.
+  const orderIds = res.intents.find((i) => i.kind === 'order')?.ids ?? [];
+  const pinned = orderIds.length > 0 && orderIds.every((i) => sim.state.pinned[i] === 1);
   const hints = {
     hostile: renderer.hoverEntity >= 0,
     blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
     armedSmoke: armedOrder === 'smoke',
+    pinned,
   };
   const badges: BadgeHints = {
     bucketOf: (id) => roleBucket(sim.unitTypes[sim.state.typeIdx[id]]),
