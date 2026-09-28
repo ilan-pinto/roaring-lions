@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { RosterEntry } from '../ledger-store';
+import type { CampaignLedger, RosterEntry } from '../ledger-store';
 import { ROSTER_CAP } from '../roster-cap';
 import { t } from '../i18n/t';
 import { showBrigade, type BrigadeOptions, type BrigadeUnit } from './brigade';
@@ -1715,5 +1715,215 @@ describe('showBrigade — the final review’s fix wave', () => {
       expect(card(host, 'inf_squad')?.querySelector<HTMLElement>('.rl-kit-icon')?.dataset.kit).toBe('1');
       dispose();
     });
+  });
+});
+
+describe('showBrigade — comparison (GH-243, spec §4)', () => {
+  const shift = (type: 'keydown' | 'keyup'): void => {
+    window.dispatchEvent(new KeyboardEvent(type, { key: 'Shift', shiftKey: type === 'keydown', bubbles: true }));
+  };
+  const card = (host: HTMLElement, id: string): HTMLElement =>
+    host.querySelector<HTMLElement>(`.rl-garage__card[data-unit="${id}"]`) as HTMLElement;
+  const hover = (host: HTMLElement, id: string, shiftKey: boolean): void => {
+    card(host, id).dispatchEvent(new MouseEvent('mouseenter', { shiftKey }));
+  };
+  const ghost = (host: HTMLElement): string | undefined =>
+    host.querySelector<HTMLElement>('.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-ghost')?.style.width;
+  const caption = (host: HTMLElement): HTMLElement | null => host.querySelector<HTMLElement>('.rl-garage__compare');
+
+  it('ghosts the hovered card’s bars against the bay while Shift is held, and clears on release', () => {
+    const { host, dispose } = mountLive({ units, ledger: {}, possibleStars: 78 });
+    hover(host, 'ifv_namer', false);
+    expect(caption(host)?.textContent).toBe('');
+    shift('keydown');
+    // The roster's hull.hp maximum is the Namer's own 2000 (inf_squad kitted is 480).
+    expect(ghost(host)).toBe('100%');
+    expect(caption(host)?.textContent).not.toBe('');
+    expect(caption(host)?.textContent).toBe('Compared with Namer IFV');
+    expect(text(host, '.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-n')).toBe('400 vs 2000');
+    expect(card(host, 'ifv_namer').dataset.compare).toBe('1');
+    // The bay has not moved: comparing is not selecting.
+    expect(text(host, '.rl-garage__name')).toBe('Rifle Squad');
+    shift('keyup');
+    expect(ghost(host)).toBe('0%');
+    expect(caption(host)?.textContent).toBe('');
+    expect(card(host, 'ifv_namer').dataset.compare).toBeUndefined();
+    dispose();
+  });
+
+  it('ghosts at once when the pointer arrives with Shift already down, and stops when it leaves', () => {
+    const { host, dispose } = mountLive({ units, ledger: {}, possibleStars: 78 });
+    hover(host, 'breach_team', true);
+    expect(ghost(host)).toBe('15%');
+    card(host, 'breach_team').dispatchEvent(new MouseEvent('mouseleave', { shiftKey: true }));
+    expect(ghost(host)).toBe('0%');
+    dispose();
+  });
+
+  it('compares nothing against itself: Shift over the bay unit’s own card', () => {
+    const { host, dispose } = mountLive({ units, ledger: {}, possibleStars: 78 });
+    hover(host, 'inf_squad', true);
+    expect(caption(host)?.textContent).toBe('');
+    expect(ghost(host)).toBe('0%');
+    dispose();
+  });
+
+  it('keeps comparing across a bay redraw (a purchase), and drops it when a window blur loses the key', () => {
+    const { host, dispose } = mountLive({
+      units, ledger: {}, possibleStars: 78, credits: 999,
+      onBuyUpgrade: (u, tr, tier, price) => ({ units, credits: 999 - price, owned: { [u]: { [tr]: tier } } }),
+    });
+    hover(host, 'ifv_namer', true);
+    host.querySelector<HTMLButtonElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.click();
+    expect(ghost(host)).toBe('100%');
+    expect(caption(host)?.textContent).not.toBe('');
+    window.dispatchEvent(new Event('blur'));
+    expect(ghost(host)).toBe('0%');
+    dispose();
+  });
+
+  it('by keyboard: Shift+arrow moves focus WITHOUT selecting and ghosts the focused card; Enter then selects it', () => {
+    const { host, dispose } = mountLive({ units, ledger: {}, possibleStars: 78 });
+    card(host, 'inf_squad').focus();
+    shift('keydown');
+    host.querySelector('.rl-garage__cards')?.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true })
+    );
+    expect(document.activeElement?.getAttribute('data-unit')).toBe('ifv_namer');
+    expect(host.querySelector('.rl-garage__card[aria-selected="true"]')?.getAttribute('data-unit')).toBe('inf_squad');
+    expect(text(host, '.rl-garage__name')).toBe('Rifle Squad');
+    expect(ghost(host)).toBe('100%');
+    shift('keyup');
+    expect(ghost(host)).toBe('0%');
+    // A button activates on Enter natively; jsdom runs no default actions, so the click is the activation.
+    (document.activeElement as HTMLButtonElement).click();
+    expect(text(host, '.rl-garage__name')).toBe('Namer IFV');
+    dispose();
+  });
+
+  it('removes its window listeners when the screen goes', () => {
+    const spy = vi.spyOn(window, 'removeEventListener');
+    const { dispose } = mountLive({ units, ledger: {}, possibleStars: 78 });
+    dispose();
+    const removed = spy.mock.calls.map((c) => c[0]);
+    expect(removed).toEqual(expect.arrayContaining(['keydown', 'keyup', 'blur']));
+    spy.mockRestore();
+  });
+});
+
+describe('showBrigade — sort by kit level (GH-243, spec §4)', () => {
+  const kitted: BrigadeUnit[] = units.map((u) =>
+    u.id === 'breach_team'
+      ? { ...u, upgrades: { armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } } }
+      : u
+  );
+  const sortBtn = (host: HTMLElement): HTMLButtonElement | null =>
+    host.querySelector<HTMLButtonElement>('.rl-garage__sort');
+
+  it('is a toggle beside the role tabs, off by default, and sorts the most kitted first', () => {
+    const { host, dispose } = mountLive({
+      units: kitted, ledger: {}, possibleStars: 78,
+      owned: { inf_squad: { sensors: 1 }, breach_team: { armour: 1 } },
+    });
+    const b = sortBtn(host);
+    expect(b?.textContent).toBe('Most kitted first');
+    expect(b?.getAttribute('aria-pressed')).toBe('false');
+    expect(b?.closest('[role="tablist"]')).toBeNull();
+    expect(cardIds(host)).toEqual(['inf_squad', 'ifv_namer', 'breach_team']);
+    b?.click();
+    expect(b?.getAttribute('aria-pressed')).toBe('true');
+    // breach_team 1/1 -> L3; inf_squad 1/3 -> L1; ifv_namer none -> L0.
+    expect(cardIds(host)).toEqual(['breach_team', 'inf_squad', 'ifv_namer']);
+    // The bay, the selection and the one card Tab stop are not the sort's to move.
+    expect(text(host, '.rl-garage__name')).toBe('Rifle Squad');
+    expect(host.querySelector<HTMLElement>('.rl-garage__card[data-unit="inf_squad"]')?.tabIndex).toBe(0);
+    // The toggle itself outlives the re-sort, so focus on it is never dropped.
+    expect(sortBtn(host)).toBe(b);
+    b?.click();
+    expect(cardIds(host)).toEqual(['inf_squad', 'ifv_namer', 'breach_team']);
+    dispose();
+  });
+
+  it('stays sorted through a purchase, re-sorting on the new kit', () => {
+    let owned: Record<string, Record<string, number>> = {};
+    // Twelve stars and Conduct 90 open the whole roster, so breach_team -- last
+    // on the rail and unkitted -- has a Buy of its own.
+    const won = { stars: 3, roe: 90, ticks: 1, lost: 0 } as const;
+    const open: CampaignLedger = {
+      'campaign.mission_results': { a: won, b: won, c: won, d: won },
+      'roe.mission_ratings': { a: 90, b: 90, c: 90, d: 90 },
+    };
+    const { host, dispose } = mountLive({
+      units: kitted, ledger: open, possibleStars: 78, credits: 999, owned,
+      onBuyUpgrade: (u, tr, tier, price) => {
+        owned = { ...owned, [u]: { ...(owned[u] ?? {}), [tr]: tier } };
+        return { units: kitted, credits: 999 - price, owned, landed: true };
+      },
+    });
+    sortBtn(host)?.click();
+    expect(cardIds(host)).toEqual(['inf_squad', 'ifv_namer', 'breach_team']);
+    select(host, 'breach_team');
+    host.querySelector<HTMLButtonElement>('.rl-garage__buy-tier')?.click();
+    expect(sortBtn(host)?.getAttribute('aria-pressed')).toBe('true');
+    expect(cardIds(host)).toEqual(['breach_team', 'inf_squad', 'ifv_namer']);
+    dispose();
+  });
+
+  it('arrows walk the rail in the order it is drawn', () => {
+    // Only the Namer kitted: sorted [namer, inf, breach] is not a rotation of
+    // [inf, namer, breach], so inf_squad's neighbour below differs by order.
+    const namerKitted: BrigadeUnit[] = units.map((u) =>
+      u.id === 'ifv_namer' ? { ...u, upgrades: { armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } } } : u
+    );
+    const { host, dispose } = mountLive({
+      units: namerKitted, ledger: {}, possibleStars: 78, owned: { ifv_namer: { armour: 1 } },
+    });
+    sortBtn(host)?.click();
+    expect(cardIds(host)).toEqual(['ifv_namer', 'inf_squad', 'breach_team']);
+    host.querySelector<HTMLButtonElement>('.rl-garage__card[data-unit="inf_squad"]')?.focus();
+    host.querySelector('.rl-garage__cards')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    expect(document.activeElement?.getAttribute('data-unit')).toBe('breach_team');
+    dispose();
+  });
+});
+
+describe('showBrigade — Shift+Tab reaches every track’s Buy (GH-243 Minor)', () => {
+  const opts = (): Partial<BrigadeOptions> => ({
+    units, ledger: {}, possibleStars: 78, credits: 999, onBuyUpgrade: () => undefined,
+  });
+  const expanded = (host: HTMLElement, track: string): string | null | undefined =>
+    host.querySelector(`.rl-garage__track[data-track="${track}"]`)?.getAttribute('data-expanded');
+  const shiftTab = (): void => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+  };
+
+  it('opens the previous track before Shift+Tab leaves a head, so its Buy is the next stop back', () => {
+    const { host, dispose } = mountLive(opts());
+    host.querySelector<HTMLElement>('.rl-garage__track[data-track="sensors"] .rl-garage__track-head')?.focus();
+    expect(expanded(host, 'sensors')).toBe('1');
+    expect(expanded(host, 'armour')).toBe('0');
+    shiftTab();
+    expect(expanded(host, 'armour')).toBe('1');
+    const buy = host.querySelector<HTMLElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier');
+    expect(buy?.closest('[data-expanded="0"]')).toBeNull();
+    dispose();
+  });
+
+  it('opens the LAST track when Shift+Tab comes back into the board from below it', () => {
+    const { host, dispose } = mountLive(opts());
+    expect(expanded(host, 'sensors')).toBe('0');
+    host.querySelector<HTMLElement>('.rl-endnav a')?.focus();
+    shiftTab();
+    expect(expanded(host, 'sensors')).toBe('1');
+    dispose();
+  });
+
+  it('changes nothing when the stop behind is already open (a Buy back onto its own head)', () => {
+    const { host, dispose } = mountLive(opts());
+    host.querySelector<HTMLElement>('.rl-garage__track[data-track="armour"] .rl-garage__buy-tier')?.focus();
+    shiftTab();
+    expect(expanded(host, 'armour')).toBe('1');
+    expect(expanded(host, 'sensors')).toBe('0');
+    dispose();
   });
 });
