@@ -41,13 +41,23 @@
  * path, which is exactly the "short bright tracer segment stretched along
  * the flight path" the design constraint asks for -- and it arrives with
  * `shellSegmentQuad`'s taper, alpha ramp and per-end ground interpolation
- * already built and already tested. Two new kinds:
+ * already built and already tested. One new kind:
  *
  *  - **`bolt`** -- a tank round or an autocannon shell. Flat, fast, thin,
  *    and lifted clear of the ground by `baseLiftPx` so it flies at about
  *    turret height instead of skidding.
- *  - **`missile`** -- an ATGM or an RPG. The same shape, a third the speed,
- *    with a shallow arc so it reads as guided rather than shot.
+ *
+ * GH-149 also flew ATGMs and RPGs here, as a `missile` kind: the bolt's
+ * streak a sixth the speed with a shallow arc. **Since GH-250 that kind is
+ * gone and `units/missiles.ts` owns missiles** (spec D5). A missile is not a
+ * streak -- it has a body, a guidance profile (guided, top-attack,
+ * unguided), a smoke trail that outlives it, a miss that lands somewhere
+ * else, an APS intercept that kills it mid-air, and a HEAT impact on the
+ * frame it lands -- and none of that fits a profile row here. What stays is
+ * the ROUTING answer: `shellKindFor` still names `'missile'`, now typed
+ * `ProjectileKind`, so the one place a weapon class is classified is still
+ * this file, and `ThreeRenderer.onFire` hands a `'missile'` to `MissileFx`
+ * (`units/missile-fx.ts`) instead of to a `ShellBatch`. No dead profile.
  *
  * `small_arms` and `hmg` deliberately KEEP the flat tracer. A rifle burst
  * and a `.50` stream are the one case the full-span ribbon is right for:
@@ -86,10 +96,8 @@
  * stepped by REAL FRAME SECONDS (`stepShells(shells, dt)`), never by sim
  * ticks.
  *
- * `missile` copies the same table (`atgm` 4 tiles/s, `rpg` 6) and lands on 5
- * between them, so a Hellfire crosses its own 10.5-tile reach in about two
- * seconds and terminates near its own resolution just as the mortar does.
- * `bolt` CANNOT copy it, and that is the one place this module invents a
+ * (`units/missiles.ts` copies the `atgm`/`rpg` half of the same table, per
+ * class, for the same reason.) `bolt` CANNOT copy it, and that is the one place this module invents a
  * number rather than borrowing one: `PROJ_SPEED` is **0** for `apfsds`,
  * `autocannon`, `small_arms` and `hmg` -- the sim models those as arriving
  * within the tick they are fired, with no projectile at all. Zero is not a
@@ -116,9 +124,14 @@ import { WEAPON_CLASS } from '@lions/sim';
  *    `indirect` flag is set.
  *  - `bolt` is a tank round or an autocannon shell: no arc at all, fast, and
  *    flying at turret height rather than on the deck.
- *  - `missile` is an ATGM or an RPG: slow, with a shallow arc.
+ *
+ * An ATGM or an RPG is NOT a shell since GH-250 -- see `ProjectileKind`.
  */
-export type ShellKind = 'mortar' | 'rocket' | 'bolt' | 'missile';
+export type ShellKind = 'mortar' | 'rocket' | 'bolt';
+
+/** What `shellKindFor` answers: a `ShellKind` this module flies, or
+ *  `'missile'`, which `units/missiles.ts` flies (GH-250, spec D5). */
+export type ProjectileKind = ShellKind | 'missile';
 
 /** One round in flight: a parabola over the straight line from launch to
  *  impact, tagged by side for colour lookup. Which colour PAIR is the
@@ -225,11 +238,6 @@ export interface ShellProfile {
  * three times faster than the slowest thing on screen and reads as a shell
  * rather than a rocket. The rejected 4-frame version and the shipped one
  * were captured frame-for-frame at one camera; see this task's report.
- *
- * `missile` is deliberately six times slower again, which is the sim's own
- * `PROJ_SPEED` for `atgm`/`rpg` rather than a taste call, with just enough
- * arc (2.2 px/tile, capped at 26) to bend visibly without reading as
- * indirect fire.
  */
 export const SHELL_PROFILES: Record<ShellKind, ShellProfile> = {
   mortar: {
@@ -245,11 +253,6 @@ export const SHELL_PROFILES: Record<ShellKind, ShellProfile> = {
   bolt: {
     speedTilesS: 30, apexPxPerTile: 0, apexMinPx: 0, apexMaxPx: 0,
     baseLiftPx: 9, trailS: 0.08, widthPx: 3.5, minDurationS: 0.1,
-    indirect: false, impactPower: 0,
-  },
-  missile: {
-    speedTilesS: 5, apexPxPerTile: 2.2, apexMinPx: 8, apexMaxPx: 26,
-    baseLiftPx: 9, trailS: 0.3, widthPx: 4.5, minDurationS: 0.2,
     indirect: false, impactPower: 0,
   },
 };
@@ -318,7 +321,8 @@ function clamp(v: number, lo: number, hi: number): number {
  *    is what a chain gun looks like, and it is the half of "the
  *    helicopter's weapons" that is not the Hellfire.
  *  - `atgm` (`hellfire`, `kornet`, `spike_atgm`, `manpad`), `rpg` and
- *    `heat` fly a `missile`.
+ *    `heat` fly a `missile` -- `units/missiles.ts`'s, not a profile here
+ *    (GH-250).
  *  - `small_arms` and `hmg` keep the tracer -- see this module's top
  *    comment, "GH-149", for why a rifle burst is the one case the full-span
  *    ribbon is right for.
@@ -326,7 +330,7 @@ function clamp(v: number, lo: number, hi: number): number {
  *    neither travels anywhere: no shipped unit fires an interceptor, and a
  *    satchel charge is placed at arm's length.
  */
-export function shellKindFor(cls: number): ShellKind | null {
+export function shellKindFor(cls: number): ProjectileKind | null {
   if (cls === WEAPON_CLASS.mortar) return 'mortar';
   if (cls === WEAPON_CLASS.rocket) return 'rocket';
   if (cls === WEAPON_CLASS.apfsds || cls === WEAPON_CLASS.autocannon) return 'bolt';
