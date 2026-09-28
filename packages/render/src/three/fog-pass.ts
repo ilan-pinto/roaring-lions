@@ -40,7 +40,8 @@
  */
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { hexToLinear } from './terrain/shared';
+import { hexToLinear, WORLD_PER_LEVEL } from './terrain/shared';
+import { HAZE_FORWARD, HAZE_LOW, HAZE_LOW_LEVELS, HAZE_RAMP_TILES } from './haze';
 
 export const FOG_NEVER_SEEN = 0.85;
 export const FOG_EXPLORED = 0.4;
@@ -124,6 +125,22 @@ void main() {
  * is the clear colour outside the map and must be returned untouched. Dimming
  * it would paint a rectangle of fog over the letterboxing around a small map.
  */
+/**
+ * The dust haze (ground plan 2, Task 9; R-14) runs HERE, inside this pass,
+ * for two reasons. This pass already has each pixel's world position, which
+ * is the only input the haze needs; and running it BEFORE the fog-of-war mix
+ * means the shroud dims hazed ground exactly as it dims any other ground --
+ * the haze composes with the fog and never lifts what the fog hides. It sits
+ * AFTER the `depth >= 1.0` early-out, so the clear colour around a small map
+ * stays the clear colour rather than turning dust-coloured.
+ *
+ * `hazeAmount` (`haze.ts`) is the same expression; every constant below is
+ * interpolated from that file and `terrain/shared.ts`, and `fog-pass.test.ts`
+ * pins that the source carries them. `uHazeAmp` is the `haze` debug layer's
+ * switch (1 shipped, 0 hidden). An unconfigured pass hazes nothing:
+ * `uHazeFar` defaults to 0 and `uHazeRef` to far below any authored level,
+ * so no ground counts as low.
+ */
 const FRAGMENT = /* glsl */ `
 uniform sampler2D tDiffuse;
 uniform sampler2D tDepth;
@@ -136,6 +153,11 @@ uniform float uNeverSeen;
 uniform float uExplored;
 uniform float uTintGain;
 uniform float uRevealAll;
+uniform vec2 uFocus;
+uniform vec3 uHazeTint;
+uniform float uHazeFar;
+uniform float uHazeRef;
+uniform float uHazeAmp;
 varying vec2 vUv;
 void main() {
   vec4 color = texture2D(tDiffuse, vUv);
@@ -144,6 +166,11 @@ void main() {
   vec4 clip = vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
   vec4 view = uInvProjection * clip;
   vec4 world = uCameraWorld * view;
+  float rlAhead = dot(world.xz - uFocus, vec2(${HAZE_FORWARD[0].toFixed(8)}, ${HAZE_FORWARD[1].toFixed(8)}));
+  float rlBelow = uHazeRef - world.y / ${WORLD_PER_LEVEL.toFixed(4)};
+  float rlHaze = uHazeAmp * (uHazeFar * clamp(rlAhead / ${HAZE_RAMP_TILES.toFixed(4)}, 0.0, 1.0)
+                           + ${HAZE_LOW.toFixed(4)} * clamp(rlBelow / ${HAZE_LOW_LEVELS.toFixed(4)}, 0.0, 1.0));
+  color.rgb = mix(color.rgb, uHazeTint, rlHaze);
   vec2 tex = vec2(world.x / uMapSize.x, world.z / uMapSize.y);
   float v = texture2D(uShroud, tex).r;
   // uRevealAll is 0 in every shipped frame -- mix(v, 1.0, 0.0) is exactly
@@ -163,6 +190,20 @@ void main() {
 }
 `;
 
+/** What `ThreeRenderer` hands the haze term (R-13): the tint already in
+ *  the pass's scene-referred linear space (`hexToLinear` of the tone times
+ *  `hazeRadiance`), the preset's amount at +20 tiles, and the map's median
+ *  open-ground level (`hazeReferenceLevel`). */
+export interface HazeSettings {
+  readonly tint: readonly [number, number, number];
+  readonly far: number;
+  readonly refLevel: number;
+}
+
+/** `uHazeRef`'s default: far below any level a map can author (0-9), so an
+ *  unconfigured pass has no ground below its reference and no low-lying haze. */
+const HAZE_REF_UNSET = -1e4;
+
 export class FogOfWarPass extends Pass {
   readonly uniforms: {
     tDiffuse: THREE.IUniform<THREE.Texture | null>;
@@ -176,6 +217,11 @@ export class FogOfWarPass extends Pass {
     uExplored: THREE.IUniform<number>;
     uTintGain: THREE.IUniform<number>;
     uRevealAll: THREE.IUniform<number>;
+    uFocus: THREE.IUniform<THREE.Vector2>;
+    uHazeTint: THREE.IUniform<THREE.Vector3>;
+    uHazeFar: THREE.IUniform<number>;
+    uHazeRef: THREE.IUniform<number>;
+    uHazeAmp: THREE.IUniform<number>;
   };
   readonly material: THREE.ShaderMaterial;
   private readonly quad: FullScreenQuad;
@@ -199,6 +245,11 @@ export class FogOfWarPass extends Pass {
       uExplored: { value: FOG_EXPLORED },
       uTintGain: { value: FOG_TINT_GAIN },
       uRevealAll: { value: 0 },
+      uFocus: { value: new THREE.Vector2() },
+      uHazeTint: { value: new THREE.Vector3() },
+      uHazeFar: { value: 0 },
+      uHazeRef: { value: HAZE_REF_UNSET },
+      uHazeAmp: { value: 1 },
     };
     this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
@@ -222,6 +273,21 @@ export class FogOfWarPass extends Pass {
   updateCamera(camera: THREE.Camera): void {
     this.uniforms.uInvProjection.value.copy(camera.projectionMatrixInverse);
     this.uniforms.uCameraWorld.value.copy(camera.matrixWorld);
+  }
+
+  /** The haze's tone, amount and reference level. Set once the preset and
+   *  the terrain are known, and again whenever the terrain rebuilds. */
+  setHaze(h: HazeSettings): void {
+    this.uniforms.uHazeTint.value.set(h.tint[0], h.tint[1], h.tint[2]);
+    this.uniforms.uHazeFar.value = h.far;
+    this.uniforms.uHazeRef.value = h.refLevel;
+  }
+
+  /** The focus plane's anchor: the camera's look-at point, in world units
+   *  (world x = tile x, world z = tile y). Written every frame beside
+   *  `updateCamera`, since the camera pans. */
+  setFocus(x: number, z: number): void {
+    this.uniforms.uFocus.value.set(x, z);
   }
 
   override render(

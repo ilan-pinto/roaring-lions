@@ -747,6 +747,8 @@ describe('BASELINES layerChecks', () => {
         // Ground plan 2, Task 7, 2026-09-28: `uSwayAmp` to 0 at tick 200,
         // 3 runs, bit-identical.
         wind: { px: 1218, mean: 0.0853 },
+        // Ground plan 2, Task 9, 2026-09-28: `uHazeAmp` to 0, 3 runs, bit-identical.
+        haze: { px: 2959, mean: 0.7545 },
       },
       'open-ground': {
         scatter: { px: 3615, mean: 1.6088 },
@@ -756,6 +758,9 @@ describe('BASELINES layerChecks', () => {
         macro: { px: 0, mean: 0.8773 },
       },
       relief: {
+        // Ground plan 2, Task 9, 2026-09-28: 4 px is sub-threshold -- the far
+        // ramp is smooth -- so the pixel floor is 0 and the magnitude carries it.
+        haze: { px: 4, mean: 0.3875 },
         scatter: { px: 4344, mean: 0.4536 },
         decor: { px: 52587, mean: 4.7771 },
         'ground-albedo': { px: 8, mean: 1.9043 },

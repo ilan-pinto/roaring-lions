@@ -87,7 +87,7 @@ function internals(r: ThreeRenderer): {
   groundMat: GroundMaterial;
   skirtMesh: THREE.Mesh;
   vignettePass: { enabled: boolean } | null;
-  fogPass: { enabled: boolean; uniforms: { uRevealAll: { value: number } } } | null;
+  fogPass: { enabled: boolean; uniforms: { uRevealAll: { value: number }; uHazeAmp?: { value: number } } } | null;
   overlayBatch: { mesh: THREE.Mesh };
   numeralBatch: { mesh: THREE.Mesh };
   chevronBatch: { mesh: THREE.Mesh };
@@ -222,6 +222,32 @@ describe('DEBUG_LAYERS', () => {
     expect(r.setDebugLayerVisible('fog', true)).toBe(1);
     expect(i.fogPass.uniforms.uRevealAll.value).toBe(0);
     expect(i.fogPass.enabled).toBe(true);
+    i.fogPass = null;
+    r.dispose();
+  });
+
+  it('drives the haze amplitude to 0 and back, and neither it nor fog touches the other (ground plan 2, Task 9)', () => {
+    expect(DEBUG_LAYERS).toContain('haze');
+    expect(isDebugLayer('haze')).toBe(true);
+    const r = makeRenderer();
+    const i = internals(r);
+    // No pass before `init()`: 0, the fog layer's honest reading.
+    expect(r.setDebugLayerVisible('haze', false)).toBe(0);
+    i.fogPass = { enabled: true, uniforms: { uRevealAll: { value: 0 }, uHazeAmp: { value: 1 } } };
+    const u = i.fogPass.uniforms;
+    expect(r.setDebugLayerVisible('haze', false)).toBe(1);
+    expect(u.uHazeAmp?.value).toBe(0);
+    expect(u.uRevealAll.value).toBe(0);
+    expect(r.setDebugLayerVisible('haze', false)).toBe(0);
+    // R-14: the fog layer reveals the map and leaves the haze where it is.
+    expect(r.setDebugLayerVisible('fog', false)).toBe(1);
+    expect(u.uHazeAmp?.value).toBe(0);
+    expect(r.setDebugLayerVisible('fog', true)).toBe(1);
+    expect(r.setDebugLayerVisible('haze', true)).toBe(1);
+    expect(u.uHazeAmp?.value).toBe(1);
+    expect(r.setDebugLayerVisible('fog', false)).toBe(1);
+    expect(u.uHazeAmp?.value).toBe(1);
+    expect(u.uRevealAll.value).toBe(1);
     i.fogPass = null;
     r.dispose();
   });

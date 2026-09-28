@@ -371,6 +371,7 @@ import { decalGroundY, groundWorldY } from './ground-height';
 import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
+import { hazeRadiance, hazeReferenceLevel } from './haze';
 import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
@@ -811,6 +812,13 @@ export class ThreeRenderer implements Renderer {
    *  `hazeKey` off the same row the lights came from. */
   private readonly timeOfDay: LitTimeOfDay;
   private readonly lightPreset: LightPreset;
+  /** The lights `sceneLights` was built from -- `DAY_LIGHTS` itself for day
+   *  -- kept so the haze's tint is scaled by the very sun and sky that light
+   *  the ground it is mixed over (R-13), not by the table's copy of them. */
+  private readonly resolvedLights: ResolvedLights;
+  /** `hazeReferenceLevel` of the last terrain rebuild's input (N-19): the
+   *  map's median open-ground level, 0 on a flat map. */
+  private hazeRefLevel = 0;
   /**
    * ONE camera, reconfigured in place every frame by `threeCamera()`.
    *
@@ -2378,11 +2386,12 @@ export class ThreeRenderer implements Renderer {
     // keep today's `dust.4` bounce (N-21).
     this.timeOfDay = resolveTimeOfDay(opts.timeOfDay);
     this.lightPreset = TIME_OF_DAY_PRESETS[this.timeOfDay];
+    this.resolvedLights = this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset);
     this.sceneLights = createSceneLights(
       sim.width,
       sim.height,
       (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize,
-      this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset)
+      this.resolvedLights
     );
     this.sceneLights.addTo(this.scene);
     // Same "always present, draws nothing until fed" shape as the FX meshes
@@ -2502,6 +2511,8 @@ export class ThreeRenderer implements Renderer {
     // releases this one.
     this.fogPass = new FogOfWarPass(this.shroud.texture, this.sim.width, this.sim.height);
     this.post.setFogPass(this.fogPass);
+    // Ground plan 2, Task 9: the dust haze lives in the same pass (R-14).
+    this.applyHaze();
     // Task 13: ambient occlusion, AFTER fog -- see `createAoPass` for why
     // that costs it nothing (it re-renders its own normals and depth rather
     // than reading the chain's) and why `viewCamera`, the persistent one, is
@@ -3087,6 +3098,13 @@ export class ThreeRenderer implements Renderer {
     // this frame's depth through last frame's view, which reads on screen as
     // the shroud sliding a frame behind the ground whenever the camera pans.
     this.fogPass?.updateCamera(camera);
+    // The haze's focus plane is the camera's look-at point, which IS the
+    // screen centre: `updateDimetricCamera` aims a symmetric orthographic
+    // frustum at world (camera.x, 0, camera.y), so no half-tile offset --
+    // the haze is computed in world units, not per tile. The UNSHAKEN
+    // camera, like `worldToScreen`: a shake moves the world under a haze
+    // that holds still, rather than the haze with it.
+    this.fogPass?.setFocus(this.camera.x, this.camera.y);
     // No composer before `init` (the tests, the spikes): the raw renderer,
     // whose own `antialias: true` stands in for the SMAA pass. Tone mapping
     // and the sRGB encode happen either way -- on this path the renderer
@@ -3257,6 +3275,20 @@ export class ThreeRenderer implements Renderer {
           if (this.fogPass) this.fogPass.uniforms.uRevealAll.value = reveal ? 1 : 0;
           return this.fogPass === null || was === reveal ? 0 : 1;
         }
+      case 'haze': {
+        // Ground plan 2, Task 9: `uHazeAmp` to 0 and back, `wind`'s shape --
+        // 1 when it changed, 0 when it was already there, and 0 with no pass
+        // (`init()` never ran), the `fog` layer's reading. It leaves
+        // `uRevealAll` alone, and `fog` leaves this alone (R-14): each layer
+        // is its own witness. `frame()` writes the pass's camera and focus
+        // every frame, never this, so the gate's repaint does not undo it.
+        if (this.fogPass === null) return 0;
+        const amp = this.fogPass.uniforms.uHazeAmp;
+        const next = visible ? 1 : 0;
+        const changed = amp.value === next ? 0 : 1;
+        amp.value = next;
+        return changed;
+      }
       case 'decals':
         // Both decal pools under one name (D5, R-17 -- it replaced `scorch`
         // when the scorch folded into the persistent pool beside crater, oil
@@ -7432,6 +7464,29 @@ export class ThreeRenderer implements Renderer {
     return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
   }
 
+  /**
+   * Hands the fog pass its haze (ground plan 2, Task 9; N-18, R-13): the
+   * preset's own haze key where it names one (dusk's `dust.1`), otherwise
+   * the theme's tone (`TerrainTones.haze`); in linear, like every colour
+   * uniform here, then scaled by `hazeRadiance` of the lights this scene is
+   * lit by, so it sits at lit ground's scene-referred level on the
+   * pre-tone-map target. Called when the pass is built and again on every
+   * terrain rebuild, which is where the reference level's input is in hand.
+   * A no-op before `init()`.
+   */
+  private applyHaze(): void {
+    if (this.fogPass === null) return;
+    const p = this.lightPreset;
+    const hex = p.hazeKey !== null ? this.overlayColor(p.hazeKey, '#D1A668') : this.opts.terrainTones.haze;
+    const [r, g, b] = hexToLinear(hex);
+    const k = hazeRadiance(
+      this.resolvedLights.sunIntensity,
+      this.resolvedLights.direction.y,
+      this.resolvedLights.hemiIntensity
+    );
+    this.fogPass.setHaze({ tint: [r * k, g * k, b * k], far: p.hazeFar, refLevel: this.hazeRefLevel });
+  }
+
   /** A dawn or dusk preset as lights: its sun direction (`sunDirectionFor`),
    *  its sun and sky keys through `overlayColor`, and the bounce every preset
    *  shares (N-21). `day` never comes through here -- see the constructor. */
@@ -8228,6 +8283,13 @@ export class ThreeRenderer implements Renderer {
       this.opts.resolveColor,
       this.opts.background
     );
+    // The haze's low-lying reference (N-19): the median open-ground level of
+    // the input the ground was just built from. Elevation never changes
+    // after load, so this settles on the first rebuild that has the grid; a
+    // later rebuild (a destroyed structure reopening its pad) can move the
+    // median of the open set only by the tiles it reopens.
+    this.hazeRefLevel = hazeReferenceLevel(composed.input);
+    this.applyHaze();
 
     // The control map is built from `composed.input` -- the SAME draw mask
     // the ground itself was, so a live low-profile structure stays open

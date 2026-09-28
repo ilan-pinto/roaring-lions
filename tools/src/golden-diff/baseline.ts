@@ -389,6 +389,21 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
       {
+        layer: 'haze',
+        minDiffPixels: 986,
+        minMeanAbsChannelDelta: 0.2515,
+        rationale:
+          'measured 2026-09-28 on ground plan 2, Task 9 (the dust haze, a term inside the fog-of-war pass: `haze.ts`, `fog-pass.ts`), ' +
+          '3 consecutive full-gate runs (`t9-r{1,2,3}`) on macOS / M3 Pro, headless Chromium, software SwiftShader, frame loop ' +
+          'frozen; bit-identical across the three, repaint control 0 px / 0.0000. Hiding `haze` drives `uHazeAmp` to 0, the ' +
+          'haze term\'s own amplitude, and leaves the shroud and the off-map fade running (R-14). Floors are a third of the ' +
+          'smallest reading, rounded down. ' +
+          'On `quiet` (zoom 1, flat outskirts, reference level 0 so no low-lying term) it moves 2959 px / 0.7545: the top ' +
+          'third of the frame, 0 at the focus plane and rising to 12% at +20 tiles; the lower half does not change at all. ' +
+          'Floors 986 / 0.2515 (a third of 0.7545 is 0.2515 exactly in binary floating point). Falsified by removing the ' +
+          '`setHaze` call (`uHazeFar` left at its default 0): 0 px / 0.0000, FAIL.',
+      },
+      {
         layer: 'scatter',
         minDiffPixels: 586,
         minMeanAbsChannelDelta: 0.07,
@@ -931,6 +946,23 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxDiffPixels: 40,
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
+      {
+        layer: 'haze',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.1291,
+        rationale:
+          'measured 2026-09-28 on ground plan 2, Task 9 (the dust haze, a term inside the fog-of-war pass: `haze.ts`, `fog-pass.ts`), ' +
+          '3 consecutive full-gate runs (`t9-r{1,2,3}`) on macOS / M3 Pro, headless Chromium, software SwiftShader, frame loop ' +
+          'frozen; bit-identical across the three, repaint control 0 px / 0.0000. Hiding `haze` drives `uHazeAmp` to 0, the ' +
+          'haze term\'s own amplitude, and leaves the shroud and the off-map fade running (R-14). Floors are a third of the ' +
+          'smallest reading, rounded down. ' +
+          'On `relief` (zoom 2, tel_marum) it moves 4 px / 0.3875: a smooth ramp over the upper frame, under pixelmatch\'s ' +
+          '0.1 threshold nearly everywhere, so `minDiffPixels` is 0 for the reason `LayerCheckSpec` allows it and the ' +
+          'magnitude is the whole check (floor 0.1291). Tel Marum\'s median open-ground level is 0 -- the basin IS the ' +
+          'median, and no open tile lies below it -- so this is the far term alone: the low-lying term has no witness in ' +
+          'the gate (deir_amun, umm_zeitoun and qarn_hadid are the maps with open ground below their median). Falsified ' +
+          'by removing the `setHaze` call: 0 px / 0.0000, FAIL.',
+      },
       {
         layer: 'scatter',
         minDiffPixels: 1375,

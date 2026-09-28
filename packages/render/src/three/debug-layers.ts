@@ -45,6 +45,14 @@
  *                 One name, because one authoring fault (`decor-place.ts`'s
  *                 `familyFor`) empties both.
  * - `props`       the one prop batch (`terrain/prop-mesh.ts`); `decor` does not hide it.
+ * - `haze`        the dust haze (ground plan 2, Task 9; `haze.ts`), which
+ *                 lives inside the fog-of-war pass (R-14): `uHazeAmp` driven
+ *                 to 0, the haze term's own amplitude, so the rest of the
+ *                 pass -- the shroud and the off-map fade -- runs exactly as
+ *                 shipped. The reverse holds too: `fog` drives `uRevealAll`
+ *                 and never this. A uniform nothing in `frame()` re-asserts
+ *                 (`frame()` writes the pass's camera and focus, never its
+ *                 amplitude), so it holds across the gate's repaint.
  * - `wind`        the crown sway (`terrain/sway.ts`), its amplitude uniform
  *                 driven to 0 so every foliage vertex stands at rest. A
  *                 uniform, `macro`'s shape: the sway CLOCK is written every
@@ -258,6 +266,7 @@ export const DEBUG_LAYERS = [
   'skirt',
   'overlays',
   'fog',
+  'haze',
   'decals',
   'blast-light',
 ] as const;
