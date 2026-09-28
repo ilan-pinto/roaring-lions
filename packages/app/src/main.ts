@@ -3725,7 +3725,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // -- disarming whichever one was NOT armed is a no-op -- so this one
         // rung covers all three without needing to know which fired. The
         // cursor (`updateCursor` below reads both every frame) falls back to
-        // normal on the very next frame with no extra bookkeeping.
+        // normal on the next frame; the order row's highlight follows on the
+        // HUD's own 4 Hz repaint, so within about 250 ms.
         if (target === 'disarm') {
           armedOrder = null;
           production?.setArmed(null);
