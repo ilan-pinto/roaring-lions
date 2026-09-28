@@ -3,16 +3,20 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  ATGM_LAYER_FLOORS,
   ATGM_LADDER_MS,
   ATGM_SUBJECTS,
   ATGM_WINDOW_MS,
   atgmLadder,
   atgmSheetIndex,
+  FLASH_INTENSITY_SCALE,
   flipHtml,
   lockstepPlan,
+  missilesFloorReasons,
 } from './atgm-captures';
 
-const UNITS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/units');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const UNITS = path.join(ROOT, 'data/units');
 
 function shippedUnitIds(): Set<string> {
   const ids = new Set<string>();
@@ -100,11 +104,38 @@ describe('the flip page', () => {
 describe('the sheet index', () => {
   it('names the capture conditions with every number', () => {
     const md = atgmSheetIndex('before', 'darwin-arm64 ANGLE/Metal 1400x900 dsf1', [
-      { subject: 'at_team', tMs: 0, tick: 812, zoom: 2, inFlight: 1, file: 'at_team-0000.png' },
+      { subject: 'at_team', tMs: 0, tick: 812, zoom: 2, inFlight: 1, progress: 0.25, trail: 14, flash: 2.6, file: 'at_team-0000.png' },
+      { subject: 'at_team', tMs: 50, tick: 813, zoom: 2, inFlight: 0, progress: -1, trail: 0, flash: 0, file: 'at_team-0050.png' },
     ]);
     expect(md).toContain('# ATGM capture sheet -- before');
     expect(md).toContain('darwin-arm64 ANGLE/Metal 1400x900 dsf1');
     expect(md).toContain('89 rungs');
-    expect(md).toContain('| at_team | 0 | 812 | 2 | 1 | `at_team-0000.png` |');
+    expect(md).toContain('| at_team | 0 | 812 | 2 | 1 | 0.25 | 14 | 2.60 | `at_team-0000.png` |');
+    expect(md).toContain('| at_team | 50 | 813 | 2 | 0 | - | 0 | 0.00 | `at_team-0050.png` |');
+  });
+});
+
+describe('the flash reading', () => {
+  it('divides by the pool\'s own FLASH_INTENSITY_SCALE, copied and pinned as text', () => {
+    const src = readFileSync(path.join(ROOT, 'packages/render/src/three/flash-light.ts'), 'utf8');
+    const m = /export const FLASH_INTENSITY_SCALE = (\d+(?:\.\d+)?);/.exec(src);
+    if (m === null) throw new Error('FLASH_INTENSITY_SCALE not found in flash-light.ts');
+    expect(FLASH_INTENSITY_SCALE).toBe(Number(m[1]));
+  });
+});
+
+describe('the missiles floor', () => {
+  it('is calibrated, not zero -- a zero floor passes a layer that draws nothing', () => {
+    expect(ATGM_LAYER_FLOORS.missiles.minDiffPixels).toBeGreaterThan(0);
+    expect(ATGM_LAYER_FLOORS.missiles.minMeanAbsChannelDelta).toBeGreaterThan(0);
+    expect(ATGM_LAYER_FLOORS.missiles.measured).toMatch(/rung 600/);
+  });
+
+  it('fails a reading below either half of it, and a build without the layer', () => {
+    const f = { minDiffPixels: 100, minMeanAbsChannelDelta: 0.1, measured: 'rung 600' };
+    expect(missilesFloorReasons({ available: true, diffPixels: 100, meanAbsChannelDelta: 0.1 }, f)).toEqual([]);
+    expect(missilesFloorReasons({ available: true, diffPixels: 99, meanAbsChannelDelta: 0.1 }, f)).toHaveLength(1);
+    expect(missilesFloorReasons({ available: true, diffPixels: 100, meanAbsChannelDelta: 0.09 }, f)).toHaveLength(1);
+    expect(missilesFloorReasons({ available: false, diffPixels: 500, meanAbsChannelDelta: 1 }, f)).toHaveLength(1);
   });
 });

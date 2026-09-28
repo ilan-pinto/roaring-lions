@@ -176,8 +176,23 @@ export interface AtgmCell {
   /** Rounds in flight after this rung: `missileFx.missiles.length`, or on a
    *  build without it (the before-set) `bolts.length`. */
   inFlight: number;
+  /** The oldest round's `t / duration` after this rung, or -1 with none in
+   *  flight (and always -1 on a build without `missileFx`). */
+  progress: number;
+  /** Live smoke-trail puffs in `missileFx.trail` -- 0 on a build without it. */
+  trail: number;
+  /** The brightest flash light live within `FLASH_NEAR_TILES` of the target,
+   *  in EMITTER units (the pool's own `peak / FLASH_INTENSITY_SCALE`), so a
+   *  HEAT hit reads the `missile_impact.json` 2.6 and an intercept 1.3. */
+  flash: number;
   file: string;
 }
+
+/** Copied from `packages/render/src/three/flash-light.ts` (the spec pins it
+ *  against that file as text): the harness imports nothing from `three`. */
+export const FLASH_INTENSITY_SCALE = 12;
+/** How near the target a live flash must be to count as the impact's. */
+export const FLASH_NEAR_TILES = 1.5;
 
 export function atgmSheetIndex(label: string, env: string, cells: readonly AtgmCell[]): string {
   return [
@@ -189,18 +204,59 @@ export function atgmSheetIndex(label: string, env: string, cells: readonly AtgmC
       `then every ${ATGM_SPARSE_EVERY_MS} ms to ${ATGM_WINDOW_MS} ms -- in lockstep: one sim tick per 50 ms of pumped ` +
       `frame time. Judge the flip pages, not the stills.`,
     ``,
-    `| subject | t (ms) | tick | zoom | in flight | file |`,
-    `|---|---|---|---|---|---|`,
-    ...cells.map((c) => `| ${c.subject} | ${c.tMs} | ${c.tick} | ${c.zoom} | ${c.inFlight} | \`${c.file}\` |`),
+    `| subject | t (ms) | tick | zoom | in flight | progress | trail puffs | flash at target | file |`,
+    `|---|---|---|---|---|---|---|---|---|`,
+    ...cells.map(
+      (c) =>
+        `| ${c.subject} | ${c.tMs} | ${c.tick} | ${c.zoom} | ${c.inFlight} | ${c.progress < 0 ? '-' : c.progress.toFixed(2)} | ` +
+        `${c.trail} | ${c.flash.toFixed(2)} | \`${c.file}\` |`
+    ),
     ``,
   ].join('\n');
 }
 
-/** Task 7 measures these; until then the toggle is recorded, not judged. */
-export const ATGM_LAYER_FLOORS: Record<
-  'missiles',
-  { minDiffPixels: number; minMeanAbsChannelDelta: number; measured: string }
-> = { missiles: { minDiffPixels: 0, minMeanAbsChannelDelta: 0, measured: 'not yet measured (Task 7)' } };
+export interface AtgmLayerFloor {
+  minDiffPixels: number;
+  minMeanAbsChannelDelta: number;
+  measured: string;
+}
+
+/**
+ * The `missiles` toggle floor (Task 7): **one third of the smallest of three
+ * readings**, per metric, over all four subjects -- the blast harness's rule.
+ * The pixel floor is set by the RPG (a 4-tile shot, the smallest round on
+ * screen at rung 600: 70 px on all three runs), the delta floor by the Kornet
+ * (0.0983). Never lower it to clear a red run: a floor at 0 passes a layer
+ * that draws nothing, which is what the spec's test refuses.
+ */
+export const ATGM_LAYER_FLOORS: Record<'missiles', AtgmLayerFloor> = {
+  missiles: {
+    minDiffPixels: 23,
+    minMeanAbsChannelDelta: 0.0327,
+    measured:
+      '2026-09-28, darwin-arm64 12 cpus, ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)), ' +
+      'SwiftShader driver), viewport 1400x900 dsf1, 600x400 crop, zoom 2.0, rung 600, three full after-set ' +
+      'runs (px / mean abs channel delta): spike 244/0.1237, 277/0.1328, 225/0.1207; kornet 170/0.0983, ' +
+      '164/0.0994, 195/0.1152; hellfire 520/0.1812, 452/0.1490, 550/0.1858; rpg 70/0.1084, 70/0.1084, ' +
+      '70/0.1077. Smallest 70 px (rpg) and 0.0983 (kornet); floors 23 and 0.0327 are a third of each, ' +
+      'rounded down.',
+  },
+};
+
+/** Why one `missiles` toggle reading fails its floor -- empty when it clears
+ *  it. A layer the build does not have fails too: the after-set must have it. */
+export function missilesFloorReasons(
+  reading: { available: boolean; diffPixels: number; meanAbsChannelDelta: number },
+  floor: AtgmLayerFloor = ATGM_LAYER_FLOORS.missiles
+): string[] {
+  if (!reading.available) return ['the missiles layer is not in this build'];
+  const out: string[] = [];
+  if (!(reading.diffPixels >= floor.minDiffPixels)) out.push(`diffPixels ${reading.diffPixels} < floor ${floor.minDiffPixels}`);
+  if (!(reading.meanAbsChannelDelta >= floor.minMeanAbsChannelDelta)) {
+    out.push(`meanAbsChannelDelta ${reading.meanAbsChannelDelta.toFixed(4)} < floor ${floor.minMeanAbsChannelDelta}`);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // The browser half.
@@ -233,7 +289,10 @@ interface LionsWindow {
       onEvents(events: unknown[]): void;
       worldToScreen(x: number, y: number): { x: number; y: number };
       bolts?: unknown[];
-      missileFx?: { missiles: unknown[] };
+      missileFx?: { missiles: { t: number; duration: number }[]; trail: { live: number } };
+      flashLights?: { active?: { x: number; z: number; peak: number }[] };
+      curX?: ArrayLike<number>;
+      curY?: ArrayLike<number>;
     };
     sim: {
       tickCount: number;
@@ -271,11 +330,19 @@ function load(): string {
  *  wraps them in `__name`, which the page does not have. */
 async function pump(
   page: import('playwright').Page,
-  ms: number
-): Promise<{ tick: number; inFlight: number; fires: { tick: number; shooter: number; weaponId: string }[] }> {
+  ms: number,
+  target = -1
+): Promise<{
+  tick: number;
+  inFlight: number;
+  progress: number;
+  trail: number;
+  flash: number;
+  fires: { tick: number; shooter: number; weaponId: string }[];
+}> {
   const plan = lockstepPlan(ms, TICK_MS, FRAME_MS);
   return page.evaluate(
-    ([frames, ticks, tickMs]) => {
+    ([frames, ticks, tickMs, tgt, scale, near]) => {
       const L = (window as unknown as LionsWindow).__lions;
       let pumped = 0;
       let done = 0;
@@ -294,10 +361,22 @@ async function pump(
         }
       }
       const r = L.renderer;
-      const inFlight = r.missileFx !== undefined ? r.missileFx.missiles.length : (r.bolts ?? []).length;
-      return { tick: L.sim.tickCount, inFlight, fires };
+      const mfx = r.missileFx;
+      const inFlight = mfx !== undefined ? mfx.missiles.length : (r.bolts ?? []).length;
+      const first = mfx !== undefined && mfx.missiles.length > 0 ? mfx.missiles[0] : undefined;
+      const progress = first === undefined ? -1 : first.duration > 0 ? Math.min(1, first.t / first.duration) : 1;
+      const trail = mfx !== undefined ? mfx.trail.live : 0;
+      // Read-only peeks at two private renderer fields: the target's drawn
+      // position and the flash pool's live list. Nothing is written.
+      let flash = 0;
+      const tx = tgt >= 0 && r.curX !== undefined ? r.curX[tgt] : NaN;
+      const ty = tgt >= 0 && r.curY !== undefined ? r.curY[tgt] : NaN;
+      for (const f of r.flashLights?.active ?? []) {
+        if (Math.hypot(f.x - tx, f.z - ty) <= near) flash = Math.max(flash, f.peak / scale);
+      }
+      return { tick: L.sim.tickCount, inFlight, progress, trail, flash, fires };
     },
-    [plan.frames, plan.ticks, TICK_MS] as const
+    [plan.frames, plan.ticks, TICK_MS, target, FLASH_INTENSITY_SCALE, FLASH_NEAR_TILES] as const
   );
 }
 
@@ -412,13 +491,14 @@ async function main(): Promise<void> {
         const seen: { tick: number; shooter: number; weaponId: string }[] = [];
         windowFires[s.id] = seen;
         for (const tMs of ATGM_LADDER_MS) {
-          const st = await pump(page, tMs - prev);
+          const st = await pump(page, tMs - prev, start.target);
           prev = tMs;
           seen.push(...st.fires);
           const clip = await frameOn(page, s, LADDER_ZOOM);
           const file = `${s.id}-${String(tMs).padStart(5, '0')}.png`;
           await page.screenshot({ path: path.join(out, file), clip });
-          cells.push({ subject: s.id, tMs, tick: st.tick, zoom: LADDER_ZOOM, inFlight: st.inFlight, file });
+          const measured = { inFlight: st.inFlight, progress: st.progress, trail: st.trail, flash: st.flash };
+          cells.push({ subject: s.id, tMs, tick: st.tick, zoom: LADDER_ZOOM, ...measured, file });
           if (tMs !== TOGGLE_RUNG_MS) continue;
           const shown = path.join(out, 'toggles', `${s.id}-missiles-shown.png`);
           const hidden = path.join(out, 'toggles', `${s.id}-missiles-hidden.png`);
@@ -429,7 +509,7 @@ async function main(): Promise<void> {
             await page.screenshot({ path: hidden, clip });
             await page.evaluate(layerToggleScript('missiles', true));
             const d = computeDiff(shown, hidden, { outDir: path.join(out, 'toggles'), diffFileName: `${s.id}-missiles-diff.png` });
-            toggles.push({ subject: s.id, layer: 'missiles', available: true, ...d, note: 'recorded; floors land in Task 7' });
+            toggles.push({ subject: s.id, layer: 'missiles', available: true, ...d, note: '' });
           } catch (err) {
             const first = (err instanceof Error ? err.message : String(err)).split('\n')[0];
             toggles.push({ subject: s.id, layer: 'missiles', available: false, diffPixels: 0, meanAbsChannelDelta: 0, note: `layer not in this build (${first})` });
@@ -442,7 +522,7 @@ async function main(): Promise<void> {
             await frameOn(page, s, ESTABLISH_ZOOM);
             const est = `${s.id}-establish-z1-${String(tMs).padStart(5, '0')}.png`;
             await page.screenshot({ path: path.join(out, est) });
-            cells.push({ subject: s.id, tMs, tick: st.tick, zoom: ESTABLISH_ZOOM, inFlight: st.inFlight, file: est });
+            cells.push({ subject: s.id, tMs, tick: st.tick, zoom: ESTABLISH_ZOOM, ...measured, file: est });
           }
         }
       }
@@ -470,12 +550,30 @@ async function main(): Promise<void> {
   }
   notes.push(`machine at end: ${load()}`);
 
+  // The floor (Task 7): a reading below it fails the run, the blast harness's
+  // rule. Judged on the after-set only -- the before-set has no such layer.
+  if (label === 'after') {
+    for (const t of toggles) {
+      const reasons = missilesFloorReasons(t);
+      t.note = reasons.length === 0 ? 'clears the floor' : `BELOW THE FLOOR: ${reasons.join('; ')}`;
+      if (reasons.length > 0) {
+        console.error(`${t.subject}: missiles toggle ${t.diffPixels} px / ${t.meanAbsChannelDelta.toFixed(4)} -- ${reasons.join('; ')}`);
+        process.exitCode = 1;
+      }
+    }
+  }
+
   const perSubject = wanted.map((s) => {
     const f = fired[s.id];
     const ladder = cells.filter((c) => c.subject === s.id && c.zoom === LADDER_ZOOM);
     const later = (windowFires[s.id] ?? []).map((e) => `${e.weaponId}@${e.tick}`).join(', ');
+    const land = ladder.findIndex((c, i) => i > 0 && c.inFlight === 0 && ladder[i - 1].inFlight >= 1);
+    const landed = land < 0 ? 'no landing rung' :
+      `lands by ${ladder[land].tMs} ms (flash ${ladder[land].flash.toFixed(2)}, trail ${ladder[land].trail} puffs)`;
+    const at2000 = ladder.find((c) => c.tMs === 2000);
     return `${s.id}: ${ladder.length} frames, fire ${f ? `${f.weaponId} at tick ${f.tick}` : 'NONE'}, ` +
-      `${ladder.filter((c) => c.inFlight >= 1).length} rungs with inFlight >= 1; fires later in the window: ${later || 'none'}`;
+      `${ladder.filter((c) => c.inFlight >= 1).length} rungs with inFlight >= 1; ${landed}; ` +
+      `trail at 2000 ms ${at2000 ? at2000.trail : '-'} puffs; fires later in the window: ${later || 'none'}`;
   });
   const md = [
     atgmSheetIndex(label, env, cells),
