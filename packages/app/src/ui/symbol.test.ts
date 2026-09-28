@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { SYMBOL_IDS, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
+import { SYMBOL_IDS, DINGBAT_IDS, symbolLabel, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
 
 const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'] as const;
 const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id);
 const viewBoxOf = (svg: string): number[] => (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? '').split(' ').map(Number);
 
 describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks)', () => {
-  it('is nineteen distinct ids: seven roles, eight orders, four utility marks', () => {
-    expect(SYMBOL_IDS).toHaveLength(19);
-    expect(new Set(SYMBOL_IDS).size).toBe(19);
+  it('is thirty-two distinct ids: seven roles, eight orders, four utility marks, thirteen GH-261 marks', () => {
+    expect(SYMBOL_IDS).toHaveLength(32);
+    expect(new Set(SYMBOL_IDS).size).toBe(32);
   });
 
   it('fills with currentColor and names no colour or variable', () => {
@@ -95,3 +95,68 @@ describe('the HUD order marks are cropped to their own surround', () => {
   });
 });
 
+
+// GH-261: the Military set the lead picked on 29 Sep, ported from
+// `.superpowers/dingbats-mock/gen.mjs`. The mock mirrored with a transform;
+// the sheet bakes the coordinates, so no `<g transform>` ever ships.
+describe('the GH-261 dingbat marks (Military set)', () => {
+  const vertices = (id: SymbolId): string[] =>
+    [...symbolBody(id).matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((m) => `${Number(m[1])},${Number(m[2])}`).sort();
+  const mirrored = (id: SymbolId): string[] =>
+    [...symbolBody(id).matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)]
+      .map((m) => `${Math.round((24 - Number(m[1])) * 100) / 100},${Number(m[2])}`)
+      .sort();
+
+  it('names the thirteen marks the pick covers', () => {
+    expect([...DINGBAT_IDS].sort()).toEqual(
+      ['audioOff', 'audioOn', 'back', 'broken', 'heavy', 'leave', 'next', 'objectiveDone', 'objectiveFailed', 'objectiveOpen', 'pageNext', 'pagePrev', 'pause'].sort()
+    );
+    for (const id of DINGBAT_IDS) expect(SYMBOL_IDS).toContain(id);
+  });
+
+  it('draws every one on the shared 24-box, filled in currentColor, with no transform and no stroke', () => {
+    for (const id of DINGBAT_IDS) {
+      const svg = symbolSvg(id, 16);
+      expect(viewBoxOf(svg)).toEqual([0, 0, 24, 24]);
+      expect(svg).toContain('fill="currentColor"');
+      expect(svg).not.toMatch(/stroke|transform/);
+    }
+  });
+
+  it('bakes the mirrored pairs: back is next reflected, pagePrev is pageNext reflected', () => {
+    expect(vertices('back')).toEqual(mirrored('next'));
+    expect(vertices('pagePrev')).toEqual(mirrored('pageNext'));
+  });
+
+  it('keeps pairs that mean different things visibly different', () => {
+    expect(symbolBody('audioOff')).not.toBe(symbolBody('audioOn'));
+    expect(symbolBody('audioOff').startsWith(symbolBody('audioOn'))).toBe(true); // B: the same bolt, struck through
+    const objs = new Set(['objectiveOpen', 'objectiveDone', 'objectiveFailed'].map((id) => symbolBody(id as SymbolId)));
+    expect(objs.size).toBe(3);
+  });
+
+  it('keeps every vertex inside the box', () => {
+    for (const id of DINGBAT_IDS) {
+      for (const v of vertices(id)) {
+        const [x, y] = v.split(',').map(Number);
+        expect(x).toBeGreaterThanOrEqual(0);
+        expect(x).toBeLessThanOrEqual(24);
+        expect(y).toBeGreaterThanOrEqual(0);
+        expect(y).toBeLessThanOrEqual(24);
+      }
+    }
+  });
+});
+
+describe('symbolLabel: a mark beside catalogue text', () => {
+  it('puts the mark before the text by default, and escapes the text', () => {
+    const html = symbolLabel('back', 'main <menu>');
+    expect(html.indexOf('data-symbol="back"')).toBeLessThan(html.indexOf('main'));
+    expect(html).toContain('main &lt;menu&gt;');
+  });
+
+  it('puts the mark after the text when asked', () => {
+    const html = symbolLabel('next', 'next mission', { after: true });
+    expect(html.indexOf('next mission')).toBeLessThan(html.indexOf('data-symbol="next"'));
+  });
+});
