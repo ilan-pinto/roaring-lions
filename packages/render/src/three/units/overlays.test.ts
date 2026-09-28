@@ -23,6 +23,7 @@ import { desaturateHex, RANGE_FILL_DESATURATE } from './overlay-geometry';
 import {
   unitOverlayRadiusPx,
   hpBarColorKey,
+  hpBarVisible,
   orderMarkerSize,
   queuedRouteLegs,
   ROUTE_LINE_WIDTH_PX,
@@ -504,5 +505,18 @@ describe('cachedDesaturate', () => {
     expect(cachedDesaturate('#2F6FD9', RANGE_FILL_DESATURATE)).toBe(first);
     expect(cachedDesaturate('#2F6FD9', 0)).not.toBe(first);
     expect(cachedDesaturate('#2F6FD9', 0)).toBe('#2f6fd9');
+  });
+});
+
+describe('hpBarVisible (GH-186)', () => {
+  const FULL = { hpRaw: 300 << 16, maxHpRaw: 300 << 16, selected: false, hostileHover: false, friendlyHover: false };
+  it('full health with no flags draws no bar', () => {
+    expect(hpBarVisible(FULL)).toBe(false);
+  });
+  it('one raw unit of damage draws a bar', () => {
+    expect(hpBarVisible({ ...FULL, hpRaw: FULL.maxHpRaw - 1 })).toBe(true);
+  });
+  it.each(['selected', 'hostileHover', 'friendlyHover'] as const)('%s alone draws a bar', (flag) => {
+    expect(hpBarVisible({ ...FULL, [flag]: true })).toBe(true);
   });
 });

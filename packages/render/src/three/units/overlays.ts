@@ -990,3 +990,20 @@ export class ChevronBatch {
     this.texture?.dispose();
   }
 }
+
+export interface HpVisibilityInput {
+  readonly hpRaw: number;
+  readonly maxHpRaw: number;
+  readonly selected: boolean;
+  readonly hostileHover: boolean;
+  readonly friendlyHover: boolean;
+}
+
+/**
+ * A4 (GH-186): an HP bar draws only for a unit that is damaged, selected or
+ * hovered. Q16.16 values are compared RAW: converting through `toNumber` and
+ * adding a tolerance would hide the smallest hit, which is still damage.
+ */
+export function hpBarVisible(v: HpVisibilityInput): boolean {
+  return v.hpRaw < v.maxHpRaw || v.selected || v.hostileHover || v.friendlyHover;
+}

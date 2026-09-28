@@ -435,7 +435,9 @@ import {
   CHARGE_RING_FILL_FALLBACK_COLOR,
   tileRadiusToEllipsePx,
   cachedDesaturate,
+  hpBarVisible,
 } from './units/overlays';
+import { HP_BAR } from './units/readability';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -7770,20 +7772,44 @@ export class ThreeRenderer implements Renderer {
       // push (`./unit-shadows.ts`, deleted) is now a redundant, wrong-looking
       // shadow next to the real one.
 
-      // HP bar -- renderer.ts: `g.rect(sx - 12, sy - r - 10, 24, 3).fill(...)`
-      // (background) then the same rect, width scaled by `hpRatio` (fill).
-      const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));
-      this.overlayBatch.rect(anchor, -12, -(r + 10), 12, -(r + 7), this.overlayColor(HP_BG_COLOR_KEY, '#14150F'), 0.8);
-      if (hpRatio > 0) {
+      // HP bar (A4, GH-186): only for a unit that is damaged, selected or
+      // hovered -- `hoverEntity` is the hostile hover, `rangeRingPreview`
+      // the friendly one. Fill colours are unchanged; the 1 px frame is new.
+      if (
+        hpBarVisible({
+          hpRaw: st.hp[i],
+          maxHpRaw: type.hp,
+          selected: this.selection.includes(i),
+          hostileHover: i === this.hoverEntity,
+          friendlyHover: i === this.rangeRingPreview,
+        })
+      ) {
+        const halfW = HP_BAR.widthPx / 2;
+        const top = -(r + 10);
+        const bottom = top + HP_BAR.heightPx;
+        const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));
+        const bgColor = this.overlayColor(HP_BG_COLOR_KEY, '#14150F');
         this.overlayBatch.rect(
           anchor,
-          -12,
-          -(r + 10),
-          -12 + 24 * hpRatio,
-          -(r + 7),
-          this.overlayColor(hpBarColorKey(hpRatio), '#6B8A4A'),
-          1
+          -halfW - HP_BAR.framePx,
+          top - HP_BAR.framePx,
+          halfW + HP_BAR.framePx,
+          bottom + HP_BAR.framePx,
+          bgColor,
+          HP_BAR.frameAlpha
         );
+        this.overlayBatch.rect(anchor, -halfW, top, halfW, bottom, bgColor, 0.8);
+        if (hpRatio > 0) {
+          this.overlayBatch.rect(
+            anchor,
+            -halfW,
+            top,
+            -halfW + HP_BAR.widthPx * hpRatio,
+            bottom,
+            this.overlayColor(hpBarColorKey(hpRatio), '#6B8A4A'),
+            1
+          );
+        }
       }
 
       // Suppression bar -- renderer.ts: `g.rect(sx - 12, sy - r - 6, 24 *
