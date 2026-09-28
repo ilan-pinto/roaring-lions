@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-28 (ATGM animation #263, S3e symbols #265, ground plan 2 #266, A3.1 bible #259, garage compare #260 LANDED; bless for #266 in flight) · main: ee96d43e · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
+Updated: 2026-09-28 (ATGM animation #263, S3e symbols #265, ground plan 2 #266, A3.1 bible #259, garage compare #260 LANDED; bless 2 landed 53ce974a) · main: ee96d43e · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -9,7 +9,7 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
 | A (packages/app) | S3e #178 symbols LANDED (#265) · #243 garage compare LANDED (#260) · queued: #262 pinned units say so (sign + voice line), #264 Escape disarms support, #261 remaining dingbats | — | SDD ledgers mirrored in `.superpowers/sdd-archive/` | idle | #262 spec + plan; S3a #180 after the October Meshy credits |
-| B (render · art · data) | A2 plan 2 LANDED (#266; lead accepted beit z0.5 +0.83 ms) · #250 ATGM animation LANDED (#263) · A3.1 style bible LANDED (#259) | — | — | bless 2 for #266 running from main | watch the bless land and main's visual go green; then A3.1 Meshy batches after G1 and the October credits |
+| B (render · art · data) | A2 plan 2 LANDED (#266; lead accepted beit z0.5 +0.83 ms) · #250 ATGM animation LANDED (#263) · A3.1 style bible LANDED (#259) | — | — | bless 2 landed 53ce974a | confirm main's visual is green on the blessed baseline; then A3.1 Meshy batches after G1 and the October credits |
 | C (packages/sim) | #247 manpad_team treated as wheeled (sim/data fix, filed 26 Sep) | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
@@ -49,7 +49,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
-- 2026-09-28 · **#266 → ee96d43e ground plan 2 (WP-A2)** · clustered grass/sand at 0.75, seven Meshy props in one batch, crowned trees and olive LOD (−6.89M tris on wadi_halam_basin), sway on sim time, haze 0.12, dawn/day/dusk + mission `time_of_day`, report-only dusk capture · lead accepted beit z0.5 +0.83 ms (14.67 p95) · PR visual red on the ground only, all 24 layer checks PASS · bless 2 dispatched from main
+- 2026-09-28 · **#266 → ee96d43e ground plan 2 (WP-A2)** · clustered grass/sand at 0.75, seven Meshy props in one batch, crowned trees and olive LOD (−6.89M tris on wadi_halam_basin), sway on sim time, haze 0.12, dawn/day/dusk + mission `time_of_day`, report-only dusk capture · lead accepted beit z0.5 +0.83 ms (14.67 p95) · PR visual red on the ground only, all 24 layer checks PASS · bless 2 landed 53ce974a (run 36447636641)
 - 2026-09-28 · **#265 → cfdc085a S3e symbols (#178)** · G1 sheet (r2 APP-6 roles, r4 stadia sight with animated APP-6 surrounds, r5 family colours) as the drawn source; dingbat gate (#261); cursor with halo + CVD variants (247 KB raw / 7.9 KB gz); frame driver · lead "Approve as is" · no bless
 - 2026-09-28 · **#263 → 33462703 ATGM animation (#250)** · missile body, glow and trail, guided top-attack path, HEAT impact; APS intercept per round held to the sim's resolution tick; no ground backblast from the air (lead) · no bless
 - 2026-09-28 · **#260** garage compare/sort/Shift+Tab (GH-243) · **#259** A3.1 style bible · **#258** ledger · no bless
