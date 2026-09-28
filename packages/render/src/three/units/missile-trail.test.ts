@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { WEAPON_CLASS } from '@lions/sim';
 import type { EmitterSpec } from '../../vfx';
+import * as terrainShared from '../terrain/shared';
 import { spawnMissile, type MissileLaunch, type MissileModel } from './missiles';
 import {
   GLOW_FLICKER,
@@ -176,5 +177,22 @@ describe('writeMissileSprites', () => {
     r.t = 0;
     const counts = writeMissileSprites([w, r], pool, look(), () => 0, buffers(8), buffers(8));
     expect(counts).toEqual({ soft: 0, core: 0 });
+  });
+
+  it('caches colour conversion: hexToLinear runs once per distinct colour, not once per puff (allocates nothing per frame)', () => {
+    const pool = new TrailPool(64);
+    const m = missile();
+    m.t = m.duration * 0.25;
+    emitAlongFlight(pool, m, look(), flatY); // lays 10 puffs, one shared look
+    expect(pool.live).toBe(10);
+    const spy = vi.spyOn(terrainShared, 'hexToLinear');
+    spy.mockClear();
+    writeMissileSprites([m], pool, look(), (mm, u) => u + mm.launchLiftPx, buffers(128), buffers(8));
+    // 1 halo + 1 core + at most 3 smoke colour steps = 5 distinct colours,
+    // however many times each is sampled. A writer that converts per-sprite
+    // instead of caching would call this once per puff too: 10 puffs + halo +
+    // core = 12, which must NOT happen.
+    expect(spy.mock.calls.length).toBeLessThan(pool.live);
+    spy.mockRestore();
   });
 });

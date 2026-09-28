@@ -70,6 +70,26 @@ function rangeToNumber(r: Range | undefined, fallback: number): number {
 }
 
 /**
+ * Caches `hexToLinear`'s per-call array allocation, mirroring `fx.ts`'s own
+ * `cachedHexToLinear` exactly (same shape, same reasoning): a trail's
+ * colour set is a handful of palette keys (`haloColor`, `coreColor`, and
+ * `TrailLook.colors`' few steps), reused by every ignited missile and every
+ * live puff, every frame. Without this, `writeMissileSprites` -- called
+ * once per frame -- would allocate one new `[number, number, number]` per
+ * sprite written, which is exactly the per-frame-writer regression the
+ * global constraint forbids.
+ */
+const hexToLinearCache = new Map<string, readonly [number, number, number]>();
+function cachedHexToLinear(hex: string): readonly [number, number, number] {
+  let rgb = hexToLinearCache.get(hex);
+  if (!rgb) {
+    rgb = hexToLinear(hex);
+    hexToLinearCache.set(hex, rgb);
+  }
+  return rgb;
+}
+
+/**
  * Reads the three layers of a missile-trail emitter by role (see the file
  * doc comment), resolving every palette key up front so nothing downstream
  * ever sees a raw key or a hex literal. Null with no emitter at all (no
@@ -181,6 +201,17 @@ export class TrailPool {
  * the flight model's own `liftPx` at that point (so a top-attack trail
  * follows the climb, not a flat ground track), and `u` for a caller that
  * wants to sample terrain height itself.
+ *
+ * `groundDist === 0` needs no explicit guard: `travelled = progress *
+ * groundDist` is then 0 too, and `kStart >= 1` (so `kStart *
+ * TRAIL_SPACING_TILES >= 0.2`) always fails the loop's own `<= travelled +
+ * 1e-9` bound -- the loop body, and the division by `groundDist`, simply
+ * never run. An `if (groundDist > 0)` around the emit used to sit inside
+ * the loop as a belt-and-braces check; it was unreachable dead code (the
+ * loop cannot enter with `groundDist === 0`) and, worse, was a LATENT
+ * desync: had it ever been reachable, `emitted` would still have counted a
+ * stretch for which no puff was placed. Removed so `emitted` can never
+ * disagree with the number of `pool.emit` calls actually made.
  */
 export function emitAlongFlight(
   pool: TrailPool,
@@ -200,12 +231,10 @@ export function emitAlongFlight(
   let last = from;
   for (let k = kStart; k * TRAIL_SPACING_TILES <= travelled + 1e-9; k++) {
     const d = k * TRAIL_SPACING_TILES;
-    if (groundDist > 0) {
-      const u = d / groundDist;
-      const pt = missilePointAt(m, u);
-      const worldY = worldYAt(pt.x, pt.y, pt.liftPx, u);
-      pool.emit(pt.x, pt.y, worldY, life);
-    }
+    const u = d / groundDist;
+    const pt = missilePointAt(m, u);
+    const worldY = worldYAt(pt.x, pt.y, pt.liftPx, u);
+    pool.emit(pt.x, pt.y, worldY, life);
     last = d;
     emitted++;
   }
@@ -266,7 +295,7 @@ export function writeMissileSprites(
 
     if (softCount < softCap) {
       const i = softCount;
-      const [r, g, b] = hexToLinear(look.haloColor);
+      const [r, g, b] = cachedHexToLinear(look.haloColor);
       soft.positions[i * 3] = pt.x;
       soft.positions[i * 3 + 1] = worldY;
       soft.positions[i * 3 + 2] = pt.y;
@@ -281,7 +310,7 @@ export function writeMissileSprites(
 
     if (coreCount < coreCap) {
       const i = coreCount;
-      const [r, g, b] = hexToLinear(look.coreColor);
+      const [r, g, b] = cachedHexToLinear(look.coreColor);
       core.positions[i * 3] = pt.x;
       core.positions[i * 3 + 1] = worldY;
       core.positions[i * 3 + 2] = pt.y;
@@ -301,7 +330,7 @@ export function writeMissileSprites(
     const radius = look.radiusPx * sampleLerp(look.sizeCurve, ageFrac, 1);
     const alpha = sampleLerp(look.alphaCurve, ageFrac, 1);
     const color = sampleStep(look.colors, ageFrac, '#000000');
-    const [r, g, b] = hexToLinear(color);
+    const [r, g, b] = cachedHexToLinear(color);
     soft.positions[i * 3] = x;
     soft.positions[i * 3 + 1] = worldY;
     soft.positions[i * 3 + 2] = y;
