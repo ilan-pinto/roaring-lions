@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HP_BAR, ringClassOf, SELECTION_RING } from './readability';
+import { HP_BAR, RING_CLASS_OVERRIDE, ringClassOf, ringRadiusFor, SELECTION_RING } from './readability';
 
 describe('ringClassOf', () => {
   it("classifies by the sim's own flags, air first", () => {
@@ -38,5 +38,15 @@ describe('SELECTION_RING', () => {
 describe('HP_BAR', () => {
   it('keeps the 24 x 3 fill with a 1 px, 0.8 alpha frame', () => {
     expect(HP_BAR).toEqual({ widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 0.8 });
+  });
+});
+
+describe('ringRadiusFor', () => {
+  it('uses the type row, and the class value for a type with none', () => {
+    expect(ringRadiusFor('mbt_lavi', 'armour')).toBe(1.15);
+    expect(ringRadiusFor('no_such_unit', 'foot')).toBe(SELECTION_RING.radiusTiles.foot);
+  });
+  it('overrides only dozer_d9, to light', () => {
+    expect(RING_CLASS_OVERRIDE).toEqual({ dozer_d9: 'light' });
   });
 });

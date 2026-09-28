@@ -1,10 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { units } from '../../../packages/data/src/index';
 import { unitTypeFromJson, type UnitTypeJson } from '../../../packages/sim/src/sim';
 import { MESH_SCALE } from '../../../packages/render/src/three/units/mesh-anim';
 import { buildFixtureGlb } from '../../../packages/render/src/three/units/mesh-fixture';
-import { ringClassOf, SELECTION_RING, type RingClass } from '../../../packages/render/src/three/units/readability';
-import { footprintOf, maxPerClass, readGlbJson, unitFootprintTable } from './unit-footprints';
+import { RADIUS_BY_TYPE, ringClassOf, ringRadiusFor, SELECTION_RING } from '../../../packages/render/src/three/units/readability';
+import { footprintOf, HULL_ONLY, radiusFor, readGlb, readGlbJson, unitFootprintTable } from './unit-footprints';
 
 /** A real GLB header + JSON chunk around a one-mesh 2 x 1 box (X by Z, 1 tall). */
 function boxGlb(nodeScale?: number[]): ArrayBuffer {
@@ -39,11 +42,6 @@ describe('footprintOf', () => {
     const fp = footprintOf(readGlbJson(boxGlb([2, 2, 2])));
     expect(fp.halfDiagonalTiles).toBeCloseTo(2 * Math.hypot(1, 0.5) * MESH_SCALE, 12);
   });
-  it("reads a GLB buildFixtureGlb wrote (skinned: the node's own transform is ignored)", () => {
-    const fp = footprintOf(readGlbJson(buildFixtureGlb({ roleName: 'r', clipName: 'idle' })));
-    // fixture triangle: x -0.1..0.1, z 0..0.2
-    expect(fp.halfDiagonalM).toBeCloseTo(Math.hypot(0.1, 0.1), 6);
-  });
   it('skips WRECK_ nodes, which are hidden while the unit lives', () => {
     const g = readGlbJson(boxGlb());
     g.nodes = [...(g.nodes ?? []), { name: 'WRECK_far', mesh: 0, translation: [50, 0, 0] }];
@@ -52,7 +50,33 @@ describe('footprintOf', () => {
   });
 });
 
-describe('shipped unit rings', () => {
+describe('posed and hull-only footprints', () => {
+  it('poses a skinned figure at the first idle keyframe and skins it on the CPU', () => {
+    const { json, bin } = readGlb(buildFixtureGlb({ roleName: 'r', clipName: 'idle' }));
+    expect(footprintOf(json, bin).halfDiagonalM).toBeCloseTo(Math.hypot(0.1, 0.1), 6);
+  });
+  it('a static node only counts when `include` matches, and the rest are reported', () => {
+    const g = readGlbJson(boxGlb());
+    g.nodes = [{ name: 'hull_a', mesh: 0 }, { name: 'turret_metal', mesh: 0, translation: [50, 0, 0] }];
+    g.scenes = [{ nodes: [0, 1] }];
+    const fp = footprintOf(g, null, { include: HULL_ONLY });
+    expect(fp.extentX).toBeCloseTo(2, 12);
+    expect(fp.excluded).toEqual(['turret_metal']);
+  });
+  it('drops the barrel and the rotor disc on the shipped types', () => {
+    const rows = unitFootprintTable();
+    expect(rows.find((r) => r.unit === 'mbt_lavi')?.excluded).toContain('turret_metal');
+    expect(rows.find((r) => r.unit === 'heli_peten')?.excluded).toContain('rotor_metal');
+  });
+  it('the idle pose is what is measured: it is not the bind pose (it is wider for the Meshy rifleman, weapon up)', () => {
+    const { json, bin } = readGlb(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../art/meshes/meshy_soldier.glb')));
+    const idle = footprintOf(json, bin, { clip: 'idle' }).halfDiagonalTiles;
+    const bind = footprintOf(json, bin, { clip: 'no-such-clip' }).halfDiagonalTiles;
+    expect(Math.abs(idle - bind)).toBeGreaterThan(0.01);
+  });
+});
+
+describe('per-type ring radius', () => {
   const rows = unitFootprintTable();
   const byUnit = (id: string) => rows.find((r) => r.unit === id);
 
@@ -66,22 +90,40 @@ describe('shipped unit rings', () => {
     expect(byUnit('mortar_team')?.ringClass).toBe('foot');
   });
 
-  it('measures every unit that ships a GLB', () => {
-    for (const id of ['mbt_lavi', 'inf_squad', 'heli_peten', 'technical']) {
-      expect(byUnit(id)?.halfDiagonalTiles).toBeGreaterThan(0.1);
+  it('dozer_d9 is classed foot by the sim and light by the render-side override', () => {
+    expect(ringClassOf(unitTypeFromJson(units.dozer_d9 as unknown as UnitTypeJson))).toBe('foot');
+    expect(byUnit('dozer_d9')?.ringClass).toBe('light');
+  });
+
+  it('every unit type has a row, and it is exactly max(class, 1.15 x its OWN footprint), rounded up', () => {
+    for (const r of rows) {
+      expect(RADIUS_BY_TYPE[r.unit], r.unit).toBeDefined();
+      expect(RADIUS_BY_TYPE[r.unit], r.unit).toBe(radiusFor(r, SELECTION_RING.radiusTiles));
+      expect(ringRadiusFor(r.unit, r.ringClass), r.unit).toBe(RADIUS_BY_TYPE[r.unit]);
     }
   });
 
-  it('every class ring clears 1.15x its measured largest footprint', () => {
-    const max = maxPerClass(rows);
-    for (const cls of Object.keys(max) as RingClass[]) {
-      expect(max[cls].tiles).toBeGreaterThan(0);
-      expect(SELECTION_RING.radiusTiles[cls], `${cls} (${max[cls].unit})`).toBeGreaterThanOrEqual(1.15 * max[cls].tiles);
+  it('every hull clears 1.15x its own footprint', () => {
+    for (const r of rows) {
+      if (r.halfDiagonalTiles === null) continue;
+      expect(RADIUS_BY_TYPE[r.unit], r.unit).toBeGreaterThanOrEqual(1.15 * r.halfDiagonalTiles);
     }
   });
 
-  it('mbt_lavi in particular is inside the armour ring', () => {
-    const lavi = byUnit('mbt_lavi')?.halfDiagonalTiles ?? 0;
-    expect(SELECTION_RING.radiusTiles.armour).toBeGreaterThanOrEqual(1.15 * lavi);
+  it('no type inherits a classmate\'s size: the rule is per type, not per class max', () => {
+    // A class-max table gives every foot unit the sniper's ring, every air unit the heli's.
+    expect(RADIUS_BY_TYPE.at_team).toBe(SELECTION_RING.radiusTiles.foot);
+    expect(RADIUS_BY_TYPE.paramotor).toBe(SELECTION_RING.radiusTiles.air);
+    expect(RADIUS_BY_TYPE.mbt_lavi).toBeLessThan(RADIUS_BY_TYPE.ifv_namer);
+    expect(RADIUS_BY_TYPE.moto_rpg).toBe(SELECTION_RING.radiusTiles.light);
+  });
+
+  it('a type is never below its class value (raise only)', () => {
+    for (const r of rows) expect(RADIUS_BY_TYPE[r.unit], r.unit).toBeGreaterThanOrEqual(SELECTION_RING.radiusTiles[r.ringClass]);
+  });
+
+  it('the paramotor falls back to its class value and says why', () => {
+    expect(byUnit('paramotor')?.halfDiagonalTiles).toBeNull();
+    expect(byUnit('paramotor')?.note).toMatch(/canopy/);
   });
 });
