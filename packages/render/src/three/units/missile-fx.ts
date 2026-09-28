@@ -374,10 +374,11 @@ export class MissileFx {
     return landings;
   }
 
-  /** An APS kill at `target`. Returns this controller's own buffer, **valid
-   *  until the next `intercept` call** -- `step`'s contract. */
-  intercept(target: number): MissileLanding[] {
-    return interceptMissiles(this.missiles, target, this.interceptLandings);
+  /** An APS kill of the round `(target, shooter)` -- the `aps` event's own
+   *  pair. Returns this controller's own buffer, **valid until the next
+   *  `intercept` call** -- `step`'s contract. */
+  intercept(target: number, shooter: number): MissileLanding[] {
+    return interceptMissiles(this.missiles, target, shooter, this.interceptLandings);
   }
 
   /** Returns 3 -- the number of meshes this hides, matching P-5's debug-layer

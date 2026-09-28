@@ -3802,10 +3802,10 @@ export class ThreeRenderer implements Renderer {
         this.spawnFlatFx(fx.toNumber(e.x), fx.toNumber(e.y), this.opts.nearMissColor, 7, 14);
       } else if (e.kind === 'aps' && e.intercepted) {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
-        // GH-250 (spec D4): the missile in flight at this target dies here,
-        // at half scale -- the APS got it, the hull did not.
+        // GH-250 (spec D4): the round this event names -- (target, shooter)
+        // -- dies here, at half scale: the APS got it, the hull did not.
         // (`intercept` returns a reused buffer; consumed here, in full.)
-        for (const l of this.missileFx.intercept(e.target)) this.spawnMissileImpactFx(l);
+        for (const l of this.missileFx.intercept(e.target, e.shooter)) this.spawnMissileImpactFx(l);
       } else if (e.kind === 'impact' && e.penetrated) {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.flashColor, 8, 10);
         // Jolt the target away from the shooter, so a penetrating hit lands
@@ -4187,7 +4187,9 @@ export class ThreeRenderer implements Renderer {
     if (shellKind === 'missile') {
       // GH-250: a missile is MissileFx's, not a bolt -- see units/missiles.ts.
       // The DURATION uses the shooter-centre distance the sim counts (P-1);
-      // the PATH starts at the muzzle, like every round.
+      // the PATH starts at the muzzle, like every round. P-1 is approximate
+      // for a MOVING shooter or target: these are the renderer's
+      // interpolated positions, not the sim's own at the fire tick.
       const targetAir = !atStruct && e.target >= 0 && this.sim.unitTypes[st.typeIdx[e.target]].isAir;
       this.missileFx.launch({
         sx: mzX, sy: mzY, tx, ty,

@@ -93,7 +93,7 @@ interface Privates {
   missileFx: { missiles: MissileModel[] };
   bolts: unknown[];
   tracers: unknown[];
-  flashLights: { liveCount: number };
+  flashLights: { liveCount: number; spawn(x: number, z: number, groundY: number, spec: { intensity: number }, colorHex: string): void };
   updateFx(ms: number): void;
   spawnMissileImpactFx(l: MissileLanding): void;
 }
@@ -175,12 +175,12 @@ describe('an ATGM is a missile, not a bolt (GH-250)', () => {
   });
 
   it('an APS intercept detonates the in-flight missile at that target, at half scale (spec D4)', () => {
-    const { sim, target, events } = fire(SPIKE, 7);
+    const { sim, shooter, target, events } = fire(SPIKE, 7);
     const r = rendererFor(sim, events);
     const calls: MissileLanding[] = [];
     priv(r).spawnMissileImpactFx = (l) => calls.push(l);
     priv(r).updateFx(300);
-    const aps: SimEvent = { kind: 'aps', tick: 1, target, shooter: 0, pIntercept: 0, roll: 0, intercepted: true };
+    const aps: SimEvent = { kind: 'aps', tick: 1, target, shooter, pIntercept: 0, roll: 0, intercepted: true };
     r.onEvents([aps]);
     expect(calls).toHaveLength(1);
     expect(calls[0].scale).toBe(0.5);
@@ -213,6 +213,58 @@ describe('an ATGM is a missile, not a bolt (GH-250)', () => {
     priv(r).updateFx(1000 / 60);
     expect(seen).toHaveLength(2);
     expect(seen[1]).toBe(seen[0]);
+    r.dispose();
+  });
+
+  it('an aps event from a DIFFERENT shooter leaves the missile flying -- the event names the round', () => {
+    const { sim, shooter, target, events } = fire(SPIKE, 7);
+    const r = rendererFor(sim, events);
+    const calls: MissileLanding[] = [];
+    priv(r).spawnMissileImpactFx = (l) => calls.push(l);
+    priv(r).updateFx(300);
+    const aps: SimEvent = { kind: 'aps', tick: 1, target, shooter: shooter + 1, pIntercept: 0, roll: 0, intercepted: true };
+    r.onEvents([aps]);
+    expect(calls).toHaveLength(0);
+    expect(priv(r).missileFx.missiles).toHaveLength(1);
+    r.dispose();
+  });
+
+  // P-4: light (and shake) are the emitter's authored values x `scale`, NOT
+  // x `power`. IMPACT authors intensity 2.6; a landing is scale 1, an
+  // intercept 0.5. `power` is 0.25 for the Spike, so the wrong factor reads
+  // 0.65 / 0.325 and fails both.
+  function lightIntensities(r: ThreeRenderer): number[] {
+    const out: number[] = [];
+    const lights = priv(r).flashLights;
+    const real = lights.spawn.bind(lights);
+    lights.spawn = (x, z, groundY, spec, colorHex) => {
+      out.push(spec.intensity);
+      real(x, z, groundY, spec, colorHex);
+    };
+    return out;
+  }
+
+  it('lights a landing at the authored intensity x scale 1 -- 2.6 (P-4)', () => {
+    const { sim, events } = fire(SPIKE, 7);
+    const r = rendererFor(sim, events);
+    r.useEmitters([IMPACT], (k) => (k.startsWith('#') ? k : '#FFB43C'));
+    const seen = lightIntensities(r);
+    const frames = Math.ceil(priv(r).missileFx.missiles[0].duration * 60) + 2;
+    for (let i = 0; i < frames; i++) priv(r).updateFx(1000 / 60);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeCloseTo(2.6, 9);
+    r.dispose();
+  });
+
+  it('lights an intercept at the authored intensity x scale 0.5 -- 1.3 (P-4)', () => {
+    const { sim, shooter, target, events } = fire(SPIKE, 7);
+    const r = rendererFor(sim, events);
+    r.useEmitters([IMPACT], (k) => (k.startsWith('#') ? k : '#FFB43C'));
+    const seen = lightIntensities(r);
+    priv(r).updateFx(300);
+    r.onEvents([{ kind: 'aps', tick: 1, target, shooter, pIntercept: 0, roll: 0, intercepted: true }]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeCloseTo(1.3, 9);
     r.dispose();
   });
 });

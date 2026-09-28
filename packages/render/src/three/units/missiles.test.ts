@@ -295,13 +295,43 @@ describe('stepping, landing and intercept', () => {
   it('an APS intercept detonates the missiles aimed at that target, where they are, at half scale (spec D4)', () => {
     const list = [spawned(), spawned({ target: 2 })];
     stepMissiles(list, 0.975, { x: [0, 8, 8], y: [0, 0, 0], alive: [1, 1, 1] }); // half of 1.95 s
-    const out = interceptMissiles(list, 1);
+    const out = interceptMissiles(list, 1, 0);
     expect(out).toHaveLength(1);
     expect(out[0].x).toBeCloseTo(4, 1);
     expect(out[0].scale).toBe(INTERCEPT_SCALE);
     expect(out[0].power).toBeCloseTo(MISSILE_PROFILES.guided.impactPower * INTERCEPT_SCALE, 9);
     expect(list).toHaveLength(1);
     expect(list[0].target).toBe(2);
+  });
+
+  it('an intercept names the ROUND: two shooters on one target, only the matching one detonates (sim aps carries shooter)', () => {
+    const list = [spawned({ shooter: 3 }), spawned({ shooter: 5 })];
+    stepMissiles(list, 0.5, track(8, 0));
+    const out = interceptMissiles(list, 1, 5);
+    expect(out).toHaveLength(1);
+    expect(list).toHaveLength(1);
+    expect(list[0].shooter).toBe(3);
+  });
+
+  it('one aps event kills ONE round -- the oldest -- when a shooter has two in flight at one target', () => {
+    const list = [spawned({ tick: 1 }), spawned({ tick: 2 })];
+    stepMissiles(list, 0.5, track(8, 0));
+    expect(interceptMissiles(list, 1, 0)).toHaveLength(1);
+    expect(list).toHaveLength(1);
+    expect(list[0].seed).toBe(spawned({ tick: 2 }).seed);
+  });
+
+  it("intercepts a MISS too -- the sim's APS engages a shaped charge hit or miss -- and it detonates, not lands", () => {
+    const list = [spawned({ willHit: false })];
+    expect(list[0].miss).toBe(true);
+    stepMissiles(list, 0.5, track(8, 0));
+    const out = interceptMissiles(list, 1, 0);
+    expect(out).toHaveLength(1);
+    expect(out[0].scale).toBe(INTERCEPT_SCALE);
+    // Killed in the air, so it marks no ground: the scorch is a MISS's.
+    expect(out[0].miss).toBe(false);
+    expect(list).toHaveLength(0);
+    expect(stepMissiles(list, 5, track(8, 0))).toHaveLength(0);
   });
 
   it('holds at most MISSILE_CAPACITY, evicting the oldest', () => {
