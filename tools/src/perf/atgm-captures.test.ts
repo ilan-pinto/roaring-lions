@@ -3,7 +3,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ATGM_LAYER_FLOORS,
+  ATGM_MISSILES_FLOORS,
+  ATGM_MISSILES_RUNS,
   ATGM_LADDER_MS,
   ATGM_SUBJECTS,
   ATGM_WINDOW_MS,
@@ -12,6 +13,7 @@ import {
   FLASH_INTENSITY_SCALE,
   flipHtml,
   lockstepPlan,
+  missilesFloorFor,
   missilesFloorReasons,
 } from './atgm-captures';
 
@@ -126,9 +128,43 @@ describe('the flash reading', () => {
 
 describe('the missiles floor', () => {
   it('is calibrated, not zero -- a zero floor passes a layer that draws nothing', () => {
-    expect(ATGM_LAYER_FLOORS.missiles.minDiffPixels).toBeGreaterThan(0);
-    expect(ATGM_LAYER_FLOORS.missiles.minMeanAbsChannelDelta).toBeGreaterThan(0);
-    expect(ATGM_LAYER_FLOORS.missiles.measured).toMatch(/rung 600/);
+    for (const s of ATGM_SUBJECTS) {
+      const f = missilesFloorFor(s.id);
+      expect(f.minDiffPixels).toBeGreaterThan(0);
+      expect(f.minMeanAbsChannelDelta).toBeGreaterThan(0);
+      expect(f.measured).toMatch(/rung 600/);
+    }
+  });
+
+  // Final fix wave: one floor per subject, each a third of THAT subject's
+  // own minimum over its three recorded after-runs -- not one shared pair set
+  // by the smallest shot on screen, which left the Spike's floor at a third
+  // of the RPG's pixels.
+  it('is one floor per subject, a third of its own minimum over three runs, rounded down', () => {
+    expect(Object.keys(ATGM_MISSILES_FLOORS).sort()).toEqual(ATGM_SUBJECTS.map((s) => s.id).sort());
+    for (const s of ATGM_SUBJECTS) {
+      const runs = ATGM_MISSILES_RUNS[s.id];
+      expect(runs).toHaveLength(3);
+      const minPx = Math.min(...runs.map((r) => r[0]));
+      const minDelta = Math.min(...runs.map((r) => r[1]));
+      const f = missilesFloorFor(s.id);
+      expect(f.minDiffPixels).toBe(Math.floor(minPx / 3));
+      expect(f.minMeanAbsChannelDelta).toBeLessThanOrEqual(minDelta / 3 + 1e-12);
+      expect(f.minMeanAbsChannelDelta).toBeGreaterThan(minDelta / 3 - 1e-4);
+      for (const [px, d] of runs) expect(f.measured).toContain(`${px}/${d.toFixed(4)}`);
+    }
+  });
+
+  it("fails T7's mutation (a) on the Spike, with margin: sprites hidden read 86 px / 0.0292", () => {
+    const spike = missilesFloorFor('spike');
+    const reasons = missilesFloorReasons({ available: true, diffPixels: 86, meanAbsChannelDelta: 0.0292 }, spike);
+    expect(reasons.length).toBeGreaterThan(0);
+    // Margin: the reading sits at most three quarters of the way up to the floor.
+    expect(0.0292).toBeLessThanOrEqual(spike.minMeanAbsChannelDelta * 0.75);
+  });
+
+  it('throws for a subject it has no floor for, rather than judging it against someone else\'s', () => {
+    expect(() => missilesFloorFor('nope')).toThrow(/nope/);
   });
 
   it('fails a reading below either half of it, and a build without the layer', () => {

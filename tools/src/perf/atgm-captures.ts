@@ -221,33 +221,62 @@ export interface AtgmLayerFloor {
   measured: string;
 }
 
+/** The capture conditions every `ATGM_MISSILES_RUNS` reading was taken under. */
+const MISSILES_RUNS_CONDITIONS =
+  '2026-09-28, darwin-arm64 12 cpus, ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)), ' +
+  'SwiftShader driver), viewport 1400x900 dsf1, 600x400 crop, zoom 2.0, rung 600';
+
 /**
- * The `missiles` toggle floor (Task 7): **one third of the smallest of three
- * readings**, per metric, over all four subjects -- the blast harness's rule.
- * The pixel floor is set by the RPG (a 4-tile shot, the smallest round on
- * screen at rung 600: 70 px on all three runs), the delta floor by the Kornet
- * (0.0983). Never lower it to clear a red run: a floor at 0 passes a layer
- * that draws nothing, which is what the spec's test refuses.
+ * The `missiles` toggle at rung 600, three consecutive full after-set runs a
+ * subject (Task 7's report, Step 2), as `[diffPixels, meanAbsChannelDelta]`.
+ * The source of every floor below, and pinned against it by the spec.
  */
-export const ATGM_LAYER_FLOORS: Record<'missiles', AtgmLayerFloor> = {
-  missiles: {
-    minDiffPixels: 23,
-    minMeanAbsChannelDelta: 0.0327,
-    measured:
-      '2026-09-28, darwin-arm64 12 cpus, ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)), ' +
-      'SwiftShader driver), viewport 1400x900 dsf1, 600x400 crop, zoom 2.0, rung 600, three full after-set ' +
-      'runs (px / mean abs channel delta): spike 244/0.1237, 277/0.1328, 225/0.1207; kornet 170/0.0983, ' +
-      '164/0.0994, 195/0.1152; hellfire 520/0.1812, 452/0.1490, 550/0.1858; rpg 70/0.1084, 70/0.1084, ' +
-      '70/0.1077. Smallest 70 px (rpg) and 0.0983 (kornet); floors 23 and 0.0327 are a third of each, ' +
-      'rounded down.',
-  },
+export const ATGM_MISSILES_RUNS: Readonly<Record<string, readonly (readonly [number, number])[]>> = {
+  spike: [[244, 0.1237], [277, 0.1328], [225, 0.1207]],
+  kornet: [[170, 0.0983], [164, 0.0994], [195, 0.1152]],
+  hellfire: [[520, 0.1812], [452, 0.149], [550, 0.1858]],
+  rpg: [[70, 0.1084], [70, 0.1084], [70, 0.1077]],
 };
+
+function measuredFor(id: string, floorPx: number, floorDelta: number): string {
+  const runs = ATGM_MISSILES_RUNS[id].map(([px, d]) => `${px}/${d.toFixed(4)}`).join(', ');
+  return `${MISSILES_RUNS_CONDITIONS}, three full after-set runs (px / mean abs channel delta): ${id} ${runs}; ` +
+    `floors ${floorPx} and ${floorDelta} are a third of this subject's own minimum, rounded down.`;
+}
+
+/**
+ * The `missiles` toggle floors, **one per subject**: a third of THAT
+ * subject's own smallest reading over its three runs, per metric, rounded
+ * down -- the blast harness's rule, applied per shot (final fix wave). Task 7
+ * shipped one shared pair, set by the smallest round on screen (the RPG's
+ * 70 px, the Kornet's 0.0983), which left the Spike judged against a third
+ * of an RPG: hiding its sprites outright (T7 mutation (a), 86 px / 0.0292)
+ * cleared the pixel floor and missed the delta floor by 11%. Against its own
+ * floor that reading sits 27% under.
+ *
+ * Floors are only ever RAISED, from measurement. Never lower one to clear a
+ * red run: a floor at 0 passes a layer that draws nothing.
+ */
+export const ATGM_MISSILES_FLOORS: Readonly<Record<string, AtgmLayerFloor>> = {
+  spike: { minDiffPixels: 75, minMeanAbsChannelDelta: 0.0402, measured: measuredFor('spike', 75, 0.0402) },
+  kornet: { minDiffPixels: 54, minMeanAbsChannelDelta: 0.0327, measured: measuredFor('kornet', 54, 0.0327) },
+  hellfire: { minDiffPixels: 150, minMeanAbsChannelDelta: 0.0496, measured: measuredFor('hellfire', 150, 0.0496) },
+  rpg: { minDiffPixels: 23, minMeanAbsChannelDelta: 0.0359, measured: measuredFor('rpg', 23, 0.0359) },
+};
+
+/** The floor a subject's reading is judged against. Throws for a subject
+ *  with none, rather than judging it against another subject's. */
+export function missilesFloorFor(subject: string): AtgmLayerFloor {
+  const f = ATGM_MISSILES_FLOORS[subject];
+  if (f === undefined) throw new Error(`no missiles floor for subject "${subject}"`);
+  return f;
+}
 
 /** Why one `missiles` toggle reading fails its floor -- empty when it clears
  *  it. A layer the build does not have fails too: the after-set must have it. */
 export function missilesFloorReasons(
   reading: { available: boolean; diffPixels: number; meanAbsChannelDelta: number },
-  floor: AtgmLayerFloor = ATGM_LAYER_FLOORS.missiles
+  floor: AtgmLayerFloor
 ): string[] {
   if (!reading.available) return ['the missiles layer is not in this build'];
   const out: string[] = [];
@@ -554,7 +583,7 @@ async function main(): Promise<void> {
   // rule. Judged on the after-set only -- the before-set has no such layer.
   if (label === 'after') {
     for (const t of toggles) {
-      const reasons = missilesFloorReasons(t);
+      const reasons = missilesFloorReasons(t, missilesFloorFor(t.subject));
       t.note = reasons.length === 0 ? 'clears the floor' : `BELOW THE FLOOR: ${reasons.join('; ')}`;
       if (reasons.length > 0) {
         console.error(`${t.subject}: missiles toggle ${t.diffPixels} px / ${t.meanAbsChannelDelta.toFixed(4)} -- ${reasons.join('; ')}`);
@@ -596,7 +625,7 @@ async function main(): Promise<void> {
   fs.writeFileSync(path.join(out, 'sheet.md'), md);
   fs.writeFileSync(
     path.join(out, 'sheet.json'),
-    JSON.stringify({ label, env, port, subjects: wanted, fired, windowFires, cells, toggles, floors: ATGM_LAYER_FLOORS, notes }, null, 2) + '\n'
+    JSON.stringify({ label, env, port, subjects: wanted, fired, windowFires, cells, toggles, floors: ATGM_MISSILES_FLOORS, notes }, null, 2) + '\n'
   );
   console.log(perSubject.join('\n'));
   console.log(`sheet at ${path.join(out, 'sheet.md')}`);
