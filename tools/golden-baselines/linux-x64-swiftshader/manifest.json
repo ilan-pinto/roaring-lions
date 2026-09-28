@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "2eadc0b00b310a607a0cde34c74be336fcbc5526",
-  "blessedAt": "2026-09-26T16:39:25.191Z",
-  "reason": "Ground plan 1 (WP-A2, PR #249, main 2eadc0b0): splat terrain with a macro field, the distance-field road (#226), the ratio-multiply decal pool, and the new gated 'aftermath' scenario. Lead approved the review captures on 2026-09-26. CI numbers on 2eadc0b0: quiet 12222 px, open-ground 502, vehicle 4726, relief 704 (identical to the PR run within vehicle noise; local A/B vs main 8d525c81 gave the same figures); aftermath had no baseline entry; all 22 layer self-checks PASS.",
+  "commit": "ee96d43e0ca02e5ceab00dc67092c9e18f55cdc4",
+  "blessedAt": "2026-09-28T15:59:24.501Z",
+  "reason": "WP-A2 plan 2 (PR #266, main ee96d43e): clustered grass and sand at density 0.75, D9 grain trims, seven Meshy props in one batch, desert crowns and the olive LOD (D8), sway on sim time, haze 0.12, dawn/day/dusk presets. Moves quiet, open-ground, vehicle, relief, aftermath; adds report-only dusk. PR run 36433876580: all 24 layer self-checks PASS (thinnest quiet roads 76/62 px). Lead approved captures and the beit z0.5 cost 2026-09-28.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "45a1670b4434d9084b08d2ac921606bbca4ae148add799a2daddd73026ab786c"
+      "sha256": "87eeedc64f0fba20721ef1edee53d473608f2ae6abd9187e2b511a685c00bea0"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "54387eefa75844285b3c4bc3e007cbee3384f8e294d06c429cbb4f99b05a60c2"
+      "sha256": "00d8c5f90fb30f10f028d03f94d292224c5930be766dac3415446450822ea9e5"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "8136dcd3e45da1ced09f99fe51656537b2c7afae9dbfbc6b7a172556a3cb2c8f"
+      "sha256": "cbdbcece8f268296fed8fefeace244be13d60e9153d7385926048977f3836176"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "fedeb973053d9b4bd3852be4b8e73745746fb6cac889c621c23a6a823bcd3b98"
+      "sha256": "c48ed0c9df9e991457bfc4d91357bd7ac37ea5b3b5bb2c90d29b80f7f664cd29"
     },
     "aftermath": {
       "tick": 300,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "f2efe0f4ca9fcb9ae03266ab6c695b3a63fd6d6037a81e973019828ae2ecea03"
+      "sha256": "a1749f7eb6195f96cba14bb0ad61b8d8f6da959f7be8171e7362745d13fa67c4"
     }
   }
 }
