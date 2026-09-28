@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-28 (voices engine #253, garage kit on icons #255, CI timing fix #256 and /stats accounts+loadouts #257 LANDED) · main: 9e9b0640 (v0.87.0) · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
+Updated: 2026-09-28 (ATGM animation #263, S3e symbols #265, ground plan 2 #266, A3.1 bible #259, garage compare #260 LANDED; bless for #266 in flight) · main: ee96d43e · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199, package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -8,14 +8,14 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | WP-AU1 unit voices engine LANDED (#253) · WP-S3g plan 2b kit on icons LANDED (#255) · CI timing fix LANDED (#256) · #254 /stats accounts+loadouts LANDED (#257, D1 migration 0002_accounts applied) · #243 garage compare + Shift+Tab in build · S3e #178 symbols built and approved; PR pending | `feat/garage-compare` (garage-compare) | SDD ledgers mirrored in `.superpowers/sdd-archive/` | #243 in build; gates green locally | land #243; land S3e PR; S3a #180 after |
-| B (render · art · data) | A2 plan 2 in build (`feat/ground-plan2`, worktree `ground2`): Tasks 1–6 done incl. Meshy props (7 previews 140 cr + 7 remeshes 35 cr; CLI gained `remesh`), olive split-decimation (wadi_halam_basin decor −6.8M tris), Task 5 props on screen at density 0.75 (shed from higher by the lead); Tasks 7–12 (sway, presets, haze, time_of_day, dusk capture, costs + bless) next · #250 ATGM animation spec+plan being written (`feat/atgm-animation`) · A3.1 style bible being written (`docs/a31-style-bible`) | `feat/ground-plan2` (ground2) · `feat/atgm-animation` (atgm) · `docs/a31-style-bible` (a31-bible) | — | Tasks 1–6 LANDED locally on the branch, not yet merged | finish A2 plan 2 Tasks 7–12; #250 spec+plan; A3.1 bible review after G1 |
+| A (packages/app) | S3e #178 symbols LANDED (#265) · #243 garage compare LANDED (#260) · queued: #262 pinned units say so (sign + voice line), #264 Escape disarms support, #261 remaining dingbats | — | SDD ledgers mirrored in `.superpowers/sdd-archive/` | idle | #262 spec + plan; S3a #180 after the October Meshy credits |
+| B (render · art · data) | A2 plan 2 LANDED (#266; lead accepted beit z0.5 +0.83 ms) · #250 ATGM animation LANDED (#263) · A3.1 style bible LANDED (#259) | — | — | bless 2 for #266 running from main | watch the bless land and main's visual go green; then A3.1 Meshy batches after G1 and the October credits |
 | C (packages/sim) | #247 manpad_team treated as wheeled (sim/data fix, filed 26 Sep) | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: #243 garage comparison + Shift+Tab → S3e #178 symbols built and approved, PR pending → S3a #180 → S-F #184, A4 #186 · voice assets after the D5 licence
-- B: A2 plan 2 Tasks 7–12 (haze, time of day, dusk capture, costs + bless) → #250 ATGM missile animation → A3.1 #179 bible + Meshy batches (after G1 and the October credits) → G-E5 #181 → A3.2 #185 (tunnel visuals #227)
+- A: #262 pinned units say so → #264 Escape disarms support → S3a #180 → S-F #184, A4 #186 · voice assets after the D5 licence
+- B: A3.1 #179 bible + Meshy batches (after G1 and the October credits) → G-E5 #181 → A3.2 #185 (tunnel visuals #227)
 - C: #247 manpad_team wheeled fix (Stage 4) → G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
 
@@ -49,7 +49,10 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
-- 2026-09-28 · S3e symbols (#178) Tasks 1–6 COMPLETE on `feat/s3e-symbols` (plan `docs/superpowers/plans/2026-09-28-s3e-symbols.md`, supersedes Phase 3 Tasks 11–12) · G1's r2/r4/r5-approved sheet ported as the drawn source, dingbat gate (follow-up #261), cursor family colour + halo + CVD variants, frame driver, Q1–Q14 taken at their recommended default · lead captures under `.superpowers/sdd/2026-09-28-s3e-symbols/t6-lead/` · awaiting merge
+- 2026-09-28 · **#266 → ee96d43e ground plan 2 (WP-A2)** · clustered grass/sand at 0.75, seven Meshy props in one batch, crowned trees and olive LOD (−6.89M tris on wadi_halam_basin), sway on sim time, haze 0.12, dawn/day/dusk + mission `time_of_day`, report-only dusk capture · lead accepted beit z0.5 +0.83 ms (14.67 p95) · PR visual red on the ground only, all 24 layer checks PASS · bless 2 dispatched from main
+- 2026-09-28 · **#265 → cfdc085a S3e symbols (#178)** · G1 sheet (r2 APP-6 roles, r4 stadia sight with animated APP-6 surrounds, r5 family colours) as the drawn source; dingbat gate (#261); cursor with halo + CVD variants (247 KB raw / 7.9 KB gz); frame driver · lead "Approve as is" · no bless
+- 2026-09-28 · **#263 → 33462703 ATGM animation (#250)** · missile body, glow and trail, guided top-attack path, HEAT impact; APS intercept per round held to the sim's resolution tick; no ground backblast from the air (lead) · no bless
+- 2026-09-28 · **#260** garage compare/sort/Shift+Tab (GH-243) · **#259** A3.1 style bible · **#258** ledger · no bless
 - 2026-09-27 · releases v0.85.0 → v0.87.0 cut across the landings below
 - 2026-09-27 · **#257 → af13d84b /stats brigade accounts and loadouts (GH-254)** · an accounts summary table upserted apart from its events, per-mission loadouts, telemetry hooks for orders/buys/account; the lead applied D1 migration 0002_accounts before merge · no bless
 - 2026-09-27 · **#256 → 8bb9ae0c voices CI leg-b timing fix** · the burst's clicks wait on microtask gaps, not a frame · no bless
