@@ -205,8 +205,16 @@ export function missileDurationS(cls: number, distTiles: number): number {
   const mc = missileClassOf(cls);
   if (mc === null) return SIM_TICK_S;
   const perTick = SIM_PROJ_SPEED_TILES_S[mc] * SIM_TICK_S;
-  // The epsilon absorbs 6 / 0.2 landing a hair above 30 in float; the sim's
-  // own Q16.16 division lands a hair BELOW it and ceil()s to the same 30.
+  // The epsilon guards a real boundary, though not the one this comment used
+  // to name (6 / 0.2 does not land above 30 on this Node -- verified in
+  // missiles.test.ts). perTick itself is not exactly representable in binary
+  // (0.2 for atgm), so a ground distance that is an EXACT whole number of
+  // ticks can still divide back a hair above that integer: perTick * 3 reads
+  // as 3.0000000000000004 when divided by perTick again, which without this
+  // epsilon would ceil() to 4 ticks instead of the correct 3. The sim's own
+  // Q16.16 division does not carry this particular error, so the epsilon
+  // only corrects a float-precision artefact this presentation-layer copy
+  // introduces, not a difference in what the sim actually resolved.
   const n = Math.max(1, Math.ceil(distTiles / perTick - 1e-9));
   // The sim resolves n - 1 ticks after the fire tick (projectiles step in the
   // tick they are fired); a same-tick round still draws for one.
@@ -257,7 +265,7 @@ export function spawnMissile(l: MissileLaunch): MissileModel | null {
 }
 
 export function missilePointAt(m: MissileModel, u: number): { x: number; y: number; liftPx: number } {
-  const p = u < 0 ? 0 : u > 1 ? 1 : u;
+  const p = clamp(u, 0, 1);
   const prof = MISSILE_PROFILES[m.variant];
   const dx = m.tx - m.sx;
   const dy = m.ty - m.sy;
@@ -287,9 +295,17 @@ export function missileProgress(m: MissileModel): number {
 }
 
 export function missileHeadingTurns(m: MissileModel, u: number): number {
-  const p = u < 0 ? 0 : u > 1 ? 1 : u;
-  const a = p > 0 ? missilePointAt(m, Math.max(0, p - 0.02)) : { x: m.sx, y: m.sy };
-  const b = p > 0 ? missilePointAt(m, p) : missilePointAt(m, 0.02);
+  const p = clamp(u, 0, 1);
+  // At u = 0 the heading is the launch-to-target chord, not a forward sample:
+  // a guided or top-attack round's weave/climb tilts a p=0.02 sample several
+  // degrees off the true launch heading (measured ~7.8 deg at the shipped
+  // weave), which is wrong for whatever orients the missile body at spawn.
+  if (p <= 0) {
+    const angle = Math.atan2(m.ty - m.sy, m.tx - m.sx) / (2 * Math.PI);
+    return ((angle % 1) + 1) % 1;
+  }
+  const a = missilePointAt(m, Math.max(0, p - 0.02));
+  const b = missilePointAt(m, p);
   const angle = Math.atan2(b.y - a.y, b.x - a.x) / (2 * Math.PI);
   return ((angle % 1) + 1) % 1;
 }

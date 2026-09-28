@@ -210,6 +210,20 @@ describe('the path', () => {
     const south = spawned({ weaponId: 'rpg7', cls: WEAPON_CLASS.rpg, tx: 0, ty: 8 });
     expect(missileHeadingTurns(south, 0.5)).toBeCloseTo(0.25, 6);
   });
+
+  // Fix round 2: a guided (or top-attack) round weaves off the launch-target
+  // line from its very first sampled fraction, so sampling forward from
+  // u = 0 to get a heading tilts the answer by the weave, not just the
+  // ground track. The brief is explicit that u = 0 uses the launch-to-target
+  // line instead. Measured at the shipped weave (0.12 tiles, 1.5 cycles): a
+  // forward sample tilted a due-east launch by ~7.8 degrees (0.0218 turns)
+  // where the chord itself is exactly 0.
+  it('at u = 0 the heading is the launch-to-target chord, not a weave-tilted forward sample', () => {
+    const east = spawned(); // guided (kornet): weaves from u = 0
+    expect(missileHeadingTurns(east, 0)).toBeCloseTo(0, 9);
+    const diag = spawned({ tx: 8, ty: 8 });
+    expect(missileHeadingTurns(diag, 0)).toBeCloseTo(0.125, 6); // 45 degrees
+  });
 });
 
 describe('guidance and misses', () => {
