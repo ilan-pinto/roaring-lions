@@ -507,6 +507,10 @@
   "alert.unitLost": "<b>lost</b> — {n, plural, one {{name}} other {{name} (#)}}",
   "alert.underFire": "<b>under fire</b> — {n, plural, one {# unit} other {# units}}",
 
+  "order.pinned.note": "<b>Pinned</b>: {n, plural, one {# unit} other {# units}} can't move under fire. {n, plural, one {It goes} other {They go}} once the fire lifts.",
+  "order.pinned.note.soft": "<b>Pinned</b>: {n, plural, one {# unit} other {# units}} can't move under fire. {n, plural, one {It goes} other {They go}} once the fire lifts, unless {n, plural, one {it breaks} other {they break}}.",
+  "order.broken.note": "<b>Broken</b>: {n, plural, one {# unit} other {# units}} won't take orders until {n, plural, one {it rallies} other {they rally}}.",
+
   "notice.removed.civilian": "<b>taken</b> ({n})",
   "notice.removed.unit": "{unit} <b>taken</b>",
   "notice.evacuated": "<b>clear</b> ({n})",

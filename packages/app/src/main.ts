@@ -69,6 +69,7 @@ import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
+import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { CUE_SET } from './ui/garage-model';
@@ -3180,6 +3181,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     for (const fn of intentListeners) fn(intent);
   };
   intentListeners.push((intent) => voice.observe(intent));
+  // The feed line for a pinned or broken unit's order (GH-262). `applyIntent`
+  // above only queues the command; `sim.state` is still pre-order here, which
+  // is exactly the state the rule wants to read.
+  let pinnedNoteState = INITIAL_PINNED_NOTE;
+  intentListeners.push((intent) => {
+    const result = pinnedOrderNote(
+      pinnedNoteState,
+      intent,
+      {
+        pinned: (id) => sim.state.pinned[id] === 1,
+        routed: (id) => sim.state.routed[id] === 1,
+        soft: (id) => sim.unitTypes[sim.state.typeIdx[id]].isSoft,
+      },
+      performance.now()
+    );
+    pinnedNoteState = result.state;
+    if (result.line) hud.note(...alertNotice(result.line));
+  });
   // Counted after `applyIntent` has run: an observer, like the voice (GH-254).
   intentListeners.push((intent) => missionTelemetry?.onIntent(intent));
   /** Where a resolved right-click's three effects land. Built once and passed
