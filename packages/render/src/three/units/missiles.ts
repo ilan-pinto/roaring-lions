@@ -289,7 +289,20 @@ export function spawnMissile(l: MissileLaunch): MissileModel | null {
   };
 }
 
-export function missilePointAt(m: MissileModel, u: number): { x: number; y: number; liftPx: number } {
+/** A point of flight: ground-track tile position plus height in lift pixels. */
+export interface MissilePoint {
+  x: number;
+  y: number;
+  liftPx: number;
+}
+
+/**
+ * Where the flight has the missile at progress `u`. Written into `out` and
+ * returned: a per-frame caller passes a point it owns (final fix wave -- this
+ * ran about five times per missile per frame, each returning a fresh object).
+ * Omitted, a fresh point is returned.
+ */
+export function missilePointAt(m: MissileModel, u: number, out: MissilePoint = { x: 0, y: 0, liftPx: 0 }): MissilePoint {
   const p = clamp(u, 0, 1);
   const prof = MISSILE_PROFILES[m.variant];
   const dx = m.tx - m.sx;
@@ -312,8 +325,15 @@ export function missilePointAt(m: MissileModel, u: number): { x: number; y: numb
   } else {
     arc = m.apexPx * 4 * p * (1 - p);
   }
-  return { x, y, liftPx: m.launchLiftPx + (m.impactLiftPx - m.launchLiftPx) * p + arc };
+  out.x = x;
+  out.y = y;
+  out.liftPx = m.launchLiftPx + (m.impactLiftPx - m.launchLiftPx) * p + arc;
+  return out;
 }
+
+/** `missileHeadingTurns`' two samples, owned here so a heading allocates nothing. */
+const headingA: MissilePoint = { x: 0, y: 0, liftPx: 0 };
+const headingB: MissilePoint = { x: 0, y: 0, liftPx: 0 };
 
 export function missileProgress(m: MissileModel): number {
   return m.duration > 0 ? clamp(m.t / m.duration, 0, 1) : 1;
@@ -329,8 +349,8 @@ export function missileHeadingTurns(m: MissileModel, u: number): number {
     const angle = Math.atan2(m.ty - m.sy, m.tx - m.sx) / (2 * Math.PI);
     return ((angle % 1) + 1) % 1;
   }
-  const a = missilePointAt(m, Math.max(0, p - 0.02));
-  const b = missilePointAt(m, p);
+  const a = missilePointAt(m, Math.max(0, p - 0.02), headingA);
+  const b = missilePointAt(m, p, headingB);
   const angle = Math.atan2(b.y - a.y, b.x - a.x) / (2 * Math.PI);
   return ((angle % 1) + 1) % 1;
 }

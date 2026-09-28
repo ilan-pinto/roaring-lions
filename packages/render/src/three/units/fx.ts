@@ -359,7 +359,7 @@
  */
 import * as THREE from 'three';
 import type { ParticleSystem } from '../../vfx';
-import { WORLD_Y_PER_LIFT_PIXEL, isoX, isoY } from '../../project';
+import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
 import { groundWorldY, type ElevationSource } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
@@ -923,6 +923,34 @@ export function liftedSegmentQuad(
   widthAPx: number,
   widthBPx: number
 ): Float32Array {
+  const out = new Float32Array(12);
+  liftedSegmentQuadInto(out, 0, ax, ay, aY, bx, by, bY, widthAPx, widthBPx);
+  return out;
+}
+
+/**
+ * `liftedSegmentQuad`, written into `out` at `offset` (12 floats) instead of
+ * a fresh array -- the per-frame form `MissileFx` draws its body streak
+ * through (final fix wave), since the returning form built an array literal
+ * plus a `Float32Array.from` per missile per frame. The ONE copy of the
+ * segment maths: `liftedSegmentQuad` is a thin caller, and so every shell
+ * streak goes through here too, byte-identical (`fx.test.ts` pins it
+ * against the old `screenOffsetToWorld` formula). `screenOffsetToWorld` is
+ * inlined for the same reason -- it returns an object -- with its own
+ * expressions, in its own order.
+ */
+export function liftedSegmentQuadInto(
+  out: Float32Array,
+  offset: number,
+  ax: number,
+  ay: number,
+  aY: number,
+  bx: number,
+  by: number,
+  bY: number,
+  widthAPx: number,
+  widthBPx: number
+): void {
   // On-screen direction of the segment, height included -- see
   // `shellSegmentQuad`'s own doc comment for why the ground bearing alone is
   // wrong.
@@ -933,15 +961,29 @@ export function liftedSegmentQuad(
   // `tracerQuadPositions` uses, for the same reason.
   const nx = len > 0 ? -dyScreen / len : 1;
   const ny = len > 0 ? dxScreen / len : 0;
-  const perpA = screenOffsetToWorld((nx * widthAPx) / 2, (ny * widthAPx) / 2);
-  const perpB = screenOffsetToWorld((nx * widthBPx) / 2, (ny * widthBPx) / 2);
+  // `screenOffsetToWorld(sx, sy)` = { dx: sx / TILE_W + sy / TILE_H, dy: sy / TILE_H - sx / TILE_W }.
+  const sxA = (nx * widthAPx) / 2;
+  const syA = (ny * widthAPx) / 2;
+  const sxB = (nx * widthBPx) / 2;
+  const syB = (ny * widthBPx) / 2;
+  const pAdx = sxA / TILE_W + syA / TILE_H;
+  const pAdy = syA / TILE_H - sxA / TILE_W;
+  const pBdx = sxB / TILE_W + syB / TILE_H;
+  const pBdy = syB / TILE_H - sxB / TILE_W;
 
-  return Float32Array.from([
-    ax - perpA.dx, aY, ay - perpA.dy,
-    ax + perpA.dx, aY, ay + perpA.dy,
-    bx + perpB.dx, bY, by + perpB.dy,
-    bx - perpB.dx, bY, by - perpB.dy,
-  ]);
+  const o = offset;
+  out[o] = ax - pAdx;
+  out[o + 1] = aY;
+  out[o + 2] = ay - pAdy;
+  out[o + 3] = ax + pAdx;
+  out[o + 4] = aY;
+  out[o + 5] = ay + pAdy;
+  out[o + 6] = bx + pBdx;
+  out[o + 7] = bY;
+  out[o + 8] = by + pBdy;
+  out[o + 9] = bx - pBdx;
+  out[o + 10] = bY;
+  out[o + 11] = by - pBdy;
 }
 
 /**

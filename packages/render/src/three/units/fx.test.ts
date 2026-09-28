@@ -51,6 +51,7 @@ import {
   ShellBatch,
   shellSegmentQuad,
   liftedSegmentQuad,
+  liftedSegmentQuadInto,
   writeShellInstances,
   type ParticleInstanceBuffers,
   type TracerInstanceBuffers,
@@ -981,6 +982,43 @@ describe('particle soft edge (aSoft)', () => {
   it('the hard-edged circle cutout is still there -- feathering must not silently widen a puff past its own radius', () => {
     const m = (new ParticleInstancer(4, 0, true).mesh.material) as THREE.ShaderMaterial;
     expect(m.fragmentShader).toContain('if (dot(vLocal, vLocal) > 1.0) discard;');
+  });
+});
+
+describe('liftedSegmentQuadInto writes the quad in place, byte-identical (final fix wave)', () => {
+  // The pre-wave body of liftedSegmentQuad, verbatim: the reference every
+  // shell streak and missile body must still reproduce bit for bit.
+  function reference(ax: number, ay: number, aY: number, bx: number, by: number, bY: number, wA: number, wB: number): Float32Array {
+    const dxScreen = isoX(bx, by) - isoX(ax, ay);
+    const dyScreen = isoY(bx, by) - bY / WORLD_Y_PER_LIFT_PIXEL - (isoY(ax, ay) - aY / WORLD_Y_PER_LIFT_PIXEL);
+    const len = Math.hypot(dxScreen, dyScreen);
+    const nx = len > 0 ? -dyScreen / len : 1;
+    const ny = len > 0 ? dxScreen / len : 0;
+    const perpA = screenOffsetToWorld((nx * wA) / 2, (ny * wA) / 2);
+    const perpB = screenOffsetToWorld((nx * wB) / 2, (ny * wB) / 2);
+    return Float32Array.from([
+      ax - perpA.dx, aY, ay - perpA.dy,
+      ax + perpA.dx, aY, ay + perpA.dy,
+      bx + perpB.dx, bY, by + perpB.dy,
+      bx - perpB.dx, bY, by - perpB.dy,
+    ]);
+  }
+  const CASES: readonly (readonly [number, number, number, number, number, number, number, number])[] = [
+    [1, 2, 0.3, 11, 6, 0.9, 5, 3],
+    [3.25, 7.5, 1.1, 3.25, 7.5, 1.1, 2.5, 2.5], // zero length: the fixed fallback
+    [0.1, 0.2, 0, 17.3, -4.4, 2.7, 2.5, 2.5],
+    [9, 9, 4.2, 8.7, 9.4, 0.01, 7, 1],
+  ];
+  it('matches the old formula bit for bit, at any offset, touching nothing else', () => {
+    for (const c of CASES) {
+      const out = new Float32Array(36).fill(-1);
+      liftedSegmentQuadInto(out, 12, ...c);
+      const ref = reference(...c);
+      for (let i = 0; i < 12; i++) expect(Object.is(out[12 + i], ref[i])).toBe(true);
+      for (let i = 0; i < 12; i++) expect(out[i]).toBe(-1);
+      for (let i = 24; i < 36; i++) expect(out[i]).toBe(-1);
+      expect(liftedSegmentQuad(...c)).toEqual(ref);
+    }
   });
 });
 

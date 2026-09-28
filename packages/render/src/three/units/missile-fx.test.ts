@@ -6,6 +6,9 @@ import { FX_RENDER_ORDER, FX_RENDER_ORDER_ADDITIVE } from './render-order';
 import { MissileFx } from './missile-fx';
 import type { MissileLaunch, TargetTrack } from './missiles';
 import * as missileTrail from './missile-trail';
+import * as missilesModule from './missiles';
+import * as fxModule from './fx';
+import * as terrainShared from '../terrain/shared';
 
 const TRAIL: EmitterSpec = {
   id: 'missile_trail', trigger: 'projectile_trail', layer: 'above_units',
@@ -106,6 +109,45 @@ describe('MissileFx', () => {
     const first = callbacks[0];
     for (const cb of callbacks) expect(cb).toBe(first);
     spy.mockRestore();
+    fx.dispose();
+  });
+
+  it('a steady-state frame with N missiles calls no allocating helper (final fix wave)', () => {
+    const fx = new MissileFx();
+    fx.setLook(TRAIL, resolve);
+    for (let i = 0; i < 4; i++) fx.launch({ ...LAUNCH, tick: 5 + i, shooter: i });
+    // Warm: trail puffs live, every missile ignited and mid-flight.
+    for (let f = 0; f < 10; f++) fx.step(1 / 60, TRACK, null, 0, 0);
+    expect(fx.missiles).toHaveLength(4);
+    expect(fx.trail.live).toBeGreaterThan(0);
+
+    const pointAt = vi.spyOn(missilesModule, 'missilePointAt');
+    const from = vi.spyOn(Float32Array, 'from');
+    const quad = vi.spyOn(fxModule, 'liftedSegmentQuad');
+    const offset = vi.spyOn(terrainShared, 'screenOffsetToWorld');
+    const sprites = vi.spyOn(missileTrail, 'writeMissileSprites');
+    const forEachLive = vi.spyOn(fx.trail, 'forEachLive');
+    fx.step(1 / 60, TRACK, null, 0, 0);
+    fx.step(1 / 60, TRACK, null, 0, 0);
+
+    // Every point is written into a caller-owned object, never a fresh one.
+    expect(pointAt.mock.calls.length).toBeGreaterThan(0);
+    pointAt.mock.calls.forEach((call, i) => {
+      expect(call[2]).toBeDefined();
+      expect(pointAt.mock.results[i].value).toBe(call[2]);
+    });
+    // The body quad is written in place: no array literal, no Float32Array.from.
+    expect(from).not.toHaveBeenCalled();
+    expect(quad).not.toHaveBeenCalled();
+    expect(offset).not.toHaveBeenCalled();
+    // The sprite writer gets ONE bound worldYAt and hands back ONE counts object.
+    expect(sprites).toHaveBeenCalledTimes(2);
+    expect(sprites.mock.calls[1][3]).toBe(sprites.mock.calls[0][3]);
+    expect(sprites.mock.results[1].value).toBe(sprites.mock.results[0].value);
+    // The puffs are walked directly, with no per-frame closure.
+    expect(forEachLive).not.toHaveBeenCalled();
+
+    for (const s of [pointAt, from, quad, offset, sprites, forEachLive]) s.mockRestore();
     fx.dispose();
   });
 

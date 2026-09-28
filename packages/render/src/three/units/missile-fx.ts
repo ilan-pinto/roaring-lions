@@ -37,7 +37,7 @@ import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { hexToLinear } from '../terrain/shared';
 import { groundWorldY, type ElevationSource } from '../ground-height';
 import {
-  liftedSegmentQuad,
+  liftedSegmentQuadInto,
   tracerIndexBuffer,
   createTracerMaterial,
   createParticleMaterial,
@@ -54,6 +54,7 @@ import {
   missilePointAt,
   missileProgress,
   type MissileModel,
+  type MissilePoint,
   type MissileLaunch,
   type MissileLanding,
   type TargetTrack,
@@ -90,6 +91,9 @@ function lerpMissileWorldY(launchY: number, impactY: number, u: number, liftPx: 
   return launchY + (impactY - launchY) * u + liftPx * WORLD_Y_PER_LIFT_PIXEL;
 }
 
+/** `missileWorldY`'s own sample point, so a world-Y allocates nothing. */
+const worldYPoint: MissilePoint = { x: 0, y: 0, liftPx: 0 };
+
 /** Ground-relative world Y of a missile's flight at progress `u`, for
  *  `writeMissileSprites`'s own `worldYAt` callback. A puff stores the
  *  absolute `worldY` it was emitted at (`TrailPool.emit`), so it never
@@ -99,7 +103,7 @@ function lerpMissileWorldY(launchY: number, impactY: number, u: number, liftPx: 
 function missileWorldY(m: MissileModel, u: number, elevation: ElevationSource, w: number, h: number): number {
   const launchY = groundWorldY(elevation, w, h, m.sx, m.sy);
   const impactY = groundWorldY(elevation, w, h, m.tx, m.ty);
-  return lerpMissileWorldY(launchY, impactY, u, missilePointAt(m, u).liftPx);
+  return lerpMissileWorldY(launchY, impactY, u, missilePointAt(m, u, worldYPoint).liftPx);
 }
 
 export class MissileFx {
@@ -173,6 +177,22 @@ export class MissileFx {
    */
   private readonly trailWorldYAt = (_m: MissileModel, liftPx: number, u: number): number =>
     lerpMissileWorldY(this.curLaunchY, this.curImpactY, u, liftPx);
+
+  /** The terrain `step()` was handed, for `spriteWorldYAt` -- set once at
+   *  the top of each `step()`, the `curLaunchY` pattern. */
+  private curElevation: ElevationSource = null;
+  private curW = 0;
+  private curH = 0;
+
+  /** `writeMissileSprites`' `worldYAt`, bound ONCE like `trailWorldYAt`
+   *  (final fix wave): it used to be a fresh `(m, u) => missileWorldY(...)`
+   *  closure over `elevation`/`w`/`h` every frame. */
+  private readonly spriteWorldYAt = (m: MissileModel, u: number): number =>
+    missileWorldY(m, u, this.curElevation, this.curW, this.curH);
+
+  /** The body streak's two ends, written in place every frame. */
+  private readonly bodyTail: MissilePoint = { x: 0, y: 0, liftPx: 0 };
+  private readonly bodyHead: MissilePoint = { x: 0, y: 0, liftPx: 0 };
 
   constructor() {
     // --- Body mesh: liftedSegmentQuad's own shape, one quad per missile. ---
@@ -288,6 +308,9 @@ export class MissileFx {
     simTick: number = Number.POSITIVE_INFINITY
   ): MissileLanding[] {
     const landings = stepMissiles(this.missiles, dt, track, this.stepLandings, simTick);
+    this.curElevation = elevation;
+    this.curW = w;
+    this.curH = h;
 
     // --- Trail emission + body quads: ONE pass over the missiles, so each
     // missile's own launch/impact ground height (`curLaunchY`/`curImpactY`)
@@ -311,12 +334,17 @@ export class MissileFx {
         const groundDist = missileGroundDist(m);
         const progress = missileProgress(m);
         const tailU = groundDist > 0 ? Math.max(0, progress - MISSILE_BODY_TILES / groundDist) : 0;
-        const a = missilePointAt(m, tailU);
-        const b = missilePointAt(m, progress);
+        const a = missilePointAt(m, tailU, this.bodyTail);
+        const b = missilePointAt(m, progress, this.bodyHead);
         const aY = lerpMissileWorldY(this.curLaunchY, this.curImpactY, tailU, a.liftPx);
         const bY = lerpMissileWorldY(this.curLaunchY, this.curImpactY, progress, b.liftPx);
-        const quad = liftedSegmentQuad(a.x, a.y, aY, b.x, b.y, bY, MISSILE_BODY_WIDTH_PX, MISSILE_BODY_WIDTH_PX);
-        this.bodyPositions.set(quad, bodyQuadCount * 12);
+        liftedSegmentQuadInto(
+          this.bodyPositions,
+          bodyQuadCount * 12,
+          a.x, a.y, aY, b.x, b.y, bY,
+          MISSILE_BODY_WIDTH_PX,
+          MISSILE_BODY_WIDTH_PX
+        );
         for (let v = 0; v < 4; v++) {
           const ci = bodyQuadCount * 12 + v * 3;
           this.bodyColors[ci] = br;
@@ -344,7 +372,7 @@ export class MissileFx {
         this.missiles,
         this.trail,
         this.look,
-        (m, u) => missileWorldY(m, u, elevation, w, h),
+        this.spriteWorldYAt,
         this.spriteScratch,
         this.coreScratch
       );
