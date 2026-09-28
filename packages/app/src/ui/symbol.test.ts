@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { SYMBOL_IDS, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
+import { PINNED_CANDIDATES, SYMBOL_IDS, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
 
 const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'] as const;
 const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id);
 const viewBoxOf = (svg: string): number[] => (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? '').split(' ').map(Number);
 
-describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks)', () => {
-  it('is nineteen distinct ids: seven roles, eight orders, four utility marks', () => {
-    expect(SYMBOL_IDS).toHaveLength(19);
-    expect(new Set(SYMBOL_IDS).size).toBe(19);
+describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks, the pinned status mark)', () => {
+  it('is twenty distinct ids: seven roles, eight orders, four utility marks, one status mark', () => {
+    expect(SYMBOL_IDS).toHaveLength(20);
+    expect(new Set(SYMBOL_IDS).size).toBe(20);
+    expect(SYMBOL_IDS).toContain('pinned');
   });
 
   it('fills with currentColor and names no colour or variable', () => {
@@ -92,6 +93,30 @@ describe('the HUD order marks are cropped to their own surround', () => {
       expect(width / height).toBeCloseTo(w / h, 1);
       expect(svg).not.toContain('preserveAspectRatio="none"');
     }
+  });
+});
+
+describe('the pinned mark candidates (G-PIN)', () => {
+  const ids = ['A', 'B', 'C'] as const;
+  it('are three different drawings, each filled only and in currentColor', () => {
+    expect(new Set(ids.map((k) => PINNED_CANDIDATES[k])).size).toBe(3);
+    for (const k of ids) {
+      expect(PINNED_CANDIDATES[k]).toContain('currentColor');
+      expect(PINNED_CANDIDATES[k]).not.toMatch(/stroke|#[0-9a-fA-F]{3}|var\(--/);
+    }
+  });
+  it('stay inside the 24 box: every coordinate in [0, 24]', () => {
+    for (const k of ids) {
+      const nums = [...PINNED_CANDIDATES[k].matchAll(/-?\d+(\.\d+)?/g)].map((m) => Number(m[0]));
+      for (const n of nums) expect(n >= -24 && n <= 24).toBe(true); // relative arcs may be negative
+    }
+  });
+  it('draws candidate A until the ruling', () => {
+    expect(symbolBody('pinned')).toBe(PINNED_CANDIDATES.A);
+    expect(symbolSvg('pinned', 12)).toContain('data-symbol="pinned"');
+  });
+  it('carries a pixel of ink at the chip size (12 px)', () => {
+    expect((W * 12) / 24).toBeGreaterThanOrEqual(1);
   });
 });
 

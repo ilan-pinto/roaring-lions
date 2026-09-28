@@ -12,6 +12,7 @@
 // sweep -- that sweep belongs to `order-sight.ts`'s aim alone (Q12), which
 // has no APP-6 original to borrow angles from.
 import type { RoleBucket } from './role';
+import { CHEVRON_SWEEP } from './mark';
 import { ORDER_MARK_BOUNDS, orderMarkBody, type SightOrderId } from './order-sight';
 
 export const VIEWBOX = '0 0 24 24';
@@ -196,15 +197,21 @@ function rotate(cw: boolean): string {
 }
 
 export type UtilityId = 'logistics' | 'intel' | 'rotateCcw' | 'rotateCw';
-export type SymbolId = RoleBucket | SightOrderId | UtilityId;
+/** A unit-status mark, drawn on the chip/card/strip/cursor rather than on an
+ *  order or a role. `pinned` is the only member until G-PIN rules; Task 5
+ *  wires whichever candidate the lead picked as `STATUS_GLYPHS.pinned`. */
+export type StatusId = 'pinned';
+export type SymbolId = RoleBucket | SightOrderId | UtilityId | StatusId;
 
 const ROLE_IDS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
 const ORDER_IDS: readonly SightOrderId[] = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'];
 const UTILITY_IDS: readonly UtilityId[] = ['logistics', 'intel', 'rotateCcw', 'rotateCw'];
+const STATUS_IDS: readonly StatusId[] = ['pinned'];
 
-/** Seven roles, eight orders, four utility marks: nineteen, the sheet G1
- *  approved (round 2's roles and utility marks, round 5's orders). */
-export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS];
+/** Seven roles, eight orders, four utility marks, one status mark: twenty,
+ *  the sheet G1 approved (round 2's roles and utility marks, round 5's
+ *  orders) plus the pinned mark added for G-PIN. */
+export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS];
 
 interface RoleGlyph {
   body: string; // unframed (the 10 px form)
@@ -247,6 +254,55 @@ function isRoleBucket(id: SymbolId): id is RoleBucket {
 function isOrderId(id: SymbolId): id is SightOrderId {
   return (ORDER_IDS as readonly string[]).includes(id);
 }
+function isStatusId(id: SymbolId): id is StatusId {
+  return (STATUS_IDS as readonly string[]).includes(id);
+}
+
+// ---------------------------------------------------------------------------
+// G-PIN: the pinned mark candidates.
+//
+// A unit under enough incoming fire to pin stops moving at anything near
+// full speed and stops shooting back, and the player has no drawn sign for
+// it today -- only the strip's undrawn `▼` dingbat and a text status line.
+// These three read the same idea three ways, all on the shared 24 box, W
+// thick, filled only, `currentColor` only (no stroke, no `--mark-edge`
+// halo baked in here -- that is a CSS placement rule Task 5 adds).
+//
+// A ground bar plus a shape above or below it is the common thread: the bar
+// alone already means "flat to the ground" (candidates A and C share it),
+// and B answers the same question by squashing the infantry cross itself.
+const PINNED_GROUND_BAR = path(poly(rect(2, 3, 22, 3 + W)));
+
+/** A, "pressed flat": the ground bar over a wide, shallow down-chevron --
+ *  apex (12, 20), shoulders (2, 9) and (22, 9), W thick. Reads as the
+ *  strip's own `▼` drawn properly, so it keeps the reading players already
+ *  learned from the undrawn dingbat. */
+const PINNED_A = PINNED_GROUND_BAR + ' ' + path(band([2, 9], [12, 20]) + ' ' + band([22, 9], [12, 20]));
+
+/** B, "ducked": the same ground bar over the infantry cross, squashed into a
+ *  short box (3.5, 10)-(20.5, 19) -- a soldier folded down under the bar
+ *  rather than standing under it. */
+const PINNED_B = PINNED_GROUND_BAR + ' ' + infantry(B(3.5, 10, 20.5, 19));
+
+/** C, "incoming": three strikes leaning at `CHEVRON_SWEEP` from the
+ *  top-right -- the family's own diagonal, shared with `mark.ts`'s chevron
+ *  and `order-sight.ts`'s stadia aim -- over a ground bar at the foot of
+ *  the box. Reads as rounds arriving rather than as the unit's own state. */
+function pinnedStrike(bottomX: number): string {
+  const dy = 10;
+  const dx = dy * CHEVRON_SWEEP;
+  return band([bottomX + dx, 4], [bottomX, 14]);
+}
+const PINNED_C =
+  path([pinnedStrike(3), pinnedStrike(9.5), pinnedStrike(16)].join(' ')) + ' ' + path(poly(rect(2, 19, 22, 19 + W)));
+
+/** The three G-PIN candidates. Task 5 deletes two of them and keeps the
+ *  pick as `STATUS_GLYPHS.pinned`. */
+export const PINNED_CANDIDATES: Readonly<Record<'A' | 'B' | 'C', string>> = {
+  A: PINNED_A,
+  B: PINNED_B,
+  C: PINNED_C,
+};
 
 /**
  * One symbol's fill markup (no `<svg>` wrapper) -- `currentColor` only, no
@@ -265,6 +321,11 @@ export function symbolBody(id: SymbolId, opts?: { framed?: boolean; ink?: string
   }
   if (isOrderId(id)) {
     return orderMarkBody(id, opts?.ink);
+  }
+  if (isStatusId(id)) {
+    // Draws candidate A until G-PIN rules (Task 1 brief). Task 5 replaces
+    // this with whichever of PINNED_CANDIDATES the lead picked.
+    return PINNED_CANDIDATES.A;
   }
   const g = UTILITY_GLYPHS[id];
   return opts?.framed && g.framed ? g.framed : g.body;
