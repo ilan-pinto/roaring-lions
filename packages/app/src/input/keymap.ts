@@ -174,25 +174,51 @@ export function passesThroughModal(action: Action | null): boolean {
  * ever runs, and that comment's own reasoning for keeping it anyway ("this
  * case's own stated contract") applies here just the same.
  *
- * GH-264: `armedSupport` is whether a fire-support call (sweep or strike) is
- * currently armed from the dock, awaiting a click on the map. Before this,
- * arming one from `main.ts`'s `production.onArm` had no Escape rung at all --
- * only clicking the dock tile again (`production.setArmed`) disarmed it. It
- * ranks BELOW the tracker and dialog rungs above (a bare Escape must not
- * reach past either just because a call happens to be armed) and ABOVE
- * `pause`: disarming an in-progress action is the same kind of "undo the
- * thing Escape usually undoes" as closing the tracker, and a player who
- * armed a call by mistake should get that back, not a menu on top of it.
+ * GH-264: `armed` is whether ANYTHING is currently armed and awaiting a click
+ * on the map -- an attack-move or smoke order from the order row
+ * (`main.ts`'s `armedOrder`), or a fire-support call from the dock
+ * (`armedSupport`). Before this, arming any of the three had no Escape rung
+ * at all -- only clicking the same control again (`production.setArmed` for
+ * a call, the mutual-exclusion reset for an order) disarmed it. The issue
+ * that opened this fix named only the support half; its own premise that
+ * the other two already had a rung was checked and was wrong, so all three
+ * are fixed together rather than leaving one behind. It ranks BELOW the
+ * tracker and dialog rungs above (a bare Escape must not reach past either
+ * just because something happens to be armed) and ABOVE `pause`: disarming
+ * an in-progress action is the same kind of "undo the thing Escape usually
+ * undoes" as closing the tracker, and a player who armed something by
+ * mistake should get that back, not a menu on top of it.
+ *
+ * This function does not need to know WHICH of the three is armed -- Escape
+ * cancels whatever it is, the same single action either way -- so it takes
+ * one boolean rather than one rung per kind. `anyArmed` below is what turns
+ * the three separate armed states into that boolean, and carries the
+ * per-kind detail instead.
  */
 export function escapeTarget(
   trackerOpen: boolean,
   dialogOpen: boolean,
-  armedSupport: boolean
-): 'closeTracker' | 'pause' | 'none' | 'disarmSupport' {
+  armed: boolean
+): 'closeTracker' | 'pause' | 'none' | 'disarm' {
   if (trackerOpen) return 'closeTracker';
   if (dialogOpen) return 'none';
-  if (armedSupport) return 'disarmSupport';
+  if (armed) return 'disarm';
   return 'pause';
+}
+
+/**
+ * Is anything armed and awaiting a click on the map right now -- an
+ * attack-move/smoke order (`main.ts`'s `armedOrder`) or a fire-support call
+ * (`armedSupport`)? Pulled out of `escapeTarget`'s single boolean so each of
+ * the three kinds gets its own falsifiable test: a regression that wires up
+ * `armedSupport` but forgets `armedOrder` (or vice versa) fails on its own
+ * assertion here instead of being hidden behind the other two passing.
+ */
+export function anyArmed(
+  armedOrder: 'attackMove' | 'smoke' | null,
+  armedSupport: 'sweep' | 'strike' | null
+): boolean {
+  return armedOrder !== null || armedSupport !== null;
 }
 
 /**

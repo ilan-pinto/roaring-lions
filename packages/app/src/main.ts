@@ -84,7 +84,7 @@ import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
+import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
 import { buyUnlock, buyUpgrade, payMission } from './brigade-account';
 import { tierLine } from './ui/grade-copy';
 import { speakerPlate, speakerPortrait } from './ui/hud-model';
@@ -3706,20 +3706,28 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // one place this priority is decided; it hands the tracker Escape
         // first, exclusively, so there is exactly one thing a bare Escape
         // does at a time.
-        const target = escapeTarget(objectivesOpen, isDialogOpen(), armedSupport !== null);
+        const target = escapeTarget(objectivesOpen, isDialogOpen(), anyArmed(armedOrder, armedSupport));
         if (target === 'closeTracker') {
           closeObjectives();
           break;
         }
         if (target === 'none') break;
-        // GH-264: Escape used to do nothing once a sweep or strike was armed
-        // from the dock -- only clicking the dock tile again disarmed it.
-        // `production.setArmed(null)` is the same call the dock's own toggle
-        // makes: it clears the tile's lime highlight and calls `onArm(null)`,
-        // which nulls `armedSupport` here, so the cursor (`updateCursor`
-        // below reads `armedSupport` every frame) falls back to normal on
-        // the very next frame with no extra bookkeeping.
-        if (target === 'disarmSupport') {
+        // GH-264, widened: Escape used to do nothing once a sweep/strike was
+        // armed from the dock, OR an attack-move/smoke order was armed from
+        // the order row -- only clicking the same control again disarmed it.
+        // The issue that opened this fix named only the support half and
+        // assumed the other two already had a rung; they did not, so all
+        // three are cancelled together here. `production?.setArmed(null)` is
+        // the same call the dock's own tile-toggle makes (clears the lime
+        // highlight and calls `onArm(null)`, which nulls `armedSupport`);
+        // nulling `armedOrder` directly is the same reset `armOrder` and the
+        // mutual-exclusion branches above already do. Both are unconditional
+        // -- disarming whichever one was NOT armed is a no-op -- so this one
+        // rung covers all three without needing to know which fired. The
+        // cursor (`updateCursor` below reads both every frame) falls back to
+        // normal on the very next frame with no extra bookkeeping.
+        if (target === 'disarm') {
+          armedOrder = null;
           production?.setArmed(null);
           break;
         }
