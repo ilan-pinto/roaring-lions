@@ -249,7 +249,7 @@ import {
   MISSILE_TRAIL_EMITTER_ID,
   MISS_SCORCH_POWER,
 } from './units/missile-fx';
-import type { MissileLanding } from './units/missiles';
+import type { MissileLanding, TargetTrack } from './units/missiles';
 import {
   ParticleInstancer,
   TracerBatch,
@@ -1932,6 +1932,12 @@ export class ThreeRenderer implements Renderer {
    * `spawnMissileImpactFx`.
    */
   private readonly missileFx = new MissileFx();
+  /** What `missileFx.step` tracks a guided missile's target through: this
+   *  renderer's own `curX`/`curY` and the sim's `alive`, bound ONCE in the
+   *  constructor rather than built every frame. All three are fixed-capacity
+   *  typed arrays allocated once and never replaced, so the binding stays
+   *  current -- the values move, the arrays do not. Read-only on the sim. */
+  private readonly missileTrack: TargetTrack;
 
   /**
    * Phase C: the unit overlay tier -- see `units/overlays.ts`'s own top
@@ -2129,6 +2135,7 @@ export class ThreeRenderer implements Renderer {
     this.prevY = new Float64Array(n);
     this.curX = new Float64Array(n);
     this.curY = new Float64Array(n);
+    this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
     this.killerY = new Float64Array(n).fill(NaN);
     this.entitySpeed = new Float64Array(n);
@@ -3797,6 +3804,7 @@ export class ThreeRenderer implements Renderer {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
         // GH-250 (spec D4): the missile in flight at this target dies here,
         // at half scale -- the APS got it, the hull did not.
+        // (`intercept` returns a reused buffer; consumed here, in full.)
         for (const l of this.missileFx.intercept(e.target)) this.spawnMissileImpactFx(l);
       } else if (e.kind === 'impact' && e.penetrated) {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.flashColor, 8, 10);
@@ -7232,9 +7240,9 @@ export class ThreeRenderer implements Renderer {
     this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
     // GH-250: missiles on the same frame clock; a landing throws the HEAT
     // impact on this frame, the shellHasLanded rule (spec D7).
-    const landings = this.missileFx.step(
-      dtSeconds, { x: this.curX, y: this.curY, alive: this.sim.state.alive }, elevation, this.sim.width, this.sim.height
-    );
+    // `landings` is MissileFx's own buffer, valid until the next step: it is
+    // consumed here, in full, before anything can step again.
+    const landings = this.missileFx.step(dtSeconds, this.missileTrack, elevation, this.sim.width, this.sim.height);
     for (const l of landings) this.spawnMissileImpactFx(l);
   }
 

@@ -333,8 +333,20 @@ function landingFor(m: MissileModel, progress: number, scale: number): MissileLa
   };
 }
 
-export function stepMissiles(list: MissileModel[], dt: number, track: TargetTrack): MissileLanding[] {
-  const landings: MissileLanding[] = [];
+/**
+ * Ages every missile in place and drops the ones that land this `dt`,
+ * returning their landings. `out` is cleared (`length = 0`) and refilled, so
+ * a caller stepping every frame passes one buffer it owns and allocates no
+ * array per frame (`MissileFx` does); omitted, a fresh array is returned.
+ */
+export function stepMissiles(
+  list: MissileModel[],
+  dt: number,
+  track: TargetTrack,
+  out: MissileLanding[] = []
+): MissileLanding[] {
+  const landings = out;
+  landings.length = 0;
   let write = 0;
   for (let read = 0; read < list.length; read++) {
     const m = list[read];
@@ -360,8 +372,11 @@ export function stepMissiles(list: MissileModel[], dt: number, track: TargetTrac
   return landings;
 }
 
-export function interceptMissiles(list: MissileModel[], target: number): MissileLanding[] {
-  const landings: MissileLanding[] = [];
+/** Detonates every in-flight missile at `target` (an APS kill). `out` is
+ *  cleared and refilled, `stepMissiles`' contract. */
+export function interceptMissiles(list: MissileModel[], target: number, out: MissileLanding[] = []): MissileLanding[] {
+  const landings = out;
+  landings.length = 0;
   let write = 0;
   for (let read = 0; read < list.length; read++) {
     const m = list[read];

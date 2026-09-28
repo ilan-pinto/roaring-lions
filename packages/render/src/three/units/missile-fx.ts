@@ -137,6 +137,11 @@ export class MissileFx {
   private readonly scratchMatrix = new THREE.Matrix4();
 
   private look: TrailLook | null = null;
+  /** The arrays `step` and `intercept` return, cleared and refilled on each
+   *  call rather than allocated -- see those methods. Two, not one, so an
+   *  `aps` event handled between frames cannot clobber a step's landings. */
+  private readonly stepLandings: MissileLanding[] = [];
+  private readonly interceptLandings: MissileLanding[] = [];
   private bodyColor: readonly [number, number, number] = [0, 0, 0];
   private debugHidden = false;
 
@@ -263,8 +268,14 @@ export class MissileFx {
     return m;
   }
 
+  /**
+   * Steps every missile one frame and returns the ones that landed. The
+   * returned array is this controller's own buffer, **valid until the next
+   * `step` call**: consume it before stepping again, and copy it if you need
+   * to keep it. Allocating none per frame is the point.
+   */
   step(dt: number, track: TargetTrack, elevation: ElevationSource, w: number, h: number): MissileLanding[] {
-    const landings = stepMissiles(this.missiles, dt, track);
+    const landings = stepMissiles(this.missiles, dt, track, this.stepLandings);
 
     // --- Trail emission + body quads: ONE pass over the missiles, so each
     // missile's own launch/impact ground height (`curLaunchY`/`curImpactY`)
@@ -363,8 +374,10 @@ export class MissileFx {
     return landings;
   }
 
+  /** An APS kill at `target`. Returns this controller's own buffer, **valid
+   *  until the next `intercept` call** -- `step`'s contract. */
   intercept(target: number): MissileLanding[] {
-    return interceptMissiles(this.missiles, target);
+    return interceptMissiles(this.missiles, target, this.interceptLandings);
   }
 
   /** Returns 3 -- the number of meshes this hides, matching P-5's debug-layer
