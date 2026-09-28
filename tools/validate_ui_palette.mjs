@@ -96,17 +96,21 @@ export function pxFailures(file, css) {
 //
 // `★` is a NAMED EXCEPTION (Q5) -- a repeated countable mark (stars earned,
 // veteran rank), not an icon -- so it is deliberately NOT on this list and is
-// never flagged. Its sites, every one re-verified at 9e9b0640:
-//   loading.ts:176 (doc comment at :166-172)
-//   hud.ts:1824 (veteran rank)
-//   debrief.ts:74, :182
-//   worldmap.ts:210, :317
-//   worldmap3d.ts:402
-//   campaign.ts:473
-//   catalogue: en.json:428 dock.lock.stars (rendered via dock-model.ts:117),
-//     en.json:473 gate.short.stars (rendered via gate-sentence.ts:116)
-// Prose-only `★` needing no exemption: roster-cap.ts:4, campaign.ts:494,
-// gate-sentence.ts:92, theme.css:4180.
+// never flagged. Cited by identifier, not line number, so this list cannot
+// drift the way its predecessor did. Its sites:
+//   loading.ts's `commendation` (the veterancy stripe helper)
+//   hud.ts's `cardHtml` (`rl-commend` span, veteran rank)
+//   debrief.ts's `showDebrief` (`rl-debrief__stars`, `rl-debrief__promotion`)
+//   worldmap.ts's `worldMap` (`rl-world__stars`) and `ledgerLine`
+//   worldmap3d.ts's `worldMap3d` town-pins loop (`rl-world__stars`)
+//   campaign.ts's `campaignSummary`
+//   catalogue: en.json `dock.lock.stars` (rendered via dock-model.ts's
+//     `lockLabel`), en.json `gate.short.stars` (rendered via
+//     gate-sentence.ts's `gateShort`)
+// Prose-only `★` needing no exemption: roster-cap.ts's module doc comment,
+// the comment above campaign.ts's `possibleStars`, the comment above
+// gate-sentence.ts's `gateShort`, the comment above theme.css's
+// `.rl-garage__card-chip` rule.
 export const RETIRED_DINGBATS = [
   '⟶', '■', '◌', '⤓', '⤒', // order row
   '✹', '⬡', '✈', '✛', '▤', '▲', // ROLE_GLYPH (■ above already covers it)
@@ -117,10 +121,12 @@ export const RETIRED_DINGBATS = [
 // Q10 ruling: the dingbats no G1 round drew stay, tracked as follow-up GH-261
 // (https://github.com/ilan-pinto/roaring-lions/issues/261), until they get a
 // drawn mark of their own. Not on RETIRED_DINGBATS, so dingbatFailures is
-// silent on every one of these:
-//   hud.ts:508 ▮▮ (pause), :741/:745 ◂/▸ (beat step), :912 🔇/🔊 (mute)
-//   hud-model.ts:197, debrief.ts:157 ☑/☒/☐ (objective status)
-//   input/keymap.ts:265 ↑ ↓ ← → (key-name display)
+// silent on every one of these. Cited by identifier, not line number:
+//   hud.ts's `speedCluster` spec list (▮▮ pause), `cmdPrev`/`cmdNext`
+//     (◂/▸ beat step), `muteChip` (🔇/🔊 mute)
+//   hud-model.ts's `objectiveGlyph`, debrief.ts's `showDebrief` secondaries
+//     loop (☑/☒/☐ objective status)
+//   input/keymap.ts's `LABELS` (↑ ↓ ← → key-name display)
 //   i18n/en.json: ← → (nav/back links, debrief.next, garage.benefit.*,
 //     roe.notice.head), ♪ (menu.audio.*), ▼ (hud.strip.pinned),
 //     ⚑ (hud.strip.broken), ⌂ (hud.leave.link), ⚠ (hud.card.weaponHeavy)

@@ -1122,8 +1122,9 @@ your recommendation," since none drew a contrary answer):
    fix round (cropped viewBox) to stop reading as specks at 14 px — shown to the lead alongside
    this ruling.
 7. **Q7 — framed vs. unframed role marks and 8 px sites**: `roleBadgeSvg` chooses framed at
-   `size >= 16`; the two 8 px sites (`hud.ts` chip badge, `production.ts` dock tile) were raised
-   to 10 px, since r2 proved legibility only at 10 and W=2.5 is 0.83 px at 8.
+   `size >= 16`; the two 8 px sites (`hud.ts` chip badge, `production.ts`'s dock tooltip role
+   badge, `TIP_BADGE`) were raised to 10 px, since r2 proved legibility only at 10 and W=2.5 is
+   0.83 px at 8.
 8. **Q8 — cursor badge colour**: aim steel (`gunmetal.0`). The badge names the actor, the family
    colour names the order; one mark cannot say both.
 9. **Q9 — `team.*` keys through `paletteTeamColors()`**: the cursor plugin mirrors
@@ -1131,8 +1132,9 @@ your recommendation," since none drew a contrary answer):
    config), with a parity test against `variantAwareResolver`. The housing's `bad`/`warn` colours,
    previously hard-wired to default hex, now take the same colour-vision path at no extra cost.
 10. **Q10 — dingbats no G1 round covers** (the strip's mute icons, checkbox glyphs, key-name
-    arrows, and a handful of `en.json` symbols): left in place, named by site in a `NOT_YET_DRAWN`
-    comment block with a follow-up issue number (#261). Tracked there, not in this landing.
+    arrows, and a handful of `en.json` symbols): left in place, named by site in the "Q10 ruling"
+    comment in `tools/validate_ui_palette.mjs` (there is no `NOT_YET_DRAWN` identifier), with a
+    follow-up issue number (#261). Tracked there, not in this landing.
 11. **Q11 — "minimap"**: dropped from §6's consumer list. `minimap.ts` carries no role or verb
     mark — `dotShape(side)` is the G0 accessibility side channel, unrelated — so no site exists to
     draw one at.
@@ -1151,5 +1153,7 @@ the Task 6 SDD ledger as "for the lead"): the cursor badge crowding the chevron 
 the move chevron; the static sweep mark on a dimmed dock tile (low contrast); the HUD order marks
 now wider than one character; Q1's housing-switch consequence; Q6's HUD family colour; and Q7's
 chip badges raised from 8 to 10 px. None were treated as blocking — each is either a named,
-reversible ruling above or a defect flagged for the lead's own judgement, not fixed unilaterally
-in this task.
+reversible ruling above or a defect the lead reviewed directly. **The lead's ruling, 28 Sep:
+"Approve as is."** This covers the badge position, the bracket housing kept unchanged for
+`garrison`/`demolish`/`charge`/`blocked`/`costly` (Q1), and Escape not disarming support orders
+(tracked separately as #264) — none of it blocks this landing.

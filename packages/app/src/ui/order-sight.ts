@@ -342,8 +342,8 @@ export const ORDER_MARK_BOUNDS: Readonly<Record<SightOrderId, readonly [number, 
 };
 
 // Compile-time check: every order the selection row can arm is drawn here.
-// `OrderId` (`selection-model.ts:28`) must stay a subset of `SightOrderId` --
-// a type-only import, so this module pulls in none of that file's runtime
-// (which calls `t()`) and stays pure.
+// `OrderId` (selection-model.ts's own order-id union) must stay a subset of
+// `SightOrderId` -- a type-only import, so this module pulls in none of that
+// file's runtime (which calls `t()`) and stays pure.
 type _OrderIdsDrawn = OrderId extends SightOrderId ? true : never;
 export const _orderIdsDrawn: _OrderIdsDrawn = true;

@@ -3113,7 +3113,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  already-false comparison, no DOM write. The cost while an animated
    *  cursor *is* showing: one attribute write (`data-cursor-frame`) and its
    *  style invalidation, on this one canvas element, every `intervalMs` --
-   *  300ms for `attack`, 200ms for `charge` -- not once per rendered frame.
+   *  each cursor's own rate, derived from `ORDER_SIGHT` as `round(periodMs /
+   *  frames)` for the sight-driven names (225ms for `attack`) and authored
+   *  directly for `charge`/`demolish` (200ms/300ms) -- see ANIMATED_CURSORS
+   *  in cursor.ts for the full set -- not once per rendered frame.
    *
    *  The driver itself (cursor-anim.ts) additionally pauses -- writing frame
    *  0, the rest pose -- under `prefers-reduced-motion` and while the tab is
@@ -3143,9 +3146,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // scope, one level up from `bootBattlefield` -- but `req.settings.onChange`
   // (settings.ts's `SettingsDeps`, passed into every battlefield request) is
   // that same bus's `onChange`, and IS reachable here, already relied on for
-  // the keymap at :3442. Subscribing it means a motion toggle mid-mission
-  // pauses the cursor immediately rather than waiting for the next name
-  // change to notice.
+  // the `bindings` keymap subscription further down (a rebind made from the
+  // pause menu must reach the key listener without a re-boot). Subscribing it
+  // means a motion toggle mid-mission pauses the cursor immediately rather
+  // than waiting for the next name change to notice.
   onDispose(req.settings.onChange(() => cursorAnim.refresh()));
   const canvasXY = (ev: PointerEvent): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
