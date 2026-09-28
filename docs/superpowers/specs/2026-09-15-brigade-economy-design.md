@@ -33,7 +33,7 @@ a **brigade account** that outlives a campaign.
 | D3 | An upgrade attaches to the **unit type**, bought once, applied to every unit of that type fielded afterwards. Per-veteran fittings are a later addition, not this design. | `upgrades` on a unit's JSON; the pre-pass (§4.3) |
 | D4 | Credits and everything bought live in a **brigade account** beside the campaign ledger and survive a fresh campaign; stars, Conduct and the roster stay per campaign. | a second store, its own reset (§4.1) |
 | D5 | Upgrades take effect through an **app-side pre-pass** that patches unit JSON before the sim registers types; the sim never learns the concept. | no sim-package change but one pure integer function; the golden hash cannot move (§4.3) |
-| D6 | The **paid path is designed for, not built**: the account carries provenance so a granted entry has a shape, and no client code can create one. Money waits on the account moving behind a server or a store entitlement. | §4.6 |
+| D6 | The **paid path is designed for, not built**: the account carries provenance so a granted entry has a shape, and no client code can create one. Money waits on the account moving behind a server or a store entitlement. **Amended 2026-09-28 (WP-ST8, G7 default): money never buys credits; the paid path is a separate cosmetic currency.** | §4.6 |
 
 **What this supersedes.** The motivation layer's D3 ("stars unlock special units, not stat
 perks") and its scope line ("no commendation spending of any kind") were deliberate and are
@@ -88,6 +88,10 @@ Starting a fresh campaign (`?fresh`, the menu's new-campaign action) wipes the c
 and **leaves the account alone**. The account has its own explicit reset on the brigade
 screen, behind a confirm, because a second campaign starting with the brigade you built is
 the point of D4 and an accidental wipe would undo hours.
+
+*(WP-ST8, 2026-09-28: the cosmetic currency's balance and inventory are **not** this account's
+fields. WP-ST6 stores them beside it, server-authoritative. `balance` here is earned credits
+only, and a reset of this account never touches anything bought with money.)*
 
 ### 4.2 Credits and the payout
 
@@ -191,6 +195,21 @@ price opens it, it does not field it.
   semantic token. `pnpm validate:ui` applies.
 
 ### 4.6 The paid path, designed for and not built
+
+> **Amended 2026-09-28 by WP-ST8 (#207), under G7's default (#199).** Credits are never sold.
+> The paid path is a **second, cosmetic currency** (working name "marks"). Steam Wallet sells
+> it, and it buys only liveries, badges and operation passes. It buys no unit, no upgrade, no
+> credit, no Conduct tier and no Conduct advantage. So:
+>
+> - **No purchase ever writes a `granted` grant.** The source stays in the shape, reserved for
+>   non-money cases such as a support restore.
+> - **Bought-only units (D1, WP-G-E5) are bought with earned credits only.**
+> - The lead's 15 Sep wish, "sell coins so users can upgrade without the need to win", is
+>   retired by G7 unless the lead answers G7 otherwise.
+>
+> The original text below is kept as history. Where it says "paid grant" or "coins", read the
+> amendment. The rule, its test and the cosmetic catalogue are in
+> `docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`.
 
 No client code can write a `granted` entry, no UI mentions coins, and no price is shown in
 any currency but credits. When the Steam phase arrives, the account moves behind a server or
