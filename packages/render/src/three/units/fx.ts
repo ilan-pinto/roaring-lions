@@ -897,11 +897,37 @@ export function shellSegmentQuad(
   };
   const aY = worldYAt(uA, a.liftPx);
   const bY = worldYAt(uB, b.liftPx);
+  return liftedSegmentQuad(a.x, a.y, aY, b.x, b.y, bY, widthAPx, widthBPx);
+}
 
-  // On-screen direction of the segment, height included -- see this
-  // function's own doc comment for why the ground bearing alone is wrong.
-  const dxScreen = isoX(b.x, b.y) - isoX(a.x, a.y);
-  const dyScreen = isoY(b.x, b.y) - bY / WORLD_Y_PER_LIFT_PIXEL - (isoY(a.x, a.y) - aY / WORLD_Y_PER_LIFT_PIXEL);
+/**
+ * GH-250 T5: the segment maths `shellSegmentQuad` above always did, pulled
+ * out to six plain endpoint numbers and two widths so `MissileFx` (T5's other
+ * half, `./missile-fx.ts`) can draw its own body streak without going through
+ * a `ShellModel`/`shellPointAt` it does not have -- a missile's flight lives
+ * in `MissileModel`/`missilePointAt` (Task 2), a parallel but distinct model.
+ * `shellSegmentQuad` is now a thin caller: it derives `a`, `b`, `aY` and `bY`
+ * exactly as it always did (unchanged, so every existing caller and every
+ * pre-existing `fx.test.ts` assertion stays byte-identical), then hands the
+ * six numbers here. See this file's own equality test in `fx.test.ts`
+ * ("liftedSegmentQuad is the one segment maths") for the falsification that
+ * guards the split.
+ */
+export function liftedSegmentQuad(
+  ax: number,
+  ay: number,
+  aY: number,
+  bx: number,
+  by: number,
+  bY: number,
+  widthAPx: number,
+  widthBPx: number
+): Float32Array {
+  // On-screen direction of the segment, height included -- see
+  // `shellSegmentQuad`'s own doc comment for why the ground bearing alone is
+  // wrong.
+  const dxScreen = isoX(bx, by) - isoX(ax, ay);
+  const dyScreen = isoY(bx, by) - bY / WORLD_Y_PER_LIFT_PIXEL - (isoY(ax, ay) - aY / WORLD_Y_PER_LIFT_PIXEL);
   const len = Math.hypot(dxScreen, dyScreen);
   // A zero-length segment has no bearing -- the same fixed fallback
   // `tracerQuadPositions` uses, for the same reason.
@@ -911,10 +937,10 @@ export function shellSegmentQuad(
   const perpB = screenOffsetToWorld((nx * widthBPx) / 2, (ny * widthBPx) / 2);
 
   return Float32Array.from([
-    a.x - perpA.dx, aY, a.y - perpA.dy,
-    a.x + perpA.dx, aY, a.y + perpA.dy,
-    b.x + perpB.dx, bY, b.y + perpB.dy,
-    b.x - perpB.dx, bY, b.y - perpB.dy,
+    ax - perpA.dx, aY, ay - perpA.dy,
+    ax + perpA.dx, aY, ay + perpA.dy,
+    bx + perpB.dx, bY, by + perpB.dy,
+    bx - perpB.dx, bY, by - perpB.dy,
   ]);
 }
 
@@ -1157,7 +1183,7 @@ export function writeShellInstances(
  * is out of scope for this fix) but is documented there with the same
  * correction.
  */
-function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.ShaderMaterial {
+export function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
       attribute vec2 aLocal;
@@ -1376,7 +1402,7 @@ export class ParticleInstancer {
  * `depthTest` stays `true`, which is the half of this recipe the
  * building/ridge occlusion result actually depends on.
  */
-function createTracerMaterial(depthTest = true): THREE.ShaderMaterial {
+export function createTracerMaterial(depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
       attribute vec3 aColor;
