@@ -10,96 +10,122 @@
 // there is all it takes for the palette gate to become a rule with an
 // exception.
 //
-// `default` (one of the thirteen names) deliberately gets no rule -- it is
+// `default` (one of the fourteen names) deliberately gets no rule -- it is
 // the OS arrow. Shipping an empty SVG for it would HIDE the arrow rather than
 // fall through to it.
 //
+// Two drawn vocabularies live here, and which one a name gets is a ruling,
+// not a taste.
+//
 // ---------------------------------------------------------------------------
-// THE ART: "Tiberian heavy housing", chosen by the project lead from four
-// drawn candidates (2026-09-03). Its organising idea, in the designer's own
-// words:
+// THE ORDER SIGHTS: G1's approved sheet (round 4's shapes and motion, round
+// 5's family colours, the lead, 2026-09-28). `move`, `attack`, `sweep`,
+// `strike` and `smoke` draw the chevron stadia aim with that order's APP-6
+// tactical graphic animated around it (`src/ui/order-sight.ts`, the one
+// drawn source the HUD's static order marks come from too). Each is drawn on
+// the sheet's 24-unit box and scaled onto the 32 px cursor canvas, so the
+// aim's hotspot (12, 12) lands on the same pixel the housing's centre does.
+// Every sight frame carries a dark `shadow.0` halo BAKED IN AS GEOMETRY --
+// each ink path re-emitted beneath the ink with a round-joined stroke --
+// because a CSS cursor image takes no `filter` (r4's drop-shadow does not
+// survive into `cursor: url()`). `load`, `unload` and `halt` are drawn too
+// but earn no rule: see UNWIRED_BODIES.
+//
+// ---------------------------------------------------------------------------
+// THE HOUSING: "Tiberian heavy housing", chosen by the project lead from four
+// drawn candidates (2026-09-03), and kept for the six states G1 drew nothing
+// for -- garrison, demolish, charge, blocked, costly, protected (Q1). Its
+// organising idea, in the designer's own words:
 //
 //   "Every cursor is a piece of machined hardware: the same four chamfered
 //    corner brackets form a heavy housing that never touches the hotspot, and
 //    what changes between states is the payload bolted into the middle and
 //    the colour of the plate."
 //
-// So there is exactly one shape primitive here -- `bracket`, parameterised by
-// inset/arm/thickness/chamfer -- and every one of the 55 emitted images is
+// So there is exactly one shape primitive for them -- `bracket`,
+// parameterised by inset/arm/thickness/chamfer -- and every housing image is
 // that primitive four times (or three, see the badge below) plus a payload.
-// The parameterisation is the point: 55 hand-written images would drift the
-// moment anyone adjusted a bracket, and the four corners would stop being the
-// same four corners.
 //
-// Three findings the designer made by rendering at true 32px and looking, so
+// Two findings the designer made by rendering at true 32px and looking, so
 // nobody re-derives them by reasoning:
 //   - `blocked` drawn wholly in `dim` is nearly invisible on limestone ground
 //     at 32px. Its housing stays `dim`; its broken bar is `ink`.
-//   - `attack` had mid-edge crosshair ticks. At 32px they turned the tight
-//     frame into a ring of dashes. Gone -- the brackets carry it alone.
-//   - `smoke`'s billow read as a table lamp for two attempts before it became
-//     a stepped plume over a canister. (`smoke` earns no rule today -- see
-//     BareCursorName -- but the drawing survives in SMOKE_* for the day the
-//     keyboard verb path is wired to the cursor.)
+//   - `mount`/`dismount`'s payloads were redrawn until they read at 32px;
+//     they ship no rule (see UNWIRED_BODIES) but the drawings are kept.
 //
 // THE BADGE IS THE FOURTH PLATE. `BADGE_CX/CY`/`BADGE_R` put the role badge
-// exactly on the bottom-right bracket's own footprint, so on a badged key that
-// bracket is OMITTED and the badge stands in its place -- it reads as the
-// fourth corner plate rather than as a sticker stuck on top. Drawing the badge
-// over the bracket, or moving it to a mid-edge gap, were both considered and
-// rejected (the project lead's call). `demolish` takes this literally: its
-// beacon sweep visits the badge like any other plate.
+// exactly on the bottom-right bracket's own footprint, so on a badged housing
+// key that bracket is OMITTED and the badge stands in its place -- it reads as
+// the fourth corner plate rather than as a sticker stuck on top. `demolish`
+// takes this literally: its beacon sweep visits the badge like any other
+// plate. On a SIGHT the badge rides the bottom-right quadrant the graticule
+// leaves empty, in aim steel (Q8). Either way the mark itself is the G1
+// sheet's APP-6 role mark (`src/ui/symbol.ts`), never a second drawing.
 //
 // ---------------------------------------------------------------------------
-// Three of the thirteen names (`attack`, `charge`, `demolish`) additionally
-// animate: each draws up to `ANIMATED_CURSORS[name].frames` distinct SVGs
-// instead of one, emitted as extra rules keyed on a second attribute,
-// `data-cursor-frame`, that main.ts's frame driver cycles on a plain JS timer
-// -- see ANIMATED_CURSORS's own comment in cursor.ts for which names qualify,
-// why, and for the one honest exception among them.
+// Seven names (`ANIMATED_CURSORS` in cursor.ts) additionally animate: each
+// draws up to `frames` distinct SVGs instead of one, emitted as extra rules
+// keyed on a second attribute, `data-cursor-frame`, that main.ts's frame
+// driver cycles on a plain JS timer -- see ANIMATED_CURSORS's own comment for
+// which names qualify and why.
 //
 // Frame 0 of each is drawn by the *same* code path as every other cursor's
-// single rule (`bodyFor` called with no frame argument, defaulting to 0), so
-// only frames 1..N-1 are new, additive rules layered on top via the extra
-// attribute selector. That makes the animation FAIL SAFE: a stale or absent
-// `data-cursor-frame` (nothing has written it yet, or it is left over from a
-// *different* animated cursor) simply falls back to this always-correct
-// frame-0 rule rather than to nothing.
+// single rule, so only frames 1..N-1 are new, additive rules layered on top
+// via the extra attribute selector. That makes the animation FAIL SAFE: a
+// stale or absent `data-cursor-frame` (nothing has written it yet, or it is
+// left over from a *different* animated cursor) simply falls back to this
+// always-correct frame-0 rule rather than to nothing.
 //
 // "up to `frames`" because a frame that would redraw its own key's frame 0
 // byte for byte emits no rule at all and leans on that same fallback -- see
-// cursorRules' frame loop. `attack`'s midpoint is such a frame by design
-// (rest, converge, rest, release); `demolish`'s sweep has no rest pose, so
-// nothing of its four is elidable.
+// cursorRules' frame loop.
+//
+// ---------------------------------------------------------------------------
+// COLOUR VISION. `team.*` colours follow the player's colour-vision setting,
+// which `settings.ts` writes as `:root[data-cvd]`. A cursor image cannot read
+// a custom property, so the plugin draws every image once per variant and
+// emits, after the default sheet, only the rules whose markup differs under
+// that variant, prefixed `:root[data-cvd='<v>'] ` -- see cursorRules for the
+// one specificity trap that makes "only the differing rules" subtler than it
+// sounds.
 
 import { readFileSync } from 'node:fs';
 import type { Plugin } from 'vite';
 import {
   ANIMATED_CURSORS,
+  SIGHT_OF,
   cursorKey,
-  type CursorAnimation,
   type CursorName,
   type UnbadgedName,
 } from './src/input/cursor';
+import { ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId, type SightPaint } from './src/ui/order-sight';
 import type { RoleBucket } from './src/ui/role';
+import { symbolBody } from './src/ui/symbol';
+
+interface PaletteBand {
+  colors: Record<string, string>;
+  /** Only `team` carries these: colour-vision alternates of `colors`. */
+  variants?: Record<string, Record<string, string>>;
+}
 
 interface Palette {
   ramps: Record<string, { colors: string[] }>;
-  reserved: Record<string, { colors: Record<string, string> }>;
+  reserved: Record<string, PaletteBand>;
 }
 
-// The eight drawn bare cursors (thirteen names in CursorName, minus
-// 'default', 'mount', 'dismount', 'smoke' and 'charge' -- see BareCursorName
-// and BADGED_VERBS below for why those five never get a rule of their own)
-// all share one hotspot: dead centre, at half the canvas size on each axis.
-// The housing is built so that nothing is ever drawn there -- the hotspot sits
-// in the open middle of the frame, and the payload (where a state has one)
-// stays clear of it too, so the cursor never covers what it is aiming at.
+// The eleven drawn bare cursors (fourteen names in CursorName, minus
+// 'default', 'mount', 'dismount' and 'charge' -- see BareCursorName and
+// BADGED_VERBS below for why those never get a rule of their own) all share
+// one hotspot: dead centre, at half the canvas size on each axis. Nothing is
+// ever drawn there -- the housing's hotspot sits in the open middle of the
+// frame, and the sight's is the gap between the aim's mil marks and the tip
+// of its chevron -- so the cursor never covers what it is aiming at.
 //
-// Every path literal below is authored on this 32-unit grid; `bracketAt`'s
-// mirror arithmetic and the payload coordinates both assume it, and
-// vite-plugin-cursors.test.ts pins SIZE so that assumption cannot go stale
-// silently.
+// Every housing path literal below is authored on this 32-unit grid;
+// `bracketAt`'s mirror arithmetic and the payload coordinates both assume it,
+// and vite-plugin-cursors.test.ts pins SIZE so that assumption cannot go
+// stale silently. The sights are authored on SIGHT_BOX (24) and scaled by
+// their viewBox, which puts HOTSPOT (12, 12) on CENTER too.
 export const SIZE = 32;
 export const CENTER = SIZE / 2;
 
@@ -116,12 +142,49 @@ function svg(body: string): string {
   );
 }
 
-function fillPath(colour: string, d: string): string {
-  return `<path fill="${hex(colour)}" d="${d}"/>`;
+/** A sight: the G1 sheet's 24-unit box, drawn at the same 32 px as the
+ *  housing, so HOTSPOT (12, 12) x 32/24 is CENTER (16, 16). */
+function svgSight(body: string): string {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" ` +
+    `viewBox="0 0 ${SIGHT_BOX} ${SIGHT_BOX}">${body}</svg>`
+  );
 }
 
-function fillPathEvenOdd(colour: string, d: string): string {
-  return `<path fill="${hex(colour)}" fill-rule="evenodd" d="${d}"/>`;
+/** One palette key (`'gunmetal.0'`, `'vfx.fire'`, `'team.hostile_text'`)
+ *  resolved to its hex under a colour-vision variant.
+ *
+ *  `team.*` mirrors `@lions/data`'s `teamColorsFor` exactly (Q9): `'default'`
+ *  reads `team.colors`, any other variant its `team.variants` entry, and a
+ *  variant the palette has not grown falls back to the default set. Mirrored
+ *  rather than imported because `@lions/data` in the Vite config would pull
+ *  every map JSON into config load and stop this plugin re-reading
+ *  palette.json on edit; the parity test in vite-plugin-cursors.test.ts is
+ *  what keeps the two from parting. Everything else is variant-blind: a ramp
+ *  step, or a reserved band's named colour.
+ *
+ *  Throws on an unknown key rather than returning a stand-in: this runs at
+ *  build time, and a magenta cursor is a worse way to learn about a rename. */
+export function resolveKey(palette: Palette, variant: string, key: string): string {
+  const dot = key.indexOf('.');
+  const band = key.slice(0, dot);
+  const name = key.slice(dot + 1);
+  let found: string | undefined;
+  if (band === 'team') {
+    const team = palette.reserved.team;
+    const set = (variant === 'default' ? team.colors : team.variants?.[variant]) ?? team.colors;
+    found = set[name];
+  } else if (band in palette.ramps) {
+    found = palette.ramps[band].colors[Number(name)];
+  } else if (band in palette.reserved) {
+    found = palette.reserved[band].colors[name];
+  }
+  if (found === undefined) throw new Error(`vite-plugin-cursors: no palette colour for '${key}'`);
+  return found;
+}
+
+function fillPath(colour: string, d: string): string {
+  return `<path fill="${hex(colour)}" d="${d}"/>`;
 }
 
 function strokePath(colour: string, width: number, d: string): string {
@@ -139,8 +202,8 @@ type Corner = (typeof CORNERS)[number];
 
 /** How a housing is shaped. Every state uses the defaults except `protected`,
  *  which is drawn heavier on purpose -- it is the strongest "no" in the
- *  vocabulary and the extra weight is what separates it from `support`, the
- *  other X-shaped state, at 32px. */
+ *  vocabulary, and the extra weight is what set it apart from the X-shaped
+ *  `support` housing it shipped beside until the sights replaced it. */
 interface HousingOpts {
   /** Distance from the canvas edge to the bracket's outer corner. */
   inset?: number;
@@ -150,8 +213,8 @@ interface HousingOpts {
   thickness?: number;
   /** How far the outer corner is cut back, giving the machined chamfer. */
   chamfer?: number;
-  /** A corner to leave undrawn. Badged keys omit `br` so the role badge can
-   *  stand in its place. */
+  /** A corner to leave undrawn. Badged housing keys omit `br` so the role
+   *  badge can stand in its place. */
   omit?: Corner;
 }
 
@@ -201,16 +264,6 @@ function housing(o: HousingOpts = {}): string {
 // Payloads
 // ---------------------------------------------------------------------------
 
-/** move: a machined diamond ring, punched hollow by `fill-rule="evenodd"` so
- *  the hotspot at the exact centre stays open. */
-const MOVE_RING = 'M16,9L23,16L16,23L9,16ZM16,12L20,16L16,20L12,16Z';
-
-/** attack: the housing IS the reticle and it CLOSES on the target. Frame 0 is
- *  the rest inset every other state uses, 1 converges, 2 returns to rest (so
- *  it is byte-identical to 0 and cursorRules elides it), 3 opens a little past
- *  rest as a release before the loop wraps. */
-const ATTACK_INSETS: readonly number[] = [3, 6, 3, 1];
-
 /** demolish: a static split block, and a bone-white beacon that rotates over
  *  the corner plates -- a hazard light on a machine that is working here.
  *
@@ -224,9 +277,7 @@ const BEACON_SWEEP: readonly Corner[] = ['tl', 'tr', 'br', 'bl'];
 /** demolish's core: a block whose top-right quadrant is gone -- a structure
  *  with a corner already taken out of it. Pinned as a constant because it must
  *  be byte-identical on every frame: the beacon moving over a core that also
- *  moved would be two animations at once, and the still core is the whole
- *  discriminator against `attack`, whose housing moves and which has no core
- *  at all.
+ *  moved would be two animations at once.
  *
  *  This is NOT the drawn set's core, and the substitution is the one place
  *  this file departs from the art the project lead approved. The designer
@@ -236,7 +287,7 @@ const BEACON_SWEEP: readonly Corner[] = ['tl', 'tr', 'br', 'bl'];
  *  ticks read as a diagonal double-headed arrow, i.e. as a resize handle,
  *  which is a cursor that means something else. Six replacements were drawn
  *  and photographed at 32px and 6x before this one -- a plain block (clean but
- *  generic, and it collides with `armour`'s own square badge on
+ *  generic, and it collided with the pre-S3e square `armour` badge on
  *  `demolish-armour`), a jagged-topped ruin and its filled twin (both read as
  *  a flame), a zigzag crack (mush inside a 10px box), and a block split into
  *  two vertical halves (the media pause glyph). The corner bite is legible at
@@ -259,14 +310,15 @@ const CHARGE_SPARKS: readonly string[] = [
 // The states
 // ---------------------------------------------------------------------------
 
-/** The eight colours the set actually draws with, resolved from the palette.
+/** The seven colours the housing draws with, resolved from the palette.
  *
  *  `good` (scrub[0], #6B8A4A) is deliberately NOT here and is the one palette
  *  colour this set declines: olive sits about 30 RGB from `dim` and photographs
  *  as mud at 32px on limestone ground, and nothing in this vocabulary wanted a
- *  third neutral. `live` (vfx.tracer) carries the affirmative states instead.
- *  `paletteColors`' test asserts the omission rather than leaving it to this
- *  comment. */
+ *  third neutral. `paletteColors`' test asserts the omission rather than
+ *  leaving it to this comment. (`live`, vfx.tracer, used to be an eighth: it
+ *  drew only the `support` housing, which the strike and sweep sights
+ *  replaced.) */
 interface CursorColors {
   ink: string;
   dim: string;
@@ -275,25 +327,15 @@ interface CursorColors {
   hot: string;
   amber: string;
   info: string;
-  live: string;
 }
 
-/** What a body needs to know beyond its colours. */
+/** What a housing body needs to know beyond its colours. */
 interface BodyOpts {
   /** Animation frame, 0 for every static state and for every frame-0 rule. */
   frame?: number;
   /** True when a role badge will be appended to this body, in which case the
    *  bottom-right bracket is omitted so the badge can be that plate. */
   badged?: boolean;
-}
-
-function moveBody(c: CursorColors, o: BodyOpts = {}): string {
-  return fillPathEvenOdd(c.ink, housing({ omit: o.badged ? 'br' : undefined }) + MOVE_RING);
-}
-
-function attackBody(c: CursorColors, o: BodyOpts = {}): string {
-  const inset = ATTACK_INSETS[o.frame ?? 0] ?? ATTACK_INSETS[0];
-  return fillPath(c.bad, housing({ inset, omit: o.badged ? 'br' : undefined }));
 }
 
 function blockedBody(c: CursorColors): string {
@@ -309,10 +351,6 @@ function protectedBody(c: CursorColors): string {
     fillPath(c.bad, housing({ arm: 8, thickness: 4, chamfer: 4 })) +
     strokePath(c.bad, 4, 'M9,9L14,14M23,9L18,14M9,23L14,18M23,23L18,18')
   );
-}
-
-function supportBody(c: CursorColors): string {
-  return fillPath(c.live, housing()) + strokePath(c.live, 2, 'M11,8L16,13L21,8M11,24L16,19L21,24');
 }
 
 function garrisonBody(c: CursorColors, o: BodyOpts = {}): string {
@@ -358,13 +396,12 @@ function chargeBody(c: CursorColors, o: BodyOpts = {}): string {
   );
 }
 
-/** mount, dismount and smoke draw no rule today -- see BareCursorName and
- *  BADGED_VERBS. Their bodies are kept (unlike the previous set, where they
- *  were deleted) because the housing makes them nearly free: each is the same
- *  four brackets plus one payload literal, and re-deriving three payloads that
- *  have already been drawn, rendered and looked at is the expensive half. They
- *  are not called, so they ship no bytes. Wire resolveKeyVerb's result into
- *  the cursor and they are three lines in `shapesFor`. */
+/** mount and dismount draw no rule today -- see BareCursorName and
+ *  BADGED_VERBS. Their bodies are kept because the housing makes them nearly
+ *  free: each is the same four brackets plus one payload literal, and
+ *  re-deriving payloads that have already been drawn, rendered and looked at
+ *  is the expensive half. They are not called by any rule, so they ship no
+ *  bytes. */
 function mountBody(c: CursorColors): string {
   return (
     fillPath(c.amber, housing() + 'M9,9H23V12H9Z') +
@@ -377,54 +414,122 @@ function dismountBody(c: CursorColors): string {
     strokePath(c.amber, 2, 'M10,8L16,14L22,8')
   );
 }
-function smokeBody(c: CursorColors): string {
-  return (
-    fillPath(c.info, housing() + 'M14,23H18V29H14Z') +
-    strokePath(c.info, 2, 'M8,20V16H12V13H17V10H22V14H25V20')
+
+// ---------------------------------------------------------------------------
+// The sights
+// ---------------------------------------------------------------------------
+
+/** The halo's stroke width in the sheet's 24-unit box (r4's `shadow.0`
+ *  outline, about 1 px either side of the ink at 32 px). */
+const HALO_WIDTH = 1.5;
+
+/** Where the role badge rides a sight: the bottom-right quadrant, which the
+ *  stadia graticule leaves empty (r4), at 9/24 of the box. */
+const SIGHT_BADGE = { x: 15, y: 15, scale: 0.375 } as const;
+
+/** Every `<path>` in `ink`, re-emitted as its own dark outline: `fill` and a
+ *  round-joined `stroke` both set to `halo`, the path's `d`, `fill-rule` and
+ *  `opacity` untouched. Drawn BENEATH the ink, all of it before any of the
+ *  ink, so an outline never covers a neighbouring shape -- the same result
+ *  r4's CSS `drop-shadow` filter gave, which a cursor image cannot carry.
+ *  `width` is in the caller's own units (a badge scaled by 0.375 needs 4 to
+ *  match the sight's 1.5). */
+function haloOf(ink: string, halo: string, width: number): string {
+  return ink.replace(
+    /<path ([^>]*?)fill="[^"]*"/g,
+    (_m, before: string) =>
+      `<path ${before}fill="${halo}" stroke="${halo}" stroke-width="${width}" stroke-linejoin="round"`
   );
 }
-/** Referenced so the three unwired bodies above are not dead code the linter
- *  strips or a reader deletes. Exported for the test that renders every state
- *  the set draws, including the three that earn no rule yet. */
-export const UNWIRED_BODIES: Readonly<Record<'mount' | 'dismount' | 'smoke', (c: CursorColors) => string>> = {
-  mount: mountBody,
-  dismount: dismountBody,
-  smoke: smokeBody,
+
+/** The role mark from the G1 sheet (`symbolBody`, unframed -- the ≤10 px
+ *  form) with its `currentColor` baked to one hex. A cursor image has no
+ *  `color` to inherit, so the ink must be written into the markup; the sheet
+ *  only takes an ink for order marks, so the substitution happens here. */
+function roleMark(bucket: RoleBucket, colour: string): string {
+  return symbolBody(bucket).replaceAll('currentColor', hex(colour));
+}
+
+/** One sight's paint for one variant: the aim, the order's family main and
+ *  accent, and the shared warm beat, each a palette key resolved to hex. */
+function sightPaint(palette: Palette, variant: string, id: SightOrderId): SightPaint {
+  const spec = ORDER_SIGHT[id];
+  return {
+    aim: hex(resolveKey(palette, variant, SIGHT_KEYS.aim)),
+    main: hex(resolveKey(palette, variant, spec.main)),
+    accent: hex(resolveKey(palette, variant, spec.accent)),
+    hot: hex(resolveKey(palette, variant, SIGHT_KEYS.hot)),
+  };
+}
+
+/** One frame of a sight as a whole cursor image: the halo, then the aim and
+ *  surround (`sightFrame`, the same function the HUD's static mark comes
+ *  from), then -- on a badged key -- the role mark in aim steel (Q8). The
+ *  badge is haloed like the rest, at the width that survives its scale. */
+function sightBody(id: SightOrderId, frame: number, palette: Palette, variant: string, badge: RoleBucket | null): string {
+  const paint = sightPaint(palette, variant, id);
+  const halo = hex(resolveKey(palette, variant, SIGHT_KEYS.halo));
+  const ink = sightFrame(id, frame, paint);
+  const place = (body: string): string =>
+    `<g transform="translate(${SIGHT_BADGE.x} ${SIGHT_BADGE.y}) scale(${SIGHT_BADGE.scale})">${body}</g>`;
+  const mark = badge ? roleMark(badge, paint.aim) : '';
+  return svgSight(
+    haloOf(ink, halo, HALO_WIDTH) +
+      (mark ? place(haloOf(mark, halo, HALO_WIDTH / SIGHT_BADGE.scale)) : '') +
+      ink +
+      (mark ? place(mark) : '')
+  );
+}
+
+/** Drawn, tested, and shipped by nothing. `mount`/`dismount` keep their
+ *  housing drawings; `load`, `unload` and `halt` are approved sights (Q2)
+ *  with no hover path to reach them -- halt is instant, and load/unload come
+ *  only from the keyboard path (`resolveKeyVerb`), whose result never reaches
+ *  the cursor. A rule for any of them would be dead bytes on every page
+ *  load. Exported for the test that renders every state the set draws,
+ *  including these five. Wire one into the hover ticker and it is a line in
+ *  `SIGHT_OF` (cursor.ts) or `BareCursorName` here. */
+export const UNWIRED_BODIES: Readonly<
+  Record<'mount' | 'dismount' | 'load' | 'unload' | 'halt', (palette: Palette) => string>
+> = {
+  mount: (p) => mountBody(paletteColors(p)),
+  dismount: (p) => dismountBody(paletteColors(p)),
+  load: (p) => sightBody('load', 0, p, 'default', null),
+  unload: (p) => sightBody('unload', 0, p, 'default', null),
+  halt: (p) => sightBody('halt', 0, p, 'default', null),
 };
 
-type BareCursorName = Exclude<CursorName, 'default' | 'mount' | 'dismount' | 'smoke' | 'charge'>;
+type BareCursorName = Exclude<CursorName, 'default' | 'mount' | 'dismount' | 'charge'>;
 
-/** The bare (unbadged) reticles that actually get a rule.
+/** The bare (unbadged) cursors that actually get a rule, in emission order.
  *
- *  `mount`, `dismount` and `smoke` stay out for a wiring reason: the hover
- *  ticker feeds only `resolvePointer`, which never emits those intents --
- *  they come solely from the keyboard path (`resolveKeyVerb`), whose result
- *  never reaches the cursor. A rule for them would be dead bytes shipped on
- *  every page load (Important 1, final cursor-slice-3 review). They stay in
- *  `CursorName` and `winningVerb`'s rungs are untouched, so a later feature
- *  can still preview them -- only the generated rule is withheld.
+ *  `mount` and `dismount` stay out for a wiring reason: the hover ticker
+ *  feeds only `resolvePointer`, which never emits those intents -- they come
+ *  solely from the keyboard path (`resolveKeyVerb`), whose result never
+ *  reaches the cursor (Important 1, final cursor-slice-3 review). `smoke`
+ *  used to share that reason; it now reaches the cursor through the
+ *  `armedSmoke` hint (Q2) and draws its sight.
  *
  *  `charge` stays out for a different, structural reason: `yahalom_squad` is
  *  the only unit with `canTunnelCharge` (BADGED_VERBS.charge below), so a
  *  charging group is always uniformly `soft` and the bare `charge` key can
  *  never compose -- it is always `charge-soft` (Minor 2, same review). */
-function shapesFor(palette: Palette): Record<BareCursorName, string> {
-  const c = paletteColors(palette);
-  return {
-    move: svg(moveBody(c)),
-    attack: svg(attackBody(c)),
-    blocked: svg(blockedBody(c)),
-    costly: svg(costlyBody(c)),
-    protected: svg(protectedBody(c)),
-    support: svg(supportBody(c)),
-    garrison: svg(garrisonBody(c)),
-    demolish: svg(demolishBody(c)),
-  };
-}
+const BARE_NAMES: readonly BareCursorName[] = [
+  'move',
+  'attack',
+  'sweep',
+  'strike',
+  'smoke',
+  'blocked',
+  'costly',
+  'protected',
+  'garrison',
+  'demolish',
+];
 
-/** The eight colours, read from the `ui` band `deriveUiBand` builds. Kept as a
- *  single function so no body reaches into the palette shape directly and a
- *  rename lands in exactly one place. */
+/** The seven housing colours, read from the `ui` band `deriveUiBand` builds.
+ *  Kept as a single function so no body reaches into the palette shape
+ *  directly and a rename lands in exactly one place. */
 export function paletteColors(palette: Palette): CursorColors {
   const ui = palette.reserved.ui.colors;
   return {
@@ -435,12 +540,11 @@ export function paletteColors(palette: Palette): CursorColors {
     hot: ui.hot,
     amber: ui.amber,
     info: ui.info,
-    live: ui.live,
   };
 }
 
-// Where the role badge rides, and it is not a free choice: this is the
-// bottom-right bracket's own footprint. `bracketAt('br', defaults)` spans
+// Where the role badge rides a HOUSING, and it is not a free choice: this is
+// the bottom-right bracket's own footprint. `bracketAt('br', defaults)` spans
 // x22-29, y22-29 -- centre 25.5, half-extent 3.5 -- and a badge inscribed in
 // r=4.5 there covers 21-30, i.e. the plate plus a hair. That coincidence is
 // the design: the badged key omits that bracket (see `BodyOpts.badged`) and
@@ -453,110 +557,48 @@ export function paletteColors(palette: Palette): CursorColors {
 // (outer corner 22,22) bit into it too. At 25.5 the portal clears the nearest
 // badge geometry by 0.7px and the core by construction. Rendered both ways at
 // 6x and at true 32px over real limestone ground before choosing.
+//
+// The mark is the G1 sheet's 24-unit APP-6 role mark, so it is placed with
+// the same translate-and-scale a sight's badge uses: the box's corner at
+// (CX - R, CY - R), scaled to 2R / 24.
 const BADGE_CX = 25.5;
 const BADGE_CY = 25.5;
 const BADGE_R = 4.5;
 
-/** The seven pre-S3e badge shapes, centred on (x, y) at radius r.
- *
- *  S3e Task 2 retired this from `src/ui/role.ts`: every HUD badge now draws
- *  the G1 sheet's APP-6 role marks (`src/ui/symbol.ts`). The cursor is the
- *  one reader left, and moving it onto the sheet is S3e Task 4's job (the
- *  badge placed at BADGE_CX/CY/R with the sheet's translate-and-scale), so
- *  the geometry is parked here verbatim until then -- the cursor stays
- *  byte-identical in the meantime rather than half-migrated. Delete this
- *  with Task 4. */
-function roleBadgeShapes(
-  bucket: RoleBucket,
-  x: number,
-  y: number,
-  r: number,
-  colour: string
-): string {
-  switch (bucket) {
-    case 'armour': // '■' -- a filled square
-      return `<rect x="${x - r}" y="${y - r}" width="${r * 2}" height="${r * 2}" fill="${colour}"/>`;
-    case 'soft': // '▲' -- a filled triangle
-      return `<path d="M${x},${y - r} L${x + r},${y + r} L${x - r},${y + r} Z" fill="${colour}"/>`;
-    case 'drone': {
-      // '⬡' -- a hexagon
-      const h = r;
-      return (
-        `<path d="M${x - h},${y} L${x - h / 2},${y - h} L${x + h / 2},${y - h} ` +
-        `L${x + h},${y} L${x + h / 2},${y + h} L${x - h / 2},${y + h} Z" fill="${colour}"/>`
-      );
-    }
-    case 'gunship': // '✈' -- a dart, distinct from soft's plain triangle
-      return (
-        `<path d="M${x},${y - r} L${x + r * 0.7},${y + r} L${x},${y + r * 0.35} ` +
-        `L${x - r * 0.7},${y + r} Z" fill="${colour}"/>`
-      );
-    case 'sniper': {
-      // '✛' -- a heavy cross
-      const t = r * 0.4;
-      return (
-        `<path d="M${x - t},${y - r} L${x + t},${y - r} L${x + t},${y - t} ` +
-        `L${x + r},${y - t} L${x + r},${y + t} L${x + t},${y + t} ` +
-        `L${x + t},${y + r} L${x - t},${y + r} L${x - t},${y + t} ` +
-        `L${x - r},${y + t} L${x - r},${y - t} L${x - t},${y - t} Z" fill="${colour}"/>`
-      );
-    }
-    case 'transport': // '▤' -- a square ruled with two bars
-      return (
-        `<rect x="${x - r}" y="${y - r}" width="${r * 2}" height="${r * 2}" fill="none" stroke="${colour}" stroke-width="1"/>` +
-        `<line x1="${x - r}" y1="${y - r / 3}" x2="${x + r}" y2="${y - r / 3}" stroke="${colour}" stroke-width="1"/>` +
-        `<line x1="${x - r}" y1="${y + r / 3}" x2="${x + r}" y2="${y + r / 3}" stroke="${colour}" stroke-width="1"/>`
-      );
-    case 'kamikaze': // '✹' -- an eight-point burst, small
-      return (
-        `<path d="M${x},${y - r} L${x + r * 0.35},${y - r * 0.35} L${x + r},${y} ` +
-        `L${x + r * 0.35},${y + r * 0.35} L${x},${y + r} L${x - r * 0.35},${y + r * 0.35} ` +
-        `L${x - r},${y} L${x - r * 0.35},${y - r * 0.35} Z" fill="${colour}"/>`
-      );
-  }
-}
-
-/** A small SVG mark riding the housing's bottom-right plate, shaped to match
- *  `ROLE_GLYPH`'s Unicode for the same bucket in `src/ui/role.ts` -- so the
- *  cursor's badge and the inspect card's glyph read as the same thing to a
- *  player who sees both at once. Drawn as paths rather than that Unicode
- *  text, because font availability inside a cursor image is not something
- *  to bet on. Kept to a few path commands each: this rides at roughly 10px
- *  on a 32px reticle, seen in motion.
- *
- *  The geometry is `roleBadgeShapes` just above, parked here by S3e Task 2
- *  until Task 4 moves the cursor onto the G1 sheet. This wrapper is what
- *  stays: the badge's PLACE on the reticle, and the fact that a cursor image
- *  inherits no colour so the hex has to be baked in. */
+/** The role mark on the housing's bottom-right plate -- see BADGE_CX/CY/R. */
 function badgeMark(bucket: RoleBucket, colour: string): string {
-  return roleBadgeShapes(bucket, BADGE_CX, BADGE_CY, BADGE_R, hex(colour));
+  return (
+    `<g transform="translate(${BADGE_CX - BADGE_R} ${BADGE_CY - BADGE_R}) scale(${(2 * BADGE_R) / SIGHT_BOX})">` +
+    roleMark(bucket, colour) +
+    '</g>'
+  );
 }
 
 /** Which buckets can actually reach each verb -- from the roster. `move` and
  *  `attack` are reachable by all seven; `garrison`, `demolish` and `charge`
  *  are gated to the subset of buckets whose units can actually issue them.
  *  Typed over `Exclude<CursorName, UnbadgedName>` rather than
- *  `Exclude<CursorName, 'default'>` so `blocked`, `costly`, `protected` and
- *  `support` -- which describe the target or the mode, not the actor, and
- *  never earn a badge -- cannot even be added here by mistake; see
- *  `UNBADGED_NAMES` in cursor.ts, which this type derives from.
+ *  `Exclude<CursorName, 'default'>` so `blocked`, `costly`, `protected`,
+ *  `sweep` and `strike` -- which describe the target or the mode, not the
+ *  actor, and never earn a badge -- cannot even be added here by mistake;
+ *  see `UNBADGED_NAMES` in cursor.ts, which this type derives from.
  *
  *  `mount`, `dismount` and `smoke` are real abilities units in
  *  data/units/kdf/ have (`canEmbark`, `transportSlots > 0`, `canSmoke`), but
- *  earn no entry here: the hover ticker feeds only `resolvePointer`, which
- *  never emits those intents, so a badge rule for them could never compose
- *  and would be dead bytes (Important 1, final cursor-slice-3 review).
- *  `winningVerb` still ranks them, for the day a keyboard-driven preview is
- *  wired in; only the generated rule is withheld.
+ *  earn no entry here. mount and dismount: the hover ticker feeds only
+ *  `resolvePointer`, which never emits those intents, so a badge rule for
+ *  them could never compose and would be dead bytes (Important 1, final
+ *  cursor-slice-3 review). smoke: its cursor is the ARMED smoke order (the
+ *  `armedSmoke` hint), and no intent the hover resolves ever names itself
+ *  `smoke` for `badgeFor` to find, so it is only ever bare.
  *
  *  A verb absent here keeps only its bare (unbadged) rule, except `charge`:
  *  `yahalom_squad` is the only unit with `canTunnelCharge`, so a charging
  *  group is always uniformly `soft` and the bare `charge` key can never
- *  compose (Minor 2, same review) -- `shapesFor`'s `BareCursorName` excludes
- *  it for that reason. Exported so a test can derive this table from the
- *  roster and assert the two never drift apart -- see the "BADGED_VERBS
- *  reachability is derived from the roster" describe in
- *  vite-plugin-cursors.test.ts. */
+ *  compose (Minor 2, same review) -- `BareCursorName` excludes it for that
+ *  reason. Exported so a test can derive this table from the roster and
+ *  assert the two never drift apart -- see the "BADGED_VERBS reachability is
+ *  derived from the roster" describe in vite-plugin-cursors.test.ts. */
 export const BADGED_VERBS: { [K in Exclude<CursorName, UnbadgedName>]?: RoleBucket[] } = {
   move: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
   attack: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
@@ -565,33 +607,21 @@ export const BADGED_VERBS: { [K in Exclude<CursorName, UnbadgedName>]?: RoleBuck
   charge: ['soft'],
 };
 
-/** The same base body used for a verb's bare rule, so a badged rule is
- *  always exactly that body plus a badge mark -- never a second drawing that
- *  could drift from the first. The only difference a badge makes to the body
- *  itself is the omitted bottom-right bracket, and that is `BodyOpts.badged`,
- *  handled inside each body rather than by the caller.
- *
- *  `mount`, `dismount` and `smoke` fall to the default branch: they remain
- *  valid keys of the type (BADGED_VERBS is typed over the full
- *  `Exclude<CursorName, UnbadgedName>`) but never occur as actual entries, so
- *  this is never called for them.
- *
- *  Typed over the full `CursorName` (wider than `BADGED_VERBS`'s keys) so
- *  the frame-override loop in cursorRules below -- which walks
- *  ANIMATED_CURSORS, not BADGED_VERBS -- can call this without a cast; every
- *  existing caller already passes a `keyof typeof BADGED_VERBS`, a subtype,
- *  so this widening changes nothing for them. `frame` defaults to 0, which
- *  is what every pre-animation caller still implicitly asks for -- and only
- *  `attackBody`/`chargeBody`/`demolishBody` (the three ANIMATED_CURSORS
- *  names) read it at all, so a non-zero frame passed for any other name is
- *  simply ignored, not an error. */
-function bodyFor(name: CursorName, palette: Palette, o: BodyOpts = {}): string {
-  const c = paletteColors(palette);
+/** One housing state's body, the same for its bare rule and every badged
+ *  rule -- so a badged rule is always exactly that body plus a badge mark,
+ *  never a second drawing that could drift from the first. The only
+ *  difference a badge makes to the body itself is the omitted bottom-right
+ *  bracket, and that is `BodyOpts.badged`, handled inside each body. `frame`
+ *  is read by `demolishBody` and `chargeBody` alone (the two animated housing
+ *  states); every other body ignores it. */
+function housingBody(name: CursorName, c: CursorColors, o: BodyOpts = {}): string {
   switch (name) {
-    case 'move':
-      return moveBody(c, o);
-    case 'attack':
-      return attackBody(c, o);
+    case 'blocked':
+      return blockedBody(c);
+    case 'costly':
+      return costlyBody(c);
+    case 'protected':
+      return protectedBody(c);
     case 'garrison':
       return garrisonBody(c, o);
     case 'demolish':
@@ -599,7 +629,7 @@ function bodyFor(name: CursorName, palette: Palette, o: BodyOpts = {}): string {
     case 'charge':
       return chargeBody(c, o);
     default:
-      return '';
+      throw new Error(`vite-plugin-cursors: '${name}' has no housing body`);
   }
 }
 
@@ -616,10 +646,6 @@ function bodyFor(name: CursorName, palette: Palette, o: BodyOpts = {}): string {
  *  wearing a costume. */
 function badgeColourFor(name: CursorName, c: CursorColors, o: BodyOpts = {}): string {
   switch (name) {
-    case 'move':
-      return c.ink;
-    case 'attack':
-      return c.bad;
     case 'garrison':
       return c.info;
     case 'charge':
@@ -631,134 +657,161 @@ function badgeColourFor(name: CursorName, c: CursorColors, o: BodyOpts = {}): st
   }
 }
 
-function ruleFor(key: string, markup: string): string {
-  const encoded = encodeURIComponent(markup);
-  return (
-    `canvas[data-cursor='${key}'] { ` +
-    `cursor: url("data:image/svg+xml,${encoded}") ${CENTER} ${CENTER}, auto; }`
-  );
+/** The whole cursor image for one key at one frame under one variant: a
+ *  sight for the five `SIGHT_OF` names, the housing (plus its plate badge)
+ *  for the rest. */
+function imageFor(name: CursorName, badge: RoleBucket | null, frame: number, palette: Palette, variant: string): string {
+  const sight = SIGHT_OF[name];
+  if (sight) return sightBody(sight, frame, palette, variant, badge);
+  const c = paletteColors(deriveUiBand(palette, variant));
+  const o: BodyOpts = { frame, badged: badge !== null };
+  return svg(housingBody(name, c, o) + (badge ? badgeMark(badge, badgeColourFor(name, c, o)) : ''));
 }
 
-/** Same shape as ruleFor, plus the `data-cursor-frame` requirement -- more
- *  specific than ruleFor's single-attribute selector, so once main.ts's
- *  frame driver sets a matching frame index this wins; otherwise ruleFor's
- *  frame-0 rule for the same key still applies. */
-function ruleForFrame(key: string, frame: number, markup: string): string {
-  const encoded = encodeURIComponent(markup);
-  return (
-    `canvas[data-cursor='${key}'][data-cursor-frame='${frame}'] { ` +
-    `cursor: url("data:image/svg+xml,${encoded}") ${CENTER} ${CENTER}, auto; }`
-  );
+/**
+ * Every cursor key the sheet draws, with its image per frame, under one
+ * colour-vision variant: `images.get(key)[k]` is exactly what the browser
+ * must show for that key at `data-cursor-frame` k with `data-cvd` = variant.
+ * A static key has one frame; an animated one `ANIMATED_CURSORS[name].frames`.
+ * Bare keys first (in BARE_NAMES order), then the badged keys by verb.
+ *
+ * This is the direct answer `cursorRules` compiles into CSS, exported so a
+ * test can hold the compiled cascade against it for every variant, key and
+ * frame.
+ */
+export function cursorImages(palette: Palette, variant = 'default'): Map<string, readonly string[]> {
+  const images = new Map<string, readonly string[]>();
+  const add = (name: CursorName, badge: RoleBucket | null): void => {
+    const frames = ANIMATED_CURSORS[name]?.frames ?? 1;
+    images.set(
+      cursorKey(name, badge),
+      Array.from({ length: frames }, (_, frame) => imageFor(name, badge, frame, palette, variant))
+    );
+  };
+  for (const name of BARE_NAMES) add(name, null);
+  for (const [name, buckets] of Object.entries(BADGED_VERBS) as [keyof typeof BADGED_VERBS, RoleBucket[]][]) {
+    for (const bucket of buckets) add(name, bucket);
+  }
+  return images;
 }
 
-/** The CSS text: one rule per drawn cursor name, each with an explicit
- *  hotspot so the pointer's true position matches where the shape aims, plus
- *  one further rule per reachable (verb, bucket) badge combination, plus
- *  (for the small set ANIMATED_CURSORS names) one further rule per
- *  additional frame 1..N-1, on top of every key that name already earned
- *  above -- bare, badged, or both. */
+/** One rule: a selector list and the image it draws, at the shared hotspot
+ *  (CENTER CENTER -- the housing's centre, and the sight's HOTSPOT scaled
+ *  from 24 to 32). One rule per line, which the tests rely on. */
+function rule(selectors: readonly string[], markup: string): string {
+  const encoded = encodeURIComponent(markup);
+  return `${selectors.join(', ')} { cursor: url("data:image/svg+xml,${encoded}") ${CENTER} ${CENTER}, auto; }`;
+}
+
+/** The selector for one key, at one frame (null: the frame-0 rule, which
+ *  names no frame at all -- the fail-safe), under one variant (null: the
+ *  default sheet, which names no `data-cvd` at all). */
+function selectorFor(key: string, frame: number | null, variant: string | null): string {
+  const cvd = variant === null ? '' : `:root[data-cvd='${variant}'] `;
+  const f = frame === null ? '' : `[data-cursor-frame='${frame}']`;
+  return `${cvd}canvas[data-cursor='${key}']${f}`;
+}
+
+/** The CSS text the plugin injects.
+ *
+ *  First the DEFAULT sheet: per key, one frame-0 rule (selector names only
+ *  `data-cursor`, specificity 0,1,1) and one rule per further frame whose
+ *  image differs from frame 0 (`[data-cursor-frame]` added, 0,2,1). A frame
+ *  that would redraw frame 0 byte for byte emits NO rule: with no selector to
+ *  match, the cascade falls through to the frame-0 rule, which draws exactly
+ *  that -- the same fail-safe a stale or absent attribute already relies on.
+ *  The test is CONTENT, never position, so a retune that gives a cycle a rest
+ *  frame starts eliding on its own and one that removes it stops.
+ *
+ *  Then, per colour-vision variant in `reserved.team.variants`, only what
+ *  that variant draws differently, prefixed `:root[data-cvd='<v>'] `. The
+ *  trap: that prefix adds 0,2,0, so a variant's FRAME-0 rule (0,3,1) outranks
+ *  the default's frame-k rules (0,2,1). A variant that overrode frame 0 and
+ *  nothing else would therefore freeze the cursor on frame 0 under that
+ *  setting. So each variant frame k >= 1 is judged against what would
+ *  otherwise WIN there -- the variant's own frame 0 once that rule exists,
+ *  the default's frame k (or its frame 0) when it does not -- and emitted
+ *  (0,4,1) whenever that is not already the right image. Variants whose
+ *  markup is byte-identical for a rule share it as one selector list
+ *  (deuteranopia and protanopia share every team hex); a key no variant
+ *  changes emits nothing beyond the default sheet.
+ */
 export function cursorRules(palette: Palette): string {
-  const shapes = shapesFor(palette);
-  const colors = paletteColors(palette);
-  const rules: string[] = [];
-  /** What each key's frame-0 rule already draws, keyed by cursor key. The
-   *  frame loop below consults it to drop a frame that would redraw exactly
-   *  this -- see its comment. */
-  const frameZero = new Map<string, string>();
-
-  for (const [name, markup] of Object.entries(shapes) as [BareCursorName, string][]) {
-    const key = cursorKey(name, null);
-    frameZero.set(key, markup);
-    rules.push(ruleFor(key, markup));
+  const defaults = cursorImages(palette, 'default');
+  const frameZero: string[] = [];
+  const later: string[] = [];
+  for (const [key, frames] of defaults) {
+    frameZero.push(rule([selectorFor(key, null, null)], frames[0]));
+    frames.forEach((markup, frame) => {
+      if (frame > 0 && markup !== frames[0]) later.push(rule([selectorFor(key, frame, null)], markup));
+    });
   }
 
-  for (const [name, buckets] of Object.entries(BADGED_VERBS) as [
-    keyof typeof BADGED_VERBS,
-    RoleBucket[],
-  ][]) {
-    const base = bodyFor(name, palette, { badged: true });
-    const badgeColour = badgeColourFor(name, colors);
-    for (const bucket of buckets) {
-      const markup = svg(base + badgeMark(bucket, badgeColour));
-      const key = cursorKey(name, bucket);
-      frameZero.set(key, markup);
-      rules.push(ruleFor(key, markup));
+  /** (key, frame, markup) -> the variants that need that exact rule, in
+   *  first-seen order, so identical rules merge into one selector list. */
+  const overrides = new Map<string, { key: string; frame: number | null; markup: string; variants: string[] }>();
+  const need = (variant: string, key: string, frame: number | null, markup: string): void => {
+    const id = `${key}\u0000${frame ?? ''}\u0000${markup}`;
+    const entry = overrides.get(id) ?? { key, frame, markup, variants: [] };
+    entry.variants.push(variant);
+    overrides.set(id, entry);
+  };
+  for (const variant of Object.keys(palette.reserved.team?.variants ?? {})) {
+    for (const [key, frames] of cursorImages(palette, variant)) {
+      const base = defaults.get(key);
+      if (!base) throw new Error(`vite-plugin-cursors: '${key}' drawn under ${variant} but not by default`);
+      const ownZero = frames[0] !== base[0];
+      if (ownZero) need(variant, key, null, frames[0]);
+      frames.forEach((markup, frame) => {
+        if (frame === 0) return;
+        const wouldWin = ownZero ? frames[0] : base[frame];
+        if (markup !== wouldWin) need(variant, key, frame, markup);
+      });
     }
   }
+  const variantRules = [...overrides.values()].map(({ key, frame, markup, variants }) =>
+    rule(
+      variants.map((v) => selectorFor(key, frame, v)),
+      markup
+    )
+  );
 
-  // Frame overrides. bareNames records which ANIMATED_CURSORS entries also
-  // drew a bare rule above (`attack` and `demolish` did; `charge` did not --
-  // see BareCursorName's comment on why `charge` never gets one), so this
-  // never has to hardcode which is which.
-  //
-  // A frame whose markup is byte-identical to its own key's frame-0 markup
-  // emits NO rule. `attack`'s pulse deliberately returns to rest at its
-  // midpoint (ATTACK_INSETS' "rest, converge, rest, release"), so frame 2 of
-  // each of its eight keys would otherwise ship a second copy of an image the
-  // frame-0 rule already draws at lower specificity. Dropping the rule changes
-  // nothing on screen: with no `[data-cursor-frame='2']` selector to match,
-  // the cascade falls through to exactly that frame-0 rule, which is the same
-  // fail-safe the plugin's top comment already relies on for a stale or absent
-  // attribute. main.ts's driver still counts 0..frames-1 and still writes '2';
-  // it simply has no rule of its own to hit.
-  //
-  // `demolish` no longer benefits: its beacon visits a different plate on
-  // every one of its four frames, so there is no rest pose to be identical to.
-  // That is exactly why the test is CONTENT ("this markup equals frame 0's")
-  // and never position ("skip frame 2") -- the art changed underneath this
-  // loop and the loop needed no edit at all. A future retune that gives
-  // demolish a rest frame will start eliding again on its own, and one that
-  // makes attack's midpoint a real fifth shape will start emitting it.
-  const bareNames = new Set<string>(Object.keys(shapes));
-  for (const [name, anim] of Object.entries(ANIMATED_CURSORS) as [CursorName, CursorAnimation][]) {
-    const buckets = (BADGED_VERBS as Partial<Record<CursorName, RoleBucket[]>>)[name] ?? [];
-    const pushFrame = (key: string, frame: number, markup: string): void => {
-      if (frameZero.get(key) === markup) return;
-      rules.push(ruleForFrame(key, frame, markup));
-    };
-    for (let frame = 1; frame < anim.frames; frame++) {
-      if (bareNames.has(name)) {
-        pushFrame(cursorKey(name, null), frame, svg(bodyFor(name, palette, { frame })));
-      }
-      const badgedBase = bodyFor(name, palette, { frame, badged: true });
-      const badgeColour = badgeColourFor(name, colors, { frame });
-      for (const bucket of buckets) {
-        pushFrame(cursorKey(name, bucket), frame, svg(badgedBase + badgeMark(bucket, badgeColour)));
-      }
-    }
-  }
-
-  return rules.join('\n');
+  return [...frameZero, ...later, ...variantRules].join('\n');
 }
 
-// The real data/palette.json has no `ui` reserved band -- cursor colour is
-// drawn entirely from bands that already exist, so a cursor and the HUD text
-// it sits next to always agree on what "bad" looks like. Exported (not inlined
-// into cursorsPlugin) so a test can run this exact translation against the
-// real file on disk: cursorRules is tested as a pure function over an
-// already-shaped Palette, and that shape never occurs on disk, only here -- so
-// this is the one seam a rename or removal of any of the eight source values
-// would otherwise slip past.
+// The real data/palette.json has no `ui` reserved band -- the housing's
+// colour is drawn entirely from bands that already exist, so a cursor and
+// the HUD text it sits next to always agree on what "bad" looks like.
+// Exported (not inlined into cursorsPlugin) so a test can run this exact
+// translation against the real file on disk: that shape never occurs on
+// disk, only here -- so this is the one seam a rename or removal of any of
+// the seven source values would otherwise slip past.
 //
-// Eight, not nine: `scrub[0]` (#6B8A4A, the palette's olive) is the one colour
-// the chosen set declines, and it is declined on evidence -- it sits about 30
-// RGB from `dim` and photographs as mud at 32px on limestone. Deriving it here
-// would be an unused field that reads as an oversight.
-export function deriveUiBand(raw: Palette): Palette {
+// Every value goes through `resolveKey`, so `bad` (team.hostile) and `warn`
+// (team.neutral) follow the colour-vision `variant` the same way the sights'
+// team colours do (Q9) -- before S3e they were hard-wired to the default hex.
+// Re-deriving over an already-derived palette is harmless: the source bands
+// survive the spread, and `ui` is simply rebuilt.
+//
+// Seven, not eight: `scrub[0]` (#6B8A4A, the palette's olive) is the one
+// colour the chosen set declines, and it is declined on evidence -- it sits
+// about 30 RGB from `dim` and photographs as mud at 32px on limestone.
+// Deriving it here would be an unused field that reads as an oversight.
+export function deriveUiBand(raw: Palette, variant = 'default'): Palette {
+  const k = (key: string): string => resolveKey(raw, variant, key);
   return {
     ...raw,
     reserved: {
       ...raw.reserved,
       ui: {
         colors: {
-          ink: raw.ramps.limestone.colors[0],
-          dim: raw.ramps.gunmetal.colors[1],
-          amber: raw.ramps.dust.colors[0],
-          info: raw.ramps.water.colors[0],
-          bad: raw.reserved.team.colors.hostile,
-          warn: raw.reserved.team.colors.neutral,
-          hot: raw.reserved.vfx.colors.fire,
-          live: raw.reserved.vfx.colors.tracer,
+          ink: k('limestone.0'),
+          dim: k('gunmetal.1'),
+          amber: k('dust.0'),
+          info: k('water.0'),
+          bad: k('team.hostile'),
+          warn: k('team.neutral'),
+          hot: k('vfx.fire'),
         },
       },
     },
