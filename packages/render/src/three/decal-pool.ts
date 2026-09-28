@@ -374,7 +374,7 @@ export const DECAL_POLYGON_OFFSET_UNITS = -4;
 
 /** A number as a GLSL float literal -- always carries a decimal point, so
  *  `180` becomes `180.000000`, never the `int` literal `180`. */
-function glslFloat(v: number): string {
+export function glslFloat(v: number): string {
   return v.toFixed(6);
 }
 

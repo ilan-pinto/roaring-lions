@@ -292,9 +292,37 @@ export const DECAL_LIFT_CAP = 0.08;
 
 /** Reused across calls (single-threaded; no re-entrancy), so the height
  *  and sag buffers are not reallocated per stamp. Grown on demand to `n * n`.
- *  (A stamp still allocates the few closures `writeDecalGrid` builds.) */
+ *  With the placement held at module scope too (below), a stamp allocates
+ *  nothing once the scratch has grown. */
 let sagScratch = new Float64Array(16);
 let cellSagScratch = new Float64Array(9);
+
+/* The placement `writeDecalGrid` is currently writing, held at module scope
+ * (single-threaded; no re-entrancy) so the two grid-to-world maps below are
+ * plain functions rather than closures built per call: the selection ring
+ * (`units/selection-ring.ts`, GH-186) calls `writeDecalGrid` for every
+ * selected unit every frame, and a per-frame writer allocates nothing. */
+let gpN = 2;
+let gpCx = 0;
+let gpCz = 0;
+let gpHalfLength = 0;
+let gpHalfWidth = 0;
+let gpCos = 1;
+let gpSin = 0;
+
+/** Grid-local `(gi, gj)` in `[0, n-1]` (fractional inside a cell) to world X. */
+function gridWorldX(gi: number, gj: number): number {
+  const s = -1 + (2 * gi) / (gpN - 1);
+  const t = -1 + (2 * gj) / (gpN - 1);
+  return gpCx + s * gpHalfLength * gpCos - t * gpHalfWidth * gpSin;
+}
+
+/** Grid-local `(gi, gj)` to world Z -- see `gridWorldX`. */
+function gridWorldZ(gi: number, gj: number): number {
+  const s = -1 + (2 * gi) / (gpN - 1);
+  const t = -1 + (2 * gj) / (gpN - 1);
+  return gpCz + s * gpHalfLength * gpSin + t * gpHalfWidth * gpCos;
+}
 
 /**
  * Writes one decal's `n * n` vertex POSITIONS into `out` at ring `slot`
@@ -348,19 +376,15 @@ export function writeDecalGrid(
   sampleY: (x: number, z: number) => number
 ): void {
   const base = slot * n * n * 3;
-  const cosF = Math.cos(p.facingRad);
-  const sinF = Math.sin(p.facingRad);
-  // Grid-local (gi, gj) in [0, n-1], fractional inside a cell.
-  const worldX = (gi: number, gj: number): number => {
-    const s = -1 + (2 * gi) / (n - 1);
-    const t = -1 + (2 * gj) / (n - 1);
-    return p.cx + s * p.halfLength * cosF - t * p.halfWidth * sinF;
-  };
-  const worldZ = (gi: number, gj: number): number => {
-    const s = -1 + (2 * gi) / (n - 1);
-    const t = -1 + (2 * gj) / (n - 1);
-    return p.cz + s * p.halfLength * sinF + t * p.halfWidth * cosF;
-  };
+  gpN = n;
+  gpCx = p.cx;
+  gpCz = p.cz;
+  gpHalfLength = p.halfLength;
+  gpHalfWidth = p.halfWidth;
+  gpCos = Math.cos(p.facingRad);
+  gpSin = Math.sin(p.facingRad);
+  const worldX = gridWorldX;
+  const worldZ = gridWorldZ;
   const h = sampleY;
 
   if (sagScratch.length < n * n) sagScratch = new Float64Array(n * n);

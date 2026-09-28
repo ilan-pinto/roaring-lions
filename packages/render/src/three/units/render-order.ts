@@ -339,3 +339,16 @@ export const DECAL_PERSISTENT_RENDER_ORDER = WORLD_RENDER_ORDER;
  * change, since both are real `depthTest`/`depthWrite` ground geometry).
  */
 export const DECAL_FADING_RENDER_ORDER = TRAIL_RENDER_ORDER;
+
+/**
+ * A4 (GH-186, spec 2026-09-28 sec 2.2): `SelectionRingBatch`
+ * (`selection-ring.ts`), the selection ring drawn ON the ground rather than
+ * as a screen-space billboard. Depth-tested and not depth-writing, like the
+ * decals it sits among, so the band only orders it within the transparent
+ * pass: after `DECAL_FADING_RENDER_ORDER` (0), so a selected tank's ring
+ * reads over its own tread prints, and before `TURRET_RENDER_ORDER` (1) and
+ * every FX band, so the unit standing in it depth-occludes the ring's inside
+ * -- the "under the feet" read. Not an integer for the badge numeral's
+ * reason: every integer in that neighbourhood is already claimed.
+ */
+export const SELECTION_RING_RENDER_ORDER = 0.5;

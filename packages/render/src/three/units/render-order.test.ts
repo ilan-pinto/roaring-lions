@@ -36,6 +36,7 @@ import {
   WORLD_RENDER_ORDER,
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
+  SELECTION_RING_RENDER_ORDER,
 } from './render-order';
 
 describe('render order bands', () => {
@@ -153,5 +154,14 @@ describe('render order bands', () => {
     expect(DECAL_FADING_RENDER_ORDER).toBe(TRAIL_RENDER_ORDER);
     expect(DECAL_PERSISTENT_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
     expect(DECAL_FADING_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
+  });
+
+  it('the selection ground ring sits over the tread prints and under the turret (GH-186)', () => {
+    // A4 Task 3: the ring is depth-tested ground geometry like the fading
+    // decals, drawn after them so a selected tank's ring reads over its own
+    // tread marks, and before every band that stands on the ground, so a
+    // unit's body occludes the ring's inside -- the "under the feet" read.
+    expect(DECAL_FADING_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
+    expect(SELECTION_RING_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
   });
 });
