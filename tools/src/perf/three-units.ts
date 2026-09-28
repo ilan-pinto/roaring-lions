@@ -514,6 +514,7 @@ function aridTerrainTones(): TerrainTones {
     crownRatio: 0.52,
     scatter: 'stone',
     groveFamily: 'desert_tree',
+    haze: '#E0B87A',
   };
 }
 

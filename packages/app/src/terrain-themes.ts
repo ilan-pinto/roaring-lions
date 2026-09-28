@@ -63,6 +63,8 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     // tree in the blend library, and this default-`arid` theme is every map
     // in the game but Wadi Halam.
     groveFamily: 'desert_tree',
+    // N-18: the haze is dust, not fog -- the desert's own lightest dust.
+    haze: paletteColor('dust.0'),
   },
   green: {
     open: paletteColor('grass.2'),
@@ -108,6 +110,8 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     // The olive stays where it belongs: the one green map is the river basin,
     // and an olive terrace there is the picture the Naharin arc is written on.
     groveFamily: 'tree',
+    // N-18: a pale limestone haze over the basin rather than a desert dust.
+    haze: paletteColor('limestone.1'),
   },
 };
 

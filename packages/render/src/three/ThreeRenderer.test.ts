@@ -140,6 +140,7 @@ const TONES: TerrainTones = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone', groveFamily: 'desert_tree',
+  haze: '#E0B87A',
 };
 
 function makeOpts(): RendererOptions {
@@ -350,6 +351,41 @@ describe('the chevron fallback colour', () => {
     const fill = (renderer as unknown as { chevronBatch: { fillColorHex: string } }).chevronBatch.fillColorHex;
     expect(fill).toBe(swatch(STRIPE_COLOR_KEY));
     expect(fill).not.toBe('#E8C33A');
+  });
+});
+
+describe('time of day (ground plan 2, Task 8)', () => {
+  type Lit = { sceneLights: { sun: THREE.DirectionalLight; hemisphere: THREE.HemisphereLight } };
+  const lightsOf = (r: ThreeRenderer): Lit['sceneLights'] => (r as unknown as Lit).sceneLights;
+
+  // `day` must be the frame before presets existed: with no option and with
+  // `timeOfDay: 'day'` the sun sits at the same position to the bit.
+  it('lights an absent timeOfDay and day identically, with the DAY_LIGHTS constants', () => {
+    const a = new ThreeRenderer(makeSim(), makeOpts());
+    const b = new ThreeRenderer(makeSim(), { ...makeOpts(), timeOfDay: 'day' });
+    for (const k of ['x', 'y', 'z'] as const) {
+      expect(Object.is(lightsOf(a).sun.position[k], lightsOf(b).sun.position[k])).toBe(true);
+    }
+    expect(lightsOf(b).sun.intensity).toBe(2.6);
+    expect(lightsOf(b).hemisphere.intensity).toBe(0.9);
+    a.dispose();
+    b.dispose();
+  });
+
+  it('lights dusk from its preset row, and night as dusk (D10)', () => {
+    const day = new ThreeRenderer(makeSim(), makeOpts());
+    for (const t of ['dusk', 'night'] as const) {
+      const r = new ThreeRenderer(makeSim(), { ...makeOpts(), timeOfDay: t });
+      expect(lightsOf(r).sun.intensity).toBe(1.8);
+      expect(lightsOf(r).hemisphere.intensity).toBe(0.7);
+      expect(lightsOf(r).sun.color.getHex()).toBe(new THREE.Color('#E0B87A').getHex());
+      expect(lightsOf(r).hemisphere.color.getHex()).toBe(new THREE.Color('#8E9491').getHex());
+      expect(lightsOf(r).hemisphere.groundColor.getHex()).toBe(lightsOf(day).hemisphere.groundColor.getHex());
+      // A lower sun: the light sits nearer the ground than day's.
+      expect(lightsOf(r).sun.position.y).toBeLessThan(lightsOf(day).sun.position.y);
+      r.dispose();
+    }
+    day.dispose();
   });
 });
 

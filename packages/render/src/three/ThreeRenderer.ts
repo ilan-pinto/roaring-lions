@@ -119,7 +119,15 @@ import {
   CAMERA_NEAR,
   CAMERA_FAR,
 } from './camera';
-import { createSceneLights, type SceneLights } from './lighting';
+import { createSceneLights, DAY_LIGHTS, type ResolvedLights, type SceneLights } from './lighting';
+import {
+  BOUNCE_KEY,
+  resolveTimeOfDay,
+  sunDirectionFor,
+  TIME_OF_DAY_PRESETS,
+  type LightPreset,
+  type LitTimeOfDay,
+} from './time-of-day';
 import { disposeAndReleaseContext } from './context-release';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
@@ -797,6 +805,12 @@ export class ThreeRenderer implements Renderer {
    *  `MeshStandardMaterial` now: a scene with no lights in it is not a
    *  dimmer picture, it is a black one. */
   private readonly sceneLights: SceneLights;
+  /** The light this map is lit by (`time-of-day.ts`), resolved once from
+   *  `opts.timeOfDay`: absent is `day`, `night` is `dusk` (D10). Kept, with
+   *  its preset row, for the haze (Task 9), which reads `hazeFar` and
+   *  `hazeKey` off the same row the lights came from. */
+  private readonly timeOfDay: LitTimeOfDay;
+  private readonly lightPreset: LightPreset;
   /**
    * ONE camera, reconfigured in place every frame by `threeCamera()`.
    *
@@ -2356,7 +2370,20 @@ export class ThreeRenderer implements Renderer {
     // back to `QUALITY_PRESETS.high` -- today's `SHADOW_MAP_SIZE` -- for a
     // caller (every spike scene, every one of these tests) that builds no
     // opinion on quality at all.
-    this.sceneLights = createSceneLights(sim.width, sim.height, (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize);
+    // Ground plan 2, Task 8: the preset picks the sun. `day` passes
+    // `DAY_LIGHTS` -- `lighting.ts`'s own constants by name -- and so builds
+    // the very light it did before presets existed, to the bit; it is never
+    // rebuilt from the table. Dawn and dusk resolve their palette keys here,
+    // through the same resolver every other colour in this scene uses, and
+    // keep today's `dust.4` bounce (N-21).
+    this.timeOfDay = resolveTimeOfDay(opts.timeOfDay);
+    this.lightPreset = TIME_OF_DAY_PRESETS[this.timeOfDay];
+    this.sceneLights = createSceneLights(
+      sim.width,
+      sim.height,
+      (opts.quality ?? QUALITY_PRESETS.high).shadowMapSize,
+      this.timeOfDay === 'day' ? DAY_LIGHTS : this.presetLights(this.lightPreset)
+    );
     this.sceneLights.addTo(this.scene);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above, but for real `THREE.PointLight`s rather than a batched
@@ -7403,6 +7430,21 @@ export class ThreeRenderer implements Renderer {
    *  .opts.resolveColor('vfx.tracer') : '#B8FF5A'`), not a new pattern. */
   private overlayColor(key: string, fallback: string): string {
     return this.opts.resolveColor ? this.opts.resolveColor(key) : fallback;
+  }
+
+  /** A dawn or dusk preset as lights: its sun direction (`sunDirectionFor`),
+   *  its sun and sky keys through `overlayColor`, and the bounce every preset
+   *  shares (N-21). `day` never comes through here -- see the constructor. */
+  private presetLights(p: LightPreset): ResolvedLights {
+    const [x, y, z] = sunDirectionFor(p);
+    return {
+      direction: new THREE.Vector3(x, y, z),
+      sunHex: this.overlayColor(p.sunKey, p.sunFallback),
+      sunIntensity: p.sunIntensity,
+      skyHex: this.overlayColor(p.skyKey, p.skyFallback),
+      bounceHex: this.overlayColor(BOUNCE_KEY, DAY_LIGHTS.bounceHex),
+      hemiIntensity: p.hemiIntensity,
+    };
   }
 
   /**

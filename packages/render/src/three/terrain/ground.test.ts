@@ -73,6 +73,7 @@ const TONES = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone' as const, groveFamily: 'desert_tree' as const,
+  haze: '#E0B87A',
 };
 
 function flat(w: number, h: number): TerrainInput {

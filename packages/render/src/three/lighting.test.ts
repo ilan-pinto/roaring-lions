@@ -8,9 +8,14 @@ import {
   SHADOW_MAP_SIZE,
   SHADOW_BOX_TOP,
   SHADOW_BOX_BOTTOM,
+  SUN_COLOR_HEX,
+  SKY_COLOR_HEX,
+  GROUND_BOUNCE_COLOR_HEX,
+  DAY_LIGHTS,
   createSceneLights,
   shadowBoxRadius,
 } from './lighting';
+import { TIME_OF_DAY_PRESETS, sunDirectionFor } from './time-of-day';
 
 /** Clip-space position of a world point as the sun's shadow camera sees it. */
 function shadowClip(sun: THREE.DirectionalLight, p: THREE.Vector3): THREE.Vector3 {
@@ -104,6 +109,66 @@ describe('lighting', () => {
       lights.addTo(s);
       expect(lights.sun.shadow.mapSize.x).toBe(size);
       expect(lights.sun.shadow.mapSize.y).toBe(size);
+    }
+  });
+});
+
+describe('createSceneLights takes a preset, and day is today', () => {
+  it('builds identical lights with no preset and with DAY_LIGHTS', () => {
+    const a = createSceneLights(48, 48);
+    const b = createSceneLights(48, 48, SHADOW_MAP_SIZE, DAY_LIGHTS);
+    for (const k of ['x', 'y', 'z'] as const) expect(Object.is(a.sun.position[k], b.sun.position[k])).toBe(true);
+    expect(b.sun.color.getHex()).toBe(a.sun.color.getHex());
+    expect(b.sun.intensity).toBe(a.sun.intensity);
+    expect(b.hemisphere.color.getHex()).toBe(a.hemisphere.color.getHex());
+    expect(b.hemisphere.groundColor.getHex()).toBe(a.hemisphere.groundColor.getHex());
+    expect(b.hemisphere.intensity).toBe(a.hemisphere.intensity);
+  });
+
+  // DAY_LIGHTS is today's constants by name, not a copy of their values.
+  it("holds today's constants exactly", () => {
+    expect(DAY_LIGHTS.direction).toBe(SUN_DIRECTION);
+    expect(DAY_LIGHTS.sunHex).toBe(SUN_COLOR_HEX);
+    expect(DAY_LIGHTS.sunIntensity).toBe(SUN_INTENSITY);
+    expect(DAY_LIGHTS.skyHex).toBe(SKY_COLOR_HEX);
+    expect(DAY_LIGHTS.bounceHex).toBe(GROUND_BOUNCE_COLOR_HEX);
+    expect(DAY_LIGHTS.hemiIntensity).toBe(HEMISPHERE_INTENSITY);
+  });
+
+  it('follows the colours and intensities it is handed', () => {
+    const l = createSceneLights(48, 48, SHADOW_MAP_SIZE, {
+      ...DAY_LIGHTS,
+      sunHex: '#E0B87A',
+      sunIntensity: 1.8,
+      skyHex: '#8E9491',
+      hemiIntensity: 0.7,
+    });
+    expect(l.sun.color.getHex()).toBe(new THREE.Color('#E0B87A').getHex());
+    expect(l.sun.intensity).toBe(1.8);
+    expect(l.hemisphere.color.getHex()).toBe(new THREE.Color('#8E9491').getHex());
+    expect(l.hemisphere.groundColor.getHex()).toBe(new THREE.Color(GROUND_BOUNCE_COLOR_HEX).getHex());
+    expect(l.hemisphere.intensity).toBe(0.7);
+  });
+
+  // A low sun lengthens shadows; the box must still hold every caster.
+  it.each(['dawn', 'day', 'dusk'] as const)('%s: every corner of the map box sits inside the shadow frustum', (t) => {
+    const [x, y, z] = sunDirectionFor(TIME_OF_DAY_PRESETS[t]);
+    const lights = createSceneLights(48, 40, SHADOW_MAP_SIZE, { ...DAY_LIGHTS, direction: new THREE.Vector3(x, y, z) });
+    const cam = lights.sun.shadow.camera;
+    lights.sun.updateMatrixWorld();
+    lights.sun.target.updateMatrixWorld();
+    cam.position.copy(lights.sun.position);
+    cam.lookAt(lights.sun.target.position);
+    cam.updateMatrixWorld();
+    const inv = cam.matrixWorldInverse;
+    for (const cx of [0, 48]) for (const cz of [0, 40]) for (const cy of [SHADOW_BOX_BOTTOM, SHADOW_BOX_TOP]) {
+      const p = new THREE.Vector3(cx, cy, cz).applyMatrix4(inv);
+      expect(p.x).toBeGreaterThanOrEqual(cam.left);
+      expect(p.x).toBeLessThanOrEqual(cam.right);
+      expect(p.y).toBeGreaterThanOrEqual(cam.bottom);
+      expect(p.y).toBeLessThanOrEqual(cam.top);
+      expect(-p.z).toBeGreaterThanOrEqual(cam.near);
+      expect(-p.z).toBeLessThanOrEqual(cam.far);
     }
   });
 });

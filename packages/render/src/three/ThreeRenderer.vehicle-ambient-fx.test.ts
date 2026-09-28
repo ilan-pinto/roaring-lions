@@ -77,6 +77,7 @@ const TONES: TerrainTones = {
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone',
   groveFamily: 'desert_tree',
+  haze: '#E0B87A',
 };
 
 function makeOpts(): RendererOptions {
