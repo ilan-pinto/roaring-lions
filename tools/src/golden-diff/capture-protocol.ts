@@ -616,6 +616,35 @@ export const AFTERMATH_SCENARIO: Scenario = {
   zoom: 2.2,
 };
 
+/** `QUIET_SCENARIO`'s own map/camera/tick, replayed under the dusk preset
+ *  (ground plan 2, Task 11, spec §3.6). Deliberately not a new framing: the
+ *  whole point of this scenario is to let a human compare the SAME shot
+ *  under a different light, and re-deriving a fresh map/marker/tick pair
+ *  would make that comparison worse, not better. `tod=dusk` is a value flag
+ *  (`sandbox-help.ts`'s `KNOWN_PARAMS`, added by Task 10), so it is appended
+ *  through `sandboxFlags` exactly like `AFTERMATH_SCENARIO`'s `&decals` --
+ *  see `sceneParam`'s own comment for why that append is bare-token by
+ *  default and what `'tod=dusk'` needs from it.
+ *
+ *  REPORT-ONLY BY DESIGN (spec §3.6), not merely unbudgeted yet. A dusk
+ *  preset is one lit frame with no cross-commit reference to judge it
+ *  against other than a human's own eye -- there is no defect class a
+ *  pixel-count floor could separate from "the light moved because someone
+ *  meant it to move". The preset itself IS pinned, by unit tests
+ *  (`time-of-day.test.ts` and friends), so what this scenario is for is
+ *  showing the lead the result, not gating it. See `BASELINES.dusk`. */
+export const DUSK_SCENARIO: Scenario = {
+  id: 'dusk',
+  description:
+    "quiet's own map/camera/tick (beit_sahwan_outskirts @ town_center, tick 200) under the dusk " +
+    'time-of-day preset -- report-only, judged by the lead\'s eye, not a threshold (spec §3.6).',
+  sandboxMap: QUIET_SCENARIO.sandboxMap,
+  sandboxFlags: ['tod=dusk'],
+  cameraMarker: QUIET_SCENARIO.cameraMarker,
+  ticks: QUIET_SCENARIO.ticks,
+  targetTick: QUIET_SCENARIO.targetTick,
+};
+
 /** Every scenario this harness knows about. `golden-diff-gate.ts` runs all of
  *  them, each against its own budget. Add a new one here rather than
  *  building another ad-hoc scenario by hand.
@@ -630,6 +659,7 @@ export const SCENARIOS: readonly Scenario[] = [
   VEHICLE_SCENARIO,
   RELIEF_SCENARIO,
   AFTERMATH_SCENARIO,
+  DUSK_SCENARIO,
   COMBAT_SCENARIO,
 ];
 

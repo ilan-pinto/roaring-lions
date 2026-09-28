@@ -657,7 +657,11 @@ describe('BASELINES layerChecks', () => {
     // `combat` remains: its scene does not hold still between two photographs
     // (two screenshots with NO repaint between them differ by 10,989 px, then
     // 22,215), so no toggle there can be told from the frame moving.
-    expect(withoutChecks.sort()).toEqual(['combat']);
+    // `dusk` (ground plan 2, Task 11) joined it deliberately: it is
+    // report-only from birth (spec §3.6), not a scene where a toggle failed to
+    // separate signal from noise -- there is no defect class for a floor to
+    // catch on a preset that is pinned by unit tests and judged by eye.
+    expect(withoutChecks.sort()).toEqual(['combat', 'dusk']);
   });
 
   it('covers all three maps the gate looks at, for scatter, decor and ground albedo alike', () => {
@@ -725,7 +729,11 @@ describe('BASELINES layerChecks', () => {
     const MEASURED: Record<string, Record<string, { px: number; mean: number }>> = {
       quiet: {
         scatter: { px: 2105, mean: 0.4032 },
-        decor: { px: 10505, mean: 0.7573 },
+        // Ground plan 2, Task 11, 2026-09-28: re-measured once, 3 runs,
+        // bit-identical -- more than double the 10505/0.7573 this floor was
+        // last set from, after Tasks 5 (props)/7 (sway)/9 (haze) each landed
+        // a shadow/lit interaction that hiding decor now also clears.
+        decor: { px: 21823, mean: 1.3264 },
         'ground-albedo': { px: 51, mean: 1.0316 },
         buildings: { px: 216469, mean: 10.6308 },
         // Shell upgrade Phase 0 Task 9, 2026-09-17, 3 consecutive full-gate
@@ -752,7 +760,10 @@ describe('BASELINES layerChecks', () => {
       },
       'open-ground': {
         scatter: { px: 3615, mean: 1.6088 },
-        decor: { px: 1025, mean: 0.646 },
+        // Ground plan 2, Task 11, 2026-09-28: re-measured once, 3 runs,
+        // bit-identical -- up 12.6%/10.9% from the 1025/0.646 this floor was
+        // last set from, the same Tasks 5/7/9 growth as `quiet`'s decor check.
+        decor: { px: 1154, mean: 0.7165 },
         'ground-albedo': { px: 470, mean: 2.6616 },
         // Ground Task 9, as above: 0 px, the whole contribution sub-threshold.
         macro: { px: 0, mean: 0.8773 },
