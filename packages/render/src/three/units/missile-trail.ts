@@ -212,12 +212,24 @@ export class TrailPool {
  * desync: had it ever been reachable, `emitted` would still have counted a
  * stretch for which no puff was placed. Removed so `emitted` can never
  * disagree with the number of `pool.emit` calls actually made.
+ *
+ * GH-250 T5 fix: `worldYAt` takes the MISSILE, not its ground-track (x, y) --
+ * matching `writeMissileSprites`'s own `worldYAt` below. The ground-track
+ * point was never actually needed by the one real caller (`MissileFx.step`,
+ * `./missile-fx.ts`): its own world-Y is a pure function of the missile's
+ * launch/impact tiles, `u` and `liftPx`, none of which need `(x, y)`. Passing
+ * `m` instead lets a caller compute its launch/impact ground height ONCE per
+ * missile per step and read it back through a single, preallocated callback
+ * bound once (not a fresh closure built fresh for every missile, every
+ * frame, capturing that missile's own ground height) -- see `MissileFx`'s own
+ * `trailWorldYAt` field and `lerpMissileWorldY` for the shape this now
+ * enables.
  */
 export function emitAlongFlight(
   pool: TrailPool,
   m: MissileModel,
   look: TrailLook,
-  worldYAt: (x: number, y: number, liftPx: number, u: number) => number
+  worldYAt: (m: MissileModel, liftPx: number, u: number) => number
 ): number {
   const prof = MISSILE_PROFILES[m.variant];
   if (!prof.drawn) return 0;
@@ -233,7 +245,7 @@ export function emitAlongFlight(
     const d = k * TRAIL_SPACING_TILES;
     const u = d / groundDist;
     const pt = missilePointAt(m, u);
-    const worldY = worldYAt(pt.x, pt.y, pt.liftPx, u);
+    const worldY = worldYAt(m, pt.liftPx, u);
     pool.emit(pt.x, pt.y, worldY, life);
     last = d;
     emitted++;

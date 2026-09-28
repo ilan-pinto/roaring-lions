@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { WEAPON_CLASS } from '@lions/sim';
 import type { EmitterSpec } from '../../vfx';
 import { FX_RENDER_ORDER, FX_RENDER_ORDER_ADDITIVE } from './render-order';
 import { MissileFx } from './missile-fx';
 import type { MissileLaunch, TargetTrack } from './missiles';
+import * as missileTrail from './missile-trail';
 
 const TRAIL: EmitterSpec = {
   id: 'missile_trail', trigger: 'projectile_trail', layer: 'above_units',
@@ -88,6 +89,23 @@ describe('MissileFx', () => {
     fx.setDebugHidden(false);
     fx.step(0, TRACK, null, 0, 0);
     expect(fx.meshes.filter((m) => m.visible)).toHaveLength(3);
+    fx.dispose();
+  });
+
+  it('binds one worldYAt callback for emitAlongFlight, reused across missiles and frames (fix round 1)', () => {
+    const fx = new MissileFx();
+    fx.setLook(TRAIL, resolve);
+    const spy = vi.spyOn(missileTrail, 'emitAlongFlight');
+    fx.launch(LAUNCH);
+    fx.launch({ ...LAUNCH, target: -1, willHit: false, tick: 6 });
+    fx.step(0.05, TRACK, null, 0, 0);
+    fx.step(0.05, TRACK, null, 0, 0);
+    // Two missiles, two frames: at least four calls, one per missile per step.
+    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(4);
+    const callbacks = spy.mock.calls.map((call) => call[3]);
+    const first = callbacks[0];
+    for (const cb of callbacks) expect(cb).toBe(first);
+    spy.mockRestore();
     fx.dispose();
   });
 
