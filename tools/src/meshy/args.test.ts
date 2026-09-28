@@ -11,9 +11,11 @@ import {
   parseBalanceArgs,
   parseDownloadArgs,
   parseEstimateImageArgs,
+  parseEstimateRemeshArgs,
   parseEstimateTextArgs,
   parseImageArgs,
   parseListArgs,
+  parseRemeshArgs,
   parseSpentArgs,
   parseStatusArgs,
   parseTextArgs,
@@ -73,15 +75,18 @@ describe('assertYesOrInteractive', () => {
 
 describe('commandNeedsApiKey', () => {
   // Minor 2 from the review brief: MESHY_DRY_RUN=1 stops `text`/`image`
-  // before any POST, so they are the one pair that may run with no key.
-  it('text and image are exempt under a dry run', () => {
+  // (and now `remesh`) before any POST, so they are the trio that may run
+  // with no key.
+  it('text, image and remesh are exempt under a dry run', () => {
     expect(commandNeedsApiKey('text', true)).toBe(false);
     expect(commandNeedsApiKey('image', true)).toBe(false);
+    expect(commandNeedsApiKey('remesh', true)).toBe(false);
   });
 
-  it('text and image still need a key when not dry-running', () => {
+  it('text, image and remesh still need a key when not dry-running', () => {
     expect(commandNeedsApiKey('text', false)).toBe(true);
     expect(commandNeedsApiKey('image', false)).toBe(true);
+    expect(commandNeedsApiKey('remesh', false)).toBe(true);
   });
 
   it('every other network command always needs a key, dry run or not', () => {
@@ -272,11 +277,99 @@ describe('parseEstimateImageArgs', () => {
   });
 });
 
+describe('parseRemeshArgs', () => {
+  it('parses the input task id and applies defaults', () => {
+    const opts = parseRemeshArgs(['task-abc', '--polycount', '180', '--yes'], NO_TTY);
+    expect(opts).toMatchObject({
+      inputTaskId: 'task-abc',
+      polycount: 180,
+      topology: 'triangle',
+      kind: undefined,
+      formats: ['glb'],
+      name: undefined,
+      yes: true,
+      json: false,
+    });
+  });
+
+  it('parses every documented flag', () => {
+    const opts = parseRemeshArgs(
+      ['task-abc', '--polycount', '260', '--topology', 'quad', '--kind', 'image', '--name', 'tyre_pile', '--formats', 'glb,fbx', '--yes', '--json'],
+      NO_TTY
+    );
+    expect(opts).toMatchObject({
+      inputTaskId: 'task-abc',
+      polycount: 260,
+      topology: 'quad',
+      kind: 'image',
+      name: 'tyre_pile',
+      formats: ['glb', 'fbx'],
+      yes: true,
+      json: true,
+    });
+  });
+
+  it('refuses a missing <input-task-id>', () => {
+    expect(() => parseRemeshArgs(['--polycount', '120', '--yes'], NO_TTY)).toThrow(/missing required <input-task-id>/);
+  });
+
+  it('refuses more than one positional', () => {
+    expect(() => parseRemeshArgs(['task-a', 'task-b', '--polycount', '120', '--yes'], NO_TTY)).toThrow(/unexpected extra argument/);
+  });
+
+  it('refuses a missing --polycount', () => {
+    expect(() => parseRemeshArgs(['task-abc', '--yes'], NO_TTY)).toThrow(/--polycount is required/);
+  });
+
+  it('refuses --polycount outside the documented 100-300,000 range', () => {
+    expect(() => parseRemeshArgs(['task-abc', '--polycount', '99', '--yes'], NO_TTY)).toThrow(/out of range/);
+    expect(() => parseRemeshArgs(['task-abc', '--polycount', '300001', '--yes'], NO_TTY)).toThrow(/out of range/);
+  });
+
+  it('refuses an unknown --topology / --kind', () => {
+    expect(() => parseRemeshArgs(['task-abc', '--polycount', '120', '--topology', 'bogus', '--yes'], NO_TTY)).toThrow(/topology/);
+    expect(() => parseRemeshArgs(['task-abc', '--polycount', '120', '--kind', 'bogus', '--yes'], NO_TTY)).toThrow(/kind/);
+  });
+
+  it('accepts --kind remesh (re-remeshing an already-remeshed task)', () => {
+    expect(parseRemeshArgs(['task-abc', '--polycount', '120', '--kind', 'remesh', '--yes'], NO_TTY).kind).toBe('remesh');
+  });
+
+  it('refuses an unrecognised flag (no --refine, no --ai-model on remesh)', () => {
+    expect(() => parseRemeshArgs(['task-abc', '--polycount', '120', '--refine', '--yes'], NO_TTY)).toThrow(/unrecognised flag/);
+    expect(() => parseRemeshArgs(['task-abc', '--polycount', '120', '--ai-model', 'meshy-7', '--yes'], NO_TTY)).toThrow(/unrecognised flag/);
+  });
+
+  it('refuses to run non-interactively without --yes', () => {
+    expect(() => parseRemeshArgs(['task-abc', '--polycount', '120'], NO_TTY)).toThrow(/--yes/);
+  });
+
+  it('does not require --yes on a TTY (the CLI prompts instead)', () => {
+    expect(() => parseRemeshArgs(['task-abc', '--polycount', '120'], TTY)).not.toThrow();
+  });
+});
+
+describe('parseEstimateRemeshArgs', () => {
+  it('applies defaults with no flags', () => {
+    expect(parseEstimateRemeshArgs([])).toEqual({ json: false });
+    expect(parseEstimateRemeshArgs(['--json'])).toEqual({ json: true });
+  });
+
+  it('takes no positional or value-taking flag (remesh has a flat price)', () => {
+    expect(() => parseEstimateRemeshArgs(['unexpected'])).toThrow(/unexpected argument/);
+    expect(() => parseEstimateRemeshArgs(['--polycount', '120'])).toThrow(/unrecognised flag/);
+  });
+});
+
 describe('parseStatusArgs / parseDownloadArgs / parseListArgs / parseBalanceArgs / parseSpentArgs', () => {
   it('status requires an id and accepts --kind/--json', () => {
     expect(() => parseStatusArgs([])).toThrow(/missing required <id>/);
     const opts = parseStatusArgs(['task-123', '--kind', 'text', '--json']);
     expect(opts).toEqual({ id: 'task-123', kind: 'text', json: true });
+  });
+
+  it('status accepts --kind remesh', () => {
+    expect(parseStatusArgs(['task-123', '--kind', 'remesh']).kind).toBe('remesh');
   });
 
   it('status defaults --kind to undefined (try both)', () => {
@@ -291,6 +384,10 @@ describe('parseStatusArgs / parseDownloadArgs / parseListArgs / parseBalanceArgs
     expect(() => parseDownloadArgs([])).toThrow(/missing required <id>/);
     const opts = parseDownloadArgs(['task-123', '--name', 'watchtower']);
     expect(opts).toEqual({ id: 'task-123', kind: undefined, name: 'watchtower', json: false });
+  });
+
+  it('download accepts --kind remesh', () => {
+    expect(parseDownloadArgs(['task-123', '--kind', 'remesh']).kind).toBe('remesh');
   });
 
   it('list defaults to page 1 and accepts --kind/--page/--json', () => {

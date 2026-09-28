@@ -70,6 +70,18 @@ export type { MeshData, TerrainInput };
  */
 export const HIGHLIGHT_EPSILON = 0.02;
 
+/**
+ * D9 (ground plan 2, G8 "confetti and polka dots at zoom 2.5"): stone-grain
+ * limestone flecks halve to 2-4 a tile, rounded up so a tile never drops to
+ * one lonely fleck. The old count was `3 + Math.floor(rnd * 5)` (3-7); this
+ * is that count halved and ceiling-rounded, so the halving is checked
+ * against the actual historical formula rather than a restatement of this
+ * one (see `scatter.test.ts`'s "the flecks halve").
+ */
+export function stoneFleckCount(rnd: number): number {
+  return Math.ceil((3 + Math.floor(rnd * 5)) / 2);
+}
+
 /** Slope-face dressing is pushed this far out along the face's own outward
  *  normal (+X for an east face, +Z for a south face -- the same signs
  *  `VIEW_DIRECTION` carries on both axes) so it does not z-fight the face
@@ -587,18 +599,10 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               // 0.75, which would read 50% thicker than the source.
               pushMark(cx, cz, MARK_EPSILON, px, py, rectCorners(0.5, -bh, 0), bladeHex, needsContainment);
             }
-            if (rnd > 0.9) {
-              // Bare earth patch (renderer.ts:1596-1605).
-              const a = tileHash(x * 19, y * 23);
-              const earthHex = quantise(composite(baseHex, tones.earth, 0.22), PALETTE_HEXES);
-              pushMark(cx, cz, MARK_EPSILON,
-                (a - 0.5) * 22,
-                0,
-                diamondCorners(3 + a * 2.4, 1.6 + a * 1.2),
-                earthHex,
-                needsContainment
-              );
-            }
+            // D9 (G8): the sward bare-earth patch retires. At zoom 2.5 a flat
+            // earth-toned diamond dropped onto grass read as a polka dot, not
+            // dirt -- the same complaint the stone-grain disc drew, for the
+            // same reason (a hard-edged flat quad on a now-textured ground).
             if (rnd > 0.84 && coverHere === 0) {
               // Tussock: 3 fanning strokes, approximated as one mark
               // spanning their bounding box (renderer.ts:1606-1616).
@@ -621,67 +625,61 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               );
             }
           } else {
-            // Stone grain: limestone flecks + earth (renderer.ts:1616-1641).
-            const n = 3 + Math.floor(rnd * 5);
+            // Stone grain: limestone flecks (renderer.ts:1616-1641). D9 (G8):
+            // the earth disc (the `b > 0.78` branch below) retires -- at zoom
+            // 2.5 a flat earth-toned diamond on now-textured ground read as a
+            // polka dot, not dirt -- so every mark this loop emits is a
+            // fleck now, and the count halves (`stoneFleckCount`, 2-4 rather
+            // than the old 3-7) to keep the ground from reading as confetti.
+            const n = stoneFleckCount(rnd);
             for (let k = 0; k < n; k++) {
               const a = tileHash(x * 19 + k * 7, y * 23 + k * 5);
               const b = tileHash(x * 41 + k * 3, y * 7 + k * 11);
               const px = (a - 0.5) * (TILE_W - 12);
               const py = (b - 0.5) * (TILE_H - 6);
-              if (b > 0.78) {
-                const earthHex = quantise(composite(baseHex, tones.earth, 0.24), PALETTE_HEXES);
-                pushMark(cx, cz, MARK_EPSILON,
-                  px,
-                  py,
-                  diamondCorners(1.6 + a * 2.2, 1 + a * 1.2),
-                  earthHex,
+              const r = 1.2 + a * 2.6;
+              // Limestone fleck: a rock-toned blob against the ground,
+              // never `tones.rockLit` blended straight onto `baseHex`.
+              // That direct port of Pixi's `ellipse.fill({ color:
+              // rockLit, alpha })` is a mathematical no-op wherever a
+              // theme's `rockLit` coincides with its own `open` tone --
+              // true of the shipped `arid` theme today (both
+              // `limestone.3`): `composite(X, X, anyAlpha)` is `X`
+              // exactly, in continuous colour and doubly so once
+              // quantised back onto the palette entry it already started
+              // from, for any alpha at all. Pixi never hits this: its
+              // base wash is a continuous, non-quantised alpha blend
+              // that keeps a faint but real gradient from the canvas
+              // clear colour underneath no matter what `rockLit` equals
+              // -- headroom this quantised, palette-snapped pipeline
+              // cannot reproduce at that same contrast (checked
+              // numerically: re-deriving that same per-tile jitter before
+              // compositing still rounds back to the identical entry --
+              // the palette's own step is coarser than the signal). So
+              // this blob is built the way the knoll, ridge and slope-
+              // scree marks a little above and below already are --
+              // `tones.rock` as the base, `tones.rockLit` as a highlight
+              // on top -- which stays visibly distinct from the ground
+              // regardless of what any given theme's `rockLit` happens to
+              // equal, rather than depending on a blend that can silently
+              // collapse. Verified against the shipped `arid` values
+              // directly (Task's own probe): this alpha range lands one
+              // step down the limestone ramp, matching the modest, single-
+              // step-darker tone Pixi's own continuous blend averages out
+              // to -- not the much heavier tone a knoll/ridge blob uses,
+              // which reads correctly as "impassable rock" rather than
+              // "ordinary open ground with grain".
+              const blobHex = quantise(composite(baseHex, tones.rock, 0.15 + b * 0.25), PALETTE_HEXES);
+              pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
+              if (a > 0.72) {
+                const hlHex = quantise(composite(blobHex, tones.rockLit, 0.5), PALETTE_HEXES);
+                pushMark(cx, cz, HIGHLIGHT_EPSILON,
+                  px - r * 0.3,
+                  py - r * 0.3,
+                  diamondCorners(r * 0.55, r * 0.34),
+                  hlHex,
                   needsContainment
                 );
-              } else {
-                const r = 1.2 + a * 2.6;
-                // Limestone fleck: a rock-toned blob against the ground,
-                // never `tones.rockLit` blended straight onto `baseHex`.
-                // That direct port of Pixi's `ellipse.fill({ color:
-                // rockLit, alpha })` is a mathematical no-op wherever a
-                // theme's `rockLit` coincides with its own `open` tone --
-                // true of the shipped `arid` theme today (both
-                // `limestone.3`): `composite(X, X, anyAlpha)` is `X`
-                // exactly, in continuous colour and doubly so once
-                // quantised back onto the palette entry it already started
-                // from, for any alpha at all. Pixi never hits this: its
-                // base wash is a continuous, non-quantised alpha blend
-                // that keeps a faint but real gradient from the canvas
-                // clear colour underneath no matter what `rockLit` equals
-                // -- headroom this quantised, palette-snapped pipeline
-                // cannot reproduce at that same contrast (checked
-                // numerically: re-deriving that same per-tile jitter before
-                // compositing still rounds back to the identical entry --
-                // the palette's own step is coarser than the signal). So
-                // this blob is built the way the knoll, ridge and slope-
-                // scree marks a little above and below already are --
-                // `tones.rock` as the base, `tones.rockLit` as a highlight
-                // on top -- which stays visibly distinct from the ground
-                // regardless of what any given theme's `rockLit` happens to
-                // equal, rather than depending on a blend that can silently
-                // collapse. Verified against the shipped `arid` values
-                // directly (Task's own probe): this alpha range lands one
-                // step down the limestone ramp, matching the modest, single-
-                // step-darker tone Pixi's own continuous blend averages out
-                // to -- not the much heavier tone a knoll/ridge blob uses,
-                // which reads correctly as "impassable rock" rather than
-                // "ordinary open ground with grain".
-                const blobHex = quantise(composite(baseHex, tones.rock, 0.15 + b * 0.25), PALETTE_HEXES);
-                pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
-                if (a > 0.72) {
-                  const hlHex = quantise(composite(blobHex, tones.rockLit, 0.5), PALETTE_HEXES);
-                  pushMark(cx, cz, HIGHLIGHT_EPSILON,
-                    px - r * 0.3,
-                    py - r * 0.3,
-                    diamondCorners(r * 0.55, r * 0.34),
-                    hlHex,
-                    needsContainment
-                  );
-                }
               }
             }
             if (rnd > 0.84 && coverHere === 0) {

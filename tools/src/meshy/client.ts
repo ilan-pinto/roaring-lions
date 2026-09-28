@@ -9,6 +9,8 @@ import type {
   BalanceResponse,
   ImageToThreeDRequest,
   ImageToThreeDTask,
+  RemeshRequest,
+  RemeshTask,
   SubmitTaskResponse,
   TextToThreeDRequest,
   TextToThreeDTask,
@@ -49,6 +51,12 @@ export interface TextTaskClient {
 export interface ImageTaskClient {
   submitImageTask(body: ImageToThreeDRequest): Promise<SubmitTaskResponse>;
   getImageTask(id: string): Promise<ImageToThreeDTask>;
+}
+
+/** Same idea as `TextTaskClient`, for `runRemesh`. */
+export interface RemeshTaskClient {
+  submitRemeshTask(body: RemeshRequest): Promise<SubmitTaskResponse>;
+  getRemeshTask(id: string): Promise<RemeshTask>;
 }
 
 function buildQuery(params: Readonly<Record<string, string | number | undefined>>): string {
@@ -119,5 +127,22 @@ export class MeshyClient {
 
   deleteImageTask(id: string): Promise<void> {
     return this.request('DELETE', `/openapi/v1/image-to-3d/${encodeURIComponent(id)}`);
+  }
+
+  submitRemeshTask(body: RemeshRequest): Promise<SubmitTaskResponse> {
+    return this.request('POST', '/openapi/v1/remesh', body);
+  }
+
+  getRemeshTask(id: string): Promise<RemeshTask> {
+    return this.request('GET', `/openapi/v1/remesh/${encodeURIComponent(id)}`);
+  }
+
+  listRemeshTasks(params: ListParams = {}): Promise<RemeshTask[]> {
+    const qs = buildQuery({ page_num: params.pageNum, page_size: params.pageSize, sort_by: params.sortBy });
+    return this.request('GET', `/openapi/v1/remesh${qs}`);
+  }
+
+  deleteRemeshTask(id: string): Promise<void> {
+    return this.request('DELETE', `/openapi/v1/remesh/${encodeURIComponent(id)}`);
   }
 }

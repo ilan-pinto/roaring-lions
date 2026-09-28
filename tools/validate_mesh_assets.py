@@ -164,6 +164,16 @@ raw GLB bytes, the same minimal JSON-chunk parse `render_mesh_gate.py`'s own
 with `import bpy` and cannot load in this plain-`python3` process. An empty
 `art/meshes/decor/` (the state before Task 4 lands any asset) is not a
 failure -- `glob` returning nothing means zero iterations, zero failures.
+
+`art/meshes/props/*.glb` (ground plan 2, Task 3 -- jersey barrier, water tank,
+satellite dish, laundry line, tyre pile, rebar, wrecked car) are checked a
+THIRD way, props, the same way: `mesh_kind() == 'props'` returns early in
+`render_mesh_gate.py` for the identical reason decor does (a wrecked car on
+the roadside is not a unit and has no faction to collide with), and
+`check_prop_meshes` below reads the raw GLB bytes for the mesh contract only
+-- zero materials/images/textures, every mesh node's `rl_role` inside the
+closed `PROP_ROLES` set from `packages/render/src/three/terrain/prop-role.ts`,
+every triangle count under that kind's own `PROP_TRI_CAPS` entry.
 """
 import argparse
 from collections import Counter
@@ -863,6 +873,95 @@ def check_decor_meshes(decor_root):
     return failures, textured_names
 
 
+# The closed prop role vocabulary, mirroring
+# packages/render/src/three/terrain/prop-role.ts's own `PROP_MESH_ROLES`.
+# Not imported (that file is TypeScript); kept in sync by hand the same way
+# DECOR_ROLES above tracks decor-role.ts, and pinned against it by
+# prop-role.test.ts, which parses this exact line.
+PROP_ROLES = {"concrete", "metal", "rust", "rubber", "cloth"}
+
+# Per-kind triangle cap (R-5), mirroring `PROP_TRI_CAPS` in prop-role.ts and
+# pinned against it the same way, by regex, in prop-role.test.ts.
+PROP_TRI_CAPS = {
+    "jersey_barrier": 120,
+    "water_tank": 220,
+    "satellite_dish": 180,
+    "laundry_line": 160,
+    "tyre_pile": 260,
+    "rebar": 140,
+    "wrecked_car": 400,
+}
+
+
+def _glb_triangle_count(glb_json):
+    """Total triangles across every primitive in every mesh -- a POSITION or
+    indices accessor's `count` is verts, not tris, so this divides by 3 the
+    same way `tools/src/decor-heights.test.ts`'s own `glbTris` does on the
+    TypeScript side (kept in step by construction, both dividing indices when
+    present and POSITION otherwise, and both by exactly 3)."""
+    accessors = glb_json.get("accessors", [])
+    n = 0
+    for mesh in glb_json.get("meshes", []):
+        for prim in mesh.get("primitives", []):
+            idx = prim.get("indices")
+            count = accessors[idx]["count"] if idx is not None else accessors[prim["attributes"]["POSITION"]]["count"]
+            n += count / 3
+    return n
+
+
+def check_prop_meshes(props_root):
+    """Every `art/meshes/props/*.glb` carries zero materials/images/textures,
+    every mesh-bearing node's `extras.rl_role` is inside the closed `PROP_ROLES`
+    set, and every file's total triangle count is at or under its own
+    `PROP_TRI_CAPS[kind]` entry -- checked directly against the raw GLB bytes,
+    never rendered (see module docstring, "props, the same way"). An empty
+    directory is zero iterations, not a failure. A file whose name (minus
+    `.glb`) is not one of `PROP_TRI_CAPS`'s seven keys fails loudly rather
+    than being silently skipped.
+    """
+    failures = []
+    for path in sorted(glob.glob(os.path.join(props_root, "*.glb"))):
+        name = os.path.basename(path)
+        kind = os.path.splitext(name)[0]
+        if kind not in PROP_TRI_CAPS:
+            failures.append(
+                f"{name}: {kind!r} is not one of the seven prop kinds "
+                f"{sorted(PROP_TRI_CAPS)} -- PROP_TRI_CAPS has no cap for it"
+            )
+            continue
+        glb_json = _read_glb_json(path)
+        n_mat = len(glb_json.get("materials", []))
+        n_img = len(glb_json.get("images", []))
+        n_tex = len(glb_json.get("textures", []))
+        if n_mat or n_img or n_tex:
+            failures.append(
+                f"{name}: carries {n_mat} material(s), {n_img} image(s), "
+                f"{n_tex} texture(s) -- the prop contract is zero of each"
+            )
+        nodes = glb_json.get("nodes", [])
+        gltf_meshes = glb_json.get("meshes", [])
+        for node in nodes:
+            if "mesh" not in node:
+                continue  # a camera/empty node, not a mesh-bearing one
+            extras = node.get("extras") or {}
+            role = extras.get("rl_role")
+            node_name = node.get("name") or gltf_meshes[node["mesh"]].get("name", "?")
+            if role is None:
+                failures.append(f"{name}: mesh node {node_name!r} carries no rl_role")
+            elif role not in PROP_ROLES:
+                failures.append(
+                    f"{name}: mesh node {node_name!r} has rl_role {role!r}, outside "
+                    f"the closed prop vocabulary {sorted(PROP_ROLES)}"
+                )
+        tris = _glb_triangle_count(glb_json)
+        cap = PROP_TRI_CAPS[kind]
+        if tris > cap:
+            failures.append(
+                f"{name}: {tris:.0f} triangles exceeds its PROP_TRI_CAPS cap of {cap} (R-5)"
+            )
+    return failures
+
+
 def check_campaign_meshes(campaign_root, world_path):
     """Every `art/meshes/campaign/*.glb` against the campaign-map contract,
     read straight out of the raw GLB bytes -- never rendered, for the reason
@@ -1307,6 +1406,10 @@ def main():
         decor_failures, textured_decor = check_decor_meshes(decor_root)
         failures.extend(decor_failures)
 
+        props_root = os.path.join(REPO, "art", "meshes", "props")
+        prop_failures = check_prop_meshes(props_root)
+        failures.extend(prop_failures)
+
         campaign_root = os.path.join(REPO, "art", "meshes", "campaign")
         campaign_failures, textured_campaign = check_campaign_meshes(
             campaign_root, os.path.join(REPO, "data", "campaign", "world.json"))
@@ -1342,11 +1445,12 @@ def main():
             return 1
 
         n_decor = len(glob.glob(os.path.join(decor_root, "*.glb")))
+        n_props = len(glob.glob(os.path.join(props_root, "*.glb")))
         n_campaign = len(glob.glob(os.path.join(campaign_root, "*.glb")))
         print(f"mesh gate passed: {len(mesh_masks)} mesh unit(s) rendered and checked "
-              f"against {len(sprite_masks)} sprite unit(s); {n_decor} decor mesh(es) "
-              f"and {n_campaign} campaign world(s) checked against the mesh contract "
-              f"directly")
+              f"against {len(sprite_masks)} sprite unit(s); {n_decor} decor mesh(es), "
+              f"{n_props} prop mesh(es) and {n_campaign} campaign world(s) checked "
+              f"against the mesh contract directly")
         if textured:
             # Deliberately loud, and deliberately on the PASSING path: the
             # thing worth catching is a future reader assuming these are

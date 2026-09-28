@@ -167,8 +167,10 @@ export function viewsFor(mapId: string, rows: readonly string[]): readonly MapVi
  *  `decals` sits before `scorch` deliberately -- see this file's header,
  *  difference 2: after Task 13, on THIS branch `decals` resolves and
  *  `scorch` throws (retired, D5/R-17), and on main it is the other way
- *  round, so the one array measures both trees. */
-export const COST_LAYERS: readonly string[] = ['scatter', 'decor', 'units', 'buildings', 'decals', 'scorch'];
+ *  round, so the one array measures both trees. `props` (ground plan 2,
+ *  Task 5) reads `n/a` on a tree that predates the prop batch, by the same
+ *  rule. */
+export const COST_LAYERS: readonly string[] = ['scatter', 'decor', 'props', 'units', 'buildings', 'decals', 'scorch'];
 
 // ============================================================================
 // Browser half
@@ -211,6 +213,40 @@ const STATS_SCRIPT = `(() => {
   };
   gl.info.autoReset = true;
   return JSON.stringify(out);
+})()`;
+
+/**
+ * Fix round 1, item 6: per-FAMILY triangle totals of the decor GEOMETRY the
+ * renderer actually LOADED for the current map (`grass`, `tree`,
+ * `desert_tree`, ...), not multiplied by placement count -- the layer-wide
+ * `decor` delta in `layerCost` already answers "what does decor cost drawn
+ * on screen"; this answers the narrower, more diagnostic question "did the
+ * renderer load the LOW-poly asset or a stale one", which is exactly what
+ * this fix round needed after `assets/meshes/decor` turned out to be stale
+ * against `art/meshes/decor` (see `pnpm encode:meshes -- --check`, task-6-
+ * report.md's fix round 1). `renderer.decorSet` is `ThreeRenderer`'s own
+ * private field (TypeScript `private` is compile-time only -- the runtime
+ * object has it as a plain property), a `Map<'family_variant',
+ * {role,geometry}[]>`; keys are split on the trailing `_<variant>` to group
+ * by family. A raw string, like `STATS_SCRIPT` above, for the same reason:
+ * `DecorGeometrySet`'s shape is not worth declaring in this file for a value
+ * that only ever gets JSON round-tripped once. */
+const DECOR_FAMILY_SCRIPT = `(() => {
+  const set = window.__lions.renderer.decorSet;
+  const totals = {};
+  if (set && set.parts) {
+    for (const [key, parts] of set.parts) {
+      const family = key.replace(/_\\d+$/, '');
+      let tris = 0;
+      for (const part of parts) {
+        const g = part.geometry;
+        const count = g.index ? g.index.count : g.attributes.position.count;
+        tris += count / 3;
+      }
+      totals[family] = (totals[family] || 0) + tris;
+    }
+  }
+  return JSON.stringify(totals);
 })()`;
 
 interface ViewStats {
@@ -302,6 +338,7 @@ function rowsFor(mapId: string): readonly string[] {
 interface MapCost {
   readonly views: Record<string, ViewStats>;
   readonly layers: readonly LayerDelta[];
+  readonly decorFamiliesLoaded: Record<string, number>;
 }
 
 async function main(): Promise<void> {
@@ -338,6 +375,18 @@ async function main(): Promise<void> {
   } else {
     say(`[${TAG}] STARTED a dev server on :${args.port}`);
   }
+  // Fix round 1 (item 6): `packages/app/vite.config.ts` sets `strictPort:
+  // false`, so Vite CAN silently bind to a different port than requested if
+  // `args.port` happened to be busy at the exact moment it started --
+  // `ensureDevServer`'s own `waitForServer(args.port, ...)` would then time
+  // out and this script would already have thrown before reaching here, so
+  // by construction something IS listening on `args.port` -- but "by
+  // construction" is not the same as PROVING it for whoever reads this log
+  // later. `page.url()` (Playwright's own read of the frame's current
+  // location, not a page-side script) states the port the browser actually
+  // ended up connected to; the assertion right after turns a future
+  // strictPort=false surprise into a loud failure instead of a quiet
+  // measurement of the wrong tree.
 
   const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
   const cost: Record<string, MapCost> = {};
@@ -351,7 +400,26 @@ async function main(): Promise<void> {
       const rows = rowsFor(mapId);
       const extra = args.decals ? '&decals' : '';
       await boot(page, args.port, mapId, extra);
-      say(`boot ${mapId}${extra}`);
+      const actualPort = new URL(page.url()).port;
+      if (actualPort !== String(args.port)) {
+        say(
+          `[${TAG}] ERROR: requested --port=${args.port} but the browser is on :${actualPort} -- ` +
+            `Vite's strictPort=false let it bind elsewhere; every measurement so far is against ` +
+            `the WRONG tree, refusing to continue`
+        );
+        finish(1);
+      }
+      say(`boot ${mapId}${extra} (dev server confirmed on :${actualPort})`);
+
+      const familyJson = (await page.evaluate(DECOR_FAMILY_SCRIPT)) as string;
+      const familyTotals = JSON.parse(familyJson) as Record<string, number>;
+      const familyEntries = Object.entries(familyTotals).sort(([a], [b]) => a.localeCompare(b));
+      say(
+        `  decor families LOADED (geometry tris, not placement-multiplied): ` +
+          (familyEntries.length > 0
+            ? familyEntries.map(([f, t]) => `${f}=${t}`).join(', ')
+            : '(none -- decorSet empty, or this build has no decorSet field)')
+      );
 
       const views = viewsFor(mapId, rows);
       const viewCosts: Record<string, ViewStats> = {};
@@ -381,7 +449,7 @@ async function main(): Promise<void> {
       );
       const base = await readStats(page);
       const layers = await layerCost(page, base);
-      cost[mapId] = { views: viewCosts, layers };
+      cost[mapId] = { views: viewCosts, layers, decorFamiliesLoaded: familyTotals };
       say(
         `  cost ${mapId} centre z1 nofog: all calls=${base.calls} tris=${base.triangles} | ` +
           layers

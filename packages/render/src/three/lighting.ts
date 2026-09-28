@@ -53,10 +53,36 @@
  *    probably measuring albedo.
  *
  * Full account: the spec's "Deviations" entry 3 and "Open questions".
+ *
+ * **Presets (ground plan 2, Task 8).** `createSceneLights` takes a
+ * `ResolvedLights` -- direction, sun and sky colour, bounce colour, both
+ * intensities -- and defaults it to `DAY_LIGHTS`. Dawn and dusk come from
+ * `time-of-day.ts`'s table (N-20, N-21), resolved to hex by `ThreeRenderer`
+ * through its palette resolver.
+ *
+ * Day is these constants, NOT the table's `day` row, and that is what makes
+ * it byte-identical to the frame before presets existed: `DAY_LIGHTS` holds
+ * `SUN_DIRECTION` and the five hex/intensity constants below by name, so the
+ * default call and `createSceneLights(w, h, size, DAY_LIGHTS)` build the same
+ * light down to the bit (`lighting.test.ts`). `SUN_DIRECTION` itself is
+ * built from `DAY_SUN_DIRECTION`, the literal it always was, by the same
+ * `normalize()`. The table's `day` row only has to agree with these, and a
+ * test pins that its keys still name today's hexes.
+ *
+ * The shadow box needs no change for a lower sun, and that is proved rather
+ * than assumed: `shadowBoxRadius` is the map's half-diagonal plus
+ * `SHADOW_MARGIN_TILES`, so its XY extent covers the map at ANY azimuth, and
+ * its depth (`r * 4`, centred `r * 2` out) holds the whole
+ * `SHADOW_BOX_BOTTOM`..`SHADOW_BOX_TOP` slab at any elevation. The test
+ * projects all eight corners of that slab into the shadow camera for dawn
+ * (22 degrees), day and dusk (18) and requires each inside the frustum; it
+ * goes red with the margin at -10. `time-of-day.test.ts` keeps every preset
+ * at 18 degrees or more.
  */
 import * as THREE from 'three';
+import { DAY_SUN_DIRECTION } from './time-of-day';
 
-export const SUN_DIRECTION = new THREE.Vector3(-0.406, 0.819, 0.406).normalize();
+export const SUN_DIRECTION = new THREE.Vector3(...DAY_SUN_DIRECTION).normalize();
 /** ACES needs headroom: 2.6 lands a `limestone.0` wall facing the sun at
  *  roughly its authored brightness after tone mapping. That is a judgement
  *  about ONE surface at ONE orientation, and it is the only sense in which
@@ -80,6 +106,28 @@ export const SHADOW_MARGIN_TILES = 2;
 export const SHADOW_BOX_TOP = 8;
 export const SHADOW_BOX_BOTTOM = -1;
 
+/** Everything `createSceneLights` needs to light one preset, colours already
+ *  resolved to hex. */
+export interface ResolvedLights {
+  readonly direction: THREE.Vector3;
+  readonly sunHex: string;
+  readonly sunIntensity: number;
+  readonly skyHex: string;
+  readonly bounceHex: string;
+  readonly hemiIntensity: number;
+}
+
+/** Today's constants, exactly: SUN_DIRECTION, SUN_COLOR_HEX, SUN_INTENSITY,
+ *  SKY_COLOR_HEX, GROUND_BOUNCE_COLOR_HEX, HEMISPHERE_INTENSITY. */
+export const DAY_LIGHTS: ResolvedLights = {
+  direction: SUN_DIRECTION,
+  sunHex: SUN_COLOR_HEX,
+  sunIntensity: SUN_INTENSITY,
+  skyHex: SKY_COLOR_HEX,
+  bounceHex: GROUND_BOUNCE_COLOR_HEX,
+  hemiIntensity: HEMISPHERE_INTENSITY,
+};
+
 export interface SceneLights {
   readonly sun: THREE.DirectionalLight;
   readonly hemisphere: THREE.HemisphereLight;
@@ -100,13 +148,21 @@ export function shadowBoxRadius(width: number, height: number): number {
  * building today's shadow map without change. `ThreeRenderer` is the one
  * caller that passes something else, from `(opts.quality ??
  * QUALITY_PRESETS.high).shadowMapSize` (`quality.ts`).
+ *
+ * `lights` defaults to `DAY_LIGHTS` for the same reason: every caller that
+ * predates the time-of-day presets builds today's light unchanged.
  */
-export function createSceneLights(width: number, height: number, shadowMapSize: number = SHADOW_MAP_SIZE): SceneLights {
+export function createSceneLights(
+  width: number,
+  height: number,
+  shadowMapSize: number = SHADOW_MAP_SIZE,
+  lights: ResolvedLights = DAY_LIGHTS
+): SceneLights {
   const centre = new THREE.Vector3(width / 2, 0, height / 2);
   const r = shadowBoxRadius(width, height);
 
-  const sun = new THREE.DirectionalLight(new THREE.Color(SUN_COLOR_HEX), SUN_INTENSITY);
-  sun.position.copy(centre).addScaledVector(SUN_DIRECTION, r * 2);
+  const sun = new THREE.DirectionalLight(new THREE.Color(lights.sunHex), lights.sunIntensity);
+  sun.position.copy(centre).addScaledVector(lights.direction, r * 2);
   sun.target.position.copy(centre);
   sun.castShadow = true;
   sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
@@ -124,9 +180,9 @@ export function createSceneLights(width: number, height: number, shadowMapSize: 
   sun.shadow.normalBias = 0.02;
 
   const hemisphere = new THREE.HemisphereLight(
-    new THREE.Color(SKY_COLOR_HEX),
-    new THREE.Color(GROUND_BOUNCE_COLOR_HEX),
-    HEMISPHERE_INTENSITY
+    new THREE.Color(lights.skyHex),
+    new THREE.Color(lights.bounceHex),
+    lights.hemiIntensity
   );
 
   return {

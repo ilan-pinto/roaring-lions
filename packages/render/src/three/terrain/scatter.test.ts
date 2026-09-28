@@ -7,9 +7,9 @@
  * ground shader's own distance field owns the road's wear now.
  */
 import { describe, it, expect } from 'vitest';
-import { buildScatter, HIGHLIGHT_EPSILON, FACE_BAND_HALF_Y } from './scatter';
+import { buildScatter, stoneFleckCount, HIGHLIGHT_EPSILON, FACE_BAND_HALF_Y } from './scatter';
 import { WORLD_PER_LEVEL, screenOffsetToWorld, DECOR_ROAD } from './shared';
-import { PALETTE_HEXES } from './tones';
+import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
 import { VIEW_DIRECTION } from '../camera';
 import { TILE_W, TILE_H, isoX, isoY } from '../../project';
 import type { TerrainInput, MeshData } from './types';
@@ -26,6 +26,7 @@ const TONES = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone' as const, groveFamily: 'desert_tree' as const,
+  haze: '#E0B87A',
 };
 const SWARD_TONES = { ...TONES, scatter: 'sward' as const };
 
@@ -436,5 +437,67 @@ describe('buildScatter', () => {
       const d = dot(normal, [VIEW_DIRECTION.x, VIEW_DIRECTION.y, VIEW_DIRECTION.z]);
       expect(d, `${kindOf(a, b, c)} at triangle ${i / 3} (indices ${i}-${i + 2}) winds away from the camera`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('D9: the flecks halve (N-6)', () => {
+  // The historical count, written out so the halving is checked against it,
+  // not against a restatement of the new formula.
+  const oldCount = (rnd: number): number => 3 + Math.floor(rnd * 5);
+  it('is the old per-tile count halved and rounded up, 2 to 4', () => {
+    for (let i = 0; i < 1000; i++) {
+      const r = i / 1000;
+      expect(stoneFleckCount(r)).toBe(Math.ceil(oldCount(r) / 2));
+      expect(stoneFleckCount(r)).toBeGreaterThanOrEqual(2);
+      expect(stoneFleckCount(r)).toBeLessThanOrEqual(4);
+    }
+  });
+});
+
+describe('D9: the discs retire (N-6)', () => {
+  /** Every vertex colour the grain mesh emits, as a quantised hex. `flat`
+   *  (above) is this file's all-open, cover-0 fixture -- the brief's
+   *  `openInput`. */
+  function hexesOf(data: MeshData): Set<string> {
+    const out = new Set<string>();
+    for (let i = 0; i < data.colors.length; i += 3) {
+      out.add(colorAt(data.colors, i));
+    }
+    return out;
+  }
+  it.each(['stone', 'sward'] as const)('no earth disc on %s ground', (grain) => {
+    // Precondition check (measured, not assumed): the disc tone must not
+    // coincide with a surviving mark's tone, or this test could not tell a
+    // disc from a fleck. It fails under BOTH this file's own `TONES`/
+    // `SWARD_TONES` fixture and the two shipped themes (`packages/app/src/
+    // terrain-themes.ts`'s `arid` and `green` -- not importable here anyway,
+    // since `@lions/render` may not depend on `packages/app`): `arid`'s
+    // stone disc (alpha 0.24) quantises to the same palette entry as its own
+    // fleck range, and `green`'s sward disc (alpha 0.22) quantises to its
+    // own base tone. So this test uses dedicated rock/earth/low overrides,
+    // picked only for palette separation at these exact alphas (a brute-force
+    // search over every `data/palette.json` entry, checked against the
+    // FULL mesh this fixture emits -- not just the fleck/bush boundary
+    // alphas -- since the sward blade range at alpha 0.6-0.9 turned out to
+    // collide with an earlier candidate the boundary check alone missed),
+    // not for how they'd look on screen -- everything else about `tones` is
+    // unchanged.
+    const rock = '#F2E8D5';
+    const earth = grain === 'stone' ? '#A28C6E' : '#FFB43C';
+    const low = '#F2E8D5';
+    const tones: TerrainTones = { ...TONES, scatter: grain, rock, earth, low };
+    const input = flat(48, 48);
+    const data = buildScatter(input, tones, BACKGROUND);
+    // `groundTone`'s real signature is (input, tones, ti, palette,
+    // background) rather than the brief's (tones, x, y) -- ti=0 is tile
+    // (0, 0), the same base `buildScatter` composites every mark on that
+    // tile against as `baseHex`.
+    const base = groundTone(input, tones, 0, PALETTE_HEXES, BACKGROUND);
+    const disc = quantise(composite(base, tones.earth, grain === 'stone' ? 0.24 : 0.22), PALETTE_HEXES);
+    const fleckLo = quantise(composite(base, tones.rock, 0.15), PALETTE_HEXES);
+    const fleckHi = quantise(composite(base, tones.rock, 0.4), PALETTE_HEXES);
+    const bush = quantise(composite(base, tones.low, grain === 'stone' ? 0.55 : 0.8), PALETTE_HEXES);
+    expect([fleckLo, fleckHi, bush]).not.toContain(disc);
+    expect(hexesOf(data).has(disc.toUpperCase())).toBe(false);
   });
 });

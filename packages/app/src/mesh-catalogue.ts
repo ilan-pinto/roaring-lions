@@ -64,6 +64,35 @@ export type DecorFamilyName =
   | 'boulder'
   | 'ditch';
 
+/** The seven prop kinds, mirroring `three/terrain/prop-role.ts`'s
+ *  `PropKind` for the same reason and with the same guard as
+ *  `DecorFamilyName` above: this package may not import `@lions/render/
+ *  terrain` from production code (the standing bundle rule), so the closed
+ *  set is restated here and `mesh-catalogue.test.ts` pins the two lists
+ *  against each other. */
+export type PropKindName =
+  | 'jersey_barrier'
+  | 'water_tank'
+  | 'satellite_dish'
+  | 'laundry_line'
+  | 'tyre_pile'
+  | 'rebar'
+  | 'wrecked_car';
+
+/** `PropKindName`'s own members, in the same order `prop-role.ts`'s
+ *  `PROP_KINDS` declares them -- used wherever this file needs "every prop
+ *  kind" as a value rather than a type (`propKindsFor`'s full-map answer,
+ *  and `PROP_MESHES`'s own key set below). */
+const PROP_KIND_NAMES: readonly PropKindName[] = [
+  'jersey_barrier',
+  'water_tank',
+  'satellite_dish',
+  'laundry_line',
+  'tyre_pile',
+  'rebar',
+  'wrecked_car',
+];
+
 /** A rigged unit mesh: one GLB per VARIANT of one unit type (`civilians` is
  *  four figures; everything else is one), plus the side it fights for. */
 export interface RiggedMeshEntry {
@@ -245,6 +274,27 @@ export const CAMPAIGN_MESHES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The Meshy-sourced props (ground plan 2, Task 3 -- ART_PIPELINE §6). Keyed by
+ * `PropKindName` (mirroring `PropKind`,
+ * `packages/render/src/three/terrain/prop-role.ts`), the same way
+ * `DECOR_MESHES` is keyed by family rather than by unit type: nothing in the
+ * sim has a "jersey barrier".
+ *
+ * Task 4 wires the fetch: `propKindsFor` below decides whether a map wants
+ * the set at all, and `meshPlanFor`/`meshManifestFor` carry it through the
+ * same per-roster plumbing every other asset class uses.
+ */
+export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
+  jersey_barrier: 'props/jersey_barrier.glb',
+  water_tank: 'props/water_tank.glb',
+  satellite_dish: 'props/satellite_dish.glb',
+  laundry_line: 'props/laundry_line.glb',
+  tyre_pile: 'props/tyre_pile.glb',
+  rebar: 'props/rebar.glb',
+  wrecked_car: 'props/wrecked_car.glb',
+};
+
+/**
  * Shipped GLBs that are deliberately never loaded, each with the reason.
  *
  * This is the ONLY way a file under `art/meshes/**` may go unclaimed:
@@ -333,6 +383,7 @@ export function claimedMeshFiles(): Set<string> {
   for (const files of Object.values(DECOR_MESHES)) for (const f of files) out.add(f);
   for (const f of Object.values(VFX_MESHES)) out.add(f);
   for (const f of Object.values(CAMPAIGN_MESHES)) out.add(f);
+  for (const f of Object.values(PROP_MESHES)) out.add(f);
   return out;
 }
 
@@ -352,13 +403,15 @@ export function hasUnitMesh(typeId: string): boolean {
  * caller names in `extraStructures` -- `camp` is the one building type that
  * arrives from mission JSON rather than a map symbol, so a map's own
  * `structures` list alone would miss it. Decor is never a second rule: it is
- * `decorFamiliesFor(map)`, verbatim.
+ * `decorFamiliesFor(map)`, verbatim. Props are the same shape again:
+ * `propKindsFor(map)`, verbatim.
  */
 export interface MeshPlan {
   readonly rigged: ReadonlySet<string>;
   readonly vehicles: ReadonlySet<string>;
   readonly buildings: ReadonlySet<string>;
   readonly decor: ReadonlySet<DecorFamilyName>;
+  readonly props: ReadonlySet<PropKindName>;
 }
 
 export function meshPlanFor(
@@ -373,6 +426,7 @@ export function meshPlanFor(
     vehicles: new Set([...roster].filter((id) => id in VEHICLE_UNIT_MESHES)),
     buildings: new Set([...structureTypes].filter((id) => id in BUILDING_MESHES)),
     decor: decorFamiliesFor(map),
+    props: propKindsFor(map),
   };
 }
 
@@ -389,6 +443,7 @@ export interface MeshManifest {
   readonly vehicles: readonly { id: string; url: string }[];
   readonly buildings: readonly { id: string; url: string }[];
   readonly decor: ReadonlyMap<string, string>;
+  readonly props: ReadonlyMap<PropKindName, string>;
 }
 
 export function meshManifestFor(plan: MeshPlan): MeshManifest {
@@ -405,6 +460,7 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
         DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)])
       )
     ),
+    props: new Map([...plan.props].map((kind): [PropKindName, string] => [kind, meshUrl(PROP_MESHES[kind])])),
   };
 }
 
@@ -558,4 +614,36 @@ export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
     }
   }
   return out;
+}
+
+/**
+ * Which prop kinds a map can place -- ground plan 2, Task 4, R-8. Mirrors
+ * `three/terrain/prop-place.ts`'s own gate for whether `propPlacements` can
+ * ever produce a candidate at all: a road tile or a building tile somewhere
+ * on the map (`isBuildingTile`'s own "blocked and not a ridge" rule, restated
+ * here for the same eslint reason `decorFamiliesFor` restates `familyFor`).
+ *
+ * A SUPERSET, exactly like `decorFamiliesFor` is one: it answers "could this
+ * map ever want kind K", not "does it". `propPlacements`'s own YARD_P/
+ * ROADSIDE_P rolls can leave a kind with zero placements on a map that offers
+ * it (a single small building might roll no yard object at all), and the
+ * cost of fetching one prop GLB that draws nothing is a few kB against a 404
+ * on one that does.
+ *
+ * Unlike `decorFamiliesFor`, this is an all-or-nothing answer -- every kind
+ * or none -- because N-9's yard/roadside split is a POSITION rule, not a
+ * per-kind availability rule: nothing about a map says "this map can place a
+ * water tank but never a satellite dish". `mesh-catalogue.test.ts` pins this
+ * against the real `propPlacements` the same way its decor block pins
+ * `decorFamiliesFor` against `decorPlacements`.
+ */
+export function propKindsFor(map: ParsedMap): ReadonlySet<PropKindName> {
+  const { width, height, blocked, decor } = map;
+  for (let t = 0; t < width * height; t++) {
+    if (decor[t] === DECOR.road) return new Set(PROP_KIND_NAMES);
+    // "Building tile" mirrors `isBuildingTile`: blocked and not a ridge --
+    // the ridge is the one blocked tile that is not a structure.
+    if (blocked[t] !== 0 && decor[t] !== DECOR.ridge) return new Set(PROP_KIND_NAMES);
+  }
+  return new Set();
 }

@@ -12,6 +12,8 @@
  * `environment: 'node'`, so the same `vi.mock` stand-in `ThreeRenderer.test.ts`
  * established is used here, for the same reason and with the same scope.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { Sim } from '@lions/sim';
@@ -44,6 +46,7 @@ const TONES: TerrainTones = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone', groveFamily: 'desert_tree',
+  haze: '#E0B87A',
 };
 
 function makeOpts(): RendererOptions {
@@ -74,16 +77,17 @@ function makeRenderer(): ThreeRenderer {
 function internals(r: ThreeRenderer): {
   scatterMesh: THREE.Mesh | null;
   terrainMesh: THREE.Mesh | null;
-  groveMesh: THREE.Mesh | null;
+  sway: { time: { value: number }; amp: { value: number } };
   residualMesh: THREE.Mesh | null;
   decorGroup: THREE.Object3D | null;
   texturedDecorGroup: THREE.Object3D | null;
+  propMesh: THREE.BatchedMesh | null;
   structureBoxes: Map<number, THREE.Mesh>;
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
   groundMat: GroundMaterial;
   skirtMesh: THREE.Mesh;
   vignettePass: { enabled: boolean } | null;
-  fogPass: { enabled: boolean; uniforms: { uRevealAll: { value: number } } } | null;
+  fogPass: { enabled: boolean; uniforms: { uRevealAll: { value: number }; uHazeAmp?: { value: number } } } | null;
   overlayBatch: { mesh: THREE.Mesh };
   numeralBatch: { mesh: THREE.Mesh };
   chevronBatch: { mesh: THREE.Mesh };
@@ -222,6 +226,32 @@ describe('DEBUG_LAYERS', () => {
     r.dispose();
   });
 
+  it('drives the haze amplitude to 0 and back, and neither it nor fog touches the other (ground plan 2, Task 9)', () => {
+    expect(DEBUG_LAYERS).toContain('haze');
+    expect(isDebugLayer('haze')).toBe(true);
+    const r = makeRenderer();
+    const i = internals(r);
+    // No pass before `init()`: 0, the fog layer's honest reading.
+    expect(r.setDebugLayerVisible('haze', false)).toBe(0);
+    i.fogPass = { enabled: true, uniforms: { uRevealAll: { value: 0 }, uHazeAmp: { value: 1 } } };
+    const u = i.fogPass.uniforms;
+    expect(r.setDebugLayerVisible('haze', false)).toBe(1);
+    expect(u.uHazeAmp?.value).toBe(0);
+    expect(u.uRevealAll.value).toBe(0);
+    expect(r.setDebugLayerVisible('haze', false)).toBe(0);
+    // R-14: the fog layer reveals the map and leaves the haze where it is.
+    expect(r.setDebugLayerVisible('fog', false)).toBe(1);
+    expect(u.uHazeAmp?.value).toBe(0);
+    expect(r.setDebugLayerVisible('fog', true)).toBe(1);
+    expect(r.setDebugLayerVisible('haze', true)).toBe(1);
+    expect(u.uHazeAmp?.value).toBe(1);
+    expect(r.setDebugLayerVisible('fog', false)).toBe(1);
+    expect(u.uHazeAmp?.value).toBe(1);
+    expect(u.uRevealAll.value).toBe(1);
+    i.fogPass = null;
+    r.dispose();
+  });
+
   it('flips visibility on the real scatter mesh, and back', () => {
     const r = makeRenderer();
     const i = internals(r);
@@ -245,6 +275,77 @@ describe('DEBUG_LAYERS', () => {
     expect(i.decorGroup.visible).toBe(false);
     expect(i.texturedDecorGroup.visible).toBe(false);
     r.dispose();
+  });
+
+  it('names props as their own layer, and decor does not hide them (ground plan 2, Task 5)', () => {
+    // Each layer is its own witness: a `props` check that `decor` also
+    // cleared would let a prop erasure hide behind the decor delta, and the
+    // other way round.
+    expect(DEBUG_LAYERS).toContain('props');
+    expect(isDebugLayer('props')).toBe(true);
+    const r = makeRenderer();
+    const i = internals(r);
+    i.decorGroup = new THREE.Group();
+    i.texturedDecorGroup = new THREE.Group();
+    // A real `BatchedMesh`, because `dispose()` disposes it as one.
+    i.propMesh = new THREE.BatchedMesh(1, 3, 3, new THREE.MeshStandardMaterial());
+    expect(r.setDebugLayerVisible('decor', false)).toBe(2);
+    expect(i.propMesh.visible).toBe(true);
+    expect(r.setDebugLayerVisible('props', false)).toBe(1);
+    expect(i.propMesh.visible).toBe(false);
+    expect(i.decorGroup.visible).toBe(false);
+    r.setDebugLayerVisible('decor', true);
+    expect(i.propMesh.visible).toBe(false);
+    expect(r.setDebugLayerVisible('props', true)).toBe(1);
+    expect(i.propMesh.visible).toBe(true);
+    r.dispose();
+  });
+
+  it('drives the crown sway amplitude to 0 and back, and only it (ground plan 2, Task 7)', () => {
+    expect(isDebugLayer('wind')).toBe(true);
+    const r = makeRenderer();
+    const i = internals(r);
+    expect(i.sway.amp.value).toBe(1);
+    expect(r.setDebugLayerVisible('wind', false)).toBe(1);
+    expect(i.sway.amp.value).toBe(0);
+    // Hidden twice changes nothing and says so.
+    expect(r.setDebugLayerVisible('wind', false)).toBe(0);
+    // The frame writes the clock, never the amplitude: a repaint cannot undo it.
+    r.frame(1, 0);
+    expect(i.sway.amp.value).toBe(0);
+    expect(r.setDebugLayerVisible('wind', true)).toBe(1);
+    expect(i.sway.amp.value).toBe(1);
+    r.dispose();
+  });
+
+  it('sways on SIM time: a zero-time repaint moves nothing, and a tick does', () => {
+    const sim = new Sim({ seed: 1, width: 4, height: 4, capacity: 1 });
+    const r = new ThreeRenderer(sim, makeOpts());
+    const i = internals(r);
+    for (let k = 0; k < 10; k++) sim.tick();
+    r.frame(1, 16);
+    const at = i.sway.time.value;
+    expect(at).toBeCloseTo((10 - 1 + 1) * 0.05, 12);
+    // Wall-clock passing without a tick must not move the crowns.
+    r.frame(1, 5000);
+    r.frame(1, 0);
+    expect(i.sway.time.value).toBe(at);
+    sim.tick();
+    r.frame(1, 16);
+    expect(i.sway.time.value).toBeCloseTo(at + 0.05, 12);
+    r.dispose();
+  });
+
+  it('documents props in the layer list, one entry saying what it hides and that decor does not', () => {
+    // The doc block above `DEBUG_LAYERS` is the list a harness author reads;
+    // a name there with no entry is a layer nobody can reason about.
+    const src = readFileSync(fileURLToPath(new URL('./debug-layers.ts', import.meta.url)), 'utf8');
+    const doc = src.slice(0, src.indexOf('export const DEBUG_LAYERS'));
+    const entry = /^ \* - `props` +(.*)$/m.exec(doc);
+    expect(entry).not.toBeNull();
+    const text = entry === null ? '' : entry[1];
+    expect(text).toMatch(/prop/i);
+    expect(text).toMatch(/`decor` does not/);
   });
 
   it('reaches every building collection, palette boxes and mesh clones alike', () => {
@@ -349,9 +450,8 @@ describe('DEBUG_LAYERS', () => {
     // comment -- receiving is universal (every terrain layer is ground or
     // lies on it and must darken under a building or a tank), casting is
     // not. Nothing pinned it, so a stray `castShadow = true` on the ground
-    // heightfield (acne along every slope) or a lost `false` on the grove
-    // canopy (a flat card edge-on to the sun casting a sliver) would only
-    // show up as a re-blessed golden baseline.
+    // heightfield (acne along every slope) would only show up as a
+    // re-blessed golden baseline.
     const sim = new Sim({ seed: 1, width: 4, height: 4, capacity: 1 });
     const hut = sim.addStructureType({ id: 'hut', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
     sim.addStructure(hut, [5]);
@@ -363,7 +463,6 @@ describe('DEBUG_LAYERS', () => {
       ['ground', i.terrainMesh],
       ['scatter', i.scatterMesh],
       ['residual', i.residualMesh],
-      ['grove', i.groveMesh],
     ] as const) {
       expect(mesh, `${name} mesh was not built`).not.toBeNull();
       expect(mesh!.receiveShadow, `${name} must receive`).toBe(true);

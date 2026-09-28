@@ -76,14 +76,6 @@ export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.Bu
   for (let i = 0; i < linear.length; i++) linear[i] = srgbToLinear(data.colors[i]);
   geometry.setAttribute('color', new THREE.BufferAttribute(linear, 3));
   geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
-  // Wind-sway weight -- see `types.ts`'s own `MeshData.sway` doc comment. No
-  // aliased default when absent: only `GroveMaterial` below ever declares a
-  // `sway` attribute in its shader, and only `buildGroves`' own output ever
-  // sets `data.sway`, so every OTHER terrain sub-mesh (ground/scatter/
-  // residual/building-decor, drawn through `vertexColorMaterial` or
-  // `GroundMaterial`) simply never has the attribute at all -- correct, since
-  // nothing ever reads it there.
-  if (data.sway) geometry.setAttribute('sway', new THREE.BufferAttribute(data.sway, 1));
   // Surface normal, three.js's own reserved `normal` name (not a custom one),
   // so the standard material's lighting gets it without anything here
   // declaring `attribute vec3 normal;`. `data.normals` wins when the builder
@@ -125,79 +117,6 @@ export function toGeometry(data: MeshData, opts: GeometryOptions = {}): THREE.Bu
  *  scene that is fully matte, and `GroundMaterial` below agrees with it. */
 export function vertexColorMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
-}
-
-/**
- * The grove canopy: vertex palette tone, lit, plus the wind offset the
- * retired `groveMaterial` applied -- ported verbatim.
- *
- * This is the consumer `types.ts`'s `MeshData.sway` doc comment and this
- * file's own `toGeometry` comment both already name -- the `sway` attribute
- * existed and was uploaded to the GPU before any material read it, so every
- * tree stood dead still regardless of the per-vertex weight `grove.ts`'s
- * `buildGroves` was already computing. `groveMesh` is the only mesh in
- * `ThreeRenderer.ts` built from this material, and it is the only geometry
- * `toGeometry` ever gives a `sway` attribute to -- see its own comment for
- * why that pairing is exact, not merely conventional.
- *
- * Wind is a pure vertex-stage position offset, so it costs the palette tone
- * nothing: a displaced vertex still carries the exact colour `grove.ts` gave
- * it, just at a different screen position. `sway` is 0 for every vertex of
- * `pushShadow`'s flat ground marks (`grove.ts`'s own `pushPolygon` doc
- * comment), so a tree's shadow never moves even though the canopy above it
- * does.
- *
- * Direction: `(+wind, 0, -wind)` on `(x, z)` -- the SAME `(dx, -dx)` shape
- * `screenOffsetToWorld(dx, 0)` (`terrain/shared.ts`) produces for a pure
- * "camera-right" screen offset, which is the local axis every billboard
- * corner in `grove.ts` is already authored on (see that file's own top
- * comment, "a local 'right' axis"). A tree leaning along the same axis its
- * own geometry is built on reads as the crown leaning sideways; leaning on
- * an unrelated axis would read as the billboard plane itself twisting, which
- * this fixed-pitch, never-orbiting camera (`grove.ts`, same comment) would
- * expose immediately as wrong.
- *
- * Per-vertex phase (`position.x * 0.6 + position.z * 0.9`, both prime-ish
- * irrational-feeling multipliers chosen only to avoid a common period with
- * the other) keeps neighbouring trees out of lockstep without a second
- * per-vertex attribute. It reads OBJECT space where the retired material read
- * a world position, and the two are the same numbers here -- the grove mesh
- * carries no transform (`ThreeRenderer.rebuildTerrain` adds it to the scene
- * untransformed, exactly as it does the ground) -- but object space is the
- * honest one to read inside `begin_vertex`, where the world matrix has not
- * been applied yet. What matters either way is that phase is taken BEFORE the
- * offset, never after: computing it from a position that already includes
- * this same frame's wind would be circular.
- *
- * `uTime` is `ThreeRenderer`'s own accumulated `dtMs` total in seconds --
- * see `ThreeRenderer`'s own `windClockMs` field doc comment for
- * the identical "accumulated dtMs, never a direct clock read" shape, which
- * keeps this deterministic-enough for a purely cosmetic effect without
- * reading `Date.now()`/`performance.now()` from render code.
- */
-export class GroveMaterial extends THREE.MeshStandardMaterial {
-  readonly uniforms: { uTime: THREE.IUniform<number> };
-
-  constructor() {
-    super({ vertexColors: true, roughness: 1, metalness: 0 });
-    this.uniforms = { uTime: { value: 0 } };
-    this.onBeforeCompile = (shader) => {
-      shader.uniforms.uTime = this.uniforms.uTime;
-      shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\nattribute float sway;\nuniform float uTime;')
-        .replace(
-          '#include <begin_vertex>',
-          `#include <begin_vertex>
-float rlPhase = uTime * 1.6 + position.x * 0.6 + position.z * 0.9;
-float rlWind = sin(rlPhase) * sway * 0.05;
-transformed += vec3(rlWind, 0.0, -rlWind);`
-        );
-    };
-  }
-
-  override customProgramCacheKey(): string {
-    return 'rl-grove';
-  }
 }
 
 /**
@@ -918,9 +837,9 @@ function groundUniforms(): Record<string, THREE.IUniform> {
  * `customProgramCacheKey` replaces three.js's default, which is the callback's
  * own `toString()` -- correct, but a long string rebuilt and compared every
  * time this material is initialised. A constant is cheaper and reads better in
- * a cache key; what it must be is stable per class and DIFFERENT from
- * `GroveMaterial`'s, since the two inject different source into the same two
- * chunks. (three.js appends this to the full parameter hash rather than
+ * a cache key; what it must be is stable per class and DIFFERENT from every
+ * other injected material's (`decor-mesh.ts`'s `rl-foliage-sway` is the other
+ * one in the terrain). (three.js appends this to the full parameter hash rather than
  * replacing it, so a constant cannot collapse two genuinely different
  * programs -- a shadow-casting variant, a different light count -- into one.)
  */

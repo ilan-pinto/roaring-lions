@@ -22,7 +22,6 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
   GroundMaterial,
-  GroveMaterial,
   vertexColorMaterial,
   toGeometry,
   GROUND_ALBEDOS,
@@ -75,6 +74,7 @@ const TONES = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone' as const, groveFamily: 'desert_tree' as const,
+  haze: '#E0B87A',
 };
 const BACKGROUND = '#14150F';
 
@@ -359,22 +359,6 @@ describe('GroundMaterial', () => {
       shader.fragmentShader.indexOf('diffuseColor.rgb *= rlAlbedo * rlMacro;')
     );
     expect(m.customProgramCacheKey()).toBe('rl-ground');
-  });
-});
-
-describe('GroveMaterial', () => {
-  it('injects the wind offset into the vertex shader and exposes uTime', () => {
-    const m = new GroveMaterial();
-    const shader = {
-      uniforms: {} as Record<string, THREE.IUniform>,
-      vertexShader: THREE.ShaderChunk.meshphysical_vert,
-      fragmentShader: THREE.ShaderChunk.meshphysical_frag,
-    };
-    m.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
-    expect(shader.uniforms.uTime).toBe(m.uniforms.uTime);
-    expect(shader.vertexShader).toContain('attribute float sway;');
-    expect(shader.vertexShader).toContain('transformed += vec3(rlWind, 0.0, -rlWind);');
-    expect(m.customProgramCacheKey()).toBe('rl-grove');
   });
 });
 

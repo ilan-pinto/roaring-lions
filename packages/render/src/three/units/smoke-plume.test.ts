@@ -34,6 +34,7 @@ import {
 } from './smoke-plume';
 import { SMOKE_ALPHA_CEIL } from '../smoke-mesh';
 import { hexToLinear } from '../terrain/shared';
+import { SWAY_DIR_X, SWAY_DIR_Z } from '../terrain/sway';
 
 describe('smokePlumeRiseEnvelope', () => {
   it('starts at 0 and ramps linearly to 1 over the rise fraction', () => {
@@ -143,9 +144,9 @@ describe('smokePlumeLeanTiles / SMOKE_PLUME_ZONE_LEAN / SMOKE_PLUME_LEAN_DIR', (
     expect(SMOKE_PLUME_ZONE_LEAN.top).toBe(1);
   });
 
-  it('drifts along the SAME bearing groveMaterial leans every tree, (+x, -z), and is a unit vector', () => {
-    expect(SMOKE_PLUME_LEAN_DIR[0]).toBeGreaterThan(0);
-    expect(SMOKE_PLUME_LEAN_DIR[1]).toBeLessThan(0);
+  it('drifts along the SAME bearing the crowns sway on (terrain/sway.ts), (+x, -z), and is a unit vector', () => {
+    expect(SMOKE_PLUME_LEAN_DIR[0]).toBeCloseTo(SWAY_DIR_X, 10);
+    expect(SMOKE_PLUME_LEAN_DIR[1]).toBeCloseTo(SWAY_DIR_Z, 10);
     const len = Math.hypot(SMOKE_PLUME_LEAN_DIR[0], SMOKE_PLUME_LEAN_DIR[1]);
     expect(len).toBeCloseTo(1, 10);
   });

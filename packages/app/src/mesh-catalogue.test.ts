@@ -37,6 +37,7 @@ import {
   parseMap,
   applyTerrain,
   type MapId,
+  type ParsedMap,
 } from '@lions/data';
 import { decorPlacements, type TerrainInput } from '@lions/render/terrain';
 import {
@@ -45,9 +46,11 @@ import {
   BUILDING_MESHES,
   DECOR_MESHES,
   VFX_MESHES,
+  PROP_MESHES,
   RETIRED_MESH_FILES,
   claimedMeshFiles,
   decorFamiliesFor,
+  propKindsFor,
   missionUnitTypes,
   hasUnitMesh,
   spriteSheetPlan,
@@ -421,6 +424,7 @@ describe('meshManifestFor', () => {
       vehicles: new Set(['mbt_lavi']),
       buildings: new Set(['house']),
       decor: new Set(['rock'] as const),
+      props: new Set(['tyre_pile'] as const),
     });
     expect(m.rigged).toEqual([{ id: 'civilians', urls: RIGGED_UNIT_MESHES.civilians.files.map(meshUrl), faction: 'civilian' }]);
     expect(m.vehicles).toEqual([{ id: 'mbt_lavi', url: meshUrl('vehicles/mbt_lavi.glb') }]);
@@ -430,5 +434,55 @@ describe('meshManifestFor', () => {
       ['rock_1', meshUrl('decor/rock_1.glb')],
       ['rock_2', meshUrl('decor/rock_2.glb')],
     ]);
+    expect([...m.props.entries()]).toEqual([['tyre_pile', meshUrl('props/tyre_pile.glb')]]);
+  });
+});
+
+describe('mesh catalogue: props (ground plan 2, Task 4)', () => {
+  const ALL_PROP_KINDS = Object.keys(PROP_MESHES).sort();
+
+  /** No road, no building tile at all -- every shipped map carries at least
+   *  one of the two, so this is built by hand rather than borrowed. Only the
+   *  four fields `propKindsFor` reads are given real content; the rest are
+   *  the interface's own empty/zero defaults. */
+  const bareMap: ParsedMap = {
+    id: 'bare',
+    width: 8,
+    height: 8,
+    terrain: 'arid',
+    blocked: new Uint8Array(64),
+    boulder: new Uint8Array(64),
+    boulderCount: 0,
+    cover: new Uint8Array(64),
+    decor: new Uint8Array(64),
+    elevation: new Uint8Array(64),
+    markers: {},
+    zones: {},
+    structures: [],
+    tunnels: [],
+  };
+
+  it('PROP_MESHES lists every PROP_KINDS entry and every file exists under art/meshes/', () => {
+    expect(ALL_PROP_KINDS).toEqual(
+      ['jersey_barrier', 'water_tank', 'satellite_dish', 'laundry_line', 'tyre_pile', 'rebar', 'wrecked_car'].sort()
+    );
+    for (const file of Object.values(PROP_MESHES)) {
+      expect(existsSync(path.join(MESH_ROOT, file)), file).toBe(true);
+    }
+  });
+
+  it('propKindsFor is empty for a map with no road and no building tile, and full otherwise', () => {
+    expect([...propKindsFor(bareMap)]).toEqual([]);
+    // beit_sahwan_outskirts carries both roads and buildings.
+    expect([...propKindsFor(parseMap(maps.beit_sahwan_outskirts))].sort()).toEqual(ALL_PROP_KINDS);
+  });
+
+  it('meshManifestFor(plan).props maps <kind> to meshUrl(PROP_MESHES[kind])', () => {
+    const plan = meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set());
+    const manifest = meshManifestFor(plan);
+    expect(manifest.props.size).toBe(plan.props.size);
+    for (const [kind, url] of manifest.props) {
+      expect(url).toBe(meshUrl(PROP_MESHES[kind]));
+    }
   });
 });

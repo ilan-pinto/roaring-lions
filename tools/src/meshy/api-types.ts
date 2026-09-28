@@ -114,3 +114,29 @@ export interface ImageToThreeDTask extends TextToThreeDTask {
   readonly thumbnail_urls?: readonly string[];
   readonly pre_remeshed_glb?: string;
 }
+
+/**
+ * `POST /openapi/v1/remesh`, per https://docs.meshy.ai/en/api/remesh (fetched
+ * 2026-09-27). Exactly one of `input_task_id`/`model_url` is required -- this
+ * CLI's `remesh` command only ever sends `input_task_id`, since `model_url`
+ * (a publicly accessible URL or data URI) has no use case here yet. The
+ * `resize_*`/`auto_size`/`origin_at`/`convert_format_only` fields are
+ * documented "deprecated" and deliberately omitted below.
+ */
+export interface RemeshRequest {
+  readonly input_task_id?: string;
+  readonly model_url?: string;
+  readonly target_formats?: readonly TargetFormat[];
+  readonly topology?: Topology;
+  readonly target_polycount?: number;
+  readonly decimation_mode?: number;
+  readonly alpha_thumbnail?: boolean;
+}
+
+/** Same task shape as text/image -- `type` is always `"remesh"` and it adds
+ *  `preceding_tasks` (queue position while PENDING); it never carries
+ *  `texture_urls` or `thumbnail_urls`, both already optional on the base. */
+export interface RemeshTask extends TextToThreeDTask {
+  readonly type?: 'remesh';
+  readonly preceding_tasks?: number;
+}

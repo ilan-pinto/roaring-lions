@@ -367,6 +367,31 @@ const GROUND_T17 =
   'frame time that differs per process (`smokeClockMs` 20715-20933 at the same tick). With nothing ' +
   'in frame on that clock the spread is gone. Floors are a third of the reading, rounded down. ';
 
+/**
+ * Ground plan 2, Task 11: every layer check on every gated scenario
+ * re-measured once, after Tasks 5 (props), 7 (sway), 9 (haze) and 10 (the
+ * dusk/tod flag) had all landed on top of whatever reading each check's own
+ * floor was last set from -- exactly the situation a one-time re-measurement
+ * exists to catch, since none of those four tasks re-ran every OTHER task's
+ * checks when it landed. Three consecutive full-gate runs, `t11-r{1,2,3}`,
+ * `--port=5195 --out-dir=.superpowers/ground2/t11-r<k>`, on macOS 15 / M3 Pro,
+ * headless Chromium, software SwiftShader, frame loop frozen. Every reading
+ * below was bit-identical across the three runs unless stated otherwise
+ * (`vehicle`'s `units` read 29775/29774/29775, a 1-px spread already named as
+ * this gate's one non-bit-identical check). Per the plan's own rule: a
+ * reading within 5% of the one the floor was set from leaves the floor
+ * unchanged; `decor` on `quiet` and `open-ground` moved enough (Tasks 5/7/9
+ * all add shadow/lit interactions decor's own removal now also clears) that a
+ * third of the new minimum sits above today's floor, so those two are raised,
+ * per the named exception for decor. No check's reading fell below its own
+ * floor -- nothing here is a stop.
+ */
+const GROUND_T11 =
+  'GROUND TASK 11 (ground plan 2, 2026-09-28): re-measured once for the dusk capture task, after ' +
+  'Tasks 5/7/9/10 landed on top of the reading this floor was last set from -- 3 consecutive ' +
+  'full-gate runs (`t11-r{1,2,3}`, port 5195) on macOS 15 / M3 Pro, headless Chromium, software ' +
+  'SwiftShader, frame loop frozen. ';
+
 export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
   quiet: {
     // The camera sits on `town_center` while the sandbox force spawns at the
@@ -389,13 +414,43 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
       {
+        layer: 'haze',
+        minDiffPixels: 986,
+        minMeanAbsChannelDelta: 0.2515,
+        rationale:
+          GROUND_T11 +
+          'hiding `haze` moves 2959 px / 0.7545 here, bit-identical across r1-r3 -- identical to the ' +
+          'reading the floor was set from. Unchanged. ' +
+          'measured 2026-09-28 on ground plan 2, Task 9 (the dust haze, a term inside the fog-of-war pass: `haze.ts`, `fog-pass.ts`), ' +
+          '3 consecutive full-gate runs (`t9-r{1,2,3}`) on macOS / M3 Pro, headless Chromium, software SwiftShader, frame loop ' +
+          'frozen; bit-identical across the three, repaint control 0 px / 0.0000. Hiding `haze` drives `uHazeAmp` to 0, the ' +
+          'haze term\'s own amplitude, and leaves the shroud and the off-map fade running (R-14). Floors are a third of the ' +
+          'smallest reading, rounded down. ' +
+          'On `quiet` (zoom 1, flat outskirts, reference level 0 so no low-lying term) it moves 2959 px / 0.7545: the top ' +
+          'third of the frame, 0 at the focus plane and rising to 12% at +20 tiles; the lower half does not change at all. ' +
+          'Floors 986 / 0.2515 (a third of 0.7545 is 0.2515 exactly in binary floating point). Falsified by removing the ' +
+          '`setHaze` call (`uHazeFar` left at its default 0): 0 px / 0.0000, FAIL.',
+      },
+      {
         layer: 'scatter',
-        minDiffPixels: 700,
-        minMeanAbsChannelDelta: 0.13,
+        minDiffPixels: 586,
+        minMeanAbsChannelDelta: 0.07,
+        // GROUND TASK 11: hiding the grain mesh moves 1724 px / 0.2152 here, bit-identical across
+        // r1-r3 -- 1.9% below the D9 1758/0.2242 reading the floor was set from. Within 5% (N-7
+        // exempts scatter from the "never re-derive downward" stop in any case): floor unchanged.
         toneCheck: {
           over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
+            'GROUND TASK 11 (2026-09-28): footprint re-measures at 31057 / 28728 = 0.9250 on all 3 ' +
+            'of r1-r3 (bit-identical), 0.09 points above D9\'s 0.9241 -- comfortably above 0.8, ratio ' +
+            'floor unchanged (it never moves under N-7). ' +
+            'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims (stone flecks halve ' +
+            'from 3-7 a tile to 2-4, the earth disc retires), the tone footprint re-measures at ' +
+            '31150 / 28785 = 0.9241 on all 3 of this task\'s re-derivation runs (bit-identical), ' +
+            'comfortably above the 0.8 floor. The ratio floor does not move under N-7 -- only the ' +
+            'toggle floor below does -- so 0.8 stays; re-derived under N-7, approved by the lead ' +
+            'on 2026-09-27. ' +
             'the grain mesh covers 52767-52768 px of this frame over textured ground and 49082 px ' +
             'over the flat palette tone -- ratio 0.9301-0.9302 over the 5 side-light runs, the ' +
             'one-pixel spread being the only tone footprint in the gate that is not bit-identical ' +
@@ -424,13 +479,31 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'the sun\'s Y stayed at 0.819, so the ground the marks sit on is lit exactly as it was ' +
           'and only the shading of the marks\' own micro-relief changed. The weakest of the three ' +
           'scatter witnesses -- this camera looks at a town, not at open ground -- which is why ' +
-          'open-ground carries the same check at 1.7x the signal.',
+          'open-ground carries the same check at 1.7x the signal. ' +
+          'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, hiding the grain mesh ' +
+          'moves 1758 px / 0.2242 here, bit-identical across 3 consecutive full-gate runs ' +
+          '(r1-r3). Floor re-derived per N-7 as a third of the smallest of the three readings, ' +
+          'rounded down: 586 px / 0.07, down from the pre-D9 700 px / 0.13 -- a fall, not a ' +
+          'tightening, so it is kept rather than held at the higher pre-D9 number. Re-derived ' +
+          'under N-7, approved by the lead on 2026-09-27.',
       },
       {
         layer: 'decor',
-        minDiffPixels: 3500,
-        minMeanAbsChannelDelta: 0.25,
+        // RAISED, ground plan 2 Task 11 (2026-09-28): 3500/0.25 -> 7274/0.4421. Hiding both decor
+        // batches now moves 21823 px / 1.3264 here, bit-identical across r1-r3 -- more than double
+        // the 10505/0.7573 this floor was set from. The growth is real, not noise: Task 5's prop
+        // batch, Task 7's crown sway and Task 9's haze all landed on this scenario since, each
+        // adding a shadow/lit interaction that hiding decor now also clears. A third of the new
+        // minimum (21823/3 = 7274.33 -> 7274; 1.3264/3 = 0.44213 -> 0.4421) sits above today's
+        // floor, so per the named exception ("the decor checks after the density, crowns and
+        // props") the floor is raised rather than left. Never lowered, and this is not one:
+        // 7274 > 3500, 0.4421 > 0.25.
+        minDiffPixels: 7274,
+        minMeanAbsChannelDelta: 0.4421,
         rationale:
+          GROUND_T11 +
+          'hiding both decor batches moves 21823 px / 1.3264 here, bit-identical across r1-r3. ' +
+          'RAISED per the named exception: 3500/0.25 -> 7274/0.4421 (see the field comment above). ' +
           PRE_LIT +
           'hiding both decor batches moves 10505 px / 0.7573 here -- 2.9x the pre-lit 3576 / ' +
           '0.2919, because a tree now casts a shadow on the ground beside it and hiding the tree ' +
@@ -446,10 +519,67 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'stands between that and a pass.',
       },
       {
+        layer: 'props',
+        minDiffPixels: 767,
+        minMeanAbsChannelDelta: 0.0465,
+        rationale:
+          GROUND_T11 +
+          'hiding the prop batch moves 2299 px / 0.1313 here, bit-identical across r1-r3 -- 0.13% ' +
+          'below the 2302 px reading the floor was set from, 6.0% below on magnitude (0.1397). Both ' +
+          'still 2.8x-3.0x the floor; within tolerance, unchanged. ' +
+          'measured 2026-09-27 on ground plan 2, Task 5 (the one prop batch, `terrain/prop-mesh.ts`), ' +
+          '3 consecutive runs (`--scenario=quiet,aftermath`) on macOS 15 / M3 Pro, headless Chromium, ' +
+          'software SwiftShader, frame loop frozen; bit-identical across the three, repaint control ' +
+          '0 px / 0.0000. Floors are a third of the smallest reading, rounded down. ' +
+          'hiding the prop batch moves 2307 px / 0.1404 here, with all 18 of the map\'s placed props ' +
+          'projecting inside the frame (water tanks and dishes in the yards, a jersey barrier and a ' +
+          'wrecked car by the crossroads, tyre piles). A small magnitude over a wide spread: every ' +
+          'prop is a few dozen pixels at zoom 1, most of them beside a building that already owns ' +
+          'the ground around it. `decor` does not hide props (`debug-layers.ts`), so this is the ' +
+          'props\' own witness. Falsified by making `composeTerrain` place no props ' +
+          '(`propPlacements: []`, the pure tests untouched): 0 px / 0.0000, FAIL. ' +
+          'RE-DERIVED 2026-09-28 after the lead\'s two answers to Task 5 (SCATTER_DENSITY 0.75; the ' +
+          'tyre pile\'s `rubber` lifted one palette step, #14150F -> #23241F): 2302 px / 0.1400 on 3 ' +
+          'bit-identical runs, so the floor is 767 / 0.0466 (was 769 / 0.0468) -- lower by two ' +
+          'pixels, because a lighter tyre sits nearer the ground tone, re-derived on the lead\'s word. ' +
+          'RE-DERIVED AGAIN 2026-09-28 (Task 7, carried item) after the lead\'s third answer, "Use the ' +
+          'dark-grey \'gunmetal\' ramp": `rubber` is gunmetal[3] alone, #23241F -> #363B39. 2302 px / ' +
+          '0.1397 on 3 bit-identical runs (`t7a-r{1,2,3}`), so the floor is 767 / 0.0465 (was 767 / ' +
+          '0.0466): the pixel floor holds, the magnitude floor drops 0.0001 because a grey tyre sits ' +
+          'nearer the sand it lies on than a black one did. 151 px of the frame change between the two ' +
+          'tones; their mean moves from RGB 6.8/6.1/4.2 to 9.3/9.1/6.8 through ACES.',
+      },
+      {
+        layer: 'wind',
+        minDiffPixels: 406,
+        minMeanAbsChannelDelta: 0.0284,
+        rationale:
+          GROUND_T11 +
+          'hiding `wind` moves 933 px / 0.0712 here, bit-identical across r1-r3 -- 23% below the ' +
+          '1218/0.0853 reading the floor was set from. Task 9\'s haze landed on this scenario since ' +
+          'and plausibly softens the contrast a sway diff is detected against; still 2.3x-2.5x the ' +
+          'floor, so unchanged rather than lowered (floors are minimums, never lowered on a fall). ' +
+          'measured 2026-09-28 on ground plan 2, Task 7 (the crowns sway on sim time, `terrain/sway.ts`), ' +
+          '3 consecutive runs (`--scenario=quiet`, `t7-r{1,2,3}`) on macOS / M3 Pro, headless Chromium, ' +
+          'software SwiftShader, frame loop frozen; bit-identical across the three (the three captures ' +
+          'are byte-equal files), repaint control 0 px / 0.0000. Hiding `wind` drives `uSwayAmp` to 0, ' +
+          'so every foliage vertex stands at rest at the SAME tick: 1218 px / 0.0853 each run, the olive ' +
+          'crowns in the frame changing from edge to edge (the crown is faceted, so a lean of up to ~2 px ' +
+          'reshades its whole face, not just its rim); trunks and cast shadows do not move. Floors are a ' +
+          'third of the smallest reading, rounded down: 406 / 0.0284. It repeats because the sway clock ' +
+          'is `presentationSimMs(tickCount, alpha)`, not accumulated frame time: tick 200 is t = 10.0 s ' +
+          'on every run. Falsified by initialising `uSwayAmp` to 0 in `ThreeRenderer` (the crowns never ' +
+          'sway): 0 px / 0.0000, FAIL.',
+      },
+      {
         layer: 'ground-albedo',
         minDiffPixels: 0,
         minMeanAbsChannelDelta: 0.34,
         rationale:
+          GROUND_T11 +
+          'driving the six strengths to 0 moves 8 px / 0.8667 here, bit-identical across r1-r3 -- ' +
+          '16% below the 51/1.0316 magnitude reading the floor was set from, still 2.5x the 0.34 ' +
+          'floor. Pixel count stays sub-threshold either way (`minDiffPixels` is 0). Unchanged. ' +
           PRE_LIT +
           'driving the six ground texture strengths to 0 -- the material\'s own 404 path -- moves ' +
           '51 px / 1.0316 here, against 29 px / 1.0883 under the front-lit sun and a pre-lit 2861 ' +
@@ -472,7 +602,18 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         layer: 'roads',
         minDiffPixels: 62,
         minMeanAbsChannelDelta: 0.156,
+        // GROUND TASK 11 FINDING (2026-09-28, not a stop): driving `uRoadOn` to 0 now moves 76 px /
+        // 0.4577 here, bit-identical across r1-r3. The pixel count fell 59% from the 187 the floor
+        // was set from (0.4577 is within 5% on magnitude) -- still above the 62-px floor, but the
+        // margin the floor was designed with (3.0x) has eroded to 1.2x. Reported to the lead rather
+        // than acted on: it still passes, so it is not the "fell below the floor" stop, and roads is
+        // not in the decor/scatter exception this task is authorised to raise. Worth a look if
+        // anything else touches ground contrast or the haze low-ground term before this is next
+        // re-measured. Not lowered or raised; left at 62/0.156.
         rationale:
+          GROUND_T11 +
+          'hiding `roads` moves 76 px / 0.4577 here, bit-identical across r1-r3 -- see the FINDING ' +
+          'comment above the field. ' +
           GROUND_T9 +
           'driving `uRoadOn` to 0 -- the procedural road (#226) gone whole: its packed surface ' +
           'tone, the bleached shoulder, both wheel ruts and the knoll-image grain, with the ' +
@@ -494,6 +635,9 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 0,
         minMeanAbsChannelDelta: 0.1599,
         rationale:
+          GROUND_T11 +
+          'driving the macro amplitude to 0 moves 2 px / 0.4493 here, bit-identical across r1-r3 -- ' +
+          '6.4% below the 0.4798 reading the floor was set from, still 2.8x the floor. Unchanged. ' +
           GROUND_T9 +
           'driving the macro field\'s amplitude to 0 moves 6 px / 0.4798 here, identical on all ' +
           'three runs. Floor a third of the magnitude, rounded down: 0.1599. SIX pixels is not ' +
@@ -512,6 +656,9 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 72000,
         minMeanAbsChannelDelta: 3.5,
         rationale:
+          GROUND_T11 +
+          'hiding buildings moves 218480 px / 10.4909 here, bit-identical across r1-r3 -- within 1% ' +
+          'of the 216469/10.6308 reading the floor was set from. Unchanged. ' +
           PRE_LIT +
           'hiding structure boxes, mesh building clones and billboard structure instancers moves ' +
           '216469 px / 10.6308 here, against 122262 / 7.4369 under the front-lit sun and a pre-lit ' +
@@ -529,6 +676,10 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 6800,
         minMeanAbsChannelDelta: 0.73,
         rationale:
+          GROUND_T11 +
+          'switching vignette off moves 19211 px / 2.1470 here, bit-identical across r1-r3 -- 6.7% ' +
+          'below the 20583 px reading the floor was set from (magnitude within 5%), still 2.8x the ' +
+          'floor. Unchanged. ' +
           SHELL_P0 +
           'switching the corner vignette off moves 20583 px / 2.1920 here. It is the weaker of ' +
           'the two vignette witnesses because this camera looks at a town from close in, so most ' +
@@ -541,6 +692,9 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 7100,
         minMeanAbsChannelDelta: 0.28,
         rationale:
+          GROUND_T11 +
+          'hiding the skirt moves 21550 px / 0.8449 here, bit-identical across r1-r3 -- within 1% ' +
+          'of the 21455/0.8442 reading the floor was set from. Unchanged. ' +
           SHELL_P0 +
           'hiding the ground beyond the map moves 21455 px / 0.8442 here. The magnitude is small ' +
           'against the pixel count and that is the shape of the layer rather than a weak signal: ' +
@@ -600,12 +754,23 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     layerChecks: [
       {
         layer: 'scatter',
-        minDiffPixels: 1200,
-        minMeanAbsChannelDelta: 0.53,
+        // GROUND TASK 11: hiding the grain mesh moves 3476 px / 1.4088 inside this crop,
+        // bit-identical across r1-r3 -- within 0.1% of D9's 3479/1.4086. Unchanged.
+        minDiffPixels: 1159,
+        minMeanAbsChannelDelta: 0.46,
         toneCheck: {
           over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
+            'GROUND TASK 11 (2026-09-28): footprint re-measures at 8191 / 7790 = 0.9510 on all 3 of ' +
+            'r1-r3 (bit-identical), close to D9\'s 0.9569 -- comfortably above 0.8, ratio floor ' +
+            'unchanged (never moves under N-7). ' +
+            'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, the tone footprint ' +
+            're-measures at 8149 / 7798 = 0.9569 on all 3 of this task\'s re-derivation runs ' +
+            '(bit-identical), above the 0.8 floor with more headroom than before the trims (the ' +
+            'flecks that survive keep the composite-order gap this check reads). The ratio floor ' +
+            'does not move under N-7 -- only the toggle floor below does -- so 0.8 stays; ' +
+            're-derived under N-7, approved by the lead on 2026-09-27. ' +
             'the grain mesh covers 10170 px of this crop over textured ground and 9417 px over ' +
             'the flat palette tone -- ratio 0.9260, identical on the 5 side-light runs (10254 / ' +
             '9487 = 0.9252 under the front-lit sun; 8967 / 8558 = 0.9544 before the lights). THE ' +
@@ -629,13 +794,21 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'already and the sun shades mark and ground together. The side light moved it by one ' +
           'part in a thousand (3615 / 1.6071 front-lit, the same 3615 pixels), because this ' +
           'crop holds no vertical face for an azimuth to change. Still the strongest scatter ' +
-          'witness on magnitude, which is what the crop was chosen for.',
+          'witness on magnitude, which is what the crop was chosen for. ' +
+          'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, hiding the grain mesh ' +
+          'moves 3479 px / 1.4086 here, bit-identical across 3 consecutive full-gate runs ' +
+          '(r1-r3). Floor re-derived per N-7 as a third of the smallest of the three readings, ' +
+          'rounded down: 1159 px / 0.46, down from the pre-D9 1200 px / 0.53 -- a fall, kept as ' +
+          'such. Re-derived under N-7, approved by the lead on 2026-09-27.',
       },
       {
         layer: 'macro',
         minDiffPixels: 0,
         minMeanAbsChannelDelta: 0.2924,
         rationale:
+          GROUND_T11 +
+          'driving the macro amplitude to 0 moves 1 px / 0.8905 inside this crop, bit-identical ' +
+          'across r1-r3 -- within 2% of the 0.8773 reading the floor was set from. Unchanged. ' +
           GROUND_T9 +
           'driving the macro field\'s amplitude to 0 moves 0 px / 0.8773 inside this crop, ' +
           'identical on all three runs. Floor a third of the magnitude, rounded down: 0.2924. ' +
@@ -649,9 +822,18 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'decor',
-        minDiffPixels: 340,
-        minMeanAbsChannelDelta: 0.21,
+        // RAISED, ground plan 2 Task 11 (2026-09-28): 340/0.21 -> 384/0.2388. Hiding both decor
+        // batches now moves 1154 px / 0.7165 inside this crop, bit-identical across r1-r3 -- up
+        // 12.6% on pixels and 10.9% on magnitude from the 1025/0.6460 this floor was set from (the
+        // same Task 5/7/9 growth as `quiet`'s decor check, on the smaller of the two signals). A
+        // third of the new minimum (1154/3 = 384.67 -> 384; 0.7165/3 = 0.238833 -> 0.2388) sits
+        // above today's floor, so per the named exception it is raised: 384 > 340, 0.2388 > 0.21.
+        minDiffPixels: 384,
+        minMeanAbsChannelDelta: 0.2388,
         rationale:
+          GROUND_T11 +
+          'hiding both decor batches moves 1154 px / 0.7165 inside this crop, bit-identical across ' +
+          'r1-r3. RAISED per the named exception: 340/0.21 -> 384/0.2388 (see the field comment). ' +
           PRE_LIT +
           'hiding both decor batches moves 1025 px / 0.6460 inside this crop, against 958 px / ' +
           '0.5393 under the front-lit sun and a pre-lit 915 ' +
@@ -666,6 +848,10 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 150,
         minMeanAbsChannelDelta: 0.88,
         rationale:
+          GROUND_T11 +
+          'driving the six strengths to 0 moves 198 px / 2.4538 inside this crop, bit-identical ' +
+          'across r1-r3 -- consistent with Ground Task 5\'s 196/2.4182 recorded reading, comfortably ' +
+          'above 150/0.88. Unchanged. ' +
           PRE_LIT +
           'driving the six ground texture strengths to 0 moves 470 px / 2.6616 inside this crop ' +
           '(472 / 2.6658 under the front-lit sun -- this crop holds no vertical face, so the ' +
@@ -798,6 +984,10 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 9800,
         minMeanAbsChannelDelta: 0.98,
         rationale:
+          GROUND_T11 +
+          'hiding every unit body moves 29775/29774/29775 px and 2.9730/2.9729/2.9730 across r1-r3 ' +
+          '-- the 1-px spread already named below as this gate\'s one non-bit-identical check, and ' +
+          'within 1% of the 29622-29624 range the floor was set from. Unchanged. ' +
           PRE_LIT +
           'hiding every unit body moves 29622-29624 px / 2.9600-2.9620 here -- a spread of 2 px ' +
           'and 0.0020, measured BEFORE c0044ff6 -- then the one layer delta in the gate that was ' +
@@ -865,13 +1055,45 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
       {
+        layer: 'haze',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.1291,
+        rationale:
+          GROUND_T11 +
+          'hiding `haze` moves 4 px / 0.3875 here, bit-identical across r1-r3 -- identical to the ' +
+          'reading the floor was set from. Unchanged. ' +
+          'measured 2026-09-28 on ground plan 2, Task 9 (the dust haze, a term inside the fog-of-war pass: `haze.ts`, `fog-pass.ts`), ' +
+          '3 consecutive full-gate runs (`t9-r{1,2,3}`) on macOS / M3 Pro, headless Chromium, software SwiftShader, frame loop ' +
+          'frozen; bit-identical across the three, repaint control 0 px / 0.0000. Hiding `haze` drives `uHazeAmp` to 0, the ' +
+          'haze term\'s own amplitude, and leaves the shroud and the off-map fade running (R-14). Floors are a third of the ' +
+          'smallest reading, rounded down. ' +
+          'On `relief` (zoom 2, tel_marum) it moves 4 px / 0.3875: a smooth ramp over the upper frame, under pixelmatch\'s ' +
+          '0.1 threshold nearly everywhere, so `minDiffPixels` is 0 for the reason `LayerCheckSpec` allows it and the ' +
+          'magnitude is the whole check (floor 0.1291). Tel Marum\'s median open-ground level is 0 -- the basin IS the ' +
+          'median, and no open tile lies below it -- so this is the far term alone: the low-lying term has no witness in ' +
+          'the gate (deir_amun, umm_zeitoun and qarn_hadid are the maps with open ground below their median). Falsified ' +
+          'by removing the `setHaze` call: 0 px / 0.0000, FAIL.',
+      },
+      {
         layer: 'scatter',
-        minDiffPixels: 1400,
-        minMeanAbsChannelDelta: 0.15,
+        // GROUND TASK 11: hiding the grain mesh moves 4090 px / 0.3273 here, bit-identical across
+        // r1-r3 -- 0.9% below D9's 4126/0.3294. Within 5%, unchanged.
+        minDiffPixels: 1375,
+        minMeanAbsChannelDelta: 0.10,
         toneCheck: {
           over: ['ground-albedo', 'macro'],
           minFootprintRatio: 0.8,
           rationale:
+            'GROUND TASK 11 (2026-09-28): footprint re-measures at 80307 / 79772 = 0.9933 on all 3 ' +
+            'of r1-r3 (bit-identical), close to D9\'s 0.9959 -- still a texture witness rather than a ' +
+            'defect witness here (see below), ratio floor unchanged (never moves under N-7). ' +
+            'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, the tone footprint ' +
+            're-measures at 79711 / 79387 = 0.9959 on all 3 of this task\'s re-derivation runs ' +
+            '(bit-identical), still comfortably above 0.8 -- as the entry below already ' +
+            'establishes, this scenario\'s tone check is a texture witness rather than a defect ' +
+            'witness, and that has not changed. The floor stays at 0.8, unmoved, per N-7 (which ' +
+            'approves a fall in the toggle floor below, never a change to the ratio floor). ' +
+            're-derived under N-7, approved by the lead on 2026-09-27. ' +
             'the grain mesh covers 91990 px of this frame over textured ground and 91394 px over ' +
             'the flat palette tone -- ratio 0.9935, identical on the 5 side-light runs (93062 / ' +
             '92076 = 0.9894 under the front-lit sun; 23915 / 22426 = 0.9377 before the lights, the ' +
@@ -904,7 +1126,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'against a pre-lit 7146 px / 0.4093 ' +
           '-- the magnitude held and the pixel count fell 39%, because tel_marum\'s relief now ' +
           'carries its own slope shading and a mark on a lit slope separates from it by less than ' +
-          'it did from a flat palette tone. The only scatter witness on a map with relief.',
+          'it did from a flat palette tone. The only scatter witness on a map with relief. ' +
+          'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, hiding the grain mesh ' +
+          'moves 4126 px / 0.3294 here, bit-identical across 3 consecutive full-gate runs ' +
+          '(r1-r3). Floor re-derived per N-7 as a third of the smallest of the three readings, ' +
+          'rounded down: 1375 px / 0.10, down from the pre-D9 1400 px / 0.15 -- a fall, kept as ' +
+          'such. Re-derived under N-7, approved by the lead on 2026-09-27.',
       },
       // NO `macro` check, by F-18 and not by measurement. The pure
       // `buildMacroField(48, 48)` predicts mean |m| 0.181 over this frame's
@@ -921,6 +1148,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 17500,
         minMeanAbsChannelDelta: 1.59,
         rationale:
+          GROUND_T11 +
+          'hiding both decor batches moves 54565 px / 5.0009 here, bit-identical across r1-r3 -- ' +
+          '3.8% above the 52587/4.7771 reading the floor was set from, and magnitude 4.7%: both ' +
+          'within 5%, so NOT raised (unlike `quiet` and `open-ground`, which moved 13-107%). ' +
+          'Unchanged. ' +
           PRE_LIT +
           'hiding both decor batches moves 52587 px / 4.7771 here, against 45442 / 3.8029 under ' +
           'the front-lit sun and a pre-lit 38513 / ' +
@@ -936,6 +1168,9 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 0,
         minMeanAbsChannelDelta: 0.63,
         rationale:
+          GROUND_T11 +
+          'driving the six strengths to 0 moves 9 px / 1.7936 here, bit-identical across r1-r3 -- ' +
+          '5.8% below the 8/1.9043 reading the floor was set from, still 2.8x the floor. Unchanged. ' +
           PRE_LIT +
           'driving the six ground texture strengths to 0 moves 8 px / 1.9043 here (4 px / 1.9069 ' +
           'under the front-lit sun), against a ' +
@@ -956,6 +1191,9 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 19800,
         minMeanAbsChannelDelta: 1.13,
         rationale:
+          GROUND_T11 +
+          'switching vignette off moves 59731 px / 3.4314 here, bit-identical across r1-r3 -- ' +
+          'within 1% of the 59402/3.4137 reading the floor was set from. Unchanged. ' +
           SHELL_P0 +
           'switching the corner vignette off moves 59402 px / 3.4137 here -- the strongest of the ' +
           'four gated framings, because tel_marum at zoom 2 fills the corners with lit rock ' +
@@ -984,6 +1222,9 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         minDiffPixels: 900,
         minMeanAbsChannelDelta: 1.01,
         rationale:
+          GROUND_T11 +
+          'hiding the skirt moves 2780 px / 3.1120 inside this crop, bit-identical across r1-r3 -- ' +
+          'within 3% of the 2705/3.0455 reading the floor was set from. Unchanged. ' +
           'measured 2026-09-25 on this fix, 3 consecutive full-gate runs on macOS 15 / M3 Pro, ' +
           'headless Chromium, software SwiftShader, frame loop frozen: bit-identical across all ' +
           'three at 2705 px / 3.0455. Floor is a third, rounded down: 900 px / 1.01 -- 9.5x and ' +
@@ -1026,10 +1267,37 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
       {
+        layer: 'props',
+        minDiffPixels: 1783,
+        minMeanAbsChannelDelta: 0.1505,
+        rationale:
+          GROUND_T11 +
+          'hiding the prop batch moves 5355 px / 0.4189 here, bit-identical across r1-r3 -- within ' +
+          '0.1% of the 5351 px reading the floor was set from, 7.3% below on magnitude, still 2.8x ' +
+          'the floor. Unchanged. ' +
+          'measured 2026-09-27 on ground plan 2, Task 5 (the one prop batch, `terrain/prop-mesh.ts`), ' +
+          '3 consecutive runs (`--scenario=quiet,aftermath`) on macOS 15 / M3 Pro, headless Chromium, ' +
+          'software SwiftShader, frame loop frozen; bit-identical across the three, repaint control ' +
+          '0 px / 0.0000. Floors are a third of the smallest reading, rounded down. ' +
+          'hiding the prop batch moves 5351 px / 0.4518 here, from ONE prop -- the wrecked car ' +
+          'at the road\'s edge above the north showcase site, which is the only one of the map\'s 15 ' +
+          'whose origin projects inside this zoom-2.2 frame; the car and the shadow it throws ' +
+          'across the crater are the whole signal. One object is a thin witness, and it is named ' +
+          'as one: moving the camera or the placement rule can take it out of frame, and that ' +
+          'reads as 0 px here. The second map for the props check, and the stronger one. ' +
+          'Floor 0.1505, not 0.1506: a third of 0.4518 is 0.15059999... in binary floating point. ' +
+          'Falsified by making `composeTerrain` place no props (`propPlacements: []`, the pure ' +
+          'tests untouched): 0 px / 0.0000, FAIL.',
+      },
+      {
         layer: 'decals',
         minDiffPixels: 41000,
         minMeanAbsChannelDelta: 2.07,
         rationale:
+          GROUND_T11 +
+          'hiding both decal pools moves 120278 px / 5.8225 here, bit-identical across r1-r3 -- 3.0% ' +
+          'below the 124019 px reading the floor was set from, 6.4% below on magnitude; both still ' +
+          '2.8x-2.9x the floor. Unchanged. ' +
           GROUND_T17 +
           'hiding both decal pools erases the whole showcase -- every crater, scorch, oil and ' +
           'rubble mark plus both tread and tyre runs, at all three sites -- moving 124019 px / ' +
@@ -1043,7 +1311,17 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         layer: 'roads',
         minDiffPixels: 480,
         minMeanAbsChannelDelta: 0.16,
+        // GROUND TASK 11 FINDING (2026-09-28, not a stop): driving `uRoadOn` to 0 now moves 639 px /
+        // 0.4415 here, bit-identical across r1-r3. The pixel count fell 56% from the 1453 the floor
+        // was set from (magnitude -8.9%, just over 5%) -- still above the 480-px floor, but the
+        // margin has eroded from 3.0x to 1.3x, the same pattern seen on `quiet`'s roads check.
+        // Reported alongside it rather than acted on for the same reason: it still passes, roads is
+        // not in the decor/scatter exception, and floors are never lowered on a fall. Not changed;
+        // left at 480/0.16.
         rationale:
+          GROUND_T11 +
+          'hiding `roads` moves 639 px / 0.4415 here, bit-identical across r1-r3 -- see the FINDING ' +
+          'comment above the field. ' +
           GROUND_T17 +
           'driving `uRoadOn` to 0 removes the diagonal road this map\'s own `road` showcase site sits ' +
           'on, packed surface tone, shoulder, ruts and knoll grain together, moving 1453 px / 0.4848 ' +
@@ -1063,6 +1341,9 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
         // from 0.7833 to 0.7082, and a third of it is 0.236.
         minMeanAbsChannelDelta: 0.23,
         rationale:
+          GROUND_T11 +
+          'driving the macro amplitude to 0 moves 5 px / 0.6905 here, bit-identical across r1-r3 -- ' +
+          '2.5% below the 0.7082 reading the floor was set from, still 3.0x the floor. Unchanged. ' +
           GROUND_T17 +
           'driving the macro field\'s amplitude to 0 moves 3 px / 0.7082 (21 px / 0.7833 at the old ' +
           'framing, floor 0.26 -- the one floor the reframe lowered). THREE pixels is under ' +
@@ -1082,9 +1363,12 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'scatter',
-        minDiffPixels: 2000,
-        minMeanAbsChannelDelta: 0.26,
+        minDiffPixels: 1990,
+        minMeanAbsChannelDelta: 0.19,
         rationale:
+          GROUND_T11 +
+          'hiding the grain mesh moves 5690 px / 0.5807 here, bit-identical across r1-r3 -- 4.7% ' +
+          'below D9\'s 5970/0.5948 reading (magnitude 2.4%), both within 5%. Unchanged. ' +
           GROUND_T17 +
           'hiding the grain mesh moves 6193 px / 0.7816 here (5195 / 0.6546 at the old framing, ' +
           'floor 1700 / 0.21). A fourth scatter witness (after ' +
@@ -1095,7 +1379,13 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'scatter witness uses, and this scenario adds nothing that ratio needs a fresh floor for -- ' +
           'declaring one here without a distinct measured population would only restate `open-ground`\'s ' +
           '0.9260/0.7109 gap on different ground. Falsified by making `buildScatter` return an empty ' +
-          'array: 0 px / 0.0000, FAIL.',
+          'array: 0 px / 0.0000, FAIL. ' +
+          'D9 (ground plan 2, Task 2, 2026-09-27): after the grain trims, hiding the grain mesh ' +
+          'moves 5970 px / 0.5948 here, bit-identical across 3 consecutive full-gate runs ' +
+          '(r1-r3). Floor re-derived per N-7 as a third of the smallest of the three readings, ' +
+          'rounded down: 1990 px / 0.19, down from the pre-D9 2000 px / 0.26 -- a fall, kept as ' +
+          'such. No `toneCheck` on this scenario, so N-7\'s ratio-floor rule does not apply here. ' +
+          'Re-derived under N-7, approved by the lead on 2026-09-27.',
       },
     ],
     rationale:
@@ -1107,6 +1397,29 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       'fresh-process captures against a provisional local baseline; at the old framing on the ' +
       'force, 519-656 px / 0.040-0.047 between two captures of the same commit. No committed ' +
       'baseline yet in any environment -- see `GROUND_T17`.',
+  },
+  dusk: {
+    // NOT GATED, deliberately and from birth (spec §3.6: "`dusk` is a
+    // report-only capture"), the same way `combat` is NOT GATED as a finding
+    // -- but for the opposite reason. `combat` is unbudgeted because nobody
+    // has found a threshold that survives its own noise; `dusk` has no
+    // threshold to find in the first place. It is one lit frame under a
+    // preset, and the preset itself is pinned by unit tests
+    // (`time-of-day.test.ts` and its neighbours) -- what a pixel count here
+    // would be voting on is "did the light change", which is the point of
+    // the capture, not a defect. There is nothing to floor: no layer here is
+    // being toggled to prove it contributes, the way `haze`/`scatter`/`decor`
+    // are on `quiet`. It exists so the lead can look at dusk and say whether
+    // it reads right, the same way `day` is pinned bit-identical (Task 8) and
+    // `dusk`/`dawn` are judged by eye instead.
+    region: null,
+    maxDiffPixels: 0,
+    maxMeanAbsChannelDelta: 0,
+    gated: false,
+    layerChecks: [],
+    rationale:
+      "REPORT-ONLY BY DESIGN (spec §3.6), not a gap awaiting calibration. quiet's own map/camera/" +
+      'tick under the dusk preset -- judged by the lead\'s eye against `day`, never by a threshold.',
   },
   combat: {
     // NOT GATED, and this is a finding rather than a gap. Real deaths, wrecks,

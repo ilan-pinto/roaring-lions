@@ -128,6 +128,16 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: '<locale id> — override the saved language for this load, without changing the setting',
   },
   {
+    name: 'tod',
+    // A value flag like `renderer`/`lang`, not a SANDBOX_FLAGS boolean --
+    // `dawn | day | dusk | night` are values, not an on/off switch, so
+    // `readFlags`'s `.has()` shape does not fit it. `time-of-day.ts`'s
+    // `timeOfDayOf` reads it directly off `params`. A mission never reads
+    // it (N-23): its own `map.time_of_day` always wins, which is why the
+    // blurb says so rather than leaving that to be discovered the hard way.
+    blurb: 'dawn | day | dusk | night — the sandbox’s light; a mission uses its own',
+  },
+  {
     name: 'pseudo',
     // Wraps the `en` catalogue in the pseudo-locale transform (i18n/pseudo.ts)
     // instead of loading a real one -- the fake-translation pass a screen
@@ -214,11 +224,16 @@ export function sandboxHelp(ctx: HelpContext): string {
   const flags = SANDBOX_FLAGS.map(
     (f) => `    &${f.name.padEnd(width)}  ${f.blurb}`
   ).join('\n');
+  // `tod` is a value flag, not a SANDBOX_FLAGS boolean (see its own entry's
+  // comment) -- printed as its own line rather than folded into the table
+  // above, which the four callers all read as "on or off".
+  const tod = KNOWN_PARAMS.find((p) => p.name === 'tod');
   return [
     `sandbox: ${ctx.mapId}`,
     `  flags on: ${ctx.on.length > 0 ? ctx.on.join(', ') : '(none)'}`,
     `  available:`,
     flags,
+    ...(tod ? [`    &tod=<value>${' '.repeat(Math.max(0, width - 3))}  ${tod.blurb}`] : []),
     `  maps: ${ctx.mapIds.join(', ')}`,
     `  console: __lions.help() · step(n) · goto(marker) · units() · sel([id]) · cursorKey() · voiceLog()`,
   ].join('\n');

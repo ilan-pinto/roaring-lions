@@ -27,6 +27,14 @@
  * the same discipline applies to this barrel too: it names no `ThreeRenderer`
  * import, directly or by re-export, now or later.
  *
+ * `prop-role.ts` is exported for the same reason `decor-role.ts` is: pure and
+ * three-free. `prop-place.ts` (ground plan 2, Task 4) is exported for the
+ * same reason `decor-place.ts` is -- pure and three-free -- and
+ * `prop-mesh.ts`, its `three`-importing sibling, is excluded for the same
+ * reason `mesh.ts`/`decor-mesh.ts` are. `sway.ts` (Task 7) is exported for
+ * the same reason again: the crown-sway maths and the GLSL string it builds
+ * are pure and three-free; `decor-mesh.ts` is what splices it into a material.
+ *
  * `types.ts`'s `MeshData`/`TerrainInput` are re-exported redundantly by
  * `ground.ts` and `scatter.ts` as well (each states `export type { MeshData,
  * TerrainInput }` for its own module's readability) -- all three trace back
@@ -64,3 +72,6 @@ export * from './buildings';
 export * from './clamp';
 export * from './decor-role';
 export * from './decor-place';
+export * from './prop-role';
+export * from './prop-place';
+export * from './sway';

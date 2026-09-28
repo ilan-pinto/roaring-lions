@@ -1,32 +1,32 @@
 /**
- * `runText`/`runImage` (`cli.ts`) against a fake client -- no network, no
- * real `art/meshy/` writes (a temp `paths` override is passed explicitly to
- * every call here). Covers two review findings that only show up in the
- * orchestration `cli.ts` does, not in any pure module:
+ * `runText`/`runImage`/`runRemesh` (`cli.ts`) against a fake client -- no
+ * network, no real `art/meshy/` writes (a temp `paths` override is passed
+ * explicitly to every call here). Covers two review findings that only show
+ * up in the orchestration `cli.ts` does, not in any pure module:
  *
  * - Important 1: after a task reaches SUCCEEDED, the ledger line written
  *   before the poll must be PATCHED with the real `credits_consumed` Meshy
  *   reports, and a run that never reaches SUCCEEDED must leave the
  *   estimate-only line untouched.
- * - Minor 2: under `MESHY_DRY_RUN=1`, `text`/`image` must run with no API
- *   key configured at all -- the dry-run branch prints the request and
- *   returns before ever touching `client`.
+ * - Minor 2: under `MESHY_DRY_RUN=1`, `text`/`image`/`remesh` must run with
+ *   no API key configured at all -- the dry-run branch prints the request
+ *   and returns before ever touching `client`.
  *
  * `MeshyClient` itself can't be faked with a plain object literal (it has a
  * private `apiKey` field, so TS requires nominal compatibility); `client.ts`
- * exports `TextTaskClient`/`ImageTaskClient`, the narrower structural
- * interfaces `runText`/`runImage` actually depend on, exactly so a fake can
- * satisfy them.
+ * exports `TextTaskClient`/`ImageTaskClient`/`RemeshTaskClient`, the narrower
+ * structural interfaces `runText`/`runImage`/`runRemesh` actually depend on,
+ * exactly so a fake can satisfy them.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ImageToThreeDTask, SubmitTaskResponse, TextToThreeDRequest, TextToThreeDTask } from './api-types';
-import type { ImageOptions, TextOptions } from './args';
-import type { ImageTaskClient, TextTaskClient } from './client';
+import type { ImageToThreeDTask, RemeshTask, SubmitTaskResponse, TextToThreeDRequest, TextToThreeDTask } from './api-types';
+import type { ImageOptions, RemeshOptions, TextOptions } from './args';
+import type { ImageTaskClient, RemeshTaskClient, TextTaskClient } from './client';
 import type { MeshyConfig } from './config';
-import { runImage, runText } from './cli';
+import { runImage, runRemesh, runText } from './cli';
 import { readLedger, summarizeLedger } from './ledger';
 
 const CONFIG: MeshyConfig = {
@@ -79,12 +79,29 @@ function baseImageOptions(overrides: Partial<ImageOptions> = {}): ImageOptions {
   };
 }
 
+function baseRemeshOptions(overrides: Partial<RemeshOptions> = {}): RemeshOptions {
+  return {
+    inputTaskId: 'preview-task-1',
+    polycount: 180,
+    topology: 'triangle',
+    kind: undefined,
+    formats: ['glb'],
+    name: undefined,
+    yes: true,
+    json: false,
+    ...overrides,
+  };
+}
+
 /** Task responses with no `model_urls`/`thumbnail_url`/`texture_urls`, so
  *  `downloadTaskOutputs` finds nothing to fetch and makes no network call. */
 function textTask(id: string, extra: Partial<TextToThreeDTask> = {}): TextToThreeDTask {
   return { id, status: 'SUCCEEDED', progress: 100, ...extra };
 }
 function imageTask(id: string, extra: Partial<ImageToThreeDTask> = {}): ImageToThreeDTask {
+  return { id, status: 'SUCCEEDED', progress: 100, ...extra };
+}
+function remeshTask(id: string, extra: Partial<RemeshTask> = {}): RemeshTask {
   return { id, status: 'SUCCEEDED', progress: 100, ...extra };
 }
 
@@ -152,6 +169,20 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
       expect(entries[0]).toMatchObject({ id: 'image-task-1', credits_estimated: 30, credits_consumed: 33 });
     });
 
+    it('(a) a successful remesh run patches its ledger line', async () => {
+      const client: RemeshTaskClient = {
+        submitRemeshTask: vi.fn(async (): Promise<SubmitTaskResponse> => ({ result: 'remesh-task-1' })),
+        getRemeshTask: vi.fn(async (id: string): Promise<RemeshTask> => remeshTask(id, { consumed_credits: 5 })),
+      };
+
+      const code = await runRemesh(client, CONFIG, baseRemeshOptions(), paths);
+
+      expect(code).toBe(0);
+      const entries = readLedger(paths.ledgerPath);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ id: 'remesh-task-1', kind: 'remesh', mode: 'remesh', credits_estimated: 5, credits_consumed: 5 });
+    });
+
     it('(b) a run that fails before success leaves the estimate-only line intact', async () => {
       const client: TextTaskClient = {
         submitTextTask: vi.fn(async (): Promise<SubmitTaskResponse> => ({ result: 'preview-task-failed' })),
@@ -208,6 +239,13 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
       expect(readLedger(paths.ledgerPath)).toEqual([]);
     });
 
+    it('runRemesh prints the request and returns 0 with no client and no key under MESHY_DRY_RUN=1', async () => {
+      process.env.MESHY_DRY_RUN = '1';
+      const code = await runRemesh(undefined, NO_KEY_CONFIG, baseRemeshOptions(), paths);
+      expect(code).toBe(0);
+      expect(readLedger(paths.ledgerPath)).toEqual([]);
+    });
+
     // Defensive: this shape only actually arises if `main()`'s own
     // MESHY_DRY_RUN gate (see args.ts's `commandNeedsApiKey`, used by
     // cli.ts's main()) is wrong and hands runText/runImage an undefined
@@ -222,6 +260,11 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
     it('runImage throws a clear internal error if ever given no client outside a dry run', async () => {
       delete process.env.MESHY_DRY_RUN;
       await expect(runImage(undefined, NO_KEY_CONFIG, baseImageOptions(), paths)).rejects.toThrow(/no client outside MESHY_DRY_RUN/);
+    });
+
+    it('runRemesh throws a clear internal error if ever given no client outside a dry run', async () => {
+      delete process.env.MESHY_DRY_RUN;
+      await expect(runRemesh(undefined, NO_KEY_CONFIG, baseRemeshOptions(), paths)).rejects.toThrow(/no client outside MESHY_DRY_RUN/);
     });
   });
 });

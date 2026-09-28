@@ -234,38 +234,18 @@ function assertPaletteColors(mesh: MeshData, label: string): void {
 
 /**
  * `<mapId>:<builder>` pairs where a builder legitimately emits NO geometry --
- * either a property of the map's own decor, or (grove, every map, as of
- * Task 7) a builder `composeTerrain` no longer calls at all.
- *
- * `grove` is now empty for EVERY map, not just `tel_marum`: retiring the
- * procedural canopy means `composeTerrain` stopped calling `buildGroves`
- * (`ThreeRenderer.ts`, `composeTerrain`'s own comment) -- grove tiles now get
- * real tree meshes from `decor-place.ts`'s `tree` family instead, drawn in
- * the decor batch, which this per-builder mesh check does not cover (decor
- * meshes are GPU `BatchedMesh` state built by `buildDecorMesh`, not a
- * `MeshData` this suite walks). `buildGroves` and its own test suite
- * (`grove.ts`, `grove.test.ts`) still exist and are still exercised
- * directly by `grove.test.ts` -- only the CALL from `composeTerrain` is
- * gone, kept as a one-line revert. Before Task 7, only `tel_marum` (no `o`
- * tile in its rows at all) was in this set; every other map produced real
- * grove geometry (912-16,368 vertices) through this same call.
+ * a property of the map's own authoring.
  *
  * This matters because, without `assertNonEmptyUnless` below, "every vertex
  * colour is a palette entry" is checking an empty loop for a listed
- * map/builder pair -- passing while verifying nothing, exactly the failure
- * mode this task exists to find and remove (discovered by actually running
- * this suite against real map data and reading the vertex counts, not by
- * inspection). Every OTHER map/builder pair among the five shipped maps
- * still produces real geometry (checked directly: ground 9,216-9,964
- * vertices, scatter 53,140-86,288, buildings 80-1,984) -- so grove is now a
- * total, named exception across all five maps, not a per-map one.
+ * map/builder pair -- passing while verifying nothing (discovered by actually
+ * running this suite against real map data and reading the vertex counts, not
+ * by inspection). The `grove` builder used to be a total exception here: ground
+ * Task 7 stopped `composeTerrain` calling `buildGroves` (grove tiles draw decor
+ * tree meshes, which this suite does not walk), and ground plan 2, Task 7
+ * removed the empty `groves` layer from `ComposedTerrain` altogether.
  */
-// `Object.keys(maps)` directly, not `MAP_IDS` -- that constant is declared
-// further down this file (after `KNOWN_EMPTY` is used by the assertion
-// helpers just below), and both are top-level `const`s, so referencing it
-// here would throw on the temporal-dead-zone, not merely warn.
 const KNOWN_EMPTY: ReadonlySet<string> = new Set([
-  ...Object.keys(maps).map((id) => `${id}:grove`),
   // The five tile-study sandboxes author no structures at all, deliberately:
   // each one exists to put ONE ground albedo in front of the player, and a
   // building would be the loudest thing in the frame on a map whose subject
@@ -509,7 +489,7 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
   });
 
   it(
-    'every vertex colour across ground, scatter, groves and buildings is a palette entry',
+    'every vertex colour across ground, scatter and buildings is a palette entry',
     () => {
       // Task B2: wired through `composeTerrain` -- the actual composition
       // `ThreeRenderer.rebuildTerrain` performs (Task B3.9) -- rather than a
@@ -539,7 +519,6 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
       // `tel_marum`'s grove mesh was found to be empty in the first place).
       assertNonEmptyUnless(composed.ground, `${id}:ground`, `${id} ground`);
       assertNonEmptyUnless(composed.scatter, `${id}:scatter`, `${id} scatter`);
-      assertNonEmptyUnless(composed.groves, `${id}:grove`, `${id} grove`);
       // Buildings are no longer one merged mesh: one `ComposedBuildingBox`
       // per live, un-arted structure, plus the always-near-empty `residual`
       // fallback layer (`composeTerrain`'s own doc comment). Non-emptiness
@@ -553,7 +532,6 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
 
       assertPaletteColors(composed.ground, `${id} ground`);
       assertPaletteColors(composed.scatter, `${id} scatter`);
-      assertPaletteColors(composed.groves, `${id} grove`);
       for (const box of composed.buildings) {
         assertPaletteColors(box.mesh, `${id} buildings (structure ${box.structureIndex})`);
       }
@@ -633,7 +611,7 @@ describe.each(MAP_IDS)('terrain parity: %s', (id) => {
 
 // --- composeTerrain: the art-masked split (Task B1) ------------------------
 
-describe('composeTerrain: ground/scatter/groves ignore hasArt, buildings do not', () => {
+describe('composeTerrain: ground/scatter ignore hasArt, buildings do not', () => {
   // `composeTerrain`'s own doc comment claims exactly this shape can "now be
   // asserted directly against a real Sim with hasArt both true and false for
   // the same structure" -- the affordance `structureBillboardGeometry`/
@@ -680,13 +658,12 @@ describe('composeTerrain: ground/scatter/groves ignore hasArt, buildings do not'
     // The regression this task's own doc comment names by name: an earlier
     // draft fed `buildGround` the ART-MASKED blocked array instead of the
     // raw one, which would make this structure's ground tile read as OPEN
-    // the instant its sheet finished loading. Ground/scatter/groves must be
+    // the instant its sheet finished loading. Ground/scatter must be
     // byte-identical between the two calls -- `hasArt` has no business
-    // reaching any of the three.
+    // reaching either.
     expect(Array.from(withArt.ground.positions)).toEqual(Array.from(withoutArt.ground.positions));
     expect(Array.from(withArt.ground.colors)).toEqual(Array.from(withoutArt.ground.colors));
     expect(Array.from(withArt.scatter.colors)).toEqual(Array.from(withoutArt.scatter.colors));
-    expect(Array.from(withArt.groves.colors)).toEqual(Array.from(withoutArt.groves.colors));
 
     // But buildings DO differ: hasArt=true must skip `target`'s own box, and
     // every other LIVE structure sharing its type -- hasArt is a per-TYPE
@@ -870,15 +847,13 @@ describe('break checks: proving each assertion actually discriminates', () => {
 
   it('the non-emptiness guard rejects an unlisted empty mesh, and only an unlisted one', () => {
     // Proves KNOWN_EMPTY/assertNonEmptyUnless itself discriminates, since it
-    // is what stood between the palette check and quietly checking nothing
-    // on grove meshes, every one of which is now legitimately empty (Task
-    // 7 retired the `composeTerrain` -> `buildGroves` call) -- see that
-    // constant's own doc comment. An empty mesh with no KNOWN_EMPTY entry
-    // must fail; a listed entry must not.
+    // is what stands between the palette check and quietly checking nothing
+    // -- see that constant's own doc comment. An empty mesh with no
+    // KNOWN_EMPTY entry must fail; a listed entry must not.
     const empty: MeshData = { positions: new Float32Array(0), colors: new Float32Array(0), indices: new Uint32Array(0) };
     expect(() => assertNonEmptyUnless(empty, 'not_a_real_map:ground', 'unlisted empty mesh')).toThrow(
       /emitted no geometry/
     );
-    expect(() => assertNonEmptyUnless(empty, 'tel_marum:grove', 'tel_marum grove')).not.toThrow();
+    expect(() => assertNonEmptyUnless(empty, 'tile_green:buildings', 'tile_green buildings')).not.toThrow();
   });
 });

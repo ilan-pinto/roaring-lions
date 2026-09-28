@@ -12,6 +12,11 @@ import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { Camera } from './project';
 import type { EmitterSpec } from './vfx';
 import type { RenderQuality } from './quality';
+// A type from a three-FREE module beside `lighting.ts` (it imports nothing),
+// so this file still reaches neither backend's library.
+import type { TimeOfDay } from './three/time-of-day';
+
+export type { TimeOfDay } from './three/time-of-day';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -68,6 +73,13 @@ export interface TerrainTones {
    * `leaf*`/`crownRatio` and has no mesh path to switch.
    */
   groveFamily: GroveFamily;
+  /**
+   * The theme's haze tone (N-18): the dust the air carries at distance --
+   * `dust.0` arid, `limestone.1` green. Read by the three.js backend's haze
+   * when a preset names no haze key of its own (`time-of-day.ts`'s
+   * `hazeKey: null`). Pixi ignores it.
+   */
+  haze: string;
 }
 
 /**
@@ -211,6 +223,15 @@ export interface RendererOptions {
    * a tick sees them identically every run.
    */
   decalShowcase?: { readonly x: number; readonly y: number };
+  /**
+   * The light this map is lit by (`three/time-of-day.ts`, N-20): `dawn`,
+   * `day` or `dusk`, and `night` resolves to `dusk` (D10). Absent is `day`,
+   * which is today's frame to the bit.
+   *
+   * Three-only: `PixiRenderer` has no lights and ignores it, like
+   * `shellColors`.
+   */
+  timeOfDay?: TimeOfDay;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */

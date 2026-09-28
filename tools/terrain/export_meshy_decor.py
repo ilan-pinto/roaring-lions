@@ -81,8 +81,10 @@ across three variant slots, and a third of every olive tile is a repeat of
 another third. It is recorded rather than fixed because the fix is a
 judgement about the olive's own art, not a bug in this script -- and because
 `desert_tree` below, which faced the identical "three from two" situation,
-answers it a different way (`DESERT_TREE_THIN_STRIDE`) that a future olive
-pass could copy.
+answers it a different way (a procedural crown that differs per variant,
+`DESERT_CROWN` -- see docstring "DESERT CROWN"; retired its own earlier
+foliage-thinning answer to the same question, `DESERT_TREE_THIN_STRIDE`, on
+2026-09-27) that a future olive pass could copy.
 
 ## BUSH -- why the part-segmentation companion, and how the split is read
 
@@ -125,22 +127,49 @@ independently and confirmed by re-rendering the classification as vertex
 colour (see report's four preview renders): raw Z height. Below
 `TREE_TRUNK_Z` (-0.20, in the source's own centred, unscaled frame) is
 gnarled trunk and root flare -- narrow radius, no leaves; above it the canopy
-spreads out. This is applied to the mesh AFTER decimation (order matters: a
-977 vert = 0 float will move slightly and it must not cross the seam it was
-measured against; decimation was checked to leave the split visually
-identical -- see report) and is a geometric rule about *shape*, not colour,
-so it survives the material strip that removes the only signal an image-
-based split would have used anyway.
+spreads out. It is a geometric rule about *shape*, not colour, so it
+survives the material strip that removes the only signal an image-based
+split would have used anyway.
 
-Decimated to `TREE_TARGET_VERTS` (3500) total, not the building pipeline's
-`DECIMATE_RATIO = 0.02` (~19.5k on an asset this size): a tree is scattered
-across every grove tile, and `decor-mesh.ts`'s `BatchedMesh` uploads vertex
-data ONCE per distinct `family_variant` geometry, not once per placement
-instance (real GPU instancing -- confirmed by reading that module), so
-3500 verts is not "3500 per tree drawn": it is the one-time cost of the
-`tree_N` entry the batch shares across every placed tree. Sized instead
-against this project's existing low-poly decor budget (rock ~120-230 verts,
-shrub ~250) with headroom for a much larger, more detailed hero silhouette.
+**FIX ROUND 2 correction, 2026-09-27 ("split trunk and leaves").** This used
+to say the split is "applied to the mesh AFTER decimation (order matters: ...
+it must not cross the seam it was measured against)". That was Fix round 1's
+design and it is retired: splitting on ALREADY-decimated geometry let one
+shared merge-by-distance pass relocate vertices near `TREE_TRUNK_Z` across
+the threshold, which measurably moved the trunk/foliage colour boundary (a
+limb that read trunk-brown before that merge read foliage-green after it --
+see `.superpowers/ground2/trees-preview/compare-full.png`) and skewed the
+whole-tree p1-p99 depth check by 15.7% (`task-6-report.md`, fix round 1, item
+1). The split now runs FIRST, on the untouched source, and decimation runs
+per-part afterward (`_export_tree_variant`'s own docstring) -- classification
+by construction cannot drift, because decimating an object already on one
+side of the split can never move a vertex to the other object.
+
+**Decimated by TRIANGLE count, not vertex count (D8, R-9, approved by the
+lead 2026-09-27).** `TREE_TARGET_TRIS` (3000) replaces the earlier
+`TREE_TARGET_VERTS` (3500): a face-count target is what `decimate_type =
+"COLLAPSE"`'s own `ratio` actually consumes (`ratio = target /
+len(mesh.polygons)`, not `/ len(mesh.vertices)`), and the two numbers are
+close for the roughly-triangulated raw scan but stop agreeing once the mesh
+is triangulated first (a quad-heavy region halves its face count without
+halving its vertex count). Triangulating BEFORE measuring `faces` makes the
+ratio exact rather than approximate, and the exporter always triangulates
+implicitly (glTF ships triangles only), so nothing downstream changes by
+doing it explicitly one step earlier. The source .blend is untouched --
+this only changes what the EXPORT script decimates to.
+
+The 3500-vert budget undershot in practice (the two live sources decimate to
+roughly 13,000+ triangles at that vertex ratio, because COLLAPSE's ratio is
+read against face count while the target was a vertex count -- a unit
+mismatch baked into the original constant). `TREE_TARGET_TRIS = 3000` is a
+genuine quarter of that: still scattered across every grove tile with
+`decor-mesh.ts`'s `BatchedMesh` uploading vertex data ONCE per distinct
+`family_variant` geometry (real GPU instancing, not per-instance cost), so
+the number is the one-time shared cost of the `tree_N` entry, not "3000
+triangles per tree drawn" -- and still comfortably above this project's
+existing low-poly decor budget (rock ~120-230 verts, shrub ~250) for a
+larger, more detailed hero silhouette, just a quarter the size it used to
+ship at.
 
 ## DESERT TREE -- reusing bush's own sources, and correcting a claim about precedent
 
@@ -158,56 +187,98 @@ candidate, and deliberately excluded here exactly as `bush` already keeps it
 distinct from the other two.
 
 `DESERT_TREE_SRC` therefore reads `BUSH_SRC[0]` and `BUSH_SRC[2]` -- the same
-files, not new sources -- through `_export_desert_tree_variant`, which is
-`_export_bush_variant` with two differences: it calibrates to
-`DESERT_TREE_TARGET_HEIGHT` (2.90, not `BUSH_TARGET_HEIGHT`'s 0.90) and, on
-the third variant only, thins the foliage set (below). It reuses
-`HUE_TRUNK_MAX` unchanged -- same sources, same measured split, nothing new
-to derive.
+files, not new sources -- through `_export_desert_tree_variant`, which keeps
+only `_export_bush_variant`'s trunk half: it opens the same source, hue-
+classifies it the same way (`HUE_TRUNK_MAX` unchanged -- same sources, same
+measured split, nothing new to derive), keeps the trunk objects, and
+calibrates to `DESERT_TREE_TARGET_HEIGHT` (2.90, not `BUSH_TARGET_HEIGHT`'s
+0.90). What used to happen to the foliage half is superseded -- see "DESERT
+CROWN" below.
 
-**Three variants from two sources, and the third is deliberately NOT another
-`tree_2`.** This task's brief described the `tree_2` precedent as changing
-decimation to earn a third variant from two sources. Checked against the
-shipped bytes before repeating it: `tree_1.glb` and `tree_2.glb` are
-byte-identical (md5 `c9b22c2165d69da590c42f9cdab0e708`, both 826504 bytes) --
-`TREE_SRC[1] is TREE_SRC[2]` literally, and the same deterministic decimate
-run against the same source file produces the same mesh, so `tree_2` is a
-literal duplicate under a different filename, not a distinct decimation.
-Repeating that here would ship `desert_tree_1.glb` and `desert_tree_2.glb`
-byte-identical, which the brief explicitly asked not to do ("make the third
-variant visibly different from the one it re-exports"). So `desert_tree_2`
-re-exports `var3` (the same source as `desert_tree_1`) but drops every
-`DESERT_TREE_THIN_STRIDE`-th foliage object -- sorted by NAME, not by
-`bpy.data.objects` iteration order, which nothing here documents as stable
--- leaving the full trunk untouched and roughly half the leaf clusters. This
-is the same lever the file already exposes for this family (a role's object
-LIST, joined) rather than a new mechanism, it is deterministic, and it reads
-as a sparser, wind-thinned acacia next to `desert_tree_1`'s fuller crown: a
-real silhouette difference, not a duplicate under a new name. The dropped
-objects are removed from the scene outright (`bpy.data.objects.remove`, not
-merely left unselected) -- `_finalize_and_export` exports with
-`use_selection=False`, so an unselected-but-still-present object would ship
-in the GLB anyway.
+**CORRECTION, 2026-09-27 (D8, N-13, N-14, approved by the lead).** Every
+paragraph below this point used to describe keeping the bush's own foliage
+(the Mediterranean leaf-cluster blobs, thinned by `DESERT_TREE_THIN_STRIDE`
+on the third variant to avoid a byte-identical repeat of `desert_tree_1`).
+That shipped a genuinely desert-appropriate TRUNK standing under a foliage
+silhouette copied wholesale from the same asset used to grow the bush
+family's own low ground shrubs -- workable, but not what N-13/N-14 asked
+for: a crown shaped and sized for this task, per variant, with a footprint
+band the lead signed off on (`DESERT_CROWN`). The thinning lever
+(`DESERT_TREE_THIN_STRIDE`) is retired along with it -- `desert_tree_1` and
+`desert_tree_2` now differ by their crown (8 clumps in a 1.15-1.5 m band
+against 5 in a 1.0-1.3 m band), not by which trunk twig objects survived, so
+the "third variant from two sources" question this section used to answer no
+longer has the shape it once did: the SOURCE `.blend` for `desert_tree_1`
+and `desert_tree_2` is still the identical file (`BUSH_SRC[2]`, i.e. `var3`,
+per `DESERT_TREE_SRC` above -- untouched, exactly as every other family's
+source stays untouched here), but the two shipped GLBs are not byte-identical
+because the procedural crown differs.
 
-**Vertex budget: the source decides it, not a decimate target.** Unlike
-`tree`'s ~950k-vertex sources, `bush`'s (and therefore `desert_tree`'s)
-sources are already low-poly part-segmentation exports -- 252-257 total
-vertices across all objects (measured directly on all three shrub sources),
-an order of magnitude under `TREE_TARGET_VERTS` (3500) and in the same band
-as the existing `bush` family's own ~250, per this section's own comparison
-above. No `DESERT_TREE_TARGET_VERTS` decimate step runs on variants 0/1 for
-the same reason `bush` runs none: there is nothing to trim on a mesh this
-size without visibly damaging its dozen leaf-cluster blobs, and a silhouette
-sparser than `tree`'s falls out of using this source at all, not from a
-chosen ratio. Measured after export: `desert_tree_2`'s foliage set drops from
-`var3`'s 9 objects to 5 (a ~44% cut to leaf clusters), which shows up as a
-~23% total-vertex reduction (257 -> 198 raw Blender verts; 1320 -> 1014 in
-the exported GLB's POSITION accessor, which is larger than the raw count on
-every variant here because glTF export splits vertices at hard-shaded face
-boundaries) -- not a clean half, because `var3`'s eight trunk/twig objects,
-untouched by thinning, already carry more of this source's geometry than its
-nine foliage clusters do. This is a side effect of the thinning pass, not a
-separately chosen vertex target.
+## DESERT CROWN -- N-13/N-14, a procedural crown replacing the bush's own foliage
+
+`_build_crown(variant, trunk_objs)` deletes nothing the caller has not
+already decided to discard (the bush-hued foliage objects, removed outright
+via `bpy.data.objects.remove`, not merely left unselected -- `_finalize_and
+_export` exports with `use_selection=False`, so an unselected-but-present
+object would still ship) and grows `DESERT_CROWN[variant][0]` leafy clumps
+in its place: one centred on the trunk's own top, the rest spaced around a
+ring at 0.72-0.95 of the trunk's height (fraction and angle both from
+`_crown_hash01`, never `mathutils.noise` -- see "Determinism" below).
+
+Each clump starts as an icosphere at `DESERT_CROWN_ICOSPHERE_SUBDIV` = 3 (320
+faces -- FIX ROUND 1: this was wrongly documented as 2 here. Blender's own
+`create_icosphere(subdivisions=N)` starts N=1 at the bare 20-face icosahedron
+and quadruples per level, so N=2 gives only 80 faces -- already BELOW every
+`DESERT_CROWN_TRIS_PER_CLUMP` target, and `_crown_clump`'s decimate step only
+ever reduces, so 2 would leave it nothing to do. See that constant's own
+comment), decimated by TRIANGLE count (same reasoning as `_decimate` above:
+triangulate first, then `DECIMATE`/`COLLAPSE` against the triangulated face
+count) to a per-clump target SOLVED from the trunk's own measured triangle
+count and `DESERT_CROWN_TRIS`'s midpoint, clamped into
+`DESERT_CROWN_TRIS_PER_CLUMP` (150-220) -- FIX ROUND 1: this was wrongly
+documented as merely "hashed into" that range; see `_build_crown`'s own
+docstring for why a fixed per-clump range alone can miss the WHOLE-TREE band
+this is actually gated on -- then scaled to an ellipsoid --
+`DESERT_CROWN_CLUMP_RADIUS_M` (0.32, inside the approved 0.28-0.45 m band) in
+X/Y, flattened to `DESERT_CROWN_CLUMP_FLATTEN_Z` (0.7) in Z -- and finally
+every vertex is pushed outward along its own (unit-sphere) normal by
+hand-rolled value noise for a ragged, leafy edge rather than a smooth ball.
+
+**Solving the ring radius in closed form, not by guess-and-check.** The
+clumps are built in the SAME raw (pre-`_bake_scale_and_ground`), arbitrary
+Meshy-source unit frame the trunk already lives in -- exactly like every
+other family's trunk/foliage pair -- so the two combine under one shared
+`mpu` (metres-per-unit) once the crown is attached. But `mpu` is not known
+UNTIL the crown is attached (it depends on the crown's own height
+contribution above the trunk), so building the crown "the right size" would
+otherwise need a build-measure-rebuild loop. It does not, because the crown's
+only height contribution beyond the trunk's own raw extent is the single top
+clump's own half-height, so
+
+    mpu = (DESERT_TREE_TARGET_HEIGHT - DESERT_CROWN_CLUMP_FLATTEN_Z * DESERT_CROWN_CLUMP_RADIUS_M) / trunk_height_raw
+
+is exact for an idealised sphere (and close enough after the ragged-edge
+noise push, given `DESERT_CROWN`'s wide bands, to land inside them --
+verified against the shipped bytes, see the task report). From that closed-
+form `mpu`, the metric clump radius and the metric ring radius (solved so
+`2 * (ring_radius_m + DESERT_CROWN_CLUMP_RADIUS_M)` lands at the midpoint of
+`DESERT_CROWN[variant]`'s footprint band) both convert directly to the raw
+units the clumps are actually built in. The REAL `mpu` used at export time is
+still the one `_export_desert_tree_variant` measures from the finished
+mesh's actual extent, same as every other family -- this closed form is only
+how the crown's OWN geometry is sized before that measurement happens, not a
+substitute for it.
+
+**Determinism.** `_crown_hash01` is the same FNV-1a-style integer hash
+`tools/terrain/props.py`'s own `_hash01` and `render_building.py`'s
+`_hash01` already use in this tree -- reimplemented here rather than
+imported across three otherwise-independent builders, per that file's own
+precedent. Every clump's face-count target, ring placement fraction, ring
+angle jitter and per-vertex ragged-edge push reads from it, seeded from small
+integers this file already knows (variant, clump index, vertex index): same
+inputs, same floats, every run, on any machine, forever -- which is what
+makes Step 4's export-twice-and-md5 check meaningful at all. `mathutils.noise`
+is never called anywhere in this function.
 
 ## SCALE -- the "3 GLB units per tile" convention, deliberately NOT MESH_SCALE
 
@@ -299,6 +370,7 @@ independently re-grounded to its own lowest point, which would sink a
 canopy's dangling leaf-tips to Z=0 instead of the trunk's true base).
 """
 import json
+import math
 import os
 import sys
 
@@ -410,12 +482,57 @@ FAMILY_TARGET = {
 }
 BUSH_TARGET_HEIGHT = 0.90
 TREE_TARGET_HEIGHT = 3.40
-TREE_TARGET_VERTS = 3500
+TREE_TARGET_TRIS = 3000  # by TRIANGLE count, not vertex count -- see docstring "TREE" (D8, R-9)
+# Merge-by-distance threshold, as a FRACTION of the mesh's own bounding-box
+# diagonal (never a fixed absolute unit distance), escalated until the merge
+# alone gets within reach of TREE_TARGET_TRIS -- see `_decimate`'s own
+# docstring for why COLLAPSE cannot close the whole gap from one fixed pass.
+TREE_MERGE_DIAG_FRAC_INITIAL = 0.010
+TREE_MERGE_GROWTH = 1.15
+TREE_MERGE_OVERSHOOT = 1.3   # merge target: within 30% of TREE_TARGET_TRIS, then COLLAPSE finishes it
+TREE_MERGE_MAX_ITERS = 20
+# Fix round 1: `_decimate` raises rather than ships silently off target. A
+# result above TREE_TARGET_TRIS is always an error; a result below this
+# fraction of it means TREE_TARGET_TRIS was set above what the merge
+# escalation alone naturally settles at on this source -- see `_decimate`'s
+# own docstring, "honesty correction".
+TREE_UNDERSHOOT_FLOOR = 0.8
+# Fix round 2 (lead decision 2026-09-27, "split trunk and leaves"): the
+# trunk's own decimation target is `TREE_TARGET_TRIS * (trunk's share of the
+# RAW, pre-decimation triangle count)`, clamped into this band -- never a
+# fixed absolute number (today's two sources would need different ones,
+# ~330-390, and a THIRD source's own proportions would silently go stale)
+# and never a fixed fraction of TREE_TARGET_TRIS (that would bake in today's
+# sources' own ~11-13% raw share as if it meant something universal). See
+# `_export_tree_variant`'s own docstring.
+TREE_TRUNK_TARGET_MIN = 100
+TREE_TRUNK_TARGET_MAX = 600
 DESERT_TREE_TARGET_HEIGHT = 2.90  # shorter/airier than the olive -- see docstring "SCALE"
 
-# Desert tree only: every Nth foliage object (sorted by name) survives into
-# variant 2's thinned canopy. See module docstring "DESERT TREE".
-DESERT_TREE_THIN_STRIDE = 2
+# Desert crown (N-13, N-14, approved by the lead 2026-09-27): per variant,
+# (clump count, min footprint diameter m, max footprint diameter m). Replaces
+# the bush foliage entirely on desert_tree -- see docstring "DESERT CROWN".
+DESERT_CROWN = {
+    0: (7, 2.0, 2.6),
+    1: (8, 1.15, 1.5),
+    2: (5, 1.0, 1.3),
+}
+DESERT_CROWN_TRIS = (1200, 1800)  # whole-tree triangle band, trunk + crown together
+
+# Per-clump triangle band (D8/N-14): a leafy blob, not a smooth ball. See
+# docstring "DESERT CROWN".
+DESERT_CROWN_TRIS_PER_CLUMP = (150, 220)
+# Blender's own `create_icosphere(subdivisions=N)` starts N=1 at the bare
+# icosahedron (20 faces) and quadruples per level -- 2 gives 80, BELOW every
+# `DESERT_CROWN_TRIS_PER_CLUMP` target, so `_crown_clump`'s decimate step
+# (which only ever reduces) would have nothing to do. 3 (320 faces) is the
+# lowest subdivision that starts above the band on every clump, leaving
+# DECIMATE COLLAPSE a real trim to make rather than a no-op.
+DESERT_CROWN_ICOSPHERE_SUBDIV = 3
+DESERT_CROWN_CLUMP_RADIUS_M = 0.32   # inside the approved 0.28-0.45 m band
+DESERT_CROWN_CLUMP_FLATTEN_Z = 0.7   # ellipsoid, flattened in Z
+DESERT_CROWN_NOISE_AMP_M = 0.06      # ragged-edge push, at DESERT_CROWN_CLUMP_RADIUS_M
+DESERT_CROWN_NOISE_FRAC = DESERT_CROWN_NOISE_AMP_M / DESERT_CROWN_CLUMP_RADIUS_M
 
 # Bush: hue (degrees, HLS) at or below this is the trunk/stem; above it is a
 # leaf cluster. See module docstring "BUSH". desert_tree reuses this
@@ -628,19 +745,156 @@ def _export_bush_variant(label, src, out_path):
 
 
 # ---------------------------------------------------------------------------
-# desert_tree -- bush's own hue split, bush's own sources, a taller target.
-# See module docstring "DESERT TREE".
+# desert_tree -- bush's own trunk, a procedural desert crown (D8, N-13/N-14).
+# See module docstring "DESERT TREE" and "DESERT CROWN".
 # ---------------------------------------------------------------------------
-def _export_desert_tree_variant(label, src, out_path, thin=False):
-    """Same hue-classified trunk/foliage split as `_export_bush_variant`, on
-    the same sources, calibrated to `DESERT_TREE_TARGET_HEIGHT` instead of
-    `BUSH_TARGET_HEIGHT`. `thin=True` (variant 2 only) drops every
-    `DESERT_TREE_THIN_STRIDE`-th foliage object -- sorted by NAME for a
-    result independent of `bpy.data.objects` iteration order, which nothing
-    documents as stable -- and removes the dropped objects from the scene
-    outright rather than leaving them merely unselected, because
-    `_finalize_and_export` exports with `use_selection=False` and would ship
-    an unselected-but-present object anyway."""
+def _crown_hash01(*ints):
+    """Deterministic 0..1 from integers -- never `mathutils.noise`, see
+    module docstring "DESERT CROWN". Same FNV-1a-style mix
+    `tools/terrain/props.py`'s own `_hash01` uses; reimplemented here rather
+    than imported across two otherwise-independent builders."""
+    h = 2166136261
+    for v in ints:
+        h ^= (int(v) & 0xFFFFFFFF)
+        h = (h * 16777619) & 0xFFFFFFFF
+        h ^= h >> 13
+    return (h & 0xFFFFFFFF) / 4294967295.0
+
+
+def _crown_clump(name, radius_raw, seed, target_tris):
+    """One leafy clump: an icosphere, decimated by TRIANGLE count to
+    `target_tris` (already clamped into `DESERT_CROWN_TRIS_PER_CLUMP` by the
+    caller), scaled to an ellipsoid, then every vertex pushed outward along
+    its own (unit-sphere) normal by hand-rolled value noise for a ragged
+    edge. Never `mathutils.noise`. `seed` is a tuple of small ints, unpacked
+    into `_crown_hash01` alongside each call's own salt."""
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=DESERT_CROWN_ICOSPHERE_SUBDIV, radius=1.0)
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    ob = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(ob)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    tri_mod = ob.modifiers.new("crown_triangulate", type="TRIANGULATE")
+    bpy.ops.object.modifier_apply(modifier=tri_mod.name)
+
+    before_t = len(ob.data.polygons)
+    ratio = min(1.0, target_tris / before_t) if before_t else 1.0
+    if ratio < 1.0:
+        dec = ob.modifiers.new("crown_decimate", type="DECIMATE")
+        dec.decimate_type = "COLLAPSE"
+        dec.ratio = ratio
+        bpy.ops.object.modifier_apply(modifier=dec.name)
+
+    for i, v in enumerate(ob.data.vertices):
+        n = v.co.normalized()
+        push = (_crown_hash01(*seed, i, 7) * 2.0 - 1.0) * DESERT_CROWN_NOISE_FRAC
+        v.co += n * push
+
+    ob.scale = (radius_raw, radius_raw, radius_raw * DESERT_CROWN_CLUMP_FLATTEN_Z)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    return ob
+
+
+def _build_crown(variant, trunk_objs):
+    """Grow `DESERT_CROWN[variant][0]` leafy clumps around `trunk_objs`' own
+    top -- one centred on the apex, the rest on a ring at 0.72-0.95 of the
+    trunk's height. Returns the (unjoined) clump objects; the caller joins
+    them into one `foliage` object exactly like every other family here. See
+    module docstring "DESERT CROWN" for the closed-form radius solve.
+
+    Per-clump triangle target is SOLVED, not merely hashed within
+    `DESERT_CROWN_TRIS_PER_CLUMP`: the trunk's own triangle count varies by
+    source (`var1`'s single clean stem against `var3`'s eight trunk/twig
+    objects), and `DESERT_CROWN[variant][0]` (clump count) varies too, so a
+    fixed per-clump range can land the WHOLE-TREE total (`DESERT_CROWN_TRIS`,
+    the gated quantity) outside its band even while every individual clump
+    stays inside its own -- measured happening on `desert_tree_2` (5 clumps,
+    more trunk geometry inherited from `var3`) before this fix. Solving for
+    the total first and dividing across the clump count keeps the WHOLE-TREE
+    number in-band regardless of which trunk source or clump count a variant
+    uses; the individual clump still varies by a small per-clump hashed
+    jitter around that solved value, clamped back into
+    `DESERT_CROWN_TRIS_PER_CLUMP` so no single clump becomes degenerate."""
+    n_clumps, lo_m, hi_m = DESERT_CROWN[variant]
+    target_diam_m = (lo_m + hi_m) / 2.0
+
+    trunk_tris = sum(len(ob.data.polygons) for ob in trunk_objs)
+    lo_clump, hi_clump = DESERT_CROWN_TRIS_PER_CLUMP
+    total_mid = sum(DESERT_CROWN_TRIS) / 2.0
+    base_per_clump = max(lo_clump, min(hi_clump, (total_mid - trunk_tris) / n_clumps))
+
+    pts = [p for ob in trunk_objs for p in _world_verts(ob)]
+    trunk_bottom_z = min(p.z for p in pts)
+    trunk_top_z = max(p.z for p in pts)
+    trunk_height_raw = trunk_top_z - trunk_bottom_z
+    if trunk_height_raw <= 0.0:
+        raise SystemExit(f"[desert_tree_{variant}] trunk has zero raw height "
+                          f"-- cannot place a crown")
+
+    mpu = ((DESERT_TREE_TARGET_HEIGHT - DESERT_CROWN_CLUMP_FLATTEN_Z * DESERT_CROWN_CLUMP_RADIUS_M)
+           / trunk_height_raw)
+    if mpu <= 0.0:
+        raise SystemExit(f"[desert_tree_{variant}] closed-form mpu={mpu:.5f} is not "
+                          f"positive -- DESERT_CROWN_CLUMP_RADIUS_M is too large for "
+                          f"this trunk's raw height")
+    clump_radius_raw = DESERT_CROWN_CLUMP_RADIUS_M / mpu
+    ring_radius_m = max(0.05, target_diam_m / 2.0 - DESERT_CROWN_CLUMP_RADIUS_M)
+    ring_radius_raw = ring_radius_m / mpu
+
+    def _clump_target(salt):
+        jitter = 0.85 + 0.3 * _crown_hash01(variant, salt, 999)  # +-15% around base
+        return max(lo_clump, min(hi_clump, base_per_clump * jitter))
+
+    def _place(ob, loc):
+        """Bakes `loc` into the clump's own mesh data and resets
+        object.location to identity. Every other helper in this file
+        (`_bake_scale_and_ground` in particular) reads a mesh's GROUND
+        position from its LOCAL vertex data, not its object transform, since
+        every other family here never moves an object before that point --
+        a clump left at a non-zero `.location` would silently corrupt both
+        the ground shift and the height/extent calibration once joined."""
+        ob.location = loc
+        bpy.ops.object.select_all(action="DESELECT")
+        ob.select_set(True)
+        bpy.context.view_layer.objects.active = ob
+        bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+
+    n_ring = n_clumps - 1
+    clumps = [_crown_clump(f"desert_crown_{variant}_top", clump_radius_raw,
+                            seed=(variant, 0), target_tris=_clump_target(0))]
+    _place(clumps[0], (0.0, 0.0, trunk_top_z))
+
+    for i in range(n_ring):
+        frac = 0.72 + _crown_hash01(variant, i, 1) * (0.95 - 0.72)
+        z = trunk_bottom_z + frac * trunk_height_raw
+        jitter = (_crown_hash01(variant, i, 2) * 2.0 - 1.0) * (math.pi / n_ring)
+        angle = (2.0 * math.pi * i / n_ring) + jitter
+        x = ring_radius_raw * math.cos(angle)
+        y = ring_radius_raw * math.sin(angle)
+        ob = _crown_clump(f"desert_crown_{variant}_ring{i}", clump_radius_raw,
+                           seed=(variant, i + 1), target_tris=_clump_target(i + 1))
+        _place(ob, (x, y, z))
+        clumps.append(ob)
+
+    print(f"[desert_tree_{variant}] crown: {len(clumps)} clump(s) (1 top + {n_ring} ring), "
+          f"trunk={trunk_tris} tris, per-clump base={base_per_clump:.1f} tris, "
+          f"ring radius {ring_radius_m:.3f} m, target footprint {target_diam_m:.2f} m "
+          f"({lo_m}-{hi_m} m band)")
+    return clumps
+
+
+def _export_desert_tree_variant(label, src, out_path, variant):
+    """Bush's own hue-classified trunk split (see `_export_bush_variant`),
+    calibrated to `DESERT_TREE_TARGET_HEIGHT` instead of `BUSH_TARGET_HEIGHT`
+    -- but the bush's own foliage is discarded outright (removed, not merely
+    unselected -- `_finalize_and_export` exports with `use_selection=False`)
+    and replaced by `_build_crown`'s procedural desert crown. See module
+    docstring "DESERT CROWN"."""
     bpy.ops.wm.open_mainfile(filepath=src)
     meshes = _meshes()
     trunk_objs, foliage_objs = [], []
@@ -659,23 +913,22 @@ def _export_desert_tree_variant(label, src, out_path, thin=False):
         raise SystemExit(f"[{label}] only {len(foliage_objs)} foliage-hued objects "
                           f"found -- expected roughly a dozen leaf clusters")
 
-    if thin:
-        foliage_sorted = sorted(foliage_objs, key=lambda o: o.name)
-        keep = set(foliage_sorted[::DESERT_TREE_THIN_STRIDE])
-        dropped = [o for o in foliage_sorted if o not in keep]
-        for ob in dropped:
-            bpy.data.objects.remove(ob, do_unlink=True)
-        foliage_objs = [o for o in foliage_sorted if o in keep]
-        if len(foliage_objs) < 3:
-            raise SystemExit(f"[{label}] thinning left only {len(foliage_objs)} foliage "
-                              f"object(s) -- DESERT_TREE_THIN_STRIDE="
-                              f"{DESERT_TREE_THIN_STRIDE} is too aggressive for this source")
+    print(f"[{label}] trunk={len(trunk_objs)} object(s), source foliage="
+          f"{len(foliage_objs)} object(s) (discarded -- replaced by a "
+          f"procedural crown, N-13/N-14)")
+    for ob in foliage_objs:
+        bpy.data.objects.remove(ob, do_unlink=True)
 
-    print(f"[{label}] trunk={len(trunk_objs)} object(s), foliage={len(foliage_objs)} "
-          f"object(s){' (thinned)' if thin else ''}")
+    # fix round 1: `_build_crown` used to take a separate `seed` parameter
+    # here, always called as `seed=variant` -- a second name for the same
+    # value it already receives as `variant`, and never read as anything
+    # else inside the function (every hash call used `variant` directly).
+    # Removed rather than wired up to something real, since there was
+    # nothing for a second seed to distinguish.
+    crown_objs = _build_crown(variant, trunk_objs)
 
     joined = {}
-    for role, objs in (("trunk", trunk_objs), ("foliage", foliage_objs)):
+    for role, objs in (("trunk", trunk_objs), ("foliage", crown_objs)):
         bpy.ops.object.select_all(action="DESELECT")
         for ob in objs:
             ob.select_set(True)
@@ -686,25 +939,203 @@ def _export_desert_tree_variant(label, src, out_path, thin=False):
         _strip(target_ob)
         joined[role] = target_ob
 
+    # Fix round 1: assert DESERT_CROWN_TRIS on the JOINED whole tree -- this
+    # is the number the vitest gate actually reads off the shipped GLB
+    # (`glbTris`, trunk + foliage together), and `_build_crown`'s own
+    # per-clump solve is only an ESTIMATE toward it (it works from the
+    # trunk's PRE-join polygon count and a jittered per-clump target, not the
+    # final triangulated whole-tree count). A polygon is not always a
+    # triangle at this point (`trunk_objs` come straight from the bush
+    # source's own quads/ngons, never triangulated by this function), so
+    # this counts by `len(vertices) - 2` per polygon -- the same triangle
+    # count glTF's own implicit triangulation ships -- rather than trusting
+    # `len(polygons)`, which would undercount a mesh with any quad in it.
+    def _tris(ob):
+        return sum(len(p.vertices) - 2 for p in ob.data.polygons)
+    total_tris = _tris(joined["trunk"]) + _tris(joined["foliage"])
+    lo_tris, hi_tris = DESERT_CROWN_TRIS
+    if not (lo_tris <= total_tris <= hi_tris):
+        raise SystemExit(
+            f"[{label}] whole tree is {total_tris} tris, outside "
+            f"DESERT_CROWN_TRIS={DESERT_CROWN_TRIS} -- adjust `_build_crown`'s "
+            f"per-clump solve or DESERT_CROWN's clump count, do not ship this mesh")
+
     extent = _extent(list(joined.values()), axis="z")
     mpu = metres_per_unit(extent, DESERT_TREE_TARGET_HEIGHT)
     _bake_scale_and_ground(list(joined.values()), mpu, label)
+
+    # MEASURED footprint (post-bake, real metres) -- printed rather than only
+    # the pre-build TARGET `_build_crown` already prints, so the export log
+    # states what the crown actually came out at, not just what it aimed for.
+    # `export_yup=True` swaps Blender's Z-up frame for glTF's Y-up on export
+    # (Blender Z, height -> glTF Y; Blender Y -> glTF Z), so the horizontal
+    # footprint the vitest gate reads as glTF (X, Z) is Blender (X, Y) here,
+    # NOT (X, Z) -- Blender Z at this point is still height.
+    foliage_extent = _extent([joined["foliage"]])
+    foliage_pts = _world_verts(joined["foliage"])
+    fw = max(p.x for p in foliage_pts) - min(p.x for p in foliage_pts)
+    fd = max(p.y for p in foliage_pts) - min(p.y for p in foliage_pts)
+    print(f"[{label}] MEASURED whole tree: {total_tris} tris (band {lo_tris}-{hi_tris}); "
+          f"MEASURED crown footprint: {fw:.3f} x {fd:.3f} m (longest axis {foliage_extent:.3f} m)")
+
     return _finalize_and_export(joined, out_path, label)
 
 
 # ---------------------------------------------------------------------------
 # tree -- decimate, then a Z-height geometric split into trunk + foliage.
 # ---------------------------------------------------------------------------
-def _decimate(ob, target_verts, label):
+def _decimate(ob, target_tris, label):
+    """Triangulate first so `faces` below is an exact triangle count (D8, R-9
+    -- see module docstring "TREE"), then decimate COLLAPSE to `target_tris`.
+    `ratio` is read against triangle count because that is what `DECIMATE`'s
+    own ratio consumes -- against vertex count the same constant silently
+    undershot by 4x+ on these sources.
+
+    A single COLLAPSE pass measurably CANNOT reach `target_tris` on this
+    source in one step, and not merely at the full 1.9M-triangle start:
+    ratios of 0.005 down to 0.0001 on the raw mesh all converge to the same
+    ~14,239, twelve successive 0.5-ratio passes stall at 14,483, AND (this
+    is the part that ruled out a single fixed pre-pass) re-running the same
+    experiment after a Merge-by-Distance pre-pass finds the SAME shape of
+    floor at a SMALLER scale -- a mesh merged down to ~10,271 triangles
+    still only reaches 8,850 before a second COLLAPSE pass stalls
+    completely. The mesh itself is clean (one connected component, 6
+    boundary edges, 7 non-manifold edges out of 2.9M) -- the floor is
+    COLLAPSE's own quadric-error metric refusing to keep merging once local
+    error plateaus across this mesh's dense, self-similar bark/leaf
+    micro-detail, not a topology defect, and it recurs at whatever scale
+    Merge-by-Distance leaves behind rather than being crossed by it once.
+
+    So `target_tris` cannot be reached by picking ONE merge threshold and
+    trusting COLLAPSE for the rest -- a fixed threshold tuned to land near
+    `target_tris` also means COLLAPSE never has real work to do, which
+    quietly breaks the interface: raising `target_tris` would change
+    nothing, since the merge alone would still be the only thing setting
+    the final count. Instead, `TREE_MERGE_DIAG_FRAC_INITIAL` (a threshold
+    scaled to the mesh's own bounding-box diagonal, never a fixed absolute
+    distance, so it generalises across sources of different scale) is
+    escalated geometrically -- `bpy.ops.mesh.remove_doubles`, repeated with a
+    LARGER threshold each time it is still needed -- until the mesh is
+    merged down to within `TREE_MERGE_OVERSHOOT` of `target_tris`, a size
+    COLLAPSE measurably CAN close from (a single pass reliably clears
+    ~10-15% at that scale).
+
+    FIX ROUND 1 -- honesty correction. The paragraph above used to end
+    "`target_tris` is then the real final word ... changing the constant
+    changes the shipped geometry end to end", which is true only when
+    `target_tris` is SMALL enough that the escalation loop still has to work
+    to get near it. It is measurably false the other way: set `target_tris`
+    to 12000 (this file's own falsification, see the module test suite) and
+    the escalation loop stops the moment the merge alone drops BELOW 12000 x
+    `TREE_MERGE_OVERSHOOT`, at 7,567 tris -- `ratio = min(1.0, target_tris /
+    before_t)` then clamps to 1.0 and COLLAPSE does NOTHING, so the merge's
+    own settled count ships, not `target_tris`. For a `target_tris` in the
+    range this file actually ships at (3000, well below the merge's own
+    natural floor for either source), COLLAPSE always has genuine work left
+    and the constant genuinely controls the outcome -- but that is a property
+    of the CHOSEN value, not a guarantee the mechanism gives for free. Rather
+    than leave that mismatch silent, this function now raises loudly instead
+    of shipping a mesh that quietly missed the request: see the three
+    `SystemExit` checks below."""
+    pts = _world_verts(ob)
+    dx = max(p.x for p in pts) - min(p.x for p in pts)
+    dy = max(p.y for p in pts) - min(p.y for p in pts)
+    dz = max(p.z for p in pts) - min(p.z for p in pts)
+    diag = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    frac = TREE_MERGE_DIAG_FRAC_INITIAL
+    merge_iters = 0
+    merged_t = len(ob.data.polygons)
+    for merge_iters in range(1, TREE_MERGE_MAX_ITERS + 1):
+        merge_threshold = frac * diag
+        bpy.ops.object.select_all(action="DESELECT")
+        ob.select_set(True)
+        bpy.context.view_layer.objects.active = ob
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.remove_doubles(threshold=merge_threshold)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        merged_t = len(ob.data.polygons)
+        if merged_t <= target_tris * TREE_MERGE_OVERSHOOT:
+            break
+        frac *= TREE_MERGE_GROWTH
+    else:
+        # The `for` completed every iteration without ever `break`ing --
+        # exhausted, not merely slow. Shipping whatever `merged_t` happened
+        # to be at that point would be exactly the silent off-target mesh
+        # this whole escalation exists to avoid.
+        raise SystemExit(
+            f"[{label}] merge escalation exhausted after {TREE_MERGE_MAX_ITERS} "
+            f"iteration(s) (final frac={frac:.5f}) without reaching "
+            f"{target_tris * TREE_MERGE_OVERSHOOT:.0f} tris (target_tris="
+            f"{target_tris} x TREE_MERGE_OVERSHOOT={TREE_MERGE_OVERSHOOT}) -- "
+            f"still at {merged_t}; raise TREE_MERGE_MAX_ITERS or TREE_MERGE_GROWTH, "
+            f"do not ship this mesh silently off target")
+    merged_v = len(ob.data.vertices)
+
+    tri_mod = ob.modifiers.new("decor_triangulate", type="TRIANGULATE")
+    bpy.ops.object.modifier_apply(modifier=tri_mod.name)
     before_v = len(ob.data.vertices)
-    ratio = min(1.0, target_verts / before_v)
-    mod = ob.modifiers.new("decor_decimate", type="DECIMATE")
-    mod.decimate_type = "COLLAPSE"
-    mod.ratio = ratio
-    bpy.context.view_layer.objects.active = ob
-    bpy.ops.object.modifier_apply(modifier=mod.name)
+    before_t = len(ob.data.polygons)  # every face is now a triangle
+    ratio = min(1.0, target_tris / before_t)
+    if ratio < 1.0:
+        mod = ob.modifiers.new("decor_decimate", type="DECIMATE")
+        mod.decimate_type = "COLLAPSE"
+        mod.ratio = ratio
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+
+    # DECIMATE COLLAPSE leaves FACE-LESS vertices behind on this source --
+    # measured 12/233 on one variant's trunk, 11/704 on its foliage, several
+    # of them still edge-connected to each other (so `bpy.ops.mesh.
+    # select_loose()`'s default "no edges at all" definition misses them --
+    # confirmed empirically, it left the exported height unchanged the first
+    # time this fix was attempted). `mesh.vertices` still counts every one
+    # of them, so every Python-side extent check in this file (and the `mpu`
+    # it calibrates) sees a slightly LARGER range than what actually ships:
+    # glTF stores per-LOOP data, so the exporter silently drops any vertex no
+    # FACE references, and the measured height came out 3.395 against a
+    # declared 3.400 before this cleanup ran -- not float rounding, a real
+    # ~0.15% shrink from vertices that were never going to be exported.
+    # bmesh, not the operator, so "has zero linked faces" is the exact
+    # predicate applied -- matching glTF's own criterion for what ships.
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    faceless = [v for v in bm.verts if len(v.link_faces) == 0]
+    bmesh.ops.delete(bm, geom=faceless, context="VERTS")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+
     after_v = len(ob.data.vertices)
-    print(f"[{label}] decimate ratio={ratio:.5f}: {before_v} -> {after_v} verts")
+    after_t = len(ob.data.polygons)
+
+    # No silent off-target mesh (fix round 1). `after_t > target_tris` means
+    # a mesh shipped ABOVE the number this whole function exists to enforce
+    # -- COLLAPSE should never leave more than requested, and if it does,
+    # something about this source changed and needs a fresh look, not a
+    # quiet ship. `after_t < target_tris * TREE_UNDERSHOOT_FLOOR` is the
+    # mirror case the module docstring's "honesty correction" describes: a
+    # `target_tris` set larger than what the merge escalation naturally
+    # settles at (the 12000 -> 7,567 case) ships something far below what was
+    # asked for with `ratio` clamped to a no-op decimate -- this makes THAT
+    # silent mismatch loud instead.
+    if after_t > target_tris:
+        raise SystemExit(
+            f"[{label}] shipped {after_t} tris, ABOVE target_tris={target_tris} -- "
+            f"COLLAPSE should never leave more than requested; do not ship this mesh")
+    if after_t < target_tris * TREE_UNDERSHOOT_FLOOR:
+        raise SystemExit(
+            f"[{label}] shipped {after_t} tris, below the {TREE_UNDERSHOOT_FLOOR:.0%} "
+            f"floor of target_tris={target_tris} ({target_tris * TREE_UNDERSHOOT_FLOOR:.0f}) "
+            f"-- target_tris is likely set larger than what the merge escalation alone "
+            f"settles at on this source (see this function's own docstring, 'honesty "
+            f"correction'); lower target_tris or redesign the escalation, do not ship "
+            f"this mesh silently off target")
+
+    print(f"[{label}] merge-by-distance: {merge_iters} escalation(s), final threshold="
+          f"{merge_threshold:.5f} (diag={diag:.4f}) -> {merged_v} verts, {merged_t} tris; "
+          f"decimate ratio={ratio:.5f}: {before_v} -> {after_v} verts, "
+          f"{before_t} -> {after_t} tris (loose verts removed)")
 
 
 def _split_tree_by_height(ob, label):
@@ -764,7 +1195,41 @@ def _split_tree_by_height(ob, label):
     return trunk_ob, foliage_ob
 
 
+def _tri_count(ob):
+    """Triangle count by `len(vertices) - 2` per polygon -- correct for a
+    mesh that may still carry quads/ngons (both `trunk_ob` and `foliage_ob`
+    are, straight off `mesh.separate`, before either is triangulated),
+    unlike trusting `len(polygons)` directly."""
+    return sum(len(p.vertices) - 2 for p in ob.data.polygons)
+
+
 def _export_tree_variant(label, src, out_path):
+    """Fix round 2 (lead decision 2026-09-27, "split trunk and leaves"):
+    split trunk from foliage FIRST, on the untouched source geometry, THEN
+    decimate each part separately. Fix round 1's design decimated the WHOLE
+    mesh (a single shared merge-by-distance pass) and split by height
+    afterward -- which let that shared merge relocate vertices near
+    TREE_TRUNK_Z across the threshold (the trunk/foliage colour boundary
+    measurably moved: a limb that read trunk-brown before the merge read
+    foliage-green after it, see `.superpowers/ground2/trees-preview/
+    compare-full.png`), and skewed the trunk's share of the combined
+    point cloud enough to fail the whole-tree p1-p99 depth check by 15.7%
+    (task-6-report.md, fix round 1, item 1). Both defects are now
+    structurally impossible: classification runs on ORIGINAL coordinates,
+    and decimating an object already on one side of the split can never
+    move a vertex to the other object.
+
+    The trunk gets its OWN target, proportionate to its share of the RAW
+    (pre-decimation) triangle count -- not a fixed number (today's two
+    sources would need different ones) and not a fixed fraction of
+    `TREE_TARGET_TRIS` (that would bake in today's sources' own ~11-13% raw
+    share as if it meant something universal for a still-undiscovered third
+    source). Measured (task-6-report.md, fix round 2): plain DECIMATE
+    COLLAPSE, even on the trunk ALONE, hits its own version of the same
+    quadric-plateau floor `_decimate`'s own docstring describes for the
+    whole tree -- so the trunk gets the SAME merge-then-decimate treatment,
+    just with a much smaller target, which is what makes it "a much lighter
+    pass" rather than a different mechanism."""
     bpy.ops.wm.open_mainfile(filepath=src)
     meshes = _meshes()
     if len(meshes) != 1 or meshes[0].name != "mesh_node":
@@ -774,10 +1239,46 @@ def _export_tree_variant(label, src, out_path):
     if len(ob.data.materials) != 1:
         raise SystemExit(f"[{label}] expected exactly one material to strip, "
                           f"found {len(ob.data.materials)}")
-    _decimate(ob, TREE_TARGET_VERTS, label)
+
     trunk_ob, foliage_ob = _split_tree_by_height(ob, label)
     _strip(trunk_ob)
     _strip(foliage_ob)
+
+    trunk_raw_tris = _tri_count(trunk_ob)
+    foliage_raw_tris = _tri_count(foliage_ob)
+    raw_total = trunk_raw_tris + foliage_raw_tris
+    if raw_total <= 0:
+        raise SystemExit(f"[{label}] trunk+foliage raw triangle count is {raw_total} "
+                          f"-- cannot proportion a decimation budget")
+    trunk_share = trunk_raw_tris / raw_total
+    trunk_target = round(TREE_TARGET_TRIS * trunk_share)
+    trunk_target = max(TREE_TRUNK_TARGET_MIN, min(TREE_TRUNK_TARGET_MAX, trunk_target))
+    print(f"[{label}] raw trunk={trunk_raw_tris} foliage={foliage_raw_tris} tris "
+          f"(trunk share {trunk_share:.1%}) -> trunk_target={trunk_target}")
+
+    _decimate(trunk_ob, trunk_target, f"{label}_trunk")
+    trunk_final_tris = _tri_count(trunk_ob)
+    foliage_target = TREE_TARGET_TRIS - trunk_final_tris
+    if foliage_target < TREE_TRUNK_TARGET_MIN:
+        raise SystemExit(f"[{label}] trunk alone is {trunk_final_tris} tris, leaving only "
+                          f"{foliage_target} for foliage out of TREE_TARGET_TRIS="
+                          f"{TREE_TARGET_TRIS} -- raise TREE_TARGET_TRIS or lower "
+                          f"TREE_TRUNK_TARGET_MAX")
+    _decimate(foliage_ob, foliage_target, f"{label}_foliage")
+
+    # The whole-tree total, once more at the top level -- `_decimate`'s own
+    # guards already enforce this per PART, but this is the number the
+    # vitest gate (and D8's own target) reads off the shipped GLB.
+    total_tris = _tri_count(trunk_ob) + _tri_count(foliage_ob)
+    if total_tris > TREE_TARGET_TRIS:
+        raise SystemExit(f"[{label}] whole tree is {total_tris} tris, ABOVE "
+                          f"TREE_TARGET_TRIS={TREE_TARGET_TRIS} -- do not ship this mesh")
+    if total_tris < TREE_TARGET_TRIS * TREE_UNDERSHOOT_FLOOR:
+        raise SystemExit(f"[{label}] whole tree is {total_tris} tris, below the "
+                          f"{TREE_UNDERSHOOT_FLOOR:.0%} floor of TREE_TARGET_TRIS="
+                          f"{TREE_TARGET_TRIS} -- do not ship this mesh")
+    print(f"[{label}] whole tree: {total_tris} tris (trunk={trunk_final_tris}, "
+          f"foliage={_tri_count(foliage_ob)}), target={TREE_TARGET_TRIS}")
 
     extent = _extent([trunk_ob, foliage_ob], axis="z")
     mpu = metres_per_unit(extent, TREE_TARGET_HEIGHT)
@@ -825,7 +1326,7 @@ def export():
         for variant, src in enumerate(DESERT_TREE_SRC):
             label = f"desert_tree_{variant}"
             out_path = os.path.join(OUT_DIR, f"{label}.glb")
-            result = _export_desert_tree_variant(label, src, out_path, thin=(variant == 2))
+            result = _export_desert_tree_variant(label, src, out_path, variant)
             summary[label] = {"path": out_path, "bytes": result[0], "verts": result[1],
                                "polys": result[2], "roles": result[3]}
 

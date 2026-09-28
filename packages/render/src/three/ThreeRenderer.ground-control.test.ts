@@ -26,7 +26,7 @@ import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { DecalStamp } from './decal-pool';
 import type { GroundMaterial } from './terrain/mesh';
-import { hexToLinear } from './terrain/shared';
+import { DECOR_ROAD, hexToLinear } from './terrain/shared';
 import { tileBaseToneHex } from './terrain/ground';
 import type { DecalGroundSource } from './terrain/decal-ground-tone';
 
@@ -75,6 +75,7 @@ const TONES: TerrainTones = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone', groveFamily: 'desert_tree',
+  haze: '#E0B87A',
 };
 
 function makeOpts(): RendererOptions {
@@ -139,6 +140,29 @@ describe('the control map is rebuilt only when its inputs change (fix wave I-1)'
     expect(builds.graph).toBe(graphs);
     // ...and the textures it built are still the ones bound.
     expect(priv.groundMat.uniforms.uControlB.value).toBe(bound);
+    r.dispose();
+  });
+  // Scope exception (ground plan 2 review, Task 1 fix round 1): this map
+  // HAS a road, unlike every other case in this file, which is exactly why
+  // it belongs here rather than in decor-place.test.ts. `decorPlacements`
+  // (ground plan 2, G8) now also calls `buildRoadGraph` when a map carries
+  // any `r` tile, for its own clump/singleton road-clearance check -- a
+  // fast path that skips the call entirely on a decor-FREE map (this file's
+  // other cases, and most unit-test fixtures) would leave a real map's
+  // redundant-rebuild cost unmeasured and could mask a regression on every
+  // map that actually ships with roads.
+  it('memoises the road graph on a redundant rebuild when the map HAS a road', () => {
+    builds.graph = 0;
+    const { r, priv } = setUp();
+    const decor = new Uint8Array(MAP * MAP);
+    decor[8 * MAP + 8] = DECOR_ROAD;
+    r.setDecor(decor);
+    r.frame(1, 0);
+    const graphs = builds.graph;
+    expect(graphs).toBeGreaterThan(0);
+    rebuild(r, priv);
+    rebuild(r, priv);
+    expect(builds.graph).toBe(graphs);
     r.dispose();
   });
   it('rebuilds when the cover changes IN PLACE -- the sim writes its own array when a structure dies', () => {

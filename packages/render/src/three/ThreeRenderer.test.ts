@@ -41,6 +41,10 @@ import { ThreeRenderer } from './ThreeRenderer';
 import { STRIPE_COLOR_KEY } from './units/overlays';
 import { SKIRT_TONE } from './terrain/skirt';
 import { albedoMean } from './terrain/mesh';
+import { hexToLinear } from './terrain/shared';
+import { FogOfWarPass } from './fog-pass';
+import { hazeRadiance } from './haze';
+import { SUN_DIRECTION } from './lighting';
 
 const disposeSpy = vi.fn();
 
@@ -140,6 +144,7 @@ const TONES: TerrainTones = {
   trunk: '#4E5433', trunkLit: '#8F9464', leafDark: '#333821', leafMid: '#4E5433',
   leafLit: '#6E7449', bladeLit: '#8F9464', bladeShade: '#4E5433', spoil: '#6E7449',
   crownRatio: 0.52, scatter: 'stone', groveFamily: 'desert_tree',
+  haze: '#E0B87A',
 };
 
 function makeOpts(): RendererOptions {
@@ -350,6 +355,108 @@ describe('the chevron fallback colour', () => {
     const fill = (renderer as unknown as { chevronBatch: { fillColorHex: string } }).chevronBatch.fillColorHex;
     expect(fill).toBe(swatch(STRIPE_COLOR_KEY));
     expect(fill).not.toBe('#E8C33A');
+  });
+});
+
+describe('time of day (ground plan 2, Task 8)', () => {
+  type Lit = { sceneLights: { sun: THREE.DirectionalLight; hemisphere: THREE.HemisphereLight } };
+  const lightsOf = (r: ThreeRenderer): Lit['sceneLights'] => (r as unknown as Lit).sceneLights;
+
+  // `day` must be the frame before presets existed: with no option and with
+  // `timeOfDay: 'day'` the sun sits at the same position to the bit.
+  it('lights an absent timeOfDay and day identically, with the DAY_LIGHTS constants', () => {
+    const a = new ThreeRenderer(makeSim(), makeOpts());
+    const b = new ThreeRenderer(makeSim(), { ...makeOpts(), timeOfDay: 'day' });
+    for (const k of ['x', 'y', 'z'] as const) {
+      expect(Object.is(lightsOf(a).sun.position[k], lightsOf(b).sun.position[k])).toBe(true);
+    }
+    expect(lightsOf(b).sun.intensity).toBe(2.6);
+    expect(lightsOf(b).hemisphere.intensity).toBe(0.9);
+    a.dispose();
+    b.dispose();
+  });
+
+  it('lights dusk from its preset row, and night as dusk (D10)', () => {
+    const day = new ThreeRenderer(makeSim(), makeOpts());
+    for (const t of ['dusk', 'night'] as const) {
+      const r = new ThreeRenderer(makeSim(), { ...makeOpts(), timeOfDay: t });
+      expect(lightsOf(r).sun.intensity).toBe(1.8);
+      expect(lightsOf(r).hemisphere.intensity).toBe(0.7);
+      expect(lightsOf(r).sun.color.getHex()).toBe(new THREE.Color('#E0B87A').getHex());
+      expect(lightsOf(r).hemisphere.color.getHex()).toBe(new THREE.Color('#8E9491').getHex());
+      expect(lightsOf(r).hemisphere.groundColor.getHex()).toBe(lightsOf(day).hemisphere.groundColor.getHex());
+      // A lower sun: the light sits nearer the ground than day's.
+      expect(lightsOf(r).sun.position.y).toBeLessThan(lightsOf(day).sun.position.y);
+      r.dispose();
+    }
+    day.dispose();
+  });
+});
+
+describe('the dust haze (ground plan 2, Task 9)', () => {
+  type Hazed = { fogPass: FogOfWarPass | null; applyHaze(): void; rebuildTerrain(): void };
+  const hazed = (r: ThreeRenderer): Hazed => r as unknown as Hazed;
+  // `init()` needs a real GL context, so the pass is built by hand and the
+  // same two private calls `init()` and a rebuild make are made on it.
+  const withPass = (r: ThreeRenderer): FogOfWarPass => {
+    const pass = new FogOfWarPass(new THREE.DataTexture(new Uint8Array([255]), 1, 1, THREE.RedFormat), 4, 4);
+    hazed(r).fogPass = pass;
+    hazed(r).applyHaze();
+    return pass;
+  };
+  const tintOf = (pass: FogOfWarPass): number[] => pass.uniforms.uHazeTint.value.toArray();
+
+  it('day: the theme tone, scaled to lit ground under DAY_LIGHTS, 12% at +20 tiles', () => {
+    const r = new ThreeRenderer(makeSim(), makeOpts());
+    const pass = withPass(r);
+    const k = hazeRadiance(2.6, SUN_DIRECTION.y, 0.9);
+    const [lr, lg, lb] = hexToLinear(TONES.haze);
+    const t = tintOf(pass);
+    expect(t[0]).toBeCloseTo(lr * k, 6);
+    expect(t[1]).toBeCloseTo(lg * k, 6);
+    expect(t[2]).toBeCloseTo(lb * k, 6);
+    expect(pass.uniforms.uHazeFar.value).toBe(0.12);
+    expect(pass.uniforms.uHazeRef.value).toBe(0);
+    hazed(r).fogPass = null;
+    pass.dispose();
+    r.dispose();
+  });
+
+  it("dusk: the preset's own dust.1, dimmer by dusk's light, 18%", () => {
+    const r = new ThreeRenderer(makeSim(), { ...makeOpts(), timeOfDay: 'dusk' });
+    const pass = withPass(r);
+    const lights = (r as unknown as { resolvedLights: { direction: THREE.Vector3 } }).resolvedLights;
+    const k = hazeRadiance(1.8, lights.direction.y, 0.7);
+    expect(k).toBeLessThan(hazeRadiance(2.6, SUN_DIRECTION.y, 0.9));
+    const [lr] = hexToLinear('#D1A668');
+    expect(tintOf(pass)[0]).toBeCloseTo(lr * k, 6);
+    expect(pass.uniforms.uHazeFar.value).toBe(0.18);
+    hazed(r).fogPass = null;
+    pass.dispose();
+    r.dispose();
+  });
+
+  it('a rebuild hands the pass the median open-ground level (N-19)', () => {
+    const r = new ThreeRenderer(makeSim(), makeOpts());
+    const pass = withPass(r);
+    r.setElevation(Uint8Array.from([0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3]));
+    hazed(r).rebuildTerrain();
+    expect(pass.uniforms.uHazeRef.value).toBe(2);
+    hazed(r).fogPass = null;
+    pass.dispose();
+    r.dispose();
+  });
+
+  it('frame() puts the focus at the camera look-at point', () => {
+    const r = new ThreeRenderer(makeSim(), makeOpts());
+    const pass = withPass(r);
+    r.camera.x = 3.25;
+    r.camera.y = 1.5;
+    r.frame(1, 0);
+    expect(pass.uniforms.uFocus.value.toArray()).toEqual([3.25, 1.5]);
+    hazed(r).fogPass = null;
+    pass.dispose();
+    r.dispose();
   });
 });
 

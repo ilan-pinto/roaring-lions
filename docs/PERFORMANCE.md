@@ -1102,3 +1102,173 @@ dynamic attributes whole, 0.625 MiB, almost every frame while vehicles moved.
 
 **The showcase search (I-2).** `showcaseAnchor` scans every tile once, on the first terrain build,
 under the sandbox `&decals` flag only: 46–63 ms in node on five maps.
+
+## The ground, plan 2 (WP-A2) — 2026-09-28
+
+**Status: complete. One budget miss found and accepted by the lead ("Accept the miss",
+2026-09-28); density 0.75 ships.** Task 12 was split: part A produced the review captures, ran
+`blast:capture`, and wrote the record with the numbers below left as placeholders; part B (this
+session) re-ran `render-frame-cost` interleaved with main on a quiet machine (load average 4–8 on
+12 cores, no other agent running — confirmed before starting and monitored throughout; one
+self-inflicted contamination from running two measurement scripts concurrently was caught,
+discarded, and re-run strictly sequentially), `perf:units`/`backend-curve-gate` at 300, folded
+`ground:capture`'s `wadi_halam_basin` triangle count to exact digits, and re-ran the two
+`blast:capture` subjects part A could not settle.
+
+**Every budget passes except one: `beit_sahwan_outskirts` (22,24) z0.5, which the lead accepted.**
+At n = 10, interleaved, gpu p95 rises from a 13.84 ms mean (main) to a 14.67 ms mean (branch) —
+**+0.83 ms mean / +0.80 ms median, over the +0.74 ms cap**, with the two trees' distributions not
+overlapping at all (main 13.5–14.1 ms across all 10 runs, branch 14.3–15.2 ms across all 10). cpu
+p95 shows the same shape (+0.84 ms mean). This view was not named a pre-existing miss — main itself
+sits cleanly under the 14.5 ms line here (13.7–14.2 ms) — so the branch's own 14.5–15.2 ms readings
+on 6 of 10 runs are also a new miss on the absolute ceiling, not only on the delta budget.
+`qarn_hadid` z1.6, the view the plan's own stop condition names explicitly, is clean: branch reads
+0.86–1.07 ms **faster** than main (n = 10), resolving the straddle Task 5 and Task 0 left open. Per
+the brief ("a missed budget is a stop... not traded away, no code changed"), no code was changed to
+chase the miss; the shed ladder Task 5 already measured (density 1 → 0.75 → 0.5) was reported to
+the lead alongside the fresh numbers this miss was measured against, and the lead's ruling was to
+ship density 0.75 as measured rather than take a lower rung.
+
+Spec: `docs/superpowers/specs/2026-09-25-ground-design.md`. Plan:
+`docs/superpowers/plans/2026-09-27-ground-plan-2.md` (Task 12). Budgets it is measured against
+(spec §2, §8, less what plan 1 spent): draw calls +3 planned (props × shadow/AO/main), cap +6
+across both plans; p95 ≤ +0.74 ms at any acceptance view; `qarn_hadid` z1.6 (already at 14.86 ms
+gpu p95, fix wave, n = 5, against the 14.5 ms ceiling) must not rise by more than +0.20 ms
+(n = 5, interleaved) without a reported stop; every acceptance view ≤ 14.5 ms p95 with the two
+pre-existing `qarn_hadid` misses (z2.5, z0.5) named, not hidden; `perf:units` at 300 figures
+≤ 7.5 ms p95 (7.30–7.60 ms today), re-run after the scatter (Task 5) and again here.
+
+### Draw calls and triangles: `pnpm ground:capture` (part A, real numbers — this table is not a
+placeholder)
+
+Machine: macOS 15, Apple M3 Pro, ANGLE Metal (`ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro,
+Unspecified Version)`), not interleaved with a fresh main run (that comparison is part B's job;
+these are HEAD's own absolute readings). Viewport 1400×900, DPR 1, frame loop frozen, `frame(1,
+0)` read through `renderer.info`. Centre of each map, zoom 1, no fog, `--port=5196`:
+
+| Map | Calls | Triangles | `props` layer (calls / triangles) |
+|---|---|---|---|
+| `beit_sahwan_outskirts` | 349 | 2,744,480 | −3 / −9,201 |
+| `tel_marum` | 263 | 2,121,055 | −3 / −1,622 |
+| `qarn_hadid` | 381 | 5,913,608 | −3 / −4,857 |
+| `wadi_halam_basin` | 670 | 4,304,407 | −3 / −10,543 |
+
+**The props batch draws exactly 3 calls on every map that has any props**, confirming the
+shadow/AO/main triple the plan's budget names — hiding `props` moves calls by exactly 3 on every
+one of the four maps above, none of them props-free. This is the one line of Step 1 this
+implementer could measure without an interleaved main run: draw-call counts are a property of a
+single capture, not a timing comparison, so no quiet-machine requirement applies to them.
+
+`wadi_halam_basin`'s decor triangle budget (the olive, D8/D9), exact digits, this session, fresh
+dev servers (no caching involved — see Task 6's own note that `ground:capture` read stale numbers
+in its session): **main (b6497c12) 9,174,535 decor triangles at centre-z1 → branch (17480db0)
+2,283,358 → −6,891,177 (−75.1%)**. This is Task 6's D8/D9 olive-LOD-plus-crown effect net of Task
+1's density-0.75 clusters (both land in the `decor` layer). It does not match the spec's original
+"about −3.4M a pass" estimate for this line — Task 6's own report already flagged that its
+`ground:capture` readings that session were stale (byte-identical before/after a GLB swap that
+could not physically cost the same triangles) and that the estimate "could not be confirmed this
+way." This session's dev servers were started fresh for the timing work above and are not subject
+to that staleness; −6.89M is this plan's first trustworthy reading of this line, roughly double the
+spec's estimate but the same sign and the same order of magnitude, and consistent with Task 5's own
+mid-plan reading of −6.78M at the same view (before Tasks 7–11 added sway/haze/floor changes that
+do not touch triangle counts).
+
+### `render-frame-cost` (part B — measured)
+
+Machine: macOS 15, Apple M3 Pro, ANGLE Metal (`ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro,
+Unspecified Version)`). Viewport 1440×900 CSS, DPR 2 (drawing buffer 2880×1800). Main
+(`b6497c12`) on `:5195`, branch (`17480db0`) on `:5196`, both persistent dev servers started this
+session and interleaved run-by-run (never two measurement scripts running concurrently — one
+self-inflicted concurrent-load contamination was caught mid-session via `uptime`/`ps`, discarded,
+and every number below is from the clean, strictly-sequential re-run). n = 10 per view per tree
+(one discarded warm-up run per tree, then 2×5 interleaved rounds; the first 5 already sat close
+enough to the ±0.3 ms repeat line — see global-constraints' own convention — to justify a second
+round rather than reporting on 5). Acceptance views: `?sandbox=beit_sahwan_outskirts&sur&civ` and
+`?sandbox=qarn_hadid&sur`, the same rosters Task 0 and Task 5 used. Raw logs:
+`.superpowers/ground2/cost-t12/*.log`.
+
+| View | cpu p95 mean, main → branch (range) | gpu p95 mean, main → branch (range) | Δ gpu (mean/median) | Budget | Verdict |
+|---|---|---|---|---|---|
+| beit (5,22) z2.5 | 14.01 → 14.39 (13.8–14.6 → 14.1–14.6) | 14.04 → 14.33 (13.8–14.4 → 14.0–14.7) | +0.29 / +0.30 | ≤ +0.74 ms, ≤ 14.5 ms | PASS (branch mean under 14.5; 1 of 10 runs touches 14.7) |
+| **beit (22,24) z0.5** | **13.88 → 14.72** (13.7–14.2 → 14.3–15.1) | **13.84 → 14.67** (13.5–14.1 → 14.3–15.2) | **+0.83 / +0.80** | ≤ +0.74 ms, ≤ 14.5 ms | **MISS, ACCEPTED by the lead — both the delta cap and the absolute ceiling miss; distributions do not overlap; density 0.75 ships** |
+| beit (26,22) z1.6 | 13.23 → 13.44 (13.0–13.4 → 13.3–13.6) | 13.05 → 13.27 (12.8–13.3 → 13.1–13.6) | +0.22 / +0.20 | ≤ +0.74 ms, ≤ 14.5 ms | PASS |
+| qarn (5,22) z2.5 | 18.10 → 15.74 (17.7–19.1 → 15.5–16.0) | 20.29 → 20.86 (19.6–22.0 → 19.6–22.0) | +0.57 / +0.55 | pre-existing miss, named | PASS on delta; pre-existing miss unchanged |
+| qarn (22,24) z0.5 | 15.24 → 15.97 (14.6–16.1 → 15.4–16.8) | 15.44 → 16.06 (14.9–16.1 → 15.7–16.5) | +0.62 / +0.60 | pre-existing miss, named | PASS on delta; pre-existing miss unchanged |
+| qarn (26,22) z1.6 | 14.09 → 14.11 (13.8–15.5 → 13.8–14.5) | 15.38 → 14.31 (14.4–16.3 → 14.1–15.0) | **−1.07 / −0.90** | ≤ before-mean + 0.20 ms | **PASS — branch is faster than main.** Resolves the Task 0/Task 5 straddle: on a clean, quiet, interleaved n = 10 read, this view is not a regression. |
+
+**One budget misses: `beit_sahwan_outskirts` (22,24) z0.5 — accepted by the lead.** cpu p95 shows
+the identical shape (+0.84 ms mean), so this is not a gpu-only artefact. The 10-sample main and
+branch distributions do not overlap at all (main max 14.1/14.2, branch min 14.3), so this is not
+run-to-run noise at this sample size — a repeat is not expected to change the verdict, unlike the
+`qarn` views that sat within 0.3 ms of a line. Per the brief, no code was changed to chase it; Task
+5's shed ladder (reproduced below) was reported to the lead as the available lower rungs, and the
+lead's ruling ("Accept the miss", 2026-09-28) is to ship density 0.75 as measured.
+
+**Task 5's shed ladder** (`.superpowers/sdd/2026-09-27-ground-plan-2/task-5-report.md`, gpu p95
+delta over main, n = 5 each, cumulative rungs — the density=0.75 rung is what HEAD ships today and
+is the row this session's own n=10 re-measure updates):
+
+| Rung | beit z2.5 | beit z0.5 | beit z1.6 | qarn z2.5 | qarn z0.5 | qarn z1.6 | calls at beit z1 | tris at beit z1 |
+|---|---|---|---|---|---|---|---|---|
+| HEAD-equivalent, density 1 | +0.26 | +1.18 | +0.00 | −0.26 | +0.18 | −1.30 | 349 | 2,875,588 |
+| **1a density 0.75 (shipped)** | +0.22 | +0.72 (Task 5, n=5) / **+0.83 (this session, n=10)** | +0.36 | +0.58 | +0.76 | −0.28 | 349 | 2,744,480 |
+| 1b density 0.5 | +0.16 | +0.38 | −0.02 | −0.14 | +0.38 | +0.32 | 349 | 2,647,428 |
+| 2 + sand no-cast | +0.08 | +0.28 | −0.04 | +0.66 | +0.24 | −0.30 | 348 | 2,609,115 |
+| 3 + PROP_CAP 75 | −0.14 | +0.36 | +0.16 | +0.00 | +0.46 | −0.20 | 348 | 2,609,115 |
+
+Rung 1b (density 0.5) is the next rung that reads clean on every one of Task 5's own n=5 samples
+(+0.38 at beit z0.5); this session did not re-measure it, per "do not trade anything away." The
+lead's ruling ("Accept the miss") means it is not taken: density 0.75 ships as measured.
+
+### `perf:units` / `backend-curve-gate` at 300 figures (part B — measured)
+
+Same machine as above. `--only=three-mesh`, target=300 (settles at living=266 on both trees, same
+as every prior session — this harness's roster count does not depend on the branch). n = 3 per
+tree, sequential (this harness boots its own page navigation per run and is not meant to be
+interleaved mid-run the way `render-frame-cost` is). Raw logs: `.superpowers/ground2/cost-t12/units-{main,branch}-{1,2,3}.log`.
+
+| Tree | render p95 (3 runs) | mean |
+|---|---|---|
+| main (`b6497c12`) | 7.60, 7.20, 8.00 | 7.60 |
+| branch (`17480db0`) | 6.60, 7.30, 6.80 | **6.90** |
+
+**PASS, branch mean 6.90 ms ≤ 7.5 ms budget**, and reads slightly better than main's own mean
+(7.60 ms, itself already brushing the 7.5 ms line — a pre-existing condition, not this plan's). As
+Task 5 already noted, this harness loads no decor or prop meshes, so it cannot see this plan's
+density or props changes at all; the two trees' numbers differing only by ordinary run-to-run noise
+is the expected result, not a null test.
+
+### Review captures (part A)
+
+Full list and method in `.superpowers/sdd/2026-09-27-ground-plan-2/task-12a-report.md`. Summary:
+`ground:capture` before (`.superpowers/ground2/cost-t0/`) vs after
+(`.superpowers/ground2/t12-review/`) at zoom 0.35/0.5/1/2.5 plus fogged and road close-ups, for
+`beit_sahwan_outskirts`, `qarn_hadid`, `tel_marum`, `wadi_halam_basin`; one before|after composite
+per map at zoom 1 (`.superpowers/ground2/t12-review/composites/`); a close-up of each of the seven
+prop kinds in place, at the exact tile the real placer put one on a shipped map
+(`.superpowers/ground2/t12-review/props-closeup/`); Task 10's dawn/day/dusk set
+(`.superpowers/ground2/tod/`, unchanged, produced earlier).
+
+### `blast:capture` (part A + part B — now a clean pass)
+
+Part A (`--port=5199 --label=after`): every floor the run was able to measure passed
+(`blast-light`/`decals` on `mbt_lavi`, `apc_eitan`, `mortar_team`, `scorch_qarn_shoulder`,
+`blast_in_firefight`, `blast_nomesh` — several by a wide margin, e.g. `blast_nomesh`'s
+`blast-light` at 76,514 px). Two of the tool's eight subjects (`tel_marum||scorch_tel_ridge`,
+`beit_sahwan_outskirts||shake_probe`) hit the settle harness's own 30-second ceiling without
+reaching 5 steady frames and were skipped rather than measured, the concurrent-machine-load
+confound named throughout this section.
+
+**Part B (this session, quiet machine): `--port=5199 --label=after --only=scorch_tel_ridge,shake_probe`.
+Both settle cleanly and both pass every floor:**
+
+| Subject | Settle | `blast-light` | `decals` |
+|---|---|---|---|
+| `scorch_tel_ridge` (`tel_marum\|\|`) | 5 frames ≤ 150 ms after 3,093 ms / 9 frames | 49,017 px / 11.5026 — PASS | 0 px / 0.4611 — PASS |
+| `shake_probe` (`beit_sahwan_outskirts\|\|shake_probe`) | 5 frames ≤ 150 ms after 7,893 ms / 14 frames | 10,716 px / 4.4540 — PASS | 7,599 px / 1.7880 — PASS |
+
+All 8 subjects now measured, all floors clear. `.superpowers/art-captures/blast/after/` carries
+219 frames (the original 6-subject run's 190 plus this retry's 29); index at
+`.superpowers/art-captures/blast/after/sheet.md`. Full part-A numbers:
+`.superpowers/sdd/2026-09-27-ground-plan-2/task-12a-report.md`; this retry's raw log:
+`.superpowers/ground2/cost-t12/blast-retry.log`.

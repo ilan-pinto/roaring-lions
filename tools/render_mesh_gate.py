@@ -29,13 +29,14 @@ ever emit a palette entry, and `mesh-material.test.ts` covers it under
 skinning), but so the rendered silhouette and its on-palette-ness are
 meaningful to check at all.
 
-`art/meshes/` ships six different kinds of mesh, told apart by which
+`art/meshes/` ships seven different kinds of mesh, told apart by which
 subdirectory they live in (`art/meshes/vehicles/`, `art/meshes/buildings/`,
-`art/meshes/vfx/`, `art/meshes/decor/`, `art/meshes/campaign/`, everything
-else is an infantry team) -- discovered from the path, not from a hardcoded
-per-file list, because other streams are actively adding new GLBs under all
-six and this script must see them without an edit here. Each of the first three kinds has its
-own closed `rl_role` vocabulary and its own role->colour table:
+`art/meshes/vfx/`, `art/meshes/decor/`, `art/meshes/props/`,
+`art/meshes/campaign/`, everything else is an infantry team) -- discovered
+from the path, not from a hardcoded per-file list, because other streams are
+actively adding new GLBs under all seven and this script must see them
+without an edit here. Each of the first three kinds has its own closed
+`rl_role` vocabulary and its own role->colour table:
 
   * **Infantry teams** reuse `tools/render_team.py`'s `ROLE_PALETTE` /
     `BODY_PALETTE` / `SHARED_PALETTE` directly, by importing that module and
@@ -78,6 +79,14 @@ own closed `rl_role` vocabulary and its own role->colour table:
     grey whichever family placed it"). `tools/validate_mesh_assets.py` checks
     its contract (zero materials, closed `{foliage, trunk, rock, sand}` role
     set) directly against the raw GLB bytes instead, in its own decor branch.
+  * **Props** (`art/meshes/props/`, e.g. `wrecked_car.glb`, ground plan 2
+    Task 3) is SKIPPED the same way and for the same reason: a jersey
+    barrier or a tyre pile is not a unit, has no faction, and no roster entry
+    to read a "same as its own retired sprite" exclusion from.
+    `tools/validate_mesh_assets.py` checks its own contract (zero materials,
+    closed `{concrete, metal, rust, rubber, cloth}` role set, a per-kind
+    triangle cap) directly against the raw GLB bytes instead, in its own
+    props branch.
   * **Campaign maps** (`art/meshes/campaign/`, e.g. `sahar_basin.glb`) are
     SKIPPED for the same reason again, and one more that is specific to
     them. Not a unit: a campaign world is the BOARD the player picks a
@@ -271,10 +280,10 @@ def is_skinned(glb_json):
 
 
 def mesh_kind(glb_path):
-    """'vehicle' / 'building' / 'vfx' / 'decor' / 'campaign' / 'infantry',
-    from which subdirectory of art/meshes/ the file lives in -- see this
-    file's module docstring for why path, not content, is the discovery
-    signal."""
+    """'vehicle' / 'building' / 'vfx' / 'decor' / 'props' / 'campaign' /
+    'infantry', from which subdirectory of art/meshes/ the file lives in --
+    see this file's module docstring for why path, not content, is the
+    discovery signal."""
     rel = os.path.relpath(os.path.abspath(glb_path), MESHES_DIR)
     top = rel.split(os.sep)[0]
     if top == "vehicles":
@@ -285,6 +294,8 @@ def mesh_kind(glb_path):
         return "vfx"
     if top == "decor":
         return "decor"
+    if top == "props":
+        return "props"
     if top == "campaign":
         return "campaign"
     return "infantry"
@@ -619,6 +630,19 @@ def render_one(glb_path, out_root):
         # (zero materials, closed role set) directly against the raw GLB
         # bytes instead -- see that script's own decor branch.
         print(f"MESH_GATE_WARN: {unit_id}: decor-class mesh -- skipped by this "
+              f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
+        return
+    if kind == "props":
+        # Same early return as decor, same reasoning: a jersey barrier or a
+        # wrecked car has no faction and nothing for this gate's
+        # unit-vs-unit silhouette collision check to mean anything against.
+        # `apply_materials`'s role table is keyed by the infantry vocabulary
+        # too, so rendering a prop through it would raise the same way a
+        # decor mesh once did. `tools/validate_mesh_assets.py`'s
+        # `check_prop_meshes` runs the prop contract (zero materials, closed
+        # `PROP_ROLES` set, per-kind triangle cap) directly against the raw
+        # GLB bytes instead -- see that script's own props branch.
+        print(f"MESH_GATE_WARN: {unit_id}: props-class mesh -- skipped by this "
               f"gate (not a unit; see tools/render_mesh_gate.py's own docstring)")
         return
     if kind == "campaign":
