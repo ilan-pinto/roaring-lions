@@ -335,6 +335,7 @@
   "hud.mute.muted": "audio muted",
   "hud.mute.unmuted": "audio on",
   "hud.caption.label": "Unit radio",
+  "voice.caption.pinned": "Can't move — under fire!",
   "hud.order.inertTitle": "{label} — nothing in the selection would act on it right now",
   "hud.order.tip.attackMove": "Move there, engaging anything in the way.",
   "hud.order.tip.halt": "Stop in place and drop any queued waypoints.",

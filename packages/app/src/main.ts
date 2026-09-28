@@ -2751,12 +2751,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       pos: (id) => ({ x: fx.toNumber(sim.state.posX[id]), y: fx.toNumber(sim.state.posY[id]) }),
       isVisible: (x, y) => renderer.isVisible(x, y),
       camera: () => renderer.camera,
+      // GH-262: a move/attack order to a pinned unit gets the pinned call
+      // instead of the ordinary line.
+      isPinned: (id) => sim.state.pinned[id] === 1,
     },
     play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined }),
     caption: (text, seconds) => {
       if (req.settings.get().accessibility.captions) hud.caption(text, seconds);
     },
     info: import.meta.env.DEV ? (m) => console.info(m) : () => {},
+    text: (k) => t(k),
     noted: voiceNoted,
   });
   onDispose(() => {
