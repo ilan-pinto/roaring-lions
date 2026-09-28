@@ -425,9 +425,9 @@ the star grade would be fitting a story to a target rather than measuring one.
 
 ## 8. Special forces (bought-only) price band
 
-*(WP-ST8, 2026-09-28, G7 default: "bought" here means bought with **earned brigade credits**
-and nothing else. No bought-only unit is ever priced in, or reachable through, the cosmetic
-currency Steam Wallet sells. See
+*(WP-ST8, 2026-09-28; G7 approved by the lead 2026-09-29: "bought" here means bought with **earned brigade credits**
+and nothing else. No bought-only unit is ever priced in, or reachable through, Roar coins,
+the cosmetic currency Steam Wallet sells. See
 `docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`.)*
 
 D1's bought-only units have no earned path at all, so a price here is the *only* gate —

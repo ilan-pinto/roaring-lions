@@ -1,7 +1,8 @@
 # The monetisation content plan — design (WP-ST8, #207)
 
-**Date:** 2026-09-28 · **Status:** proposal, written against G7's default (#199, due
-2026-10-30). If the lead answers G7 differently, this document is rewritten, not patched.
+**Date:** 2026-09-28 · **Status:** the rule is **approved by the lead, 2026-09-29** (G7, #199:
+"Approve the rule"), and the cosmetic currency is named **Roar coins**. The remaining open
+questions (§9) stand as taken defaults.
 **Downstream:** WP-ST6 (#205, two balances in `LedgerStore`), WP-ST7 (#206, the Steam
 catalogue), WP-G-E5 (#181, bought-only units for credits), the garage (WP-S3g). No code, and
 the sim is untouched.
@@ -11,10 +12,10 @@ the sim is untouched.
 1. There are **two currencies**.
 2. **Brigade credits** are earned only, by play (`creditsFor`, brigade spec §4.2). They are
    never sold, never granted for money, and never converted from anything bought.
-3. A second, cosmetic currency, working name **marks** (§9 Q1), is the only thing Steam Wallet
-   sells.
-4. Marks buy **only cosmetics**: faction liveries, unit badges and episodic operation passes.
-5. Marks buy **no unit, no upgrade, no brigade credit, no Conduct tier and no Conduct
+3. A second, cosmetic currency, **Roar coins** (§9 Q1), is the only thing Steam Wallet
+   sells. If code ever needs an identifier for it, use `roarCoins`.
+4. Roar coins buy **only cosmetics**: faction liveries, unit badges and episodic operation passes.
+5. Roar coins buy **no unit, no upgrade, no brigade credit, no Conduct tier and no Conduct
    advantage**, directly or through anything they buy.
 
 Why now: WP-G-E5 sells three bought-only special forces for brigade credits. The day it lands,
@@ -30,7 +31,7 @@ the PR description of any change that adds or edits a store item.
 
 | # | Question | Pass means |
 |---|---|---|
-| T1 | **Currency.** Is it priced in marks only? | Never in credits, never in both, and there is no conversion in either direction |
+| T1 | **Currency.** Is it priced in Roar coins only? | Never in credits, never in both, and there is no conversion in either direction |
 | T2 | **Sim-blind.** Does owning it leave every value the sim reads unchanged? | It reaches only the renderer and the DOM. It never passes through `applyUpgrades`, unit JSON, a mission, or any `Sim` call. The determinism hash cannot tell an owner from a non-owner |
 | T3 | **Score-blind.** Does it leave the grade, stars, Conduct, the ROE rating and `creditsFor` unchanged? | Byte-identical debrief with and without it |
 | T4 | **Gate-blind.** Does it leave `unlockReason`, `gateSentence`, the roster cap, the reserve and deploy unchanged? | No door opens earlier or wider |
@@ -91,7 +92,7 @@ listed before purchase (T7).
 **What it does not contain:** the missions. **Every mission is free to every player**, pass or
 no pass (§9 Q3). The pass sells the cosmetic track, never the content or its payout. This is
 the load-bearing choice. A paid mission would pay credits on victory (brigade spec §4.2), so
-marks would buy credits one step removed. Selling missions would also paywall the story.
+Roar coins would buy credits one step removed. Selling missions would also paywall the story.
 
 **Why it is not pay-to-win (P2W):**
 
@@ -106,14 +107,14 @@ marks would buy credits one step removed. Selling missions would also paywall th
 ## 4. The garage: two prices without confusion
 
 - **Two surfaces.** Units and tiers stay on the brigade screen, priced in credits.
-  Cosmetics get their own tab, the **Stores**, priced in marks. **No row ever shows both
-  currencies**, and no locked unit ever reads "or N marks".
+  Cosmetics get their own tab, the **Stores**, priced in Roar coins. **No row ever shows both
+  currencies**, and no locked unit ever reads "or N Roar coins".
 - **Two signs.** Credits keep their shipped glyph, their noun and the `--commend` token.
-  Marks get their own glyph and a new semantic token. They share neither shape nor colour,
+  Roar coins get their own glyph and a new semantic token. They share neither shape nor colour,
   the same rule the garage spec applied to veterancy and kit (goal 4).
-- **Two balances, apart.** The brigade header shows credits. The Stores header shows marks
+- **Two balances, apart.** The brigade header shows credits. The Stores header shows Roar coins
   and the Wallet top-up. Neither header shows the other's balance.
-- **Honest words.** The noun is always printed beside the number: "400 credits", "120 marks".
+- **Honest words.** The noun is always printed beside the number: "400 credits", "120 Roar coins".
   A bare number is never a price.
 - **No conversion anywhere.** No exchange rate, no "worth N credits", no bundle mixing the two.
 
@@ -123,14 +124,14 @@ No numbers yet: they come with ST7 and Valve's catalogue.
 
 1. **Items are priced before packs.** A pack price means something only against what it buys.
 2. **No orphaned remainders.** Pack sizes line up with item prices, so a player is not left
-   holding marks that buy nothing, which pushes a second purchase.
-3. **Show the whole price.** Every item's marks price, and the real-money price of the
+   holding Roar coins that buy nothing, which pushes a second purchase.
+3. **Show the whole price.** Every item's Roar coin price, and the real-money price of the
    cheapest pack that covers it, are both visible before the Wallet opens (§9 Q9).
 4. **Fewer, better items.** A small permanent catalogue beats a rotating shop. No daily
    deals and no countdown timers.
 5. **The free player is the reference.** Sahar Dust and the base badges must look finished. A paid item is an alternative, never a fix for a deliberately drab
    default.
-6. **Refunds follow Valve's policy** (to confirm in ST7). If a refund reaches marks already
+6. **Refunds follow Valve's policy** (to confirm in ST7). If a refund reaches Roar coins already
    spent, the item they bought is revoked.
 
 ## 6. Co-op and skirmish
@@ -138,7 +139,7 @@ No numbers yet: they come with ST7 and Valve's catalogue.
 - **Earned credits and tiers are advantages in skirmish and co-op by design** (G7's framing).
   That is exactly why they cannot be sold.
 - **Co-op (M4, G5).** Credits follow whatever G5 decides (default: shared Conduct, grade and
-  credits). Marks and cosmetics are never shared, pooled or traded.
+  credits). Roar coins and cosmetics are never shared, pooled or traded.
   Each player sees the other's liveries and badges, which pass T5 by construction. A client
   setting, "show standard liveries", draws every unit as Sahar Dust for anyone who wants
   pure legibility.
@@ -149,7 +150,7 @@ No numbers yet: they come with ST7 and Valve's catalogue.
 
 ## 7. Things we will never sell
 
-Not for marks, not for Wallet money, not in a bundle, not as a pass reward.
+Not for Roar coins, not for Wallet money, not in a bundle, not as a pass reward.
 
 - Brigade credits, directly or as a pack bonus, and any credit or payout multiplier.
 - Units, including E5's bought-only special forces, which are credits-only.
@@ -159,7 +160,7 @@ Not for marks, not for Wallet money, not in a bundle, not as a pass reward.
 - Roster slots or reserve capacity.
 - Campaign missions, acts, endings or operation missions (§3).
 - Paid random items of any kind: loot boxes, crates, gacha.
-- Earned honours: front-completion ribbons, ★★★ marks, rank. These are earned only (T10).
+- Earned honours: front-completion ribbons, ★★★ grades, rank. These are earned only (T10).
 - Anything that makes a unit harder to see or identify (T5).
 - Anything that depicts, commemorates or trades on First Light, the abducted, civilians or
   civilian harm, or that celebrates any side's killing.
@@ -179,22 +180,26 @@ To confirm in ST1 (#200) and ST7 (#206); none is asserted here:
 - whether opting out of trading and the Community Market needs any setting or declaration.
 
 **One text correction for ST7:** its issue calls the packs "credit packages (500 / 1,200 /
-2,500)". Under this rule they are **marks packs**, and the issue should say so before ST7 is
-planned.
+2,500)". Under this rule they are **Roar coin packs**; the issue was corrected on 2026-09-29.
 
 ## 9. Open questions for the lead
 
+Q0 and Q1 were answered by the lead on 2026-09-29. Q2 to Q12 were not answered separately, so
+their recommended defaults stand as **taken defaults** from that date. Any of them can be
+reopened by the lead.
+
 | # | Question | Recommended default |
 |---|---|---|
-| Q1 | **The currency's name** | **Rename "marks" to "chits"** (quartermaster's chits). "Mark" already means four things in this game: `mark_tunnel`, `intel.marked_positions`, the kit mark and `mark.ts`. A chit is plain, reads as stores and not merit, and collides with nothing. If you prefer to keep "marks", this plan reads the same |
+| Q0 | **The rule itself (G7)** | **Decided by the lead, 2026-09-29:** "Approve the rule". Two currencies, no pay-to-win |
+| Q1 | **The currency's name** | **Decided by the lead, 2026-09-29: Roar coins** (not the working name "marks", nor the recommended "chits"). Prose says "Roar coins"; a code identifier, if one is needed, is `roarCoins` |
 | Q2 | Can the cosmetic currency be earned in play? | **No.** It is sold only, so the one money-bearing balance stays server-authoritative (ST6). Play earns cosmetic **items** directly: honours, pass items |
 | Q3 | Are operation missions free to everyone? | **Yes.** The pass sells the cosmetic track only. If a paid mission is ever wanted, it pays **zero** credits |
 | Q4 | Do pass items expire when the episode ends? | **No.** Every item stays earnable afterwards |
 | Q5 | Can pass tiers be bought outright? | **No.** Progress is play only |
 | Q6 | Trading, gifting, the Community Market? | **None.** Cosmetics are bound to the account |
-| Q7 | The lead's 15 Sep ask, "sell coins so users can upgrade without the need to win" | **Retired by G7's default.** Brigade spec D6 and §4.6 are amended: the `granted` credit source is reserved for non-money cases such as a support restore, and nothing sold ever writes one |
+| Q7 | The lead's 15 Sep ask, "sell coins so users can upgrade without the need to win" | **Decided 2026-09-29: retired**, because the lead approved the G7 rule. Brigade spec D6 and §4.6 are amended: the `granted` credit source is reserved for non-money cases such as a support restore, and nothing sold ever writes one |
 | Q8 | Cosmetics for the enemy doctrines, if skirmish lets a player command one | **None in the first catalogue.** Decide per doctrine under T9 when skirmish exists |
-| Q9 | Show a real-money price beside the marks price? | **Yes**, the cheapest covering pack (§5.3), if Valve's rules allow it |
+| Q9 | Show a real-money price beside the Roar coin price? | **Yes**, the cheapest covering pack (§5.3), if Valve's rules allow it |
 | Q10 | Earned tiers in a ranked 1v1 | **Not decided here.** Record it for the 1v1 design. The likely answer is base tier or matched tiers |
 | Q11 | Contributor-made cosmetics in the store | **Not in the first catalogue.** The CLA allows it, and the licensing decision keeps selling with the lead |
 | Q12 | A fourth category, command-post dressing: campaign-board plinths, briefing-folder styles, menu diorama presets, garage backdrops. Never the cursor, symbols or HUD colours, which are functional and carry CVD variants | **Yes**, under the same test, after the first three categories ship |
