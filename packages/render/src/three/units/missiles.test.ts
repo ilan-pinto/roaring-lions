@@ -334,6 +334,50 @@ describe('stepping, landing and intercept', () => {
     expect(stepMissiles(list, 5, track(8, 0))).toHaveLength(0);
   });
 
+  // The intercept race (final fix wave). The sim emits `aps` only on the
+  // round's RESOLUTION tick, never mid-flight, so a missile the frame clock
+  // lands before the sim reaches that tick can no longer be intercepted: it
+  // draws as a full hull hit (or scorches on a miss) and the aps finds nothing.
+  it('keeps the tick the sim will resolve it on: fire tick + n - 1, the same n its duration uses', () => {
+    // 8 tiles at 4 tiles/s: n = 40, resolved 39 ticks after the fire tick.
+    const m = spawned({ tick: 100 });
+    expect(m.resolveTick).toBe(139);
+    expect((m.resolveTick - 100) * SIM_TICK_S).toBeCloseTo(m.duration, 9);
+    // A round fired and resolved in the same tick (n = 1).
+    expect(spawned({ tick: 7, tx: 0.1, simDistTiles: 0.1 }).resolveTick).toBe(7);
+  });
+
+  it('holds at progress 1, not landing, while the sim has not finished its resolution tick', () => {
+    const list = [spawned({ tick: 100 })];
+    // The flight is over on the frame clock; the sim has run ticks up to 138
+    // (tickCount 139), so tick 139's events -- an aps among them -- are not in.
+    expect(stepMissiles(list, 5, track(8, 0), [], 139)).toHaveLength(0);
+    expect(list).toHaveLength(1);
+    expect(list[0].t).toBe(list[0].duration);
+    // Paused: frames keep coming, the sim does not, and it keeps holding.
+    for (let f = 0; f < 600; f++) expect(stepMissiles(list, 1 / 60, track(8, 0), [], 139)).toHaveLength(0);
+    expect(list).toHaveLength(1);
+  });
+
+  it('an aps on the resolution tick intercepts the held round where it is -- at the hull, half scale, no scorch', () => {
+    const list = [spawned({ tick: 100, willHit: false })];
+    stepMissiles(list, 5, track(8, 0), [], 139);
+    const out = interceptMissiles(list, 1, 0);
+    expect(out).toHaveLength(1);
+    expect(out[0].scale).toBe(INTERCEPT_SCALE);
+    expect(out[0].miss).toBe(false);
+    expect(list).toHaveLength(0);
+  });
+
+  it('once the resolution tick has passed with no aps, lands normally on the next frame', () => {
+    const list = [spawned({ tick: 100 })];
+    stepMissiles(list, 5, track(8, 0), [], 139);
+    const out = stepMissiles(list, 1 / 60, track(8, 0), [], 140);
+    expect(out).toHaveLength(1);
+    expect(out[0].scale).toBe(1);
+    expect(list).toHaveLength(0);
+  });
+
   it('holds at most MISSILE_CAPACITY, evicting the oldest', () => {
     const list: MissileModel[] = [];
     for (let i = 0; i < MISSILE_CAPACITY + 3; i++) pushMissile(list, spawned({ tick: i }));

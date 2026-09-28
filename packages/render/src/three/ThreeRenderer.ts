@@ -4208,7 +4208,15 @@ export class ThreeRenderer implements Renderer {
       else this.bolts.push(shell);
     }
 
-    const emitter = this.emitterLibrary.fireEmitterFor(cls);
+    // LEAD DECISION (28 Sep, GH-250): no ground backblast for an AIR
+    // launcher. Every fire-emitter layer, its light and the flat fallback
+    // below spawn at GROUND height under the muzzle, so a Hellfire leaving a
+    // gunship threw a plume and a dust ring on the sand beneath it. The
+    // missile itself still leaves from `AIR_LIFT_PX` (`MissileFx.launch`
+    // above, `shooterAir`). Scoped to missiles: a gunship's cannon keeps
+    // whatever its own class draws.
+    const airLaunch = shellKind === 'missile' && type.isAir;
+    const emitter = airLaunch ? null : this.emitterLibrary.fireEmitterFor(cls);
     const power = wp ? firePower(wp) : 0;
     // Muzzle-flash/blast light (`./flash-light.ts`'s own top comment) -- a
     // no-op when this emitter declares no `light` (`FlashLightManager.spawn`
@@ -4278,7 +4286,7 @@ export class ThreeRenderer implements Renderer {
         const fxLayer = fxLayerIndex(emitter.layer, layer.additive ?? false);
         this.particleSystem.spawn(layer, mzX, mzY, dirTurns + offset, power, prio, fxLayer);
       }
-    } else {
+    } else if (!airLaunch) {
       // No emitter authored for this weapon class yet: the flat-colour
       // fallback Pixi's own `puffs` stand in with (renderer.ts:811-818),
       // reproduced through the SAME ParticleSystem pool real emitters use
@@ -7244,7 +7252,16 @@ export class ThreeRenderer implements Renderer {
     // impact on this frame, the shellHasLanded rule (spec D7).
     // `landings` is MissileFx's own buffer, valid until the next step: it is
     // consumed here, in full, before anything can step again.
-    const landings = this.missileFx.step(dtSeconds, this.missileTrack, elevation, this.sim.width, this.sim.height);
+    // `tickCount` holds a finished flight until the sim has resolved it, so
+    // an `aps` on that tick intercepts it rather than racing a landing.
+    const landings = this.missileFx.step(
+      dtSeconds,
+      this.missileTrack,
+      elevation,
+      this.sim.width,
+      this.sim.height,
+      this.sim.tickCount
+    );
     for (const l of landings) this.spawnMissileImpactFx(l);
   }
 

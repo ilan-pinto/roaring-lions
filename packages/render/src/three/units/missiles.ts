@@ -160,6 +160,11 @@ export interface MissileModel {
   impactLiftPx: number;
   apexPx: number;
   duration: number;
+  /** The tick the sim resolves this round on (`missileResolveTick`). The
+   *  missile does not land before the sim has FINISHED that tick, so an `aps`
+   *  event -- which the sim emits on that tick and no other -- still finds it
+   *  in flight. */
+  resolveTick: number;
   t: number;
   seed: number;
   trailTiles: number;
@@ -205,9 +210,10 @@ export function missileVariantFor(cls: number, weaponId: string): MissileVariant
   return null;
 }
 
-export function missileDurationS(cls: number, distTiles: number): number {
+/** `n`, the sim's own whole-tick flight count (`prTicksLeft`), at least 1. */
+function simFlightTicks(cls: number, distTiles: number): number {
   const mc = missileClassOf(cls);
-  if (mc === null) return SIM_TICK_S;
+  if (mc === null) return 1;
   const perTick = SIM_PROJ_SPEED_TILES_S[mc] * SIM_TICK_S;
   // The epsilon guards a real boundary, though not the one this comment used
   // to name (6 / 0.2 does not land above 30 on this Node -- verified in
@@ -219,10 +225,25 @@ export function missileDurationS(cls: number, distTiles: number): number {
   // Q16.16 division does not carry this particular error, so the epsilon
   // only corrects a float-precision artefact this presentation-layer copy
   // introduces, not a difference in what the sim actually resolved.
-  const n = Math.max(1, Math.ceil(distTiles / perTick - 1e-9));
+  return Math.max(1, Math.ceil(distTiles / perTick - 1e-9));
+}
+
+export function missileDurationS(cls: number, distTiles: number): number {
+  if (missileClassOf(cls) === null) return SIM_TICK_S;
+  const n = simFlightTicks(cls, distTiles);
   // The sim resolves n - 1 ticks after the fire tick (projectiles step in the
   // tick they are fired); a same-tick round still draws for one.
   return Math.min(Math.max(1, n - 1) * SIM_TICK_S, MISSILE_MAX_DURATION_S);
+}
+
+/**
+ * The tick the sim resolves this round on -- the `tick` its `impact`,
+ * `nearMiss` or `aps` event carries: `fireTick + n - 1`, from the SAME `n`
+ * `missileDurationS` quantises (uncapped, unlike the duration). See
+ * `stepMissiles`' hold, which is what this is for.
+ */
+export function missileResolveTick(cls: number, distTiles: number, fireTick: number): number {
+  return fireTick + simFlightTicks(cls, distTiles) - 1;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -264,7 +285,7 @@ export function spawnMissile(l: MissileLaunch): MissileModel | null {
     side: l.side, variant, mclass, target: l.target, shooter: l.shooter,
     tracking, miss,
     launchLiftPx, impactLiftPx, apexPx,
-    duration, t: 0, seed, trailTiles: 0,
+    duration, resolveTick: missileResolveTick(l.cls, l.simDistTiles, l.tick), t: 0, seed, trailTiles: 0,
   };
 }
 
@@ -342,12 +363,24 @@ function landingFor(m: MissileModel, progress: number, scale: number, miss: bool
  * returning their landings. `out` is cleared (`length = 0`) and refilled, so
  * a caller stepping every frame passes one buffer it owns and allocates no
  * array per frame (`MissileFx` does); omitted, a fresh array is returned.
+ *
+ * `simTick` is the sim's `tickCount` -- the number of ticks it has FINISHED,
+ * so every event tagged `simTick - 1` or earlier has already been delivered.
+ * A missile whose frame-clock flight is over lands only once
+ * `simTick > resolveTick`; until then it HOLDS at progress 1. The sim emits
+ * `aps` on the resolution tick alone, and the frame clock beat it about one
+ * time in three at 60 fps (every time with the game paused mid-flight), which
+ * drew an intercepted round as a full hull hit, or a scorch. Held, the `aps`
+ * that arrives on that tick intercepts it; with none, it lands on the next
+ * frame after the tick. Paused, it holds. Omitted, nothing holds: the frame
+ * clock alone decides, as it did before.
  */
 export function stepMissiles(
   list: MissileModel[],
   dt: number,
   track: TargetTrack,
-  out: MissileLanding[] = []
+  out: MissileLanding[] = [],
+  simTick: number = Number.POSITIVE_INFINITY
 ): MissileLanding[] {
   const landings = out;
   landings.length = 0;
@@ -363,11 +396,11 @@ export function stepMissiles(
         m.tracking = false;
       }
     }
-    if (m.t + dt >= m.duration) {
+    if (m.t + dt >= m.duration && simTick > m.resolveTick) {
       landings.push(landingFor(m, 1, 1));
       // dropped: not copied forward
     } else {
-      m.t += dt;
+      m.t = Math.min(m.t + dt, m.duration);
       list[write] = m;
       write++;
     }
