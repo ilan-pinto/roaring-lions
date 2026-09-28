@@ -49,6 +49,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-28 · S3e symbols (#178) Tasks 1–6 COMPLETE on `feat/s3e-symbols` (plan `docs/superpowers/plans/2026-09-28-s3e-symbols.md`, supersedes Phase 3 Tasks 11–12) · G1's r2/r4/r5-approved sheet ported as the drawn source, dingbat gate (follow-up #261), cursor family colour + halo + CVD variants, frame driver, Q1–Q14 taken at their recommended default · lead captures under `.superpowers/sdd/2026-09-28-s3e-symbols/t6-lead/` · awaiting merge
 - 2026-09-26 · releases v0.82.0 → v0.84.0 cut across the 24–26 Sep landings below
 - 2026-09-26 · **#249 → 2eadc0b0 ground plan 1 (WP-A2)** · splat terrain, the #226 road, a decal pool, and the new gated `aftermath` scenario · visual baseline re-blessed from CI numbers at 165eb966: quiet 12222, open-ground 502, vehicle 4726, relief 704, aftermath new
 - 2026-09-25 · **#248 asset-provenance fix** · TNK/JEEP sprites re-rendered from our own GLBs; Namer CC-BY credit added; Kolos FBX removed; history kept, by the lead's decision · closes the pre-public audit's one finding
