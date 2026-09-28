@@ -19,8 +19,8 @@ import type { LedgerData } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { escapeHtml } from './escape-html';
-import { LOGISTICS_GLYPH } from './glyphs';
 import { roleBadgeSvg } from './role';
+import { symbolSvg } from './symbol';
 import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
 import { kitIconSignHtml, kitLevelLabel } from './kit-sign';
@@ -82,27 +82,37 @@ export interface ProductionOptions {
  *  below (`buildSupportTile`, `unitTipHtml`/`supportTipHtml`, the click
  *  handler's own notes) calls `t()` at render/use time instead. */
 const SUPPORT: readonly {
+  /** Also the mark: `symbolSvg(kind)`, the G1 sheet's static sweep/strike
+   *  order graphic (S3e, Q4) -- the same id the cursor's sight is keyed by. */
   kind: SupportKind;
-  glyph: string;
   word: string;
   name: string;
   blurb: string;
 }[] = [
   {
     kind: 'sweep',
-    glyph: '◎',
     word: 'dock.support.sweep.word',
     name: 'dock.support.sweep.name',
     blurb: 'dock.support.sweep.blurb',
   },
   {
     kind: 'strike',
-    glyph: '✸',
     word: 'dock.support.strike.word',
     name: 'dock.support.strike.name',
     blurb: 'dock.support.strike.blurb',
   },
 ];
+
+/** The tile cost's logistics mark. Built once: it is the same markup on
+ *  every tile, and a constant is what lets the price beside it stay a text
+ *  node. The px is the attribute fallback -- theme.css draws `.rl-sym` at 1em
+ *  of the cost's own type. */
+const LOGISTICS_MARK = symbolSvg('logistics', 12);
+/** The support tiles' sweep/strike mark; 1em of `.rl-tile__glyph`'s 1.125rem. */
+const SUPPORT_GLYPH_PX = 18;
+/** The tooltip's role badge. S3e (Q7): was 8, where an APP-6 mark is a smudge;
+ *  10 is the floor wherever a unit is badged. */
+const TIP_BADGE = 10;
 
 interface UnitTile {
   el: HTMLButtonElement;
@@ -253,11 +263,13 @@ export class ReinforcementDock {
     const cost = document.createElement('span');
     cost.className = 'rl-tile__cost';
     // GH-229 fix round 2: a bare number here read as credits once the dock's
-    // header started showing a credit balance beside it. `LOGISTICS_GLYPH` is
-    // the SAME character the top strip's own Logistics field uses (`hud.ts`,
-    // `./glyphs`) -- imported rather than retyped, so the two glyphs cannot
-    // drift apart by one of them being edited alone.
-    cost.textContent = `${LOGISTICS_GLYPH} ${unit.logistics}`;
+    // header started showing a credit balance beside it. S3e: the prefix is
+    // the G1 sheet's `logistics` mark, the SAME one the top strip's own
+    // Logistics field draws (`hud.ts`) -- one id, so the two cannot drift.
+    // The mark is a constant; the price goes in as a text node, so it never
+    // passes through `innerHTML`.
+    cost.innerHTML = LOGISTICS_MARK;
+    cost.append(` ${unit.logistics}`);
 
     const left = document.createElement('span');
     left.className = 'rl-tile__left';
@@ -317,7 +329,7 @@ export class ReinforcementDock {
     el.dataset.support = spec.kind;
     el.dataset.armed = '0';
     el.innerHTML =
-      `<span class="rl-tile__glyph">${spec.glyph}</span>` +
+      `<span class="rl-tile__glyph">${symbolSvg(spec.kind, SUPPORT_GLYPH_PX)}</span>` +
       `<span class="rl-tile__word">${t(spec.word)} ${cost}</span>`;
 
     el.addEventListener('click', () => {
@@ -364,7 +376,7 @@ export class ReinforcementDock {
       `<span class="rl-tip__name">${escapeHtml(unit.name)}</span>` +
       `<span class="rl-tip__cost">${unit.logistics} · ${unit.buildTimeS}s</span>` +
       `</div>` +
-      `<div class="rl-tip__tags">${roleBadgeSvg(unit.bucket, 8)} ${unit.tags.map(escapeHtml).join(' · ')}</div>` +
+      `<div class="rl-tip__tags">${roleBadgeSvg(unit.bucket, TIP_BADGE)} ${unit.tags.map(escapeHtml).join(' · ')}</div>` +
       blurb
     );
   }

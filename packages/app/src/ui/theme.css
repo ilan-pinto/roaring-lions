@@ -182,6 +182,17 @@
   --live: var(--rl-vfx-tracer);
   --hot: var(--rl-vfx-fire);
   --intercept: var(--rl-vfx-interceptor);
+  /* S3e (Q6): the order families, the G1 sheet's round-5 colours
+     (`ui/order-sight.ts`'s ORDER_SIGHT[].main, as palette keys there). Only
+     the order row's glyph span wears them (`.rl-order__glyph[data-family]`
+     below); the label beside it stays in ink. Offensive and control ride the
+     two tokens the colour-vision blocks below already re-point, so they
+     follow a CVD choice with no rule of their own. */
+  --order-manoeuvre: var(--rl-vfx-interceptor);
+  --order-offensive: var(--bad-text);
+  --order-control: var(--warn);
+  --order-obscurant: var(--rl-limestone-0);
+  --order-transport: var(--rl-vfx-tracer);
   --friendly: var(--rl-team-kedem);
   --accent: var(--rl-dust-0);
 
@@ -2077,6 +2088,12 @@ body {
   font-size: 0.875rem;
   line-height: 1;
 }
+/* S3e (Q6): the family colour, on the glyph span alone. */
+.rl-order__glyph[data-family='manoeuvre'] { color: var(--order-manoeuvre); }
+.rl-order__glyph[data-family='offensive'] { color: var(--order-offensive); }
+.rl-order__glyph[data-family='control'] { color: var(--order-control); }
+.rl-order__glyph[data-family='obscurant'] { color: var(--order-obscurant); }
+.rl-order__glyph[data-family='transport'] { color: var(--order-transport); }
 /* Capable, but it would issue no command right now — an empty transport asked
    to unload. Distinct from an order the selection cannot give at all, which is
    absent from the row entirely. Still clickable: the handler's own refusal
@@ -2203,6 +2220,19 @@ body {
 }
 .rl-chip__status {
   color: var(--ink-dim);
+}
+
+/* S3e: a mark from the G1 sheet (`ui/symbol.ts`) standing in for a character
+   -- the order row, the strip's logistics and intel, the dock's cost and
+   support tiles, the board's spin buttons. 1em of the type it replaces, so it
+   scales with --ui-scale the way the character did; the px the markup carries
+   is only the attribute fallback. A role badge (`.rl-badge`) is the one
+   exception: every caller sizes it on purpose in px (a 10 px chip mark, a
+   72 px garage plate), and 1em would flatten all of them to one size. */
+.rl-sym:not(.rl-badge) {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
 }
 
 /* The role mark, inline with the name it belongs to. currentColor, so it dims
@@ -2499,7 +2529,7 @@ body {
    label's own `--t-xs` -- reviewed as illegible, "REINFORCEMENTS · B · 0 CR"
    all at the smallest tracked-caps size on the sheet. Fix round 2 gives it
    the top strip's OWN counter size (`--t-strip`, the size `.rl-info` reads
-   off `.rl-strip` itself) so a balance reads as easily as "▣ 424 +120/min"
+   off `.rl-strip` itself) so a balance reads as easily as "[logistics mark] 424 +120/min"
    does up there, plus a halo to match (this sits over the battlefield the
    same as the label). `tabindex` on the element in `production.ts` plus
    `pointer-events: auto` here is what lets its `bindTip` tooltip be reached

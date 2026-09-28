@@ -81,7 +81,7 @@ import {
   type CursorName,
   type UnbadgedName,
 } from './src/input/cursor';
-import { roleBadgeShapes, type RoleBucket } from './src/ui/role';
+import type { RoleBucket } from './src/ui/role';
 
 interface Palette {
   ramps: Record<string, { colors: string[] }>;
@@ -457,6 +457,65 @@ const BADGE_CX = 25.5;
 const BADGE_CY = 25.5;
 const BADGE_R = 4.5;
 
+/** The seven pre-S3e badge shapes, centred on (x, y) at radius r.
+ *
+ *  S3e Task 2 retired this from `src/ui/role.ts`: every HUD badge now draws
+ *  the G1 sheet's APP-6 role marks (`src/ui/symbol.ts`). The cursor is the
+ *  one reader left, and moving it onto the sheet is S3e Task 4's job (the
+ *  badge placed at BADGE_CX/CY/R with the sheet's translate-and-scale), so
+ *  the geometry is parked here verbatim until then -- the cursor stays
+ *  byte-identical in the meantime rather than half-migrated. Delete this
+ *  with Task 4. */
+function roleBadgeShapes(
+  bucket: RoleBucket,
+  x: number,
+  y: number,
+  r: number,
+  colour: string
+): string {
+  switch (bucket) {
+    case 'armour': // '■' -- a filled square
+      return `<rect x="${x - r}" y="${y - r}" width="${r * 2}" height="${r * 2}" fill="${colour}"/>`;
+    case 'soft': // '▲' -- a filled triangle
+      return `<path d="M${x},${y - r} L${x + r},${y + r} L${x - r},${y + r} Z" fill="${colour}"/>`;
+    case 'drone': {
+      // '⬡' -- a hexagon
+      const h = r;
+      return (
+        `<path d="M${x - h},${y} L${x - h / 2},${y - h} L${x + h / 2},${y - h} ` +
+        `L${x + h},${y} L${x + h / 2},${y + h} L${x - h / 2},${y + h} Z" fill="${colour}"/>`
+      );
+    }
+    case 'gunship': // '✈' -- a dart, distinct from soft's plain triangle
+      return (
+        `<path d="M${x},${y - r} L${x + r * 0.7},${y + r} L${x},${y + r * 0.35} ` +
+        `L${x - r * 0.7},${y + r} Z" fill="${colour}"/>`
+      );
+    case 'sniper': {
+      // '✛' -- a heavy cross
+      const t = r * 0.4;
+      return (
+        `<path d="M${x - t},${y - r} L${x + t},${y - r} L${x + t},${y - t} ` +
+        `L${x + r},${y - t} L${x + r},${y + t} L${x + t},${y + t} ` +
+        `L${x + t},${y + r} L${x - t},${y + r} L${x - t},${y + t} ` +
+        `L${x - r},${y + t} L${x - r},${y - t} L${x - t},${y - t} Z" fill="${colour}"/>`
+      );
+    }
+    case 'transport': // '▤' -- a square ruled with two bars
+      return (
+        `<rect x="${x - r}" y="${y - r}" width="${r * 2}" height="${r * 2}" fill="none" stroke="${colour}" stroke-width="1"/>` +
+        `<line x1="${x - r}" y1="${y - r / 3}" x2="${x + r}" y2="${y - r / 3}" stroke="${colour}" stroke-width="1"/>` +
+        `<line x1="${x - r}" y1="${y + r / 3}" x2="${x + r}" y2="${y + r / 3}" stroke="${colour}" stroke-width="1"/>`
+      );
+    case 'kamikaze': // '✹' -- an eight-point burst, small
+      return (
+        `<path d="M${x},${y - r} L${x + r * 0.35},${y - r * 0.35} L${x + r},${y} ` +
+        `L${x + r * 0.35},${y + r * 0.35} L${x},${y + r} L${x - r * 0.35},${y + r * 0.35} ` +
+        `L${x - r},${y} L${x - r * 0.35},${y - r * 0.35} Z" fill="${colour}"/>`
+      );
+  }
+}
+
 /** A small SVG mark riding the housing's bottom-right plate, shaped to match
  *  `ROLE_GLYPH`'s Unicode for the same bucket in `src/ui/role.ts` -- so the
  *  cursor's badge and the inspect card's glyph read as the same thing to a
@@ -465,10 +524,10 @@ const BADGE_R = 4.5;
  *  to bet on. Kept to a few path commands each: this rides at roughly 10px
  *  on a 32px reticle, seen in motion.
  *
- *  The geometry itself lives in `role.ts` as `roleBadgeShapes`, and has since
- *  GH-153 gave it a third reader (the selection chip and the unit card). This
- *  wrapper is what stays here: the badge's PLACE on the reticle, and the fact
- *  that a cursor image inherits no colour so the hex has to be baked in. */
+ *  The geometry is `roleBadgeShapes` just above, parked here by S3e Task 2
+ *  until Task 4 moves the cursor onto the G1 sheet. This wrapper is what
+ *  stays: the badge's PLACE on the reticle, and the fact that a cursor image
+ *  inherits no colour so the hex has to be baked in. */
 function badgeMark(bucket: RoleBucket, colour: string): string {
   return roleBadgeShapes(bucket, BADGE_CX, BADGE_CY, BADGE_R, hex(colour));
 }
