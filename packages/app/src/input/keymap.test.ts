@@ -189,18 +189,36 @@ describe('keymap', () => {
   // branch turns the first case below red (it falls through to 'pause').
   describe('escapeTarget', () => {
     it('closes the tracker first, ahead of everything else', () => {
-      expect(escapeTarget(true, false)).toBe('closeTracker');
+      expect(escapeTarget(true, false, false)).toBe('closeTracker');
       // Even with a dialog somehow already open, per the rule this is
       // supposed to enforce -- the tracker is not a `.rl-obj-panel--tracker`
       // dialog `isDialogOpen()` recognises, so the two states could coexist,
       // and closing the tracker is still the one thing Escape does.
-      expect(escapeTarget(true, true)).toBe('closeTracker');
+      expect(escapeTarget(true, true, false)).toBe('closeTracker');
+      // Even with a support call armed, the tracker still wins.
+      expect(escapeTarget(true, false, true)).toBe('closeTracker');
     });
     it('opens the pause menu when the tracker is closed and nothing else owns Escape', () => {
-      expect(escapeTarget(false, false)).toBe('pause');
+      expect(escapeTarget(false, false, false)).toBe('pause');
     });
     it('does nothing when a dialog already owns Escape and the tracker is closed', () => {
-      expect(escapeTarget(false, true)).toBe('none');
+      expect(escapeTarget(false, true, false)).toBe('none');
+      // A dialog outranks disarming too -- GH-264's fix must not let Escape
+      // reach past a confirm/pause modal just because a call is armed.
+      expect(escapeTarget(false, true, true)).toBe('none');
+    });
+    // GH-264: once a support call (sweep or strike) is armed from the dock,
+    // Escape did nothing -- only clicking the dock tile again disarmed it.
+    // Ranked ahead of 'pause' (arming and pausing are two different things a
+    // bare Escape could mean, and disarming an in-progress action takes
+    // priority over opening a menu, the same way the tracker does) and
+    // behind the tracker/dialog rungs above, which every other rung defers
+    // to as well.
+    it('disarms an armed support call when nothing else owns Escape', () => {
+      expect(escapeTarget(false, false, true)).toBe('disarmSupport');
+    });
+    it('still opens the pause menu when nothing is armed', () => {
+      expect(escapeTarget(false, false, false)).toBe('pause');
     });
   });
 });

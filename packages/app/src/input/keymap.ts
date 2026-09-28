@@ -173,10 +173,25 @@ export function passesThroughModal(action: Action | null): boolean {
  * of the whole switch already filters every dialog-open keydown before this
  * ever runs, and that comment's own reasoning for keeping it anyway ("this
  * case's own stated contract") applies here just the same.
+ *
+ * GH-264: `armedSupport` is whether a fire-support call (sweep or strike) is
+ * currently armed from the dock, awaiting a click on the map. Before this,
+ * arming one from `main.ts`'s `production.onArm` had no Escape rung at all --
+ * only clicking the dock tile again (`production.setArmed`) disarmed it. It
+ * ranks BELOW the tracker and dialog rungs above (a bare Escape must not
+ * reach past either just because a call happens to be armed) and ABOVE
+ * `pause`: disarming an in-progress action is the same kind of "undo the
+ * thing Escape usually undoes" as closing the tracker, and a player who
+ * armed a call by mistake should get that back, not a menu on top of it.
  */
-export function escapeTarget(trackerOpen: boolean, dialogOpen: boolean): 'closeTracker' | 'pause' | 'none' {
+export function escapeTarget(
+  trackerOpen: boolean,
+  dialogOpen: boolean,
+  armedSupport: boolean
+): 'closeTracker' | 'pause' | 'none' | 'disarmSupport' {
   if (trackerOpen) return 'closeTracker';
   if (dialogOpen) return 'none';
+  if (armedSupport) return 'disarmSupport';
   return 'pause';
 }
 

@@ -3706,12 +3706,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // one place this priority is decided; it hands the tracker Escape
         // first, exclusively, so there is exactly one thing a bare Escape
         // does at a time.
-        const target = escapeTarget(objectivesOpen, isDialogOpen());
+        const target = escapeTarget(objectivesOpen, isDialogOpen(), armedSupport !== null);
         if (target === 'closeTracker') {
           closeObjectives();
           break;
         }
         if (target === 'none') break;
+        // GH-264: Escape used to do nothing once a sweep or strike was armed
+        // from the dock -- only clicking the dock tile again disarmed it.
+        // `production.setArmed(null)` is the same call the dock's own toggle
+        // makes: it clears the tile's lime highlight and calls `onArm(null)`,
+        // which nulls `armedSupport` here, so the cursor (`updateCursor`
+        // below reads `armedSupport` every frame) falls back to normal on
+        // the very next frame with no extra bookkeeping.
+        if (target === 'disarmSupport') {
+          production?.setArmed(null);
+          break;
+        }
         // Fix round 1: this listener is the OLDEST bubble listener on
         // `window` (registered once at boot, long before any dialog
         // exists), so on a bare Escape it used to run BEFORE any dialog's
