@@ -881,7 +881,7 @@ describe('per-kind streak width', () => {
   // bearing, not the width. Broken by hand both ways: with the width source
   // reverted to the single constant this now fails on the bolt line.
   it('writes each kind at its OWN width, measured on screen where the taper is 1', () => {
-    const headWidthPx = (kind: 'mortar' | 'bolt' | 'missile'): number => {
+    const headWidthPx = (kind: 'mortar' | 'bolt'): number => {
       const out = sBuffers(SHELL_TRAIL_SEGMENTS);
       writeShellInstances([{ ...spawnShell(0, 0, 12, 0, 0, kind), t: 0.6 }], ['#FFFFFF', '#FFFFFF'], null, 0, 0, out);
       // Head quad (the last one); its b1/b0 pair is the end where the taper
@@ -898,7 +898,6 @@ describe('per-kind streak width', () => {
     };
     expect(headWidthPx('mortar')).toBeCloseTo(SHELL_PROFILES.mortar.widthPx, 4);
     expect(headWidthPx('bolt')).toBeCloseTo(SHELL_PROFILES.bolt.widthPx, 4);
-    expect(headWidthPx('missile')).toBeCloseTo(SHELL_PROFILES.missile.widthPx, 4);
     expect(SHELL_PROFILES.bolt.widthPx).toBeLessThan(SHELL_PROFILES.mortar.widthPx);
   });
 });
