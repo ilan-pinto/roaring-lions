@@ -273,9 +273,21 @@ export class MissileFx {
    * returned array is this controller's own buffer, **valid until the next
    * `step` call**: consume it before stepping again, and copy it if you need
    * to keep it. Allocating none per frame is the point.
+   *
+   * `simTick` is the sim's `tickCount`: a missile whose flight is over holds
+   * until the sim has finished its resolution tick, so that tick's `aps`
+   * still finds it (`stepMissiles`' own doc comment). Omitted, the frame
+   * clock alone lands it.
    */
-  step(dt: number, track: TargetTrack, elevation: ElevationSource, w: number, h: number): MissileLanding[] {
-    const landings = stepMissiles(this.missiles, dt, track, this.stepLandings);
+  step(
+    dt: number,
+    track: TargetTrack,
+    elevation: ElevationSource,
+    w: number,
+    h: number,
+    simTick: number = Number.POSITIVE_INFINITY
+  ): MissileLanding[] {
+    const landings = stepMissiles(this.missiles, dt, track, this.stepLandings, simTick);
 
     // --- Trail emission + body quads: ONE pass over the missiles, so each
     // missile's own launch/impact ground height (`curLaunchY`/`curImpactY`)

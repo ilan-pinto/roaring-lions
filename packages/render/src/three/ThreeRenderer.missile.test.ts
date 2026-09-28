@@ -89,6 +89,23 @@ const IMPACT: EmitterSpec = {
   particles: [{ sprite: 'shard', count: [8, 12], lifetime_ms: [250, 450], cone_deg: 70, color_over_life: ['vfx.fire'] }],
 };
 
+// The Hellfire's shape: an ATGM carried by an `air` unit.
+const GUNSHIP: UnitTypeJson = {
+  ...SPIKE, id: 't_gunship', role: 'gunship',
+  mobility: { speed_tiles_s: 0, domain: 'air' },
+  weapons: [{ id: 'hellfire', type: 'atgm', range_tiles: 9, effective_range_tiles: 7.2, accuracy: 0.78,
+    penetration: 900, damage: 800, suppression: 60, rof_per_min: 3, min_range_tiles: 1 }],
+};
+// `fire_missile`'s ground layers: the backblast plume and the dust ring.
+const FIRE_MISSILE: EmitterSpec = {
+  id: 'fire_missile', trigger: 'weapon_fire', layer: 'above_units', weapon_classes: ['atgm', 'rpg'],
+  light: { color: 'vfx.fire', intensity: 2, radius_tiles: 3, decay_ms: 180 },
+  particles: [
+    { sprite: 'smoke_puff', count: [8, 12], lifetime_ms: [600, 1200], direction_offset_deg: 180, color_over_life: ['limestone.2'] },
+    { sprite: 'smoke_puff', count: [6, 9], lifetime_ms: [500, 900], cone_deg: 360, color_over_life: ['dust.2'] },
+  ],
+};
+
 interface Privates {
   missileFx: { missiles: MissileModel[] };
   bolts: unknown[];
@@ -116,6 +133,37 @@ function rendererFor(sim: Sim, events: SimEvent[]): ThreeRenderer {
   r.snapshot();
   r.onEvents(events);
   return r;
+}
+
+/** One 60 fps frame of the app's loop: the sim ticks every third frame, as
+ *  `main.ts`'s fixed 20 Hz clock does, then the frame draws. The sim's own
+ *  events are not delivered -- these cases read only the missile path. */
+function playFrame(r: ThreeRenderer, sim: Sim, frame: number): void {
+  if (frame % 3 === 0) {
+    sim.tick();
+    r.snapshot();
+  }
+  priv(r).updateFx(1000 / 60);
+}
+
+/**
+ * The race the final fix wave closes. The sim emits `aps` on the round's
+ * RESOLUTION tick and never mid-flight; the frame clock can finish the
+ * flight first (about 1 time in 3 at 60 fps, every time paused mid-flight).
+ * Here it does, as far as it can: the frames run well past the flight with
+ * the sim held, then the sim catches up to that tick and its `aps` arrives
+ * exactly the way `main.ts`'s `runTick` delivers one -- tick, snapshot,
+ * events -- before the next frame draws.
+ */
+function interceptOnResolutionTick(r: ThreeRenderer, sim: Sim, shooter: number, target: number): void {
+  const m = priv(r).missileFx.missiles[0];
+  const frames = Math.ceil(m.duration * 60) * 2;
+  for (let i = 0; i < frames; i++) priv(r).updateFx(1000 / 60);
+  const resolveTick = sim.tickCount - 1 + Math.round(m.duration / 0.05);
+  while (sim.tickCount <= resolveTick) sim.tick();
+  r.snapshot();
+  r.onEvents([{ kind: 'aps', tick: resolveTick, target, shooter, pIntercept: 0, roll: 0, intercepted: true }]);
+  for (let i = 0; i < 3; i++) priv(r).updateFx(1000 / 60);
 }
 
 describe('an ATGM is a missile, not a bolt (GH-250)', () => {
@@ -164,9 +212,10 @@ describe('an ATGM is a missile, not a bolt (GH-250)', () => {
       real(l);
     };
     const frames = Math.ceil(priv(r).missileFx.missiles[0].duration * 60);
-    for (let i = 0; i < frames - 2; i++) priv(r).updateFx(1000 / 60);
+    let f = 0;
+    for (; f < frames - 2; f++) playFrame(r, sim, f);
     expect(calls).toHaveLength(0);
-    for (let i = 0; i < 4; i++) priv(r).updateFx(1000 / 60);
+    for (; f < frames + 2; f++) playFrame(r, sim, f);
     expect(calls).toHaveLength(1);
     expect(calls[0].power).toBe(0.25);
     expect(calls[0].x).toBeCloseTo(11, 0);
@@ -174,18 +223,89 @@ describe('an ATGM is a missile, not a bolt (GH-250)', () => {
     r.dispose();
   });
 
-  it('an APS intercept detonates the in-flight missile at that target, at half scale (spec D4)', () => {
+  it('an aps on the resolution tick intercepts the round even when the frame clock finished first -- 1.3 flash, no scorch (spec D4)', () => {
     const { sim, shooter, target, events } = fire(SPIKE, 7);
+    const r = rendererFor(sim, events);
+    r.useEmitters([IMPACT], (k) => (k.startsWith('#') ? k : '#FFB43C'));
+    const seen = lightIntensities(r);
+    const calls: MissileLanding[] = [];
+    const real = priv(r).spawnMissileImpactFx.bind(r);
+    priv(r).spawnMissileImpactFx = (l) => {
+      calls.push(l);
+      real(l);
+    };
+    interceptOnResolutionTick(r, sim, shooter, target);
+    // ONE detonation, and it is the intercept's: half scale, killed in the
+    // air (so no scorch), lit at 2.6 x 0.5. A frame-clock landing would have
+    // been scale 1 and 2.6, and the aps would then have found nothing.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].scale).toBe(0.5);
+    expect(calls[0].miss).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeCloseTo(1.3, 9);
+    expect(priv(r).missileFx.missiles).toHaveLength(0);
+    r.dispose();
+  });
+
+  it('a paused sim HOLDS a missile whose flight is over, rather than landing it', () => {
+    const { sim, events } = fire(SPIKE, 7);
     const r = rendererFor(sim, events);
     const calls: MissileLanding[] = [];
     priv(r).spawnMissileImpactFx = (l) => calls.push(l);
-    priv(r).updateFx(300);
-    const aps: SimEvent = { kind: 'aps', tick: 1, target, shooter, pIntercept: 0, roll: 0, intercepted: true };
-    r.onEvents([aps]);
+    const duration = priv(r).missileFx.missiles[0].duration;
+    const resolveTick = sim.tickCount - 1 + Math.round(duration / 0.05);
+    const frames = Math.ceil(duration * 60) * 3;
+    for (let i = 0; i < frames; i++) priv(r).updateFx(1000 / 60);
+    expect(calls).toHaveLength(0);
+    expect(priv(r).missileFx.missiles).toHaveLength(1);
+    // Unpaused: once the sim has passed the resolution tick with no aps, the
+    // next frame lands it -- a full hit, at scale 1.
+    while (sim.tickCount <= resolveTick) sim.tick();
+    r.snapshot();
+    priv(r).updateFx(1000 / 60);
     expect(calls).toHaveLength(1);
-    expect(calls[0].scale).toBe(0.5);
-    expect(priv(r).missileFx.missiles).toHaveLength(0);
+    expect(calls[0].scale).toBe(1);
     r.dispose();
+  });
+
+  // LEAD DECISION (28 Sep): no ground backblast for an air launcher. The
+  // missile still leaves from AIR_LIFT_PX (N7); only the muzzle's ground
+  // plume, dust ring and ground light go.
+  function fireSpawns(json: UnitTypeJson): { particles: number; lights: number; missiles: number } {
+    const { sim, events } = fire(json, 7);
+    const r = new ThreeRenderer(sim, makeOpts());
+    r.useEmitters([FIRE_MISSILE], (k) => (k.startsWith('#') ? k : '#E6D8BE'));
+    r.snapshot();
+    const ps = (r as unknown as { particleSystem: { spawn(...a: unknown[]): void } | null }).particleSystem;
+    if (ps === null) throw new Error('fixture: useEmitters built no ParticleSystem');
+    let particles = 0;
+    const realSpawn = ps.spawn.bind(ps);
+    ps.spawn = (...a: unknown[]): void => {
+      particles++;
+      realSpawn(...a);
+    };
+    let lights = 0;
+    const fl = priv(r).flashLights;
+    const realLight = fl.spawn.bind(fl);
+    fl.spawn = (x, z, groundY, spec, colorHex) => {
+      lights++;
+      realLight(x, z, groundY, spec, colorHex);
+    };
+    r.onEvents(events.filter((e) => e.kind === 'fire'));
+    const missiles = priv(r).missileFx.missiles.length;
+    r.dispose();
+    return { particles, lights, missiles };
+  }
+
+  it('an air launcher throws no ground backblast; a ground launcher still does', () => {
+    const air = fireSpawns(GUNSHIP);
+    expect(air.missiles).toBe(1);
+    expect(air.particles).toBe(0);
+    expect(air.lights).toBe(0);
+    const ground = fireSpawns(SPIKE);
+    expect(ground.missiles).toBe(1);
+    expect(ground.particles).toBe(FIRE_MISSILE.particles.length);
+    expect(ground.lights).toBe(1);
   });
 
   it('names the impact emitter the data ships', () => {
@@ -249,8 +369,8 @@ describe('an ATGM is a missile, not a bolt (GH-250)', () => {
     const r = rendererFor(sim, events);
     r.useEmitters([IMPACT], (k) => (k.startsWith('#') ? k : '#FFB43C'));
     const seen = lightIntensities(r);
-    const frames = Math.ceil(priv(r).missileFx.missiles[0].duration * 60) + 2;
-    for (let i = 0; i < frames; i++) priv(r).updateFx(1000 / 60);
+    const frames = Math.ceil(priv(r).missileFx.missiles[0].duration * 60) + 3;
+    for (let f = 0; f < frames; f++) playFrame(r, sim, f);
     expect(seen).toHaveLength(1);
     expect(seen[0]).toBeCloseTo(2.6, 9);
     r.dispose();
@@ -261,8 +381,7 @@ describe('an ATGM is a missile, not a bolt (GH-250)', () => {
     const r = rendererFor(sim, events);
     r.useEmitters([IMPACT], (k) => (k.startsWith('#') ? k : '#FFB43C'));
     const seen = lightIntensities(r);
-    priv(r).updateFx(300);
-    r.onEvents([{ kind: 'aps', tick: 1, target, shooter, pIntercept: 0, roll: 0, intercepted: true }]);
+    interceptOnResolutionTick(r, sim, shooter, target);
     expect(seen).toHaveLength(1);
     expect(seen[0]).toBeCloseTo(1.3, 9);
     r.dispose();
