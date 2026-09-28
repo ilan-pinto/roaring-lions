@@ -1781,11 +1781,27 @@ describe('the strip tooltips (final review, C1/C2)', () => {
   // chip's status line (more than one selected). Same text everywhere, so a
   // player who learns what pinned means from any one of them has it for
   // the other two.
-  it('explains pinned on the strip, the card flag and the chip status', () => {
+  //
+  // Final fix wave (GH-262): tightened from a `toMatch` on one fragment to
+  // an exact-text equality check across all three surfaces, plus the two
+  // corrected phrases from the Task 4 review ruling ("holding fire and
+  // barely moving" in place of "holding in place and holding fire";
+  // "pinned continuously for about 10 seconds breaks and routs" in place
+  // of the "stays under fire" phrasing). The strip used to read a SEPARATE
+  // key, `hud.strip.pinned.tip`, which drifted from the card/chip key
+  // (`hud.pinned.explain`) -- a `toMatch` on a short fragment could not see
+  // that, since both keys shared the fragment while differing elsewhere.
+  //
+  // Falsified by hand: before the fix, the strip's text (from the old
+  // `hud.strip.pinned.tip` key, still saying "holding in place and holding
+  // fire" / "stays under fire about 10 seconds") differed from the card's
+  // and chip's (`hud.pinned.explain`), so `texts[0]` !== `texts[1]` failed
+  // this test red.
+  it('explains pinned identically on the strip, the card flag and the chip status', () => {
     const sel: number[] = [];
     const r = rig(mission(), { getSelection: () => sel });
     r.sim.state.pinned[r.ids[0]] = 1;
-    const explain = /Lifts a few seconds after the fire stops/;
+    const texts: string[] = [];
     for (const selection of [[], [r.ids[0]], [r.ids[0], r.ids[1]]]) {
       sel.splice(0, sel.length, ...selection);
       for (let i = 0; i < 5; i++) r.tick();
@@ -1797,9 +1813,13 @@ describe('the strip tooltips (final review, C1/C2)', () => {
             : '.rl-strip [data-tip="pinned"]'
       )!;
       el.dispatchEvent(new Event('mouseover', { bubbles: true }));
-      expect(r.host.querySelector<HTMLElement>('.rl-tip')!.textContent).toMatch(explain);
+      texts.push(r.host.querySelector<HTMLElement>('.rl-tip')!.textContent ?? '');
       closeTip();
     }
+    expect(texts[0]).toBe(texts[1]);
+    expect(texts[1]).toBe(texts[2]);
+    expect(texts[0]).toMatch(/holding fire and barely moving/);
+    expect(texts[0]).toMatch(/pinned continuously for about 10 seconds breaks and routs/);
   });
 });
 

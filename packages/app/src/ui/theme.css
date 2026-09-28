@@ -2223,7 +2223,17 @@ body {
 .rl-chip .rl-track {
   margin-top: 3px;
 }
-.rl-chip__status {
+/* GH-262 fix wave: .rl-hot (:1387) and .rl-bad-text (:1378) are equal
+   specificity to this rule and land earlier in the file, so the cascade
+   picked THIS declaration on a tone-marked chip status ("1 PINNED", "BROKEN"
+   both drew --ink-dim grey instead of --hot/--bad-text). Reordering the file
+   was rejected -- .rl-hot/.rl-bad-text are shared utility classes used all
+   over this sheet and moving them would be a much larger, less obvious diff
+   for the same effect. Excluding the tone classes here instead raises this
+   selector's specificity only on the elements that also carry one of those
+   two classes, leaving every untoned `.rl-chip__status` (still just
+   `var(--ink-dim)`) completely unchanged. */
+.rl-chip__status:not(.rl-hot):not(.rl-bad-text) {
   color: var(--ink-dim);
 }
 

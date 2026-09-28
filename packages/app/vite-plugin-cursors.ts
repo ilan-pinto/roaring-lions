@@ -10,7 +10,7 @@
 // there is all it takes for the palette gate to become a rule with an
 // exception.
 //
-// `default` (one of the fourteen names) deliberately gets no rule -- it is
+// `default` (one of the fifteen names) deliberately gets no rule -- it is
 // the OS arrow. Shipping an empty SVG for it would HIDE the arrow rather than
 // fall through to it.
 //

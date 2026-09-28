@@ -70,6 +70,7 @@ import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portr
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
+import { isPinned, wholeOrderPinned } from './ui/pinned';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { CUE_SET } from './ui/garage-model';
@@ -2754,7 +2755,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       camera: () => renderer.camera,
       // GH-262: a move/attack order to a pinned unit gets the pinned call
       // instead of the ordinary line.
-      isPinned: (id) => sim.state.pinned[id] === 1,
+      isPinned: (id) => isPinned(sim.state, id),
     },
     play: (cue) => audio.playVoice({ key: cue.key, priority: cue.priority, at: cue.at ?? undefined }),
     caption: (text, seconds) => {
@@ -3190,7 +3191,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       pinnedNoteState,
       intent,
       {
-        pinned: (id) => sim.state.pinned[id] === 1,
+        pinned: (id) => isPinned(sim.state, id),
         routed: (id) => sim.state.routed[id] === 1,
         soft: (id) => sim.unitTypes[sim.state.typeIdx[id]].isSoft,
       },
@@ -4559,7 +4560,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // or garrison group never speaks for it. Read every frame, so the cursor
   // goes back to `move` the tick the pin lifts, with no re-hover.
   const orderIds = res.intents.find((i) => i.kind === 'order')?.ids ?? [];
-  const pinned = orderIds.length > 0 && orderIds.every((i) => sim.state.pinned[i] === 1);
+  const pinned = wholeOrderPinned(sim.state, orderIds);
   const hints = {
     hostile: renderer.hoverEntity >= 0,
     blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,

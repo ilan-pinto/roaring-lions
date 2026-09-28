@@ -1338,7 +1338,10 @@ export class Hud {
       case 'intel':
         return t('hud.strip.intel.tip');
       case 'pinned':
-        return t('hud.strip.pinned.tip');
+        // Final fix wave (GH-262): reads the same key as the card and chip
+        // (`hud.pinned.explain`) rather than its own now-deleted
+        // `hud.strip.pinned.tip`, so the three surfaces cannot drift again.
+        return t('hud.pinned.explain');
       case 'broken':
         return t('hud.strip.broken.tip');
       default:
