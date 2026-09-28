@@ -7,6 +7,7 @@ import {
   restoreFocus,
   retainSelection,
   rovingStep,
+  sortByKit,
   trackForDigit,
 } from './garage-model';
 
@@ -102,5 +103,25 @@ describe('countAt', () => {
   });
   it('is the answer at once for a zero duration', () => {
     expect(countAt(10, 3, 0, 0)).toBe(3);
+  });
+});
+
+describe('sortByKit (GH-243, spec §4 Comparison)', () => {
+  const rows = [
+    { id: 'a', kit: 0 },
+    { id: 'b', kit: 2 },
+    { id: 'c', kit: 3 },
+    { id: 'd', kit: 2 },
+    { id: 'e', kit: 0 },
+  ];
+  it('puts the most kitted first', () => {
+    expect(sortByKit(rows, (r) => r.kit).map((r) => r.id)[0]).toBe('c');
+  });
+  it('keeps the given order among equals, so the rail’s own order is the tiebreak', () => {
+    expect(sortByKit(rows, (r) => r.kit).map((r) => r.id)).toEqual(['c', 'b', 'd', 'a', 'e']);
+  });
+  it('never reorders its input in place', () => {
+    sortByKit(rows, (r) => r.kit);
+    expect(rows.map((r) => r.id)).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 });

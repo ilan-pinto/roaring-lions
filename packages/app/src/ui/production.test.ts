@@ -743,3 +743,40 @@ describe('the kit sign on a tile (WP-S3g plan 2b)', () => {
     expect(r.tile('inf_squad').getAttribute('aria-label')).toBe('Rifle Squad — 292 logistics');
   });
 });
+
+describe('onBought (GH-254)', () => {
+  function withSpy(rt = fakeRuntime(), unitList: DockUnit[] = [dockUnit()]) {
+    document.body.replaceChildren();
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const bought: string[] = [];
+    new ReinforcementDock(host, {
+      units: unitList, runtime: rt, note: () => undefined, onArm: () => undefined,
+      onBought: (id) => bought.push(id),
+    });
+    const tile = host.querySelector<HTMLButtonElement>('[data-unit="inf_squad"]');
+    if (tile === null) throw new Error('no inf_squad tile');
+    return { bought, tile, rt };
+  }
+
+  it('fires once per accepted buy, with the unit id', () => {
+    const { bought, tile } = withSpy();
+    tile.click();
+    tile.click();
+    expect(bought).toEqual(['inf_squad', 'inf_squad']);
+  });
+
+  it('does not fire when the runtime refuses the buy', () => {
+    const { bought, tile, rt } = withSpy(fakeRuntime({ buildOk: false }));
+    tile.click();
+    expect(rt.builds).toEqual(['inf_squad']);
+    expect(bought).toEqual([]);
+  });
+
+  it('does not fire, and never asks the runtime, for a locked tile', () => {
+    const { bought, tile, rt } = withSpy(fakeRuntime({ blocked: { inf_squad: 'Locked' } }));
+    tile.click();
+    expect(rt.builds).toEqual([]);
+    expect(bought).toEqual([]);
+  });
+});

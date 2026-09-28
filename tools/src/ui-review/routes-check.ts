@@ -35,11 +35,18 @@
 // What catches it is the left mission's tick counter, read twice after the
 // leave below -- a loop still running is still calling `runTick()`.
 //
+// Plus (GH-254): any request at all to the telemetry ingest path, `/api/events`,
+// from any context the walk opens fails the run. A dev or CI run must send
+// nothing; `telemetryEnabled` says so, and this is the run agreeing with it
+// end to end. Its own message names the requests, so it does not rest on the
+// console rule catching the dev server's 404.
+//
 // Seen red: with `onDispose(() => cancelAnimationFrame(rafId))` commented out
 // of `bootBattlefield`, this exits 1. The output of both runs is in this
 // task's report.
 
 import { chromium, type ConsoleMessage, type Page } from 'playwright';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dismissDeployGate, ensureDevServer, stopDevServer } from '../golden-diff/browser';
@@ -47,6 +54,7 @@ import { boardCanvasVerdict } from './board-canvases';
 import { ACCOUNT_KEY } from '../../../packages/app/src/brigade-account';
 import { garageSeedScript, GARAGE_SEED_ACCOUNT } from './garage-seed';
 import { claimPort } from './port';
+import { watchTelemetry } from './telemetry-guard';
 import { kitIconFailures, type IconRead } from './kit-icons';
 import { SANDBOX_KIT_LEVELS } from '../../../packages/app/src/sandbox-force';
 import { kitLevel, units, type UpgradableUnit } from '@lions/data';
@@ -229,7 +237,23 @@ const devServer = await ensureDevServer(PORT, REPO_ROOT, TAG);
 let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
 try {
   browser = await chromium.launch();
+  // GH-254: the off switch, proved by the run. Every context this walk opens
+  // is watched for a request to the telemetry ingest path, through ONE wrapper
+  // on `newContext` rather than an edit at each of its call sites below, so a
+  // context added later is watched without anyone remembering to.
+  const telemetryHits: string[] = [];
+  const origNewContext = browser.newContext.bind(browser);
+  const newContext: typeof browser.newContext = async (...a) => {
+    const c = await origNewContext(...a);
+    watchTelemetry(c, telemetryHits);
+    return c;
+  };
+  browser.newContext = newContext;
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  // `newPage` makes its own context. Playwright 1.62 builds it through
+  // `this.newContext`, so the wrapper already sees it; this line does not rely
+  // on that, and `watchTelemetry` is idempotent per context.
+  watchTelemetry(page.context(), telemetryHits);
   page.setDefaultTimeout(ACTION_TIMEOUT_MS);
   const started = Date.now();
   const at = (): string => `${((Date.now() - started) / 1000).toFixed(1)} s`;
@@ -1638,7 +1662,136 @@ try {
       console.log(`[${TAG}] garage I1: ${key === ' ' ? 'Space' : key} on ${track}'s head -> ${heads}`);
       expect(heads.includes(`${track}:1:true`), `I1: ${key === ' ' ? 'Space' : key} on the ${track} head left it closed: ${heads}`);
     }
+
+    // GH-243 (the final review's Minor): the accordion's collapsed ladder is
+    // `display: none`, so a Shift+Tab walk BACK up the board landed on each
+    // earlier track's head and skipped its Buy -- the Buy sits after the
+    // head, and was not drawn when the browser picked the stop. Forward Tab
+    // reached every one. Both directions must now reach every enabled Buy
+    // the board holds (collapsed or not in the DOM, so read off the DOM, not
+    // off the screen). The backward walk starts on the footer's first link,
+    // which is also the "coming back into the board from below" case.
+    const BUYS =
+      '(() => Array.prototype.map.call(document.querySelectorAll(".rl-garage__board .rl-garage__buy-tier:not([disabled])"),' +
+      ' function (b) { return b.getAttribute("data-focus-key"); }))()';
+    const buys = await tPage.evaluate<string[]>(BUYS);
+    expect(buys.length >= 2, `GH-243: at_team's board has ${buys.length} enabled Buy(s) -- the walk cannot test skipping`);
+    // Forward: the I1 walk above, from the tab, before anything was pressed on a head.
+    for (const k of buys) expect(inBoard.includes(k), `GH-243: forward Tab never reaches ${k}: ${JSON.stringify(inBoard)}`);
+    await tPage.locator('.rl-endnav a').first().focus();
+    const back: (string | null)[] = [];
+    let entered = false;
+    for (let i = 0; i < 20; i++) {
+      await tPage.keyboard.press('Shift+Tab');
+      const inside = await tPage.evaluate<boolean>(REACHED_BAY_OR_BOARD);
+      if (entered && !inside) break;
+      entered ||= inside;
+      if (inside) back.push(await tPage.evaluate<string | null>(FOCUS_KEY));
+    }
+    console.log(`[${TAG}] garage GH-243: Shift+Tab stops in the bay/board: ${JSON.stringify(back)}`);
+    for (const k of buys) expect(back.includes(k), `GH-243: Shift+Tab never reaches ${k}: ${JSON.stringify(back)}`);
+    // Each Buy is reached right after the head BELOW it in the walk -- i.e.
+    // the stop is its own track's Buy, then that track's head.
+    for (const k of buys) {
+      const at = back.indexOf(k);
+      expect(
+        at < 0 || back[at + 1] === `track:${k.slice(4)}`,
+        `GH-243: Shift+Tab left ${k} for "${back[at + 1]}", not its own track's head: ${JSON.stringify(back)}`
+      );
+    }
     await tabCtx.close();
+  }
+
+  // --- the garage compares (GH-243, spec §4 "Comparison") ---------------
+  //
+  // Shift over a card ghosts that type's bars against the unit in the bay;
+  // Shift+arrow does the same from the keyboard without moving the bay; and
+  // the rail sorts by kit level beside the role tabs. Driven through real
+  // key and pointer events -- the ghost's whole job is to follow a held key
+  // and the pointer, which no console call exercises.
+  {
+    const cmpCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+    await cmpCtx.addInitScript(garageSeedScript());
+    const c = await cmpCtx.newPage();
+    c.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    c.on('console', (m: ConsoleMessage) => {
+      if (m.type() === 'error') errors.push(m.text());
+    });
+    c.on('pageerror', (e) => errors.push(String(e)));
+    await c.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await c.waitForSelector('.rl-garage__card[data-unit="at_team"]');
+    await c.click('.rl-garage__card[data-unit="at_team"]');
+    const CMP_READ =
+      '(() => { var g = document.querySelector(\'.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-ghost\');' +
+      ' var n = document.querySelector(\'.rl-garage__stat[data-path="hull.hp"] .rl-garage__stat-n\');' +
+      ' var cap = document.querySelector(".rl-garage__compare");' +
+      ' var sel = document.querySelector(\'.rl-garage__card[aria-selected="true"]\');' +
+      ' var cmp = document.querySelector(\'.rl-garage__card[data-compare="1"]\');' +
+      ' var a = document.activeElement;' +
+      ' return { ghostPx: g ? g.getBoundingClientRect().width : -1, ghostBorder: g ? getComputedStyle(g).borderTopStyle : null,' +
+      '  figure: n ? n.textContent : null, caption: cap ? cap.textContent : null,' +
+      '  selected: sel ? sel.getAttribute("data-unit") : null, compared: cmp ? cmp.getAttribute("data-unit") : null,' +
+      '  focus: a ? a.getAttribute("data-unit") : null }; })()';
+    type CmpRead = {
+      ghostPx: number; ghostBorder: string | null; figure: string | null; caption: string | null;
+      selected: string | null; compared: string | null; focus: string | null;
+    };
+    const laviName = await c.$eval('.rl-garage__card[data-unit="mbt_lavi"] .rl-garage__card-name', (e) => e.textContent ?? '');
+
+    // The pointer over the Lavi's card, Shift up: nothing is compared.
+    await c.hover('.rl-garage__card[data-unit="mbt_lavi"]');
+    const idle = await c.evaluate<CmpRead>(CMP_READ);
+    // Shift down, the pointer still there: the Lavi is ghosted over at_team.
+    await c.keyboard.down('Shift');
+    const held = await c.evaluate<CmpRead>(CMP_READ);
+    const shotDir = path.join(REPO_ROOT, '.superpowers', 'gh243');
+    if (process.env.UI_ROUTES_SHOTS === '1') {
+      fs.mkdirSync(shotDir, { recursive: true });
+      await c.screenshot({ path: path.join(shotDir, 'compare-shift-held.png') });
+    }
+    await c.keyboard.up('Shift');
+    const released = await c.evaluate<CmpRead>(CMP_READ);
+    console.log(`[${TAG}] garage compare: idle ${JSON.stringify(idle)} held ${JSON.stringify(held)} released ${JSON.stringify(released)}`);
+    expect(idle.ghostPx === 0 && idle.caption === '' && idle.compared === null, `GH-243: a ghost with Shift up: ${JSON.stringify(idle)}`);
+    expect(held.ghostPx > 0 && held.ghostBorder === 'dashed', `GH-243: Shift over the Lavi drew no ghost: ${JSON.stringify(held)}`);
+    expect((held.caption ?? '').includes(laviName), `GH-243: the caption does not name the Lavi ("${laviName}"): ${JSON.stringify(held)}`);
+    expect((held.figure ?? '').includes(' vs '), `GH-243: the hp figure does not read both units: ${JSON.stringify(held)}`);
+    expect(held.selected === 'at_team' && held.compared === 'mbt_lavi', `GH-243: comparing moved the bay: ${JSON.stringify(held)}`);
+    expect(released.ghostPx === 0 && released.caption === '', `GH-243: the ghost outlived Shift: ${JSON.stringify(released)}`);
+
+    // By keyboard: Shift+ArrowDown walks the rail without selecting, and the
+    // card it lands on is ghosted; the bay stays at_team.
+    await c.mouse.move(0, 0);
+    await c.locator('.rl-garage__card[data-unit="at_team"]').focus();
+    await c.keyboard.down('Shift');
+    await c.keyboard.press('ArrowDown');
+    const walked = await c.evaluate<CmpRead>(CMP_READ);
+    await c.keyboard.up('Shift');
+    const walkedUp = await c.evaluate<CmpRead>(CMP_READ);
+    console.log(`[${TAG}] garage compare by keyboard: ${JSON.stringify(walked)} then ${JSON.stringify(walkedUp)}`);
+    expect(
+      walked.focus !== null && walked.focus !== 'at_team' && walked.selected === 'at_team' && walked.compared === walked.focus,
+      `GH-243: Shift+ArrowDown did not compare the next card without selecting it: ${JSON.stringify(walked)}`
+    );
+    expect(walkedUp.compared === null && walkedUp.selected === 'at_team', `GH-243: releasing Shift left: ${JSON.stringify(walkedUp)}`);
+
+    // Sort by kit level: the seed's Lavi (9/9, L3) leads, and the levels
+    // never rise down the rail.
+    const KITS =
+      '(() => Array.prototype.map.call(document.querySelectorAll(".rl-garage__card"),' +
+      ' function (e) { return e.getAttribute("data-unit") + ":" + e.getAttribute("data-kit"); }))()';
+    const before = await c.evaluate<string[]>(KITS);
+    await c.click('.rl-garage__sort');
+    const sorted = await c.evaluate<string[]>(KITS);
+    const pressed = await c.getAttribute('.rl-garage__sort', 'aria-pressed');
+    if (process.env.UI_ROUTES_SHOTS === '1') await c.screenshot({ path: path.join(shotDir, 'sort-by-kit.png') });
+    console.log(`[${TAG}] garage sort by kit: ${JSON.stringify(sorted)} (was ${JSON.stringify(before)})`);
+    const levels = sorted.map((e) => Number(e.split(':')[1]));
+    expect(pressed === 'true', `GH-243: the sort toggle reads aria-pressed=${pressed}`);
+    expect(sorted[0] === 'mbt_lavi:3', `GH-243: sorted by kit, the rail opens on ${sorted[0]}, not the seeded Lavi at L3`);
+    expect(levels.every((l, i) => i === 0 || l <= levels[i - 1]), `GH-243: kit levels rise down a kit-sorted rail: ${JSON.stringify(sorted)}`);
+    expect(sorted.length === before.length && JSON.stringify(sorted) !== JSON.stringify(before), 'GH-243: sorting by kit changed nothing');
+    await cmpCtx.close();
   }
 
   // --- the HUD card does not jump for kit (final review, parked item (d)) --
@@ -1899,6 +2052,10 @@ try {
     await ctx.close();
   }
 
+  expect(
+    telemetryHits.length === 0,
+    `telemetry is on in a dev/CI run (${telemetryHits.length} request(s)): ${telemetryHits.slice(0, 3).join(', ')}`,
+  );
   expect(errors.length === 0, `console errors:\n   ${errors.join('\n   ')}`);
 } finally {
   if (browser) await browser.close();

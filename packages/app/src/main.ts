@@ -92,7 +92,8 @@ import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
 import { startMission } from './mission-start';
-import { initTelemetry, telemetry, type MissionTelemetry, type RuntimeView } from './telemetry';
+import { initTelemetry, telemetry, NOOP_TELEMETRY, type Loadout, type MissionTelemetry, type RuntimeView } from './telemetry';
+import { startLoadout } from './telemetry/loadout';
 import { screenFor } from './telemetry/events';
 import { objectivesPanel, type ObjectiveRow } from './ui/objectives';
 import { focusTrap } from './ui/focus-trap';
@@ -1061,7 +1062,7 @@ async function main(): Promise<void> {
       onCue: (cue) => battleAudio().playUi(CUE_SET[cue]),
       onReset: ledgerStore.available
         ? () => {
-            ledgerStore.resetAccount();
+            telemetry().account('reset', ledgerStore.resetAccount());
             return now();
           }
         : undefined,
@@ -1079,6 +1080,7 @@ async function main(): Promise<void> {
             // tab bought it), so the screen must not read it off the account.
             if (!ok) return { ...now(), landed: false };
             ledgerStore.writeAccount(account);
+            telemetry().account('purchase', account, { item: unitId, price });
             return { ...now(), landed: true };
           }
         : undefined,
@@ -1091,6 +1093,7 @@ async function main(): Promise<void> {
             // returning silently. `landed` as above (M1).
             if (!ok) return { ...now(), landed: false };
             ledgerStore.writeAccount(account);
+            telemetry().account('purchase', account, { item: `${unitId}.${track}.${tier}`, price });
             return { ...now(), landed: true };
           }
         : undefined,
@@ -2299,6 +2302,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // existed, and now runs after it, so a malformed mission must not strand one.
   if (resolvedMission) {
     try {
+      // One ledger for the runtime and the loadout (GH-254), so the roster
+      // draw telemetry reports can never read a different pool than the one
+      // the spawner drew from.
+      const sentLedger = deployedLedger(ledger, deploySelection);
       runtime = startMission(sim, resolvedMission, {
         typeIdOf: (id) => {
           const t = typeOf.get(id);
@@ -2308,7 +2315,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         markers: map.markers,
         zones: map.zones,
         tunnels: tunnelRoutes,
-        ledger: deployedLedger(ledger, deploySelection),
+        ledger: sentLedger,
         unitInfo: (id) => {
           const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
           if (!u || u.faction !== 'kdf') return null;
@@ -2319,6 +2326,24 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           };
         },
       }, renderer);
+      // Read after `startMission` has spawned the force: living side-0 units
+      // by type, and how many the placements drew from the roster (R-3, R-4).
+      // Only when telemetry is on -- the no-op does no work -- and a throw
+      // here (a hand-edited roster entry) drops the loadout, never the
+      // mission: this sits inside the boot's own try, whose catch tears down.
+      const telOn = telemetry() !== NOOP_TELEMETRY;
+      let loadout: Loadout | undefined;
+      if (telOn) {
+        try {
+          loadout = startLoadout(
+            { count: sim.entityCount, side: sim.state.side, alive: sim.state.alive, typeIdx: sim.state.typeIdx, typeId: (k) => sim.unitTypes[k]?.id },
+            sentLedger['roster.surviving_units'],
+            resolvedMission.starting_force
+          );
+        } catch {
+          loadout = undefined;
+        }
+      }
       const missionTel: MissionTelemetry = telemetry().missionStarted(
         resolvedMission.id,
         (ledger['campaign.mission_results'] ?? {})[resolvedMission.id] !== undefined,
@@ -2330,10 +2355,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           fielded: runtime?.fieldedCount ?? 0,
           lost: Object.values(runtime?.lostByType() ?? {}).reduce((a, b) => a + b, 0),
           objectives: runtime?.objectiveList ?? [],
-        })
+        }),
+        loadout
       );
       onDispose(() => missionTel.end());
       missionTelemetry = missionTel;
+      // The account the player walks in with (R-5).
+      if (telOn && ledgerStore.available) telemetry().account('mission_start', ledgerStore.readAccount(), { mission: resolvedMission.id });
     } catch (err) {
       teardown();
       throw err;
@@ -2986,6 +3014,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   if (runtime && mission?.resources) {
     production = new ReinforcementDock(document.body, {
+      onBought: (id) => missionTelemetry?.onBought(id),
       units: Object.values(units)
         .filter((u) => u.faction === 'kdf')
         .map((u) => {
@@ -3139,6 +3168,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     for (const fn of intentListeners) fn(intent);
   };
   intentListeners.push((intent) => voice.observe(intent));
+  // Counted after `applyIntent` has run: an observer, like the voice (GH-254).
+  intentListeners.push((intent) => missionTelemetry?.onIntent(intent));
   /** Where a resolved right-click's three effects land. Built once and passed
    *  to `issueOrder` by both pointing surfaces. */
   const orderSink: OrderSink = {
@@ -3880,6 +3911,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
               payout = missionId ? payMission(ledgerStore.readAccount(), missionId, runValue, Date.now()) : null;
               if (payout) ledgerStore.writeAccount(payout.account);
+              if (payout) telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
             }
             hud.note(t('main.note.ledgerUpdated'), 'info');
           }

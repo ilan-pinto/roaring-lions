@@ -16,6 +16,7 @@ function originAllowed(req: Request, env: Env): boolean {
 
 /** POST /api/events. Always 204: the game never waits on this and never retries. */
 export async function handleIngest(req: Request, env: Env, now: number): Promise<Response> {
+  let events: TelemetryEvent[] = [];
   try {
     if (req.method !== 'POST' || !originAllowed(req, env)) return NO_CONTENT();
     const ip = req.headers.get('cf-connecting-ip');
@@ -32,7 +33,7 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
     if (text.length > MAX_BODY) return NO_CONTENT();
     const body = JSON.parse(text) as { events?: unknown };
     if (!Array.isArray(body.events) || body.events.length > MAX_EVENTS) return NO_CONTENT();
-    const events = body.events.filter(isTelemetryEvent);
+    events = body.events.filter(isTelemetryEvent);
     if (events.length === 0) return NO_CONTENT();
 
     const stmts: D1Stmt[] = events.map((e) =>
@@ -45,7 +46,42 @@ export async function handleIngest(req: Request, env: Env, now: number): Promise
   } catch {
     /* malformed JSON or a D1 hiccup: dropped, as the client expects */
   }
+  // R-6: its own batch and its own try. A missing `accounts` table (the
+  // migration not yet applied) loses this summary and nothing else -- the
+  // events above have already committed, and QUERIES.sql rebuilds it.
+  try {
+    const latest = latestAccountByPlayer(events);
+    if (latest.length > 0) await env.DB.batch(latest.map((e) => upsertAccount(env, e)));
+  } catch {
+    /* summary only */
+  }
   return NO_CONTENT();
+}
+
+type AccountEvent = Extract<TelemetryEvent, { type: 'account' }>;
+
+/** The `account` event with the greatest `t` per player, in this request. */
+function latestAccountByPlayer(events: TelemetryEvent[]): AccountEvent[] {
+  const byPlayer = new Map<string, AccountEvent>();
+  for (const e of events) {
+    if (e.type !== 'account') continue;
+    const cur = byPlayer.get(e.player);
+    if (!cur || e.t > cur.t) byPlayer.set(e.player, e);
+  }
+  return [...byPlayer.values()];
+}
+
+function upsertAccount(env: Env, e: AccountEvent): D1Stmt {
+  return env.DB.prepare(
+    `INSERT INTO accounts (player, t, credits, earned, unlocks, tiers, tester, dev)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+     ON CONFLICT (player) DO UPDATE SET
+       t = excluded.t, credits = excluded.credits, earned = excluded.earned,
+       unlocks = excluded.unlocks, tiers = excluded.tiers,
+       tester = COALESCE(excluded.tester, accounts.tester),
+       dev = MAX(accounts.dev, excluded.dev)
+     WHERE excluded.t >= accounts.t`
+  ).bind(e.player, e.t, e.credits, e.earned, JSON.stringify(e.unlocks), JSON.stringify(e.tiers), e.tester ?? null, e.dev ? 1 : 0);
 }
 
 function groupByPlayer(events: TelemetryEvent[]): Map<string, TelemetryEvent[]> {

@@ -5,15 +5,17 @@
  * nothing here is awaited by the game. When the off switch says no, callers get
  * NOOP_TELEMETRY and nothing is built, stored or sent.
  */
-import type { TelemetryEnvelope, TelemetryEvent, TelemetryScreen } from '@lions/data/telemetry';
+import type { AccountReason, CountMap, TelemetryEnvelope, TelemetryEvent, TelemetryOrderVerb, TelemetryScreen } from '@lions/data/telemetry';
 import type { MissionEvent } from '@lions/sim';
 import * as ev from './events';
-import type { RuntimeView } from './events';
+import type { AccountExtra, AccountLike, Loadout, RuntimeView } from './events';
+import type { PlayerIntent } from '../input/intents';
 import { resolveIdentity, readOptOut, safeStorage, type Identity } from './identity';
 import { telemetryEnabled } from './enabled';
 import { Sender, browserTransport } from './sender';
 
 export type { RuntimeView } from './events';
+export type { Loadout, AccountLike, AccountExtra } from './events';
 
 export interface MissionTelemetry {
   onEvent(me: MissionEvent): void;
@@ -22,21 +24,32 @@ export interface MissionTelemetry {
    *  what actually sends the abandoned event, over `sendBeacon` rather than a
    *  `fetch` that page unload can cut off mid-flight. */
   end(viaPagehide?: boolean): void;
+  /** Called from `intentListeners` after `applyIntent`: counts, never acts. */
+  onIntent(i: PlayerIntent): void;
+  /** Called by the dock after an ACCEPTED `requestBuild`. */
+  onBought(unitId: string): void;
 }
 
 export interface Telemetry {
   sessionStart(screen: TelemetryScreen, renderer: 'three' | 'pixi'): void;
   tutorialStep(step: number, steps: number): void;
-  missionStarted(mission: string, replay: boolean, view: () => RuntimeView): MissionTelemetry;
+  missionStarted(mission: string, replay: boolean, view: () => RuntimeView, loadout?: Loadout): MissionTelemetry;
   campaignProgress(mission: string, missionsWon: number): void;
+  account(reason: AccountReason, a: AccountLike, extra?: AccountExtra): void;
 }
 
-const NOOP_MISSION: MissionTelemetry = { onEvent: () => undefined, end: () => undefined };
+const NOOP_MISSION: MissionTelemetry = {
+  onEvent: () => undefined,
+  end: () => undefined,
+  onIntent: () => undefined,
+  onBought: () => undefined,
+};
 export const NOOP_TELEMETRY: Telemetry = {
   sessionStart: () => undefined,
   tutorialStep: () => undefined,
   missionStarted: () => NOOP_MISSION,
   campaignProgress: () => undefined,
+  account: () => undefined,
 };
 
 export interface TelemetryDeps {
@@ -103,11 +116,16 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
     campaignProgress: safe((mission, missionsWon) => {
       d.sink.push(ev.campaignProgress(envelope(), mission, missionsWon));
     }),
-    missionStarted: (mission, replay, view) => {
+    account: safe((reason, a, extra) => {
+      d.sink.push(ev.accountEvent(envelope(), reason, ev.accountSnapshot(a), extra));
+    }),
+    missionStarted: (mission, replay, view, loadout) => {
       try {
         current?.end();
         let ended = false;
-        d.sink.push(ev.missionStart(envelope(), mission, replay));
+        const bought: CountMap = {};
+        const orders: Partial<Record<TelemetryOrderVerb, number>> = {};
+        d.sink.push(ev.missionStart(envelope(), mission, replay, loadout));
         const hb = d.setInterval(
           safe(() => {
             if (!ended && d.visible()) d.sink.push(ev.heartbeat(envelope(), mission, view().tick));
@@ -115,10 +133,11 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
           HEARTBEAT_MS
         );
         const finish = (abandoned: boolean, viaPagehide = false): void => {
+          // finish() has already built (and sent) the mission_end event on its first call; this guard is defence in depth against a late listener firing again after end().
           if (ended) return;
           ended = true;
           d.clearInterval(hb);
-          d.sink.push(ev.missionEnd(envelope(), mission, view(), abandoned));
+          d.sink.push(ev.missionEnd(envelope(), mission, view(), abandoned, { bought, orders }));
           // On pagehide the caller's own `flush(true)` (over sendBeacon) is
           // what sends this: flushing here too would race it out over a plain
           // `fetch`, which page unload is free to cut off mid-flight.
@@ -135,6 +154,14 @@ export function createTelemetry(d: TelemetryDeps): Telemetry {
           end: safe((viaPagehide?: boolean) => {
             finish(true, viaPagehide);
             if (current === m) current = null;
+          }),
+          onIntent: safe((i: PlayerIntent) => {
+            if (ended) return;
+            const v = ev.orderVerbOf(i);
+            if (v) ev.tallyVerb(orders, v);
+          }),
+          onBought: safe((u: string) => {
+            if (!ended) ev.tallyUnit(bought, u);
           }),
         };
         current = m;

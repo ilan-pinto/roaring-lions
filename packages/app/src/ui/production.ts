@@ -48,6 +48,10 @@ export interface ProductionOptions {
   note(html: string, tone?: Tone): void;
   /** Arming is owned by the input layer — it decides what the next click means. */
   onArm(kind: SupportKind | null): void;
+  /** Telemetry's count of bought units; never reaches the sim. Called exactly
+   *  once per click that the runtime actually accepted -- never for a locked
+   *  tile (no `requestBuild` call at all) and never for one it refused. */
+  onBought?: (unitId: string) => void;
   /** The campaign ledger, for `tileState`'s `gateSentence` recompute. Absent
    *  reads as an empty ledger -- every gate still closed, none open early. */
   ledger?: LedgerData;
@@ -286,6 +290,7 @@ export class ReinforcementDock {
         return;
       }
       if (this.opts.runtime.requestBuild(unit.id)) {
+        this.opts.onBought?.(unit.id);
         this.opts.note(t('dock.note.building', { name }), 'info');
       } else {
         this.opts.note(t('dock.note.cannotBuild', { name }), 'mute');
