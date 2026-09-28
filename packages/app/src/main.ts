@@ -119,8 +119,9 @@ import {
   cursorKey,
   badgeFor,
   type BadgeHints,
-  type CursorName,
 } from './input/cursor';
+import { cursorAnimDriver } from './input/cursor-anim';
+import { prefersReducedMotion } from './ui/motion';
 import { roleBucket } from './ui/role';
 import { rosterLanguages, voiceClassOf } from './voice/lines';
 import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
@@ -3105,44 +3106,51 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  verified), so this drives the frame index from a plain `setInterval` at
    *  each cursor's own authored rate instead, using the exact JS-dataset-
    *  write mechanism `lastCursorKey` already relies on. Runs only while an
-   *  animated cursor is actually showing: `ensureCursorAnim` is called every
+   *  animated cursor is actually showing: `cursorAnim.show` is called every
    *  `updateHover` tick (every rAF, ~60Hz) regardless of whether the state
    *  key changed that frame, but for every non-animated cursor -- the large
    *  majority of hover time -- its cost is one object-property lookup and an
    *  already-false comparison, no DOM write. The cost while an animated
    *  cursor *is* showing: one attribute write (`data-cursor-frame`) and its
    *  style invalidation, on this one canvas element, every `intervalMs` --
-   *  300ms for `attack`, 200ms for `charge` -- not once per rendered frame. */
-  let animFrame = 0;
-  let animTimer: ReturnType<typeof setInterval> | null = null;
-  let animName: CursorName | null = null;
-  const stopCursorAnim = (): void => {
-    if (animTimer !== null) {
-      clearInterval(animTimer);
-      animTimer = null;
-    }
-    animName = null;
-  };
+   *  each cursor's own rate, derived from `ORDER_SIGHT` as `round(periodMs /
+   *  frames)` for the sight-driven names (225ms for `attack`) and authored
+   *  directly for `charge`/`demolish` (200ms/300ms) -- see ANIMATED_CURSORS
+   *  in cursor.ts for the full set -- not once per rendered frame.
+   *
+   *  The driver itself (cursor-anim.ts) additionally pauses -- writing frame
+   *  0, the rest pose -- under `prefers-reduced-motion` and while the tab is
+   *  hidden. `refresh()` is what notices a change in either: the
+   *  `visibilitychange` listener below, and the settings bus, since a motion
+   *  preference can change mid-mission from the settings panel and cannot
+   *  wait for the next cursor-name change to take effect. */
+  const cursorAnim = cursorAnimDriver(ANIMATED_CURSORS, {
+    writeFrame: (frame) => {
+      canvas.dataset.cursorFrame = String(frame);
+    },
+    setInterval: (fn, ms) => setInterval(fn, ms),
+    clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+    reducedMotion: prefersReducedMotion,
+    hidden: () => document.visibilityState === 'hidden',
+  });
   // A `setInterval` outlives the document's attention span, not just the
   // frame loop: left running it writes `data-cursor-frame` to a detached
   // canvas several times a second for the rest of the session.
-  onDispose(stopCursorAnim);
-  const ensureCursorAnim = (name: CursorName): void => {
-    const anim = ANIMATED_CURSORS[name];
-    if (!anim) {
-      if (animName !== null) stopCursorAnim();
-      return;
-    }
-    if (animName === name) return; // already running the right animation
-    stopCursorAnim();
-    animName = name;
-    animFrame = 0;
-    canvas.dataset.cursorFrame = '0';
-    animTimer = setInterval(() => {
-      animFrame = (animFrame + 1) % anim.frames;
-      canvas.dataset.cursorFrame = String(animFrame);
-    }, anim.intervalMs);
-  };
+  onDispose(() => cursorAnim.dispose());
+  const onVisibilityChange = (): void => cursorAnim.refresh();
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  onDispose(() => document.removeEventListener('visibilitychange', onVisibilityChange));
+  // The settings bus already notifies on every change (`applySettings`
+  // writes `data-motion` first, so `prefersReducedMotion()` sees the new
+  // value by the time this fires). `bus` itself lives in `main()`'s own
+  // scope, one level up from `bootBattlefield` -- but `req.settings.onChange`
+  // (settings.ts's `SettingsDeps`, passed into every battlefield request) is
+  // that same bus's `onChange`, and IS reachable here, already relied on for
+  // the `bindings` keymap subscription further down (a rebind made from the
+  // pause menu must reach the key listener without a re-boot). Subscribing it
+  // means a motion toggle mid-mission pauses the cursor immediately rather
+  // than waiting for the next name change to notice.
+  onDispose(req.settings.onChange(() => cursorAnim.refresh()));
   const canvasXY = (ev: PointerEvent): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
     return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
@@ -4513,6 +4521,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const hints = {
     hostile: renderer.hoverEntity >= 0,
     blocked: inBounds && sim.blocked[ty * sim.width + tx] !== 0,
+    armedSmoke: armedOrder === 'smoke',
   };
   const badges: BadgeHints = {
     bucketOf: (id) => roleBucket(sim.unitTypes[sim.state.typeIdx[id]]),
@@ -4529,7 +4538,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `attack` to `attack-kamikaze` from a selection change while still
   // hovering the same target -- must not restart the pulse, only a change
   // of *which* animation (or none) should be running does.
-  ensureCursorAnim(name);
+  cursorAnim.show(name);
   };
 
   // Paint one real frame before the rAF loop ever gets a callback -- GitHub

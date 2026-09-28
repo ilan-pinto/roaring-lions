@@ -8,13 +8,13 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 
 | Lane | WP | Branch · worktree | Spec · plan · SDD ledger | State | Next action |
 |---|---|---|---|---|---|
-| A (packages/app) | WP-AU1 unit voices engine LANDED (#253) · WP-S3g plan 2b kit on icons LANDED (#255) · CI timing fix LANDED (#256) · #254 /stats accounts+loadouts LANDED (#257, D1 migration 0002_accounts applied) · #243 garage compare + Shift+Tab in build · S3e #178 Tasks 11–12 wait for G1 | `feat/garage-compare` (garage-compare) | SDD ledgers mirrored in `.superpowers/sdd-archive/` | #243 in build; gates green locally | land #243; S3e Tasks 11–12 after G1; S3a #180 after |
+| A (packages/app) | WP-AU1 unit voices engine LANDED (#253) · WP-S3g plan 2b kit on icons LANDED (#255) · CI timing fix LANDED (#256) · #254 /stats accounts+loadouts LANDED (#257, D1 migration 0002_accounts applied) · #243 garage compare + Shift+Tab in build · S3e #178 symbols built and approved; PR pending | `feat/garage-compare` (garage-compare) | SDD ledgers mirrored in `.superpowers/sdd-archive/` | #243 in build; gates green locally | land #243; land S3e PR; S3a #180 after |
 | B (render · art · data) | A2 plan 2 in build (`feat/ground-plan2`, worktree `ground2`): Tasks 1–6 done incl. Meshy props (7 previews 140 cr + 7 remeshes 35 cr; CLI gained `remesh`), olive split-decimation (wadi_halam_basin decor −6.8M tris), Task 5 props on screen at density 0.75 (shed from higher by the lead); Tasks 7–12 (sway, presets, haze, time_of_day, dusk capture, costs + bless) next · #250 ATGM animation spec+plan being written (`feat/atgm-animation`) · A3.1 style bible being written (`docs/a31-style-bible`) | `feat/ground-plan2` (ground2) · `feat/atgm-animation` (atgm) · `docs/a31-style-bible` (a31-bible) | — | Tasks 1–6 LANDED locally on the branch, not yet merged | finish A2 plan 2 Tasks 7–12; #250 spec+plan; A3.1 bible review after G1 |
 | C (packages/sim) | #247 manpad_team treated as wheeled (sim/data fix, filed 26 Sep) | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
 
-- A: #243 garage comparison + Shift+Tab → S3e #178 Tasks 11–12 (after G1) → S3a #180 → S-F #184, A4 #186 · voice assets after the D5 licence
+- A: #243 garage comparison + Shift+Tab → S3e #178 symbols built and approved, PR pending → S3a #180 → S-F #184, A4 #186 · voice assets after the D5 licence
 - B: A2 plan 2 Tasks 7–12 (haze, time of day, dusk capture, costs + bless) → #250 ATGM missile animation → A3.1 #179 bible + Meshy batches (after G1 and the October credits) → G-E5 #181 → A3.2 #185 (tunnel visuals #227)
 - C: #247 manpad_team wheeled fix (Stage 4) → G-F #183 (four plans) after G3 on 2 Nov → G-G0 #187 spike 30 Nov → G-G #188 → G-H0 #190 spike 25 Jan → G-H #191
 - D (backend · NEW lane, opens Stage 5): ST5 #204 session-ticket auth → ST6 #205 server-authoritative ledger + fraud limits → ST7 #206 Steam Wallet MTX (Stage 6). ST5 shares its Supabase/Postgres project with M4's Colyseus relay (G5 #169) — one service, not two. Steam packages outside lane D: ST1 #200 (lead action, Stage 2) and ST8 #207 (non-P2W content plan, lane A docs, Stage 2, before E5) → ST2 #201 Tauri wrapper → ST3 #202 SDK bindings (lane A, Stage 3) → ST4 #203 store page (lane B, Stage 4, after art 2–3)
@@ -49,6 +49,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-28 · S3e symbols (#178) Tasks 1–6 COMPLETE on `feat/s3e-symbols` (plan `docs/superpowers/plans/2026-09-28-s3e-symbols.md`, supersedes Phase 3 Tasks 11–12) · G1's r2/r4/r5-approved sheet ported as the drawn source, dingbat gate (follow-up #261), cursor family colour + halo + CVD variants, frame driver, Q1–Q14 taken at their recommended default · lead captures under `.superpowers/sdd/2026-09-28-s3e-symbols/t6-lead/` · awaiting merge
 - 2026-09-27 · releases v0.85.0 → v0.87.0 cut across the landings below
 - 2026-09-27 · **#257 → af13d84b /stats brigade accounts and loadouts (GH-254)** · an accounts summary table upserted apart from its events, per-mission loadouts, telemetry hooks for orders/buys/account; the lead applied D1 migration 0002_accounts before merge · no bless
 - 2026-09-27 · **#256 → 8bb9ae0c voices CI leg-b timing fix** · the burst's clicks wait on microtask gaps, not a frame · no bless

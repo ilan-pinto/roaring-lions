@@ -246,3 +246,12 @@ describe('a chip’s own-side reading (the kit sign, plan 2b)', () => {
     ]);
   });
 });
+
+describe('ORDERS', () => {
+  // S3e: the row draws each order from the G1 sheet (`symbol.ts`), keyed by
+  // the order's own id. A Unicode `glyph` field beside it would be a second
+  // answer to "what does this order look like", and the row once rendered it.
+  it('carries no Unicode glyph field', () => {
+    for (const o of ORDERS) expect('glyph' in o).toBe(false);
+  });
+});

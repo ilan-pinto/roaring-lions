@@ -92,6 +92,7 @@ interface Rig {
   sim: Sim;
   ids: number[];
   strip: () => string;
+  stripEl: () => HTMLElement;
   tick: () => void;
 }
 
@@ -118,6 +119,7 @@ function rig(m: MissionView | null, over: Partial<HudDeps> = {}): Rig {
     ids,
     tick,
     strip: () => host.querySelector('.rl-strip')!.textContent!.replace(/\s+/g, ' ').trim(),
+    stripEl: () => host.querySelector<HTMLElement>('.rl-strip')!,
   };
 }
 
@@ -242,8 +244,19 @@ describe('top strip', () => {
   // hover tooltip's full sentence -- rather than only the icon and the rate.
   it('stamps logistics with its rate and intel as separate fields, each with a visible word', () => {
     const r = rig(mission({ logistics: 410, logisticsRate: 120, intel: 40 }));
-    expect(r.strip()).toContain('▣ 410 logistics +120/min');
-    expect(r.strip()).toContain('◎ 40 intel');
+    expect(r.strip()).toContain('410 logistics +120/min');
+    expect(r.strip()).toContain('40 intel');
+  });
+
+  // S3e: the two currencies are named by the G1 sheet's drawn marks, not by
+  // `▣`/`◎` -- a character whose look is the player's font's to decide.
+  it('names logistics and intel with drawn marks, and keeps the words', () => {
+    const r = rig(mission({ logistics: 410, logisticsRate: 120, intel: 40 }));
+    expect(r.stripEl().querySelector('[data-tip="logistics"] [data-symbol="logistics"]')).not.toBeNull();
+    expect(r.strip()).toContain('410 logistics +120/min');
+    expect(r.stripEl().querySelector('[data-tip="intel"] [data-symbol="intel"]')).not.toBeNull();
+    expect(r.strip()).not.toContain('▣');
+    expect(r.strip()).not.toContain('◎');
   });
 
   it('drops the rate when the mission pays none, rather than printing +0/min', () => {
@@ -898,6 +911,16 @@ describe('multi-select chips', () => {
     expect(r.hud.cycleChipFocus()).toBe(false);
   });
 
+  // S3e (Q7): an APP-6 mark at 8 px is a smudge -- the chip badge is 10 now,
+  // the same as the card's.
+  it('badges a chip with the drawn role mark at 10 px, never below', () => {
+    const world = makeForce();
+    const r = clusterRig(() => world.squads, {}, world);
+    const badge = r.host.querySelector('.rl-chip__name svg.rl-badge');
+    expect(badge?.getAttribute('data-symbol')).toBe('soft');
+    expect(Number(badge?.getAttribute('width'))).toBeGreaterThanOrEqual(10);
+  });
+
   it('puts the name in its own element so a long one can wrap without cutting', () => {
     // A 150px chip is narrower than several shipped unit names. Task 7 widened
     // `--chip-w` and let this span wrap instead of ellipsising (theme.css's
@@ -1289,6 +1312,28 @@ describe('the order row', () => {
     world.sim.state.moving[world.squads[0]] = 1;
     for (let i = 0; i < 5; i++) r.tick();
     expect(r.order('halt')!.dataset.inert).toBe('0');
+  });
+
+  // S3e (Q6): each order is the G1 sheet's surround at rest, in one ink,
+  // and the family colour rides on the glyph span alone through theme.css's
+  // `.rl-order__glyph[data-family=...]` -- the label beside it stays in ink.
+  it('draws the order row as five drawn marks, each tagged with its family', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    const el = r.host;
+    expect(el.querySelectorAll('.rl-order__glyph svg[data-symbol]')).toHaveLength(5);
+    expect(el.querySelector('.rl-order__glyph[data-family="offensive"] [data-symbol="attackMove"]')).not.toBeNull();
+    expect(el.querySelector('.rl-order__glyph[data-family="control"] [data-symbol="halt"]')).not.toBeNull();
+    expect(el.querySelector('.rl-order__glyph[data-family="obscurant"] [data-symbol="smoke"]')).not.toBeNull();
+    expect(el.querySelector('.rl-order__glyph[data-family="transport"] [data-symbol="load"]')).not.toBeNull();
+    expect(el.querySelector('.rl-order__glyph[data-family="transport"] [data-symbol="unload"]')).not.toBeNull();
+    for (const id of ['attackMove', 'halt', 'smoke', 'load', 'unload']) {
+      expect(r.order(id)!.textContent).not.toMatch(/[⟶■◌⤓⤒]/);
+    }
+    // Fix round 1: cropped to the surround, not the cursor's full 24-box.
+    for (const svg of el.querySelectorAll('.rl-order__glyph svg')) {
+      expect(svg.getAttribute('viewBox')).not.toBe('0 0 24 24');
+    }
   });
 
   it('sends every button to the handler its key is bound to, and queues nothing itself', () => {

@@ -210,9 +210,9 @@ async function overflows(page: Page): Promise<string[]> {
   });
 }
 
-async function shot(page: Page, dir: string, name: string): Promise<void> {
+async function shot(page: Page, dir: string, name: string, opts: { fullPage?: boolean } = {}): Promise<void> {
   await page.waitForTimeout(400);
-  await page.screenshot({ path: path.join(dir, `${name}.png`) });
+  await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: opts.fullPage ?? false });
   const over = await overflows(page);
   console.log(`  ${name}${over.length > 0 ? `  [overflow x${over.length}]` : ''}`);
   for (const line of over) console.log(`      ! ${line}`);
@@ -423,6 +423,131 @@ async function garageStates(browser: Browser, res: { width: number; height: numb
     await page.evaluate(() => (window as LionsWindow).__lions?.step(40));
     await settle(page, 700);
     await shot(page, dir, '26-dock-kitted');
+  }
+
+  // 27-cursor-sheet (S3e Task 6): every cursor key/frame the plugin actually
+  // shipped, laid out as an overlay OVER the live battlefield frame -- this
+  // photographs exactly what the browser is given (the compiled
+  // `style[data-cursor-rules]` cascade), never a re-render of `symbol.ts`'s
+  // source shapes, because the OS pointer itself cannot be captured
+  // (`cursor.ts:114-119`) and the injected `data:` URI is the only artifact
+  // that stands in for it. Boots the same sandbox `07c`/`07d` above use, for
+  // a battlefield frame behind the grid rather than a blank page.
+  await page.goto(url('/free-play/beit_sahwan_outskirts'), { waitUntil: 'load' });
+  const reachedLionsForCursors = await page
+    .waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined, null, {
+      timeout: 60000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (!reachedLionsForCursors) {
+    console.log('  27 skipped: window.__lions did not appear within 60 s');
+  } else {
+    await page.evaluate(() => (window as LionsWindow).__lions?.step(40));
+    await settle(page, 700);
+
+    // Parsed in NODE, not inside a page.evaluate: tsx's `keepNames` transform
+    // rewrites a named helper (this file's own `grid`-shaped function would
+    // have been one) into `const x = __name(fn, "x")`, and `__name` does not
+    // exist in the browser -- the exact failure `24-outcome-victory`'s own
+    // comment documents for the same reason. Keeping every named function
+    // out of the evaluate below sidesteps it entirely: the browser only ever
+    // sees plain data (`GridRow[]`) and a loop with no named callback.
+    const rulesText = await page.evaluate(() => document.querySelector('style[data-cursor-rules]')?.textContent ?? '');
+    const ruleRe = /^(.*) \{ cursor: url\("(data:image\/svg\+xml,.*)"\) [\d.]+ [\d.]+, auto; \}$/;
+    const selRe = /^(?::root\[data-cvd='([^']+)'\] )?canvas\[data-cursor='([^']+)'\](?:\[data-cursor-frame='(\d+)'\])?$/;
+    interface Cell {
+      key: string;
+      frame: number;
+      src: string;
+      variant: string | null;
+    }
+    const cells: Cell[] = [];
+    for (const rawLine of rulesText.split('\n')) {
+      const line = rawLine.trim();
+      if (line.length === 0) continue;
+      const m = ruleRe.exec(line);
+      if (!m) continue;
+      const [, selectorList, src] = m;
+      for (const rawSel of selectorList.split(', ')) {
+        const sm = selRe.exec(rawSel.trim());
+        if (!sm) continue;
+        const [, variant, key, frame] = sm;
+        cells.push({ key, frame: frame ? Number(frame) : 0, src, variant: variant ?? null });
+      }
+    }
+    interface GridRow {
+      key: string;
+      frames: { frame: number; src: string }[];
+    }
+    const toRows = (rows: Cell[]): GridRow[] => {
+      const byKey = new Map<string, Map<number, string>>();
+      for (const c of rows) {
+        const m = byKey.get(c.key) ?? new Map<number, string>();
+        m.set(c.frame, c.src);
+        byKey.set(c.key, m);
+      }
+      return [...byKey.keys()].sort().map((key) => ({
+        key,
+        frames: [...(byKey.get(key) ?? new Map()).entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([frame, src]) => ({ frame, src })),
+      }));
+    };
+    const defaultRows = toRows(cells.filter((c) => c.variant === null));
+    const cvdRows = toRows(cells.filter((c) => c.variant === 'deuteranopia'));
+    const sheet: { title: string; scale: number; rows: GridRow[] }[] = [
+      { title: 'default @32px', scale: 1, rows: defaultRows },
+      { title: 'default x4 nearest', scale: 4, rows: defaultRows },
+      { title: "data-cvd='deuteranopia' rules only", scale: 1, rows: cvdRows },
+    ];
+
+    await page.evaluate((blocks) => {
+      const root = document.createElement('div');
+      root.id = 'rl-cursor-sheet';
+      // `absolute`, not `fixed`: with 29 keys x up to 4 frames across three
+      // blocks the overlay runs to several thousand px tall, well past the
+      // viewport -- `fixed` content is out of flow and never grows
+      // `document.body.scrollHeight`, so a `fullPage` screenshot (below)
+      // would still clip it at the viewport's own height. `absolute`
+      // content DOES count toward the body's scrollable overflow, which is
+      // what `fullPage: true` measures.
+      root.style.cssText = 'position:absolute; top:8px; left:8px; z-index:99999; pointer-events:none;';
+      for (const block of blocks) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText =
+          'display:inline-block; background:rgba(10,12,10,0.82); padding:8px; margin:4px; font:11px monospace; color:#eee;';
+        const h = document.createElement('div');
+        h.textContent = `${block.title} (${block.scale}x)`;
+        h.style.cssText = 'margin-bottom:4px;';
+        wrap.appendChild(h);
+        for (const row of block.rows) {
+          const rowEl = document.createElement('div');
+          rowEl.style.cssText = 'display:flex; align-items:center; gap:4px; margin-bottom:2px;';
+          const label = document.createElement('span');
+          label.textContent = row.key;
+          label.style.cssText = 'width:160px; display:inline-block;';
+          rowEl.appendChild(label);
+          for (const f of row.frames) {
+            const img = document.createElement('img');
+            img.src = f.src;
+            const px = 32 * block.scale;
+            img.style.cssText = `width:${px}px; height:${px}px; image-rendering:pixelated; border:1px solid #444; margin-right:2px;`;
+            rowEl.appendChild(img);
+          }
+          wrap.appendChild(rowEl);
+        }
+        root.appendChild(wrap);
+      }
+      document.body.appendChild(root);
+    }, sheet);
+
+    console.log(
+      `  27-cursor-sheet: ${defaultRows.length} key(s), ${cells.length} rule(s) parsed, ${cvdRows.length} deuteranopia key(s) overridden`
+    );
+    await settle(page, 300);
+    await shot(page, dir, '27-cursor-sheet', { fullPage: true });
+    await page.evaluate(() => document.getElementById('rl-cursor-sheet')?.remove());
   }
 
   await ctx.close();

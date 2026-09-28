@@ -1060,3 +1060,100 @@ it is the register vote's own mission-side boot (mesh/GLB loads under SwiftShade
 review judged inherent to the camera-for-camera design (D-61) rather than waste. The
 contribution floor is 30.4426, a third of three identical readings of 91.33; the register reads
 host Y 0.2439 / S 0.3035 against mission Y 0.2451 / S 0.3020.
+
+**D-65 — G1's symbol family landed as `docs/superpowers/plans/2026-09-28-s3e-symbols.md`,
+replacing this spec's Phase 3 Tasks 11–12 (Task 6).** Five design rounds, scratch work under
+`.superpowers/g1-symbols/` (git-ignored, kept for the record):
+
+- **Round 1** — draft geometry for the twelve glyphs (seven roles, five verbs) on a shared
+  24×24 box, one weight, filled shapes only (`r1/glyphs.ts`). No lead feedback yet.
+- **Round 2** — the lead's answer, dated in the file itself (`glyphs.ts:1`, 2026-09-28): *"Change
+  to war related symbols"* / addendum *"Change them to fit war theme."* The sheet moved to a
+  NATO APP-6 military map register. This is the round the ledger's pre-flight line calls "r2 APP-6
+  roles."
+- **Round 3** — order cursors: one shared aim plus a distinct animated surround per order
+  (`r3/orders.ts`), introducing the family the cursor now wears.
+- **Round 4** — the lead's own words in the file header (`r4/orders.ts:1`): *"Use more war game
+  symbols."* Each order's surround was rebuilt from its own APP-6 tactical graphic, animated.
+  This is "r4 aim + animated APP-6 surrounds."
+- **Round 5** — the lead on round 4 (`r5/NOTES.md`): *"Can you add more colors."* Shape, motion
+  and timing stayed round 4's; only colour changed, one family hue per order, every value a
+  `data/palette.json` key. **Approved 2026-09-28** (this ledger's ruling line). The colour table,
+  reproduced from `r5/NOTES.md`:
+
+  | order | family | main key | accent key |
+  |---|---|---|---|
+  | (aim, all) | sight | `gunmetal.0` | family main |
+  | move | manoeuvre | `vfx.interceptor` | `vfx.white_hot` |
+  | sweep | manoeuvre | `vfx.interceptor` | `water.0` |
+  | attackMove | offensive | `team.hostile_text` | `vfx.fire` |
+  | strike | offensive | `team.hostile_text` | `vfx.fire` (+`vfx.white_hot`) |
+  | halt | control | `team.neutral` | `vfx.white_hot` |
+  | smoke | obscurant | `limestone.0` | `gunmetal.1` |
+  | load / unload | transport | `vfx.tracer` | `grass.0` |
+
+  Rejected keys: `team.hostile` (2.67:1 on fog) lost to `hostile_text` (4.05:1); `team.kedem`
+  (2.56:1) lost to `vfx.interceptor` (8.02:1). No `reserved.group` hue is used, so a cursor's
+  colour never reads as squad membership.
+
+**Rulings Q1–Q14, as taken** (the plan's own "Pre-flight: open questions and recommended
+rulings" section; every one taken at its recommended default, per the lead's standing "go with
+your recommendation," since none drew a contrary answer):
+
+1. **Q1 — cursor states outside the eight approved orders** (`garrison`, `demolish`, `charge`,
+   `blocked`, `costly`, `protected`): kept on the shipped "Tiberian heavy housing" unchanged.
+   Consequence shown to the lead in the Task 6 captures: hovering a house with a dozer switches
+   from the stadia aim to the bracket housing. A round-6 mockup for these six, if wanted, is a
+   separate G1 item.
+2. **Q2 — which approved order cursors get wired**: `move` and `attack` from the hover path;
+   armed `sweep`/`strike` each get their own sight; armed `smoke` (previously invisible to the
+   cursor) gets the smoke sight. `load`, `unload` and `halt` are drawn and tested but earn no CSS
+   rule (no pointer path ever emits them).
+3. **Q3 — split `CursorName` `'support'` into `'sweep' | 'strike'`**: taken. `res.armed` already
+   carried the kind; no tool read the key `'support'`.
+4. **Q4 — the round-2 utility marks** (`logistics`, `intel`, `rotateCcw`, `rotateCw`): shipped as
+   r2 drew them. r2's own `sweep`/`strike` utility marks are superseded by the r5 order graphics,
+   so the dock's support tiles use the r5 static marks.
+5. **Q5 — `★`**: a **named exception**, not drawn. No round drew a star, and the kit sign's steel
+   Stars of David must stay apart from veterancy's gold `★`.
+6. **Q6 — the static order mark in the HUD**: the r5 surround frozen at its rest phase (Q14),
+   without the aim (which means "pointer" and is noise at 16 px), in one ink, with the family
+   colour on the glyph span alone via `theme.css` tokens. The HUD order marks needed a follow-up
+   fix round (cropped viewBox) to stop reading as specks at 14 px — shown to the lead alongside
+   this ruling.
+7. **Q7 — framed vs. unframed role marks and 8 px sites**: `roleBadgeSvg` chooses framed at
+   `size >= 16`; the two 8 px sites (`hud.ts` chip badge, `production.ts`'s dock tooltip role
+   badge, `TIP_BADGE`) were raised to 10 px, since r2 proved legibility only at 10 and W=2.5 is
+   0.83 px at 8.
+8. **Q8 — cursor badge colour**: aim steel (`gunmetal.0`). The badge names the actor, the family
+   colour names the order; one mark cannot say both.
+9. **Q9 — `team.*` keys through `paletteTeamColors()`**: the cursor plugin mirrors
+   `teamColorsFor` over the palette it already reads (no `@lions/data` import into the Vite
+   config), with a parity test against `variantAwareResolver`. The housing's `bad`/`warn` colours,
+   previously hard-wired to default hex, now take the same colour-vision path at no extra cost.
+10. **Q10 — dingbats no G1 round covers** (the strip's mute icons, checkbox glyphs, key-name
+    arrows, and a handful of `en.json` symbols): left in place, named by site in the "Q10 ruling"
+    comment in `tools/validate_ui_palette.mjs` (there is no `NOT_YET_DRAWN` identifier), with a
+    follow-up issue number (#261). Tracked there, not in this landing.
+11. **Q11 — "minimap"**: dropped from §6's consumer list. `minimap.ts` carries no role or verb
+    mark — `dotShape(side)` is the G0 accessibility side channel, unrelated — so no site exists to
+    draw one at.
+12. **Q12 — kit glyphs (garage D8)**: out of scope. They stay behind `KIT_SYMBOLS` in
+    `ui/kit-sign.ts`.
+13. **Q13 — the animation-rule comment in `ANIMATED_CURSORS`**: rewritten to cite G1 r4/r5 and
+    keep the prior measurement history verbatim, since the lead's approval of animated move,
+    sweep and strike reverses what it used to say.
+14. **Q14 — frames and rest phases**: the r5 in-context picks (move 0.7, attackMove 0.5, strike
+    0.5, halt 0.4, smoke 0.6; load/unload/sweep at 0.5, confirmed by eye). 4 frames per order, 6
+    for halt and strike (separate dwell/impact beats). `intervalMs = round(periodMs / frames)`.
+
+**Captures put in front of the lead at Task 6, beyond the brief's own list** (each recorded in
+the Task 6 SDD ledger as "for the lead"): the cursor badge crowding the chevron at 32 px (reads
+"ΛX"); the halo, harder-edged than r5's own soft shadow; a 0.7 px edge clip on the strike ring and
+the move chevron; the static sweep mark on a dimmed dock tile (low contrast); the HUD order marks
+now wider than one character; Q1's housing-switch consequence; Q6's HUD family colour; and Q7's
+chip badges raised from 8 to 10 px. None were treated as blocking — each is either a named,
+reversible ruling above or a defect the lead reviewed directly. **The lead's ruling, 28 Sep:
+"Approve as is."** This covers the badge position, the bracket housing kept unchanged for
+`garrison`/`demolish`/`charge`/`blocked`/`costly` (Q1), and Escape not disarming support orders
+(tracked separately as #264) — none of it blocks this landing.

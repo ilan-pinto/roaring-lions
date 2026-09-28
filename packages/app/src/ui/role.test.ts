@@ -6,7 +6,10 @@
 // zoneContains in the slice before this one.
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
-import { bucketVisible, ROLE_GLYPH, ROLE_LABEL, roleBucket, roleLabel, type RoleBucket } from './role';
+import { bucketVisible, ROLE_LABEL, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
+import { symbolBody } from './symbol';
+
+const BUCKETS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
 
 /** The four fields the classifier reads, defaulted to an armour unit. */
 function unit(over: Partial<Parameters<typeof roleBucket>[0]> = {}) {
@@ -39,11 +42,34 @@ describe('roleBucket', () => {
     expect(roleBucket(unit({ role: 'mbt' }))).toBe('armour');
   });
 
-  it('gives every bucket a glyph', () => {
-    const buckets: RoleBucket[] = [
-      'kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour',
-    ];
-    for (const b of buckets) expect(ROLE_GLYPH[b]).toBeTruthy();
+});
+
+describe('roleBadgeSvg', () => {
+  // S3e: the chip, the card, the dock, the tooltip and the garage all badge a
+  // unit from the one G1 sheet (`symbol.ts`), so none of them can say
+  // something different about what a unit is. Q7: unframed below 16 px (a
+  // frame at 10 px is a smudge), the APP-6 frame from 16 up.
+  it('draws every bucket from the shared sheet, unframed below 16 px and framed from 16', () => {
+    for (const b of BUCKETS) {
+      expect(roleBadgeSvg(b, 10)).toContain(symbolBody(b));
+      expect(roleBadgeSvg(b, 10)).not.toContain(symbolBody(b, { framed: true }));
+      expect(roleBadgeSvg(b, 15)).not.toContain(symbolBody(b, { framed: true }));
+      expect(roleBadgeSvg(b, 16)).toContain(symbolBody(b, { framed: true }));
+      expect(roleBadgeSvg(b, 24)).toContain(symbolBody(b, { framed: true }));
+    }
+  });
+
+  it('keeps the rl-badge class and the size it was asked for', () => {
+    const svg = roleBadgeSvg('armour', 22);
+    expect(svg).toContain('class="rl-sym rl-badge"');
+    expect(svg).toContain('width="22" height="22"');
+    expect(svg).toContain('data-symbol="armour"');
+  });
+
+  it('no longer exports a Unicode table or the hand-built shapes', async () => {
+    const mod = await import('./role');
+    expect('ROLE_GLYPH' in mod).toBe(false);
+    expect('roleBadgeShapes' in mod).toBe(false);
   });
 });
 

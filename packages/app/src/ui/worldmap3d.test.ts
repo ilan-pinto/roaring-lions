@@ -610,6 +610,23 @@ describe('the rotate controls', () => {
     expect(s.view().nudges).toEqual([-30, 30]);
     expect(s.view().resets).toBe(1);
   });
+
+  // S3e (Q4): the spin buttons draw round 2's compass-rose marks instead of
+  // `↺`/`↻`, and the name the glyph used to give them is now the title and
+  // aria-label they carry -- a drawn mark is `aria-hidden`.
+  it('draw the rotate marks, and keep their names', async () => {
+    const s = mountScreen({});
+    await s.ready;
+    const ccw = s.el.querySelector<HTMLElement>('[data-spin="ccw"]');
+    const cw = s.el.querySelector<HTMLElement>('[data-spin="cw"]');
+    expect(ccw?.querySelector('[data-symbol="rotateCcw"]')).not.toBeNull();
+    expect(cw?.querySelector('[data-symbol="rotateCw"]')).not.toBeNull();
+    expect(ccw?.textContent).not.toContain('↺');
+    expect(cw?.textContent).not.toContain('↻');
+    expect(ccw?.title).toBeTruthy();
+    expect(ccw?.getAttribute('aria-label')).toBe(ccw?.title);
+    expect(cw?.getAttribute('aria-label')).toBe(cw?.title);
+  });
 });
 
 describe('nobody gets a blank screen', () => {

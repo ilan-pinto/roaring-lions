@@ -28,10 +28,10 @@ import type { RoleBucket } from './role';
 export type OrderId = 'attackMove' | 'halt' | 'smoke' | 'load' | 'unload';
 
 export interface OrderSpec {
+  /** Also the key the mark is drawn by: `symbolSvg(id)` (S3e, the G1 sheet)
+   *  and `ORDER_SIGHT[id].family` for its colour -- one id, no second field
+   *  that could name a different picture. */
   id: OrderId;
-  /** The mark, left of the label. Unicode for now — GH-153 lists a drawn glyph
-   *  set as its own ticket. */
-  glyph: string;
   /** A catalogue KEY, not the label text -- the same lesson `input/keymap.ts`'s
    *  `ActionSpec.label` follows (that file's own header comment has the
    *  full reasoning). `hud.ts`'s `renderOrders` calls `t()` on this at
@@ -65,11 +65,11 @@ export interface OrderSpec {
  * available and is a controls decision, not a HUD one.
  */
 export const ORDERS: readonly OrderSpec[] = [
-  { id: 'attackMove', glyph: '⟶', label: 'order.attackMove', key: 'RMB' },
-  { id: 'halt', glyph: '■', label: 'order.halt', key: 'halt' },
-  { id: 'smoke', glyph: '◌', label: 'order.smoke', key: 'smoke' },
-  { id: 'load', glyph: '⤓', label: 'order.load', key: 'load' },
-  { id: 'unload', glyph: '⤒', label: 'order.unload', key: 'unload' },
+  { id: 'attackMove', label: 'order.attackMove', key: 'RMB' },
+  { id: 'halt', label: 'order.halt', key: 'halt' },
+  { id: 'smoke', label: 'order.smoke', key: 'smoke' },
+  { id: 'load', label: 'order.load', key: 'load' },
+  { id: 'unload', label: 'order.unload', key: 'unload' },
 ];
 
 /**

@@ -10,6 +10,7 @@
  */
 import type { PlayerIntent, Resolution } from './intents';
 import type { RoleBucket } from '../ui/role';
+import { ORDER_SIGHT, type SightOrderId } from '../ui/order-sight';
 
 export type CursorName =
   | 'default'
@@ -18,7 +19,8 @@ export type CursorName =
   | 'blocked'
   | 'costly'
   | 'protected'
-  | 'support'
+  | 'sweep'
+  | 'strike'
   | 'garrison'
   | 'demolish'
   | 'charge'
@@ -31,6 +33,11 @@ export type CursorName =
 export interface CursorHints {
   hostile: boolean;
   blocked: boolean;
+  /** The smoke order is armed on the order row (`main.ts`'s `armedOrder`),
+   *  so the next click lays a screen rather than giving the order under the
+   *  pointer. Optional: every caller that has no armed order to report
+   *  compiles, and reads, unchanged. */
+  armedSmoke?: boolean;
 }
 
 /** Names that describe the target or the mode, never the actor: nothing
@@ -42,14 +49,15 @@ export interface CursorHints {
  *  `BADGED_VERBS` is typed so one of these can never appear as a key at
  *  all. One rule, several callers -- the same pattern this milestone
  *  already uses for `zoneContains`, `roleBucket` and `cursorKey` itself. */
-export type UnbadgedName = 'default' | 'blocked' | 'costly' | 'protected' | 'support';
+export type UnbadgedName = 'default' | 'blocked' | 'costly' | 'protected' | 'sweep' | 'strike';
 
 export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'default',
   'blocked',
   'costly',
   'protected',
-  'support',
+  'sweep',
+  'strike',
 ]);
 
 /** How many frames a cursor steps through, and how long each frame holds. */
@@ -59,46 +67,67 @@ export interface CursorAnimation {
   intervalMs: number;
 }
 
+/** Which approved G1 order sight each wired cursor name draws (Q2). `attack`
+ *  is the attackMove sight -- a plain order over a hostile is an attack-move
+ *  -- and the other four share their order's own id. `load`, `unload` and
+ *  `halt` are drawn by the plugin but reach no cursor name: halt is instant,
+ *  and load/unload come only from the keyboard path, whose result never
+ *  reaches the hover ticker. */
+const SIGHT_OF: Readonly<Partial<Record<CursorName, SightOrderId>>> = {
+  move: 'move',
+  attack: 'attackMove',
+  sweep: 'sweep',
+  strike: 'strike',
+  smoke: 'smoke',
+};
+
+/** One sight's animation, read straight off `ORDER_SIGHT`: as many frames as
+ *  it has phases, each held for an equal share of the order's approved
+ *  period (Q14). */
+const anim = (id: SightOrderId): CursorAnimation => ({
+  frames: ORDER_SIGHT[id].phases.length,
+  intervalMs: Math.round(ORDER_SIGHT[id].periodMs / ORDER_SIGHT[id].phases.length),
+});
+
 /** The cursor names that animate, and their frame count/rate -- the one
  *  table both the plugin (which draws `frames` distinct SVGs per name, keyed
  *  by a `data-cursor-frame` attribute) and main.ts's frame driver (which
  *  cycles `data-cursor-frame` on a `setInterval` of `intervalMs`) read, so
  *  the two can never disagree on how many frames exist.
  *
- *  WHICH names belong here is a rule, not a taste: a cursor animates when the
- *  order it previews commits a unit to STAND on that spot and hold station
- *  while a sim timer runs, and the motion is that clock. `demolish` is
- *  `demolitionTicks` (sim.ts `stepDemolition`, DEMO_SECONDS 5, reset to 0 on
- *  interruption at three separate sites); `charge` is `tunnelChargeTicks`
- *  (`stepTunnelCharge`, the same shape); `attack` is the reload-under-LOS
- *  hold.
+ *  WHICH names belong here is now the lead's approval rather than a rule
+ *  derived from the sim. G1 round 4 (2026-09-28, "Use more war game
+ *  symbols") gave every order cursor the same chevron stadia aim with that
+ *  order's APP-6 tactical graphic animated around it, and round 5 ("Can you
+ *  add more colors", APPROVED) coloured each by order family and kept round
+ *  4's shapes, motion and periods. So the five wired sights -- `move`,
+ *  `attack` (the attackMove sight), `sweep`, `strike` and `smoke` -- all
+ *  animate, at the frame counts and periods `ORDER_SIGHT` carries, and this
+ *  table is DERIVED from it rather than restating a number that could drift.
  *
- *  **`attack` is an exception to that rule and not an instance of it**, and it
- *  is recorded here rather than argued away, because the next reader deserves
- *  to meet it instead of discovering it. A `demolish` or `charge` order really
- *  does pin a unit to a tile while a named sim counter runs; an attack order
- *  does not -- the unit keeps moving, keeps re-targeting, and "the reload-
- *  under-LOS hold" above is a fair description of what a shooter spends its
- *  time doing but is not a timer this cursor previews. The 2026-09-03 cursor
- *  designer raised it against their own work while the art was being chosen,
- *  and the call was to keep the motion: dropping it would take movement off
- *  the attack reticle, which is a regression nobody asked for and which no
- *  player would read as a principle being upheld. If the rule is ever made
- *  true as stated, `attack` is the member to un-animate, and its frame 0
- *  stands alone perfectly well -- the housing at its rest inset is exactly
- *  what every other state wears.
+ *  That reverses two things this comment used to say, and the reversal is
+ *  recorded rather than silently dropped. It said a cursor animates only
+ *  when the order it previews pins a unit to a spot while a sim timer runs
+ *  (`demolish`'s `demolitionTicks`, `charge`'s `tunnelChargeTicks`), and it
+ *  recorded `attack` as an admitted exception to that rule. And it recorded
+ *  armed support as REJECTED: a targeting mode that covers every tile while
+ *  armed, whose motion "would be constant and carry no per-tile information
+ *  ... the 'a cursor that always moves is noise' failure". The lead looked
+ *  at exactly that -- animated move, sweep and strike, drawn and recorded at
+ *  true size in r4 and r5 -- and approved it. The motion is now the order's
+ *  identity (what KIND of order the click gives), not a timer's; a still
+ *  frame 0 remains the rest pose, the reduced-motion frame and the HUD's
+ *  static mark (Q14).
  *
- *  Anything that resolves instantly, resolves somewhere else, or merely
- *  labels the ground stays still -- which is why `move`, `garrison`,
- *  `blocked`, `costly`, `protected` and `support` are all absent, and why
- *  `demolish` -- `winningVerb`'s TOP rung, and until now the only one of the
- *  three destructive verbs sitting still -- was added rather than left as an
- *  inconsistency in the shipped design. `support` was considered and
- *  REJECTED: it is the one true targeting *mode*, first rung in `cursorFor`
- *  and armed with an empty selection, so while armed it covers every tile
- *  regardless of what is under it -- its motion would be constant and carry
- *  no per-tile information, which is the "a cursor that always moves is
- *  noise" failure.
+ *  `charge` and `demolish` keep the housing and its motion unchanged (Q1:
+ *  G1 drew no sight for them), and their original reason still holds for
+ *  them: each pins a unit on the spot while a named sim counter runs.
+ *  `demolish`: 4 frames at 300ms -- a bone-white beacon rotates clockwise
+ *  over the four corner plates above a core that never moves. `charge`: 4
+ *  frames at 200ms -- a spark crawling down the fuse toward a buried
+ *  satchel. See vite-plugin-cursors.ts's BEACON_SWEEP/CHARGE_SPARKS tables
+ *  for the geometry. The sight rates follow `round(periodMs / frames)`, so
+ *  the set now has more than two rates; that was accepted with the periods.
  *
  *  Driven from JS on a plain timer rather than a CSS `@keyframes` animation
  *  on `cursor` itself. What is actually known, restated in 2026-09-02 after a
@@ -126,26 +155,18 @@ export interface CursorAnimation {
  *  the mechanism already shipping, switching buys nothing measured, and the
  *  timer alone can hold the frame index in the DOM where `cursorKey()` and a
  *  test can read it back. If someone ever captures the real pointer and finds
- *  no repaint, the answer is to delete the animation, not to swap mechanisms.
- *
- *  `attack`: 4 frames at 300ms (~1.2s/cycle) -- a slow pulse, not a spinner.
- *  The housing itself CLOSES on the target: rest, converge, rest, release,
- *  so the reticle mechanically locks rather than ticking. `demolish`: 4
- *  frames at 300ms, attack's own tempo so the set keeps exactly two rates
- *  rather than gaining a third -- a bone-white beacon rotates clockwise over
- *  the four corner plates above a core that never moves, which is what keeps
- *  it apart from attack in motion (attack moves the whole housing and has no
- *  core; demolish holds the core and moves one plate). `charge`: 4 frames at
- *  200ms (~0.8s/cycle, noticeably brisker) -- a spark crawling down the fuse
- *  toward a buried satchel, the one place slightly more energy is justified.
- *  All three restrained by design: see vite-plugin-cursors.ts's
- *  ATTACK_INSETS/BEACON_SWEEP/CHARGE_SPARKS tables for the actual geometry
- *  and the fuller reasoning. */
+ *  no repaint, the answer is to delete the animation, not to swap mechanisms. */
 export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimation>>> = {
-  attack: { frames: 4, intervalMs: 300 },
+  move: anim('move'),
+  attack: anim('attackMove'),
+  sweep: anim('sweep'),
+  strike: anim('strike'),
+  smoke: anim('smoke'),
   charge: { frames: 4, intervalMs: 200 },
   demolish: { frames: 4, intervalMs: 300 },
 };
+
+export { SIGHT_OF };
 
 /** The heaviest thing this click will cause, or null if it is a plain order.
  *
@@ -176,7 +197,14 @@ export function winningVerb(res: Resolution, hints: CursorHints): CursorName | n
 export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // Armed support outranks everything: it is what the pointer means, and it
   // fires with an empty selection, which is how pointerup always calls it.
-  if (res.armed) return 'support';
+  // The cursor names the call itself (Q3): sweep and strike draw different
+  // sights, and res.armed already carries which one it is.
+  if (res.armed) return res.armed;
+  // An armed smoke order is the same argument one rung down (Q2): the next
+  // click lays a screen whatever is under the pointer. Below armed support,
+  // because only one of the two can spend the click and a support call is
+  // armed from the production bar, deliberately.
+  if (hints.armedSmoke) return 'smoke';
   // A protected structure gated the whole selection and the player has not
   // held Alt to override it: `intents` is empty here too, but for a second,
   // distinct reason from "nothing selected" -- this rung must come before
@@ -292,7 +320,7 @@ export function badgeFor(
   name: CursorName
 ): RoleBucket | null {
   // Armed support always vetoes a badge on its own account -- not merely
-  // because 'support' is in UNBADGED_NAMES below, but so this stays true
+  // because 'sweep' and 'strike' are in UNBADGED_NAMES below, but so this stays true
   // even if a future caller passes a name that disagrees with res.armed.
   if (res.armed) return null;
   if (UNBADGED_NAMES.has(name)) return null;
