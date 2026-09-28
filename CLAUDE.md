@@ -849,6 +849,120 @@ yours; each one records what the next phase inherits.
   off-map 0 dived 0.38 wu on qarn's rim. Re-scanned on `qarn_hadid` at the fix: terrace class
   full-power 0.624 -> 0.202 wu (now the open-ground cap's own limit), Grad 0.520 -> 0.067,
   mortar scorch 0.433 -> 0.025, craters 0.21 -> 0; edge class 0.353 -> 0.043, craters 0.376 -> 0.
+- **Grass and sand gather in clumps, on a density dial with a shed ladder** (WP-A2 plan 2,
+  2026-09-27/28; `terrain/decor-place.ts`, spec Deviations R-2 to R-4). What §3.4 calls "scatter"
+  is `decorPlacements`'s `grass`/`sand` families, not the flat grain mesh below (`buildScatter`,
+  D9, next bullet) -- two different files, and the gate's `decor` layer witnesses the first while
+  `scatter` witnesses the second. Members seed at `CLUSTER_SEED_P` = 0.114 and roll a radius
+  `CLUSTER_R_MIN`-`CLUSTER_R_MAX` (0.5-1.2 tiles); `SINGLETON_P` = 0.19 places lone members outside
+  any cluster. Both were raised 1.267x from the spec's 0.09/0.15 (same ratio, the lead's "raise
+  seeds to hit 0.9") because R-3 (a member that lands on a road, building or off-map is DROPPED,
+  never moved) costs real maps about 12% of density; all 26 shipped maps now read 0.731-0.920 of
+  the spec's 0.9-an-open-tile target (mean 0.862). `GRASS_SCALE_MAX` = 0.9. **`SCATTER_DENSITY`
+  (R-4) is the ship-time dial, currently 0.75** -- the approved shed ladder's first rung
+  (1.0 -> 0.75 -> 0.5), scaling `CLUSTER_SEED_P`/`SINGLETON_P` together so a shed map stays
+  clumpy rather than thinning into a uniform spread. It scales grass/sand only: trees, boulders,
+  ditches, rocks, slabs and bushes are untouched by the dial. Every clump-shape test (Clark-Evans
+  ≥ 0.7, family agreement ≥ 0.85, Ripley's K(1)/πr² > 1.4 at 1.71) is measured at dial 1, the
+  unshed rule; a separate pin checks the shipped default clears 0.75 ± 0.08 of dial 1 on every
+  real map. Road/building/ditch clearance is memoized per `composeTerrain` call
+  (`WeakMap<Uint8Array, RoadGraph>` keyed on `input.decor`'s stable identity, since `blocked` is
+  rebuilt fresh every call) so the unconditional `decorPlacements` call inside `composeTerrain`
+  costs nothing extra on a road-free rebuild. **The 0.75 rung does not clear its own frame-cost
+  budget**: a clean, quiet-machine, n = 10 interleaved read (Task 12 part B, `docs/PERFORMANCE.md`)
+  puts `beit_sahwan_outskirts` (22,24) z0.5 gpu p95 +0.83 ms over main, over the plan's +0.74 ms
+  cap, with no overlap between the two trees' sample distributions -- a real cost, not noise. This
+  is an open STOP pending the lead's choice of a lower rung (1b, density 0.5, is the next one Task
+  5 measured clean); do not read the "currently 0.75" line above as a settled, budget-clearing
+  number.
+- **The flat grain loses its discs and half its flecks (D9)** (`terrain/scatter.ts`). Limestone
+  flecks halve to 2-4 a tile, rounded up so a tile never drops to one; ground discs retire
+  outright. The `scatter` layer floor was re-derived by the one-third rule after the trim and is
+  unchanged in shape, only in the reading it is a third of.
+- **Props are one vertex-coloured batch, seven kinds, placed near structures and roads, capped at
+  150 a map** (WP-A2 plan 2, Tasks 3-5; `terrain/prop-role.ts`, `terrain/prop-place.ts`,
+  `terrain/prop-mesh.ts`, spec Deviations R-5 to R-8). The seven — `jersey_barrier`, `water_tank`,
+  `satellite_dish`, `laundry_line`, `tyre_pile`, `rebar`, `wrecked_car` — are **Meshy-generated**
+  (seven text-to-3D previews, approved "Use all 7"; four of the seven collapsed under the
+  120-400-tri caps at first decimation and were re-submitted through the Meshy CLI's `remesh`
+  command, 35 more credits, before Blender only strips materials, assigns a `PROP_ROLES` role and
+  sets tri caps — this is an AI-art disclosure item, distinct from the desert/olive trees, which
+  are re-exports of an EARLIER Meshy source). **The vertex colour is baked at LOAD, not export**
+  (R-6): a GLB carries `extras.rl_role` and zero materials, exactly decor's contract, and
+  `bakePropColors` writes the `color` attribute from `prop-role.ts`'s ramp table when the loader
+  clones the geometry — so a palette repaint never needs a re-export, and `validate:meshes` checks
+  props by the same "zero materials, every role known, tri cap from the table" contract decor gets
+  (R-7), never by rendering them. Placement (R-3-shaped: dropped, never moved) roads a roadside mix
+  {jersey 0.35, tyre 0.25, wrecked car 0.15, rebar 0.25} and a yard mix {water tank 0.25, dish
+  0.20, laundry 0.25, tyre 0.15, rebar 0.15}; a map with no building and no road loads none of
+  them (R-8). **The whole batch costs +3 draw calls** (shadow, AO and main pass, the same
+  `renderBufferDirect` wrap plan 1's decals used) and is invisible to `decor`'s own debug toggle —
+  `props` is its own `DEBUG_LAYERS` entry and its own gate check (floors: `quiet` 767 px / 0.0465,
+  `aftermath` 1783 px / 0.1505, both one-third-of-smallest-of-three, macOS/M3 Pro/SwiftShader).
+  The tyre pile's `rubber` role was retuned twice on the lead's word after the first review capture
+  (too dark to read): first one step up the `shadow` ramp, then to the `gunmetal` ramp's index 3 —
+  through the role table both times, never a raw hex.
+- **The olive is decimated by triangle count now, not vertex count** (R-9,
+  `tools/export_meshy_decor.py`, `TREE_TARGET_TRIS` = 3000 replacing `TREE_TARGET_VERTS` = 3500,
+  which had shipped 13,383-14,239 triangles because a vertex target says nothing about face count).
+  The trunk and foliage are split and decimated SEPARATELY before rejoining — plain single-pass
+  decimation collapsed the trunk/foliage colour boundary along with the canopy — and `tree_1`/
+  `tree_2` stay byte-identical exports (an olive art judgement, out of scope to change). Shipped
+  tri counts: 2,999 / 2,847 / 2,847. Measured where it costs the most: `wadi_halam_basin`'s decor
+  triangle budget fell from 9.17M to 2.39M (-6.79M) at `centre-z1`. The desert tree's var1 and
+  var3 trunks grow a **desert crown** (R-10) replacing their foliage objects, generated in Blender
+  from a hand-rolled hash (never `mathutils.noise`, nondeterministic per process in Blender 5.2) so
+  two exports of the same crown are byte-identical; the var1/var3 trunk objects themselves are
+  untouched.
+- **Foliage sways on the SIM clock, in the foliage material only; the shadow and AO passes keep
+  the rest pose** (R-11, `terrain/sway.ts`). The clock is `presentationSimMs(sim.tickCount,
+  alpha) / 1000` — the same sim-time source the ground decals already use (invariant 4) — never
+  accumulated wall-clock `dtMs`, so a gate capture at a pinned tick repeats exactly and a
+  `frame(1, 0)` repaint moves nothing. `SWAY_TOP` = 1.0 world unit above a foliage instance's
+  origin (amplitude tapers to 0 at the base, full above it); `SWAY_AMPLITUDE` = 0.035 wu at weight
+  1, period 3.8 s, with an 11 s gust cycle 1.4x the base amplitude for 2.5 s. The dead
+  `GroveMaterial`/`groveMesh`/`groveMat`/`windClockMs` wind path (wired to an empty `groves` layer
+  that has drawn nothing since the mesh trees shipped) is deleted; `grove.ts` and `buildGroves`
+  themselves stay — still barrel-exported and tested — deleting THEM is a follow-up, not this
+  plan's. Gate: `wind` is its own `DEBUG_LAYERS` entry and its own floor (406 px / 0.0284 on
+  `quiet`, one-third-of-smallest-of-three; hiding it drives `uSwayAmp` to 0 and every foliage
+  vertex snaps to rest at the frozen tick).
+- **Dust haze lives inside the fog-of-war pass, spliced BEFORE the shroud mix, and only where
+  depth < 1** (R-13, R-14; `terrain/haze.ts`, `three/fog-pass.ts`, `three/time-of-day.ts`). It
+  mixes toward a SCENE-REFERRED tint — the fog pass runs on the composer's HalfFloat, pre-tone-map
+  target, so the haze colour is the tint's linear value times the same
+  `(sunIntensity · sun.y + hemiIntensity) / π` factor lit open ground sits near, which is why haze
+  neither darkens bright ground nor glows on it, and why dusk's haze reads dimmer by the same
+  ratio as its light. Two terms, added: a FAR term ramping to the active preset's `hazeFar` at
+  `HAZE_RAMP_TILES` = 20 tiles ahead of the camera's focus plane (`HAZE_FORWARD`, the camera's own
+  view direction); and a LOW-LYING term reaching `HAZE_LOW` = 0.06 at `HAZE_LOW_LEVELS` = 2 levels
+  below the map's own MEDIAN open-ground level, computed once per terrain rebuild
+  (`hazeReferenceLevel`). **A flat map has no low-lying term at all** — every open tile sits at the
+  median, so `levelsBelowRef` is 0 everywhere (`quiet`, on `beit_sahwan_outskirts`, moves only from
+  the far term; Tel Marum's basin IS its own median, so `relief`'s haze floor is the far term alone
+  too — the low-lying term has no gated witness, only `deir_amun`/`umm_zeitoun`/`qarn_hadid` carry
+  open ground below their own median). `haze` is its own `DEBUG_LAYERS` entry driving `uHazeAmp`;
+  floors (one-third-of-smallest-of-three, macOS/M3 Pro/SwiftShader): `quiet` 986 px / 0.2515,
+  `relief` 0 px / 0.1291 (under pixelmatch's threshold everywhere, so the magnitude floor is the
+  whole check). The haze reads noticeably weaker over fog-shrouded ground than the approved mock
+  (+3.7 vs the mock's +16) — the lead's ruling, 2026-09-28, is "keep as built": R-14's ordering
+  (haze before the shroud, inside one pass) stands.
+- **`day` is the light preset, not a table lookup, and it is byte-identical to what shipped before
+  this plan** (spec §3.6, R-12; `time-of-day.ts`). `LightPreset` (`dawn`/`day`/`dusk`, each with
+  its own sun direction, intensities, `hazeFar` and an optional sky-tint `hazeKey`) reproduces
+  today's constants exactly for `day`: `hazeFar` 0.12, `hazeKey` null; dawn is 0.16 with no sky key,
+  dusk is 0.18 with `hazeKey: 'dust.1'`. `day`'s bit-identity is enforced by a test that compares
+  bits, not a tolerance, and by a 0-px A/B on every one of the five gated scenarios. `night`
+  resolves to `dusk` (D10 — it is not its own light yet). `RendererOptions.timeOfDay` is read off
+  `map.time_of_day` by the APP's `timeOfDayOf` (`packages/app/src/time-of-day.ts`), which validates
+  against the four names — **not** added to `packages/sim/src/mission.ts`'s `map` type, because the
+  sim never reads it (R-12, the four invariants stay clean). Two missions author it today:
+  `beit_sahwan_breach` (dawn) and `beit_sahwan_0_tutorial` (day, i.e. unchanged).
+  **`&tod=` is sandbox-only** (`sandbox-help.ts`'s flag table), overriding whatever a mission would
+  set; it is not a real player-facing control and a mission's own `time_of_day` always wins outside
+  the sandbox. The visual gate's `dusk` scenario is REPORT-ONLY — captured, printed, no baseline,
+  no vote — because a new preset with no prior baseline has nothing to diff against yet; it exists
+  so a human reviewer (not the gate) can look at it.
 - **`preserveDrawingBuffer` must stay off** in shipping code. Canvas readback
   therefore returns black — that is correct, not a broken renderer. The
   sanctioned way to photograph the scene from inside the renderer is a RENDER

@@ -1,6 +1,6 @@
 # The ground — design (WP-A2, art Phase 2, #182 with #226)
 
-**Date:** 2026-09-25 · **Status:** plan 1 landed `64afcf3b`, with the post-review fix wave on top (on `feat/ground`; merge and bless 1 wait for the lead's word on the zoom-0.35 captures). §5 and D8 were approved by the lead on 25 Sep. Plan 2 has not started. What plan 1 did differently from this text is in §9, Deviations.
+**Date:** 2026-09-25 · **Status:** plan 1 landed `64afcf3b`, with the post-review fix wave on top (on `feat/ground`; merge and bless 1 wait for the lead's word on the zoom-0.35 captures). §5 and D8 were approved by the lead on 25 Sep. **Plan 2's Tasks 0–11 landed `17480db0`** on `feat/ground-plan2`, all reviewed and Approved. **Task 12 part B (this measurement) found a STOP: `beit_sahwan_outskirts` (22,24) z0.5 misses its frame-cost budget** — gpu p95 rises +0.83 ms mean / +0.80 ms median over the +0.74 ms cap, n = 10, interleaved, quiet machine, distributions non-overlapping (docs/PERFORMANCE.md, "The ground, plan 2"). Per the plan's own stop-condition rule, no code was changed to chase it and the shed ladder Task 5 already measured is reported alongside it for the lead's choice of rung. **Merge, push and bless 2 wait on the lead's ruling on this stop, in addition to the lead's word on the review captures** (same precondition plan 1 carried). Every other Step 1 budget passes, including the `qarn_hadid` z1.6 stop condition the plan names explicitly (branch reads 0.86–1.07 ms faster than main, resolving the straddle Task 0/Task 5 left open) and every `blast:capture` floor (all 8 subjects now settle and pass, including the 2 part A could not measure). What plan 2 did differently from this text is in §10, Deviations (plan 2, as landed).
 **Lands as:** two plans, two blesses, `perf:units` re-run after the scatter. **Constraint:** Meshy credits
 arrive in early October, so everything here is procedural or Blender. Meshy appears only as a later, optional
 swap with a credit estimate.
@@ -452,3 +452,259 @@ in §5 moved.
 - **Parked items closed.** The blast harness refuses a group whose settle hit its ceiling unless
   every subject is `handTick`; the `TRACK_ALPHA` check asserts its own use; `validate_assets.py`
   no longer names `road_track_tile` as the road's albedo.
+
+## 10. Deviations (plan 2, as landed)
+
+Plan 2 is `docs/superpowers/plans/2026-09-27-ground-plan-2.md`. Its ledger is
+`.superpowers/sdd/2026-09-27-ground-plan-2/progress.md`, which is git-ignored. Landed at `17480db0`
+on `feat/ground-plan2`, base `49c85667` on `b6497c12` = `origin/main` at the time the plan was
+approved.
+
+Every number in this section was taken on ANGLE Metal on an M3 Pro unless stated otherwise. Cost
+numbers are in `docs/PERFORMANCE.md`, "The ground, plan 2 (WP-A2)" — Step 1's timing tables are now
+filled in (part B, this session), and they carry a STOP: see "Rulings taken during execution"
+below.
+
+### The plan's own deviations, R-1 to R-14
+
+**Plan shape**
+- **R-1: twelve tasks, not the spec's eleven.** The 5-file cap held for the props line, so it split
+  into its own task, as plan 1's R-1 split by the same rule.
+
+**Scatter**
+- **R-2: the spec's "scatter" (§3.4) is decor, not the flat grain mesh.** `decorPlacements`'s
+  `grass`/`sand` families are the 0.20–0.27-objects-per-open-tile scatter G8 named
+  (`DENSITY.grass 0.34 × 0.6 + DENSITY.sand 0.18 × 0.4 = 0.276`); the flat grain (limestone flecks,
+  D9) is `buildScatter`, a different file. Task 1 edited `decor-place.ts`; Task 2 edited
+  `scatter.ts`; the gate's `decor` layer witnesses the first, `scatter` the second.
+- **R-3: members are dropped, never moved**, when they land on a road, a building or off the map.
+  Moving one to the nearest legal point would pile objects against every road edge. Measured
+  consequence: at the spec's original 0.09/0.15 seed/singleton rates, real maps read 0.585–0.735 of
+  the 0.9-an-open-tile target (three below the approved 0.65 floor: `khan_rafid` 0.585, `qarn_hadid`
+  0.618, `umm_zeitoun_3` 0.649). The lead's ruling (2026-09-27, "Raise seeds to hit 0.9") raised
+  `CLUSTER_SEED_P` 0.09 → 0.114 and `SINGLETON_P` 0.15 → 0.19 (same ratio, ×1.2667 — the largest
+  raise that keeps every real map above 0.65 while keeping the synthetic fixture under its own 0.95
+  ceiling). All 26 shipped maps now read 0.731–0.920 (mean 0.862); synthetic fixture 0.947.
+- **R-4: the density dial (`SCATTER_DENSITY`, currently 0.75, the shed ladder's first rung of
+  1.0 → 0.75 → 0.5) scales seeds and singletons together, never member counts**, so a shed map
+  stays clumpy rather than thinning uniformly. It touches grass and sand only — never trees,
+  boulders, ditches, rocks, slabs or bushes.
+  - **Review finding, fix round 1:** the clump-shape thresholds (Clark–Evans, family agreement)
+    were first measured at dial 1 (the raised rates), where the denser clustering pushed both past
+    the spec's original 0.7/0.85 thresholds even at the plan's ORIGINAL 0.09/0.15 rates (0.798/0.842
+    — a measurement-point artefact, not an effect of the raise). Review ruling: revert the
+    thresholds to 0.7/0.85, measure density-invariantly at `decorPlacements(open, 0.3)` (Clark-Evans
+    0.659, agreement 0.909), and add a Ripley's K check at dial 1 (K(1)/πr² > 1.4, measured 1.71).
+    All three falsified red (uniform spread) then reverted clean.
+  - **Review finding, fix round 1 (road graph):** `sawRoad` alone masked an I-1 cache-count
+    regression on every road-BEARING shipped map (`composeTerrain` calls `decorPlacements`
+    unconditionally on every rebuild, outside this task's own file). Fixed with a
+    `WeakMap<Uint8Array, RoadGraph>` keyed on `input.decor`'s stable identity (`blocked` is rebuilt
+    fresh every call, `decor` is not); a road-bearing case was added to
+    `ThreeRenderer.ground-control.test.ts`; falsified by reverting to a bare `buildRoadGraph` call
+    (5→7 builds, red), reverted clean.
+
+**Props**
+- **R-5: the prop table** (sizes, tri caps, roles, roadside/yard mix) is in §3.4 of this spec, seven
+  kinds: `jersey_barrier`, `water_tank`, `satellite_dish`, `laundry_line`, `tyre_pile`, `rebar`,
+  `wrecked_car`. GLB units are metres; `MESH_SCALE` is 1/3, so 3 m is one tile.
+  - **Provenance deviates from the spec's assumed Blender-only build.** The spec text (§6, D7) named
+    Meshy only for a LATER, optional swap (the wrecked car) pending October credits. In execution,
+    the lead redirected the whole prop line to Meshy early: a Blender-procedural set shipped first
+    (`fcde4da0`, superseded), then the lead asked for Meshy previews ("Go, 7 previews", 140 credits,
+    ~$2.80 at the assumed $0.02/credit), approved all seven ("Use all 7"), four of the seven then
+    collapsed under the 120–400-tri caps at first decimation (dish, laundry line, rebar, car) and
+    were re-submitted through the Meshy CLI's new `remesh` command (35 more credits, "Use these"),
+    and Blender's job shrank to stripping materials, assigning `PROP_ROLES` roles and provenance.
+    **All seven shipped props are Meshy-generated, previewed and then Meshy-remeshed, never
+    Blender-procedural** — the AI-art disclosure line for this plan names the props explicitly,
+    distinct from the desert/olive trees (R-9, R-10), which are re-exports of an earlier Meshy
+    source unchanged by this plan except for decimation/crown geometry.
+- **R-6: the vertex colour is baked at load, not at export.** A GLB carries `extras.rl_role` and
+  zero materials — decor's own contract — and `bakePropColors` writes the `color` attribute from
+  `prop-role.ts` when the loader clones the geometry, so palette values live in TypeScript beside
+  every other ramp table and one material serves the whole batch.
+- **R-7: props are contract-checked, not rendered, by `validate:meshes`**, exactly as decor is: zero
+  materials/images/textures, every mesh node's role inside `PROP_ROLES`, triangle caps from R-5.
+  `render_mesh_gate.py` gets the same early return for the `props` asset class decor already has.
+- **R-8: props load through the app's mesh manifest** (`mesh-catalogue.ts`'s `PROP_MESHES`,
+  `propKindsFor`), like decor; a map with no building and no road fetches none.
+  - **Review finding (Task 5, cost stop):** the first landing (`cc38da8f`) measured `beit_sahwan
+    _outskirts` z0.5 at +1.18 ms, over the +0.74 ms budget, and the tyre pile read visually
+    near-black on screen. The lead's two answers (2026-09-28): "Density 0.75" (`SCATTER_DENSITY`
+    1 → 0.75, R-4's shed ladder's first rung) and "Lighten one palette step" for the tyre's `rubber`
+    role. Fix round `ae859986`: beit z0.5 fell to +0.30 ms (inside budget); qarn z1.6 read
+    +0.78…+1.00 ms under measured concurrent machine load (load average 5–50, another agent's
+    browser running) against −0.28 ms on the identical config on a quiet machine the day before —
+    ruled NOT a stop, judged instead in Task 12's final interleaved pass on a quiet machine (part
+    B), since a measurement taken under concurrent agent load is not evidence either way. The tyre
+    still read near-black after this fix; a second lead answer ("gunmetal ramp") landed in Task 7
+    (`82daebe9`): `rubber` is `gunmetal[3]` alone.
+
+**Trees**
+- **R-9: the olive is decimated by face count, not vertex count.** `TREE_TARGET_VERTS = 3500` had
+  shipped 13,383–14,239 triangles, because a vertex target says nothing about face count.
+  `TREE_TARGET_TRIS = 3000` replaces it. `tree_1`/`tree_2` stay byte-identical (an olive art
+  judgement, out of scope). Shipped: 2,999/2,847/2,847 triangles.
+  - **Review finding, fix round 1:** the footprint test measured bounding-box extents, which a
+    single outlier vertex sets; ruling: measure p1–p99 percentile extents of the whole tree (and of
+    foliage alone) at base vs. head, within 10%. The exporter gained a hard `SystemExit` on an
+    off-target result or exhausted merge iterations, plus an undershoot floor. First fix-round
+    reading (before the trunk/foliage split): tree_1/tree_2 whole-tree p1–p99 depth read +15.7%
+    (over the 10% band); `wadi_halam_basin` decor triangles fell 9,174,535 → 2,455,336 (-6.72M),
+    proving the earlier unchanged reading (Task 6's first landing) had been a stale
+    `assets/meshes/decor` cache, not an inert exporter.
+  - **Review finding, fix round 2, and LEAD SIGN-OFF item:** plain single-pass decimation collapsed
+    the trunk/foliage colour boundary into the canopy. Lead's ruling ("Split trunk and leaves"):
+    trunk and foliage decimated SEPARATELY, trunk lighter, then rejoined; boundary restored (picture
+    checked). p1–p99 now within the 10% band (test un-skipped). Final: 2,999/2,847/2,847 triangles;
+    `wadi_halam_basin` decor 9.17M → 2.39M (-6.79M).
+- **R-10: the desert crown replaces the foliage objects on `var1` and `var3`; the trunk objects are
+  unchanged.** Crown clumps are generated in Blender from a hand-rolled hash (never
+  `mathutils.noise`, nondeterministic per process in Blender 5.2), so two exports of the same crown
+  are byte-identical (proven in Task 6).
+
+**Sway, haze and presets**
+- **R-11: the dead grove wind path is deleted** — `GroveMaterial`, `groveMesh`, `groveMat`,
+  `windClockMs` — wired, before this plan, to an empty `groves` layer that had drawn nothing since
+  the mesh trees shipped (a stale `(Task 7)` comment already in the code named a DIFFERENT, earlier,
+  already-landed plan's task 7 — this plan's Task 7 commit body says so explicitly to avoid
+  confusing the two). `grove.ts` and `buildGroves` themselves stay, still barrel-exported and
+  tested; deleting them is a follow-up, out of scope. Gate: `wind` floor 406 px / 0.0284 on `quiet`
+  (one-third-of-smallest-of-three); RE-DERIVED once (unchanged in shape) after Task 9's haze landed
+  on the same scenario and plausibly softened the diff's contrast — 933 px / 0.0712 measured, 23%
+  below the reading the floor was set from, still 2.3–2.5x the floor, so left unchanged (a fall
+  inside tolerance is not a re-derivation under N-7's own rule).
+- **R-12: `time_of_day` is read off the mission JSON by the app** (`packages/app/src/time-of-day.ts`,
+  `timeOfDayOf`), validated against the four names — **not** added to
+  `packages/sim/src/mission.ts`'s `map` type, since the sim never reads it (keeps the four
+  invariants clean; `git diff --stat b6497c12..HEAD -- packages/sim` is empty at every commit).
+  Exactly two authored missions carry it: `beit_sahwan_breach` (dawn), `beit_sahwan_0_tutorial`
+  (day, i.e. unchanged from today).
+- **R-13: haze is mixed toward a scene-referred tint.** The fog pass runs on the composer's
+  HalfFloat, pre-tone-map target, where lit open ground sits near
+  `albedo × (sunIntensity · sun.y + hemiIntensity) / π`; the haze colour is the tint's linear value
+  times that same factor for the active preset (`hazeRadiance`), so haze neither darkens bright
+  ground nor glows on it, and dusk's haze is dimmer by the same ratio as its light.
+  - **Open item, closed by the lead:** the haze on fog-shrouded ground read noticeably weaker than
+    the approved Task 0 mock (+3.7 measured vs. the mock's +16). Lead's ruling (2026-09-28): "Keep
+    as built" — R-14's ordering (haze inside the fog pass, before the shroud) stands as designed;
+    not a bug.
+- **R-14: haze runs before the fog-of-war mix, inside the same pass, only where depth < 1.** The
+  `fog` layer's `uRevealAll` does not touch it; the new `haze` layer drives `uHazeAmp` to 0. Two
+  terms: a far term ramping to the active preset's `hazeFar` at `HAZE_RAMP_TILES` = 20 tiles ahead
+  of the camera's focus plane, and a low-lying term reaching `HAZE_LOW` = 0.06 at
+  `HAZE_LOW_LEVELS` = 2 levels below the map's own median open-ground level (computed once per
+  terrain rebuild, `hazeReferenceLevel`). A flat map (every open tile at the median) has no
+  low-lying term at all — `quiet` (`beit_sahwan_outskirts`) and `relief` (`tel_marum`, whose basin
+  IS its own median) both gate only the far term; the low-lying term has no gated witness (only
+  `deir_amun`, `umm_zeitoun` and `qarn_hadid` carry open ground below their own median). Gate floors
+  (one-third-of-smallest-of-three): `quiet` 986 px / 0.2515, `relief` 0 px / 0.1291.
+
+### Presets and the day bit-identity (spec §3.6, no R-number of its own)
+
+`LightPreset` (`dawn`/`day`/`dusk`) reproduces today's lights exactly for `day`: `hazeFar` 0.12,
+`hazeKey` null. Dawn: `hazeFar` 0.16, no sky key. Dusk: `hazeFar` 0.18, `hazeKey: 'dust.1'`. `night`
+resolves to `dusk` (D10 in the plan — not its own light yet). `day`'s bit-identity is enforced by a
+test comparing bits, not a tolerance, and by a 0-px A/B on all five gated scenarios (`TerrainTones
+.haze` became a required field, touching all 26 map-theme fixtures — a type-level, not behavioural,
+change). `&tod=` is sandbox-only (`sandbox-help.ts`'s flag table); the visual gate's `dusk`
+scenario is captured, printed and voteless (no baseline exists yet for a preset this young).
+
+### Rulings taken during execution, not named by an R-number
+
+- **Task 7/8 ran in parallel, under a "maximise parallel work" ruling (lead, 2026-09-28):** Task 8
+  started while Task 7 was under read-only review, on the understanding that any Task 7 fix would
+  land before Task 8's commits touched the same hunks. Cost if wrong would have been a Task 8
+  rebase; it was not needed — both reviews returned Approved with no fix round.
+  - Same ruling repeated for Task 8/9.
+- **Task 11's decor floors rose materially** (`quiet` 3,500 → 7,274 px; `open-ground` 340 → 384 px)
+  and the `roads` check's signal on `quiet`/`aftermath` fell 56–59% (margin still 1.2–1.3x its
+  floor) after the full stack (clusters, D9, props, crowns, sway, haze) landed together. Review
+  ruling: the roads margin is a finding to CARRY forward, not a stop — it still clears its floor by
+  a comfortable margin, and the cause (haze/props/clusters all adding contrast the roads check has
+  to be measured against) is named rather than hidden.
+- **Task 12 was split into part A and part B** (this ruling, 2026-09-28): part A does Steps 2–5
+  (review captures, `blast:capture`, the record with Step 1's cost numbers left `TBD`, and the
+  gates); part B does Step 1's interleaved timing re-measure and Step 6 (push/PR/bless). Reason: the
+  machine was running other agents' work during part A's session, and Task 5's own stop-condition
+  investigation had already shown that a cost reading taken under concurrent agent load (+0.78 to
+  +1.00 ms at `qarn_hadid` z1.6) cannot be distinguished from a real regression without an
+  interleaved, quiet-machine control — CLAUDE.md's own rule ("a range with no sample size beside it
+  is an anecdote") extends to "a range measured under unlogged concurrent load is not a range at
+  all." Cost if this ruling is wrong: one extra dispatch to re-run part B, which is cheaper than
+  shipping a false stop or a false pass on the `qarn_hadid` z1.6 budget.
+- **`pnpm blast:capture -- --label=after --port=5199`** was re-run under this plan (haze and sway
+  now draw into its ten-second ladders) to confirm every `LAYER_FLOORS` entry still clears. Every
+  floor the run WAS able to read (`blast-light`, `decals` on `mbt_lavi`, `apc_eitan`, `mortar_team`,
+  `scorch_qarn_shoulder`, `blast_in_firefight`, `blast_nomesh`) cleared, several by a wide margin.
+  **Not a clean pass, though: 2 of the tool's 8 subjects (`tel_marum||scorch_tel_ridge`,
+  `beit_sahwan_outskirts||shake_probe`) could not be measured at all** — their settle wait hit its
+  own 30-second ceiling without reaching 5 steady frames, so the tool skipped them rather than risk
+  latching an unsteady frame into the effect. This reads as the same machine-load confound already
+  named above for `qarn_hadid` z1.6 (this session's machine was running other agents' work
+  throughout), not a real regression — no floor read BELOW its value, two subjects simply could not
+  be read at all. Full numbers, the skip reasoning and the recommendation to re-run on a quiet
+  machine: `.superpowers/sdd/2026-09-27-ground-plan-2/task-12a-report.md`. This is carried to the
+  lead as an open item for part B, alongside the Step 1 timing re-measure — both need the same quiet
+  machine this session did not have.
+- **Task 12 part B (2026-09-28): the interleaved re-measure found a real STOP, not the load
+  confound part A left open.** Machine: quiet (load average 4–8 on 12 cores, monitored via `uptime`
+  before and during; no other agent running). Method: main (`b6497c12`) and branch (`17480db0`) as
+  two persistent dev servers on `:5195`/`:5196`, `render-frame-cost` interleaved run-by-run, n = 10
+  per view per tree (one warm-up discarded, then two rounds of 5 — the first round's readings sat
+  close enough to the repeat line that a second round was run before reporting, per
+  global-constraints' own convention). One methodological note for whoever reruns this: a first
+  attempt at this measurement launched the `qarn_hadid` roster's runs and a second `beit_sahwan`
+  repeat round CONCURRENTLY as two separate background processes, and the resulting numbers
+  (30–40 ms readings on views that read 13–16 ms everywhere else) were exactly the
+  self-inflicted version of the same concurrent-load confound this whole task exists to avoid. That
+  run was discarded in full and never reported as data; every number below is from the
+  re-run, done strictly one measurement script at a time.
+  - **`beit_sahwan_outskirts` (22,24) z0.5 is a STOP.** gpu p95 mean rises 13.84 → 14.67 ms
+    (+0.83 ms, over the +0.74 ms cap); median delta +0.80 ms; cpu p95 shows the same shape
+    (+0.84 ms mean). The two trees' 10-sample distributions do not overlap at all (main's ceiling
+    is branch's floor, 14.1–14.3 ms), so this reads as a real, reproducible cost, not noise a
+    repeat would resolve — unlike the `qarn` views below, which sat within 0.3 ms of their own
+    lines. This view was not named a pre-existing miss: main itself reads a clean 13.7–14.2 ms
+    here, so branch's 14.3–15.2 ms (6 of 10 runs over 14.5 ms) is also a new miss on the absolute
+    per-view ceiling, not only on the delta budget. Per the plan's own stop-condition rule
+    ("not traded away, no code changed"), no code was touched to chase this. Task 5's shed ladder
+    (density 1 → 0.75 → 0.5 → +sand-no-cast → +PROP_CAP 75) already measured this same view at
+    every rung and is reproduced in `docs/PERFORMANCE.md`; rung 1b (density 0.5) is the next one
+    that read clean on every one of Task 5's own samples (+0.38 ms). Choosing a rung, or accepting
+    the miss, is the lead's call — Task 12 part B does not choose one.
+  - **`qarn_hadid` (26,22) z1.6 — the view the plan's stop condition names explicitly — is
+    resolved clean.** Branch reads 0.86–1.07 ms **faster** than main across the two rounds
+    (n = 5 and n = 10), settling the straddle Task 0 (main-only, different session) and Task 5
+    (branch under concurrent load) left open: on a controlled, quiet, interleaved read, this view
+    is not a regression.
+  - **`qarn_hadid` z2.5 and z0.5** read +0.55–0.60 ms (median), inside the +0.74 ms cap; both
+    remain pre-existing misses on the absolute 14.5 ms ceiling, named rather than hidden, unchanged
+    from before this plan.
+  - **`perf:units`/`backend-curve-gate` at 300** (`--only=three-mesh`, target=300, settles at
+    living=266 on both trees): branch mean render p95 6.90 ms (3 runs: 6.60/7.30/6.80) against
+    main's 7.60 ms (3 runs: 7.60/7.20/8.00) — **PASS**, and this harness loads no decor or prop
+    meshes at all (Task 5's own finding), so the two trees agreeing within ordinary noise is the
+    expected result.
+  - **`wadi_halam_basin`'s decor triangle count, folded to exact digits**: 9,174,535 (main) →
+    2,283,358 (branch), **−6,891,177 (−75.1%)**. This does not match the spec's original
+    "about −3.4M a pass" estimate for this line (§3.5/§8); it is roughly double, same sign, same
+    order of magnitude, and consistent with Task 6's own mid-plan reading of −6.78M at this view
+    before Tasks 7–11 landed. Task 6's report already recorded that its own `ground:capture`
+    reading that session was stale (byte-identical triangle counts before and after a GLB swap that
+    could not physically cost the same triangles) and that the spec's estimate "could not be
+    confirmed this way" — this session's fresh dev servers are not subject to that staleness, so
+    −6.89M supersedes the "about −3.4M" estimate as this line's measured value.
+  - **`pnpm blast:capture -- --label=after --port=5199 --only=scorch_tel_ridge,shake_probe`,
+    re-run on the same quiet machine: both subjects part A could not settle now settle cleanly and
+    pass every floor** (`scorch_tel_ridge`: settled after 3,093 ms/9 frames, `blast-light`
+    49,017 px/11.5026 PASS, `decals` 0 px/0.4611 PASS; `shake_probe`: settled after 7,893 ms/14
+    frames, `blast-light` 10,716 px/4.4540 PASS, `decals` 7,599 px/1.7880 PASS). All 8
+    `blast:capture` subjects now measured and passing; this confirms part A's own diagnosis (a
+    settle-timeout confound, not a floor failure) rather than surfacing a new one.
+  - **Net effect on Task 12's split**: Step 1 (costs) is measured and carries one real STOP; Step 2
+    (the two `blast:capture` subjects) is now a clean pass; Step 3 (the record) is this edit. Step
+    6 (push/PR/bless 2) is out of this session's scope and, per the STOP above, should not proceed
+    without the lead's ruling on the `beit_sahwan_outskirts` z0.5 miss in addition to the review
+    captures the lead was already going to judge.
