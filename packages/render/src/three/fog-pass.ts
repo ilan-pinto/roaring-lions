@@ -167,7 +167,7 @@ void main() {
   vec4 view = uInvProjection * clip;
   vec4 world = uCameraWorld * view;
   float rlAhead = dot(world.xz - uFocus, vec2(${HAZE_FORWARD[0].toFixed(8)}, ${HAZE_FORWARD[1].toFixed(8)}));
-  float rlBelow = uHazeRef - world.y / ${WORLD_PER_LEVEL.toFixed(4)};
+  float rlBelow = uHazeRef - world.y / ${WORLD_PER_LEVEL.toFixed(8)};
   float rlHaze = uHazeAmp * (uHazeFar * clamp(rlAhead / ${HAZE_RAMP_TILES.toFixed(4)}, 0.0, 1.0)
                            + ${HAZE_LOW.toFixed(4)} * clamp(rlBelow / ${HAZE_LOW_LEVELS.toFixed(4)}, 0.0, 1.0));
   color.rgb = mix(color.rgb, uHazeTint, rlHaze);

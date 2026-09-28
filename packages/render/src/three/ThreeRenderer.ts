@@ -3101,9 +3101,16 @@ export class ThreeRenderer implements Renderer {
     // The haze's focus plane is the camera's look-at point, which IS the
     // screen centre: `updateDimetricCamera` aims a symmetric orthographic
     // frustum at world (camera.x, 0, camera.y), so no half-tile offset --
-    // the haze is computed in world units, not per tile. The UNSHAKEN
-    // camera, like `worldToScreen`: a shake moves the world under a haze
-    // that holds still, rather than the haze with it.
+    // the haze is computed in world units, not per tile. `updateCamera`
+    // above was called with the SHAKEN camera (this frame's `camera`, from
+    // `threeCamera()`), the same one that draws the ground -- so the fog
+    // pass unprojects depth through the shaken view and the haze is
+    // WORLD-ANCHORED, shaking with the world exactly as the ground does.
+    // Only the FOCUS below is unshaken (`this.camera.x/y`, not `camera`'s):
+    // the far-ramp's reference point holds steady under a shake rather than
+    // jittering with it, unlike `worldToScreen`/`screenToWorldThree`, which
+    // stay unshaken for a different reason (R-K, `threeCamera` above) --
+    // so clicks land true.
     this.fogPass?.setFocus(this.camera.x, this.camera.y);
     // No composer before `init` (the tests, the spikes): the raw renderer,
     // whose own `antialias: true` stands in for the SMAA pass. Tone mapping

@@ -196,14 +196,24 @@ describe('the haze term (R-13, R-14)', () => {
   const pass = new FogOfWarPass(new THREE.DataTexture(new Uint8Array([255]), 1, 1, THREE.RedFormat), 48, 48);
   const src = pass.material.fragmentShader;
   it('carries the tested constants', () => {
-    for (const k of [HAZE_RAMP_TILES, HAZE_LOW, HAZE_LOW_LEVELS, WORLD_PER_LEVEL]) expect(src).toContain(k.toFixed(4));
+    for (const k of [HAZE_RAMP_TILES, HAZE_LOW, HAZE_LOW_LEVELS]) expect(src).toContain(k.toFixed(4));
+    // WORLD_PER_LEVEL is emitted as `toFixed(8)` (like HAZE_FORWARD below),
+    // not `toFixed(4)`: a `toFixed(4)` prefix is not guaranteed to be a
+    // substring of the 8-decimal literal, since rounding at 4 places can
+    // carry differently than truncating the first 4 digits of 8.
+    expect(src).toContain(WORLD_PER_LEVEL.toFixed(8));
   });
   // Delimited, so a constant cannot pass as a substring of a longer literal
   // ("2.0000" inside "12.0000"): each one is pinned in the expression it
   // belongs to, and the forward vector too.
   it('uses each constant where hazeAmount does', () => {
     expect(src).toContain(`rlAhead / ${HAZE_RAMP_TILES.toFixed(4)},`);
-    expect(src).toContain(`world.y / ${WORLD_PER_LEVEL.toFixed(4)};`);
+    // Pins the SIGN too, not just the presence of the divisor: `uHazeRef -
+    // world.y / X` and `uHazeRef + world.y / X` both contain
+    // `world.y / X;`, so a substring check on that fragment alone cannot
+    // fail if the subtraction were flipped to addition. Include the operator
+    // and the left-hand operand so the mutation is caught.
+    expect(src).toContain(`uHazeRef - world.y / ${WORLD_PER_LEVEL.toFixed(8)};`);
     expect(src).toContain(`${HAZE_LOW.toFixed(4)} * clamp(`);
     expect(src).toContain(`rlBelow / ${HAZE_LOW_LEVELS.toFixed(4)},`);
     expect(src).toContain(`vec2(${HAZE_FORWARD[0].toFixed(8)}, ${HAZE_FORWARD[1].toFixed(8)})`);
@@ -222,6 +232,10 @@ describe('the haze term (R-13, R-14)', () => {
   it('hazes nothing until configured', () => {
     expect(pass.uniforms.uHazeFar.value).toBe(0);
     expect(pass.uniforms.uHazeAmp.value).toBe(1);
+    // The low-lying term's reference level defaults far below any authored
+    // level (0-9) so it never contributes before `setHaze` runs -- pin the
+    // actual default, not just the far/amp uniforms above.
+    expect(pass.uniforms.uHazeRef.value).toBe(-1e4);
   });
   it('setHaze and setFocus write the uniforms', () => {
     pass.setHaze({ tint: [0.5, 0.4, 0.3], far: 0.12, refLevel: 2 });

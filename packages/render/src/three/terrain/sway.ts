@@ -99,8 +99,8 @@ function glsl(k: number): string {
  * `ShaderLib/meshphysical.glsl.js` (line 44 includes it, line 48 assigns
  * `vViewPosition = - mvPosition.xyz`), so a moved vertex is lit where it is
  * drawn. The shadow and AO passes draw with their own materials, which carry
- * none of this, so a crown's shadow keeps the rest pose -- spec §3.5 accepts
- * that (at most 2.2 px).
+ * none of this, so shadow receive and the AO pass both sample the rest pose
+ * -- spec §3.5 accepts that (at most 2.2 px).
  *
  * `uSwayAmp` is 1 in shipping code; the `wind` debug layer sets it to 0.
  */

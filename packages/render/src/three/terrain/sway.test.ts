@@ -47,8 +47,20 @@ describe('sway maths (N-16, N-17)', () => {
   });
   it('the GLSL carries the tested constants, not a transcription of them', () => {
     const src = swayVertexChunk();
-    for (const k of [SWAY_AMPLITUDE, SWAY_PERIOD_S, SWAY_GUST_GAIN, SWAY_GUST_EVERY_S, SWAY_GUST_WIDTH_S, SWAY_TOP, SWAY_PHASE_X, SWAY_PHASE_Z]) {
-      expect(src).toContain(k.toFixed(4));
+    // A bare `toContain(k.toFixed(4))` is a substring search: SWAY_TOP's
+    // "1.0000" is also a substring of an unrelated "21.00000000" or
+    // "1.00001234" literal, so it can pass without the constant actually
+    // being the one embedded. `glsl()` (sway.ts) always emits `toFixed(8)`,
+    // so pin that exact literal, delimited on both sides so it cannot match
+    // as a fragment of a longer number. SWAY_DIR_X/SWAY_DIR_Z (the sway
+    // axis) were not pinned at all before -- add them here too.
+    for (const k of [
+      SWAY_AMPLITUDE, SWAY_PERIOD_S, SWAY_GUST_GAIN, SWAY_GUST_EVERY_S, SWAY_GUST_WIDTH_S,
+      SWAY_TOP, SWAY_PHASE_X, SWAY_PHASE_Z, SWAY_DIR_X, SWAY_DIR_Z,
+    ]) {
+      const literal = k.toFixed(8).replace(/\./g, '\\.');
+      const pattern = new RegExp(`(?<![0-9.])${literal}(?![0-9])`);
+      expect(src).toMatch(pattern);
     }
     expect(src).toContain('uSwayTime');
     expect(src).toContain('uSwayAmp');
