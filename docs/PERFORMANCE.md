@@ -1105,27 +1105,29 @@ under the sandbox `&decals` flag only: 46–63 ms in node on five maps.
 
 ## The ground, plan 2 (WP-A2) — 2026-09-28
 
-**Status: part B measured, one budget miss found — BLOCKED pending the lead's ruling.** Task 12
-was split: part A produced the review captures, ran `blast:capture`, and wrote the record with the
-numbers below left as placeholders; part B (this session) re-ran `render-frame-cost` interleaved
-with main on a quiet machine (load average 4–8 on 12 cores, no other agent running — confirmed
-before starting and monitored throughout; one self-inflicted contamination from running two
-measurement scripts concurrently was caught, discarded, and re-run strictly sequentially),
-`perf:units`/`backend-curve-gate` at 300, folded `ground:capture`'s `wadi_halam_basin` triangle
-count to exact digits, and re-ran the two `blast:capture` subjects part A could not settle.
+**Status: complete. One budget miss found and accepted by the lead ("Accept the miss",
+2026-09-28); density 0.75 ships.** Task 12 was split: part A produced the review captures, ran
+`blast:capture`, and wrote the record with the numbers below left as placeholders; part B (this
+session) re-ran `render-frame-cost` interleaved with main on a quiet machine (load average 4–8 on
+12 cores, no other agent running — confirmed before starting and monitored throughout; one
+self-inflicted contamination from running two measurement scripts concurrently was caught,
+discarded, and re-run strictly sequentially), `perf:units`/`backend-curve-gate` at 300, folded
+`ground:capture`'s `wadi_halam_basin` triangle count to exact digits, and re-ran the two
+`blast:capture` subjects part A could not settle.
 
-**Every budget passes except one: `beit_sahwan_outskirts` (22,24) z0.5 is a STOP.** At n = 10,
-interleaved, gpu p95 rises from a 13.84 ms mean (main) to a 14.67 ms mean (branch) — **+0.83 ms
-mean / +0.80 ms median, over the +0.74 ms cap**, with the two trees' distributions not overlapping
-at all (main 13.5–14.1 ms across all 10 runs, branch 14.3–15.2 ms across all 10). cpu p95 shows the
-same shape (+0.84 ms mean). This view was not named a pre-existing miss — main itself sits cleanly
-under the 14.5 ms line here (13.7–14.2 ms) — so the branch's own 14.5–15.2 ms readings on 6 of 10
-runs are a new miss on the absolute ceiling too. `qarn_hadid` z1.6, the view the plan's own stop
-condition names explicitly, is clean: branch reads 0.86–1.07 ms **faster** than main (n = 10),
-resolving the straddle Task 5 and Task 0 left open. Per the brief ("a missed budget is a STOP...
-not traded away, no code changed"), this implementer made no code change to chase the miss; the
-shed ladder Task 5 already measured (density 1 → 0.75 → 0.5) is reproduced below for the lead's
-choice of rung, alongside the fresh numbers this stop was measured against.
+**Every budget passes except one: `beit_sahwan_outskirts` (22,24) z0.5, which the lead accepted.**
+At n = 10, interleaved, gpu p95 rises from a 13.84 ms mean (main) to a 14.67 ms mean (branch) —
+**+0.83 ms mean / +0.80 ms median, over the +0.74 ms cap**, with the two trees' distributions not
+overlapping at all (main 13.5–14.1 ms across all 10 runs, branch 14.3–15.2 ms across all 10). cpu
+p95 shows the same shape (+0.84 ms mean). This view was not named a pre-existing miss — main itself
+sits cleanly under the 14.5 ms line here (13.7–14.2 ms) — so the branch's own 14.5–15.2 ms readings
+on 6 of 10 runs are also a new miss on the absolute ceiling, not only on the delta budget.
+`qarn_hadid` z1.6, the view the plan's own stop condition names explicitly, is clean: branch reads
+0.86–1.07 ms **faster** than main (n = 10), resolving the straddle Task 5 and Task 0 left open. Per
+the brief ("a missed budget is a stop... not traded away, no code changed"), no code was changed to
+chase the miss; the shed ladder Task 5 already measured (density 1 → 0.75 → 0.5) was reported to
+the lead alongside the fresh numbers this miss was measured against, and the lead's ruling was to
+ship density 0.75 as measured rather than take a lower rung.
 
 Spec: `docs/superpowers/specs/2026-09-25-ground-design.md`. Plan:
 `docs/superpowers/plans/2026-09-27-ground-plan-2.md` (Task 12). Budgets it is measured against
@@ -1188,18 +1190,19 @@ round rather than reporting on 5). Acceptance views: `?sandbox=beit_sahwan_outsk
 | View | cpu p95 mean, main → branch (range) | gpu p95 mean, main → branch (range) | Δ gpu (mean/median) | Budget | Verdict |
 |---|---|---|---|---|---|
 | beit (5,22) z2.5 | 14.01 → 14.39 (13.8–14.6 → 14.1–14.6) | 14.04 → 14.33 (13.8–14.4 → 14.0–14.7) | +0.29 / +0.30 | ≤ +0.74 ms, ≤ 14.5 ms | PASS (branch mean under 14.5; 1 of 10 runs touches 14.7) |
-| **beit (22,24) z0.5** | **13.88 → 14.72** (13.7–14.2 → 14.3–15.1) | **13.84 → 14.67** (13.5–14.1 → 14.3–15.2) | **+0.83 / +0.80** | ≤ +0.74 ms, ≤ 14.5 ms | **STOP — both the delta cap and the absolute ceiling miss; distributions do not overlap** |
+| **beit (22,24) z0.5** | **13.88 → 14.72** (13.7–14.2 → 14.3–15.1) | **13.84 → 14.67** (13.5–14.1 → 14.3–15.2) | **+0.83 / +0.80** | ≤ +0.74 ms, ≤ 14.5 ms | **MISS, ACCEPTED by the lead — both the delta cap and the absolute ceiling miss; distributions do not overlap; density 0.75 ships** |
 | beit (26,22) z1.6 | 13.23 → 13.44 (13.0–13.4 → 13.3–13.6) | 13.05 → 13.27 (12.8–13.3 → 13.1–13.6) | +0.22 / +0.20 | ≤ +0.74 ms, ≤ 14.5 ms | PASS |
 | qarn (5,22) z2.5 | 18.10 → 15.74 (17.7–19.1 → 15.5–16.0) | 20.29 → 20.86 (19.6–22.0 → 19.6–22.0) | +0.57 / +0.55 | pre-existing miss, named | PASS on delta; pre-existing miss unchanged |
 | qarn (22,24) z0.5 | 15.24 → 15.97 (14.6–16.1 → 15.4–16.8) | 15.44 → 16.06 (14.9–16.1 → 15.7–16.5) | +0.62 / +0.60 | pre-existing miss, named | PASS on delta; pre-existing miss unchanged |
 | qarn (26,22) z1.6 | 14.09 → 14.11 (13.8–15.5 → 13.8–14.5) | 15.38 → 14.31 (14.4–16.3 → 14.1–15.0) | **−1.07 / −0.90** | ≤ before-mean + 0.20 ms | **PASS — branch is faster than main.** Resolves the Task 0/Task 5 straddle: on a clean, quiet, interleaved n = 10 read, this view is not a regression. |
 
-**One budget misses: `beit_sahwan_outskirts` (22,24) z0.5.** cpu p95 shows the identical shape
-(+0.84 ms mean), so this is not a gpu-only artefact. The 10-sample main and branch distributions do
-not overlap at all (main max 14.1/14.2, branch min 14.3), so this is not run-to-run noise at this
-sample size — a repeat is not expected to change the verdict, unlike the `qarn` views that sat
-within 0.3 ms of a line. Per the brief, no code was changed to chase it; Task 5's shed ladder
-(reproduced below) is what the lead has to choose from if a rung is wanted.
+**One budget misses: `beit_sahwan_outskirts` (22,24) z0.5 — accepted by the lead.** cpu p95 shows
+the identical shape (+0.84 ms mean), so this is not a gpu-only artefact. The 10-sample main and
+branch distributions do not overlap at all (main max 14.1/14.2, branch min 14.3), so this is not
+run-to-run noise at this sample size — a repeat is not expected to change the verdict, unlike the
+`qarn` views that sat within 0.3 ms of a line. Per the brief, no code was changed to chase it; Task
+5's shed ladder (reproduced below) was reported to the lead as the available lower rungs, and the
+lead's ruling ("Accept the miss", 2026-09-28) is to ship density 0.75 as measured.
 
 **Task 5's shed ladder** (`.superpowers/sdd/2026-09-27-ground-plan-2/task-5-report.md`, gpu p95
 delta over main, n = 5 each, cumulative rungs — the density=0.75 rung is what HEAD ships today and
@@ -1214,7 +1217,8 @@ is the row this session's own n=10 re-measure updates):
 | 3 + PROP_CAP 75 | −0.14 | +0.36 | +0.16 | +0.00 | +0.46 | −0.20 | 348 | 2,609,115 |
 
 Rung 1b (density 0.5) is the next rung that reads clean on every one of Task 5's own n=5 samples
-(+0.38 at beit z0.5); this session did not re-measure it, per "do not trade anything away."
+(+0.38 at beit z0.5); this session did not re-measure it, per "do not trade anything away." The
+lead's ruling ("Accept the miss") means it is not taken: density 0.75 ships as measured.
 
 ### `perf:units` / `backend-curve-gate` at 300 figures (part B — measured)
 

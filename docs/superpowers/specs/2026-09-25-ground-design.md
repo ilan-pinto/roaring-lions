@@ -1,6 +1,6 @@
 # The ground — design (WP-A2, art Phase 2, #182 with #226)
 
-**Date:** 2026-09-25 · **Status:** plan 1 landed `64afcf3b`, with the post-review fix wave on top (on `feat/ground`; merge and bless 1 wait for the lead's word on the zoom-0.35 captures). §5 and D8 were approved by the lead on 25 Sep. **Plan 2's Tasks 0–11 landed `17480db0`** on `feat/ground-plan2`, all reviewed and Approved. **Task 12 part B (this measurement) found a STOP: `beit_sahwan_outskirts` (22,24) z0.5 misses its frame-cost budget** — gpu p95 rises +0.83 ms mean / +0.80 ms median over the +0.74 ms cap, n = 10, interleaved, quiet machine, distributions non-overlapping (docs/PERFORMANCE.md, "The ground, plan 2"). Per the plan's own stop-condition rule, no code was changed to chase it and the shed ladder Task 5 already measured is reported alongside it for the lead's choice of rung. **Merge, push and bless 2 wait on the lead's ruling on this stop, in addition to the lead's word on the review captures** (same precondition plan 1 carried). Every other Step 1 budget passes, including the `qarn_hadid` z1.6 stop condition the plan names explicitly (branch reads 0.86–1.07 ms faster than main, resolving the straddle Task 0/Task 5 left open) and every `blast:capture` floor (all 8 subjects now settle and pass, including the 2 part A could not measure). What plan 2 did differently from this text is in §10, Deviations (plan 2, as landed).
+**Date:** 2026-09-25 · **Status:** plan 1 landed `64afcf3b`, with the post-review fix wave on top (on `feat/ground`; merge and bless 1 wait for the lead's word on the zoom-0.35 captures). §5 and D8 were approved by the lead on 25 Sep. **Plan 2 landed through Task 12 on this branch** (`feat/ground-plan2`), all reviewed and Approved, plus a final fix wave (docs corrections and seven parked items). Task 12 part B found one frame-cost budget miss — `beit_sahwan_outskirts` (22,24) z0.5, gpu p95 +0.83 ms mean / +0.80 ms median over the +0.74 ms cap, n = 10, interleaved, quiet machine, distributions non-overlapping (docs/PERFORMANCE.md, "The ground, plan 2") — and the lead's ruling, 2026-09-28, was **"Accept the miss": density 0.75 ships as measured**, not a lower rung. Every other Step 1 budget passes, including the `qarn_hadid` z1.6 stop condition the plan names explicitly (branch reads 0.86–1.07 ms faster than main, resolving the straddle Task 0/Task 5 left open) and every `blast:capture` floor (all 8 subjects settle and pass, including the 2 part A could not measure). What plan 2 did differently from this text is in §10, Deviations (plan 2, as landed).
 **Lands as:** two plans, two blesses, `perf:units` re-run after the scatter. **Constraint:** Meshy credits
 arrive in early October, so everything here is procedural or Blender. Meshy appears only as a later, optional
 swap with a credit estimate.
@@ -461,8 +461,8 @@ on `feat/ground-plan2`, base `49c85667` on `b6497c12` = `origin/main` at the tim
 approved.
 
 Every number in this section was taken on ANGLE Metal on an M3 Pro unless stated otherwise. Cost
-numbers are in `docs/PERFORMANCE.md`, "The ground, plan 2 (WP-A2)" — Step 1's timing tables are now
-filled in (part B, this session), and they carry a STOP: see "Rulings taken during execution"
+numbers are in `docs/PERFORMANCE.md`, "The ground, plan 2 (WP-A2)" — Step 1's timing tables are
+filled in (part B), and they carry one accepted budget miss: see "Rulings taken during execution"
 below.
 
 ### The plan's own deviations, R-1 to R-14
@@ -648,7 +648,7 @@ scenario is captured, printed and voteless (no baseline exists yet for a preset 
   machine: `.superpowers/sdd/2026-09-27-ground-plan-2/task-12a-report.md`. This is carried to the
   lead as an open item for part B, alongside the Step 1 timing re-measure — both need the same quiet
   machine this session did not have.
-- **Task 12 part B (2026-09-28): the interleaved re-measure found a real STOP, not the load
+- **Task 12 part B (2026-09-28): the interleaved re-measure found a real budget miss, not the load
   confound part A left open.** Machine: quiet (load average 4–8 on 12 cores, monitored via `uptime`
   before and during; no other agent running). Method: main (`b6497c12`) and branch (`17480db0`) as
   two persistent dev servers on `:5195`/`:5196`, `render-frame-cost` interleaved run-by-run, n = 10
@@ -661,19 +661,20 @@ scenario is captured, printed and voteless (no baseline exists yet for a preset 
   self-inflicted version of the same concurrent-load confound this whole task exists to avoid. That
   run was discarded in full and never reported as data; every number below is from the
   re-run, done strictly one measurement script at a time.
-  - **`beit_sahwan_outskirts` (22,24) z0.5 is a STOP.** gpu p95 mean rises 13.84 → 14.67 ms
-    (+0.83 ms, over the +0.74 ms cap); median delta +0.80 ms; cpu p95 shows the same shape
-    (+0.84 ms mean). The two trees' 10-sample distributions do not overlap at all (main's ceiling
-    is branch's floor, 14.1–14.3 ms), so this reads as a real, reproducible cost, not noise a
-    repeat would resolve — unlike the `qarn` views below, which sat within 0.3 ms of their own
-    lines. This view was not named a pre-existing miss: main itself reads a clean 13.7–14.2 ms
-    here, so branch's 14.3–15.2 ms (6 of 10 runs over 14.5 ms) is also a new miss on the absolute
-    per-view ceiling, not only on the delta budget. Per the plan's own stop-condition rule
-    ("not traded away, no code changed"), no code was touched to chase this. Task 5's shed ladder
-    (density 1 → 0.75 → 0.5 → +sand-no-cast → +PROP_CAP 75) already measured this same view at
-    every rung and is reproduced in `docs/PERFORMANCE.md`; rung 1b (density 0.5) is the next one
-    that read clean on every one of Task 5's own samples (+0.38 ms). Choosing a rung, or accepting
-    the miss, is the lead's call — Task 12 part B does not choose one.
+  - **`beit_sahwan_outskirts` (22,24) z0.5 misses its budget, and the lead accepted the miss.**
+    gpu p95 mean rises 13.84 → 14.67 ms (+0.83 ms, over the +0.74 ms cap); median delta +0.80 ms;
+    cpu p95 shows the same shape (+0.84 ms mean). The two trees' 10-sample distributions do not
+    overlap at all (main's ceiling is branch's floor, 14.1–14.3 ms), so this reads as a real,
+    reproducible cost, not noise a repeat would resolve — unlike the `qarn` views below, which sat
+    within 0.3 ms of their own lines. This view was not named a pre-existing miss: main itself
+    reads a clean 13.7–14.2 ms here, so branch's 14.3–15.2 ms (6 of 10 runs over 14.5 ms) is also a
+    new miss on the absolute per-view ceiling, not only on the delta budget. Per the plan's own
+    stop-condition rule ("not traded away, no code changed"), no code was touched to chase this.
+    Task 5's shed ladder (density 1 → 0.75 → 0.5 → +sand-no-cast → +PROP_CAP 75) already measured
+    this same view at every rung and is reproduced in `docs/PERFORMANCE.md`; rung 1b (density 0.5)
+    was the next one that read clean on every one of Task 5's own samples (+0.38 ms), and was
+    reported to the lead alongside this miss. **The lead's ruling (2026-09-28, "Accept the
+    miss"): density 0.75 ships as measured** — the lower rung was not taken.
   - **`qarn_hadid` (26,22) z1.6 — the view the plan's stop condition names explicitly — is
     resolved clean.** Branch reads 0.86–1.07 ms **faster** than main across the two rounds
     (n = 5 and n = 10), settling the straddle Task 0 (main-only, different session) and Task 5
@@ -703,8 +704,14 @@ scenario is captured, printed and voteless (no baseline exists yet for a preset 
     frames, `blast-light` 10,716 px/4.4540 PASS, `decals` 7,599 px/1.7880 PASS). All 8
     `blast:capture` subjects now measured and passing; this confirms part A's own diagnosis (a
     settle-timeout confound, not a floor failure) rather than surfacing a new one.
-  - **Net effect on Task 12's split**: Step 1 (costs) is measured and carries one real STOP; Step 2
-    (the two `blast:capture` subjects) is now a clean pass; Step 3 (the record) is this edit. Step
-    6 (push/PR/bless 2) is out of this session's scope and, per the STOP above, should not proceed
-    without the lead's ruling on the `beit_sahwan_outskirts` z0.5 miss in addition to the review
-    captures the lead was already going to judge.
+  - **Net effect on Task 12's split**: Step 1 (costs) is measured and carries one accepted budget
+    miss; Step 2 (the two `blast:capture` subjects) is now a clean pass; Step 3 (the record) is
+    this edit. Step 6 (push/PR/bless 2) proceeded once the lead ruled on both the
+    `beit_sahwan_outskirts` z0.5 miss ("Accept the miss") and the review captures ("Approve as
+    is").
+- **Lead ruling (2026-09-28): "Accept the miss."** The `beit_sahwan_outskirts` (22,24) z0.5 budget
+  miss above (+0.83 ms mean / +0.80 ms median gpu p95, 14.67 ms against the 14.5 ms ceiling, both
+  over the plan's +0.74 ms cap) is accepted as shipped cost, not treated as an open stop. Density
+  0.75 ships; the next lower rung Task 5 measured clean (1b, density 0.5) was available and was not
+  taken. This ruling closes Task 12 and clears merge/push/bless 2 on this point, alongside the
+  lead's separate "Approve as is" on the review captures.

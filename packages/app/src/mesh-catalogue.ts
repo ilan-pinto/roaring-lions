@@ -274,7 +274,7 @@ export const CAMPAIGN_MESHES: Readonly<Record<string, string>> = {
 };
 
 /**
- * The props Blender kit (ground plan 2, Task 3 -- ART_PIPELINE §6). Keyed by
+ * The Meshy-sourced props (ground plan 2, Task 3 -- ART_PIPELINE §6). Keyed by
  * `PropKindName` (mirroring `PropKind`,
  * `packages/render/src/three/terrain/prop-role.ts`), the same way
  * `DECOR_MESHES` is keyed by family rather than by unit type: nothing in the
