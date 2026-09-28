@@ -98,7 +98,7 @@ import {
   type CursorName,
   type UnbadgedName,
 } from './src/input/cursor';
-import { ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId, type SightPaint } from './src/ui/order-sight';
+import { HOTSPOT, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId, type SightPaint } from './src/ui/order-sight';
 import type { RoleBucket } from './src/ui/role';
 import { symbolBody } from './src/ui/symbol';
 
@@ -695,12 +695,50 @@ export function cursorImages(palette: Palette, variant = 'default'): Map<string,
   return images;
 }
 
-/** One rule: a selector list and the image it draws, at the shared hotspot
- *  (CENTER CENTER -- the housing's centre, and the sight's HOTSPOT scaled
- *  from 24 to 32). One rule per line, which the tests rely on. */
-function rule(selectors: readonly string[], markup: string): string {
-  const encoded = encodeURIComponent(markup);
-  return `${selectors.join(', ')} { cursor: url("data:image/svg+xml,${encoded}") ${CENTER} ${CENTER}, auto; }`;
+/** Where a sight's hotspot lands on the 32 px canvas: order-sight's own
+ *  HOTSPOT, authored on the 24-box, scaled by the sight's viewBox. Derived
+ *  rather than assumed equal to CENTER, so moving the aim's hotspot moves the
+ *  emitted one with it -- and the tests, which pin 16 16, go red. */
+export const SIGHT_HOTSPOT = {
+  x: (HOTSPOT.x * SIZE) / SIGHT_BOX,
+  y: (HOTSPOT.y * SIZE) / SIGHT_BOX,
+} as const;
+
+/** The hotspot for one cursor key: the sight's for the five `SIGHT_OF`
+ *  names (bare or badged), the housing's dead centre for the rest. */
+function hotspotFor(key: string): { x: number; y: number } {
+  const name = key.split('-')[0] as CursorName;
+  return SIGHT_OF[name] ? SIGHT_HOTSPOT : { x: CENTER, y: CENTER };
+}
+
+/**
+ * An SVG as the body of a `data:` URI inside a double-quoted CSS `url("")`.
+ *
+ * Lighter than `encodeURIComponent`, which escapes every space, quote,
+ * slash and equals sign to three bytes: attribute quotes become single
+ * quotes (legal SVG, and harmless inside the CSS string's double quotes),
+ * and only `%`, `#`, `<` and `>` are percent-encoded. `#` is the one that
+ * matters most -- a raw one ends the URI at the fragment and the cursor
+ * silently becomes the OS arrow; `%` would otherwise read as an escape; `<`
+ * and `>` are encoded for the parsers that are strict about them. Nothing in
+ * the drawn markup contains a single quote of its own, a backslash or a
+ * newline, so this is a lossless round trip (`decodeSvgUri`). Measured on
+ * the full sheet: 344 KB -> 247 KB raw, 9.5 -> 7.9 KB gzip, pixels identical.
+ */
+export function encodeSvgUri(markup: string): string {
+  return markup.replaceAll('"', "'").replace(/[%#<>]/g, (c) => encodeURIComponent(c));
+}
+
+/** The inverse of `encodeSvgUri`, for tests and tools. */
+export function decodeSvgUri(body: string): string {
+  return decodeURIComponent(body).replaceAll("'", '"');
+}
+
+/** One rule: a selector list and the image it draws, at that key's hotspot.
+ *  One rule per line, which the tests rely on. */
+function rule(key: string, selectors: readonly string[], markup: string): string {
+  const h = hotspotFor(key);
+  return `${selectors.join(', ')} { cursor: url("data:image/svg+xml,${encodeSvgUri(markup)}") ${h.x} ${h.y}, auto; }`;
 }
 
 /** The selector for one key, at one frame (null: the frame-0 rule, which
@@ -741,9 +779,9 @@ export function cursorRules(palette: Palette): string {
   const frameZero: string[] = [];
   const later: string[] = [];
   for (const [key, frames] of defaults) {
-    frameZero.push(rule([selectorFor(key, null, null)], frames[0]));
+    frameZero.push(rule(key, [selectorFor(key, null, null)], frames[0]));
     frames.forEach((markup, frame) => {
-      if (frame > 0 && markup !== frames[0]) later.push(rule([selectorFor(key, frame, null)], markup));
+      if (frame > 0 && markup !== frames[0]) later.push(rule(key, [selectorFor(key, frame, null)], markup));
     });
   }
 
@@ -771,6 +809,7 @@ export function cursorRules(palette: Palette): string {
   }
   const variantRules = [...overrides.values()].map(({ key, frame, markup, variants }) =>
     rule(
+      key,
       variants.map((v) => selectorFor(key, frame, v)),
       markup
     )

@@ -32,7 +32,7 @@ import {
   type CursorHints,
 } from './src/input/cursor';
 import { resolvePointer, type IntentWorld } from './src/input/intents';
-import { ORDER_SIGHT, SIGHT_KEYS, sightFrame, type SightOrderId } from './src/ui/order-sight';
+import { HOTSPOT, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId } from './src/ui/order-sight';
 import { roleBucket, type RoleBucket } from './src/ui/role';
 import { symbolBody } from './src/ui/symbol';
 import {
@@ -40,9 +40,12 @@ import {
   CENTER,
   SIZE,
   UNWIRED_BODIES,
+  SIGHT_HOTSPOT,
   cursorImages,
   cursorRules,
+  decodeSvgUri,
   deriveUiBand,
+  encodeSvgUri,
   paletteColors,
   resolveKey,
   resolvePalette,
@@ -99,6 +102,16 @@ describe('cursorRules', () => {
     expect(CENTER).toBe(16);
   });
 
+  it("puts the sights' hotspot where order-sight's HOTSPOT lands on the canvas, which is CENTER", () => {
+    // Derived, not assumed: SIGHT_HOTSPOT is HOTSPOT x SIZE / SIGHT_BOX. The
+    // aim is drawn around (12, 12) on the 24-box, so a moved HOTSPOT moves
+    // the emitted hotspot with it -- and this, and every 16 16 assertion
+    // below, goes red, since the housing and the sights share one centre by
+    // design.
+    expect(SIGHT_HOTSPOT).toEqual({ x: (HOTSPOT.x * SIZE) / SIGHT_BOX, y: (HOTSPOT.y * SIZE) / SIGHT_BOX });
+    expect(SIGHT_HOTSPOT).toEqual({ x: CENTER, y: CENTER });
+  });
+
   it('emits a rule for every cursor name the app can ask for', () => {
     // 'default' deliberately has no rule: it is the OS arrow.
     for (const name of ['move', 'attack', 'blocked', 'costly', 'protected', 'sweep', 'strike', 'smoke']) {
@@ -148,13 +161,40 @@ describe('cursorRules', () => {
   it('takes its colours from the palette it is given', () => {
     // Proves the palette is actually read rather than the colours hardcoded:
     // the sight aim's steel must appear, URL-encoded.
-    expect(css).toContain(encodeURIComponent(hexOf(SIGHT_KEYS.aim)));
+    expect(css).toContain(encodeSvgUri(hexOf(SIGHT_KEYS.aim)));
   });
 
   it('encodes the SVG so it survives a CSS url()', () => {
     // A raw '#' inside a data URI terminates it and the cursor silently
     // becomes the default arrow.
     expect(css).not.toMatch(/data:image\/svg\+xml,[^"]*[^%]#/);
+  });
+
+  it('encodes lightly and losslessly: single-quoted attributes, only % # < > escaped', () => {
+    // encodeSvgUri replaced encodeURIComponent (Task 4 fix round 1): the
+    // quotes become single so the CSS string's double quotes stay closed,
+    // and nothing but the four characters that can break a data URI is
+    // escaped. Every image of every variant round-trips to its markup.
+    for (const line of css.split('\n')) {
+      const body = line.match(/url\("data:image\/svg\+xml,([^"]+)"\)/)?.[1] ?? '';
+      expect(body.length).toBeGreaterThan(0);
+      expect(body).not.toMatch(/[#<>"]/);
+      // every percent sign starts one of the four escapes and nothing else
+      expect(body.replace(/%(25|23|3C|3E)/g, '')).not.toContain('%');
+    }
+    for (const variant of ['default', ...Object.keys(raw.reserved.team.variants)]) {
+      for (const [key, frames] of cursorImages(resolved, variant)) {
+        frames.forEach((markup, frame) => {
+          expect(markup.includes("'")).toBe(false); // what makes the quote swap reversible
+          expect({ variant, key, frame, ok: decodeSvgUri(encodeSvgUri(markup)) === markup }).toEqual({
+            variant,
+            key,
+            frame,
+            ok: true,
+          });
+        });
+      }
+    }
   });
 
   it('changes when the palette changes -- a ramp key, a vfx key and a team key alike', () => {
@@ -235,7 +275,7 @@ describe('deriveUiBand against the real data/palette.json', () => {
     // excluded.
     const css = cursorRules(resolved);
     for (const [name, source] of Object.entries(SOURCES)) {
-      const encoded = encodeURIComponent(source().toLowerCase());
+      const encoded = encodeSvgUri(source().toLowerCase());
       expect({ name, drawn: css.includes(encoded) }).toEqual({ name, drawn: name !== 'amber' });
     }
   });
@@ -249,7 +289,7 @@ describe('deriveUiBand against the real data/palette.json', () => {
     // unused.
     expect(raw.ramps.scrub.colors[0]).toBe('#6B8A4A');
     const css = cursorRules(resolved);
-    expect(css).not.toContain(encodeURIComponent(raw.ramps.scrub.colors[0].toLowerCase()));
+    expect(css).not.toContain(encodeSvgUri(raw.ramps.scrub.colors[0].toLowerCase()));
     expect(Object.values(resolved.reserved.ui.colors)).not.toContain(raw.ramps.scrub.colors[0]);
   });
 
@@ -316,7 +356,7 @@ describe('badged rules', () => {
       expect({ name, housing: markup.includes('M3,6L6,3H10V6H6V10H3Z') }).toEqual({ name, housing: true });
       // ...and something beyond the housing: each carries a second <path>.
       expect({ name, paths: markup.split('<path').length - 1 }).toEqual({ name, paths: 2 });
-      expect(css).not.toContain(encodeURIComponent(markup));
+      expect(css).not.toContain(encodeSvgUri(markup));
     }
     for (const name of ['load', 'unload', 'halt'] as const) {
       const markup = UNWIRED_BODIES[name](p);
@@ -328,7 +368,7 @@ describe('badged rules', () => {
       };
       expect({ name, drawn: markup.includes(sightFrame(name, 0, paint)) }).toEqual({ name, drawn: true });
       expect({ name, viewBox: markup.includes('viewBox="0 0 24 24"') }).toEqual({ name, viewBox: true });
-      expect(css).not.toContain(encodeURIComponent(markup));
+      expect(css).not.toContain(encodeSvgUri(markup));
     }
     expect(Object.keys(UNWIRED_BODIES).sort()).toEqual(['dismount', 'halt', 'load', 'mount', 'unload']);
   });
@@ -380,7 +420,7 @@ function artOf(css: string, key: string): string {
   if (!line) throw new Error(`no rule found for ${key}`);
   const m = line.match(/url\("data:image\/svg\+xml,([^"]+)"\)/);
   if (!m) throw new Error(`no data URI in the rule for ${key}`);
-  return decodeURIComponent(m[1]);
+  return decodeSvgUri(m[1]);
 }
 
 /** The fill of the last shape in a housing badge -- the badge closes the
@@ -477,7 +517,7 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
   ];
 
   /** The default sheet's image for key at frame, as the cascade draws it. */
-  const drawn = (key: string, frame: number): string => decodeURIComponent(markupOf(frameLineFor(css, key, frame)));
+  const drawn = (key: string, frame: number): string => decodeSvgUri(markupOf(frameLineFor(css, key, frame)));
 
   it('wires exactly move, attack, sweep, strike and smoke (Q2)', () => {
     expect(SIGHTS.map(([n]) => n).sort()).toEqual(['attack', 'move', 'smoke', 'strike', 'sweep']);
@@ -490,7 +530,7 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
       for (const key of keysOf(name)) {
         for (let frame = 0; frame < (ANIMATED_CURSORS[name]?.frames ?? 1); frame++) {
           const line = frameLineFor(css, key, frame);
-          const svg = decodeURIComponent(markupOf(line).slice('data:image/svg+xml,'.length));
+          const svg = decodeSvgUri(markupOf(line).slice('data:image/svg+xml,'.length));
           expect({ key, frame, head: svg.slice(0, svg.indexOf('>') + 1) }).toEqual({
             key,
             frame,
@@ -775,7 +815,7 @@ describe('animated cursor frames', () => {
     // re-tuning a table without re-reading this comment goes red.
     const CORE = 'M11,21V11H16V16H21V21Z';
     const at = (frame: number, key = 'demolish') =>
-      decodeURIComponent(markupOf(frameLineFor(css, key, frame)));
+      decodeSvgUri(markupOf(frameLineFor(css, key, frame)));
 
     // 1. demolish's core is byte-identical on all four frames.
     for (let frame = 0; frame < (ANIMATED_CURSORS.demolish?.frames ?? 0); frame++) {
@@ -803,7 +843,7 @@ describe('animated cursor frames', () => {
     const c = paletteColors(deriveUiBand(raw));
     const ink = c.ink.toLowerCase();
     const badgeColourAt = (key: string, frame: number): string | undefined =>
-      decodeURIComponent(markupOf(frameLineFor(css, key, frame))).match(HOUSING_BADGE_FILL)?.[1];
+      decodeSvgUri(markupOf(frameLineFor(css, key, frame))).match(HOUSING_BADGE_FILL)?.[1];
     for (const key of ['demolish-soft', 'demolish-armour']) {
       const litFrames = [0, 1, 2, 3].filter((f) => badgeColourAt(key, f) === ink);
       expect({ key, litFrames }).toEqual({ key, litFrames: [2] });
@@ -812,7 +852,7 @@ describe('animated cursor frames', () => {
     }
     // The bare key has a real bracket there instead, so nothing about it is
     // a badge -- its frame-2 ink subpath is the bracket's own path.
-    expect(decodeURIComponent(markupOf(frameLineFor(css, 'demolish', 2))))
+    expect(decodeSvgUri(markupOf(frameLineFor(css, 'demolish', 2))))
       .toContain(`<path fill="${ink}" d="M29,26L26,29H22V26H26V22H29Z"/>`);
   });
 
@@ -960,7 +1000,7 @@ describe('colour-vision variants -- team.* follows the setting (Q9)', () => {
       expect({ variant, keys: [...images.keys()] }).toEqual({ variant, keys: [...def.keys()] });
       for (const [key, frames] of images) {
         frames.forEach((markup, frame) => {
-          const want = `data:image/svg+xml,${encodeURIComponent(markup)}`;
+          const want = `data:image/svg+xml,${encodeSvgUri(markup)}`;
           expect({ variant, key, frame, drawn: winnerFor(sheet, variant, key, frame) === want }).toEqual({
             variant,
             key,
@@ -977,7 +1017,7 @@ describe('colour-vision variants -- team.* follows the setting (Q9)', () => {
     expect(deut).toBe('#f2a15c');
     expect(hexOf('team.hostile_text', 'tritanopia')).toBe(hexOf('team.hostile_text'));
     const art = (variant: string, key: string, frame: number): string =>
-      decodeURIComponent(winnerFor(sheet, variant, key, frame) ?? '');
+      decodeSvgUri(winnerFor(sheet, variant, key, frame) ?? '');
     for (const key of ['attack', 'attack-soft', 'strike']) {
       expect({ key, deut: art('deuteranopia', key, 0).includes(`fill="${deut}"`) }).toEqual({ key, deut: true });
       expect(art('deuteranopia', key, 0)).not.toContain(`fill="${hexOf('team.hostile_text')}"`);
