@@ -22,13 +22,17 @@ export interface PinnedOrderWorld {
   soft(id: number): boolean;
 }
 
-/** What has to survive between orders: when each pinned-id set last made the
- *  feed, keyed by the sorted, comma-joined id list. */
+/** What has to survive between orders: when each pinned-id set, and
+ *  separately each routed/broken-id set, last made the feed -- both keyed by
+ *  the sorted, comma-joined id list. Two maps rather than one shared one, so
+ *  a pinned set and a broken set that happen to share the same id list (e.g.
+ *  both `"1,2"`) throttle independently instead of colliding on one key. */
 export interface PinnedNoteState {
   readonly bySel: Readonly<Record<string, number>>;
+  readonly byBrokenSel: Readonly<Record<string, number>>;
 }
 
-export const INITIAL_PINNED_NOTE: PinnedNoteState = { bySel: {} };
+export const INITIAL_PINNED_NOTE: PinnedNoteState = { bySel: {}, byBrokenSel: {} };
 
 export function pinnedOrderNote(
   s: PinnedNoteState,
@@ -40,7 +44,16 @@ export function pinnedOrderNote(
 
   const routedIds = intent.ids.filter((id) => w.routed(id));
   if (routedIds.length > 0) {
-    return { state: s, line: { key: 'order.broken.note', params: { n: routedIds.length }, tone: 'bad' } };
+    // Final fix wave (GH-262): throttled the same PINNED_NOTE_MS way as the
+    // pinned line below -- repeated right-clicks on the same routed unit(s)
+    // used to post this line every single time.
+    const sel = [...routedIds].sort((a, b) => a - b).join(',');
+    const last = s.byBrokenSel[sel];
+    if (last !== undefined && nowMs - last < PINNED_NOTE_MS) return { state: s, line: null };
+    return {
+      state: { ...s, byBrokenSel: { ...s.byBrokenSel, [sel]: nowMs } },
+      line: { key: 'order.broken.note', params: { n: routedIds.length }, tone: 'bad' },
+    };
   }
 
   const pinnedIds = intent.ids.filter((id) => w.pinned(id));
@@ -53,7 +66,7 @@ export function pinnedOrderNote(
   const soft = pinnedIds.some((id) => w.soft(id));
   const key = soft ? 'order.pinned.note.soft' : 'order.pinned.note';
   return {
-    state: { bySel: { ...s.bySel, [sel]: nowMs } },
+    state: { ...s, bySel: { ...s.bySel, [sel]: nowMs } },
     line: { key, params: { n: pinnedIds.length }, tone: 'warn' },
   };
 }
