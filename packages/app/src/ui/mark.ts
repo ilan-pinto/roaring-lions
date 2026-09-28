@@ -11,6 +11,15 @@ function chevron(x: number): string {
   return `M${x} 2 L${x + 12} 2 L${x + 26} 26 L${x + 12} 50 L${x} 50 L${x + 14} 26 Z`;
 }
 
+/** The chevron's own lean: 14 across for every 24 up (this function's own
+ *  `x + 14, 26` diagonal off the `x, 2` tip). Shared with `kit-sign.ts`'s
+ *  plate bevel and `order-sight.ts`'s stadia aim (Q12, 2026-09-28's S3e
+ *  symbols pre-flight) -- the one shape in that sheet with no APP-6 frame of
+ *  its own to dictate an angle instead. `kit-sign.ts` re-exports this rather
+ *  than keeping its own copy, so the family has one sweep, not two that
+ *  happen to agree. */
+export const CHEVRON_SWEEP = 14 / 24;
+
 /**
  * The mark as inline SVG markup.
  *

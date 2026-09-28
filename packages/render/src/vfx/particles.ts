@@ -9,7 +9,7 @@ function pick(r: Range | undefined, fallback: number): number {
 
 /** Sample a stepped curve. Stepped, not interpolated: interpolating palette
  *  colours would generate off-palette values the art gate rejects. */
-function sampleStep<T>(curve: T[] | undefined, t: number, fallback: T): T {
+export function sampleStep<T>(curve: T[] | undefined, t: number, fallback: T): T {
   if (!curve || curve.length === 0) return fallback;
   const i = Math.min(curve.length - 1, Math.floor(t * curve.length));
   return curve[i];
@@ -20,7 +20,7 @@ function sampleStep<T>(curve: T[] | undefined, t: number, fallback: T): T {
  *  palette-quantised colours: stepping those makes every 2-entry fade snap
  *  instead of fading, and every growth curve only take effect for the
  *  invisible second half of a particle's life. */
-function sampleLerp(curve: number[] | undefined, t: number, fallback: number): number {
+export function sampleLerp(curve: number[] | undefined, t: number, fallback: number): number {
   if (!curve || curve.length === 0) return fallback;
   if (curve.length === 1) return curve[0];
   const clamped = t < 0 ? 0 : t > 1 ? 1 : t;

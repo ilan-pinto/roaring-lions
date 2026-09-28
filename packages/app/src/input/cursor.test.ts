@@ -5,7 +5,8 @@
 // selection outranks the ROE marks because a click that cannot fire must not
 // warn about firing.
 import { describe, expect, it } from 'vitest';
-import { cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
+import { ANIMATED_CURSORS, SIGHT_OF, cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
+import { ORDER_SIGHT } from '../ui/order-sight';
 import type { Resolution } from './intents';
 import type { RoleBucket } from '../ui/role';
 
@@ -116,19 +117,60 @@ describe('cursorFor', () => {
     expect(cursorFor(moving({ roe: 'protected' }), NONE)).toBe('protected');
   });
 
-  it('is support whenever a call is armed', () => {
-    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'sweep' }, NONE)).toBe(
-      'support'
-    );
+  it('names the armed call itself -- sweep or strike (Q3)', () => {
+    // The approved sheet draws the two calls differently, and res.armed
+    // already carries which one it is, so the cursor names it rather than
+    // folding both into one 'support'.
+    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'sweep' }, NONE)).toBe('sweep');
+    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'strike' }, NONE)).toBe('strike');
   });
 
-  it('keeps support above protected and above the empty selection', () => {
+  it('keeps an armed call above protected and above the empty selection', () => {
     // Armed support fires with no selection at all -- pointerup always passes
     // ids: []. If this rung slipped below the empty-selection rung, the armed
     // cursor would never appear.
     expect(
       cursorFor({ intents: [], roe: 'protected', marker: false, armed: 'strike' }, NONE)
-    ).toBe('support');
+    ).toBe('strike');
+  });
+
+  it('is smoke while the smoke order is armed (Q2)', () => {
+    const armedSmoke: CursorHints = { hostile: false, blocked: false, armedSmoke: true };
+    expect(cursorFor(moving(), armedSmoke)).toBe('smoke');
+    // ...over a hostile, over a costly or protected target, and with nothing selected:
+    // the armed order is what the pointer means, the same argument as armed support.
+    expect(cursorFor(moving({ roe: 'protected' }), { ...armedSmoke, hostile: true })).toBe('smoke');
+    expect(cursorFor({ intents: [], roe: 'free', marker: false }, armedSmoke)).toBe('smoke');
+  });
+
+  it('puts an armed support call above armed smoke', () => {
+    const armedSmoke: CursorHints = { hostile: false, blocked: false, armedSmoke: true };
+    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'sweep' }, armedSmoke)).toBe('sweep');
+    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'strike' }, armedSmoke)).toBe('strike');
+  });
+
+  it('is unchanged by armedSmoke: false or absent', () => {
+    expect(cursorFor(moving(), { hostile: false, blocked: false, armedSmoke: false })).toBe('move');
+    expect(cursorFor(moving(), NONE)).toBe('move');
+  });
+});
+
+describe('ANIMATED_CURSORS follows the approved sheet', () => {
+  it('animates the five wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
+    expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
+      ['attack', 'charge', 'demolish', 'move', 'smoke', 'strike', 'sweep']
+    );
+    for (const [name, id] of Object.entries(SIGHT_OF)) {
+      const spec = ORDER_SIGHT[id];
+      expect({ name, anim: ANIMATED_CURSORS[name as keyof typeof ANIMATED_CURSORS] }).toEqual({
+        name,
+        anim: { frames: spec.phases.length, intervalMs: Math.round(spec.periodMs / spec.phases.length) },
+      });
+    }
+    expect(SIGHT_OF).toEqual({ move: 'move', attack: 'attackMove', sweep: 'sweep', strike: 'strike', smoke: 'smoke' });
+    // The two housing animations keep their shipped rates (Q1).
+    expect(ANIMATED_CURSORS.charge).toEqual({ frames: 4, intervalMs: 200 });
+    expect(ANIMATED_CURSORS.demolish).toEqual({ frames: 4, intervalMs: 300 });
   });
 });
 
@@ -208,7 +250,7 @@ describe('the cursor names the verb', () => {
     // invariant, not a type one: change the resolver and the order starts
     // mattering with nothing to catch it.
     const r = res([], { armed: 'sweep', refused: true });
-    expect(cursorFor(r, NONE)).toBe('support');
+    expect(cursorFor(r, NONE)).toBe('sweep');
   });
 });
 
@@ -318,13 +360,28 @@ describe('the badge says who is doing it', () => {
   it('gives no badge for an armed support call', () => {
     const r = res([], { armed: 'strike' });
     const name = cursorFor(r, NONE);
-    expect(name).toBe('support');
+    expect(name).toBe('strike');
     expect(badgeFor(r, NONE, buckets({ 1: 'soft' }), name)).toBeNull();
+  });
+
+  it('gives no badge to sweep, strike or smoke, even with a one-kind group underneath', () => {
+    // sweep and strike are UNBADGED_NAMES (they name the mode, not the
+    // actor); smoke is not, but no intent resolvePointer emits ever names
+    // itself 'smoke', so the armed-smoke hover has nothing to badge.
+    const group = res([{ kind: 'order', verb: 'attackMove', ids: [1], x: 2, y: 2, append: false }]);
+    const smokeHints: CursorHints = { hostile: false, blocked: false, armedSmoke: true };
+    const smoke = cursorFor(group, smokeHints);
+    expect(smoke).toBe('smoke');
+    expect(badgeFor(group, smokeHints, buckets({ 1: 'soft' }), smoke)).toBeNull();
+    for (const name of ['sweep', 'strike'] as const) {
+      expect(badgeFor(group, NONE, buckets({ 1: 'soft' }), name)).toBeNull();
+      expect(cursorKey(name, 'soft')).toBe(name);
+    }
   });
 
   it('gives no badge for an armed call even if a mismatched name is passed -- Minor 1', () => {
     // A defensive second gate: cursorFor never passes a name other than
-    // 'support' when res.armed is set, so UNBADGED_NAMES alone would already
+    // res.armed itself ('sweep' or 'strike') when res.armed is set, so UNBADGED_NAMES alone would already
     // suppress the real call path. This proves the `res.armed` check inside
     // badgeFor still matters on its own account -- pass 'demolish', with a
     // real demolish intent underneath that would otherwise badge, and armed
@@ -351,6 +408,7 @@ describe('cursorKey', () => {
     // caller that (wrongly) hands cursorKey a badge alongside 'protected'
     // must not compose 'protected-soft', a key cursorRules never emits.
     expect(cursorKey('protected', 'soft')).toBe('protected');
-    expect(cursorKey('support', 'armour')).toBe('support');
+    expect(cursorKey('sweep', 'armour')).toBe('sweep');
+    expect(cursorKey('strike', 'armour')).toBe('strike');
   });
 });

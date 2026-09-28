@@ -36,9 +36,10 @@ import { confirmDialog } from './confirm';
 import { escapeHtml } from './escape-html';
 import { kitIconSignDecorHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
 import { flash, leave, titleCard } from './motion';
-import { LOGISTICS_GLYPH } from './glyphs';
 import { markSvg } from './mark';
+import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
+import { symbolSvg } from './symbol';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import {
@@ -121,9 +122,17 @@ const FIRE_TAUGHT_STREAK = 3;
 
 /** The badge size in each of the two places a unit is pictured. Both are small
  *  enough that the mark is a shape rather than a drawing — the same reason the
- *  cursor's badge is seven buckets and not fourteen roles. */
-const CHIP_BADGE = 8;
+ *  cursor's badge is seven buckets and not fourteen roles. S3e (Q7): the chip
+ *  went 8 -> 10 when the badge became the G1 sheet's APP-6 mark, which is a
+ *  smudge at 8; 10 is the floor wherever a unit is badged. */
+const CHIP_BADGE = 10;
 const CARD_BADGE = 10;
+/** The order row's drawn mark. The px is only the attribute fallback: theme.css
+ *  sizes every `.rl-sym` at 1em, and `.rl-order__glyph`'s own 0.875rem (14 px
+ *  at scale 1) is what it draws at -- so `--ui-scale` still reaches it. */
+const ORDER_GLYPH_PX = 14;
+/** The top strip's two currency marks, likewise 1em of the strip's own type. */
+const STRIP_GLYPH_PX = 14;
 /** And the size the same mark is drawn at when it is standing IN for missing
  *  art rather than labelling it — big enough to read as the picture. */
 const CHIP_MARK = 18;
@@ -1177,15 +1186,17 @@ export class Hud {
       // credit balance beside a bare number on its tiles made that worse --
       // "520" with no word reads as the credits sitting right next to it. The
       // word is its own dim span rather than folded into `hud.strip.rate`,
-      // so a mission with no rate (`+N/min`) still names the figure.
+      // so a mission with no rate (`+N/min`) still names the figure. S3e: the
+      // mark is the G1 sheet's `logistics`, the same one `production.ts`'s
+      // tile cost draws -- one id, so the two cannot drift.
       info.push(
-        `<span class="rl-info" data-tip="logistics" tabindex="0">${LOGISTICS_GLYPH} <b>${m.logistics}</b> ` +
+        `<span class="rl-info" data-tip="logistics" tabindex="0">${symbolSvg('logistics', STRIP_GLYPH_PX)} <b>${m.logistics}</b> ` +
           `<span class="rl-dim">${t('hud.strip.logistics.word')}</span>${rate}</span>`
       );
     }
     if (m?.intel !== undefined) {
       info.push(
-        `<span class="rl-info" data-tip="intel" tabindex="0">◎ <b>${m.intel}</b> ` +
+        `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} <b>${m.intel}</b> ` +
           `<span class="rl-dim">${t('hud.strip.intel.word')}</span></span>`
       );
     }
@@ -1569,7 +1580,11 @@ export class Hud {
       // own doc comment), not text -- resolved here, at render time.
       const label = t(row.label);
       btn.innerHTML =
-        `<span class="rl-order__glyph">${row.glyph}</span>${label}` +
+        // S3e (Q6): the G1 sheet's order surround at rest, in one ink; the
+        // family colour is theme.css's, keyed on `data-family`, on this span
+        // alone -- the label and key cap beside it stay in the button's ink.
+        `<span class="rl-order__glyph" data-family="${ORDER_SIGHT[row.id].family}">` +
+        `${symbolSvg(row.id, ORDER_GLYPH_PX)}</span>${label}` +
         `${cap} <b class="rl-dim">${this.deps.keyFor?.(row.key) ?? row.key}</b>`;
       // `btn.title` used to carry this; `orderTipHtml` (bound once, in the
       // constructor) reads `dataset.inert` back off the button at SHOW time

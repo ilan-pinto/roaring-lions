@@ -26,6 +26,7 @@ import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { TracerModel } from './units/tracers';
 import { SHELL_PROFILES, type ShellModel } from './units/shells';
+import type { MissileModel } from './units/missiles';
 import { hexToLinear } from './terrain/shared';
 
 vi.mock('three', async (importOriginal) => {
@@ -167,6 +168,7 @@ interface Privates {
   tracers: TracerModel[];
   shells: ShellModel[];
   bolts: ShellModel[];
+  missileFx: { missiles: MissileModel[] };
   shellBatch: { mesh: { geometry: { attributes: { aColor: { array: Float32Array } } } } };
   boltBatch: { mesh: { geometry: { attributes: { aColor: { array: Float32Array } } } } };
 }
@@ -312,18 +314,19 @@ describe('direct fire draws a travelling round', () => {
     renderer.dispose();
   });
 
-  it("a helicopter's Hellfire spawns a missile -- slower than the tank's round over the same ground", () => {
+  it("a helicopter's Hellfire leaves the bolt batch for MissileFx -- and flies longer than the tank's round", () => {
     const tankRun = firstFireEvents(TANK);
     const heliRun = firstFireEvents(HELI);
     const tankRenderer = rendererAfter(tankRun.sim, tankRun.events);
     const heliRenderer = rendererAfter(heliRun.sim, heliRun.events);
     const bolt = privates(tankRenderer).bolts[0];
-    const missile = privates(heliRenderer).bolts[0];
-    expect(missile.kind).toBe('missile');
+    const hp = privates(heliRenderer);
+    expect(hp.bolts).toHaveLength(0);
+    expect(hp.tracers).toHaveLength(0);
+    expect(hp.missileFx.missiles).toHaveLength(1);
+    const missile = hp.missileFx.missiles[0];
+    expect(missile.variant).toBe('guided');
     expect(missile.duration).toBeGreaterThan(bolt.duration * 4);
-    // A missile bends; a sabot round does not.
-    expect(missile.apexPx).toBeGreaterThan(0);
-    expect(bolt.apexPx).toBe(0);
     tankRenderer.dispose();
     heliRenderer.dispose();
   });

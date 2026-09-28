@@ -73,6 +73,7 @@ import { webgl2Available } from './webgl-probe';
 import type { RendererChoice } from '../renderer-choice';
 import { ledgerLine, regionCard } from './worldmap';
 import { hoverLine, pickOutcome, type PinStatus } from './pin-hover';
+import { symbolSvg } from './symbol';
 
 /** Which board the campaign screen draws. */
 export type CampaignBoardKind = 'diorama' | 'flat';
@@ -452,17 +453,22 @@ export function worldMap3d(opts: World3dOptions): World3dHandle {
   bearing.dataset.spin = 'north';
   bearing.title = t('world3d.bearing.title');
   bearing.textContent = '000°';
-  const spinButton = (dir: 'ccw' | 'cw', glyph: string, title: string): HTMLButtonElement => {
+  // S3e (Q4): round 2's compass-rose marks, not the retired counter-/clockwise
+  // arrow dingbats. The mark is `aria-hidden`, so the button's name is its
+  // title, stated as the aria-label too rather than left to a browser's title
+  // fallback.
+  const spinButton = (dir: 'ccw' | 'cw', mark: 'rotateCcw' | 'rotateCw', title: string): HTMLButtonElement => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'rl-world__spinbtn';
     b.dataset.spin = dir;
     b.title = title;
-    b.textContent = glyph;
+    b.setAttribute('aria-label', title);
+    b.innerHTML = symbolSvg(mark, 14);
     return b;
   };
-  const ccw = spinButton('ccw', '↺', t('world3d.spin.left', { deg: NUDGE_DEGREES }));
-  const cw = spinButton('cw', '↻', t('world3d.spin.right', { deg: NUDGE_DEGREES }));
+  const ccw = spinButton('ccw', 'rotateCcw', t('world3d.spin.left', { deg: NUDGE_DEGREES }));
+  const cw = spinButton('cw', 'rotateCw', t('world3d.spin.right', { deg: NUDGE_DEGREES }));
   spin.append(ccw, bearing, cw);
   stage.appendChild(spin);
   wrap.appendChild(stage);

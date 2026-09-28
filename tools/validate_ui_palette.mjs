@@ -46,6 +46,9 @@ const PALETTE = 'data/palette.json';
 const ROOTS = ['packages/app/src', 'assets/campaign'];
 const EXTRA = ['packages/app/index.html', 'packages/render/src/overlay.ts'];
 const EXTS = ['.ts', '.css', '.html', '.svg'];
+// EXTS never reads .json, and that blind spot is how a retired dingbat hid in
+// a catalogue string -- the dingbat sweep below reads this directory itself.
+const I18N_DIR = 'packages/app/src/i18n';
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir)) {
@@ -81,6 +84,69 @@ export function pxFailures(file, css) {
     const scanned = line.replace(SHADOW_DECL, '');
     for (const m of scanned.matchAll(/(\d+(?:\.\d+)?)px\b/g)) {
       if (Number(m[1]) >= 4) out.push(`${file}:${i + 1}: ${m[0]} -- use rem (or tag the line /* px-ok */ for a hairline)`);
+    }
+  });
+  return out;
+}
+
+// Retired dingbats -- the Unicode glyphs G1 (#165, 2026-09-28, r2 and r5)
+// replaced with the drawn sheet in ui/symbol.ts. Checked as a NAMED LIST, not
+// a Unicode range, because a range would also catch typography (`°`, `·`).
+// Q4 ruling: the r2 utility marks ▣ ◎ ↺ ↻ ship, so they are on this list too.
+//
+// `★` is a NAMED EXCEPTION (Q5) -- a repeated countable mark (stars earned,
+// veteran rank), not an icon -- so it is deliberately NOT on this list and is
+// never flagged. Cited by identifier, not line number, so this list cannot
+// drift the way its predecessor did. Its sites:
+//   loading.ts's `commendation` (the veterancy stripe helper)
+//   hud.ts's `cardHtml` (`rl-commend` span, veteran rank)
+//   debrief.ts's `showDebrief` (`rl-debrief__stars`, `rl-debrief__promotion`)
+//   worldmap.ts's `worldMap` (`rl-world__stars`) and `ledgerLine`
+//   worldmap3d.ts's `worldMap3d` town-pins loop (`rl-world__stars`)
+//   campaign.ts's `campaignSummary`
+//   catalogue: en.json `dock.lock.stars` (rendered via dock-model.ts's
+//     `lockLabel`), en.json `gate.short.stars` (rendered via
+//     gate-sentence.ts's `gateShort`)
+// Prose-only `★` needing no exemption: roster-cap.ts's module doc comment,
+// the comment above campaign.ts's `possibleStars`, the comment above
+// gate-sentence.ts's `gateShort`, the comment above theme.css's
+// `.rl-garage__card-chip` rule.
+export const RETIRED_DINGBATS = [
+  '⟶', '■', '◌', '⤓', '⤒', // order row
+  '✹', '⬡', '✈', '✛', '▤', '▲', // ROLE_GLYPH (■ above already covers it)
+  '▣', '◎', '✸', // strip and dock
+  '↺', '↻', // board
+];
+
+// Q10 ruling: the dingbats no G1 round drew stay, tracked as follow-up GH-261
+// (https://github.com/ilan-pinto/roaring-lions/issues/261), until they get a
+// drawn mark of their own. Not on RETIRED_DINGBATS, so dingbatFailures is
+// silent on every one of these. Cited by identifier, not line number:
+//   hud.ts's `speedCluster` spec list (▮▮ pause), `cmdPrev`/`cmdNext`
+//     (◂/▸ beat step), `muteChip` (🔇/🔊 mute)
+//   hud-model.ts's `objectiveGlyph`, debrief.ts's `showDebrief` secondaries
+//     loop (☑/☒/☐ objective status)
+//   input/keymap.ts's `LABELS` (↑ ↓ ← → key-name display)
+//   i18n/en.json: ← → (nav/back links, debrief.next, garage.benefit.*,
+//     roe.notice.head), ♪ (menu.audio.*), ▼ (hud.strip.pinned),
+//     ⚑ (hud.strip.broken), ⌂ (hud.leave.link), ⚠ (hud.card.weaponHeavy)
+
+// Modules that draw the replacement marks are exempt by NAME, not by content
+// scan -- neither holds a dingbat, but a comment in either may quote the
+// retired glyph the mark beside it replaces.
+const DINGBAT_EXEMPT_FILES = ['ui/symbol.ts', 'ui/order-sight.ts'];
+
+/** A retired dingbat anywhere in UI/catalogue source is a defect: draw it
+ *  instead, through ui/symbol.ts's symbolSvg. */
+export function dingbatFailures(file, src) {
+  if (file.endsWith('.test.ts')) return [];
+  if (DINGBAT_EXEMPT_FILES.some((f) => file.endsWith(f))) return [];
+  const out = [];
+  src.split('\n').forEach((line, i) => {
+    for (const ch of RETIRED_DINGBATS) {
+      if (line.includes(ch)) {
+        out.push(`${file}:${i + 1}  retired dingbat ${ch} -- draw it with symbolSvg (ui/symbol.ts)`);
+      }
     }
   });
   return out;
@@ -152,6 +218,16 @@ function main() {
       if (name === '--i') continue;
       failures.push(`${rel}  unknown custom property ${name} — not declared in ${THEME} or ${PALETTE}`);
     }
+  }
+
+  // The retired-dingbat sweep also reads the catalogue: en.json is where a
+  // star gate hid, past EXTS's blind spot for .json.
+  const i18nFiles = readdirSync(join(ROOT, I18N_DIR))
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => join(ROOT, I18N_DIR, f));
+  for (const file of [...files, ...i18nFiles]) {
+    const rel = relative(ROOT, file);
+    failures.push(...dingbatFailures(rel, readFileSync(file, 'utf8')));
   }
 
   // The two-tier rule: only theme.css maps a raw palette entry onto meaning. If

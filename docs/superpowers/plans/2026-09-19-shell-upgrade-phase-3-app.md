@@ -1457,6 +1457,10 @@ Message: `fix(hud): the strip keeps the keyboard, and stops trusting what a miss
 
 ## The gated tasks — after G1 approves the symbol sheet
 
+**"The gated tasks" (this section, Tasks 11–12) and "Open questions for G1 (#165)" below are
+superseded by `docs/superpowers/plans/2026-09-28-s3e-symbols.md`, landed at Task 6 — kept in place,
+not rewritten, for the history.**
+
 Both of these consume the twelve-glyph sheet, and the issue body's own words are: **"The sheet is approved at G1 before anything consumes it."** That is an **entry condition, not a date** — G1 (#165) is due 2 October but what gates these is the answer, not the calendar.
 
 **Before starting either one:**

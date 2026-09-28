@@ -225,6 +225,13 @@
  * The blast harness (`tools/src/perf/blast-captures.ts`) is where these two
  * are exercised, against a scene that actually has one in it.
  *
+ * ONE MORE FOR GH-250, the `blast-light` rule again:
+ * - `missiles`    MissileFx's body, glow and trail (GH-250). A flag, not a
+ *                 `visible` write, because `step` rewrites visibility every
+ *                 frame; see `blast-light`. No `layerChecks` entry either,
+ *                 for the same reason: no gated scenario has a missile in
+ *                 flight. `tools/src/perf/atgm-captures.ts` is where it is exercised.
+ *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
  * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
@@ -269,6 +276,7 @@ export const DEBUG_LAYERS = [
   'haze',
   'decals',
   'blast-light',
+  'missiles',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

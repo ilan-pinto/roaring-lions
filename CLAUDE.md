@@ -699,8 +699,8 @@ yours; each one records what the next phase inherits.
 - **Every shot that is one round draws a travelling projectile; only a STREAM
   keeps the flat tracer.** `units/shells.ts` is the whole model and it now
   serves both halves — `mortar`/`rocket` arc (GH-145), and since GH-149
-  `bolt` (`apfsds`, `autocannon`) and `missile` (`atgm`, `rpg`, `heat`) fly
-  the same streak with no arc and a much shorter trail. `small_arms` and
+  `bolt` (`apfsds`, `autocannon`) flies the same streak with no arc and a
+  much shorter trail. `small_arms` and
   `hmg` deliberately keep `TracerBatch`'s full-span ribbon, which is right
   for a rifle burst and was wrong for everything else. Three things about
   this are worth knowing before touching it. **The flat tracer was never
@@ -719,6 +719,20 @@ yours; each one records what the next phase inherits.
   front SHOULD hide it and cannot be in the way anyway, since direct fire
   needs LOS), the band (3 vs 2), and the colour pair. Which one a round goes
   to is `SHELL_PROFILES[kind].indirect`, read once through `isIndirectShell`.
+  **Since GH-250 a `missile` (`atgm`, `rpg`, `heat`) is not a `ShellBatch`
+  round**: it flies `units/missile-fx.ts` — body, glow and smoke trail, three
+  meshes over one flight list. Its flight time is the sim's own, to the tick:
+  `PROJ_SPEED` is COPIED into `units/missiles.ts`, never exported, and a test
+  pins the copy against `tuning.ts` as text. Top-attack is a named weapon set
+  (`TOP_ATTACK_WEAPON_IDS`, today only `spike_atgm`), not a class. The trail
+  has its own pool because `ParticleSystem` has no height, and a puff laid at
+  apex or rotor height would drop to the ground. The HEAT impact is
+  `data/vfx/missile_impact.json`, thrown on the FRAME clock where the round
+  visibly lands (the `shellHasLanded` rule), with its light and shake × the
+  landing's `scale` (1 for a hit, 0.5 for an APS intercept), not ×
+  `impactPower`. `pnpm atgm:capture` is the instrument, with a `missiles`
+  toggle floor and a flash reading, and the lead judges its `flip-<id>.html`
+  pages, not the stills.
 - **An arcing round is `vfx.fire`/`vfx.ember`, not `vfx.tracer`** — the new
   `RendererOptions.shellColors`, three-only, ignored by Pixi. A landing
   mortar bomb or Grad rocket also throws `data/vfx/shell_impact.json` through

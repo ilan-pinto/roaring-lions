@@ -26,7 +26,6 @@ import { ReinforcementDock, type ProductionRuntime, type SupportKind } from './p
 import type { DockUnit } from './dock-model';
 import type { Tone } from './hud';
 import { closeTip } from './tooltip';
-import { LOGISTICS_GLYPH } from './glyphs';
 
 type QueueItem = ProductionRuntime['production'][number];
 
@@ -195,11 +194,26 @@ describe('the dock’s shape', () => {
   });
 
   // Fix round 2: a bare "520" on a tile read as credits once the header
-  // started showing a balance beside it. `LOGISTICS_GLYPH` (`./glyphs`) is
-  // the exact character the top strip's own Logistics field draws.
-  it("prefixes a tile's cost with the strip's own Logistics glyph", () => {
+  // started showing a balance beside it. S3e: the prefix is the G1 sheet's
+  // drawn logistics mark -- the same `symbolSvg('logistics')` the top
+  // strip's own Logistics field draws -- and the number stays plain text.
+  it('prices a tile with the logistics mark and the number, not a character', () => {
     const r = rig([dockUnit({ logistics: 292 })]);
-    expect(r.tile('inf_squad').querySelector('.rl-tile__cost')?.textContent).toBe(`${LOGISTICS_GLYPH} 292`);
+    const cost = r.tile('inf_squad').querySelector('.rl-tile__cost');
+    expect(cost?.querySelector('[data-symbol="logistics"]')).not.toBeNull();
+    expect(cost?.textContent?.trim()).toBe('292');
+  });
+
+  it('draws the sweep and strike tiles with the order marks', () => {
+    const r = rig();
+    expect(r.support('sweep').querySelector('.rl-tile__glyph [data-symbol="sweep"]')).not.toBeNull();
+    expect(r.support('strike').querySelector('.rl-tile__glyph [data-symbol="strike"]')).not.toBeNull();
+    expect(r.support('sweep').textContent).not.toContain('◎');
+    expect(r.support('strike').textContent).not.toContain('✸');
+    // Fix round 1: cropped to the surround, not the cursor's full 24-box.
+    for (const k of ['sweep', 'strike'] as const) {
+      expect(r.support(k).querySelector('svg')?.getAttribute('viewBox')).not.toBe('0 0 24 24');
+    }
   });
 
   // The list the tile progress replaces. Its absence is the acceptance
@@ -527,6 +541,16 @@ describe('the hover tooltip', () => {
     hover(r.tile('inf_squad'));
     hover(r.tile('mbt_lavi'));
     expect(r.tip().querySelector('.rl-tip__name')?.textContent).toBe('Lavi MBT');
+  });
+
+  // S3e (Q7): the tooltip's role badge was 8 px, where an APP-6 mark is a
+  // smudge. 10 is the floor everywhere a unit is badged.
+  it('draws no role badge below 10 px', () => {
+    const r = rig();
+    hover(r.tile('inf_squad'));
+    const badge = r.tip().querySelector('.rl-tip__tags svg.rl-badge');
+    expect(badge).not.toBeNull();
+    expect(Number(badge?.getAttribute('width'))).toBeGreaterThanOrEqual(10);
   });
 
   it('describes a support call too, since a glyph explains nothing on its own', () => {

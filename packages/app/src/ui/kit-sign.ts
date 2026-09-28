@@ -27,8 +27,11 @@ export function isKitTrack(name: string): name is KitTrack {
   return (KIT_TRACKS as readonly string[]).includes(name);
 }
 
-/** `mark.ts`'s chevron: 14 across for every 24 up. */
-export const CHEVRON_SWEEP = 14 / 24;
+/** `mark.ts`'s chevron: 14 across for every 24 up. Defined there now and
+ *  re-exported here (Q12, 2026-09-28): `order-sight.ts`'s stadia aim leans at
+ *  the same sweep, so the constant has one definition instead of two that
+ *  happen to agree. */
+export { CHEVRON_SWEEP } from './mark';
 
 export interface KitSymbolSheet {
   readonly viewBox: string;

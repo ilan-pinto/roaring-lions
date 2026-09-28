@@ -359,7 +359,7 @@
  */
 import * as THREE from 'three';
 import type { ParticleSystem } from '../../vfx';
-import { WORLD_Y_PER_LIFT_PIXEL, isoX, isoY } from '../../project';
+import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
 import { groundWorldY, type ElevationSource } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
@@ -897,25 +897,93 @@ export function shellSegmentQuad(
   };
   const aY = worldYAt(uA, a.liftPx);
   const bY = worldYAt(uB, b.liftPx);
+  return liftedSegmentQuad(a.x, a.y, aY, b.x, b.y, bY, widthAPx, widthBPx);
+}
 
-  // On-screen direction of the segment, height included -- see this
-  // function's own doc comment for why the ground bearing alone is wrong.
-  const dxScreen = isoX(b.x, b.y) - isoX(a.x, a.y);
-  const dyScreen = isoY(b.x, b.y) - bY / WORLD_Y_PER_LIFT_PIXEL - (isoY(a.x, a.y) - aY / WORLD_Y_PER_LIFT_PIXEL);
+/**
+ * GH-250 T5: the segment maths `shellSegmentQuad` above always did, pulled
+ * out to six plain endpoint numbers and two widths so `MissileFx` (T5's other
+ * half, `./missile-fx.ts`) can draw its own body streak without going through
+ * a `ShellModel`/`shellPointAt` it does not have -- a missile's flight lives
+ * in `MissileModel`/`missilePointAt` (Task 2), a parallel but distinct model.
+ * `shellSegmentQuad` is now a thin caller: it derives `a`, `b`, `aY` and `bY`
+ * exactly as it always did (unchanged, so every existing caller and every
+ * pre-existing `fx.test.ts` assertion stays byte-identical), then hands the
+ * six numbers here. See this file's own equality test in `fx.test.ts`
+ * ("liftedSegmentQuad is the one segment maths") for the falsification that
+ * guards the split.
+ */
+export function liftedSegmentQuad(
+  ax: number,
+  ay: number,
+  aY: number,
+  bx: number,
+  by: number,
+  bY: number,
+  widthAPx: number,
+  widthBPx: number
+): Float32Array {
+  const out = new Float32Array(12);
+  liftedSegmentQuadInto(out, 0, ax, ay, aY, bx, by, bY, widthAPx, widthBPx);
+  return out;
+}
+
+/**
+ * `liftedSegmentQuad`, written into `out` at `offset` (12 floats) instead of
+ * a fresh array -- the per-frame form `MissileFx` draws its body streak
+ * through (final fix wave), since the returning form built an array literal
+ * plus a `Float32Array.from` per missile per frame. The ONE copy of the
+ * segment maths: `liftedSegmentQuad` is a thin caller, and so every shell
+ * streak goes through here too, byte-identical (`fx.test.ts` pins it
+ * against the old `screenOffsetToWorld` formula). `screenOffsetToWorld` is
+ * inlined for the same reason -- it returns an object -- with its own
+ * expressions, in its own order.
+ */
+export function liftedSegmentQuadInto(
+  out: Float32Array,
+  offset: number,
+  ax: number,
+  ay: number,
+  aY: number,
+  bx: number,
+  by: number,
+  bY: number,
+  widthAPx: number,
+  widthBPx: number
+): void {
+  // On-screen direction of the segment, height included -- see
+  // `shellSegmentQuad`'s own doc comment for why the ground bearing alone is
+  // wrong.
+  const dxScreen = isoX(bx, by) - isoX(ax, ay);
+  const dyScreen = isoY(bx, by) - bY / WORLD_Y_PER_LIFT_PIXEL - (isoY(ax, ay) - aY / WORLD_Y_PER_LIFT_PIXEL);
   const len = Math.hypot(dxScreen, dyScreen);
   // A zero-length segment has no bearing -- the same fixed fallback
   // `tracerQuadPositions` uses, for the same reason.
   const nx = len > 0 ? -dyScreen / len : 1;
   const ny = len > 0 ? dxScreen / len : 0;
-  const perpA = screenOffsetToWorld((nx * widthAPx) / 2, (ny * widthAPx) / 2);
-  const perpB = screenOffsetToWorld((nx * widthBPx) / 2, (ny * widthBPx) / 2);
+  // `screenOffsetToWorld(sx, sy)` = { dx: sx / TILE_W + sy / TILE_H, dy: sy / TILE_H - sx / TILE_W }.
+  const sxA = (nx * widthAPx) / 2;
+  const syA = (ny * widthAPx) / 2;
+  const sxB = (nx * widthBPx) / 2;
+  const syB = (ny * widthBPx) / 2;
+  const pAdx = sxA / TILE_W + syA / TILE_H;
+  const pAdy = syA / TILE_H - sxA / TILE_W;
+  const pBdx = sxB / TILE_W + syB / TILE_H;
+  const pBdy = syB / TILE_H - sxB / TILE_W;
 
-  return Float32Array.from([
-    a.x - perpA.dx, aY, a.y - perpA.dy,
-    a.x + perpA.dx, aY, a.y + perpA.dy,
-    b.x + perpB.dx, bY, b.y + perpB.dy,
-    b.x - perpB.dx, bY, b.y - perpB.dy,
-  ]);
+  const o = offset;
+  out[o] = ax - pAdx;
+  out[o + 1] = aY;
+  out[o + 2] = ay - pAdy;
+  out[o + 3] = ax + pAdx;
+  out[o + 4] = aY;
+  out[o + 5] = ay + pAdy;
+  out[o + 6] = bx + pBdx;
+  out[o + 7] = bY;
+  out[o + 8] = by + pBdy;
+  out[o + 9] = bx - pBdx;
+  out[o + 10] = bY;
+  out[o + 11] = by - pBdy;
 }
 
 /**
@@ -1157,7 +1225,7 @@ export function writeShellInstances(
  * is out of scope for this fix) but is documented there with the same
  * correction.
  */
-function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.ShaderMaterial {
+export function createParticleMaterial(depthTest: boolean, hotCore: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
       attribute vec2 aLocal;
@@ -1376,7 +1444,7 @@ export class ParticleInstancer {
  * `depthTest` stays `true`, which is the half of this recipe the
  * building/ridge occlusion result actually depends on.
  */
-function createTracerMaterial(depthTest = true): THREE.ShaderMaterial {
+export function createTracerMaterial(depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     vertexShader: /* glsl */ `
       attribute vec3 aColor;

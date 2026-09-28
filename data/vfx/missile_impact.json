@@ -1,0 +1,49 @@
+{
+  "id": "missile_impact",
+  "trigger": "impact_armor",
+  "layer": "above_units",
+  "budget_priority": 7,
+  "screen_shake": { "amplitude_px": 2, "duration_ms": 140, "falloff_tiles": 8 },
+  "light": { "color": "vfx.fire", "intensity": 2.6, "radius_tiles": 3.5, "decay_ms": 200 },
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [4, 6],
+      "lifetime_ms": [90, 160],
+      "speed_tiles_s": [0.6, 1.6],
+      "cone_deg": 360,
+      "size_px": [8, 13],
+      "size_over_life": [1.0, 0.5],
+      "color_over_life": ["vfx.white_hot", "vfx.fire"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true,
+      "mesh_burst": true
+    },
+    {
+      "sprite": "shard",
+      "count": [8, 12],
+      "lifetime_ms": [250, 450],
+      "speed_tiles_s": [2.5, 5.0],
+      "cone_deg": 70,
+      "gravity_tiles_s2": 3,
+      "drag": 0.2,
+      "size_px": [2, 4],
+      "size_over_life": [1.0, 0.5],
+      "color_over_life": ["vfx.white_hot", "vfx.ember", "gunmetal.2"],
+      "alpha_over_life": [1.0, 0.0]
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [4, 6],
+      "lifetime_ms": [600, 1100],
+      "speed_tiles_s": [0.3, 0.9],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -0.4,
+      "drag": 0.7,
+      "size_px": [7, 12],
+      "size_over_life": [0.6, 2.0],
+      "color_over_life": ["gunmetal.2", "gunmetal.3"],
+      "alpha_over_life": [0.75, 0.0]
+    }
+  ]
+}

@@ -260,6 +260,13 @@ import {
   type ShellModel,
 } from './units/shells';
 import {
+  MissileFx,
+  MISSILE_IMPACT_EMITTER_ID,
+  MISSILE_TRAIL_EMITTER_ID,
+  MISS_SCORCH_POWER,
+} from './units/missile-fx';
+import type { MissileLanding, TargetTrack } from './units/missiles';
+import {
   ParticleInstancer,
   TracerBatch,
   ShellBatch,
@@ -1954,6 +1961,21 @@ export class ThreeRenderer implements Renderer {
     depthTest: true,
     renderOrder: FX_RENDER_ORDER,
   });
+  /**
+   * GH-250: ATGMs and RPGs -- body, glow and smoke trail, three meshes that
+   * share one flight list. A missile left the bolt batch because it is not a
+   * streak (see `units/missiles.ts`); spec D5 keeps this file's share of it
+   * to this field, the `onFire` branch, one call each in `updateFx`, `aps`,
+   * `useEmitters`, `dispose` and the scene add, the `missiles` debug case and
+   * `spawnMissileImpactFx`.
+   */
+  private readonly missileFx = new MissileFx();
+  /** What `missileFx.step` tracks a guided missile's target through: this
+   *  renderer's own `curX`/`curY` and the sim's `alive`, bound ONCE in the
+   *  constructor rather than built every frame. All three are fixed-capacity
+   *  typed arrays allocated once and never replaced, so the binding stays
+   *  current -- the values move, the arrays do not. Read-only on the sim. */
+  private readonly missileTrack: TargetTrack;
 
   /**
    * Phase C: the unit overlay tier -- see `units/overlays.ts`'s own top
@@ -2142,6 +2164,7 @@ export class ThreeRenderer implements Renderer {
     this.prevY = new Float64Array(n);
     this.curX = new Float64Array(n);
     this.curY = new Float64Array(n);
+    this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
     this.killerY = new Float64Array(n).fill(NaN);
     this.entitySpeed = new Float64Array(n);
@@ -2365,7 +2388,8 @@ export class ThreeRenderer implements Renderer {
       this.particleInstancerAboveAdditive.mesh,
       this.tracerBatch.mesh,
       this.shellBatch.mesh,
-      this.boltBatch.mesh
+      this.boltBatch.mesh,
+      ...this.missileFx.meshes
     );
     // The scene's own light, sized to this map: one sun with a map-wide
     // shadow box, one hemisphere bounce, and the sun's target (a
@@ -2863,6 +2887,7 @@ export class ThreeRenderer implements Renderer {
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
+    this.missileFx.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
     // shape as the FX batches just above -- see the shroud/fog-pass comment
     // a few lines down for the omit-then-fix history that class of leak has
@@ -3318,6 +3343,12 @@ export class ThreeRenderer implements Renderer {
         this.flashLightsDebugHidden = !visible;
         if (this.flashLightsDebugHidden) this.zeroFlashLights();
         return this.flashLights.lights.length;
+      case 'missiles':
+        // P-5: a FLAG, `blast-light`'s shape -- `MissileFx.step` rewrites all
+        // three meshes' `visible` every frame (`count > 0 && !debugHidden`),
+        // so a plain write would be undone by the gate's own repaint.
+        // Returns 3, the meshes it hides.
+        return this.missileFx.setDebugHidden(!visible);
       default:
         // A name `DEBUG_LAYERS` lists and this switch does not handle. The
         // compiler already refuses it (`name` is `never` here), but a build
@@ -3863,6 +3894,10 @@ export class ThreeRenderer implements Renderer {
         this.spawnFlatFx(fx.toNumber(e.x), fx.toNumber(e.y), this.opts.nearMissColor, 7, 14);
       } else if (e.kind === 'aps' && e.intercepted) {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.interceptColor, 10, 12);
+        // GH-250 (spec D4): the round this event names -- (target, shooter)
+        // -- dies here, at half scale: the APS got it, the hull did not.
+        // (`intercept` returns a reused buffer; consumed here, in full.)
+        for (const l of this.missileFx.intercept(e.target, e.shooter)) this.spawnMissileImpactFx(l);
       } else if (e.kind === 'impact' && e.penetrated) {
         this.spawnFlatFx(this.curX[e.target], this.curY[e.target], this.opts.flashColor, 8, 10);
         // Jolt the target away from the shooter, so a penetrating hit lands
@@ -4241,7 +4276,21 @@ export class ThreeRenderer implements Renderer {
     // Y here would freeze the arc's baseline to whatever the muzzle
     // happened to sit at, which is wrong the moment a shot crosses a
     // terrace.
-    if (shellKind !== null) {
+    if (shellKind === 'missile') {
+      // GH-250: a missile is MissileFx's, not a bolt -- see units/missiles.ts.
+      // The DURATION uses the shooter-centre distance the sim counts (P-1);
+      // the PATH starts at the muzzle, like every round. P-1 is approximate
+      // for a MOVING shooter or target: these are the renderer's
+      // interpolated positions, not the sim's own at the fire tick.
+      const targetAir = !atStruct && e.target >= 0 && this.sim.unitTypes[st.typeIdx[e.target]].isAir;
+      this.missileFx.launch({
+        sx: mzX, sy: mzY, tx, ty,
+        simDistTiles: Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]),
+        side: st.side[e.shooter], cls, weaponId: e.weaponId,
+        target: atStruct ? -1 : e.target, willHit: e.willHit,
+        shooterAir: type.isAir, targetAir, tick: e.tick, shooter: e.shooter,
+      });
+    } else if (shellKind !== null) {
       const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
       // GH-149: the arcing kinds and the direct kinds live in separate
       // arrays and separate batches -- see the `bolts` field's own doc
@@ -4251,7 +4300,15 @@ export class ThreeRenderer implements Renderer {
       else this.bolts.push(shell);
     }
 
-    const emitter = this.emitterLibrary.fireEmitterFor(cls);
+    // LEAD DECISION (28 Sep, GH-250): no ground backblast for an AIR
+    // launcher. Every fire-emitter layer, its light and the flat fallback
+    // below spawn at GROUND height under the muzzle, so a Hellfire leaving a
+    // gunship threw a plume and a dust ring on the sand beneath it. The
+    // missile itself still leaves from `AIR_LIFT_PX` (`MissileFx.launch`
+    // above, `shooterAir`). Scoped to missiles: a gunship's cannon keeps
+    // whatever its own class draws.
+    const airLaunch = shellKind === 'missile' && type.isAir;
+    const emitter = airLaunch ? null : this.emitterLibrary.fireEmitterFor(cls);
     const power = wp ? firePower(wp) : 0;
     // Muzzle-flash/blast light (`./flash-light.ts`'s own top comment) -- a
     // no-op when this emitter declares no `light` (`FlashLightManager.spawn`
@@ -4321,7 +4378,7 @@ export class ThreeRenderer implements Renderer {
         const fxLayer = fxLayerIndex(emitter.layer, layer.additive ?? false);
         this.particleSystem.spawn(layer, mzX, mzY, dirTurns + offset, power, prio, fxLayer);
       }
-    } else {
+    } else if (!airLaunch) {
       // No emitter authored for this weapon class yet: the flat-colour
       // fallback Pixi's own `puffs` stand in with (renderer.ts:811-818),
       // reproduced through the SAME ParticleSystem pool real emitters use
@@ -4921,6 +4978,8 @@ export class ThreeRenderer implements Renderer {
     // which resolves `ramps.dust` rather than the plume's `ramps.gunmetal`;
     // see `units/collapse-shroud-role.ts` for why the two differ on purpose.
     this.collapseShrouds.setColors(resolve);
+    // GH-250: the missile trail's look and body colour, same resolver.
+    this.missileFx.setLook(this.emitterLibrary.byName(MISSILE_TRAIL_EMITTER_ID), resolve);
   }
   /**
    * Load a unit type's sprite sheet and build the `THREE.InstancedMesh`
@@ -7339,6 +7398,21 @@ export class ThreeRenderer implements Renderer {
     // three ways the `bolts` field documents -- here, the colour pair.
     this.bolts = stepShells(this.bolts, dtSeconds);
     this.boltBatch.update(this.bolts, this.opts.tracerColors, elevation, this.sim.width, this.sim.height);
+    // GH-250: missiles on the same frame clock; a landing throws the HEAT
+    // impact on this frame, the shellHasLanded rule (spec D7).
+    // `landings` is MissileFx's own buffer, valid until the next step: it is
+    // consumed here, in full, before anything can step again.
+    // `tickCount` holds a finished flight until the sim has resolved it, so
+    // an `aps` on that tick intercepts it rather than racing a landing.
+    const landings = this.missileFx.step(
+      dtSeconds,
+      this.missileTrack,
+      elevation,
+      this.sim.width,
+      this.sim.height,
+      this.sim.tickCount
+    );
+    for (const l of landings) this.spawnMissileImpactFx(l);
   }
 
   /**
@@ -7366,7 +7440,8 @@ export class ThreeRenderer implements Renderer {
   private spawnShellImpactFx(s: ShellModel): void {
     const power = SHELL_PROFILES[s.kind].impactPower;
     // The one gate on this whole method, unchanged: `impactPower` is 0 for
-    // `bolt` and `missile`, so direct fire never detonates on landing. A
+    // `bolt`, so direct fire never detonates on landing (a missile is
+    // `MissileFx`'s since GH-250 and lands through `spawnMissileImpactFx`). A
     // `bolt` cannot even reach here today (`shellHasLanded` runs over
     // `this.shells`, the indirect list) -- this is what keeps that true if
     // the two lists are ever merged.
@@ -7400,6 +7475,34 @@ export class ThreeRenderer implements Renderer {
     // the ROUND's own power (R-13's `0.15 + power` for the crater).
     this.stampGroundDecal(this.persistentStamp('crater', s.tx, s.ty, craterRadiusTiles(power)));
     this.stampGroundDecal(this.persistentStamp('scorch', s.tx, s.ty, scorchRadiusTiles(power)));
+  }
+
+  /**
+   * GH-250: the HEAT impact -- `missile_impact.json`, spawned where the
+   * missile visibly lands, off the frame clock (spec D7). `spawnCollapseFx`'s
+   * loop, except the particles leave along the missile's own heading (a spall
+   * cone, not a column), light and shake are the emitter's authored values x
+   * `scale` rather than x `impactPower` (P-4), and there is no hit-stop and no
+   * crater: a kill already owns the blast. A miss marks the ground.
+   */
+  private spawnMissileImpactFx(l: MissileLanding): void {
+    const em = this.emitterLibrary.byName(MISSILE_IMPACT_EMITTER_ID);
+    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, l.x, l.y);
+    if (em && this.particleSystem) {
+      const prio = em.budget_priority ?? 7;
+      for (const layer of em.particles) {
+        if (layer.mesh_burst && this.explosionBursts.ready) {
+          this.explosionBursts.spawn(l.x, worldY, l.y, tileHash(Math.floor(l.x), Math.floor(l.y)), l.power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
+          continue;
+        }
+        const offset = (layer.direction_offset_deg ?? 0) / 360;
+        this.particleSystem.spawn(layer, l.x, l.y, l.headingTurns + offset, l.power, prio, fxLayerIndex(em.layer, layer.additive ?? false));
+      }
+    }
+    const light = blastLightSpec(em, l.scale);
+    if (light) this.flashLights.spawn(l.x, l.y, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', '#FFB43C'));
+    this.shakeState = pushShake(this.shakeState, blastShake(em, l.scale), l.x, l.y);
+    if (l.miss) this.stampGroundDecal(this.persistentStamp('scorch', l.x, l.y, scorchRadiusTiles(MISS_SCORCH_POWER)));
   }
 
   /**

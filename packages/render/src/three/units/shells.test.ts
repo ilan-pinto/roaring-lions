@@ -17,6 +17,7 @@ import {
   SHELL_MAX_DURATION_S,
   type ShellKind,
 } from './shells';
+import { SIM_PROJ_SPEED_TILES_S } from './missiles';
 
 describe('shellKindFor', () => {
   it('claims exactly the two classes the sim treats as indirect', () => {
@@ -51,7 +52,6 @@ describe('isIndirectShell', () => {
     expect(isIndirectShell('mortar')).toBe(true);
     expect(isIndirectShell('rocket')).toBe(true);
     expect(isIndirectShell('bolt')).toBe(false);
-    expect(isIndirectShell('missile')).toBe(false);
   });
 
   it('is the only kind that detonates on landing -- a direct round leaves it to the sim event', () => {
@@ -102,8 +102,9 @@ describe('the bolt profile', () => {
     expect(streakTiles).toBeLessThan(6.7 / 2);
   });
 
-  it('outruns a missile by a wide margin, so a Hellfire and a sabot round do not read alike', () => {
-    expect(SHELL_PROFILES.bolt.speedTilesS).toBeGreaterThan(SHELL_PROFILES.missile.speedTilesS * 4);
+  it('outruns every missile the sim flies, so a Hellfire and a sabot round do not read alike', () => {
+    expect(SHELL_PROFILES.bolt.speedTilesS).toBeGreaterThan(SIM_PROJ_SPEED_TILES_S.rpg * 4);
+    expect(Object.keys(SHELL_PROFILES).sort()).toEqual(['bolt', 'mortar', 'rocket']);
   });
 });
 

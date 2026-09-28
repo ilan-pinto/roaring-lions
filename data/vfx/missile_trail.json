@@ -1,0 +1,33 @@
+{
+  "id": "missile_trail",
+  "trigger": "projectile_trail",
+  "layer": "above_units",
+  "budget_priority": 6,
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [1, 1],
+      "lifetime_ms": [16, 16],
+      "size_px": [2.5, 2.5],
+      "color_over_life": ["vfx.white_hot"],
+      "additive": true
+    },
+    {
+      "sprite": "soft_dot",
+      "count": [1, 1],
+      "lifetime_ms": [16, 16],
+      "size_px": [6, 6],
+      "color_over_life": ["vfx.fire"],
+      "alpha_over_life": [0.55, 0.55]
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [1, 1],
+      "lifetime_ms": [1600, 1600],
+      "size_px": [2.5, 2.5],
+      "size_over_life": [1.0, 3.2],
+      "color_over_life": ["limestone.1", "limestone.3", "gunmetal.1"],
+      "alpha_over_life": [0.7, 0.0]
+    }
+  ]
+}
