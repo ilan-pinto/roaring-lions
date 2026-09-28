@@ -128,8 +128,8 @@ describe('MissileFx', () => {
     expect(landed).toHaveLength(1);
     // Valid until the next call: the next step clears it in place.
     expect(fx.step(1 / 60, TRACK, null, 0, 0)).toHaveLength(0);
-    const i1 = fx.intercept(1);
-    const i2 = fx.intercept(1);
+    const i1 = fx.intercept(1, 0);
+    const i2 = fx.intercept(1, 0);
     expect(i2).toBe(i1);
     fx.dispose();
   });

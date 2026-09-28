@@ -150,6 +150,10 @@ export interface MissileModel {
   variant: MissileVariant;
   mclass: MissileClass;
   target: number;
+  /** The firing entity, from the `fire` event. An `aps` event names its
+   *  round by `(target, shooter)`, so this is half of how an intercept finds
+   *  the missile it killed. */
+  shooter: number;
   tracking: boolean;
   miss: boolean;
   launchLiftPx: number;
@@ -257,7 +261,7 @@ export function spawnMissile(l: MissileLaunch): MissileModel | null {
 
   return {
     sx: l.sx, sy: l.sy, tx, ty,
-    side: l.side, variant, mclass, target: l.target,
+    side: l.side, variant, mclass, target: l.target, shooter: l.shooter,
     tracking, miss,
     launchLiftPx, impactLiftPx, apexPx,
     duration, t: 0, seed, trailTiles: 0,
@@ -319,7 +323,7 @@ export function pushMissile(list: MissileModel[], m: MissileModel, capacity: num
   list.push(m);
 }
 
-function landingFor(m: MissileModel, progress: number, scale: number): MissileLanding {
+function landingFor(m: MissileModel, progress: number, scale: number, miss: boolean = m.miss): MissileLanding {
   const pt = missilePointAt(m, progress);
   const prof = MISSILE_PROFILES[m.variant];
   return {
@@ -327,7 +331,7 @@ function landingFor(m: MissileModel, progress: number, scale: number): MissileLa
     headingTurns: missileHeadingTurns(m, progress),
     power: prof.impactPower * scale,
     scale,
-    miss: m.miss,
+    miss,
     variant: m.variant,
     side: m.side,
   };
@@ -372,16 +376,29 @@ export function stepMissiles(
   return landings;
 }
 
-/** Detonates every in-flight missile at `target` (an APS kill). `out` is
- *  cleared and refilled, `stepMissiles`' contract. */
-export function interceptMissiles(list: MissileModel[], target: number, out: MissileLanding[] = []): MissileLanding[] {
+/**
+ * An APS kill: detonates the in-flight missile the `aps` event names, by
+ * `(target, shooter)`, where it is, at `INTERCEPT_SCALE`. ONE missile per
+ * event, the oldest match, because the sim emits one `aps` event per round it
+ * engages. A round that was going to MISS is intercepted too: the sim's APS
+ * engages any inbound shaped charge, hit or miss (`sim.ts`, GDD 5.6). The
+ * landing reports `miss: false` either way: the round died in the air, so it
+ * leaves no ground scorch. `out` is cleared and refilled, `stepMissiles`'
+ * contract.
+ */
+export function interceptMissiles(
+  list: MissileModel[],
+  target: number,
+  shooter: number,
+  out: MissileLanding[] = []
+): MissileLanding[] {
   const landings = out;
   landings.length = 0;
   let write = 0;
   for (let read = 0; read < list.length; read++) {
     const m = list[read];
-    if (m.target === target && !m.miss) {
-      landings.push(landingFor(m, missileProgress(m), INTERCEPT_SCALE));
+    if (landings.length === 0 && m.target === target && m.shooter === shooter) {
+      landings.push(landingFor(m, missileProgress(m), INTERCEPT_SCALE, false));
     } else {
       list[write] = m;
       write++;
