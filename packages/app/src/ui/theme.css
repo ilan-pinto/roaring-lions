@@ -2234,6 +2234,13 @@ body {
   height: 1em;
   vertical-align: -0.125em;
 }
+/* An order mark is cropped to its own surround (`symbol.ts`'s
+   `orderMarkViewBox`, S3e Task 2 fix round 1), and most surrounds are wider
+   than tall: 1em TALL, and the width follows the viewBox's own ratio rather
+   than squeezing a 2:1 arrow into a square. */
+.rl-sym.rl-sym--order {
+  width: auto;
+}
 
 /* The role mark, inline with the name it belongs to. currentColor, so it dims
    with whatever ink it sits in rather than needing its own rule. */

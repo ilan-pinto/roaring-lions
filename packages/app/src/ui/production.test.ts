@@ -210,6 +210,10 @@ describe('the dock’s shape', () => {
     expect(r.support('strike').querySelector('.rl-tile__glyph [data-symbol="strike"]')).not.toBeNull();
     expect(r.support('sweep').textContent).not.toContain('◎');
     expect(r.support('strike').textContent).not.toContain('✸');
+    // Fix round 1: cropped to the surround, not the cursor's full 24-box.
+    for (const k of ['sweep', 'strike'] as const) {
+      expect(r.support(k).querySelector('svg')?.getAttribute('viewBox')).not.toBe('0 0 24 24');
+    }
   });
 
   // The list the tile progress replaces. Its absence is the acceptance

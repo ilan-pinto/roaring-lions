@@ -312,6 +312,35 @@ export function orderMarkBody(id: SightOrderId, ink = 'currentColor'): string {
   return surroundBody(id, ORDER_SIGHT[id].phases[0], { aim: ink, main: ink, accent: ink, hot: ink });
 }
 
+/**
+ * Each order's static HUD mark bounds, `[x0, y0, x1, y1]` in the 24-box --
+ * `orderMarkBody(id)` (the rest-phase surround, no aim) and nothing else.
+ *
+ * Fix round 1 of S3e Task 2: every surround lives in the top half of the box
+ * the aim was drawn in, so on the full 24-box the HUD mark rode high and
+ * small. `symbol.ts`'s `symbolSvg` crops an order's viewBox to these bounds
+ * (plus a uniform margin). The cursor (Task 4) never reads this: its hotspot
+ * is (12, 12) in the full box.
+ *
+ * Data, not a runtime measurement: measured once with Chromium's `getBBox()`
+ * on each rest body (move [1, -0.76, 22.8, 10.28], attackMove [1, 0.5, 22.99,
+ * 9.3], halt [4, 0, 20, 9.5], smoke [0.6, 2.6, 23, 9.4], load [10.55, 0.5,
+ * 23.5, 9], unload [0.5, 0.5, 22.37, 9], sweep [1.62, 0.46, 22.38, 8.26],
+ * strike [0.19, 0.2, 23.79, 23.8]) and rounded OUTWARD to the quarter unit.
+ * A change to a surround's rest pose must re-measure it; `symbol.test.ts`
+ * holds every polygon vertex of the rest body inside the crop.
+ */
+export const ORDER_MARK_BOUNDS: Readonly<Record<SightOrderId, readonly [number, number, number, number]>> = {
+  move: [1, -1, 23, 10.5],
+  attackMove: [1, 0.5, 23, 9.5],
+  halt: [4, 0, 20, 9.5],
+  smoke: [0.5, 2.5, 23, 9.5],
+  load: [10.5, 0.5, 23.5, 9],
+  unload: [0.5, 0.5, 22.5, 9],
+  sweep: [1.5, 0.25, 22.5, 8.5],
+  strike: [0, 0, 24, 24],
+};
+
 // Compile-time check: every order the selection row can arm is drawn here.
 // `OrderId` (`selection-model.ts:28`) must stay a subset of `SightOrderId` --
 // a type-only import, so this module pulls in none of that file's runtime

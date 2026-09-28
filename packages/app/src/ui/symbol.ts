@@ -12,7 +12,7 @@
 // sweep -- that sweep belongs to `order-sight.ts`'s aim alone (Q12), which
 // has no APP-6 original to borrow angles from.
 import type { RoleBucket } from './role';
-import { orderMarkBody, type SightOrderId } from './order-sight';
+import { ORDER_MARK_BOUNDS, orderMarkBody, type SightOrderId } from './order-sight';
 
 export const VIEWBOX = '0 0 24 24';
 export const W = 2.5;
@@ -270,15 +270,43 @@ export function symbolBody(id: SymbolId, opts?: { framed?: boolean; ink?: string
   return opts?.framed && g.framed ? g.framed : g.body;
 }
 
+/** The uniform margin (24-box units) an order mark's crop keeps around its
+ *  surround, so an edge never lands on the last pixel of the glyph box. */
+export const ORDER_MARK_MARGIN = 0.75;
+
+/** An order's HUD viewBox: `ORDER_MARK_BOUNDS[id]` plus the margin on every
+ *  side, as `[x, y, w, h]`. Pure, so the crop is data and never a DOM read. */
+export function orderMarkViewBox(id: SightOrderId): [number, number, number, number] {
+  const [x0, y0, x1, y1] = ORDER_MARK_BOUNDS[id];
+  const m = ORDER_MARK_MARGIN;
+  return [r(x0 - m), r(y0 - m), r(x1 - x0 + 2 * m), r(y1 - y0 + 2 * m)];
+}
+
 /**
  * The symbol as a standalone inline SVG: `<svg class="rl-sym ..."
- * data-symbol="<id>" width height viewBox="0 0 24 24" aria-hidden="true"
+ * data-symbol="<id>" width height viewBox aria-hidden="true"
  * focusable="false">`.
+ *
+ * Roles and utility marks draw on the shared 24-box at `size` square. An
+ * ORDER is the HUD's static mark (Q6: the surround at rest, no aim) and is
+ * cropped to its own surround (`orderMarkViewBox`, fix round 1): `size` is
+ * its height, its width follows the crop's aspect ratio, and it carries
+ * `rl-sym--order` so theme.css sizes it 1em TALL with the width following.
+ * The cursor never comes through here -- it keeps the full box, since its
+ * hotspot is (12, 12) in it.
  */
 export function symbolSvg(id: SymbolId, size: number, opts?: { framed?: boolean; className?: string }): string {
-  const cls = ['rl-sym', opts?.className].filter((c): c is string => Boolean(c)).join(' ');
+  const order = isOrderId(id);
+  const cls = ['rl-sym', order ? 'rl-sym--order' : undefined, opts?.className].filter((c): c is string => Boolean(c)).join(' ');
+  let box = VIEWBOX;
+  let width = size;
+  if (isOrderId(id)) {
+    const [x, y, w, h] = orderMarkViewBox(id);
+    box = `${x} ${y} ${w} ${h}`;
+    width = r((size * w) / h);
+  }
   return (
-    `<svg class="${cls}" data-symbol="${id}" width="${size}" height="${size}" viewBox="${VIEWBOX}" ` +
+    `<svg class="${cls}" data-symbol="${id}" width="${width}" height="${size}" viewBox="${box}" ` +
     `aria-hidden="true" focusable="false">${symbolBody(id, { framed: opts?.framed })}</svg>`
   );
 }

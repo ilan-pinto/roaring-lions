@@ -1330,6 +1330,10 @@ describe('the order row', () => {
     for (const id of ['attackMove', 'halt', 'smoke', 'load', 'unload']) {
       expect(r.order(id)!.textContent).not.toMatch(/[⟶■◌⤓⤒]/);
     }
+    // Fix round 1: cropped to the surround, not the cursor's full 24-box.
+    for (const svg of el.querySelectorAll('.rl-order__glyph svg')) {
+      expect(svg.getAttribute('viewBox')).not.toBe('0 0 24 24');
+    }
   });
 
   it('sends every button to the handler its key is bound to, and queues nothing itself', () => {
