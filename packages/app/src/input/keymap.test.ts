@@ -4,7 +4,7 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, bindingsFrom, escapeTarget, heldAction, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
+import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
 
 describe('keymap', () => {
   it('ships the bindings main.ts had hard-coded, in the same letters', () => {
@@ -195,7 +195,7 @@ describe('keymap', () => {
       // dialog `isDialogOpen()` recognises, so the two states could coexist,
       // and closing the tracker is still the one thing Escape does.
       expect(escapeTarget(true, true, false)).toBe('closeTracker');
-      // Even with a support call armed, the tracker still wins.
+      // Even with something armed, the tracker still wins.
       expect(escapeTarget(true, false, true)).toBe('closeTracker');
     });
     it('opens the pause menu when the tracker is closed and nothing else owns Escape', () => {
@@ -203,22 +203,49 @@ describe('keymap', () => {
     });
     it('does nothing when a dialog already owns Escape and the tracker is closed', () => {
       expect(escapeTarget(false, true, false)).toBe('none');
-      // A dialog outranks disarming too -- GH-264's fix must not let Escape
-      // reach past a confirm/pause modal just because a call is armed.
+      // A dialog outranks disarming too -- Escape must not reach past a
+      // confirm/pause modal just because something is armed.
       expect(escapeTarget(false, true, true)).toBe('none');
     });
-    // GH-264: once a support call (sweep or strike) is armed from the dock,
-    // Escape did nothing -- only clicking the dock tile again disarmed it.
-    // Ranked ahead of 'pause' (arming and pausing are two different things a
-    // bare Escape could mean, and disarming an in-progress action takes
-    // priority over opening a menu, the same way the tracker does) and
-    // behind the tracker/dialog rungs above, which every other rung defers
-    // to as well.
-    it('disarms an armed support call when nothing else owns Escape', () => {
-      expect(escapeTarget(false, false, true)).toBe('disarmSupport');
+    // GH-264, widened: the issue's own premise ("escapeTarget does have rungs
+    // for the OTHER armed orders") turned out to be wrong -- nothing armed at
+    // all had an Escape rung before this. Once a support call (sweep or
+    // strike) was armed from the dock, OR an attack-move/smoke order was
+    // armed from the order row, Escape did nothing; only clicking the same
+    // control again disarmed it. One rung now covers all three, ranked ahead
+    // of 'pause' (disarming an in-progress action takes priority over opening
+    // a menu, the same way the tracker does) and behind the tracker/dialog
+    // rungs above, which every other rung defers to as well. `escapeTarget`
+    // itself takes one boolean, `armed` -- it does not need to know WHICH
+    // thing is armed, only that something is, so cancelling an attack-move is
+    // not a different rung from cancelling a sweep. `anyArmed` (below) is
+    // what turns the three separate armed states into that one boolean, and
+    // is tested per-kind precisely so a regression that forgets one of them
+    // (e.g. only wiring `armedSupport` and not `armedOrder`) fails on its own
+    // line instead of being masked by the other two.
+    it('disarms when nothing else owns Escape and something is armed', () => {
+      expect(escapeTarget(false, false, true)).toBe('disarm');
     });
     it('still opens the pause menu when nothing is armed', () => {
       expect(escapeTarget(false, false, false)).toBe('pause');
+    });
+  });
+
+  describe('anyArmed', () => {
+    it('is true while an attack-move order is armed', () => {
+      expect(anyArmed('attackMove', null)).toBe(true);
+    });
+    it('is true while a smoke order is armed', () => {
+      expect(anyArmed('smoke', null)).toBe(true);
+    });
+    it('is true while a sweep call is armed', () => {
+      expect(anyArmed(null, 'sweep')).toBe(true);
+    });
+    it('is true while a strike call is armed', () => {
+      expect(anyArmed(null, 'strike')).toBe(true);
+    });
+    it('is false when nothing is armed', () => {
+      expect(anyArmed(null, null)).toBe(false);
     });
   });
 });
