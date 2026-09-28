@@ -76,18 +76,30 @@ export const MISSILE_TRAIL_EMITTER_ID = 'missile_trail';
 export const MISSILE_IMPACT_EMITTER_ID = 'missile_impact';
 export const MISS_SCORCH_POWER = 0.15;
 
-/** Ground-relative world Y of a missile's flight at progress `u` -- the
- *  `shellSegmentQuad` rule without `SHELL_LIFT_PX`, since a missile's own
- *  `liftPx` (`missilePointAt`) already carries N7's ground/air launch and
- *  impact lift. A puff stores the absolute `worldY` it was emitted at
- *  (`TrailPool.emit`), so it never bulges over a ridge it drifts across --
- *  this function is only ever asked for the CURRENT flight position, never
- *  re-evaluated for a puff already laid down. */
+/**
+ * The ONE ground-lerp-plus-lift formula every world-Y this file draws goes
+ * through -- `shellSegmentQuad`'s own rule without `SHELL_LIFT_PX`, since a
+ * missile's own `liftPx` (`missilePointAt`) already carries N7's ground/air
+ * launch and impact lift. Fix round 1 (review finding): this used to be
+ * written out three times (the `emitAlongFlight` callback, the body quad's
+ * `aY`/`bY`, and `missileWorldY` below) -- one copy here, called from all
+ * three, so a future change to the lift rule cannot update two of the three
+ * and silently miss the third.
+ */
+function lerpMissileWorldY(launchY: number, impactY: number, u: number, liftPx: number): number {
+  return launchY + (impactY - launchY) * u + liftPx * WORLD_Y_PER_LIFT_PIXEL;
+}
+
+/** Ground-relative world Y of a missile's flight at progress `u`, for
+ *  `writeMissileSprites`'s own `worldYAt` callback. A puff stores the
+ *  absolute `worldY` it was emitted at (`TrailPool.emit`), so it never
+ *  bulges over a ridge it drifts across -- this function is only ever asked
+ *  for the CURRENT flight position, never re-evaluated for a puff already
+ *  laid down. */
 function missileWorldY(m: MissileModel, u: number, elevation: ElevationSource, w: number, h: number): number {
   const launchY = groundWorldY(elevation, w, h, m.sx, m.sy);
   const impactY = groundWorldY(elevation, w, h, m.tx, m.ty);
-  const pt = missilePointAt(m, u);
-  return launchY + (impactY - launchY) * u + pt.liftPx * WORLD_Y_PER_LIFT_PIXEL;
+  return lerpMissileWorldY(launchY, impactY, u, missilePointAt(m, u).liftPx);
 }
 
 export class MissileFx {
@@ -127,6 +139,35 @@ export class MissileFx {
   private look: TrailLook | null = null;
   private bodyColor: readonly [number, number, number] = [0, 0, 0];
   private debugHidden = false;
+
+  /** The CURRENT missile's own launch/impact ground height, set once per
+   *  missile per `step()` call, just before that missile's `emitAlongFlight`
+   *  call -- what `trailWorldYAt` below reads instead of closing over the
+   *  missile or its ground height directly. See `trailWorldYAt`'s own doc
+   *  comment for why. */
+  private curLaunchY = 0;
+  private curImpactY = 0;
+
+  /**
+   * Fix round 1 (review finding): bound ONCE, here, as a class field
+   * initializer -- not a fresh arrow function built inside `step()`'s own
+   * per-missile loop. The old shape built a new closure every missile every
+   * frame, capturing that missile, `elevation`, `w` and `h` from the
+   * enclosing scope purely to recompute `groundWorldY` on every one of
+   * `emitAlongFlight`'s (possibly several) calls per missile -- exactly the
+   * per-frame allocation the writers in this backend are built to avoid
+   * (`fx.ts`'s own `cachedHexToLinear`, `missile-trail.ts`'s own, make the
+   * identical argument for a hex-to-rgb conversion; this is the same
+   * argument for a closure). This callback instead reads `curLaunchY`/
+   * `curImpactY` -- two plain fields `step()` sets once per missile, right
+   * before handing this SAME function reference to `emitAlongFlight` -- so
+   * the missile and its ground height never need to be captured at all.
+   * `missile-fx.test.ts`'s own identity test (added alongside this fix) pins
+   * that the reference `emitAlongFlight` receives never changes, missile to
+   * missile or frame to frame.
+   */
+  private readonly trailWorldYAt = (_m: MissileModel, liftPx: number, u: number): number =>
+    lerpMissileWorldY(this.curLaunchY, this.curImpactY, u, liftPx);
 
   constructor() {
     // --- Body mesh: liftedSegmentQuad's own shape, one quad per missile. ---
@@ -225,45 +266,47 @@ export class MissileFx {
   step(dt: number, track: TargetTrack, elevation: ElevationSource, w: number, h: number): MissileLanding[] {
     const landings = stepMissiles(this.missiles, dt, track);
 
-    if (this.look !== null) {
-      const look = this.look;
-      for (const m of this.missiles) {
-        emitAlongFlight(this.trail, m, look, (_x, _y, liftPx, u) => {
-          const launchY = groundWorldY(elevation, w, h, m.sx, m.sy);
-          const impactY = groundWorldY(elevation, w, h, m.tx, m.ty);
-          return launchY + (impactY - launchY) * u + liftPx * WORLD_Y_PER_LIFT_PIXEL;
-        });
+    // --- Trail emission + body quads: ONE pass over the missiles, so each
+    // missile's own launch/impact ground height (`curLaunchY`/`curImpactY`)
+    // is computed exactly once per missile per step, not once per site that
+    // used to need it (fix round 1 -- see `trailWorldYAt`'s own doc comment).
+    // Emitting before `trail.step(dt)` (below, unchanged) still runs for every
+    // missile before any puff is aged, preserving the original ordering: a
+    // puff emitted this frame gets age 0, not `dt`.
+    const look = this.look;
+    let bodyQuadCount = 0;
+    const [br, bg, bb] = this.bodyColor;
+    for (const m of this.missiles) {
+      this.curLaunchY = groundWorldY(elevation, w, h, m.sx, m.sy);
+      this.curImpactY = groundWorldY(elevation, w, h, m.tx, m.ty);
+
+      if (look !== null) {
+        emitAlongFlight(this.trail, m, look, this.trailWorldYAt);
+      }
+
+      if (bodyQuadCount < MISSILE_CAPACITY && missileIgnited(m)) {
+        const groundDist = missileGroundDist(m);
+        const progress = missileProgress(m);
+        const tailU = groundDist > 0 ? Math.max(0, progress - MISSILE_BODY_TILES / groundDist) : 0;
+        const a = missilePointAt(m, tailU);
+        const b = missilePointAt(m, progress);
+        const aY = lerpMissileWorldY(this.curLaunchY, this.curImpactY, tailU, a.liftPx);
+        const bY = lerpMissileWorldY(this.curLaunchY, this.curImpactY, progress, b.liftPx);
+        const quad = liftedSegmentQuad(a.x, a.y, aY, b.x, b.y, bY, MISSILE_BODY_WIDTH_PX, MISSILE_BODY_WIDTH_PX);
+        this.bodyPositions.set(quad, bodyQuadCount * 12);
+        for (let v = 0; v < 4; v++) {
+          const ci = bodyQuadCount * 12 + v * 3;
+          this.bodyColors[ci] = br;
+          this.bodyColors[ci + 1] = bg;
+          this.bodyColors[ci + 2] = bb;
+          this.bodyAlphas[bodyQuadCount * 4 + v] = 1;
+        }
+        bodyQuadCount++;
       }
     }
 
     this.trail.step(dt);
 
-    // --- Body quads: one per ignited, drawn missile. ---
-    let bodyQuadCount = 0;
-    const [br, bg, bb] = this.bodyColor;
-    for (const m of this.missiles) {
-      if (bodyQuadCount >= MISSILE_CAPACITY) break;
-      if (!missileIgnited(m)) continue;
-      const groundDist = missileGroundDist(m);
-      const progress = missileProgress(m);
-      const tailU = groundDist > 0 ? Math.max(0, progress - MISSILE_BODY_TILES / groundDist) : 0;
-      const a = missilePointAt(m, tailU);
-      const b = missilePointAt(m, progress);
-      const launchY = groundWorldY(elevation, w, h, m.sx, m.sy);
-      const impactY = groundWorldY(elevation, w, h, m.tx, m.ty);
-      const aY = launchY + (impactY - launchY) * tailU + a.liftPx * WORLD_Y_PER_LIFT_PIXEL;
-      const bY = launchY + (impactY - launchY) * progress + b.liftPx * WORLD_Y_PER_LIFT_PIXEL;
-      const quad = liftedSegmentQuad(a.x, a.y, aY, b.x, b.y, bY, MISSILE_BODY_WIDTH_PX, MISSILE_BODY_WIDTH_PX);
-      this.bodyPositions.set(quad, bodyQuadCount * 12);
-      for (let v = 0; v < 4; v++) {
-        const ci = bodyQuadCount * 12 + v * 3;
-        this.bodyColors[ci] = br;
-        this.bodyColors[ci + 1] = bg;
-        this.bodyColors[ci + 2] = bb;
-        this.bodyAlphas[bodyQuadCount * 4 + v] = 1;
-      }
-      bodyQuadCount++;
-    }
     this.bodyPositionAttr.needsUpdate = true;
     this.bodyColorAttr.needsUpdate = true;
     this.bodyAlphaAttr.needsUpdate = true;

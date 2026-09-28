@@ -52,7 +52,7 @@ function buffers(n: number): SpriteBuffers {
   return { positions: new Float32Array(n * 3), colors: new Float32Array(n * 3), alphas: new Float32Array(n),
     scales: new Float32Array(n), softs: new Float32Array(n) };
 }
-const flatY = (_x: number, _y: number, liftPx: number): number => liftPx;
+const flatY = (_m: MissileModel, liftPx: number): number => liftPx;
 
 describe('trailLookFrom (P-3)', () => {
   it('reads the three layers by role, not by position, with every colour resolved (N9, N10)', () => {
