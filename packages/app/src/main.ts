@@ -156,6 +156,7 @@ import {
 import { rendererOptionsFor } from './renderer-options';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
+import { timeOfDayOf } from './time-of-day';
 import { registerServiceWorker } from './service-worker';
 import {
   Router,
@@ -1647,12 +1648,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // min-range ring would keep drawing the default palette regardless of the
   // setting; `rendererOptionsFor` is what now holds that agreement.
   const cvdVariant = req.settings.get().accessibility.colorVision;
+  // R-12/N-23: a mission's own `map.time_of_day` always wins; the sandbox
+  // reads `&tod=` instead. `mission` is cast the same way `missionTown` is
+  // above -- `MissionJson` (`@lions/sim`) does not model `map.time_of_day`,
+  // since the sim never reads it.
+  const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
+  if (tod.warning) console.warn(`[lions] ${tod.warning}`);
   const opts: RendererOptions = {
     ...rendererOptionsFor(
       map,
       { colorVision: cvdVariant, quality: req.settings.get().video.quality },
       BASE
     ),
+    timeOfDay: tod.value,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals

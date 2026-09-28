@@ -264,3 +264,16 @@ describe('voicetick (WP-AU1 R-10)', () => {
     expect(unknownParams(new URLSearchParams('voicetick'))).toEqual([]);
   });
 });
+
+describe('tod (R-12, N-23)', () => {
+  it('is a known URL parameter, never a Free play flag, and no typo warning', () => {
+    expect(KNOWN_PARAMS.map((p) => p.name)).toContain('tod');
+    expect(SANDBOX_FLAGS.map((f) => f.name as string)).not.toContain('tod');
+    expect(unknownParams(new URLSearchParams('?sandbox=beit_sahwan_outskirts&tod=dusk'))).toEqual([]);
+  });
+
+  it('sandboxHelp prints its blurb', () => {
+    const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: [] };
+    expect(sandboxHelp(ctx)).toContain('dawn | day | dusk | night');
+  });
+});
