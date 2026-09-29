@@ -3,11 +3,13 @@
 // Exit code 1 when any target is missed: the combat model is the product,
 // and these numbers are its acceptance test.
 
-import { atgmPk, apsIntercept, urbanRatio, lanchester, airContested } from '../backtest/targets';
+import { atgmPk, apsIntercept, urbanRatio, urbanSmokeStep, lanchester, airContested } from '../backtest/targets';
 import { report, unitsAtMaxTier, withRoster } from '../backtest/harness';
 
 function runTargets() {
-  return [atgmPk(), apsIntercept(), urbanRatio(), lanchester(), airContested()];
+  // `urbanSmokeStep` is not a §5.7 target -- §5.7 measures the model without
+  // smoke -- but it runs in both tables so a tier cannot buy smoke a second step.
+  return [atgmPk(), apsIntercept(), urbanRatio(), urbanSmokeStep(), lanchester(), airContested()];
 }
 
 const t0 = Date.now();
