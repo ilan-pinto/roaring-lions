@@ -1438,9 +1438,18 @@ try {
       `voices (b): keys ${burst.map((e) => e.key ?? '-').join()}`
     );
     const heard = tones(b1).slice(tones(b0).length);
+    // A recorded line is a real take, not a placeholder tone: once
+    // he.common.ack has a shipped variant the ack voice is heard as audio, and
+    // only the move (he.crew.move is still empty) is a tone. Read from the
+    // manifest so recording more lines does not need this leg edited again.
+    const audioManifest = JSON.parse(
+      fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../data/audio.json'), 'utf8')
+    ) as { voices: { lines: Record<string, { variants: unknown[] }> } };
+    const ackRecorded = (audioManifest.voices.lines['he.common.ack']?.variants.length ?? 0) > 0;
     expect(
-      heard.join() === `${PLACEHOLDER_HZ.move},${PLACEHOLDER_HZ.ack}`,
-      `voices (b): the burst sounded ${heard.join() || 'nothing'} -- two voices, move then ack, and a silence`
+      heard.join() === (ackRecorded ? `${PLACEHOLDER_HZ.move}` : `${PLACEHOLDER_HZ.move},${PLACEHOLDER_HZ.ack}`),
+      `voices (b): the burst sounded ${heard.join() || 'nothing'} -- the move as a tone, then the ack ` +
+        `(${ackRecorded ? 'a recording, so no tone' : 'a tone'}), and a silence`
     );
 
     // (c) Voices at 0: nothing plays. The slider is driven through the pause
