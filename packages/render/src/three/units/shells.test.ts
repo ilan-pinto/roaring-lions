@@ -40,8 +40,16 @@ describe('shellKindFor', () => {
     expect(shellKindFor(WEAPON_CLASS.heat)).toBe('missile');
   });
 
+  // E5 Task 3 (G5): the Peten's rocket pods are the first `he` weapon on the
+  // roster. `he` is ONE round per shot, so it flies; and routing it to
+  // 'missile' is only half the job -- `MissileFx` must be able to spawn it,
+  // or the tracer is suppressed and nothing draws at all.
+  it('flies a missile for `he`, the rocket-pod class', () => {
+    expect(shellKindFor(WEAPON_CLASS.he)).toBe('missile');
+  });
+
   it('leaves the STREAM classes on the flat tracer, which is what that ribbon is right for', () => {
-    for (const name of ['small_arms', 'hmg', 'he', 'interceptor', 'demolition']) {
+    for (const name of ['small_arms', 'hmg', 'interceptor', 'demolition']) {
       expect(shellKindFor(WEAPON_CLASS[name])).toBeNull();
     }
   });

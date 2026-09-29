@@ -49,7 +49,7 @@ function track(x: number, y: number, alive = 1): TargetTrack {
 }
 
 describe('the flight time is the sim\'s own (spec D1)', () => {
-  it('copies PROJ_SPEED for the three missile classes, read from tuning.ts as text', () => {
+  it('copies PROJ_SPEED for the four missile classes, read from tuning.ts as text', () => {
     const src = readFileSync(TUNING, 'utf8');
     const block = /export const PROJ_SPEED = new Int32Array\(\[([\s\S]*?)\]\)/.exec(src);
     if (block === null) throw new Error('PROJ_SPEED not found in tuning.ts -- the pin must be re-pointed, not deleted');
@@ -58,6 +58,7 @@ describe('the flight time is the sim\'s own (spec D1)', () => {
     expect(SIM_PROJ_SPEED_TILES_S.atgm).toBe(byName.get('atgm'));
     expect(SIM_PROJ_SPEED_TILES_S.rpg).toBe(byName.get('rpg'));
     expect(SIM_PROJ_SPEED_TILES_S.heat).toBe(byName.get('heat'));
+    expect(SIM_PROJ_SPEED_TILES_S.he).toBe(byName.get('he'));
   });
 
   // n = ceil(dist / (speed x 0.05)) is prTicksLeft; the round resolves n - 1
@@ -114,8 +115,13 @@ describe('missileVariantFor (spec D2)', () => {
     expect(missileVariantFor(WEAPON_CLASS.rpg, 'spike_atgm')).toBe('unguided');
   });
 
+  it('flies an `he` rocket pod unguided (E5 Task 3)', () => {
+    expect(missileVariantFor(WEAPON_CLASS.he, 'rocket_pod')).toBe('unguided');
+    expect(spawnMissile(launch({ cls: WEAPON_CLASS.he, weaponId: 'rocket_pod' }))).not.toBeNull();
+  });
+
   it('claims no other class', () => {
-    for (const name of ['apfsds', 'he', 'small_arms', 'hmg', 'autocannon', 'mortar', 'rocket', 'interceptor', 'demolition']) {
+    for (const name of ['apfsds', 'small_arms', 'hmg', 'autocannon', 'mortar', 'rocket', 'interceptor', 'demolition']) {
       expect(missileVariantFor(WEAPON_CLASS[name], 'x')).toBeNull();
     }
   });

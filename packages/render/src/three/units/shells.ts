@@ -320,9 +320,10 @@ function clamp(v: number, lo: number, hi: number): number {
  *    rounds a minute: ten discrete streaks a second strung along the line
  *    is what a chain gun looks like, and it is the half of "the
  *    helicopter's weapons" that is not the Hellfire.
- *  - `atgm` (`hellfire`, `kornet`, `spike_atgm`, `manpad`), `rpg` and
- *    `heat` fly a `missile` -- `units/missiles.ts`'s, not a profile here
- *    (GH-250).
+ *  - `atgm` (`hellfire`, `kornet`, `spike_atgm`, `manpad`), `rpg`, `heat`
+ *    and `he` fly a `missile` -- `units/missiles.ts`'s, not a profile here
+ *    (GH-250). `he` is the Peten gunship's rocket pod, the first `he`
+ *    weapon on the roster (E5); it flies the unguided variant.
  *  - `small_arms` and `hmg` keep the tracer -- see this module's top
  *    comment, "GH-149", for why a rifle burst is the one case the full-span
  *    ribbon is right for.
@@ -334,7 +335,12 @@ export function shellKindFor(cls: number): ProjectileKind | null {
   if (cls === WEAPON_CLASS.mortar) return 'mortar';
   if (cls === WEAPON_CLASS.rocket) return 'rocket';
   if (cls === WEAPON_CLASS.apfsds || cls === WEAPON_CLASS.autocannon) return 'bolt';
-  if (cls === WEAPON_CLASS.atgm || cls === WEAPON_CLASS.rpg || cls === WEAPON_CLASS.heat) {
+  if (
+    cls === WEAPON_CLASS.atgm ||
+    cls === WEAPON_CLASS.rpg ||
+    cls === WEAPON_CLASS.heat ||
+    cls === WEAPON_CLASS.he
+  ) {
     return 'missile';
   }
   return null;
