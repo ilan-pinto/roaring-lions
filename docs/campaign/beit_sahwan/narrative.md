@@ -162,12 +162,13 @@ does not exist (`storyline.md` §7 G3); the title card holds for 900 ms and
 dismisses on any input (`ui/motion.ts:49`), so a longer hold is part of the
 same piece of work. Status **`schema`**.
 
-### 2.3 `briefing` — 1,242 chars, 8 beats — **changed (delta pass; GH-279)**
+### 2.3 `briefing` — 1,222 chars, 8 beats — **changed (delta pass; beat 8 again for GH-279)**
 
 `design.md` §5.6: the shipped text *"already carries the atrocity in full and
 **must not gain narration**"*, and needs *"two clauses it does not have: the
-forward section, and the eye aloft."* Both are added; the five shipped beats
-survive **word for word** as beats 1, 2, 3, 7 and 8.
+forward section, and the eye aloft."* Both are added; four of the five shipped
+beats survive **word for word** as beats 1, 2, 3 and 7. Beat 8's first sentence
+was rewritten for GH-279 (item 4 below); its second is the shipped one.
 
 | beat | speaker | line | chars |
 |---|---|---|---|
@@ -178,7 +179,7 @@ survive **word for word** as beats 1, 2, 3, 7 and 8.
 | 5 | **Idit** | They have an eye aloft north of the wire and a mortar crew laid in behind it. What lands in this yard lands because that eye is watching. | 137 |
 | 6 | **Shai** | Only the sniper's rifle reaches that high, and the tube itself is four tiles off the section's position. Whichever of the two you spend is not covering the wall while it works. | 176 |
 | 7 | **Shai** | The villages are outside the wire and the families in them have nowhere else to go: get at least two inside before the ring closes, because nobody is coming back for them afterwards. | 182 |
-| 8 | **Shai** | Take something fast: a family runs for the compound once one of ours is within four tiles of it, or once it comes under fire. Hold the yard, and still be standing when the column reaches us. | 190 |
+| 8 | **Shai** | Take something fast: a family runs for the compound once one of ours is within four tiles, or under fire. Hold the yard, and still be standing when the column reaches us. | 170 |
 
 Idit / Shai / Idit / Shai / Idit / Shai / Shai / Shai. The picture and the plan
 alternate for six beats and the last three are Shai's, exactly as the shipped
@@ -206,8 +207,9 @@ five closed on two of his — the back half is cost and orders, which are his.
    the two you spend is not covering the wall while it works"* is the cost, and
    it is the only sentence in the beat that is not a fact.
 3. **Nothing else moved.** Beat 7 is the atrocity beat verbatim, *"nobody is
-   coming back for them afterwards"* included; beats 1, 2, 3 and 8 are the
-   shipped strings unedited. 675 → **1,182 chars**, inside the shipped 385–1,225
+   coming back for them afterwards"* included; beats 1, 2, 3 and 8 were the
+   shipped strings unedited at this pass (beat 8 has since changed -- item 4).
+   675 → **1,182 chars**, inside the shipped 385–1,225
    band — second longest in the tree behind `wadi_halam_5_depot`'s 1,225, which
    is the band's own ceiling. That length is deliberate: First Light asks more
    simultaneous decisions than any other mission and it is the one briefing a
@@ -216,13 +218,14 @@ five closed on two of his — the back half is cost and orders, which are his.
    *"Take something fast, brush them, and let them walk themselves in"* named
    the tactic and never the rule behind it, and a player who could not see the
    rule read every family that bolted as running for no reason. The sentence
-   is now *"a family runs for the compound once one of ours is within four
-   tiles of it, or once it comes under fire"* -- the two triggers of
+   is now *"Take something fast: a family runs for the compound once one of
+   ours is within four tiles, or under fire"* -- the two triggers of
    `CivilianFlight.step`, in the first mission that scores an evacuation.
    Still eight beats (beat 7 at 182 chars cannot take a second sentence under
-   the 240-char beat cap, so beat 8 keeps its own seam). 1,182 → **1,242
-   chars**, now second longest behind `qarn_hadid_3_clearance`'s 1,272. The
-   in-mission half of the same fix is a feed line naming the cause each time
+   the 240-char beat cap, so beat 8 keeps its own seam). 1,182 → **1,222
+   chars**, cut to fit: the 385–1,225 band is this sheet's authoring contract
+   (`.claude/agents/narrative-designer.md`, `docs/campaign/README.md`), and a
+   first draft at 1,242 broke it. The in-mission half of the same fix is a feed line naming the cause each time
    families break, and the refuge on the minimap and in the tracker.
 
 **Idit is not named in the third person here, and that is the one briefing in
@@ -966,7 +969,7 @@ other's content; that is a call for whoever owns this sheet, not a script.
 Recorded at each row above. G11 in `storyline.md` §7 is otherwise closed.
 
 **What this delta pass changed in the JSON**, and nothing else:
-`beit_sahwan_breach.briefing` (675 → 1,182 chars, 5 → 8 beats),
+`beit_sahwan_breach.briefing` (675 → 1,182 chars, 5 → 8 beats; 1,222 after GH-279),
 `beit_sahwan_breach.objectives[hold_outpost].text`,
 `beit_sahwan_4_subterranean.briefing` (912 → 1,178 chars, 5 → 7 beats), and
 `beit_sahwan_4_subterranean.objectives[find_spade].text`. `get_them_out` and

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import khanRafid2 from '../../../data/missions/khan_rafid_2_foothold.json';
 import khanRafidMap from '../../../data/maps/khan_rafid.json';
+import firstLight from '../../../data/missions/beit_sahwan_breach.json';
+import { briefingBeats } from './ui/loading';
 
 const mission = {
   civilians: { refuge: 'civ_refuge' },
@@ -89,5 +91,22 @@ describe('activeRefuge', () => {
     // A hold still running does not keep the refuge up on its own.
     expect(activeRefuge([row('hold')], targets, refuge)).toBeNull();
     expect(activeRefuge([row('get_four_in')], targets, null)).toBeNull();
+  });
+});
+
+// The rule, in words, in the first mission that scores it (GH-279). Held to the
+// narrative sheet's own contract: 385-1,225 characters
+// (`.claude/agents/narrative-designer.md`, `docs/campaign/README.md`) and the
+// eight beats `docs/campaign/beit_sahwan/narrative.md` §2.3 tabulates.
+describe("First Light's briefing states the flight rule", () => {
+  const beats = briefingBeats(firstLight.briefing);
+  it('names both triggers: a soldier within four tiles, and fire', () => {
+    expect(beats[7]).toMatch(/within four tiles/);
+    expect(beats[7]).toMatch(/under fire/);
+  });
+  it('stays inside the authored band and the tabulated eight beats', () => {
+    expect(firstLight.briefing.length).toBeGreaterThanOrEqual(385);
+    expect(firstLight.briefing.length).toBeLessThanOrEqual(1225);
+    expect(beats).toHaveLength(8);
   });
 });

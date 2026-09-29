@@ -80,12 +80,56 @@ export function objectivesPanel(
   list.className = 'rl-obj-list';
   p.body.appendChild(list);
 
+  // ONE click listener, on the list, never on a row's own button: the list
+  // outlives every repaint, so a click lands whatever `paint` did between the
+  // press and the release. The coordinates ride on the button itself.
+  list.addEventListener('click', (ev) => {
+    const btn = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.rl-obj__jump');
+    if (!btn || !list.contains(btn)) return;
+    deps.onJump?.(Number(btn.dataset.x), Number(btn.dataset.y));
+  });
+
+  /** Everything a row draws EXCEPT its clock's digits, which change every
+   *  second and are updated in place. When this is unchanged, nothing is
+   *  rebuilt -- the in-mission mount refreshes at 4 Hz, and rebuilding the
+   *  rows every time destroyed the button under a player's pointer mid-click
+   *  and dropped the focus trap's focus to `body` (GH-279 review). */
+  let lastShape: string | null = null;
+
   const paint = (): void => {
-    list.innerHTML = '';
     // The same comparator pause.ts's own objective list sorts with --
     // `Array.prototype.sort` is stable (ES2019+), so units within a half
     // keep the order `rows()` handed them in.
     const sorted = [...deps.rows()].sort((a, b) => Number(b.primary) - Number(a.primary));
+    const shape = JSON.stringify(
+      sorted.map((o) => [
+        o.id,
+        o.primary,
+        o.carries,
+        o.status,
+        o.text,
+        o.ticksLeft !== undefined,
+        deps.onJump ? (o.jumpTo ?? null) : null,
+      ])
+    );
+    if (shape === lastShape) {
+      sorted.forEach((o, i) => {
+        if (o.ticksLeft === undefined) return;
+        const clock = list.children[i]?.querySelector('.rl-obj__clock');
+        if (clock) clock.textContent = clockText(o.ticksLeft);
+      });
+      return;
+    }
+    lastShape = shape;
+
+    // A real change (a status flipped, a tally moved): rebuild, and hand the
+    // focus to the same control in the new row if it was on one.
+    const focused = document.activeElement;
+    const refocus =
+      focused instanceof HTMLElement && list.contains(focused)
+        ? { id: focused.closest<HTMLElement>('.rl-obj')?.dataset.id, cls: focused.className }
+        : null;
+    list.innerHTML = '';
     for (const o of sorted) {
       const li = document.createElement('li');
       li.className = 'rl-obj';
@@ -121,12 +165,12 @@ export function objectivesPanel(
       // one place the families walk to, and the only way to find it short of
       // watching them run.
       if (o.jumpTo && deps.onJump) {
-        const at = o.jumpTo;
         const jump = document.createElement('button');
         jump.type = 'button';
         jump.className = 'rl-btn rl-obj__jump';
         jump.textContent = t('objectives.jumpRefuge');
-        jump.addEventListener('click', () => deps.onJump?.(at.x, at.y));
+        jump.dataset.x = String(o.jumpTo.x);
+        jump.dataset.y = String(o.jumpTo.y);
         li.appendChild(jump);
       }
 
@@ -144,6 +188,11 @@ export function objectivesPanel(
       }
 
       list.appendChild(li);
+    }
+    const classes = refocus?.cls.split(/\s+/).filter(Boolean) ?? [];
+    if (refocus?.id !== undefined && classes.length > 0) {
+      const row = [...list.children].find((li) => (li as HTMLElement).dataset.id === refocus.id);
+      row?.querySelector<HTMLElement>(`.${classes.map((c) => CSS.escape(c)).join('.')}`)?.focus({ preventScroll: true });
     }
   };
   paint();

@@ -146,3 +146,68 @@ describe('objectivesPanel — the refuge jump (GH-279)', () => {
     p.dispose();
   });
 });
+
+describe('objectivesPanel — the refuge jump survives a refresh (GH-279 review)', () => {
+  const evacRow = (ticksLeft: number, text = 'Get four in (1/4)'): ObjectiveRow => ({
+    id: 'get_four_in',
+    text,
+    primary: true,
+    carries: false,
+    status: 'active',
+    ticksLeft,
+    jumpTo: { x: 24.5, y: 22.5 },
+  });
+
+  // The in-mission mount refreshes every 5 ticks while the clock ticks down.
+  // A press and a release that straddle one must still be ONE button, or the
+  // browser never dispatches the click at all.
+  it('keeps the same button between mousedown and click while only the clock moves', () => {
+    let left = 5000;
+    const jumps: [number, number][] = [];
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const p = objectivesPanel(host, { rows: () => [evacRow(left)], paysCredits: true, onJump: (x, y) => jumps.push([x, y]) });
+    const pressed = p.el.querySelector<HTMLButtonElement>('.rl-obj__jump');
+    pressed?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    left -= 20;
+    p.refresh();
+    const released = p.el.querySelector<HTMLButtonElement>('.rl-obj__jump');
+    expect(released).toBe(pressed);
+    released?.click();
+    expect(jumps).toEqual([[24.5, 22.5]]);
+    // The clock still moved, in place.
+    expect(p.el.querySelector('.rl-obj__clock')?.textContent).toBe(clockText(left));
+    p.dispose();
+    host.remove();
+  });
+
+  it('keeps focus on the button across a refresh, so the focus trap does not lose it', () => {
+    let left = 5000;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const p = objectivesPanel(host, { rows: () => [evacRow(left)], paysCredits: true, onJump: () => {} });
+    p.el.querySelector<HTMLButtonElement>('.rl-obj__jump')?.focus();
+    left -= 20;
+    p.refresh();
+    expect(document.activeElement?.classList.contains('rl-obj__jump')).toBe(true);
+    p.dispose();
+    host.remove();
+  });
+
+  it('a real change rebuilds the row and still hands focus to its button', () => {
+    let text = 'Get four in (1/4)';
+    const jumps: [number, number][] = [];
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const p = objectivesPanel(host, { rows: () => [evacRow(5000, text)], paysCredits: true, onJump: (x, y) => jumps.push([x, y]) });
+    p.el.querySelector<HTMLButtonElement>('.rl-obj__jump')?.focus();
+    text = 'Get four in (2/4)';
+    p.refresh();
+    expect(p.el.querySelector('.rl-obj__text')?.textContent).toBe('Get four in (2/4)');
+    expect(document.activeElement?.classList.contains('rl-obj__jump')).toBe(true);
+    (document.activeElement as HTMLElement).click();
+    expect(jumps).toEqual([[24.5, 22.5]]);
+    p.dispose();
+    host.remove();
+  });
+});
