@@ -16,6 +16,7 @@ import {
   type TunnelRouteJson,
   type UnlockGate,
   type UnitTypeJson,
+  type SimEvent,
   type MissionResult,
   type Stars,
 } from '@lions/sim';
@@ -180,7 +181,10 @@ function run(
    *  in docs/campaign/special_units/e5), registered after every shipped type so no shipped
    *  type index moves. A KDF extra goes through the same max-tier pre-pass as any KDF type
    *  and is visible to `unitInfo`/`unlockOf`, so `requestBuild` sees its price and gate. */
-  extraUnits: readonly UnitTypeJson[] = []
+  extraUnits: readonly UnitTypeJson[] = [],
+  /** E5 Task 5 fix round 1: every tick's sim events, so a probe can count what a fielded unit
+   *  actually DID (rounds fired, kills, contacts) and not merely that it was on the map. */
+  onEvents?: (evs: readonly SimEvent[]) => void
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -222,6 +226,8 @@ function run(
   // `upgrades_to` resolved once, before the runtime is built, exactly as main.ts
   // does it -- so a placed force fields the earned unit here too and the spawner
   // stays gate-blind.
+  const withBought = (gate: UnlockGate | undefined, unitId: string): UnlockGate | undefined =>
+    gate ? { ...gate, bought: bought.has(unitId) } : undefined;
   const unitData: Record<string, unknown> = { ...units, ...Object.fromEntries(extraUnits.map((u) => [u.id, u])) };
   const unlockOf = (unitId: string): UnlockGate | undefined => {
     if (gateOf) return gateOf(unitId);
@@ -232,7 +238,7 @@ function run(
       >
     )[unitId];
     const gate = d ? kdfUnlockGate(d) : undefined;
-    return gate ? { ...gate, bought: bought.has(unitId) } : undefined;
+    return withBought(gate, unitId);
   };
   const resolvedMission = resolveUpgrades(mission, ledger, unlockOf);
   const rt = new MissionRuntime(sim, resolvedMission, {
@@ -258,7 +264,7 @@ function run(
         // `bought` resolved here as in `main.ts`'s `kdfUnlockGate`: `requestBuild` reads THIS
         // gate through `buildBlockedReason`, so without it a purchase opened `resolveUpgrades`
         // and stayed closed to the build queue.
-        unlock: ((g) => (g ? { ...g, bought: bought.has(u) } : undefined))(kdfUnlockGate(d)),
+        unlock: withBought(kdfUnlockGate(d), u),
       };
     },
   });
@@ -284,6 +290,7 @@ function run(
   for (; t < maxTicks; t++) {
     for (const [when, fn] of timed) if (when === t) fn();
     const evs = sim.tick();
+    onEvents?.(evs);
     for (const me of rt.step(evs)) if (me.kind === 'missionEnd') produced = me.ledger;
     if (rt.result !== 'ongoing') break;
   }
@@ -2530,6 +2537,12 @@ interface BoughtRun {
   fieldedAtOrder: number;
   /** ...and when the mission ended. */
   aliveAtEnd: number;
+  /** What the unit DID, counted from sim events with the unit as shooter/observer. */
+  rounds: number;
+  hits: number;
+  kills: number;
+  contacts: number;
+  tunnelContacts: number;
 }
 
 function boughtProbe(
@@ -2538,6 +2551,8 @@ function boughtProbe(
   ledger: LedgerData,
   unitId: string,
   orderAtS: number,
+  /** The use this unit must be seen to make: a gunship shoots, a recon unit sees. */
+  use: 'fires' | 'sees',
   order: (unitIds: number[]) => Parameters<Sim['queueCommand']>[0]
 ): void {
   const label = `${id} (bought)`;
@@ -2549,7 +2564,8 @@ function boughtProbe(
     process.exitCode = 1;
     return;
   }
-  const seen: BoughtRun = { blocked: undefined, accepted: false, fieldedAtOrder: 0, aliveAtEnd: 0 };
+  const seen: BoughtRun = { blocked: undefined, accepted: false, fieldedAtOrder: 0, aliveAtEnd: 0, rounds: 0, hits: 0, kills: 0, contacts: 0, tunnelContacts: 0 };
+  const mineEver = new Set<number>();
   let idsOf: ((t: string) => number[]) | undefined;
   const plan: Plan = (sim, rt, ids, at) => {
     idsOf = ids;
@@ -2562,13 +2578,24 @@ function boughtProbe(
     at(orderAtS, () => {
       const mine = ids(unitId);
       seen.fieldedAtOrder = mine.length;
+      for (const m of mine) mineEver.add(m);
       if (mine.length > 0) sim.queueCommand(order(mine));
     });
   };
   const measured = { result: 'ongoing' as 'ongoing' | 'victory' | 'defeat', stars: 0 as Stars, roeScore: 0, credits: 0, minutes: 0 };
   run(id, plan, ledger, 'victory', label, baseStars, undefined, new Set([unitId]), undefined, undefined, measured, [
     stagedUnit(unitId),
-  ]);
+  ], (evs) => {
+    for (const e of evs) {
+      if (e.kind === 'fire' && mineEver.has(e.shooter)) {
+        seen.rounds++;
+        if (e.willHit) seen.hits++;
+      } else if (e.kind === 'destroyed' && mineEver.has(e.by)) seen.kills++;
+      else if (e.kind === 'contact' && e.side === 0 && e.level === 'identified' && mineEver.has(e.observer)) seen.contacts++;
+      else if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified' && mineEver.has(e.observer))
+        seen.tunnelContacts++;
+    }
+  });
   seen.aliveAtEnd = idsOf ? idsOf(unitId).length : 0;
   console.log(
     `${label}: build ${seen.accepted ? 'ACCEPTED' : 'REFUSED'}${seen.blocked ? ` (${seen.blocked})` : ''}, ` +
@@ -2578,6 +2605,21 @@ function boughtProbe(
     `${label}: vs plain ${id}: stars ${measured.stars} (plain ${baseStars}), ROE ${measured.roeScore} (plain ${baseRoe}), ` +
       `credits ${measured.credits} (plain ${baseCredits}), clock ${measured.minutes.toFixed(1)} min`
   );
+  console.log(
+    `${label}: use — rounds ${seen.rounds} (hits ${seen.hits}), kills ${seen.kills}, ` +
+      `identified ${seen.contacts} unit(s) + ${seen.tunnelContacts} route(s)`
+  );
+  // The strongest condition each plan meets: a gunship scores a kill (measured 2 here, 79
+  // rounds), a recon unit identifies something (8 units + 1 route measured).
+  const used = use === 'fires' ? seen.kills > 0 : seen.contacts + seen.tunnelContacts > 0;
+  if (!used) {
+    console.error(`${label}: FAILED — ${unitId} was fielded and ${use === 'fires' ? 'never scored a kill' : 'identified nothing'}`);
+    process.exitCode = 1;
+  }
+  if (seen.aliveAtEnd < 1) {
+    console.error(`${label}: FAILED — ${unitId} did not survive to the end`);
+    process.exitCode = 1;
+  }
   if (!seen.accepted || seen.fieldedAtOrder === 0) {
     console.error(`${label}: FAILED — the purchase did not put a ${unitId} in the field (${seen.blocked ?? 'no reason given'})`);
     process.exitCode = 1;
@@ -2592,14 +2634,14 @@ function boughtProbe(
 
 // The Zikit is built on the first tick (22 s), then walks to (28,27): from there its sight
 // of 14 holds the souk and clinic vents in view behind the escort's push.
-boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, (mine) => ({
+boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
   kind: 'move',
   ids: mine,
   ...M(28, 27),
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
-boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55, (mine) => ({
+boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55, 'fires', (mine) => ({
   kind: 'attackMove',
   ids: mine,
   ...M(32, 8),
