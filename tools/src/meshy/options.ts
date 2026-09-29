@@ -19,6 +19,16 @@ export type Topology = (typeof TOPOLOGIES)[number];
 export const POSE_MODES = ['a-pose', 't-pose', ''] as const;
 export type PoseMode = (typeof POSE_MODES)[number];
 
+/** What `--pose` accepts. `none` is the flag's spelling of the API's empty
+ *  `pose_mode` (no pose constraint), so the default stays today's behaviour. */
+export const POSE_FLAGS = ['a-pose', 't-pose', 'none'] as const;
+export type PoseFlag = (typeof POSE_FLAGS)[number];
+
+/** `--pose` value -> the API's `pose_mode`: `none` -> `''`, the rest verbatim. */
+export function poseModeFor(pose: PoseFlag): PoseMode {
+  return pose === 'none' ? '' : pose;
+}
+
 export const TARGET_FORMATS = ['glb', 'obj', 'fbx', 'stl', 'usdz', '3mf'] as const;
 export type TargetFormat = (typeof TARGET_FORMATS)[number];
 
@@ -75,6 +85,7 @@ function memberOf<T extends string>(values: readonly T[], value: string, label: 
 
 export const asModelType = (v: string): ModelType => memberOf(MODEL_TYPES, v, 'model-type');
 export const asAiModel = (v: string): AiModel => memberOf(AI_MODELS, v, 'ai-model');
+export const asPoseFlag = (v: string): PoseFlag => memberOf(POSE_FLAGS, v, 'pose');
 export const asTopology = (v: string): Topology => memberOf(TOPOLOGIES, v, 'topology');
 export const asTextureResolution = (v: string): TextureResolution => memberOf(TEXTURE_RESOLUTIONS, v, 'tex');
 export const asTaskKind = (v: string): TaskKind => memberOf(TASK_KINDS, v, 'kind');
