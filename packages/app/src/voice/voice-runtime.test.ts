@@ -4,7 +4,7 @@ import type { VoiceResult } from '@lions/render';
 import type { PlayerIntent } from '../input/intents';
 import type { DirectorLook, VoiceCue } from './director';
 import type { VoiceClass } from './lines';
-import { VOICE_LOG_SIZE, VoiceRuntime, voicePlaceholderOn, type VoiceRuntimeDeps } from './voice-runtime';
+import { PINNED_CAPTION_S, VOICE_LOG_SIZE, VoiceRuntime, voicePlaceholderOn, type VoiceRuntimeDeps } from './voice-runtime';
 
 const LANGS = { kdf: 'he', ashwar: 'ar', sarim: 'ar', rif: 'ar' };
 const UNITS: Record<number, { faction: string; voice: VoiceClass } | undefined> = {
@@ -40,6 +40,7 @@ function rig(over: Partial<VoiceRuntimeDeps> = {}) {
     },
     caption: (t, s) => void captions.push([t, s]),
     info: (m) => void infos.push(m),
+    text: (k) => k,
     ...over,
   });
   const flush = (): void => {
@@ -189,6 +190,22 @@ describe('VoiceRuntime (WP-AU1 §7, R-3)', () => {
     r.rt.observe(order(3));
     r.flush();
     expect(r.played).toEqual([]);
+  });
+});
+
+describe('the pinned caption fallback (GH-262)', () => {
+  it('captions a pinned cue from its i18n key when no take exists', () => {
+    const r = rig({ look: { ...look, isPinned: () => true }, text: (k) => `T:${k}` });
+    r.rt.observe(order(1));
+    r.flush();
+    expect(r.captions).toEqual([['T:voice.caption.pinned', PINNED_CAPTION_S]]);
+  });
+
+  it('never captions an ordinary missing line (R-9 unchanged)', () => {
+    const r = rig({ text: (k) => `T:${k}` });
+    r.rt.observe(order(1));
+    r.flush();
+    expect(r.captions).toEqual([]);
   });
 });
 

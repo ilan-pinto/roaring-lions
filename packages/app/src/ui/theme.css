@@ -155,6 +155,11 @@
      --kit-edge outline, never by hue alone. */
   --kit: var(--rl-gunmetal-0);
   --kit-edge: var(--rl-shadow-0);
+  /* The one-pixel halo that lifts a status mark off unit art (GH-262: the
+     pinned mark on the chip and the card frame). The same entry --kit-edge
+     rides, and its own name because the two marks mean different things and
+     a later retune of one must not move the other by accident. */
+  --mark-edge: var(--rl-shadow-0);
   --bad: var(--rl-team-hostile);
   /* --bad is a FILL colour (the ROE gauge) and reads 4.01:1 as text over the
      panel ground -- under WCAG AA's 4.5:1 floor for body text
@@ -2218,7 +2223,17 @@ body {
 .rl-chip .rl-track {
   margin-top: 3px;
 }
-.rl-chip__status {
+/* GH-262 fix wave: .rl-hot (:1387) and .rl-bad-text (:1378) are equal
+   specificity to this rule and land earlier in the file, so the cascade
+   picked THIS declaration on a tone-marked chip status ("1 PINNED", "BROKEN"
+   both drew --ink-dim grey instead of --hot/--bad-text). Reordering the file
+   was rejected -- .rl-hot/.rl-bad-text are shared utility classes used all
+   over this sheet and moving them would be a much larger, less obvious diff
+   for the same effect. Excluding the tone classes here instead raises this
+   selector's specificity only on the elements that also carry one of those
+   two classes, leaving every untoned `.rl-chip__status` (still just
+   `var(--ink-dim)`) completely unchanged. */
+.rl-chip__status:not(.rl-hot):not(.rl-bad-text) {
   color: var(--ink-dim);
 }
 
@@ -3983,6 +3998,35 @@ button.rl-menu__item[data-kind='aside'] {
    by the margin that surface's own corner mark uses -- the role badge's 3 px,
    the art's 2 px. */
 .rl-card__frame > .rl-kit-icon { top: 0.1875rem; right: 0.1875rem; }
+
+/* The pinned status mark on a unit's ICON (GH-262, candidate A "pressed
+   flat", G-PIN 28 Sep): bottom-left, the corner the kit sign (top-right) and
+   the card's role badge (top-left) leave free. --hot, which already means
+   pinned in the strip, the card flag and the chip's status line, lifted off
+   the art by a one-pixel --mark-edge halo exactly as the kit sign is --
+   never a plate. Absolute, so a pinned chip or card is exactly as tall as an
+   unpinned one. Sized in rem (12 px on the chip, 16 on the card at scale 1;
+   the svg's px attributes are the floor) so --ui-scale reaches it; these
+   selectors outrank `.rl-sym:not(.rl-badge)`'s 1em, which is for a mark
+   standing in for a character, and this one stands in for none. The strip
+   and the card flag draw the same mark inline, bare, 1em of their type. */
+.rl-pin-mark {
+  position: absolute;
+  line-height: 0;
+  color: var(--hot);
+  pointer-events: none;
+  filter: drop-shadow(0 0 1px var(--mark-edge));
+}
+/* The chip's host is a flex item of a row the status line can make taller
+   than the art (two lines at a large --ui-scale), and a stretched host put a
+   BOTTOM corner mark below the picture -- measured 157 px tall around 80 px
+   of art at --ui-scale 2. Held to the art's own box, so the corner is the
+   art's; the kit sign (top-right) sits where it always did. */
+.rl-chip > .rl-kit-host { align-self: flex-start; }
+.rl-kit-host > .rl-pin-mark { left: 1px; bottom: 1px; }
+.rl-kit-host > .rl-pin-mark svg { width: 0.75rem; height: 0.75rem; }
+.rl-card__frame > .rl-pin-mark { left: 0.1875rem; bottom: 0.1875rem; }
+.rl-card__frame > .rl-pin-mark svg { width: 1rem; height: 1rem; }
 .rl-tile > .rl-kit-icon { top: 0.125rem; right: 0.125rem; }
 /* A locked tile asks what to earn next, and its art is already drained (plan
    2b R-8). Hidden, not removed: it is back the moment the lock lifts. */

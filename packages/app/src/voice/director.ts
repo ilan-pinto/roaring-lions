@@ -30,6 +30,7 @@ import {
   languageOf,
   lineTriggerOf,
   orderLineKey,
+  pinnedLineKey,
   type LineTrigger,
   type OrderVerb,
   type VoiceClass,
@@ -45,6 +46,10 @@ export interface VoiceCue {
   trigger: LineTrigger;
   priority: VoicePriority; // from @lions/render
   at: { x: number; y: number } | null;
+  /** An i18n KEY, never text (GH-262): the runtime captions `t(caption)` when
+   *  the mixer answers `missing`/`placeholder` for this cue. Only the pinned
+   *  cue carries one today. */
+  caption?: string;
 }
 
 /** One player gesture: every intent it produced, and whether the pointer
@@ -65,6 +70,9 @@ export interface DirectorLook {
   pos(id: number): { x: number; y: number };
   isVisible(x: number, y: number): boolean;
   camera(): { x: number; y: number };
+  /** GH-262: is this unit pinned right now? Absent means "never pinned" --
+   *  a `look` with no member behaves exactly as before the feature. */
+  isPinned?(id: number): boolean;
 }
 
 /** The director's whole memory, threaded call to call. Every field is
@@ -83,6 +91,11 @@ export interface DirectorState {
   readonly kdfDeathByClass: Readonly<Record<string, number>>;
   readonly kdfDeathAt: number;
   readonly enemyDeathAt: number;
+  /** GH-262: the pinned branch's own clocks. `pinnedAt` is the last pinned
+   *  call for ANY selection; `pinnedBySel` is keyed by the sorted, comma-
+   *  joined pinned ids, mirroring `run.sel`. */
+  readonly pinnedAt: number;
+  readonly pinnedBySel: Readonly<Record<string, number>>;
 }
 
 /** Why this gesture got the cue it did, or none at all -- surfaced so a test
@@ -107,6 +120,8 @@ export const VOICE_TIMING = {
   kdfDeathGlobalMs: 2500,
   enemyDeathGlobalMs: 6000,
   enemyDeathTiles: 18,
+  pinnedRepeatMs: 4000,
+  pinnedGlobalMs: 2500,
 } as const;
 
 export const INITIAL_DIRECTOR: DirectorState = Object.freeze({
@@ -115,6 +130,8 @@ export const INITIAL_DIRECTOR: DirectorState = Object.freeze({
   kdfDeathByClass: Object.freeze({}),
   kdfDeathAt: Number.NEGATIVE_INFINITY,
   enemyDeathAt: Number.NEGATIVE_INFINITY,
+  pinnedAt: Number.NEGATIVE_INFINITY,
+  pinnedBySel: Object.freeze({}),
 });
 
 /** The one verb this gesture means, and the ids it applies to -- the
@@ -232,8 +249,47 @@ export function decideOrder(
   look: DirectorLook,
   languages: Readonly<Record<string, string>>,
   nowMs: number
-): { state: DirectorState; cue: VoiceCue | null; why: Why; trigger: OrderVerb | null } {
+): { state: DirectorState; cue: VoiceCue | null; why: Why; trigger: OrderVerb | 'pinned' | null } {
   const verb = gestureVerb(g);
+
+  // GH-262: a move/attack that touches a pinned unit answers "can't move,"
+  // never "moving" -- this branch decides the whole gesture and never falls
+  // through to the ordinary line below, throttled or not.
+  if (verb && (verb.verb === 'move' || verb.verb === 'attack') && look.isPinned) {
+    const isPinned = look.isPinned;
+    const pinnedIds = verb.ids.filter((id) => isPinned(id));
+    if (pinnedIds.length > 0) {
+      const pinnedSpeaker = speakerOf(pinnedIds, look, languages);
+      if (!pinnedSpeaker) {
+        return { state: s, cue: null, why: 'silent:unvoiced', trigger: verb.verb };
+      }
+      const pinnedSel = [...pinnedIds].sort((a, b) => a - b).join(',');
+      const throttled =
+        nowMs - (s.pinnedBySel[pinnedSel] ?? Number.NEGATIVE_INFINITY) < VOICE_TIMING.pinnedRepeatMs ||
+        nowMs - s.pinnedAt < VOICE_TIMING.pinnedGlobalMs;
+      if (throttled) {
+        return { state: s, cue: null, why: 'silent:throttle', trigger: 'pinned' };
+      }
+      const pinnedSpokeKey = `${pinnedSpeaker.lang}.${pinnedSpeaker.cls}`;
+      const cue: VoiceCue = {
+        key: pinnedLineKey(pinnedSpeaker.lang),
+        lang: pinnedSpeaker.lang,
+        speaker: pinnedSpeaker.cls,
+        trigger: 'pinned',
+        priority: 'order',
+        at: null,
+        caption: 'voice.caption.pinned',
+      };
+      const state: DirectorState = {
+        ...s,
+        pinnedAt: nowMs,
+        pinnedBySel: { ...s.pinnedBySel, [pinnedSel]: nowMs },
+        spoke: { ...s.spoke, [pinnedSpokeKey]: nowMs },
+      };
+      return { state, cue, why: 'line', trigger: 'pinned' };
+    }
+  }
+
   const speaker = verb && verb.ids.length > 0 ? speakerOf(verb.ids, look, languages) : null;
   if (!verb || verb.ids.length === 0 || !speaker) {
     return { state: s, cue: null, why: 'silent:unvoiced', trigger: verb?.verb ?? null };

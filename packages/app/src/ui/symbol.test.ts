@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import * as symbolModule from './symbol';
 import { SYMBOL_IDS, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
 
 const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'] as const;
 const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id);
 const viewBoxOf = (svg: string): number[] => (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? '').split(' ').map(Number);
 
-describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks)', () => {
-  it('is nineteen distinct ids: seven roles, eight orders, four utility marks', () => {
-    expect(SYMBOL_IDS).toHaveLength(19);
-    expect(new Set(SYMBOL_IDS).size).toBe(19);
+describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks, the pinned status mark)', () => {
+  it('is twenty distinct ids: seven roles, eight orders, four utility marks, one status mark', () => {
+    expect(SYMBOL_IDS).toHaveLength(20);
+    expect(new Set(SYMBOL_IDS).size).toBe(20);
+    expect(SYMBOL_IDS).toContain('pinned');
   });
 
   it('fills with currentColor and names no colour or variable', () => {
@@ -92,6 +94,28 @@ describe('the HUD order marks are cropped to their own surround', () => {
       expect(width / height).toBeCloseTo(w / h, 1);
       expect(svg).not.toContain('preserveAspectRatio="none"');
     }
+  });
+});
+
+describe('the pinned mark (A, "pressed flat", picked at G-PIN)', () => {
+  const body = symbolBody('pinned');
+  it('is filled only and in currentColor', () => {
+    expect(body).toContain('currentColor');
+    expect(body).not.toMatch(/stroke|#[0-9a-fA-F]{3}|var\(--/);
+  });
+  it('stays inside the 24 box: every coordinate in [0, 24]', () => {
+    const nums = [...body.matchAll(/-?\d+(\.\d+)?/g)].map((m) => Number(m[0]));
+    for (const n of nums) expect(n >= -24 && n <= 24).toBe(true); // relative arcs may be negative
+  });
+  it('is the ground bar over the down-chevron: two filled paths', () => {
+    expect(body.match(/<path /g)).toHaveLength(2);
+    expect(symbolSvg('pinned', 12)).toContain('data-symbol="pinned"');
+  });
+  it('is the one pinned glyph: the G-PIN candidates are gone', () => {
+    expect(Object.keys(symbolModule)).not.toContain('PINNED_CANDIDATES');
+  });
+  it('carries a pixel of ink at the chip size (12 px)', () => {
+    expect((W * 12) / 24).toBeGreaterThanOrEqual(1);
   });
 });
 

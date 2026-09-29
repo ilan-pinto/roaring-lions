@@ -219,6 +219,15 @@ describe('chips — the one status line', () => {
   });
 });
 
+describe('chips — the pinned mark (GH-262)', () => {
+  it('flags a chip pinned only when pinned is its worst condition', () => {
+    expect(groupChips([unit({ pinned: true })])[0].pinned).toBe(true);
+    // broken outranks pinned, exactly as the status line's precedence does
+    expect(groupChips([unit({ pinned: true }), unit({ routed: true, pinned: true })])[0].pinned).toBe(false);
+    expect(groupChips([unit({})])[0].pinned).toBe(false);
+  });
+});
+
 describe('chip focus', () => {
   it('wraps, so the last chip has a way back to the first', () => {
     expect(stepFocus(0, 3)).toBe(1);

@@ -11,6 +11,17 @@
       "autoPort": true
     },
     {
+      "name": "pinned-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "dev",
+        "--port",
+        "5223",
+        "--strictPort"
+      ],
+      "port": 5223
+    },
+    {
       "name": "story-dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

@@ -16,7 +16,16 @@ export const ORDER_VERBS: readonly OrderVerb[] = [
 /** The six verbs every class answers with one shared line (spec §4). */
 export const COMMON_VERBS = ['garrison', 'smoke', 'mount', 'dismount', 'halt', 'charge'] as const;
 export type CommonVerb = (typeof COMMON_VERBS)[number];
-export type LineTrigger = 'move' | 'attack' | 'death' | 'task' | 'ack' | CommonVerb;
+
+/** Calls, not verbs (GH-262): reactions the director volunteers on its own
+ *  reading of the world, never a rung `winningVerb` ranks for a gesture. */
+export const COMMON_CALLS = ['pinned'] as const;
+export type CommonCall = (typeof COMMON_CALLS)[number];
+export type LineTrigger = 'move' | 'attack' | 'death' | 'task' | 'ack' | CommonVerb | CommonCall;
+
+/** `<lang>.common.pinned` (GH-262 §2.4): the one key the pinned branch asks
+ *  data/audio.json for, in every language. */
+export const pinnedLineKey = (lang: string): string => `${lang}.common.pinned`;
 
 /** Spec §3's defaults, plus `eod` (R-15), which the table did not name. */
 const ROLE_VOICE: Readonly<Record<string, VoiceClass>> = {
@@ -80,6 +89,7 @@ export function allLineKeys(langs: Iterable<string>): string[] {
     out.push(`${lang}.engineer.task`);
     for (const v of COMMON_VERBS) out.push(`${lang}.common.${v}`);
     out.push(`${lang}.common.ack`);
+    out.push(pinnedLineKey(lang));
   }
   return out;
 }

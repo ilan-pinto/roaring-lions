@@ -37,8 +37,12 @@ describe('dingbatFailures', () => {
   });
 
   it('lists every retired dingbat once, and never the star exception', () => {
-    expect(RETIRED_DINGBATS).toHaveLength(16);
-    expect(new Set(RETIRED_DINGBATS).size).toBe(16);
+    expect(RETIRED_DINGBATS).toHaveLength(17);
+    expect(new Set(RETIRED_DINGBATS).size).toBe(17);
     expect(RETIRED_DINGBATS).not.toContain('★');
+  });
+
+  it('retires ▼ now that pinned is drawn (GH-262)', () => {
+    expect(dingbatFailures('i18n/en.json', '"hud.strip.pinned": "▼ {n} pinned"')).toHaveLength(1);
   });
 });

@@ -27,6 +27,8 @@
 // which puts every level on the chips at once where the three-type account
 // seed cannot; 26 is the seeded account again, on the one dock-bearing
 // mission the garage-uplift plan drives elsewhere (`beit_sahwan_breach`).
+// GH-262 Task 5 added 28-pinned-card and 28-pinned-chips: the pinned status
+// mark on a sandbox Lavi pinned through the sim's `debugSuppress` hook.
 // Every later task's acceptance is read off these files -- see
 // .superpowers/sdd/2026-09-16-shell-upgrade-phase-0/,
 // .superpowers/sdd/2026-09-18-shell-upgrade-phase-2/,
@@ -152,7 +154,13 @@ let OVERFLOW_TOTAL = 0;
 
 interface LionsWindow extends Window {
   __lions?: {
-    sim: { queueCommand(c: unknown): void; tick: number; debugKill(id: number): void };
+    sim: {
+      queueCommand(c: unknown): void;
+      tick: number;
+      debugKill(id: number): void;
+      /** Q16.16 amount; the sim's own test/sandbox hook (GH-262's 28-pinned). */
+      debugSuppress(id: number, amount: number): void;
+    };
     renderer: { camera: { x: number; y: number; zoom: number } };
     step(n: number): void;
     units(side?: number): { id: number; type: string; x: number; y: number }[];
@@ -548,6 +556,60 @@ async function garageStates(browser: Browser, res: { width: number; height: numb
     await settle(page, 300);
     await shot(page, dir, '27-cursor-sheet', { fullPage: true });
     await page.evaluate(() => document.getElementById('rl-cursor-sheet')?.remove());
+  }
+
+  // 28-pinned-card / 28-pinned-chips (GH-262 Task 5): the pinned status mark
+  // on the card frame, the card's PINNED flag, the strip, and a chip's art.
+  // A VEHICLE is pinned, because vehicles never rout and infantry breaks
+  // after 10 s pinned. `debugSuppress` is the sim's own test/sandbox hook;
+  // two applications clear `PIN_AT` for a Lavi's damped `suppResFactor`
+  // (37871 each, against 45875), and the sandbox's live loop does the tick
+  // that turns suppression into `pinned`. Re-applied before each capture:
+  // suppression really decays between round trips (~5 s to `UNPIN_AT`).
+  // Same timeout-is-not-a-defect treatment as 07c.
+  await page.goto(url('/free-play/beit_sahwan_outskirts'), { waitUntil: 'load' });
+  const reachedLionsForPin = await page
+    .waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined, null, {
+      timeout: 60000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (!reachedLionsForPin) {
+    console.log('  28 skipped: window.__lions did not appear within 60 s');
+  } else {
+    await settle(page, 700);
+    const pinIds = await page.evaluate(() => {
+      const L = (window as LionsWindow).__lions;
+      if (!L) return null;
+      const own = L.units(0);
+      const lavi = own.find((u) => u.type === 'mbt_lavi');
+      const other = own.find((u) => u.type !== 'mbt_lavi');
+      if (!lavi || !other) return null;
+      L.renderer.camera.x = lavi.x;
+      L.renderer.camera.y = lavi.y;
+      return { lavi: lavi.id, other: other.id };
+    });
+    if (pinIds === null) {
+      console.log('  28 skipped: the sandbox force needs an mbt_lavi and one other own unit');
+    } else {
+      for (const [name, ids] of [
+        ['28-pinned-card', [pinIds.lavi]],
+        ['28-pinned-chips', [pinIds.lavi, pinIds.other]],
+      ] as const) {
+        await page.evaluate(
+          ({ lavi, sel }) => {
+            const L = (window as LionsWindow).__lions;
+            if (!L) return;
+            L.sim.debugSuppress(lavi, 65536);
+            L.sim.debugSuppress(lavi, 65536);
+            L.sel([...sel]);
+          },
+          { lavi: pinIds.lavi, sel: ids }
+        );
+        await settle(page, 400);
+        await shot(page, dir, name);
+      }
+    }
   }
 
   await ctx.close();

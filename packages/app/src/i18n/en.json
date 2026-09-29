@@ -292,11 +292,12 @@
   "hud.strip.rate": "+{n}/min",
   "hud.strip.logistics.word": "logistics",
   "hud.strip.intel.word": "intel",
-  "hud.strip.pinned": "▼ {n} pinned",
+  "hud.strip.pinned": "{n} pinned",
   "hud.strip.broken": "⚑ {n} broken",
   "hud.strip.logistics.tip": "Logistics — spent to build reinforcements at the dock.{rate, plural, =0 {} other { The mission adds {rate} more a minute.}}",
   "hud.strip.intel.tip": "Intel — spent on sweep and precision-strike fire support.",
-  "hud.strip.pinned.tip": "Pinned — suppressed and holding in place until the fire lifts.",
+  "hud.pinned.label": "Pinned",
+  "hud.pinned.explain": "Pinned — suppressed past the limit, holding fire and barely moving. Lifts a few seconds after the fire stops landing nearby: the shooter dies, stops, or loses sight (smoke works too). Cover cuts how much suppression reaches you in the first place. Infantry pinned continuously for about 10 seconds breaks and routs; vehicles hold as long as it takes.",
   "hud.strip.broken.tip": "Broken — routed and fleeing the fight. They rally once clear of it.",
   "hud.leave.link": "⌂ leave",
   "hud.leave.title": "leave the mission",
@@ -335,6 +336,7 @@
   "hud.mute.muted": "audio muted",
   "hud.mute.unmuted": "audio on",
   "hud.caption.label": "Unit radio",
+  "voice.caption.pinned": "Can't move — under fire!",
   "hud.order.inertTitle": "{label} — nothing in the selection would act on it right now",
   "hud.order.tip.attackMove": "Move there, engaging anything in the way.",
   "hud.order.tip.halt": "Stop in place and drop any queued waypoints.",
@@ -505,6 +507,10 @@
 
   "alert.unitLost": "<b>lost</b> — {n, plural, one {{name}} other {{name} (#)}}",
   "alert.underFire": "<b>under fire</b> — {n, plural, one {# unit} other {# units}}",
+
+  "order.pinned.note": "<b>Pinned</b>: {n, plural, one {# unit} other {# units}} can't move under fire. {n, plural, one {It goes} other {They go}} once the fire lifts.",
+  "order.pinned.note.soft": "<b>Pinned</b>: {n, plural, one {# unit} other {# units}} can't move under fire. {n, plural, one {It goes} other {They go}} once the fire lifts, unless {n, plural, one {it breaks} other {they break}}.",
+  "order.broken.note": "<b>Broken</b>: {n, plural, one {# unit} other {# units}} won't take orders until {n, plural, one {it rallies} other {they rally}}.",
 
   "notice.removed.civilian": "<b>taken</b> ({n})",
   "notice.removed.unit": "{unit} <b>taken</b>",
