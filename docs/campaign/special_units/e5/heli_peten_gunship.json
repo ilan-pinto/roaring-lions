@@ -6,7 +6,7 @@
   "role": "gunship",
   "cost": { "logistics": 450, "build_time_s": 50, "population": 3 },
   "unlock": { "price": 8000 },
-  "hull": { "hp": 820, "armor": { "front": 55, "side": 32, "rear": 22 }, "crew": 2, "suppression_resistance": 0.8 },
+  "hull": { "hp": 820, "armor": { "front": 47, "side": 32, "rear": 22 }, "crew": 2, "suppression_resistance": 0.8 },
   "mobility": { "speed_tiles_s": 3.0, "turn_rate_deg_s": 100, "domain": "air" },
   "sensors": { "optics": 1.6, "sight_tiles": 15, "thermal": true, "signature": 1.3, "firing_signature_mult": 2.5 },
   "weapons": [

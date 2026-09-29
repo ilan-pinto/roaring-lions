@@ -67,12 +67,18 @@ cannon, half the missiles, hull for one more pass. The heaviest hammer the briga
 
 | field | value | field | value |
 |---|---|---|---|
-| role / domain | `gunship` / `air` | hp / armour | 820 / 55·32·22 |
+| role / domain | `gunship` / `air` | hp / armour | 820 / **47**·32·22 |
 | crew / supp. res. | 2 / 0.8 | speed / turn | 3.0 / 100 |
 | sight / optics | 15 / 1.6, thermal | signature / firing mult | 1.3 / 2.5 |
 | weapons | `chain_gun_30` as the Peten; `hellfire` as the Peten at rof **3** (6) | weapon 1 | `rocket_pods`: **he**, range 8, acc 0.45, pen 60, dmg 140, splash 1.0, supp 140, rof 30, collateral **0.55** |
 | cost | 450 logistics, 50 s, pop 3 | unlock | `{ "price": 8000 }` |
-| upgrades | armour, sensors, firepower (pods): 3,185 credits | curve | **+1.9%**; max tier +10.6% |
+| upgrades | armour, sensors, firepower (pods): 3,185 credits | curve | **+2.2%**; max tier +10.9% |
+
+**Deviation (29 Sep): front 55 → 47, lead 29 Sep, the AA-counter claim.** At 55 the Gunship
+survived a firing pass against 1/2/3 ZU-23 gun trucks 100/100/93% (the Peten: 80/0/0), because a
+pass is nose-on and the ZU-23's penetration is 40. At 47 it reads 93/0/0 and meets all three §3
+probe claims. The curve moved from +1.9% to +2.2% (max tier +10.6% to +10.9%). Every other number
+stands as approved. Bands: `docs/campaign/special_units/e5/numbers.md`.
 
 **Unique.** The first `he` weapon on the roster; at 0.55 it clears both ROE thresholds (0.3 zone,
 0.5 danger close). **Counter-play.** Pods (8) and missiles (10.5) sit inside `manpad` (13, ~75% to
@@ -97,7 +103,7 @@ the ladder, `GATES` and `LADDER_CREDITS` must not move.
 ## 3. Balance method
 
 1. **The curve, both passes.** Tightest stays `attack_drone` (+16.7% → +16.5%; max tier +12.3%,
-   then the Gunship +10.6%). It prices hulls and guns, not abilities, air, the charge, the swarm or
+   then the Gunship +10.9% at front 47). It prices hulls and guns, not abilities, air, the charge, the swarm or
    the beam; the probes carry those.
 2. **`pnpm balance`** names six ids and cannot move; it runs as a guard.
 3. **Probes** (`tools/src/backtest/e5-probes.ts`): the Gunship in `airContested` against 1–3 AA
