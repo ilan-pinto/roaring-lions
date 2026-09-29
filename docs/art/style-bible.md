@@ -154,10 +154,21 @@ task, so the fallback is `retexture`, also 10). Measure it once; do not guess tw
   much".
 
 **CLI prerequisites** (small tasks, before B2): `remesh` is on `feat/ground-plan2`
-(`b764f0fd`), not yet `main`; the `text` preview hard-codes `pose_mode: ''`, so
-riggable figures need an A-pose flag; refine does not send `remove_lighting`; and
+(`b764f0fd`), not yet `main`; refine does not send `remove_lighting`; and
 there is no `rig` command (priced at 5 in `pricing.ts`). Until it lands, rigging runs
 in the Meshy web UI and is logged by hand.
+
+**Riggable figures use `--pose`.** `text` and `image` take `--pose a-pose|t-pose|none`
+(default `none`, which sends the empty `pose_mode` as before). Batch B0b of GH-286
+(`at_team`, `demo_squad`) needs the text preview in A-pose so the figures can be
+rigged:
+
+```bash
+pnpm meshy -- text "<prompt from section 5>" --pose a-pose --name at_team
+```
+
+Check the request first with `MESHY_DRY_RUN=1` (prints the body, spends nothing) and
+`pnpm meshy -- estimate text`; the printout shows `"pose_mode": "a-pose"`.
 
 ---
 
