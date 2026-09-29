@@ -26,7 +26,8 @@ export type CursorName =
   | 'charge'
   | 'mount'
   | 'dismount'
-  | 'smoke';
+  | 'smoke'
+  | 'pinned';
 
 /** What the resolution cannot know, because resolvePointer never looks at
  *  enemy positions or tile passability. The caller has both already. */
@@ -38,6 +39,12 @@ export interface CursorHints {
    *  pointer. Optional: every caller that has no armed order to report
    *  compiles, and reads, unchanged. */
   armedSmoke?: boolean;
+  /** Every id of the order intent is pinned (GH-262): the click will be
+   *  accepted and nobody will go, so the cursor says so before the click
+   *  rather than the feed after it. Computed in `main.ts` from the order
+   *  intent's own ids, never from the whole selection -- a pinned unit
+   *  inside a demolish or garrison group is not this cursor's business. */
+  pinned?: boolean;
 }
 
 /** Names that describe the target or the mode, never the actor: nothing
@@ -49,7 +56,7 @@ export interface CursorHints {
  *  `BADGED_VERBS` is typed so one of these can never appear as a key at
  *  all. One rule, several callers -- the same pattern this milestone
  *  already uses for `zoneContains`, `roleBucket` and `cursorKey` itself. */
-export type UnbadgedName = 'default' | 'blocked' | 'costly' | 'protected' | 'sweep' | 'strike';
+export type UnbadgedName = 'default' | 'blocked' | 'costly' | 'protected' | 'sweep' | 'strike' | 'pinned';
 
 export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'default',
@@ -58,6 +65,9 @@ export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'protected',
   'sweep',
   'strike',
+  // Describes the units' state, not who is acting: a whole order pinned
+  // means nobody is, so a role badge would name an actor that does not move.
+  'pinned',
 ]);
 
 /** How many frames a cursor steps through, and how long each frame holds. */
@@ -225,9 +235,18 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // 'blocked'. Deliberate, and the reason cursor.test.ts's two
   // costly/blocked-vs-attack cases changed expectations in this same slice.
   const verb = winningVerb(res, hints);
+  // Pinned (GH-262) replaces only the plain order's own names -- `attack`
+  // here and `move` at the bottom -- because the hint speaks only for the
+  // order intent's ids. Every rung above still outranks it, and so do
+  // costly and blocked below, which describe the target rather than the
+  // order. The order-intent check is belt and braces: `winningVerb` names
+  // `attack` only for an order, and the final fallback is reached with one.
+  const wholeOrderPinned = hints.pinned === true && res.intents.some((i) => i.kind === 'order');
+  if (verb === 'attack' && wholeOrderPinned) return 'pinned';
   if (verb) return verb;
   if (res.roe === 'costly') return 'costly';
   if (hints.blocked) return 'blocked';
+  if (wholeOrderPinned) return 'pinned';
   // winningVerb already returns 'attack' for a hostile plain order, so this
   // line is only reached when there are no intents of any ranked kind --
   // kept anyway, because an unranked future intent kind would otherwise fall

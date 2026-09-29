@@ -196,15 +196,21 @@ function rotate(cw: boolean): string {
 }
 
 export type UtilityId = 'logistics' | 'intel' | 'rotateCcw' | 'rotateCw';
-export type SymbolId = RoleBucket | SightOrderId | UtilityId;
+/** A unit-status mark, drawn on the chip/card/strip/cursor rather than on an
+ *  order or a role. `pinned` is the only member: candidate A, "pressed
+ *  flat", which the lead picked at G-PIN (28 Sep). */
+export type StatusId = 'pinned';
+export type SymbolId = RoleBucket | SightOrderId | UtilityId | StatusId;
 
 const ROLE_IDS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
 const ORDER_IDS: readonly SightOrderId[] = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'];
 const UTILITY_IDS: readonly UtilityId[] = ['logistics', 'intel', 'rotateCcw', 'rotateCw'];
+const STATUS_IDS: readonly StatusId[] = ['pinned'];
 
-/** Seven roles, eight orders, four utility marks: nineteen, the sheet G1
- *  approved (round 2's roles and utility marks, round 5's orders). */
-export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS];
+/** Seven roles, eight orders, four utility marks, one status mark: twenty,
+ *  the sheet G1 approved (round 2's roles and utility marks, round 5's
+ *  orders) plus the pinned mark the lead picked at G-PIN. */
+export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS];
 
 interface RoleGlyph {
   body: string; // unframed (the 10 px form)
@@ -247,6 +253,28 @@ function isRoleBucket(id: SymbolId): id is RoleBucket {
 function isOrderId(id: SymbolId): id is SightOrderId {
   return (ORDER_IDS as readonly string[]).includes(id);
 }
+function isStatusId(id: SymbolId): id is StatusId {
+  return (STATUS_IDS as readonly string[]).includes(id);
+}
+
+// ---------------------------------------------------------------------------
+// The status marks.
+//
+// A unit under enough incoming fire to pin stops moving at anything near
+// full speed and stops shooting back. `pinned` is "pressed flat" -- the
+// shape the lead picked at G-PIN (28 Sep) over two alternatives (a squashed
+// infantry cross, three incoming strikes), which were deleted with the
+// ruling. On the shared 24 box, W thick, filled only, `currentColor` only:
+// no stroke and no `--mark-edge` halo baked in -- the halo is a CSS
+// placement rule on `.rl-pin-mark` in theme.css.
+
+/** "Pressed flat": a ground bar over a wide, shallow down-chevron -- apex
+ *  (12, 20), shoulders (2, 9) and (22, 9), W thick. It is the strip's old
+ *  `▼` dingbat drawn properly, so it keeps the reading players learned from
+ *  it. */
+const STATUS_GLYPHS: Readonly<Record<StatusId, string>> = {
+  pinned: path(poly(rect(2, 3, 22, 3 + W))) + ' ' + path(band([2, 9], [12, 20]) + ' ' + band([22, 9], [12, 20])),
+};
 
 /**
  * One symbol's fill markup (no `<svg>` wrapper) -- `currentColor` only, no
@@ -265,6 +293,9 @@ export function symbolBody(id: SymbolId, opts?: { framed?: boolean; ink?: string
   }
   if (isOrderId(id)) {
     return orderMarkBody(id, opts?.ink);
+  }
+  if (isStatusId(id)) {
+    return STATUS_GLYPHS[id];
   }
   const g = UTILITY_GLYPHS[id];
   return opts?.framed && g.framed ? g.framed : g.body;

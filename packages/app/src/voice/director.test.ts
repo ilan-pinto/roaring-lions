@@ -252,3 +252,49 @@ describe('death calls (N6, N7, D6, D10)', () => {
     expect(decideOrder(d.state, g([order(2)]), look, LANGS, 500).why).toBe('ack:cooldown');
   });
 });
+
+describe('a move to a pinned unit answers "can’t move", never "moving" (GH-262)', () => {
+  const PINNED = new Set([1, 3]);
+  const pinLook: DirectorLook = { ...look, isPinned: (id) => PINNED.has(id) };
+  const at = (s: DirectorState, ms: number, ...ids: number[]) => decideOrder(s, g([order(...ids)]), pinLook, LANGS, ms);
+
+  it('speaks the pinned call, in the pinned unit’s voice, captioned', () => {
+    const d = at(INITIAL_DIRECTOR, 0, 1);
+    expect(d.cue).toMatchObject({
+      key: 'he.common.pinned', trigger: 'pinned', priority: 'order', at: null, caption: 'voice.caption.pinned',
+    });
+    expect(d.why).toBe('line');
+  });
+
+  it('a mixed group speaks for the pinned part only', () => {
+    expect(at(INITIAL_DIRECTOR, 0, 2, 3).cue?.speaker).toBe('crew'); // 2 is free infantry, 3 is pinned crew
+  });
+
+  it('an attack-move over a hostile takes the pinned call too', () => {
+    expect(decideOrder(INITIAL_DIRECTOR, g([order(1)], true), pinLook, LANGS, 0).cue?.key).toBe('he.common.pinned');
+  });
+
+  it('garrison and the other verbs are untouched', () => {
+    expect(decideOrder(INITIAL_DIRECTOR, g([{ kind: 'garrison', ids: [1], structure: 2 }]), pinLook, LANGS, 0).cue?.key).toBe(
+      'he.common.garrison'
+    );
+  });
+
+  it('a repeat inside pinnedRepeatMs is silent, and never "moving"', () => {
+    const first = at(INITIAL_DIRECTOR, 0, 1);
+    const again = at(first.state, VOICE_TIMING.pinnedRepeatMs - 1, 1);
+    expect(again.why).toBe('silent:throttle');
+    expect(again.cue).toBeNull();
+    expect(at(first.state, VOICE_TIMING.pinnedRepeatMs, 1).why).toBe('line');
+  });
+
+  it('a different pinned selection inside pinnedGlobalMs is silent too', () => {
+    const first = at(INITIAL_DIRECTOR, 0, 1);
+    expect(at(first.state, VOICE_TIMING.pinnedGlobalMs - 1, 3).why).toBe('silent:throttle');
+    expect(at(first.state, VOICE_TIMING.pinnedGlobalMs, 3).why).toBe('line');
+  });
+
+  it('a look with no isPinned behaves exactly as before', () => {
+    expect(decideOrder(INITIAL_DIRECTOR, g([order(1)]), look, LANGS, 0).cue?.key).toBe('he.infantry.move');
+  });
+});

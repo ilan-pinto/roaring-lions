@@ -57,6 +57,9 @@ export interface VoiceRuntimeDeps {
   play(cue: VoiceCue): VoiceResult;
   /** Show a line's meaning for `seconds`; a no-op unless captions are on. */
   caption(text: string, seconds: number): void;
+  /** i18n lookup (`t` in the app, identity in tests). GH-262: used to render
+   *  a cue's `caption` key when the mixer has no take to caption itself. */
+  text(key: string): string;
   /** `console.info` in a dev build, a no-op in production. */
   info(message: string): void;
   /** The keys already noted as missing. The app passes ONE set for the whole
@@ -78,6 +81,10 @@ export interface VoiceLogEntry {
 
 /** How many entries `log()` keeps: the most recent ones. */
 export const VOICE_LOG_SIZE = 64;
+
+/** How long the pinned caption stands in for a take's length (GH-262 §2.4):
+ *  1.5 s plus the mixer's own 1 s extra hold. */
+export const PINNED_CAPTION_S = 1.5;
 
 export class VoiceRuntime {
   private readonly deps: VoiceRuntimeDeps;
@@ -159,7 +166,13 @@ export class VoiceRuntime {
         this.noted.add(cue.key);
         this.deps.info(`[voice] ${cue.key}: no decoded line (not recorded yet, or still decoding), so nothing plays`);
       }
-      if (r.status === 'played' && r.en !== null) this.deps.caption(r.en, r.seconds);
+      if (r.status === 'played' && r.en !== null) {
+        this.deps.caption(r.en, r.seconds);
+      } else if ((r.status === 'missing' || r.status === 'placeholder') && cue.caption !== undefined) {
+        // GH-262: the take doesn't exist yet, but the cue still names an
+        // i18n key -- caption from that instead of the mixer's own `en`.
+        this.deps.caption(this.deps.text(cue.caption), PINNED_CAPTION_S);
+      }
     }
     this.entries.push({ at, source, trigger, key: cue?.key ?? null, why, status });
     if (this.entries.length > VOICE_LOG_SIZE) this.entries.splice(0, this.entries.length - VOICE_LOG_SIZE);
