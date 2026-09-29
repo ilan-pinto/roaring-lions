@@ -167,7 +167,11 @@ async function midMissionSpawn(): Promise<World> {
   const tank = sim.addUnitType(unitJson('mbt_lavi'));
   const meshInf = sim.addUnitType(MESH_INF);
   const spriteInf = sim.addUnitType(SPRITE_INF);
-  sim.spawn(tank, 0, fx.from(RESIDENT_AT[0]), fx.from(RESIDENT_AT[1]));
+  const resident = sim.spawn(tank, 0, fx.from(RESIDENT_AT[0]), fx.from(RESIDENT_AT[1]));
+  // A4 (GH-186): an HP bar draws only for a damaged, selected or hovered unit,
+  // and this test's anti-vacuity asserts the resident's bar WAS drawn. One raw
+  // unit of damage keeps that assertion meaningful without selecting anyone.
+  sim.state.hp[resident] -= 1;
 
   const renderer = new ThreeRenderer(sim, makeOpts());
   const priv = renderer as unknown as Priv;
@@ -195,6 +199,10 @@ async function midMissionSpawn(): Promise<World> {
   const newcomer = sim.spawn(tank, 0, fx.from(SPAWN_AT[0]), fx.from(SPAWN_AT[1]));
   const infantry = sim.spawn(meshInf, 0, fx.from(INFANTRY_AT[0]), fx.from(INFANTRY_AT[1]));
   const billboard = sim.spawn(spriteInf, 0, fx.from(BILLBOARD_AT[0]), fx.from(BILLBOARD_AT[1]));
+  // Damaged for the same reason as the resident: the control asserts each
+  // newcomer's overlay draws where it stands, and the same damage is what
+  // would draw a bar at the origin if `updateOverlays`' bound were removed.
+  for (const id of [newcomer, infantry, billboard]) sim.state.hp[id] -= 1;
 
   const particles: World['particles'] = [];
   const system = priv.particleSystem;

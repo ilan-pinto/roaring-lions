@@ -1,0 +1,562 @@
+/**
+ * A4 (GH-186, spec 2026-09-28 sec 2.2): the selection ring, drawn ON the
+ * ground in team colour instead of as a screen-space billboard ellipse.
+ *
+ * One non-instanced `THREE.Mesh`, rewritten every frame: `beginFrame`, one
+ * `push` per selected unit, `endFrame`. Each ring is an `n = 4` conforming
+ * grid -- `n = 6` above 0.72 tile (`RING_GRID_LARGE`) and `n = 7` above 1.28
+ * (`RING_GRID_XL`) -- placed by
+ * `writeDecalGrid` -- the decal pool's PURE maths, not the
+ * pool itself, whose sim-time-dated ring buffer and multiply blend are both
+ * wrong for a bright mark rewritten every frame (spec sec 1) -- so a ring
+ * lies on bicubic ground and slopes exactly as a crater does. The fragment
+ * shader draws the annulus from the grid's own `aOffset`, with a feather,
+ * since antialiasing is off in this renderer.
+ *
+ * **The ellipse is data, not a code path.** The spec draws a circle, and the
+ * lead will be shown a hull-aligned ellipse beside it at G-MOCK. Both are the
+ * same placement: two semi-axes (`alongTiles` along `headingRad`,
+ * `acrossTiles` across it) that default to `radiusTiles`. The grid is rotated
+ * by `writeDecalGrid`'s own `facingRad`, so the shader works in the ring's
+ * local frame and never sees the heading. The annulus is measured by a signed
+ * distance to the ellipse (`ringSignedDistance`): exact for a circle and on
+ * both semi-axes, and a first-order approximation between them -- a constant
+ * thickness to the eye at the aspect ratios a hull gives.
+ *
+ * **The pixel floor is measured on the ring's THIN axis.** A ground circle of
+ * radius `r` tiles projects to an ellipse `r * TILE_W/sqrt2` px wide and
+ * `r * TILE_H/sqrt2` tall (`tileRadiusToEllipsePx`), so the top and bottom of
+ * a ring are half as thick on screen as its sides. The floor exists so a ring
+ * never breaks up at the 0.35 zoom clamp, and that happens first on the thin
+ * axis; `ringPxPerTile` reads that one. Consequence: the floor binds below
+ * zoom ~1.1, so at zoom 1 the band is 0.066 tiles (1.5 px tall, 3.0 px wide)
+ * rather than 0.06 (1.36 / 2.7). Swapping `upR` for `rightR` in
+ * `ringPxPerTile` is the whole of the other reading.
+ *
+ * Unlit and fog-blind by construction: no light uniform, no fog read. It is
+ * depth-tested and not depth-writing, so the post chain's fog pass reads the
+ * ground's depth under it and dims it like that ground. Premultiplied "over".
+ * No `normal` attribute, which is what keeps the AO pre-pass off it
+ * (`post-chain.ts`, `isAoOccluder`), and no shadows either way.
+ */
+import * as THREE from 'three';
+import {
+  DECAL_POLYGON_OFFSET_FACTOR,
+  DECAL_POLYGON_OFFSET_UNITS,
+  glslFloat,
+  gridTriangles,
+  writeDecalGrid,
+  writeDecalOffsets,
+  writeGridIndices,
+} from '../decal-pool';
+import { TILE_H, TILE_W } from '../../project';
+import {
+  RING_CACHE,
+  RING_GRID_LARGE,
+  RING_GRID_XL,
+  RING_LARGE_TILES,
+  RING_SAG_STEPS,
+  RING_XL_TILES,
+  SELECTION_RING,
+} from './readability';
+import { SELECTION_RING_RENDER_ORDER } from './render-order';
+import { tileRadiusToEllipsePx } from './overlays';
+
+/** Vertices per side of a SMALL ring's conforming grid: 16 vertices, 18 tris. */
+export const RING_GRID = 4;
+
+/** The larger grids, their thresholds and the lift lattice are measured
+ *  numbers and live in `readability.ts` with the rest (fix rounds 1 and 2);
+ *  re-exported here for this module's readers. */
+export { RING_GRID_LARGE, RING_GRID_XL, RING_LARGE_TILES, RING_SAG_STEPS, RING_XL_TILES };
+
+/** The grid a ring with semi-axes `a`, `b` is drawn on: 4x4, 6x6 over
+ *  `RING_LARGE_TILES`, 7x7 over `RING_XL_TILES`. */
+export function ringGridFor(a: number, b: number): number {
+  const r = Math.max(a, b);
+  if (r > RING_XL_TILES) return RING_GRID_XL;
+  return r > RING_LARGE_TILES ? RING_GRID_LARGE : RING_GRID;
+}
+
+type Rgb = readonly [number, number, number];
+
+export interface RingPlacement {
+  /** World X/Z of the ring's centre, tiles. */
+  readonly x: number;
+  readonly z: number;
+  /** Outer edge of the core, tiles (`ringRadiusFor`). */
+  readonly radiusTiles: number;
+  /** LINEAR rgb, 0..1 -- `teamColors[side]` through `cachedHexToLinear`. */
+  readonly color: Rgb;
+  /** Ellipse option (G-MOCK): the semi-axis along `headingRad`. Defaults to `radiusTiles`. */
+  readonly alongTiles?: number;
+  /** Ellipse option: the semi-axis across `headingRad`. Defaults to `radiusTiles`. */
+  readonly acrossTiles?: number;
+  /** Ellipse option: the hull's heading, radians, in `writeDecalGrid`'s `facingRad` convention. Defaults to 0. */
+  readonly headingRad?: number;
+}
+
+/** Screen px per tile of ground on the ring's thin (foreshortened) axis at
+ *  `zoom` -- see this file's top comment, "The pixel floor". */
+export function ringPxPerTile(zoom: number): number {
+  return zoom * tileRadiusToEllipsePx(1, TILE_W, TILE_H).upR;
+}
+
+/** The core's solid thickness in tiles: `thicknessTiles`, or thicker where
+ *  that would be under `minThicknessPx` on screen. The shader's own `w`. */
+export function ringThicknessTiles(pxPerTile: number): number {
+  return Math.max(SELECTION_RING.thicknessTiles, SELECTION_RING.minThicknessPx / pxPerTile);
+}
+
+/**
+ * Signed distance, tiles, from the ring's outer edge (negative inside) for a
+ * point `(px, pz)` in the ring's local frame, against semi-axes `a` (local X)
+ * and `b` (local Z). `k0 (k0 - 1) / k1` with `k0 = |p/r|`, `k1 = |p/r^2|`:
+ * exactly `|p| - R` for a circle and exact on both semi-axes of an ellipse.
+ * The shader's `ringSd` is this function's transcription.
+ */
+export function ringSignedDistance(px: number, pz: number, a: number, b: number): number {
+  const qx = px / a;
+  const qz = pz / b;
+  const k0 = Math.hypot(qx, qz);
+  if (k0 < 1e-5) return -Math.min(a, b);
+  const k1 = Math.hypot(qx / a, qz / b);
+  return (k0 * (k0 - 1)) / k1;
+}
+
+function smoothstep(e0: number, e1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+  return t * t * (3 - 2 * t);
+}
+
+/** The core's coverage at signed distance `s`: solid over `[-w, 0]`, one
+ *  feather outside each edge. Mirrors the shader. */
+export function ringCoreAlpha(s: number, w: number): number {
+  const f = SELECTION_RING.featherTiles;
+  return smoothstep(-w - f, -w, s) * (1 - smoothstep(0, f, s));
+}
+
+/** The halo's coverage: outside the ring only, fading in as the core's outer
+ *  feather fades out, solid to `haloTiles`, gone by `haloTiles + feather` --
+ *  which is the quad's own edge. Mirrors the shader. */
+export function ringHaloAlpha(s: number): number {
+  const f = SELECTION_RING.featherTiles;
+  return smoothstep(0, f, s) * (1 - smoothstep(SELECTION_RING.haloTiles, SELECTION_RING.haloTiles + f, s));
+}
+
+const T = glslFloat(SELECTION_RING.thicknessTiles);
+const PX = glslFloat(SELECTION_RING.minThicknessPx);
+const F = glslFloat(SELECTION_RING.featherTiles);
+const CORE_A = glslFloat(SELECTION_RING.coreAlpha);
+const HALO = glslFloat(SELECTION_RING.haloTiles);
+const HALO_END = glslFloat(SELECTION_RING.haloTiles + SELECTION_RING.featherTiles);
+const HALO_A = glslFloat(SELECTION_RING.haloAlpha);
+
+const RING_VERTEX_SHADER = /* glsl */ `
+  attribute vec2 aOffset;
+  attribute vec3 aRingColor;
+  attribute vec2 aAxes;
+  varying vec2 vLocal;
+  varying vec2 vAxes;
+  varying vec3 vColor;
+  void main() {
+    // The grid's half-extent is the semi-axes plus the halo and its feather,
+    // so vLocal is the fragment's position in the ring's own frame, tiles.
+    vLocal = aOffset * (aAxes + vec2(${HALO} + ${F}));
+    vAxes = aAxes;
+    vColor = aRingColor;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const RING_FRAGMENT_SHADER = /* glsl */ `
+  uniform float uPxPerTile;
+  uniform vec3 uHaloColor;
+  varying vec2 vLocal;
+  varying vec2 vAxes;
+  varying vec3 vColor;
+  float ringSd(vec2 p, vec2 r) {
+    vec2 q = p / r;
+    float k0 = length(q);
+    if (k0 < 0.00001) return -min(r.x, r.y);
+    return k0 * (k0 - 1.0) / length(q / r);
+  }
+  void main() {
+    float s = ringSd(vLocal, vAxes);
+    float w = max(${T}, ${PX} / uPxPerTile);
+    float core = smoothstep(-w - ${F}, -w, s) * (1.0 - smoothstep(0.0, ${F}, s));
+    float halo = smoothstep(0.0, ${F}, s) * (1.0 - smoothstep(${HALO}, ${HALO_END}, s));
+    float ca = core * ${CORE_A};
+    float ha = halo * ${HALO_A};
+    float a = ca + ha * (1.0 - ca);
+    if (a <= 0.0) discard;
+    gl_FragColor = vec4(vColor * ca + uHaloColor * ha * (1.0 - ca), a);
+  }
+`;
+
+/**
+ * The ring's material: the annulus shader above, `uHaloColor` (LINEAR,
+ * `shadow.1`) and `uPxPerTile` (`endFrame` sets it). Premultiplied "over";
+ * depth-tested, not depth-writing, with the decal polygon offset so the grid
+ * wins against the ground it was conformed to; `DoubleSide` like every flat
+ * mark in this backend, since nothing here depends on winding.
+ */
+export function createSelectionRingMaterial(halo: Rgb): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uPxPerTile: { value: ringPxPerTile(1) },
+      uHaloColor: { value: new THREE.Vector3(halo[0], halo[1], halo[2]) },
+    },
+    vertexShader: RING_VERTEX_SHADER,
+    fragmentShader: RING_FRAGMENT_SHADER,
+    transparent: true,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.AddEquation,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendEquationAlpha: THREE.AddEquation,
+    blendSrcAlpha: THREE.OneFactor,
+    blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    depthTest: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: DECAL_POLYGON_OFFSET_FACTOR,
+    polygonOffsetUnits: DECAL_POLYGON_OFFSET_UNITS,
+    side: THREE.DoubleSide,
+  });
+}
+
+/** The mutable twin of `GridPlacement`, reused by every `push`. */
+export interface GridScratch {
+  cx: number;
+  cz: number;
+  halfLength: number;
+  halfWidth: number;
+  facingRad: number;
+}
+
+/**
+ * Writes ring `slot`'s dynamic vertex data on an `n x n` grid: positions
+ * (`writeDecalGrid`, half-extents = semi-axes + halo + feather, sag lattice
+ * `RING_SAG_STEPS`), the colour and the semi-axes, each repeated on all
+ * `n^2` vertices. `slot` counts `n x n` slots from the start of the three
+ * arrays. `skipPositions` leaves the slot's positions as they are (the batch's
+ * cache hit). Allocates nothing: `grid` is the caller's scratch.
+ */
+export function writeRingAttributes(
+  positions: Float32Array,
+  colors: Float32Array,
+  axes: Float32Array,
+  slot: number,
+  p: RingPlacement,
+  sampleY: (x: number, z: number) => number,
+  grid: GridScratch,
+  n: number = RING_GRID,
+  skipPositions = false
+): void {
+  const a = p.alongTiles ?? p.radiusTiles;
+  const b = p.acrossTiles ?? p.radiusTiles;
+  const extra = SELECTION_RING.haloTiles + SELECTION_RING.featherTiles;
+  grid.cx = p.x;
+  grid.cz = p.z;
+  grid.halfLength = a + extra;
+  grid.halfWidth = b + extra;
+  grid.facingRad = p.headingRad ?? 0;
+  if (!skipPositions) writeDecalGrid(positions, slot, n, grid, sampleY, RING_SAG_STEPS);
+  const verts = n * n;
+  const c3 = slot * verts * 3;
+  const a2 = slot * verts * 2;
+  for (let v = 0; v < verts; v++) {
+    colors[c3 + v * 3] = p.color[0];
+    colors[c3 + v * 3 + 1] = p.color[1];
+    colors[c3 + v * 3 + 2] = p.color[2];
+    axes[a2 + v * 2] = a;
+    axes[a2 + v * 2 + 1] = b;
+  }
+}
+
+interface UpdateRange {
+  start: number;
+  count: number;
+}
+
+/** Flags vertices `[first, first + used)` of `attr` for upload through a range object reused every
+ *  frame. Clearing first means a frame the renderer never drew cannot stack
+ *  a second range; three consumes a lone range without mutating it. */
+function markUsed(attr: THREE.BufferAttribute, range: UpdateRange, first: number, used: number): void {
+  attr.clearUpdateRanges();
+  range.start = first * attr.itemSize;
+  range.count = used * attr.itemSize;
+  attr.updateRanges.push(range);
+  attr.needsUpdate = true;
+}
+
+/** `[key, x, z, along, across, heading, n]` per slot in the position cache. */
+const CACHE_FIELDS = 7;
+const SMALL_VERTS = RING_GRID * RING_GRID;
+/** A large slot is sized for the BIGGEST large grid (7x7); a 6x6 ring in it
+ *  uses the first 36 vertices, and its unused index tail is degenerate. */
+const LARGE_VERTS = RING_GRID_XL * RING_GRID_XL;
+const SMALL_INDICES = gridTriangles(RING_GRID) * 3;
+const LARGE_INDICES = gridTriangles(RING_GRID_XL) * 3;
+
+/**
+ * Three grid sizes, ONE draw call. The buffers hold `capacity` large slots
+ * and then `capacity` small ones, so either kind alone can fill the batch.
+ * A large slot holds a 6x6 OR a 7x7 ring (fix round 2): it is sized for 7x7,
+ * and when the grid a slot holds changes, that slot's static `aOffset` and
+ * index run are rewritten for the new grid (the index tail a 6x6 ring leaves
+ * unused is filled with its first vertex -- zero-area triangles), so the
+ * slot stride, and with it everything below, stays uniform. Large
+ * rings are written from the END of their region backwards and small rings
+ * from the START of theirs forwards, so whatever mix a frame pushes, the used
+ * vertices -- and, through the static index buffer laid out the same way,
+ * the used indices -- are one contiguous run across the boundary: one draw
+ * range, one upload range per attribute. `capacity` bounds the TOTAL.
+ */
+export class SelectionRingBatch {
+  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  private readonly positionAttr: THREE.BufferAttribute;
+  private readonly colorAttr: THREE.BufferAttribute;
+  private readonly axesAttr: THREE.BufferAttribute;
+  /** The small region's views on the three dynamic arrays, made once. */
+  private readonly smallViews: readonly [Float32Array, Float32Array, Float32Array];
+  /** Per LARGE slot, made once: its [positions, colours, axes, offsets] and
+   *  its index run, so a slot is written at its own base with no allocation. */
+  private readonly largeSlots: readonly {
+    readonly pos: Float32Array;
+    readonly col: Float32Array;
+    readonly ax: Float32Array;
+    readonly off: Float32Array;
+    readonly idx: Uint16Array | Uint32Array;
+  }[];
+  /** The grid each large slot's static offsets and indices are laid out for. */
+  private readonly largeSlotGrid: Uint8Array;
+  private readonly offsetAttr: THREE.BufferAttribute;
+  private readonly indexAttr: THREE.BufferAttribute;
+  private layoutDirty = false;
+  private readonly capacity: number;
+  private readonly resolveShadow: () => Rgb;
+  private readonly grid: GridScratch = { cx: 0, cz: 0, halfLength: 0, halfWidth: 0, facingRad: 0 };
+  private readonly ranges: readonly [UpdateRange, UpdateRange, UpdateRange] = [
+    { start: 0, count: 0 },
+    { start: 0, count: 0 },
+    { start: 0, count: 0 },
+  ];
+  private usedSmall = 0;
+  private usedLarge = 0;
+  /**
+   * The position cache (fix round 1): per SLOT, what its positions were last
+   * BUILT from -- `[key, x, z, along, across, heading, n]`, preallocated for
+   * both regions, [large, small]. A push whose key, shape and grid match its
+   * slot's entry, within `RING_CACHE.moveTiles` and `RING_CACHE.turnRad` of
+   * that build, skips `writeDecalGrid` -- the height samples are the whole
+   * cost of a ring, and on relief the bicubic field makes them about 4.7
+   * times dearer than flat ground (0.91 vs 0.194 ms per 100 moving rings,
+   * docs/PERFORMANCE.md). It works because `updateOverlays` walks
+   * entities in id order, so a stable selection lands each unit in the same
+   * slot frame after frame; a unit that lands elsewhere simply rebuilds.
+   */
+  private readonly built: readonly [Float64Array, Float64Array];
+
+  /** `capacity` defaults to `SELECTION_RING.capacity`. `resolveShadow` is
+   *  called once per `endFrame`, so it should hand back a CACHED linear
+   *  tuple (`cachedHexToLinear`), not parse a hex every frame. */
+  constructor(opts: { capacity?: number; resolveShadow: () => Rgb }) {
+    const capacity = opts.capacity ?? SELECTION_RING.capacity;
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new Error(`SelectionRingBatch: capacity must be a positive integer, got ${capacity}`);
+    }
+    this.capacity = capacity;
+    this.resolveShadow = opts.resolveShadow;
+    this.built = [new Float64Array(capacity * CACHE_FIELDS).fill(-1), new Float64Array(capacity * CACHE_FIELDS).fill(-1)];
+    const largeVerts = capacity * LARGE_VERTS;
+    const verts = largeVerts + capacity * SMALL_VERTS;
+    const geometry = new THREE.BufferGeometry();
+
+    const positions = new Float32Array(verts * 3);
+    const colors = new Float32Array(verts * 3);
+    const axes = new Float32Array(verts * 2);
+    this.smallViews = [positions.subarray(largeVerts * 3), colors.subarray(largeVerts * 3), axes.subarray(largeVerts * 2)];
+
+    this.positionAttr = new THREE.BufferAttribute(positions, 3);
+    this.positionAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('position', this.positionAttr);
+
+    // STATIC per slot: a slot's (s, t) is the same wherever its ring sits
+    // (a large slot's changes only with the grid it holds -- `layOut`).
+    const offsets = new Float32Array(verts * 2);
+    const smallOffsets = offsets.subarray(largeVerts * 2);
+    for (let slot = 0; slot < capacity; slot++) writeDecalOffsets(smallOffsets, slot, RING_GRID);
+    this.offsetAttr = new THREE.BufferAttribute(offsets, 2);
+    geometry.setAttribute('aOffset', this.offsetAttr);
+
+    this.colorAttr = new THREE.BufferAttribute(colors, 3);
+    this.colorAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aRingColor', this.colorAttr);
+
+    this.axesAttr = new THREE.BufferAttribute(axes, 2);
+    this.axesAttr.setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aAxes', this.axesAttr);
+
+    const largeIndices = capacity * LARGE_INDICES;
+    const indexCount = largeIndices + capacity * SMALL_INDICES;
+    const indices = verts <= 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
+    const slots = [];
+    for (let slot = 0; slot < capacity; slot++) {
+      const v0 = slot * LARGE_VERTS;
+      slots.push({
+        pos: positions.subarray(v0 * 3, (v0 + LARGE_VERTS) * 3),
+        col: colors.subarray(v0 * 3, (v0 + LARGE_VERTS) * 3),
+        ax: axes.subarray(v0 * 2, (v0 + LARGE_VERTS) * 2),
+        off: offsets.subarray(v0 * 2, (v0 + LARGE_VERTS) * 2),
+        idx: indices.subarray(slot * LARGE_INDICES, (slot + 1) * LARGE_INDICES),
+      });
+    }
+    this.largeSlots = slots;
+    this.largeSlotGrid = new Uint8Array(capacity);
+    for (let slot = 0; slot < capacity; slot++) this.layOut(slot, RING_GRID_XL);
+    for (let slot = 0; slot < capacity; slot++) {
+      const small = indices.subarray(largeIndices + slot * SMALL_INDICES, largeIndices + (slot + 1) * SMALL_INDICES);
+      writeGridIndices(small, slot, RING_GRID);
+      // `writeGridIndices` counts vertices from 0; the small region starts after the large one.
+      for (let k = 0; k < small.length; k++) small[k] += largeVerts;
+    }
+    this.indexAttr = new THREE.BufferAttribute(indices, 1);
+    geometry.setIndex(this.indexAttr);
+    this.layoutDirty = false;
+    geometry.setDrawRange(0, 0);
+
+    this.mesh = new THREE.Mesh(geometry, createSelectionRingMaterial(this.resolveShadow()));
+    this.mesh.name = 'selection-ring';
+    this.mesh.renderOrder = SELECTION_RING_RENDER_ORDER;
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = false;
+    // Rewritten anywhere on the map every frame; its bounds are never current.
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+  }
+
+  /** Rings written since the last `beginFrame`. */
+  get count(): number {
+    return this.usedSmall + this.usedLarge;
+  }
+
+  /**
+   * Where the `k`-th small (4x4) or large (6x6 / 7x7) ring written this frame
+   * starts, in VERTICES from the start of the buffers -- for a reader of the
+   * attributes (tests, a debugger), since the two regions fill from their
+   * shared boundary outwards.
+   */
+  firstVertexOf(kind: 'small' | 'large', k: number): number {
+    const largeVerts = this.capacity * LARGE_VERTS;
+    return kind === 'small' ? largeVerts + k * SMALL_VERTS : (this.capacity - 1 - k) * LARGE_VERTS;
+  }
+
+  /** Lays large slot `slot` out for an `n x n` grid: its static offsets, and
+   *  its index run with the unused tail degenerate. Allocates nothing. */
+  private layOut(slot: number, n: number): void {
+    const s = this.largeSlots[slot];
+    writeDecalOffsets(s.off, 0, n);
+    writeGridIndices(s.idx, 0, n);
+    const used = gridTriangles(n) * 3;
+    const base = slot * LARGE_VERTS;
+    for (let k = 0; k < used; k++) s.idx[k] += base;
+    s.idx.fill(base, used);
+    this.largeSlotGrid[slot] = n;
+    this.layoutDirty = true;
+  }
+
+  /** Forgets every cached build -- the ground under the rings changed
+   *  (`ThreeRenderer.refreshSurface`). */
+  invalidate(): void {
+    this.built[0].fill(-1);
+    this.built[1].fill(-1);
+  }
+
+  beginFrame(): void {
+    this.usedSmall = 0;
+    this.usedLarge = 0;
+  }
+
+  /** false when full, or when an axis is not a positive finite number (the
+   *  shader divides by both semi-axes, so a zero there is a NaN fragment, not
+   *  a small ring) -- the caller then draws the billboard fallback. `key`
+   *  (the entity id; -1 = never cache) arms the position cache. */
+  push(p: RingPlacement, sampleY: (x: number, z: number) => number, key = -1): boolean {
+    if (this.usedSmall + this.usedLarge >= this.capacity) return false;
+    const a = p.alongTiles ?? p.radiusTiles;
+    const b = p.acrossTiles ?? p.radiusTiles;
+    // `!(v > 0)` also catches NaN; `isFinite` catches +Infinity.
+    if (!(a > 0) || !(b > 0) || !Number.isFinite(a) || !Number.isFinite(b)) return false;
+    const n = ringGridFor(a, b);
+    const large = n !== RING_GRID;
+    const slot = large ? this.capacity - 1 - this.usedLarge : this.usedSmall;
+    if (large && this.largeSlotGrid[slot] !== n) this.layOut(slot, n);
+    const c = this.built[large ? 0 : 1];
+    const at = slot * CACHE_FIELDS;
+    const heading = p.headingRad ?? 0;
+    let turn = Math.abs(heading - c[at + 5]) % (2 * Math.PI);
+    if (turn > Math.PI) turn = 2 * Math.PI - turn;
+    const hit =
+      key >= 0 &&
+      c[at] === key &&
+      c[at + 3] === a &&
+      c[at + 4] === b &&
+      c[at + 6] === n &&
+      Math.hypot(p.x - c[at + 1], p.z - c[at + 2]) <= RING_CACHE.moveTiles &&
+      turn <= RING_CACHE.turnRad;
+    if (large) {
+      const s = this.largeSlots[slot];
+      writeRingAttributes(s.pos, s.col, s.ax, 0, p, sampleY, this.grid, n, hit);
+    } else {
+      const v = this.smallViews;
+      writeRingAttributes(v[0], v[1], v[2], slot, p, sampleY, this.grid, n, hit);
+    }
+    if (!hit) {
+      c[at] = key;
+      c[at + 1] = p.x;
+      c[at + 2] = p.z;
+      c[at + 3] = a;
+      c[at + 4] = b;
+      c[at + 5] = heading;
+      c[at + 6] = n;
+    }
+    if (large) this.usedLarge++;
+    else this.usedSmall++;
+    return true;
+  }
+
+  /** Sets the draw range, hides the mesh when nothing was pushed (so the ring
+   *  costs a draw call only while something is selected), sets the pixel
+   *  floor from `zoom` and re-reads the halo colour. */
+  endFrame(zoom: number): void {
+    const nl = this.usedLarge;
+    const ns = this.usedSmall;
+    const cap = this.capacity;
+    this.mesh.geometry.setDrawRange((cap - nl) * LARGE_INDICES, nl * LARGE_INDICES + ns * SMALL_INDICES);
+    this.mesh.visible = nl + ns > 0;
+    const u = this.mesh.material.uniforms;
+    u.uPxPerTile.value = ringPxPerTile(zoom);
+    const halo = this.resolveShadow();
+    (u.uHaloColor.value as THREE.Vector3).set(halo[0], halo[1], halo[2]);
+    if (nl + ns === 0) return;
+    const first = (cap - nl) * LARGE_VERTS;
+    const used = nl * LARGE_VERTS + ns * SMALL_VERTS;
+    markUsed(this.positionAttr, this.ranges[0], first, used);
+    markUsed(this.colorAttr, this.ranges[1], first, used);
+    markUsed(this.axesAttr, this.ranges[2], first, used);
+    if (this.layoutDirty) {
+      // A large slot changed grid: re-upload the static offsets and indices.
+      // Rare -- a unit type changing tier in a slot -- so the whole buffers.
+      this.offsetAttr.needsUpdate = true;
+      this.indexAttr.needsUpdate = true;
+      this.layoutDirty = false;
+    }
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    this.mesh.material.dispose();
+  }
+}
