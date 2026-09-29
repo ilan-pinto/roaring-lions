@@ -230,7 +230,15 @@ export class Router {
     return this.pending;
   }
 
-  navigate(href: string, opts: { replace?: boolean; force?: boolean } = {}): Promise<void> {
+  /**
+   * `reload` is what a followed LINK asks for: if the target is the route
+   * already mounted, re-mount it in place (forced, replacing history) the way
+   * a browser loads a page again when a link on it points at itself. Without
+   * it a same-route navigation is a no-op, which is right for code that asks
+   * "make sure we are here" and wrong for a player who clicked "try again"
+   * (GH-285). A target that is NOT the current route ignores it entirely.
+   */
+  navigate(href: string, opts: { replace?: boolean; force?: boolean; reload?: boolean } = {}): Promise<void> {
     const url = new URL(href, window.location.href);
     const legacy = legacyRedirect(url.search);
     const path = legacy ? legacy.path : stripBase(this.base, url.pathname);
@@ -244,6 +252,7 @@ export class Router {
     }
     const target = this.href(path, query);
     const same = this.mounted !== null && this.mounted.req.path === path && this.mounted.req.query.toString() === query.toString();
+    if (same && opts.reload) opts = { ...opts, force: true, replace: true };
     if (same && !opts.force) return this.pending;
     if (opts.replace) window.history.replaceState(null, '', target);
     else window.history.pushState(null, '', target);
@@ -378,7 +387,10 @@ export function interceptLinks(root: HTMLElement | Document, router: Router): Di
     const url = new URL(a.href, window.location.href);
     if (url.origin !== window.location.origin) return;
     ev.preventDefault();
-    void router.navigate(url.pathname + url.search);
+    // `reload`: taking the click over must not change what it does. A browser
+    // follows a link to the page it is on by loading that page again, and the
+    // end screen's "try again" relies on exactly that (GH-285).
+    void router.navigate(url.pathname + url.search, { reload: true });
   };
   root.addEventListener('click', onClick);
   return () => root.removeEventListener('click', onClick);
