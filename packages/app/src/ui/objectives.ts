@@ -33,6 +33,10 @@ export interface ObjectiveRow {
   carries: boolean;
   status: ObjectiveStatus;
   ticksLeft?: number;
+  /** Ground this row can put the camera on, in tiles -- today only an active
+   *  evacuation's refuge (`evacuation.ts`, GH-279). Drawn as a button only
+   *  when the mount also passes `onJump`. */
+  jumpTo?: { x: number; y: number };
 }
 
 export interface ObjectivesDeps {
@@ -46,6 +50,9 @@ export interface ObjectivesDeps {
    *  read once, not dismissed. Task 6's popover and pause-menu mounts pass
    *  one. */
   onClose?: () => void;
+  /** Puts the camera on a row's `jumpTo`. The in-mission tracker passes it;
+   *  the briefing does not -- there is no battlefield under that screen yet. */
+  onJump?: (x: number, y: number) => void;
 }
 
 export function objectivesPanel(
@@ -108,6 +115,19 @@ export function objectivesPanel(
         clock.className = 'rl-obj__clock';
         clock.textContent = clockText(o.ticksLeft);
         li.appendChild(clock);
+      }
+
+      // The refuge, while an evacuation is still being scored (GH-279): the
+      // one place the families walk to, and the only way to find it short of
+      // watching them run.
+      if (o.jumpTo && deps.onJump) {
+        const at = o.jumpTo;
+        const jump = document.createElement('button');
+        jump.type = 'button';
+        jump.className = 'rl-btn rl-obj__jump';
+        jump.textContent = t('objectives.jumpRefuge');
+        jump.addEventListener('click', () => deps.onJump?.(at.x, at.y));
+        li.appendChild(jump);
       }
 
       // A primary is the mission, not a reward -- `rewardFor` already

@@ -1332,3 +1332,41 @@ describe('flipRows', () => {
     expect([...flipRows(flipRows(src, 3, 4), 3, 4)]).toEqual([...src]);
   });
 });
+
+describe('the refuge (GH-279)', () => {
+  const strokeMatchingOne = (k: StrokePath, want: [number, number][]): boolean =>
+    k.points.length === want.length &&
+    k.points.every((p, i) => Math.abs(p[0] - want[i][0]) < 1e-6 && Math.abs(p[1] - want[i][1]) < 1e-6);
+
+  /** The plus sign `cross` strokes: two bars of `DIAMOND/2 + 2` either side. */
+  function crossAt(tx: number, ty: number): [number, number][] {
+    const at = tileToBox(minimapProjection(W, W, MINIMAP_SIZE), tx, ty);
+    const r = 8 / 2 + 2;
+    return [
+      [at.x - r, at.y],
+      [at.x + r, at.y],
+      [at.x, at.y - r],
+      [at.x, at.y + r],
+    ];
+  }
+
+  it('draws a cross on the refuge while the thunk names one, fog or not', () => {
+    const { minimap } = mount(() => false, { refuge: () => ({ x: 24.5, y: 22.5 }) });
+    recorder.ops.length = 0;
+    minimap.onTick();
+    // Twice: the dark keyline under it, then the colour.
+    expect(recorder.strokes().filter((k) => strokeMatchingOne(k, crossAt(24.5, 22.5)))).toHaveLength(2);
+    // Its own shape, not a diamond: two marks on neighbouring ground must
+    // still read as two.
+    expect(strokeMatching(diamondAt(24.5, 22.5))).toBeUndefined();
+  });
+
+  it('draws nothing once the evacuation is decided', () => {
+    let shown: { x: number; y: number } | null = { x: 24.5, y: 22.5 };
+    const { minimap } = mount(() => false, { refuge: () => shown });
+    shown = null;
+    recorder.ops.length = 0;
+    minimap.onTick();
+    expect(strokeMatching(crossAt(24.5, 22.5))).toBeUndefined();
+  });
+});

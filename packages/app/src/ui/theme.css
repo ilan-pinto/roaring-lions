@@ -1271,6 +1271,14 @@ body {
   color: var(--ink-dim);
   white-space: nowrap;
 }
+/* GH-279: the refuge, while an evacuation is scored. A small control at the
+   row's end, sized like the status text beside it so it reads as part of the
+   row rather than as a second panel's button. */
+.rl-obj__jump {
+  flex: none;
+  font-size: var(--t-s);
+  padding: 0 var(--s2);
+}
 /* What a secondary is worth (task 5) -- the same commend token a stripe or a
    star wears, so a carry-over reads as an earned thing rather than as more
    status text. Full width of the row: the reward line reads under the

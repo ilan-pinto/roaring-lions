@@ -5,6 +5,7 @@
 // an accumulator; the renderer interpolates between ticks (invariant 1).
 
 import { objectiveZonesFor } from './objective-zones';
+import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
 import { lostRecordFor, predecessorOf } from './roster-lost';
@@ -14,6 +15,7 @@ import {
   HALF,
   TICKS_PER_SECOND,
   CivilianFlight,
+  CIV_FLEE_AT,
   MissionRuntime,
   resolveUpgrades,
   starRoeFloor,
@@ -69,6 +71,7 @@ import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
+import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
 import { isPinned, wholeOrderPinned } from './ui/pinned';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
@@ -1605,6 +1608,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** Who the sandbox spawned, for the two lists `CivilianFlight.step` takes. */
   let sandboxForce: SandboxForce = { player: [], civilians: [] };
   /**
+   * GH-279: the flight rule, SHOWN. The refuge the families walk to (a
+   * mission's own `civilians.refuge` marker, or the sandbox's synthesised
+   * one), every `evacuate_before` and the tally it is scored on, and the
+   * watcher that turns a family breaking into one feed line. All of it read
+   * off the mission JSON, the map, `sim.state` and the `evacuated` events --
+   * nothing reaches into the runtime's private flight state (`evacuation.ts`,
+   * `ui/civ-flight.ts`).
+   */
+  const refugeAt = mission
+    ? refugePoint(mission, map.markers)
+    : civRefuge
+      ? { x: civRefuge.at[0] + 0.5, y: civRefuge.at[1] + 0.5 }
+      : null;
+  const evacTargets = evacuationTargets(mission);
+  /** One per `evacuated` MissionEvent -- the runtime's own tally, counted
+   *  from the outside. */
+  let evacuatedSoFar = 0;
+  /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
+  const civWatch = refugeAt ? new CivFlightWatch() : null;
+  /**
    * Null until the player deploys (shell Phase 3, Task 4; plan R-5). The
    * runtime copies its roster pool at construction (`mission.ts:550`) and
    * `start()` spawns the starting force at once, so it cannot be built before
@@ -2412,11 +2435,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     });
   }
 
+  /** The runtime's objective list with each active evacuation's tally and
+   *  refuge folded in (GH-279, `evacuation.ts`). What the strip, the tracker
+   *  and the pause list read. NOT what `objectiveZonesFor` reads: the refuge
+   *  is never drawn in the 3D world (the lead's ruling). */
+  const liveObjectives = () =>
+    runtime ? withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt) : [];
   const getMission = (): MissionView | null =>
     runtime && mission
       ? {
           name: mission.name ?? mission.id,
-          objectives: runtime.objectiveList,
+          objectives: liveObjectives(),
           result: runtime.result,
           campaign: campaignSummary(ledger),
           roe: runtime.roeScore,
@@ -2585,9 +2614,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       objectivesHandle = objectivesPanel(document.body, {
         // A closure, not a snapshot, exactly like `rosterEntryOf` below --
         // `runtime` does not exist yet on every path this function can run.
-        rows: () => runtime?.objectiveList ?? [],
+        rows: liveObjectives,
         paysCredits,
         onClose: closeObjectives,
+        // The refuge button on an active evacuation (GH-279): the camera and
+        // nothing else, exactly like the jump key.
+        onJump: (x, y) => {
+          renderer.camera.x = x;
+          renderer.camera.y = y;
+        },
       });
       objectivesHandle.el.classList.add('rl-obj-panel--tracker');
       objectivesHandle.el.hidden = true;
@@ -2789,7 +2824,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // so a strip that waits for one never dims.
     hud.paintSpeed();
     pauseHandle = pauseMenu(document.body, {
-      objectives: () => runtime?.objectiveList ?? [],
+      objectives: liveObjectives,
       paysCredits,
       onResume: resume,
       // Fix round 1: read from `bindings` (declared below, closed over --
@@ -2883,6 +2918,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A thunk: objectives complete and drop off mid-mission, and a sandbox
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
+    // GH-279: the refuge, only while an evacuation is still being scored.
+    refuge: () => (runtime ? activeRefuge(runtime.objectiveList, evacTargets, refugeAt) : null),
     // The map's own lit ground, photographed by the renderer (Task 15).
     // Called on every one of the minimap's 4 Hz redraws, which is NOT a
     // photograph per redraw: `captureGroundAlbedo` answers from its own memo
@@ -3896,6 +3933,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         missionTelemetry?.onEvent(me);
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
         if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
+        if (me.kind === 'evacuated') evacuatedSoFar++;
         // The memorial half of the service record (WP-G-E4). `unitLost` is already
         // side-0-only (mission.ts:1018) and `entityRoster` is only ever added to, so the
         // dead unit's ledger entry is still readable here -- which is the whole reason
@@ -4247,6 +4285,37 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           t('main.note.civEvacuated', { n: civFlight.evacuatedCount, total: sandboxForce.civilians.length }),
           'good'
         );
+      }
+    }
+    // GH-279: a family breaking for the refuge, said once and with its cause.
+    // Here, after BOTH callers of the flight rule have run this tick (the
+    // runtime's, inside the mission block above, and the sandbox's just
+    // before this), so the suppression recorded now is the suppression the
+    // rule saw -- `CivFlightWatch` reads the cause one observation back.
+    // Read-only: `sim.state` in, a feed line out (invariant 4).
+    if (civWatch && refugeAt) {
+      const st = sim.state;
+      const civs: CivObservation[] = [];
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (st.side[i] !== 2) continue;
+        civs.push({
+          id: i,
+          alive: st.alive[i] === 1,
+          buried: st.tunnelIn[i] >= 0,
+          moving: st.moving[i] === 1,
+          carried: st.carriedBy[i] >= 0,
+          suppressed: st.suppression[i] > CIV_FLEE_AT,
+          x: fx.toNumber(st.posX[i]),
+          y: fx.toNumber(st.posY[i]),
+        });
+      }
+      const flight = civWatch.observe(civs, sim.tickCount);
+      if (flight) {
+        hud.note(...alertNotice(flight.line));
+        // Where they broke, and where they are going: the jump key takes the
+        // first, the way every other alert's does.
+        minimap.flash([flight.at, refugeAt], performance.now());
+        lastAlertAt = flight.at;
       }
     }
     hud.onTick();
