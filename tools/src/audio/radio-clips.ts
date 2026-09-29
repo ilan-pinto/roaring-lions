@@ -4,7 +4,7 @@
  *   pnpm radio:clips -- --out=<dir>     (relative to the repo root)
  *
  * Renders shipped voice takes through the REAL radio code
- * (`packages/render/src/radio.ts`, transpiled as-is into a bare headless
+ * (`packages/render/src/radio.ts`, type-stripped as-is into a bare headless
  * Chromium page) with an OfflineAudioContext, so the clip is what the game
  * plays and not an approximation of it. The graph is `playVoice`'s own: the
  * take at the manifest's line gain into one of the radio's paths, the paths
@@ -22,9 +22,9 @@
  * quote what that read when the numbers were set.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import ts from 'typescript';
 import { chromium } from 'playwright';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -96,9 +96,10 @@ async function main(): Promise<void> {
   const takes = ['he/infantry/move_01a.ogg', 'he/infantry/attack_01a.ogg', 'he/common/ack_01a.ogg'].map((f) =>
     readFileSync(join(ROOT, 'assets/audio/voice', f)).toString('base64')
   );
-  const radioJs = ts.transpileModule(readFileSync(join(ROOT, 'packages/render/src/radio.ts'), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
+  // radio.ts is erasable TypeScript (no enums, no parameter properties, no
+  // imports), so Node's own type stripper turns it into the module the page
+  // loads: no `typescript` dependency, and the code is otherwise untouched.
+  const radioJs = stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/radio.ts'), 'utf8'));
 
   const browser = await chromium.launch();
   try {

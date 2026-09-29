@@ -433,6 +433,10 @@ export class BattleAudio {
   /** Lines sounding now, oldest first (N5). */
   private activeVoices: ActiveVoice[] = [];
   private nextVoiceId = 1;
+  /** Squelches not yet at their own end, whether or not their words are
+   *  still sounding: the tail outlives the line by up to RADIO_FX.tailS, and
+   *  a stop in that window must silence it too. Pruned by `endsAt`. */
+  private squelchTails: Squelch[] = [];
   /** The duck is applied (N12). */
   private ducked = false;
   /** The music element's duck factor, 1 when no voice speaks (N12, R-2). */
@@ -994,6 +998,10 @@ export class BattleAudio {
     nodes.unshift(src);
     const id = this.nextVoiceId++;
     this.activeVoices.push({ id, priority: p.priority, src, gain: g, nodes, squelch });
+    if (squelch) {
+      this.squelchTails = this.squelchTails.filter((q) => q.endsAt > ctx.currentTime);
+      this.squelchTails.push(squelch);
+    }
     src.onended = () => {
       // The line's own nodes are one-shots too: let go of them with it.
       for (const n of nodes) n.disconnect();
@@ -1008,6 +1016,13 @@ export class BattleAudio {
   /** Fade every line out and let go of the duck: a mission leave. */
   stopVoices(): void {
     for (const v of [...this.activeVoices]) this.cutVoice(v.id);
+    // Lines whose words already ended may still be sounding their tail.
+    const ctx = this.ctx;
+    if (ctx) {
+      const t = ctx.currentTime;
+      for (const q of this.squelchTails) if (q.endsAt > t) q.cut(t, VOICE_CUT_S);
+    }
+    this.squelchTails = [];
     this.duck(false);
   }
 
@@ -1028,7 +1043,10 @@ export class BattleAudio {
     v.gain.gain.setValueAtTime(v.gain.gain.value, t);
     v.gain.gain.linearRampToValueAtTime(0, t + VOICE_CUT_S);
     v.src.stop(t + VOICE_CUT_S);
-    v.squelch?.cut(t, VOICE_CUT_S);
+    if (v.squelch) {
+      v.squelch.cut(t, VOICE_CUT_S);
+      this.squelchTails = this.squelchTails.filter((q) => q !== v.squelch);
+    }
   }
 
   private voiceEnded(id: number): void {

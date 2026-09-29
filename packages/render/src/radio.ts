@@ -63,7 +63,9 @@ export const RADIO_FX = {
    *  the key-up transient, peaking at -14.5 dBFS against the words' -9.5. */
   levels: { click: 0.25, burst: 0.15, bed: 0.0085, tail: 0.13 },
   /** Seconds of static in the shared buffer: longer than any line plus its
-   *  squelch (N9 caps a line at 1.8 s), so a line never hears it loop. */
+   *  squelch (N9 caps a line at 1.8 s). The source loops and starts at a
+   *  random offset, so a line can still wrap past the end mid-line; that is
+   *  harmless, because white noise has no seam to hear. */
   noiseSeconds: 2.5,
   /** The static's seed. Any fixed value; fixed so a test or clip is stable. */
   seed: 0x2f6b_a3c1,

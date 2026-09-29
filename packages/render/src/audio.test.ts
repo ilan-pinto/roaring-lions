@@ -1083,6 +1083,30 @@ describe('playVoice (WP-AU1 §7)', () => {
       audio.stopVoices();
       expect(again.noise.stoppedAt).toBeCloseTo(VOICE_CUT_S);
     });
+
+    it('a stop after the words end still silences the tail, until the squelch is over (N19)', async () => {
+      const { audio, ctx } = await ready();
+      audio.playVoice(order('he.infantry.move'));
+      const { noise, click, line, env } = lineSources(ctx, 0);
+      const endsAt = RADIO_FX.clickS + LINE_BUFFER.duration + RADIO_FX.tailS;
+      // The words end; the tail is still sounding.
+      ctx.currentTime = endsAt - 0.1;
+      line.onended?.();
+      expect(audio.voiceStats().active).toBe(0);
+      audio.stopVoices();
+      expect(noise.stoppedAt).toBeCloseTo(endsAt - 0.1 + VOICE_CUT_S);
+      expect(click.stoppedAt).toBeCloseTo(endsAt - 0.1 + VOICE_CUT_S);
+      expect(env.gain.events.at(-1)).toEqual(['linear', 0, endsAt - 0.1 + VOICE_CUT_S]);
+
+      // Past its own end there is nothing left to cut: no second fade.
+      audio.playVoice(order('he.infantry.move'));
+      const later = lineSources(ctx, 3);
+      ctx.currentTime = endsAt + 5;
+      later.line.onended?.();
+      const events = later.env.gain.events.length;
+      audio.stopVoices();
+      expect(later.env.gain.events).toHaveLength(events);
+    });
   });
 });
 
