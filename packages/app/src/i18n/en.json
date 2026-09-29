@@ -29,6 +29,8 @@
   "settings.audio.music": "Music",
   "settings.audio.sfx": "Effects",
   "settings.audio.voice": "Voices",
+  "settings.audio.radio": "Radio effect",
+  "settings.audio.radio.hint": "Unit voices on the radio net get a walkie-talkie’s crackle, click and static. Off, they keep only the radio band.",
   "settings.accessibility": "Accessibility",
   "settings.motion": "Motion",
   "settings.motion.system": "Follow the system setting",

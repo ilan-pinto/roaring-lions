@@ -777,6 +777,7 @@ async function main(): Promise<void> {
   let settings: Settings = loadSettings(settingsStore);
   applySettings(settings, document.documentElement);
   audio.setGains(settings.audio);
+  audio.setRadioEffect(settings.audio.radio);
   /** `settingsDeps.set` persists, applies and re-broadcasts through here --
    *  `onChange` is how a SECOND mount of the settings panel (Task 6's pause
    *  menu) and the keymap section (Task 5) learn a change happened without
@@ -791,6 +792,8 @@ async function main(): Promise<void> {
       saveSettings(settingsStore, next);
       applySettings(next, document.documentElement);
       audio.setGains(next.audio);
+      // Read by the NEXT radio line as it starts (N17); nothing sounding is touched.
+      audio.setRadioEffect(next.audio.radio);
       bus.notify(next);
     },
     onChange: bus.onChange,

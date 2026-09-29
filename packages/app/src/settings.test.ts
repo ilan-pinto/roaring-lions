@@ -28,14 +28,14 @@ describe('parseSettings', () => {
       extra: 'dropped',
     }));
     expect(s.video).toEqual({ fullscreen: true, uiScale: 'auto', textSize: 1.15, quality: 'high' });
-    expect(s.audio).toEqual({ master: 0.5, music: 1, sfx: 1, voice: 1 });
+    expect(s.audio).toEqual({ master: 0.5, music: 1, sfx: 1, voice: 1, radio: true });
     expect(s.accessibility).toEqual({ motion: 'reduce', colorVision: 'default', captions: false });
     expect(s.language).toBe('en');
     expect('extra' in s).toBe(false);
   });
   it('round-trips through save and load', () => {
     const store = memStore();
-    const s = { ...DEFAULT_SETTINGS, audio: { master: 0.3, music: 0.2, sfx: 0.1, voice: 0.4 } };
+    const s = { ...DEFAULT_SETTINGS, audio: { master: 0.3, music: 0.2, sfx: 0.1, voice: 0.4, radio: false } };
     saveSettings(store, s);
     expect(store.map.get(SETTINGS_KEY)).toBe(JSON.stringify(s));
     expect(loadSettings(store)).toEqual(s);
@@ -58,12 +58,26 @@ describe('parseSettings', () => {
     expect(DEFAULT_SETTINGS.audio.voice).toBe(1);
     // A save from before voices keeps its three levels and gains the fourth.
     expect(parseSettings(JSON.stringify({ version: 1, audio: { master: 0.5, music: 0.2, sfx: 0.3 } })).audio).toEqual({
-      master: 0.5, music: 0.2, sfx: 0.3, voice: 1,
+      master: 0.5, music: 0.2, sfx: 0.3, voice: 1, radio: true,
     });
     expect(parseSettings(JSON.stringify({ version: 1, audio: { voice: 0 } })).audio.voice).toBe(0);
     expect(parseSettings(JSON.stringify({ version: 1, audio: { voice: 1.5, sfx: 0.4 } })).audio).toEqual({
-      master: 1, music: 1, sfx: 0.4, voice: 1,
+      master: 1, music: 1, sfx: 0.4, voice: 1, radio: true,
     });
+  });
+  it('the radio effect is on by default, persists off, and a bad value reads as on (N17)', () => {
+    expect(DEFAULT_SETTINGS.audio.radio).toBe(true);
+    // A save from before the toggle existed hears the effect.
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { voice: 0.5 } })).audio.radio).toBe(true);
+    expect(parseSettings(JSON.stringify({ version: 1, audio: { radio: 'off', sfx: 0.2 } })).audio).toMatchObject({ radio: true, sfx: 0.2 });
+    const store = memStore();
+    const off = structuredClone(DEFAULT_SETTINGS);
+    off.audio.radio = false;
+    saveSettings(store, off);
+    expect(loadSettings(store).audio.radio).toBe(false);
+    // Off survives a neighbour going bad.
+    store.map.set(SETTINGS_KEY, JSON.stringify({ version: 1, audio: { radio: false, master: 'x' } }));
+    expect(loadSettings(store).audio).toMatchObject({ radio: false, master: 1 });
   });
   it('captions are off by default, and a bad value reads as off (D8)', () => {
     expect(DEFAULT_SETTINGS.accessibility.captions).toBe(false);

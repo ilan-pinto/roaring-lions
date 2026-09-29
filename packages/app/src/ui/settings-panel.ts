@@ -274,7 +274,10 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
 
   section(table, t('settings.audio'));
   const live = (k: 'master' | 'music' | 'sfx' | 'voice') => (v: number): void => {
-    const g: AudioGains = { ...deps.get().audio, [k]: v };
+    // The four levels only: `audio` also carries the radio toggle, which is
+    // not a gain and is applied by `set`, never live.
+    const { master, music, sfx, voice } = deps.get().audio;
+    const g: AudioGains = { master, music, sfx, voice, [k]: v };
     deps.audio?.setGains(g);
   };
   for (const [k, label] of [
@@ -293,6 +296,16 @@ export function settingsPanel(host: HTMLElement, deps: SettingsDeps): { el: HTML
       )
     );
   }
+  row(
+    table,
+    t('settings.audio.radio'),
+    checkbox('radio', s.audio.radio, (v) =>
+      update((n) => {
+        n.audio.radio = v;
+      })
+    ),
+    t('settings.audio.radio.hint')
+  );
 
   section(table, t('settings.accessibility'));
   row(
