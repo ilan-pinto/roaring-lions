@@ -189,10 +189,20 @@ describe('stripObjectives', () => {
 });
 
 describe('objectiveGlyph', () => {
-  it('distinguishes the three states', () => {
-    expect(objectiveGlyph('complete')).toBe('☑');
-    expect(objectiveGlyph('failed')).toBe('☒');
-    expect(objectiveGlyph('active')).toBe('☐');
+  // GH-261 (Military set B): the dashed "planned" frame, the solid frame
+  // with its tick, the framed X -- each toned by an existing theme class.
+  const mark = (html: string): string | undefined => /data-symbol="([^"]+)"/.exec(html)?.[1];
+  const cls = (html: string): string | undefined => /class="([^"]+)"/.exec(html)?.[1];
+  it('distinguishes the three states with a drawn mark, never a character', () => {
+    expect(mark(objectiveGlyph('complete'))).toBe('objectiveDone');
+    expect(mark(objectiveGlyph('failed'))).toBe('objectiveFailed');
+    expect(mark(objectiveGlyph('active'))).toBe('objectiveOpen');
+    for (const s of ['complete', 'failed', 'active']) expect(objectiveGlyph(s)).not.toMatch(/[☑☒☐]/);
+  });
+  it('tones done good and failed bad-text, and leaves open to the ink it sits in', () => {
+    expect(cls(objectiveGlyph('complete'))).toContain('rl-good');
+    expect(cls(objectiveGlyph('failed'))).toContain('rl-bad-text');
+    expect(cls(objectiveGlyph('active'))).not.toMatch(/rl-good|rl-bad/);
   });
 });
 

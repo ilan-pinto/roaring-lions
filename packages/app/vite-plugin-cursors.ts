@@ -10,7 +10,7 @@
 // there is all it takes for the palette gate to become a rule with an
 // exception.
 //
-// `default` (one of the fourteen names) deliberately gets no rule -- it is
+// `default` (one of the fifteen names) deliberately gets no rule -- it is
 // the OS arrow. Shipping an empty SVG for it would HIDE the arrow rather than
 // fall through to it.
 //
@@ -113,7 +113,7 @@ interface Palette {
   reserved: Record<string, PaletteBand>;
 }
 
-// The eleven drawn bare cursors (fourteen names in CursorName, minus
+// The eleven drawn bare cursors (fifteen names in CursorName, minus
 // 'default', 'mount', 'dismount' and 'charge' -- see BareCursorName and
 // BADGED_VERBS below for why those never get a rule of their own) all share
 // one hotspot: dead centre, at half the canvas size on each axis. Nothing is
@@ -346,6 +346,29 @@ function costlyBody(c: CursorColors): string {
   return fillPath(c.warn, housing()) + strokePath(c.warn, 2, 'M16,12L25,21H7Z');
 }
 
+/** Where the pinned mark sits: its 24-box scaled to 18 px and laid over
+ *  x/y 7..25 -- `costly`'s payload span -- so the box centre (12, 12) lands
+ *  on CENTER. That centre is the empty gap between the mark's ground bar and
+ *  its chevron, so the hotspot pixel is never painted, and the mark's corners
+ *  clear every bracket leg (the legs stop at 6 from each edge; the mark
+ *  starts at 8.5). */
+const PINNED_MARK = { x: 7, y: 7, scale: 0.75 } as const;
+
+/** pinned (GH-262): every unit the order would move is pinned, so the click
+ *  is accepted and nobody goes. The standard housing in `hot` -- vfx.fire,
+ *  the colour the HUD's `--hot` and the pinned mark on the chip, card and
+ *  strip already use -- with the G-PIN mark A ("pressed flat",
+ *  `symbolBody('pinned')`) inside, baked to the same hex because a cursor
+ *  image has no `currentColor` to inherit. One drawing, never a second. */
+function pinnedBody(c: CursorColors): string {
+  return (
+    fillPath(c.hot, housing()) +
+    `<g transform="translate(${PINNED_MARK.x} ${PINNED_MARK.y}) scale(${PINNED_MARK.scale})">` +
+    symbolBody('pinned').replaceAll('currentColor', hex(c.hot)) +
+    '</g>'
+  );
+}
+
 function protectedBody(c: CursorColors): string {
   return (
     fillPath(c.bad, housing({ arm: 8, thickness: 4, chamfer: 4 })) +
@@ -525,6 +548,7 @@ const BARE_NAMES: readonly BareCursorName[] = [
   'protected',
   'garrison',
   'demolish',
+  'pinned',
 ];
 
 /** The seven housing colours, read from the `ui` band `deriveUiBand` builds.
@@ -620,6 +644,8 @@ function housingBody(name: CursorName, c: CursorColors, o: BodyOpts = {}): strin
       return blockedBody(c);
     case 'costly':
       return costlyBody(c);
+    case 'pinned':
+      return pinnedBody(c);
     case 'protected':
       return protectedBody(c);
     case 'garrison':

@@ -34,6 +34,18 @@ describe('objectivesPanel', () => {
     p.dispose();
   });
 
+  it('draws each status as its GH-261 mark, not a character', () => {
+    const host = document.createElement('div');
+    const p = objectivesPanel(host, { rows: () => rows, paysCredits: true });
+    const mark = (id: string): string | null | undefined =>
+      p.el.querySelector(`.rl-obj[data-id="${id}"] .rl-obj__glyph svg`)?.getAttribute('data-symbol');
+    expect(mark('a')).toBe('objectiveOpen');
+    expect(mark('b')).toBe('objectiveDone');
+    expect(mark('c')).toBe('objectiveFailed');
+    expect(p.el.textContent).not.toMatch(/[☑☒☐]/);
+    p.dispose();
+  });
+
   it('a status word is the catalogue label, never the sim enum', () => {
     const host = document.createElement('div');
     const p = objectivesPanel(host, { rows: () => rows, paysCredits: true });

@@ -22,6 +22,7 @@
  */
 import { CREDITS } from '../credits-data';
 import { t } from '../i18n/t';
+import { symbolLabel } from './symbol';
 import type { Disposer } from '../shell/router';
 import { panel } from './panel';
 import { stagger } from './motion';
@@ -165,7 +166,7 @@ export function showCredits(stage: HTMLElement, deps: CreditsDeps): Disposer {
   back.className = 'rl-btn rl-menu__item rl-credits__back';
   back.dataset.kind = 'back';
   back.href = deps.back;
-  back.textContent = t('nav.backToMenu');
+  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   p.body.appendChild(back);
 
   stagger(wrap);

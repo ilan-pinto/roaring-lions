@@ -34,12 +34,12 @@ import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
 import { escapeHtml } from './escape-html';
-import { kitIconSignDecorHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
+import { kitIconSignDecorHtml, kitIconSignHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
-import { symbolSvg } from './symbol';
+import { symbolLabel, symbolSvg } from './symbol';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import {
@@ -137,6 +137,31 @@ const STRIP_GLYPH_PX = 14;
  *  art rather than labelling it — big enough to read as the picture. */
 const CHIP_MARK = 18;
 const CARD_MARK = 32;
+/** The pinned status mark (GH-262, candidate A "pressed flat", G-PIN 28 Sep)
+ *  in the art's bottom-left corner -- the kit sign holds top-right, the
+ *  card's role badge top-left. 12 px on the 40 px chip art (the chip's kit
+ *  star is 10, and r2 proved the family legible at 10), 16 px on the card's
+ *  72 px frame. As with the kit sign, the px is the attribute floor and
+ *  theme.css's rem rule is what draws, so `--ui-scale` reaches it. */
+const PIN_MARK_CHIP = 12;
+const PIN_MARK_CARD = 16;
+
+/** The corner mark: one named image, so a screen reader hears "Pinned" once
+ *  for the art rather than nothing (the svg itself is aria-hidden). */
+function pinMarkHtml(size: number): string {
+  return `<span class="rl-pin-mark" role="img" aria-label="${t('hud.pinned.label')}">${symbolSvg('pinned', size)}</span>`;
+}
+
+/** The chip art with its corner marks. Unpinned, exactly `withKitSign`'s
+ *  output, so an unpinned chip is byte-identical to one drawn before GH-262.
+ *  Pinned, the same positioned host `withKitSign` builds for a kitted icon --
+ *  built here for an unkitted one too -- with the kit sign kept IMMEDIATELY
+ *  after the art (theme.css sizes the chip's stars by the adjacent-sibling
+ *  selector `.rl-chip__art + .rl-kit-icon`) and the pinned mark after it. */
+function chipArtHtml(artHtml: string, kit: KitLevel, pinned: boolean): string {
+  if (!pinned) return withKitSign(artHtml, kit);
+  return `<span class="rl-kit-host">${artHtml}${kitIconSignHtml(kit)}${pinMarkHtml(PIN_MARK_CHIP)}</span>`;
+}
 
 /** The attributes that name a strip control across `renderStrip`'s 4 Hz
  *  rebuild, tried in this order: an objective row by its objective's id, a
@@ -505,14 +530,19 @@ export class Hud {
     chips.className = 'rl-strip__chips';
     this.speedCluster = chips;
     for (const spec of [
-      { speed: 0, label: '▮▮', title: 'hud.speed.pause' },
+      // Pause is a drawn mark (GH-261: bars in the unit frame); 1x/2x stay
+      // type -- a figure, not a dingbat.
+      { speed: 0, label: null, title: 'hud.speed.pause' },
       { speed: 1, label: '1×', title: 'hud.speed.normal' },
       { speed: 2, label: '2×', title: 'hud.speed.double' },
     ]) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'rl-strip__chip';
-      b.textContent = spec.label;
+      if (spec.label === null) {
+        b.innerHTML = symbolSvg('pause', STRIP_GLYPH_PX);
+        b.setAttribute('aria-label', t(spec.title)); // the mark is aria-hidden
+      } else b.textContent = spec.label;
       b.title = t(spec.title);
       b.addEventListener('click', () => {
         deps.setSpeed?.(spec.speed);
@@ -540,7 +570,7 @@ export class Hud {
     // clicks it to walk a mission's exit. Styling it by the same hook the
     // walk selects on would make a restyle silently break the walk.
     leaveBtn.className = 'rl-strip__link rl-hud__leave';
-    leaveBtn.textContent = t('hud.leave.link');
+    leaveBtn.innerHTML = symbolLabel('leave', t('hud.leave.link')); // GH-261: line of departure
     leaveBtn.title = t('hud.leave.title');
     leaveBtn.addEventListener('click', () => {
       void confirmDialog(document.body, {
@@ -738,12 +768,15 @@ export class Hud {
     paging.className = 'rl-cmd__page';
     this.cmdPrev = document.createElement('button');
     this.cmdPrev.type = 'button';
-    this.cmdPrev.textContent = '◂';
+    // GH-261: phase-line arrows, the step and the line it lands on.
+    this.cmdPrev.innerHTML = symbolSvg('pagePrev', STRIP_GLYPH_PX);
     this.cmdPrev.title = t('hud.commander.previous');
+    this.cmdPrev.setAttribute('aria-label', t('hud.commander.previous'));
     this.cmdNext = document.createElement('button');
     this.cmdNext.type = 'button';
-    this.cmdNext.textContent = '▸';
+    this.cmdNext.innerHTML = symbolSvg('pageNext', STRIP_GLYPH_PX);
     this.cmdNext.title = t('hud.commander.next');
+    this.cmdNext.setAttribute('aria-label', t('hud.commander.next'));
     this.cmdPrev.addEventListener('click', () => this.pageCommander(-1));
     this.cmdNext.addEventListener('click', () => this.pageCommander(1));
     paging.append(this.cmdPrev, this.cmdNext);
@@ -909,8 +942,10 @@ export class Hud {
   /** Mirror the audio state the `m` key just changed. */
   paintMute(): void {
     const muted = this.deps.isMuted?.() ?? false;
-    this.muteChip.textContent = muted ? '🔇' : '🔊';
+    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    this.muteChip.innerHTML = symbolSvg(muted ? 'audioOff' : 'audioOn', STRIP_GLYPH_PX);
     this.muteChip.title = muted ? t('hud.mute.muted') : t('hud.mute.unmuted');
+    this.muteChip.setAttribute('aria-label', this.muteChip.title);
     this.muteChip.dataset.on = muted ? '0' : '1';
   }
 
@@ -1024,7 +1059,7 @@ export class Hud {
     this.renderCommander();
   }
 
-  /** ◂/▸: always steps the underlying BEAT position, whether or not a `say`
+  /** The pager (prev/next): always steps the underlying BEAT position, whether or not a `say`
    *  line is currently showing over it -- "keep the beat paging working"
    *  means the buttons' enabled state and what they step are unaffected by
    *  the overlay. A manual page is also how a `say` line is dismissed by
@@ -1147,7 +1182,7 @@ export class Hud {
           // two long objectives it was the clock that vanished.
           `<span class="rl-strip__obj rl-strip__deadline" data-obj="${escapeHtml(deadline.objective.id)}" tabindex="0">` +
             `${objectiveGlyph(deadline.objective.status)} ` +
-            `<b class="${textToneClass(deadline.tone)}">${deadline.text}</b> ` +
+            `<b class="${textToneClass(deadline.tone)}">${escapeHtml(deadline.text)}</b> ` +
             `${escapeHtml(deadline.objective.text)}</span>`
         );
       }
@@ -1205,11 +1240,14 @@ export class Hud {
     const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
     if (pinned > 0)
       info.push(
-        `<span class="rl-hot" data-tip="pinned" tabindex="0"><b>${t('hud.strip.pinned', { n: pinned })}</b></span>`
+        // GH-262: the drawn mark where the retired dingbat stood, 1em of the
+        // strip's type like the logistics and intel marks beside it.
+        `<span class="rl-hot" data-tip="pinned" tabindex="0">${symbolSvg('pinned', STRIP_GLYPH_PX)} ` +
+          `<b>${t('hud.strip.pinned', { n: pinned })}</b></span>`
       );
     if (broken > 0)
       info.push(
-        `<span class="rl-bad-text" data-tip="broken" tabindex="0"><b>${t('hud.strip.broken', { n: broken })}</b></span>`
+        `<span class="rl-bad-text" data-tip="broken" tabindex="0">${symbolSvg('broken', STRIP_GLYPH_PX)} <b>${t('hud.strip.broken', { n: broken })}</b></span>`
       );
 
     // Keyboard focus survives the swap (shell upgrade Phase 3, Task 10; the
@@ -1310,7 +1348,10 @@ export class Hud {
       case 'intel':
         return t('hud.strip.intel.tip');
       case 'pinned':
-        return t('hud.strip.pinned.tip');
+        // Final fix wave (GH-262): reads the same key as the card and chip
+        // (`hud.pinned.explain`) rather than its own now-deleted
+        // `hud.strip.pinned.tip`, so the three surfaces cannot drift again.
+        return t('hud.pinned.explain');
       case 'broken':
         return t('hud.strip.broken.tip');
       default:
@@ -1665,7 +1706,7 @@ export class Hud {
           // theme.css's per-level border tint. Absent at level 0, so an
           // unkitted chip is byte-identical to one drawn before the kit.
           `${kit > 0 ? ` data-kit="${kit}"` : ''}>` +
-          withKitSign(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK), kit) +
+          chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK), kit, c.pinned) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
           // The name in its own span: `text-overflow`/wrapping does nothing
@@ -1678,7 +1719,9 @@ export class Hud {
           `</div>` +
           `<div class="rl-track"><i class="rl-fill-${c.hpTone}" ` +
           `style="width:${(c.hpPct * 100).toFixed(0)}%"></i></div>` +
-          `<div class="rl-chip__status ${tone}">${c.status}</div>` +
+          `<div class="rl-chip__status ${tone}"${
+            c.statusTone === 'hot' ? ' data-tip="pinned" tabindex="0"' : ''
+          }>${c.status}</div>` +
           `</div></div>`
         );
       })
@@ -1692,6 +1735,11 @@ export class Hud {
    *  which `bindDelegatedTip` treats as "no tip here" rather than showing
    *  whatever the last render happened to leave behind. */
   private chipTipHtml(typeId: string | undefined): string | null {
+    // Task 4 (GH-262): the chip's status line and the single-unit card's
+    // PINNED flag share this same delegated binding -- both are drawn into
+    // `this.cluster` -- so the pinned explanation is resolved here, ahead of
+    // the type-id lookup below, rather than in a second resolver.
+    if (typeId === 'pinned') return t('hud.pinned.explain');
     const chip = this.chipViews.find((c) => c.typeId === typeId);
     return chip ? t('hud.chip.selectOnly', { name: escapeHtml(chip.name), count: chip.count }) : null;
   }
@@ -1775,7 +1823,10 @@ export class Hud {
     // layout around it is what GH-153 is changing, not the facts in it.
     const flags: string[] = [];
     if (st.routed[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.broken')}</span>`);
-    else if (st.pinned[id] === 1) flags.push(`<span class="rl-hot">${t('hud.card.pinned')}</span>`);
+    else if (st.pinned[id] === 1)
+      flags.push(
+        `<span class="rl-hot" data-tip="pinned" tabindex="0">${symbolSvg('pinned', STRIP_GLYPH_PX)} ${t('hud.card.pinned')}</span>`
+      );
     if (st.garrisonedIn[id] >= 0) flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
     if (st.mobilityKilled[id] === 1) flags.push(`<span class="rl-dim">${t('hud.card.immobilised')}</span>`);
     if (st.firepowerKilled[id] === 1) flags.push(`<span class="rl-bad-text">${t('hud.card.gunsOut')}</span>`);
@@ -1794,7 +1845,7 @@ export class Hud {
         arms.push(
           `<div>${t('hud.card.weapon', { id: escapeHtml(w.id), effective: fx.toNumber(w.effectiveRange).toFixed(1), range: fx.toNumber(w.range).toFixed(0) })}` +
             (pen > 0 ? ` · ${t('hud.card.weaponPen', { n: pen.toFixed(0) })}` : '') +
-            (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${t('hud.card.weaponHeavy')}</span>` : '') +
+            (fx.toNumber(w.collateralRisk) >= 0.5 ? ` <span class="rl-warn">${symbolLabel('heavy', t('hud.card.weaponHeavy'))}</span>` : '') +
             `</div>`
         );
       }
@@ -1831,6 +1882,9 @@ export class Hud {
       // `kitPipsHtml` below already names the level to a screen reader, so
       // this copy is decorative only -- one announcement, not two.
       kitIconSignDecorHtml(st.side[id] === 0 ? this.kitLevel(type.id) : 0) +
+      // GH-262: the pinned mark, bottom-left -- only when the condition line
+      // below says PINNED (broken outranks it there, and here).
+      (st.routed[id] !== 1 && st.pinned[id] === 1 ? pinMarkHtml(PIN_MARK_CARD) : '') +
       `</div>` +
       `<div class="rl-card__body">` +
       `<div class="rl-card__top">` +

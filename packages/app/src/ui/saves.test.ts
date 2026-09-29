@@ -62,6 +62,14 @@ function deps(store: LedgerStore, overrides: Partial<SavesDeps> = {}): SavesDeps
 }
 
 describe('showSaves', () => {
+  it('draws its back link with the GH-261 arrow, words beside it', () => {
+    const stage = document.createElement('div');
+    showSaves(stage, deps(memStore()));
+    const back = stage.querySelector('.rl-saves__back');
+    expect(back?.querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
+    expect(back?.textContent?.trim()).toBe('main menu');
+  });
+
   it('renders the slot list newest first', () => {
     const store = memStore();
     saveSlot(store, 'a', 'Old', active, '0.68.0', 1);

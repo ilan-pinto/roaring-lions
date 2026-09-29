@@ -309,6 +309,21 @@ Target 300–600 simultaneous units at 60 fps. Struct-of-arrays layout over type
 
 **AI-generated art policy:** permitted, including for shipped assets. **Disclosure is required in the PR description** wherever generative tools were used. Everything still passes the same gates as any other art — palette, binary alpha, silhouette, and the redistribution-rights requirement in ART_PIPELINE §7 — so the standard is the output, not the tool. The reasoning lives in `CONTRIBUTING.md` alongside the rule, because stated reasoning survives contributor turnover in a way a bare policy line does not.
 
+**Monetisation: two currencies, and money buys nothing that plays.** This is G7's rule
+(#199), approved by the lead on 2026-09-29 and written up in WP-ST8
+(`docs/superpowers/specs/2026-09-28-st8-monetisation-content-plan.md`).
+
+- **Brigade credits** are earned only, by play, and are never sold, granted for money or
+  converted from anything bought. They buy units, including the bought-only special forces,
+  and upgrade tiers.
+- **A second, cosmetic currency, Roar coins,** is the only thing Steam Wallet sells.
+- Roar coins buy **only cosmetics**: faction liveries, unit badges and episodic operation passes.
+- Roar coins buy **no unit, no upgrade, no brigade credit, no Conduct tier and no Conduct
+  advantage**, directly or through anything they buy.
+
+Every mission is free, and a store item is listed only if it passes the written test in that
+spec (§1.1).
+
 ---
 
 ## 10. Deferred

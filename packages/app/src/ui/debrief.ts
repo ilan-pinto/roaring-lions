@@ -2,6 +2,9 @@
 // its portrait and quote; this is the card that would not fit in 26.25rem. Pure DOM, no sim.
 import type { Stars } from '@lions/sim';
 import { t } from '../i18n/t';
+import { escapeHtml } from './escape-html';
+import { objectiveGlyph } from './hud-model';
+import { symbolLabel } from './symbol';
 import { panel } from './panel';
 import { tierName } from './grade-copy';
 import { routes } from '../shell/links';
@@ -154,11 +157,11 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   if (o.secondaries.length > 0) {
     const ul = el('ul', 'rl-debrief__secondaries');
     for (const s of o.secondaries) {
-      const glyph = s.complete ? '☑' : '☐';
       // `s.text` is a param, never touched by the catalogue -- it is the mission's own
       // objective text, data flowing through unchanged, same as `o.taken`/`o.unlocked` above.
       const label = s.carries ? t('debrief.secondary.carries', { text: s.text }) : s.text;
-      const li = el('li', 'rl-debrief__secondary', `${glyph} ${label}`);
+      const li = el('li', 'rl-debrief__secondary');
+      li.innerHTML = `${objectiveGlyph(s.complete ? 'complete' : 'active')} ${escapeHtml(label)}`;
       li.dataset.carries = s.carries ? '1' : '0';
       li.dataset.complete = s.complete ? '1' : '0';
       ul.appendChild(li);
@@ -194,7 +197,7 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
     const a = document.createElement('a');
     a.className = 'rl-btn rl-debrief__next';
     a.href = routes.mission(o.next.id);
-    a.textContent = t('debrief.next', { name: o.next.name });
+    a.innerHTML = symbolLabel('next', t('debrief.next', { name: o.next.name }), { after: true });
     nav.appendChild(a);
     if (o.next.villainLine) b.appendChild(el('div', 'rl-debrief__villain', o.next.villainLine));
   }

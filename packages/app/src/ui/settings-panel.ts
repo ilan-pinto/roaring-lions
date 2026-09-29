@@ -24,6 +24,7 @@
  */
 import type { AudioGains } from '@lions/render';
 import { t } from '../i18n/t';
+import { symbolLabel } from './symbol';
 import type { Locale } from '../i18n/locales';
 import type { Disposer } from '../shell/router';
 import {
@@ -426,7 +427,7 @@ export function showSettings(stage: HTMLElement, deps: SettingsDeps & { back: st
   back.className = 'rl-btn rl-menu__item rl-settings__back';
   back.dataset.kind = 'back';
   back.href = deps.back;
-  back.textContent = t('nav.backToMenu');
+  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   (el.querySelector('.rl-panel__body') ?? el).appendChild(back);
   return dispose;
 }
