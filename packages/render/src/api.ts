@@ -435,6 +435,17 @@ export interface Renderer {
   objectiveZones?: readonly ObjectiveZoneView[];
 
   addOrderMarker(x: number, y: number): void;
+  /**
+   * GH-279: mark the refuge at `(x, y)`, in tiles, for a few seconds -- the
+   * backend owns the look and the envelope (on three: a dashed ring that
+   * holds a second and fades out by three, restarted by a second call). A
+   * one-shot, never a standing mark; there is nothing to clear.
+   *
+   * OPTIONAL for `onMissionEvents`'s reason: VFX owe Pixi no parity and
+   * `renderer.ts` is frozen, so Pixi draws nothing here. `main.ts` calls it
+   * as `?.()`.
+   */
+  pingRefuge?(x: number, y: number): void;
   setTutorialFocus(x: number, y: number, radius: number): void;
   clearTutorialFocus(): void;
 }

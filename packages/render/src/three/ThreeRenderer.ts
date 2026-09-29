@@ -437,7 +437,16 @@ import {
   cachedDesaturate,
   cachedHexToLinear,
   hpBarVisible,
+  REFUGE_RING_TILES,
+  REFUGE_RING_COLOR_KEY,
+  REFUGE_RING_FALLBACK_COLOR,
+  REFUGE_RING_EDGE_COLOR_KEY,
+  REFUGE_RING_EDGE_FALLBACK_COLOR,
+  REFUGE_RING_STYLE,
+  REFUGE_RING_EDGE_STYLE,
+  REFUGE_RING_EDGE_ALPHA,
 } from './units/overlays';
+import { GroundPing } from './units/ground-ping';
 import { ELLIPSE_BY_TYPE, HP_BAR, RING_CLASS_OVERRIDE, ringClassOf, ringRadiusFor } from './units/readability';
 import { SelectionRingBatch } from './units/selection-ring';
 
@@ -2019,6 +2028,9 @@ export class ThreeRenderer implements Renderer {
    * below.
    */
   private readonly overlayBatch: OverlayBatch;
+  /** GH-279: the refuge ring's one slot (`pingRefuge`). Aged in `frame()`
+   *  from the frame clock, drawn in `updateOverlays`. */
+  private readonly refugePing = new GroundPing();
   private readonly numeralBatch: NumeralBatch;
   /** The veterancy chevron -- `NumeralBatch`'s structural twin, same reason
    *  for a constructor-body assignment rather than a field initializer.
@@ -3123,6 +3135,10 @@ export class ThreeRenderer implements Renderer {
     // in shipping code and is the only thing that makes the toggle a
     // measurement rather than the false green `units` once produced.
     if (this.flashLightsDebugHidden) this.zeroFlashLights();
+    // GH-279: the refuge ring ages on the same clamped frame clock
+    // `frameDtSeconds` feeds every other presentation timer -- never a sim
+    // tick -- and BEFORE `updateOverlays` reads it.
+    this.refugePing.step(this.frameDtMs(dtMs));
     this.updateOverlays(alpha);
     if (this.shroudDirty) {
       this.shroud.update(this.fog);
@@ -5793,6 +5809,18 @@ export class ThreeRenderer implements Renderer {
    * the state this method retains was always correct, only nothing consumed
    * it until now.
    */
+  /**
+   * GH-279: a dashed ring on the refuge for three seconds -- a second of
+   * full strength, then a linear fade (`units/ground-ping.ts`). A call while
+   * one is showing restarts it. The app calls it when a flight line is said
+   * and when the tracker's "Show refuge" is pressed; it is never a standing
+   * mark. Presentation only: it reads nothing from the sim beyond the ground
+   * height under the point, and nothing reads it back.
+   */
+  pingRefuge(x: number, y: number): void {
+    this.refugePing.restart(x, y);
+  }
+
   setTutorialFocus(x: number, y: number, radius: number): void {
     this.retained.tutorialFocus = { x, y, radius };
   }
@@ -8364,6 +8392,30 @@ export class ThreeRenderer implements Renderer {
       // that the weapon-envelope ring below actually exists and shares it.
       const { rightR: rPx, upR: rPxUp } = tileRadiusToEllipsePx(tut.radius, TILE_W, TILE_H);
       this.overlayBatch.ellipseRing(tanchor, rPx, rPxUp, 2, color, pulse + 0.25, 24);
+    }
+
+    // GH-279: the refuge ring. After the objective zones, so the dashes sit
+    // over the ward's own outline where the two cross; the dark under-stroke
+    // first, then the green, in the one batch -- same band, same
+    // `depthTest: false` as a selection ring, so a roof between the camera
+    // and the refuge does not cut it. Centre-sampled ground height, the
+    // tutorial ring's simplification above and for the same reason.
+    const ping = this.refugePing.view();
+    if (ping) {
+      const groundYp = groundWorldY(elevation, width, height, ping.x, ping.y);
+      const panchor: [number, number, number] = [ping.x, groundYp, ping.y];
+      const { rightR, upR } = tileRadiusToEllipsePx(REFUGE_RING_TILES, TILE_W, TILE_H);
+      const edge = this.overlayColor(REFUGE_RING_EDGE_COLOR_KEY, REFUGE_RING_EDGE_FALLBACK_COLOR);
+      const green = this.overlayColor(REFUGE_RING_COLOR_KEY, REFUGE_RING_FALLBACK_COLOR);
+      this.overlayBatch.dashedEllipseRing(
+        panchor,
+        rightR,
+        upR,
+        REFUGE_RING_EDGE_STYLE,
+        edge,
+        REFUGE_RING_EDGE_ALPHA * ping.strength
+      );
+      this.overlayBatch.dashedEllipseRing(panchor, rightR, upR, REFUGE_RING_STYLE, green, ping.strength);
     }
 
     // Garrison hover highlight -- renderer.ts's own doorway-arrow affordance,

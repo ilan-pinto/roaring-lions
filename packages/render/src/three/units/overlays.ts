@@ -77,6 +77,8 @@ import {
   pushEllipseFanPx,
   pushEllipseRingPx,
   pushEllipseAnnulusFillPx,
+  pushDashedEllipseRingPx,
+  ellipseDashAngles,
   desaturateHex,
   pushPolygonFillWorld,
   pushPolygonStrokeWorld,
@@ -86,6 +88,8 @@ import {
   type TriangleSoup,
   type OverlayColor,
   type WorldPoint,
+  type DashedRingStyle,
+  type EllipseDash,
 } from './overlay-geometry';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
 
@@ -356,6 +360,42 @@ export function tileRadiusToEllipsePx(tiles: number, tileWPx: number, tileHPx: n
   return { rightR: tiles * tileWPx * ISO_K, upR: tiles * tileHPx * ISO_K };
 }
 
+/**
+ * GH-279: the refuge ring -- where fleeing families are running to, said on
+ * the ground for three seconds when a flight line is emitted or the tracker's
+ * "Show refuge" is pressed (`ThreeRenderer.pingRefuge`, envelope in
+ * `./ground-ping.ts`). Approved as treatment A of the 2026-09-29 mock: a
+ * dashed ring, no fill, 2.5 tiles, centred on the mission's refuge marker.
+ *
+ * 2.5 tiles, not the refuge's zone: the ring says "here", and the zone's
+ * own objective outline already says "this ground".
+ */
+export const REFUGE_RING_TILES = 2.5;
+/** `--good` in the UI (`theme.css`: `--good: var(--rl-scrub-0)`), the token
+ *  the minimap's refuge cross already wears -- one colour for one place. */
+export const REFUGE_RING_COLOR_KEY = 'scrub.0';
+export const REFUGE_RING_FALLBACK_COLOR = '#6B8A4A';
+/** `--mark-edge` in the UI (`--rl-shadow-0`), the minimap cross's own edge.
+ *  Measured on the mock (`03A-plain-no-understroke.png`): scrub.0 sits at
+ *  nearly the luminance of the sand, and without this edge the ring is lost
+ *  over shadowed ground and rooftops. */
+export const REFUGE_RING_EDGE_COLOR_KEY = 'shadow.0';
+export const REFUGE_RING_EDGE_FALLBACK_COLOR = '#23241F';
+/** The green dash: 7 on, 5 off, 2 wide -- the mock's numbers, in overlay
+ *  pixels (they scale with zoom like every ring here). */
+export const REFUGE_RING_STYLE: DashedRingStyle = { widthPx: 2, dashPx: 7, gapPx: 5 };
+/** The under-stroke is this much wider than the dash, split evenly both
+ *  sides AND both ends (`DashedRingStyle.extendPx`), at `REFUGE_RING_EDGE_ALPHA`
+ *  times the ring's own envelope. */
+export const REFUGE_RING_EDGE_EXTRA_PX = 2.5;
+export const REFUGE_RING_EDGE_ALPHA = 0.6;
+export const REFUGE_RING_EDGE_STYLE: DashedRingStyle = {
+  widthPx: REFUGE_RING_STYLE.widthPx + REFUGE_RING_EDGE_EXTRA_PX,
+  dashPx: REFUGE_RING_STYLE.dashPx,
+  gapPx: REFUGE_RING_STYLE.gapPx,
+  extendPx: REFUGE_RING_EDGE_EXTRA_PX / 2,
+};
+
 /** RGB triple, LINEAR, in 0..1, memoised -- the last step before a resolved
  *  palette hex becomes vertex colour, mirroring `fx.ts`'s own
  *  `cachedHexToLinear` (private there; this module needs its own for the
@@ -439,6 +479,11 @@ function createOverlayMaterial(): THREE.ShaderMaterial {
   });
 }
 
+/** Distinct dashed-ring shapes `OverlayBatch` keeps a layout for before it
+ *  starts over. A fixed-radius ring is one entry for the life of the batch;
+ *  #277's aura rings add one per aura radius. */
+const DASH_LAYOUT_MEMO_CAP = 32;
+
 /**
  * Every overlay this phase draws except the badge numeral (see this file's
  * top comment for why that one is separate): one non-instanced
@@ -451,6 +496,8 @@ export class OverlayBatch {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly alphaAttr: THREE.BufferAttribute;
+  /** `dashedEllipseRing`'s layouts, by shape. */
+  private readonly dashLayouts = new Map<string, EllipseDash[]>();
 
   constructor(vertexCapacity: number) {
     this.soup = createTriangleSoup(vertexCapacity);
@@ -570,6 +617,38 @@ export class OverlayBatch {
     segments: number = OVERLAY_RING_SEGMENTS
   ): void {
     pushEllipseAnnulusFillPx(this.soup, anchor, rIn, uIn, rOut, uOut, cachedHexToLinear(colorHex), alpha, segments);
+  }
+
+  /**
+   * A dashed stroked ellipse, no fill -- the reusable primitive behind the
+   * GH-279 refuge ring and #277's aura rings. Same `(rightR, upR)` and the
+   * same straddled stroke as `ellipseRing`; `style` names dash, gap, width
+   * and an optional end extension for an under-stroke
+   * (`overlay-geometry.ts`'s `DashedRingStyle` has why every length is in
+   * overlay pixels and therefore scales with zoom). Dashes are spaced by arc
+   * length, so they are even all the way round a 2:1 ground ellipse.
+   *
+   * The layout is memoised by shape: a ring drawn every frame at a fixed
+   * radius pays for its perimeter table once. The memo is small and flushed
+   * whole when it fills, so a caller animating its radius costs one table
+   * per frame rather than an unbounded map.
+   */
+  dashedEllipseRing(
+    anchor: readonly [number, number, number],
+    rightR: number,
+    upR: number,
+    style: DashedRingStyle,
+    colorHex: string,
+    alpha: number
+  ): void {
+    const key = `${rightR}|${upR}|${style.dashPx}|${style.gapPx}|${style.extendPx ?? 0}`;
+    let dashes = this.dashLayouts.get(key);
+    if (!dashes) {
+      if (this.dashLayouts.size >= DASH_LAYOUT_MEMO_CAP) this.dashLayouts.clear();
+      dashes = ellipseDashAngles(rightR, upR, style);
+      this.dashLayouts.set(key, dashes);
+    }
+    pushDashedEllipseRingPx(this.soup, anchor, rightR, upR, style.widthPx, dashes, cachedHexToLinear(colorHex), alpha);
   }
 
   /** The objective zone's fill -- see `overlay-geometry.ts`'s own top

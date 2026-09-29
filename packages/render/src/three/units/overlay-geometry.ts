@@ -383,6 +383,162 @@ export function pushEllipseRingPx(
   );
 }
 
+/**
+ * How a dashed ring is stroked (GH-279's refuge ring; #277's aura rings are
+ * the second caller it was built for). Every length is in this file's
+ * overlay pixels -- the unit `pushEllipseRingPx`'s `strokeWidthPx` is in --
+ * so a dashed ring scales with zoom exactly as a solid one does. That is not
+ * an oversight to "fix" by dividing by zoom: no ring in this tier holds a
+ * constant SCREEN width (Pixi scales its whole `world` container, and
+ * CLAUDE.md records that as faithful), and a dash that stayed 7 screen px
+ * while the stroke and radius beside it grew 7x across the 0.35-2.5 zoom
+ * clamp would re-lay the ring's dash count on every wheel notch. What stays
+ * constant instead is the dash COUNT at a given radius, so a dashed ring
+ * never crawls as the player zooms.
+ */
+export interface DashedRingStyle {
+  /** Stroke width, straddling the nominal radius like `pushEllipseRingPx`. */
+  readonly widthPx: number;
+  /** Nominal dash length along the ellipse's perimeter. */
+  readonly dashPx: number;
+  /** Nominal gap between two dashes along the perimeter. */
+  readonly gapPx: number;
+  /**
+   * Lengthens every dash by this much at EACH end, keeping its centre. An
+   * under-stroke drawn `2e` wider than the stroke it sits under passes
+   * `extendPx = e`, so the dark edge wraps the dash's ends as well as its
+   * sides instead of stopping flush with them. 0 when absent.
+   */
+  readonly extendPx?: number;
+}
+
+/** Arc-length samples `ellipseDashAngles` builds its perimeter table from.
+ *  At the radii this tier draws (a 2.5-tile refuge ring is ~113 x 57 px) a
+ *  128-chord polygon under-measures the perimeter by well under 0.1%, far
+ *  below a pixel of dash. */
+export const DASH_ARC_SAMPLES = 128;
+
+/** Chords per full turn a dash is subdivided into -- a dash spanning a
+ *  quarter turn gets 12 quads, a 7 px dash on a 113 px ring gets one. */
+export const DASH_SEGMENTS_PER_TURN = 48;
+
+/** One dash, as a pair of ellipse PARAMETER angles in the y-down convention
+ *  `pushEllipseAnnulusFillPx` sweeps. `t1 > t0` always; either may sit
+ *  outside [0, 2*PI) for a dash that wraps across angle 0. */
+export interface EllipseDash {
+  readonly t0: number;
+  readonly t1: number;
+}
+
+/**
+ * The dashes of an ellipse `(rightR, upR)` stroked with `style`, spaced
+ * evenly by ARC LENGTH, not by angle.
+ *
+ * Equal angles would not do: this camera draws a ground circle as a 2:1
+ * ellipse, and on one the perimeter moves twice as fast per radian at the
+ * ends of the SHORT axis (top and bottom, speed `rightR`) as at the ends of
+ * the long one (left and right, speed `upR`), so angle-spaced dashes come
+ * out twice as long top and bottom as left and right. Instead
+ * the perimeter is measured once as a chord table and inverted by binary
+ * search.
+ *
+ * The period is ROUNDED to fit: `count = round(perimeter / (dash + gap))`,
+ * never less than one, and dash and gap are scaled by the same factor so the
+ * ring closes on a whole number of dashes with no stub where it meets
+ * itself. The dash:gap RATIO is what survives exactly.
+ *
+ * Dash 0 starts at parameter angle 0 (the ellipse's right-hand end).
+ * Degenerate input -- a zero radius, a non-positive dash -- has no dashes.
+ */
+export function ellipseDashAngles(
+  rightR: number,
+  upR: number,
+  style: DashedRingStyle,
+  samples: number = DASH_ARC_SAMPLES
+): EllipseDash[] {
+  const period = style.dashPx + style.gapPx;
+  if (rightR <= 0 || upR <= 0 || style.dashPx <= 0 || period <= 0) return [];
+  // cum[i] = perimeter length from angle 0 to angle i/samples * 2*PI.
+  const cum = new Float64Array(samples + 1);
+  let px = rightR;
+  let py = 0;
+  for (let i = 1; i <= samples; i++) {
+    const t = (i / samples) * Math.PI * 2;
+    const x = Math.cos(t) * rightR;
+    const y = Math.sin(t) * upR;
+    cum[i] = cum[i - 1] + Math.hypot(x - px, y - py);
+    px = x;
+    py = y;
+  }
+  const perimeter = cum[samples];
+  const count = Math.max(1, Math.round(perimeter / period));
+  const step = perimeter / count;
+  const dashLen = Math.min(step, (step * style.dashPx) / period);
+  const extend = style.extendPx ?? 0;
+  const angleAt = (s: number): number => {
+    // Keep the whole turns, so a dash that runs past the start (or an
+    // extended dash 0 that begins before it) stays one continuous sweep
+    // rather than folding back across the ring.
+    const turns = Math.floor(s / perimeter);
+    const r = s - turns * perimeter;
+    let lo = 0;
+    let hi = samples;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] <= r) lo = mid;
+      else hi = mid;
+    }
+    const span = cum[hi] - cum[lo];
+    const f = span > 0 ? (r - cum[lo]) / span : 0;
+    return (turns + (lo + f) / samples) * Math.PI * 2;
+  };
+  const out: EllipseDash[] = [];
+  for (let k = 0; k < count; k++) {
+    out.push({ t0: angleAt(k * step - extend), t1: angleAt(k * step + dashLen + extend) });
+  }
+  return out;
+}
+
+/**
+ * Pushes the dashes `ellipseDashAngles` laid out as annulus pieces, each
+ * `widthPx` wide and straddling `(rightR, upR)` exactly the way
+ * `pushEllipseRingPx` straddles it -- so a dashed ring and a solid one of the
+ * same numbers cover the same band and differ only in the gaps.
+ *
+ * Takes the layout rather than computing it, so a caller drawing the same
+ * ring every frame can hold one (`OverlayBatch` memoises it by shape).
+ */
+export function pushDashedEllipseRingPx(
+  soup: TriangleSoup,
+  anchor: readonly [number, number, number],
+  rightR: number,
+  upR: number,
+  widthPx: number,
+  dashes: readonly EllipseDash[],
+  color: OverlayColor,
+  alpha: number
+): void {
+  const half = widthPx / 2;
+  const rIn = Math.max(0, rightR - half);
+  const uIn = Math.max(0, upR - half);
+  const rOut = rightR + half;
+  const uOut = upR + half;
+  const perSeg = (Math.PI * 2) / DASH_SEGMENTS_PER_TURN;
+  for (const d of dashes) {
+    const pieces = Math.max(1, Math.ceil((d.t1 - d.t0) / perSeg));
+    for (let i = 0; i < pieces; i++) {
+      const t0 = d.t0 + ((d.t1 - d.t0) * i) / pieces;
+      const t1 = d.t0 + ((d.t1 - d.t0) * (i + 1)) / pieces;
+      const in0: [number, number] = [Math.cos(t0) * rIn, Math.sin(t0) * uIn];
+      const out0: [number, number] = [Math.cos(t0) * rOut, Math.sin(t0) * uOut];
+      const in1: [number, number] = [Math.cos(t1) * rIn, Math.sin(t1) * uIn];
+      const out1: [number, number] = [Math.cos(t1) * rOut, Math.sin(t1) * uOut];
+      pushTrianglePx(soup, anchor, [in0, out0, out1], color, alpha);
+      pushTrianglePx(soup, anchor, [in0, out1, in1], color, alpha);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Colour, for the range-ring fill. Plain sRGB-byte arithmetic with no `THREE`
 // import, which is what keeps this module the node-testable pure half (see

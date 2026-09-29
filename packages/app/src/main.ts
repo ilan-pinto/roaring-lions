@@ -72,6 +72,7 @@ import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portr
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
+import { refugeJump, sayFlight } from './ui/refuge-ping';
 import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
 import { isPinned, wholeOrderPinned } from './ui/pinned';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
@@ -2619,12 +2620,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         rows: liveObjectives,
         paysCredits,
         onClose: closeObjectives,
-        // The refuge button on an active evacuation (GH-279): the camera and
-        // nothing else, exactly like the jump key.
-        onJump: (x, y) => {
-          renderer.camera.x = x;
-          renderer.camera.y = y;
-        },
+        // The refuge button on an active evacuation (GH-279): the camera,
+        // like the jump key, and the refuge ring on where it lands
+        // (`ui/refuge-ping.ts`; three draws it, Pixi has none).
+        onJump: refugeJump(renderer.camera, (x, y) => renderer.pingRefuge?.(x, y)),
       });
       objectivesHandle.el.classList.add('rl-obj-panel--tracker');
       objectivesHandle.el.hidden = true;
@@ -4319,11 +4318,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
       const flight = civWatch.observe(civs, sim.tickCount);
       if (flight) {
-        hud.note(...alertNotice(flight.line));
-        // Where they broke, and where they are going: the jump key takes the
-        // first, the way every other alert's does.
-        minimap.flash([flight.at, refugeAt], performance.now());
-        lastAlertAt = flight.at;
+        // The feed line; the minimap flash on where they broke and where they
+        // are going; and the refuge ring, once per LINE, not per family
+        // (`ui/refuge-ping.ts`). The jump key takes where they broke, the way
+        // every other alert's does.
+        lastAlertAt = sayFlight(
+          flight,
+          refugeAt,
+          {
+            note: (line) => hud.note(...alertNotice(line)),
+            flash: (points, nowMs) => minimap.flash(points, nowMs),
+            ping: (x, y) => renderer.pingRefuge?.(x, y),
+          },
+          performance.now()
+        );
       }
     }
     hud.onTick();
