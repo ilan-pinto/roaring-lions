@@ -19,7 +19,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import paletteJson from '../../../../../data/palette.json';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
-import { desaturateHex, RANGE_FILL_DESATURATE } from './overlay-geometry';
+import { desaturateHex, ellipseDashAngles, RANGE_FILL_DESATURATE } from './overlay-geometry';
 import {
   unitOverlayRadiusPx,
   hpBarColorKey,
@@ -56,6 +56,13 @@ import {
   NumeralBatch,
   ChevronBatch,
   STRIPE_COLOR_KEY,
+  REFUGE_RING_COLOR_KEY,
+  REFUGE_RING_FALLBACK_COLOR,
+  REFUGE_RING_EDGE_COLOR_KEY,
+  REFUGE_RING_EDGE_FALLBACK_COLOR,
+  REFUGE_RING_STYLE,
+  REFUGE_RING_EDGE_STYLE,
+  REFUGE_RING_EDGE_EXTRA_PX,
 } from './overlays';
 
 describe('unitOverlayRadiusPx', () => {
@@ -372,6 +379,54 @@ describe('OverlayBatch.line', () => {
       expect(colors[v * 3 + 2]).toBeCloseTo(0, 5);
       expect(alphas[v]).toBeCloseTo(0.5, 5);
     }
+  });
+});
+
+describe('OverlayBatch.dashedEllipseRing (GH-279)', () => {
+  it('pushes one quad per dash for a ring whose dashes are short', () => {
+    const batch = new OverlayBatch(4096);
+    batch.beginFrame();
+    batch.dashedEllipseRing([0, 0, 0], 113, 56.5, REFUGE_RING_STYLE, '#6B8A4A', 1);
+    batch.endFrame();
+    const n = batch.mesh.geometry.drawRange.count;
+    expect(n % 6).toBe(0);
+    // ~540 px of perimeter at a 12 px period.
+    expect(n / 6).toBeGreaterThanOrEqual(40);
+    expect(n / 6).toBeLessThanOrEqual(50);
+  });
+
+  it('draws the same ring the same way every frame (the layout memo is transparent)', () => {
+    const batch = new OverlayBatch(4096);
+    const frame = (): Float32Array => {
+      batch.beginFrame();
+      batch.dashedEllipseRing([1, 2, 3], 113, 56.5, REFUGE_RING_STYLE, '#6B8A4A', 1);
+      batch.endFrame();
+      const pos = batch.mesh.geometry.getAttribute('position').array as Float32Array;
+      return pos.slice(0, batch.mesh.geometry.drawRange.count * 3);
+    };
+    expect(frame()).toEqual(frame());
+  });
+
+  it('the under-stroke is the ring\'s own dashes, wider on every side and at both ends', () => {
+    expect(ellipseDashAngles(113, 56.5, REFUGE_RING_EDGE_STYLE)).toHaveLength(
+      ellipseDashAngles(113, 56.5, REFUGE_RING_STYLE).length
+    );
+    expect(REFUGE_RING_EDGE_STYLE.dashPx).toBe(REFUGE_RING_STYLE.dashPx);
+    expect(REFUGE_RING_EDGE_STYLE.gapPx).toBe(REFUGE_RING_STYLE.gapPx);
+    expect(REFUGE_RING_EDGE_STYLE.widthPx - REFUGE_RING_STYLE.widthPx).toBe(REFUGE_RING_EDGE_EXTRA_PX);
+    expect(REFUGE_RING_EDGE_STYLE.extendPx).toBe(REFUGE_RING_EDGE_EXTRA_PX / 2);
+  });
+
+  it('the refuge ring wears the minimap cross\'s tokens: --good (scrub.0) and --mark-edge (shadow.0)', () => {
+    const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
+    const resolve = (key: string): string => {
+      const [band, i] = key.split('.');
+      return ramps[band].colors[Number(i)];
+    };
+    expect(REFUGE_RING_COLOR_KEY).toBe('scrub.0');
+    expect(REFUGE_RING_EDGE_COLOR_KEY).toBe('shadow.0');
+    expect(resolve(REFUGE_RING_COLOR_KEY)).toBe(REFUGE_RING_FALLBACK_COLOR);
+    expect(resolve(REFUGE_RING_EDGE_COLOR_KEY)).toBe(REFUGE_RING_EDGE_FALLBACK_COLOR);
   });
 });
 

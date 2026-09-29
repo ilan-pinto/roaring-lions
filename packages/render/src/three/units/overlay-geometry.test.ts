@@ -19,6 +19,9 @@ import {
   pushEllipseFanPx,
   pushEllipseRingPx,
   pushEllipseAnnulusFillPx,
+  ellipseDashAngles,
+  pushDashedEllipseRingPx,
+  DASH_SEGMENTS_PER_TURN,
   desaturateHex,
   hexSaturation,
   RANGE_FILL_DESATURATE,
@@ -269,6 +272,122 @@ describe('pushEllipseRingPx', () => {
     expect(soup.positions[0]).toBeCloseTo(inner[0], 5);
     expect(soup.positions[1]).toBeCloseTo(inner[1], 5);
     expect(soup.positions[2]).toBeCloseTo(inner[2], 5);
+  });
+});
+
+/** Perimeter length from angle `a` to angle `b` (`b > a`) of an ellipse,
+ *  measured independently of the code under test with a much finer chord
+ *  sum. */
+function arcLength(rightR: number, upR: number, a: number, b: number): number {
+  const n = 4000;
+  let len = 0;
+  let px = Math.cos(a) * rightR;
+  let py = Math.sin(a) * upR;
+  for (let i = 1; i <= n; i++) {
+    const t = a + ((b - a) * i) / n;
+    const x = Math.cos(t) * rightR;
+    const y = Math.sin(t) * upR;
+    len += Math.hypot(x - px, y - py);
+    px = x;
+    py = y;
+  }
+  return len;
+}
+
+describe('ellipseDashAngles (GH-279 refuge ring, #277 aura rings)', () => {
+  const style = { widthPx: 2, dashPx: 7, gapPx: 5 };
+
+  it('lays round(perimeter / (dash + gap)) dashes', () => {
+    // A circle, where the perimeter is exact: 2 * PI * 60 = 376.99, / 12 = 31.4.
+    expect(ellipseDashAngles(60, 60, style)).toHaveLength(31);
+    // The 2.5-tile refuge ring at the shipped tile size.
+    const [r, u] = [2.5 * 64 * Math.SQRT1_2, 2.5 * 32 * Math.SQRT1_2];
+    const perimeter = arcLength(r, u, 0, Math.PI * 2);
+    expect(ellipseDashAngles(r, u, style)).toHaveLength(Math.round(perimeter / 12));
+  });
+
+  it('never lays fewer than one dash, and none for a degenerate ring', () => {
+    expect(ellipseDashAngles(0.5, 0.5, style)).toHaveLength(1);
+    expect(ellipseDashAngles(0, 10, style)).toEqual([]);
+    expect(ellipseDashAngles(10, 10, { ...style, dashPx: 0 })).toEqual([]);
+  });
+
+  it('spaces dashes evenly by ARC LENGTH on a 2:1 ellipse, not by angle', () => {
+    const [r, u] = [113, 56.5];
+    const dashes = ellipseDashAngles(r, u, style);
+    const perimeter = arcLength(r, u, 0, Math.PI * 2);
+    const step = perimeter / dashes.length;
+    for (let k = 0; k < dashes.length; k++) {
+      const next = k + 1 < dashes.length ? dashes[k + 1].t0 : dashes[0].t0 + Math.PI * 2;
+      // start-to-start is one period, and every dash is the same length
+      expect(arcLength(r, u, dashes[k].t0, next)).toBeCloseTo(step, 0);
+      expect(arcLength(r, u, dashes[k].t0, dashes[k].t1)).toBeCloseTo((step * 7) / 12, 0);
+    }
+    // And that is NOT what equal angles would give: per radian, the
+    // perimeter moves at `upR` at the long axis's ends (t = 0) and at
+    // `rightR` at the short axis's (t = PI/2), so a dash of fixed LENGTH
+    // spans about twice the angle at t = 0.
+    const spanAt = (t: number): number => {
+      const d = dashes.reduce((best, x) =>
+        Math.abs(x.t0 - t) < Math.abs(best.t0 - t) ? x : best
+      );
+      return d.t1 - d.t0;
+    };
+    expect(spanAt(Math.PI / 2)).toBeLessThan(spanAt(0) * 0.7);
+  });
+
+  it('keeps the dash:gap ratio when it rounds the period to close the ring', () => {
+    const dashes = ellipseDashAngles(60, 60, style);
+    const circ = 2 * Math.PI * 60;
+    const step = circ / dashes.length;
+    const dashLen = (dashes[0].t1 - dashes[0].t0) * 60;
+    expect(dashLen / step).toBeCloseTo(7 / 12, 2);
+  });
+
+  it('the first dash starts at angle 0, and every dash runs forward', () => {
+    const dashes = ellipseDashAngles(113, 56.5, style);
+    expect(dashes[0].t0).toBeCloseTo(0, 10);
+    for (const d of dashes) expect(d.t1).toBeGreaterThan(d.t0);
+  });
+
+  it('extendPx lengthens each dash by that much at both ends, about the same centre', () => {
+    const [r, u] = [113, 56.5];
+    const plain = ellipseDashAngles(r, u, style);
+    const ext = ellipseDashAngles(r, u, { ...style, extendPx: 1.25 });
+    expect(ext).toHaveLength(plain.length);
+    for (let k = 1; k < plain.length; k++) {
+      expect(arcLength(r, u, ext[k].t0, plain[k].t0)).toBeCloseTo(1.25, 1);
+      expect(arcLength(r, u, plain[k].t1, ext[k].t1)).toBeCloseTo(1.25, 1);
+    }
+    // Dash 0 begins before angle 0 and stays one forward sweep.
+    expect(ext[0].t0).toBeLessThan(0);
+    expect(ext[0].t1).toBeGreaterThan(plain[0].t1);
+  });
+});
+
+describe('pushDashedEllipseRingPx', () => {
+  it('writes one quad per short dash, and subdivides a long one', () => {
+    const soup = createTriangleSoup(100_000);
+    const dashes = ellipseDashAngles(113, 56.5, { widthPx: 2, dashPx: 7, gapPx: 5 });
+    pushDashedEllipseRingPx(soup, ANCHOR, 113, 56.5, 2, dashes, RED, 1);
+    expect(soup.count).toBe(dashes.length * 6);
+
+    resetSoup(soup);
+    const quarter = [{ t0: 0, t1: Math.PI / 2 }];
+    pushDashedEllipseRingPx(soup, ANCHOR, 50, 50, 2, quarter, RED, 1);
+    expect(soup.count).toBe((DASH_SEGMENTS_PER_TURN / 4) * 6);
+  });
+
+  it('straddles the nominal radius exactly the way the solid ring does', () => {
+    const soup = createTriangleSoup(6);
+    pushDashedEllipseRingPx(soup, ANCHOR, 10, 10, 4, [{ t0: 0, t1: 0.1 }], RED, 0.5);
+    const inner = billboardPoint(ANCHOR, 8, 0);
+    const outer = billboardPoint(ANCHOR, 12, 0);
+    expect(soup.positions[0]).toBeCloseTo(inner[0], 5);
+    expect(soup.positions[2]).toBeCloseTo(inner[2], 5);
+    expect(soup.positions[3]).toBeCloseTo(outer[0], 5);
+    expect(soup.positions[5]).toBeCloseTo(outer[2], 5);
+    expect(soup.alphas[0]).toBe(0.5);
   });
 });
 
