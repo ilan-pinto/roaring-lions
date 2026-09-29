@@ -1,7 +1,7 @@
 {
   "id": "recon_zikit",
-  "name": "Zikit Deep Recon Team",
-  "blurb": "Walks where nothing else can see from, and holds a tunnel in sight without being found.",
+  "name": "Shmamit Deep Recon Team",
+  "blurb": "Keeps a tunnel in sight from boulders or a house, unseen. Once found, it loses the fight.",
   "faction": "kdf",
   "role": "support",
   "cost": { "logistics": 290, "build_time_s": 22, "population": 1 },

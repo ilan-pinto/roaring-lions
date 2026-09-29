@@ -43,7 +43,7 @@ to retune, never a band to widen.
 
 ## The three units (as staged, after the 29 Sep ruling)
 
-### `recon_zikit` -- Zikit Deep Recon Team
+### `recon_zikit` -- Shmamit Deep Recon Team (working name Zikit; see the names screen)
 
 | field | value | field | value |
 |---|---|---|---|
@@ -54,7 +54,7 @@ to retune, never a band to widen.
 | cost | 290 logistics, 22 s, pop 1 | unlock | `{ "price": 4250 }` |
 | upgrades | sensors, armour: 1,100 credits | curve | +1.3%; max tier +2.5% |
 
-### `demo_tzav` -- Tzav Demolition Carrier
+### `demo_tzav` -- Shiryonan Demolition Carrier (working name Tzav; see the names screen)
 
 | field | value | field | value |
 |---|---|---|---|
@@ -76,6 +76,45 @@ to retune, never a band to widen.
 | weapons | `chain_gun_30` as the Peten; `rocket_pods` he, range 8, acc 0.45, pen 60, dmg 140, splash 1.0, supp 140, rof 30, collateral 0.55; `hellfire` as the Peten at rof 3 | | |
 | cost | 450 logistics, 50 s, pop 3 | unlock | `{ "price": 8000 }` |
 | upgrades | armour (front +0 at every tier; see Rulings), sensors, firepower (pods): 3,185 credits | curve | +2.2%; max tier +10.9% (+1.9% / +10.6% at front 55) |
+
+## The names screen (Q7, storyline §2.4 rule 3), 2026-09-29
+
+Run by `narrative-designer` (E5 Task 6) before any name enters shipping JSON. Only `name` and
+`blurb` changed. **The ids stay** (`recon_zikit`, `demo_tzav`): they are keys the tests, probes
+and art plan already name, a player never reads them, and renaming them is not a text change.
+Elsewhere in this file and in the design, *Zikit* and *Tzav* are the working names for the
+same two units.
+
+**Method.** The MediaWiki search API on he.wikipedia.org and en.wikipedia.org, each name
+searched as a word and beside military context (צה"ל, יחידה, פלוגה, רכב, מל"ט; "IDF", "unit",
+"vehicle", "armoured"), then the matching articles read. The test: is the word a real platform,
+a real unit, a real operation, a real armed group, a faith term, or a real group active in the
+war the campaign transposes (storyline D12)? This is an encyclopaedia search, not a trademark or
+web search; a veto is welcome.
+
+| working name | finding | verdict | final name |
+|---|---|---|---|
+| **Zikit** (chameleon) | **Collides.** *Plugat Zikit*, a company of the real Unit 636 (IDF field intelligence): covert observation and intelligence collection, earlier a platoon of Duvdevan (he.wikipedia, "יחידה 636"). The same word for the same job. Other hits: a film series (*Koach Zikit*), a Kraków transit body | replace | **Shmamit Deep Recon Team** |
+| **Tzav** (tortoise, צב) | **Collides in the transliteration a player reads.** The English *Tzav*/*Tsav* is first a weekly Torah portion (en.wikipedia, "Tzav": rule 5, never a faith), then *Tzav 8* and *Tzav Rishon*, the real IDF call-up orders, and *Tsav 9*, a real, sanctioned group active in the war D12 transposes. No platform or unit named Tzav was found | replace | **Shiryonan Demolition Carrier** |
+| **Peten Gunship** | **Passes as a name.** No platform called "Peten Gunship". *Peten* itself is the Israeli Air Force's name for the AH-64A, which the shipped `heli_peten` ("AH-64 Peten") already carries; that collision is out of scope here (special_units design §9.3) and is inherited, not added | keep | **Peten Gunship** |
+
+**The replacements, screened the same way.**
+- *Shmamit* (שממית, the gecko: it holds to a wall and is not seen; Proverbs 30:28's *semamit*
+  that "is in kings' palaces" is the same word). No military, unit, platform or operation hit in
+  either language. It keeps the design's fantasy (a lizard that goes unseen) and moves the
+  animal, not the idea.
+- *Shiryonan* (שריונן, the armadillo: the armoured animal that is slow and sits tight). No
+  military hit in English (0 results) and none in Hebrew beyond the common noun *shiryon*
+  (armour), which it is built on the way *Kipod* is a common noun. It keeps the design's
+  fantasy (the armoured, slow beast that lays its charge and walks away).
+
+**Rejected on the way, each for a real collision:** *Tinshemet* (barn owl: INS Tinshemet T-212,
+a Nahal platoon, the Hila balloon's sensor), *Bardelas* (the IDF's name for the M113, and a
+battalion), *Shual* (Samson's Foxes), *Akrav* (IAF 105 Squadron, an operation), *Karnaf* (the
+IAF's C-130, a drone launcher), *Girit* (a checkpoint-systems company).
+
+**Rule 4 fit.** Both finals are single Hebrew common nouns for animals, the register of *Lavi*,
+*Namer*, *Peten* and *Kipod*.
 
 ## Prices against the ladder
 
