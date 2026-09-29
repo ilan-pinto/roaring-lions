@@ -748,6 +748,28 @@ if (!window.__lionsCaptureFrozen) {
 }
 `.trim();
 
+/** The stated precondition of every gated capture, ASSERTED rather than hoped
+ *  for: nothing selected, no hostile hover, no friendly range-ring preview.
+ *  Since A4 (GH-186) an HP bar draws for a damaged, selected OR hovered unit
+ *  and a selection draws a ground ring, so a stray hover or selection at
+ *  capture time is a real picture difference, not noise. Run after the final
+ *  `step()` so it sees the state the screenshot will. Throws a named error in
+ *  the page, which surfaces as a capture failure. */
+export const CAPTURE_PRECONDITION_STATEMENTS = `
+{
+  const _r = window.__lions.renderer;
+  if (_r.selection.length !== 0) {
+    throw new Error('capture precondition violated: renderer.selection.length is ' + _r.selection.length + ', expected 0');
+  }
+  if (_r.hoverEntity !== -1) {
+    throw new Error('capture precondition violated: renderer.hoverEntity is ' + _r.hoverEntity + ', expected -1');
+  }
+  if ((_r.rangeRingPreview ?? -1) !== -1) {
+    throw new Error('capture precondition violated: renderer.rangeRingPreview is ' + _r.rangeRingPreview + ', expected -1');
+  }
+}
+`.trim();
+
 /** The same freeze as a standalone expression a `page.evaluate` can run on its
  *  own, returning the sim tick it froze at. */
 export const FREEZE_FRAME_LOOP_SCRIPT = `(async () => {
@@ -842,6 +864,7 @@ export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
 ${FREEZE_FRAME_LOOP_STATEMENTS}
 ${gotoLine}
 ${zoomLine}${ordersLine}${stepLine}
+${CAPTURE_PRECONDITION_STATEMENTS}
 const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();
