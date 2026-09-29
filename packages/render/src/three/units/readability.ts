@@ -140,7 +140,7 @@ export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
  * pins it on the map.
  */
 export const RING_GRID_LARGE = 6;
-export const RING_LARGE_TILES = 0.75;
+export const RING_LARGE_TILES = 0.72;
 /**
  * Fix round 2: a third tier. The four ellipses fix round 1 grew to hold their
  * hull corners (Namer 1.61, Kipod 1.54, Eitan 1.53, D9 1.47 along) sag more
@@ -150,7 +150,19 @@ export const RING_LARGE_TILES = 0.75;
  * Lavi (1.17) and the Grad (1.25) stay on 6 x 6, where they bury nothing.
  */
 export const RING_GRID_XL = 7;
-export const RING_XL_TILES = 1.4;
+export const RING_XL_TILES = 1.28;
+/*
+ * The two thresholds were 0.75 and 1.4 until fix round 3, which swept rings
+ * AT each boundary and one 0.01 step either side, at eight headings and
+ * quarter-tile offsets, over every steep tile of both relief maps
+ * (`tools/src/ring_burial.test.ts`, "the tier boundaries"): a 0.75 ring on
+ * 4 x 4 buried 0.024 wu on tel_marum and a 1.4 ring on 6 x 6 0.038 -- past the
+ * 0.02 limit, so a future type landing just under either boundary could
+ * bury. Lowered until the sweep passes: 0.72 on 4 x 4 reads 0.0194 and 1.28 on
+ * 6 x 6 0.0185 (9-offset whole-map sweep). No shipped type changed grid: the
+ * largest foot ring is 0.58, the Peten 0.9, the Grad 1.25, and the four XL
+ * ellipses start at 1.47.
+ */
 export const RING_SAG_STEPS = 2;
 
 /**

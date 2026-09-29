@@ -1283,9 +1283,9 @@ The selection ring is a conformed ground mesh (`units/selection-ring.ts`), rewri
 
 | Tier | Grid | Rings | Why |
 |---|---|---|---|
-| Small | 4×4 | up to 0.75 tile | never buried |
-| Large | 6×6 | 0.75–1.4 tile | Lavi, Grad, jeep, the Peten's circle |
-| XL | 7×7 | over 1.4 tile | the four ellipses grown to hold their hull corners: Namer, Kipod, Eitan and D9; on 6×6 the Namer was buried by up to 0.027 wu |
+| Small | 4×4 | up to 0.72 tile | never buried |
+| Large | 6×6 | 0.72–1.28 tile | Lavi, Grad, jeep, the Peten's circle |
+| XL | 7×7 | over 1.28 tile | the four ellipses grown to hold their hull corners: Namer, Kipod, Eitan and D9; on 6×6 the Namer was buried by up to 0.027 wu |
 
 On relief the height samples are bicubic, which makes them several times dearer than on flat ground.
 
@@ -1329,7 +1329,7 @@ A 7×7 ring costs about 1.4× a 6×6 one. Only the four XL types pay it.
 | outskirts | 0.0 / 0.1 | 0.2 / 0.3 | 0.4 / 0.5 |
 | tel_marum | 0.0 / 0.1 | 0.2 / 0.3 | 1.3 / 1.4 |
 
-The stationary figure equals what 14 selected units cost before the ring existed, which was the HP bars and envelopes. With the cache, the rings add nothing measurable.
+The stationary figure matches what was measured in fix round 1 for 14 selected units with UNCACHED rings (0.2 / 0.3 ms: 14 HP bars, range envelopes and 14 rings rebuilt every frame). So 98 cached rings cost no more at this 0.1 ms resolution than 14 uncached ones. The pre-A4 cost of the same selection (no ground ring) was not measured.
 
 **Draw calls.** A selection adds exactly **+1** in every view on both maps: 340→341, 381→382 and 534→535 on the outskirts; 117→118, 133→134 and 296→297 on tel_marum.
 

@@ -87,17 +87,17 @@ describe('ELLIPSE_BY_TYPE (G-MOCK: "Team colour + ellipse")', () => {
 });
 
 describe('the ring grid and cache numbers (Task 5, fix round 1)', () => {
-  it('large rings: a 6x6 grid over 0.75 tiles, lift measured on a 2-step lattice', () => {
+  it('large rings: a 6x6 grid over 0.72 tiles (fix round 3, was 0.75), lift measured on a 2-step lattice', () => {
     expect(RING_GRID_LARGE).toBe(6);
-    expect(RING_LARGE_TILES).toBe(0.75);
+    expect(RING_LARGE_TILES).toBe(0.72);
     expect(RING_SAG_STEPS).toBe(2);
     // Every foot ring stays on the small grid; every vehicle ellipse goes large.
     expect(Math.max(...Object.values(RADIUS_BY_TYPE).filter((r) => r < 0.6))).toBeLessThanOrEqual(RING_LARGE_TILES);
     for (const e of Object.values(ELLIPSE_BY_TYPE)) expect(e.along).toBeGreaterThan(RING_LARGE_TILES);
   });
-  it('fix round 2: a third tier, 7x7 over 1.4 tiles -- exactly the four grown ellipses', () => {
+  it('fix round 2: a third tier, 7x7 over 1.28 tiles (fix round 3, was 1.4) -- exactly the four grown ellipses', () => {
     expect(RING_GRID_XL).toBe(7);
-    expect(RING_XL_TILES).toBe(1.4);
+    expect(RING_XL_TILES).toBe(1.28);
     const xl = Object.entries(ELLIPSE_BY_TYPE).filter(([, e]) => e.along > RING_XL_TILES).map(([id]) => id).sort();
     expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer']);
   });

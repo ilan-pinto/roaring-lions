@@ -508,8 +508,8 @@ export class SelectionRingBatch {
       const s = this.largeSlots[slot];
       writeRingAttributes(s.pos, s.col, s.ax, 0, p, sampleY, this.grid, n, hit);
     } else {
-      const [pos, col, ax] = this.smallViews;
-      writeRingAttributes(pos, col, ax, slot, p, sampleY, this.grid, n, hit);
+      const v = this.smallViews;
+      writeRingAttributes(v[0], v[1], v[2], slot, p, sampleY, this.grid, n, hit);
     }
     if (!hit) {
       c[at] = key;

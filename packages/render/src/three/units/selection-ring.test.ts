@@ -115,15 +115,15 @@ describe('SelectionRingBatch, the ellipse option (G-MOCK)', () => {
   it('a hull-aligned ellipse is a placement field, not another code path: same grid call, semi-axes + heading', () => {
     const b = batch();
     b.beginFrame();
-    const e = ring({ alongTiles: 1.3, acrossTiles: 0.6, headingRad: 0.7 });
+    const e = ring({ alongTiles: 1.2, acrossTiles: 0.6, headingRad: 0.7 });
     b.push(e, hill);
-    // 1.3 > RING_LARGE_TILES: drawn on the large grid.
+    // 1.2: over RING_LARGE_TILES, under RING_XL_TILES -- drawn on the 6x6 grid.
     const expected = new Float32Array(LARGE_VERTS * 3);
-    writeDecalGrid(expected, 0, RING_GRID_LARGE, { cx: 10, cz: 7, halfLength: 1.3 + EXTRA, halfWidth: 0.6 + EXTRA, facingRad: 0.7 }, hill, RING_SAG_STEPS);
+    writeDecalGrid(expected, 0, RING_GRID_LARGE, { cx: 10, cz: 7, halfLength: 1.2 + EXTRA, halfWidth: 0.6 + EXTRA, facingRad: 0.7 }, hill, RING_SAG_STEPS);
     expect(ringOf(b, 'position', 0, 'large')).toEqual(Array.from(expected));
     const axes = ringOf(b, 'aAxes', 0, 'large');
     for (let v = 0; v < LARGE_VERTS; v++) {
-      expect(axes[v * 2]).toBeCloseTo(1.3, 6);
+      expect(axes[v * 2]).toBeCloseTo(1.2, 6);
       expect(axes[v * 2 + 1]).toBeCloseTo(0.6, 6);
     }
   });
@@ -326,7 +326,10 @@ describe('SelectionRingBatch frame lifecycle', () => {
     expect(ringGridFor(RING_LARGE_TILES, RING_LARGE_TILES)).toBe(RING_GRID);
     expect(ringGridFor(0.9, 0.9)).toBe(RING_GRID_LARGE);
     expect(ringGridFor(1.07, 0.65)).toBe(RING_GRID_LARGE);
-    expect(ringGridFor(1.4, 1)).toBe(RING_GRID_LARGE);
+    expect(ringGridFor(1.28, 1)).toBe(RING_GRID_LARGE);
+    expect(ringGridFor(1.29, 1)).toBe(RING_GRID_XL);
+    expect(ringGridFor(0.72, 0.72)).toBe(RING_GRID);
+    expect(ringGridFor(0.73, 0.73)).toBe(RING_GRID_LARGE);
     expect(ringGridFor(1.61, 1.03)).toBe(RING_GRID_XL);
   });
 
