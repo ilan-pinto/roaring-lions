@@ -128,7 +128,7 @@ describe('top strip', () => {
     const r = rig(mission());
     // `strip()` collapses runs of whitespace, so the clock's double space
     // between the time and the reason arrives as one.
-    expect(r.strip()).toContain('☐ Hold the west 2:40 CONTESTED');
+    expect(r.strip()).toContain('Hold the west 2:40 CONTESTED');
   });
 
   it('and the big clock says exactly the same thing — one derivation, two places', () => {
@@ -167,7 +167,7 @@ describe('top strip', () => {
         ],
       })
     );
-    expect(r.strip()).toContain('☐ Take the town');
+    expect(r.strip()).toContain('Take the town');
     expect(r.strip()).not.toContain('1:30');
     expect(r.host.querySelector('.rl-clock')!.textContent).toBe('1:30');
   });
@@ -209,7 +209,7 @@ describe('top strip', () => {
     expect(tip.textContent).toContain('how cleanly you fight');
   });
 
-  it('shows ⚑ broken and the pinned mark only when there are some', () => {
+  it('shows broken and the pinned mark only when there are some', () => {
     const r = rig(mission());
     expect(r.strip()).not.toContain('pinned');
     expect(r.strip()).not.toContain('broken');
@@ -222,7 +222,10 @@ describe('top strip', () => {
     expect(r.strip()).toContain('1 pinned');
     expect(r.strip()).not.toContain('▼');
     expect(r.stripEl().querySelector('[data-tip="pinned"] [data-symbol="pinned"]')).not.toBeNull();
-    expect(r.strip()).toContain('⚑ 1 broken');
+    // GH-261: likewise `⚑`, for the notched control-measure flag.
+    expect(r.strip()).toContain('1 broken');
+    expect(r.strip()).not.toContain('⚑');
+    expect(r.stripEl().querySelector('[data-tip="broken"] [data-symbol="broken"]')).not.toBeNull();
   });
 
   it('draws the pinned mark on chip art, card frame, card flag and strip, and nowhere when nobody is pinned', () => {
@@ -492,7 +495,7 @@ describe('commander', () => {
     expect(r.host.querySelector('.rl-cmd__who')!.textContent).toBe('ENEMY');
   });
 
-  it('◂/▸ keep stepping the underlying beat regardless of a say overlay, and paging dismisses it', () => {
+  it('the pager keeps stepping the underlying beat regardless of a say overlay, and paging dismisses it', () => {
     const r = rig(mission());
     r.hud.brief(['One.', 'Two.']);
     const cmd = r.host.querySelector<HTMLElement>('.rl-cmd')!;
@@ -2424,5 +2427,68 @@ describe('the voice caption slot (WP-AU1 D8)', () => {
     r.hud.caption('moving', 1);
     r.hud.destroy();
     expect(r.host.querySelector('.rl-caption')).toBeNull();
+  });
+});
+
+// GH-261: the Military set the lead picked on 29 Sep, drawn at every HUD site
+// that used to print a character.
+describe('GH-261 drawn marks', () => {
+  const mark = (el: Element | null): string | null | undefined => el?.querySelector('svg')?.getAttribute('data-symbol');
+
+  it('draws the pause chip as bars in the unit frame, and leaves 1x/2x as type', () => {
+    const r = rig(mission());
+    const chips = r.host.querySelectorAll<HTMLButtonElement>('.rl-strip__chip');
+    expect(mark(chips[0])).toBe('pause');
+    expect(chips[0].textContent).toBe('');
+    expect(chips[1].textContent).toBe('1×');
+  });
+
+  it('draws the commander pager as phase-line arrows', () => {
+    const r = rig(mission());
+    const [prev, next] = r.host.querySelectorAll<HTMLButtonElement>('.rl-cmd__page button');
+    expect(mark(prev)).toBe('pagePrev');
+    expect(mark(next)).toBe('pageNext');
+  });
+
+  it('draws the mute chip as the signals bolt, struck through when muted', () => {
+    let muted = false;
+    const r = rig(mission(), { isMuted: () => muted, toggleMute: () => void (muted = !muted) });
+    const chip = r.host.querySelectorAll<HTMLButtonElement>('.rl-strip__chip')[3];
+    expect(mark(chip)).toBe('audioOn');
+    chip.click();
+    expect(mark(chip)).toBe('audioOff');
+    expect(chip.textContent).not.toMatch(/🔇|🔊/);
+  });
+
+  it('draws the strip objective with its status mark, toned by the row', () => {
+    const r = rig(mission());
+    const row = r.host.querySelector('.rl-strip__obj');
+    expect(mark(row)).toBe('objectiveOpen');
+  });
+
+  it('draws the leave button as the line of departure beside the word', () => {
+    const r = rig(mission());
+    const btn = r.host.querySelector<HTMLButtonElement>('.rl-hud__leave')!;
+    expect(mark(btn)).toBe('leave');
+    expect(btn.textContent?.trim()).toBe('leave');
+  });
+
+  it('draws broken as the notched flag beside the count', () => {
+    const r = rig(mission());
+    r.sim.state.routed[r.ids[1]] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    const field = r.host.querySelector('[data-tip="broken"]');
+    expect(mark(field)).toBe('broken');
+    expect(field?.textContent?.trim()).toBe('1 broken');
+  });
+
+  it('draws a heavy weapon as the danger-close burst beside the word', () => {
+    const world = makeForce();
+    const lavi = world.sim.spawn(world.sim.addUnitType(units.mbt_lavi as unknown as UnitTypeJson), 0, fx.from(6), fx.from(1));
+    const r = clusterRig(() => [lavi], {}, world);
+    for (let i = 0; i < 5; i++) r.tick();
+    const heavy = r.host.querySelector('.rl-card .rl-warn');
+    expect(mark(heavy)).toBe('heavy');
+    expect(heavy?.textContent?.trim()).toBe('heavy');
   });
 });

@@ -14,6 +14,7 @@
 
 import { TICKS_PER_SECOND } from '@lions/sim';
 import { t } from '../i18n/t';
+import { symbolSvg } from './symbol';
 
 export interface ObjectiveView {
   id: string;
@@ -192,9 +193,14 @@ export function stripObjectives(m: MissionView): StripObjectives {
   };
 }
 
-/** The glyph an objective wears, by status. */
-export function objectiveGlyph(status: string): string {
-  return status === 'complete' ? '☑' : status === 'failed' ? '☒' : '☐';
+/** The mark an objective wears, by status, as inline SVG (GH-261, Military
+ *  set B): the dashed "planned" frame while open, the solid frame with its
+ *  tick once done, the framed X once failed. Done and failed carry the
+ *  theme's own tone classes; open takes the ink of whatever it sits in. */
+export function objectiveGlyph(status: string, size = 14): string {
+  if (status === 'complete') return symbolSvg('objectiveDone', size, { className: 'rl-good' });
+  if (status === 'failed') return symbolSvg('objectiveFailed', size, { className: 'rl-bad-text' });
+  return symbolSvg('objectiveOpen', size);
 }
 
 /**

@@ -116,26 +116,48 @@ export const RETIRED_DINGBATS = [
   '✹', '⬡', '✈', '✛', '▤', '▲', // ROLE_GLYPH (■ above already covers it)
   '▣', '◎', '✸', // strip and dock
   '↺', '↻', // board
+  // GH-261, the Military set the lead picked on 29 Sep. Where each one went:
+  '▮', // pause: hud.ts's `speedCluster` spec list
+  '◂', '▸', // beat step: hud.ts's `cmdPrev`/`cmdNext`
+  '🔇', '🔊', // audio: hud.ts's `paintMute`
+  '♪', // audio: menu.ts's audio toggle (en.json `menu.audio.*`)
+  '☑', '☒', '☐', // objective status: hud-model.ts's `objectiveGlyph`, debrief.ts's
+  //                 `showDebrief` secondaries loop
+  '←', // back: every `nav.backToMenu`/`nav.backToCampaignMap` call site
+  '⌂', // leave: hud.ts's leave button (en.json `hud.leave.link`)
+  '⚠', // heavy: hud.ts's weapon line (en.json `hud.card.weaponHeavy`)
+  '⚑', // broken: hud.ts's strip (en.json `hud.strip.broken`)
   '▼', // strip pinned count (GH-262: the drawn `pinned` status mark replaced it)
 ];
 
-// Q10 ruling: the dingbats no G1 round drew stay, tracked as follow-up GH-261
-// (https://github.com/ilan-pinto/roaring-lions/issues/261), until they get a
-// drawn mark of their own. Not on RETIRED_DINGBATS, so dingbatFailures is
-// silent on every one of these. Cited by identifier, not line number:
-//   hud.ts's `speedCluster` spec list (▮▮ pause), `cmdPrev`/`cmdNext`
-//     (◂/▸ beat step), `muteChip` (🔇/🔊 mute)
-//   hud-model.ts's `objectiveGlyph`, debrief.ts's `showDebrief` secondaries
-//     loop (☑/☒/☐ objective status)
-//   input/keymap.ts's `LABELS` (↑ ↓ ← → key-name display)
-//   i18n/en.json: ← → (nav/back links, debrief.next, garage.benefit.*,
-//     roe.notice.head), ♪ (menu.audio.*),
-//     ⚑ (hud.strip.broken), ⌂ (hud.leave.link), ⚠ (hud.card.weaponHeavy)
+// Q10 ruling: the dingbats no G1 round drew stay until they get a drawn mark
+// of their own (GH-261, https://github.com/ilan-pinto/roaring-lions/issues/261,
+// drew most of them). Not on RETIRED_DINGBATS, so dingbatFailures is silent on
+// every one of these. Cited by identifier, not line number:
+//   → as "changes to", which reads as typography inside a figure rather than
+//     as a control: en.json garage.stat.preview, garage.benefit.*,
+//     roe.notice.head; main.ts's debrief `unlocked` lines. Several of those
+//     strings also reach a `title` attribute (garage-board.ts's read-only
+//     rung), which is plain text and cannot carry a mark. The render
+//     package's combat-log overlay (overlay.ts) cannot import app's sheet at
+//     all. The two NAVIGATION arrows (en.json menu.end.next, debrief.next)
+//     ARE drawn, by menu.ts's end screen and debrief.ts's next link.
+//   input/keymap.ts's `LABELS` (↑ ↓ ← → key-name display): typography by
+//     the lead's ruling, so ← -- retired everywhere else -- is allowed in
+//     that table's entries by DINGBAT_TYPOGRAPHY below.
 
 // Modules that draw the replacement marks are exempt by NAME, not by content
 // scan -- neither holds a dingbat, but a comment in either may quote the
 // retired glyph the mark beside it replaces.
 const DINGBAT_EXEMPT_FILES = ['ui/symbol.ts', 'ui/order-sight.ts'];
+
+// A retired glyph a file may still hold as TYPOGRAPHY -- by file AND by the
+// exact entry that holds it, never a whole file or a whole line. The keymap's
+// `LABELS` table names the arrow keys by their arrows (`arrowleft: '←'`); each
+// match of `entry` is cut out of the line before the scan, so the same glyph
+// anywhere else in that file -- a comment, another literal, a second entry on
+// the label line -- is still a defect.
+const DINGBAT_TYPOGRAPHY = [{ file: 'input/keymap.ts', entry: /\barrow(?:up|down|left|right): '[↑↓←→]'/g }];
 
 /** A retired dingbat anywhere in UI/catalogue source is a defect: draw it
  *  instead, through ui/symbol.ts's symbolSvg. */
@@ -143,7 +165,9 @@ export function dingbatFailures(file, src) {
   if (file.endsWith('.test.ts')) return [];
   if (DINGBAT_EXEMPT_FILES.some((f) => file.endsWith(f))) return [];
   const out = [];
-  src.split('\n').forEach((line, i) => {
+  const allowed = DINGBAT_TYPOGRAPHY.filter((a) => file.endsWith(a.file)).map((a) => a.entry);
+  src.split('\n').forEach((raw, i) => {
+    const line = allowed.reduce((l, entry) => l.replace(entry, ''), raw);
     for (const ch of RETIRED_DINGBATS) {
       if (line.includes(ch)) {
         out.push(`${file}:${i + 1}  retired dingbat ${ch} -- draw it with symbolSvg (ui/symbol.ts)`);

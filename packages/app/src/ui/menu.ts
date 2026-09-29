@@ -9,6 +9,7 @@ import type { LedgerData } from '@lions/sim';
 import { maps, type MapJson } from '@lions/data';
 import type { CommanderData, ParsedWorld, WorldCountry } from '../campaign';
 import { t } from '../i18n/t';
+import { symbolLabel } from './symbol';
 import { CAMPAIGN_MESHES, dracoDecoderPath, meshUrl } from '../mesh-catalogue';
 import { readStoredRenderer, rememberRenderer, resolveRendererChoice } from '../renderer-choice';
 import { SANDBOX_FLAGS, type SandboxFlagName } from '../sandbox-help';
@@ -223,7 +224,8 @@ function audioToggle(audio: { isMuted(): boolean; toggle(): boolean }): HTMLButt
   b.title = t('menu.audio.hint');
   const paint = (): void => {
     const on = !audio.isMuted();
-    b.textContent = on ? t('menu.audio.on') : t('menu.audio.off');
+    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    b.innerHTML = on ? symbolLabel('audioOn', t('menu.audio.on')) : symbolLabel('audioOff', t('menu.audio.off'));
     b.setAttribute('aria-pressed', String(on));
   };
   b.addEventListener('click', () => {
@@ -323,7 +325,7 @@ export function showCampaign(stage: HTMLElement, opts: CampaignOptions): Dispose
   const nav = document.createElement('nav');
   nav.className = 'rl-menu__nav';
   const back = document.createElement('a');
-  back.textContent = t('nav.backToMenu');
+  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   back.href = routes.menu();
   back.className = 'rl-btn rl-menu__item';
   back.dataset.kind = 'back';
@@ -427,7 +429,7 @@ export function showSandbox(stage: HTMLElement): Disposer {
   const backNav = document.createElement('nav');
   backNav.className = 'rl-menu__nav';
   const back = document.createElement('a');
-  back.textContent = t('nav.backToMenu');
+  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   back.href = routes.menu();
   back.className = 'rl-btn rl-menu__item';
   back.dataset.kind = 'back';
@@ -569,9 +571,11 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
 
   const nav = document.createElement('div');
   nav.className = 'rl-endnav';
-  const link = (label: string, href: string): void => {
+  const link = (label: string, href: string, onward = false): void => {
     const a = document.createElement('a');
-    a.textContent = label;
+    // GH-261: the onward link carries the supporting-attack arrow after its words.
+    if (onward) a.innerHTML = symbolLabel('next', label, { after: true });
+    else a.textContent = label;
     a.href = href;
     a.className = 'rl-btn';
     nav.appendChild(a);
@@ -587,7 +591,7 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     });
     nav.appendChild(btn);
   }
-  if (won && opts.nextMissionId) link(t('menu.end.next'), routes.mission(opts.nextMissionId));
+  if (won && opts.nextMissionId) link(t('menu.end.next'), routes.mission(opts.nextMissionId), true);
   link(t('menu.end.replay', { result: opts.result }), routes.mission(opts.missionId));
   link(t('nav.campaignMap'), routes.campaign());
   link(t('nav.menu'), routes.menu());

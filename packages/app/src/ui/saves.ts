@@ -12,6 +12,7 @@
  * building elements and no browser feature test of its own.
  */
 import { t } from '../i18n/t';
+import { symbolLabel } from './symbol';
 import type { Disposer } from '../shell/router';
 import type { LedgerStore } from '../ledger-store';
 import { SAVE_ERROR_NOT_A_SAVE, deleteSlot, exportSlot, importSlot, listSlots, loadSlot, readActive, saveSlot, writeActive, type SlotMeta } from '../profile';
@@ -270,7 +271,7 @@ export function showSaves(stage: HTMLElement, deps: SavesDeps): Disposer {
   back.className = 'rl-btn rl-menu__item rl-saves__back';
   back.dataset.kind = 'back';
   back.href = deps.back;
-  back.textContent = t('nav.backToMenu');
+  back.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   p.body.appendChild(back);
 
   renderList();

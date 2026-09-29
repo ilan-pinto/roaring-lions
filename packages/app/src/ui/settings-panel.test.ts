@@ -28,6 +28,15 @@ function deps(overrides: Partial<Parameters<typeof settingsPanel>[1]> = {}) {
 }
 
 describe('settingsPanel', () => {
+  it('draws its back link with the GH-261 arrow, words beside it', () => {
+    const { d } = deps();
+    const stage = document.createElement('div');
+    showSettings(stage, { ...d, back: '/' });
+    const back = stage.querySelector('.rl-settings__back');
+    expect(back?.querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
+    expect(back?.textContent?.trim()).toBe('main menu');
+  });
+
   it('renders one table with the four sections and the build id', () => {
     const { d } = deps();
     const { el } = settingsPanel(document.body, d);

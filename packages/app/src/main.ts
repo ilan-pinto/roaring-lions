@@ -103,6 +103,7 @@ import { showKeysOverlay } from './ui/keys-overlay';
 import { groupBar, groupChips } from './ui/group-bar';
 import { isIdle, nextIdle, type IdleFacts } from './ui/idle';
 import { escapeHtml } from './ui/escape-html';
+import { symbolLabel } from './ui/symbol';
 import { alertNotice, evacuatedNotice, removedNotice, triggerLabel } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { doctrineTags } from './ui/dock-model';
@@ -453,7 +454,7 @@ function bootError(stage: HTMLElement, title: string, body: string, home = route
 
   const a = document.createElement('a');
   a.href = home;
-  a.textContent = t('nav.backToMenu');
+  a.innerHTML = symbolLabel('back', t('nav.backToMenu'));
   div.appendChild(a);
 
   stage.appendChild(div);

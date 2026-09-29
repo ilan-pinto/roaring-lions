@@ -38,11 +38,14 @@ describe('showMenu audio toggle', () => {
     // the ledger reset a `<button>` too (same `rl-menu__item` look), so a bare
     // `button.rl-menu__item` selector is no longer unique to the mixer.
     const b = stage.querySelector<HTMLButtonElement>('button.rl-menu__item[aria-pressed]')!;
-    expect(b.textContent).toBe('♪ audio off');
+    // GH-261: the APP-6 signals bolt, struck through for radio silence.
+    expect(b.textContent?.trim()).toBe('audio off');
+    expect(b.querySelector('svg')?.getAttribute('data-symbol')).toBe('audioOff');
     expect(b.getAttribute('aria-pressed')).toBe('false');
     b.click();
     expect(muted).toBe(false);
-    expect(b.textContent).toBe('♪ audio on');
+    expect(b.textContent?.trim()).toBe('audio on');
+    expect(b.querySelector('svg')?.getAttribute('data-symbol')).toBe('audioOn');
     expect(b.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -118,6 +121,14 @@ describe('showMenu continue/start', () => {
 });
 
 describe('showEndScreen', () => {
+  it('draws the next-mission link with the GH-261 arrow after the words', () => {
+    const host = document.createElement('div');
+    showEndScreen(host, { result: 'victory', roe: 94, survivors: 11, missionId: 'a', nextMissionId: 'b' });
+    const next = [...host.querySelectorAll('.rl-endnav a')].find((a) => a.textContent?.includes('next mission'));
+    expect(next?.lastElementChild?.getAttribute('data-symbol')).toBe('next');
+    expect(next?.textContent?.trim()).toBe('next mission');
+  });
+
   // Already resolved the way `main.ts` resolves them, off `speakerPlate`/
   // `speakerPortrait` -- this file has no `HudCommanderInfo` to look one up
   // against, on purpose (see the file-header comment).

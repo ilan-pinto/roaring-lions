@@ -202,5 +202,8 @@ describe('reaching it', () => {
       (a) => a.dataset.kind === 'back'
     );
     expect(back.map((a) => a.getAttribute('href'))).toEqual(['/']);
+    // GH-261: the supporting-attack arrow, drawn -- the catalogue string is words only.
+    expect(back[0].querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
+    expect(back[0].textContent?.trim()).toBe('main menu');
   });
 });

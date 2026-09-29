@@ -88,7 +88,7 @@ export function objectivesPanel(
 
       const glyph = document.createElement('span');
       glyph.className = 'rl-obj__glyph';
-      glyph.textContent = objectiveGlyph(o.status);
+      glyph.innerHTML = objectiveGlyph(o.status);
       li.appendChild(glyph);
 
       const text = document.createElement('span');

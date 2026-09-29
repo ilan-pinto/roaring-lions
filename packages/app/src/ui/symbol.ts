@@ -12,6 +12,7 @@
 // sweep -- that sweep belongs to `order-sight.ts`'s aim alone (Q12), which
 // has no APP-6 original to borrow angles from.
 import type { RoleBucket } from './role';
+import { escapeHtml } from './escape-html';
 import { ORDER_MARK_BOUNDS, orderMarkBody, type SightOrderId } from './order-sight';
 
 export const VIEWBOX = '0 0 24 24';
@@ -195,7 +196,98 @@ function rotate(cw: boolean): string {
   );
 }
 
-export type UtilityId = 'logistics' | 'intel' | 'rotateCcw' | 'rotateCw';
+// ---- GH-261: the Military set (lead's pick, 29 Sep) ----
+// Ported from `.superpowers/dingbats-mock/gen.mjs`, numbers unchanged. The
+// mock drew a left-pointing mark as its right-pointing twin under a mirror
+// transform; here the reflection is baked into the coordinates (`mx`), so the
+// sheet never ships a `<g transform>` and every mark stays one fill on the box.
+/** Reflect a point across the box's vertical centre line. */
+const mx = ([x, y]: P): P => [24 - x, y];
+const fill = (pts: readonly P[]): string => path(poly(pts));
+const box = (x0: number, y0: number, x1: number, y1: number): string => fill(rect(x0, y0, x1, y1));
+const bar = (a: P, b: P): string => path(band(a, b));
+const xMark = (x0: number, y0: number, x1: number, y1: number): string => bar([x0, y0], [x1, y1]) + bar([x0, y1], [x1, y0]);
+const maybe = (flip: boolean) => (p: P): P => (flip ? mx(p) : p);
+
+/** Phase-line pager: the bar the step lands on, and the triangle stepping to it. */
+function pagerMark(flip: boolean): string {
+  const m = maybe(flip);
+  return fill([m([2.5, 3]), m([5, 3]), m([5, 21]), m([2.5, 21])]) + fill([m([8, 3]), m([21, 12]), m([8, 21])]);
+}
+/** The supporting-attack arrow: shaft and an open barbed head. */
+function supportArrow(flip: boolean): string {
+  const m = maybe(flip);
+  return bar(m([2, 12]), m([19, 12])) + bar(m([21.2, 12]), m([13.2, 4.4])) + bar(m([21.2, 12]), m([13.2, 19.6]));
+}
+/** APP-6 signals: the lightning bolt. */
+const BOLT = fill([
+  [15, 1.5],
+  [5, 13.5],
+  [10.5, 13.5],
+  [8, 22.5],
+  [19, 9.5],
+  [13.2, 9.5],
+]);
+/** The dashed "planned" frame: APP-6's anticipated status on the land frame. */
+const DASHED_FRAME =
+  box(1, 4, 6.5, 6.5) +
+  box(9, 4, 15, 6.5) +
+  box(17.5, 4, 23, 6.5) +
+  box(1, 17.5, 6.5, 20) +
+  box(9, 17.5, 15, 20) +
+  box(17.5, 17.5, 23, 20) +
+  box(1, 8.5, 3.5, 11) +
+  box(1, 13, 3.5, 15.5) +
+  box(20.5, 8.5, 23, 11) +
+  box(20.5, 13, 23, 15.5);
+/** A solid frame with the tick knocked out of it (even-odd). */
+const FRAMED_TICK = path(
+  poly(rect(1, 4, 23, 20)) +
+    ' ' +
+    poly([
+      [6.5, 12],
+      [8.5, 10],
+      [10.5, 12],
+      [15.5, 7.2],
+      [17.5, 9.2],
+      [10.5, 16.2],
+    ]),
+  true
+);
+/** An n-point star, alternating outer and inner radius, first point up. */
+function starMark(cx: number, cy: number, ro: number, ri: number, n: number): string {
+  const pts: P[] = [];
+  for (let i = 0; i < n * 2; i++) {
+    const a = (Math.PI * i) / n - Math.PI / 2;
+    const rr = i % 2 ? ri : ro;
+    pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
+  }
+  return fill(pts);
+}
+/** The axis-of-advance arrow (shaft + solid head) the line of departure crosses. */
+const ADVANCE_ARROW = bar([2, 12], [16, 12]) + fill([
+  [14.5, 5],
+  [23, 12],
+  [14.5, 19],
+]);
+
+/** The GH-261 marks: the dingbats no G1 round drew, each replacing the
+ *  character named beside it. */
+export type DingbatId =
+  | 'pause' // ▮▮
+  | 'pagePrev' // ◂
+  | 'pageNext' // ▸
+  | 'audioOn' // 🔊 and the menu's audio toggle
+  | 'audioOff' // 🔇
+  | 'objectiveOpen' // ☐
+  | 'objectiveDone' // ☑
+  | 'objectiveFailed' // ☒
+  | 'back' // ←
+  | 'next' // →
+  | 'leave' // ⌂
+  | 'heavy' // ⚠
+  | 'broken'; // ⚑
+export type UtilityId = 'logistics' | 'intel' | 'rotateCcw' | 'rotateCw' | DingbatId;
 /** A unit-status mark, drawn on the chip/card/strip/cursor rather than on an
  *  order or a role. `pinned` is the only member: candidate A, "pressed
  *  flat", which the lead picked at G-PIN (28 Sep). */
@@ -204,12 +296,28 @@ export type SymbolId = RoleBucket | SightOrderId | UtilityId | StatusId;
 
 const ROLE_IDS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
 const ORDER_IDS: readonly SightOrderId[] = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'];
-const UTILITY_IDS: readonly UtilityId[] = ['logistics', 'intel', 'rotateCcw', 'rotateCw'];
+export const DINGBAT_IDS: readonly DingbatId[] = [
+  'pause',
+  'pagePrev',
+  'pageNext',
+  'audioOn',
+  'audioOff',
+  'objectiveOpen',
+  'objectiveDone',
+  'objectiveFailed',
+  'back',
+  'next',
+  'leave',
+  'heavy',
+  'broken',
+];
+const UTILITY_IDS: readonly UtilityId[] = ['logistics', 'intel', 'rotateCcw', 'rotateCw', ...DINGBAT_IDS];
 const STATUS_IDS: readonly StatusId[] = ['pinned'];
 
-/** Seven roles, eight orders, four utility marks, one status mark: twenty,
- *  the sheet G1 approved (round 2's roles and utility marks, round 5's
- *  orders) plus the pinned mark the lead picked at G-PIN. */
+/** Seven roles, eight orders, four utility marks, one status mark: the
+ *  twenty the sheet G1 approved (round 2's roles and utility marks, round 5's
+ *  orders) plus the pinned mark the lead picked at G-PIN -- and the thirteen
+ *  GH-261 marks, thirty-three in all. */
 export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS];
 
 interface RoleGlyph {
@@ -245,6 +353,39 @@ const UTILITY_GLYPHS: Readonly<Record<UtilityId, UtilityGlyph>> = {
   intel: { body: path('M1 12 Q12 0 23 12 Q12 24 1 12 Z M5 12 Q12 5.6 19 12 Q12 18.4 5 12 Z', true) + path(circle(12, 12, 3)) },
   rotateCcw: { body: rotate(false) },
   rotateCw: { body: rotate(true) },
+  // GH-261, each the lead's Military-set pick (29 Sep).
+  /** Pause bars in the unit frame (B). */
+  pause: { body: LAND_FRAME + box(7.5, 8.5, 10.5, 15.5) + box(13.5, 8.5, 16.5, 15.5) },
+  /** Phase-line arrows (B). */
+  pagePrev: { body: pagerMark(true) },
+  pageNext: { body: pagerMark(false) },
+  /** APP-6 signals bolt (B); struck through for radio silence. */
+  audioOn: { body: BOLT },
+  audioOff: { body: BOLT + bar([2.5, 21.5], [21.5, 2.5]) },
+  /** Dashed planned frame, solid frame with tick, framed X (B). */
+  objectiveOpen: { body: DASHED_FRAME },
+  objectiveDone: { body: FRAMED_TICK },
+  objectiveFailed: { body: LAND_FRAME + xMark(8, 8.5, 16, 15.5) },
+  /** The open-barbed supporting-attack arrow (B). */
+  back: { body: supportArrow(true) },
+  next: { body: supportArrow(false) },
+  /** Line of departure: the advance arrow across a phase-line bar (A). */
+  leave: { body: box(9, 3, 11.5, 21) + ADVANCE_ARROW },
+  /** Danger close: a ring around an eight-point burst (B). */
+  heavy: { body: ring(12, 12, 10.75) + starMark(12, 12, 6.3, 2.6, 8) },
+  /** The notched control-measure flag on its staff (A). */
+  broken: {
+    body:
+      box(4, 2, 6.5, 22.5) +
+      fill([
+        [6.5, 3],
+        [21, 3],
+        [17, 6.2],
+        [21, 9.2],
+        [17, 12.2],
+        [6.5, 12.2],
+      ]),
+  },
 };
 
 function isRoleBucket(id: SymbolId): id is RoleBucket {
@@ -340,4 +481,15 @@ export function symbolSvg(id: SymbolId, size: number, opts?: { framed?: boolean;
     `<svg class="${cls}" data-symbol="${id}" width="${width}" height="${size}" viewBox="${box}" ` +
     `aria-hidden="true" focusable="false">${symbolBody(id, { framed: opts?.framed })}</svg>`
   );
+}
+
+/**
+ * A mark beside catalogue text, as HTML: `<svg> text` (or `text <svg>` with
+ * `after`). GH-261's rule for i18n: a catalogue string never carries the mark
+ * -- it cannot hold SVG -- so the call site draws it beside the words. The
+ * text is escaped here; the caller sets the result as `innerHTML`.
+ */
+export function symbolLabel(id: SymbolId, text: string, opts?: { after?: boolean; size?: number }): string {
+  const mark = symbolSvg(id, opts?.size ?? 14);
+  return opts?.after ? `${escapeHtml(text)} ${mark}` : `${mark} ${escapeHtml(text)}`;
 }

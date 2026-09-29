@@ -14,6 +14,14 @@ function deps(overrides: Partial<CreditsDeps> = {}): CreditsDeps {
 }
 
 describe('showCredits', () => {
+  it('draws its back link with the GH-261 arrow, words beside it', () => {
+    const stage = document.createElement('div');
+    showCredits(stage, deps());
+    const back = stage.querySelector('.rl-credits__back');
+    expect(back?.querySelector('svg')?.getAttribute('data-symbol')).toBe('back');
+    expect(back?.textContent?.trim()).toBe('main menu');
+  });
+
   it('renders every library name and the Namer credit', () => {
     const stage = document.createElement('div');
     showCredits(stage, deps());
