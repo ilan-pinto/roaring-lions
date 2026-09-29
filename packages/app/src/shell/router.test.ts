@@ -316,6 +316,50 @@ describe('Router', () => {
     off();
   });
 
+  // GH-285: the end screen's "try again" is `<a href="/mission/<the id we are
+  // on>">`. Before the router that was a real anchor, and a browser follows a
+  // link to the page it is already on by loading it again. interceptLinks took
+  // the click over and handed it to navigate(), whose same-route no-op then
+  // swallowed it: preventDefault, no navigation, nothing on screen.
+  it('interceptLinks re-mounts the current route when an anchor points at it, as a browser reloads it', async () => {
+    const { router, log, disposed } = makeRouter({ start: '/mission/khan_rafid_3_clearance' });
+    await router.start();
+    const off = interceptLinks(document, router);
+    const depth = window.history.length;
+    const a = document.createElement('a');
+    a.href = '/mission/khan_rafid_3_clearance';
+    document.body.appendChild(a);
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    a.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    await router.idle();
+    expect(log).toEqual(['mount:mission', 'mount:mission']);
+    expect(disposed).toEqual(['mission']);
+    // Replaced, not pushed -- a browser does the same for a same-URL link, and
+    // the attempt just lost must not sit in history as a back-button trap.
+    expect(window.history.length).toBe(depth);
+    expect(window.location.pathname).toBe('/mission/khan_rafid_3_clearance');
+    a.remove();
+    off();
+    router.dispose();
+  });
+
+  it('interceptLinks still re-mounts when the location carries a sticky key the href does not', async () => {
+    const { router, log } = makeRouter({ start: '/mission/x?pseudo=1' });
+    await router.start();
+    const off = interceptLinks(document, router);
+    const a = document.createElement('a');
+    a.href = '/mission/x';
+    document.body.appendChild(a);
+    a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    await router.idle();
+    expect(log).toEqual(['mount:mission', 'mount:mission']);
+    expect(window.location.search).toBe('?pseudo=1');
+    a.remove();
+    off();
+    router.dispose();
+  });
+
   it('dispose() tears the current screen down and stops listening', async () => {
     const { router, disposed } = makeRouter({ start: '/' });
     await router.start();
