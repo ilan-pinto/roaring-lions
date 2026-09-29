@@ -5793,6 +5793,18 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * GH-279: a dashed ring on the refuge for three seconds -- a second of
+   * full strength, then a linear fade (`units/ground-ping.ts`). A call while
+   * one is showing restarts it. The app calls it when a flight line is said
+   * and when the tracker's "Show refuge" is pressed; it is never a standing
+   * mark. Presentation only: it reads nothing from the sim beyond the ground
+   * height under the point, and nothing reads it back.
+   */
+  pingRefuge(x: number, y: number): void {
+    this.refugePing.restart(x, y);
+  }
+
+  /**
    * The tutorial focus ring is *state*, not a one-shot: set it and it stands
    * until cleared. So it retains, like its siblings above, rather than no-ops.
    *
@@ -5809,18 +5821,6 @@ export class ThreeRenderer implements Renderer {
    * the state this method retains was always correct, only nothing consumed
    * it until now.
    */
-  /**
-   * GH-279: a dashed ring on the refuge for three seconds -- a second of
-   * full strength, then a linear fade (`units/ground-ping.ts`). A call while
-   * one is showing restarts it. The app calls it when a flight line is said
-   * and when the tracker's "Show refuge" is pressed; it is never a standing
-   * mark. Presentation only: it reads nothing from the sim beyond the ground
-   * height under the point, and nothing reads it back.
-   */
-  pingRefuge(x: number, y: number): void {
-    this.refugePing.restart(x, y);
-  }
-
   setTutorialFocus(x: number, y: number, radius: number): void {
     this.retained.tutorialFocus = { x, y, radius };
   }
