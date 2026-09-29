@@ -9,10 +9,11 @@ fielded by a mission and never reachable through Roar coins.
 |---|---|---|---|
 | deep recon team | `recon_zikit` | 4,250 | this plan, sim-free |
 | Peten gunship | `heli_peten_gunship` | 8,000 | this plan, sim-free |
-| armoured demolition carrier (GH-156) | `demo_tzav` | 6,500 | E6's placed-charge extension (G1) |
+| armoured demolition carrier (GH-156) | `demo_tzav` | 6,500 | staged data and art here; lands in E6 |
 
-The drone swarm and the beam carrier added on 29 Sep are **not** in this plan. The spec (§8.4, Q11)
-recommends they split into E6 together with every sim change, and Task 8 hands them over.
+**E5 is sim-free (the lead, 29 Sep: "Split into E6").** This plan covers the Zikit, the Gunship,
+and the Tzav's staged data and art. The Tzav's placed charge (G1), the drone swarm and the
+directed-energy beam are E6: see "E6 — moved out" at the end.
 
 **Architecture:**
 - **Data is staged, not shipped, until its art lands.** The three JSONs live in
@@ -28,13 +29,13 @@ recommends they split into E6 together with every sim change, and Task 8 hands t
   - `gateSentence`'s price rank;
   - `brigade.ts`'s sort (bought-only rows sort after the earned gates);
   - `dock-model.ts`'s `dock.lock.price`.
-- **One PR lands each unit**, with art and data together (Tasks 10 and 11).
+- **One PR lands the Zikit and the Gunship**, with art and data together (Task 9).
 
 **Tech Stack:** JSON Schema (ajv 2020), Python (`tools/validate_balance.py`), TypeScript strict,
-vitest, headless Blender and the Meshy CLI (Task 9 only). No new dependencies.
+vitest, headless Blender and the Meshy CLI (Task 8 only). No new dependencies.
 
 **Spec:** `docs/superpowers/specs/2026-09-29-e5-special-forces-design.md`. Its §1 holds the
-numbers, §4 the gaps (G1–G6), §5 the staging, §6 the prompts, and §7 the questions.
+numbers, §4 the gaps (G1–G6), §5 the staging, §6 the prompts, and §7 the decisions.
 
 **Base:**
 - Branch `feat/e5-special-forces`, cut from `main` `ce80b767`.
@@ -42,42 +43,31 @@ numbers, §4 the gaps (G1–G6), §5 the staging, §6 the prompts, and §7 the q
 - It has **no `node_modules`**. Run `pnpm install` once before the first vitest task.
 
 **Order and the gates:**
-1. **Task 1** records the numbers and **stops at gate G-E5-N**. The lead approves the numbers
-   table and answers Q1–Q12. The defaults apply if the lead does not answer.
-2. **Tasks 2–7** start after G-E5-N. Tasks 3, 6 and 8 are independent of each other.
-3. **Task 9** is gate **G-E5-A**. It waits for the October Meshy credits and for the lead's go on
+1. **Task 1**, gate **G-E5-N: PASSED, approved 29 Sep.** The lead approved all five units'
+   numbers.
+2. **Tasks 2–7** may start now. Tasks 3 and 6 are independent of the others.
+3. **Task 8** is gate **G-E5-A**. It waits for the October Meshy credits and for the lead's go on
    the announced estimate.
-4. **Task 10** lands the Zikit and the Gunship after Task 9.
-5. **Task 11** lands the Tzav. It is blocked on E6's G1 task.
+4. **Task 9** lands the Zikit and the Gunship after Task 8.
 
 ---
 
-## Pre-flight: open questions (spec §7)
+## Decisions (spec §7), all 29 Sep
 
-**Default:** if the lead gives no answer, take the recommended ruling and record it in the Task 10
-HANDOVER entry.
-
-| # | Question | Recommended |
-|---|---|---|
-| Q1 | The numbers (§1, §8) | approve |
-| Q2 | Gunship station time | drop |
-| Q3 | Build G1, rather than ship a held-station Tzav | build G1 (in E6) |
-| Q4 | Tzav auto-withdraw, order-only charge, blast hurts own troops and civilians | yes (4 tiles), yes, yes |
-| Q5 | Pods at 0.55 collateral | keep |
-| Q6 | Stage the data | stage |
-| Q7 | Names screened under rule 3 before any JSON ships | working names until screened |
-| Q8 | KDF vehicle faction line in the style bible | adopt |
-| Q9 | Fold G4 (D9 on the foot domain) into #247, and accept G6 | yes; accept |
-| Q10 | Swarm side | Sarim and Rif threat only |
-| Q11 | Split the pair and all sim work into E6 | yes |
-| Q12 | Beam intercepts shells | not in v1 |
+- **By the lead:** Q1 numbers approved (all five); Q10 swarm fielded by the enemy only, Sarim and
+  Rif; Q11 split into E6.
+- **Taken defaults:** Q2 station time dropped; Q4 Tzav auto-withdraws 4 tiles, charge only on
+  order, blast hurts own troops and civilians; Q5 pods keep 0.55; Q6 data staged; Q7 working names
+  until the rule-3 screen; Q8 KDF vehicle line adopted; Q9 G4 folded into #247, G6 accepted; Q12
+  the beam intercepts no shells in v1.
+- **Consequential:** Q3, build G1, goes to E6 with Q11.
 
 ---
 
 ## Global Constraints
 
 - **The sim is untouched.** At landing, `git diff --stat ce80b767..HEAD -- packages/sim` is empty
-  for Tasks 1–10, and `pnpm test:determinism` has not moved. The Tzav's sim half is E6's work
+  for every task, and `pnpm test:determinism` has not moved. The Tzav's sim half is E6's work
   (Q11).
 - **The ladder must not move.** The following all stay as printed on `main`:
   - `LADDER_CREDITS` 5849;
@@ -93,7 +83,7 @@ HANDOVER entry.
     entry and its `mesh-catalogue` entry.
   - `tools/src/e5_staged.test.ts` fails if a staged id appears in `units`.
 - **Balance is measured, never fitted afterwards.**
-  - The acceptance bands are set by `balance-analyst` in Task 1, from the measured baselines.
+  - The acceptance bands are set by `balance-analyst` in Task 4, from the measured baselines.
   - A red probe is content to retune. It is never a band to widen.
 - **No status marks in the world** (the lead, 27 Sep). Nothing in this plan draws an on-map
   marker.
@@ -108,7 +98,7 @@ HANDOVER entry.
   the commit message quotes the red line.
 - **Gates before every commit:** `pnpm lint && pnpm typecheck && pnpm test && pnpm validate:data`,
   plus both `validate_balance.py` passes. Run `pnpm playtest` when a task touches it, and
-  `pnpm validate:meshes` from Task 9 on.
+  `pnpm validate:meshes` from Task 8 on.
 - **Git.**
   - Stage explicit paths only: `/usr/bin/git commit -s -F <msg> -- <paths>`. Never `-A`, and never
     `git checkout -- <file>`.
@@ -123,21 +113,21 @@ HANDOVER entry.
 | File | Role | Task |
 |---|---|---|
 | `docs/campaign/special_units/e5/{recon_zikit,heli_peten_gunship,demo_tzav}.json` | **New.** The staged drafts | 1, 2 |
-| `docs/campaign/special_units/e5/numbers.md` | **New.** The numbers table, the measured curve output, the lead's G-E5-N ruling and the Task 4 bands | 1, 4 |
+| `docs/campaign/special_units/e5/numbers.md` | **New.** The numbers table, the measured curve output, the 29 Sep ruling and the Task 4 bands | 1, 4 |
 | `tools/src/e5_staged.test.ts` | **New.** Schema, bought-only shape, price band, not half-landed | 2 |
 | `tools/validate_balance.py`, `.github/workflows/ci.yml` | `--also <dir>` (repeatable), and a staged-roster CI line at base and max tier | 2 |
 | `packages/render/src/three/units/shells.ts` (+test) | `he` routes to the `missile` streak (G5) | 3 |
 | `tools/src/backtest/e5-probes.ts`, `tools/package.json` | **New.** `pnpm e5:probes` | 4 |
 | `tools/src/backtest/playtest.ts` | `extraUnits` on `run`, and the `(bought)` probes | 5 |
 | `packages/app/src/i18n/en.json`, `packages/app/src/ui/brigade.ts` (+test) | The "special forces" tag on bought-only rows | 6, 7 |
-| `docs/art/style-bible.md` | The KDF vehicle faction line (Q8) | 9 |
-| `art/meshy/…`, `art/meshes/**`, `assets/sprites/**`, `docs/ASSET_PROVENANCE.md` | Art | 9 |
-| `data/units/kdf/*.json`, `packages/data/src/index.ts`, `packages/app/src/main.ts` (`SPRITE_MAP`), `packages/app/src/mesh-catalogue.ts`, `packages/render/src/three/units/vehicle-mesh-role.ts`, `data/campaign/names.json` | Landing | 10, 11 |
-| `docs/campaign/economy/prices.md` §8, `docs/HANDOVER.md` | The prices, and the ledger entry | 10, 11 |
+| `docs/art/style-bible.md` | The KDF vehicle faction line (Q8) | 8 |
+| `art/meshy/…`, `art/meshes/**`, `assets/sprites/**`, `docs/ASSET_PROVENANCE.md` | Art (for the Tzav, `art/meshy/` and its `.blend` only; Task 8) | 8 |
+| `data/units/kdf/*.json`, `packages/data/src/index.ts`, `packages/app/src/main.ts` (`SPRITE_MAP`), `packages/app/src/mesh-catalogue.ts`, `packages/render/src/three/units/vehicle-mesh-role.ts` | Landing | 9 |
+| `docs/campaign/economy/prices.md` §8, `docs/HANDOVER.md` | The prices, and the ledger entry | 9 |
 
 ---
 
-## Task 1: The numbers (gate G-E5-N)
+## Task 1: The numbers (gate G-E5-N) — PASSED, approved 29 Sep
 
 **Model:** opus. This is balance judgement, and it produces the lead's decision material.
 **Agent:** `balance-analyst`.
@@ -146,7 +136,7 @@ HANDOVER entry.
 - Create `docs/campaign/special_units/e5/*.json`: the three drafts from spec §1.
   - **`demo_tzav` omits `demolition_method: "placed"` and `placed_charge`.** The shipped schema
     rejects both until E6 lands G1.
-  - Its numbers stay in the spec, and Task 11 adds them.
+  - Its numbers stay in the spec, and E6 adds them.
 - Create `docs/campaign/special_units/e5/numbers.md`.
 
 - [ ] **Step 1: Copy the three drafts** from the spec's tables into JSON. Each carries its
@@ -177,10 +167,10 @@ old one.
   - the three stats tables;
   - the two curve outputs, verbatim;
   - the price table: ladders, the multiple of the peak line, and the total tier cost;
-  - Q1–Q12, each with its default.
-- [ ] **Step 5: Commit and STOP.** Put the table in front of the lead and wait for G-E5-N. Record
-  the ruling verbatim at the top of `numbers.md`, with the date. Any number the lead changes is
-  re-measured by Step 2 before Task 2 starts.
+  - Q1–Q12, each with its 29 Sep decision.
+- [x] **Step 5: Gate G-E5-N — passed, approved 29 Sep.** The lead approved all five units'
+  numbers unchanged. Steps 1–4 still write the files; record the ruling at the top of
+  `numbers.md` with its date, and commit.
 
 ---
 
@@ -214,7 +204,8 @@ ap.add_argument("--also", action="append", default=[], metavar="DIR",
   - `unlock` has exactly one key, `price`, so `isBoughtOnly` is true;
   - `4000 <= price <= 8000` (prices.md §8);
   - **no staged id is a key of `units` from `@lions/data`.** This is the not-half-landed pin.
-  Task 10 deletes a file from staging in the same commit that adds it to `data/units/kdf/`.
+  Task 9 deletes a file from staging in the same commit that adds it to `data/units/kdf/`; the
+  Tzav stays staged until E6 lands it.
 - [ ] **Step 2: Add `--also`,** and the two CI lines.
 - [ ] **Step 3: See each check red:**
   - Copy `recon_zikit.json` into `data/units/kdf/` and import it in `index.ts`. Expect
@@ -263,15 +254,11 @@ probes are printed, and their seeds are fixed.
   `IDENTIFIED_AT`. Run it for the Zikit, `sniper_team` and `inf_squad`, both holding fire and
   firing. The design claim is that the Zikit is found later than `inf_squad` at every range, and
   later than the sniper once both fire. Record the numbers either way.
-- [ ] **Step 3: Tzav baseline.** A `house` is held by an `rpg_team`, with a `militia_cell` two
-  tiles off. Order the D9 and `demo_squad` to demolish it, 20 seeds each. Record time to rubble,
-  demolisher survival and soft kills. The Tzav's own row waits for G1. Pin the harness now, so
-  Task 11 adds only a row.
-- [ ] **Step 4: Bands.** `balance-analyst` writes each band into `numbers.md` from the measured
+- [ ] **Step 3: Bands.** `balance-analyst` writes each band into `numbers.md` from the measured
   baselines. The file header states that the bands are frozen from this commit on.
-- [ ] **Step 5: See each check red.** Set the Gunship's hp to 2000: the "falls with AA" or "≤ the
+- [ ] **Step 4: See each check red.** Set the Gunship's hp to 2000: the "falls with AA" or "≤ the
   Peten at 2" assertion must fail. Set the Zikit's signature to 0.6: its detection claim must fail.
-- [ ] **Step 6: Run `pnpm balance`** and confirm it is byte-identical to `main`: `targets.ts` names
+- [ ] **Step 5: Run `pnpm balance`** and confirm it is byte-identical to `main`: `targets.ts` names
   six ids.
 
 ---
@@ -348,32 +335,11 @@ extraUnits?: readonly UnitTypeJson[]   // registered like any KDF type, max-tier
   must fail. Make it `isBoughtOnly(u) || true`, and the shipped-unit assertion must fail.
 - [ ] **Step 4: Screenshot.** Drive the real garage with `pnpm ui:shots` against a scratch build
   that has the staged units copied into a temp roster. That build is never committed. It is the
-  mock the lead sees at Task 10.
+  mock the lead sees at Task 9.
 
 ---
 
-## Task 8: Hand the pair and G1 to E6
-
-**Model:** sonnet. This task is docs only.
-
-**Files:**
-- Modify `docs/HANDOVER.md` (§4, new package).
-- Draft the E6 issue text in `numbers.md` §E6.
-
-- [ ] **Step 1: Write the E6 brief** from spec §4 G1 and §8:
-  - the placed charge;
-  - the `swarm` block;
-  - the `directed_energy` class, with its `beam` block;
-  - a §5.7 target: swarm against beam against MG;
-  - missions that field swarms (a ladder move, owned by `playtest`);
-  - two Meshy prompts, 50 credits;
-  - the sim-guard note that the golden hash may move, and why.
-- [ ] **Step 2: Open the issue.** The lead opens it, or approves it being opened. Record the
-  number in HANDOVER.
-
----
-
-## Task 9: The art (gate G-E5-A, October credits)
+## Task 8: The art (gate G-E5-A, October credits)
 
 **Model:** opus for the Blender judgement, haiku for the gate runs. **Agent:** `blender-art`.
 
@@ -406,13 +372,16 @@ one object, facing forward. No insignia, flags, patches, text or markings of any
   2,000, rig, and download at once. In Blender, make three figures from the one: a standing radio
   operator with the whip at ~80°, a kneeling spotter with a tripod scope, and a rifleman.
   - Clips `idle, move, fire, down, wreck`; falls 0.9–1.2 s.
-  - It goes into `RIGGED_UNIT_MESHES` in Task 10.
+  - It goes into `RIGGED_UNIT_MESHES` in Task 9.
   - The named IoU risk is against `sniper_team` and `inf_squad`.
-- [ ] **Step 4: Tzav.** Generate one preview from spec §6's prompt, then remesh at 5,000. Make it
+- [ ] **Step 4: Tzav (art only; it lands in E6).** Commit the Meshy download under `art/meshy/`
+  and the Blender source, but **not** `art/meshes/vehicles/demo_tzav.glb`: an unclaimed GLB fails
+  `mesh-catalogue.test.ts`'s orphan check, and the Tzav cannot be claimed until E6 lands G1. E6
+  exports it. Generate one preview from spec §6's prompt, then remesh at 5,000. Make it
   contract v2 with no `turret_pivot`, and run `pnpm wreck:meshes`. The named IoU risk is against
   `apc_kipod`, `ifv_namer` and `dozer_d9`: the boom and crate must separate it.
-- [ ] **Step 5: Sheets** for the portrait, `&nomesh` and Pixi: `INF_ZIKIT/`, `TZAV_HULL/` and
-  `PETEN_GS_HULL/`. Render each from the same source as its GLB, as `render_scout_shachaf.py`
+- [ ] **Step 5: Sheets** for the portrait, `&nomesh` and Pixi: `INF_ZIKIT/` and `PETEN_GS_HULL/`
+  (the Tzav's `TZAV_HULL/` is rendered by E6 with its GLB). Render each from the same source as its GLB, as `render_scout_shachaf.py`
   does, with `down`/`wreck` clips. Then crop the unit icons.
 - [ ] **Step 6: Gates:**
   - `pnpm validate:meshes`, first checking `git status art/meshes/` for strangers;
@@ -421,12 +390,12 @@ one object, facing forward. No insignia, flags, patches, text or markings of any
   - `pnpm perf:load`;
   - a look at zoom 1.0 in `?sandbox`.
 - [ ] **Step 7: Provenance.** Record the preview and remesh task ids in `ASSET_PROVENANCE.md`,
-  and write the AI-art disclosure text for the Task 10 PR. Add the KDF vehicle faction line (Q8)
+  and write the AI-art disclosure text for the Task 9 PR. Add the KDF vehicle faction line (Q8)
   to the style bible.
 
 ---
 
-## Task 10: Land the Zikit and the Gunship
+## Task 9: Land the Zikit and the Gunship
 
 **Model:** sonnet, then a whole-branch review on opus.
 
@@ -451,7 +420,7 @@ one object, facing forward. No insignia, flags, patches, text or markings of any
   - Photograph the card, the dock tile and the unit at zoom 1.0.
 - [ ] **Step 3: Every gate:**
   - `lint`, `typecheck`, `test`, `validate:data`, `validate:assets`, `validate:meshes`;
-  - both `validate_balance.py` passes on `data/units` alone (the staged line now only holds the
+  - both `validate_balance.py` passes, with and without `--also` (staging now holds only the
     Tzav);
   - `pnpm balance`;
   - `pnpm playtest`: the ladder unmoved, the `(bought)` probes green;
@@ -464,21 +433,19 @@ one object, facing forward. No insignia, flags, patches, text or markings of any
 
 ---
 
-## Task 11: Land the Tzav (blocked on E6's G1)
+---
 
-**Model:** sonnet. **Agents:** `balance-analyst` (Step 2), `playtest` (Step 3).
+## E6 — moved out
 
-**Starts only when:** `unit.schema.json` on `main` accepts `demolition_method: "placed"` and
-`placed_charge`, and E6's sim tests for the charge are green.
+Split by the lead on 29 Sep. Tracked by WP-G-E6, #274, which takes over #273. None of it is E5 work, and E5 lands without it. Stage 4 or later, because each item moves sim
+code and may move the determinism hash.
 
-- [ ] **Step 1: Add the charge fields** to the staged Tzav, from spec §1.2: fuse 8, blast 2.5, dmg
-  300, supp 120, withdraw 4.
-- [ ] **Step 2: Add the Tzav's row** to Task 4's harness, and assert against its frozen bands:
-  - time to rubble no worse than `demo_squad`;
-  - more soft kills around the house than the D9;
-  - carrier survival at least `demo_squad`'s.
-- [ ] **Step 3: Add the `(bought)` probe** on `wadi_halam_5_depot`, and report its Conduct against
-  the D9 plan.
-- [ ] **Step 4: Land it** exactly as Task 10 did, adding `names.json` `kinds.vehicle_ids` +=
-  `demo_tzav`. Its role, `engineer`, is otherwise named as a squad.
-- [ ] **Step 5: Close #181 and #156** in HANDOVER, and update `prices.md` §8.
+- **G1, the Tzav's placed charge** (spec §4): `demolition_method: "placed"` and `placed_charge`,
+  the per-structure fuse, `splashDirect` blast, auto-withdraw, `chargeSet`/`chargeDetonated`.
+  Then the Tzav's probe row (against the D9 and `demo_squad` on a defended house), its `(bought)`
+  probe on `wadi_halam_5_depot`, its GLB export and `TZAV_HULL/` sheet, and its landing with
+  `names.json` `kinds.vehicle_ids += demo_tzav`. That closes #156.
+- **The drone swarm** (spec §8.1): the `swarm` block and its damage model; enemy-only.
+- **The `directed_energy` class and the beam carrier** (spec §8.2), with a three-only beam VFX.
+- **Missions that field swarms**, which re-pin the playtest ladder, and a §5.7 swarm target.
+- **Art:** two palette meshes, 50 credits, prompts in spec §8.4.

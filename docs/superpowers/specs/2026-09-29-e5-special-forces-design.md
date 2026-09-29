@@ -4,6 +4,12 @@
 G7 (earned credits only, never Roar coins; ST8 §1, §7) and the 29 Sep swarm-and-laser addition ·
 plan `docs/superpowers/plans/2026-09-29-e5-special-forces.md`.
 
+**Scope, as split by the lead on 29 Sep (Q11).**
+- **E5 (#181) is sim-free.** It covers the Zikit, the Gunship, and the Tzav's staged data and art.
+- **E6 (#274) is Stage 4 or later, because it moves the sim.** It covers the Tzav's placed charge (G1),
+  the drone swarm and the directed-energy beam, plus the missions that field swarms. This spec's
+  §4 G1 and §8 are E6's design input.
+
 Curve figures come from `tools/validate_balance.py` (roster plus drafts, base and `--max-tier
 --upgrade-cost-factor 0.02`; n=35 for §1, n=37 for §8, which moves §1 by under 1.3 points). All
 drafts pass `unit.schema.json`. `cost.logistics` must fit the curve (±18%); `unlock.price` is the
@@ -165,29 +171,32 @@ flags, patches, text or markings of any kind.
 
 **Gunship** (Blender from `heli_peten`'s source, 0 cr: stub wings with four pods, two tanks, a mast
 dome). Named risk: IoU ≥ 0.88 against `heli_peten`; measure before spending. A Meshy pod part (25
-cr, prompt in plan Task 9) only if Blender pods fail.
+cr, prompt in plan Task 8) only if Blender pods fail.
 
 **Credits:** 65 planned, 140 ceiling (~$2.80); §8's pair is priced there. Then sheets,
 `pnpm wreck:meshes`, icons, gates, provenance, AI disclosure.
 
-## 7. Open questions for the lead (work proceeds on the default)
+## 7. Decisions (29 Sep)
 
-| # | question | default |
+Q1, Q10 and Q11 are the lead's answers. The others are taken defaults: the lead did not change
+them. All are dated 29 Sep.
+
+| # | question | decision · 29 Sep |
 |---|---|---|
-| Q1 | The §1 and §8 numbers | approve |
-| Q2 | Gunship station time | drop (G2) |
-| Q3 | G1, or a held-station Tzav | build G1 |
-| Q4 | Tzav: auto-withdraw; order-only charge; blast hurts own troops and civilians | yes, 4 tiles; yes; yes |
-| Q5 | Pods at 0.55 collateral | keep |
-| Q6 | Stage the data (§5) | stage |
-| Q7 | Names: `narrative-designer`'s rule-3 screen before any JSON ships | working names until screened |
-| Q8 | The KDF vehicle line in the bible | adopt |
-| Q9 | Fold G4 into #247; leave G6 without a hook | yes; accept |
-| Q10 | The swarm's side | Sarim and Rif only (§8.3) |
-| Q11 | Split the pair and all sim work into E6 | **yes** (§8.4) |
-| Q12 | The beam also intercepts mortar and rocket rounds | not in v1 |
+| Q1 | The §1 and §8 numbers | **approved** by the lead, all five units |
+| Q2 | Gunship station time | dropped (G2) · taken default |
+| Q3 | G1, or a held-station Tzav | build G1, in E6 · follows from Q11 |
+| Q4 | Tzav: auto-withdraw; order-only charge; blast hurts own troops and civilians | yes, 4 tiles; yes; yes · taken default |
+| Q5 | Pods at 0.55 collateral | keep · taken default |
+| Q6 | Stage the data (§5) | stage · taken default |
+| Q7 | Names: `narrative-designer`'s rule-3 screen before any JSON ships | working names until screened · taken default |
+| Q8 | The KDF vehicle line in the bible | adopt · taken default |
+| Q9 | Fold G4 into #247; leave G6 without a hook | yes; accept · taken default |
+| Q10 | The swarm's side | **enemy only, Sarim and Rif** (lead) |
+| Q11 | Split the pair and all sim work into E6 | **split into E6** (lead) |
+| Q12 | The beam also intercepts mortar and rocket rounds | not in v1 · taken default |
 
-## 8. The anti-drone pair (added 29 Sep)
+## 8. The anti-drone pair (added 29 Sep; moved to E6)
 
 ### 8.1 `drone_swarm`, "Drone Swarm" (Sarim, Rif)
 
@@ -233,7 +242,7 @@ the nine's shape: Conduct 85 **or** 470 credits (`(350 + 5 × 85) × 0.6` = 465,
 has zero collateral: the cleanest weapon in the game, earned by clean play. An enemy swarm has no
 price. A KDF bought swarm is deferred: its counter-play would need an enemy beam.
 
-### 8.4 Recommendation: E6 takes the pair and all sim work
+### 8.4 E6 takes the pair and all sim work (decided 29 Sep)
 
 The pair needs a new weapon class, the swarm damage model, dwell and heat, and missions that field
 swarms. Those missions move the ladder, which E5 must not. That is Stage 4+. The Tzav's G1 is sim
