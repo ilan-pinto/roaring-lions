@@ -770,6 +770,16 @@ export const CAPTURE_PRECONDITION_STATEMENTS = `
 }
 `.trim();
 
+/** Parks the hover somewhere nothing lives, for `mission=` scenarios.
+ *  The deploy-gate clicks leave the cursor resting where the button was, which
+ *  is over the canvas once the loading screen goes; `updateHover` can then pick
+ *  a hostile (`hoverEntity`) or a friendly (`rangeRingPreview`) and the
+ *  precondition below throws, so the report-only `combat` capture is dropped.
+ *  Runs the app's REAL hover read at a tile far off the map. It must come
+ *  BEFORE the final `step()`, whose paint is the frame the screenshot sees,
+ *  and the precondition is still asserted afterwards, unrelaxed. */
+export const PARK_POINTER_STATEMENTS = `window.__lions.hover(-1000, -1000);`;
+
 /** The same freeze as a standalone expression a `page.evaluate` can run on its
  *  own, returning the sim tick it froze at. */
 export const FREEZE_FRAME_LOOP_SCRIPT = `(async () => {
@@ -860,10 +870,11 @@ export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
         scenario.orders.commands.join('\n') +
         '\n'
       : '';
+  const parkLine = scenario.mission !== undefined ? `${PARK_POINTER_STATEMENTS}\n` : '';
   return `(async () => {
 ${FREEZE_FRAME_LOOP_STATEMENTS}
 ${gotoLine}
-${zoomLine}${ordersLine}${stepLine}
+${zoomLine}${ordersLine}${parkLine}${stepLine}
 ${CAPTURE_PRECONDITION_STATEMENTS}
 const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
