@@ -331,3 +331,243 @@ const civWatch = refugeAt
 - [ ] **Step 4: See it red.** Ignore `opts.shepherds`: the two new tests fail.
 - [ ] **Step 5: Gates.** Common gates plus `pnpm validate:ui`. The visual gate cannot move: the
   golden captures include no flight line.
+
+---
+
+## Task 4: #291, routed units flee the fire, not −x (**the golden re-pin**)
+
+**Model:** opus, for the determinism review. **Agent:** `sim-guard`. **Depends:** nothing in this
+plan. Land it before FW Task 2 (see "Re-pin order across streams").
+
+**Why.** `startRout` (sim.ts:3394) starts from `let nx = -ONE; let ny = 0;` and changes that only
+when some enemy is at least `SUSPECTED_AT`. A unit pinned by fire it cannot see therefore runs
+−x, and every backtest puts side 1 in the east. The E5 probe shows the result: a `militia_cell`
+outranged by an `inf_squad` at 8 tiles routs west into its own sight 7, and identifies the squad
+at 6.15 tiles in 20 of 20 seeds. Mirrored, that happens in 0 of 20. GDD §5.5a says "away from
+fire".
+
+How often the fallback runs (`detect-report.md`):
+
+| run | routs | fallback | of those, toward the nearest enemy |
+|---|---|---|---|
+| golden replays | 91 | 0 | 0 |
+| `pnpm balance` | 9,430 | 8 | 4 |
+| `pnpm playtest` | 268 | 9 | 6 |
+
+**Interfaces (produced):**
+
+```ts
+// sim.ts, per entity (capacity). Zeroed in spawn, beside `suppression`.
+private readonly suppFromX: Int32Array;   // Q16.16: where the last HOSTILE suppression came from
+private readonly suppFromY: Int32Array;
+private readonly suppFromSet: Uint8Array; // 1 once any hostile suppression has landed
+// state view: readonly suppFromX / suppFromY / suppFromSet (read-only, like `suppression`;
+// the hash-coverage tests flip them)
+private applySuppression(target: number, amount: Fx, coverProtects = true,
+                         srcSide = -1, srcX: Fx = 0, srcY: Fx = 0): void
+// After the tunnel early-return and before the cover and veterancy maths:
+//   if (srcSide >= 0 && srcSide !== this.side[target]) { suppFromX/Y[target] = src; suppFromSet[target] = 1; }
+// hash(): fold suppFromX, suppFromY, suppFromSet directly after `suppression`
+```
+
+**Call sites.** `grep -n "applySuppression(" packages/sim/src/sim.ts` finds 13 lines at
+`e3bf7484`: the definition and 12 calls. Each call passes a source as follows.
+
+| caller | source side | source point |
+|---|---|---|
+| `resolveHit`, soft hit | `side[prShooter]` | `prOriginX/Y[pr]` |
+| `resolveHit`, non-penetrating bounce | `side[prShooter]` | `prOriginX/Y[pr]` |
+| `groundImpact` | `side[prShooter[pr]]` | `prOriginX/Y[pr]` |
+| `splashAt` | `side[prShooter]` | `prOriginX/Y[pr]` |
+| `splashDirect` (kamikaze, tunnel collapse, `debugSplash`) | `by >= 0 ? side[by] : -1` | `posX/Y[by]`, or the blast point when `by < 0` |
+| `stepKamikaze`, the bounce | `side[i]` | `posX/Y[i]` |
+| `stepStrikes` | `s.by >= 0 ? side[s.by] : -1` | `s.x, s.y` |
+| `destroyStructure`, collapse shock | `by >= 0 ? side[by] : -1` | `stCx/stCy[s]` |
+| `rollComponent` ×2 (crew shaken), `disembark` (bail-out), `debugSuppress` | none (default −1) | leaves the last source in place |
+
+**Same-side sources are ignored.** Without that, a unit shaken by its own side's splash flees
+toward the enemy: the emulation found one playtest `gun_truck` whose "source" was its own flank.
+
+**`startRout`, in order:**
+1. **A side-0/1 unit.** Flee from the nearest enemy with `contact >= SUSPECTED_AT`. Unchanged.
+2. **A civilian (side 2).** Flee from the nearest living side-0/1 unit, by ground truth. This is an
+   explicit branch now. Today the same result comes from reading `contact[2 * capacity + t]`,
+   past the end of the array: the read gives `undefined`, and `undefined < SUSPECTED_AT` is false.
+   The explicit branch keeps that behaviour byte for byte, except when no combatant is alive at
+   all (then it holds instead of running −x).
+3. **A side-0/1 unit with no known threat and `suppFromSet[i] === 1`.** Flee along
+   `(pos − suppFrom) / |pos − suppFrom|`, using the same `fx.sqrt(fx.max(dSq, 1))` / `fx.div`
+   guard as branch 1.
+4. **Otherwise, hold.** Set `moving 0`, `fieldRef -1`, `attackMove 0`, `engaging 0` and
+   `stance 0`, and set no goal. The unit stays `routed` until it rallies.
+
+`ROUT_DISTANCE`, the clamps and the wall slide are unchanged. The Q16.16 implementation was
+measured on the `f291` copy; the scratchpad's `patch291.py` is the reference diff.
+
+- [ ] **Step 1: Write the failing tests** in the new `rout.test.ts`. Use in-test fixtures, not
+  `data/`: a shooter with sight 8 and range 8 (small arms), and a soft target with sight 7 and
+  hp 6000 so it survives to rout.
+  - **"outranged and blind, it flees away from the fire"** (the probe layout). The shooter is side
+    0 at (4.5, 8.5) and the target side 1 at (12.5, 8.5).
+    - It routs within 60 s.
+    - No `contact` event shows side 1 seeing the shooter before the rout.
+    - 4 s after the rout, `posX > xAtRout + 1`.
+    - Side 1 never identifies the shooter within 60 s. That is the E5 symptom.
+  - **Its mirror.** The shooter is at (27.5, 8.5) and the target at (19.5, 8.5), and it flees −x.
+    This case passes on `main` too; keep it, because it pins that the direction comes from the
+    source rather than from a constant.
+  - **The side mirror.** The target is side 0 and the shooter side 1, in the probe layout. It flees
+    +x.
+  - **"no source, no threat: it holds"**. Pin the unit with `debugSuppress` only. It routs, and
+    4 s later its position is unchanged and `moving` is 0.
+  - **"a same-side blast does not steer it"**. A side-1 unit is pinned by `debugSplash` with `by`
+    set to another side-1 unit east of it. It holds.
+  - **"a civilian flees the nearest combatant"**. A civilian is pinned by `debugSuppress`, with a
+    side-0 unit 3 tiles east of it. It moves −x.
+  - **The existing known-threat test** in `combat.test.ts` ("rout (GDD 5.5a)") is unchanged, and
+    must pass.
+  - **`determinism.test.ts`**: add `hash covers suppFromX`, `…suppFromY` and `…suppFromSet`. Each
+    flips one element through `sim.state` and expects a different `hash()`.
+- [ ] **Step 2: Implement** as specified. Do not keep a `-ONE` default anywhere.
+- [ ] **Step 3: Prove the re-pin is only the new columns.** Temporarily delete the three
+  `hashArray` lines. Both pins must pass at their old values, `2109596329` and `1425295494`
+  (measured on `f291nh`: 11 of 11). Then restore the lines. **Undo the edit, never
+  `git checkout` the file.**
+- [ ] **Step 4: Re-pin both golden pins** in this commit. Each gets a dated comment in the file's
+  style:
+  - "GH-291: three per-unit columns (`suppFromX`, `suppFromY`, `suppFromSet`) join the hash."
+  - "No behaviour moved: with their `hashArray` lines removed, both replays reproduce the old
+    value. All 91 golden routs take the known-threat branch."
+  - `Was 2109596329.` / `Was 1425295494.`
+
+  Measured on `f291`, with the columns folded directly after `suppression` in the order X, Y, Set:
+  flat **`3399908693`** and relief **`1006889545`**. Read the real values from the failure. A
+  different fold position gives different numbers and is fine, as long as Step 3 holds.
+- [ ] **Step 5: E5 doc.** In `docs/campaign/special_units/e5/numbers.md`:
+  - the `fire` `inf_squad` 8-tile cell `578 (526-642)` becomes `never (0/20)`;
+  - the "Finding, not investigated" paragraph is resolved with "GH-291: the militia routed −x into
+    its own sight; fixed in Stage 4".
+
+  It is a non-claim row, and `e5-probes.test.ts` does not pin 8 tiles. `pnpm e5:probes` changes
+  only that row and still prints "all claims met" (measured).
+- [ ] **Step 6: Gates.** Common gates, plus:
+  - `test:determinism`: **moved, re-pinned here**.
+  - `balance`: exit 0. Only base urban 2:1 moves, **63% → 62%**. Max tier is unchanged (measured).
+    No tuning moved, so `balance-analyst` has nothing to re-run. Quote the line in the commit.
+  - `playtest`: **byte-identical** (measured).
+- [ ] **Step 7: See it red.**
+  - Restore `nx = -ONE` as the no-source default: "flees away from the fire" fails, because the
+    target moves −x.
+  - Drop the `srcSide !== this.side[target]` filter: "a same-side blast does not steer it" fails.
+  - Delete each `hashArray` line: its coverage test fails.
+  - Make civilians skip branch 2: "a civilian flees the nearest combatant" fails.
+
+---
+
+## Task 5: The ledger
+
+**Model:** haiku.
+
+- [ ] **Step 1: `docs/HANDOVER.md`.** Record:
+  - the landings, with their measured lines (the flight counts, the urban 2:1 move, and the new
+    golden values);
+  - D1–D4 and the re-pin order.
+- [ ] **Step 2: Close #291**, and #279 once Task 3 lands. The PR text quotes the gate output.
+
+---
+
+## #280: a reference only. The Field works plan owns it
+
+**Ruling (29 Sep): field works only.** Protection comes from an opt-in
+`aura.garrison.supp_cover` on a structure type, absent by default, so every shipped building keeps
+today's rule. There is no sim-wide change.
+- **Owner:** FW plan Task 1 (`docs/superpowers/plans/2026-09-29-field-works.md`, branch
+  `docs/fw-plan`). Its L1 is now decided as (a).
+- This plan changes nothing for #280.
+
+Three measurements FW Task 1 should carry:
+- **The golden replay is blind to garrison suppression.** Its shed is garrisoned from tick 33, and
+  in 1,000 ticks nothing fires at it: 0 structure shots, and 0 of 816 near misses within 1.2 tiles
+  of its centroid. No #280 change can move either pin. FW's `fw-garrison-supp` probe and
+  `garrison.test.ts` are the only guards.
+- **The near-miss radius is 1.2 tiles, not 1.095.** `NEAR_MISS_RADIUS_SQ` is 94372 = 1.44
+  tiles². #280's text reads 1.2 as the radius squared. This matters for which footprints are
+  exposed: a 3-wide building's face-centre tile (1.0 tile) and a 3×2's edge tiles (1.12 tiles) are
+  inside the radius too.
+- **The census, under the ruling:** 205 of the 217 garrisonable structures on shipped maps have at
+  least one perimeter tile inside the radius of their centroid. Only 4×4 and 5×4 blocks escape.
+  Every shipped building therefore keeps the defect until a type opts in; see R1.
+
+---
+
+## Re-pin order across streams
+
+Three streams move the golden pins in Stage 4. Each moves both pins **once**, in its own commit,
+with its own reason. They land in a fixed order, and each later stream rebases onto the earlier
+re-pin, reads the new value from the failure, and writes `Was <previous>.`
+
+| order | stream | commit that moves the pins | reason | also edits |
+|---|---|---|---|---|
+| 0 | this plan, Tasks 1–3 (#279) | none | hash-neutral (measured) | `civilians.ts`, `mission.ts` |
+| 0 | FW Task 1 (#280 field) | none | hash-neutral: config, not state | `applySuppression`'s cover branch |
+| **1** | **this plan, Task 4 (#291)** | Task 4 | 3 per-unit columns | `applySuppression`'s signature and head, `startRout`, `hash()` |
+| **2** | **FW Task 2** | FW Task 2 | 14 FW arrays (per structure, the site table, per unit) | `hash()`, per-structure SoA |
+| **3** | **E6 (#274), placed charge** | E6's sim commit | its per-structure columns | per-structure SoA, `splashDirect` blast |
+
+**Why this order:**
+- **#291 first.** It is the smallest and the only one ready on day one. It needs no content, no
+  art and no lead gate. It also changes `applySuppression`'s signature, which FW Task 1 edits in
+  the same function. Landing it first means FW Task 1 rebases onto a settled signature rather than
+  the reverse. Its default parameters keep FW Task 1's call sites compiling unchanged.
+- **FW Task 2 before E6.** Both extend the per-structure SoA. FW Task 2 declares every FW array up
+  front, so that its Tasks 3–7 move nothing. FW's P2 leaves the FW-versus-E6 order to the lead at
+  kickoff; this plan recommends FW first (decision L-A below).
+- **A single combined re-pin is not proposed.** It would couple three branches that land weeks
+  apart. One re-pin per stream, each saying what entered `hash()`, is the house rule.
+- **The order-0 rows may land at any time.** If one moves a pin, that is a bug, not a re-pin.
+
+---
+
+## Risks
+
+- **R1. #280's ruling leaves the shipped defect live.** Garrisons in 205 of the 217 garrisonable
+  map buildings are still pinned by misses at cover 0, until a type opts in. No golden replay or
+  playtest line will show it (see the #280 section). It is recorded as an accepted consequence,
+  not a gap in this plan.
+- **R2. D1 is static.** A mission whose only evacuation is a secondary (`umm_zeitoun_4`) shepherds
+  for its whole length. One whose evacuation failed early still shepherds. Changing that needs an
+  objective-status read in `step`, and a new ruling.
+- **R3. Umm Zeitoun IV's porters secondary now reads `a` at victory.**
+  - The line moves; the grade, credits and ladder do not.
+  - Re-authoring it has a measured cost: sending `inf_squad[0]` to `(29.5, 11.5)` at t=1 restores
+    `get_the_porters_clear=c`, but fails the `(bought)` gunship probe ("fielded and never scored a
+    kill", 0 kills against 2).
+  - A `sniper_team` shepherd does not restore the secondary.
+  - So D4 leaves the plan alone.
+- **R4. Tel Marum I's shepherd sits on a radius edge.** `(22, 27)` has 0.6–1.0 tiles of margin,
+  while `(21.5, 28)` misses by 0.03. If the herders' placement moves, that breaks. The passive
+  control and the plan's own VICTORY assertion catch it.
+- **R5. A transport shepherd must be driven home.** Measured with the jeep: families board it and
+  go nowhere. This is a content rule for `mission-author` and `playtest` (`script-losable.md`'s
+  "caution, not gap" row about transports names the same shape).
+- **R6. #291's hold branch.** A routed unit with no threat and no source now stands still instead
+  of running −x. Today only debug hooks reach it: in the emulation, all 8 balance fallbacks and all
+  8 side-0/1 playtest fallbacks had a source. Rally logic is unchanged.
+- **R7. `applySuppression` is edited by two streams** (#291 and FW Task 1), and later by E6's blast.
+  The order above assigns who rebases.
+- **R8. The `state` view gains three columns.** They are there for read-only use and hash-coverage
+  tests (invariant 4). No renderer or app code may write them, as with `suppression`.
+- **R9. Measured on probe copies, not on the final code.** Every number above came from a patched
+  copy of `e3bf7484`. Stage 4's `main` will have moved, so each task re-measures, and a different
+  number is recorded, never re-tuned to this one.
+
+---
+
+## Lead decisions
+
+- **L-A. The Stage 4 re-pin order:** #291, then FW Task 2, then E6. This plan recommends it; FW's
+  P2 already asks the lead to order FW against E6.
+- **L-B (optional). Umm Zeitoun IV's porters:** accept the secondary reading `a` (D4, the
+  recommendation), or re-tune the plan with a ground shepherd and re-measure the `(bought)` probe
+  (R3).
+- **L-C (confirm). D1, static per-mission shepherding.**
