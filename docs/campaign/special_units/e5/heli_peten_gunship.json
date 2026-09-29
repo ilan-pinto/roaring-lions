@@ -22,9 +22,9 @@
   ],
   "upgrades": {
     "armour": { "tiers": [
-      { "price": 225, "patch": { "hull.hp": 58, "hull.armor.front": 3, "hull.armor.side": 2, "hull.armor.rear": 1 } },
-      { "price": 335, "patch": { "hull.hp": 123, "hull.armor.front": 5, "hull.armor.side": 3, "hull.armor.rear": 2 } },
-      { "price": 470, "patch": { "hull.hp": 205, "hull.armor.front": 8, "hull.armor.side": 5, "hull.armor.rear": 3 } } ] },
+      { "price": 225, "patch": { "hull.hp": 62, "hull.armor.front": 0, "hull.armor.side": 3, "hull.armor.rear": 2 } },
+      { "price": 335, "patch": { "hull.hp": 131, "hull.armor.front": 0, "hull.armor.side": 4, "hull.armor.rear": 4 } },
+      { "price": 470, "patch": { "hull.hp": 221, "hull.armor.front": 0, "hull.armor.side": 6, "hull.armor.rear": 5 } } ] },
     "sensors": { "tiers": [
       { "price": 190, "patch": { "sensors.optics": 0.13, "sensors.sight_tiles": 1 } },
       { "price": 280, "patch": { "sensors.optics": 0.24, "sensors.sight_tiles": 2 } },

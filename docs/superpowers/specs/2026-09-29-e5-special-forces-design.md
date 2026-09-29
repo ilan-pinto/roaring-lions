@@ -80,6 +80,12 @@ pass is nose-on and the ZU-23's penetration is 40. At 47 it reads 93/0/0 and mee
 probe claims. The curve moved from +1.9% to +2.2% (max tier +10.6% to +10.9%). Every other number
 stands as approved. Bands: `docs/campaign/special_units/e5/numbers.md`.
 
+**Deviation (29 Sep): armour track "Front +0, rest to sides and HP", lead 29 Sep.** The track's
++3/+5/+8 front put a max-tier Gunship back at 55 (100/100/93 against the max-tier Peten's
+100/30/30). Front is now +0 at every tier; per tier hp/side/rear is +62·3·2, +131·4·4, +221·6·5
+(was +58·2·1, +123·3·2, +205·5·3), HP solved to hold the curve's survivability, so the curve is
+unchanged (+2.2%, max tier +10.9%). Max tier now reads 100/0/0.
+
 **Unique.** The first `he` weapon on the roster; at 0.55 it clears both ROE thresholds (0.3 zone,
 0.5 danger close). **Counter-play.** Pods (8) and missiles (10.5) sit inside `manpad` (13, ~75% to
 penetrate) and `zu23_twin` (11). **Station time is dropped:** no air unit has endurance, and adding

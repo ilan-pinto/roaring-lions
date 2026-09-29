@@ -8,17 +8,20 @@
 // Seeds are fixed and the sim is deterministic, so a band here fails only when the
 // staged numbers or the combat model move.
 import { beforeAll, describe, expect, it } from 'vitest';
+import { applyUpgrades } from '@lions/data';
 import {
   airClaims,
   airRates,
   CLAIM_RANGES,
   detectClaims,
   detectTable,
+  maxTierClaims,
+  maxTierUnit,
   stagedUnit,
   type AirRates,
   type DetectTable,
 } from './e5-probes';
-import { units } from './harness';
+import { units, unitsAtMaxTier } from './harness';
 
 /** Measured 29 Sep at front armour 47 (lead ruling): 93/0/0, cleared 93/0/0; Peten 80/0/0. */
 const GUNSHIP_BANDS = {
@@ -57,6 +60,30 @@ describe('E5 probe: Gunship in contested air (staged heli_peten_gunship)', () =>
   it('clears one truck inside its band', () => {
     expect(g.cleared[1]).toBeGreaterThanOrEqual(GUNSHIP_BANDS.cleared1[0]);
     expect(g.cleared[1]).toBeLessThanOrEqual(GUNSHIP_BANDS.cleared1[1]);
+  });
+});
+
+describe('E5 probe: Gunship at maximum tier (lead ruling 29 Sep: armour track front +0)', () => {
+  let g: AirRates;
+  let p: AirRates;
+  beforeAll(() => {
+    g = airRates(maxTierUnit(stagedUnit('heli_peten_gunship')));
+    p = airRates(unitsAtMaxTier.heli_peten);
+  });
+
+  it('survives 3 trucks no more often than the max-tier Peten survives 2', () => {
+    expect(g.survival[3]).toBeLessThanOrEqual(p.survival[2]);
+  });
+
+  it('meets the max-tier claim', () => {
+    expect(maxTierClaims(g, p).join('\n')).toBe('');
+  });
+
+  it('keeps front armour at 47 at every armour tier', () => {
+    const gs = stagedUnit('heli_peten_gunship');
+    for (const tier of [0, 1, 2, 3]) {
+      expect(applyUpgrades(gs, { armour: tier }).hull.armor.front, `armour tier ${tier}`).toBe(47);
+    }
   });
 });
 

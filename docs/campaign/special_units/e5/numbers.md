@@ -21,6 +21,25 @@ to retune, never a band to widen.
   so above ~49 front the truck stops penetrating (scan, everything else as drafted: 45 → 83/0/0,
   47 → 93/0/0, 49 → 100/10/3, 51 → 100/57/57, 53 → 100/90/70, 55 → 100/100/93). Every other number
   stands as approved.
+- **2026-09-29, Gunship armour track: "Front +0, rest to sides and HP" (lead).** The track added
+  +3/+5/+8 front, so a max-tier Gunship was back at front 55 and survived 3 trucks 93% against the
+  max-tier Peten's 30% at 2. Front is now +0 at every tier (47 throughout). The split, per tier
+  (hp / side / rear, was 58·2·1, 123·3·2, 205·5·3):
+
+  | tier | price | hp | front | side | rear |
+  |---|---|---|---|---|---|
+  | 1 | 225 | +62 | +0 | +3 | +2 |
+  | 2 | 335 | +131 | +0 | +4 | +4 |
+  | 3 | 470 | +221 | +0 | +6 | +5 |
+
+  Why this split: the curve values a hull as `hp × (1 + (0.55·front + 0.30·side + 0.15·rear)/200)`,
+  so each tier's HP was solved to hold that product (tier 3: 1,256.1 before, 1,256.0 after); both
+  curve outputs below are unchanged to the digit. Most of the +8 goes to HP rather than armour on
+  purpose: armour against the ZU-23 (pen 40) has a cliff -- the front scan above goes from 0% to
+  93% survival across 47-55 -- and HP has none. Side stays at 38 at max tier, below the gun's
+  penetration, so a flank pass stays punishable; rear takes the other point or two because
+  nothing in the probe sees the rear and a withdrawing helicopter shows it.
+  Result at max tier: survive 100/0/0 against 1/2/3 trucks (max-tier Peten 100/30/30).
 
 ## The three units (as staged, after the 29 Sep ruling)
 
@@ -56,7 +75,7 @@ to retune, never a band to widen.
 | sight / optics | 15 / 1.6, thermal | signature / firing mult | 1.3 / 2.5 |
 | weapons | `chain_gun_30` as the Peten; `rocket_pods` he, range 8, acc 0.45, pen 60, dmg 140, splash 1.0, supp 140, rof 30, collateral 0.55; `hellfire` as the Peten at rof 3 | | |
 | cost | 450 logistics, 50 s, pop 3 | unlock | `{ "price": 8000 }` |
-| upgrades | armour, sensors, firepower (pods): 3,185 credits | curve | +2.2%; max tier +10.9% (+1.9% / +10.6% at front 55) |
+| upgrades | armour (front +0 at every tier; see Rulings), sensors, firepower (pods): 3,185 credits | curve | +2.2%; max tier +10.9% (+1.9% / +10.6% at front 55) |
 
 ## Prices against the ladder
 
@@ -205,9 +224,19 @@ Claims (all met):
 
 Bands: survive vs 1 in [80, 100]%; survive vs 2 ≤ 10%; cleared vs 1 in [80, 100]%.
 
-**Non-claim, printed for the record: maximum tier.** The armour track adds +8 front, so the
-max-tier Gunship is back at front 55 and reads **100 / 100 / 93** against the max-tier Peten's
-100 / 30 / 30. The base claims say nothing about this; it is a finding for the lead, not a band.
+**Maximum tier (claim added with the 29 Sep armour-track ruling).** Both helicopters at their
+maximum tiers, same seeds:
+
+| unit | survive 1 / 2 / 3 | cleared 1 / 2 / 3 |
+|---|---|---|
+| `heli_peten` (max) | 100 / 30 / 30 % | 100 / 0 / 0 % |
+| `heli_peten_gunship` (max, front 47) | 100 / 0 / 0 % | 97 / 0 / 0 % |
+
+Claim (met): a max-tier Gunship against 3 trucks survives no more often than a max-tier Peten
+against 2 (0 ≤ 30%). Also pinned: front armour is 47 at armour tiers 0-3. On the old +8 front the
+max-tier Gunship read 100 / 100 / 93 and the claim was red. The other two base claims are printed
+at max tier, not claimed: "falls with AA" holds (100 → 0 → 0); "clears vs 1 at least as often as
+the Peten" reads 97% against 100% (one seed of 30), which nobody has ruled on.
 
 ### Zikit: first tick a `militia_cell` identifies the unit (open ground, 20 seeds, 20 ticks/s)
 

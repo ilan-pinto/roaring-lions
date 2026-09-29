@@ -33,6 +33,12 @@ export function stagedUnit(id: string): StagedUnit {
   return JSON.parse(readFileSync(join(STAGED, `${id}.json`), 'utf8')) as StagedUnit;
 }
 
+/** A staged draft at its maximum tiers -- the pre-pass `harness.ts`'s `unitsAtMaxTier`
+ *  runs over the shipped KDF roster. */
+export function maxTierUnit(u: StagedUnit): StagedUnit {
+  return applyUpgrades(u, maxTiers(u));
+}
+
 // ---------------------------------------------------------------------------
 // Probe 1: the Gunship in contested air.
 //   `targets.ts`'s gunshipRun, with the helicopter as a parameter: one firing pass
@@ -196,6 +202,14 @@ export function airClaims(gunship: AirRates, peten: AirRates): string[] {
   return fails;
 }
 
+/** The max-tier claim (lead ruling 29 Sep): a max-tier Gunship against 3 trucks survives
+ *  no more often than a max-tier Peten against 2. The other two base claims are printed
+ *  at max tier but are not claims there: nobody ruled on them. */
+export function maxTierClaims(gunship: AirRates, peten: AirRates): string[] {
+  if (gunship.survival[3] <= peten.survival[2]) return [];
+  return [`max-tier gunship vs 3 trucks (${gunship.survival[3]}) beats the max-tier Peten vs 2 (${peten.survival[2]})`];
+}
+
 export function detectClaims(t: DetectTable): string[] {
   const fails: string[] = [];
   for (const mode of ['hold', 'fire'] as const) {
@@ -245,15 +259,16 @@ function main(): void {
     console.log(`${name.padEnd(22)}${s}         ${c}`);
   }
 
-  // Information only, NOT a claim: both helicopters at their maximum tiers. The
-  // Gunship's armour track adds +8 front, which puts it back at 55 -- above the ZU-23's
-  // penetration cliff (see numbers.md).
-  const gMax = airRates(applyUpgrades(gunship, maxTiers(gunship)));
+  // Maximum tier. Since the lead's 29 Sep ruling on the armour track ("front +0, rest to
+  // sides and HP") ONE claim is made here: `maxTierClaims`. The rest is printed only.
+  // Before the ruling the track added +8 front and put the Gunship back at 55, above the
+  // ZU-23's penetration cliff (100/100/93 against the max-tier Peten's 100/30/30).
+  const gMax = airRates(maxTierUnit(gunship));
   const pMax = airRates(unitsAtMaxTier.heli_peten);
   for (const [name, r] of [['heli_peten (max)', pMax], ['gunship (max)', gMax]] as const) {
     const s = AA_CASES.map((n) => pct(r.survival[n]).padStart(4)).join(' ');
     const c = AA_CASES.map((n) => pct(r.cleared[n]).padStart(4)).join(' ');
-    console.log(`${name.padEnd(22)}${s}         ${c}   (max tier; non-claim)`);
+    console.log(`${name.padEnd(22)}${s}         ${c}`);
   }
 
   const d = detectTable(zikit);
@@ -273,7 +288,7 @@ function main(): void {
   }
   console.log('8-tile rows are non-claims (outside militia sight 7 and Zikit weapon range 6).');
 
-  const fails = [...airClaims(g, p), ...detectClaims(d)];
+  const fails = [...airClaims(g, p), ...maxTierClaims(gMax, pMax), ...detectClaims(d)];
   console.log('');
   if (fails.length === 0) {
     console.log('e5 probes: all claims met');
