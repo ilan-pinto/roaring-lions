@@ -1167,12 +1167,17 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
 
   // Each hostile/blocked pair twice: once plain, once with the smoke order
   // armed (Q2's armedSmoke hint, which main.ts passes from `armedOrder`).
-  const HINT_COMBOS: CursorHints[] = [false, true].flatMap((armedSmoke) => [
-    { hostile: false, blocked: false, armedSmoke },
-    { hostile: true, blocked: false, armedSmoke },
-    { hostile: false, blocked: true, armedSmoke },
-    { hostile: true, blocked: true, armedSmoke },
-  ]);
+  // And each of those with the whole order pinned (GH-262's `pinned` hint,
+  // which main.ts passes when every id of the order intent is pinned) -- the
+  // one path to the `pinned` rule, so without it that rule reads as dead.
+  const HINT_COMBOS: CursorHints[] = [false, true].flatMap((pinned) =>
+    [false, true].flatMap((armedSmoke) => [
+      { hostile: false, blocked: false, armedSmoke, pinned },
+      { hostile: true, blocked: false, armedSmoke, pinned },
+      { hostile: false, blocked: true, armedSmoke, pinned },
+      { hostile: true, blocked: true, armedSmoke, pinned },
+    ])
+  );
 
   function allPairs(n: number): [number, number][] {
     const pairs: [number, number][] = [];
@@ -1250,5 +1255,37 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       (k) => k.startsWith('move-') || k.startsWith('attack-')
     );
     expect(moveAndAttackBadges.length).toBeGreaterThanOrEqual(14); // 7 buckets x {move, attack}
+  });
+});
+
+// GH-262 Task 6: the pinned cursor is a housing state -- the standard four
+// brackets in `hot` (vfx.fire), with the G-PIN mark A ("pressed flat") inside,
+// placed where `costly`'s payload sits and clear of the 16 16 hotspot.
+describe('the pinned cursor', () => {
+  const css = cursorRules(deriveUiBand(raw));
+  const c = paletteColors(resolved);
+  const BR = 'M29,26L26,29H22V26H26V22H29Z';
+
+  it('has a rule of its own, bare, at the housing hotspot', () => {
+    const line = defaultLines(css).find((l) => l.includes("canvas[data-cursor='pinned']"));
+    expect(line).toBeDefined();
+    expect(line).toMatch(new RegExp(`\\)\\s+${CENTER}\\s+${CENTER}\\s*,\\s*auto`));
+    expect(css).not.toContain("data-cursor='pinned-");
+    expect(css).not.toContain("data-cursor='pinned'][data-cursor-frame");
+  });
+
+  it("draws the pinned mark's own path, baked to hot, inside the full housing in hot", () => {
+    const art = artOf(css, 'pinned');
+    const mark = symbolBody('pinned').replaceAll('currentColor', c.hot.toLowerCase());
+    expect(art).toContain(mark);
+    expect(art).toContain(BR);
+    expect(art).toContain(`<path fill="${c.hot.toLowerCase()}" d="M3,6L6,3`);
+  });
+
+  it("scales the 24-box mark onto costly's payload span, centred on the hotspot", () => {
+    // costly's triangle spans x 7..25; the mark's 24-box lands on 7..25 at
+    // 0.75, so the box centre (12, 12) -- empty between the bar and the
+    // chevron -- sits on CENTER, and the hotspot pixel is never painted.
+    expect(artOf(css, 'pinned')).toContain('<g transform="translate(7 7) scale(0.75)">');
   });
 });

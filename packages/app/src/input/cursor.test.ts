@@ -412,3 +412,56 @@ describe('cursorKey', () => {
     expect(cursorKey('strike', 'armour')).toBe('strike');
   });
 });
+
+// GH-262 Task 6: the `pinned` cursor. It names what the click will NOT do --
+// every unit the order would move is pinned, so nothing will go -- and it
+// replaces only the plain order's own names (`move`, and `attack` over a
+// hostile). Everything that outranks the order still outranks it.
+describe('the pinned cursor', () => {
+  const orderRes = (ids: number[]): Resolution => ({
+    intents: [{ kind: 'order' as const, verb: 'move' as const, ids, x: 1, y: 1, append: false }],
+    roe: 'free' as const,
+    marker: true,
+  });
+
+  it('names pinned when the whole order is pinned, over open ground and over a hostile', () => {
+    expect(cursorFor(orderRes([1]), { hostile: false, blocked: false, pinned: true })).toBe('pinned');
+    expect(cursorFor(orderRes([1]), { hostile: true, blocked: false, pinned: true })).toBe('pinned');
+  });
+
+  it('keeps move when the hint is absent or false (some units will go)', () => {
+    expect(cursorFor(orderRes([1]), { hostile: false, blocked: false })).toBe('move');
+    expect(cursorFor(orderRes([1]), { hostile: false, blocked: false, pinned: false })).toBe('move');
+  });
+
+  it('never outranks armed support, protected or demolish', () => {
+    expect(cursorFor({ ...orderRes([1]), armed: 'strike' }, { hostile: false, blocked: false, pinned: true })).toBe('strike');
+    expect(cursorFor({ ...orderRes([1]), roe: 'protected' }, { hostile: false, blocked: false, pinned: true })).toBe('protected');
+    const demolishing: Resolution = {
+      ...orderRes([1]),
+      intents: [{ kind: 'demolish', ids: [2], structure: 0 }, ...orderRes([1]).intents],
+    };
+    expect(cursorFor(demolishing, { hostile: false, blocked: false, pinned: true })).toBe('demolish');
+  });
+
+  it('leaves costly and blocked above it over open ground: they describe the target, not the order', () => {
+    expect(cursorFor({ ...orderRes([1]), roe: 'costly' }, { hostile: false, blocked: false, pinned: true })).toBe('costly');
+    expect(cursorFor(orderRes([1]), { hostile: false, blocked: true, pinned: true })).toBe('blocked');
+  });
+
+  it('needs an order intent: the hint alone on an empty selection is still default', () => {
+    expect(cursorFor({ ...orderRes([]), intents: [] }, { hostile: false, blocked: false, pinned: true })).toBe('default');
+  });
+
+  it('is unbadged', () => {
+    expect(cursorKey('pinned', 'armour')).toBe('pinned');
+    const badges: BadgeHints = { bucketOf: () => 'armour' };
+    const hints: CursorHints = { hostile: false, blocked: false, pinned: true };
+    expect(badgeFor(orderRes([1]), hints, badges, 'pinned')).toBeNull();
+  });
+
+  it('does not animate', () => {
+    expect(ANIMATED_CURSORS.pinned).toBeUndefined();
+    expect(SIGHT_OF.pinned).toBeUndefined();
+  });
+});

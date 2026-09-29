@@ -209,7 +209,7 @@ describe('top strip', () => {
     expect(tip.textContent).toContain('how cleanly you fight');
   });
 
-  it('shows broken and ▼ pinned only when there are some', () => {
+  it('shows broken and the pinned mark only when there are some', () => {
     const r = rig(mission());
     expect(r.strip()).not.toContain('pinned');
     expect(r.strip()).not.toContain('broken');
@@ -218,8 +218,39 @@ describe('top strip', () => {
     r.sim.state.routed[r.ids[1]] = 1;
     r.sim.state.pinned[r.ids[1]] = 1; // the sim flags a routed unit pinned too
     for (let i = 0; i < 5; i++) r.tick(); // the rebuild is 4 Hz, not every tick
-    expect(r.strip()).toContain('▼ 1 pinned');
+    // GH-262: `▼` is retired; the drawn mark stands where it stood.
+    expect(r.strip()).toContain('1 pinned');
+    expect(r.strip()).not.toContain('▼');
+    expect(r.stripEl().querySelector('[data-tip="pinned"] [data-symbol="pinned"]')).not.toBeNull();
+    // GH-261: likewise `⚑`, for the notched control-measure flag.
     expect(r.strip()).toContain('1 broken');
+    expect(r.strip()).not.toContain('⚑');
+    expect(r.stripEl().querySelector('[data-tip="broken"] [data-symbol="broken"]')).not.toBeNull();
+  });
+
+  it('draws the pinned mark on chip art, card frame, card flag and strip, and nowhere when nobody is pinned', () => {
+    const sel: number[] = [];
+    const r = rig(mission(), { getSelection: () => sel });
+    const marks = (): number => r.host.querySelectorAll('[data-symbol="pinned"]').length;
+    expect(marks()).toBe(0);
+    r.sim.state.pinned[r.ids[0]] = 1;
+    sel.push(r.ids[0]);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card__frame > .rl-pin-mark [data-symbol="pinned"]')?.getAttribute('width')).toBe('16');
+    expect(r.host.querySelector('.rl-card__frame > .rl-pin-mark')?.getAttribute('aria-label')).toBe('Pinned');
+    expect(r.host.querySelector('.rl-card__cond [data-symbol="pinned"]')).not.toBeNull();
+    expect(r.host.querySelector('.rl-strip [data-symbol="pinned"]')).not.toBeNull();
+    expect(r.strip()).toContain('1 pinned');
+    expect(r.strip()).not.toContain('▼');
+    sel.push(r.ids[1]);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-chip .rl-pin-mark [data-symbol="pinned"]')?.getAttribute('width')).toBe('12');
+    // an unkitted chip still gets a positioned host for the corner mark
+    expect(r.host.querySelector('.rl-chip .rl-kit-host > .rl-chip__art')).not.toBeNull();
+    // and the mark goes when the pin lifts
+    r.sim.state.pinned[r.ids[0]] = 0;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(marks()).toBe(0);
   });
 
   it('omits the secondary count when nothing secondary is open', () => {
@@ -1745,6 +1776,53 @@ describe('the strip tooltips (final review, C1/C2)', () => {
     const keys = tipped.map((el) => el.dataset.tip).sort();
     expect(keys).toEqual(['broken', 'conduct', 'intel', 'logistics', 'pinned']);
     for (const el of tipped) expect(el.tabIndex).toBe(0);
+  });
+
+  // Task 4 (GH-262): one explanation, reachable from all three surfaces a
+  // pinned unit shows up on -- the strip's aggregate count (nothing
+  // selected), the single-unit card's PINNED flag (one selected), and the
+  // chip's status line (more than one selected). Same text everywhere, so a
+  // player who learns what pinned means from any one of them has it for
+  // the other two.
+  //
+  // Final fix wave (GH-262): tightened from a `toMatch` on one fragment to
+  // an exact-text equality check across all three surfaces, plus the two
+  // corrected phrases from the Task 4 review ruling ("holding fire and
+  // barely moving" in place of "holding in place and holding fire";
+  // "pinned continuously for about 10 seconds breaks and routs" in place
+  // of the "stays under fire" phrasing). The strip used to read a SEPARATE
+  // key, `hud.strip.pinned.tip`, which drifted from the card/chip key
+  // (`hud.pinned.explain`) -- a `toMatch` on a short fragment could not see
+  // that, since both keys shared the fragment while differing elsewhere.
+  //
+  // Falsified by hand: before the fix, the strip's text (from the old
+  // `hud.strip.pinned.tip` key, still saying "holding in place and holding
+  // fire" / "stays under fire about 10 seconds") differed from the card's
+  // and chip's (`hud.pinned.explain`), so `texts[0]` !== `texts[1]` failed
+  // this test red.
+  it('explains pinned identically on the strip, the card flag and the chip status', () => {
+    const sel: number[] = [];
+    const r = rig(mission(), { getSelection: () => sel });
+    r.sim.state.pinned[r.ids[0]] = 1;
+    const texts: string[] = [];
+    for (const selection of [[], [r.ids[0]], [r.ids[0], r.ids[1]]]) {
+      sel.splice(0, sel.length, ...selection);
+      for (let i = 0; i < 5; i++) r.tick();
+      const el = r.host.querySelector<HTMLElement>(
+        selection.length === 1
+          ? '.rl-card__cond [data-tip="pinned"]'
+          : selection.length === 2
+            ? '.rl-chip__status[data-tip="pinned"]'
+            : '.rl-strip [data-tip="pinned"]'
+      )!;
+      el.dispatchEvent(new Event('mouseover', { bubbles: true }));
+      texts.push(r.host.querySelector<HTMLElement>('.rl-tip')!.textContent ?? '');
+      closeTip();
+    }
+    expect(texts[0]).toBe(texts[1]);
+    expect(texts[1]).toBe(texts[2]);
+    expect(texts[0]).toMatch(/holding fire and barely moving/);
+    expect(texts[0]).toMatch(/pinned continuously for about 10 seconds breaks and routs/);
   });
 });
 

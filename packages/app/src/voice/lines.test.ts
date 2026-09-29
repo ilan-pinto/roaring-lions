@@ -11,6 +11,7 @@ import {
   deathLineKey,
   languageOf,
   orderLineKey,
+  pinnedLineKey,
   rosterLanguages,
   voiceClassOf,
   type VoiceClass,
@@ -64,12 +65,18 @@ describe('languageOf (spec §3, D10)', () => {
 });
 
 describe('the key grammar (R-5)', () => {
-  it('is nineteen keys per language, distinct, and ASCII <lang>.<class>.<trigger>', () => {
+  it('is twenty keys per language, distinct, and ASCII <lang>.<class>.<trigger>', () => {
     const he = allLineKeys(['he']);
-    expect(he).toHaveLength(19);
-    expect(new Set(he).size).toBe(19);
+    expect(he).toHaveLength(20);
+    expect(new Set(he).size).toBe(20);
     for (const k of he) expect(k).toMatch(/^[a-z]{2}\.(infantry|crew|engineer|air|common)\.[a-z]+$/);
-    expect(allLineKeys(['he', 'ar', 'he'])).toHaveLength(38);
+    expect(allLineKeys(['he', 'ar', 'he'])).toHaveLength(40);
+  });
+
+  it('declares the pinned call once per language', () => {
+    expect(allLineKeys(['he'])).toHaveLength(20);
+    expect(allLineKeys(['he', 'ar'])).toContain('ar.common.pinned');
+    expect(pinnedLineKey('he')).toBe('he.common.pinned');
   });
 
   it('engineers have a task and no attack; nobody else has a task', () => {

@@ -127,15 +127,13 @@ export const RETIRED_DINGBATS = [
   '⌂', // leave: hud.ts's leave button (en.json `hud.leave.link`)
   '⚠', // heavy: hud.ts's weapon line (en.json `hud.card.weaponHeavy`)
   '⚑', // broken: hud.ts's strip (en.json `hud.strip.broken`)
+  '▼', // strip pinned count (GH-262: the drawn `pinned` status mark replaced it)
 ];
 
 // Q10 ruling: the dingbats no G1 round drew stay until they get a drawn mark
 // of their own (GH-261, https://github.com/ilan-pinto/roaring-lions/issues/261,
 // drew most of them). Not on RETIRED_DINGBATS, so dingbatFailures is silent on
 // every one of these. Cited by identifier, not line number:
-//   ▼ (en.json hud.strip.pinned, rendered by hud.ts's strip): #262 draws the
-//     pinned mark (`symbolSvg('pinned')`, PR #269), not merged when GH-261
-//     landed. Retire ▼ here once it is, and draw the strip with it.
 //   → as "changes to", which reads as typography inside a figure rather than
 //     as a control: en.json garage.stat.preview, garage.benefit.*,
 //     roe.notice.head; main.ts's debrief `unlocked` lines. Several of those

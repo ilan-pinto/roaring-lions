@@ -14,7 +14,6 @@ describe('dingbatFailures', () => {
       "el('span', 'rl-commend', '★'.repeat(vet));", // Q5 exception
       "t('garage.benefit.plain', { before, after });", // '→' lives in en.json, not here
       "const arrow = '→';", // Q10 survivor: before -> after reads as typography
-      "const pinned = '▼';", // Q10 survivor: waits on #262's pinned mark
     ].join('\n');
     expect(dingbatFailures('ui/hud.ts', src)).toEqual([]);
   });
@@ -76,8 +75,12 @@ describe('dingbatFailures', () => {
   });
 
   it('lists every retired dingbat once, and never the star exception', () => {
-    expect(RETIRED_DINGBATS).toHaveLength(29);
-    expect(new Set(RETIRED_DINGBATS).size).toBe(29);
+    expect(RETIRED_DINGBATS).toHaveLength(30);
+    expect(new Set(RETIRED_DINGBATS).size).toBe(30);
     expect(RETIRED_DINGBATS).not.toContain('★');
+  });
+
+  it('retires ▼ now that pinned is drawn (GH-262)', () => {
+    expect(dingbatFailures('i18n/en.json', '"hud.strip.pinned": "▼ {n} pinned"')).toHaveLength(1);
   });
 });
