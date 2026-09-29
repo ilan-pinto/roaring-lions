@@ -4535,6 +4535,21 @@ button.rl-menu__item[data-kind='aside'] {
   text-transform: uppercase;
   color: var(--accent);
 }
+/* The special-forces tag (E5): a plain text plate in the ink's own dim tone with a
+   hairline edge -- no gold, no star, so it cannot read as an earned reward. */
+.rl-garage__card-tag,
+.rl-garage__tag {
+  align-self: flex-start;
+  width: fit-content;
+  flex-shrink: 0;
+  padding: 0 0.4em;
+  border: 1px solid var(--kit-edge);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
 .rl-garage__blurb {
   margin: 0;
   max-width: 48ch;

@@ -256,6 +256,19 @@ function classifyRow(u: BrigadeUnit, ledger: LedgerData, missionName: (id: strin
  * locked). Sorting off the rounded figure could disagree with `gateSentence`'s own
  * verdict about which gate is binding.
  */
+/** A special-forces unit: one the brigade opens only by buying it. The one predicate
+ *  (`isBoughtOnly`), never an id list, and it stays true once bought -- the price and the
+ *  absence of an earned field are still on the gate, so a bought row keeps its tag. */
+function isSpecialForces(u: BrigadeUnit): boolean {
+  return u.unlock !== undefined && isBoughtOnly(u.unlock);
+}
+
+function specialTag(className: string): HTMLElement {
+  const tag = el('span', className, t('garage.tag.special'));
+  tag.setAttribute('aria-label', t('garage.tag.special.aria'));
+  return tag;
+}
+
 function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: number, value: number] {
   if (unlock.roeMin !== undefined && !conductAtLeast(ledger, unlock.roeMin)) {
     return [0, unlock.roeMin];
@@ -607,6 +620,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
       const text = el('div', 'rl-garage__card-text');
       text.appendChild(el('div', 'rl-garage__card-name', u.name));
+      if (isSpecialForces(u)) text.appendChild(specialTag('rl-garage__card-tag'));
       // The chip is the REQUIREMENT, not the instruction: `Locked · Conduct 55`,
       // not a sentence clipped to `Locked · Needs a campaign Conduc…`, which is
       // the same eleven characters for a floor of 35 and one of 75 and therefore
@@ -1010,6 +1024,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
 
     bay.appendChild(el('h2', 'rl-garage__name', u.name));
     bay.appendChild(el('div', 'rl-garage__role', roleLabel(u.role)));
+    if (isSpecialForces(u)) bay.appendChild(specialTag('rl-garage__tag'));
 
     // The stat panel -- base, kit and (while a rung is hovered) preview, all
     // one reading -- sits straight under the name and role, and stays in
