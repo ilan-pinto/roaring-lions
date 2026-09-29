@@ -240,6 +240,22 @@ function classifyRow(u: BrigadeUnit, ledger: LedgerData, missionName: (id: strin
   return { u, locked: true, unlock: u.unlock, reason, short };
 }
 
+/** A special-forces unit: one the brigade opens only by buying it. The one predicate
+ *  (`isBoughtOnly`), never an id list, and it stays true once bought -- the price and the
+ *  absence of an earned field are still on the gate, so a bought row keeps its tag. */
+function isSpecialForces(u: BrigadeUnit): boolean {
+  return u.unlock !== undefined && isBoughtOnly(u.unlock);
+}
+
+/** The plate reads "Special forces"; a visually-hidden span after it carries the
+ *  explanation for a screen reader (an `aria-label` on a role-less span is not reliably
+ *  announced). */
+function specialTag(className: string): HTMLElement {
+  const tag = el('span', className, t('garage.tag.special'));
+  tag.appendChild(el('span', 'rl-sr-only', t('garage.tag.special.hidden')));
+  return tag;
+}
+
 /**
  * Which of `gateSentence`'s three checks (the sim's `unlockReason`, spoken as a
  * sentence) is the one actually holding a unit back, and the number that check reads
@@ -256,19 +272,6 @@ function classifyRow(u: BrigadeUnit, ledger: LedgerData, missionName: (id: strin
  * locked). Sorting off the rounded figure could disagree with `gateSentence`'s own
  * verdict about which gate is binding.
  */
-/** A special-forces unit: one the brigade opens only by buying it. The one predicate
- *  (`isBoughtOnly`), never an id list, and it stays true once bought -- the price and the
- *  absence of an earned field are still on the gate, so a bought row keeps its tag. */
-function isSpecialForces(u: BrigadeUnit): boolean {
-  return u.unlock !== undefined && isBoughtOnly(u.unlock);
-}
-
-function specialTag(className: string): HTMLElement {
-  const tag = el('span', className, t('garage.tag.special'));
-  tag.setAttribute('aria-label', t('garage.tag.special.aria'));
-  return tag;
-}
-
 function bindingGate(unlock: UnlockGate, ledger: LedgerData): readonly [rank: number, value: number] {
   if (unlock.roeMin !== undefined && !conductAtLeast(ledger, unlock.roeMin)) {
     return [0, unlock.roeMin];

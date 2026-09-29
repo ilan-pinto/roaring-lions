@@ -9,6 +9,7 @@
 //   - the price sits in the prices.md section 8 band;
 //   - no staged id is already a shipped unit -- the "half-landed" pin. A file must
 //     leave staging in the same commit that adds it to data/units/kdf.
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,4 +76,22 @@ describe('E5 staged special-forces units', () => {
       });
     });
   }
+});
+
+// `--also` overlapping `--units` (CI passes data/units to one and a staging dir to the other;
+// an operator can pass the same dir to both) must not put a unit on the curve twice.
+describe('validate_balance.py --also', () => {
+  const sampleCount = (args: string[]): string | undefined => {
+    const r = spawnSync('python3', ['tools/validate_balance.py', '--units', 'data/units', ...args], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
+    return /\(n=(\d+)\)/.exec(r.stdout)?.[1];
+  };
+
+  it('does not double-count a directory already under --units', () => {
+    const plain = sampleCount([]);
+    expect(plain).toBeDefined();
+    expect(sampleCount(['--also', 'data/units'])).toBe(plain);
+  });
 });

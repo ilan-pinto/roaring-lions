@@ -1,6 +1,6 @@
 # E5: bought-only special forces and the anti-drone pair — design (WP-G-E5, #181)
 
-**2026-09-29** · numbers for the lead; nothing built · base `main` `ce80b767` · implements G0 #11,
+**2026-09-29** · status: part 1 built: staged data, probes, names, garage tag; art and roster landing wait for the October Meshy credits (part 2) · base `main` `ce80b767` · implements G0 #11,
 G7 (earned credits only, never Roar coins; ST8 §1, §7) and the 29 Sep swarm-and-laser addition ·
 plan `docs/superpowers/plans/2026-09-29-e5-special-forces.md`.
 
@@ -18,7 +18,7 @@ rof 625, signature floor 0.25).
 
 ## 1. The three bought-only units
 
-### 1.1 `recon_zikit`: "Zikit Deep Recon Team" (working name)
+### 1.1 `recon_zikit`: "Shmamit Deep Recon Team" (name decided 29 Sep)
 
 **Fantasy.** Act II's weapon is information (storyline §1), and every KDF eye pays for seeing:
 the drone meets MANPADs, the Shachaf cannot enter boulders, the sniper unmasks when it fires. The
@@ -38,7 +38,7 @@ cannot be shot down, with the lowest signature and quietest weapon on the roster
 **Counter-play.** No enemy has thermal: proximity, `paramotor` or `loiter_drone` find it, and then
 it loses the fight (pen 10 cannot hurt a `technical`).
 
-### 1.2 `demo_tzav`: "Tzav Demolition Carrier" (working name; GH-156)
+### 1.2 `demo_tzav`: "Shiryonan Demolition Carrier" (name decided 29 Sep; GH-156)
 
 **Fantasy.** Act III asks "can you stop?"; GH-156 is the faster, uglier answer (*"drops a box of
 bombs near buildings"*). A *tzav*, a tortoise: it lays its charge and walks away.
@@ -49,7 +49,7 @@ bombs near buildings"*). A *tzav*, a tortoise: it lays its charge and walks away
 | crew / supp. res. | 3 / 0.8, `can_embark: false` | speed / turn | 1.0 / 55, **`wheeled: true`** (G4) |
 | sight / optics | 8 / 0.9 | signature / firing mult | 1.1 / 2.0 |
 | weapon | `rws_mg`: hmg, range 7, acc 0.55, pen 18, dmg 26, supp 55, rof 220, collateral 0.12 | abilities | `demolish`, `smoke` |
-| demolition | `demolition_method: "placed"` (**new**), 3.0 s to set | charge (**new**) | fuse 8 s, blast 2.5 tiles, dmg 300, supp 120, withdraw 4 tiles |
+| demolition | `demolition_method: "placed"` (**new; E6, absent from the staged JSON**), 3.0 s to set | charge (**new**) | fuse 8 s, blast 2.5 tiles, dmg 300, supp 120, withdraw 4 tiles |
 | cost | 680 logistics, 34 s, pop 2 | unlock | `{ "price": 6500 }` |
 | upgrades | armour, firepower: 2,360 credits | curve | **−0.3%**; max tier −6.0% |
 
@@ -60,7 +60,7 @@ and civilians included. The D9 stays the clean tool.
 **Counter-play.** RPGs defeat its front (550, 650, `kornet` 900); its 120 mm rear faces the enemy as
 it withdraws; the blast punishes a careless escort, and civilian deaths cost Conduct.
 
-### 1.3 `heli_peten_gunship`: "Peten Gunship" (working name)
+### 1.3 `heli_peten_gunship`: "Peten Gunship" (name confirmed 29 Sep)
 
 **Fantasy.** The Peten for the open ground of Sur and Naharin: pods for men in the open, the
 cannon, half the missiles, hull for one more pass. The heaviest hammer the brigade can buy.
@@ -114,10 +114,10 @@ the ladder, `GATES` and `LADDER_CREDITS` must not move.
 2. **`pnpm balance`** names six ids and cannot move; it runs as a guard.
 3. **Probes** (`tools/src/backtest/e5-probes.ts`): the Gunship in `airContested` against 1–3 AA
    trucks (survival must fall, and at 3 not beat the Peten at 2); the Tzav against the D9 and
-   `demo_squad` on a defended house; the Zikit's detection tick at 4/6/8 tiles against the sniper.
+   `demo_squad` on a defended house (**moved to E6, #274**); the Zikit's detection tick at 4/6/8 tiles against the sniper.
    `balance-analyst` sets bands from the baselines at the numbers gate, never afterwards.
 4. **`(bought)` playtest probes**, off the ladder: Zikit on `beit_sahwan_4_subterranean`, Tzav on
-   `wadi_halam_5_depot`, Gunship on `umm_zeitoun_4_clearance`.
+   `wadi_halam_5_depot` (**moved to E6, #274**), Gunship on `umm_zeitoun_4_clearance`.
 
 ## 4. Schema and engine gaps
 
@@ -201,7 +201,7 @@ them. All are dated 29 Sep.
 | Q4 | Tzav: auto-withdraw; order-only charge; blast hurts own troops and civilians | yes, 4 tiles; yes; yes · taken default |
 | Q5 | Pods at 0.55 collateral | keep · taken default |
 | Q6 | Stage the data (§5) | stage · taken default |
-| Q7 | Names: `narrative-designer`'s rule-3 screen before any JSON ships | working names until screened · taken default |
+| Q7 | Names: `narrative-designer`'s rule-3 screen before any JSON ships | **decided 29 Sep:** Shmamit Deep Recon Team (`recon_zikit`), Shiryonan Demolition Carrier (`demo_tzav`), Peten Gunship; ids unchanged |
 | Q8 | The KDF vehicle line in the bible | adopt · taken default |
 | Q9 | Fold G4 into #247; leave G6 without a hook | yes; accept · taken default |
 | Q10 | The swarm's side | **enemy only, Sarim and Rif** (lead) |

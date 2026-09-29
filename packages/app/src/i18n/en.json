@@ -188,7 +188,7 @@
   "garage.chip.earned": "Earned",
   "garage.chip.bought": "Bought",
   "garage.tag.special": "Special forces",
-  "garage.tag.special.aria": "Special forces: opened only by buying with earned credits",
+  "garage.tag.special.hidden": ": opened only by buying with earned credits",
   "garage.chip.maxed": "Maxed",
   "garage.plate.enlisted": "Enlisted",
   "garage.stat.kit": "+{n} kit",

@@ -232,7 +232,7 @@ Q1, Q10 and Q11 are the lead's answers; the rest are taken defaults the lead did
 | Q4 | Tzav: auto-withdraw; order-only charge; blast hurts own troops and civilians | yes, 4 tiles; yes; yes · taken default |
 | Q5 | Pods at 0.55 collateral | keep · taken default |
 | Q6 | Stage the data | stage · taken default |
-| Q7 | Names: rule-3 screen before any JSON ships | working names until screened · taken default |
+| Q7 | Names: rule-3 screen before any JSON ships | **decided 29 Sep:** Shmamit / Shiryonan / Peten Gunship; ids unchanged |
 | Q8 | The KDF vehicle line in the bible | adopt · taken default |
 | Q9 | Fold G4 into GH-247; leave G6 without a hook | yes; accept · taken default |
 | Q10 | The swarm's side | **enemy only, Sarim and Rif** (lead) |

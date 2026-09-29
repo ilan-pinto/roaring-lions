@@ -1943,8 +1943,9 @@ describe('the garage rows — special forces (E5 Task 7)', () => {
   });
   const cardFor = (host: HTMLElement, id: string): Element | null =>
     host.querySelector(`.rl-garage__card[data-unit="${id}"]`);
+  // The visible plate text only: the hidden explanation span sits inside the tag too.
   const tag = (host: HTMLElement, id: string): string | undefined =>
-    text(host, `.rl-garage__card[data-unit="${id}"] .rl-garage__card-tag`);
+    host.querySelector(`.rl-garage__card[data-unit="${id}"] .rl-garage__card-tag`)?.firstChild?.textContent ?? undefined;
   const roster = [staged[2], staged[1], units[2], staged[0], units[0]]; // deliberately scrambled
 
   it('sorts the three after every earned gate, cheapest first', () => {
@@ -1957,12 +1958,12 @@ describe('the garage rows — special forces (E5 Task 7)', () => {
     const host = mount({ units: roster, ledger: {}, possibleStars: 78, credits: 0 });
     for (const u of staged) {
       expect(tag(host, u.id), u.id).toBe('Special forces');
-      expect(cardFor(host, u.id)?.querySelector('.rl-garage__card-tag')?.getAttribute('aria-label')).toBe(
-        'Special forces: opened only by buying with earned credits'
+      expect(cardFor(host, u.id)?.querySelector('.rl-garage__card-tag .rl-sr-only')?.textContent).toBe(
+        ': opened only by buying with earned credits'
       );
       select(host, u.id);
       expect(text(host, '.rl-garage__gate'), u.id).toBe(t('gate.buy', { n: u.unlock?.price ?? 0 }));
-      expect(host.querySelector('.rl-garage__bay .rl-garage__tag')?.textContent, u.id).toBe('Special forces');
+      expect(host.querySelector('.rl-garage__bay .rl-garage__tag')?.firstChild?.textContent, u.id).toBe('Special forces');
     }
     // Shipped rows, including a star-gated one that also carries a price: no tag.
     const priced = roster.map((u) => (u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 850 } } : u));
@@ -1997,7 +1998,7 @@ describe('the garage rows — special forces (E5 Task 7)', () => {
     expect(card?.textContent).not.toMatch(/[★☆⭐]/);
     select(host, 'recon_zikit');
     expect(host.querySelector('.rl-garage__buy')).toBeNull();
-    expect(host.querySelector('.rl-garage__bay .rl-garage__tag')?.textContent).toBe('Special forces');
+    expect(host.querySelector('.rl-garage__bay .rl-garage__tag')?.firstChild?.textContent).toBe('Special forces');
     expect(host.querySelector('.rl-garage__bay')?.textContent).not.toMatch(/[★☆⭐]/);
   });
 });

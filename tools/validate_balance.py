@@ -407,9 +407,11 @@ def main():
     if args.max_tier and args.upgrade_cost_factor is None:
         ap.error("--max-tier requires --upgrade-cost-factor K")
 
-    paths = sorted(glob.glob(os.path.join(args.units, "**", "*.json"), recursive=True))
+    found = glob.glob(os.path.join(args.units, "**", "*.json"), recursive=True)
     for extra in args.also:
-        paths += sorted(glob.glob(os.path.join(extra, "**", "*.json"), recursive=True))
+        found += glob.glob(os.path.join(extra, "**", "*.json"), recursive=True)
+    # A dir named twice (--also overlapping --units) must not put a unit on the curve twice.
+    paths = sorted({os.path.normpath(p) for p in found})
     units = []
     for p in paths:
         with open(p) as fh:
