@@ -378,6 +378,13 @@ def fit_curve(samples):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--units", default="data/units")
+    ap.add_argument(
+        "--also",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="extra unit directories fitted WITH --units (staged content)",
+    )
     ap.add_argument("--tolerance", type=float, default=0.18)
     ap.add_argument("--report", action="store_true", help="print the whole roster")
     ap.add_argument(
@@ -401,6 +408,8 @@ def main():
         ap.error("--max-tier requires --upgrade-cost-factor K")
 
     paths = sorted(glob.glob(os.path.join(args.units, "**", "*.json"), recursive=True))
+    for extra in args.also:
+        paths += sorted(glob.glob(os.path.join(extra, "**", "*.json"), recursive=True))
     units = []
     for p in paths:
         with open(p) as fh:

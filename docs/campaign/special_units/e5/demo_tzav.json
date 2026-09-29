@@ -1,0 +1,29 @@
+{
+  "id": "demo_tzav",
+  "name": "Tzav Demolition Carrier",
+  "blurb": "Sets a fused charge against a wall and backs off. What stands too close goes with the house.",
+  "faction": "kdf",
+  "role": "engineer",
+  "cost": { "logistics": 680, "build_time_s": 34, "population": 2 },
+  "unlock": { "price": 6500 },
+  "hull": { "hp": 2600, "armor": { "front": 380, "side": 200, "rear": 120, "top": 40 }, "crew": 3, "suppression_resistance": 0.8, "can_embark": false },
+  "mobility": { "speed_tiles_s": 1.0, "turn_rate_deg_s": 55, "wheeled": true, "weight": { "mass_class": "heavy" } },
+  "sensors": { "optics": 0.9, "sight_tiles": 8, "signature": 1.1, "firing_signature_mult": 2.0 },
+  "abilities": ["demolish", "smoke"],
+  "demolition_time_s": 3.0,
+  "weapons": [
+    { "id": "rws_mg", "type": "hmg", "range_tiles": 7, "effective_range_tiles": 5.6,
+      "accuracy": 0.55, "penetration": 18, "damage": 26, "suppression": 55, "rof_per_min": 220,
+      "can_target": ["ground", "air"], "collateral_risk": 0.12 }
+  ],
+  "upgrades": {
+    "armour": { "tiers": [
+      { "price": 255, "patch": { "hull.hp": 180, "hull.armor.front": 27, "hull.armor.side": 14, "hull.armor.rear": 8 } },
+      { "price": 385, "patch": { "hull.hp": 390, "hull.armor.front": 57, "hull.armor.side": 30, "hull.armor.rear": 18 } },
+      { "price": 540, "patch": { "hull.hp": 650, "hull.armor.front": 95, "hull.armor.side": 50, "hull.armor.rear": 30 } } ] },
+    "firepower": { "tiers": [
+      { "price": 255, "patch": { "weapons[0].accuracy": 0.03, "weapons[0].penetration": 1 } },
+      { "price": 385, "patch": { "weapons[0].accuracy": 0.06, "weapons[0].penetration": 3 } },
+      { "price": 540, "patch": { "weapons[0].accuracy": 0.1, "weapons[0].penetration": 4 } } ] }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "id": "heli_peten_gunship",
+  "name": "Peten Gunship",
+  "blurb": "Rocket pods for men in the open, beside the cannon and missiles. Every salvo is danger close.",
+  "faction": "kdf",
+  "role": "gunship",
+  "cost": { "logistics": 450, "build_time_s": 50, "population": 3 },
+  "unlock": { "price": 8000 },
+  "hull": { "hp": 820, "armor": { "front": 55, "side": 32, "rear": 22 }, "crew": 2, "suppression_resistance": 0.8 },
+  "mobility": { "speed_tiles_s": 3.0, "turn_rate_deg_s": 100, "domain": "air" },
+  "sensors": { "optics": 1.6, "sight_tiles": 15, "thermal": true, "signature": 1.3, "firing_signature_mult": 2.5 },
+  "weapons": [
+    { "id": "chain_gun_30", "type": "autocannon", "range_tiles": 7.5, "effective_range_tiles": 6.0,
+      "accuracy": 0.6, "penetration": 120, "damage": 85, "rof_per_min": 625, "suppression": 90,
+      "can_target": ["ground", "air", "structure"], "collateral_risk": 0.5 },
+    { "id": "rocket_pods", "type": "he", "range_tiles": 8, "effective_range_tiles": 7,
+      "accuracy": 0.45, "penetration": 60, "damage": 140, "splash_tiles": 1.0, "rof_per_min": 30,
+      "suppression": 140, "can_target": ["ground", "structure"], "collateral_risk": 0.55 },
+    { "id": "hellfire", "type": "atgm", "range_tiles": 10.5, "effective_range_tiles": 9.0,
+      "accuracy": 0.8, "penetration": 900, "damage": 420, "splash_tiles": 0.8, "rof_per_min": 3,
+      "suppression": 15, "can_target": ["ground", "structure"], "collateral_risk": 0.2 }
+  ],
+  "upgrades": {
+    "armour": { "tiers": [
+      { "price": 225, "patch": { "hull.hp": 58, "hull.armor.front": 3, "hull.armor.side": 2, "hull.armor.rear": 1 } },
+      { "price": 335, "patch": { "hull.hp": 123, "hull.armor.front": 5, "hull.armor.side": 3, "hull.armor.rear": 2 } },
+      { "price": 470, "patch": { "hull.hp": 205, "hull.armor.front": 8, "hull.armor.side": 5, "hull.armor.rear": 3 } } ] },
+    "sensors": { "tiers": [
+      { "price": 190, "patch": { "sensors.optics": 0.13, "sensors.sight_tiles": 1 } },
+      { "price": 280, "patch": { "sensors.optics": 0.24, "sensors.sight_tiles": 2 } },
+      { "price": 395, "patch": { "sensors.optics": 0.4, "sensors.sight_tiles": 3 } } ] },
+    "firepower": { "tiers": [
+      { "price": 280, "patch": { "weapons[1].accuracy": 0.03, "weapons[1].penetration": 4 } },
+      { "price": 420, "patch": { "weapons[1].accuracy": 0.06, "weapons[1].penetration": 8 } },
+      { "price": 590, "patch": { "weapons[1].accuracy": 0.1, "weapons[1].penetration": 12 } } ] }
+  }
+}
