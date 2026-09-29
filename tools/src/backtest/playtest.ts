@@ -15,6 +15,7 @@ import {
   type LedgerData,
   type TunnelRouteJson,
   type UnlockGate,
+  type UnitTypeJson,
   type MissionResult,
   type Stars,
 } from '@lions/sim';
@@ -36,6 +37,7 @@ import {
 // 4), by the brigade sentence (Task 6) and by `deployRosterView` when it
 // exists (R-12).
 import { ROSTER_CAP } from '../../../packages/app/src/roster-cap';
+import { stagedUnit } from './e5-probes';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
 
@@ -166,7 +168,19 @@ function run(
    *  did, spread or chained as-is. `roeScore`/`credits` were added alongside
    *  `result`/`stars` so the replay can print a base-vs-max ROE/credits line
    *  without re-deriving either from `produced`. */
-  measured?: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number }
+  measured?: {
+    result: 'ongoing' | 'victory' | 'defeat';
+    stars: Stars;
+    roeScore: number;
+    credits: number;
+    /** Mission clock at the end, in minutes (E5 Task 5: the `(bought)` probes print it). */
+    minutes?: number;
+  },
+  /** E5 Task 5: unit types the shipped roster does not carry (the staged bought-only drafts
+   *  in docs/campaign/special_units/e5), registered after every shipped type so no shipped
+   *  type index moves. A KDF extra goes through the same max-tier pre-pass as any KDF type
+   *  and is visible to `unitInfo`/`unlockOf`, so `requestBuild` sees its price and gate. */
+  extraUnits: readonly UnitTypeJson[] = []
 ): LedgerData {
   const mission = missions[id] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -199,7 +213,7 @@ function run(
     if (got !== i) throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
   }
   const typeOf = new Map<string, number>();
-  for (const u of Object.values(units)) {
+  for (const u of [...Object.values(units), ...extraUnits] as (typeof units)[keyof typeof units][]) {
     // Mirrors main.ts's own pre-pass exactly (see the `tiers` doc comment above) --
     // enemy units never go through applyUpgrades, only a KDF unit can carry a tier.
     const registered = tiers === 'max' && u.faction === 'kdf' ? applyUpgrades(u, maxTiers(u)) : u;
@@ -208,10 +222,11 @@ function run(
   // `upgrades_to` resolved once, before the runtime is built, exactly as main.ts
   // does it -- so a placed force fields the earned unit here too and the spawner
   // stays gate-blind.
+  const unitData: Record<string, unknown> = { ...units, ...Object.fromEntries(extraUnits.map((u) => [u.id, u])) };
   const unlockOf = (unitId: string): UnlockGate | undefined => {
     if (gateOf) return gateOf(unitId);
     const d = (
-      units as Record<
+      unitData as Record<
         string,
         { unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number } } | undefined
       >
@@ -227,7 +242,7 @@ function run(
     tunnels: tunnelRoutes,
     ledger,
     unitInfo: (u) => {
-      const d = (units as Record<
+      const d = (unitData as Record<
         string,
         | {
             faction: string;
@@ -240,7 +255,10 @@ function run(
       return {
         logistics: d.cost.logistics,
         buildTimeS: d.cost.build_time_s ?? 20,
-        unlock: kdfUnlockGate(d),
+        // `bought` resolved here as in `main.ts`'s `kdfUnlockGate`: `requestBuild` reads THIS
+        // gate through `buildBlockedReason`, so without it a purchase opened `resolveUpgrades`
+        // and stayed closed to the build queue.
+        unlock: ((g) => (g ? { ...g, bought: bought.has(u) } : undefined))(kdfUnlockGate(d)),
       };
     },
   });
@@ -325,6 +343,7 @@ function run(
     measured.stars = rt.stars;
     measured.roeScore = rt.roeScore;
     measured.credits = credits;
+    measured.minutes = t / TICKS_PER_SECOND / 60;
   }
   return produced;
 }
@@ -1108,7 +1127,7 @@ const led4In = { ...led1, ...led2, ...led3 };
 // the trade the design already intends (a replaceable rifle squad drawing
 // fire meant for an irreplaceable charge team), now actually landing on the
 // right unit.
-run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
+const bs4Plan: Plan = (sim, _rt, ids, at) => {
   const teams = ids('yahalom_squad');
   const west = teams.slice(0, 1);
   const east = teams.slice(1, 2);
@@ -1194,7 +1213,8 @@ run('beit_sahwan_4_subterranean', (sim, _rt, ids, at) => {
   // the whole ten-second count -- ordering it to a fixed interior point once
   // the ground is cleared is what keeps it held rather than merely visited.
   at(115, () => sim.queueCommand({ kind: 'move', ids: holdForce, ...M(26, 13) }));
-}, led4In);
+};
+run('beit_sahwan_4_subterranean', bs4Plan, led4In);
 
 // --- Marj: Khan Rafid -----------------------------------------------------------
 //
@@ -2444,55 +2464,146 @@ run('umm_zeitoun_4_clearance', () => {}, {}, 'defeat', 'umm_zeitoun_4_clearance 
 // guard too -- a bonus, not something this plan depends on), and only once
 // that fight is in hand do the demo squads get their own direct `demolish`
 // orders, which they can now walk to the letter.
-run(
-  'umm_zeitoun_4_clearance',
-  (sim, _rt, ids, at) => {
-    const demo = ids('demo_squad');
-    const drone = ids('recon_drone');
-    // The three structures inside `stockpile` (the `w` block, the `#` block
-    // and the `s` block, flood-filled from the map's own grid) are each
-    // exactly 5s of standing charges once a demolisher is within 2 tiles --
-    // `demolish` is a hold-station timer, not a damage race, so 7,500 hp
-    // comes down as fast as two squads can walk to three doors.
-    const depotEscort = [...ids('mbt_lavi'), ...ids('apc_eitan')];
-    at(1, () => {
-      // The drone's own presence is enough to start the porters fleeing
-      // (CivilianFlight does not filter by domain) well before any charge is
-      // set near their ground.
-      sim.queueCommand({ kind: 'move', ids: drone, ...M(29.5, 9.5) });
-      sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(32, 8) });
+const uz4Plan: Plan = (sim, _rt, ids, at) => {
+  const demo = ids('demo_squad');
+  const drone = ids('recon_drone');
+  // The three structures inside `stockpile` (the `w` block, the `#` block
+  // and the `s` block, flood-filled from the map's own grid) are each
+  // exactly 5s of standing charges once a demolisher is within 2 tiles --
+  // `demolish` is a hold-station timer, not a damage race, so 7,500 hp
+  // comes down as fast as two squads can walk to three doors.
+  const depotEscort = [...ids('mbt_lavi'), ...ids('apc_eitan')];
+  at(1, () => {
+    // The drone's own presence is enough to start the porters fleeing
+    // (CivilianFlight does not filter by domain) well before any charge is
+    // set near their ground.
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(29.5, 9.5) });
+    sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(32, 8) });
+  });
+  at(45, () => {
+    sim.queueCommand({ kind: 'demolish', ids: [demo[0]], structure: sim.structureAt(29, 5) });
+    sim.queueCommand({ kind: 'demolish', ids: [demo[1]], structure: sim.structureAt(33, 5) });
+  });
+  // The shanty is the last of the three. Nothing has to name it: once a
+  // squad's own explicit order is fulfilled, `demolishOrder` clears and
+  // `stepDemolition`'s automatic search picks the nearest unprotected,
+  // non-fenced structure on its own initiative -- measured this session,
+  // both `w` and `#` finish first (~t=98s, well inside the 45s head start
+  // this plan gives the escort plus the ~48s walk from the player's own
+  // start line) and the freed squad retargets the shanty unordered. This
+  // is a backstop only, timed comfortably past that: if a future ledger
+  // ever leaves both squads still working their first door this late,
+  // it re-points BOTH at the shanty rather than let the mission stall.
+  at(180, () => sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(33, 8) }));
+  // Adhal carries no deadline of his own, so a second, dedicated push for
+  // him only needs to exist at all -- it does not need to race the depot.
+  // Held back this long on purpose: sent at t=1 alongside the escort, it
+  // walks straight through the depot's own live fire on the way north.
+  at(90, () => {
+    sim.queueCommand({
+      kind: 'attackMove',
+      ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad'), ...ids('ifv_namer')],
+      ...M(14, 7),
     });
-    at(45, () => {
-      sim.queueCommand({ kind: 'demolish', ids: [demo[0]], structure: sim.structureAt(29, 5) });
-      sim.queueCommand({ kind: 'demolish', ids: [demo[1]], structure: sim.structureAt(33, 5) });
+  });
+};
+run('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'victory', 'umm_zeitoun_4_clearance');
+
+// --- E5 special forces Task 5: the `(bought)` probes ---------------------------
+//
+// Two missions replayed with a bought-only unit built and fielded: the Zikit into Beit
+// Sahwan IV, the Gunship into Umm Zeitoun IV. No shipped mission fields either, so both are
+// loaded from the staged drafts (`extraUnits`) and `bought: new Set([id])` is what opens the
+// price-only gate -- the same lookup `main.ts`'s `kdfUnlockGate` does from the brigade
+// account. They prove two things and only two: a buyer can use the unit (the build is
+// accepted, the unit deploys and survives to act), and the credit ladder and star gates do
+// not move. The label `'<id> (bought)'` is not `id`, so `missionStars`, `missionCredits`
+// and `maxTierProbes` never see these runs, and `LADDER_CREDITS` and `GATES` are read from
+// the plain lines only. Whether a probe trivialises its mission is REPORTED, never tuned:
+// each prints its clock and credits against the mission's own line.
+interface BoughtRun {
+  /** `buildBlockedReason` at the first tick, null when the gate is open. */
+  blocked: string | null | undefined;
+  /** `requestBuild`'s own answer. */
+  accepted: boolean;
+  /** How many of the unit stood on side 0 when its order was issued. */
+  fieldedAtOrder: number;
+  /** ...and when the mission ended. */
+  aliveAtEnd: number;
+}
+
+function boughtProbe(
+  id: keyof typeof missions,
+  basePlan: Plan,
+  ledger: LedgerData,
+  unitId: string,
+  orderAtS: number,
+  order: (unitIds: number[]) => Parameters<Sim['queueCommand']>[0]
+): void {
+  const label = `${id} (bought)`;
+  const baseStars = missionStars.get(id as string);
+  const baseCredits = missionCredits.get(id as string);
+  const baseRoe = missionRoe.get(id as string);
+  if (baseStars === undefined || baseCredits === undefined || baseRoe === undefined) {
+    console.error(`${label}: FAILED — no plain '${id}' winning line to compare against`);
+    process.exitCode = 1;
+    return;
+  }
+  const seen: BoughtRun = { blocked: undefined, accepted: false, fieldedAtOrder: 0, aliveAtEnd: 0 };
+  let idsOf: ((t: string) => number[]) | undefined;
+  const plan: Plan = (sim, rt, ids, at) => {
+    idsOf = ids;
+    basePlan(sim, rt, ids, at);
+    // The first tick: 500 / 600 logistics against a 290 / 450 price, so nothing to wait for.
+    at(0, () => {
+      seen.blocked = rt.buildBlockedReason(unitId);
+      seen.accepted = rt.requestBuild(unitId);
     });
-    // The shanty is the last of the three. Nothing has to name it: once a
-    // squad's own explicit order is fulfilled, `demolishOrder` clears and
-    // `stepDemolition`'s automatic search picks the nearest unprotected,
-    // non-fenced structure on its own initiative -- measured this session,
-    // both `w` and `#` finish first (~t=98s, well inside the 45s head start
-    // this plan gives the escort plus the ~48s walk from the player's own
-    // start line) and the freed squad retargets the shanty unordered. This
-    // is a backstop only, timed comfortably past that: if a future ledger
-    // ever leaves both squads still working their first door this late,
-    // it re-points BOTH at the shanty rather than let the mission stall.
-    at(180, () => sim.queueCommand({ kind: 'demolish', ids: demo, structure: sim.structureAt(33, 8) }));
-    // Adhal carries no deadline of his own, so a second, dedicated push for
-    // him only needs to exist at all -- it does not need to race the depot.
-    // Held back this long on purpose: sent at t=1 alongside the escort, it
-    // walks straight through the depot's own live fire on the way north.
-    at(90, () => {
-      sim.queueCommand({
-        kind: 'attackMove',
-        ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad'), ...ids('ifv_namer')],
-        ...M(14, 7),
-      });
+    at(orderAtS, () => {
+      const mine = ids(unitId);
+      seen.fieldedAtOrder = mine.length;
+      if (mine.length > 0) sim.queueCommand(order(mine));
     });
-  },
-  ledUZ3,
-  'victory',
-  'umm_zeitoun_4_clearance'
-);
+  };
+  const measured = { result: 'ongoing' as 'ongoing' | 'victory' | 'defeat', stars: 0 as Stars, roeScore: 0, credits: 0, minutes: 0 };
+  run(id, plan, ledger, 'victory', label, baseStars, undefined, new Set([unitId]), undefined, undefined, measured, [
+    stagedUnit(unitId),
+  ]);
+  seen.aliveAtEnd = idsOf ? idsOf(unitId).length : 0;
+  console.log(
+    `${label}: build ${seen.accepted ? 'ACCEPTED' : 'REFUSED'}${seen.blocked ? ` (${seen.blocked})` : ''}, ` +
+      `${unitId} fielded ${seen.fieldedAtOrder} at t=${orderAtS}s, alive at end ${seen.aliveAtEnd}`
+  );
+  console.log(
+    `${label}: vs plain ${id}: stars ${measured.stars} (plain ${baseStars}), ROE ${measured.roeScore} (plain ${baseRoe}), ` +
+      `credits ${measured.credits} (plain ${baseCredits}), clock ${measured.minutes.toFixed(1)} min`
+  );
+  if (!seen.accepted || seen.fieldedAtOrder === 0) {
+    console.error(`${label}: FAILED — the purchase did not put a ${unitId} in the field (${seen.blocked ?? 'no reason given'})`);
+    process.exitCode = 1;
+  }
+  if (measured.result !== 'victory' || measured.stars < baseStars) {
+    console.error(
+      `${label}: FAILED — ${measured.result.toUpperCase()}/${measured.stars}★ against the plan's ${baseStars}★`
+    );
+    process.exitCode = 1;
+  }
+}
+
+// The Zikit is built on the first tick (22 s), then walks to (28,27): from there its sight
+// of 14 holds the souk and clinic vents in view behind the escort's push.
+boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, (mine) => ({
+  kind: 'move',
+  ids: mine,
+  ...M(28, 27),
+}));
+// The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
+// attack-move to the stockpile the depot escort is already walking to.
+boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55, (mine) => ({
+  kind: 'attackMove',
+  ids: mine,
+  ...M(32, 8),
+}));
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------
 //
