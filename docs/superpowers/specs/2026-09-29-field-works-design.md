@@ -1,10 +1,11 @@
 # FW: field works — KDF constructible buildings and militia equivalents — design (#277)
 
-**2026-09-29** · status: design, no code · base `main` `9623d500` · lead rulings of 29 Sep on
+**2026-09-29** · status: design, no code; gates G-NUM and G-MOCK approved 29 Sep; Meshy estimate pending · base `main` `9623d500` · lead rulings of 29 Sep on
 #277 are binding (build anywhere; full-radius tunnel identification with a per-mission allow list;
 workshop = repair + accuracy, not a damage aura; design, numbers, mock and art in October; sim
-and UI in Stage 4). Gates: **G-NUM** (every number in §9), **G-MOCK** (§6), **Meshy estimate**
-(§8). Every number here is a PLACEHOLDER until G-NUM.
+and UI in Stage 4). Gates: **G-NUM** (§9, approved 29 Sep), **G-MOCK** (§6, treatment B,
+approved 29 Sep), **Meshy estimate** (§8, pending). Every number in §9 is approved; **M** marks a
+figure measured against the real sim, **E** an estimate whose Stage 4 probe must measure it.
 
 **What exists today, measured in code.**
 - `MissionRuntime.requestBuild` queues a UNIT only: it spends logistics/intel and pushes onto a
@@ -121,7 +122,7 @@ no blocked test (`sim.ts:2829-2831`), so this is a Stage 4 fix (Q7).
 
 | state | trigger | sim effect |
 |---|---|---|
-| **site** | `construct` accepted | a row in a fixed site table (`MAX_SITES` 8; type, footprint origin, side, paid cost); NOT blocked; drawn as a ghost pad |
+| **site** | `construct` accepted | a row in a fixed site table (`MAX_SITES` 8; type, footprint origin, side, paid cost); NOT blocked; drawn as the footprint pad (§6) |
 | **staked** | first builder within `BUILD_RANGE` (2 tiles, `DEMO_RANGE_SQ`, `structures.ts:125`) | `addStructure` at `stProgress` 0, HP 10% of max: tiles blocked, ONE `recomputeFields` (§2) |
 | **building** | each tick a builder is in range, alive, not moving, not pinned, not garrisoned | `stProgress += buildStep` per builder, max 2 builders; HP rises with progress; damage lands on `stHp` as on any building |
 | **complete** | `stProgress === ONE` | aura, sensor and garrison switch on; `structureComplete` event |
@@ -191,8 +192,8 @@ cases would be four engine features; this is one reader, and a new building is J
 
 | scope | who it touches | fields | read by |
 |---|---|---|---|
-| `area` | living, surface, non-garrisoned units of the OWNER's side within `radius` of the centroid | `radius`, `affects` (`foot`/`vehicle`/`any`), `heal_per_s`, `heal_cap`, `heal_delay_s`, `repair_per_s`, `repair_components_s`, `accuracy_mult` | new `stepAuras` |
-| `garrison` | units inside this structure | `range_mult`, `rof_mult`, `sight_bonus` | `selectTarget`, `fireAt`, `detectionPair` via the unit's `garrisonedIn` |
+| `area` | living, surface, non-garrisoned units of the OWNER's side within `radius` of the centroid | `radius`, `affects` (`foot`/`vehicle`/`any`), `heal_per_s`, `heal_cap`, `repair_per_s`, `repair_components_s`, `accuracy_mult` | new `stepAuras` |
+| `garrison` | units inside this structure | `range_bonus` (tiles), `sight_bonus`, `supp_cover` | `selectTarget`, `detectionPair`, `applySuppression` via the unit's `garrisonedIn` |
 | `sensor` | the structure itself, as an eye of its side | `sight`, `optics`, `tunnel_radius` | `stepDetection` |
 
 An aura is live only while `stAlive`, `stProgress === ONE` and `stSide` is 0 or 1. Overlapping
@@ -204,19 +205,36 @@ All values become Q16.16 at load in `structureTypeFromJson` (`structures.ts:80-9
 cadence, clears then fills four per-unit SoA arrays: `auraHealRate`, `auraHealCap`,
 `auraAccMult`, `auraRepairTicks`. `stepUpkeep` reads them every tick, so healing stays smooth.
 
-**Medic station** — `area: { radius 4, affects foot, heal_per_s 0.015, heal_cap 1.0,
-heal_delay_s 5 }`. `stepUpkeep`'s regen (`sim.ts:5125-5130`) takes
-`cap = max(REGEN_CAP, auraHealCap[i])`, `rate = max(REGEN_FRAC, auraHealRate[i])` and a delay of
-100 ticks instead of 200 while covered: ~3× field regen, to full HP, still not under fire. New
-concept: none beyond the per-unit arrays; the regen formula is reused.
+**Medic station** — `area: { radius 4, affects foot, heal_per_s 0.010, heal_cap 1.0 }`.
+`stepUpkeep`'s regen (`sim.ts:5125-5130`) takes `cap = max(REGEN_CAP, auraHealCap[i])` and
+`rate = max(REGEN_FRAC, auraHealRate[i])`: 33 raw a tick against the field's 16, ~2× field regen, to
+full HP. **The delay is `REGEN_DELAY_TICKS` (10 s) and is not a field**: one rule for "under fire"
+across the whole game, and no special case in `stepUpkeep` (a 5 s delay would let the station heal
+mid-fight; at 10 s it heals between waves). New concept: none beyond the per-unit arrays.
 
-**Outpost** — `garrison_slots` 3 (existing field) and `garrison: { range_mult 1.15, rof_mult 1.25,
-sight_bonus 2 }`. No soldiers are added. `selectTarget`'s `dSq > w.rangeSq` (`sim.ts:2729`) and
-the falloff ratio against `w.effectiveRange` (`:3623`) read a per-shooter range scale when
-`garrisonedIn[i] >= 0` (squared once at load); `fireAt`'s cooldown becomes
-`max(1, (w.ticksBetweenShots × ONE / rof_mult) >> 16)`; `detectionPair` compares against
-`(sight + sight_bonus)²`. Detection needs no other change: a garrisoned unit already sees out
-through its own building (`losRay` skips the origin structure, `sim.ts:2479-2480`).
+**Outpost** — `garrison_slots` 3 (existing field) and `garrison: { range_bonus 1, sight_bonus 2,
+supp_cover 3 }`. No soldiers are added.
+- *Range* is **additive, in tiles, direct fire only**: `INDIRECT_MASK` weapons are excluded (a
+  multiplier would put a garrisoned mortar at 20.7 tiles, past the Grad's 20). `selectTarget`'s
+  `dSq > w.rangeSq` (`sim.ts:2729`) and the falloff ratio against `w.effectiveRange` (`:3623`) read a
+  per-weapon bonused range when `garrisonedIn[i] >= 0`, squared once at load. +1 tile takes KDF rifles
+  from 8 to 9: level with the Spike and the DShK, under the Kornet's 10.
+- *Sight* `detectionPair` compares against `(sight + sight_bonus)²`. It must exceed the range gain
+  (a squad sees 8), or the range bonus is dead. A garrisoned unit already sees out through its own
+  building (`losRay` skips the origin structure, `sim.ts:2479-2480`).
+- *No ROF bonus.* `ticksBetweenShots = toInt(1200/rof)` quantises: KDF rifles fire every 4 ticks,
+  and any multiplier in (1, 1.33] gives 3, exactly +33%; the cooldown stays as it is. Measured, ROF
+  ×1.2 on the militia's whole urban defence took urban 3:1 from 100% to **3%**. A fractional cooldown
+  accumulator would be a sim change; not in v1.
+- *Suppression cover.* Without this the garrison bonuses are moot: a MISSED round at a building
+  lands at the nearest footprint tile, a 2×2 garrison sits 0.71 tiles from every tile centre (inside
+  `NEAR_MISS_RADIUS_SQ`), and `applySuppression` reads the cover under the occupant, which on a
+  building tile is 0. Three `inf_squad` garrisoned in a 2×2 held **0%** against a raid and killed
+  none; the same squads in open cover 2 held 97% (**M**). `supp_cover` 3 makes occupants read
+  `COVER_SUPP[3]` (0.09). **This depends on #280 (garrison suppression cover, Stage 4)**, which owns
+  the sim rule: either this field or a sim-wide rule that occupants read their structure's protection,
+  the latter also changing every shipped 2×2 building and moving `playtest`. FW declares the field
+  and reads whatever #280 lands; **no garrison number here can be measured before it does.**
 
 **Intel centre** — `sensor: { sight 10, optics 1.0, tunnel_radius 10 }`. Two sim paths and one
 render path:
@@ -224,10 +242,14 @@ render path:
   runs `detectionPair`'s body with the structure's centroid, sight and optics, feeding the same
   `contact` array. The `contact` event's `observer` is an entity id, so a structure-sourced event
   carries `observer: -1` plus a new `observerStructure` (Q10).
-- *Tunnels (full radius, the lead's ruling).* A second identification path beside
+- *Tunnels (the full 10, the lead's ruling).* A second identification path beside
   `markerSeeingRoute`, not a replacement: a route is identified to the owner's side when ANY of
   its tiles (`tnTiles`, the set `markerSeeingRoute` reads) lies within `tunnel_radius` of the
-  centroid, **with no LOS test** (a sensor, not an eye). Routes are static, so on completion each
+  centroid, **with no LOS test** (a sensor, not an eye). At 10, a centre built 5–9 tiles behind the
+  start holds `deir_amun_2_foothold`'s pump route (its primary `collapse`), two of
+  `beit_sahwan_4_subterranean`'s four routes and three of `deir_amun_3_subterranean`'s identified all
+  mission (**M**, every flat 2×2 pad walked). The price is the allow-list rule (§4): **no intel centre
+  in any mission that authors a `digs` or `in_tunnel` placement.** Routes are static, so on completion each
   sensor structure caches a 16-bit route mask (`MAX_TUNNELS` 16, `sim.ts:711`); the per-tick cost
   is one OR per structure. In the route loop (`:2939-2958`) the order is: sensor mask →
   `identifyTunnelTo(s, r, -1)`; else `markerSeeingRoute`; else the spoil ladder.
@@ -239,16 +261,19 @@ render path:
   fog.ts:78`, `:101`). `FogInput` gains an optional `extraObservers` list (centroid, sight) that
   `main.ts` fills from side-0 sensor structures and outpost garrisons; three only (Pixi frozen).
 
-**Workshop** — `area: { radius 4, affects vehicle, repair_per_s 0.01, repair_components_s 20 }`
-plus a second area for `accuracy_mult 1.08, affects any`. This implements the declared `repair`
-concept for the first time, as a structure effect: HP rises at 1%/s to 100% after the same 5 s
+**Workshop** — `area: { radius 4, affects vehicle, repair_per_s 0.010, repair_components_s 30 }`
+plus a second area for `accuracy_mult 1.06, affects any`. This implements the declared `repair`
+concept for the first time, as a structure effect: HP rises at 1%/s (33 raw a tick, a Lavi 30 hp/s,
+30% to 100% in 70 s, ~2× field regen, the medic's factor) after the same `REGEN_DELAY_TICKS` 10 s
 undamaged delay; `auraRepairTicks[i]` counts continuous covered, undamaged ticks and at
 `repair_components_s` clears `mobilityKilled` and `firepowerKilled` (set by component damage,
-`sim.ts:4015-4026`). The accuracy multiplier joins veterancy in `hitFactors`
-(`sim.ts:3619-3622`): `accuracy × (1 + vet × VET_ACC_BONUS) × auraAccMult`, still capped at ONE.
-1.08 is about 1.3 veterancy levels (`VET_ACC_BONUS` 0.06, `tuning.ts:133`). No damage term
-(the lead's ruling). The `area` scope therefore takes a LIST of effects (Q2 settles the shape).
-Air units are excluded (`affects vehicle` means ground vehicle) because nothing lands.
+`sim.ts:4015-4026`). 30 s is 1.5 Spike reloads (20 s), so a watched tank never repairs. A mobility
+kill repairs only when it happened inside the radius, because the hull cannot drive in. The accuracy
+multiplier joins veterancy in `hitFactors` (`sim.ts:3619-3622`): `accuracy × (1 + vet ×
+VET_ACC_BONUS) × auraAccMult`, still capped at ONE. **1.06 is exactly one veterancy level**
+(`VET_ACC_BONUS` 0.06, `tuning.ts:133`), so the card can say "fights one veterancy level up". No
+damage term (the lead's ruling). The `area` scope therefore takes a LIST of effects (Q2 settles the
+shape). Air units are excluded (`affects vehicle` means ground vehicle) because nothing lands.
 
 ## 4. Data model
 
@@ -275,9 +300,11 @@ every key below is an explicit schema addition):
 ```
 
 `$defs.area_effect`: `radius` (0.5–12), `affects` (`foot`|`vehicle`|`any`), and any of
-`heal_per_s`, `heal_cap` (0.7–1.0), `heal_delay_s`, `repair_per_s`, `repair_components_s`,
-`accuracy_mult` (1.0–1.25). `garrison_effect`: `range_mult` (1.0–1.5), `rof_mult` (1.0–1.5),
-`sight_bonus` (0–4). `sensor_effect`: `sight` (1–14), `optics` (0.5–2), `tunnel_radius` (0–14).
+`heal_per_s`, `heal_cap` (0.7–1.0), `repair_per_s`, `repair_components_s`, `accuracy_mult`
+(1.0–1.25). There is no delay field: heal and repair wait `REGEN_DELAY_TICKS`, the game's one rule.
+`garrison_effect`: `range_bonus` (0–1 tiles, direct fire only), `sight_bonus` (0–4), `supp_cover`
+(integer 0–3, the cover tier the occupants read for suppression; needs #280). There is no
+`rof_mult`: the 20 Hz cooldown makes it a +33% step (§3). `sensor_effect`: `sight` (1–14), `optics` (0.5–2), `tunnel_radius` (0–14).
 Ceilings sit at or under the roster maxima (sight 16 is the roster max per the E5 spec). A
 `buildable` type must have `side` 0; `validate_data.mjs` enforces it.
 
@@ -292,18 +319,20 @@ legend) even though none will be drawn into a map grid: proposed `M O I W` and `
 "kdf_medic_station": { "id": "kdf_medic_station", "name": "Medic Station", "symbol": "M",
   "hp_per_tile": 200, "garrison_slots": 0, "rubble_cover": 1, "height_px": 12,
   "color": "olive.1", "roe_penalty": 0, "side": 0,
-  "buildable": { "cost": { "logistics": 250 }, "build_time_s": 25, "footprint": [2, 2] },
-  "aura": { "area": [ { "radius": 4, "affects": "foot", "heal_per_s": 0.015,
-                        "heal_cap": 1.0, "heal_delay_s": 5 } ] } }
+  "buildable": { "cost": { "logistics": 250 }, "build_time_s": 20, "footprint": [2, 2] },
+  "aura": { "area": [ { "radius": 4, "affects": "foot", "heal_per_s": 0.010,
+                        "heal_cap": 1.0 } ] } }
 ```
 
 **`data/schemas/mission.schema.json`:**
 - New root key `field_works`: `{ "type": "object", "additionalProperties": { "type": "integer",
-  "minimum": 0, "maximum": 4 } }` — structure type id → how many the player may raise. **Absent
-  means none**, so every shipped mission is unchanged and `playtest` stays byte-identical; a
-  tunnel mission withholds the intel centre by not listing it. `validate_data.mjs` checks each
-  key is a `buildable` type and that `starting_force` or production can field a `construct`
-  carrier.
+  "minimum": 0, "maximum": 2 } }` — structure type id → how many the player may raise; **default
+  1 per listed type, schema max 2** (8 sites = 4 types × 2 = `MAX_SITES`; at 4 the cap is
+  unreachable, income being ~1,240 a mission). **Absent means none**, so every shipped mission is
+  unchanged and `playtest` stays byte-identical. **Allow-list rule (lead, 29 Sep): a mission that
+  authors a `digs` or `in_tunnel` placement must not list `kdf_intel_centre`** — a rule, not a
+  convention, so `validate_data.mjs` enforces it alongside checking that each key is a `buildable`
+  type and that `starting_force` or production can field a `construct` carrier.
 - `structures[]` items (`:603-640`) gain `side` (−1/0/1, default: the type's). An authored enemy
   structure is `{ "type": "militia_observation_post", "at": [22, 9], "size": [1, 1] }`; `side`
   is only written to override. Garrisons use the existing placement `stance: garrison` with an
@@ -319,20 +348,26 @@ Authored with `structures[]` and `side` 1; same `aura` reader; never built.
 
 | type | aura / garrison | role for the author | ROE if the player levels it |
 |---|---|---|---|
-| `militia_field_clinic` | `area` foot heal 0.010/s to 1.0, radius 4 | defenders who fall back to it come back; a clearance needs to cut it off | **6**, the `clinic` figure (`data/structures.json`); below `PROTECTED_ROE`, so a cost, not a ban (Q8) |
-| `militia_firing_position` | `garrison_slots` 3; `range_mult` 1.10, `rof_mult` 1.2, `sight_bonus` 1; `hp_per_tile` 400 | a sandbagged strongpoint to breach or bypass | 0 |
-| `militia_observation_post` | `sensor { sight 11, optics 1.2 }`, 1×1, `garrison_slots` 0 | spots for mortars and the Grad: indirect fire already needs only its SIDE's identification (`INDIRECT_MASK`, `selectTarget`), so a sensor structure is a spotter with no new rule | 0 |
-| `militia_weapons_workshop` | `area` vehicle repair 0.008/s + `accuracy_mult` 1.08 any | keeps technicals and gun trucks in the fight; a raze target | 0 |
+| `militia_field_clinic` | `area` foot heal 0.75%/s to 1.0, radius 3; HP 800 | defenders who fall back to it come back; a clearance needs to cut it off | **6**, the `clinic` figure (`data/structures.json`); below `PROTECTED_ROE`, so a cost, not a ban (Q8) |
+| `militia_firing_position` | `garrison_slots` 3; `range_bonus` 0.5, `sight_bonus` 1, `supp_cover` 3; HP 1,200 (300/tile) | a sandbagged strongpoint to breach or bypass | 0 |
+| `militia_observation_post` | `sensor { sight 9, optics 1.2 }` (no tunnel radius), 1×1, HP 300, `garrison_slots` 0 | spots for mortars and the Grad: indirect fire already needs only its SIDE's identification (`INDIRECT_MASK`, `selectTarget`), so a sensor structure is a spotter with no new rule | 0 |
+| `militia_weapons_workshop` | `area` vehicle repair 0.75%/s, components 45 s + `accuracy_mult` 1.06 any, radius 4; HP 1,200 | keeps technicals and gun trucks in the fight; a raze target | 0 |
+
+The militia's range bonus is +0.5 tile, not +1: that keeps the firing position at 7.5, under the KDF
+rifle's 8, and +1 is a cliff (an AT-led assault against it went from 100% falls to 0%, **M**). Like the
+outpost, its garrison numbers wait on #280.
 
 **The observation post and the Tel Marum finding.** CLAUDE.md records that the Grad cannot price
 Tel Marum III's corridor because *"every post that can see the corridor stands inside the
 corridor's own weapons"* and dies in ~48–59 s, and that *"unkillable permanent contact"* takes
 the corridor to 1.20 losses a run, level with the pass. A masonry OP is close to that ceiling:
 `small_arms` does 0.01 of damage to a structure (`STRUCT_DAMAGE`, `structures.ts:103-116`), so the
-flank's rifles cannot shoot it off its hill; only `at_team`, the Lavi or the mortar can. **An OP
-over the corridor would erase the flank's designed advantage.** Do not add one to
-`tel_marum_3_clearance` without re-running `tools/src/backtest/saddle-price.ts`; if the lead WANTS
-the corridor priced, this is the first tool that can, and that is a design call.
+flank's rifles cannot shoot it off its hill; two hits from an RPG, a mortar or a Spike kill it.
+**Sight 9** (`sarim_rifles`' own, inside a Spike's 9) is the approved compromise: a sight 11 post
+would sit outside the flank's rifles (8) and Spike (9) while it spots. Even so, do not add one to
+`tel_marum_3_clearance` without re-running `tools/src/backtest/saddle-price.ts` (probe
+`fw-op-saddle`); if the lead WANTS the corridor priced, this is the first tool that can, and that is
+a design call.
 
 **Candidate missions** (for `mission-author` in task S9, each needing a `playtest` plan update):
 - OP: `umm_zeitoun_3_clearance`, `umm_zeitoun_4_clearance`, `qarn_hadid_2_foothold` (Sur,
@@ -342,9 +377,11 @@ the corridor priced, this is the first tool that can, and that is a design call.
   for ROE already, a clean pairing).
 - Weapons workshop: `wadi_halam_5_depot` (Rif technicals; its `raze` zone is the natural home),
   `wadi_halam_3_counterraid`.
-- KDF allow lists: the six foothold/build-up missions with `resources` (`*_2_foothold`,
-  `umm_zeitoun_2_buildup`, `wadi_halam_2_laager`). Subterranean missions (`beit_sahwan_4`,
-  `deir_amun_3`) list no intel centre.
+- KDF allow lists: **seven** missions, not six: the five `*_2_foothold` (`beit_sahwan`, `deir_amun`,
+  `khan_rafid`, `qarn_hadid`, `tel_marum`), `umm_zeitoun_2_buildup` and `wadi_halam_2_laager`.
+  `beit_sahwan_2_foothold` and `deir_amun_2_foothold` author tunnels, so they list the medic
+  station, outpost and workshop and **no intel centre**; the other five may list all four. The
+  subterranean missions (`beit_sahwan_4`, `deir_amun_3`) list no `field_works` at all.
 
 ## 6. UI (G-MOCK)
 
@@ -358,10 +395,15 @@ count left (`2/2`), and `tileState`'s locked/unaffordable/"needs engineers" stat
 clicking a tile calls `onArm` (`:50`), and `main.ts`'s single armed slot (`armedSupport`,
 `main.ts:3021`, handler `:3074`, click `:3305-3322`) owns the next map click, so arming works
 disarms an armed order and vice versa, as today (`:2508-2511`).
-1. A ghost footprint snaps to the tile under the cursor (anchored top-left, drawn centred).
-2. It tints valid/invalid from `placementReason` each frame (a pure read, no command), and the
-   reason is the cursor tooltip ("occupied", "not level", "would seal the passage").
-3. The aura radius (and the sensor radius for the intel centre) draws while armed.
+1. A **gridded footprint outline** snaps to the tile under the cursor (anchored top-left, drawn
+   centred): a flat pad with the tile grid visible, team colour at 0.38, no volume ghost.
+2. It tints valid/invalid from `placementReason` each frame (a pure read, no command): invalid
+   is `team.hostile` with the ring at hover strength (0.6), and the reason is the cursor tooltip
+   ("occupied", "not level", "would seal the passage").
+3. The aura radius (and the sensor radius for the intel centre) draws while armed, as a
+   **dashed ring with no fill** (2 px stroke at 0.7). The intel centre draws its sight ring dashed
+   and its tunnel ring dotted in `dust.6`; at the approved 10/10 they coincide, so the tunnel ring
+   sits a few screen pixels outside and a tooltip legend names both.
 4. Click commits: `requestConstruct`; the feed line names the builder. The key stays armed on
    Shift-click for a second placement.
 5. **No rotation in v1**: all eight footprints are square (2×2, the OP 1×1).
@@ -369,9 +411,14 @@ disarms an armed order and vice versa, as today (`:2508-2511`).
    "Cancel works (refund N)" button on the structure card.
 
 **Radius display — only while placing, selected or hovered** (the lead rejected permanent in-world
-status marks). Reuse the range-ring renderer behind `rangeRingPreview` (`packages/render/src/
-api.ts:426`) with a new optional `auraRingPreview: { cx, cy, radius }[]`, fed from the hovered
-structure (`hoverStructure`, `:416`) or the selected one. No icon over a unit being healed; the
+status marks). **Treatment B (G-MOCK, 29 Sep): gridded footprint outline plus a dashed aura ring
+with no fill**; treatment A (translucent volume ghost, filled disc) was not chosen. B needs a **new
+dashed-arc overlay primitive**: `OverlayBatch` has only the full `ellipseRing` and
+`ellipseAnnulusFill`, so the range-ring renderer behind `rangeRingPreview` (`packages/render/src/
+api.ts:426`) cannot dash. The new `auraRingPreview: { cx, cy, radius, style: 'dashed' | 'dotted' }[]`
+uses it, fed from the hovered structure (`hoverStructure`, `:416`) or the selected one; `dust.6`
+for the tunnel ring needs a new render colour key (no semantic token names it), and the invalid
+tint uses the existing `team.hostile`. Three only. No icon over a unit being healed; the
 unit card gets a status chip ("Medic: healing", "Workshop: repairing") in the HUD, the approved
 place for status.
 
@@ -421,26 +468,33 @@ Textured Meshy bakes ship `base_color` only through the named `TEXTURED_BUILDING
 facing-judgeable); AI art is disclosed in the PR. Three only: `renderer.ts` is frozen and Pixi
 draws new types through its generic fallback.
 
-## 9. Balance (G-NUM, for `balance-analyst`)
+## 9. Balance (G-NUM, approved 29 Sep)
 
-Every number is a placeholder. Economy context: a foothold grants 400 start + 120/min
-(`beit_sahwan_2_foothold`), ~1,240 over 7 minutes; `inf_squad` costs 292.
+Approved as proposed by `balance-analyst`, with one lead override (N6b, the tunnel radius). Economy
+context: a foothold grants 400–600 start + 80–150/min (`beit_sahwan_2_foothold` 400 + 120/min, ~1,240
+over 7 minutes); the four KDF works together cost 1,300, about one mission's income, so the realistic
+buy is one or two. `inf_squad` costs 292. **M** measured on the real sim, **E** estimate (the probe
+named must measure it in Stage 4).
 
-| id | number | placeholder | reasoning |
+| id | number | approved | basis |
 |---|---|---|---|
-| N1 | medic cost / time / footprint / HP | 250 / 25 s / 2×2 / 800 | under a squad: it saves more than one |
-| N2 | medic radius / rate / cap / delay | 4 / 1.5%/s / 1.0 / 5 s | ~3× regen (0.48%/s); not under fire |
-| N3 | outpost cost / time / HP / slots | 300 / 30 s / 1,800 / 3 | sandbags: 2.5× a medic's HP per tile |
-| N4 | outpost range / ROF / sight | ×1.15 / ×1.25 / +2 | rifles 8 → 9.2; not past an AT team's 9 |
-| N5 | intel centre cost / time / HP | 400 / 35 s / 1,000 | the priciest: it removes a mission's fog question |
-| N6 | intel sight / optics / tunnel radius | 10 / 1.0 / 10 | under the Zikit's 14; ~the lead's "~10 tiles" |
-| N7 | workshop cost / time / HP | 300 / 30 s / 1,400 | |
-| N8 | workshop repair / components / accuracy | 1%/s / 20 s / ×1.08 | Lavi back in ~100 s; ≈1.3 vet levels |
-| N9 | build range / builders / D9 rate / start HP | 2 tiles / 2 / ×1.5 / 10% | reuses `DEMO_RANGE_SQ` |
-| N10 | refund | 100% site, unbuilt fraction after | no sell (§0) |
-| N11 | allow-list max per type | 1 default, 4 cap | |
-| N12 | militia clinic / FP / OP / workshop | 0.010/s; ×1.10/×1.2/+1, HP 1,600; sight 11 optics 1.2, HP 300; 0.008/s, ×1.08 | weaker than KDF; the OP is the sturdy eye §5 warns about |
-| N13 | aura cadence | 10 ticks | §7 |
+| N1 | medic cost / time / footprint / HP | 250 / 20 s / 2×2 / 800 (200/tile) | under a squad; worth 1–2 squads of HP a mission. **E**, `fw-medic-lull` |
+| N2 | medic radius / rate / cap / delay | 4 / 1.0%/s (33 raw) / 1.0 / 10 s | ~2× field regen (16 raw); squad 30% → full in 70 s. Delay is `REGEN_DELAY_TICKS`. **E**, `fw-medic-lull` |
+| N3 | outpost cost / time / HP / slots | 350 / 30 s / 1,600 (400/tile) / 3 | the swing position in a heavy raid (0% → 53–63% hold); 2× a medic's HP per tile. **M** |
+| N4 | outpost range / ROF / sight / suppression | +1 tile direct fire only / none / +2 / `supp_cover` 3 | rifles 8 → 9, level with the Spike, under the Kornet's 10. ROF quantises to +33%. **M**; depends on #280 |
+| N5 | intel centre cost / time / HP | 400 / 40 s / 1,000 (250/tile) | the priciest work; 1.9× a `recon_drone` (210), a permanent eye |
+| N6 | intel sight / optics / tunnel radius | 10 / 1.0 / **10** | a parked Eitan's 10/1.0; identifies a still militia in cover 2 in ~27 s, a moving one in ~9 s. The tunnel radius is the lead's, over the analyst's 6: at 10 it trivialises the tunnel missions, hence the §4 allow-list rule. **M** |
+| N7 | workshop cost / time / HP | 300 / 30 s / 1,200 (300/tile) | open-sided gantry, `camp`-grade per tile |
+| N8 | workshop repair / delay / components / accuracy | 1.0%/s (33 raw) / 10 s / 30 s / ×1.06 | Lavi 30 hp/s, 30% → 100% in 70 s; 30 s is 1.5 Spike reloads; ×1.06 = one veterancy level (8v8 exchange 1.076; urban 2:1 with the whole assault buffed ×1.08: 63 → 72%). **E** (repair), **M** (accuracy); `fw-workshop-pk` |
+| N9 | build range / builders / D9 rate / start HP | 2 tiles / 2 / ×1.5 / 10% | reuses `DEMO_RANGE_SQ`; two builders halve the time |
+| N10 | refund | 100% site, unbuilt fraction after | no sell (§0); a 90%-built outpost refunds 35 |
+| N11 | allow-list max per type | 1 default, schema max 2 | 8 sites = 4 types × 2 = `MAX_SITES` |
+| N12a | militia clinic | 0.75%/s (25 raw), cap 1.0, delay 10 s, radius 3, HP 800 | weaker than the KDF station in rate and reach; ROE 6 stands |
+| N12b | militia firing position | +0.5 tile, no ROF, sight +1, `supp_cover` 3, HP 1,200 (300/tile), 3 slots | range 7.5 stays under the KDF rifle's 8; +1 is a cliff. **M**; depends on #280 |
+| N12c | militia OP | 1×1, sight 9, optics 1.2, HP 300, no tunnel radius | sight 9 = `sarim_rifles`, inside a Spike's 9, so the Tel Marum finding survives. **M**, `fw-op-saddle` |
+| N12d | militia weapons workshop | 0.75%/s (25 raw), components 45 s, ×1.06, radius 4, HP 1,200 | Rif technicals repaired slower than KDF armour; defenders ×1.08: urban unchanged. **M** |
+| N13 | aura cadence | 10 ticks | §7; ~360 tests a tick, under 1% of detection |
+| N14 | works unlock (credits) | none in v1 | the engineer is already the gate (`demo_squad` Conduct 77 / 360; D9 87 / 560) |
 
 **Interaction with the harnesses.** The §5.7 targets are unaffected: `pnpm balance` names six unit
 ids and no structures, so it must stay byte-identical through S1–S8. `pnpm playtest` is
@@ -448,21 +502,29 @@ byte-identical until S9, because no shipped mission lists `field_works` or a mil
 each adopting mission re-runs its plan ladder (`playtest` agent), and the endure-clock band
 (0.70–1.00 of target, CLAUDE.md) is the check for footholds: a medic station that turns a
 survive-until into a walkover shows as a passive plan winning. **Probes** (`tools/src/backtest/
-field-works-probes.ts`, S8): (a) a 1:1 and 2:1 urban assault with and without a medic station
-behind the attacker (does 2:1 cross the 3:1 line?); (b) an outpost of 3 `inf_squad` against the
-§5.7 urban defender numbers; (c) Tel Marum's saddle price with a militia OP at the best post
-(§5); (d) a workshop vs the ATGM Pk ≈ 0.7 target (repair must not undo a kill: `destroy` is
-final, only mobility/firepower kills return). Bands set from baselines at G-NUM, never after.
-*Mission difficulty must be measured*: losses compound by design, and a medic station is a
-direct lever on that compounding.
+field-works-probes.ts`, S8), bands fixed from the baselines at G-NUM, never after:
+- `fw-medic-lull` (a): 1:1 and 2:1 urban with and without a station behind the attacker, with a
+  scripted fall-back, plus a `hold_for` wave replay; 2:1 stays ≤ 85% and ≥ 15 pp under 3:1.
+- `fw-garrison-supp`: a 2×2 garrison fires (kills > 0) against a raid; a regression pin for #280.
+- `fw-outpost-raid` (b): light and heavy raid against 3 `inf_squad`; heavy hold 40–80% (measured 63%).
+- `fw-fp-assault`: 4 inf + mortar and 4 inf + AT against the firing position; the AT arm falls ≥ 80%.
+- `fw-urban-garrisoned`: urban ratio with the militia bonus on all defenders passes §5.7 (0/42/100/100).
+- `fw-op-saddle` (c): Tel Marum's saddle price with a militia OP at the best post (§5).
+- `fw-workshop-pk` (d): per 100 Spike penetrations, how many hulls fight again within 120 s with a
+  workshop at 3 and at 12 tiles; `destroy` stays final, only mobility/firepower kills return.
+- `fw-tunnel-radius`: the walk of every flat pad, as a test that no allow-listed mission has a
+  safe pad covering a route a primary needs.
+
+*Mission difficulty must be measured*: losses compound by design, and a medic station is a direct
+lever on that compounding.
 
 ## 10. Phasing
 
 **October — no sim change** (lane B / C design):
 - **D1** this spec, GH-115/GDD §10 and §4 wording (§0), HANDOVER line. Docs PR.
-- **D2** G-NUM: `balance-analyst` reviews §9 against the economy anchors; lead approves.
-- **D3** G-MOCK: a static placement mock (ghost pad, valid/invalid tints, radius, dock group,
-  unit-card chip) as an artifact for the lead; no app code.
+- **D2** G-NUM: `balance-analyst` reviews §9 against the economy anchors; lead approves. **Done 29 Sep.**
+- **D3** G-MOCK: a static placement mock (pad, valid/invalid tints, radius, dock group, unit-card
+  chip) for the lead; no app code. **Done 29 Sep: treatment B.**
 - **D4** Meshy estimate to the lead (§8), then batches after the October credits; Blender
   construction and wreck states; `validate:meshes` green. Meshes land UNWIRED (no
   `structures.json` entry yet), so nothing reads a field no sim reads.
@@ -473,23 +535,28 @@ also extends per-structure SoA:
 - **S2** measure `recomputeFields` at a full pool; lazy invalidation if needed; `removeStructure`.
 - **S3** `construct` command, site table, staking, progress, cancel/refund, `placementReason`,
   `canConstruct`; `requestConstruct`; the vent-under-structure fix (Q7).
-- **S4** `aura` parse, `stepAuras`, regen/repair/component/accuracy hooks, garrison bonuses.
+- **S4** `aura` parse, `stepAuras`, regen/repair/component/accuracy hooks, garrison bonuses
+  (range, sight, `supp_cover`; the garrison half waits on #280).
 - **S5** sensor: detection observer, tunnel identification path, `observerStructure`.
-- **S6** schemas, `structures.json`, `field_works`, `structures[].side`, `validate_data.mjs`.
+- **S6** schemas, `structures.json`, `field_works`, `structures[].side`, `validate_data.mjs`
+  (including the no-intel-centre-with-tunnels rule).
 - **S7** app: dock group, placement flow, aura ring, card chip, feed, `&works`; render:
-  construction state, fog `extraObservers`, mesh wiring.
+  construction state, fog `extraObservers`, mesh wiring, the dashed-arc overlay primitive (§6).
 - **S8** probes (§9) and bands.
 - **S9** missions adopt, with `mission-author` and `playtest`.
 
 **Risks.** R1 the recompute spike (§2), unmeasured today for collapse too. R2 medic and workshop
-blunt the "losses compound" design; the radius, delay and caps are the brakes, measured by S8.
-R3 component repair weakens §5.4's mobility/firepower kills; 20 s undamaged is the brake. R4
+blunt the "losses compound" design; the radius, the 10 s delay and the caps are the brakes,
+measured by S8. R3 component repair weakens §5.4's mobility/firepower kills; 30 s undamaged is
+the brake. R4
 chokepoint sealing if rule 4 is dropped. R5 a militia OP silently reprices Tel Marum (§5). R6
 hash churn from E6 and FW both touching structure SoA: one stream, one determinism review. R7 no
 Pixi path for the new types. R8 building works on engineers who are locked in a fresh campaign
 (`demo_squad` gate: Conduct 77 or 360 credits); a mission listing works must field one.
 
 ## 11. Open questions (each with a recommended default)
+
+Questions the 29 Sep gates answered are marked **answered**; the rest stay open.
 
 | # | question | default |
 |---|---|---|
@@ -500,11 +567,12 @@ Pixi path for the new types. R8 building works on engineers who are locked in a 
 | Q5 | Refuse a footprint that splits the open ground (chokepoint seal)? | yes for buildings; barriers (#73) opt out |
 | Q6 | Footprint elevation tolerance | 0 (flat pad) in v1 |
 | Q7 | A tunnel vent under a structure | allowed (no info leak); fighters surface at `exitTile` |
-| Q8 | Militia field clinic ROE | 6 (as `clinic`), not protected |
+| Q8 | Militia field clinic ROE | 6 (as `clinic`), not protected. **Answered (G-NUM): stands** |
 | Q9 | Intel centre also generates intel (GDD §3's "SIGINT structure ~12/min")? | no: #73's "a structure that produces anything" line |
 | Q10 | Structure-sourced contact/tunnel events | `observer: -1` + `observerStructure`; objective contribution credits nobody |
 | Q11 | KDF works palette-painted, militia works textured | yes |
-| Q12 | `field_works` shape: list or type → max count | type → max count, absent = none |
+| Q12 | `field_works` shape: list or type → max count | type → max count, absent = none. **Answered (G-NUM): default 1, max 2; no intel centre where `digs`/`in_tunnel` are authored** |
 | Q13 | Can a KDF work be pre-placed by a mission (a FOB)? | yes: `structures[]` with a `kdf_*` type |
 | Q14 | Owned structures known to the enemy by sight latch, or always | sight latch |
 | Q15 | Enemy AI targets works deliberately (trigger `do`)? | no new verb in v1; the fallback slot only |
+| Q16 | Garrison suppression cover: a `garrison.supp_cover` field, or a sim-wide rule that occupants read their structure's protection? | #280 decides (Stage 4); FW reads the field either way. **Answered by ruling: garrisons depend on #280** |
