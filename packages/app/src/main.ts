@@ -1627,6 +1627,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let evacuatedSoFar = 0;
   /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
   const civWatch = refugeAt ? new CivFlightWatch() : null;
+  /** `sim.entityCount` at the watch's last observation. */
+  let civWatchSeen = -1;
   /**
    * Null until the player deploys (shell Phase 3, Task 4; plan R-5). The
    * runtime copies its roster pool at construction (`mission.ts:550`) and
@@ -4293,7 +4295,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before this), so the suppression recorded now is the suppression the
     // rule saw -- `CivFlightWatch` reads the cause one observation back.
     // Read-only: `sim.state` in, a feed line out (invariant 4).
-    if (civWatch && refugeAt) {
+    //
+    // Skipped once the watch is idle -- every civilian latched or dead, no line
+    // waiting -- and nothing new has been spawned since: only a new entity can
+    // wake it, and without this a finished evacuation built one observation
+    // per civilian per tick for the rest of the mission.
+    if (civWatch && refugeAt && !(civWatch.idle && sim.entityCount === civWatchSeen)) {
+      civWatchSeen = sim.entityCount;
       const st = sim.state;
       const civs: CivObservation[] = [];
       for (let i = 0; i < sim.entityCount; i++) {

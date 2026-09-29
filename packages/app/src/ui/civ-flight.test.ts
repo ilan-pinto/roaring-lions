@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CivFlightWatch, FLIGHT_COOLDOWN_TICKS, FLIGHT_GATHER_TICKS, type CivObservation } from './civ-flight';
+import {
+  CivFlightWatch,
+  FLIGHT_COOLDOWN_TICKS,
+  FLIGHT_GATHER_CAP_TICKS,
+  FLIGHT_GATHER_TICKS,
+  type CivObservation,
+} from './civ-flight';
 import { alertNotice } from './mission-notice';
 
 /** A civilian sheltering in place at (x, 10). */
@@ -65,6 +71,18 @@ describe('CivFlightWatch — the break', () => {
     });
   });
 
+  // The header's rule, strictly: suppression that lands in the SAME tick the
+  // order does is not what the rule saw, so a family walked out by a soldier
+  // and shot at on her first step is still the soldier's.
+  it('does not read the cause off the observation that saw the move', () => {
+    const w = new CivFlightWatch();
+    const lines = run(w, [
+      [civ(1)],
+      ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { moving: true, suppressed: true })]),
+    ]);
+    expect(lines.map((l) => l.notice.cause)).toEqual(['troops']);
+  });
+
   it('counts a family that boarded a carrier as a break', () => {
     const w = new CivFlightWatch();
     const lines = run(w, [[civ(1)], ...repeat(FLIGHT_GATHER_TICKS + 1, () => [civ(1, { carried: true })])]);
@@ -105,7 +123,7 @@ describe('CivFlightWatch — the throttle', () => {
   it('a village of twenty breaking inside the gather window is ONE line', () => {
     const w = new CivFlightWatch();
     const ids = repeat(20, (i) => i);
-    const frames = repeat(FLIGHT_GATHER_TICKS + 10, (t) => ids.map((id) => civ(id, { moving: t > id })));
+    const frames = repeat(FLIGHT_GATHER_TICKS + 30, (t) => ids.map((id) => civ(id, { moving: t > id })));
     const lines = run(w, [ids.map((id) => civ(id)), ...frames]);
     expect(lines).toHaveLength(1);
     expect(lines[0].notice.count).toBe(20);
@@ -137,6 +155,28 @@ describe('CivFlightWatch — the throttle', () => {
     ]);
   });
 
+  // Review finding 2: a squad at a walk sets families off a second or two
+  // apart. A fixed 1.5 s window split a 3 s ripple into two lines ten
+  // seconds apart; a sliding one keeps it one.
+  it('a ripple spread over three seconds is still one line', () => {
+    const w = new CivFlightWatch();
+    const breakAt = [1, 21, 41, 61]; // every second, for three seconds
+    const frames = repeat(61 + FLIGHT_GATHER_TICKS + 5, (t) => breakAt.map((b, i) => civ(i, { moving: t >= b })));
+    const lines = run(w, frames);
+    // Said when the slide or the cap closes it, whichever is first -- and once.
+    const said = Math.min(61 + FLIGHT_GATHER_TICKS, 1 + FLIGHT_GATHER_CAP_TICKS);
+    expect(lines.map((l) => [l.tick, l.notice.count])).toEqual([[said, 4]]);
+  });
+
+  it('stops sliding at the cap, so the family that opened it is not kept waiting', () => {
+    const w = new CivFlightWatch();
+    // A break every 20 ticks, indefinitely: the slide alone would never close.
+    const breakAt = repeat(12, (i) => 1 + i * 20);
+    const frames = repeat(240, (t) => breakAt.map((b, i) => civ(i, { moving: t >= b })));
+    const lines = run(w, frames);
+    expect(lines[0].tick).toBe(1 + FLIGHT_GATHER_CAP_TICKS);
+  });
+
   it('a mixed batch is called fire -- the louder fact', () => {
     const w = new CivFlightWatch();
     const lines = run(w, [
@@ -146,6 +186,56 @@ describe('CivFlightWatch — the throttle', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0].notice.cause).toBe('fire');
     expect(lines[0].notice.count).toBe(2);
+  });
+});
+
+describe('CivFlightWatch — where the line points', () => {
+  // Review finding 4: a batch held through the cooldown is said up to ten
+  // seconds after the break, by which time she has run several tiles.
+  it('points at where the first family is NOW, not where she broke', () => {
+    const w = new CivFlightWatch();
+    const firstSaid = 1 + FLIGHT_GATHER_TICKS;
+    const held = firstSaid + 20;
+    const frames = repeat(firstSaid + FLIGHT_COOLDOWN_TICKS + 1, (t) => [
+      civ(1, { moving: t >= 1 }),
+      // Breaks at `held`, then runs 0.04 tiles a tick towards the refuge.
+      civ(2, { moving: t >= held, x: 2.5 + Math.max(0, t - held) * 0.04 }),
+    ]);
+    const lines = run(w, frames);
+    const second = lines[1];
+    expect(second.notice.count).toBe(1);
+    expect(second.notice.at.x).toBeCloseTo(2.5 + (second.tick - held) * 0.04, 6);
+    expect(second.notice.at.x).toBeGreaterThan(2.5 + 5);
+  });
+
+  it('falls back to where she broke when she is no longer on the map', () => {
+    const w = new CivFlightWatch();
+    const lines = run(w, [
+      [civ(1)],
+      [civ(1, { moving: true })],
+      ...repeat(FLIGHT_GATHER_TICKS, () => [civ(1, { alive: false, x: 40 })]),
+    ]);
+    expect(lines[0].notice.at).toEqual({ x: 1.5, y: 10.5 });
+  });
+});
+
+describe('CivFlightWatch — idle', () => {
+  // Review finding 5: `main.ts` skips building observations while this holds.
+  it('is idle only once every civilian is latched or dead and nothing waits to be said', () => {
+    const w = new CivFlightWatch();
+    expect(w.idle).toBe(false); // never observed
+    w.observe([civ(1), civ(2)], 0);
+    expect(w.idle).toBe(false); // two sheltering
+    w.observe([civ(1, { moving: true }), civ(2, { alive: false })], 1);
+    expect(w.idle).toBe(false); // a line is pending
+    for (let t = 2; t <= 1 + FLIGHT_GATHER_TICKS; t++) w.observe([civ(1, { moving: true }), civ(2, { alive: false })], t);
+    expect(w.idle).toBe(true);
+  });
+
+  it('a buried civilian keeps it awake -- she may surface', () => {
+    const w = new CivFlightWatch();
+    w.observe([civ(1, { buried: true })], 0);
+    expect(w.idle).toBe(false);
   });
 });
 
