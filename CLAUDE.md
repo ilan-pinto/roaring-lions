@@ -651,7 +651,7 @@ yours; each one records what the next phase inherits.
   `pnpm validate:ui` and `pnpm validate:assets` are unchanged.
 - **`units/render-order.ts` is the single source of truth for every
   `renderOrder`.** Read it before setting one. Bands are: **-1 world (mesh
-  buildings)**, 0 hull/structures, 1 turret, 1.5 badge numeral, 2 FX,
+  buildings)**, 0 hull/structures, 0.5 selection ring, 1 turret, 1.5 badge numeral, 2 FX,
   2.5 FX additive, 3 FX-above, 3.5 FX-above additive, 4 overlays, 5 smoke,
   **6 occlusion silhouette**, 7-9 reserved. **Band 10 is retired** — fog of
   war was `FogMesh`, one black quad per unseen tile at the top band, and it is
@@ -1351,6 +1351,26 @@ yours; each one records what the next phase inherits.
   judged on how it looks in three, not on cross-backend agreement. Capture conditions must be stated with any number from it — a
   first run read 6.5× higher purely from screenshot downscaling and a font-load
   race, and the OS mouse cursor is shared across tabs and can leak into a capture.
+- **Selection is a ground ring, and HP bars are conditional (A4, GH-186).**
+  The ring is `units/selection-ring.ts`: one mesh at order 0.5, depth-tested but
+  not depth-writing, drawn in team colour via `teamColors[side]` (so it follows
+  colour-vision variants) with a `shadow.1` halo. Ground vehicles get a
+  hull-aligned ellipse centred on the hull box (`ELLIPSE_BY_TYPE`); everything
+  else gets a circle (`RADIUS_BY_TYPE`). **Both tables are GENERATED** by
+  `tools/src/perf/unit-footprints.ts` -- never hand-edit them. `dozer_d9` is
+  forced to `light` by `RING_CLASS_OVERRIDE`. Grid tiers are 4x4, then 6x6 above
+  0.72 tile, then 7x7 above 1.28; those thresholds were LOWERED until a ring at
+  either boundary buries under 0.02 wu (`ring_burial.test.ts`) -- do not widen
+  the 0.02. Rings are cached per slot, keyed by entity id, and rebuilt after
+  0.05 tile of movement or 2 degrees of turn; `refreshSurface` invalidates the
+  cache. Moving rings on relief cost about 0.9 ms per 100 -- the lead accepted
+  it ("Cache + accept", `docs/PERFORMANCE.md`). The fallback flat ring
+  (garrisoned units, or overflow) keeps the group colour. The `overlays` debug
+  layer hides `selectionRingGroup`, never the mesh. HP bars draw only for a
+  unit that is damaged, selected or hovered, with a 1 px `shadow.1` frame at
+  alpha 1.0. **Captures ASSERT no selection and no hover**, so no gated
+  scenario photographs a ring or a hover bar: the ring has no gate witness, by
+  ruling.
 
 ### Mesh units
 

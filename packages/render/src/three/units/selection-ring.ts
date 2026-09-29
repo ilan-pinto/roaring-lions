@@ -4,7 +4,8 @@
  *
  * One non-instanced `THREE.Mesh`, rewritten every frame: `beginFrame`, one
  * `push` per selected unit, `endFrame`. Each ring is an `n = 4` conforming
- * grid -- `n = 6` for a large one (`RING_GRID_LARGE`, Task 5) -- placed by
+ * grid -- `n = 6` above 0.72 tile (`RING_GRID_LARGE`) and `n = 7` above 1.28
+ * (`RING_GRID_XL`) -- placed by
  * `writeDecalGrid` -- the decal pool's PURE maths, not the
  * pool itself, whose sim-time-dated ring buffer and multiply blend are both
  * wrong for a bright mark rewritten every frame (spec sec 1) -- so a ring
@@ -350,8 +351,9 @@ export class SelectionRingBatch {
    * both regions, [large, small]. A push whose key, shape and grid match its
    * slot's entry, within `RING_CACHE.moveTiles` and `RING_CACHE.turnRad` of
    * that build, skips `writeDecalGrid` -- the height samples are the whole
-   * cost of a ring, and on relief the bicubic field makes them five times
-   * dearer than on flat ground. It works because `updateOverlays` walks
+   * cost of a ring, and on relief the bicubic field makes them about 4.7
+   * times dearer than flat ground (0.91 vs 0.194 ms per 100 moving rings,
+   * docs/PERFORMANCE.md). It works because `updateOverlays` walks
    * entities in id order, so a stable selection lands each unit in the same
    * slot frame after frame; a unit that lands elsewhere simply rebuilds.
    */
