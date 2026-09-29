@@ -990,3 +990,20 @@ export class ChevronBatch {
     this.texture?.dispose();
   }
 }
+
+/**
+ * A4 (GH-186): an HP bar draws only for a unit that is damaged, selected or
+ * hovered. Q16.16 values are compared RAW: converting through `toNumber` and
+ * adding a tolerance would hide the smallest hit, which is still damage.
+ * Scalar arguments rather than an input object: it is called once per unit
+ * per frame, and an object literal there is an allocation per unit per frame.
+ */
+export function hpBarVisible(
+  hpRaw: number,
+  maxHpRaw: number,
+  selected: boolean,
+  hostileHover: boolean,
+  friendlyHover: boolean
+): boolean {
+  return hpRaw < maxHpRaw || selected || hostileHover || friendlyHover;
+}

@@ -190,7 +190,12 @@ async function captureAttempts(
     pageErrors.length = 0;
     try {
       await page.goto(url, { waitUntil: 'load', timeout: 40_000 });
-      if (needsDeploy) await dismissDeployGate(page, label);
+      if (needsDeploy) {
+        await dismissDeployGate(page, label);
+        // Move the real pointer off the spot the deploy button was at; the
+        // capture script then parks the app's own hover (PARK_POINTER_STATEMENTS).
+        await page.mouse.move(0, 0);
+      }
       // The options bag is the THIRD argument -- the second is `arg`, the
       // value handed to the page function. Passed as the second, `{ timeout:
       // 25_000 }` was serialised into the page as an unused argument and the

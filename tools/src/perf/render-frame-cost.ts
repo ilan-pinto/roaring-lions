@@ -7,6 +7,14 @@
  * Run against a dev server you started yourself:
  *   npx tsx tools/src/perf/render-frame-cost.ts http://127.0.0.1:5178 '?sandbox=beit_sahwan_outskirts&sur&civ'
  *
+ * `--select-all` (anywhere in the arguments; A4, GH-186) selects every living
+ * side-0 unit through `__lions.sel` before timing, so the selection's own
+ * per-frame cost -- the ground rings, and the HP bars and range envelopes a
+ * selection also draws -- is inside the figures. Run once with and once
+ * without it and difference the two. Each view also prints its draw calls
+ * (`renderer.info.render.calls` over one `frame()`), so the ring's promise of
+ * exactly one extra draw call while anything is selected can be read off.
+ *
  * The optional third argument is the CSS viewport, `WIDTHxHEIGHT`, default
  * `1440x900`. It exists for one job: the drawing buffer is that times the
  * renderer's pixel ratio (capped at 2), so doubling it quadruples the fill.
@@ -71,8 +79,11 @@
  */
 import { chromium } from 'playwright';
 
-const [base = 'http://127.0.0.1:5178', query = '?sandbox=beit_sahwan_outskirts&sur&civ', size = '1440x900'] =
-  process.argv.slice(2);
+const args = process.argv.slice(2);
+const selectAll = args.includes('--select-all');
+const [base = 'http://127.0.0.1:5178', query = '?sandbox=beit_sahwan_outskirts&sur&civ', size = '1440x900'] = args.filter(
+  (a) => !a.startsWith('--')
+);
 const [viewportWidth, viewportHeight] = size.split('x').map(Number);
 if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) {
   throw new Error(`third argument must be WIDTHxHEIGHT, got ${JSON.stringify(size)}`);
@@ -107,6 +118,19 @@ const buffer = await page.evaluate(() => {
   return `${L.renderer.canvas.width}x${L.renderer.canvas.height}`;
 });
 console.log(`drawing buffer: ${buffer} (css ${viewportWidth}x${viewportHeight})`);
+if (selectAll) {
+  // Scaffolding, not the thing under test: `sel` is how a harness puts N
+  // units in the selection without N clicks.
+  const n = await page.evaluate(() => {
+    const L = (window as unknown as {
+      __lions: { sel(ids: number[]): number[]; units(side?: number): { id: number }[] };
+    }).__lions;
+    return L.sel(L.units(0).map((u) => u.id)).length;
+  });
+  console.log(`selected: ${n} (--select-all)`);
+} else {
+  console.log('selected: 0');
+}
 for (const [x, y, zoom] of VIEWS) {
   const stats = await page.evaluate(([cx, cy, cz]) => {
     const L = (window as unknown as {
@@ -121,6 +145,18 @@ for (const [x, y, zoom] of VIEWS) {
     const times: number[] = [];
     const wall: number[] = [];
     for (let i = 0; i < 30; i++) L.renderer.frame(1, 16);
+
+    // Draw calls over ONE frame. `info` resets per `render()` call by
+    // default, and a frame is several (the post chain), so it is summed by
+    // hand with the auto-reset off and restored after.
+    const info = (L.renderer as unknown as { renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number } } } })
+      .renderer.info;
+    const autoReset = info.autoReset;
+    info.autoReset = false;
+    info.reset();
+    L.renderer.frame(1, 16);
+    const calls = info.render.calls;
+    info.autoReset = autoReset;
 
     // The renderer's OWN canvas, by its public accessor -- not the biggest
     // canvas in the document, which would be a guess. `getContext` on a
@@ -161,11 +197,11 @@ for (const [x, y, zoom] of VIEWS) {
     }
     wall.sort((a, b) => a - b);
     times.sort((a, b) => a - b);
-    return { median: times[120], p95: times[228], wallMedian: wall[60], wallP95: wall[114] };
+    return { median: times[120], p95: times[228], wallMedian: wall[60], wallP95: wall[114], calls };
   }, [x, y, zoom]);
   console.log(
     `view (${x},${y}) zoom ${zoom}: cpu median ${stats.median.toFixed(2)} ms, cpu p95 ${stats.p95.toFixed(2)} ms, ` +
-      `gpu median ${stats.wallMedian.toFixed(2)} ms, gpu p95 ${stats.wallP95.toFixed(2)} ms`
+      `gpu median ${stats.wallMedian.toFixed(2)} ms, gpu p95 ${stats.wallP95.toFixed(2)} ms, draw calls ${stats.calls}`
   );
 }
 await browser.close();

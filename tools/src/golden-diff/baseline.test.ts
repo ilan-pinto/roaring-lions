@@ -48,7 +48,15 @@ import {
   specFor,
 } from './baseline';
 import { computeDiff, type DiffSummary } from './diff';
-import { CAPTURE_VIEWPORT, RELIEF_SCENARIO, SCENARIOS, layerToggleScript } from './capture-protocol';
+import {
+  CAPTURE_PRECONDITION_STATEMENTS,
+  PARK_POINTER_STATEMENTS,
+  CAPTURE_VIEWPORT,
+  RELIEF_SCENARIO,
+  SCENARIOS,
+  captureScript,
+  layerToggleScript,
+} from './capture-protocol';
 
 function summary(over: Partial<DiffSummary>): DiffSummary {
   return {
@@ -971,3 +979,45 @@ function debugLayersFromRendererSourceForTone(): string[] {
   return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
 }
 
+
+describe('capture precondition: no selection, no hover (GH-186)', () => {
+  const run = (r: Record<string, unknown>): void => {
+    new Function('window', CAPTURE_PRECONDITION_STATEMENTS)({ __lions: { renderer: r } });
+  };
+  const clean = { selection: [], hoverEntity: -1, rangeRingPreview: -1 };
+
+  it('passes on a clean renderer, and when rangeRingPreview is absent', () => {
+    expect(() => run(clean)).not.toThrow();
+    expect(() => run({ selection: [], hoverEntity: -1 })).not.toThrow();
+  });
+  it('throws a named error for a selection, a hostile hover and a range-ring preview', () => {
+    expect(() => run({ ...clean, selection: [3] })).toThrow(/capture precondition violated: renderer.selection/);
+    expect(() => run({ ...clean, hoverEntity: 7 })).toThrow(/capture precondition violated: renderer.hoverEntity/);
+    expect(() => run({ ...clean, rangeRingPreview: 2 })).toThrow(
+      /capture precondition violated: renderer.rangeRingPreview/
+    );
+  });
+  it('parks the pointer before the final step, for mission scenarios only', () => {
+    let missions = 0;
+    for (const sc of SCENARIOS) {
+      const script = captureScript(sc);
+      if (sc.mission !== undefined) {
+        missions++;
+        const at = script.indexOf(PARK_POINTER_STATEMENTS);
+        expect(at).toBeGreaterThan(-1);
+        expect(at).toBeLessThan(script.lastIndexOf('.step('));
+        expect(at).toBeLessThan(script.indexOf(CAPTURE_PRECONDITION_STATEMENTS));
+      } else {
+        expect(script).not.toContain(PARK_POINTER_STATEMENTS);
+      }
+    }
+    expect(missions).toBeGreaterThan(0);
+  });
+  it('is part of every scenario capture script, after the final step', () => {
+    for (const sc of SCENARIOS) {
+      const script = captureScript(sc);
+      const at = script.indexOf(CAPTURE_PRECONDITION_STATEMENTS);
+      expect(at).toBeGreaterThan(script.lastIndexOf('.step('));
+    }
+  });
+});

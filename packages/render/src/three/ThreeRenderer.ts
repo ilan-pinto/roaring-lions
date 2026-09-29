@@ -435,7 +435,11 @@ import {
   CHARGE_RING_FILL_FALLBACK_COLOR,
   tileRadiusToEllipsePx,
   cachedDesaturate,
+  cachedHexToLinear,
+  hpBarVisible,
 } from './units/overlays';
+import { ELLIPSE_BY_TYPE, HP_BAR, RING_CLASS_OVERRIDE, ringClassOf, ringRadiusFor } from './units/readability';
+import { SelectionRingBatch } from './units/selection-ring';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -1400,6 +1404,31 @@ export class ThreeRenderer implements Renderer {
   private readonly decalMaterial: THREE.ShaderMaterial;
   private readonly decalsPersistent: DecalPool;
   private readonly decalsFading: DecalPool;
+  /**
+   * A4 (GH-186): the selection ring, ON the ground in team colour
+   * (`units/selection-ring.ts`) -- a circle at the type's radius, or for a
+   * ground vehicle a hull-aligned ellipse (`ELLIPSE_BY_TYPE`, G-MOCK).
+   * `updateOverlays` rewrites it every frame. It sits under its own GROUP so
+   * the `overlays` debug layer can hide it: `endFrame` re-asserts the MESH's
+   * `visible` every frame (that is how an empty selection costs no draw
+   * call), so hiding the mesh itself would be undone by the next repaint --
+   * the `updateVehicleMeshes` trap -- while nothing per-frame writes the
+   * group's.
+   */
+  private readonly selectionRing: SelectionRingBatch;
+  private readonly selectionRingGroup = new THREE.Group();
+  /** `push`'s placement, reused for every ring every frame: no per-unit
+   *  object literal in the overlay loop. `color` is `cachedHexToLinear`'s own
+   *  memoised tuple, never a fresh one. */
+  private readonly ringScratch: {
+    x: number;
+    z: number;
+    radiusTiles: number;
+    color: readonly [number, number, number];
+    alongTiles: number | undefined;
+    acrossTiles: number | undefined;
+    headingRad: number | undefined;
+  } = { x: 0, z: 0, radiusTiles: 0, color: [0, 0, 0], alongTiles: undefined, acrossTiles: undefined, headingRad: undefined };
   /** `stampGroundDecal`'s two samplers, built once rather than per stamp:
    *  the height a decal grid vertex takes, and R-19's terrace test for the
    *  decal's CENTRE. Both read `this.retained.elevation` at CALL time, so a
@@ -2271,6 +2300,14 @@ export class ThreeRenderer implements Renderer {
       renderOrder: DECAL_FADING_RENDER_ORDER,
       material: this.decalMaterial,
     });
+    // The ring's halo is `shadow.1`, resolved through `overlayColor` like
+    // every other overlay colour and converted by `cachedHexToLinear`, so
+    // `endFrame`'s once-a-frame read parses no hex.
+    this.selectionRing = new SelectionRingBatch({
+      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+    });
+    this.selectionRingGroup.name = 'selection-ring-layer';
+    this.selectionRingGroup.add(this.selectionRing.mesh);
     // The ground's macro field (spec 3.1, G4): built once, since it depends
     // on the map's size alone. Its hue pull resolves through `overlayColor`
     // exactly as the decals above do, and is `neutralTint`ed so it moves hue
@@ -2453,6 +2490,9 @@ export class ThreeRenderer implements Renderer {
     // pool is fixed-size and its mesh outlives every mark in it.
     this.scene.add(this.decalsPersistent.mesh);
     this.scene.add(this.decalsFading.mesh);
+    // The selection ring lies on the same ground, beside the decals; its
+    // band (`SELECTION_RING_RENDER_ORDER`) sits over the tread prints.
+    this.scene.add(this.selectionRingGroup);
     // `SMOKE_RENDER_ORDER` sits above the overlay tier -- see
     // `smoke-mesh.ts`'s own top comment. Scene-graph position is cosmetic
     // here for the identical reason it is for `trailMesh` (three.js
@@ -2884,6 +2924,7 @@ export class ThreeRenderer implements Renderer {
     this.decalsPersistent.dispose();
     this.decalsFading.dispose();
     this.decalMaterial.dispose();
+    this.selectionRing.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -3265,11 +3306,13 @@ export class ThreeRenderer implements Renderer {
         // `needsUpdate` flags, so nothing in the per-frame rebuild
         // re-asserts it the way fog visibility re-asserts a mesh unit's
         // `root.visible` every frame.
+        // The selection ring's GROUP, not its mesh: see `selectionRing`.
         const batchCount = setObjectsVisible(
           visible,
           this.overlayBatch.mesh,
           this.numeralBatch.mesh,
-          this.chevronBatch.mesh
+          this.chevronBatch.mesh,
+          this.selectionRingGroup
         );
         // The occlusion silhouette (band 6, `units/silhouette.ts`) is a
         // SEPARATE subsystem folded into this same name -- see
@@ -4929,6 +4972,8 @@ export class ThreeRenderer implements Renderer {
       this.sim.width,
       this.sim.height
     );
+    // The selection ring's cached grids were conformed to the old ground.
+    this.selectionRing.invalidate();
   }
   setDecor(decor: Uint8Array): void {
     this.retained.decor = decor;
@@ -7565,6 +7610,40 @@ export class ThreeRenderer implements Renderer {
     };
   }
 
+  /**
+   * One selected unit's ground ring (A4, GH-186): the type's own radius, or a
+   * ground vehicle's hull-aligned ellipse turned to the hull's heading --
+   * `fx.toNumber(st.facing)`, the value `updateVehicleMeshes` yaws the hull
+   * by, in `writeDecalGrid`'s `facingRad` convention the tread prints already
+   * use -- in the side's team colour, on the same smooth ground field the
+   * decals sample. false when the batch refuses it; the caller then draws the
+   * billboard fallback.
+   */
+  private pushSelectionRing(i: number, type: Sim['unitTypes'][number], x: number, z: number, side: number): boolean {
+    const p = this.ringScratch;
+    p.x = x;
+    p.z = z;
+    p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type));
+    p.color = cachedHexToLinear(this.opts.teamColors[side]);
+    const e = ELLIPSE_BY_TYPE[type.id];
+    if (e === undefined) {
+      p.alongTiles = undefined;
+      p.acrossTiles = undefined;
+      p.headingRad = undefined;
+    } else {
+      const heading = fx.toNumber(this.sim.state.facing[i]) * Math.PI * 2;
+      p.alongTiles = e.along;
+      p.acrossTiles = e.across;
+      p.headingRad = heading;
+      // Centred on the HULL, not the unit origin (fix round 1): the hull
+      // box's own centre sits `offsetAlong` tiles along the heading.
+      p.x = x + e.offsetAlong * Math.cos(heading);
+      p.z = z + e.offsetAlong * Math.sin(heading);
+    }
+    // The entity id keys the batch's position cache (fix round 1).
+    return this.selectionRing.push(p, this.decalSampleY, i);
+  }
+
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
    *  otherwise -- the identical optional-resolver shape `renderer.ts`'s own
    *  handful of `resolveColor`-through-a-ring-colour call sites already use
@@ -7697,6 +7776,7 @@ export class ThreeRenderer implements Renderer {
     this.overlayBatch.beginFrame();
     this.numeralBatch.beginFrame();
     this.chevronBatch.beginFrame();
+    this.selectionRing.beginFrame();
 
     const st = this.sim.state;
     const n = this.snapshottedCount;
@@ -7770,20 +7850,37 @@ export class ThreeRenderer implements Renderer {
       // push (`./unit-shadows.ts`, deleted) is now a redundant, wrong-looking
       // shadow next to the real one.
 
-      // HP bar -- renderer.ts: `g.rect(sx - 12, sy - r - 10, 24, 3).fill(...)`
-      // (background) then the same rect, width scaled by `hpRatio` (fill).
-      const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));
-      this.overlayBatch.rect(anchor, -12, -(r + 10), 12, -(r + 7), this.overlayColor(HP_BG_COLOR_KEY, '#14150F'), 0.8);
-      if (hpRatio > 0) {
+      // HP bar (A4, GH-186): only for a unit that is damaged, selected or
+      // hovered -- `hoverEntity` is the hostile hover, `rangeRingPreview`
+      // the friendly one. Fill colours are unchanged; the 1 px frame is new.
+      const selected = this.selection.includes(i);
+      if (hpBarVisible(st.hp[i], type.hp, selected, i === this.hoverEntity, i === this.rangeRingPreview)) {
+        const halfW = HP_BAR.widthPx / 2;
+        const top = -(r + 10);
+        const bottom = top + HP_BAR.heightPx;
+        const hpRatio = Math.max(0, fx.toNumber(st.hp[i]) / fx.toNumber(type.hp));
+        const bgColor = this.overlayColor(HP_BG_COLOR_KEY, '#14150F');
         this.overlayBatch.rect(
           anchor,
-          -12,
-          -(r + 10),
-          -12 + 24 * hpRatio,
-          -(r + 7),
-          this.overlayColor(hpBarColorKey(hpRatio), '#6B8A4A'),
-          1
+          -halfW - HP_BAR.framePx,
+          top - HP_BAR.framePx,
+          halfW + HP_BAR.framePx,
+          bottom + HP_BAR.framePx,
+          bgColor,
+          HP_BAR.frameAlpha
         );
+        this.overlayBatch.rect(anchor, -halfW, top, halfW, bottom, bgColor, 0.8);
+        if (hpRatio > 0) {
+          this.overlayBatch.rect(
+            anchor,
+            -halfW,
+            top,
+            -halfW + HP_BAR.widthPx * hpRatio,
+            bottom,
+            this.overlayColor(hpBarColorKey(hpRatio), '#6B8A4A'),
+            1
+          );
+        }
       }
 
       // Suppression bar -- renderer.ts: `g.rect(sx - 12, sy - r - 6, 24 *
@@ -7827,17 +7924,20 @@ export class ThreeRenderer implements Renderer {
         );
       }
 
-      // Control-group colour -- shared by the badge and the selection ring,
-      // exactly as renderer.ts's own comment says: "so a group reads as one
-      // formation instead of as a loose selection."
+      // Control-group colour -- the badge's, and the billboard fallback
+      // ring's below. The ground ring is TEAM colour (A4 Q1, G-MOCK).
       const grp = this.unitGroup[i];
       const groupColor =
         grp > 0 && this.opts.groupColors.length > 0 ? this.opts.groupColors[(grp - 1) % this.opts.groupColors.length] : '';
       const accentDefault = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
 
-      // Selection ring -- renderer.ts: `g.ellipse(sx, sy + 2, r + 7, (r + 7)
-      // / 2).stroke({ width: 2, color: groupColor || '#B8FF5A' })`.
-      if (this.selection.includes(i)) {
+      // Selection ring (A4, GH-186): on the ground, in team colour, for a
+      // unit standing on it. The old flat billboard ellipse -- renderer.ts:
+      // `g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color:
+      // groupColor || '#B8FF5A' })` -- stays for exactly two cases: a
+      // garrisoned unit, whose ring belongs on the ROOF it stands on (Q7),
+      // and a ring the batch refused (full, or an unusable axis).
+      if (selected && (inside >= 0 || !this.pushSelectionRing(i, type, ix, iy, side))) {
         const ringCenter = billboardPoint(anchor, 0, -2);
         this.overlayBatch.ellipseRing(ringCenter, r + 7, (r + 7) / 2, 2, groupColor || accentDefault, 1);
       }
@@ -7860,6 +7960,9 @@ export class ThreeRenderer implements Renderer {
         this.chevronBatch.push(billboardPoint(anchor, r + 4, r + 4), 0, 0, 12, 12, stripes);
       }
     }
+    // The ground rings pushed above, drawn in one call -- or none, and hidden,
+    // when nothing on open ground is selected.
+    this.selectionRing.endFrame(this.camera.zoom);
 
     // Building status: an integrity bar once a building has been hit, and a
     // pip per man inside -- renderer.ts's own comment: "you should be able

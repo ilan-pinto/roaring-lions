@@ -748,6 +748,38 @@ if (!window.__lionsCaptureFrozen) {
 }
 `.trim();
 
+/** The stated precondition of every gated capture, ASSERTED rather than hoped
+ *  for: nothing selected, no hostile hover, no friendly range-ring preview.
+ *  Since A4 (GH-186) an HP bar draws for a damaged, selected OR hovered unit
+ *  and a selection draws a ground ring, so a stray hover or selection at
+ *  capture time is a real picture difference, not noise. Run after the final
+ *  `step()` so it sees the state the screenshot will. Throws a named error in
+ *  the page, which surfaces as a capture failure. */
+export const CAPTURE_PRECONDITION_STATEMENTS = `
+{
+  const _r = window.__lions.renderer;
+  if (_r.selection.length !== 0) {
+    throw new Error('capture precondition violated: renderer.selection.length is ' + _r.selection.length + ', expected 0');
+  }
+  if (_r.hoverEntity !== -1) {
+    throw new Error('capture precondition violated: renderer.hoverEntity is ' + _r.hoverEntity + ', expected -1');
+  }
+  if ((_r.rangeRingPreview ?? -1) !== -1) {
+    throw new Error('capture precondition violated: renderer.rangeRingPreview is ' + _r.rangeRingPreview + ', expected -1');
+  }
+}
+`.trim();
+
+/** Parks the hover somewhere nothing lives, for `mission=` scenarios.
+ *  The deploy-gate clicks leave the cursor resting where the button was, which
+ *  is over the canvas once the loading screen goes; `updateHover` can then pick
+ *  a hostile (`hoverEntity`) or a friendly (`rangeRingPreview`) and the
+ *  precondition below throws, so the report-only `combat` capture is dropped.
+ *  Runs the app's REAL hover read at a tile far off the map. It must come
+ *  BEFORE the final `step()`, whose paint is the frame the screenshot sees,
+ *  and the precondition is still asserted afterwards, unrelaxed. */
+export const PARK_POINTER_STATEMENTS = `window.__lions.hover(-1000, -1000);`;
+
 /** The same freeze as a standalone expression a `page.evaluate` can run on its
  *  own, returning the sim tick it froze at. */
 export const FREEZE_FRAME_LOOP_SCRIPT = `(async () => {
@@ -838,10 +870,12 @@ export function captureScript(scenario: Scenario = QUIET_SCENARIO): string {
         scenario.orders.commands.join('\n') +
         '\n'
       : '';
+  const parkLine = scenario.mission !== undefined ? `${PARK_POINTER_STATEMENTS}\n` : '';
   return `(async () => {
 ${FREEZE_FRAME_LOOP_STATEMENTS}
 ${gotoLine}
-${zoomLine}${ordersLine}${stepLine}
+${zoomLine}${ordersLine}${parkLine}${stepLine}
+${CAPTURE_PRECONDITION_STATEMENTS}
 const c = window.__lions.renderer.camera;
 const canvas = window.__lions.renderer.canvas;
 const r = canvas.getBoundingClientRect();

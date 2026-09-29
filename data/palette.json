@@ -142,7 +142,7 @@
       }
     },
     "group": {
-      "role": "RUNTIME ONLY. Control-group badge and selection ring, indexed by group slot 1-9. Never appears in static art.",
+      "role": "RUNTIME ONLY. Control-group badge, indexed by group slot 1-9. Since A4 (GH-186) it colours the badge only: the selection ring is team colour, and a group colour survives on a ring only in the flat billboard fallback (a garrisoned unit, or a full ring batch). Never appears in static art.",
       "note": "Nine hues separated around the wheel and held light enough that the badge's #14150F numeral stays legible at gameplay zoom. g1 keeps the lime the badge always used, so existing muscle memory survives. Deliberately avoids team.hostile, vfx.fire and team.neutral at close range: those already mean enemy, suppression and neutral on the same unit, and a badge that borrows them reads as state rather than membership.",
       "colors": {
         "g1": "#B8FF5A",
