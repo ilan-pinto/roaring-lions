@@ -17,7 +17,14 @@ import { units } from '../../../packages/data/src/index';
 import { unitTypeFromJson, type UnitTypeJson } from '../../../packages/sim/src/sim';
 import { MESH_SCALE } from '../../../packages/render/src/three/units/mesh-anim';
 import { RIGGED_UNIT_MESHES, VEHICLE_UNIT_MESHES } from '../../../packages/app/src/mesh-catalogue';
-import { RING_CLASS_OVERRIDE, ringClassOf, SELECTION_RING, type RingClass } from '../../../packages/render/src/three/units/readability';
+import {
+  ELLIPSE_PAD_TILES,
+  RING_CLASS_OVERRIDE,
+  ringClassOf,
+  SELECTION_RING,
+  type RingClass,
+  type RingEllipse,
+} from '../../../packages/render/src/three/units/readability';
 
 interface GltfNode {
   name?: string;
@@ -143,6 +150,13 @@ export interface Footprint {
   readonly halfDiagonalM: number;
   /** The same, in tiles (x MESH_SCALE). */
   readonly halfDiagonalTiles: number;
+  /** Half the X (forward, under the mesh contract) and Z extents, in tiles. */
+  readonly halfExtentXTiles: number;
+  readonly halfExtentZTiles: number;
+  /** The extent's centre in the GLB's own frame, in tiles: how far the box
+   *  sits off the unit's origin, which is where a ring is centred. */
+  readonly centreXTiles: number;
+  readonly centreZTiles: number;
   /** Static nodes left out by `include` (WRECK_/death nodes are always left out, unlisted). */
   readonly excluded: string[];
 }
@@ -235,7 +249,17 @@ export function footprintOf(gltf: GltfJson, bin: Uint8Array | null = null, opts:
   const extentX = maxX - minX;
   const extentZ = maxZ - minZ;
   const halfDiagonalM = Math.hypot(extentX / 2, extentZ / 2);
-  return { extentX, extentZ, halfDiagonalM, halfDiagonalTiles: halfDiagonalM * MESH_SCALE, excluded };
+  return {
+    extentX,
+    extentZ,
+    halfDiagonalM,
+    halfDiagonalTiles: halfDiagonalM * MESH_SCALE,
+    halfExtentXTiles: (extentX / 2) * MESH_SCALE,
+    halfExtentZTiles: (extentZ / 2) * MESH_SCALE,
+    centreXTiles: ((minX + maxX) / 2) * MESH_SCALE,
+    centreZTiles: ((minZ + maxZ) / 2) * MESH_SCALE,
+    excluded,
+  };
 }
 
 /**
@@ -263,6 +287,9 @@ export interface FootprintRow {
   /** Hull half-diagonal in tiles; null when there is no GLB or the hull is inseparable. */
   readonly halfDiagonalTiles: number | null;
   readonly file: string | null;
+  /** The hull's half-extents (tiles) along and across, for a type drawn from
+   *  a VEHICLE GLB; null otherwise (figures, and no GLB at all). */
+  readonly vehicleHalfExtent: { readonly along: number; readonly across: number } | null;
   /** Parts left out of the measurement, and why a null was returned. */
   readonly excluded: string[];
   readonly note: string | null;
@@ -279,15 +306,17 @@ export function unitFootprintTable(): FootprintRow[] {
     const files = RIGGED_UNIT_MESHES[id]?.files ?? (vehicleFile ? [vehicleFile] : []);
     let best: number | null = null;
     let bestFile: string | null = null;
+    let vehicleHalfExtent: FootprintRow['vehicleHalfExtent'] = null;
     const excluded: string[] = [];
     for (const f of files) {
       const { json: gj, bin } = readGlb(readFileSync(resolve(ART, f)));
       const fp = footprintOf(gj, bin, { include: vehicleFile ? HULL_ONLY : undefined });
       for (const e of fp.excluded) if (!excluded.includes(e)) excluded.push(e);
       if (best === null || fp.halfDiagonalTiles > best) { best = fp.halfDiagonalTiles; bestFile = f; }
+      if (vehicleFile) vehicleHalfExtent = { along: fp.halfExtentXTiles, across: fp.halfExtentZTiles };
     }
     const note = HULL_INSEPARABLE[id] ?? null;
-    rows.push({ unit: id, ringClass, halfDiagonalTiles: note ? null : best, file: bestFile, excluded, note });
+    rows.push({ unit: id, ringClass, halfDiagonalTiles: note ? null : best, file: bestFile, vehicleHalfExtent, excluded, note });
   }
   return rows;
 }
@@ -297,6 +326,18 @@ export function radiusFor(row: FootprintRow, classRadii: Readonly<Record<RingCla
   const classValue = classRadii[row.ringClass];
   if (row.halfDiagonalTiles === null) return classValue;
   return Math.max(classValue, Math.ceil(1.15 * row.halfDiagonalTiles * 100 - 1e-9) / 100);
+}
+
+/**
+ * The G-MOCK ellipse for a row: a ground vehicle (a vehicle GLB, ring class
+ * `light` or `armour`) gets `round(half-extent + ELLIPSE_PAD_TILES, 0.01)` on
+ * each axis; anything else -- figures, air, no GLB -- gets null and keeps its
+ * circle. Rounded to NEAREST, as the mock was: the pad is already the margin.
+ */
+export function ellipseFor(row: FootprintRow): RingEllipse | null {
+  if (row.vehicleHalfExtent === null || (row.ringClass !== 'light' && row.ringClass !== 'armour')) return null;
+  const r2 = (v: number): number => Math.round((v + ELLIPSE_PAD_TILES) * 100) / 100;
+  return { along: r2(row.vehicleHalfExtent.along), across: r2(row.vehicleHalfExtent.across) };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -312,5 +353,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
   console.log('\nRADIUS_BY_TYPE = {');
   for (const r of rows) console.log(`  ${r.unit}: ${radiusFor(r, SELECTION_RING.radiusTiles).toFixed(2).replace(/0$/, '')},`);
+  console.log('}');
+  console.log('\nELLIPSE_BY_TYPE = {');
+  for (const r of rows) {
+    const e = ellipseFor(r);
+    if (e) console.log(`  ${r.unit}: { along: ${e.along}, across: ${e.across} },`);
+  }
   console.log('}');
 }

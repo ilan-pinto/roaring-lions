@@ -4,7 +4,8 @@
  *
  * One non-instanced `THREE.Mesh`, rewritten every frame: `beginFrame`, one
  * `push` per selected unit, `endFrame`. Each ring is an `n = 4` conforming
- * grid placed by `writeDecalGrid` -- the decal pool's PURE maths, not the
+ * grid -- `n = 6` for a large one (`RING_GRID_LARGE`, Task 5) -- placed by
+ * `writeDecalGrid` -- the decal pool's PURE maths, not the
  * pool itself, whose sim-time-dated ring buffer and multiply blend are both
  * wrong for a bright mark rewritten every frame (spec sec 1) -- so a ring
  * lies on bicubic ground and slopes exactly as a crater does. The fragment
@@ -52,8 +53,39 @@ import { SELECTION_RING } from './readability';
 import { SELECTION_RING_RENDER_ORDER } from './render-order';
 import { tileRadiusToEllipsePx } from './overlays';
 
-/** Vertices per side of a ring's conforming grid: 16 vertices, 18 tris. */
+/** Vertices per side of a SMALL ring's conforming grid: 16 vertices, 18 tris. */
 export const RING_GRID = 4;
+
+/**
+ * Vertices per side of a LARGE ring's grid (A4 Task 5): 36 vertices, 50 tris.
+ * Measured on every vehicle-standable open tile of `tel_marum` and
+ * `qarn_hadid` at eight headings: on the 4x4 grid a Namer's ellipse had part
+ * of its core UNDER the ground (more than 0.005 wu) at 3.9% / 5.0% of
+ * placements, worst 0.114 / 0.136 wu, and was photographed broken on
+ * tel_marum's shoulder -- a lift capped at `DECAL_LIFT_CAP` cannot pull a
+ * 1.5-tile chord out of a three-level slope. On this grid: 0.2% / 0.1%,
+ * worst 0.015 / 0.017 wu. A circle of 0.56 (the largest foot ring) is never
+ * buried on the 4x4 grid, so small rings keep it.
+ */
+export const RING_GRID_LARGE = 6;
+
+/** A ring whose larger semi-axis exceeds this many tiles is drawn on the
+ *  large grid. Every ground-vehicle ellipse (along >= 1.07) and the Peten's
+ *  0.9 circle (buried at 0.4% of placements on 4x4) are over it; every foot
+ *  ring (<= 0.58) is under it. */
+export const RING_LARGE_TILES = 0.75;
+
+/** The sag lattice the ring's lift is measured on (`writeDecalGrid`'s
+ *  `sagSteps`), coarser than the decals' `DECAL_SAG_STEPS` = 4: measured on
+ *  the same sweep, 2 buries exactly the same placements by exactly the same
+ *  worst amount on both grids (the lift is CAP-limited there, not
+ *  sample-limited), at under half the height samples per ring. */
+export const RING_SAG_STEPS = 2;
+
+/** The grid a ring with semi-axes `a`, `b` is drawn on. */
+export function ringGridFor(a: number, b: number): number {
+  return Math.max(a, b) > RING_LARGE_TILES ? RING_GRID_LARGE : RING_GRID;
+}
 
 type Rgb = readonly [number, number, number];
 
@@ -213,10 +245,11 @@ export interface GridScratch {
 }
 
 /**
- * Writes ring `slot`'s dynamic vertex data: positions (`writeDecalGrid`,
- * half-extents = semi-axes + halo + feather), the colour and the semi-axes,
- * each repeated on all `RING_GRID^2` vertices. Allocates nothing: `grid` is
- * the caller's scratch.
+ * Writes ring `slot`'s dynamic vertex data on an `n x n` grid: positions
+ * (`writeDecalGrid`, half-extents = semi-axes + halo + feather, sag lattice
+ * `RING_SAG_STEPS`), the colour and the semi-axes, each repeated on all
+ * `n^2` vertices. `slot` counts `n x n` slots from the start of the three
+ * arrays. Allocates nothing: `grid` is the caller's scratch.
  */
 export function writeRingAttributes(
   positions: Float32Array,
@@ -225,7 +258,8 @@ export function writeRingAttributes(
   slot: number,
   p: RingPlacement,
   sampleY: (x: number, z: number) => number,
-  grid: GridScratch
+  grid: GridScratch,
+  n: number = RING_GRID
 ): void {
   const a = p.alongTiles ?? p.radiusTiles;
   const b = p.acrossTiles ?? p.radiusTiles;
@@ -235,8 +269,8 @@ export function writeRingAttributes(
   grid.halfLength = a + extra;
   grid.halfWidth = b + extra;
   grid.facingRad = p.headingRad ?? 0;
-  writeDecalGrid(positions, slot, RING_GRID, grid, sampleY);
-  const verts = RING_GRID * RING_GRID;
+  writeDecalGrid(positions, slot, n, grid, sampleY, RING_SAG_STEPS);
+  const verts = n * n;
   const c3 = slot * verts * 3;
   const a2 = slot * verts * 2;
   for (let v = 0; v < verts; v++) {
@@ -253,22 +287,38 @@ interface UpdateRange {
   count: number;
 }
 
-/** Flags `[0, used)` of `attr` for upload through a range object reused every
+/** Flags vertices `[first, first + used)` of `attr` for upload through a range object reused every
  *  frame. Clearing first means a frame the renderer never drew cannot stack
  *  a second range; three consumes a lone range without mutating it. */
-function markUsed(attr: THREE.BufferAttribute, range: UpdateRange, used: number): void {
+function markUsed(attr: THREE.BufferAttribute, range: UpdateRange, first: number, used: number): void {
   attr.clearUpdateRanges();
-  range.start = 0;
+  range.start = first * attr.itemSize;
   range.count = used * attr.itemSize;
   attr.updateRanges.push(range);
   attr.needsUpdate = true;
 }
 
+const SMALL_VERTS = RING_GRID * RING_GRID;
+const LARGE_VERTS = RING_GRID_LARGE * RING_GRID_LARGE;
+const SMALL_INDICES = gridTriangles(RING_GRID) * 3;
+const LARGE_INDICES = gridTriangles(RING_GRID_LARGE) * 3;
+
+/**
+ * Two grid sizes, ONE draw call. The buffers hold `capacity` large slots and
+ * then `capacity` small ones, so either kind alone can fill the batch. Large
+ * rings are written from the END of their region backwards and small rings
+ * from the START of theirs forwards, so whatever mix a frame pushes, the used
+ * vertices -- and, through the static index buffer laid out the same way,
+ * the used indices -- are one contiguous run across the boundary: one draw
+ * range, one upload range per attribute. `capacity` bounds the TOTAL.
+ */
 export class SelectionRingBatch {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly axesAttr: THREE.BufferAttribute;
+  /** Per-region views on the three dynamic arrays, made once: [large, small]. */
+  private readonly views: readonly (readonly [Float32Array, Float32Array, Float32Array])[];
   private readonly capacity: number;
   private readonly resolveShadow: () => Rgb;
   private readonly grid: GridScratch = { cx: 0, cz: 0, halfLength: 0, halfWidth: 0, facingRad: 0 };
@@ -277,40 +327,62 @@ export class SelectionRingBatch {
     { start: 0, count: 0 },
     { start: 0, count: 0 },
   ];
-  private used = 0;
+  private usedSmall = 0;
+  private usedLarge = 0;
 
-  constructor(opts: { capacity: number; resolveShadow: () => Rgb }) {
-    const { capacity } = opts;
+  /** `capacity` defaults to `SELECTION_RING.capacity`. `resolveShadow` is
+   *  called once per `endFrame`, so it should hand back a CACHED linear
+   *  tuple (`cachedHexToLinear`), not parse a hex every frame. */
+  constructor(opts: { capacity?: number; resolveShadow: () => Rgb }) {
+    const capacity = opts.capacity ?? SELECTION_RING.capacity;
     if (!Number.isInteger(capacity) || capacity < 1) {
       throw new Error(`SelectionRingBatch: capacity must be a positive integer, got ${capacity}`);
     }
     this.capacity = capacity;
     this.resolveShadow = opts.resolveShadow;
-    const verts = RING_GRID * RING_GRID;
+    const largeVerts = capacity * LARGE_VERTS;
+    const verts = largeVerts + capacity * SMALL_VERTS;
     const geometry = new THREE.BufferGeometry();
 
-    this.positionAttr = new THREE.BufferAttribute(new Float32Array(capacity * verts * 3), 3);
+    const positions = new Float32Array(verts * 3);
+    const colors = new Float32Array(verts * 3);
+    const axes = new Float32Array(verts * 2);
+    this.views = [
+      [positions.subarray(0, largeVerts * 3), colors.subarray(0, largeVerts * 3), axes.subarray(0, largeVerts * 2)],
+      [positions.subarray(largeVerts * 3), colors.subarray(largeVerts * 3), axes.subarray(largeVerts * 2)],
+    ];
+
+    this.positionAttr = new THREE.BufferAttribute(positions, 3);
     this.positionAttr.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('position', this.positionAttr);
 
     // STATIC: every slot's (s, t) is the same wherever its ring sits.
-    const offsetAttr = new THREE.BufferAttribute(new Float32Array(capacity * verts * 2), 2);
-    for (let slot = 0; slot < capacity; slot++) writeDecalOffsets(offsetAttr.array as Float32Array, slot, RING_GRID);
-    geometry.setAttribute('aOffset', offsetAttr);
+    const offsets = new Float32Array(verts * 2);
+    const largeOffsets = offsets.subarray(0, largeVerts * 2);
+    const smallOffsets = offsets.subarray(largeVerts * 2);
+    for (let slot = 0; slot < capacity; slot++) {
+      writeDecalOffsets(largeOffsets, slot, RING_GRID_LARGE);
+      writeDecalOffsets(smallOffsets, slot, RING_GRID);
+    }
+    geometry.setAttribute('aOffset', new THREE.BufferAttribute(offsets, 2));
 
-    this.colorAttr = new THREE.BufferAttribute(new Float32Array(capacity * verts * 3), 3);
+    this.colorAttr = new THREE.BufferAttribute(colors, 3);
     this.colorAttr.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aRingColor', this.colorAttr);
 
-    this.axesAttr = new THREE.BufferAttribute(new Float32Array(capacity * verts * 2), 2);
+    this.axesAttr = new THREE.BufferAttribute(axes, 2);
     this.axesAttr.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aAxes', this.axesAttr);
 
-    const perSlot = gridTriangles(RING_GRID) * 3;
-    const indexCount = capacity * perSlot;
-    const indices = capacity * verts <= 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
+    const largeIndices = capacity * LARGE_INDICES;
+    const indexCount = largeIndices + capacity * SMALL_INDICES;
+    const indices = verts <= 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
     for (let slot = 0; slot < capacity; slot++) {
-      writeGridIndices(indices.subarray(slot * perSlot, (slot + 1) * perSlot), slot, RING_GRID);
+      writeGridIndices(indices.subarray(slot * LARGE_INDICES, (slot + 1) * LARGE_INDICES), slot, RING_GRID_LARGE);
+      const small = indices.subarray(largeIndices + slot * SMALL_INDICES, largeIndices + (slot + 1) * SMALL_INDICES);
+      writeGridIndices(small, slot, RING_GRID);
+      // `writeGridIndices` counts vertices from 0; the small region starts after the large one.
+      for (let k = 0; k < small.length; k++) small[k] += largeVerts;
     }
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.setDrawRange(0, 0);
@@ -327,26 +399,41 @@ export class SelectionRingBatch {
 
   /** Rings written since the last `beginFrame`. */
   get count(): number {
-    return this.used;
+    return this.usedSmall + this.usedLarge;
+  }
+
+  /**
+   * Where the `k`-th small (4x4) or large (6x6) ring written this frame
+   * starts, in VERTICES from the start of the buffers -- for a reader of the
+   * attributes (tests, a debugger), since the two regions fill from their
+   * shared boundary outwards.
+   */
+  firstVertexOf(kind: 'small' | 'large', k: number): number {
+    const largeVerts = this.capacity * LARGE_VERTS;
+    return kind === 'small' ? largeVerts + k * SMALL_VERTS : (this.capacity - 1 - k) * LARGE_VERTS;
   }
 
   beginFrame(): void {
-    this.used = 0;
+    this.usedSmall = 0;
+    this.usedLarge = 0;
   }
 
-  /** false when full -- the caller then draws the billboard fallback. */
+  /** false when full, or when an axis is not a positive finite number (the
+   *  shader divides by both semi-axes, so a zero there is a NaN fragment, not
+   *  a small ring) -- the caller then draws the billboard fallback. */
   push(p: RingPlacement, sampleY: (x: number, z: number) => number): boolean {
-    if (this.used >= this.capacity) return false;
-    writeRingAttributes(
-      this.positionAttr.array as Float32Array,
-      this.colorAttr.array as Float32Array,
-      this.axesAttr.array as Float32Array,
-      this.used,
-      p,
-      sampleY,
-      this.grid
-    );
-    this.used++;
+    if (this.usedSmall + this.usedLarge >= this.capacity) return false;
+    const a = p.alongTiles ?? p.radiusTiles;
+    const b = p.acrossTiles ?? p.radiusTiles;
+    // `!(v > 0)` also catches NaN; `isFinite` catches +Infinity.
+    if (!(a > 0) || !(b > 0) || !Number.isFinite(a) || !Number.isFinite(b)) return false;
+    const n = ringGridFor(a, b);
+    const large = n === RING_GRID_LARGE;
+    const [pos, col, ax] = this.views[large ? 0 : 1];
+    const slot = large ? this.capacity - 1 - this.usedLarge : this.usedSmall;
+    writeRingAttributes(pos, col, ax, slot, p, sampleY, this.grid, n);
+    if (large) this.usedLarge++;
+    else this.usedSmall++;
     return true;
   }
 
@@ -354,18 +441,21 @@ export class SelectionRingBatch {
    *  costs a draw call only while something is selected), sets the pixel
    *  floor from `zoom` and re-reads the halo colour. */
   endFrame(zoom: number): void {
-    const n = this.used;
-    const verts = n * RING_GRID * RING_GRID;
-    this.mesh.geometry.setDrawRange(0, n * gridTriangles(RING_GRID) * 3);
-    this.mesh.visible = n > 0;
+    const nl = this.usedLarge;
+    const ns = this.usedSmall;
+    const cap = this.capacity;
+    this.mesh.geometry.setDrawRange((cap - nl) * LARGE_INDICES, nl * LARGE_INDICES + ns * SMALL_INDICES);
+    this.mesh.visible = nl + ns > 0;
     const u = this.mesh.material.uniforms;
     u.uPxPerTile.value = ringPxPerTile(zoom);
     const halo = this.resolveShadow();
     (u.uHaloColor.value as THREE.Vector3).set(halo[0], halo[1], halo[2]);
-    if (n === 0) return;
-    markUsed(this.positionAttr, this.ranges[0], verts);
-    markUsed(this.colorAttr, this.ranges[1], verts);
-    markUsed(this.axesAttr, this.ranges[2], verts);
+    if (nl + ns === 0) return;
+    const first = (cap - nl) * LARGE_VERTS;
+    const used = nl * LARGE_VERTS + ns * SMALL_VERTS;
+    markUsed(this.positionAttr, this.ranges[0], first, used);
+    markUsed(this.colorAttr, this.ranges[1], first, used);
+    markUsed(this.axesAttr, this.ranges[2], first, used);
   }
 
   dispose(): void {

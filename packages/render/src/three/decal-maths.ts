@@ -367,13 +367,20 @@ function gridWorldZ(gi: number, gj: number): number {
  * clipped at the cap is the large scorch on the steepest ground only: Grad
  * (r 1.07) <= 0.026 wu, a wheeled kill (r 1.17) <= 0.043, a full-power kill
  * (r 1.6) <= 0.167 -- the last mostly under its own wreck.
+ *
+ * `sagSteps` is the sag lattice's resolution and defaults to
+ * `DECAL_SAG_STEPS`, which every decal uses. The selection ring
+ * (`units/selection-ring.ts`, GH-186), rewritten per selected unit per frame,
+ * passes its own coarser `RING_SAG_STEPS`; see that constant for the
+ * measurement that says it loses nothing there.
  */
 export function writeDecalGrid(
   out: Float32Array,
   slot: number,
   n: number,
   p: GridPlacement,
-  sampleY: (x: number, z: number) => number
+  sampleY: (x: number, z: number) => number,
+  sagSteps: number = DECAL_SAG_STEPS
 ): void {
   const base = slot * n * n * 3;
   gpN = n;
@@ -403,10 +410,10 @@ export function writeDecalGrid(
       const yc = baseY[(j + 1) * n + i + 1];
       const yd = baseY[(j + 1) * n + i];
       let sag = 0;
-      for (let sv = 0; sv <= DECAL_SAG_STEPS; sv++) {
-        const v = sv / DECAL_SAG_STEPS;
-        for (let su = 0; su <= DECAL_SAG_STEPS; su++) {
-          const u = su / DECAL_SAG_STEPS;
+      for (let sv = 0; sv <= sagSteps; sv++) {
+        const v = sv / sagSteps;
+        for (let su = 0; su <= sagSteps; su++) {
+          const u = su / sagSteps;
           const chord = u >= v ? ya + u * (yb - ya) + v * (yc - yb) : ya + v * (yd - ya) + u * (yc - yd);
           const d = h(worldX(i + u, j + v), worldZ(i + u, j + v)) - chord;
           if (d > sag) sag = d;

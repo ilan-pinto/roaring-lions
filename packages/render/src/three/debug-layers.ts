@@ -160,6 +160,15 @@
  * per-frame rebuild path ever touches `.visible` -- so a mesh hidden once
  * stays hidden across every later beginFrame/push/endFrame cycle.
  *
+ * THE SELECTION RING (A4, GH-186) IS THE EXCEPTION TO THAT RULE, and is why
+ * the layer hides a GROUP for it rather than its mesh. The ground ring
+ * (`units/selection-ring.ts`) is its own mesh, and its `endFrame()` DOES
+ * write `.visible` every frame -- that is how an empty selection costs no
+ * draw call -- so hiding the mesh would be undone by the next repaint, the
+ * `updateVehicleMeshes` trap. The mesh therefore lives under
+ * `ThreeRenderer.selectionRingGroup`, which nothing per-frame touches, and
+ * this layer flips the group: seven objects in all, not six.
+ *
  * IT ALSO HIDES THE OCCLUSION SILHOUETTE (`units/silhouette.ts`, band 6),
  * which is a SEPARATE subsystem from the three batches above, not a fourth
  * member of the same tier -- see that file's own top comment for why it

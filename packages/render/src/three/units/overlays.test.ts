@@ -509,14 +509,16 @@ describe('cachedDesaturate', () => {
 });
 
 describe('hpBarVisible (GH-186)', () => {
-  const FULL = { hpRaw: 300 << 16, maxHpRaw: 300 << 16, selected: false, hostileHover: false, friendlyHover: false };
+  const MAX = 300 << 16;
   it('full health with no flags draws no bar', () => {
-    expect(hpBarVisible(FULL)).toBe(false);
+    expect(hpBarVisible(MAX, MAX, false, false, false)).toBe(false);
   });
   it('one raw unit of damage draws a bar', () => {
-    expect(hpBarVisible({ ...FULL, hpRaw: FULL.maxHpRaw - 1 })).toBe(true);
+    expect(hpBarVisible(MAX - 1, MAX, false, false, false)).toBe(true);
   });
-  it.each(['selected', 'hostileHover', 'friendlyHover'] as const)('%s alone draws a bar', (flag) => {
-    expect(hpBarVisible({ ...FULL, [flag]: true })).toBe(true);
+  it('selected, hostile hover and friendly hover each draw a bar alone', () => {
+    expect(hpBarVisible(MAX, MAX, true, false, false)).toBe(true);
+    expect(hpBarVisible(MAX, MAX, false, true, false)).toBe(true);
+    expect(hpBarVisible(MAX, MAX, false, false, true)).toBe(true);
   });
 });

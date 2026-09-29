@@ -54,7 +54,10 @@ export const SELECTION_RING = {
   capacity: number;
 };
 
-export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 0.8 } as const;
+/** `frameAlpha` 1.0, not the 0.8 G-NUM approved: at 0.8 the frame read only
+ *  as a slightly darker edge on the mock, at 1.0 as a clear outline (G-MOCK,
+ *  the lead, 29 Sep: "Frame 1.0"). */
+export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 } as const;
 
 /**
  * Ring outer radius per unit type id, in tiles. GENERATED -- do not hand-edit;
@@ -77,3 +80,40 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
 export function ringRadiusFor(typeId: string, cls: RingClass): number {
   return RADIUS_BY_TYPE[typeId] ?? SELECTION_RING.radiusTiles[cls];
 }
+
+/**
+ * G-MOCK (the lead, 29 Sep: "Team colour + ellipse"): a GROUND VEHICLE's ring
+ * is a hull-aligned ellipse, not a circle -- a circle big enough to clear a
+ * 2.4:1 hull is mostly empty ground either side of it. Its semi-axes are the
+ * hull's own half-extent plus `ELLIPSE_PAD_TILES`, along the hull (mesh +X,
+ * forward under the mesh contract) and across it, and it turns with the
+ * hull's heading. Infantry, other foot units and air keep their circle.
+ */
+export const ELLIPSE_PAD_TILES = 0.3;
+
+export interface RingEllipse {
+  /** Semi-axis along the hull's heading, tiles. */
+  readonly along: number;
+  /** Semi-axis across it, tiles. */
+  readonly across: number;
+}
+
+/**
+ * Ellipse semi-axes per ground-vehicle type id, in tiles: `round(hull
+ * half-extent + ELLIPSE_PAD_TILES, 0.01)` for every type with a vehicle GLB
+ * whose ring class is `light` or `armour`. GENERATED -- do not hand-edit;
+ * regenerate with `cd tools && npx tsx src/perf/unit-footprints.ts`, and
+ * `tools/src/perf/unit-footprints.test.ts` pins it against a fresh
+ * measurement. A type absent here draws the circle `ringRadiusFor` gives.
+ */
+export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
+  mbt_lavi: { along: 1.17, across: 0.78 },
+  ifv_namer: { along: 1.52, across: 0.97 },
+  apc_eitan: { along: 1.49, across: 0.85 },
+  jeep_shoded: { along: 1.1, across: 0.69 },
+  dozer_d9: { along: 1.44, across: 0.85 },
+  scout_shachaf: { along: 1.07, across: 0.65 },
+  apc_kipod: { along: 1.5, across: 0.83 },
+  technical: { along: 1.13, across: 0.6 },
+  rocket_battery: { along: 1.25, across: 0.64 },
+};

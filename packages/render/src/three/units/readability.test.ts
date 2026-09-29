@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { HP_BAR, RING_CLASS_OVERRIDE, ringClassOf, ringRadiusFor, SELECTION_RING } from './readability';
+import {
+  ELLIPSE_BY_TYPE,
+  ELLIPSE_PAD_TILES,
+  HP_BAR,
+  RING_CLASS_OVERRIDE,
+  ringClassOf,
+  ringRadiusFor,
+  SELECTION_RING,
+} from './readability';
 
 describe('ringClassOf', () => {
   it("classifies by the sim's own flags, air first", () => {
@@ -36,8 +44,8 @@ describe('SELECTION_RING', () => {
 });
 
 describe('HP_BAR', () => {
-  it('keeps the 24 x 3 fill with a 1 px, 0.8 alpha frame', () => {
-    expect(HP_BAR).toEqual({ widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 0.8 });
+  it('keeps the 24 x 3 fill with a 1 px frame at full alpha (G-MOCK: "Frame 1.0")', () => {
+    expect(HP_BAR).toEqual({ widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 });
   });
 });
 
@@ -48,5 +56,24 @@ describe('ringRadiusFor', () => {
   });
   it('overrides only dozer_d9, to light', () => {
     expect(RING_CLASS_OVERRIDE).toEqual({ dozer_d9: 'light' });
+  });
+});
+
+describe('ELLIPSE_BY_TYPE (G-MOCK: "Team colour + ellipse")', () => {
+  it('carries the mocked numbers: pad 0.30, Lavi 1.17 x 0.78, Namer 1.52 x 0.97', () => {
+    expect(ELLIPSE_PAD_TILES).toBe(0.3);
+    expect(ELLIPSE_BY_TYPE.mbt_lavi).toEqual({ along: 1.17, across: 0.78 });
+    expect(ELLIPSE_BY_TYPE.ifv_namer).toEqual({ along: 1.52, across: 0.97 });
+  });
+  it('is for ground vehicles only: no figure and no aircraft', () => {
+    for (const id of ['inf_squad', 'at_team', 'heli_peten', 'paramotor', 'recon_drone']) {
+      expect(ELLIPSE_BY_TYPE[id], id).toBeUndefined();
+    }
+  });
+  it('every ellipse is longer than it is wide, and both axes clear the pad', () => {
+    for (const [id, e] of Object.entries(ELLIPSE_BY_TYPE)) {
+      expect(e.along, id).toBeGreaterThan(e.across);
+      expect(e.across, id).toBeGreaterThan(ELLIPSE_PAD_TILES);
+    }
   });
 });

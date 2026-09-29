@@ -16,6 +16,10 @@ import { tileRadiusToEllipsePx } from './overlays';
 import {
   createSelectionRingMaterial,
   RING_GRID,
+  RING_GRID_LARGE,
+  RING_LARGE_TILES,
+  RING_SAG_STEPS,
+  ringGridFor,
   ringCoreAlpha,
   ringHaloAlpha,
   ringPxPerTile,
@@ -36,8 +40,14 @@ const attr = (b: SelectionRingBatch, name: string): THREE.BufferAttribute =>
   b.mesh.geometry.getAttribute(name) as THREE.BufferAttribute;
 /** A sloped, curved field, so a grid written in the wrong place cannot match by accident. */
 const hill = (x: number, z: number): number => 0.3 * x - 0.1 * z + 0.05 * x * z;
-const slotOf = (a: THREE.BufferAttribute, slot: number): number[] =>
-  Array.from((a.array as Float32Array).subarray(slot * VERTS * a.itemSize, (slot + 1) * VERTS * a.itemSize));
+const LARGE_VERTS = RING_GRID_LARGE * RING_GRID_LARGE;
+/** The `k`-th small (or large) ring written this frame, read back from `name`. */
+const ringOf = (b: SelectionRingBatch, name: string, k: number, kind: 'small' | 'large' = 'small'): number[] => {
+  const a = attr(b, name);
+  const first = b.firstVertexOf(kind, k);
+  const n = kind === 'small' ? VERTS : LARGE_VERTS;
+  return Array.from((a.array as Float32Array).subarray(first * a.itemSize, (first + n) * a.itemSize));
+};
 
 describe('SelectionRingBatch geometry', () => {
   it('writes an n = 4 grid that is writeDecalGrid\'s own output for the same placement', () => {
@@ -47,22 +57,22 @@ describe('SelectionRingBatch geometry', () => {
     b.push(ring({ x: 3 }), hill);
     b.push(ring({ x: 12, z: 9, radiusTiles: 0.45 }), hill);
     const expected = new Float32Array(2 * VERTS * 3);
-    writeDecalGrid(expected, 0, 4, { cx: 3, cz: 7, halfLength: 0.7 + EXTRA, halfWidth: 0.7 + EXTRA, facingRad: 0 }, hill);
-    writeDecalGrid(expected, 1, 4, { cx: 12, cz: 9, halfLength: 0.45 + EXTRA, halfWidth: 0.45 + EXTRA, facingRad: 0 }, hill);
-    expect(slotOf(attr(b, 'position'), 0)).toEqual(Array.from(expected.subarray(0, VERTS * 3)));
-    expect(slotOf(attr(b, 'position'), 1)).toEqual(Array.from(expected.subarray(VERTS * 3)));
+    writeDecalGrid(expected, 0, 4, { cx: 3, cz: 7, halfLength: 0.7 + EXTRA, halfWidth: 0.7 + EXTRA, facingRad: 0 }, hill, RING_SAG_STEPS);
+    writeDecalGrid(expected, 1, 4, { cx: 12, cz: 9, halfLength: 0.45 + EXTRA, halfWidth: 0.45 + EXTRA, facingRad: 0 }, hill, RING_SAG_STEPS);
+    expect(ringOf(b, 'position', 0)).toEqual(Array.from(expected.subarray(0, VERTS * 3)));
+    expect(ringOf(b, 'position', 1)).toEqual(Array.from(expected.subarray(VERTS * 3)));
   });
 
   it('half-extent is radius + halo + feather, so the halo is never clipped by the quad', () => {
     const b = batch();
     b.beginFrame();
     b.push(ring({ x: 0, z: 0, radiusTiles: 0.55 }), () => 0);
-    const pos = attr(b, 'position');
+    const pos = ringOf(b, 'position', 0);
     let maxX = 0;
     let maxZ = 0;
     for (let v = 0; v < VERTS; v++) {
-      maxX = Math.max(maxX, Math.abs(pos.getX(v)));
-      maxZ = Math.max(maxZ, Math.abs(pos.getZ(v)));
+      maxX = Math.max(maxX, Math.abs(pos[v * 3]));
+      maxZ = Math.max(maxZ, Math.abs(pos[v * 3 + 2]));
     }
     const half = 0.55 + SELECTION_RING.haloTiles + SELECTION_RING.featherTiles;
     expect(maxX).toBeCloseTo(half, 6);
@@ -78,11 +88,11 @@ describe('SelectionRingBatch geometry', () => {
     const b = batch();
     b.beginFrame();
     b.push(ring(), () => 2.5);
-    const col = attr(b, 'aRingColor');
-    const pos = attr(b, 'position');
+    const col = ringOf(b, 'aRingColor', 0);
+    const pos = ringOf(b, 'position', 0);
     for (let v = 0; v < VERTS; v++) {
-      expect([col.getX(v), col.getY(v), col.getZ(v)].map((c) => +c.toFixed(6))).toEqual(TEAM.map((c) => +c.toFixed(6)));
-      expect(pos.getY(v)).toBeCloseTo(2.5 + MARK_EPSILON, 6);
+      expect(col.slice(v * 3, v * 3 + 3).map((c) => +c.toFixed(6))).toEqual(TEAM.map((c) => +c.toFixed(6)));
+      expect(pos[v * 3 + 1]).toBeCloseTo(2.5 + MARK_EPSILON, 6);
     }
   });
 
@@ -90,10 +100,10 @@ describe('SelectionRingBatch geometry', () => {
     const b = batch();
     b.beginFrame();
     b.push(ring({ radiusTiles: 0.45 }), () => 0);
-    const axes = attr(b, 'aAxes');
+    const axes = ringOf(b, 'aAxes', 0);
     for (let v = 0; v < VERTS; v++) {
-      expect(axes.getX(v)).toBeCloseTo(0.45, 6);
-      expect(axes.getY(v)).toBeCloseTo(0.45, 6);
+      expect(axes[v * 2]).toBeCloseTo(0.45, 6);
+      expect(axes[v * 2 + 1]).toBeCloseTo(0.45, 6);
     }
   });
 });
@@ -104,13 +114,14 @@ describe('SelectionRingBatch, the ellipse option (G-MOCK)', () => {
     b.beginFrame();
     const e = ring({ alongTiles: 1.3, acrossTiles: 0.6, headingRad: 0.7 });
     b.push(e, hill);
-    const expected = new Float32Array(VERTS * 3);
-    writeDecalGrid(expected, 0, 4, { cx: 10, cz: 7, halfLength: 1.3 + EXTRA, halfWidth: 0.6 + EXTRA, facingRad: 0.7 }, hill);
-    expect(slotOf(attr(b, 'position'), 0)).toEqual(Array.from(expected));
-    const axes = attr(b, 'aAxes');
-    for (let v = 0; v < VERTS; v++) {
-      expect(axes.getX(v)).toBeCloseTo(1.3, 6);
-      expect(axes.getY(v)).toBeCloseTo(0.6, 6);
+    // 1.3 > RING_LARGE_TILES: drawn on the large grid.
+    const expected = new Float32Array(LARGE_VERTS * 3);
+    writeDecalGrid(expected, 0, RING_GRID_LARGE, { cx: 10, cz: 7, halfLength: 1.3 + EXTRA, halfWidth: 0.6 + EXTRA, facingRad: 0.7 }, hill, RING_SAG_STEPS);
+    expect(ringOf(b, 'position', 0, 'large')).toEqual(Array.from(expected));
+    const axes = ringOf(b, 'aAxes', 0, 'large');
+    for (let v = 0; v < LARGE_VERTS; v++) {
+      expect(axes[v * 2]).toBeCloseTo(1.3, 6);
+      expect(axes[v * 2 + 1]).toBeCloseTo(0.6, 6);
     }
   });
 
@@ -177,16 +188,17 @@ describe('SelectionRingBatch frame lifecycle', () => {
     b.push(ring(), () => 0);
     b.push(ring(), () => 0);
     b.endFrame(1);
+    const small0 = b.firstVertexOf('small', 0);
     for (const [name, size] of [['position', 3], ['aRingColor', 3], ['aAxes', 2]] as const) {
       const a = attr(b, name);
-      expect(a.updateRanges).toEqual([{ start: 0, count: 2 * VERTS * size }]);
+      expect(a.updateRanges).toEqual([{ start: small0 * size, count: 2 * VERTS * size }]);
       expect(a.version).toBeGreaterThan(0);
     }
     // Another frame replaces the range rather than stacking a second one.
     b.beginFrame();
     b.push(ring(), () => 0);
     b.endFrame(1);
-    expect(attr(b, 'position').updateRanges).toEqual([{ start: 0, count: VERTS * 3 }]);
+    expect(attr(b, 'position').updateRanges).toEqual([{ start: small0 * 3, count: VERTS * 3 }]);
   });
 
   it('endFrame sets the pixel-floor uniform from zoom, and re-reads the halo colour', () => {
@@ -202,6 +214,82 @@ describe('SelectionRingBatch frame lifecycle', () => {
     b.endFrame(2);
     expect(m.uniforms.uPxPerTile.value).toBeCloseTo(ringPxPerTile(2), 9);
     expect((m.uniforms.uHaloColor.value as THREE.Vector3).toArray()).toEqual([0.2, 0.2, 0.2]);
+  });
+
+  it('push rejects a non-positive or non-finite axis (it would divide by zero into a NaN fragment) and writes nothing', () => {
+    const b = batch(2);
+    b.beginFrame();
+    const before = Array.from(attr(b, 'position').array as Float32Array);
+    for (const bad of [
+      ring({ radiusTiles: 0 }),
+      ring({ radiusTiles: -0.5 }),
+      ring({ radiusTiles: Number.NaN }),
+      ring({ alongTiles: 0, acrossTiles: 0.5 }),
+      ring({ alongTiles: 1.2, acrossTiles: -0.1 }),
+      ring({ alongTiles: Number.POSITIVE_INFINITY }),
+    ]) {
+      expect(b.push(bad, hill), JSON.stringify(bad)).toBe(false);
+    }
+    expect(b.count).toBe(0);
+    expect(Array.from(attr(b, 'position').array as Float32Array)).toEqual(before);
+    expect(b.push(ring(), hill)).toBe(true);
+  });
+
+  it('capacity defaults to SELECTION_RING.capacity', () => {
+    const b = new SelectionRingBatch({ resolveShadow: () => SHADOW });
+    b.beginFrame();
+    for (let k = 0; k < SELECTION_RING.capacity; k++) expect(b.push(ring(), hill)).toBe(true);
+    expect(b.push(ring(), hill)).toBe(false);
+    b.dispose();
+  });
+
+  it('large and small rings share ONE contiguous draw and upload range, whatever the mix (Task 5)', () => {
+    const b = batch(4);
+    b.beginFrame();
+    b.push(ring({ radiusTiles: 0.45 }), hill); // small
+    b.push(ring({ alongTiles: 1.5, acrossTiles: 0.9, headingRad: 1 }), hill); // large
+    b.push(ring({ radiusTiles: 0.56 }), hill); // small
+    b.push(ring({ radiusTiles: 0.9 }), hill); // large: a circle over RING_LARGE_TILES
+    b.endFrame(1);
+    const smallIdx = 18 * 3;
+    const largeIdx = 50 * 3;
+    const dr = b.mesh.geometry.drawRange;
+    expect(dr.count).toBe(2 * smallIdx + 2 * largeIdx);
+    // The indices in range reference exactly the four rings' vertices, and nothing else.
+    const idx = b.mesh.geometry.getIndex();
+    const used = new Set<number>();
+    for (let k = dr.start; k < dr.start + dr.count; k++) used.add(idx?.getX(k) ?? -1);
+    const expected = new Set<number>();
+    for (const [kind, k, n] of [['large', 0, LARGE_VERTS], ['large', 1, LARGE_VERTS], ['small', 0, VERTS], ['small', 1, VERTS]] as const) {
+      const first = b.firstVertexOf(kind, k);
+      for (let v = 0; v < n; v++) expected.add(first + v);
+    }
+    expect(used).toEqual(expected);
+    // The upload range covers the same vertices, as one run.
+    expect(attr(b, 'position').updateRanges).toEqual([
+      { start: b.firstVertexOf('large', 1) * 3, count: (2 * LARGE_VERTS + 2 * VERTS) * 3 },
+    ]);
+    // And every vertex drawn carries the axes of the ring it belongs to.
+    expect(ringOf(b, 'aAxes', 1, 'large').slice(0, 2).map((v) => +v.toFixed(6))).toEqual([0.9, 0.9]);
+    expect(ringOf(b, 'aAxes', 1).slice(0, 2).map((v) => +v.toFixed(6))).toEqual([0.56, 0.56]);
+  });
+
+  it('capacity bounds the TOTAL of both kinds', () => {
+    const b = batch(3);
+    b.beginFrame();
+    expect(b.push(ring({ radiusTiles: 1.2 }), hill)).toBe(true);
+    expect(b.push(ring({ radiusTiles: 0.4 }), hill)).toBe(true);
+    expect(b.push(ring({ radiusTiles: 1.2 }), hill)).toBe(true);
+    expect(b.push(ring({ radiusTiles: 0.4 }), hill)).toBe(false);
+    expect(b.count).toBe(3);
+  });
+
+  it('the grid is chosen by the larger semi-axis: every foot ring small, every vehicle ellipse large', () => {
+    expect(RING_GRID_LARGE).toBe(6);
+    expect(ringGridFor(0.58, 0.58)).toBe(RING_GRID);
+    expect(ringGridFor(RING_LARGE_TILES, RING_LARGE_TILES)).toBe(RING_GRID);
+    expect(ringGridFor(0.9, 0.9)).toBe(RING_GRID_LARGE);
+    expect(ringGridFor(1.07, 0.65)).toBe(RING_GRID_LARGE);
   });
 
   it('rejects a capacity that could not hold a ring', () => {

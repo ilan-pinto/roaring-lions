@@ -6,8 +6,14 @@ import { units } from '../../../packages/data/src/index';
 import { unitTypeFromJson, type UnitTypeJson } from '../../../packages/sim/src/sim';
 import { MESH_SCALE } from '../../../packages/render/src/three/units/mesh-anim';
 import { buildFixtureGlb } from '../../../packages/render/src/three/units/mesh-fixture';
-import { RADIUS_BY_TYPE, ringClassOf, ringRadiusFor, SELECTION_RING } from '../../../packages/render/src/three/units/readability';
-import { footprintOf, HULL_ONLY, radiusFor, readGlb, readGlbJson, unitFootprintTable } from './unit-footprints';
+import {
+  ELLIPSE_BY_TYPE,
+  RADIUS_BY_TYPE,
+  ringClassOf,
+  ringRadiusFor,
+  SELECTION_RING,
+} from '../../../packages/render/src/three/units/readability';
+import { ellipseFor, footprintOf, HULL_ONLY, radiusFor, readGlb, readGlbJson, unitFootprintTable } from './unit-footprints';
 
 /** A real GLB header + JSON chunk around a one-mesh 2 x 1 box (X by Z, 1 tall). */
 function boxGlb(nodeScale?: number[]): ArrayBuffer {
@@ -125,5 +131,29 @@ describe('per-type ring radius', () => {
   it('the paramotor falls back to its class value and says why', () => {
     expect(byUnit('paramotor')?.halfDiagonalTiles).toBeNull();
     expect(byUnit('paramotor')?.note).toMatch(/canopy/);
+  });
+});
+
+describe('per-type vehicle ellipse (G-MOCK)', () => {
+  const rows = unitFootprintTable();
+
+  it('ELLIPSE_BY_TYPE is exactly ellipseFor over a fresh measurement: same types, same numbers', () => {
+    const fresh: Record<string, { along: number; across: number }> = {};
+    for (const r of rows) {
+      const e = ellipseFor(r);
+      if (e) fresh[r.unit] = e;
+    }
+    expect(ELLIPSE_BY_TYPE).toEqual(fresh);
+  });
+
+  it('a box hull gives its half-extents plus the 0.30 pad on each axis', () => {
+    const fp = footprintOf(readGlbJson(boxGlb()));
+    expect(fp.halfExtentXTiles).toBeCloseTo(1 * MESH_SCALE, 12);
+    expect(fp.halfExtentZTiles).toBeCloseTo(0.5 * MESH_SCALE, 12);
+    const row = { unit: 'box', ringClass: 'armour' as const, halfDiagonalTiles: 1, file: 'x', excluded: [], note: null,
+      vehicleHalfExtent: { along: 0.87, across: 0.48 } };
+    expect(ellipseFor(row)).toEqual({ along: 1.17, across: 0.78 });
+    expect(ellipseFor({ ...row, ringClass: 'air' })).toBeNull();
+    expect(ellipseFor({ ...row, vehicleHalfExtent: null })).toBeNull();
   });
 });
