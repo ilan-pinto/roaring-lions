@@ -4,7 +4,7 @@
 // gesture listeners on `window`, and the AudioContext this file stands in for
 // is only ever built from inside one of them.
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   admitVoice,
   BattleAudio,
@@ -273,6 +273,42 @@ function stubFetch(answer: (url: string) => FakeResponse | Promise<FakeResponse>
   return fetched;
 }
 
+/**
+ * Every test gets its own empty storage, of the SHAPE a browser has.
+ *
+ * `BattleAudio` persists the mute flag to localStorage (`m` on one screen holds
+ * on the next -- a product rule, not a leak), and reads it back in its
+ * constructor. What jsdom hands this file for `window.localStorage` depends on
+ * the Node underneath it: a bare `{}` on Node 25, where every write silently
+ * goes nowhere, and a real Storage on Node 22, which CI runs. On the real one a
+ * test that ends muted -- "muting mid-line stops it" does, on purpose -- muted
+ * every `BattleAudio` built after it, and the whole walkie-talkie block read
+ * `muted` on CI while passing locally. Installing a fresh store per test makes
+ * the file order- and Node-independent, and it is the real shape, so the
+ * persistence itself is still exercised rather than stubbed away.
+ */
+function memoryStorage(): Storage {
+  const data = new Map<string, string>();
+  return {
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => void data.set(k, String(v)),
+    removeItem: (k: string) => void data.delete(k),
+    clear: () => data.clear(),
+    key: (i: number) => [...data.keys()][i] ?? null,
+    get length() {
+      return data.size;
+    },
+  };
+}
+const STORES = ['localStorage', 'sessionStorage'] as const;
+const ownStores = new Map<string, PropertyDescriptor | undefined>();
+beforeEach(() => {
+  for (const name of STORES) {
+    ownStores.set(name, Object.getOwnPropertyDescriptor(window, name));
+    Object.defineProperty(window, name, { value: memoryStorage(), configurable: true });
+  }
+});
+
 afterEach(async () => {
   // Drain first, while this test's fetch stub is still the global: an
   // in-flight pass must never reach the next test's stub.
@@ -282,6 +318,11 @@ afterEach(async () => {
   }
   globalThis.AudioContext = realAudioContext;
   vi.unstubAllGlobals();
+  for (const name of STORES) {
+    const own = ownStores.get(name);
+    if (own) Object.defineProperty(window, name, own);
+    else Reflect.deleteProperty(window, name);
+  }
   FakeContext.nextBuffer = { ...LINE_BUFFER };
 });
 
