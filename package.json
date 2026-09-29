@@ -33,6 +33,7 @@
     "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "blast:capture": "pnpm --filter @lions/tools blast:capture",
     "atgm:capture": "pnpm --filter @lions/tools atgm:capture",
+    "radio:clips": "pnpm --filter @lions/tools radio:clips",
     "weight:capture": "pnpm --filter @lions/tools weight:capture",
     "plate:host": "pnpm --filter @lions/tools plate:host",
     "plates:units": "pnpm --filter @lions/tools plates:units",
