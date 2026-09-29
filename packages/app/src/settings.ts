@@ -9,7 +9,7 @@
  * `applySettings` is the ONLY writer of the three root hooks the CSS reads:
  * `--ui-scale` (inline overrides theme.css's media steps; absent means auto),
  * `--text-size` (a second multiplier on the rem), `data-motion` and
- * `data-cvd`. The audio gains and the render quality are applied by their
+ * `data-cvd`. The audio gains, the radio effect and the render quality are applied by their
  * owners (main.ts) from the same object.
  */
 import type { StorageLike } from './brigade-account';
@@ -26,7 +26,15 @@ export type CameraSpeed = 0.5 | 1 | 1.5 | 2;
 export interface Settings {
   version: 1;
   video: { fullscreen: boolean; uiScale: UiScaleSetting; textSize: TextSize; quality: Quality };
-  audio: { master: number; music: number; sfx: number; voice: number };
+  audio: {
+    master: number;
+    music: number;
+    sfx: number;
+    voice: number;
+    /** The walkie-talkie colour on radio voice lines (WP-AU1 N17). On by
+     *  default; off leaves them the plain radio band (N13). */
+    radio: boolean;
+  };
   controls: {
     cameraSpeed: CameraSpeed;
     bindings: Record<string, string>;
@@ -61,7 +69,7 @@ export const CAMERA_SPEEDS: readonly CameraSpeed[] = [0.5, 1, 1.5, 2];
 export const DEFAULT_SETTINGS: Settings = Object.freeze<Settings>({
   version: 1,
   video: { fullscreen: false, uiScale: 'auto', textSize: 1, quality: 'high' },
-  audio: { master: 1, music: 1, sfx: 1, voice: 1 },
+  audio: { master: 1, music: 1, sfx: 1, voice: 1, radio: true },
   controls: { cameraSpeed: 1, bindings: {}, edgePan: false, zoomToCursor: true },
   accessibility: { motion: 'system', colorVision: 'default', captions: false },
   language: 'en',
@@ -106,6 +114,7 @@ export function parseSettings(raw: string | null): Settings {
       music: unit(audio.music, d.audio.music),
       sfx: unit(audio.sfx, d.audio.sfx),
       voice: unit(audio.voice, d.audio.voice),
+      radio: bool(audio.radio, d.audio.radio),
     },
     controls: {
       cameraSpeed: oneOf(CAMERA_SPEEDS, controls.cameraSpeed, d.controls.cameraSpeed),

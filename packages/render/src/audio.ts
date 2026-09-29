@@ -10,6 +10,9 @@
 // (ART_PIPELINE §5).
 
 import { WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
+import { buildRadioChain, scheduleSquelch, type RadioChain, type Squelch } from './radio';
+
+export { RADIO_BAND_HZ, RADIO_FX } from './radio';
 
 /** Sound SOURCES started per `onEvents` call. Was `MAX_VOICES_PER_TICK`;
  *  renamed (R-19) because "voice" now means speech. */
@@ -139,8 +142,6 @@ export interface VoiceStats {
 export const VOICE_CAP = 2;
 /** Decoded voice PCM held at most, in bytes (N16). */
 export const VOICE_DECODE_BUDGET_BYTES = 16 * 1024 * 1024;
-/** The radio band every unplaced line passes through, in Hz (N13). */
-export const RADIO_BAND_HZ = { low: 300, high: 3400 } as const;
 /** The duck under a voice (N12): SFX -4 dB, music -3 dB, 80 ms in, 300 ms out. */
 export const DUCK = { sfx: 0.631, music: 0.708, attackS: 0.08, releaseS: 0.3 } as const;
 /** The fade a cut line gets (N4). */
@@ -227,6 +228,10 @@ interface ActiveVoice {
   src: AudioScheduledSourceNode;
   /** The line's own gain, which a cut fades. */
   gain: GainNode;
+  /** Every node the line made, its source first; disconnected when it ends. */
+  nodes: AudioNode[];
+  /** The line's click and static, when it went out with the radio effect (N19). */
+  squelch: Squelch | null;
 }
 
 /**
@@ -393,8 +398,13 @@ export class BattleAudio {
   private sfxDuck: GainNode | null = null;
   /** Voice bus, under the master, carrying the Voices slider (N11). */
   private voice: GainNode | null = null;
-  /** The radio band's input (N13); it feeds the voice bus. */
-  private radioIn: BiquadFilterNode | null = null;
+  /** The radio's shared paths (N13, N17): the band alone, the walkie-talkie
+   *  chain, and the static's own band. All three feed the voice bus. */
+  private radio: RadioChain | null = null;
+  /** The walkie-talkie colour on unplaced lines (N17). Read once per line,
+   *  at its start: flipping it re-routes the NEXT line and touches nothing
+   *  that is sounding. */
+  private radioFx = true;
   private masterGain = 0.9;
   /** The user's own master/music/sfx/voice sliders, from the settings screen (Task 4). */
   private user: AudioGains = { master: 1, music: 1, sfx: 1 };
@@ -473,15 +483,10 @@ export class BattleAudio {
         this.sfx.connect(this.sfxDuck).connect(this.master);
         this.voice = this.ctx.createGain();
         this.voice.connect(this.master);
-        // The radio band (N13): every unplaced line enters here. Two filters,
-        // not one bandpass, because a single biquad is not flat across 300-3400.
-        this.radioIn = this.ctx.createBiquadFilter();
-        this.radioIn.type = 'highpass';
-        this.radioIn.frequency.value = RADIO_BAND_HZ.low;
-        const top = this.ctx.createBiquadFilter();
-        top.type = 'lowpass';
-        top.frequency.value = RADIO_BAND_HZ.high;
-        this.radioIn.connect(top).connect(this.voice);
+        // The radio (N13, N17): every unplaced line enters one of its paths.
+        // Built once here, both of them, so the settings toggle only ever
+        // chooses between standing chains and never builds one mid-line.
+        this.radio = buildRadioChain(this.ctx, this.voice);
         const bus = busGain(this.masterGain, this.user);
         this.master.gain.value = bus.master;
         this.sfx.gain.value = bus.sfx;
@@ -741,6 +746,16 @@ export class BattleAudio {
     this.dev = on;
   }
 
+  /** The walkie-talkie colour on unplaced lines (N17): on, the default, or
+   *  the band alone. Takes effect from the next line. */
+  setRadioEffect(on: boolean): void {
+    this.radioFx = on;
+  }
+
+  radioEffect(): boolean {
+    return this.radioFx;
+  }
+
   /** The dev placeholder tick (R-10): a line with no take plays a tick instead. */
   setVoicePlaceholder(on: boolean): void {
     this.voicePlaceholder = on;
@@ -918,7 +933,7 @@ export class BattleAudio {
     if (this.muted) return none('muted');
     const ctx = this.ctx;
     const bus = this.voice;
-    const radio = this.radioIn;
+    const radio = this.radio;
     // A context can exist and still not be running -- suspended until the
     // browser's autoplay gate lifts, same as `onEvents` already guards (N16's
     // sibling check): a line scheduled against a clock that is not advancing
@@ -936,9 +951,19 @@ export class BattleAudio {
     for (const id of admit.cut) this.cutVoice(id);
 
     const t = ctx.currentTime;
+    const take = line ? Math.floor(this.rand() * line.buffers.length) : 0;
+    const seconds = line ? line.buffers[take].duration : PLACEHOLDER_S;
+    // The walkie-talkie colour (N17): unplaced lines only, and only when the
+    // setting is on AS THIS LINE STARTS. The click and static are made first
+    // so the line's own source is the last one created.
+    const squelch = !place && this.radioFx ? scheduleSquelch(ctx, radio, t, seconds, this.rand()) : null;
+    const at = squelch ? squelch.lineAt : t;
+
     const g = ctx.createGain();
     g.gain.value = (line ? this.voiceGain : PLACEHOLDER_GAIN) * (place ? place.gain : 1);
     let head: AudioNode = g;
+    /** The line's own nodes, let go of when it ends or is cut. */
+    const nodes: AudioNode[] = [g];
     if (place) {
       const lp = ctx.createBiquadFilter();
       lp.type = 'lowpass';
@@ -947,33 +972,35 @@ export class BattleAudio {
       pan.pan.value = place.pan;
       lp.connect(pan).connect(g).connect(bus);
       head = lp;
+      nodes.push(lp, pan);
     } else {
-      g.connect(radio);
+      g.connect(squelch ? radio.fx : radio.clean);
     }
 
     let src: AudioScheduledSourceNode;
-    let seconds: number;
     let en: string | null = null;
     if (line) {
-      const i = Math.floor(this.rand() * line.buffers.length);
       const b = ctx.createBufferSource();
-      b.buffer = line.buffers[i];
-      seconds = line.buffers[i].duration;
-      en = line.en[i] ?? null;
+      b.buffer = line.buffers[take];
+      en = line.en[take] ?? null;
       src = b;
     } else {
       const o = ctx.createOscillator();
       o.type = 'sine';
       o.frequency.value = placeholderHz(p.key);
-      seconds = PLACEHOLDER_S;
       src = o;
     }
     src.connect(head);
+    nodes.unshift(src);
     const id = this.nextVoiceId++;
-    this.activeVoices.push({ id, priority: p.priority, src, gain: g });
-    src.onended = () => this.voiceEnded(id);
-    src.start();
-    if (!line) src.stop(t + PLACEHOLDER_S);
+    this.activeVoices.push({ id, priority: p.priority, src, gain: g, nodes, squelch });
+    src.onended = () => {
+      // The line's own nodes are one-shots too: let go of them with it.
+      for (const n of nodes) n.disconnect();
+      this.voiceEnded(id);
+    };
+    src.start(at);
+    if (!line) src.stop(at + PLACEHOLDER_S);
     this.duck(true);
     return { status: line ? 'played' : 'placeholder', seconds, en, cut: admit.cut.length };
   }
@@ -992,12 +1019,16 @@ export class BattleAudio {
     const [v] = this.activeVoices.splice(i, 1);
     const t = ctx.currentTime;
     // A cut line is not an ending: it must not release the duck under the
-    // line that replaced it.
-    v.src.onended = null;
+    // line that replaced it. Its nodes still have to be let go of.
+    const nodes = v.nodes;
+    v.src.onended = () => {
+      for (const n of nodes) n.disconnect();
+    };
     v.gain.gain.cancelScheduledValues(t);
     v.gain.gain.setValueAtTime(v.gain.gain.value, t);
     v.gain.gain.linearRampToValueAtTime(0, t + VOICE_CUT_S);
     v.src.stop(t + VOICE_CUT_S);
+    v.squelch?.cut(t, VOICE_CUT_S);
   }
 
   private voiceEnded(id: number): void {

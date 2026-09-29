@@ -17,6 +17,7 @@ import {
   PLACEHOLDER_HZ,
   PLACEHOLDER_S,
   RADIO_BAND_HZ,
+  RADIO_FX,
   uiSetGain,
   VOICE_CUT_S,
   VOICE_DECODE_BUDGET_BYTES,
@@ -27,6 +28,7 @@ import {
   type VoicePriority,
   type VoiceVariant,
 } from './audio';
+import { buildRadioChain, clickSamples, scheduleSquelch, seededNoise, softClipCurve } from './radio';
 
 describe('audio gains', () => {
   it('music is the manifest gain times the track gain times the user master and music', () => {
@@ -63,15 +65,18 @@ function param(value: number): FakeParam {
     cancelScheduledValues: (t) => void events.push(['cancel', 0, t]),
   };
 }
-/** Every node remembers the ONE node it feeds, so a test can walk a chain. */
+/** Every node remembers the ONE node it feeds, so a test can walk a chain,
+ *  and counts how often it was let go of. */
 class FakeNode {
   to: unknown = null;
+  disconnects = 0;
   connect<T>(n: T): T {
     this.to = n;
     return n;
   }
   disconnect(): void {
     this.to = null;
+    this.disconnects++;
   }
 }
 class FakeGain extends FakeNode {
@@ -85,12 +90,30 @@ class FakeFilter extends FakeNode {
 class FakePanner extends FakeNode {
   readonly pan = param(0);
 }
+class FakeShaper extends FakeNode {
+  curve: Float32Array | null = null;
+  oversample = 'none';
+}
+class FakeCompressor extends FakeNode {
+  readonly threshold = param(-24);
+  readonly knee = param(30);
+  readonly ratio = param(12);
+  readonly attack = param(0.003);
+  readonly release = param(0.25);
+}
 class FakeSource extends FakeNode {
   buffer: unknown = null;
+  loop = false;
   readonly playbackRate = param(1);
   onended: (() => void) | null = null;
+  /** `start(when, offset)`'s arguments, once it has been started. */
+  startedAt: number | null = null;
+  offset = 0;
   stoppedAt: number | null = null;
-  start(): void {}
+  start(t = 0, offset = 0): void {
+    this.startedAt = t;
+    this.offset = offset;
+  }
   stop(t = 0): void {
     this.stoppedAt = t;
   }
@@ -110,6 +133,19 @@ interface FakeBuffer {
   duration: number;
   length: number;
   numberOfChannels: number;
+}
+/** A buffer `createBuffer` made: it keeps what was written into it. */
+class FakeMadeBuffer {
+  private readonly data: Float32Array;
+  constructor(readonly length: number, readonly sampleRate: number) {
+    this.data = new Float32Array(length);
+  }
+  get duration(): number {
+    return this.length / this.sampleRate;
+  }
+  getChannelData(): Float32Array {
+    return this.data;
+  }
 }
 const LINE_BUFFER: FakeBuffer = { duration: 1.2, length: 57_600, numberOfChannels: 1 };
 /**
@@ -131,6 +167,9 @@ class FakeContext {
   readonly sources: FakeSource[] = [];
   readonly gains: FakeGain[] = [];
   readonly filters: FakeFilter[] = [];
+  readonly shapers: FakeShaper[] = [];
+  readonly compressors: FakeCompressor[] = [];
+  readonly buffers: FakeMadeBuffer[] = [];
   /** Every oscillator's `stop(t)` time, in context seconds. */
   readonly stops: number[] = [];
   state = 'running';
@@ -153,6 +192,16 @@ class FakeContext {
   createStereoPanner(): FakePanner {
     return new FakePanner();
   }
+  createWaveShaper(): FakeShaper {
+    const w = new FakeShaper();
+    this.shapers.push(w);
+    return w;
+  }
+  createDynamicsCompressor(): FakeCompressor {
+    const c = new FakeCompressor();
+    this.compressors.push(c);
+    return c;
+  }
   createOscillator(): FakeOscillator {
     const o = new FakeOscillator(this.stops);
     this.oscillators.push(o);
@@ -163,8 +212,10 @@ class FakeContext {
     this.sources.push(s);
     return s;
   }
-  createBuffer(_channels: number, n: number): { getChannelData(): Float32Array } {
-    return { getChannelData: () => new Float32Array(n) };
+  createBuffer(_channels: number, n: number, rate: number): FakeMadeBuffer {
+    const b = new FakeMadeBuffer(n, rate);
+    this.buffers.push(b);
+    return b;
   }
   decodeAudioData(): Promise<FakeBuffer> {
     return Promise.resolve({ ...FakeContext.nextBuffer });
@@ -636,9 +687,11 @@ describe('playVoice (WP-AU1 §7)', () => {
     });
     await vi.waitFor(() => expect(r.audio.voiceStats().keys).toBe(langs.includes('ar') ? 4 : 3));
     const [, , sfxDuck, voice] = r.ctx.gains;
-    const [hp] = r.ctx.filters;
-    if (!sfxDuck || !voice || !hp) throw new Error('attach() did not build the voice graph');
-    return { ...r, sfxDuck, voice, hp };
+    // The radio's three paths, in build order: the band alone, the walkie-
+    // talkie chain's band, the static's band (two filters each).
+    const [hp, , fxIn, , noiseIn] = r.ctx.filters;
+    if (!sfxDuck || !voice || !hp || !fxIn || !noiseIn) throw new Error('attach() did not build the voice graph');
+    return { ...r, sfxDuck, voice, hp, fxIn, noiseIn };
   }
   const order = (key: string): VoicePlay => ({ key, priority: 'order' });
   const last = <T>(xs: T[]): T => {
@@ -663,6 +716,7 @@ describe('playVoice (WP-AU1 §7)', () => {
 
   it('plays an order over the radio band at the line gain, and hands back its meaning and length', async () => {
     const { audio, ctx, hp } = await ready();
+    audio.setRadioEffect(false); // today's band alone; the colour is its own block below
     expect(audio.playVoice(order('he.infantry.move'))).toEqual({ status: 'played', seconds: 1.2, en: 'moving', cut: 0 });
     const line = last(ctx.sources).to as FakeGain;
     expect(line.gain.value).toBeCloseTo(0.8);
@@ -780,7 +834,7 @@ describe('playVoice (WP-AU1 §7)', () => {
   });
 
   it('the dev placeholder: one tick per line class through the same chain, only when asked (R-10)', async () => {
-    const { audio, ctx, hp } = await ready();
+    const { audio, ctx, hp, fxIn } = await ready();
     expect(audio.playVoice({ key: 'he.crew.death', priority: 'kdf_death' }).status).toBe('missing');
     expect(ctx.oscillators).toEqual([]);
     audio.setVoicePlaceholder(true);
@@ -790,8 +844,16 @@ describe('playVoice (WP-AU1 §7)', () => {
     });
     const tick = last(ctx.oscillators);
     expect(tick.frequency.value).toBe(PLACEHOLDER_HZ.death);
-    expect((tick.to as FakeGain).to).toBe(hp);
-    expect(tick.stoppedAt).toBeCloseTo(PLACEHOLDER_S);
+    // The same chain a recorded line takes: the walkie-talkie path, keyed up
+    // with the same click, and a tick as long as ever once it starts.
+    expect((tick.to as FakeGain).to).toBe(fxIn);
+    expect(tick.startedAt).toBeCloseTo(RADIO_FX.clickS);
+    expect(tick.stoppedAt).toBeCloseTo(RADIO_FX.clickS + PLACEHOLDER_S);
+    audio.setRadioEffect(false);
+    audio.playVoice({ key: 'he.crew.death', priority: 'kdf_death' });
+    expect((last(ctx.oscillators).to as FakeGain).to).toBe(hp);
+    expect(last(ctx.oscillators).stoppedAt).toBeCloseTo(PLACEHOLDER_S);
+    audio.setRadioEffect(true);
     audio.playVoice(order('he.common.halt'));
     expect(last(ctx.oscillators).frequency.value).toBe(PLACEHOLDER_HZ.verb);
     // A recorded line always wins over the tick.
@@ -818,6 +880,246 @@ describe('playVoice (WP-AU1 §7)', () => {
     expect(src.stoppedAt).toBeCloseTo(VOICE_CUT_S);
     expect(audio.voiceStats().active).toBe(0);
     expect(sfxDuck.gain.events).toContainEqual(['linear', 1, DUCK.releaseS]);
+  });
+
+  describe('the walkie-talkie colour (N17-N20, GH-282)', () => {
+    /** One unplaced line's three sources, in the order playVoice makes them. */
+    const lineSources = (ctx: FakeContext, from: number) => {
+      const [click, noise, line] = ctx.sources.slice(from, from + 3);
+      if (!click || !noise || !line) throw new Error('fewer than three sources for one radio line');
+      return { click, noise, line, clickGain: click.to as FakeGain, env: noise.to as FakeGain };
+    };
+
+    it('attach builds the three radio paths once: band, walkie-talkie chain, static band -- all into the voice bus', () => {
+      const { ctx } = attached();
+      const voice = ctx.gains[3];
+      const [hp, lp, fxHp, fxLp, nHp, nLp] = ctx.filters;
+      const [shaper] = ctx.shapers;
+      const [comp] = ctx.compressors;
+      if (!voice || !hp || !lp || !fxHp || !fxLp || !nHp || !nLp || !shaper || !comp) throw new Error('radio chain missing');
+      expect(ctx.filters).toHaveLength(6);
+      expect(ctx.shapers).toHaveLength(1);
+      expect(ctx.compressors).toHaveLength(1);
+      // The band alone is unchanged (N13).
+      expect([hp.to, lp.to]).toEqual([lp, voice]);
+      // Band -> shaper -> compressor -> makeup -> voice bus (N18).
+      expect([fxHp.type, fxHp.frequency.value, fxHp.to]).toEqual(['highpass', RADIO_BAND_HZ.low, fxLp]);
+      expect([fxLp.type, fxLp.frequency.value, fxLp.to]).toEqual(['lowpass', RADIO_BAND_HZ.high, shaper]);
+      expect(shaper.to).toBe(comp);
+      const makeup = comp.to as FakeGain;
+      expect(makeup.gain.value).toBe(RADIO_FX.makeup);
+      expect(makeup.to).toBe(voice);
+      expect(shaper.oversample).toBe('2x');
+      expect(Array.from(shaper.curve ?? [])).toEqual(Array.from(softClipCurve(RADIO_FX.curvePoints, RADIO_FX.drive)));
+      const c = RADIO_FX.compressor;
+      expect([comp.threshold.value, comp.knee.value, comp.ratio.value, comp.attack.value, comp.release.value]).toEqual([
+        c.threshold, c.knee, c.ratio, c.attack, c.release,
+      ]);
+      // The static's own band, AFTER the compressor: the voice cannot pump it.
+      expect([nHp.frequency.value, nHp.to, nLp.frequency.value, nLp.to]).toEqual([
+        RADIO_FX.noiseBand.low, nLp, RADIO_FX.noiseBand.high, voice,
+      ]);
+      // The static is built once, from the seed.
+      const noise = ctx.buffers.find((b) => b.length === Math.round(ctx.sampleRate * RADIO_FX.noiseSeconds));
+      if (!noise) throw new Error('no static buffer');
+      expect(Array.from(noise.getChannelData().slice(0, 64))).toEqual(Array.from(seededNoise(64, RADIO_FX.seed)));
+    });
+
+    it('an unplaced line, effect on: click, then the line and the static together, all through the shared paths', async () => {
+      const { audio, ctx, fxIn, noiseIn } = await ready();
+      const graph = [ctx.filters.length, ctx.shapers.length, ctx.compressors.length];
+      ctx.currentTime = 5;
+      expect(audio.playVoice(order('he.infantry.move')).status).toBe('played');
+      const { click, noise, line, clickGain, env } = lineSources(ctx, 0);
+      expect(ctx.sources).toHaveLength(3);
+      // The line: its own gain into the walkie-talkie chain.
+      expect((line.to as FakeGain).to).toBe(fxIn);
+      // The click and the static: each through a one-shot gain into the static band.
+      expect(click.buffer).toBe(ctx.buffers.find((b) => b.length === Math.round(ctx.sampleRate * RADIO_FX.clickS)));
+      expect(clickGain.gain.value).toBe(RADIO_FX.levels.click);
+      expect(clickGain.to).toBe(noiseIn);
+      expect(noise.loop).toBe(true);
+      expect(env.to).toBe(noiseIn);
+      // Nothing shared was made for the line.
+      expect([ctx.filters.length, ctx.shapers.length, ctx.compressors.length]).toEqual(graph);
+    });
+
+    it('the envelope: key-up click, 80-120 ms burst into the bed, a 150-250 ms tail, then a cut (N19, N20)', async () => {
+      const { audio, ctx } = await ready();
+      const t = 5;
+      ctx.currentTime = t;
+      audio.playVoice(order('he.infantry.move'));
+      const { click, noise, line, env } = lineSources(ctx, 0);
+      const fx = RADIO_FX;
+      expect(fx.burstS).toBeGreaterThanOrEqual(0.08);
+      expect(fx.burstS).toBeLessThanOrEqual(0.12);
+      expect(fx.tailS).toBeGreaterThanOrEqual(0.15);
+      expect(fx.tailS).toBeLessThanOrEqual(0.25);
+      const lineAt = t + fx.clickS;
+      const tailAt = lineAt + LINE_BUFFER.duration;
+      const endsAt = tailAt + fx.tailS;
+      expect(click.startedAt).toBe(t);
+      // The line starts after the click, not with it.
+      expect(line.startedAt).toBeCloseTo(lineAt);
+      expect(noise.startedAt).toBeCloseTo(lineAt);
+      expect(noise.stoppedAt).toBeCloseTo(endsAt);
+      const L = fx.levels;
+      const ev = env.gain.events.map(([m, v, at]) => [m, v, Number(at.toFixed(6))]);
+      const r = (x: number): number => Number(x.toFixed(6));
+      expect(ev).toEqual([
+        ['set', L.burst, r(lineAt)],
+        ['set', L.burst, r(lineAt + fx.burstS * fx.burstHold)],
+        ['exp', L.bed, r(lineAt + fx.burstS)],
+        ['set', L.bed, r(tailAt)],
+        ['linear', L.tail, r(tailAt + 0.01)],
+        ['set', L.tail, r(endsAt - fx.tailCutS)],
+        ['linear', 0, r(endsAt)],
+      ]);
+      // The bed sits well under the burst and the tail.
+      expect(L.bed).toBeLessThan(L.burst / 10);
+      expect(L.bed).toBeLessThan(L.tail / 10);
+    });
+
+    it('a line shorter than the burst still hears the whole burst before its tail', () => {
+      const ctx = new FakeContext();
+      const chain = buildRadioChain(ctx as unknown as BaseAudioContext, new FakeNode() as unknown as AudioNode);
+      const sq = scheduleSquelch(ctx as unknown as BaseAudioContext, chain, 2, 0.05, 0);
+      expect(sq.lineAt).toBeCloseTo(2 + RADIO_FX.clickS);
+      expect(sq.endsAt).toBeCloseTo(2 + RADIO_FX.clickS + RADIO_FX.burstS + RADIO_FX.tailS);
+      const noise = sq.sources[1] as unknown as FakeSource;
+      expect(noise.stoppedAt).toBeCloseTo(sq.endsAt);
+      // The static's start point is the offset's share of the buffer, clamped.
+      expect(noise.offset).toBe(0);
+      const later = scheduleSquelch(ctx as unknown as BaseAudioContext, chain, 2, 1, 7);
+      expect((later.sources[1] as unknown as FakeSource).offset).toBeCloseTo(RADIO_FX.noiseSeconds);
+    });
+
+    it('effect off: the band alone, no click, no static, no delay (N13 as it was)', async () => {
+      const { audio, ctx, hp } = await ready();
+      audio.setRadioEffect(false);
+      expect(audio.radioEffect()).toBe(false);
+      audio.playVoice(order('he.infantry.move'));
+      expect(ctx.sources).toHaveLength(1);
+      const line = last(ctx.sources);
+      expect((line.to as FakeGain).to).toBe(hp);
+      expect(line.startedAt).toBe(0);
+    });
+
+    it('a placed line stays clean whichever way the toggle is set: no band, no chain, no static (R-14)', async () => {
+      for (const on of [true, false]) {
+        const { audio, ctx, voice } = await ready(['he', 'ar']);
+        audio.setRadioEffect(on);
+        expect(audio.playVoice({ key: 'ar.infantry.death', priority: 'enemy_death', at: { x: 3, y: 4 } }).status).toBe('played');
+        expect(ctx.sources).toHaveLength(1);
+        const lp = last(ctx.sources).to as FakeFilter;
+        expect(((lp.to as FakePanner).to as FakeGain).to).toBe(voice);
+        expect(last(ctx.sources).startedAt).toBe(0);
+      }
+    });
+
+    it('the toggle rebuilds nothing and touches no sounding line: it routes the NEXT one', async () => {
+      const { audio, ctx, hp, fxIn } = await ready();
+      audio.playVoice(order('he.infantry.move'));
+      const first = lineSources(ctx, 0);
+      const before = first.env.gain.events.length;
+      const graph = [ctx.filters.length, ctx.shapers.length, ctx.compressors.length, ctx.gains.length];
+      audio.setRadioEffect(false);
+      expect([ctx.filters.length, ctx.shapers.length, ctx.compressors.length, ctx.gains.length]).toEqual(graph);
+      expect(first.env.gain.events).toHaveLength(before);
+      expect(first.noise.stoppedAt).toBeCloseTo(RADIO_FX.clickS + LINE_BUFFER.duration + RADIO_FX.tailS);
+      expect((first.line.to as FakeGain).to).toBe(fxIn);
+      // The next line -- here an interrupt (N4) -- goes out on the band alone.
+      audio.playVoice(order('he.common.ack'));
+      const next = last(ctx.sources);
+      expect(ctx.sources).toHaveLength(4);
+      expect((next.to as FakeGain).to).toBe(hp);
+      audio.setRadioEffect(true);
+      audio.playVoice(order('he.infantry.move'));
+      expect((last(ctx.sources).to as FakeGain).to).toBe(fxIn);
+    });
+
+    it('every one-shot lets go of its nodes when it ends; the shared chain is never disconnected', async () => {
+      const { audio, ctx, fxIn, noiseIn } = await ready();
+      audio.playVoice(order('he.infantry.move'));
+      const { click, noise, line, clickGain, env } = lineSources(ctx, 0);
+      const lineGain = line.to as FakeGain;
+      click.onended?.();
+      expect([click.disconnects, clickGain.disconnects]).toEqual([1, 1]);
+      line.onended?.();
+      expect([line.disconnects, lineGain.disconnects]).toEqual([1, 1]);
+      noise.onended?.();
+      expect([noise.disconnects, env.disconnects]).toEqual([1, 1]);
+      for (const shared of [...ctx.filters, ...ctx.shapers, ...ctx.compressors]) expect(shared.disconnects).toBe(0);
+      expect([fxIn.to, noiseIn.to]).not.toContain(null);
+    });
+
+    it('a cut line takes its static with it: 40 ms fade, no tail, and the ended one-shots still disconnect (N4)', async () => {
+      const { audio, ctx, sfxDuck } = await ready();
+      audio.playVoice(order('he.infantry.move'));
+      const first = lineSources(ctx, 0);
+      ctx.currentTime = 0.5;
+      audio.playVoice(order('he.common.ack'));
+      expect(first.noise.stoppedAt).toBeCloseTo(0.5 + VOICE_CUT_S);
+      expect(first.click.stoppedAt).toBeCloseTo(0.5 + VOICE_CUT_S);
+      expect(first.env.gain.events.slice(-3).map((e) => e[0])).toEqual(['cancel', 'set', 'linear']);
+      expect(first.env.gain.events.at(-1)).toEqual(['linear', 0, 0.5 + VOICE_CUT_S]);
+      // Ending the cut line's sources releases their nodes, and not the duck
+      // held by the line that replaced it.
+      for (const s of [first.click, first.noise, first.line]) s.onended?.();
+      expect([first.noise.disconnects, first.env.disconnects, first.line.disconnects]).toEqual([1, 1, 1]);
+      expect(sfxDuck.gain.events).not.toContainEqual(['linear', 1, expect.any(Number)]);
+      expect(audio.voiceStats().active).toBe(1);
+    });
+
+    it('mute and a mission leave silence the static too, not just the words', async () => {
+      const { audio, ctx } = await ready();
+      audio.playVoice(order('he.infantry.move'));
+      const { noise } = lineSources(ctx, 0);
+      audio.toggle();
+      expect(noise.stoppedAt).toBeCloseTo(VOICE_CUT_S);
+      audio.toggle();
+      audio.playVoice(order('he.infantry.move'));
+      const again = lineSources(ctx, 3);
+      audio.stopVoices();
+      expect(again.noise.stoppedAt).toBeCloseTo(VOICE_CUT_S);
+    });
+  });
+});
+
+describe('the radio’s building blocks (N18-N20)', () => {
+  it('the soft clip is odd, monotone, bounded by 1, full scale at the ends, and light: a 0.5 peak loses under 3 dB', () => {
+    const c = softClipCurve(RADIO_FX.curvePoints, RADIO_FX.drive);
+    expect(c).toHaveLength(RADIO_FX.curvePoints);
+    expect(c[0]).toBeCloseTo(-1);
+    expect(c[c.length - 1]).toBeCloseTo(1);
+    for (let i = 1; i < c.length; i++) expect(c[i]).toBeGreaterThan(c[i - 1] ?? -2);
+    for (let i = 0; i < c.length; i++) expect(c[i]).toBeCloseTo(-(c[c.length - 1 - i] ?? 0), 6);
+    const at = (x: number): number => Math.tanh(RADIO_FX.drive * x) / Math.tanh(RADIO_FX.drive);
+    const lossDb = 20 * Math.log10((0.5 * (RADIO_FX.drive / Math.tanh(RADIO_FX.drive))) / at(0.5));
+    expect(lossDb).toBeGreaterThan(0);
+    expect(lossDb).toBeLessThan(3);
+  });
+
+  it('the static is seeded: the same samples every time, uniform in [-1, 1), not silent', () => {
+    const a = seededNoise(4_800, RADIO_FX.seed);
+    expect(Array.from(a)).toEqual(Array.from(seededNoise(4_800, RADIO_FX.seed)));
+    expect(Array.from(a)).not.toEqual(Array.from(seededNoise(4_800, RADIO_FX.seed + 1)));
+    let sq = 0;
+    for (const v of a) {
+      expect(v).toBeGreaterThanOrEqual(-1);
+      expect(v).toBeLessThan(1);
+      sq += v * v;
+    }
+    // Uniform white noise has an RMS of 1/sqrt(3).
+    expect(Math.sqrt(sq / a.length)).toBeCloseTo(1 / Math.sqrt(3), 1);
+  });
+
+  it('the click is RADIO_FX.clickS long, starts on its edge and dies away', () => {
+    const c = clickSamples(48_000);
+    expect(c).toHaveLength(Math.round(48_000 * RADIO_FX.clickS));
+    expect(Math.abs(c[0] ?? 0)).toBeGreaterThan(0.3);
+    expect(Math.abs(c[c.length - 1] ?? 1)).toBeLessThan(0.01);
+    expect(Array.from(clickSamples(48_000))).toEqual(Array.from(c));
   });
 });
 

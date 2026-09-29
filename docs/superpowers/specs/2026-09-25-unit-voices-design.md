@@ -76,6 +76,10 @@ selected.
 | N14 | Format | mono 44.1 kHz, OGG q4 + M4A 64 kb/s `alt`, ≤ 48 KB | gate's 512 KB stays |
 | N15 | Volume | 90 lines × 2 takes = 180 files; first batch 57 lines | §4 |
 | N16 | Decoded memory | ≤ 16 MB PCM (1.2 s at 48 kHz float ≈ 230 KB); roster factions only | |
+| N17 | Radio effect (GH-282) | walkie-talkie colour on UNPLACED lines only, at playback; Settings → Audio → **Radio effect**, default on; off = N13 alone; read per line at its start | files stay clean; placed lines stay positional |
+| N18 | Crunch + compression | after the band: soft clip tanh(2x)/tanh(2), 2× oversample; compressor −30 dB, knee 6, 12:1, 2 ms / 100 ms; makeup 0.81 → −21.9 LUFS, equal to N13 alone | small speaker, heavy AGC; the mix (N10/N11) does not move |
+| N19 | Squelch | 12 ms key-up click, the line starts when it ends; static burst 100 ms (60 held, then decays) at −9 dB under the words; tail 200 ms at −10 dB, 4 ms cut | the rhythm of a keyed net |
+| N20 | Noise bed | 500–3,000 Hz static at −34 dB under the words (RMS), after the compressor so speech cannot pump it | the carrier is live |
 
 N10, against what ships (measured): `destroyed_01` −17.3 LUFS at gain 1.0; music −13.5 at 0.4,
 ≈ −21.5 heard; UI clips are 240 ms, too short for ebur128, and are set by peak (−6 dBFS). A voice at
@@ -228,6 +232,12 @@ resolves or is declared empty — speech has no synth fallback, so empty means s
   (`settings.audio.voice`). `BattleAudio.playVoice` enforces N4, N5, N12, N13 and checks mute where
   it plays, as `playUi` does. Decode order becomes ui → voice → battle, so the first order after a
   gesture can speak. Rename `MAX_VOICES_PER_TICK` (it counts sound sources) to avoid the collision.
+- **Radio effect (N17–N20, GH-282):** `render/src/radio.ts` builds three shared paths once per
+  context — the band alone, the walkie-talkie chain, the static's band — and `playVoice` picks one
+  per line as it starts. Per line it makes only one-shots (the click, the looping static and their
+  gains), each disconnecting itself when it ends; a cut line's static fades with it and has no tail.
+  The static comes from one seeded buffer. `pnpm radio:clips` renders the before/after through this
+  same file in headless Chromium; the numbers in N18–N20 are what it measured.
 - **No sim change.** Invariant 4: the director reads state and events, never queues a command, and
   picks variants with the presentation PRNG. Nothing under `packages/sim` changes, so the
   determinism hash, `balance` and `playtest` cannot move.

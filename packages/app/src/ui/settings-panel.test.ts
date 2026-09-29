@@ -204,6 +204,29 @@ describe('settingsPanel', () => {
     r.dispatchEvent(new Event('change', { bubbles: true }));
     expect(set.mock.calls[0][0].audio.voice).toBe(0);
   });
+  it('Radio effect sits in Audio, is on by default, persists off, and is not a gain (N17)', () => {
+    const { d, set, gains } = deps();
+    const { el } = settingsPanel(document.body, d);
+    const cb = el.querySelector<HTMLInputElement>('input[name="radio"]');
+    if (!cb) throw new Error('no radio box');
+    expect(cb.type).toBe('checkbox');
+    expect(cb.checked).toBe(true);
+    expect(el.textContent).toContain('Radio effect');
+    // Its row comes after the Voices slider and before Accessibility.
+    const text = el.textContent ?? '';
+    expect(text.indexOf('Voices')).toBeLessThan(text.indexOf('Radio effect'));
+    expect(text.indexOf('Radio effect')).toBeLessThan(text.indexOf('Accessibility'));
+    cb.checked = false;
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(set.mock.calls[0][0].audio.radio).toBe(false);
+    expect(set.mock.calls[0][0].audio.voice).toBe(1);
+    // Dragging a slider afterwards hands the mixer levels only.
+    const r = el.querySelector<HTMLInputElement>('input[name="sfx"]');
+    if (!r) throw new Error('no sfx slider');
+    r.value = '0.5';
+    r.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(gains).toHaveBeenLastCalledWith({ master: 1, music: 1, sfx: 0.5, voice: 1 });
+  });
   it('Voice captions are off by default, persist on change, and say what they show (D8)', () => {
     const { d, set } = deps();
     const { el } = settingsPanel(document.body, d);
