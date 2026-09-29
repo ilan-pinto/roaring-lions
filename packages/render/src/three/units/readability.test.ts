@@ -6,7 +6,9 @@ import {
   RING_CACHE,
   RING_CLASS_OVERRIDE,
   RING_GRID_LARGE,
+  RING_GRID_XL,
   RING_LARGE_TILES,
+  RING_XL_TILES,
   RING_SAG_STEPS,
   ringClassOf,
   RADIUS_BY_TYPE,
@@ -92,6 +94,12 @@ describe('the ring grid and cache numbers (Task 5, fix round 1)', () => {
     // Every foot ring stays on the small grid; every vehicle ellipse goes large.
     expect(Math.max(...Object.values(RADIUS_BY_TYPE).filter((r) => r < 0.6))).toBeLessThanOrEqual(RING_LARGE_TILES);
     for (const e of Object.values(ELLIPSE_BY_TYPE)) expect(e.along).toBeGreaterThan(RING_LARGE_TILES);
+  });
+  it('fix round 2: a third tier, 7x7 over 1.4 tiles -- exactly the four grown ellipses', () => {
+    expect(RING_GRID_XL).toBe(7);
+    expect(RING_XL_TILES).toBe(1.4);
+    const xl = Object.entries(ELLIPSE_BY_TYPE).filter(([, e]) => e.along > RING_XL_TILES).map(([id]) => id).sort();
+    expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer']);
   });
   it('a cached ring is rebuilt past 0.05 tile of travel or about 2 degrees of turn', () => {
     expect(RING_CACHE.moveTiles).toBe(0.05);

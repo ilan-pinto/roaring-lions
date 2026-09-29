@@ -49,21 +49,32 @@ import {
   writeGridIndices,
 } from '../decal-pool';
 import { TILE_H, TILE_W } from '../../project';
-import { RING_CACHE, RING_GRID_LARGE, RING_LARGE_TILES, RING_SAG_STEPS, SELECTION_RING } from './readability';
+import {
+  RING_CACHE,
+  RING_GRID_LARGE,
+  RING_GRID_XL,
+  RING_LARGE_TILES,
+  RING_SAG_STEPS,
+  RING_XL_TILES,
+  SELECTION_RING,
+} from './readability';
 import { SELECTION_RING_RENDER_ORDER } from './render-order';
 import { tileRadiusToEllipsePx } from './overlays';
 
 /** Vertices per side of a SMALL ring's conforming grid: 16 vertices, 18 tris. */
 export const RING_GRID = 4;
 
-/** The large grid, its threshold and the lift lattice are measured numbers
- *  and live in `readability.ts` with the rest (fix round 1); re-exported here
- *  for this module's readers. */
-export { RING_GRID_LARGE, RING_LARGE_TILES, RING_SAG_STEPS };
+/** The larger grids, their thresholds and the lift lattice are measured
+ *  numbers and live in `readability.ts` with the rest (fix rounds 1 and 2);
+ *  re-exported here for this module's readers. */
+export { RING_GRID_LARGE, RING_GRID_XL, RING_LARGE_TILES, RING_SAG_STEPS, RING_XL_TILES };
 
-/** The grid a ring with semi-axes `a`, `b` is drawn on. */
+/** The grid a ring with semi-axes `a`, `b` is drawn on: 4x4, 6x6 over
+ *  `RING_LARGE_TILES`, 7x7 over `RING_XL_TILES`. */
 export function ringGridFor(a: number, b: number): number {
-  return Math.max(a, b) > RING_LARGE_TILES ? RING_GRID_LARGE : RING_GRID;
+  const r = Math.max(a, b);
+  if (r > RING_XL_TILES) return RING_GRID_XL;
+  return r > RING_LARGE_TILES ? RING_GRID_LARGE : RING_GRID;
 }
 
 type Rgb = readonly [number, number, number];
@@ -282,13 +293,20 @@ function markUsed(attr: THREE.BufferAttribute, range: UpdateRange, first: number
 /** `[key, x, z, along, across, heading, n]` per slot in the position cache. */
 const CACHE_FIELDS = 7;
 const SMALL_VERTS = RING_GRID * RING_GRID;
-const LARGE_VERTS = RING_GRID_LARGE * RING_GRID_LARGE;
+/** A large slot is sized for the BIGGEST large grid (7x7); a 6x6 ring in it
+ *  uses the first 36 vertices, and its unused index tail is degenerate. */
+const LARGE_VERTS = RING_GRID_XL * RING_GRID_XL;
 const SMALL_INDICES = gridTriangles(RING_GRID) * 3;
-const LARGE_INDICES = gridTriangles(RING_GRID_LARGE) * 3;
+const LARGE_INDICES = gridTriangles(RING_GRID_XL) * 3;
 
 /**
- * Two grid sizes, ONE draw call. The buffers hold `capacity` large slots and
- * then `capacity` small ones, so either kind alone can fill the batch. Large
+ * Three grid sizes, ONE draw call. The buffers hold `capacity` large slots
+ * and then `capacity` small ones, so either kind alone can fill the batch.
+ * A large slot holds a 6x6 OR a 7x7 ring (fix round 2): it is sized for 7x7,
+ * and when the grid a slot holds changes, that slot's static `aOffset` and
+ * index run are rewritten for the new grid (the index tail a 6x6 ring leaves
+ * unused is filled with its first vertex -- zero-area triangles), so the
+ * slot stride, and with it everything below, stays uniform. Large
  * rings are written from the END of their region backwards and small rings
  * from the START of theirs forwards, so whatever mix a frame pushes, the used
  * vertices -- and, through the static index buffer laid out the same way,
@@ -300,8 +318,22 @@ export class SelectionRingBatch {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly axesAttr: THREE.BufferAttribute;
-  /** Per-region views on the three dynamic arrays, made once: [large, small]. */
-  private readonly views: readonly (readonly [Float32Array, Float32Array, Float32Array])[];
+  /** The small region's views on the three dynamic arrays, made once. */
+  private readonly smallViews: readonly [Float32Array, Float32Array, Float32Array];
+  /** Per LARGE slot, made once: its [positions, colours, axes, offsets] and
+   *  its index run, so a slot is written at its own base with no allocation. */
+  private readonly largeSlots: readonly {
+    readonly pos: Float32Array;
+    readonly col: Float32Array;
+    readonly ax: Float32Array;
+    readonly off: Float32Array;
+    readonly idx: Uint16Array | Uint32Array;
+  }[];
+  /** The grid each large slot's static offsets and indices are laid out for. */
+  private readonly largeSlotGrid: Uint8Array;
+  private readonly offsetAttr: THREE.BufferAttribute;
+  private readonly indexAttr: THREE.BufferAttribute;
+  private layoutDirty = false;
   private readonly capacity: number;
   private readonly resolveShadow: () => Rgb;
   private readonly grid: GridScratch = { cx: 0, cz: 0, halfLength: 0, halfWidth: 0, facingRad: 0 };
@@ -343,24 +375,19 @@ export class SelectionRingBatch {
     const positions = new Float32Array(verts * 3);
     const colors = new Float32Array(verts * 3);
     const axes = new Float32Array(verts * 2);
-    this.views = [
-      [positions.subarray(0, largeVerts * 3), colors.subarray(0, largeVerts * 3), axes.subarray(0, largeVerts * 2)],
-      [positions.subarray(largeVerts * 3), colors.subarray(largeVerts * 3), axes.subarray(largeVerts * 2)],
-    ];
+    this.smallViews = [positions.subarray(largeVerts * 3), colors.subarray(largeVerts * 3), axes.subarray(largeVerts * 2)];
 
     this.positionAttr = new THREE.BufferAttribute(positions, 3);
     this.positionAttr.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('position', this.positionAttr);
 
-    // STATIC: every slot's (s, t) is the same wherever its ring sits.
+    // STATIC per slot: a slot's (s, t) is the same wherever its ring sits
+    // (a large slot's changes only with the grid it holds -- `layOut`).
     const offsets = new Float32Array(verts * 2);
-    const largeOffsets = offsets.subarray(0, largeVerts * 2);
     const smallOffsets = offsets.subarray(largeVerts * 2);
-    for (let slot = 0; slot < capacity; slot++) {
-      writeDecalOffsets(largeOffsets, slot, RING_GRID_LARGE);
-      writeDecalOffsets(smallOffsets, slot, RING_GRID);
-    }
-    geometry.setAttribute('aOffset', new THREE.BufferAttribute(offsets, 2));
+    for (let slot = 0; slot < capacity; slot++) writeDecalOffsets(smallOffsets, slot, RING_GRID);
+    this.offsetAttr = new THREE.BufferAttribute(offsets, 2);
+    geometry.setAttribute('aOffset', this.offsetAttr);
 
     this.colorAttr = new THREE.BufferAttribute(colors, 3);
     this.colorAttr.setUsage(THREE.DynamicDrawUsage);
@@ -373,14 +400,29 @@ export class SelectionRingBatch {
     const largeIndices = capacity * LARGE_INDICES;
     const indexCount = largeIndices + capacity * SMALL_INDICES;
     const indices = verts <= 65536 ? new Uint16Array(indexCount) : new Uint32Array(indexCount);
+    const slots = [];
     for (let slot = 0; slot < capacity; slot++) {
-      writeGridIndices(indices.subarray(slot * LARGE_INDICES, (slot + 1) * LARGE_INDICES), slot, RING_GRID_LARGE);
+      const v0 = slot * LARGE_VERTS;
+      slots.push({
+        pos: positions.subarray(v0 * 3, (v0 + LARGE_VERTS) * 3),
+        col: colors.subarray(v0 * 3, (v0 + LARGE_VERTS) * 3),
+        ax: axes.subarray(v0 * 2, (v0 + LARGE_VERTS) * 2),
+        off: offsets.subarray(v0 * 2, (v0 + LARGE_VERTS) * 2),
+        idx: indices.subarray(slot * LARGE_INDICES, (slot + 1) * LARGE_INDICES),
+      });
+    }
+    this.largeSlots = slots;
+    this.largeSlotGrid = new Uint8Array(capacity);
+    for (let slot = 0; slot < capacity; slot++) this.layOut(slot, RING_GRID_XL);
+    for (let slot = 0; slot < capacity; slot++) {
       const small = indices.subarray(largeIndices + slot * SMALL_INDICES, largeIndices + (slot + 1) * SMALL_INDICES);
       writeGridIndices(small, slot, RING_GRID);
       // `writeGridIndices` counts vertices from 0; the small region starts after the large one.
       for (let k = 0; k < small.length; k++) small[k] += largeVerts;
     }
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    this.indexAttr = new THREE.BufferAttribute(indices, 1);
+    geometry.setIndex(this.indexAttr);
+    this.layoutDirty = false;
     geometry.setDrawRange(0, 0);
 
     this.mesh = new THREE.Mesh(geometry, createSelectionRingMaterial(this.resolveShadow()));
@@ -399,7 +441,7 @@ export class SelectionRingBatch {
   }
 
   /**
-   * Where the `k`-th small (4x4) or large (6x6) ring written this frame
+   * Where the `k`-th small (4x4) or large (6x6 / 7x7) ring written this frame
    * starts, in VERTICES from the start of the buffers -- for a reader of the
    * attributes (tests, a debugger), since the two regions fill from their
    * shared boundary outwards.
@@ -407,6 +449,20 @@ export class SelectionRingBatch {
   firstVertexOf(kind: 'small' | 'large', k: number): number {
     const largeVerts = this.capacity * LARGE_VERTS;
     return kind === 'small' ? largeVerts + k * SMALL_VERTS : (this.capacity - 1 - k) * LARGE_VERTS;
+  }
+
+  /** Lays large slot `slot` out for an `n x n` grid: its static offsets, and
+   *  its index run with the unused tail degenerate. Allocates nothing. */
+  private layOut(slot: number, n: number): void {
+    const s = this.largeSlots[slot];
+    writeDecalOffsets(s.off, 0, n);
+    writeGridIndices(s.idx, 0, n);
+    const used = gridTriangles(n) * 3;
+    const base = slot * LARGE_VERTS;
+    for (let k = 0; k < used; k++) s.idx[k] += base;
+    s.idx.fill(base, used);
+    this.largeSlotGrid[slot] = n;
+    this.layoutDirty = true;
   }
 
   /** Forgets every cached build -- the ground under the rings changed
@@ -432,9 +488,9 @@ export class SelectionRingBatch {
     // `!(v > 0)` also catches NaN; `isFinite` catches +Infinity.
     if (!(a > 0) || !(b > 0) || !Number.isFinite(a) || !Number.isFinite(b)) return false;
     const n = ringGridFor(a, b);
-    const large = n === RING_GRID_LARGE;
-    const [pos, col, ax] = this.views[large ? 0 : 1];
+    const large = n !== RING_GRID;
     const slot = large ? this.capacity - 1 - this.usedLarge : this.usedSmall;
+    if (large && this.largeSlotGrid[slot] !== n) this.layOut(slot, n);
     const c = this.built[large ? 0 : 1];
     const at = slot * CACHE_FIELDS;
     const heading = p.headingRad ?? 0;
@@ -448,7 +504,13 @@ export class SelectionRingBatch {
       c[at + 6] === n &&
       Math.hypot(p.x - c[at + 1], p.z - c[at + 2]) <= RING_CACHE.moveTiles &&
       turn <= RING_CACHE.turnRad;
-    writeRingAttributes(pos, col, ax, slot, p, sampleY, this.grid, n, hit);
+    if (large) {
+      const s = this.largeSlots[slot];
+      writeRingAttributes(s.pos, s.col, s.ax, 0, p, sampleY, this.grid, n, hit);
+    } else {
+      const [pos, col, ax] = this.smallViews;
+      writeRingAttributes(pos, col, ax, slot, p, sampleY, this.grid, n, hit);
+    }
     if (!hit) {
       c[at] = key;
       c[at + 1] = p.x;
@@ -482,6 +544,13 @@ export class SelectionRingBatch {
     markUsed(this.positionAttr, this.ranges[0], first, used);
     markUsed(this.colorAttr, this.ranges[1], first, used);
     markUsed(this.axesAttr, this.ranges[2], first, used);
+    if (this.layoutDirty) {
+      // A large slot changed grid: re-upload the static offsets and indices.
+      // Rare -- a unit type changing tier in a slot -- so the whole buffers.
+      this.offsetAttr.needsUpdate = true;
+      this.indexAttr.needsUpdate = true;
+      this.layoutDirty = false;
+    }
   }
 
   dispose(): void {

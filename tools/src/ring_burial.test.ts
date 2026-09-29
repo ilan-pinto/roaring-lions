@@ -22,6 +22,7 @@ import { decalGroundY } from '../../packages/render/src/three/ground-height';
 import { ELLIPSE_BY_TYPE, SELECTION_RING } from '../../packages/render/src/three/units/readability';
 import {
   RING_GRID,
+  RING_GRID_XL,
   ringGridFor,
   ringPxPerTile,
   ringThicknessTiles,
@@ -105,14 +106,20 @@ describe("a vehicle ellipse on tel_marum's shoulder (GH-186)", () => {
     expect(worst).toBeGreaterThan(0.1);
   });
 
-  // 0.03, not the 0.02 this said at d48c1b50: fix round 1 grew the Namer to
-  // 1.61 x 1.03 so its hull corners are inside, and a longer chord sags more.
-  // Measured over every vehicle tile of both relief maps, 8 headings: 0.3% /
-  // 0.1% of placements, worst 0.027 / 0.026 wu (a 7 x 7 grid gives 0).
-  it('on the grid the batch actually picks, no placement is buried by more than 0.03 wu', () => {
+  it('control: on the 6x6 grid the grown Namer (fix round 1, 1.61 x 1.03) is buried past 0.02 wu', () => {
+    let worst = 0;
+    for (const [x, z] of sites) for (let h = 0; h < 8; h++) worst = Math.max(worst, worstBurial(6, x, z, along, across, (h / 8) * Math.PI));
+    expect(worst).toBeGreaterThan(0.02);
+  });
+
+  it('the Namer is on the 7x7 tier', () => {
+    expect(ringGridFor(along, across)).toBe(RING_GRID_XL);
+  });
+
+  it('on the grid the batch actually picks, no placement is buried by more than 0.02 wu', () => {
     const n = ringGridFor(along, across);
     let worst = 0;
     for (const [x, z] of sites) for (let h = 0; h < 8; h++) worst = Math.max(worst, worstBurial(n, x, z, along, across, (h / 8) * Math.PI));
-    expect(worst).toBeLessThan(0.03);
+    expect(worst).toBeLessThan(0.02);
   });
 });

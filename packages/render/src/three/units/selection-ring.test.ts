@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS, glslFloat, writeDecalGrid } from '../decal-pool';
+import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS, glslFloat, writeDecalGrid, writeDecalOffsets } from '../decal-pool';
 import { MARK_EPSILON } from '../terrain/shared';
 import { TILE_H, TILE_W } from '../../project';
 import { SELECTION_RING } from './readability';
@@ -17,6 +17,7 @@ import {
   createSelectionRingMaterial,
   RING_GRID,
   RING_GRID_LARGE,
+  RING_GRID_XL,
   RING_LARGE_TILES,
   RING_SAG_STEPS,
   ringGridFor,
@@ -41,11 +42,13 @@ const attr = (b: SelectionRingBatch, name: string): THREE.BufferAttribute =>
 /** A sloped, curved field, so a grid written in the wrong place cannot match by accident. */
 const hill = (x: number, z: number): number => 0.3 * x - 0.1 * z + 0.05 * x * z;
 const LARGE_VERTS = RING_GRID_LARGE * RING_GRID_LARGE;
-/** The `k`-th small (or large) ring written this frame, read back from `name`. */
-const ringOf = (b: SelectionRingBatch, name: string, k: number, kind: 'small' | 'large' = 'small'): number[] => {
+const XL_VERTS = RING_GRID_XL * RING_GRID_XL;
+/** The `k`-th small (or large) ring written this frame, read back from
+ *  `name`: its first `verts` vertices (a 6x6 ring by default for 'large'). */
+const ringOf = (b: SelectionRingBatch, name: string, k: number, kind: 'small' | 'large' = 'small', verts?: number): number[] => {
   const a = attr(b, name);
   const first = b.firstVertexOf(kind, k);
-  const n = kind === 'small' ? VERTS : LARGE_VERTS;
+  const n = verts ?? (kind === 'small' ? VERTS : LARGE_VERTS);
   return Array.from((a.array as Float32Array).subarray(first * a.itemSize, (first + n) * a.itemSize));
 };
 
@@ -247,31 +250,64 @@ describe('SelectionRingBatch frame lifecycle', () => {
     const b = batch(4);
     b.beginFrame();
     b.push(ring({ radiusTiles: 0.45 }), hill); // small
-    b.push(ring({ alongTiles: 1.5, acrossTiles: 0.9, headingRad: 1 }), hill); // large
+    b.push(ring({ alongTiles: 1.5, acrossTiles: 0.9, headingRad: 1 }), hill); // 7x7: over RING_XL_TILES
     b.push(ring({ radiusTiles: 0.56 }), hill); // small
-    b.push(ring({ radiusTiles: 0.9 }), hill); // large: a circle over RING_LARGE_TILES
+    b.push(ring({ radiusTiles: 0.9 }), hill); // 6x6: a circle over RING_LARGE_TILES
     b.endFrame(1);
     const smallIdx = 18 * 3;
-    const largeIdx = 50 * 3;
+    const largeSlotIdx = 72 * 3; // a large slot is sized for 7x7
     const dr = b.mesh.geometry.drawRange;
-    expect(dr.count).toBe(2 * smallIdx + 2 * largeIdx);
+    expect(dr.count).toBe(2 * smallIdx + 2 * largeSlotIdx);
     // The indices in range reference exactly the four rings' vertices, and nothing else.
     const idx = b.mesh.geometry.getIndex();
     const used = new Set<number>();
     for (let k = dr.start; k < dr.start + dr.count; k++) used.add(idx?.getX(k) ?? -1);
     const expected = new Set<number>();
-    for (const [kind, k, n] of [['large', 0, LARGE_VERTS], ['large', 1, LARGE_VERTS], ['small', 0, VERTS], ['small', 1, VERTS]] as const) {
+    for (const [kind, k, n] of [['large', 0, XL_VERTS], ['large', 1, LARGE_VERTS], ['small', 0, VERTS], ['small', 1, VERTS]] as const) {
       const first = b.firstVertexOf(kind, k);
       for (let v = 0; v < n; v++) expected.add(first + v);
     }
     expect(used).toEqual(expected);
     // The upload range covers the same vertices, as one run.
     expect(attr(b, 'position').updateRanges).toEqual([
-      { start: b.firstVertexOf('large', 1) * 3, count: (2 * LARGE_VERTS + 2 * VERTS) * 3 },
+      { start: b.firstVertexOf('large', 1) * 3, count: (2 * XL_VERTS + 2 * VERTS) * 3 },
     ]);
     // And every vertex drawn carries the axes of the ring it belongs to.
     expect(ringOf(b, 'aAxes', 1, 'large').slice(0, 2).map((v) => +v.toFixed(6))).toEqual([0.9, 0.9]);
     expect(ringOf(b, 'aAxes', 1).slice(0, 2).map((v) => +v.toFixed(6))).toEqual([0.56, 0.56]);
+  });
+
+  it('a large slot re-lays its offsets and indices when the grid it holds changes (fix round 2)', () => {
+    const b = batch(2);
+    const idx = (): number[] => {
+      const a = b.mesh.geometry.getIndex();
+      const out: number[] = [];
+      // The first large slot written is the LAST large slot: capacity - 1.
+      for (let k = 72 * 3; k < 2 * 72 * 3; k++) out.push(a?.getX(k) ?? -1);
+      return out;
+    };
+    const base = b.firstVertexOf('large', 0);
+    const offsetsFor = (n: number): number[] => {
+      const o = new Float32Array(n * n * 2);
+      writeDecalOffsets(o, 0, n);
+      return Array.from(o);
+    };
+    const off = (n: number): number[] => ringOf(b, 'aOffset', 0, 'large', n * n);
+    for (const [r, n] of [[1.2, 6], [1.5, 7], [1.2, 6]] as const) {
+      b.beginFrame();
+      b.push(ring({ radiusTiles: r }), hill);
+      b.endFrame(1);
+      const used = (n - 1) * (n - 1) * 6;
+      const i = idx();
+      expect(new Set(i.slice(0, used)), `n=${n}`).toEqual(new Set(Array.from({ length: n * n }, (_, v) => base + v)));
+      expect(i.slice(used).every((v) => v === base), `n=${n} tail`).toBe(true);
+      expect(off(n), `n=${n} offsets`).toEqual(offsetsFor(n));
+      expect(b.mesh.geometry.getIndex()?.version, `n=${n} upload`).toBeGreaterThan(0);
+      // The ring's positions are the n x n grid itself.
+      const expected = new Float32Array(n * n * 3);
+      writeDecalGrid(expected, 0, n, { cx: 10, cz: 7, halfLength: r + EXTRA, halfWidth: r + EXTRA, facingRad: 0 }, hill, RING_SAG_STEPS);
+      expect(ringOf(b, 'position', 0, 'large', n * n), `n=${n} grid`).toEqual(Array.from(expected));
+    }
   });
 
   it('capacity bounds the TOTAL of both kinds', () => {
@@ -290,6 +326,8 @@ describe('SelectionRingBatch frame lifecycle', () => {
     expect(ringGridFor(RING_LARGE_TILES, RING_LARGE_TILES)).toBe(RING_GRID);
     expect(ringGridFor(0.9, 0.9)).toBe(RING_GRID_LARGE);
     expect(ringGridFor(1.07, 0.65)).toBe(RING_GRID_LARGE);
+    expect(ringGridFor(1.4, 1)).toBe(RING_GRID_LARGE);
+    expect(ringGridFor(1.61, 1.03)).toBe(RING_GRID_XL);
   });
 
   it('rejects a capacity that could not hold a ring', () => {

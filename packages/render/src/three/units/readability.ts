@@ -141,6 +141,16 @@ export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
  */
 export const RING_GRID_LARGE = 6;
 export const RING_LARGE_TILES = 0.75;
+/**
+ * Fix round 2: a third tier. The four ellipses fix round 1 grew to hold their
+ * hull corners (Namer 1.61, Kipod 1.54, Eitan 1.53, D9 1.47 along) sag more
+ * on 6 x 6 -- the Namer to 0.027 wu at 0.3% of tel_marum's vehicle
+ * placements -- so a ring whose larger semi-axis is over `RING_XL_TILES` is
+ * conformed on 7 x 7, which buries none of them on either relief map. The
+ * Lavi (1.17) and the Grad (1.25) stay on 6 x 6, where they bury nothing.
+ */
+export const RING_GRID_XL = 7;
+export const RING_XL_TILES = 1.4;
 export const RING_SAG_STEPS = 2;
 
 /**
