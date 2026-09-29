@@ -135,7 +135,7 @@ rather than papered over.
 
 ## Adding content
 
-**A unit:** JSON in `data/units/`, validated against `unit.schema.json`, must pass `pnpm balance` within the cost-curve tolerance band, and needs a `.blend` in `art/src/` that survives `pnpm validate:assets` (including the silhouette IoU check).
+**A unit:** JSON in `data/units/`, validated against `unit.schema.json`, must pass `pnpm balance` within the cost-curve tolerance band, and needs a `.blend` in `art/src/` that survives `pnpm validate:assets` (including the silhouette IoU check). A priced, art-less unit is staged in `docs/campaign/special_units/<wp>/`, is fitted on CI via `validate_balance.py --also`, and is guarded by `tools/src/e5_staged.test.ts` (schema-valid, not half-landed); it moves to `data/units/` in the same commit as its art.
 
 **A mission:** JSON in `data/missions/`, validated against `mission.schema.json`. Must declare its ledger contract — `requires` and `produces`. Target 5–7 minutes of play, and **the schema enforces it now** — the 25 allowance for the old 12–20 Beit Sahwan missions is gone. `target_minutes` is 5–7, capped by an `if/then/else` at the schema root rather than by a plain `maximum`, because there is exactly one exemption and it is named in the schema: `beit_sahwan_0_tutorial` at 10. The tutorial is not a campaign mission (it produces no ledger keys), its length is 14 teaching steps in `data/tutorial/beit_sahwan_0.json` rather than a timer, and its `survive_until` 600s primary is a backstop that ejects a stalled player — so 10 declares the backstop. No headless instrument can measure a step machine driven by player input, so cutting it to 7 would be fitting a number to a ceiling with nothing behind it. Nothing in the runtime reads `target_minutes` at all: it is a claim, and the schema is the only thing that checks it.
 
@@ -719,7 +719,7 @@ yours; each one records what the next phase inherits.
   front SHOULD hide it and cannot be in the way anyway, since direct fire
   needs LOS), the band (3 vs 2), and the colour pair. Which one a round goes
   to is `SHELL_PROFILES[kind].indirect`, read once through `isIndirectShell`.
-  **Since GH-250 a `missile` (`atgm`, `rpg`, `heat`) is not a `ShellBatch`
+  **Since GH-250 a `missile` (`atgm`, `rpg`, `heat`, `he` — the unguided rocket pods) is a `ShellBatch`
   round**: it flies `units/missile-fx.ts` — body, glow and smoke trail, three
   meshes over one flight list. Its flight time is the sim's own, to the tick:
   `PROJ_SPEED` is COPIED into `units/missiles.ts`, never exported, and a test

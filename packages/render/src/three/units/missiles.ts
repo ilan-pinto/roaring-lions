@@ -63,7 +63,7 @@ import { WEAPON_CLASS } from '@lions/sim';
 import { AIR_LIFT_PX } from './frame-state';
 
 export type MissileVariant = 'top_attack' | 'guided' | 'unguided' | 'warhead';
-export type MissileClass = 'atgm' | 'rpg' | 'heat';
+export type MissileClass = 'atgm' | 'rpg' | 'heat' | 'he';
 
 export interface MissileProfile {
   shape: 'parabola' | 'climb_dive';
@@ -111,6 +111,7 @@ export const SIM_PROJ_SPEED_TILES_S: Readonly<Record<MissileClass, number>> = {
   atgm: 4,
   rpg: 6,
   heat: 10,
+  he: 10,
 };
 
 export const SIM_TICK_S = 0.05;
@@ -200,6 +201,7 @@ export function missileClassOf(cls: number): MissileClass | null {
   if (cls === WEAPON_CLASS.atgm) return 'atgm';
   if (cls === WEAPON_CLASS.rpg) return 'rpg';
   if (cls === WEAPON_CLASS.heat) return 'heat';
+  if (cls === WEAPON_CLASS.he) return 'he';
   return null;
 }
 
@@ -207,6 +209,8 @@ export function missileVariantFor(cls: number, weaponId: string): MissileVariant
   if (cls === WEAPON_CLASS.atgm) return TOP_ATTACK_WEAPON_IDS.has(weaponId) ? 'top_attack' : 'guided';
   if (cls === WEAPON_CLASS.rpg) return 'unguided';
   if (cls === WEAPON_CLASS.heat) return 'warhead';
+  // E5: the Peten's rocket pods -- unguided, like an RPG.
+  if (cls === WEAPON_CLASS.he) return 'unguided';
   return null;
 }
 

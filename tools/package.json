@@ -7,6 +7,7 @@
   "scripts": {
     "balance": "tsx src/balance/cli.ts",
     "playtest": "tsx src/backtest/playtest.ts",
+    "e5:probes": "tsx src/backtest/e5-probes.ts",
     "perf:units": "tsx src/perf/three-units.ts",
     "perf:load": "tsx src/perf/load-profile.ts",
     "ground:capture": "tsx src/perf/ground-captures.ts",

@@ -1,0 +1,28 @@
+{
+  "id": "recon_zikit",
+  "name": "Shmamit Deep Recon Team",
+  "blurb": "Keeps a tunnel in sight from boulders or a house, unseen. Once found, it loses the fight.",
+  "faction": "kdf",
+  "role": "support",
+  "cost": { "logistics": 290, "build_time_s": 22, "population": 1 },
+  "unlock": { "price": 4250 },
+  "hull": { "hp": 320, "armor": { "front": 10, "side": 10, "rear": 10 }, "crew": 4, "suppression_resistance": 0.7 },
+  "mobility": { "speed_tiles_s": 0.9 },
+  "sensors": { "optics": 1.8, "sight_tiles": 14, "thermal": true, "signature": 0.25, "firing_signature_mult": 1.5 },
+  "abilities": ["mark_target", "mark_tunnel", "garrison"],
+  "weapons": [
+    { "id": "suppressed_carbines", "type": "small_arms", "range_tiles": 6, "effective_range_tiles": 5,
+      "accuracy": 0.68, "penetration": 10, "damage": 16, "suppression": 20, "rof_per_min": 160,
+      "can_target": ["ground"], "collateral_risk": 0.05 }
+  ],
+  "upgrades": {
+    "sensors": { "tiers": [
+      { "price": 120, "patch": { "sensors.optics": 0.1, "sensors.sight_tiles": 1 } },
+      { "price": 180, "patch": { "sensors.optics": 0.2, "sensors.sight_tiles": 1 } },
+      { "price": 250, "patch": { "sensors.optics": 0.3, "sensors.sight_tiles": 2 } } ] },
+    "armour": { "tiers": [
+      { "price": 120, "patch": { "hull.hp": 22, "hull.suppression_resistance": 0.03 } },
+      { "price": 180, "patch": { "hull.hp": 48, "hull.suppression_resistance": 0.06 } },
+      { "price": 250, "patch": { "hull.hp": 80, "hull.suppression_resistance": 0.1 } } ] }
+  }
+}

@@ -1927,3 +1927,78 @@ describe('showBrigade — Shift+Tab reaches every track’s Buy (GH-243 Minor)',
     dispose();
   });
 });
+
+// E5 Task 7: the special-forces rows. The three units are STAGED (not in the shipping
+// roster), so the fixtures are read from their drafts; a row appears in the live garage
+// only once Task 9 lands the file. The tag keys on `isBoughtOnly`, never an id list.
+describe('the garage rows — special forces (E5 Task 7)', () => {
+  const draftDir = resolve(__dirname, '../../../../docs/campaign/special_units/e5');
+  const staged = ['recon_zikit', 'demo_tzav', 'heli_peten_gunship'].map((id): BrigadeUnit => {
+    const raw = JSON.parse(readFileSync(resolve(draftDir, `${id}.json`), 'utf8')) as {
+      name: string;
+      role: string;
+      unlock: BrigadeUnit['unlock'];
+    };
+    return { id, name: raw.name, role: raw.role, unlock: raw.unlock, isKamikaze: false, transportSlots: 0, isSoft: false };
+  });
+  const cardFor = (host: HTMLElement, id: string): Element | null =>
+    host.querySelector(`.rl-garage__card[data-unit="${id}"]`);
+  // The visible plate text only: the hidden explanation span sits inside the tag too.
+  const tag = (host: HTMLElement, id: string): string | undefined =>
+    host.querySelector(`.rl-garage__card[data-unit="${id}"] .rl-garage__card-tag`)?.firstChild?.textContent ?? undefined;
+  const roster = [staged[2], staged[1], units[2], staged[0], units[0]]; // deliberately scrambled
+
+  it('sorts the three after every earned gate, cheapest first', () => {
+    const host = mount({ units: roster, ledger: {}, possibleStars: 78, credits: 0 });
+    expect(cardIds(host)).toEqual(['inf_squad', 'breach_team', 'recon_zikit', 'demo_tzav', 'heli_peten_gunship']);
+    expect(staged.map((u) => u.unlock?.price)).toEqual([4250, 6500, 8000]);
+  });
+
+  it('tags each bought-only row, states the price alone, and tags no shipped row', () => {
+    const host = mount({ units: roster, ledger: {}, possibleStars: 78, credits: 0 });
+    for (const u of staged) {
+      expect(tag(host, u.id), u.id).toBe('Special forces');
+      expect(cardFor(host, u.id)?.querySelector('.rl-garage__card-tag .rl-sr-only')?.textContent).toBe(
+        ': opened only by buying with earned credits'
+      );
+      select(host, u.id);
+      expect(text(host, '.rl-garage__gate'), u.id).toBe(t('gate.buy', { n: u.unlock?.price ?? 0 }));
+      expect(host.querySelector('.rl-garage__bay .rl-garage__tag')?.firstChild?.textContent, u.id).toBe('Special forces');
+    }
+    // Shipped rows, including a star-gated one that also carries a price: no tag.
+    const priced = roster.map((u) => (u.id === 'breach_team' ? { ...u, unlock: { starsMin: 12, price: 850 } } : u));
+    const h2 = mount({ units: priced, ledger: {}, possibleStars: 78, credits: 0 });
+    expect(tag(h2, 'inf_squad')).toBeUndefined();
+    expect(tag(h2, 'breach_team')).toBeUndefined();
+    select(h2, 'breach_team');
+    expect(h2.querySelector('.rl-garage__bay .rl-garage__tag')).toBeNull();
+  });
+
+  it('disables Buy at 4249, and enables it at 4250 for the Zikit only', () => {
+    const buyState = (credits: number): Record<string, boolean | undefined> => {
+      const host = mount({ units: roster, ledger: {}, possibleStars: 78, credits, onBuy: () => undefined });
+      const out: Record<string, boolean | undefined> = {};
+      for (const u of staged) {
+        select(host, u.id);
+        out[u.id] = host.querySelector<HTMLButtonElement>('.rl-garage__buy')?.disabled;
+      }
+      return out;
+    };
+    expect(buyState(4249)).toEqual({ recon_zikit: true, demo_tzav: true, heli_peten_gunship: true });
+    expect(buyState(4250)).toEqual({ recon_zikit: false, demo_tzav: true, heli_peten_gunship: true });
+  });
+
+  it('reads bought on a bought row, keeps the tag, and never draws a star', () => {
+    const owned = roster.map((u) => (u.id === 'recon_zikit' && u.unlock ? { ...u, unlock: { ...u.unlock, bought: true } } : u));
+    const host = mount({ units: owned, ledger: {}, possibleStars: 78, credits: 9000, onBuy: () => undefined });
+    const card = cardFor(host, 'recon_zikit');
+    expect(card?.getAttribute('data-status')).toBe('bought');
+    expect(card?.querySelector('.rl-garage__card-chip')?.textContent).toBe('Bought');
+    expect(tag(host, 'recon_zikit')).toBe('Special forces');
+    expect(card?.textContent).not.toMatch(/[★☆⭐]/);
+    select(host, 'recon_zikit');
+    expect(host.querySelector('.rl-garage__buy')).toBeNull();
+    expect(host.querySelector('.rl-garage__bay .rl-garage__tag')?.firstChild?.textContent).toBe('Special forces');
+    expect(host.querySelector('.rl-garage__bay')?.textContent).not.toMatch(/[★☆⭐]/);
+  });
+});
