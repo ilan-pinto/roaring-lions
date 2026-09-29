@@ -499,6 +499,8 @@
   "objective.status.failed": "Failed",
   "objectives.title": "Objectives",
   "objectives.close": "Close",
+  "objectives.evacProgress": "{text} ({n}/{of})",
+  "objectives.jumpRefuge": "Show refuge",
   "objective.reward.carries": "Carries forward · +{credits} credits · needed for the third star",
   "objective.reward.carriesNoCredits": "Carries forward · needed for the third star",
   "objective.reward.none": "Optional · no carry-over",
@@ -509,6 +511,8 @@
 
   "alert.unitLost": "<b>lost</b> — {n, plural, one {{name}} other {{name} (#)}}",
   "alert.underFire": "<b>under fire</b> — {n, plural, one {# unit} other {# units}}",
+  "alert.civFlight.fire": "<b>{n, plural, one {# family} other {# families}} running for the refuge</b> — under fire",
+  "alert.civFlight.troops": "<b>{n, plural, one {# family} other {# families}} running for the refuge</b> — your troops are close",
 
   "order.pinned.note": "<b>Pinned</b>: {n, plural, one {# unit} other {# units}} can't move under fire. {n, plural, one {It goes} other {They go}} once the fire lifts.",
   "order.pinned.note.soft": "<b>Pinned</b>: {n, plural, one {# unit} other {# units}} can't move under fire. {n, plural, one {It goes} other {They go}} once the fire lifts, unless {n, plural, one {it breaks} other {they break}}.",

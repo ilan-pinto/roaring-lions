@@ -142,6 +142,19 @@ export interface MinimapDeps {
   teamColors: readonly [string, string, string];
   /** Live objectives. A thunk: objectives complete and drop off mid-mission. */
   objectives: () => readonly MinimapObjective[];
+  /**
+   * Where the families walk to, in tiles, while an evacuation objective is
+   * still being scored -- null otherwise (GH-279). A thunk for the same
+   * reason `objectives` is: it drops off the moment the evacuation is
+   * decided. Optional, and absent means nothing is drawn, which is what every
+   * mount that predates it gets.
+   *
+   * Its own mark rather than one more objective diamond. The refuge usually
+   * sits inside ground another objective is about (Khan Rafid's is two tiles
+   * from the ward's own hold diamond), and two amber diamonds nine pixels
+   * apart read as one smudged one.
+   */
+  refuge?: () => MinimapPoint | null;
   /** What the three player gestures mean. Optional: without it the canvas is
    *  inert and swallows its events exactly as it did before Task 10, which is
    *  also what every test that predates this mounts. */
@@ -217,6 +230,13 @@ const CHROME = {
   story: 'var(--live)',
   /** Ground an objective is fought over. */
   objective: 'var(--warn)',
+  /** Where families are walked to while an evacuation is scored (GH-279). */
+  refuge: 'var(--good)',
+  /** The refuge cross's dark under-stroke. Measured necessary, not taste:
+   *  photographed at 1440x900 on Khan Rafid, the green cross alone on the
+   *  desaturated sand-and-limestone ward was a faint smudge beside the
+   *  lime viewport outline. */
+  refugeEdge: 'var(--mark-edge)',
   /** Under the map, on the two edges a non-square map would letterbox. */
   ground: 'var(--panel-bg-solid)',
 } as const;
@@ -993,6 +1013,8 @@ export class Minimap {
     for (const p of observedMarkers(this.deps.map, this.fogAt, this.seenMarkers)) {
       this.diamond(p, this.chrome.story);
     }
+    const refuge = this.deps.refuge?.() ?? null;
+    if (refuge) this.cross(refuge, this.chrome.refuge, this.chrome.refugeEdge);
 
     for (const d of unitDots(this.deps.sim, this.fogAt)) {
       const at = tileToBox(proj, d.x, d.y);
@@ -1136,6 +1158,30 @@ export class Minimap {
     ctx.lineTo(at.x - r, at.y);
     ctx.closePath();
     ctx.stroke();
+  }
+
+  /** A plus sign, a little wider than `DIAMOND`: the refuge (GH-279). A different SHAPE
+   *  from every other mark here, not just a different colour -- the same
+   *  second channel `dotShape` gives the unit dots. */
+  private cross(p: MinimapPoint, color: string, edge: string): void {
+    const { ctx } = this;
+    const at = tileToBox(this.proj, p.x, p.y);
+    const r = DIAMOND / 2 + 2;
+    // Edge first and wider, then the colour on top: a dark keyline so the
+    // mark holds on light ground as well as dark.
+    for (const [style, width] of [
+      [edge, 5],
+      [color, 3],
+    ] as const) {
+      ctx.strokeStyle = style;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(at.x - r, at.y);
+      ctx.lineTo(at.x + r, at.y);
+      ctx.moveTo(at.x, at.y - r);
+      ctx.lineTo(at.x, at.y + r);
+      ctx.stroke();
+    }
   }
 
   private drawViewport(): void {

@@ -112,3 +112,37 @@ describe('objectivesPanel', () => {
     noClose.dispose();
   });
 });
+
+describe('objectivesPanel — the refuge jump (GH-279)', () => {
+  const evac: ObjectiveRow[] = [
+    { id: 'hold', text: 'Hold the ward', primary: true, carries: false, status: 'active' },
+    {
+      id: 'get_four_in',
+      text: 'Get four in (1/4)',
+      primary: true,
+      carries: false,
+      status: 'active',
+      jumpTo: { x: 24.5, y: 22.5 },
+    },
+  ];
+
+  it('puts the camera on the refuge when the row carries one', () => {
+    const host = document.createElement('div');
+    const jumps: [number, number][] = [];
+    const p = objectivesPanel(host, { rows: () => evac, paysCredits: true, onJump: (x, y) => jumps.push([x, y]) });
+    const buttons = [...p.el.querySelectorAll<HTMLButtonElement>('.rl-obj__jump')];
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].closest('.rl-obj')?.getAttribute('data-id')).toBe('get_four_in');
+    expect(buttons[0].textContent).toBe('Show refuge');
+    buttons[0].click();
+    expect(jumps).toEqual([[24.5, 22.5]]);
+    p.dispose();
+  });
+
+  it('draws no jump on a mount with nowhere to jump -- the briefing', () => {
+    const host = document.createElement('div');
+    const p = objectivesPanel(host, { rows: () => evac, paysCredits: true });
+    expect(p.el.querySelector('.rl-obj__jump')).toBeNull();
+    p.dispose();
+  });
+});
