@@ -308,6 +308,94 @@ describe('SelectionRingBatch frame lifecycle', () => {
   });
 });
 
+describe('SelectionRingBatch position cache (fix round 1)', () => {
+  /** `hill`, counting its calls: a rebuild samples the ground, a reuse does not. */
+  const counted = () => {
+    const c = { n: 0 };
+    return { c, Y: (x: number, z: number): number => { c.n++; return hill(x, z); } };
+  };
+  const frame = (b: SelectionRingBatch, p: RingPlacement, Y: (x: number, z: number) => number, key?: number): void => {
+    b.beginFrame();
+    b.push(p, Y, key);
+    b.endFrame(1);
+  };
+  const deg = Math.PI / 180;
+
+  it('a unit that has not moved reuses its vertices: no ground sample, same bytes', () => {
+    const b = batch();
+    const { c, Y } = counted();
+    frame(b, ring(), Y, 7);
+    expect(c.n).toBeGreaterThan(0);
+    const built = ringOf(b, 'position', 0);
+    c.n = 0;
+    frame(b, ring(), Y, 7);
+    expect(c.n).toBe(0);
+    expect(ringOf(b, 'position', 0)).toEqual(built);
+  });
+
+  it('rebuilds past RING_CACHE.moveTiles of travel from the LAST BUILD, not before', () => {
+    const b = batch();
+    const { c, Y } = counted();
+    frame(b, ring({ x: 10 }), Y, 7);
+    const built = ringOf(b, 'position', 0);
+    c.n = 0;
+    frame(b, ring({ x: 10.04 }), Y, 7);
+    expect(c.n).toBe(0);
+    expect(ringOf(b, 'position', 0)).toEqual(built);
+    frame(b, ring({ x: 10.06 }), Y, 7); // 0.06 from the build, though 0.02 from last frame
+    expect(c.n).toBeGreaterThan(0);
+    const fresh = new Float32Array(VERTS * 3);
+    writeDecalGrid(fresh, 0, 4, { cx: 10.06, cz: 7, halfLength: 0.7 + EXTRA, halfWidth: 0.7 + EXTRA, facingRad: 0 }, hill, RING_SAG_STEPS);
+    expect(ringOf(b, 'position', 0)).toEqual(Array.from(fresh));
+  });
+
+  it('rebuilds past about 2 degrees of turn, across the 0/360 seam too', () => {
+    const b = batch();
+    const { c, Y } = counted();
+    const e = (h: number): RingPlacement => ring({ alongTiles: 1.3, acrossTiles: 0.6, headingRad: h });
+    frame(b, e(0.5 * deg), Y, 3);
+    c.n = 0;
+    frame(b, e(-0.5 * deg + 2 * Math.PI), Y, 3); // 1 degree away, through the seam
+    expect(c.n).toBe(0);
+    frame(b, e(1.5 * deg), Y, 3);
+    expect(c.n).toBe(0);
+    frame(b, e(3 * deg), Y, 3);
+    expect(c.n).toBeGreaterThan(0);
+  });
+
+  it('rebuilds when the size or shape changes, when another unit takes the slot, and after invalidate()', () => {
+    const b = batch();
+    const { c, Y } = counted();
+    frame(b, ring(), Y, 7);
+    c.n = 0;
+    frame(b, ring({ radiusTiles: 0.71 }), Y, 7);
+    expect(c.n, 'radius').toBeGreaterThan(0);
+    c.n = 0;
+    frame(b, ring({ radiusTiles: 0.71 }), Y, 8);
+    expect(c.n, 'another unit').toBeGreaterThan(0);
+    c.n = 0;
+    b.invalidate();
+    frame(b, ring({ radiusTiles: 0.71 }), Y, 8);
+    expect(c.n, 'invalidate').toBeGreaterThan(0);
+  });
+
+  it('a push with no key is never cached', () => {
+    const b = batch();
+    const { c, Y } = counted();
+    frame(b, ring(), Y);
+    c.n = 0;
+    frame(b, ring(), Y);
+    expect(c.n).toBeGreaterThan(0);
+  });
+
+  it('a reused slot still takes this frame\'s colour', () => {
+    const b = batch();
+    frame(b, ring(), hill, 7);
+    frame(b, ring({ color: [0.9, 0.1, 0.1] }), hill, 7);
+    expect(ringOf(b, 'aRingColor', 0).slice(0, 3).map((v) => +v.toFixed(6))).toEqual([0.9, 0.1, 0.1]);
+  });
+});
+
 describe('the pixel floor', () => {
   it('px per tile is the ring\'s THIN (foreshortened) screen axis at that zoom', () => {
     expect(ringPxPerTile(1)).toBeCloseTo(tileRadiusToEllipsePx(1, TILE_W, TILE_H).upR, 9);

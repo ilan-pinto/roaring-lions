@@ -49,38 +49,17 @@ import {
   writeGridIndices,
 } from '../decal-pool';
 import { TILE_H, TILE_W } from '../../project';
-import { SELECTION_RING } from './readability';
+import { RING_CACHE, RING_GRID_LARGE, RING_LARGE_TILES, RING_SAG_STEPS, SELECTION_RING } from './readability';
 import { SELECTION_RING_RENDER_ORDER } from './render-order';
 import { tileRadiusToEllipsePx } from './overlays';
 
 /** Vertices per side of a SMALL ring's conforming grid: 16 vertices, 18 tris. */
 export const RING_GRID = 4;
 
-/**
- * Vertices per side of a LARGE ring's grid (A4 Task 5): 36 vertices, 50 tris.
- * Measured on every vehicle-standable open tile of `tel_marum` and
- * `qarn_hadid` at eight headings: on the 4x4 grid a Namer's ellipse had part
- * of its core UNDER the ground (more than 0.005 wu) at 3.9% / 5.0% of
- * placements, worst 0.114 / 0.136 wu, and was photographed broken on
- * tel_marum's shoulder -- a lift capped at `DECAL_LIFT_CAP` cannot pull a
- * 1.5-tile chord out of a three-level slope. On this grid: 0.2% / 0.1%,
- * worst 0.015 / 0.017 wu. A circle of 0.56 (the largest foot ring) is never
- * buried on the 4x4 grid, so small rings keep it.
- */
-export const RING_GRID_LARGE = 6;
-
-/** A ring whose larger semi-axis exceeds this many tiles is drawn on the
- *  large grid. Every ground-vehicle ellipse (along >= 1.07) and the Peten's
- *  0.9 circle (buried at 0.4% of placements on 4x4) are over it; every foot
- *  ring (<= 0.58) is under it. */
-export const RING_LARGE_TILES = 0.75;
-
-/** The sag lattice the ring's lift is measured on (`writeDecalGrid`'s
- *  `sagSteps`), coarser than the decals' `DECAL_SAG_STEPS` = 4: measured on
- *  the same sweep, 2 buries exactly the same placements by exactly the same
- *  worst amount on both grids (the lift is CAP-limited there, not
- *  sample-limited), at under half the height samples per ring. */
-export const RING_SAG_STEPS = 2;
+/** The large grid, its threshold and the lift lattice are measured numbers
+ *  and live in `readability.ts` with the rest (fix round 1); re-exported here
+ *  for this module's readers. */
+export { RING_GRID_LARGE, RING_LARGE_TILES, RING_SAG_STEPS };
 
 /** The grid a ring with semi-axes `a`, `b` is drawn on. */
 export function ringGridFor(a: number, b: number): number {
@@ -249,7 +228,8 @@ export interface GridScratch {
  * (`writeDecalGrid`, half-extents = semi-axes + halo + feather, sag lattice
  * `RING_SAG_STEPS`), the colour and the semi-axes, each repeated on all
  * `n^2` vertices. `slot` counts `n x n` slots from the start of the three
- * arrays. Allocates nothing: `grid` is the caller's scratch.
+ * arrays. `skipPositions` leaves the slot's positions as they are (the batch's
+ * cache hit). Allocates nothing: `grid` is the caller's scratch.
  */
 export function writeRingAttributes(
   positions: Float32Array,
@@ -259,7 +239,8 @@ export function writeRingAttributes(
   p: RingPlacement,
   sampleY: (x: number, z: number) => number,
   grid: GridScratch,
-  n: number = RING_GRID
+  n: number = RING_GRID,
+  skipPositions = false
 ): void {
   const a = p.alongTiles ?? p.radiusTiles;
   const b = p.acrossTiles ?? p.radiusTiles;
@@ -269,7 +250,7 @@ export function writeRingAttributes(
   grid.halfLength = a + extra;
   grid.halfWidth = b + extra;
   grid.facingRad = p.headingRad ?? 0;
-  writeDecalGrid(positions, slot, n, grid, sampleY, RING_SAG_STEPS);
+  if (!skipPositions) writeDecalGrid(positions, slot, n, grid, sampleY, RING_SAG_STEPS);
   const verts = n * n;
   const c3 = slot * verts * 3;
   const a2 = slot * verts * 2;
@@ -298,6 +279,8 @@ function markUsed(attr: THREE.BufferAttribute, range: UpdateRange, first: number
   attr.needsUpdate = true;
 }
 
+/** `[key, x, z, along, across, heading, n]` per slot in the position cache. */
+const CACHE_FIELDS = 7;
 const SMALL_VERTS = RING_GRID * RING_GRID;
 const LARGE_VERTS = RING_GRID_LARGE * RING_GRID_LARGE;
 const SMALL_INDICES = gridTriangles(RING_GRID) * 3;
@@ -329,6 +312,18 @@ export class SelectionRingBatch {
   ];
   private usedSmall = 0;
   private usedLarge = 0;
+  /**
+   * The position cache (fix round 1): per SLOT, what its positions were last
+   * BUILT from -- `[key, x, z, along, across, heading, n]`, preallocated for
+   * both regions, [large, small]. A push whose key, shape and grid match its
+   * slot's entry, within `RING_CACHE.moveTiles` and `RING_CACHE.turnRad` of
+   * that build, skips `writeDecalGrid` -- the height samples are the whole
+   * cost of a ring, and on relief the bicubic field makes them five times
+   * dearer than on flat ground. It works because `updateOverlays` walks
+   * entities in id order, so a stable selection lands each unit in the same
+   * slot frame after frame; a unit that lands elsewhere simply rebuilds.
+   */
+  private readonly built: readonly [Float64Array, Float64Array];
 
   /** `capacity` defaults to `SELECTION_RING.capacity`. `resolveShadow` is
    *  called once per `endFrame`, so it should hand back a CACHED linear
@@ -340,6 +335,7 @@ export class SelectionRingBatch {
     }
     this.capacity = capacity;
     this.resolveShadow = opts.resolveShadow;
+    this.built = [new Float64Array(capacity * CACHE_FIELDS).fill(-1), new Float64Array(capacity * CACHE_FIELDS).fill(-1)];
     const largeVerts = capacity * LARGE_VERTS;
     const verts = largeVerts + capacity * SMALL_VERTS;
     const geometry = new THREE.BufferGeometry();
@@ -413,6 +409,13 @@ export class SelectionRingBatch {
     return kind === 'small' ? largeVerts + k * SMALL_VERTS : (this.capacity - 1 - k) * LARGE_VERTS;
   }
 
+  /** Forgets every cached build -- the ground under the rings changed
+   *  (`ThreeRenderer.refreshSurface`). */
+  invalidate(): void {
+    this.built[0].fill(-1);
+    this.built[1].fill(-1);
+  }
+
   beginFrame(): void {
     this.usedSmall = 0;
     this.usedLarge = 0;
@@ -420,8 +423,9 @@ export class SelectionRingBatch {
 
   /** false when full, or when an axis is not a positive finite number (the
    *  shader divides by both semi-axes, so a zero there is a NaN fragment, not
-   *  a small ring) -- the caller then draws the billboard fallback. */
-  push(p: RingPlacement, sampleY: (x: number, z: number) => number): boolean {
+   *  a small ring) -- the caller then draws the billboard fallback. `key`
+   *  (the entity id; -1 = never cache) arms the position cache. */
+  push(p: RingPlacement, sampleY: (x: number, z: number) => number, key = -1): boolean {
     if (this.usedSmall + this.usedLarge >= this.capacity) return false;
     const a = p.alongTiles ?? p.radiusTiles;
     const b = p.acrossTiles ?? p.radiusTiles;
@@ -431,7 +435,29 @@ export class SelectionRingBatch {
     const large = n === RING_GRID_LARGE;
     const [pos, col, ax] = this.views[large ? 0 : 1];
     const slot = large ? this.capacity - 1 - this.usedLarge : this.usedSmall;
-    writeRingAttributes(pos, col, ax, slot, p, sampleY, this.grid, n);
+    const c = this.built[large ? 0 : 1];
+    const at = slot * CACHE_FIELDS;
+    const heading = p.headingRad ?? 0;
+    let turn = Math.abs(heading - c[at + 5]) % (2 * Math.PI);
+    if (turn > Math.PI) turn = 2 * Math.PI - turn;
+    const hit =
+      key >= 0 &&
+      c[at] === key &&
+      c[at + 3] === a &&
+      c[at + 4] === b &&
+      c[at + 6] === n &&
+      Math.hypot(p.x - c[at + 1], p.z - c[at + 2]) <= RING_CACHE.moveTiles &&
+      turn <= RING_CACHE.turnRad;
+    writeRingAttributes(pos, col, ax, slot, p, sampleY, this.grid, n, hit);
+    if (!hit) {
+      c[at] = key;
+      c[at + 1] = p.x;
+      c[at + 2] = p.z;
+      c[at + 3] = a;
+      c[at + 4] = b;
+      c[at + 5] = heading;
+      c[at + 6] = n;
+    }
     if (large) this.usedLarge++;
     else this.usedSmall++;
     return true;

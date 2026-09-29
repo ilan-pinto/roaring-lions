@@ -1272,3 +1272,73 @@ All 8 subjects now measured, all floors clear. `.superpowers/art-captures/blast/
 `.superpowers/art-captures/blast/after/sheet.md`. Full part-A numbers:
 `.superpowers/sdd/2026-09-27-ground-plan-2/task-12a-report.md`; this retry's raw log:
 `.superpowers/ground2/cost-t12/blast-retry.log`.
+
+---
+
+## Selection ring (A4, GH-186, 2026-09-29)
+
+The selection ring is a conformed ground mesh (`units/selection-ring.ts`), rewritten every frame in `updateOverlays`.
+
+**What it costs.** Nearly all of the cost is the ground height samples behind each ring's grid:
+- `writeDecalGrid` plus its sag lattice;
+- 4×4 for a ring up to 0.75 tile;
+- 6×6 for a larger one.
+
+On relief those samples are bicubic, which makes them several times dearer than on flat ground.
+
+**The cache.** A per-slot position cache (`RING_CACHE` in `readability.ts`) skips the samples for any ring whose unit has not moved more than 0.05 tile, or turned more than 2°, since its last build. So a STATIONARY selection costs almost nothing, and a MOVING one pays in full.
+
+**The lead accepted the moving cost on relief on 29 Sep ("Cache + accept").**
+
+### Capture conditions
+
+- **Machine and browser:** Apple M3 Pro, macOS; Playwright headless Chromium with `--use-angle=metal` (hardware GPU: "ANGLE Metal Renderer: Apple M3 Pro"); 1440×900 CSS at device scale 2, which gives a 2880×1800 buffer.
+- **Dev server:** the worktree's own vite on :5226.
+- **Load:** 1-minute load average 4.8 to 5.5 throughout. The machine was NOT idle: a user Chrome ran at about 200% CPU and a VM service at about 40%. The runs were sequential, never in parallel.
+- **Scenes:** `?sandbox=beit_sahwan_outskirts&sur&civ` (flat) and `?sandbox=tel_marum` (relief).
+- **Getting to 98 rings.** Each sandbox fields 14 side-0 units, all selected through `__lions.sel`. To reach 98 rings, a page-side wrapper on `SelectionRingBatch.push` pushes each unit's ring 7 times at offsets. These are real rings, drawn in the real frame.
+- **Moving vs stationary.** "Moving" shifts every ring 0.07 tile per frame, over the cache limit, so every ring rebuilds every frame. "Stationary" holds them still.
+- **Harness:** `.superpowers/sdd/2026-09-28-a4-readability/t5-visual/perf100.mjs` and `bench.mjs` (git-ignored scratch). The committed `tools/src/perf/render-frame-cost.ts --select-all` gives the 14-unit selection and the draw-call count.
+- **Resolution:** `performance.now` resolution is 0.1 ms.
+
+### Results
+
+**Draw calls.** A selection adds exactly **+1** in every view on both maps: 340→341, 534→535 and 381→382 on the outskirts; 117→118, 296→297 and 133→134 on tel_marum.
+
+**`updateOverlays` alone, 98 rings, 3 runs per arm, ms (median / p95).** It contains everything a selection draws, including 14 HP bars and range envelopes.
+
+| Map | No selection | Stationary | Moving |
+|---|---|---|---|
+| outskirts (flat) | 0.0 / 0.1 | 0.2 / 0.3 | 0.4 / 0.5 |
+| tel_marum (relief) | 0.0 / 0.1 | 0.2 / 0.3 | 1.1–1.2 / 1.2–1.3 |
+
+The stationary figure equals what 14 selected units cost before the cache, which was the HP bars and envelopes. With the cache, the 98 rings add nothing measurable at this resolution.
+
+**The ring batch in isolation**: 100 rings (70 circles at 0.56 tile and 30 ellipses at 1.52 × 0.97), 2000 frames, 2 runs, ms per frame.
+
+| Map | Stationary | Moving |
+|---|---|---|
+| outskirts | 0.012 | 0.160–0.166 |
+| tel_marum | 0.012–0.013 | 0.75–0.81 |
+
+**The grid-size split**: the same 100 placements all written at one grid size, ms per frame.
+
+| Map | All at 4×4 | All at 6×6 |
+|---|---|---|
+| outskirts | 0.11 | 0.28 |
+| tel_marum | 0.50–0.53 | 1.30–1.38 |
+
+A large ring on 6×6 costs about 2.5× a small one on 4×4.
+
+**Whole-frame p95 (`frame()` wall time with `gl.finish`)** did not separate the arms from noise. Deltas ran from −0.4 to +0.6 ms run to run, and tel_marum's zoom-2.5 view has 19 ms p95 spikes in every arm, rings or not. Read the rows above instead.
+
+### Reading
+
+- **Budget (spec §5):** ≤ 0.25 ms added at 100 rings.
+  - It is met on flat ground, moving or not.
+  - It is met on relief while the selection is stationary.
+- **Moving on relief** costs about 0.8 ms at 100 rings. The lead accepted this.
+- **Remedies, should it matter later:**
+  - a 7×7 grid only for the few largest rings is NOT one: it costs more;
+  - a coarser lift lattice was already taken (2, not 4);
+  - the next step would be caching `decalGroundY` per tile corner, or sampling the ground mesh's own vertices instead of the bicubic.

@@ -85,6 +85,7 @@ interface Priv {
   selectionRing: SelectionRingBatch;
   selectionRingGroup: THREE.Group;
   updateOverlays(alpha: number): void;
+  refreshSurface(): void;
 }
 
 function setUp() {
@@ -104,22 +105,25 @@ function setUp() {
   renderer.snapshot();
   renderer.snapshot();
   const pushed: RingPlacement[] = [];
+  const keys: number[] = [];
   const spyPush = (): void => {
     const batch = priv.selectionRing;
     const real = batch.push.bind(batch);
-    vi.spyOn(batch, 'push').mockImplementation((p, sampleY) => {
+    vi.spyOn(batch, 'push').mockImplementation((p, sampleY, key) => {
       pushed.push({ ...p });
-      return real(p, sampleY);
+      keys.push(key ?? -1);
+      return real(p, sampleY, key);
     });
   };
   spyPush();
   const ellipse = vi.spyOn(priv.overlayBatch, 'ellipseRing');
   const draw = (): void => {
     pushed.length = 0;
+    keys.length = 0;
     ellipse.mockClear();
     priv.updateOverlays(1);
   };
-  return { sim, renderer, priv, a, b, tank, inside, pushed, ellipse, draw, spyPush, rifles };
+  return { sim, renderer, priv, a, b, tank, inside, pushed, keys, ellipse, draw, spyPush, rifles };
 }
 
 describe('selection ring wiring (GH-186)', () => {
@@ -152,6 +156,13 @@ describe('selection ring wiring (GH-186)', () => {
     expect(p.alongTiles).toBe(ELLIPSE_BY_TYPE.mbt_lavi.along);
     expect(p.acrossTiles).toBe(ELLIPSE_BY_TYPE.mbt_lavi.across);
     expect(p.headingRad).toBeCloseTo(0.25 * 2 * Math.PI, 6);
+    // Fix round 1: centred on the HULL, `offsetAlong` along the heading
+    // (the Lavi's hull box sits 0.18 tile behind its origin). Facing 0.25 turns
+    // points +Z, so the centre moves 0.18 toward -Z.
+    const off = ELLIPSE_BY_TYPE.mbt_lavi.offsetAlong;
+    expect(off).toBeLessThan(0);
+    expect(p.x).toBeCloseTo(12.5, 6);
+    expect(p.z).toBeCloseTo(6.5 + off, 6);
     // It turns with the hull, frame by frame.
     w.sim.state.facing[w.tank] = fx.from(0.5);
     w.draw();
@@ -217,5 +228,19 @@ describe('selection ring wiring (GH-186)', () => {
     const first = resolve();
     expect(resolve()).toBe(first);
     expect(first).toEqual(cachedHexToLinear('#14150F'));
+  });
+
+  it('each push carries its entity id, so the batch can cache a stationary ring (fix round 1)', () => {
+    const w = setUp();
+    w.renderer.selection = [w.a, w.tank];
+    w.draw();
+    expect(w.keys).toEqual([w.a, w.tank]);
+  });
+
+  it('a ground rebuild invalidates the ring cache', () => {
+    const w = setUp();
+    const inv = vi.spyOn(w.priv.selectionRing, 'invalidate');
+    w.priv.refreshSurface();
+    expect(inv).toHaveBeenCalled();
   });
 });

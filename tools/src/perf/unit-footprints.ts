@@ -289,7 +289,7 @@ export interface FootprintRow {
   readonly file: string | null;
   /** The hull's half-extents (tiles) along and across, for a type drawn from
    *  a VEHICLE GLB; null otherwise (figures, and no GLB at all). */
-  readonly vehicleHalfExtent: { readonly along: number; readonly across: number } | null;
+  readonly vehicleHalfExtent: { readonly along: number; readonly across: number; readonly centreAlong: number } | null;
   /** Parts left out of the measurement, and why a null was returned. */
   readonly excluded: string[];
   readonly note: string | null;
@@ -313,7 +313,7 @@ export function unitFootprintTable(): FootprintRow[] {
       const fp = footprintOf(gj, bin, { include: vehicleFile ? HULL_ONLY : undefined });
       for (const e of fp.excluded) if (!excluded.includes(e)) excluded.push(e);
       if (best === null || fp.halfDiagonalTiles > best) { best = fp.halfDiagonalTiles; bestFile = f; }
-      if (vehicleFile) vehicleHalfExtent = { along: fp.halfExtentXTiles, across: fp.halfExtentZTiles };
+      if (vehicleFile) vehicleHalfExtent = { along: fp.halfExtentXTiles, across: fp.halfExtentZTiles, centreAlong: fp.centreXTiles };
     }
     const note = HULL_INSEPARABLE[id] ?? null;
     rows.push({ unit: id, ringClass, halfDiagonalTiles: note ? null : best, file: bestFile, vehicleHalfExtent, excluded, note });
@@ -328,16 +328,36 @@ export function radiusFor(row: FootprintRow, classRadii: Readonly<Record<RingCla
   return Math.max(classValue, Math.ceil(1.15 * row.halfDiagonalTiles * 100 - 1e-9) / 100);
 }
 
+/** How far outside the ellipse `(a, b)` a hull corner `(hx, hz)` sits: <= 1 is inside. */
+export function cornerReach(hx: number, hz: number, a: number, b: number): number {
+  return (hx / a) ** 2 + (hz / b) ** 2;
+}
+
 /**
- * The G-MOCK ellipse for a row: a ground vehicle (a vehicle GLB, ring class
- * `light` or `armour`) gets `round(half-extent + ELLIPSE_PAD_TILES, 0.01)` on
- * each axis; anything else -- figures, air, no GLB -- gets null and keeps its
- * circle. Rounded to NEAREST, as the mock was: the pad is already the margin.
+ * The G-MOCK ellipse for a row, fix round 1: a ground vehicle (a vehicle GLB,
+ * ring class `light` or `armour`) gets semi-axes that start at the mocked
+ * `half-extent + ELLIPSE_PAD_TILES` and are then SCALED, keeping that aspect,
+ * until the hull's four corners lie inside (`cornerReach <= 1`); and it is
+ * centred on the hull, not the unit origin, by `offsetAlong` (the hull box's
+ * centre along the heading). Rounded to nearest 0.01, as the mock was, unless
+ * that would put a corner back outside, in which case up. Anything else --
+ * figures, air, no GLB -- gets null and keeps its circle.
  */
 export function ellipseFor(row: FootprintRow): RingEllipse | null {
-  if (row.vehicleHalfExtent === null || (row.ringClass !== 'light' && row.ringClass !== 'armour')) return null;
-  const r2 = (v: number): number => Math.round((v + ELLIPSE_PAD_TILES) * 100) / 100;
-  return { along: r2(row.vehicleHalfExtent.along), across: r2(row.vehicleHalfExtent.across) };
+  const h = row.vehicleHalfExtent;
+  if (h === null || (row.ringClass !== 'light' && row.ringClass !== 'armour')) return null;
+  const a0 = h.along + ELLIPSE_PAD_TILES;
+  const b0 = h.across + ELLIPSE_PAD_TILES;
+  const scale = Math.max(1, Math.sqrt(cornerReach(h.along, h.across, a0, b0)));
+  const near = (v: number): number => Math.round(v * 100) / 100;
+  const up = (v: number): number => Math.ceil(v * 100 - 1e-9) / 100;
+  let along = near(a0 * scale);
+  let across = near(b0 * scale);
+  if (cornerReach(h.along, h.across, along, across) > 1) {
+    along = up(a0 * scale);
+    across = up(b0 * scale);
+  }
+  return { along, across, offsetAlong: near(h.centreAlong) + 0 };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -357,7 +377,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   console.log('\nELLIPSE_BY_TYPE = {');
   for (const r of rows) {
     const e = ellipseFor(r);
-    if (e) console.log(`  ${r.unit}: { along: ${e.along}, across: ${e.across} },`);
+    if (e) console.log(`  ${r.unit}: { along: ${e.along}, across: ${e.across}, offsetAlong: ${e.offsetAlong} },`);
   }
   console.log('}');
 }

@@ -96,24 +96,59 @@ export interface RingEllipse {
   readonly along: number;
   /** Semi-axis across it, tiles. */
   readonly across: number;
+  /** Where the hull's centre sits along the heading from the unit's origin,
+   *  tiles (negative = behind). The ring is centred there (fix round 1). */
+  readonly offsetAlong: number;
 }
 
 /**
- * Ellipse semi-axes per ground-vehicle type id, in tiles: `round(hull
- * half-extent + ELLIPSE_PAD_TILES, 0.01)` for every type with a vehicle GLB
- * whose ring class is `light` or `armour`. GENERATED -- do not hand-edit;
+ * Ellipse per ground-vehicle type id, in tiles, for every type with a vehicle
+ * GLB whose ring class is `light` or `armour`: semi-axes starting at the
+ * mocked `hull half-extent + ELLIPSE_PAD_TILES` and scaled up, at the same
+ * aspect, until all four hull corners are inside (fix round 1 -- the Namer,
+ * Eitan, D9 and Kipod grew; the other five already held their corners), and
+ * the hull box's centre along the heading (`offsetAlong`). GENERATED -- do not hand-edit;
  * regenerate with `cd tools && npx tsx src/perf/unit-footprints.ts`, and
  * `tools/src/perf/unit-footprints.test.ts` pins it against a fresh
  * measurement. A type absent here draws the circle `ringRadiusFor` gives.
  */
 export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
-  mbt_lavi: { along: 1.17, across: 0.78 },
-  ifv_namer: { along: 1.52, across: 0.97 },
-  apc_eitan: { along: 1.49, across: 0.85 },
-  jeep_shoded: { along: 1.1, across: 0.69 },
-  dozer_d9: { along: 1.44, across: 0.85 },
-  scout_shachaf: { along: 1.07, across: 0.65 },
-  apc_kipod: { along: 1.5, across: 0.83 },
-  technical: { along: 1.13, across: 0.6 },
-  rocket_battery: { along: 1.25, across: 0.64 },
+  mbt_lavi: { along: 1.17, across: 0.78, offsetAlong: -0.18 },
+  ifv_namer: { along: 1.61, across: 1.03, offsetAlong: 0 },
+  apc_eitan: { along: 1.53, across: 0.88, offsetAlong: 0.02 },
+  jeep_shoded: { along: 1.1, across: 0.69, offsetAlong: 0 },
+  dozer_d9: { along: 1.47, across: 0.87, offsetAlong: 0 },
+  scout_shachaf: { along: 1.07, across: 0.65, offsetAlong: 0 },
+  apc_kipod: { along: 1.54, across: 0.85, offsetAlong: 0 },
+  technical: { along: 1.13, across: 0.6, offsetAlong: 0.01 },
+  rocket_battery: { along: 1.25, across: 0.64, offsetAlong: 0.01 },
 };
+
+/**
+ * Selection-ring GRID numbers (Task 5, measured; moved here in fix round 1 so
+ * every ring number lives in one module). A ring whose larger semi-axis is
+ * over `RING_LARGE_TILES` is conformed on a `RING_GRID_LARGE` x
+ * `RING_GRID_LARGE` grid instead of 4 x 4: on 4 x 4 a Namer's ellipse was
+ * under the ground at 3.9% of vehicle placements on tel_marum (worst 0.114
+ * wu) and 5.0% on qarn_hadid (0.136); on 6 x 6, 0.2% / 0.1% (0.015 / 0.017)
+ * -- and 0.3% / 0.1% (0.027 / 0.026) once fix round 1 grew it to 1.61 x 1.03
+ * to hold its hull corners; a 7 x 7 grid would bury none.
+ * No foot ring (<= 0.58) was ever buried on 4 x 4; the Peten's 0.9 circle
+ * was (0.4%). `RING_SAG_STEPS` is the lift's sag lattice: 2 buried exactly the
+ * placements 4 did, by exactly as much, at under half the height samples.
+ * `units/selection-ring.ts` has the account; `tools/src/ring_burial.test.ts`
+ * pins it on the map.
+ */
+export const RING_GRID_LARGE = 6;
+export const RING_LARGE_TILES = 0.75;
+export const RING_SAG_STEPS = 2;
+
+/**
+ * The ring's per-slot position cache (fix round 1, the lead's "Cache +
+ * accept", 29 Sep): a ring's grid is rebuilt only when its unit has moved
+ * more than `moveTiles` or turned more than `turnRad` since the last build,
+ * or its size, shape or grid changed. Otherwise the vertices from that build
+ * are drawn again -- a ring may therefore sit up to 0.05 tile behind a unit
+ * creeping forward, or 2 degrees behind a turning hull, before it catches up.
+ */
+export const RING_CACHE = { moveTiles: 0.05, turnRad: (2 * Math.PI) / 180 } as const;

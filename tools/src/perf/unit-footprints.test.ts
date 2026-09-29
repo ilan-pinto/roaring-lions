@@ -13,7 +13,7 @@ import {
   ringRadiusFor,
   SELECTION_RING,
 } from '../../../packages/render/src/three/units/readability';
-import { ellipseFor, footprintOf, HULL_ONLY, radiusFor, readGlb, readGlbJson, unitFootprintTable } from './unit-footprints';
+import { cornerReach, ellipseFor, footprintOf, HULL_ONLY, radiusFor, readGlb, readGlbJson, unitFootprintTable } from './unit-footprints';
 
 /** A real GLB header + JSON chunk around a one-mesh 2 x 1 box (X by Z, 1 tall). */
 function boxGlb(nodeScale?: number[]): ArrayBuffer {
@@ -151,9 +151,36 @@ describe('per-type vehicle ellipse (G-MOCK)', () => {
     expect(fp.halfExtentXTiles).toBeCloseTo(1 * MESH_SCALE, 12);
     expect(fp.halfExtentZTiles).toBeCloseTo(0.5 * MESH_SCALE, 12);
     const row = { unit: 'box', ringClass: 'armour' as const, halfDiagonalTiles: 1, file: 'x', excluded: [], note: null,
-      vehicleHalfExtent: { along: 0.87, across: 0.48 } };
-    expect(ellipseFor(row)).toEqual({ along: 1.17, across: 0.78 });
+      vehicleHalfExtent: { along: 0.87, across: 0.48, centreAlong: -0.184 } };
+    expect(ellipseFor(row)).toEqual({ along: 1.17, across: 0.78, offsetAlong: -0.18 });
     expect(ellipseFor({ ...row, ringClass: 'air' })).toBeNull();
     expect(ellipseFor({ ...row, vehicleHalfExtent: null })).toBeNull();
+  });
+});
+
+describe('fix round 1: the ellipse is centred on the hull, and holds its corners', () => {
+  const rows = unitFootprintTable();
+
+  it("every ground vehicle's four hull corners lie inside its shipped ellipse", () => {
+    for (const r of rows) {
+      const e = ELLIPSE_BY_TYPE[r.unit];
+      if (!e || !r.vehicleHalfExtent) continue;
+      expect(cornerReach(r.vehicleHalfExtent.along, r.vehicleHalfExtent.across, e.along, e.across), r.unit).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('scaling keeps the mocked aspect and never drops below half-extent + pad', () => {
+    for (const r of rows) {
+      const e = ELLIPSE_BY_TYPE[r.unit];
+      const h = r.vehicleHalfExtent;
+      if (!e || !h) continue;
+      expect(e.along, r.unit).toBeGreaterThanOrEqual(h.along + 0.3 - 0.005);
+      expect(e.across, r.unit).toBeGreaterThanOrEqual(h.across + 0.3 - 0.005);
+      expect(e.along / e.across, r.unit).toBeCloseTo((h.along + 0.3) / (h.across + 0.3), 1);
+    }
+  });
+
+  it("the Lavi's ring centre sits 0.18 tile behind its origin, where its hull box is", () => {
+    expect(ELLIPSE_BY_TYPE.mbt_lavi.offsetAlong).toBe(-0.18);
   });
 });

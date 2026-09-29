@@ -4972,6 +4972,8 @@ export class ThreeRenderer implements Renderer {
       this.sim.width,
       this.sim.height
     );
+    // The selection ring's cached grids were conformed to the old ground.
+    this.selectionRing.invalidate();
   }
   setDecor(decor: Uint8Array): void {
     this.retained.decor = decor;
@@ -7629,11 +7631,17 @@ export class ThreeRenderer implements Renderer {
       p.acrossTiles = undefined;
       p.headingRad = undefined;
     } else {
+      const heading = fx.toNumber(this.sim.state.facing[i]) * Math.PI * 2;
       p.alongTiles = e.along;
       p.acrossTiles = e.across;
-      p.headingRad = fx.toNumber(this.sim.state.facing[i]) * Math.PI * 2;
+      p.headingRad = heading;
+      // Centred on the HULL, not the unit origin (fix round 1): the hull
+      // box's own centre sits `offsetAlong` tiles along the heading.
+      p.x = x + e.offsetAlong * Math.cos(heading);
+      p.z = z + e.offsetAlong * Math.sin(heading);
     }
-    return this.selectionRing.push(p, this.decalSampleY);
+    // The entity id keys the batch's position cache (fix round 1).
+    return this.selectionRing.push(p, this.decalSampleY, i);
   }
 
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
