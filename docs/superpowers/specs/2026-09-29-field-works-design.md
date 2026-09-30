@@ -357,17 +357,22 @@ The militia's range bonus is +0.5 tile, not +1: that keeps the firing position a
 rifle's 8, and +1 is a cliff (an AT-led assault against it went from 100% falls to 0%, **M**). Like the
 outpost, its garrison numbers wait on #280.
 
-**The observation post and the Tel Marum finding.** CLAUDE.md records that the Grad cannot price
-Tel Marum III's corridor because *"every post that can see the corridor stands inside the
-corridor's own weapons"* and dies in ~48–59 s, and that *"unkillable permanent contact"* takes
-the corridor to 1.20 losses a run, level with the pass. A masonry OP is close to that ceiling:
+**The observation post and the Tel Marum finding.** When this spec was written, CLAUDE.md recorded
+that the Grad cannot price Tel Marum III's corridor because *"every post that can see the corridor
+stands inside the corridor's own weapons"* and dies in ~48–59 s, and that *"unkillable permanent
+contact"* takes the corridor to 1.20 losses a run, level with the pass. **That premise no longer
+holds on `main`** (re-measured 2026-09-30, PR #300): since group formations (`1ea1094a`) the flank
+files up the corridor as a column, the shipped `tm_spotter_narrow` survives to ~155–162 s, and the
+Grad already prices the corridor at **3.10** losses a run against the pass's 3.80. The probe's
+`perfect eyes` row (2.60) is no longer a ceiling either. The OP's case therefore has to be re-made
+against those numbers, not the old ones. What stands is the structure argument:
 `small_arms` does 0.01 of damage to a structure (`STRUCT_DAMAGE`, `structures.ts:103-116`), so the
 flank's rifles cannot shoot it off its hill; two hits from an RPG, a mortar or a Spike kill it.
 **Sight 9** (`sarim_rifles`' own, inside a Spike's 9) is the approved compromise: a sight 11 post
 would sit outside the flank's rifles (8) and Spike (9) while it spots. Even so, do not add one to
 `tel_marum_3_clearance` without re-running `tools/src/backtest/saddle-price.ts` (probe
-`fw-op-saddle`); if the lead WANTS the corridor priced, this is the first tool that can, and that is
-a design call.
+`fw-op-saddle`). The corridor is already priced without it; whether it should cost MORE, and by
+how much, is a design call.
 
 **Candidate missions** (for `mission-author` in task S9, each needing a `playtest` plan update):
 - OP: `umm_zeitoun_3_clearance`, `umm_zeitoun_4_clearance`, `qarn_hadid_2_foothold` (Sur,
