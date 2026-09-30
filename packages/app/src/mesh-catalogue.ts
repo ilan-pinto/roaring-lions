@@ -203,6 +203,15 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // `apc_kipod` (landed in 2f93129) -- so both build a mesh at runtime.
   scout_shachaf: 'vehicles/scout_shachaf.glb',
   apc_kipod: 'vehicles/apc_kipod.glb',
+
+  // The two KDF drones (GH-286, batch B0a, 2026-09-30): Meshy text-to-3D
+  // previews remeshed at 800 tris and role-split in
+  // `tools/drones/export_meshy_drones.py`. Air units on the vehicle path, so
+  // they take `heli_peten`'s `AIR_LIFT_PX` lift and no ground conform. The
+  // sprite sheets' x1.5 `SIZE_CLASS["air"]` is baked into the GLBs (the
+  // lead's ruling on GH-290), so they draw at the size the billboards did.
+  recon_drone: 'vehicles/recon_drone.glb',
+  attack_drone: 'vehicles/attack_drone.glb',
 };
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */

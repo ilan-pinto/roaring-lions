@@ -66,14 +66,14 @@ export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 } as
  * cannot be separated from its body, so it falls back) carry their class value.
  */
 export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
-  mbt_lavi: 1.15, ifv_namer: 1.6, apc_eitan: 1.51, apc_kipod: 1.51, scout_shachaf: 0.97,
+  mbt_lavi: 1.15, ifv_namer: 1.6, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 0.97,
   inf_squad: 0.56, mortar_team: 0.58, sniper_team: 0.51, sarim_rifles: 0.49,
   at_team: 0.45, demo_squad: 0.45, yahalom_squad: 0.45, breach_team: 0.45, militia_cell: 0.45,
   rpg_team: 0.45, atgm_cell: 0.45, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
   recoilless_team: 0.45, civilians: 0.45,
   jeep_shoded: 1.03, technical: 1.02, dozer_d9: 1.46, rocket_battery: 1.16, moto_rpg: 0.55,
   gun_truck: 0.55, manpad_team: 0.55,
-  heli_peten: 0.9, paramotor: 0.35, recon_drone: 0.35, attack_drone: 0.35, loiter_drone: 0.35,
+  heli_peten: 0.9, paramotor: 0.35, recon_drone: 0.36, attack_drone: 0.35, loiter_drone: 0.35,
 };
 
 /** The ring radius for a unit type: its own row, else the class value. */
@@ -115,11 +115,11 @@ export interface RingEllipse {
 export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   mbt_lavi: { along: 1.17, across: 0.78, offsetAlong: -0.18 },
   ifv_namer: { along: 1.61, across: 1.03, offsetAlong: 0 },
-  apc_eitan: { along: 1.53, across: 0.88, offsetAlong: 0.02 },
+  apc_eitan: { along: 1.52, across: 0.83, offsetAlong: 0 },
   jeep_shoded: { along: 1.1, across: 0.69, offsetAlong: 0 },
   dozer_d9: { along: 1.47, across: 0.87, offsetAlong: 0 },
   scout_shachaf: { along: 1.07, across: 0.65, offsetAlong: 0 },
-  apc_kipod: { along: 1.54, across: 0.85, offsetAlong: 0 },
+  apc_kipod: { along: 1.57, across: 0.97, offsetAlong: 0 },
   technical: { along: 1.13, across: 0.6, offsetAlong: 0.01 },
   rocket_battery: { along: 1.25, across: 0.64, offsetAlong: 0.01 },
 };

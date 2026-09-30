@@ -232,6 +232,16 @@ VEHICLE_ROLE_PALETTES = {
         "hull": "olive.0", "plate": "olive.1", "metal": "gunmetal.2",
         "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
     },
+    # The two KDF drones (GH-286 B0a, tools/drones/export_meshy_drones.py):
+    # KDF olive like apc_eitan; `metal` the rotors/guards (recon) and nose
+    # pod, tail and skids (attack); `glass` the camera ball / nose lens.
+    # Exactly the three roles each GLB carries.
+    "recon_drone": {
+        "hull": "olive.0", "metal": "gunmetal.2", "glass": "gunmetal.3",
+    },
+    "attack_drone": {
+        "hull": "olive.0", "metal": "gunmetal.2", "glass": "gunmetal.3",
+    },
 }
 VEHICLE_ROLE_PALETTE_FALLBACK = {
     "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",

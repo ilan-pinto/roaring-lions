@@ -372,6 +372,22 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // The two KDF drones (GH-286 B0a, `tools/drones/export_meshy_drones.py`),
+  // hand-copied from the gate's `VEHICLE_ROLE_PALETTES` like every entry
+  // above. KDF olive like `apc_eitan`; `metal` is the rotors/guards (recon)
+  // and the nose pod, tail and skids (attack); `glass` the camera ball and
+  // the nose lens. Exactly the three roles each GLB carries -- no `plate`,
+  // `rubber` or `recess` part exists on either, so none is declared.
+  recon_drone: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    glass: sliceFrom('gunmetal', 3, 1),
+  },
+  attack_drone: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    glass: sliceFrom('gunmetal', 3, 1),
+  },
 };
 
 /**
