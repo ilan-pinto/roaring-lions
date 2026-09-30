@@ -83,14 +83,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 - 2026-09-27 · **#253 → d2d33ba5 unit voices engine (WP-AU1, GH-245)** · orders and deaths in Hebrew (KDF) and Arabic (others), military calls only, no assets yet — samples wait on the D5 ElevenLabs commercial licence · no bless
 - 2026-09-26 · releases v0.82.0 → v0.84.0 cut across the 24–26 Sep landings below
 - 2026-09-26 · **#249 → 2eadc0b0 ground plan 1 (WP-A2)** · splat terrain, the #226 road, a decal pool, and the new gated `aftermath` scenario · visual baseline re-blessed from CI numbers at 165eb966: quiet 12222, open-ground 502, vehicle 4726, relief 704, aftermath new
-- 2026-09-25 · **#248 asset-provenance fix** · TNK/JEEP sprites re-rendered from our own GLBs; Namer CC-BY credit added; Kolos FBX removed; history kept, by the lead's decision · closes the pre-public audit's one finding
-- 2026-09-25 · **#246 the unit voices spec (WP-AU1, #245)** · KDF in Hebrew, others in Arabic, military calls only; samples ElevenLabs, uncommitted until a commercial licence is confirmed
-- 2026-09-25 · **#244 → 115377b1 garage uplift plan 1 (WP-S3g, app lane)** · an accordion board, kit pips, a Maxed stamp, a stat panel, and purchase events with sound; one Enter press buys one tier · decisions: L1 the accordion; L2 a re-locked unit's tiers kept but dormant
-- 2026-09-25 · **#242 Worker observability** · logs and traces, `redact_query_string` false, as the lead supplied
-- 2026-09-25 · **#241 the ground spec (WP-A2)** · the lead approved its numbers and D8
-- 2026-09-25 · the lead made the repo PUBLIC; GitHub Actions works again (it had been blocked by billing on the private repo from 24 Sep ~20:34 UTC)
-- 2026-09-25 · a pre-public history audit: clean for secrets, sensitive files, personal data and large files; found unverified-licence art, fixed at HEAD by #248
-- 2026-09-25 · the repo's git `user.email` is now `pint12@gmail.com` (repo-level config)
+- 2026-09-25 · #241 ground spec, #242 Worker observability, #244 garage uplift plan 1 (115377b1), #246 voices spec, #248 asset-provenance fix; repo made PUBLIC (Actions unblocked); pre-public history audit clean; repo git user.email pint12@gmail.com · details in git log
 - 2026-09-24 · **#240 the garage filter fix** (closes #237)
 - 2026-09-24 · **#239 the garage uplift spec (WP-S3g)** · merging it accepted D1–D9
 - 2026-09-24 · **#236 win screen credits** (closes #234) · the win screen shows credits paid and the running total
