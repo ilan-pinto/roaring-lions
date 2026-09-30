@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-09-29 late (#278 FW spec, #281 civilians flee notice + refuge ring, #283 walkie-talkie radio LANDED; #268 Escape, #269 pinned, #270 ST8, #271 symbols, #272 A4, #275 E5 part 1, #276 voice samples LANDED; FW #277 field works queued, design started) · main: 66170f0a · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct still gates A3.1) · next milestone: M1 30 Oct · GitHub: milestones EP M1–M5 (3–7), gate issues #164–#169 + G7 #199 (closed), package issues #170–#192 + Steam WP-ST1–ST8 #200–#207 + WP-T1 #218 + E6 #274 + FW #277 · art: #226 roads LANDED (in #249), #227 tunnels still queued in A3.2
+Updated: 2026-09-30 (#284 #287–#290 #292–#296 LANDED: FW plan, E6 spec, B0 Meshy prep + pose flag, try-again fix, CI timeout fix, smoke skill-step target, Stage 4 sim-fix plan) · main: 3c4cd941 · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct) · next milestone: M1 30 Oct · open issues this week: #274 #277 #279 #280 #285 #286 #291
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
@@ -11,10 +11,8 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 | A (packages/app) | #279 app half LANDED (#281) · #282 walkie-talkie radio LANDED (#283) | — | rulings on #279, #282 | idle | S3a #180 after the October Meshy credits; FW #277 placement UI in Stage 4; #279 sim half (drone exclusion, flee only under fire outside evacuation missions) in Stage 4 |
 | B (render · art · data) | A2 plan 2 LANDED (#266; lead accepted beit z0.5 +0.83 ms) · #250 ATGM animation LANDED (#263) · A3.1 style bible LANDED (#259) | — | — | bless 2 landed 53ce974a | confirm main's visual is green on the blessed baseline; then A3.1 Meshy batches after G1 and the October credits |
 | B (render · art · data) | E5 part 1 #181 LANDED (#275) · voice samples LANDED (#276) | — | docs/superpowers/specs/2026-09-29-e5-special-forces-design.md · .superpowers/sdd-archive/ | idle | E5 part 2 (art + landing) after the October credits |
-| C/A (design) | FW #277 field works | — | docs/superpowers/specs/2026-09-29-field-works-design.md (LANDED #278) | spec + G-NUM + G-MOCK (B) approved 29 Sep; #280 garrison suppression defect blocks the outpost | Meshy estimate (210 planned, 420 cap) to the lead after the October credits; sim + UI in Stage 4 |
-| C/B/A (docs, parallel 29 Sep) | FW implementation plan · E6 #274 design spec · Stage 4 sim-fix plan (#280 garrison suppression, #279 sim half) · smoke-ability proposal | docs/fw-plan, docs/e6-spec, docs/stage4-simfix, docs/smoke-proposal · roaring-lions-ep/{fw-plan,e6-spec,s4-simfix,smoke-prop} | — | in progress (docs only; no sim change) | review each; PR; lead gates on E6 open questions and smoke G-NUM |
-| tooling / investigation | vitest `onTaskUpdate` worker-timeout CI flake (turned #281 red with 364/364 passing) · parked `inf_squad` seen beyond sight at tick 578 | fix/vitest-worker-timeout, chore/detect-probe · roaring-lions-ep/{vitest-flake,detect-probe} | — | in progress | flake: PR; detection: verdict, fix in Stage 4 if a bug |
-| A (bug) | #285 "try again" on the debrief does nothing (khan_rafid_3_clearance) | fix/try-again · roaring-lions-ep/tryagain | — | investigating | root cause, fix + test, PR |
+| C/A (design) | FW #277 field works | — | docs/superpowers/specs/2026-09-29-field-works-design.md (LANDED #278) | spec + G-NUM + G-MOCK (B) approved 29 Sep; #280 garrison suppression defect blocks the outpost | Meshy estimate (210 planned, 420 cap) to the lead after the October credits; sim + UI in Stage 4 (plan LANDED #287; L1 field-works-only, L4 add demo_squad to three footholds) |
+| C (Stage 4 queue) | #291 rout flees fire, not −x · #279 sim half · #280 (FW Task 1) · E6 #274 · FW #277 | — | plans #287, #296; spec #288 | ready for Stage 4 (2 Nov) | re-pin order #291 → FW Task 2 → E6 |
 | C (packages/sim) | #247 manpad_team treated as wheeled (sim/data fix, filed 26 Sep) | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
@@ -54,6 +52,15 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-09-30 · **#296 → 8aef10e3 Stage 4 sim-fix plan** (#279 sim half, #291 rout direction, #280 owned by FW) · re-pin order #291 → FW Task 2 → E6 · defaults L-A/L-B/L-C taken
+- 2026-09-30 · **#295 → ea3fd45a smoke is a skill step** · §5.7 measures the model without smoke; new pinned case `urbanSmokeStep` (2:1+smoke ≥ 90%, 1:1+smoke ≤ 25%; 239/240 and 0/240 over 240 seeds); `mortar_team` carries smoke · sim untouched, balance/playtest/hash unchanged
+- 2026-09-30 · **#294 → d4b2d17b try again works (closes #285)** · a link to the current route re-mounts it (replace, not push), as a browser reload would
+- 2026-09-30 · **#293 → ab97f6f6 Meshy `--pose a-pose|t-pose|none`** · unblocks B0b figure teams · no API calls
+- 2026-09-30 · **#292 → 4ed889d4 smoke proposal** · eight KDF carriers since Aug; lead D1 skill step, D2 no inf_squad smoke, D3 Stage 4 per-unit fields
+- 2026-09-30 · **#290 → 3c4cd941 B0 Meshy prep (#286)** · numbers + prompts for apc_eitan, at_team, recon_drone, demo_squad, attack_drone · 165 planned / 330 cap (B0a 85, B0b 80) · defaults Q1–Q6 taken
+- 2026-09-30 · **#289 → 4e283f31 CI timeout fix** · ring_burial made async and split; vitest onTaskUpdate RPC no longer starved
+- 2026-09-30 · **#288 → 64eff8d8 E6 design spec (#274)** · lead: swarm hit_mult 0.08, Gachelet claim escorted; Q2–Q19 defaults
+- 2026-09-30 · **#287 → 28688396 FW implementation plan** · 16 tasks, Task 2 the one planned re-pin
 - 2026-09-29 · **#283 → 66170f0a walkie-talkie radio (GH-282)** · unplaced voice lines get saturation, compression, a squelch click, a static burst and tail, and a noise bed at playback (files stay clean); "Radio effect" setting, on by default; the lead approved the clips as built · CI caught jsdom localStorage state leaking between specs on Node 22 (fixed in the test file) · no bless
 - 2026-09-29 · **#281 → 3ed9b1c7 civilians flee explained (GH-279, app half)** · a throttled feed notice naming the cause, the refuge on the minimap and tracker with an (N/M) tally and Show refuge, a briefing line in beit_sahwan_breach, and a 3 s dashed refuge ring (treatment A; dims under fog by the lead's call) · sim untouched · no bless · Stage 4 keeps the drone exclusion and flee-only-under-fire
 - 2026-09-29 · **#278 → e3bf7484 FW field works spec (#277)** · lead gates: G-NUM approved, G-MOCK treatment B, intel centre full radius 10 but banned where `digs`/`in_tunnel` are authored; re-opens GH-115 base building at the lead's request; #280 filed (garrisons pinned by near misses)
