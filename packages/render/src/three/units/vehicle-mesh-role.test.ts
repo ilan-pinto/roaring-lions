@@ -22,7 +22,8 @@ describe('vehicle-mesh-role', () => {
   });
 
   it('throws for an unrecognised vehicle id', () => {
-    expect(() => rampForVehicleRole('gun_truck', 'hull')).toThrow(/no ramp table/);
+    // `gun_truck` was the example here until B2 wired it (2026-09-30).
+    expect(() => rampForVehicleRole('no_such_vehicle', 'hull')).toThrow(/no ramp table/);
   });
 
   it('throws for a role a real vehicle does not declare (no default colour)', () => {

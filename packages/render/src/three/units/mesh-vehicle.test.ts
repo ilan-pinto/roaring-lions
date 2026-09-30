@@ -99,7 +99,7 @@ describe('buildVehicleMeshTemplate', () => {
 
   it('throws loudly for an unknown vehicle id', async () => {
     const gltf = await parseRigidFixture({ parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }] });
-    expect(() => buildVehicleMeshTemplate(gltf, 'gun_truck')).toThrow(/no ramp table/);
+    expect(() => buildVehicleMeshTemplate(gltf, 'no_such_vehicle')).toThrow(/no ramp table/);
   });
 });
 

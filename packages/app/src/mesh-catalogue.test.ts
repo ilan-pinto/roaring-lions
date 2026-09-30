@@ -289,10 +289,12 @@ describe('mesh catalogue: decor families', () => {
 
 describe('mesh catalogue: what has a mesh at all', () => {
   it('reports a type with no GLB as billboard-only', () => {
-    // `loiter_drone` ships a sprite sheet and no mesh (`recon_drone` was the
-    // example until GH-286 B0a gave it a GLB). The mesh path is additive: a
-    // type with no entry keeps its billboard rather than failing.
-    expect(hasUnitMesh('loiter_drone')).toBe(false);
+    // No shipped unit type is meshless any more: `recon_drone` was the example
+    // until GH-286 B0a gave it a GLB, and `loiter_drone` until B2 (GH-179) did
+    // the same, both on 2026-09-30. `billboard_only` stands in for the next
+    // sprite-only type. The mesh path is additive: a type with no entry keeps
+    // its billboard rather than failing.
+    expect(hasUnitMesh('billboard_only')).toBe(false);
     expect(hasUnitMesh('inf_squad')).toBe(true);
     expect(hasUnitMesh('mbt_lavi')).toBe(true);
   });
@@ -330,19 +332,21 @@ describe('mesh catalogue: what has a mesh at all', () => {
 });
 
 describe('sprite sheet plan (level load time, step 1)', () => {
-  const spriteTypes = new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'recon_drone', 'heli_peten', 'sarim_rifles']);
+  const spriteTypes = new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'billboard_only', 'heli_peten', 'sarim_rifles']);
   const structureSprites = new Set(['house', 'wall', 'kiosk']);
 
   it('on the mesh path, only a fielded type with no mesh gates deploy', () => {
     const plan = spriteSheetPlan({
       meshPath: true,
-      roster: new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'sarim_rifles']),
+      // `billboard_only` is a stand-in: B2 gave `gun_truck` a mesh and B0a
+      // `recon_drone` (both 2026-09-30), leaving no shipped meshless type.
+      roster: new Set(['inf_squad', 'mbt_lavi', 'billboard_only', 'sarim_rifles']),
       deferred: new Set(['heli_peten']),
       spriteTypes,
       structureTypes: new Set(['house', 'wall']),
       structureSprites,
     });
-    expect([...plan.before].sort()).toEqual(['gun_truck']);
+    expect([...plan.before].sort()).toEqual(['billboard_only']);
     // A mesh vehicle still needs its wreck sprite; a deferred buildable its
     // billboard fallback. A rigged type needs neither.
     expect([...plan.after].sort()).toEqual(['heli_peten', 'mbt_lavi']);
@@ -364,7 +368,7 @@ describe('sprite sheet plan (level load time, step 1)', () => {
     expect(plan.before.size).toBe(0);
     expect(plan.after.size).toBe(0);
     // An unfielded no-mesh type is not loaded either: the roster decides.
-    expect(plan.before.has('recon_drone')).toBe(false);
+    expect(plan.before.has('billboard_only')).toBe(false);
   });
 
   it('a standing structure type with no building mesh still gets its sprite', () => {
@@ -415,7 +419,7 @@ describe('meshPlanFor', () => {
   const map = parseMap(maps.beit_sahwan_outskirts);
 
   it('splits a roster by mesh kind and drops a type with no mesh', () => {
-    const plan = meshPlanFor(map, new Set(['mbt_lavi', 'inf_squad', 'apc_eitan', 'loiter_drone']));
+    const plan = meshPlanFor(map, new Set(['mbt_lavi', 'inf_squad', 'apc_eitan', 'billboard_only']));
     expect([...plan.rigged]).toEqual(['inf_squad']);
     expect([...plan.vehicles].sort()).toEqual(['apc_eitan', 'mbt_lavi']);
   });

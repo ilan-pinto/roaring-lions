@@ -232,6 +232,20 @@ VEHICLE_ROLE_PALETTES = {
         "hull": "olive.0", "plate": "olive.1", "metal": "gunmetal.2",
         "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
     },
+    # B2 (GH-179, 2026-09-30). tools/render_gun_truck.py's own ROLE_PALETTE --
+    # "faded ochre body", the enemy truck tone -- hand-copied like the rest.
+    # The shipped GLB is textured (TEXTURED_VEHICLE_EXEMPT), so this row only
+    # paints the silhouette render and the wreck's stand-in.
+    "gun_truck": {
+        "hull": "dust.1", "plate": "dust.2", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
+    },
+    # tools/render_loiter.py's own ROLE_PALETTE: dust wing and fuselage,
+    # gunmetal warhead and seeker -- the Sarim munition, not the KDF's olive.
+    "loiter_drone": {
+        "hull": "dust.1", "plate": "dust.2", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
+    },
     # The two KDF drones (GH-286 B0a, tools/drones/export_meshy_drones.py):
     # KDF olive like apc_eitan; `metal` the rotors/guards (recon) and nose
     # pod, tail and skids (attack); `glass` the camera ball / nose lens.

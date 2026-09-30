@@ -406,3 +406,27 @@ otherwise.
 12. **The Eitan's remote weapon station.** **Default: kit geometry** (`kit.rws`) on a
     ring the Meshy hull is asked to leave empty, 0 credits, `turret_pivot` placed by
     measurement. A Meshy RWS part is +25.
+
+## 8. Measured in B2 (2026-09-30)
+
+- **§4's open question is closed: a Meshy remesh of a refined task keeps its
+  bake.** The gun truck's remesh (5,000 tris) arrived with base colour, normal and
+  metallic-roughness maps in one `BakedMaterial`; no `retexture` was needed and
+  the unit stayed at 35 credits.
+- **§3's team-file cap does not account for `rig.py`'s copies.** A kneeling
+  figure ships three geometries (deployed kneel, D6 standing walker, prone
+  corpse), so a Meshy figure remeshed at the bible's 2,000 would put a two-man
+  crew near 11k. B2 remeshed at 1,500 and decimated corpses to half: 7,368 and
+  8,936 tris for the two teams.
+- **A rigged figure without a bought Meshy rig works:** cut at `rig.py`'s joints,
+  rigid-bound, `rig.py`'s own clips (`tools/units/import_meshy_crew_team.py`).
+  Its cost is the four per-figure copies above and a corpse that is the A-pose
+  body laid flat rather than a posed fall.
+- **Sarim machine line, used for `loiter_drone` and proposed for §5:** "a crude
+  workshop-built machine of an irregular militia in sun-faded dusty paint with
+  rough welded seams".
+- **Meshy honours the silhouette, not the angle or the count.** The gun truck's
+  "28 degrees" came back at 7.6 (fixed in Blender about the trunnion); the drone's
+  "two wingtip fins" came back as one tail fin, its "pusher" prop on the nose,
+  plus landing gear; the MANPAD figure's head wrap came back as a bare head.
+  Every one was fixed in Blender rather than re-rolled.
