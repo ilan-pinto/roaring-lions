@@ -642,9 +642,13 @@ describe('countTracePeaks', () => {
 
   // Why the forward axis and not height, pinned rather than merely claimed
   // in the doc comment: the height trace double-counts a genuine single
-  // cycle on two of the seventeen from a secondary bounce the forward sweep
+  // cycle on one of the seventeen (two, until B0b re-sourced `at_team`) from
+  // a secondary bounce the forward sweep
   // does not have.
-  it.each(['at_team.glb', 'meshy_mortar_team.glb'])(
+  // `at_team.glb` was the second file here until B0b (2026-09-30) replaced
+  // the kit figures with a Meshy remesh; its height trace now reads one
+  // cycle like everyone else's, so the mortar team is the remaining witness.
+  it.each(['meshy_mortar_team.glb'])(
     '%s: the height axis over-counts a real single cycle -- this is why forward is used',
     (file) => {
       const fp = measureRoleFootprint(`${MESHES}${file}`, 'boot', 'move');
@@ -1246,8 +1250,11 @@ const STILL_FIGURE_TRAVEL_M = 0.01;
  * re-export can move either without the other.
  */
 const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
-  'demo_squad.glb move': 576,
-  'at_team.glb move': 576,
+  // B0b (2026-09-30): Meshy remeshes cut into rig.py parts with their bake
+  // (import_meshy_kdf_team.py), boot = below 0.09 H; the 576 both used to
+  // read was kit.py's own boot mesh.
+  'demo_squad.glb move': 214,
+  'at_team.glb move': 257,
   'sniper_team.glb move': 176,
   // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
   // parts, so the boot mesh is the figure's own boots, not kit's.

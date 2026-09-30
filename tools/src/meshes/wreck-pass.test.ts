@@ -496,6 +496,7 @@ describe('WRECK_RECIPES', () => {
     expect(Object.keys(WRECK_RECIPES).sort()).toEqual([
       'apc_eitan',
       'apc_kipod',
+      'attack_drone',
       'dozer_d9',
       'gun_truck',
       'heli_peten',
@@ -504,6 +505,7 @@ describe('WRECK_RECIPES', () => {
       'loiter_drone',
       'mbt_lavi',
       'paramotor',
+      'recon_drone',
       'rocket_battery',
       'scout_shachaf',
       'technical',

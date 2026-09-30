@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready military outpost strongpoint, a field work of a fictional army in plain matte olive-drab paint with dark gunmetal fittings and tan sandbags, clean and military. A square perimeter of stacked mesh gabion baskets and sandbags with a firing parapet along the top, a raised central bunker of sandbags on a plywood frame under a flat corrugated-steel roof on four steel posts, a steel ladder up to the parapet at the front. Compact square footprint about 6 by 6 metres, parapet 1.8 metres high, bunker roof 4.5 metres high. Tan sandbags, dust-coloured gabion fill, olive steel roof. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, ladder facing forward. No insignia, flags, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2a6-e8f5-712f-a695-bfee06ba9da2",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1279165559,
+    "prompt": "A single low-poly game-ready military outpost strongpoint, a field work of a fictional army in plain matte olive-drab paint with dark gunmetal fittings and tan sandbags, clean and military. A square perimeter of stacked mesh gabion baskets and sandbags with a firing parapet along the top, a raised central bunker of sandbags on a plywood frame under a flat corrugated-steel roof on four steel posts, a steel ladder up to the parapet at the front. Compact square footprint about 6 by 6 metres, parapet 1.8 metres high, bunker roof 4.5 metres high. Tan sandbags, dust-coloured gabion fill, olive steel roof. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, ladder facing forward. No insignia, flags, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790777421731,
+    "progress": 100,
+    "started_at": 1790777421736,
+    "finished_at": 1790777610704,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2a6-e8f5-712f-a695-bfee06ba9da2/output/model.glb?Expires=4944326400&Signature=PZlbLN8k1amNrbPnn0dllqeMbk6QQMUXx3jqSEKpc3iu9ZZdn2q5UJ3TDlNE~POiPhjzS~~Xmetsp-zoIqyxlQdPO9B5DBMGfMLpYwzOACY2nWOPGtAr0X1e7sI4ptLUHJpFN9KDj0h1EQtIPGF6uRUv40-uM~KT7UuCb4Ppi3NOmi~k-Ky6BLylvozWxD3EZ6JXkk1uFIic5vrPKpiQybcRA2eF76Pe~Ap13s-9v5nKinr2bmeZ7oHFpRj9niUlOLwg19aO~xtgAHA4-zwaIsKMonu0ApmRAXOdoK~Y8jaFYcstG2k1YF1LGJipBAvN6cNIQovX5GqJTo7JsqG0oQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2a6-e8f5-712f-a695-bfee06ba9da2/output/preview.png?Expires=4944326400&Signature=Yb0WoyISx-rS1kw~IU8AahFXhCsomLwOfeKafyfvBfbcG8Jn~eXbcnYdp9oQYihOt4tteh-FoS8t5hkpv6EJXYw0pm5uOSkBgqpDGJQLqwlUs97pWU2ZHsHwEV5DpHdqeqFZFtHXcuZjlZWptLQnqI2iSZkGepaqA1d32x6wzG7jGPvULT92oAC0J699UcSlmpEvmCpgXcAyYgD~8a3BCADuvMte4gBn1v11GiFh3hlfBtj-wiRCCv8TCP1bVRZSwLLQeBbOQvbT7--n981M9YHvNPaP5gbyO5xfu2lYwUD5L4zr3RM60~q4ThKSqeqyZAF9WBFvEeexawaeih1hUw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790777421731,
+    "started_at": 1790777421736,
+    "finished_at": 1790777610704
+  },
+  "usd_estimated": 0.4
+}

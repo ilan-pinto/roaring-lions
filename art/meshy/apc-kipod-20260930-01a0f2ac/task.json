@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready six-wheeled armoured personnel carrier, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. Three evenly spaced axles with six large wheels, a tall boxy troop compartment with a flat roof running the full length of the hull, thick slab armour screens standing proud of both flanks above the wheels, and a small empty round mounting ring on the roof with no weapon fitted. Real-world scale, 7.2 metres long. Olive paint, gunmetal, black tyres. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2ac-f465-7172-aef7-0fcdb64f3f7a",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1207375544,
+    "prompt": "A single low-poly game-ready six-wheeled armoured personnel carrier, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. Three evenly spaced axles with six large wheels, a tall boxy troop compartment with a flat roof running the full length of the hull, thick slab armour screens standing proud of both flanks above the wheels, and a small empty round mounting ring on the roof with no weapon fitted. Real-world scale, 7.2 metres long. Olive paint, gunmetal, black tyres. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790777818368,
+    "progress": 100,
+    "started_at": 1790777818374,
+    "finished_at": 1790777916286,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2ac-f465-7172-aef7-0fcdb64f3f7a/output/model.glb?Expires=4944326400&Signature=Usu2C6FFz3WWi8TgeK~VUKkxCfiGLFm7btkBBmMw88W9fz~oSpmegBqU86wnAWWrnHhufQH2uNxWOLi0GOkaCPeZ4iSBYEX8dfIWUn02C7CUMGJro1It19cl-arIwTSrdvr0OHIdkLCwAVWx0DgusQ8cAGq39f-ASLDR2bSQLsmFT01EbE6OyoFAWWRKo32jTScB0A5D36EWwyjthNi22QnhxntDF~lnSjyfsRDa2IUD3bjErv9SXQuUuCYQ8TOnWt3hzVDilTsIu3BCHRX30gOgcKqGvX6GL-TaGGIMer2Xxw7zDdRl~gxZ9vZKx8qPbzesiCLnSibWbvz648BgQA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2ac-f465-7172-aef7-0fcdb64f3f7a/output/preview.png?Expires=4944326400&Signature=daZKpmKEDufPcj5QgNVniVPn6M35gHGIAh8q~I-Al3ppYZPiwrcwC35-ldfIoyhDLfiZIzOMtmLQCwysOSVoUD1rvzR24p6iD94-bq3uKDqTc9hv9gvPRFTx2yY320BkVhVv65cjYX90Mz~5iWxlPy-GI6JyHbE8vMei2L9PKSLIlbuWKhofjxoATGmjEDDEzaotVXk9zSkaNRj3YKRWJ5TWOXQjb4eRIoPsEsjozv9AHPjwQZGfZxj-ueA6jhx2HSCImeSusuQdF9WsgNx5ITkSEyp5ZXZhfRHmQy~2a9DobkDwKi-VLPhT7Zsvw3qnK4XX25zdWMv5D7PqHcAhqw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790777818368,
+    "started_at": 1790777818374,
+    "finished_at": 1790777916286
+  },
+  "usd_estimated": 0.4
+}

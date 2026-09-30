@@ -64,6 +64,8 @@ import type { VehicleWeightParams } from './vehicle-weight';
 // and fails loudly the moment one of these eleven stops matching it.
 import apcEitan from '../../../../../data/units/kdf/apc_eitan.json';
 import apcKipod from '../../../../../data/units/kdf/apc_kipod.json';
+import attackDrone from '../../../../../data/units/kdf/attack_drone.json';
+import reconDrone from '../../../../../data/units/kdf/recon_drone.json';
 import dozerD9 from '../../../../../data/units/kdf/dozer_d9.json';
 import heliPeten from '../../../../../data/units/kdf/heli_peten.json';
 import ifvNamer from '../../../../../data/units/kdf/ifv_namer.json';
@@ -104,6 +106,11 @@ function readWeightSource(json: unknown): WeightSource {
 const VEHICLE_UNIT_JSON: readonly unknown[] = [
   apcEitan,
   apcKipod,
+  // The two drones (GH-286 B0a): `isAir`, so excluded from the weight model
+  // upstream exactly like `heli_peten`; listed because the roster pin is
+  // exact in both directions.
+  attackDrone,
+  reconDrone,
   dozerD9,
   heliPeten,
   ifvNamer,

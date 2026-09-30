@@ -217,6 +217,15 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // palette-painted through `VEHICLE_ROLE_PALETTE`.
   gun_truck: 'vehicles/gun_truck.glb',
   loiter_drone: 'vehicles/loiter_drone.glb',
+
+  // The two KDF drones (GH-286, batch B0a, 2026-09-30): Meshy text-to-3D
+  // previews remeshed at 800 tris and role-split in
+  // `tools/drones/export_meshy_drones.py`. Air units on the vehicle path, so
+  // they take `heli_peten`'s `AIR_LIFT_PX` lift and no ground conform. The
+  // sprite sheets' x1.5 `SIZE_CLASS["air"]` is baked into the GLBs (the
+  // lead's ruling on GH-290), so they draw at the size the billboards did.
+  recon_drone: 'vehicles/recon_drone.glb',
+  attack_drone: 'vehicles/attack_drone.glb',
 };
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */
@@ -327,6 +336,39 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
   'mortar_team.glb':
     'superseded by meshy_mortar_team.glb; kept as mesh_gait.test.ts’ 88.7% gait reference',
   'yahalom_squad.glb': 'superseded by yahalom_engineer.glb (the first mesh team with a work clip)',
+};
+
+/**
+ * Art that has landed AHEAD of the structure type that will draw it -- the
+ * opposite of retirement. `mesh-catalogue.test.ts` requires every
+ * `BUILDING_MESHES` key to be a real `data/structures.json` type, and the
+ * GH-277 field works (spec §8, plan Task 12) ship their meshes in October
+ * with no sim or data change until Stage 4/5 (Task 13 wires them). Each
+ * entry names the type that will claim it, so "not drawn yet" and "decided
+ * not to draw" (`RETIRED_MESH_FILES`) stay distinguishable. Task 13 moves
+ * each pair into `BUILDING_MESHES` and deletes it here.
+ */
+export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
+  'buildings/kdf_medic_station.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_medic_station_wreck.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_medic_station_construction.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_outpost.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_outpost_wreck.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_outpost_construction.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_intel_centre.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_intel_centre_wreck.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_intel_centre_construction.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_workshop.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/kdf_workshop_wreck.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/kdf_workshop_construction.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/militia_field_clinic.glb': 'militia_field_clinic (GH-277 Task 13)',
+  'buildings/militia_field_clinic_wreck.glb': 'militia_field_clinic (GH-277 Task 13)',
+  'buildings/militia_firing_position.glb': 'militia_firing_position (GH-277 Task 13)',
+  'buildings/militia_firing_position_wreck.glb': 'militia_firing_position (GH-277 Task 13)',
+  'buildings/militia_observation_post.glb': 'militia_observation_post (GH-277 Task 13)',
+  'buildings/militia_observation_post_wreck.glb': 'militia_observation_post (GH-277 Task 13)',
+  'buildings/militia_weapons_workshop.glb': 'militia_weapons_workshop (GH-277 Task 13)',
+  'buildings/militia_weapons_workshop_wreck.glb': 'militia_weapons_workshop (GH-277 Task 13)',
 };
 
 /**

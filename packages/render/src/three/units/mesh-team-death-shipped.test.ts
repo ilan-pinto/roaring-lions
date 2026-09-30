@@ -32,6 +32,17 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// Since B0b (GH-286, 2026-09-30) two team GLBs (`at_team`, `demo_squad`)
+// carry a real `base_color` image, and `GLTFParser.loadImageSource` reaches
+// for the global `self` that plain Node does not define -- the same
+// `ReferenceError: self is not defined` `mesh-vehicle-shipped.test.ts` met
+// on 2026-09-07, and the same shim (see that file's top comment): the decode
+// then fails inside GLTFLoader's own error handler as a console warning,
+// and clips, roots and scale tracks are still built.
+if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
+  (globalThis as { self?: unknown }).self = globalThis;
+}
 import { buildMeshUnitTemplate, instantiateMeshUnit } from './mesh-unit';
 import { applyMeshClip } from './mesh-clip';
 import { CLIP_NAMES } from './mesh-anim';

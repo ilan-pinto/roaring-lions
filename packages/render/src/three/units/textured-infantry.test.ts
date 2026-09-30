@@ -30,11 +30,11 @@ function sceneOf(parts: { role: string; map: THREE.Texture | null }[]): {
 const texture = () => new THREE.Texture();
 
 describe('the textured infantry opt-out is a named list', () => {
-  // Was empty by design (GH-286) until batch B3 of GH-179 (2026-09-30)
-  // shipped the first three bakes; filled one team at a time as its GLB
-  // lands, and the list here is the edit that has to be made on purpose.
-  it('names exactly the teams whose GLB ships a bake', () => {
-    expect([...TEXTURED_INFANTRY_TYPES].sort()).toEqual(['atgm_cell', 'militia_cell', 'rpg_team']);
+  // Filled one team at a time as its GLB lands (GH-286). Empty by design until
+  // B0b shipped the first two (GH-286), then B3 (GH-179) three more; the exact
+  // list is pinned so an entry with no bake behind it is an edit made on purpose.
+  it('names exactly the teams that ship a bake', () => {
+    expect([...TEXTURED_INFANTRY_TYPES].sort()).toEqual(['at_team', 'atgm_cell', 'demo_squad', 'militia_cell', 'rpg_team']);
   });
 
   it('agrees with TEXTURED_INFANTRY_EXEMPT in tools/validate_mesh_assets.py', () => {
