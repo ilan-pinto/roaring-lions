@@ -1,12 +1,12 @@
 # Roaring Lions
 
-A source-available, single-player real-time strategy game in the Command & Conquer tradition — 2:1 dimetric, TypeScript + PixiJS — whose distinguishing claim is that combat **simulates real engagement odds** instead of trading hit points. Fights resolve through a detect → hit → penetrate → component-damage chain, and suppression, not damage, is the dominant battlefield force.
+A source-available, single-player real-time strategy game in the Command & Conquer tradition — 2:1 dimetric, TypeScript + three.js (PixiJS remains as a fallback via `?renderer=pixi`) — whose distinguishing claim is that combat **simulates real engagement odds** instead of trading hit points. Fights resolve through a detect → hit → penetrate → component-damage chain, and suppression, not damage, is the dominant battlefield force.
 
 All geography and factions are fictional. Enemy forces are defined by military doctrine — tunnels and ambush, standoff fires, mobile raiding — never by ethnicity, nationality, or faith.
 
 ![A company holds a walled compound against converging militia — tracers, suppression dust, and a burning approach](docs/screenshots/battle_wide.png)
 
-## Status — M0 complete
+## Status — M0 and M1 complete
 
 The combat model is the product, and it is calibrated: the backtest harness (`pnpm balance`) reproduces every validation target in the design document.
 
@@ -18,13 +18,11 @@ The combat model is the product, and it is calibrated: the backtest harness (`pn
 | Lanchester's square law emerges | 12v6 → 12.0 survivors (square-law predicts 10.4; linear 6) |
 | Air is contested by anti-aircraft fire | 1 gun truck → 80% survival · 3 → **0%** |
 
-M1 — the Beit Sahwan missions, campaign ledger, ROE scoring, and a playable link here — is in progress.
+M1 — the Beit Sahwan missions, campaign ledger and ROE scoring — is done. The programme now runs toward the next milestone, the commander's HUD and one visual register, due 30 October; the live ledger is [`docs/HANDOVER.md`](docs/HANDOVER.md).
 
 ## Play it
 
-**<https://ilan-pinto.github.io/roaring-lions/>** — the current build, deployed
-from `main` on every push (and only when `test:determinism` and the §5.7
-backtest pass).
+**<https://roaring-lions.pint12.workers.dev>** — the current build.
 
 Pick a mission from the menu, or open the M0 sandbox. Left-drag selects,
 right-click orders, right-click a building garrisons the infantry that can
