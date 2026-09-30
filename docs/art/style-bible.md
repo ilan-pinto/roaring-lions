@@ -1,6 +1,6 @@
 # Roaring Lions — art style bible and Meshy prompt template
 
-**WP-A3.1 (GH-179) · Status: draft for the lead's approval · 2026-09-28**
+**WP-A3.1 (GH-179) · Status: draft for the lead's approval · 2026-09-28 · §6 reordered 2026-09-29 for the priority batch B0 (GH-286)**
 
 Governs every mesh entering `art/meshes/**` from October on. Written before the first
 batch because a rule changed here costs a line and a rule changed after a generation
@@ -101,10 +101,15 @@ serve **download size** (`perf:load`) and **clean shapes at 25 px**, not frame t
 | crew weapon part | 400 | 600 | real metres | — |
 | drone | 800 | 1,000 | real metres × 1.5 (air) | recon 0.9 m, attack 1.05 m, loiter 1.62 m (sprite manifests) |
 | light vehicle | 5,000 | 8,000 | real metres, 1.0 | `mbt_lavi` 8,346; `technical` 49,268 (legacy, too dense) |
+| wheeled APC (proposal, B0) | 8,000 | 10,000 | real metres, 1.0; `apc_eitan` 7.13 m | `apc_eitan` 63,492 (kit-built, to be replaced); `apc_kipod` 404; `mbt_lavi` 8,346 |
 | prop | the cap | 120–400 | real metres | seven props on ground-plan2 |
 | building (palette) | — | 20,000 | tile multiples | clinic 19,225, hall 19,491 |
 
-Counts are glTF triangles, measured 2026-09-28 from the shipped `art/meshes/**`.
+Counts are glTF triangles, measured 2026-09-28 from the shipped `art/meshes/**`
+(`apc_eitan` re-measured 2026-09-29). **Drone size on the mesh path:** `SIZE_CLASS["air"]`
+is a sprite-sheet multiplier; a vehicle mesh is scaled by `MESH_SCALE` only
+(`mesh-vehicle.ts`), so the ×1.5 in the drone row is not applied to a GLB. See §7
+question 10.
 
 **This week's lesson.** A Meshy preview arrives at its default 30,000 tris, and
 plain Blender decimation to 120–400 **collapsed thin shapes** (dish, laundry line,
@@ -136,8 +141,8 @@ for everything after.* One unit, in order:
 palette vehicle, drone or crew-weapon part **25**. At the CLI's default estimate of
 $0.02/credit, that is $0.80 / $0.70 / $0.50.
 
-**Unverified until unit 1 of B2:** that remesh of a *refined* task keeps its
-texture. If it does not, step 3 moves after step 4 (refine cannot take a remesh
+**Unverified until the first textured unit of B0 (the `apc_eitan`):** that remesh of a
+*refined* task keeps its texture. If it does not, step 3 moves after step 4 (refine cannot take a remesh
 task, so the fallback is `retexture`, also 10). Measure it once; do not guess twice.
 
 **Rules that are not optional:**
@@ -153,8 +158,9 @@ task, so the fallback is `retexture`, also 10). Measure it once; do not guess tw
 - **Every spend is in `art/meshy/ledger.jsonl`**; `pnpm meshy -- spent` answers "how
   much".
 
-**CLI prerequisites** (small tasks, before B2): `remesh` is on `feat/ground-plan2`
-(`b764f0fd`), not yet `main`; refine does not send `remove_lighting`; and
+**CLI prerequisites** (small tasks, before the first figure — now B0b): `remesh` has
+landed on `main` (checked 2026-09-29; this line said it had not); the A-pose flag has
+landed too (`--pose a-pose`, #293); refine does not send `remove_lighting`; and
 there is no `rig` command (priced at 5 in `pricing.ts`). Until it lands, rigging runs
 in the Meshy web UI and is logged by hand.
 
@@ -203,6 +209,9 @@ No insignia, flags, patches, text or markings of any kind.
   sandals or worn boots".
 - **Sarim vehicle:** "a civilian vehicle crudely converted for war, sun-faded dusty
   paint, welded plates".
+- **KDF machine (proposed 2026-09-29, GH-286 — no KDF vehicle or drone line existed):**
+  "a machine of a fictional army in plain matte olive-drab paint with dark gunmetal
+  fittings, clean and military".
 
 ### Worked example 1 — `gun_truck` (AA Gun Truck, enemy, light vehicle)
 
@@ -261,43 +270,61 @@ facing forward. No insignia, flags, patches, text or markings of any kind.
 Blender: both crew kneel; the tube and two spare rounds are `kit.py`'s
 `rcl_tube`/`rcl_round*` geometry (Q3).
 
+**Filled prompts for the B0 units** (`recon_drone`, `attack_drone`, `at_team`,
+`demo_squad`, `apc_eitan`), each with its numbers table, are in
+`meshy-prompts-units.md`, not repeated here.
+
 ---
 
 ## 6. Batch plan
 
 **Scope.** The six units with no GLB (`gun_truck`, `loiter_drone`, `attack_drone`,
-`recon_drone`, `manpad_team`, `recoilless_team`) and the twelve kit-built teams in
-`tools/units/teams.py`. Two names sit in both lists — `manpad_team` and
-`recoilless_team` are kit-built teams that never exported a GLB — so the work is
-**16 distinct units**, not 18. The other ten kit-built teams: `demo_squad`,
-`at_team`, `breach_team` (KDF); `militia_cell`, `rpg_team`, `atgm_cell`,
-`mortar_crew`, `charge_squad`, `digger_crew`, `moto_rpg` (enemy). Already
-Meshy-sourced and out of scope: `inf_squad`, `sarim_rifles`, `mortar_team`,
-`yahalom_squad`, `sniper_team`.
+`recon_drone`, `manpad_team`, `recoilless_team`), the twelve kit-built teams in
+`tools/units/teams.py`, and — since 29 Sep — the kit-built `apc_eitan`. Two names sit in
+both of the first two lists — `manpad_team` and `recoilless_team` are kit-built teams
+that never exported a GLB — so the work is **17 distinct units**, not 19. The other ten
+kit-built teams: `demo_squad`, `at_team`, `breach_team` (KDF); `militia_cell`,
+`rpg_team`, `atgm_cell`, `mortar_crew`, `charge_squad`, `digger_crew`, `moto_rpg`
+(enemy). Already Meshy-sourced and out of scope: `inf_squad`, `sarim_rifles`,
+`mortar_team`, `yahalom_squad`, `sniper_team`.
 
 Three units per session, one importer run and one gate run each, two batches per
 visual bless (from CI numbers only).
 
+**B0 is the lead's priority batch (29 Sep, GH-286).** It takes five units out of the
+plan below and jumps the queue: `recon_drone` and `attack_drone` (from B1),
+`demo_squad` and `at_team` (from B5), and `apc_eitan`, which is **new spend**: it was
+A3.2's ramp-vehicle scope and moves up, so it is the one line that raises the total.
+B1 is dissolved: it kept `loiter_drone` alone at 25 credits, and a one-unit batch buys
+nothing, so `loiter_drone` folds into B2 (B1's other purpose — proving the
+remesh-to-roles path on units — is B0a's now). B5 keeps `breach_team`. B0 is five units,
+so it runs as two sessions, B0a (drones and the Eitan) and B0b (the two figure teams);
+the numbers tables and ready prompts for all five are in `meshy-prompts-units.md`.
+
 | batch | units | why this order | credits |
 |---|---|---|---|
-| B1 | `recon_drone`, `attack_drone`, `loiter_drone` | cheapest, no rig, no texture: proves the remesh-to-roles path on units | 75 |
-| B2 | `gun_truck`, `manpad_team`, `recoilless_team` | closes the no-GLB list; first textured vehicle, first rigged figures | 115 |
-| — | *bless 1 (B1 + B2)* | | |
+| **B0a** | `recon_drone`, `attack_drone`, `apc_eitan` | lead priority, GH-286; no rig; the Eitan is the first textured vehicle, so the refine-then-remesh texture question is measured here | 25 + 25 + 35 = 85 |
+| **B0b** | `at_team`, `demo_squad` | lead priority, GH-286; the first rigged figures; needs the A-pose CLI flag and the infantry bake list (§7 q1) | 40 + 40 = 80 |
+| | *B0 subtotal* | *ceiling 330: one re-roll per unit, on the lead's go only* | *165* |
+| B2 | `gun_truck`, `manpad_team`, `recoilless_team`, `loiter_drone` | closes the no-GLB list; four units because B1 folded in (the drone is the cheap one) | 35 + 40 + 40 + 25 = 140 |
+| — | *bless 1 (B0 + B2)* | | |
 | B3 | `militia_cell`, `rpg_team`, `atgm_cell` | sets the irregular look B4 is judged against | 120 |
 | B4 | `mortar_crew`, `charge_squad`, `digger_crew` | | 120 |
 | — | *bless 2* | | |
-| B5 | `demo_squad`, `at_team`, `breach_team` | the KDF three, judged beside `meshy_soldier` | 120 |
+| B5 | `breach_team` | the last KDF team, judged beside `meshy_soldier`, `at_team` and `demo_squad` | 40 |
 | B6 | `moto_rpg` + 2 reserve slots | the bike is a 25-credit vehicle part; its riders are B3's rigged figures re-posed seated | 25 |
 | — | *bless 3* | | |
-| | **planned total** | | **575** |
-| | reserve: two slots × 40, spent only on the lead's go | | +80 |
-| | **ceiling** | | **655** |
+| | **planned total** | 165 + 140 + 120 + 120 + 40 + 25 | **610** |
+| | reserve: two slots × 40, spent only on the lead's go | unchanged | +80 |
+| | B0 re-roll allowance (GH-286: ceiling 330 less 165 planned) | one re-roll each, on the lead's go | +165 |
+| | **ceiling** | 610 + 80 + 165 | **855** |
 
-That is about **$11.50 planned, $13.10 at the ceiling**, at $0.02/credit. The
-G1 figure (454 held on 18 Sep against ~540) is below the plan: B1–B3 (310) fit in
-the current balance; B4–B6 wait on the October top-up.
-
----
+Reconciled against the old plan: 575 planned, less B1's recon and attack (50) and B5's
+demo and at_team (80), plus B0's 165, gives 610 — the difference is exactly the Eitan's
+35. That is about **$12.20 planned, $17.10 at the ceiling**, at $0.02/credit (was $11.50
+and $13.10). The G1 figure (454 held on 18 Sep against ~540) predates the reorder and
+is not re-checked here (a balance query is an API call): GH-286 says B0 waits on the
+October credits, and everything after B0 waits behind it.
 
 ## 7. Open questions for the lead
 
@@ -320,9 +347,41 @@ otherwise.
 5. **Should `gun_truck` and the drones export their existing sources instead?**
    `art/src/vehicles/gun_truck.blend` and `tools/drones/author_attack_drone.py`
    already exist and would ship for 0 credits in the palette look. **Default: Meshy**,
-   so the roster reads as one register; say the word and B1 drops to 0 credits.
+   so the roster reads as one register; say the word and the drones (B0a's two, B2's
+   one) drop to 0 credits.
 6. **Trial smart-topology once?** Image-to-3D smart-topology with texture is 15
    credits and might replace preview + refine + remesh (35). **Default: no** — the
    remesh path is measured; smart-topology is not, and a trial is a spend.
 7. **Rigging through the web UI until the CLI has `rig`.** **Default: yes**, logged
    by hand in the ledger; the CLI task lands before B2 if it can.
+8. **Does the Eitan ship a texture bake?** (GH-286, B0a.) **Default: yes**, at the 35
+   credits the issue prices: it needs `apc_eitan` added to `TEXTURED_VEHICLE_TYPES` and
+   `TEXTURED_VEHICLE_EXEMPT` together, so the palette and fill checks skip it and only
+   silhouette IoU runs, exactly like the Lavi and the Namer it drives beside. The
+   alternative is a palette-painted Eitan at 25 (−10) — one register less than its
+   neighbours, and a bake-free hull is what the kit build already is.
+9. **Is `loiter_drone` distinct from `attack_drone`?** They share the display name
+   "Loitering Munition" but are different units on opposite sides. **Default: distinct,
+   two generations** — the KDF `attack_drone` a blunt cylinder with a cross tail, the
+   Sarim `loiter_drone` a swept delta wing — because one shared mesh recoloured is an
+   IoU of ~1.0 and the gate reads alpha only (`render_attack_drone.py` records this).
+   `loiter_drone` is 25 credits inside B2.
+10. **How big is a drone drawn as a mesh?** The sprites draw air at `SIZE_CLASS`
+    ×1.5 (recon 25.8 px against a soldier's 25.7), but a vehicle GLB has no such
+    multiplier: a real 0.9 m recon drone would draw at 0.3 tile, roughly a third the
+    size the player sees today. **Default: bake the ×1.5 into the GLB** (recon 1.35 m,
+    attack 1.58 m, loiter 2.43 m) and record the real metres in the provenance line —
+    zero code, same on-screen size, at the cost of "size is compressed only through
+    `SIZE_CLASS`". The alternative is a one-line air multiplier in the mesh-vehicle
+    path (`render-vfx`).
+11. **Wheel pivots on the Eitan.** GH-286 and A1.3 speak as if wheel pivots exist. They
+    do not: A1.3 shipped the hull half only (four-corner conform, pitch, roll) and
+    left wheel spin out as R-J, because no shipped GLB has an addressable wheel. A
+    Meshy Eitan is one welded mesh, so it also loses the one advantage the kit Eitan
+    had (eight wheels still separate in `author_eitan.py`). **Default: B0 keeps
+    `turret_pivot` and nothing else**; the axle positions are recorded in
+    `meshy-prompts-units.md` for a later wheel package. Cutting eight wheels out of the
+    scan inside B0 is art-lane work several times the size of the batch.
+12. **The Eitan's remote weapon station.** **Default: kit geometry** (`kit.rws`) on a
+    ring the Meshy hull is asked to leave empty, 0 credits, `turret_pivot` placed by
+    measurement. A Meshy RWS part is +25.
