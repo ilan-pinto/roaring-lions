@@ -376,3 +376,48 @@ depends on someone remembering is provenance that eventually fails.
    exception** — that remains the project lead's call. Full method, per-file
    numbers, and the Blender scripts used are in
    `.superpowers/queue/blend-size-report.md`.
+
+---
+
+## The GH-277 field works (Meshy text-to-3D, remeshed; two textured), 2026-09-30
+
+Eight buildings for the field-works design (`docs/superpowers/specs/2026-09-29-
+field-works-design.md` §8), generated 2026-09-30 through `pnpm meshy` against
+the lead's approved 210-credit plan and landing at **170 credits consumed**
+(`pnpm meshy -- spent`: 14 tasks, 170 estimated, 170 consumed as reported by
+Meshy, ~$3.40): the four KDF works skipped the refine step because Q11 paints
+them from the palette, so 25 each rather than 35; the two textured militia
+works cost the planned 35. No re-roll was spent. AI-generated, disclosed per
+`CONTRIBUTING.md`; the exporter is `tools/buildings/export_fw_works.py`, the
+prompts and numbers table are in `docs/art/meshy-prompts-buildings.md`
+("Field works"). **The meshes are held, not wired**: `mesh-catalogue.ts`'s
+`HELD_MESH_FILES` names each with the structure type that will claim it in
+Stage 5; `data/structures.json` is unchanged.
+
+| File(s) (`art/meshes/buildings/`) | Preview task id | Refine (2k) | Remesh task id (shipped source) | tris shipped |
+|---|---|---|---|---|
+| `kdf_medic_station` + `_construction` + `_wreck` | `01a0f2a6-d11f-7400-aaa0-8332e0d33f6f` | — | `01a0f2aa-c38d-76b2-92c7-f2ae8f63fe20` (3,000) | 3,107 / 3,039 / 5,291 |
+| `kdf_outpost` + `_construction` + `_wreck` | `01a0f2a6-e8f5-712f-a695-bfee06ba9da2` | — | `01a0f2ac-4b22-7178-91f4-1fb9f3dd434b` (4,000) | 3,967 / 4,171 / 3,884 |
+| `kdf_intel_centre` + `_construction` + `_wreck` | `01a0f2a7-0059-75c2-94ff-16a2387ffa05` | — | `01a0f2aa-d7bb-751a-99fa-12b022e98529` (4,000) | 3,388 / 3,103 / 3,496 |
+| `kdf_workshop` + `_construction` + `_wreck` | `01a0f2a7-1873-7421-be8f-8f9612b2515c` | — | `01a0f2aa-eb15-77de-af5c-dfbfa615acd3` (4,000) | 3,425 / 2,185 / 3,587 |
+| `militia_observation_post` + `_wreck` | `01a0f2a7-305e-75ba-a3fe-43f8db8dc055` | `01a0f2a8-518e-702d-a6f5-037dbdb18aa6` | `01a0f2ac-5d56-70ea-987f-e88c72ad6fa5` (6,000) | 5,508 / 5,568 |
+| `militia_weapons_workshop` + `_wreck` | `01a0f2a7-4873-74cd-b0a8-743234a46f47` | `01a0f2a9-b6b8-74e8-82af-9bdac1ebd1e9` | `01a0f2ae-51f1-70d4-96be-bcb810eb9337` (8,000) | 7,538 / 12,939 |
+| `militia_field_clinic` + `_wreck` | — kit-bashed, 0 credits: a 6 x 3.4 m crop of the shipped `clinic.glb` (itself Meshy, see above) plus `kit.py` sandbags, a canvas annex and a tank | | | 5,784 / 4,599 |
+| `militia_firing_position` + `_wreck` | — kit-bashed, 0 credits: the shipped palette `shanty.glb` shed at 0.62 plus `kit.py` sandbag parapets and a corner stack | | | 2,512 / 3,312 |
+
+Every remesh arrived as one unroled `output_unwrapped` mesh; the exporter
+orients, fits, grounds, splits it into `rl_role` meshes by height band and adds
+the kit pieces (see the script's docstring). **The remesh of a refined task keeps
+its bake** -- measured here for the first time on this pipeline (the OP and
+weapons-workshop remesh GLBs carry `texture_0` base colour plus normal and
+metallic-roughness), which answers `style-bible.md` §4's "unverified until B0".
+The OP arrived with a small flag on its cabin roof despite the prompt; the
+exporter deletes that geometry (`OP_FLAG_FRAC`).
+
+What is committed under `art/meshy/`: each REMESH folder's `model.glb`
+(the exporter's only input), and every task's `task.json` and `thumbnail.png`
+(the provenance record), plus `ledger.jsonl`. The preview and refine
+`model.glb` files (8-50 MB each of 30k-tri geometry the export never reads) and
+the loose texture PNGs a remesh writes beside its GLB (duplicates of what the
+GLB embeds) are not committed -- the same "the ledger and task ids are the
+record" convention the seven ground props follow above.
