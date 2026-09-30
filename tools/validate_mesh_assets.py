@@ -236,6 +236,9 @@ TEXTURED_BUILDING_EXEMPT = {"house", "apartment", "warehouse", "clinic", "hall",
 TEXTURED_VEHICLE_EXEMPT = {
     "mbt_lavi", "ifv_namer", "technical", "rocket_battery", "paramotor", "heli_peten",
     "jeep_shoded",
+    # E5 part 2 (GH-181, 2026-09-30): the Peten Gunship ships the Peten's own
+    # bake (tools/vehicles/export_meshy_apache_gunship.py); held until Task 9.
+    "heli_peten_gunship",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,

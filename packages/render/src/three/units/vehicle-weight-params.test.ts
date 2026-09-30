@@ -15,10 +15,28 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const VEHICLE_MESHES = path.join(REPO, 'art/meshes/vehicles');
 const UNIT_DIRS = ['data/units/kdf', 'data/units/enemy'];
 
+/**
+ * `HELD_MESH_FILES` in `packages/app/src/mesh-catalogue.ts`, read as TEXT:
+ * a vehicle GLB landed ahead of its unit JSON (E5, GH-181: the unit files
+ * are staged under `docs/campaign/special_units/` until their landing
+ * task) has no `mobility.weight` to import yet, and `render` may not import
+ * `app` to ask. The same "parse the other side's source" shape
+ * `textured-vehicle.test.ts` uses on the Python gate. A held entry that is
+ * not on disk is `mesh-catalogue.test.ts`'s failure, not this file's.
+ */
+function heldVehicleIds(): Set<string> {
+  const src = readFileSync(path.join(REPO, 'packages/app/src/mesh-catalogue.ts'), 'utf8');
+  const block = /HELD_MESH_FILES[^=]*=\s*\{([^}]*)\}/.exec(src);
+  const keys = [...(block?.[1] ?? '').matchAll(/'vehicles\/([a-z_0-9]+)\.glb'/g)].map((m) => m[1]);
+  return new Set(keys);
+}
+
 function shippedVehicleIds(): string[] {
+  const held = heldVehicleIds();
   return readdirSync(VEHICLE_MESHES)
     .filter((f) => f.endsWith('.glb'))
-    .map((f) => f.replace(/\.glb$/, ''));
+    .map((f) => f.replace(/\.glb$/, ''))
+    .filter((id) => !held.has(id));
 }
 
 function unitJson(id: string): Record<string, unknown> | null {

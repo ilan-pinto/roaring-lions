@@ -316,6 +316,21 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Art that has landed AHEAD of the unit or structure type that will draw it
+ * -- the opposite of retirement. `mesh-catalogue.test.ts` requires every
+ * unit-mesh key to be a real unit type id and every `BUILDING_MESHES` key to
+ * be a real `data/structures.json` type, and some art ships before its data
+ * does (the GH-277 field works; the E5 special forces, GH-181, whose unit
+ * JSON is staged under `docs/campaign/special_units/e5/` until its landing
+ * task). Each entry names the type that will claim it, so "not drawn yet"
+ * and "decided not to draw" (`RETIRED_MESH_FILES`) stay distinguishable. The
+ * landing task moves each entry into its catalogue table and deletes it here.
+ */
+export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
+  'vehicles/heli_peten_gunship.glb': 'heli_peten_gunship (GH-181 E5 Task 9; VEHICLE_UNIT_MESHES)',
+};
+
+/**
  * The served URL for one catalogue path -- `assets/meshes/<file>`, through
  * Vite's `publicDir`.
  *
