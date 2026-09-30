@@ -418,3 +418,38 @@ otherwise.
   "two wingtip fins" came back as one tail fin, its "pusher" prop on the nose,
   plus landing gear; the MANPAD figure's head wrap came back as a bare head.
   Every one was fixed in Blender rather than re-rolled.
+
+## 9. Measured in B3 (2026-09-30)
+
+- **A refine-then-remesh figure ships its bake through rig.py.** The
+  remesh's `BakedMaterial` survives every cut (`_piece` keeps UVs and the
+  slot); a `kit.blob` joint or a kit keffiyeh joining a textured role borrows
+  the material and ONE uv from the nearest source face (or from the shirt,
+  for a head wrap), so it takes the local cloth colour. Kit weapons keep no
+  UV and stay palette-painted -- `buildMeshUnitTemplate` decides per mesh.
+- **Meshy paints a head wrap pink.** Both B3 previews that honoured the wrap
+  (rpg, atgm) made it rose/pink-white -- saturated colour on the one part of
+  an enemy figure the eye goes to. The importer remaps red-magenta texels on
+  the head and collar faces to the faction's tan/limestone at their own
+  luminance (`RECOLOUR`). Cheaper than a re-roll and the hue window leaves
+  skin and shirt alone. The militia preview ignored the wrap AND the open
+  jacket; kit's keffiyeh, coloured from the shirt bake, covers the head.
+- **A 2,000-tri A-pose figure is not B2's 1,500 one.** Its arms are near
+  horizontal and bent at the elbow, its hands cup upward, and its chest rig
+  is wider than the 0.105 H torso half-width B2 assumed. The cut now MEASURES
+  the torso edge (|y| bands above the armpit line), the elbow (the lowest
+  band mid-arm), the wrist (a band inside the fingertips), classifies a face
+  by its OUTERMOST vertex (a 6 cm triangle straddling the armpit otherwise
+  stays behind as a spike), and hangs upper arm and forearm separately.
+  Rifle carriers get both forearms bent forward at the elbow so the kit rifle
+  sits at the hands.
+- **The neck and head bones sit on the head's own centre**, not the figure
+  axis: `mesh_gait.test.ts` reads facing as the bearing from the head joint
+  to the face strip, and a head 5 cm off-axis read 26 degrees for a man
+  looking straight ahead.
+- **The corpse is posed, not laid flat** (B2's weakest point): the cut parts
+  re-arranged rigidly before the lay-down, then welded (`remove_doubles`) and
+  decimated ONCE -- collapsing each open piece on its own shreds every seam.
+- Counts: militia 7,746 / rpg 7,082 / atgm 7,228 glTF triangles, all under
+  the 8,000 team cap with the corpse and (for the kneelers) the walker
+  included; 333-369 KB each shipped with a 1024 JPEG bake.

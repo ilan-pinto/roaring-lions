@@ -1,7 +1,7 @@
 {
   "sources": {
     "at_team.glb": "2f82620ac3afcb4f3499e9bda60c23e69d70cb77ba8bf502d9e4e5e0d0686b27",
-    "atgm_cell.glb": "23552b3188a57829e33a87a79db3dea6361d74a26d2f1c49dff4bf1fa7c54a5f",
+    "atgm_cell.glb": "8a27f4a57943c42481ce580b4f7047aac888ac0234c906b90fc09b42e9227a31",
     "breach_team.glb": "f4a7be738b2de2768c600dcdc90fc2cf46c4c196455c3f1951b696c2d0cd1b75",
     "buildings/apartment.glb": "805112e4a89a1cdddd1d12790bfe7439e553593c16bf67e2260e27ff7d5cb901",
     "buildings/apartment_wreck.glb": "9848672d465133a0ea84ebc6b8e307a0955dd7b80c3ec31c38bd3bfd6939fa5c",
@@ -60,7 +60,7 @@
     "manpad_team.glb": "3b4e241653b275e0f1ed6f43b49f486c09828794602a29701579c2c686afcaa2",
     "meshy_mortar_team.glb": "5e0552feaa75c0834da7565166e0c671c40ae06f51913167b294b0f6004cca50",
     "meshy_soldier.glb": "841bb043dc90d06d4260573864a12358e1e69b2259065aba84093dd5a68f116f",
-    "militia_cell.glb": "71fcc4f6a97db754d119efb80fbe54d337d7279697abc0dbecc86f3b5a25c36b",
+    "militia_cell.glb": "f237d0bd93f426f06ab3f9604f32275bc4a845b2d546b007eab7bca36a69608b",
     "mortar_crew.glb": "4a64ecd72902cb428ecbc1167536d041ef82153f360882e352cc5956bc3eca86",
     "mortar_team.glb": "9ab277db6d1d10aa34d6c77a768939ab8ea40f1a69ba02420daa01c6c88bbcd4",
     "moto_rpg.glb": "08a5cdd5f3ed217eaf0778316dcfc7e8e163e7c194da43b7fc782c977a24695d",
@@ -72,7 +72,7 @@
     "props/water_tank.glb": "3b4b64255d4336d82a74489126c0ef2a9b84f1c8530230c60c2ab1a58cce07ee",
     "props/wrecked_car.glb": "b27c2dd4dfd2a7e9b935c36f6e9ea2271fc9bd1f7757569fb1527886a1dd597e",
     "recoilless_team.glb": "81e5324b080dc67641ec500ee4b147a69de14ccefc83b5959693e5ebbfe433fd",
-    "rpg_team.glb": "cd9267c30ca47de38225884f90c4ceaba32bcd684b97cec987f5a8be0c98807e",
+    "rpg_team.glb": "23d9f30c6f913d59642ac4a0eade80def9ccd256699280a5e59f88cedbac0215",
     "sarim_rifles.glb": "a9bbd681cf478fdabbbd9ad20b407bc2cbe3c49745eb0014630f5b09b83be1db",
     "sniper_team.glb": "8a28bc0f39da7fe4092c46c6e459c9b858e04ad4e9073e082bf673d732f6903a",
     "vehicles/apc_eitan.glb": "970d8d18c9efcc1461968dc17a6520bcef4d7a7f5a974e99385a65c5cdc4cc89",

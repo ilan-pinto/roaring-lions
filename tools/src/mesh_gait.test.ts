@@ -1268,7 +1268,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'civilians/office_worker.glb move': 346,
   'civilians/farm_worker.glb move': 279,
   'civilians/civilian_child.glb move': 284,
-  'atgm_cell.glb move': 1152,
+  'atgm_cell.glb move': 234, // B3: a 1,100-tri Meshy remesh's boots on the D6 walker
   'mortar_crew.glb move': 1152,
   'digger_crew.glb move': 576,
 };

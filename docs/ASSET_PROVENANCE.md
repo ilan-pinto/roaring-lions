@@ -401,3 +401,35 @@ No Meshy rig was bought for either team: the CLI has no `rig` command and a
 headless session cannot drive the web UI, so the figures are rigid-bound to
 `rig.py`'s bone tables exactly as `kit.py` figures are (no hand-posing, no
 weight painting; `kit.blob` joints hide the cut seams).
+
+---
+
+## WP-A3.1 batch B3 — the first textured infantry (GH-179)
+
+Three teams, 2026-09-30, Meshy **text-to-3D** through the CLI (`pnpm meshy`):
+one A-pose preview, one refine (2k), one remesh each — **105 credits** against
+the 120 the lead approved (35 a unit; the 5 the plan held for a Meshy rig call
+was not spent — the figures are rigged through `rig.py`, as B2's were).
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl`. Prompts, numbers tables and the per-unit decisions are
+in `docs/art/meshy-prompts-units.md` §10–12. The downloaded `model.glb` and
+texture sources sit under `art/meshy/<slug>-20260930-<task>/` and are **not
+committed** (each refine folder is ~130 MB across six formats); the ledger,
+each folder's `task.json` and thumbnail are. The task ids below are the
+provenance. All three are the first entries in `TEXTURED_INFANTRY_TYPES` /
+`TEXTURED_INFANTRY_EXEMPT` (#307): the palette, framing and fill checks skip
+them and silhouette IoU still runs.
+
+| File | Draws as | Preview task id (`--pose a-pose`) | Refine task id (2k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/militia_cell.glb` | `militia_cell` (Militia Cell, enemy) | `01a0f307-59d9-75fd-bd39-76311d703bed` | `01a0f308-4984-7657-9dcf-9132e3fafb6a` | `01a0f30b-c1ee-748b-9915-6aaabecbe861` at 2,000 | ONE figure, 1.70 m, both men. The preview ignored the head wrap AND the open jacket (a clean bare-headed tan soldier came back), so both men wear `kit.keffiyeh`, coloured from their own shirt's bake. Base colour 2048 → 1024 JPEG; normal and metallic-roughness dropped. **7,746 glTF tris**, 1.10 MB source / 355 KB shipped. |
+| `art/meshes/rpg_team.glb` | `rpg_team` (RPG Team, enemy) | `01a0f30b-c2bc-7569-bdce-13ec56567f8f` | `01a0f30c-e042-7315-85b2-bf36b9f01a5a` | `01a0f313-bf75-727d-8573-8fb7f04c2453` at 2,000 | One figure, 1.76 m. The head wrap came back but painted **rose pink**; its texels (head and collar faces, red-magenta hue, saturation > 0.16) are remapped to dusty tan at their own luminance in the importer. The spare-rounds pack came as a small backpack. `rpg_fire` walks with his tube now (`animates=True`). **7,082 tris**, 1.02 MB / 333 KB. |
+| `art/meshes/atgm_cell.glb` | `atgm_cell` (ATGM Cell, enemy) | `01a0f30b-c390-7426-a0f8-e745b1d7589b` | `01a0f30c-c781-701e-a0c7-50e45ee6552f` | `01a0f313-c015-77e4-8b32-fd22a37957f9` at 1,100 | One figure, 1.72 m, both crew kneeling (B2's `_kneel`) on D6 walkers; the quilted jacket came as asked. Its pink-white cap is remapped to limestone the same way. Tripod is `kit.atgm_tripod` on `prop`. **7,228 tris**, 1.11 MB / 369 KB. |
+
+All three through `tools/units/import_meshy_crew_team.py` (B2's importer,
+extended): rigid one-part-to-one-bone on `rig.py`'s tables, `rig.py`'s own
+clips, no hand-posing, no weights. The corpse is no longer the A-pose body laid
+flat: the same cut parts are re-arranged rigidly in code (left arm overhead,
+right arm out, right knee bent, head turned, body rolled 12°), welded, and
+decimated once at 0.5. Kit weapons (`rifle`, `launcher`, `atgm_tripod`) stay
+palette-painted beside the textured figure — the loader decides per mesh.

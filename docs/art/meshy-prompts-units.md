@@ -431,7 +431,9 @@ checked on the day that move the plan from B2's:
 | | | **B3 planned** | **105** (about $2.10), against the approved cap of 120 |
 
 Balance read today: 4,030 credits. One preview per unit; anything that would
-need a second call STOPS that unit and reports. All three are `faction: 'enemy'`
+need a second call STOPS that unit and reports. **Run 2026-09-30: 105 spent,
+nothing stopped, no re-roll** — task ids in `docs/ASSET_PROVENANCE.md`; what
+each preview honoured and what the importer fixed in `style-bible.md` §9. All three are `faction: 'enemy'`
 in `mesh-catalogue.ts`; `teams.py` dresses every irregular team, Ashwar and Sarim
 alike, in the same costume (`meshy-prompts-ashwar.md` records this), so all three
 take the bible's one irregular line verbatim. Enemies are defined by doctrine
