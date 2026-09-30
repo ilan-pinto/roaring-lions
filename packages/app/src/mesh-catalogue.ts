@@ -150,7 +150,7 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
 
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
   // rig.py's parts and driven by rig.py's own clips
-  // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- PR #307's
+  // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- GH-307's
   // `TEXTURED_INFANTRY_TYPES` was still open when they shipped.
   manpad_team: { files: ['manpad_team.glb'], faction: 'enemy' },
   recoilless_team: { files: ['recoilless_team.glb'], faction: 'enemy' },
