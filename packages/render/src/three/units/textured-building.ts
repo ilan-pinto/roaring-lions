@@ -23,4 +23,12 @@ export const TEXTURED_BUILDING_TYPES: ReadonlySet<string> = new Set([
   'militia_observation_post',
   'militia_weapons_workshop',
   'militia_field_clinic',
+  // The A3.2 ramp set (GH-185, 2026-09-30): `concrete`, `shanty`, `wall` and
+  // `camp` were palette-painted (three kit-built, the camp a part-segmented
+  // Meshy source) and are now Meshy text-to-3D remeshes shipping their own
+  // 2k bakes through `tools/buildings/export_meshy_ramp.py`.
+  'concrete',
+  'shanty',
+  'wall',
+  'camp',
 ]);

@@ -77,7 +77,26 @@ export type PropKindName =
   | 'laundry_line'
   | 'tyre_pile'
   | 'rebar'
-  | 'wrecked_car';
+  | 'wrecked_car'
+  // The tunnel pieces (GH-227, 2026-09-30) -- see `TUNNEL_PROP_KIND_NAMES`.
+  | 'tunnel_mouth'
+  | 'tunnel_mouth_collapsed'
+  | 'tunnel_vent'
+  | 'tunnel_vent_collapsed'
+  | 'spoil_heap';
+
+/** The tunnel pieces, restated from `prop-role.ts`'s `TUNNEL_PROP_KINDS` for
+ *  the same bundle-rule reason `PropKindName` is. NOT in `PROP_KIND_NAMES`:
+ *  `propKindsFor` answers "which ground props can this map scatter", and
+ *  `prop-place.ts` never scatters these -- `three/tunnel-props.ts` stands
+ *  them on a route's own points. `meshPlanFor` adds them to every plan. */
+export const TUNNEL_PROP_KIND_NAMES: readonly PropKindName[] = [
+  'tunnel_mouth',
+  'tunnel_mouth_collapsed',
+  'tunnel_vent',
+  'tunnel_vent_collapsed',
+  'spoil_heap',
+];
 
 /** `PropKindName`'s own members, in the same order `prop-role.ts`'s
  *  `PROP_KINDS` declares them -- used wherever this file needs "every prop
@@ -315,6 +334,14 @@ export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
   tyre_pile: 'props/tyre_pile.glb',
   rebar: 'props/rebar.glb',
   wrecked_car: 'props/wrecked_car.glb',
+  // The tunnel pieces (GH-227, 2026-09-30): loaded for every map (a sandbox
+  // `&tunnel` synthesises a route on a map that declares none), placed by
+  // `three/tunnel-props.ts` from the sim, never by `prop-place.ts`.
+  tunnel_mouth: 'props/tunnel_mouth.glb',
+  tunnel_mouth_collapsed: 'props/tunnel_mouth_collapsed.glb',
+  tunnel_vent: 'props/tunnel_vent.glb',
+  tunnel_vent_collapsed: 'props/tunnel_vent_collapsed.glb',
+  spoil_heap: 'props/spoil_heap.glb',
 };
 
 /**
@@ -482,7 +509,10 @@ export function meshPlanFor(
     vehicles: new Set([...roster].filter((id) => id in VEHICLE_UNIT_MESHES)),
     buildings: new Set([...structureTypes].filter((id) => id in BUILDING_MESHES)),
     decor: decorFamiliesFor(map),
-    props: propKindsFor(map),
+    // The tunnel pieces ride along on every map: a route can be synthesised
+    // by the sandbox on a map that declares none, and the five GLBs are
+    // ~115 KB together.
+    props: new Set([...propKindsFor(map), ...TUNNEL_PROP_KIND_NAMES]),
   };
 }
 

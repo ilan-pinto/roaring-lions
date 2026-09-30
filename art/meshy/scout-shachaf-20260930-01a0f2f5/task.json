@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready light four-wheeled armoured scout car, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. Two axles with four large wheels, a low sleek sloped nose, a raised observation cab over the rear half with small vision blocks, a tall thin sensor mast standing up from the cab roof, and a small empty round mounting ring on the cab roof with no weapon fitted. Real-world scale, 4.6 metres long. Olive paint, gunmetal, black tyres. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2f5-fe36-7782-a377-67246cc7f8c5",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2834256044,
+    "prompt": "A single low-poly game-ready light four-wheeled armoured scout car, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. Two axles with four large wheels, a low sleek sloped nose, a raised observation cab over the rear half with small vision blocks, a tall thin sensor mast standing up from the cab roof, and a small empty round mounting ring on the cab roof with no weapon fitted. Real-world scale, 4.6 metres long. Olive paint, gunmetal, black tyres. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790782604992,
+    "progress": 100,
+    "started_at": 1790782604999,
+    "finished_at": 1790782669800,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2f5-fe36-7782-a377-67246cc7f8c5/output/model.glb?Expires=4944326400&Signature=lxhF7jrD8~pdPvcgyL29aR~76z4JiFGII8vCjr4h8ai9U~RPDmY-g-g38EF-5r-5IA0rBSIbYuY6KEpryAxGQpBN2SuXsCx0TnxPvU2NOD7FoSjEiH0hkyQ-xVcnEORsvbw~if1zCy~F1szW8dBwZNH7rpE6Wvmn6AYap9ZnpQy5pEfNffRTrt1j67WI~CmaAvcCTcCM5lwUOefMBXqb3iuljH4y5LwHhastsfR0vy7kZGYmpRiNVVpl3NLJkAAzHV1nrY3OzZHVhIHlgybVyLUFsd-G3ja0suoKyMtcBHoI-T7iYHEGlTMaTmuavrHnreMt3dq3c7mBxkz4C8FbFA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2f5-fe36-7782-a377-67246cc7f8c5/output/preview.png?Expires=4944326400&Signature=njqxD1ARf7Nx1OiN5q3f-0E1ew88UVtbxzw~gCeRxljYP~YUwJyccT7Eh13KEdTzgY3a3JtwSqpWDoG9dsSYeS1DpnF4GI0Vj6zzV9WpgqfX2OHG9tDjHSGR0ZQfOxu3u-ULFNllCJeytitM2zIZlo3~nvTFvxAS7RQk2g86p41gJkRfqfzLGsbTDoWpWNsKSl3bnKjhPK21BlSZSXk1TI0qkA3XmTqs5TqkNZ-I3LgXUyiPUcqUsGt6vnkn-yg9Pd5s1eDvi8gjU5OErAwxr5xgsE4NUEhEU839S7BDoo4dfiqOBXlKfjX~n2hdCW9dM7GJsRUsXGBEDaS3c7t8Qg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790782604992,
+    "started_at": 1790782604999,
+    "finished_at": 1790782669800
+  },
+  "usd_estimated": 0.4
+}

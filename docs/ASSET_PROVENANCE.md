@@ -190,6 +190,107 @@ ids above are the provenance record.
 
 ---
 
+## The A3.2 ramp set and the tunnel props (Meshy text-to-3D) -- GH-185, GH-227
+
+Run 2026-09-30 on the lead's go (GH-185: "A3.2 ramp set approved for Meshy
+now"), numbers table first (`docs/art/meshy-prompts-ramp.md`, commit
+`004919c2`, before any spend). All eight generations are **AI-generated with
+Meshy**, disclosed per `CONTRIBUTING.md`; every prompt is in the committed
+`art/meshy/ledger.jsonl`, keyed by the ids below. **260 credits planned, 260
+consumed** as Meshy reported them (`pnpm meshy -- spent`), against the
+lead's cap of 295; every asset landed on its first preview, no re-roll.
+`apc_kipod` and `apc_eitan` were not generated -- both already landed on
+`art/b0a-meshy` (`67395cf0`, `123996c2`).
+
+| File | Draws as | Preview task id | Refine task id (2k) | Remesh task id (shipped) | Size / tris |
+|---|---|---|---|---|---|
+| `art/meshes/buildings/concrete.glb` + `_wreck` | `concrete` | `01a0f2ec-7896-7074-8d8a-72b2f9aecb84` | `01a0f2ed-9020-7387-81b4-548a56793d07` | `01a0f2f0-8294-768e-abfa-826e41790eaa` (8,000) | 3.6 x 5.3 m plan, 9.0 m tall; 7,650 / 7,961 tris |
+| `art/meshes/buildings/shanty.glb` + `_wreck` | `shanty` | `01a0f2ec-809b-73f7-9bff-ea4c54fbd962` | `01a0f2ee-b802-70bf-8ca3-b0429bda18ff` | `01a0f2f1-e83f-73bc-8a3e-63f57aa2cc7b` (8,000) | 5.2 x 5.5 m, 4.2 m tall; 7,415 / 8,881 tris |
+| `art/meshes/buildings/wall.glb` + `_wreck` | `wall` (per tile) | `01a0f2ec-88ce-71c7-9760-eb48f7666e8e` | `01a0f2ed-a3ea-7635-b5ea-b74f7908558a` | `01a0f2f0-8aad-7226-853f-a303523907c1` (3,000) | 3.0 x 0.6 m, 1.4 m tall; 3,087 / 2,479 tris |
+| `art/meshes/buildings/camp.glb` + `_wreck` | `camp` | `01a0f2ec-90f9-77bc-a6ff-b94c581afd55` | `01a0f2ee-02f1-7003-b5fb-a42b51d2a546` | `01a0f2f0-ed6c-70a5-8006-0dfdf43fbb3e` (10,000) | 7.5 x 7.5 m, 3.9 m tall; 9,543 / 8,628 tris |
+| `art/meshes/vehicles/dozer_d9.glb` | `dozer_d9` | `01a0f2f5-f6d6-736c-99cd-18b3ce9c8941` | `01a0f2f7-5b78-7680-8858-58c0c6811915` | `01a0f2fc-483b-7240-aaf6-83a2e652230b` (8,000) | 6.832 m (`D9_HULL` manifest) x 4.39 x 3.62 m; 7,901 tris |
+| `art/meshes/vehicles/scout_shachaf.glb` | `scout_shachaf` | `01a0f2f5-fe36-7782-a377-67246cc7f8c5` | `01a0f2f7-193a-7547-9a83-e916293d9e51` | `01a0f2fc-508c-716d-b370-820ecd3229e6` (5,000) | 4.6 m (`SHACHAF_HULL` manifest) x 2.54 x 3.06 m; 5,076 tris incl. the kit RWS |
+| `art/meshes/props/tunnel_mouth.glb` (+ `_collapsed`) | tunnel mouth (GH-227) | `01a0f30a-7298-75be-a4ae-64a250efc379` | -- (palette) | `01a0f314-6b95-741e-8848-5d5097c6e607` (400) | 2.4 x 1.47 x 1.46 m; 402 tris |
+| `art/meshes/props/tunnel_vent.glb` (+ `_collapsed`) | tunnel vent (GH-227) | `01a0f30a-80b8-7402-aa3b-0ffa9b1dbd86` | -- (palette) | `01a0f314-73ed-70e4-9112-dd9692dc493b` (200) | 0.82 x 0.64 x 0.80 m; 207 tris |
+| `art/meshes/props/spoil_heap.glb` | spoil heap (GH-227) | -- (built from primitives in Blender) | -- | -- | 1.6 x 1.6 x 0.5 m; 108 tris |
+
+What Blender did to each (`tools/buildings/export_meshy_ramp.py`,
+`tools/vehicles/export_meshy_ramp.py`, `tools/terrain/export_meshy_tunnel.py`):
+
+- **The four buildings** ship their own 2k bake (`TEXTURED_BUILDING_TYPES` /
+  `TEXTURED_BUILDING_EXEMPT`, pinned). Each remesh was turned so the openings
+  face the camera half (the yaw chosen by dark-face area on Blender `+X`/`-Y`,
+  printed for all four candidates), scaled on ONE declared axis, grounded and
+  centred, and split into `wall` / `roof` / `glass` -- the openings on the
+  camera half, so `building_facing.py` can judge the front: `concrete` reads
+  directional 171 / 11 px (15.6x), `shanty` 840 / 0; `wall` and `camp` model
+  no glass and are named unchecked, like `warehouse`. The **wreck** of each is
+  `render_building.collapse()` on the textured mesh (the kit's own seed-free
+  dice / punch / crush / spill), so the rubble carries the photograph -- no
+  second generation. Three things the previews did not deliver as asked and
+  Blender settled: the wall came back **1.5 m thick** and is thinned in Y
+  alone to 0.6 m (every course on its long faces untouched); the shanty came
+  back **6.9 m tall** at its 9 m plan and is scaled by HEIGHT to 4.2 m
+  (5.2 x 5.5 m plan inside its 3-tile block) rather than by plan; the camp
+  is cut to **7.5 m** across, the 2x2 every one of the six missions places it
+  at plus a quarter-tile apron, where the shipped GLB it replaces was 15 m
+  (`export_meshy_camp.py` assumed 5x5). The remesh dropped the camp's thin
+  mast tip; the concrete's tank and the shanty's tank and crates survived.
+- **`dozer_d9`** -- blade at the `-x` end of the remesh (vertical plate area
+  1.02 against 0.59), turned to `+X`; tracks split as `hull_rubber` by the low
+  outboard band (|y| > 0.36, z under 0.375 above the belly line, x within
+  the track span -- the blade and push arms lie beyond it); scaled to the
+  sprite manifest's 6.832 m. **The refine put a white five-point star on
+  each hull flank** although the prompt asked for no markings; the exporter's
+  `scrub_white` paints every near-white texel over from its olive
+  neighbours (17,052 texels, 0.4 % of the bake, dilated 6 texels so the
+  anti-aliased rim goes too) and flattens the same footprint in the normal
+  and metallic-roughness bakes, which carried the star's relief -- a
+  one-texel fill left a ghost star on the hull, measured before the
+  dilation was added. No pivot, no weapon; `wreck-recipes.ts` keeps `tracked`.
+- **`scout_shachaf`** -- nose measured at `-x` (roof profile low there, the
+  raised cab at `+x`), turned to `+X`; two axles found from the contact
+  patches at turned x +0.565 / -0.589; tyres `hull_rubber` (radius 0.255);
+  scaled to 4.6 m. The remesh KEPT the sensor mast, rising from the centre of
+  the roof ring; `turret_pivot` sits on that ring at (-0.99, 0.00, 2.21) m
+  carrying `kit.rws` at (0.55, 0.45, 0.30) m with a 0.7 m barrel (the
+  `cupola_mg`), the mast through it; `wreck-recipes.ts` gains `turretPivot`.
+  Its bake came back a **saturated grass green** beside the D9's olive;
+  `olive_shift` pulls the green band (56 % of the texels) toward olive in HSV
+  (hue -22 deg, saturation x0.62, value x0.80). Both vehicles ship their bake
+  (`TEXTURED_VEHICLE_TYPES` / `TEXTURED_VEHICLE_EXEMPT`, pinned); the
+  Shachaf's RWS parts carry no material (`plate` added to its palette on
+  both sides). `tools/vehicles/kit.py`'s `rws` barrel fix is B0a's hunk,
+  applied verbatim so the two branches merge clean.
+- **The tunnel pieces** are palette props under the prop contract, new kinds
+  in `PROP_KINDS` / `PROP_TRI_CAPS` (both sides, pinned) and `PROP_MESHES`.
+  The mouth came back as a timber-framed adit in a rock face rather than a
+  sandbagged shaft head; it opens toward `+X` (the recessed back wall's
+  faces point there) and is scaled to 2.4 m across, one role `rust`. The
+  vent is scaled to 0.8 m tall and split by height into `metal` (pipe) over
+  `rust` (earth ring). The two `_collapsed` twins are the same meshes
+  slumped in Blender (height x0.45, hash-jittered slump); the spoil heap is
+  a hash-jittered hemisphere from nothing. **Nothing in the renderer read a
+  tunnel mesh before this**: `packages/render/src/three/tunnel-props.ts`
+  stands them on the route's own points (`tunnelPointAt`, `tunnelVent`,
+  `tnProgress`) under the trail's identification rule
+  (`collapsedRouteLevel`), and `tunnel-props.test.ts` pins that rule --
+  an unidentified route shows at most the spoil heap where anyone can see
+  the dig head; the mouth and vent draw only at level 2; the collapsed twins
+  only for a route that was identified when it died.
+
+**Gates** (2026-09-30): `pnpm validate:meshes` passes -- 53 mesh units against
+38 sprite units, 12 prop meshes contract-checked; `pnpm validate:assets`,
+`pnpm test` (7,504), `pnpm typecheck`, `pnpm lint` all green. The mesh gate
+prints no per-pair IoU on a pass; the nearest pairs were not measured
+separately here.
+
+**Sources.** `art/meshy/ledger.jsonl`, each task's `task.json`, the eight
+shipped remesh `model.glb` files (six textured, 9-11 MB each; the two tunnel
+remeshes under 40 KB) are committed with this set, as B0a's were; the
+previews and refine folders (10-23 MB and 200+ MB per asset) stay untracked;
+their task ids above are the record.
+
 ## Batch B0a units (Meshy text-to-3D, remeshed) -- GH-286
 
 Style bible batch B0a (`docs/art/style-bible.md` section 6), run 2026-09-30 on

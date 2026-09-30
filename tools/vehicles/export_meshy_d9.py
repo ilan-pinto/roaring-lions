@@ -201,6 +201,14 @@ SRC = os.path.join(REPO, REL)
 SRC_FALLBACK = os.path.join("/Users/ilpinto/dev/roaring-lions", REL)
 OUT_DIR = os.path.join(REPO, "art", "meshes", "vehicles")
 OUT_PATH = os.path.join(OUT_DIR, "dozer_d9.glb")
+CREDIT = (
+    "D9 armoured bulldozer -- AI-generated (Meshy), part-segmentation export, "
+    "disclosed per CONTRIBUTING.md; 184 segmented parts joined into "
+    "hull_hull/hull_plate/hull_metal/hull_rubber/hull_recess for this repository. "
+    "Stands in for the D9_HULL billboard authored from primitives by "
+    "tools/vehicles/author_d9.py (CC BY-SA 4.0), which is not retired by this "
+    "script -- it remains the source of the sprite sheet and of the wreck pose."
+)
 MANIFEST = os.path.join(REPO, "assets", "sprites", "D9_HULL", "manifest.json")
 
 TAG = "dozer_d9"
@@ -496,7 +504,32 @@ def _report_x_profile(objs, bins=14):
         )
 
 
+def _refuse_if_not_ours(path, credit):
+    """2026-09-30 (GH-185): `art/meshes/vehicles/dozer_d9.glb` is
+    `tools/vehicles/export_meshy_ramp.py`'s now -- a Meshy text-to-3D remesh
+    with its own 2k bake. This script is kept because the part-segmented
+    source is what that one was measured against; it refuses to write over a
+    file whose embedded `asset.copyright` is not its own (the
+    `export_mesh_building.py` provenance-drift guard, applied by hand).
+    Point `--out` elsewhere to rebuild the reference."""
+    import json as _json
+    import struct as _struct
+    if not os.path.exists(path):
+        return
+    with open(path, "rb") as fh:
+        head = fh.read(20)
+        if len(head) < 20 or head[:4] != b"glTF":
+            return
+        length = _struct.unpack_from("<I", head, 12)[0]
+        blob = _json.loads(fh.read(length))
+    got = blob.get("asset", {}).get("copyright", "")
+    if got != credit:
+        raise SystemExit(f"[dozer_d9] refusing to overwrite {path}: its copyright is "
+                         f"{got[:60]!r}..., not this script's -- see tools/mesh_ownership.py")
+
+
 def export():
+    _refuse_if_not_ours(OUT_PATH, CREDIT)
     src = _src_path()
     bpy.ops.wm.open_mainfile(filepath=src)
 
@@ -617,14 +650,7 @@ def export():
         export_animations=False,
         export_extras=True,
         export_materials="NONE",
-        export_copyright=(
-            "D9 armoured bulldozer -- AI-generated (Meshy), part-segmentation export, "
-            "disclosed per CONTRIBUTING.md; 184 segmented parts joined into "
-            "hull_hull/hull_plate/hull_metal/hull_rubber/hull_recess for this repository. "
-            "Stands in for the D9_HULL billboard authored from primitives by "
-            "tools/vehicles/author_d9.py (CC BY-SA 4.0), which is not retired by this "
-            "script -- it remains the source of the sprite sheet and of the wreck pose."
-        ),
+        export_copyright=CREDIT,
     )
     size = os.path.getsize(OUT_PATH)
     print(f"[{TAG}] wrote {OUT_PATH} ({size} bytes) meshes: "

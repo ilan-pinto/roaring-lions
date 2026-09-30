@@ -47,6 +47,7 @@ import {
   DECOR_MESHES,
   VFX_MESHES,
   PROP_MESHES,
+  TUNNEL_PROP_KIND_NAMES,
   RETIRED_MESH_FILES,
   HELD_MESH_FILES,
   claimedMeshFiles,
@@ -479,19 +480,28 @@ describe('mesh catalogue: props (ground plan 2, Task 4)', () => {
     tunnels: [],
   };
 
+  const GROUND_PROP_KINDS = [
+    'jersey_barrier', 'water_tank', 'satellite_dish', 'laundry_line', 'tyre_pile', 'rebar', 'wrecked_car',
+  ].sort();
+
   it('PROP_MESHES lists every PROP_KINDS entry and every file exists under art/meshes/', () => {
-    expect(ALL_PROP_KINDS).toEqual(
-      ['jersey_barrier', 'water_tank', 'satellite_dish', 'laundry_line', 'tyre_pile', 'rebar', 'wrecked_car'].sort()
-    );
+    expect(ALL_PROP_KINDS).toEqual([...GROUND_PROP_KINDS, ...TUNNEL_PROP_KIND_NAMES].sort());
     for (const file of Object.values(PROP_MESHES)) {
       expect(existsSync(path.join(MESH_ROOT, file)), file).toBe(true);
     }
   });
 
-  it('propKindsFor is empty for a map with no road and no building tile, and full otherwise', () => {
+  it('propKindsFor is empty for a map with no road and no building tile, and every ground kind otherwise', () => {
     expect([...propKindsFor(bareMap)]).toEqual([]);
     // beit_sahwan_outskirts carries both roads and buildings.
-    expect([...propKindsFor(parseMap(maps.beit_sahwan_outskirts))].sort()).toEqual(ALL_PROP_KINDS);
+    expect([...propKindsFor(parseMap(maps.beit_sahwan_outskirts))].sort()).toEqual(GROUND_PROP_KINDS);
+  });
+
+  it('meshPlanFor carries the tunnel pieces on every map, bare or not (GH-227)', () => {
+    // A sandbox `&tunnel` synthesises a route on a map that declares none,
+    // and the placer reads the SIM, not the map -- so the five ride along.
+    const plan = meshPlanFor(bareMap, new Set());
+    expect([...plan.props].sort()).toEqual([...TUNNEL_PROP_KIND_NAMES].sort());
   });
 
   it('meshManifestFor(plan).props maps <kind> to meshUrl(PROP_MESHES[kind])', () => {

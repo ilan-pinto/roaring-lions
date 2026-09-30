@@ -52,7 +52,9 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   mbt_lavi: { hull: 'tracked', turretPivot: 'turret_pivot' },
   paramotor: { hull: 'air', canopy: 'hull_hull' },
   rocket_battery: { hull: 'wheeled' },
-  scout_shachaf: { hull: 'wheeled' },
+  // The Meshy Shachaf (GH-185, 2026-09-30) carries a `turret_pivot` on its
+  // roof ring for the kit RWS (`cupola_mg`); the kit build had none.
+  scout_shachaf: { hull: 'wheeled', turretPivot: 'turret_pivot' },
   technical: { hull: 'wheeled', turretPivot: 'turret_pivot' },
   // B2 (GH-179, 2026-09-30): the Meshy gun truck traverses its twin AA gun
   // on a pedestal, so it takes the technical's own recipe; the Sarim

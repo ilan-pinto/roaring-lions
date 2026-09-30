@@ -56,4 +56,11 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'gun_truck',
   'apc_eitan',
   'apc_kipod',
+  // The A3.2 ramp set (GH-185, 2026-09-30): `dozer_d9` (a palette-painted
+  // part-segmentation source until now) and `scout_shachaf` (kit-built) are
+  // Meshy text-to-3D remeshes shipping their own 2k bakes through
+  // `tools/vehicles/export_meshy_ramp.py`; the Shachaf's kit RWS carries no
+  // material and draws through `rampForVehicleRole`, per mesh.
+  'dozer_d9',
+  'scout_shachaf',
 ]);
