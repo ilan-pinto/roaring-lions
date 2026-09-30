@@ -358,6 +358,10 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     metal: sliceFrom('gunmetal', 2, 2),
     rubber: sliceFrom('shadow', 0, 3),
     glass: sliceFrom('gunmetal', 3, 1),
+    // `plate` since 2026-09-30 (GH-185): the Meshy Shachaf's kit RWS shield
+    // (`turret_plate`) draws through the palette while the hull and tyres
+    // ship their own bake -- the same shape as `apc_eitan`.
+    plate: sliceFrom('olive', 1, 3),
   },
   // `tools/vehicles/author_apc_kipod.py`'s own KDF olive tones, hand-copied
   // from the gate's `VEHICLE_ROLE_PALETTES["apc_kipod"]`. `plate` (the slab

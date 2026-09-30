@@ -217,7 +217,13 @@ REPO = os.path.dirname(HERE)
 # (`check_image`, `check_framing`, `MIN_FILL`). What still runs: the
 # silhouette IoU comparison against every other mesh and sprite -- a textured
 # building must still not read as some other building.
-TEXTURED_BUILDING_EXEMPT = {"house", "apartment", "warehouse", "clinic", "hall", "fence"}
+TEXTURED_BUILDING_EXEMPT = {
+    "house", "apartment", "warehouse", "clinic", "hall", "fence",
+    # The A3.2 ramp set (GH-185, 2026-09-30): the four kit/palette buildings
+    # replaced by Meshy text-to-3D remeshes shipping their own 2k bakes
+    # (tools/buildings/export_meshy_ramp.py). Silhouette IoU still runs.
+    "concrete", "shanty", "wall", "camp",
+}
 
 # 2026-09-07: the identical override, extended by the project lead to six
 # supplied Meshy VEHICLES -- `mbt_lavi`, `ifv_namer`, `technical`,
@@ -236,6 +242,11 @@ TEXTURED_BUILDING_EXEMPT = {"house", "apartment", "warehouse", "clinic", "hall",
 TEXTURED_VEHICLE_EXEMPT = {
     "mbt_lavi", "ifv_namer", "technical", "rocket_battery", "paramotor", "heli_peten",
     "jeep_shoded",
+    # The A3.2 ramp set (GH-185, 2026-09-30): both replaced by Meshy
+    # text-to-3D remeshes shipping their own base_color bake
+    # (tools/vehicles/export_meshy_ramp.py). The Shachaf's kit RWS parts
+    # carry no material and still take the palette, as the gate repaints.
+    "dozer_d9", "scout_shachaf",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's
@@ -890,6 +901,12 @@ PROP_TRI_CAPS = {
     "tyre_pile": 260,
     "rebar": 140,
     "wrecked_car": 400,
+    # The tunnel pieces (GH-227, 2026-09-30, tools/terrain/export_meshy_tunnel.py).
+    "tunnel_mouth": 420,
+    "tunnel_mouth_collapsed": 420,
+    "tunnel_vent": 220,
+    "tunnel_vent_collapsed": 220,
+    "spoil_heap": 150,
 }
 
 
@@ -916,8 +933,8 @@ def check_prop_meshes(props_root):
     `PROP_TRI_CAPS[kind]` entry -- checked directly against the raw GLB bytes,
     never rendered (see module docstring, "props, the same way"). An empty
     directory is zero iterations, not a failure. A file whose name (minus
-    `.glb`) is not one of `PROP_TRI_CAPS`'s seven keys fails loudly rather
-    than being silently skipped.
+    `.glb`) is not one of `PROP_TRI_CAPS`'s keys (seven ground props plus the
+    five tunnel pieces) fails loudly rather than being silently skipped.
     """
     failures = []
     for path in sorted(glob.glob(os.path.join(props_root, "*.glb"))):
@@ -925,7 +942,7 @@ def check_prop_meshes(props_root):
         kind = os.path.splitext(name)[0]
         if kind not in PROP_TRI_CAPS:
             failures.append(
-                f"{name}: {kind!r} is not one of the seven prop kinds "
+                f"{name}: {kind!r} is not one of the prop kinds "
                 f"{sorted(PROP_TRI_CAPS)} -- PROP_TRI_CAPS has no cap for it"
             )
             continue

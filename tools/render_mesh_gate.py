@@ -224,6 +224,10 @@ VEHICLE_ROLE_PALETTES = {
     "scout_shachaf": {
         "hull": "olive.0", "metal": "gunmetal.2",
         "rubber": "shadow.0", "glass": "gunmetal.3",
+        # `plate` since 2026-09-30 (GH-185): the Meshy Shachaf carries a kit
+        # RWS on its roof ring, whose shield is `turret_plate` (as the
+        # Eitan's / Kipod's). The hull and tyres ship their own bake.
+        "plate": "olive.1",
     },
     # tools/vehicles/author_apc_kipod.py's own KDF olive tones. `plate` is
     # this unit's slab side-screens (its own reactive-plate read); `recess`

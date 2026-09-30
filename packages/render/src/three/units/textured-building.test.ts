@@ -37,13 +37,17 @@ const texture = () => new THREE.Texture();
 // against the CURRENT material shape).
 
 describe('the textured opt-out is a named list', () => {
-  it('covers exactly the six supplied Meshy buildings', () => {
+  it('covers exactly the six supplied Meshy buildings and the four A3.2 ramp buildings', () => {
     expect([...TEXTURED_BUILDING_TYPES].sort()).toEqual([
       'apartment',
+      'camp',
       'clinic',
+      'concrete',
       'fence',
       'hall',
       'house',
+      'shanty',
+      'wall',
       'warehouse',
     ]);
   });

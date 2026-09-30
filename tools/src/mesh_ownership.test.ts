@@ -141,13 +141,15 @@ describe('the vehicle owner table', () => {
     expect(owners.length).toBe(units.length);
   });
 
-  it('gives dozer_d9 to export_meshy_d9.py, and that script writes it', () => {
+  it('gives dozer_d9 to export_meshy_ramp.py, and that script writes it', () => {
     // The live trap this table was added for: `art/meshes/vehicles/
     // dozer_d9.glb` has been a supplied Meshy bulldozer since 31c9799 and has
     // SINCE taken the vehicle wreck pass, so a kit re-export would have
     // discarded a death_root, five WRECK_ children and two clips -- and
     // `pnpm validate:meshes` would have passed afterwards, because a dozer
-    // still looks like a dozer.
+    // still looks like a dozer. Since 2026-09-30 (GH-185, the A3.2 ramp set)
+    // the owner is `export_meshy_ramp.py`, the textured Meshy remesh; the
+    // assertion is the same -- whoever is named must write the file.
     const spec = /"dozer_d9":[\s\S]*?mesh_owner=\(([\s\S]*?)\),/.exec(py);
     expect(spec, 'dozer_d9 mesh_owner not found').not.toBeNull();
     const owner = [...(spec as RegExpExecArray)[1].matchAll(/"([^"]*)"/g)].map((m) => m[1]).join('');
@@ -169,28 +171,28 @@ describe('the building owner table', () => {
     return (bare as RegExpExecArray)[1];
   }
 
-  it('gives the three supplied Meshy buildings to their own exporters', () => {
+  it('gives every replaced building to the exporter that writes it', () => {
     // `house` was flipped when it was replaced; `warehouse` and `apartment`
     // were not, and shipped a Meshy bake (1 material, 1 texture, a Meshy
     // copyright -- read off the bytes) under a MESH_KIT_OWNED declaration
     // until 2026-09-16. Only `_assert_no_provenance_drift`'s credit check
-    // stood between `-- all` and overwriting them.
+    // stood between `-- all` and overwriting them. `shanty`, `concrete` and
+    // `wall` followed on 2026-09-30 (GH-185, the A3.2 ramp set), so no
+    // BuildingSpec is kit-owned any more; the control this table used to
+    // carry ("the kit-authored three stay MESH_KIT_OWNED") has no member
+    // left, and what stands in for it is the write check below: an owner
+    // that names a script which does not write the file is caught.
     for (const [name, unit] of [
       ['HOUSE', 'house'],
       ['WAREHOUSE', 'warehouse'],
       ['APARTMENT', 'apartment'],
+      ['SHANTY', 'shanty'],
+      ['CONCRETE', 'concrete'],
+      ['WALL', 'wall'],
     ] as const) {
       const owner = ownerOf(name);
       expect(owner, `${name} is still MESH_KIT_OWNED`).not.toBe('MESH_KIT_OWNED');
       expectOwnerWrites(owner, `art/meshes/buildings/${unit}.glb`);
-    }
-  });
-
-  it('leaves the kit-authored buildings kit-owned', () => {
-    // The control: a table where every entry says "not mine" would gate
-    // nothing and look like it gated something.
-    for (const name of ['SHANTY', 'CONCRETE', 'WALL']) {
-      expect(ownerOf(name), name).toBe('MESH_KIT_OWNED');
     }
   });
 });

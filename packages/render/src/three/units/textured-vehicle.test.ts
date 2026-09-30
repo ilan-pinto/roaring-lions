@@ -28,12 +28,14 @@ const texture = () => new THREE.Texture();
 describe('the textured vehicle opt-out is a named list', () => {
   it('covers exactly the seven supplied Meshy vehicles', () => {
     expect([...TEXTURED_VEHICLE_TYPES].sort()).toEqual([
+      'dozer_d9',
       'heli_peten',
       'ifv_namer',
       'jeep_shoded',
       'mbt_lavi',
       'paramotor',
       'rocket_battery',
+      'scout_shachaf',
       'technical',
     ]);
   });
@@ -47,7 +49,8 @@ describe('the textured vehicle opt-out is a named list', () => {
     );
     const block = /TEXTURED_VEHICLE_EXEMPT\s*=\s*\{([^}]*)\}/.exec(py);
     expect(block, 'TEXTURED_VEHICLE_EXEMPT not found in tools/validate_mesh_assets.py').not.toBeNull();
-    const ids = [...(block as RegExpExecArray)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+    // `[a-z0-9_]`, not `[a-z_]`: `dozer_d9` carries a digit (GH-185, 2026-09-30).
+    const ids = [...(block as RegExpExecArray)[1].matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]).sort();
     expect(ids).toEqual([...TEXTURED_VEHICLE_TYPES].sort());
   });
 });
