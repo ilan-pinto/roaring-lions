@@ -307,3 +307,16 @@ distinct hull numbers**, and **the first 24 task names are the base-word scheme*
    taking the constrained `s=1`/`s=4` slots at first digit 8, whose third pass produces
    a Roman numeral — place those last.
 5. `pnpm validate:data`, then `pnpm test`.
+
+---
+
+## 8. People are not in this table
+
+A person is named once, by hand, and screened as a full name under `storyline.md` §2.4 rule 3.
+The counter never issues a person's name. The register of screened people is:
+Shai Hammai and Idit Zohar (`data/campaign/commander.json`); Nadir Sahim, Karim Adhal and Jubran
+Hallaq (`storyline.md` §2.3); and the four officers, **Maya Pereg**, **Sagi Sharav**,
+**Ronen Heled** and **Dalia Charsit**, proposed 2026-09-30 in `heroes/names.md` with their
+evidence. *Yoav* was replaced there because Operation Yoav (1948) is real. The rejections recorded
+in `heroes/names.md` §2.4 include *Kalanit*, a real 120 mm tank round, and *Sirpad*, a real
+Military Police unit. Do not use either as a callsign here.
