@@ -48,6 +48,11 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   ifv_namer: { hull: 'tracked', turretPivot: 'turret_pivot' },
   jeep_shoded: { hull: 'wheeled' },
   mbt_lavi: { hull: 'tracked', turretPivot: 'turret_pivot' },
+  // GH-298: the command Lavi is the shipped mbt_lavi.glb with a cupola, mast
+  // and whips joined into its own turret nodes (tools/vehicles/
+  // export_officer_armour.py), so it wrecks exactly as the Lavi does. Held
+  // art (HELD_MESH_FILES) until Stage 5 wires the unit.
+  officer_armour: { hull: 'tracked', turretPivot: 'turret_pivot' },
   paramotor: { hull: 'air', canopy: 'hull_hull' },
   rocket_battery: { hull: 'wheeled' },
   scout_shachaf: { hull: 'wheeled' },

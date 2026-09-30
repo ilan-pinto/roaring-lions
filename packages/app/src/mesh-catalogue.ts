@@ -316,6 +316,24 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Art that has landed AHEAD of the unit type that will draw it -- the
+ * opposite of retirement. GH-298's four officers (spec
+ * `2026-09-30-field-commanders-design.md` §7, §8.2 E1) ship their meshes in
+ * October with no sim or data change until Stage 5 wires the unit types;
+ * each entry names the type that will claim it, so "not drawn yet" and
+ * "decided not to draw" (`RETIRED_MESH_FILES`) stay distinguishable. Stage 5
+ * moves each file into `RIGGED_UNIT_MESHES` / `VEHICLE_UNIT_MESHES` (and runs
+ * `pnpm gait:meshes` on the teams, which is scoped to the catalogue) and
+ * deletes it here. The GH-277 field works buildings use the same table.
+ */
+export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
+  'officer_infantry.glb': 'officer_infantry (GH-298 Stage 5)',
+  'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
+  'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',
+  'vehicles/officer_armour.glb': 'officer_armour (GH-298 Stage 5)',
+};
+
+/**
  * The served URL for one catalogue path -- `assets/meshes/<file>`, through
  * Vite's `publicDir`.
  *

@@ -239,6 +239,20 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // GH-298: the command Lavi IS mbt_lavi.glb's bake with a kit mast and
+  // cupola joined into its own turret nodes (tools/vehicles/
+  // export_officer_armour.py), so it takes the Lavi's table verbatim. Needed
+  // even though every one of its meshes is textured: under Node the loader
+  // decodes no image, `map` reads null and the ramp path is what runs -- the
+  // same reason the Lavi's own entry exists. Held art until Stage 5.
+  officer_armour: {
+    hull: sliceFrom('olive', 0, 4),
+    plate: sliceFrom('olive', 1, 3),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
   // No sprite-rig script of its own -- the CC BY 3.0 `ifv_dmm08.blend` sheets
   // this Meshy export replaces (`NAMER_HULL`/`NAMER_TURR`,
   // `tools/render_namer.py`) never declared a `ROLE_PALETTE` of their own

@@ -492,7 +492,10 @@ describe('parseWreckArgs', () => {
 });
 
 describe('WRECK_RECIPES', () => {
-  it('names the eleven shipped vehicles and nothing else', () => {
+  it('names the twelve shipped vehicles and nothing else', () => {
+    // Eleven, plus GH-298's held command Lavi (`officer_armour`: the Lavi's
+    // own nodes with a mast and cupola joined in), which needs a wreck like
+    // any other file under art/meshes/vehicles/.
     expect(Object.keys(WRECK_RECIPES).sort()).toEqual([
       'apc_eitan',
       'apc_kipod',
@@ -501,6 +504,7 @@ describe('WRECK_RECIPES', () => {
       'ifv_namer',
       'jeep_shoded',
       'mbt_lavi',
+      'officer_armour',
       'paramotor',
       'rocket_battery',
       'scout_shachaf',

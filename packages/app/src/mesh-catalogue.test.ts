@@ -48,6 +48,7 @@ import {
   VFX_MESHES,
   PROP_MESHES,
   RETIRED_MESH_FILES,
+  HELD_MESH_FILES,
   claimedMeshFiles,
   decorFamiliesFor,
   propKindsFor,
@@ -92,9 +93,20 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     // with a reason.
     const claimed = claimedMeshFiles();
     const orphans = shippedMeshFiles().filter(
-      (f) => !claimed.has(f) && !(f in RETIRED_MESH_FILES)
+      (f) => !claimed.has(f) && !(f in RETIRED_MESH_FILES) && !(f in HELD_MESH_FILES)
     );
     expect(orphans).toEqual([]);
+  });
+
+  it('holds only files that exist, and none that are claimed or retired (GH-298)', () => {
+    // HELD_MESH_FILES is art landed ahead of its unit type. It must be as
+    // honest as RETIRED_MESH_FILES in both directions: a held file that is
+    // gone is a stale entry, and a file that is held AND claimed is one that
+    // Stage 5 wired without deleting the hold.
+    const claimed = claimedMeshFiles();
+    const held = Object.keys(HELD_MESH_FILES);
+    expect(held.filter((f) => !existsSync(path.join(MESH_ROOT, f)))).toEqual([]);
+    expect(held.filter((f) => claimed.has(f) || f in RETIRED_MESH_FILES)).toEqual([]);
   });
 
   it('claims nothing that is not on disk', () => {

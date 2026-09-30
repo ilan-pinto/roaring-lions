@@ -236,6 +236,9 @@ TEXTURED_BUILDING_EXEMPT = {"house", "apartment", "warehouse", "clinic", "hall",
 TEXTURED_VEHICLE_EXEMPT = {
     "mbt_lavi", "ifv_namer", "technical", "rocket_battery", "paramotor", "heli_peten",
     "jeep_shoded",
+    # GH-298 (2026-09-30): the command Lavi, mbt_lavi.glb's own bake with a
+    # kit mast and cupola joined in (tools/vehicles/export_officer_armour.py).
+    "officer_armour",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -252,6 +255,8 @@ TEXTURED_VEHICLE_EXEMPT = {
 TEXTURED_INFANTRY_EXEMPT = {
     # GH-286 batch B0b (2026-09-30): tools/units/import_meshy_kdf_team.py.
     "at_team", "demo_squad",
+    # GH-298 (2026-09-30): the officer teams, tools/units/import_meshy_officers.py.
+    "officer_infantry", "officer_fires", "officer_engineer",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's
