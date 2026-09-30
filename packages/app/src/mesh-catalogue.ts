@@ -209,7 +209,7 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // `tools/drones/export_meshy_drones.py`. Air units on the vehicle path, so
   // they take `heli_peten`'s `AIR_LIFT_PX` lift and no ground conform. The
   // sprite sheets' x1.5 `SIZE_CLASS["air"]` is baked into the GLBs (the
-  // lead's ruling on PR #290), so they draw at the size the billboards did.
+  // lead's ruling on GH-290), so they draw at the size the billboards did.
   recon_drone: 'vehicles/recon_drone.glb',
   attack_drone: 'vehicles/attack_drone.glb',
 };
