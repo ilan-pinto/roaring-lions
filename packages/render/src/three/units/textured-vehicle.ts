@@ -23,7 +23,15 @@
  * Two vehicle sources still ship no base_color bake and are DELIBERATELY
  * absent: `dozer_d9` (`KDF/d9`, part-segmentation only) and the `KDF camp`
  * prop (same). Those keep `rampForVehicleRole`'s palette path unchanged,
- * and `apc_eitan` is kit-built and was never a candidate.
+ * and the `KDF camp` prop is kit-built. `apc_eitan` WAS kit-built and joined
+ * the list on 2026-09-30 (GH-286, batch B0a): its hull is now a Meshy
+ * text-to-3D remesh shipping its own 2k base_color bake
+ * (`tools/vehicles/export_meshy_eitan.py`), at the 35 credits the lead
+ * approved on PR #290. Its `kit.rws` weapon station carries no material and
+ * draws through `rampForVehicleRole` -- the textured branch is per MESH.
+ * `apc_kipod` followed the same day on the lead's ruling after seeing the
+ * two side by side (`tools/vehicles/export_meshy_kipod.py`), same shape:
+ * textured hull and tyres, palette kit RWS on its roof ring.
  *
  * Must stay in step with `TEXTURED_VEHICLE_EXEMPT` in
  * `tools/validate_mesh_assets.py` -- these types are skipped by the palette
@@ -43,6 +51,8 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'paramotor',
   'heli_peten',
   'jeep_shoded',
+  'apc_eitan',
+  'apc_kipod',
   // GH-298 (2026-09-30): the command Lavi is mbt_lavi.glb's own bake with a
   // kit mast and cupola joined into its turret nodes
   // (tools/vehicles/export_officer_armour.py). Held art until Stage 5.

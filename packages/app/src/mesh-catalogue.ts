@@ -203,6 +203,15 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // `apc_kipod` (landed in 2f93129) -- so both build a mesh at runtime.
   scout_shachaf: 'vehicles/scout_shachaf.glb',
   apc_kipod: 'vehicles/apc_kipod.glb',
+
+  // The two KDF drones (GH-286, batch B0a, 2026-09-30): Meshy text-to-3D
+  // previews remeshed at 800 tris and role-split in
+  // `tools/drones/export_meshy_drones.py`. Air units on the vehicle path, so
+  // they take `heli_peten`'s `AIR_LIFT_PX` lift and no ground conform. The
+  // sprite sheets' x1.5 `SIZE_CLASS["air"]` is baked into the GLBs (the
+  // lead's ruling on GH-290), so they draw at the size the billboards did.
+  recon_drone: 'vehicles/recon_drone.glb',
+  attack_drone: 'vehicles/attack_drone.glb',
 };
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */
@@ -316,17 +325,38 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 };
 
 /**
- * Art that has landed AHEAD of the unit type that will draw it -- the
- * opposite of retirement. GH-298's four officers (spec
- * `2026-09-30-field-commanders-design.md` §7, §8.2 E1) ship their meshes in
- * October with no sim or data change until Stage 5 wires the unit types;
- * each entry names the type that will claim it, so "not drawn yet" and
- * "decided not to draw" (`RETIRED_MESH_FILES`) stay distinguishable. Stage 5
- * moves each file into `RIGGED_UNIT_MESHES` / `VEHICLE_UNIT_MESHES` (and runs
- * `pnpm gait:meshes` on the teams, which is scoped to the catalogue) and
- * deletes it here. The GH-277 field works buildings use the same table.
+ * Art that has landed AHEAD of the type that will draw it -- the opposite
+ * of retirement. Two batches hold files here today: the GH-277 field works
+ * (spec §8, plan Task 12), whose structure types arrive at Stage 4/5 (Task
+ * 13 moves each pair into `BUILDING_MESHES`), and GH-298's four officers
+ * (spec `2026-09-30-field-commanders-design.md` §7, §8.2 E1), whose unit
+ * types arrive at Stage 5 (which moves each file into `RIGGED_UNIT_MESHES`
+ * / `VEHICLE_UNIT_MESHES`, runs `pnpm gait:meshes` on the teams -- it is
+ * scoped to the catalogue -- and deletes it here). Each entry names the
+ * type that will claim it, so "not drawn yet" and "decided not to draw"
+ * (`RETIRED_MESH_FILES`) stay distinguishable.
  */
 export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
+  'buildings/kdf_medic_station.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_medic_station_wreck.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_medic_station_construction.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_outpost.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_outpost_wreck.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_outpost_construction.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_intel_centre.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_intel_centre_wreck.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_intel_centre_construction.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_workshop.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/kdf_workshop_wreck.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/kdf_workshop_construction.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/militia_field_clinic.glb': 'militia_field_clinic (GH-277 Task 13)',
+  'buildings/militia_field_clinic_wreck.glb': 'militia_field_clinic (GH-277 Task 13)',
+  'buildings/militia_firing_position.glb': 'militia_firing_position (GH-277 Task 13)',
+  'buildings/militia_firing_position_wreck.glb': 'militia_firing_position (GH-277 Task 13)',
+  'buildings/militia_observation_post.glb': 'militia_observation_post (GH-277 Task 13)',
+  'buildings/militia_observation_post_wreck.glb': 'militia_observation_post (GH-277 Task 13)',
+  'buildings/militia_weapons_workshop.glb': 'militia_weapons_workshop (GH-277 Task 13)',
+  'buildings/militia_weapons_workshop_wreck.glb': 'militia_weapons_workshop (GH-277 Task 13)',
   'officer_infantry.glb': 'officer_infantry (GH-298 Stage 5)',
   'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
   'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',

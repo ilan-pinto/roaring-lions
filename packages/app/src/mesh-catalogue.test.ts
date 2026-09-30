@@ -98,11 +98,11 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     expect(orphans).toEqual([]);
   });
 
-  it('holds only files that exist, and none that are claimed or retired (GH-298)', () => {
-    // HELD_MESH_FILES is art landed ahead of its unit type. It must be as
-    // honest as RETIRED_MESH_FILES in both directions: a held file that is
-    // gone is a stale entry, and a file that is held AND claimed is one that
-    // Stage 5 wired without deleting the hold.
+  it('holds only files that exist, and none that are claimed or retired (GH-277, GH-298)', () => {
+    // HELD_MESH_FILES is art landed ahead of its structure or unit type. It
+    // must be as honest as RETIRED_MESH_FILES in both directions: a held file
+    // that is gone is a stale entry, and a file that is held AND claimed is
+    // one that Task 13 / Stage 5 wired without deleting the hold.
     const claimed = claimedMeshFiles();
     const held = Object.keys(HELD_MESH_FILES);
     expect(held.filter((f) => !existsSync(path.join(MESH_ROOT, f)))).toEqual([]);
@@ -289,9 +289,10 @@ describe('mesh catalogue: decor families', () => {
 
 describe('mesh catalogue: what has a mesh at all', () => {
   it('reports a type with no GLB as billboard-only', () => {
-    // `recon_drone` ships a sprite sheet and no mesh. The mesh path is
-    // additive: a type with no entry keeps its billboard rather than failing.
-    expect(hasUnitMesh('recon_drone')).toBe(false);
+    // `loiter_drone` ships a sprite sheet and no mesh (`recon_drone` was the
+    // example until GH-286 B0a gave it a GLB). The mesh path is additive: a
+    // type with no entry keeps its billboard rather than failing.
+    expect(hasUnitMesh('loiter_drone')).toBe(false);
     expect(hasUnitMesh('inf_squad')).toBe(true);
     expect(hasUnitMesh('mbt_lavi')).toBe(true);
   });
@@ -414,7 +415,7 @@ describe('meshPlanFor', () => {
   const map = parseMap(maps.beit_sahwan_outskirts);
 
   it('splits a roster by mesh kind and drops a type with no mesh', () => {
-    const plan = meshPlanFor(map, new Set(['mbt_lavi', 'inf_squad', 'apc_eitan', 'recon_drone']));
+    const plan = meshPlanFor(map, new Set(['mbt_lavi', 'inf_squad', 'apc_eitan', 'loiter_drone']));
     expect([...plan.rigged]).toEqual(['inf_squad']);
     expect([...plan.vehicles].sort()).toEqual(['apc_eitan', 'mbt_lavi']);
   });
