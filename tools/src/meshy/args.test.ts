@@ -97,6 +97,23 @@ describe('commandNeedsApiKey', () => {
   });
 });
 
+describe('parseTextArgs --pose', () => {
+  it.each(['a-pose', 't-pose', 'none'] as const)('accepts %s', (pose) => {
+    expect(parseTextArgs(['p', '--pose', pose, '--yes'], NO_TTY).pose).toBe(pose);
+    expect(parseTextArgs(['p', `--pose=${pose}`, '--yes'], NO_TTY).pose).toBe(pose);
+  });
+
+  it('refuses an invalid value, naming the flag and the choices', () => {
+    expect(() => parseTextArgs(['p', '--pose', 'crouch', '--yes'], NO_TTY)).toThrow(
+      /invalid pose "crouch" -- expected one of: a-pose, t-pose, none/
+    );
+  });
+
+  it('refuses a bare --pose with no value', () => {
+    expect(() => parseTextArgs(['p', '--pose'], NO_TTY)).toThrow(/--pose requires a value/);
+  });
+});
+
 describe('parseTextArgs', () => {
   it('parses the prompt and applies defaults', () => {
     const opts = parseTextArgs(['a desert watchtower', '--yes'], NO_TTY);
@@ -104,6 +121,7 @@ describe('parseTextArgs', () => {
     expect(opts.modelType).toBe('standard');
     expect(opts.aiModel).toBe('meshy-6');
     expect(opts.topology).toBe('triangle');
+    expect(opts.pose).toBe('none');
     expect(opts.textureResolution).toBe('2k');
     expect(opts.formats).toEqual(['glb']);
     expect(opts.ultra).toBe(false);
@@ -214,6 +232,11 @@ describe('parseImageArgs', () => {
     expect(opts.ultra).toBe(true);
     expect(opts.aiModel).toBe('meshy-7');
     expect(opts.json).toBe(true);
+  });
+
+  it('parses --pose, defaulting to none', () => {
+    expect(parseImageArgs(['a.png', '--yes'], NO_TTY).pose).toBe('none');
+    expect(parseImageArgs(['a.png', '--pose', 'a-pose', '--yes'], NO_TTY).pose).toBe('a-pose');
   });
 
   it('refuses a missing path/URL', () => {

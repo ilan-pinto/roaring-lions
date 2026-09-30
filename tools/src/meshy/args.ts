@@ -16,6 +16,7 @@
 import {
   asAiModel,
   asModelType,
+  asPoseFlag,
   asTaskKind,
   asTextureResolution,
   asTopology,
@@ -26,6 +27,7 @@ import {
   PROMPT_MAX_CHARS,
   type AiModel,
   type ModelType,
+  type PoseFlag,
   type TargetFormat,
   type TaskKind,
   type TextureResolution,
@@ -179,6 +181,7 @@ const GENERATE_VALUED_FLAGS: ReadonlySet<string> = new Set([
   'ai-model',
   'polycount',
   'topology',
+  'pose',
   'tex',
   'texture-prompt',
   'formats',
@@ -191,6 +194,8 @@ export interface GenerateCommonOptions {
   readonly aiModel: AiModel;
   readonly polycount: number;
   readonly topology: Topology;
+  /** `--pose`: `none` (default) sends no pose constraint. */
+  readonly pose: PoseFlag;
   readonly ultra: boolean;
   readonly pbr: boolean;
   readonly textureResolution: TextureResolution;
@@ -206,6 +211,7 @@ function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateComm
   const polycount = parseIntFlag(options, 'polycount') ?? defaultPolycount(modelType);
   assertPolycountInRange(polycount, modelType);
   const topology = options.has('topology') ? asTopology(options.get('topology') as string) : 'triangle';
+  const pose = options.has('pose') ? asPoseFlag(options.get('pose') as string) : 'none';
   const textureResolution = options.has('tex') ? asTextureResolution(options.get('tex') as string) : '2k';
   const formats = options.has('formats') ? parseTargetFormats(options.get('formats') as string) : (['glb'] as const);
   return {
@@ -214,6 +220,7 @@ function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateComm
     aiModel,
     polycount,
     topology,
+    pose,
     ultra: options.get('ultra') === 'true',
     pbr: options.get('pbr') === 'true',
     textureResolution,
