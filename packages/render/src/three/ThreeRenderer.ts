@@ -356,6 +356,7 @@ import {
 import { wallSurfaceForBuilding } from './units/building-mesh-role';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
+import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
 import {
   beginMeshDeath,
   stepMeshDeath,
@@ -5181,8 +5182,10 @@ export class ThreeRenderer implements Renderer {
     if (urls.length === 0) {
       throw new Error(`loadMeshUnit: no GLB urls given for "${unitTypeId}"`);
     }
+    // Computed once, like `loadVehicleMesh`'s: see `units/textured-infantry.ts`.
+    const allowTextured = TEXTURED_INFANTRY_TYPES.has(unitTypeId);
     const templates = await Promise.all(
-      urls.map((url) => loadMeshUnitTemplate(url, faction))
+      urls.map((url) => loadMeshUnitTemplate(url, faction, allowTextured))
     );
 
     const previous = this.meshUnitTemplates.get(unitTypeId);
