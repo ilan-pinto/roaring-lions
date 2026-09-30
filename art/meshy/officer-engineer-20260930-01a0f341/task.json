@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready woman combat engineer officer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover, with a bulky headset with ear cups worn over the helmet, dark hair in a braid. Standing in a relaxed A-pose, arms slightly away from the body. A small folded map in a chest pocket, a canvas satchel slung on the left hip, and elbow pads. Real-world scale, 1.70 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "a-pose",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f341-6e1f-7447-afce-b8e055b07548",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2083494275,
+    "prompt": "A single low-poly game-ready woman combat engineer officer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover, with a bulky headset with ear cups worn over the helmet, dark hair in a braid. Standing in a relaxed A-pose, arms slightly away from the body. A small folded map in a chest pocket, a canvas satchel slung on the left hip, and elbow pads. Real-world scale, 1.70 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790787555166,
+    "progress": 100,
+    "started_at": 1790787555179,
+    "finished_at": 1790787597892,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f341-6e1f-7447-afce-b8e055b07548/output/model.glb?Expires=4944326400&Signature=NnfUCcx4hbmXO9PKrKihT7QZ4EnUt6iGMMZJoksQdibPMakXg55bGQAoKestNqR1x1i4ahkMzXH7jEjSgp~hfzv89f8p-Fl-rw~IjSiarsVNX7D62~eE5OoKrS~TS5PwJJWV1mQBK5Ls7wLDEoDdors8EYyPvTibRb8rYX4JHcqdOO6TZv7YYZSPfYnn5YevOOvJ5kKvhN5YoFLBeBJauNUorTtgmhGIlQrUY7pjYAJUUtJjPUfIGJsCzPiJaLlLIWmg13kKeHuX7B8OsbME1ssel52qGh-9RGbTdQzV-e1wgJB95z9NUx~UE~7hsqfaIKmKE-NnFsxtxH3hcNBmVg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f341-6e1f-7447-afce-b8e055b07548/output/preview.png?Expires=4944326400&Signature=Nuy7xaWXgjx394EYjMy15EbuNIK~bksDXlusW-F8AHYd3oZ8c7f31RGc7ZzgA~4qvnH8zGe1rLqILNh7yWLokXRe7OOTHXbZxbUFautViNRXeGR0lXA1m13dBera17cs3ktxYMCX0iYF-ZKRszDVD5-RxCTS6W3TQaT9iFClicKFVHB-rmsMbUoggu6l22juRiDcN5KxEY8PQDLC8iu07y2S1wO6s6~KS8Ytm8kP4-mDCUtm-B6c-RXWIX4GEOf6RdkXJcKZDbJoXGOdwFwdPc2kYCH6lAyIwndeVQGdyaoqAzOejt9TisullPGN6201toEae~JNmeXH3k4rsql~7A__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790787555166,
+    "started_at": 1790787555179,
+    "finished_at": 1790787597892
+  },
+  "usd_estimated": 0.4
+}

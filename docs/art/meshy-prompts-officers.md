@@ -58,14 +58,14 @@ material, as the mesh contract and `import_meshy_kdf_team.py`'s own join check r
 | footprint | feet at z = 0, `+X` forward, figures within ±1.2 m | bible §2 |
 | rig | `rig.py` bones and clips through `import_meshy_kdf_team.py`'s cut (`tools/units/import_meshy_officers.py` reuses it); rigid bind, no weight painting; clips `idle, move, fire, down, wreck`; a prone corpse per figure | B0b |
 | faction | KDF (`teams.TEAMS` has no row, so the gate defaults to `kdf` with its named warning) | `render_mesh_gate.py` |
-| the officer tell at 64 px | a **whip antenna** on the second figure (kit tube, 1.0–1.35 m, pitched 80°), in every team | task brief |
+| the officer tell at 64 px | a **whip antenna** on the second figure (kit tube, 0.85 m from the pack top, leaning 6° back), in every team. Measured: 1.35 m whips put `officer_fires` at 5.2% fill against the 6% floor, because the gate frames each unit to its own bounds and a whip a metre over the head is most of the frame | task brief |
 | the person tell at 2.5 | headgear silhouette per officer (cap / boonie / helmet-with-headset), a woman's build for Maya and Dalia, kit in the bake | task brief |
 
 ## 1. `officer_infantry` — Capt. Maya Pereg, infantry company commander (officer + signaller)
 
 | item | number |
 |---|---|
-| figures | `maya` standing at (0.16, −0.36), 1.68 m, no rifle (map case in her hands is the bake's); `sig` (at_team remesh) standing at (−0.24, 0.36), 1.78 m, kit rifle at the hung right hand, whip antenna 1.35 m at 80° rising from the rucksack top |
+| figures | `maya` standing at (0.16, −0.36), 1.68 m, no rifle (map case in her hands is the bake's); `sig` (at_team remesh) standing at (−0.24, 0.36), 1.78 m, kit rifle at the hung right hand, whip antenna 0.85 m rising from the rucksack top |
 | headgear | soft olive patrol cap (the one deviation from the KDF faction line's helmet clause, for the headgear tell the brief asks for) |
 | nearest neighbours | `yahalom_engineer` (two standing, horizontal mast), `meshy_soldier` (three standing), `officer_engineer` (below). Levers: side-by-side pair, the whip's height doubling the frame, the map case |
 | IoU | measured by `pnpm validate:meshes`; anchors are free to move if it reads ≥ 0.88 |
@@ -85,7 +85,7 @@ text or markings of any kind.
 
 | item | number |
 |---|---|
-| figures | `sagi` KNEELING at (0.26, 0.30), 1.80 m, `kit.binoculars` at his kneeling eye height on the head bone; a laser designator on a squat kit tripod at (0.74, 0.30) on the team `prop` bone (legs 0.50 m, head box 0.30 × 0.16 × 0.16 at z 0.62); `rto` (at_team remesh) standing at (−0.30, −0.34) with the kit rifle and the whip antenna 1.35 m |
+| figures | `sagi` KNEELING at (−0.10, −0.40) on the camera side, 1.80 m, `kit.binoculars` at his kneeling eye height on the head bone; a laser designator on a squat kit tripod at (0.32, −0.40) on the team `prop` bone, its head box 0.30 × 0.16 × 0.16 at his kneeling eye height; `rto` (at_team remesh) standing behind him at (−0.20, 0.45) with the kit rifle and the whip antenna 0.85 m |
 | headgear | wide-brimmed boonie hat |
 | nearest neighbours | `at_team` (kneeling gunner + standing spotter, LEVEL tube), `demo_squad`. Levers: mirrored layout, no tube at all, a low tripod in front of the kneeler, the whip |
 | IoU | measured by the gate |
@@ -105,9 +105,9 @@ text or markings of any kind.
 
 | item | number |
 |---|---|
-| figures | `dalia` standing at (0.50, −0.14), 1.70 m, a mine probe (kit tube 1.50 m, r 0.015) held in the right hand and pitched 35° down-forward so its tip nearly touches the ground ahead; `sap` (demo_squad remesh) standing at (−0.42, 0.24), 1.78 m, kit rifle, a satchel charge (`kit.box` 0.34 × 0.14 × 0.24, role `charge`) slung on the left hip, whip antenna 1.0 m |
+| figures | `dalia` standing at (0.50, −0.14), 1.70 m, a mine probe (kit tube 1.30 m, r 0.022) held a third of the way down in the right hand, pitched 35° down and yawed 35° toward the camera, swept ahead of her; `sap` (demo_squad remesh) standing at (−0.42, 0.24), 1.78 m, kit rifle, a satchel charge (`kit.box` 0.34 × 0.14 × 0.24, role `charge`) slung on the left hip, whip antenna 0.85 m |
 | headgear | helmet with a bulky headset over it (the helmet clause kept; the headset widens the head profile) |
-| nearest neighbours | `officer_infantry` (two standing + whip), `yahalom_engineer`, `demo_squad`. Levers: the pair is IN FILE along `+X` rather than side by side, the diagonal probe, the shorter whip |
+| nearest neighbours | `officer_infantry` (two standing + whip), `yahalom_engineer`, `demo_squad`. Levers: the pair is IN FILE along `+X` rather than side by side, the diagonal probe, the satchel |
 | IoU | measured by the gate |
 
 ```
@@ -142,3 +142,25 @@ flags, patches, text or markings of any kind.
 4. `pnpm encode:meshes`; `pnpm validate:meshes`; `pnpm validate:assets`; `pnpm test`;
    `pnpm typecheck`; `pnpm lint`.
 5. Provenance in `docs/ASSET_PROVENANCE.md`; one commit per unit; push.
+
+## Result (2026-09-30, measured on the shipped bytes)
+
+| unit | credits | task ids (preview / refine / remesh) | tris | fill @ 64 px | nearest IoU (limit 0.88) | file |
+|---|---|---|---|---|---|---|
+| `officer_infantry` | 35 | `01a0f33e-aa5b…` / `01a0f33f-9c56…` / `01a0f342-783f…` | 7,429 | 0.096 | 0.589 vs `officer_engineer` | `art/meshes/officer_infantry.glb`, 1.15 MiB (0.48 encoded) |
+| `officer_fires` | 35 | `01a0f341-6d50…` / `01a0f342-41c0…` / `01a0f344-2e47…` | 7,292 | 0.091 | 0.517 vs `digger_crew` | `art/meshes/officer_fires.glb`, 1.13 MiB (0.47) |
+| `officer_engineer` | 35 | `01a0f341-6e1f…` / `01a0f342-49ef…` / `01a0f344-2e90…` | 7,521 | 0.103 | 0.589 vs `officer_infantry` | `art/meshes/officer_engineer.glb`, 1.18 MiB (0.47) |
+| `officer_armour` | 0 | none (Blender variant) | 8,610 | 0.134 | 0.556 vs `scout_shachaf`; 0.525 vs `mbt_lavi` (R8) | `art/meshes/vehicles/officer_armour.glb`, 2.72 MiB (2.38) |
+| **total** | **105** of 155 planned (310 cap); ledger 175 = B0b's 70 + these 105 | | | | | |
+
+`pnpm validate:meshes`: *mesh gate passed: 57 mesh unit(s) rendered and checked against
+38 sprite unit(s)*; the four are on the `NOT palette-checked` line (bakes). No re-roll was
+needed; the two deviations Meshy made (Sagi's helmet and rifle-across-the-chest instead of
+the A-pose; a sleeve badge on every figure) were absorbed in the importer. Captures at
+gameplay scale, zoom 2.5 and as 64 px silhouettes are in the task's scratchpad
+(`officers-art/captures/`, `index.md`).
+
+Things a Stage 5 reader should know: the teams' stride is `inf_squad`'s; `pnpm gait:meshes`
+has not run on them (catalogue-scoped); `officer_fires`' `fire` clip animates the radio
+operator only (Sagi holds his rifle still); the importer's sleeve scrub replaces 1,285 / 186 /
+262 texels of the three officers' upper sleeves with the sleeve median.

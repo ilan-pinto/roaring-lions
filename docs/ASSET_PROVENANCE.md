@@ -405,3 +405,37 @@ elbows with upturned palms rather than a straight A-pose — the importer hangs
 each arm as one rigid unit about its shoulder ring, so the hands flare
 slightly at the wrist. `pnpm validate:meshes` passes with both on the
 `NOT palette-checked` line (silhouette IoU still runs and clears 0.88).
+
+---
+
+## GH-298 — the officers (held art, Stage 5 wires it)
+
+Four units, 2026-09-30, three of them Meshy **text-to-3D** through the CLI
+(`pnpm meshy`), AI-generated and disclosed per `CONTRIBUTING.md`; every spend is
+a line in `art/meshy/ledger.jsonl` (**105 credits consumed** against the 155 the
+lead planned and the 310 cap: preview 20 + refine 10 + remesh 5 per figure team,
+0 for the command tank, which is a Blender variant of the shipped Lavi). Numbers,
+prompts and the credit plan are `docs/art/meshy-prompts-officers.md`, used
+verbatim. No unit JSON exists yet, so all four files sit in `HELD_MESH_FILES`
+(`packages/app/src/mesh-catalogue.ts`) and draw nothing until Stage 5 of the
+field-commanders spec claims them. Under `art/meshy/<slug>-20260930-<task>/`:
+each task's `task.json` and thumbnail and the three REMESH `model.glb` files
+(the importer's input, ~11 MB each with their 2048 maps) are committed; the
+preview and refine downloads are not.
+
+| File | Draws as (Stage 5) | Preview task id | Refine / remesh task id (shipped) | Notes |
+|---|---|---|---|---|
+| `art/meshes/officer_infantry.glb` | `officer_infantry` (Capt. Maya Pereg, infantry company commander) | `01a0f33e-aa5b-71e4-bd3c-ee5f17fbc82e` (`--pose a-pose`) | refine `01a0f33f-9c56-72af-a11d-009f1def0ced` (2k), remesh `01a0f342-783f-748a-a4ce-88fc2d808a21` at 2,000 (2,041 tris) | **Textured** (`TEXTURED_INFANTRY_TYPES`). Two figures, two people: `maya` standing (1.68 m, patrol cap, the new figure) and `sig`, the signaller, cut from B0b's `at_team` remesh (`01a0f2fd-…`, 0 credits) with a kit whip antenna on his rucksack and the kit rifle. Both bakes in ONE 2048x1024 atlas (1024 a figure, JPEG q85). `tools/units/import_meshy_officers.py`. **7,429 tris** in the shipped bytes (incl. the two half-decimated corpses), 1205456 bytes, 498184 encoded. Clips `idle, move, fire, down, wreck`, `rig.py`'s own; stride sized from `inf_squad.json` until the officer JSON lands. |
+| `art/meshes/officer_fires.glb` | `officer_fires` (Capt. Sagi Sharav, forward observer) | `01a0f341-6d50-72a9-b8e8-747cb13c7e5a` (`--pose a-pose`) | refine `01a0f342-41c0-719d-ab81-af6a4e515af0` (2k), remesh `01a0f344-2e47-74ac-bdd3-b050b4075658` at 2,000 (2,075 tris) | As above. Meshy returned Sagi with a helmet and both hands on a rifle across his chest rather than the A-pose asked for; the importer keeps his upper body as one rigid part (no arm cut) and kneels him at a kit laser designator on a tripod (`prop` bone); `rto`, the radio operator, is the `at_team` remesh again with whip and rifle. **7,292 tris**, 1188220 bytes, 488816 encoded. |
+| `art/meshes/officer_engineer.glb` | `officer_engineer` (Capt. Dalia Charsit, engineer commander) | `01a0f341-6e1f-7447-afce-b8e055b07548` (`--pose a-pose`) | refine `01a0f342-49ef-747e-b7b2-f3b33c0a0824` (2k), remesh `01a0f344-2e90-70f4-b19f-05fbb19e842f` at 2,000 (2,071 tris) | As above. `dalia` standing (1.70 m, helmet) with a kit mine probe held in the right hand; `sap`, the sapper, cut from B0b's `demo_squad` remesh (`01a0f302-…`, 0 credits) with whip, rifle and a slung kit satchel (`charge`). **7,521 tris**, 1237456 bytes, 495992 encoded. |
+| `art/meshes/vehicles/officer_armour.glb` | `officer_armour` (Capt. Ronen Heled, command Lavi) | none (0 credits) | none | **Textured** (`TEXTURED_VEHICLE_TYPES`): the shipped `mbt_lavi.glb` (itself Meshy, above) re-exported by `tools/vehicles/export_officer_armour.py` with a kit commander's cupola, a three-section telescoping mast to z 4.8 m and two whip antennas, each UV-pinned to the paint it sits on and JOINED into the Lavi's own four nodes, so the file keeps the Lavi's bake, material and `turret_pivot`. **8,610 tris** (the Lavi's 8,346 plus the kit parts), 2849668 bytes. Wreck by `pnpm wreck:meshes` (recipe `tracked` + `turret_pivot`). IoU vs `mbt_lavi` **0.525** (limit 0.88): the mast changes the frame the gate fits, which is the whole of R8's answer. |
+
+Measured in this batch: Meshy paints a small sleeve badge on every KDF figure
+whatever the prompt says, so the importer scrubs chroma/brightness outliers
+under each officer's upper-arm faces before the atlas is built (1,285 / 186 /
+262 texels replaced); a GENERATED Blender image is silently skipped by the glTF
+exporter, and comparing two `bpy` node wrappers with `is` removed the texture
+node itself — the first exports shipped `images: None` and were caught by
+reading the GLB's JSON chunk, not by the export succeeding; and a 1.35 m whip
+put `officer_fires` under the gate's 6% fill floor (5.2%), because the gate
+frames each unit to its own bounds — 0.85 m clears it at 9.1%.
