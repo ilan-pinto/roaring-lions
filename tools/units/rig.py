@@ -184,9 +184,12 @@ DEFAULT_TEAM = "inf_squad"
 TEAM_MESH_OWNER = {
     "inf_squad": MESH_KIT_OWNED,
     "militia_cell": MESH_KIT_OWNED,
-    "demo_squad": MESH_KIT_OWNED,
+    # B0b (GH-286, 2026-09-30): both are Meshy figures with their bake, cut
+    # into this module's parts and driven by its clips -- built by
+    # tools/units/import_meshy_kdf_team.py, which owns both files.
+    "demo_squad": "tools/units/import_meshy_kdf_team.py",
     "charge_squad": MESH_KIT_OWNED,
-    "at_team": MESH_KIT_OWNED,
+    "at_team": "tools/units/import_meshy_kdf_team.py",
     "rpg_team": MESH_KIT_OWNED,
     "mortar_team": MESH_KIT_OWNED,
     "mortar_crew": MESH_KIT_OWNED,
@@ -281,7 +284,8 @@ PART_BONE = {
     "hood": "head", "balaclava": "head", "gaiter": "neck",
     "helm_counterweight": "head",
     "kef_crown": "head", "kef_mantle": "head", "kef_tail": "head",
-    # --- B2's Meshy crew figures (import_meshy_crew_team.py) ---
+    # --- Meshy figures cut into this module's parts (B0b's
+    # import_meshy_kdf_team.py; B2's import_meshy_crew_team.py) ---
     # A kneel built from rigidly re-arranged standing parts opens a wedge at
     # each hip and at the rear knee; these blobs cover them. The kneel
     # skeleton never animates a leg, so they bind to the nearest static bone.

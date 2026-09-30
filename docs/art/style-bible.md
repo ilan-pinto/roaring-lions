@@ -430,3 +430,32 @@ otherwise.
   "two wingtip fins" came back as one tail fin, its "pusher" prop on the nose,
   plus landing gear; the MANPAD figure's head wrap came back as a bare head.
   Every one was fixed in Blender rather than re-rolled.
+
+## 9. Measured in B0b (2026-09-30, GH-286)
+
+- **A figure team costs 35, not 40.** The Meshy rig (step 5) was not bought
+  for either team: a remesh cut into `rig.py`'s parts and rigid-bound is driven
+  by `rig.py`'s own clips (`tools/units/import_meshy_kdf_team.py`), so the
+  5 credits buy nothing this pipeline uses. 70 spent against 80 approved.
+- **The refine's bake survives the remesh** (§4's open question): both 2,000-tri
+  remeshes arrived with base colour, normal and metallic-roughness maps. Only the
+  base colour ships, at 1024 / JPEG q85 (the infantry table's "ask 2048, ship
+  1024"); `pnpm encode:meshes` takes a team file from ~1.0 MiB to 312 KiB.
+- **A textured figure and palette kit weapons share one GLB.**
+  `buildMeshUnitTemplate` decides per MESH, so `uniform`/`boot`/`face` carry the
+  bake while `weapon`/`metal`/`charge` take the faction ramp. The blob joints that
+  hide a rigid cut are given the bake too (UVs pinned to the nearest face of the
+  part they cover), which keeps each role to one primitive and one material.
+- **§3's per-figure target holds at 2,000 for a team with no D6 walker:** the
+  two B0b teams ship 6,754 and 6,828 tris (kneel + standing + two half-decimated
+  corpses + kit weapons), under the 8,000 file cap. A team whose kneeling crew
+  walks on a walker would not fit at 2,000 (B2 remeshed at 1,500 for that reason).
+- **Meshy's A-pose is not straight.** Both figures came back with elbows bent and
+  palms turned up (arm axis 71–78° from vertical). Hung as one rigid unit per arm
+  the hands flare at the wrist; readable at gameplay zoom, visible at 2.5.
+- **Kit positions written for `kit.py`'s proportions need re-measuring on a
+  Meshy figure:** `rig._at_extras`' tube at z 1.02 sat at the kneeling Meshy
+  gunner's chin (his measured shoulder ring is lower than the kit's), so the
+  importer places it at the measured shoulder + the kit's own 0.175 offset; the
+  kit rifle's chest anchor assumed bent arms, so it is held level at the hung
+  hand instead.
