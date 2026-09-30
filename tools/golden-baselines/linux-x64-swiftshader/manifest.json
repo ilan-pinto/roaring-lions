@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "8beb66377f27a02b95f35a624e68fd5aa104e43e",
-  "blessedAt": "2026-09-29T09:25:28.852Z",
-  "reason": "WP-A4 readability (PR #272, main 8beb6637): HP bars only when damaged/selected/hovered, team-colour ground ring (vehicles: hull ellipse). Moves quiet (one occluded full-health bar gone), vehicle and relief. PR run 36525207020: all layer self-checks PASS; open-ground and aftermath unchanged; combat captured (report-only). Lead approved G-NUM/G-MOCK 29 Sep.",
+  "commit": "2eed13ccde7b11abcecf7a527f246f4f8e9e1fca",
+  "blessedAt": "2026-09-30T18:15:43.609Z",
+  "reason": "PR #310 (B0a, main 2eed13cc): textured Meshy apc_eitan in the vehicle scenario (3021 px / mean 0.18 vs budget 300 / 0.02) and recon_drone now a mesh in relief (334 px / 0.0195 vs 40 / 0.004); quiet, open-ground, aftermath unchanged; every layer self-check PASS (CI run 36750724895). Lead approved 30 Sep.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "5b9df9111a189c707bb17fe24bc3afef9f3192be69d9d67b1682584f4b9ca3eb"
+      "sha256": "3e7bf87e0be99750cca6a71005e647d69cbbd8abb079075c5c276a16b8a3d642"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "60a9f81380143d11b1af353bf18409c1417e049f094fac750a2a8106b0697459"
+      "sha256": "d063c0ed018263a44316f0d8b6bd1fb5d1f29c134bc9529db162e74f90ad3111"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c8c1712b85f0cc74ac6cd7ce6d75e3fbf1ab574e7b3a128309d5180ad13a5bdf"
+      "sha256": "4c7b5fb1c3e02bb11699889d0e98ce9862f75f0dbdc9dc0f502bab68b110c659"
     },
     "aftermath": {
       "tick": 300,

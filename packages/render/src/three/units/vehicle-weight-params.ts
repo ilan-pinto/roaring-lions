@@ -64,6 +64,8 @@ import type { VehicleWeightParams } from './vehicle-weight';
 // and fails loudly the moment one of these eleven stops matching it.
 import apcEitan from '../../../../../data/units/kdf/apc_eitan.json';
 import apcKipod from '../../../../../data/units/kdf/apc_kipod.json';
+import attackDrone from '../../../../../data/units/kdf/attack_drone.json';
+import reconDrone from '../../../../../data/units/kdf/recon_drone.json';
 import dozerD9 from '../../../../../data/units/kdf/dozer_d9.json';
 import heliPeten from '../../../../../data/units/kdf/heli_peten.json';
 import ifvNamer from '../../../../../data/units/kdf/ifv_namer.json';
@@ -73,6 +75,9 @@ import scoutShachaf from '../../../../../data/units/kdf/scout_shachaf.json';
 import paramotor from '../../../../../data/units/enemy/paramotor.json';
 import rocketBattery from '../../../../../data/units/enemy/rocket_battery.json';
 import technical from '../../../../../data/units/enemy/technical.json';
+// B2 (GH-179, 2026-09-30): the two enemy vehicles that gained a GLB.
+import gunTruck from '../../../../../data/units/enemy/gun_truck.json';
+import loiterDrone from '../../../../../data/units/enemy/loiter_drone.json';
 
 const DEG = Math.PI / 180;
 
@@ -101,6 +106,11 @@ function readWeightSource(json: unknown): WeightSource {
 const VEHICLE_UNIT_JSON: readonly unknown[] = [
   apcEitan,
   apcKipod,
+  // The two drones (GH-286 B0a): `isAir`, so excluded from the weight model
+  // upstream exactly like `heli_peten`; listed because the roster pin is
+  // exact in both directions.
+  attackDrone,
+  reconDrone,
   dozerD9,
   heliPeten,
   ifvNamer,
@@ -110,6 +120,8 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   paramotor,
   rocketBattery,
   technical,
+  gunTruck,
+  loiterDrone,
 ];
 
 const BY_UNIT_ID: ReadonlyMap<string, WeightSource> = new Map(
@@ -217,11 +229,9 @@ export const VEHICLE_WEIGHT_ROLE_DEFAULTS: Readonly<Record<string, VehicleWeight
     settleDamping: 0.7,
     lagTiles: 0.03,
   },
-  // No shipped `aa` vehicle has a GLB yet (`gun_truck` and `manpad_team` are
-  // both billboard-only today), but the role is in the schema's enum and a
-  // wheeled AA truck is the obvious next vehicle to ship one -- close to a
-  // technical/APC in build, so it gets a number now rather than a resolver
-  // that throws the day someone adds `art/meshes/vehicles/gun_truck.glb`.
+  // `gun_truck` (a GLB since B2, 2026-09-30): a wheeled AA truck, close to a
+  // technical/APC in build. The number was set before the mesh existed so the
+  // resolver would not throw the day it landed; it has not been re-tuned.
   aa: {
     maxPitchRad: 1.1 * DEG,
     maxRollRad: 1.2 * DEG,

@@ -334,6 +334,30 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // B2 (GH-179, 2026-09-30). `tools/render_gun_truck.py`'s own ROLE_PALETTE
+  // ("faded ochre body"), each base extended to the end of its band exactly
+  // as `rocket_battery` above -- the same enemy-truck tone. The shipped GLB
+  // is in `TEXTURED_VEHICLE_TYPES`, so like `technical` this row is what the
+  // gate's drift test pins and what a bake-less re-export would draw.
+  gun_truck: {
+    hull: sliceFrom('dust', 1, 6),
+    plate: sliceFrom('dust', 2, 5),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
+  // `tools/render_loiter.py`'s own ROLE_PALETTE: dust wing/fuselage,
+  // gunmetal warhead and hub, the seeker as glass. Palette-painted -- at 26 px
+  // a bake buys nothing (bible section 7 q2).
+  loiter_drone: {
+    hull: sliceFrom('dust', 1, 6),
+    plate: sliceFrom('dust', 2, 5),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
   heli_peten: {
     hull: sliceFrom('olive', 1, 3),
     plate: sliceFrom('olive', 2, 2),
@@ -371,6 +395,22 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     rubber: sliceFrom('shadow', 0, 3),
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
+  },
+  // The two KDF drones (GH-286 B0a, `tools/drones/export_meshy_drones.py`),
+  // hand-copied from the gate's `VEHICLE_ROLE_PALETTES` like every entry
+  // above. KDF olive like `apc_eitan`; `metal` is the rotors/guards (recon)
+  // and the nose pod, tail and skids (attack); `glass` the camera ball and
+  // the nose lens. Exactly the three roles each GLB carries -- no `plate`,
+  // `rubber` or `recess` part exists on either, so none is declared.
+  recon_drone: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    glass: sliceFrom('gunmetal', 3, 1),
+  },
+  attack_drone: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    glass: sliceFrom('gunmetal', 3, 1),
   },
 };
 

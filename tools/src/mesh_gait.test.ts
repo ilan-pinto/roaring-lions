@@ -783,11 +783,12 @@ function riggedFiles(): RiggedFile[] {
       });
     }
   }
-  // 16 unit types, 19 files -- `civilians` is four variants of one type.
+  // 18 unit types, 21 files -- `civilians` is four variants of one type;
+  // B2 (2026-09-30) added `manpad_team` and `recoilless_team`.
   // Numbers, not `> 0`: a catalogue that lost half its entries would still
   // clear a positive count.
-  expect(Object.keys(RIGGED_UNIT_MESHES)).toHaveLength(16);
-  expect(out).toHaveLength(19);
+  expect(Object.keys(RIGGED_UNIT_MESHES)).toHaveLength(18);
+  expect(out).toHaveLength(21);
   return out;
 }
 
@@ -1006,7 +1007,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     const declaring = RIGS.filter((r) => r.declared !== undefined).map((r) => r.typeId);
     const silent = RIGS.filter((r) => r.declared === undefined).map((r) => r.typeId);
     expect([...new Set(silent)].sort()).toEqual(Object.keys(GAIT_EXEMPT).sort());
-    expect(new Set(declaring).size).toBe(15);
+    expect(new Set(declaring).size).toBe(17);
     for (const [type, why] of Object.entries(GAIT_EXEMPT)) {
       expect(why.length, `${type}: a reason, not a name`).toBeGreaterThan(20);
     }
@@ -1021,7 +1022,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
   });
 
   it('every gaited file declares a `move` gait, so none can be skipped by absence', () => {
-    expect(gaited).toHaveLength(18);
+    expect(gaited).toHaveLength(20);
     for (const rig of gaited) {
       expect(rig.declared?.has('move'), `${rig.file}: rl_gait.move`).toBe(true);
     }
@@ -1172,8 +1173,8 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
         checked++;
       }
     }
-    // Fifteen types over eighteen files, two of which declare `moveFire` too.
-    expect(checked).toBe(20);
+    // Seventeen types over twenty files, two of which declare `moveFire` too.
+    expect(checked).toBe(22);
   });
 });
 
@@ -1267,6 +1268,9 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'sarim_rifles.glb moveFire': 4101,
   'meshy_mortar_team.glb move': 3268,
   'yahalom_engineer.glb move': 1632,
+  // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
+  'manpad_team.glb move': 350,
+  'recoilless_team.glb move': 440,
   'breach_team.glb move': 1152,
   'civilians/civilian_woman.glb move': 328,
   'civilians/office_worker.glb move': 346,
@@ -1372,7 +1376,7 @@ describe('mesh unit gait -- per figure, not per file', () => {
   });
 
   it('reads a known number of figures, and every still one is named', () => {
-    expect(rows).toHaveLength(20);
+    expect(rows).toHaveLength(22);
     const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
     // 40 visible figures over 20 clips: two each on the six original
     // `kit.py` teams and `yahalom_engineer`, three each on `meshy_soldier`
@@ -1382,7 +1386,9 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // The hidden `death_root` twins, `meshy_mortar_team`'s three kneeling
     // roots and the three crews' own deployed roots (hidden on `move`, the
     // mortar-team precedent) are not in it.
-    expect(live).toHaveLength(40);
+    // B2's two crews add four: the MANPAD gunner and the spotter's walker, and
+    // both recoilless walkers.
+    expect(live).toHaveLength(44);
     // Both directions, the way GAIT_EXEMPT is: every named still figure must
     // be a figure that really exists and really is still, and every figure
     // that is still must be named.
@@ -1729,7 +1735,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // the civilians. A literal, because "more than zero" is what let
     // `measureFacing` return `[]` for all four civilians through two tasks
     // and a review while every caller's `for` loop passed in 0 ms.
-    expect(rows).toHaveLength(89);
+    // B2 (2026-09-30) adds twelve: manpad_team six, recoilless_team six.
+    expect(rows).toHaveLength(101);
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1746,10 +1753,12 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'civilians/office_worker.glb',
       'demo_squad.glb',
       'digger_crew.glb',
+      'manpad_team.glb',
       'meshy_mortar_team.glb',
       'meshy_soldier.glb',
       'militia_cell.glb',
       'mortar_crew.glb',
+      'recoilless_team.glb',
       'rpg_team.glb',
       'sarim_rifles.glb',
     ]);
@@ -1808,6 +1817,15 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'digger_crew.glb down',
       'digger_crew.glb idle',
       'digger_crew.glb move',
+      // B2's crews follow the atgm_cell shape: a walker root hidden off
+      // `move`, the deployed root hidden on it, and both on `down`. The MANPAD
+      // gunner stands and walks himself, so manpad_team reads one fewer.
+      'manpad_team.glb down',
+      'manpad_team.glb down',
+      'manpad_team.glb down',
+      'manpad_team.glb fire',
+      'manpad_team.glb idle',
+      'manpad_team.glb move',
       'militia_cell.glb down',
       'militia_cell.glb down',
       'mortar_crew.glb down',
@@ -1818,6 +1836,16 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'mortar_crew.glb idle',
       'mortar_crew.glb move',
       'mortar_crew.glb move',
+      'recoilless_team.glb down',
+      'recoilless_team.glb down',
+      'recoilless_team.glb down',
+      'recoilless_team.glb down',
+      'recoilless_team.glb fire',
+      'recoilless_team.glb fire',
+      'recoilless_team.glb idle',
+      'recoilless_team.glb idle',
+      'recoilless_team.glb move',
+      'recoilless_team.glb move',
       'rpg_team.glb down',
       'rpg_team.glb down',
     ]);
@@ -1897,6 +1925,11 @@ const WEAPON_RIGS: readonly {
   // bound to his HEAD, so only one `_forearm_R` owns any `weapon` vertex.
   // This file was in `WEAPON_EXEMPT` until it gained a `fire` clip.
   { file: 'at_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  // B2 (2026-09-30): one armed figure each. The MANPAD spotter holds
+  // binoculars on his head; the recoilless loader's two spare rounds are
+  // `weapon` on the static `prop` bone, not on any forearm.
+  { file: 'manpad_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  { file: 'recoilless_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
   {
     file: 'meshy_soldier.glb',
     role: 'uniform',
@@ -2072,6 +2105,10 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'rpg_team.glb rpg_load_forearm_R': 2.47, //    [0.47, 4.46]  the loader's rifle
   'rpg_team.glb rpg_fire_forearm_R': 34.04, //  [32.05, 36.06] the RPG, at rig._rpg_extras' 38 deg
   'at_team.glb at_fire_forearm_R': 0.0, //      [-2.00, 2.00]  the Spike, at pitch 0
+  // B2 (2026-09-30): kit.launcher geometry on Meshy figures -- teams.py's own
+  // 78-deg MANPAD tube on the gunner's shoulder, and the recoilless tube level.
+  'manpad_team.glb mpd_fire_forearm_R': 69.9, // the tube's principal axis with its wider venturi bell, read off the bytes; the tube itself is pitched 78
+  'recoilless_team.glb rcl_fire_forearm_R': 0.0,
 };
 
 /**
@@ -2172,7 +2209,9 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
       'at_team.glb',
       'breach_team.glb',
       'demo_squad.glb',
+      'manpad_team.glb',
       'militia_cell.glb',
+      'recoilless_team.glb',
       'rpg_team.glb',
     ]);
     console.log(

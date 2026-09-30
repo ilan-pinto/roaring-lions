@@ -141,9 +141,21 @@ for everything after.* One unit, in order:
 palette vehicle, drone or crew-weapon part **25**. At the CLI's default estimate of
 $0.02/credit, that is $0.80 / $0.70 / $0.50.
 
+**Measured 2026-09-30 on the GH-277 militia buildings, ahead of B0: a remesh of a
+*refined* task KEEPS its texture** (the remesh GLB carries the 2k `base_color` plus
+normal and metallic-roughness maps -- `docs/ASSET_PROVENANCE.md`, "field works").
+The line below is kept for the record of what was unknown when this section was written.
 **Unverified until the first textured unit of B0 (the `apc_eitan`):** that remesh of a
 *refined* task keeps its texture. If it does not, step 3 moves after step 4 (refine cannot take a remesh
 task, so the fallback is `retexture`, also 10). Measure it once; do not guess twice.
+
+**Measured on B0a's `apc_eitan` (2026-09-30): a remesh of a *refined* task keeps its
+texture.** The remesh task arrived with one `BakedMaterial` -- base colour 2048, normal
+2048, metallic-roughness 4096 -- re-baked onto the remesh's own fresh UVs, so the order
+above (refine, then remesh) stands and the `retexture` fallback (10) was not needed.
+One consequence worth knowing: the CLI has no standalone `refine <preview-id>`, so a
+textured unit runs `text --refine` as ONE call (30) and the preview cannot be judged
+before the refine spends; the remesh (5) is the step that can still be withheld.
 
 **Rules that are not optional:**
 
@@ -310,7 +322,7 @@ the numbers tables and ready prompts for all five are in `meshy-prompts-units.md
 
 | batch | units | why this order | credits |
 |---|---|---|---|
-| **B0a** | `recon_drone`, `attack_drone`, `apc_eitan` | lead priority, GH-286; no rig; the Eitan is the first textured vehicle, so the refine-then-remesh texture question is measured here | 25 + 25 + 35 = 85 |
+| **B0a** | `recon_drone`, `attack_drone`, `apc_eitan` | lead priority, GH-286; no rig; the Eitan is the first textured vehicle, so the refine-then-remesh texture question is measured here. **Ran 2026-09-30: 85 spent, every unit on its first preview** (the attack drone's unasked-for wing and the Eitan's front cannon were cut in Blender); the lead then approved one recon re-roll (+25, a military hexacopter -- Meshy returned a four-arm quadcopter, accepted as such, guards added in Blender) and, after seeing the Eitan beside it, a Meshy textured `apc_kipod` (+35): **145 spent in all, 145 consumed** | 25 + 25 + 35 = 85 (+60 rulings) |
 | **B0b** | `at_team`, `demo_squad` | lead priority, GH-286; the first rigged figures; needs the A-pose CLI flag (landed) and the infantry bake list (§7 q1, landed empty) | 40 + 40 = 80 |
 | | *B0 subtotal* | *ceiling 330: one re-roll per unit, on the lead's go only* | *165* |
 | B2 | `gun_truck`, `manpad_team`, `recoilless_team`, `loiter_drone` | closes the no-GLB list; four units because B1 folded in (the drone is the cheap one) | 35 + 40 + 40 + 25 = 140 |
@@ -395,7 +407,31 @@ otherwise.
     ring the Meshy hull is asked to leave empty, 0 credits, `turret_pivot` placed by
     measurement. A Meshy RWS part is +25.
 
-## 8. Measured in B0b (2026-09-30, GH-286)
+## 8. Measured in B2 (2026-09-30)
+
+- **§4's open question is closed: a Meshy remesh of a refined task keeps its
+  bake.** The gun truck's remesh (5,000 tris) arrived with base colour, normal and
+  metallic-roughness maps in one `BakedMaterial`; no `retexture` was needed and
+  the unit stayed at 35 credits.
+- **§3's team-file cap does not account for `rig.py`'s copies.** A kneeling
+  figure ships three geometries (deployed kneel, D6 standing walker, prone
+  corpse), so a Meshy figure remeshed at the bible's 2,000 would put a two-man
+  crew near 11k. B2 remeshed at 1,500 and decimated corpses to half: 7,368 and
+  8,936 tris for the two teams.
+- **A rigged figure without a bought Meshy rig works:** cut at `rig.py`'s joints,
+  rigid-bound, `rig.py`'s own clips (`tools/units/import_meshy_crew_team.py`).
+  Its cost is the four per-figure copies above and a corpse that is the A-pose
+  body laid flat rather than a posed fall.
+- **Sarim machine line, used for `loiter_drone` and proposed for §5:** "a crude
+  workshop-built machine of an irregular militia in sun-faded dusty paint with
+  rough welded seams".
+- **Meshy honours the silhouette, not the angle or the count.** The gun truck's
+  "28 degrees" came back at 7.6 (fixed in Blender about the trunnion); the drone's
+  "two wingtip fins" came back as one tail fin, its "pusher" prop on the nose,
+  plus landing gear; the MANPAD figure's head wrap came back as a bare head.
+  Every one was fixed in Blender rather than re-rolled.
+
+## 9. Measured in B0b (2026-09-30, GH-286)
 
 - **A figure team costs 35, not 40.** The Meshy rig (step 5) was not bought
   for either team: a remesh cut into `rig.py`'s parts and rigid-bound is driven

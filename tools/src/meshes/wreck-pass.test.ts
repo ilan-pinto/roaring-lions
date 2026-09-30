@@ -492,16 +492,20 @@ describe('parseWreckArgs', () => {
 });
 
 describe('WRECK_RECIPES', () => {
-  it('names the eleven shipped vehicles and nothing else', () => {
+  it('names the thirteen shipped vehicles and nothing else', () => {
     expect(Object.keys(WRECK_RECIPES).sort()).toEqual([
       'apc_eitan',
       'apc_kipod',
+      'attack_drone',
       'dozer_d9',
+      'gun_truck',
       'heli_peten',
       'ifv_namer',
       'jeep_shoded',
+      'loiter_drone',
       'mbt_lavi',
       'paramotor',
+      'recon_drone',
       'rocket_battery',
       'scout_shachaf',
       'technical',

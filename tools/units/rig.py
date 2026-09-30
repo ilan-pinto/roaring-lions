@@ -146,6 +146,13 @@ SUPPORTED_TEAMS = (
     "at_team", "rpg_team", "mortar_team", "mortar_crew", "atgm_cell",
     "sniper_team", "yahalom_squad", "digger_crew", "moto_rpg",
     "breach_team",
+    # B2, GH-179, 2026-09-30: Meshy figures cut into this module's parts and
+    # driven by its clips -- built by tools/units/import_meshy_crew_team.py,
+    # which owns both files below. Listed here so `build_clips`/`TEAM_FIGURES`
+    # serve them; `export_mesh_team.py -- all` skips them by owner. No
+    # parentheses in this comment: mesh_ownership.test.ts reads the tuple
+    # with a regex that stops at the first closing bracket.
+    "manpad_team", "recoilless_team",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -192,6 +199,8 @@ TEAM_MESH_OWNER = {
     "digger_crew": MESH_KIT_OWNED,
     "moto_rpg": MESH_KIT_OWNED,
     "breach_team": MESH_KIT_OWNED,
+    "manpad_team": "tools/units/import_meshy_crew_team.py",
+    "recoilless_team": "tools/units/import_meshy_crew_team.py",
 }
 assert set(TEAM_MESH_OWNER) == set(SUPPORTED_TEAMS), (
     "TEAM_MESH_OWNER needs exactly one entry per SUPPORTED_TEAMS member -- "
@@ -1152,6 +1161,25 @@ TEAM_FIGURES = {
         _f("dig", -0.34, 0.04, posture="kneeling", headgear="keffiyeh",
            loadout="irregular", animates=False, move_posture="standing"),
     ],
+    # B2 (GH-179): positions verbatim from `teams.manpad_team` /
+    # `teams.recoilless_team`. Geometry is NOT `kit.figure()` here -- see
+    # `tools/units/import_meshy_crew_team.py`, which builds the parts and
+    # calls this module's `build_clips` with these specs. The MANPAD gunner
+    # walks with his tube (`animates=True`, unlike `rpg_fire`, whose
+    # stride=0 pin is a sprite-sheet fact); the spotter and both recoilless
+    # crew kneel deployed and walk on a D6 walker.
+    "manpad_team": [
+        _f("mpd_fire", 0.16, -0.22, headgear="keffiyeh", loadout="irregular",
+           leader=True, weapon="launcher"),
+        _f("mpd_spot", -0.28, 0.30, posture="kneeling", headgear="keffiyeh",
+           loadout="irregular", animates=False, move_posture="standing"),
+    ],
+    "recoilless_team": [
+        _f("rcl_fire", 0.20, -0.28, posture="kneeling", headgear="keffiyeh",
+           loadout="irregular", animates=False, weapon="launcher", move_posture="standing"),
+        _f("rcl_load", -0.30, 0.30, posture="kneeling", headgear="keffiyeh",
+           loadout="irregular", leader=True, animates=False, move_posture="standing"),
+    ],
     # moto_rpg is NOT built through `_add_figure`/PART_BONE at all -- see
     # `_moto_rpg_rest`, which force-binds every single part it creates to an
     # explicit bone name. These six entries exist only so `figure_prefixes`
@@ -1188,6 +1216,7 @@ def _check_team_figures_against_teams():
         "mortar_team": "kdf", "mortar_crew": "enemy", "atgm_cell": "enemy",
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
         "moto_rpg": "enemy", "breach_team": "kdf",
+        "manpad_team": "enemy", "recoilless_team": "enemy",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
