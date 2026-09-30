@@ -52,6 +52,12 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   rocket_battery: { hull: 'wheeled' },
   scout_shachaf: { hull: 'wheeled' },
   technical: { hull: 'wheeled', turretPivot: 'turret_pivot' },
+  // B2 (GH-179, 2026-09-30): the Meshy gun truck traverses its twin AA gun
+  // on a pedestal, so it takes the technical's own recipe; the Sarim
+  // loitering munition is a fixed delta wing with no pivot, so it lies on
+  // its side like the other two air hulls.
+  gun_truck: { hull: 'wheeled', turretPivot: 'turret_pivot' },
+  loiter_drone: { hull: 'air' },
 };
 
 /**

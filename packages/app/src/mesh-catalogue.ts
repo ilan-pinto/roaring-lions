@@ -148,6 +148,13 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // the same kit.py/teams.py pipeline as the rest of this table.
   breach_team: { files: ['breach_team.glb'], faction: 'kdf' },
 
+  // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
+  // rig.py's parts and driven by rig.py's own clips
+  // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- PR #307's
+  // `TEXTURED_INFANTRY_TYPES` was still open when they shipped.
+  manpad_team: { files: ['manpad_team.glb'], faction: 'enemy' },
+  recoilless_team: { files: ['recoilless_team.glb'], faction: 'enemy' },
+
   // GH-149. Four figures for ONE unit type -- `data/units/civilians.json` is a
   // single type, so these are VARIANTS, and `three/units/mesh-variant.ts`
   // decides which entity draws which. THE ORDER OF THIS LIST IS THE VARIANT
@@ -203,6 +210,13 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // `apc_kipod` (landed in 2f93129) -- so both build a mesh at runtime.
   scout_shachaf: 'vehicles/scout_shachaf.glb',
   apc_kipod: 'vehicles/apc_kipod.glb',
+
+  // WP-A3.1 batch B2 (GH-179, 2026-09-30): the first units generated through
+  // `pnpm meshy` end to end (`docs/art/meshy-prompts-units.md` sections 6-7).
+  // Both enemy; `gun_truck` is textured (`TEXTURED_VEHICLE_TYPES`), the drone
+  // palette-painted through `VEHICLE_ROLE_PALETTE`.
+  gun_truck: 'vehicles/gun_truck.glb',
+  loiter_drone: 'vehicles/loiter_drone.glb',
 };
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */
@@ -475,8 +489,10 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
  * since `missionUnitTypes`; the sheets had not.
  *
  * With the mesh path on:
- *  - `before` deploy: a fielded type with NO mesh -- `gun_truck`, the drones,
- *    `manpad_team`, `recoilless_team` today. Their sheet IS how they draw.
+ *  - `before` deploy: a fielded type with NO mesh -- `attack_drone` and
+ *    `recon_drone` today (B0a pending; `gun_truck`, `loiter_drone`,
+ *    `manpad_team` and `recoilless_team` got theirs in B2, 2026-09-30).
+ *    Their sheet IS how they draw.
  *  - `after` the first frame: a fielded mesh VEHICLE (its death still falls
  *    back to the sheet's `wreck` sprite -- `ThreeRenderer.addWreck` excludes
  *    rigged types only) and every deferred KDF buildable (drawn as a

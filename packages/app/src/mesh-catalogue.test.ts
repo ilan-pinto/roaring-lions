@@ -323,13 +323,15 @@ describe('sprite sheet plan (level load time, step 1)', () => {
   it('on the mesh path, only a fielded type with no mesh gates deploy', () => {
     const plan = spriteSheetPlan({
       meshPath: true,
-      roster: new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'sarim_rifles']),
+      // `recon_drone` is the meshless example here since B2 gave `gun_truck`
+      // a mesh (2026-09-30); it stays meshless until B0a lands.
+      roster: new Set(['inf_squad', 'mbt_lavi', 'recon_drone', 'sarim_rifles']),
       deferred: new Set(['heli_peten']),
       spriteTypes,
       structureTypes: new Set(['house', 'wall']),
       structureSprites,
     });
-    expect([...plan.before].sort()).toEqual(['gun_truck']);
+    expect([...plan.before].sort()).toEqual(['recon_drone']);
     // A mesh vehicle still needs its wreck sprite; a deferred buildable its
     // billboard fallback. A rigged type needs neither.
     expect([...plan.after].sort()).toEqual(['heli_peten', 'mbt_lavi']);

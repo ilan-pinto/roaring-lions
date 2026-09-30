@@ -43,4 +43,7 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'paramotor',
   'heli_peten',
   'jeep_shoded',
+  // B2 (GH-179, 2026-09-30): the first vehicle generated through `pnpm meshy`
+  // end to end; ships its remesh's own bake (bible section 7 q2).
+  'gun_truck',
 ]);
