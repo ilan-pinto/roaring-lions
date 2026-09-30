@@ -52,6 +52,12 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   rocket_battery: { hull: 'wheeled' },
   scout_shachaf: { hull: 'wheeled' },
   technical: { hull: 'wheeled', turretPivot: 'turret_pivot' },
+  // The two KDF drones (GH-286 B0a, 2026-09-30). `air` like the Peten: a
+  // downed drone lies on its side. No pivot of any kind -- a quadcopter has
+  // four rotors and a file carries one `rotor_pivot`, so the rotors are
+  // static `hull_metal` (`tools/drones/export_meshy_drones.py`).
+  recon_drone: { hull: 'air' },
+  attack_drone: { hull: 'air' },
 };
 
 /**

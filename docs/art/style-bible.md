@@ -141,9 +141,13 @@ for everything after.* One unit, in order:
 palette vehicle, drone or crew-weapon part **25**. At the CLI's default estimate of
 $0.02/credit, that is $0.80 / $0.70 / $0.50.
 
-**Unverified until the first textured unit of B0 (the `apc_eitan`):** that remesh of a
-*refined* task keeps its texture. If it does not, step 3 moves after step 4 (refine cannot take a remesh
-task, so the fallback is `retexture`, also 10). Measure it once; do not guess twice.
+**Measured on B0a's `apc_eitan` (2026-09-30): a remesh of a *refined* task keeps its
+texture.** The remesh task arrived with one `BakedMaterial` -- base colour 2048, normal
+2048, metallic-roughness 4096 -- re-baked onto the remesh's own fresh UVs, so the order
+above (refine, then remesh) stands and the `retexture` fallback (10) was not needed.
+One consequence worth knowing: the CLI has no standalone `refine <preview-id>`, so a
+textured unit runs `text --refine` as ONE call (30) and the preview cannot be judged
+before the refine spends; the remesh (5) is the step that can still be withheld.
 
 **Rules that are not optional:**
 
@@ -303,7 +307,7 @@ the numbers tables and ready prompts for all five are in `meshy-prompts-units.md
 
 | batch | units | why this order | credits |
 |---|---|---|---|
-| **B0a** | `recon_drone`, `attack_drone`, `apc_eitan` | lead priority, GH-286; no rig; the Eitan is the first textured vehicle, so the refine-then-remesh texture question is measured here | 25 + 25 + 35 = 85 |
+| **B0a** | `recon_drone`, `attack_drone`, `apc_eitan` | lead priority, GH-286; no rig; the Eitan is the first textured vehicle, so the refine-then-remesh texture question is measured here. **Ran 2026-09-30: 85 spent, every unit on its first preview** (the attack drone's unasked-for wing and the Eitan's front cannon were cut in Blender); the lead then approved one recon re-roll (+25, a military hexacopter) | 25 + 25 + 35 = 85 |
 | **B0b** | `at_team`, `demo_squad` | lead priority, GH-286; the first rigged figures; needs the A-pose CLI flag and the infantry bake list (§7 q1) | 40 + 40 = 80 |
 | | *B0 subtotal* | *ceiling 330: one re-roll per unit, on the lead's go only* | *165* |
 | B2 | `gun_truck`, `manpad_team`, `recoilless_team`, `loiter_drone` | closes the no-GLB list; four units because B1 folded in (the drone is the cheap one) | 35 + 40 + 40 + 25 = 140 |

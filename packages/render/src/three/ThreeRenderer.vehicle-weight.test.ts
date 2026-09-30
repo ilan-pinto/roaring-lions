@@ -546,9 +546,9 @@ describe('which vehicles get the weight model', () => {
   // Read off the params module's OWN list, which its own test pins to
   // `art/meshes/vehicles/*.glb` in both directions -- i.e. exactly the types
   // `loadVehicleMesh` can ever build a template for.
-  it('is every shipped vehicle GLB bar the two that fly', () => {
+  it('is every shipped vehicle GLB bar the four that fly', () => {
     const air = VEHICLE_WEIGHT_IMPORTED_UNIT_IDS.filter((id) => isAirJson(unitJson(id))).sort();
-    expect(air).toEqual(['heli_peten', 'paramotor']);
+    expect(air).toEqual(['attack_drone', 'heli_peten', 'paramotor', 'recon_drone']);
     // `moto_rpg` ships as an INFANTRY GLB, loaded through `loadMeshUnit`, so
     // it never reaches `updateVehicleMeshes` at all.
     expect(VEHICLE_WEIGHT_IMPORTED_UNIT_IDS).not.toContain('moto_rpg');

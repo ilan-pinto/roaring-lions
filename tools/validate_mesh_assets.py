@@ -236,6 +236,11 @@ TEXTURED_BUILDING_EXEMPT = {"house", "apartment", "warehouse", "clinic", "hall",
 TEXTURED_VEHICLE_EXEMPT = {
     "mbt_lavi", "ifv_namer", "technical", "rocket_battery", "paramotor", "heli_peten",
     "jeep_shoded",
+    # `apc_eitan` joined on 2026-09-30 (GH-286 B0a): the kit hull was replaced
+    # by a Meshy remesh shipping its own base_color bake
+    # (tools/vehicles/export_meshy_eitan.py). Its kit RWS parts carry no
+    # material and still take the palette, as the gate's repaint does anyway.
+    "apc_eitan",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's
@@ -294,6 +299,10 @@ VEHICLE_OWN_SPRITES = {
     "rocket_battery": ("ROCKETBATTERY_HULL",),
     "scout_shachaf": ("SHACHAF_HULL",),
     "technical": ("TECH_HULL", "TECH_TURR"),
+    # GH-286 B0a (2026-09-30): the two drones moved from billboard to mesh;
+    # their own sheets are `SPRITE_MAP`'s `DRONE_RECON` / `DRONE_ATTACK`.
+    "recon_drone": ("DRONE_RECON",),
+    "attack_drone": ("DRONE_ATTACK",),
 }
 
 

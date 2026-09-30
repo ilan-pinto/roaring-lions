@@ -9,10 +9,17 @@ front on 29 Sep: `recon_drone`, `attack_drone`, `at_team`, `demo_squad`, `apc_ei
 Every prompt is the §5 template with its slots filled and nothing added between them;
 the numbers above each prompt are what the lead approves **before any Meshy call**.
 
-**Nothing here has been sent to Meshy.** No API call and no render was made writing
-this page; the credit figures come from `pnpm meshy -- estimate` (no API call) and
-`pricing.ts`. Every call is announced with its estimate when its turn comes and waits
-for the lead's go (`style-bible.md` §4).
+**B0a's three prompts (sections 1, 2 and 5) were sent verbatim on 2026-09-30**, one
+preview each, on the lead's go; task ids, what Blender then did, and the silhouette
+numbers are in `docs/ASSET_PROVENANCE.md` ("Batch B0a units"). The attack drone's
+preview came back with a delta wing it was not asked for (cut in Blender -- section 2's
+warning was right), the Eitan's with a small cannon on the front deck (collapsed in
+Blender), and the recon drone's as a clean consumer-style quadcopter the lead judged
+short on combat look, so it takes the one re-roll B0's ceiling allows (a military
+hexacopter, section 1a). Sections 3 and 4 (B0b) are still unsent; the credit figures
+come from `pnpm meshy -- estimate` (no API call) and `pricing.ts`, and every call is
+announced with its estimate when its turn comes and waits for the lead's go
+(`style-bible.md` §4).
 
 ## Costs, confirmed
 

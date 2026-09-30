@@ -190,6 +190,67 @@ ids above are the provenance record.
 
 ---
 
+## Batch B0a units (Meshy text-to-3D, remeshed) -- GH-286
+
+Style bible batch B0a (`docs/art/style-bible.md` section 6), run 2026-09-30 on
+the lead's go (PR #290 rulings). All three are **AI-generated with Meshy**,
+disclosed per `CONTRIBUTING.md`. Each prompt is the section 5 template filled
+exactly as written in `docs/art/meshy-prompts-units.md` and sent verbatim; the
+prompt text of every task is in the committed `art/meshy/ledger.jsonl`, keyed
+by the ids below. 85 credits planned, 85 consumed as reported by Meshy
+(`pnpm meshy -- spent`). The remesh is what ships; each preview's only role was
+to be judged and remeshed.
+
+| File | Draws as | Preview task id | Refine task id | Remesh task id (shipped) | Real / drawn size |
+|---|---|---|---|---|---|
+| `art/meshes/vehicles/recon_drone.glb` | `recon_drone` (KDF recon quadcopter) | `01a0f268-0a89-7526-8e24-baaf0187f64b` | -- (palette-painted) | `01a0f26b-176a-75a8-a73c-2b5cffb3a701` (800 target, 797 shipped) | 0.9 m across; **drawn 1.35 m**, `SIZE_CLASS["air"]` x1.5 baked into the GLB (lead, PR #290) |
+| `art/meshes/vehicles/attack_drone.glb` | `attack_drone` (KDF loitering munition) | `01a0f26b-85b1-77c6-8b52-db4616992ff2` | -- (palette-painted) | `01a0f26d-a93b-758f-87a0-631462cd6617` (800 target, 706 shipped after the wing cut) | 1.05 m long; **drawn 1.575 m**, same x1.5 |
+| `art/meshes/vehicles/apc_eitan.glb` | `apc_eitan` (KDF 8x8 APC), replacing the kit hull | `01a0f26e-3308-73bd-96b5-3cc85edcadfd` | `01a0f26f-63b4-77e3-88b8-cfc19c47b0d5` (2k) | `01a0f272-a1ff-72dd-b418-2d1f4c099595` (8,000 target, 7,961 shipped incl. the kit RWS) | 7.129 m long (`EITAN_HULL` manifest), x1.0 |
+
+What Blender did to each, so the shipped file can be read against its source
+(`tools/drones/export_meshy_drones.py`, `tools/vehicles/export_meshy_eitan.py`):
+
+- **`recon_drone`** -- welded the remesh's UV-seam vertices (1,727 -> 424), turned
+  the nose from -Y to +X, split by face-centroid geometry into `hull_hull`
+  (body, arms, legs), `hull_metal` (rotors, motor tops, prop guards) and
+  `hull_glass` (the camera ball). Zero materials. Nearest silhouettes at 64 px:
+  `technical` mesh 0.384, `DRONE_LOITER` sprite 0.325, `attack_drone` 0.273.
+  **The lead judged this preview short on combat look and approved one re-roll
+  (a military hexacopter, +25); the replacement's ids retire these when it
+  lands.**
+- **`attack_drone`** -- the preview delivered the prompt's cylinder, nose pod and
+  cross tail AND an unasked-for swept delta wing (the Sarim `loiter_drone`'s
+  plan). Per the bible ("a wrong preview is fixed in Blender") the 35 wing
+  faces were cut on the 734-tri remesh and the fuselage slit closed; nose
+  turned from -X to +X; `hull_hull` (fuselage), `hull_metal` (nose pod, cross
+  tail, propeller, skids), `hull_glass` (nose lens). Zero materials. Nearest
+  silhouettes: `technical` mesh 0.437, `DRONE_RECON` sprite 0.343,
+  `DRONE_LOITER` sprite 0.266.
+- **`apc_eitan`** -- the first textured vehicle from the CLI pipeline, and the
+  measurement the bible's section 4 was waiting on: **a remesh of a refined task
+  keeps its texture** (the remesh arrived with one `BakedMaterial`, base colour
+  2048 / normal 2048 / metallic-roughness 4096, re-baked onto fresh UVs), so no
+  `retexture` fallback was needed. Blender collapsed a small cannon the preview
+  put on the front deck (the prompt asked for no weapon), scaled to the sprite
+  manifest's 7.129 m, turned the nose from -X to +X, split the eight tyres out
+  as `hull_rubber` by axle-disc geometry, and placed `turret_pivot` on the
+  measured roof ring at (-0.63, +0.40, 2.84) m carrying `tools/vehicles/kit.py`'s
+  `rws` (whose barrel now runs along +x as its docstring says; it was built
+  with `wheel()` and pointed sideways). Textures ship at 2048 through
+  `textured.prepare_vehicle_textures`; the two RWS meshes carry no material.
+  Nearest silhouettes: `ifv_namer` mesh 0.837, `apc_kipod` mesh 0.786,
+  `rocket_battery` 0.764, `KIPOD_HULL` sprite 0.717. The bake carries a small
+  stencil-like squiggle on the rear flank that reads as lettering at close
+  zoom; it names nothing and is not a real marking, but it is there.
+
+**Sources.** `art/meshy/ledger.jsonl`, each task's `task.json` and the three
+shipped remesh `model.glb` files are committed with this batch (the 60 KB
+drones and the 10.4 MB textured Eitan remesh). The previews (7-14 MB each) and
+the Eitan refine directory (207 MB across five formats) stay untracked, like
+every other Meshy download in this tree; their task ids above are the record.
+
+---
+
 ## The decor trees (Meshy re-exports, `tools/terrain/export_meshy_decor.py`)
 
 `art/meshes/decor/tree_{0,1,2}.glb` and `desert_tree_{0,1,2}.glb`, disclosed
