@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready anti-tank crewman, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. A large box-shaped tan rucksack on the back. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "a-pose",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2fa-3d74-7553-8559-fc36a338cd92",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1750139476,
+    "prompt": "A single low-poly game-ready anti-tank crewman, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. A large box-shaped tan rucksack on the back. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790782882926,
+    "progress": 100,
+    "started_at": 1790782882934,
+    "finished_at": 1790782939786,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2fa-3d74-7553-8559-fc36a338cd92/output/model.glb?Expires=4944326400&Signature=nXJJCr4k0g6zRfi5QBKQCxRGENd7JSDtUXmW7RqxdbHG5QpxzI3LDhs1BO9F0S90rVIJg2RpQRIjGP~1bb8Lhfu7N8wK0-mpXaDdQLcr3-cMohfS9sKy6RiMYdQRLE5m1FDYU82Vhn~6IYwPvnEyJw54yWeEAi0-7FMOXLnvZQb7aJiFTocAJ2n0jqu6c86rK6joMHop1q4KXupimdWSV1PDGPuqGUwmS5cBWX30lIHPPqYCaZ7sFw2ZvB-n1x7aWDMpUzE8T8dnQTvucGZBTIB4PCfcQbl-Wvv2nfhicvaUYYL3rG31qIUnVG27yRsH1~i1I-AGW2zy~tTcGavu5w__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2fa-3d74-7553-8559-fc36a338cd92/output/preview.png?Expires=4944326400&Signature=E1nfU337CDXTYFYc77bE8t~mGL4NdAn57601ATb1DNIa7iyWxUg-gQxf5YXOrXKp2rEDhT6FT4txoQn-JaMke-c~Ka01oEsXkbgiTkT9YUPU5CldPp4dHsFyoRU2mwFewS3pWX8XffLio2hHvZuEgvxkS3w21CyUhD6V26sbznpKXVCPqakfY~SddOi6r~pp6K0sBTOqyxofZ1rhJqW6ZtGfFJsmVP78OTDWt3MSizlG8QQFB~jAmc203LRll8mOVUtsTrhmLbmgYqPoHQ2ZTN0HrRPviN6W9AgNmsTcKki6iK0aq~dPtDNj1Vjz3Q-2LK~4euPP0HHvvi~uuMyxzw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790782882926,
+    "started_at": 1790782882934,
+    "finished_at": 1790782939786
+  },
+  "usd_estimated": 0.4
+}
