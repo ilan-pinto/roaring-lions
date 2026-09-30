@@ -392,3 +392,153 @@ Bible §5 worked example 3, verbatim. 558 characters.
 then `loiter_drone` (cheap, same exporter shape), then the two figure teams (one
 importer serves both). One preview each, one remesh each, gates after every unit,
 commit per unit.
+
+---
+
+# Batch B3 — `militia_cell`, `rpg_team`, `atgm_cell`
+
+**WP-A3.1 (GH-179), batch B3 · 2026-09-30 · numbers for the lead before any spend**
+
+The irregular look B4 (`mortar_crew`, `charge_squad`, `digger_crew`) is judged
+against. Same shape as B0 and B2: an item/number/source table per unit, then the
+§5 template with its slots filled and nothing added between them. Three facts
+checked on the day that move the plan from B2's:
+
+- **PR #307 is merged** (`TEXTURED_INFANTRY_TYPES` exists, empty, pinned against
+  `TEXTURED_INFANTRY_EXEMPT`), so the three teams ship their **bake**: every
+  preview is `--refine --tex 2k`, and each id is added to BOTH lists in the same
+  change as its GLB. Ask 2048, ship **1024** JPEG (the infantry number in this
+  document's own §3/§4 tables and `meshy-prompts-characters.md`: at 25 px a
+  figure cannot show 2048, and three teams at 2048 would add ~1.5 MB to a 25 MB
+  boot). Kit weapons (`kit.rifle`, `kit.launcher`, `kit.atgm_tripod`) carry no
+  UVs and stay palette-painted by role — `buildMeshUnitTemplate` decides per
+  MESH, so a textured `uniform` beside a palette `weapon` is the intended shape.
+- **Still no `rig` CLI command**, so rigging is `rig.py` through the B2 importer
+  (`tools/units/import_meshy_crew_team.py`), 0 credits, exactly as B2 did. The
+  lead's 40 per unit included up to 5 for a Meshy rig call; it is not taken.
+- **`rig.py`'s copies set the polycount, not the bible's 2,000 flat.** A standing
+  figure ships twice (body + corpse), a kneeling one three times (kneel, D6
+  walker, corpse), and `kit.blob` joints add ~340 glTF triangles per body copy.
+  So the two standing teams remesh at the bible's **2,000** and the kneeling ATGM
+  crew at **1,100**, each landing under the 8,000 team cap (arithmetic in the
+  tables). The bake carries what the tris do not.
+
+| unit | class | steps | credits |
+|---|---|---|---|
+| `militia_cell` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `rpg_team` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `atgm_cell` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| | | **B3 planned** | **105** (about $2.10), against the approved cap of 120 |
+
+Balance read today: 4,030 credits. One preview per unit; anything that would
+need a second call STOPS that unit and reports. All three are `faction: 'enemy'`
+in `mesh-catalogue.ts`; `teams.py` dresses every irregular team, Ashwar and Sarim
+alike, in the same costume (`meshy-prompts-ashwar.md` records this), so all three
+take the bible's one irregular line verbatim. Enemies are defined by doctrine
+(GDD §2): no symbol, flag or patch, and the head wrap is the faction's cloth head,
+nothing more.
+
+**The corpse, improved on B2.** B2's weakest point was the A-pose body laid flat:
+symmetric, arms out, a plank. B3 builds the corpse from the SAME cut parts the
+living figure uses and re-arranges them rigidly, in code, before laying them
+down — one arm thrown overhead along the body line, the other out from the side,
+one knee bent so the shin angles away, the head turned to one side, and the whole
+body rolled a few degrees so it is not flat — then decimates it. Rigid one-part-
+to-one-bone on `{prefix}_death_root`, no hand-posing, no weights; `kit.blob`
+covers the three joints that turn. `_kneel` is the precedent for the method.
+
+## 10. `militia_cell` — Militia Cell (enemy, crew 6, 2 drawn)
+
+Today: `art/meshes/militia_cell.glb`, kit-built, **8,420 glTF tris, 2 figures,
+843 KB**, bounds 1.92 × 1.09 m on the ground and 1.83 m high, clips `idle, move,
+fire, down, wreck` (measured 2026-09-30). `teams.py` composition kept verbatim:
+`mil0` at (0.0, −0.24) leader, `mil1` at (0.12, 0.26), both standing with a
+rifle, keffiyeh heads, irregular loadout.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4; batch header |
+| base figure | **one** Meshy figure, `--pose a-pose`, used for both men (the bible's re-pose method) | bible §5 |
+| height | **1.70 m** — the baseline irregular, a shade under B2's 1.72–1.74 Sarim crews and above `sarim_rifles`' 1.61 | bible §3 window 1.66–1.80 |
+| remesh `--polycount` | **2,000** | bible §3 |
+| shipped estimate | 2 × (2,000 + ~340 blobs) + 2 corpses × ~1,000 (decimate 0.45) + 2 kit rifles × ~250 ≈ **7,200**; cap 8,000 | arithmetic, batch header |
+| bake | **yes** — 2k asked, 1024 shipped; `militia_cell` in `TEXTURED_INFANTRY_TYPES` + `TEXTURED_INFANTRY_EXEMPT` | #307 |
+| roles | `uniform`, `boot`, `face`, `keffiyeh` cut by geometry exactly as B2 (the bake colours them; the roles still name the meshes); `weapon` the kit rifles | contract v1 |
+| rig | `rig.py` through the B2 importer: standing parts at rig.py's joints, hung arms, and — new for a rifle carrier — both forearms bent forward at the elbow (rigid, rest geometry) so the kit rifle sits at the hands, grip on the right wrist, yawed across the front. `fire` is rig.py's rifle raise-and-recoil; `move` walks both (`animates=True`) | `rig.py` |
+| crew weapon | **kit geometry**: `rig._weapon_parts` (the seven-part rifle) bound to `{prefix}_forearm_R` | bible §7 q3 |
+| nearest neighbour | **`rpg_team`** (two standing irregulars at almost the same anchors — the tube at 38° is the whole separation, and it is kit), then **`charge_squad`** (two standing dust figures with a 20° lean, kit until B4) and `sarim_rifles` (three). Levers kept: a touching pair, rifles, no tube | `teams.py` docstrings |
+| idle | `militia_cell` is in `SMOKING_TEAMS` on the sprite side; the mesh idle is rig.py's breath, as every mesh team | `teams.py` |
+| sandbox | four in the base set (`sandbox-force.ts`) | |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A loose ragged civilian jacket hanging open over the chest rig. Real-world scale, 1.70 metres tall. Faded grey and dusty tan cloth, olive webbing, brown leather. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The open jacket is the signature: bulk and a ragged hem that the trimmer Sarim
+crews (B2) do not have, so the roster's cheapest, most numerous enemy reads
+lighter-armed and less uniform than the mountain brigade beside it.
+
+## 11. `rpg_team` — RPG Team (enemy, crew 3, 2 drawn)
+
+Today: `art/meshes/rpg_team.glb`, kit-built, **8,368 glTF tris, 832 KB**, bounds
+2.27 × 1.15 m and 1.90 m high (the tube crest), five clips. Composition kept
+verbatim: `rpg_fire` standing at (0.18, −0.26) with `kit.launcher` at z 1.46,
+**pitch 38°**, length 1.24, radius 0.075; `rpg_load` standing at (−0.30, 0.30)
+with a rifle, leader.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4 |
+| base figure | one Meshy figure, `--pose a-pose`, both men | bible §5 |
+| height | **1.76 m** | bible §3 |
+| remesh `--polycount` | **2,000** | bible §3 |
+| shipped estimate | as `militia_cell` less one rifle plus the tube: ≈ **7,100**; cap 8,000 | |
+| bake | yes, 2k → 1024; both lists | #307 |
+| rig | as `militia_cell`. **`rpg_fire` walks** (`animates=True`, the B2 `mpd_fire` precedent): the "carried frozen across the ground" figure `mesh_gait.test.ts`'s `STILL_FIGURES` records as the only standing one in the tree goes with this export, and that entry is retired with it | `rig.py`, `mesh_gait.test.ts` |
+| crew weapon | **kit geometry**: `_rpg_extras`' launcher on `rpg_fire_forearm_R`; the loader's rifle as `militia_cell` | `rig.py` |
+| nearest neighbour | **`militia_cell`** (above) and **`at_team`** (kneeling + level — the axis is the separation, `teams.py`); then `manpad_team` (standing + 78° tube, kneeling spotter). Levers kept: both upright, tube diagonal at 38°, one rifle | `teams.py` |
+| sandbox | two in the base set | |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A small canvas backpack with two slim spare rocket rounds strapped upright on the back. Real-world scale, 1.76 metres tall. Dusty tan cloth, olive webbing, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The spare rounds are the loader's whole job and the one thing that says "RPG"
+about a man who is not holding the tube (the tube is kit). Both men come from the
+one figure, so both carry the pack; a pack that tops out at head height adds no
+crest above the 38° tube, so the silhouette lever is untouched.
+
+## 12. `atgm_cell` — ATGM Cell (enemy, crew 3, 2 drawn)
+
+Today: `art/meshes/atgm_cell.glb`, kit-built, **13,120 glTF tris, 1,288 KB**,
+bounds 2.03 × 1.44 m and 1.65 m high, clips `idle, move, down, wreck` (no `fire`:
+the post is `prop`). Composition kept verbatim: `kit.atgm_tripod` at (0.24, 0.0)
+on the `prop` bone; `atgm_crew0` kneeling at (−0.34, −0.40), `atgm_crew1`
+kneeling at (−0.34, 0.44), both walking on a D6 standing walker.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4 |
+| base figure | one Meshy figure, `--pose a-pose`, both crew kneeling from it (B2's `_kneel`) | bible §5 |
+| height | **1.72 m** | bible §3 |
+| remesh `--polycount` | **1,100** — a kneeling figure ships three copies: 2 × (kneel 1,100 + ~460 blobs + walker 1,100 + ~340 + corpse ~600) + tripod ~100 ≈ **7,300**; at the bible's 2,000 this file would be ~12,000, over the cap like B2's 8,936 `recoilless_team` | batch header, bible §8 |
+| bake | yes, 2k → 1024; both lists. The bake matters most here: 1,100 tris is coarse and the photograph carries the read | #307 |
+| rig | B2's kneel and walker; the crew's arms hang (no hand-bound weapon; `fire` is not built — `WEAPON_ELEVATION_EXEMPT` already records "its launcher is `prop`") | `rig.py` |
+| crew weapon | **kit geometry**: `_atgm_extras`' tripod on `prop`, hidden while the crew walks | `rig.py` |
+| nearest neighbour | **`mortar_crew`** (two kneeling irregulars round a ground mount, kit until B4 — the real look-alike; levers: the tripod's wide low triangle against the mortar's vertical spike) and **`recoilless_team`** (two kneeling, tube at the hip, no mount). Levers kept: two kneelers, the widest lowest base in the set | `teams.py` |
+| sandbox | one in the base set at hostile +7, 0 | |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A heavy quilted winter jacket, bulky at the shoulders. Real-world scale, 1.72 metres tall. Dusty grey-green cloth, olive webbing, brown leather. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The quilted jacket is the Sur register (northern mountains, the standoff
+doctrine): more mass at the shoulders than the coastal militia, on a crew that
+kneels behind a post all mission. Not a colour lever — a mass one.
+
+## Order inside B3
+
+`militia_cell` first (the plain standing pair: the textured-through-rig.py path
+and the new corpse are proved on the simplest team), then `rpg_team` (the same
+path plus the launcher), then `atgm_cell` (the kneel). One preview, one refine,
+one remesh each; gates after every unit; commit per unit.
