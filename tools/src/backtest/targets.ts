@@ -1,5 +1,11 @@
 // The four GDD §5.7 measurements. Each builds real engagements from the
 // shipped roster and measures probabilities the way a range card would.
+//
+// §5.7 measures the model WITHOUT smoke: no scenario below except
+// `urbanSmokeStep` issues a `smoke` command, and none may. Smoke is a player
+// skill layered on top of the model (lead ruling D1, 2026-09-29, PR #292), so
+// the §5.7 numbers describe an un-smoked fight and `urbanSmokeStep` pins what a
+// good screen is allowed to buy on top of them: exactly one ratio step.
 
 import { Sim, fx, TICKS_PER_SECOND } from '@lions/sim';
 import { MBT_BARE, countAlive, mean, runBattle, units, type TargetResult } from './harness';
@@ -73,11 +79,41 @@ export function apsIntercept(samples = 400): TargetResult {
 //    assault across open ground. Win = garrison cleared inside 10 minutes
 //    with at least a quarter of the assault force still standing.
 // ---------------------------------------------------------------------------
-function urbanAssault(attackers: number, seed: number): boolean {
+interface UrbanOutcome {
+  won: boolean;
+  /** `smokeLaid` events the sim actually emitted (it drops a refused order silently). */
+  screens: number;
+}
+
+/** Each assault group's own block front: where the defenders of the block that
+ *  group sweeps actually sit. The smoke plan screens these, not the attackers'
+ *  own path -- smoke laid in your own advance was measured to COLLAPSE this
+ *  assault (2:1 63% -> 7%, smoke-proposal.md §3.2), so it is not "good smoke". */
+const URBAN_FRONTS: [number, number][] = [
+  [27.5, 8],
+  [29.5, 14.5],
+  [27.5, 21.5],
+];
+
+/** Placement reach in tile², mirroring `SMOKE_RANGE_SQ` (tuning.ts, 5242880 = 80
+ *  tile²), which the sim package does not export. Half a tile² of margin keeps the
+ *  float test here on the right side of the sim's fixed-point one. */
+const SMOKE_REACH_SQ = 79.5;
+
+function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutcome {
   const W = 40;
   const H = 28;
   const sim = new Sim({ seed, width: W, height: H, capacity: 64 });
-  const inf = sim.addUnitType(units.inf_squad);
+  // The smoked arm gives the rifle squad the `smoke` ability in an in-memory
+  // copy. That is a measurement stand-in for "a shipped smoker attached to the
+  // group" (an Eitan, a mortar, a demo team), not a data change -- the lead
+  // ruled against `inf_squad` smoke (D2) -- and it keeps the group's firepower
+  // identical, so the screen is the only variable between the two arms.
+  // `canSmoke` is read only by the command handler, and only the first squad
+  // of each group is ever ordered to lay, so every other squad is unaffected.
+  const inf = sim.addUnitType(
+    smoke ? { ...units.inf_squad, abilities: [...(units.inf_squad.abilities ?? []), 'smoke'] } : units.inf_squad
+  );
   const militia = sim.addUnitType(units.militia_cell);
 
   // Town: three building blocks with heavy-cover surroundings.
@@ -133,6 +169,13 @@ function urbanAssault(attackers: number, seed: number): boolean {
   // means the assault carries, not that waves grind the town down all day.
   const maxTicks = 300 * TICKS_PER_SECOND;
   let wave = 0;
+  // The smoke plan (smoke-proposal.md §3.2, "blind, 1 smoker per group, 1
+  // charge"): each group's first squad lays ONE screen on its group's block
+  // front, the first moment that front is inside placement reach. One screen
+  // per group, one use each, three per run -- the least smoke that was measured
+  // to carry the assault, and what one shipped carrier per axis already buys.
+  const spent = [false, false, false];
+  let screens = 0;
   for (let t = 0; t < maxTicks; t++) {
     if (t > 0 && t % (120 * TICKS_PER_SECOND) === 0) {
       const survivors: number[] = [];
@@ -143,14 +186,27 @@ function urbanAssault(attackers: number, seed: number): boolean {
         sim.queueCommand({ kind: 'attackMove', ids: survivors, x: fx.fromInt(obj[0]), y: fx.fromInt(obj[1]) });
       }
     }
-    sim.tick();
+    if (smoke && t % 10 === 0) {
+      for (let gi = 0; gi < 3; gi++) {
+        const id = groups[gi][0];
+        if (spent[gi] || id === undefined || sim.state.alive[id] !== 1) continue;
+        const [tx, ty] = URBAN_FRONTS[gi];
+        const dx = tx - sim.state.posX[id] / 65536;
+        const dy = ty - sim.state.posY[id] / 65536;
+        if (dx * dx + dy * dy > SMOKE_REACH_SQ) continue;
+        sim.queueCommand({ kind: 'smoke', ids: [id], x: fx.from(tx), y: fx.from(ty) });
+        spent[gi] = true;
+      }
+    }
+    const events = sim.tick();
+    if (smoke) for (const e of events) if (e.kind === 'smokeLaid') screens++;
     if ((t & 31) === 0) {
       const alive = countAlive(sim);
       if (alive[0] === 0 || alive[1] === 0) break;
     }
   }
   const alive = countAlive(sim);
-  return alive[1] === 0 && alive[0] >= Math.ceil(attackers * 0.25);
+  return { won: alive[1] === 0 && alive[0] >= Math.ceil(attackers * 0.25), screens };
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +261,7 @@ export function urbanRatio(seedsPerRatio = 60): TargetResult {
   for (const ratio of [1, 2, 3, 4]) {
     let wins = 0;
     for (let s = 0; s < seedsPerRatio; s++) {
-      if (urbanAssault(defenders * ratio, 60000 + ratio * 1000 + s)) wins++;
+      if (urbanAssault(defenders * ratio, 60000 + ratio * 1000 + s).won) wins++;
     }
     rates[`${ratio}:1`] = wins / seedsPerRatio;
   }
@@ -239,6 +295,76 @@ export function urbanRatio(seedsPerRatio = 60): TargetResult {
     detail: `win rates by attacker:defender — ${detail}`,
     measured: `3:1 → ${(rates['3:1'] * 100).toFixed(0)}%`,
     target: '1:1 fails, 2:1 unreliable (≤85% and ≥15pp below 3:1), 3:1 reliable (≥65%)',
+    pass,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3b. Smoke buys exactly one ratio step (lead ruling D1, 2026-09-29, PR #292)
+//
+//    NOT a §5.7 target -- §5.7 measures the un-smoked model (see the file
+//    header). This pins what a good screen may buy ON TOP of it: a 2:1 assault
+//    that blinds the defender plays like a 3:1 assault without smoke, and no
+//    more than that -- 1:1 with the same smoke still fails. It is the same
+//    town, the same seeds (60000 + ratio·1000 + s) and the same clearing plan
+//    as `urbanRatio`, so the two arms are paired seed for seed and the screen
+//    is the only difference. The plan is `urbanAssault`'s smoke branch: one
+//    screen per group on its own block front, one use each.
+//
+//    The band, measured 2026-09-29 over 240 seeds per arm (s = 0..239; the
+//    gate runs the first 60), counts as wins/seeds:
+//
+//                          base roster   max tier
+//      1:1 + smoke           0/240        0/240
+//      2:1, no smoke       156/240      146/240
+//      2:1 + smoke         239/240      236/240
+//      3:1, no smoke       240/240      185/240
+//      3:1 + smoke         240/240      240/240
+//
+//    Every smoked run laid its three screens (3.00 per run, every arm).
+//
+//    * 2:1 + smoke ≥ 0.90 is the step. The 3:1 no-smoke band on the base
+//      roster is 240/240, and §5.7 ALREADY defines everything at or under
+//      0.85 as the 2:1 "unreliable" band, so the 3:1 band starts above it;
+//      0.90 puts a clear 5pp between the two. Exact binomial at 60 seeds:
+//      a clean run false-fails with P = 6.4e-5 at the max-tier rate
+//      (236/240) and 6.9e-9 at the base rate. It bites: smoke regressing to
+//      85% (back inside the 2:1 band) is caught 82% of the time, 80% is
+//      caught 97%, and inert smoke (2:1's own ~65%) is always caught.
+//    * 1:1 + smoke ≤ 0.25 is "exactly": the §5.7 1:1 clause unchanged, so a
+//      screen that lets an even fight carry -- two steps -- fails. Measured
+//      0/240 on both rosters; at a true 10% the clause false-fails 0.02%.
+//
+//    One thing this gate records rather than enforces. At max tier, 3:1
+//    WITHOUT smoke reads 185/240 (77%) and 2:1 WITH smoke 236/240 (98%), so
+//    there a screen carries 2:1 past un-smoked 3:1 -- to where smoked 3:1
+//    sits (240/240). There is no honest upper bound to pin: 98% against a
+//    100% ceiling separates from nothing at 60 seeds.
+// ---------------------------------------------------------------------------
+export function urbanSmokeStep(seeds = 60): TargetResult {
+  const defenders = 6;
+  const rates: Record<string, number> = {};
+  let screens = 0;
+  let runs = 0;
+  for (const ratio of [1, 2]) {
+    let wins = 0;
+    for (let s = 0; s < seeds; s++) {
+      const out = urbanAssault(defenders * ratio, 60000 + ratio * 1000 + s, true);
+      if (out.won) wins++;
+      screens += out.screens;
+      runs++;
+    }
+    rates[`${ratio}:1`] = wins / seeds;
+  }
+  const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
+  const pass = rates['2:1'] >= 0.9 && rates['1:1'] <= 0.25;
+  return {
+    name: 'Smoke buys one ratio step',
+    detail:
+      `with one screen per group on the defender — 1:1=${pct(rates['1:1'])} 2:1=${pct(rates['2:1'])}` +
+      ` · ${(screens / runs).toFixed(2)} screens/run · compare the un-smoked row above`,
+    measured: `2:1+smoke → ${pct(rates['2:1'])}`,
+    target: '2:1+smoke in the 3:1 band (≥90%), 1:1+smoke still fails (≤25%)',
     pass,
   };
 }

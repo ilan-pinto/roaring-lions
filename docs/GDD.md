@@ -188,6 +188,8 @@ Soft units pinned continuously for ~10 s **rout**: they abandon orders and flee 
 
 ### 5.7 Validation targets
 
+**§5.7 measures the model without smoke.** No scenario behind these targets lays a screen. Smoke is a combined-arms skill on top of the model, and `pnpm balance` pins what it may buy as a separate case: an urban assault at 2:1 that screens the defender's position (one screen per assault group, one use each) must land in the 3:1 band (≥90% over 60 seeds; measured 60/60 base, 58/60 max tier), and 1:1 with the same smoke must still fail (≤25%; measured 0/60). Smoke buys exactly one ratio step (lead ruling D1, 2026-09-29).
+
 The model is wrong unless the backtest harness reproduces these:
 
 - Urban assault requires roughly **3:1** attacker:defender for reliable success. Measured since group formations landed (2026-09-15): 1:1 0%, 2:1 ~65% (0.65 over 200 seeds; the gate's own 60 read 63%), 3:1 100% — and the earlier 2:1 = 15% was a stacking artifact of every unit in a group sharing one tile inside the near-miss suppression radius, not a property of the town.

@@ -1,7 +1,17 @@
 # Smoke: who should carry it — proposal
 
-**Date:** 2026-09-29. **Status:** PROPOSAL. No tracked data or sim file is changed by this
-document. **Worktree:** `docs/smoke-proposal` at `e3bf7484` (origin/main).
+**Date:** 2026-09-29. **Status:** RULED 2026-09-29 (PR #292: D1 skill step, D2 no `inf_squad`
+smoke, D3 Stage 4 fields as proposed). **D1 IMPLEMENTED** on `feat/smoke-skill-step`, with no sim
+file touched: `tools/src/backtest/targets.ts` and GDD §5.7 now say §5.7 measures the model
+without smoke, and `pnpm balance` carries a pinned case, `urbanSmokeStep`, "Smoke buys one ratio
+step". The case is §3.2's "blind, 1 smoker per group, 1 charge" plan on `urbanRatio`'s own town
+and seeds, and its gate is 2:1+smoke ≥ 90% (in the 3:1 band) and 1:1+smoke ≤ 25% (not two steps).
+Measured over 240 seeds per arm, base / max tier: 2:1+smoke 239/240 and 236/240, 3:1 without
+smoke 240/240 and 185/240, 1:1+smoke 0/240 on both. The gate's own 60 seeds read 60/60 and 58/60
+at 2:1, and 0/60 at 1:1. `mortar_team` carries `smoke`. `pnpm balance`'s existing rows,
+`pnpm playtest` and `pnpm test:determinism` (hash `1147898451`) are all unchanged line for line.
+The text below is the proposal as ruled on.
+**Worktree:** `docs/smoke-proposal` at `e3bf7484` (origin/main).
 Every number below was printed by a run on this worktree; the probe scripts live in the
 session scratchpad (`.../scratchpad/smoke/`) and patch **in-memory copies** of the roster,
 never `data/units/*.json`.

@@ -29,7 +29,8 @@
     "firing_signature_mult": 4.5
   },
   "abilities": [
-    "garrison"
+    "garrison",
+    "smoke"
   ],
   "weapons": [
     {
