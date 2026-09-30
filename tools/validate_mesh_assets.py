@@ -267,6 +267,9 @@ TEXTURED_VEHICLE_EXEMPT = {
 TEXTURED_INFANTRY_EXEMPT = {
     # GH-286 batch B0b (2026-09-30): tools/units/import_meshy_kdf_team.py.
     "at_team", "demo_squad",
+    # B3 (GH-179, 2026-09-30): generated through `pnpm meshy`, each ships its
+    # remesh's own bake -- `tools/units/import_meshy_crew_team.py`.
+    "militia_cell", "rpg_team", "atgm_cell",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's

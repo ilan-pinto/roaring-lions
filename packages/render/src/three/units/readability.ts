@@ -69,7 +69,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   mbt_lavi: 1.15, ifv_namer: 1.6, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 0.97,
   inf_squad: 0.56, mortar_team: 0.58, sniper_team: 0.51, sarim_rifles: 0.49,
   at_team: 0.45, demo_squad: 0.45, yahalom_squad: 0.45, breach_team: 0.45, militia_cell: 0.45,
-  rpg_team: 0.45, atgm_cell: 0.45, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
+  // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
+  // rear-shin-back kneel as `recoilless_team` below, two figures wide.
+  rpg_team: 0.45, atgm_cell: 0.49, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
   // `recoilless_team` reads 0.48 since its Meshy mesh landed (B2, 2026-09-30): a real
   // kneel with the rear shin laid back is a wider footprint than the kit pair.
   recoilless_team: 0.48, civilians: 0.45,
