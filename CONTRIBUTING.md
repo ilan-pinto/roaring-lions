@@ -84,7 +84,7 @@ The balance gate is a heuristic and you are allowed to argue with it. If you thi
 1. JSON in `data/missions/`, valid against `data/schemas/mission.schema.json`
 2. Declares its **ledger contract** — which campaign keys it requires and produces
 3. Degrades gracefully: a mission that requires `intel.tunnel_mouths_marked` must still be playable, just harder, when that list is empty
-4. Targets **12–20 minutes**
+4. Targets **5–7 minutes** (the schema enforces `target_minutes` 5–7; the tutorial is the one named exemption at 10)
 5. Led by one phase — layer objectives rather than defaulting to `destroy_all`
 
 Missions are declarative data. If yours needs behaviour the schema cannot express, propose a schema extension rather than adding TypeScript. That constraint is what keeps missions authorable by people who do not know the codebase.
