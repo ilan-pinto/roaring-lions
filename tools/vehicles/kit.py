@@ -163,8 +163,14 @@ def rws(prefix, size, at, barrel_len, barrel_r=0.06):
     out = [box(f"{prefix}_mount", (sx, sy, sz), (cx, cy, cz + sz / 2.0), role="metal")]
     out.append(box(f"{prefix}_shield", (sx * 0.35, sy * 1.15, sz * 0.8),
                    (cx - sx * 0.2, cy, cz + sz * 0.6), role="plate"))
-    out.append(wheel(f"{prefix}_barrel", barrel_r, barrel_len,
-                     (cx + sx * 0.5 + barrel_len * 0.0, cy, cz + sz * 0.62), role="metal"))
+    # `barrel()` runs along +x from its breech, which is what the docstring
+    # above promises. Until 2026-09-30 this was `wheel()`, whose cylinder axis
+    # is Y, so every RWS the kit built pointed its gun sideways: measured on
+    # the shipped `apc_kipod.glb`, whose RWS node spans 1.0 m in Y and 0.9 m
+    # in X. `export_meshy_eitan.py` is the first consumer since the fix; the
+    # Kipod's GLB and sheet are unchanged until someone re-exports them.
+    out.append(barrel(f"{prefix}_barrel", barrel_r, barrel_len,
+                      (cx + sx * 0.5, cy, cz + sz * 0.62), role="metal"))
     return out
 
 

@@ -155,7 +155,14 @@ SPECS = {
         turret_prefixes=("turret_", "mgun_coax", "aps_radar_"),
         sprite_manifest=os.path.join(REPO, "assets", "sprites", "EITAN_HULL", "manifest.json"),
         credit="8x8 APC -- authored from primitives for this repository, CC BY-SA 4.0",
-        mesh_owner=MESH_KIT_OWNED,
+        mesh_owner=(
+            "tools/vehicles/export_meshy_eitan.py -- art/meshes/vehicles/apc_eitan.glb "
+            "has been a Meshy text-to-3D remesh with its own base_color bake since "
+            "2026-09-30 (GH-286, batch B0a), and has taken the vehicle wreck pass "
+            "(death_root / WRECK_ children this kit export would discard). This spec "
+            "is kept because the primitive build is the reference the replacement was "
+            "measured against -- point it at your own output path to rebuild it."
+        ),
     ),
     "dozer_d9": VehicleMeshSpec(
         unit_id="dozer_d9",
