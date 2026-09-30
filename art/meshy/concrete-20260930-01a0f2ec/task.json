@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready three-storey poured-concrete blockhouse, vernacular construction of a fictional arid river-basin region: bare grey poured concrete with board-form marks, narrow horizontal slit windows on every storey, a heavy steel door at ground level on the front face, an external concrete stair on one side, a flat roof with a low parapet, a rooftop water tank on steel legs, rebar stubs at the parapet corners, dust and weathering streaks. Real-world scale, 7 metres square and 9 metres tall. Grey concrete, gunmetal steel, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2ec-7896-7074-8d8a-72b2f9aecb84",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1675198774,
+    "prompt": "A single low-poly game-ready three-storey poured-concrete blockhouse, vernacular construction of a fictional arid river-basin region: bare grey poured concrete with board-form marks, narrow horizontal slit windows on every storey, a heavy steel door at ground level on the front face, an external concrete stair on one side, a flat roof with a low parapet, a rooftop water tank on steel legs, rebar stubs at the parapet corners, dust and weathering streaks. Real-world scale, 7 metres square and 9 metres tall. Grey concrete, gunmetal steel, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790781980958,
+    "progress": 100,
+    "started_at": 1790781980979,
+    "finished_at": 1790782044488,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2ec-7896-7074-8d8a-72b2f9aecb84/output/model.glb?Expires=4944326400&Signature=ErhRgxdcSBbvWqpIhi0wPzMZZbncYcXoCh2guG8bkD1fN38YCQ2SZN1BvQqn48eayDRXZtsbJEOzmCLwiXKmNHraRjUi7QhpOO9mL9TlHsdfLaKUlub0L6QhuH1e0WETyfgUPEpOC4iTprEd3-a36gzJjkdJC3rzD3zv2tLPOcQ71Vjd-fVOcRbOUeQQz~Z1dYH4u7bzNnnym27MZ-ujooxnMpt40LYv~M86b2PTW230p6Cw-iZRHMUkxmR7PRgmFimR~N4uTGQCSS24FKajKaFnCKdYLQx-0ha7x4nqQo9598d77TvRCfZrc2Kd0l31S7r7HC-8csZFfS7vz5y7Ig__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2ec-7896-7074-8d8a-72b2f9aecb84/output/preview.png?Expires=4944326400&Signature=RNCyywtEhZndg5nr0SV5naZNqPwZsaljVYv3mAcKwtsFddXIgJXq7jQ8mKV4cgnVducHcoKNXp9zJhLBg6rNe07vcAdbrm3MDfhmOh37z4waKyvwDBoM2ui~qp3xLUcclRsPE1wCY6DLOsqLSn6C5CvokexELhFkkt-w-c5Rrh5i3o7XXWUe-myiwFj3fzgL1546dFvynQARdcqwRGMGKpIyOqyPct4Y7fAmD4kTFOUE2Jxm5VmjTqtxER2eplanHI8yjD6d~8SL80rvfam9146P1Yp1uWpyNNbhwhzel~-kJvXwXv5-Ye06dMnV4mAtQSzrv09gDqdYePRcml6kwA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790781980958,
+    "started_at": 1790781980979,
+    "finished_at": 1790782044488
+  },
+  "usd_estimated": 0.4
+}
