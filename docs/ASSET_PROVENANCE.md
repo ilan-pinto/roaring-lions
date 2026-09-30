@@ -376,3 +376,32 @@ depends on someone remembering is provenance that eventually fails.
    exception** — that remains the project lead's call. Full method, per-file
    numbers, and the Blender scripts used are in
    `.superpowers/queue/blend-size-report.md`.
+
+---
+
+## GH-286 batch B0b — the first Meshy-textured rigged figure teams
+
+Two units, 2026-09-30, both Meshy **text-to-3D** through the CLI (`pnpm meshy`),
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl` (**70 credits consumed** against the 80 the lead
+approved: preview 20 + refine 10 + remesh 5 per unit; the 5-credit Meshy rig
+was not bought — the CLI has no `rig` command, a headless session cannot drive
+the web UI, and a figure cut into `rig.py`'s parts does not need one). Prompts
+and numbers tables are in `docs/art/meshy-prompts-units.md` §3–4, used verbatim.
+Under `art/meshy/<slug>-20260930-<task>/`: each task's `task.json` and
+thumbnail, the ledger, and the two REMESH `model.glb` files (the importer's
+actual input, ~10.5 MB each with their 2048/4096 maps) are committed; the
+preview and refine downloads (six formats, ~100 MB per refine) are not.
+
+| File | Draws as | Preview task id | Refine / remesh task id (shipped) | Notes |
+|---|---|---|---|---|
+| `art/meshes/at_team.glb` | `at_team` (Spike AT Team, KDF) | `01a0f2fa-3d74-7553-8559-fc36a338cd92` (`--pose a-pose`) | refine `01a0f2fb-2e11-70ac-8034-d21b9b58d534` (2k), remesh `01a0f2fd-1f66-779a-9a23-370974ee442a` at 2,000 | **Textured** (`TEXTURED_INFANTRY_TYPES`): ships the remesh's base-colour bake at 1024, JPEG q85, on `uniform`/`boot`/`face`; the normal and metallic-roughness maps are dropped. ONE figure, 1.78 m, cut into `rig.py` parts for both men (`tools/units/import_meshy_kdf_team.py`): `at_fire` kneeling (2,051 tris) with `kit.launcher` level on the shoulder, `at_spot` standing (2,051) with `kit.binoculars`; two prone corpses at half. **6,754 tris**, 1014928 bytes after the gait pass (321540 encoded). Clips `idle, move, fire, down, wreck`, all `rig.py`'s own. |
+| `art/meshes/demo_squad.glb` | `demo_squad` (Combat Engineers, KDF) | `01a0f2fb-6ba7-7245-9bd0-22edca38a2a6` (`--pose a-pose`) | refine `01a0f2fc-8731-76a4-af00-4d4805d08fb1` (2k), remesh `01a0f302-184a-701e-a5c6-daa76f54f83f` at 2,000 | As `at_team`: `demo_a` kneeling (2,061 tris) beside `kit.demo_charge` on the `prop` bone, `demo_b` standing (2,061) with the kit rifle held level at his hung right hand and `kit.cable_spool` worn on the back (the kit drew it through the shins). **6,828 tris**, 1048200 bytes after the gait pass (323484 encoded). Same five clips. |
+
+Measured in this batch: a remesh of a refined task keeps its bake (both
+figures arrived with base colour + normal + metallic-roughness); Meshy honoured
+the A-pose, helmet, carrier, boots, goggles and knee pads, and returned bent
+elbows with upturned palms rather than a straight A-pose — the importer hangs
+each arm as one rigid unit about its shoulder ring, so the hands flare
+slightly at the wrist. `pnpm validate:meshes` passes with both on the
+`NOT palette-checked` line (silhouette IoU still runs and clears 0.88).

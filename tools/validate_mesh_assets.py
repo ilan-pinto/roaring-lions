@@ -251,7 +251,7 @@ TEXTURED_VEHICLE_EXEMPT = {
 # the unit type id the runtime list is keyed by.
 TEXTURED_INFANTRY_EXEMPT = {
     # GH-286 batch B0b (2026-09-30): tools/units/import_meshy_kdf_team.py.
-    "at_team",
+    "at_team", "demo_squad",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's

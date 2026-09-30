@@ -1252,10 +1252,10 @@ const STILL_FIGURE_TRAVEL_M = 0.01;
  * re-export can move either without the other.
  */
 const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
-  'demo_squad.glb move': 576,
-  // B0b (2026-09-30): a Meshy remesh cut into rig.py parts with its bake
-  // (import_meshy_kdf_team.py), boot = below 0.09 H; the 576 it used to
+  // B0b (2026-09-30): Meshy remeshes cut into rig.py parts with their bake
+  // (import_meshy_kdf_team.py), boot = below 0.09 H; the 576 both used to
   // read was kit.py's own boot mesh.
+  'demo_squad.glb move': 214,
   'at_team.glb move': 257,
   'sniper_team.glb move': 176,
   'militia_cell.glb move': 1152,

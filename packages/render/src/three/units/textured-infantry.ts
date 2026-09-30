@@ -36,4 +36,5 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // face); the kit weapon roles in the same GLB carry no map and still take
   // the faction ramp.
   'at_team',
+  'demo_squad',
 ]);
