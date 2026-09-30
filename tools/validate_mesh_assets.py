@@ -217,7 +217,11 @@ REPO = os.path.dirname(HERE)
 # (`check_image`, `check_framing`, `MIN_FILL`). What still runs: the
 # silhouette IoU comparison against every other mesh and sprite -- a textured
 # building must still not read as some other building.
-TEXTURED_BUILDING_EXEMPT = {"house", "apartment", "warehouse", "clinic", "hall", "fence"}
+TEXTURED_BUILDING_EXEMPT = {
+    "house", "apartment", "warehouse", "clinic", "hall", "fence",
+    # GH-277 field works, militia (Q11: textured); see textured-building.ts.
+    "militia_observation_post", "militia_weapons_workshop", "militia_field_clinic",
+}
 
 # 2026-09-07: the identical override, extended by the project lead to six
 # supplied Meshy VEHICLES -- `mbt_lavi`, `ifv_namer`, `technical`,

@@ -325,6 +325,39 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Art that has landed AHEAD of the structure type that will draw it -- the
+ * opposite of retirement. `mesh-catalogue.test.ts` requires every
+ * `BUILDING_MESHES` key to be a real `data/structures.json` type, and the
+ * GH-277 field works (spec §8, plan Task 12) ship their meshes in October
+ * with no sim or data change until Stage 4/5 (Task 13 wires them). Each
+ * entry names the type that will claim it, so "not drawn yet" and "decided
+ * not to draw" (`RETIRED_MESH_FILES`) stay distinguishable. Task 13 moves
+ * each pair into `BUILDING_MESHES` and deletes it here.
+ */
+export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
+  'buildings/kdf_medic_station.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_medic_station_wreck.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_medic_station_construction.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_outpost.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_outpost_wreck.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_outpost_construction.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_intel_centre.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_intel_centre_wreck.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_intel_centre_construction.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_workshop.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/kdf_workshop_wreck.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/kdf_workshop_construction.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/militia_field_clinic.glb': 'militia_field_clinic (GH-277 Task 13)',
+  'buildings/militia_field_clinic_wreck.glb': 'militia_field_clinic (GH-277 Task 13)',
+  'buildings/militia_firing_position.glb': 'militia_firing_position (GH-277 Task 13)',
+  'buildings/militia_firing_position_wreck.glb': 'militia_firing_position (GH-277 Task 13)',
+  'buildings/militia_observation_post.glb': 'militia_observation_post (GH-277 Task 13)',
+  'buildings/militia_observation_post_wreck.glb': 'militia_observation_post (GH-277 Task 13)',
+  'buildings/militia_weapons_workshop.glb': 'militia_weapons_workshop (GH-277 Task 13)',
+  'buildings/militia_weapons_workshop_wreck.glb': 'militia_weapons_workshop (GH-277 Task 13)',
+};
+
+/**
  * The served URL for one catalogue path -- `assets/meshes/<file>`, through
  * Vite's `publicDir`.
  *
