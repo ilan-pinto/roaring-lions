@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready forward observer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, and a wide-brimmed olive boonie hat instead of a helmet. Standing in a relaxed A-pose, arms slightly away from the body. Binoculars hanging on a strap on the chest, a boxy laser rangefinder pouch on the right hip, and a small radio with a short stub antenna on the left hip. Real-world scale, 1.80 metres tall. Olive drab cloth, black webbing, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "a-pose",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f341-6d50-72a9-b8e8-747cb13c7e5a",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 356571450,
+    "prompt": "A single low-poly game-ready forward observer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, and a wide-brimmed olive boonie hat instead of a helmet. Standing in a relaxed A-pose, arms slightly away from the body. Binoculars hanging on a strap on the chest, a boxy laser rangefinder pouch on the right hip, and a small radio with a short stub antenna on the left hip. Real-world scale, 1.80 metres tall. Olive drab cloth, black webbing, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790787548074,
+    "progress": 100,
+    "started_at": 1790787548085,
+    "finished_at": 1790787595934,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f341-6d50-72a9-b8e8-747cb13c7e5a/output/model.glb?Expires=4944326400&Signature=TdB8d12RJQ7IDgkRk2lDTi8pZn0XzKpQ-XBqXGWGwf9wxT8xJOfAhjKk8uc7pSz7Rl6Ra7RbmcBbSyYu2RXvsM6UKI9kNLzP-2CLGXc5jLEofKJgFMr76ckFeF6hndxAls57KPuQkvNozoAgmJSFotGlBBVfU35hjtIrBZ7XawggHQuCTHmLUo9IYkvVO5umgy0A-VEIZeaUrNpgrEQB0HCLIXo3GNplpaVYqrfl5HKSjLSnNXuNnH1gaEvKjWP~i9iOQJqEWRL-dzn5dgfW1zrF6hXA5JDUUv5YOcluGvyv-BOpYUWiYvfi0-BqrkIJhOAmhXdqbquWnLWRiPWtRw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f341-6d50-72a9-b8e8-747cb13c7e5a/output/preview.png?Expires=4944326400&Signature=ZqZuzzl-tNaf-479essMY6pHP8r6JNTZ0tNCk1~4UG8O3DJmsPbCkcJ9aIkLjVkY6~ITmTMKsooxrWN4-oGMOSTReeN1TPs-1ryatG~jaDENqJATdMeo7cCdQQ3uwdJtv50-RjKbNV~Q7ojWKzabvPDXuk6mdhTPY~gLMeMUgPoE~C9XaU1zdq9mI8chmpG8PtrcphZroFCgEfV4gl2qeiSGRwl5~fGkEqozbdGHtDEGymaO~kLexeD9ueq4hIpYa0PBfXNLJR52VgRK-nhRPNzdw0OffYCRJFlZ4wHdQML8zAjNcxpvCtUq4V7sj~wBk2kIlACg6K8Y9DN4At7Mpg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790787548074,
+    "started_at": 1790787548085,
+    "finished_at": 1790787595934
+  },
+  "usd_estimated": 0.4
+}
