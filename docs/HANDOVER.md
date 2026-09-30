@@ -13,6 +13,7 @@ Rules: under 200 lines, one line per item, edited per section. Details live in t
 | B (render · art · data) | E5 part 1 #181 LANDED (#275) · voice samples LANDED (#276) | — | docs/superpowers/specs/2026-09-29-e5-special-forces-design.md · .superpowers/sdd-archive/ | idle | E5 part 2 (art + landing) after the October credits |
 | C/A (design) | FW #277 field works | — | docs/superpowers/specs/2026-09-29-field-works-design.md (LANDED #278) | spec + G-NUM + G-MOCK (B) approved 29 Sep; #280 garrison suppression defect blocks the outpost | Meshy estimate (210 planned, 420 cap) to the lead after the October credits; sim + UI in Stage 4 (plan LANDED #287; L1 field-works-only, L4 add demo_squad to three footholds) |
 | C (Stage 4 queue) | #291 rout flees fire, not −x · #279 sim half · #280 (FW Task 1) · E6 #274 · FW #277 | — | plans #287, #296; spec #288 | ready for Stage 4 (2 Nov) | re-pin order #291 → FW Task 2 → E6 |
+| design (Oct) | HERO #298 heroes as field commanders with special abilities (lead, 30 Sep) | — | — | queued | lead concepts → spec (campaign-designer, narrative-designer, balance-analyst) → G-NUM/G-MOCK; sim after FW and E6 |
 | C (packages/sim) | #247 manpad_team treated as wheeled (sim/data fix, filed 26 Sep) | — | — | closed until Stage 4 | — |
 
 ## 2. Next — ordered; a fresh session starts at the top of its lane
