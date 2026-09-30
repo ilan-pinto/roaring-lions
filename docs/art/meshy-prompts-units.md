@@ -544,3 +544,156 @@ kneels behind a post all mission. Not a colour lever — a mass one.
 and the new corpse are proved on the simplest team), then `rpg_team` (the same
 path plus the launcher), then `atgm_cell` (the kneel). One preview, one refine,
 one remesh each; gates after every unit; commit per unit.
+
+---
+
+# Batch B4 — `mortar_crew`, `charge_squad`, `digger_crew`
+
+**WP-A3.1 (GH-179), batch B4 · 2026-09-30 · numbers for the lead before any spend**
+
+The three remaining enemy teams, judged against the irregular look B3 set
+(`militia_cell`, `rpg_team`, `atgm_cell`): the same faction line, the same
+B3 process (one A-pose preview, `--refine --tex 2k`, one remesh, `rig.py`
+through `tools/units/import_meshy_crew_team.py`, the posed corpse), the same
+bake (ask 2048, ship 1024 JPEG), each id added to `TEXTURED_INFANTRY_TYPES`
+and `TEXTURED_INFANTRY_EXEMPT` in the same change as its GLB. Three facts
+checked on the day:
+
+- **The lead approved 120 credits, 35–40 a unit, as a hard cap.** The plan is
+  35 each (`estimate text --refine --tex 2k` = 30, `estimate remesh` = 5;
+  there is still no `rig` command, so the 5 a Meshy rig would cost is not
+  taken): **105 planned**. One preview per unit; a unit that would need a
+  second call STOPS and reports.
+- **`digger_crew` has no `work` clip anywhere, and none is added.** `work` is
+  scoped by `teams.TEAM_CLIP_ADD` to `yahalom_squad` alone (the mast press),
+  and the shipped `digger_crew.glb` carries exactly `idle, move, down, wreck`
+  (read from the bytes 2026-09-30); `meshClipOrFallback` resolves a `work`
+  request to `idle`. The digger's clip set is kept as it is — four clips —
+  and the labour reads from the kneel at the heap, not from a clip. Authoring
+  a digging cycle is a `rig.py` design item, not an art-batch one.
+- **`rig.py`'s copies set the polycount** (B3's finding): a standing figure
+  ships twice (body + corpse), a kneeler three times (kneel, D6 walker,
+  corpse). So `mortar_crew`'s two kneelers remesh at B3's **1,100**, the
+  standing `charge_squad` at the bible's **2,000**, and the one-man
+  `digger_crew` at **2,000** — the cap is not binding on a single figure and
+  the kneeling man IS the unit.
+
+| unit | class | steps | credits |
+|---|---|---|---|
+| `mortar_crew` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `charge_squad` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `digger_crew` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| | | **B4 planned** | **105** (about $2.10), against the approved cap of 120 |
+
+All three are `faction: 'enemy'` in `mesh-catalogue.ts` and take the bible's
+one irregular line verbatim, in B3's spelling (`worn boots` — a kneeling
+figure's boot cut needs a boot). Enemies are defined by doctrine (GDD §2): no
+symbol, flag or patch, and the head wrap is the faction's cloth head, nothing
+more. Kit weapons and props (`kit.mortar`, the `charge` satchel, the spoil
+heap) carry no UVs and stay palette-painted beside the textured figure, as B3's
+did.
+
+## 13. `mortar_crew` — Mortar Crew (enemy, crew 3, 2 drawn)
+
+Today: `art/meshes/mortar_crew.glb`, kit-built, **13,096 glTF tris, 2 figures,
+1,285 KB**, bounds 1.79 × 1.42 m on the ground and 1.65 m high (the tube
+crest), clips `idle, move, down, wreck` (no `fire`: the tube is `prop`;
+measured 2026-09-30). Composition kept verbatim: `kit.mortar("emtr_tube",
+(0.22, 0.0, 0.0), length=0.76)` on the `prop` bone; `emtr_crew0` kneeling at
+(−0.16, −0.40), `emtr_crew1` kneeling at (−0.16, 0.42), both walking on a D6
+standing walker.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4; batch header |
+| base figure | **one** Meshy figure, `--pose a-pose`, both crew kneeling from it (B2's `_kneel`) | bible §5 |
+| height | **1.68 m** | bible §3 window 1.66–1.80 |
+| remesh `--polycount` | **1,100** — a kneeler ships three copies: 2 × (kneel 1,100 + ~460 blobs + walker 1,100 + ~340 + corpse ~600) + kit mortar 64 (28 `weapon` + 36 `metal`, read from today's GLB) ≈ **7,300**; cap 8,000 | batch header, bible §8; `atgm_cell` landed 7,228 the same way |
+| bake | **yes** — 2k asked, 1024 shipped; `mortar_crew` in `TEXTURED_INFANTRY_TYPES` + `TEXTURED_INFANTRY_EXEMPT` | #307 |
+| roles | `uniform`, `boot`, `face`, `keffiyeh` cut by geometry as B3; `weapon`/`metal` the kit mortar | contract v1 |
+| rig | B2's kneel and walker; arms hang (no hand-bound weapon; no `fire` — `WEAPON_EXEMPT` already records "the tube is `prop`"); the tube hidden while the crew walks | `rig.py`, `mesh_gait.test.ts` |
+| crew weapon | **kit geometry**: `rig._mortar_crew_extras()` verbatim (tube 0.76 m at 74° on `prop` at (0.22, 0, 0.10)) | bible §7 q3 |
+| nearest neighbour | **`atgm_cell`** (two kneeling irregulars round a ground mount — the real look-alike; levers: the tube's vertical spike against the tripod's wide low triangle), then `mortar_team` (KDF: three figures, a 1.02 m tube) and `recoilless_team` (two kneelers, tube at the hip). Levers kept: two kneelers, one short vertical spike, no third man | `teams.py` docstrings |
+| sandbox | one in the base set at hostile +13, +2 | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A short canvas bandolier of stubby mortar bombs slung across the chest over a plain long-sleeved shirt. Real-world scale, 1.68 metres tall. Dusty tan cloth, faded grey-green, olive webbing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The bandolier is the signature: the one thing that says "mortar" about a man
+who is not holding the tube (the tube is kit), and chest mass rather than
+shoulder mass, so it does not read as `atgm_cell`'s quilted jacket. It sits on
+the torso cut, which the kneel moves as one piece — nothing below the belt, so
+the kneel cannot tear it.
+
+## 14. `charge_squad` — Suicide Squad (enemy, crew 2, 2 drawn)
+
+Today: `art/meshes/charge_squad.glb`, kit-built, **8,244 glTF tris, 828 KB**,
+bounds 2.72 × 0.78 m and 1.55 m high (leaned), clips `idle, move, fire, down,
+wreck`. Composition kept verbatim: `chg0` standing at (0.46, −0.06), `chg1`
+standing at (−0.46, 0.10), single file, **20° forward lean baked into rest
+geometry** (`rig.CHARGE_REST_LEAN_DEG` through `teams._lean_forward`, +4° on
+`root` in `fire` — `FIRE_ROOT_LEAN`), vest slabs front and back in the
+`charge` role, `chg1`'s satchel, **no weapon parts at all**.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4 |
+| base figure | one Meshy figure, `--pose a-pose`, both men | bible §5 |
+| height | **1.72 m** | bible §3 |
+| remesh `--polycount` | **2,000** | bible §3 |
+| shipped estimate | 2 × (2,000 + ~340 blobs) + 2 corpses × ~1,000 (decimate 0.5) + kit satchel/vest ~60 ≈ **6,800**; cap 8,000 | arithmetic |
+| bake | yes, 2k → 1024; both lists | #307 |
+| rig | as `militia_cell` without the rifle bend: standing parts at rig.py's joints, arms hung, then **the whole placed figure leaned 20° about its own ground line** (`teams._lean_forward`, the exact call `rig._charge_squad_rest` makes, on the cut parts) with the bones left upright as that builder leaves them — `build_clips` budgets the gait against `REST_LEAN_RAD` and keys `FIRE_ROOT_LEAN`. The corpse is cut from the unleaned source (a fallen body is prone, not sprinting — the same rule `_charge_squad_rest` states). `chg1`'s `mirror=True` is a kit contrapposto flag with no Meshy equivalent and is not applied | `rig.py` |
+| crew weapon | **none** — "the absence is itself a silhouette lever". The vest bulk is asked of Meshy (the signature below) so it carries the bake; `chg1`'s kit satchel stays, palette-painted in the `charge` role on `chg1_spine`, so the role the rig has always carried is still on it. If the preview ignores the vest, kit's `vest_f`/`vest_b` slabs go on both men — the bible's fix for a missed slot | `teams.py`, `rig._charge_squad_rest` |
+| nearest neighbour | **`militia_cell`** (two standing dust figures — the recorded collision risk; levers: the 20° lean, single file along x at ±0.46 against militia's touching pair, no rifle line), then `rpg_team` (upright, tube). Levers kept: all three | `teams.py` |
+| sandbox | one in the base set at hostile +0, −2 | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A thick bulky padded vest with wide square pockets across the chest and back, worn over the shirt. Real-world scale, 1.72 metres tall. Dusty grey cloth, dark brown, olive webbing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The padded vest is the whole unit: bulk front AND back, which no other
+standing irregular has, on a man with nothing in his hands. It is asked as
+clothing, never as a device — the GDD's doctrine rule and the bible's "nothing
+real" both apply — and the mass is the lever, not the pockets.
+
+## 15. `digger_crew` — Digger Crew (enemy, crew 3, 1 drawn)
+
+Today: `art/meshes/digger_crew.glb`, kit-built, **6,732 glTF tris, 1 figure,
+663 KB**, bounds 2.04 × 0.93 m and 1.65 m high (the standing walker), clips
+`idle, move, down, wreck` (no `fire`, no `work` — see the batch header).
+Composition kept verbatim: `dig` kneeling at (−0.34, 0.04), walking on a D6
+standing walker; the spoil heap (`rig._digger_extras`: three `kit.blob`s in
+the `wood` role) on the never-keyed `ground` bone, so it stays through every
+clip — "spoil does not go prone when the digger does".
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4 |
+| base figure | one Meshy figure, `--pose a-pose`, kneeling from it | bible §5 |
+| height | **1.66 m** — the floor of the window: the lone labourer is the smallest man in the enemy set | bible §3 |
+| remesh `--polycount` | **2,000** — one kneeler: kneel 2,000 + ~460 blobs + walker 2,000 + ~340 + corpse ~1,000 + heap 216 + tool ~40 ≈ **6,100**; cap 8,000. The bible's number, affordable on a one-man file, on the figure the player looks at alone | bible §3, §8 |
+| bake | yes, 2k → 1024; both lists | #307 |
+| rig | B2's kneel and walker; no `fire`. The kneeling man holds a **kit entrenching tool** — a short `wood` handle (`kit.tube`, 0.50 × 0.018 m) with a `metal` blade (`kit.box`) — bound to `dig_forearm_R`, angled down into the heap, so it hides with the kneel root while he walks (as the ATGM crew leave their tripod). ~40 tris, no `weapon` role, no UV: `WEAPON_EXEMPT`'s "a digger: `wood`, no `weapon` role, no `fire` clip" stays true | `rig.py`, `mesh_gait.test.ts` |
+| crew weapon | none; the heap verbatim from `rig._digger_extras()` on `ground` | `teams.py` |
+| nearest neighbour | **`atgm_cell`** and **`mortar_crew`** (kneeling irregulars with a mount; levers: ONE figure, a low mound where they have a spike or a triangle, no second man), then `recoilless_team`. Levers kept: the lone kneeler, the mound, no weapon line | `teams.py` docstring |
+| sandbox | not in the base set — fielded by `beit_sahwan_2_foothold`, `beit_sahwan_4_subterranean` and the three Deir Amun missions; the capture uses a mission | `data/missions/` |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A thick cloth sash tied round the waist over a plain work shirt with the sleeves rolled to the elbow. Real-world scale, 1.66 metres tall. Dust-caked grey cloth, dark brown trousers, brown leather. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The sash is the labourer's register — waist mass on a man with no rig bulk,
+where the three fighting crews carry theirs on the chest or shoulders — and it
+sits on the hips cut, which the kneel moves with the pelvis. Rolled sleeves are
+a bake detail (the arm cut is `uniform` either way) and cost nothing if Meshy
+ignores them.
+
+## Order inside B4
+
+`mortar_crew` first (the kneel-plus-prop path B3's `atgm_cell` proved, on the
+unit whose nearest neighbour IS `atgm_cell`, so the IoU is read early), then
+`charge_squad` (the standing path plus the rest lean, new to the importer), then
+`digger_crew` (one kneeler, the heap on `ground`, the tool). One preview, one
+refine, one remesh each; gates after every unit; commit per unit.
