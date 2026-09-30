@@ -1233,9 +1233,6 @@ export const STILL_FIGURES: Readonly<Record<string, string>> = {
     'rig.py: _f("demo_a", posture="kneeling", animates=False) -- the charge layer, deployed',
   'at_team.glb move at_fire_root':
     'rig.py: _f("at_fire", posture="kneeling", animates=False) -- the launcher gunner, deployed',
-  'rpg_team.glb move rpg_fire_root':
-    'rig.py: _f("rpg_fire", animates=False) -- the only STANDING animates=False figure in ' +
-    'the tree, and teams.py pins its stride to 0.0 even in `move`',
 };
 
 /** A figure in `STILL_FIGURES` must measure this still, in metres of forward
@@ -1259,8 +1256,10 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'demo_squad.glb move': 214,
   'at_team.glb move': 257,
   'sniper_team.glb move': 176,
-  'militia_cell.glb move': 1152,
-  'rpg_team.glb move': 576,
+  // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
+  // parts, so the boot mesh is the figure's own boots, not kit's.
+  'militia_cell.glb move': 582,
+  'rpg_team.glb move': 528,
   'charge_squad.glb move': 1152,
   'meshy_soldier.glb move': 989,
   'meshy_soldier.glb moveFire': 989,
@@ -1276,7 +1275,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'civilians/office_worker.glb move': 346,
   'civilians/farm_worker.glb move': 279,
   'civilians/civilian_child.glb move': 284,
-  'atgm_cell.glb move': 1152,
+  'atgm_cell.glb move': 234, // B3: a 1,100-tri Meshy remesh's boots on the D6 walker
   'mortar_crew.glb move': 1152,
   'digger_crew.glb move': 576,
 };

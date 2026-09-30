@@ -255,6 +255,11 @@ TEXTURED_VEHICLE_EXEMPT = {
     # `apc_kipod` followed the same day, on the lead's ruling after seeing
     # the two side by side (tools/vehicles/export_meshy_kipod.py).
     "apc_kipod",
+    # The A3.2 ramp set (GH-185, 2026-09-30): both replaced by Meshy
+    # text-to-3D remeshes shipping their own base_color bake
+    # (tools/vehicles/export_meshy_ramp.py). The Shachaf's kit RWS parts
+    # carry no material and still take the palette, as the gate repaints.
+    "dozer_d9", "scout_shachaf",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -271,11 +276,9 @@ TEXTURED_VEHICLE_EXEMPT = {
 TEXTURED_INFANTRY_EXEMPT = {
     # GH-286 batch B0b (2026-09-30): tools/units/import_meshy_kdf_team.py.
     "at_team", "demo_squad",
-    # The A3.2 ramp set (GH-185, 2026-09-30): both replaced by Meshy
-    # text-to-3D remeshes shipping their own base_color bake
-    # (tools/vehicles/export_meshy_ramp.py). The Shachaf's kit RWS parts
-    # carry no material and still take the palette, as the gate repaints.
-    "dozer_d9", "scout_shachaf",
+    # B3 (GH-179, 2026-09-30): generated through `pnpm meshy`, each ships its
+    # remesh's own bake -- `tools/units/import_meshy_crew_team.py`.
+    "militia_cell", "rpg_team", "atgm_cell",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's

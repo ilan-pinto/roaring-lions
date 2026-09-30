@@ -183,17 +183,19 @@ DEFAULT_TEAM = "inf_squad"
 #: rather than a permanent unexplained block on a file nobody else claims.
 TEAM_MESH_OWNER = {
     "inf_squad": MESH_KIT_OWNED,
-    "militia_cell": MESH_KIT_OWNED,
+    # B3 (GH-179, 2026-09-30): Meshy figures with their own bake, cut and
+    # driven by this module through tools/units/import_meshy_crew_team.py.
+    "militia_cell": "tools/units/import_meshy_crew_team.py",
     # B0b (GH-286, 2026-09-30): both are Meshy figures with their bake, cut
     # into this module's parts and driven by its clips -- built by
     # tools/units/import_meshy_kdf_team.py, which owns both files.
     "demo_squad": "tools/units/import_meshy_kdf_team.py",
     "charge_squad": MESH_KIT_OWNED,
     "at_team": "tools/units/import_meshy_kdf_team.py",
-    "rpg_team": MESH_KIT_OWNED,
+    "rpg_team": "tools/units/import_meshy_crew_team.py",
     "mortar_team": MESH_KIT_OWNED,
     "mortar_crew": MESH_KIT_OWNED,
-    "atgm_cell": MESH_KIT_OWNED,
+    "atgm_cell": "tools/units/import_meshy_crew_team.py",
     "sniper_team": "tools/export_meshy_sniper.py",
     "yahalom_squad": MESH_KIT_OWNED,
     "digger_crew": MESH_KIT_OWNED,
@@ -1103,8 +1105,14 @@ TEAM_FIGURES = {
         _f("chg1", -0.46, 0.10, headgear="keffiyeh", loadout="irregular", mirror=True),
     ],
     "rpg_team": [
+        # B3 (GH-179): `rpg_fire` WALKS now, with his tube -- the B2
+        # `mpd_fire` precedent. `animates=False` was a sprite-sheet fact
+        # (`teams.py` pins rpg_fire's stride to 0.0 so the tube never
+        # moves between frames); on a mesh it meant one man carried frozen
+        # across the ground beside a walking loader, the GH-145 complaint
+        # `mesh_gait.test.ts`'s STILL_FIGURES recorded as authored.
         _f("rpg_fire", 0.18, -0.26, headgear="keffiyeh", loadout="irregular",
-           animates=False, weapon="launcher"),
+           weapon="launcher"),
         _f("rpg_load", -0.30, 0.30, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
     ],
     "demo_squad": [
@@ -2409,10 +2417,17 @@ def build_clips(arm_obj, team_id):
     # this pass does not build (see the module docstring).
 
 
-def export_glb(arm_obj, path):
+def export_glb(arm_obj, path, materials=False, jpeg_quality=85):
+    """`materials=False` is every kit team: zero materials, the contract.
+    `materials=True` is the B3 (GH-179) textured path for a team named in
+    `TEXTURED_INFANTRY_TYPES` / `TEXTURED_INFANTRY_EXEMPT`: the figure's own
+    base-colour bake ships as JPEG, on the role meshes that carry a UV layer;
+    a kit weapon mesh has none and is exported without a material."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
     bpy.context.view_layer.objects.active = arm_obj
+    extra = (dict(export_materials="EXPORT", export_image_format="JPEG", export_jpeg_quality=jpeg_quality)
+             if materials else dict(export_materials="NONE"))
     bpy.ops.export_scene.gltf(
         filepath=path,
         export_format="GLB",
@@ -2424,8 +2439,8 @@ def export_glb(arm_obj, path):
         export_animation_mode="ACTIONS",
         export_force_sampling=True,
         export_extras=True,
-        export_materials="NONE",
         export_rest_position_armature=True,
+        **extra,
     )
 
 

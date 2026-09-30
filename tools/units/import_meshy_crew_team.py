@@ -114,28 +114,101 @@ REPO = os.path.dirname(TOOLS)
 OUT_DIR = os.path.join(REPO, "art", "meshes")
 
 #: team -> (Meshy remesh folder glob, figure height in metres -- the numbers
-#: table's 1.74 / 1.72, bible §5 worked examples 2 and 3).
+#: table's 1.74 / 1.72, bible §5 worked examples 2 and 3; B3's §10-12).
 SOURCES = {
     "manpad_team": (os.path.join(REPO, "art", "meshy", "manpad-team-*-01a0f2af", "model.glb"), 1.74),
     "recoilless_team": (os.path.join(REPO, "art", "meshy", "recoilless-team-*-01a0f2af", "model.glb"), 1.72),
+    # B3 (GH-179, 2026-09-30): remeshes of REFINED tasks, so each carries its
+    # own 2k bake -- see `TEXTURED` below. Folder ids filled in as each
+    # remesh landed (docs/ASSET_PROVENANCE.md has the full task ids).
+    "militia_cell": (os.path.join(REPO, "art", "meshy", "militia-cell-*-01a0f30b", "model.glb"), 1.70),
+    "rpg_team": (os.path.join(REPO, "art", "meshy", "rpg-team-*-01a0f313", "model.glb"), 1.76),
+    "atgm_cell": (os.path.join(REPO, "art", "meshy", "atgm-cell-*-01a0f313", "model.glb"), 1.72),
 }
 
+#: Teams whose GLB ships the remesh's own base-colour bake (PR #307's
+#: `TEXTURED_INFANTRY_TYPES` / `TEXTURED_INFANTRY_EXEMPT`, both lists edited
+#: in the same change as the file). The bake stays on the figure's own
+#: material through every cut (`_piece` duplicates keep UVs and the material
+#: slot); a `kit.blob` joint or a kit keffiyeh that joins a textured role
+#: BORROWS the material and one UV from the nearest source face, so it takes
+#: the local cloth colour instead of texel (0, 0). Kit weapons keep no UVs and
+#: no material: `buildMeshUnitTemplate` decides per MESH, so `weapon`/`metal`
+#: stay palette-painted beside a textured `uniform`. Shipped at
+#: `TEXTURE_PX` JPEG; the refine's normal and metallic-roughness maps are
+#: dropped (a 25 px figure cannot show them, and the characters doc's own
+#: rule is "single base-colour texture").
+TEXTURED = {"militia_cell", "rpg_team", "atgm_cell"}
+TEXTURE_PX = 1024
+JPEG_QUALITY = 85
+
+#: Head-wrap recolour, per team: (target linear RGB, hue window in degrees).
+#: Both B3 previews that honoured the head wrap painted it PINK (rpg: a rose
+#: scarf; atgm: a pink-white cap) -- saturated colour the bible reserves for
+#: VFX and team markers, on the one part of an enemy figure the eye goes
+#: to. Fixed in the bake rather than re-rolled: the texels of the head and
+#: neck faces (the cranium/neck cut, face strip excluded) whose hue falls in
+#: the red-magenta window and whose saturation is above SAT_MIN take the
+#: target's chroma at their own luminance, so folds and shading survive.
+#: Skin (hue ~20-30 deg) and the tan shirt sit outside the window.
+RECOLOUR = {"rpg_team": ((0.60, 0.52, 0.40), (300.0, 14.0)),      # dusty tan
+            "atgm_cell": ((0.80, 0.77, 0.70), (300.0, 14.0))}     # limestone
+RECOLOUR_SAT_MIN = 0.16
+RECOLOUR_FLOOR_F = 0.74
+
 #: Whether the figure needs kit's keffiyeh over the crown (see module docstring).
-ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False}
+ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
+                # B3: the militia preview came back bare-headed and clean-cut
+                # (the wrap AND the ragged jacket were ignored), so it wears
+                # kit's keffiyeh, coloured from its own shirt's bake.
+                "militia_cell": True, "rpg_team": False, "atgm_cell": False}
+
+#: `kit.blob` topology per team. B2 used kit's default (9 sides, 3 rings: 72
+#: glTF tris a blob, ~580 a body copy). B3's numbers tables budget the
+#: kneeling ATGM crew at three copies per figure inside the 8,000-tri team
+#: cap, so its joints are coarser -- 7 x 2, 42 tris -- and the two standing
+#: teams take the same so the batch reads as one register.
+BLOB_KW = {"militia_cell": dict(sides=7, rings=2), "rpg_team": dict(sides=7, rings=2),
+           "atgm_cell": dict(sides=7, rings=2)}
+
+#: Hand-bound weapon carriers get both forearms bent forward at the elbow --
+#: rest geometry like the arm hang, one rigid rotation per forearm about its
+#: own elbow -- so a kit rifle sits at the hands instead of floating at
+#: chest height over arms that hang. Degrees: (pitch forward from hanging,
+#: yaw inward about the elbow) for the left and the right forearm.
+FORE_BEND = {"L": (75.0, 40.0), "R": (70.0, 10.0)}
+#: Where the rifle grip sits past the right wrist, along the forearm.
+HAND_REACH = 0.06
+#: Rifle yaw across the front, degrees (negative: muzzle to the left).
+RIFLE_YAW_DEG = -15.0    # mesh_gait.test.ts wants the rifle within 20 deg of the facing
+
+#: The posed corpse (B3; B2 laid the A-pose body flat). Angles, all rigid
+#: re-arrangements of the cut parts BEFORE the body is laid face down: the
+#: left arm thrown overhead, the right arm out from the side, the right
+#: thigh abducted and its shin splayed, the head turned, then the whole
+#: body rolled so it is not a plank.
+CORPSE_OVERHEAD = Vector((0.06, -0.34, 0.94))    # left arm target, standing frame
+CORPSE_OUT = Vector((0.12, 0.92, -0.32))         # right arm target, standing frame
+CORPSE_THIGH_DEG = 16.0                           # right thigh out, about the hip
+CORPSE_SHIN_DEG = 42.0                            # right shin further out, about the knee
+CORPSE_HEAD_DEG = 65.0                            # head turned, about the neck
+CORPSE_ROLL_DEG = 12.0                            # body rolled about its own long axis
+CORPSE_DECIMATE = 0.5
 
 # --- height fractions of the figure's own H --------------------------------
 ANKLE_F, BOOT_TOP_F, KNEE_F, CROTCH_FALLBACK_F = 0.045, 0.09, 0.285, 0.47
 NECK_F, CHIN_F, FACE_LO_F, FACE_HI_F = 0.83, 0.87, 0.88, 0.955
 FACE_HALF_W = 0.07
 ARM_ROOT_FALLBACK_F = 0.105    # torso half-width at the armpit: both B2 figures measure 0.20/1.90 src
+ARM_BAND_Z_F = 0.15            # a |y| band spanning less than this in z (above 0.62 H) is arm, not torso
+WRIST_IN_F, HAND_F = 0.07, 0.035 # the wrist band, measured inward from the fingertips along |y|
+HAND_PAST_WRIST = 0.24         # how far past the wrist band the forearm segment still claims faces
 R_ARM_F = 0.05                 # an arm's reach from its own axis, incl. the hand (0.087 m at 1.74)
 #: Joint-blob radii: kit.py's own limb radii (for its 1.8 m figure), scaled
 #: by height -- measured cross-sections on a 1,500-tri shell are too noisy
 #: (a first pass read the chest rig as the upper arm and drew 0.2 m spheres).
 BLOB_R = {"deltoid": kit.R_UPPERARM * 1.35, "elbow": kit.R_FOREARM * 1.25,
           "knee": kit.R_KNEE * 1.2, "hip": kit.R_THIGH * 1.1}
-ELBOW_FRAC = 0.42              # shoulder ring -> fingertips
-WRIST_FRAC = 0.82
 ARM_HANG_DEG = 10.0            # from vertical, outward, once hung
 REAR_THIGH_DEG = 25.0          # kneel: rear thigh back from vertical
 REAR_BOOT_FLEX_DEG = 80.0      # kneel: rear boot plantar-flexed behind the shin
@@ -168,7 +241,10 @@ def _load_figure(team_id):
     if len(meshes) != 1:
         raise SystemExit(f"{team_id}: expected one mesh object, found {[o.name for o in meshes]}")
     ob = meshes[0]
-    ob.data.materials.clear()
+    if team_id in TEXTURED:
+        _keep_base_color(team_id, ob)
+    else:
+        ob.data.materials.clear()
     bpy.ops.object.select_all(action="DESELECT")
     ob.select_set(True)
     bpy.context.view_layer.objects.active = ob
@@ -201,7 +277,144 @@ def _load_figure(team_id):
         raise SystemExit(f"{team_id}: after the turn the toes do not point +X")
     log(f"{team_id}: source height {h_src:.4f} -> {height} m; {len(me.polygons)} tris; faces +X")
     ob.name = "figure_src"
+    if team_id in RECOLOUR and team_id in TEXTURED:
+        _recolour_head(team_id, ob, height, *RECOLOUR[team_id])
     return ob, height
+
+
+def _recolour_head(team_id, ob, height, target, hue_window):
+    """See RECOLOUR. Rasterises the head/neck faces' UV triangles into a
+    mask on `base_color`, then remaps the saturated red-magenta texels
+    inside it."""
+    img = bpy.data.images["base_color"]
+    w, h = img.size
+    me = ob.data
+    cent = _face_centroids(ob)
+    co = _coords(ob)
+    head = cent[:, 2] > CHIN_F * height
+    x_head = co[co[:, 2] > CHIN_F * height][:, 0].mean()
+    face_strip = ((cent[:, 0] > x_head + 0.02) & (cent[:, 2] > FACE_LO_F * height)
+                  & (cent[:, 2] < FACE_HI_F * height) & (np.abs(cent[:, 1]) < FACE_HALF_W))
+    # Down to the upper chest, not just the neck cut: the rpg figure's
+    # scarf hangs to the collarbones, and the hue window is what keeps
+    # the shirt and the rig out of it.
+    sel = ((cent[:, 2] > RECOLOUR_FLOOR_F * height) & ~(head & face_strip))
+    uv = np.empty(len(me.loops) * 2, dtype=np.float32)
+    me.uv_layers.active.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)
+    mask = np.zeros((h, w), dtype=bool)
+    for i in np.nonzero(sel)[0]:
+        poly = me.polygons[i]
+        tri = uv[list(poly.loop_indices)][:3]
+        px = np.stack([(tri[:, 0] % 1.0) * (w - 1), (tri[:, 1] % 1.0) * (h - 1)], axis=1)
+        x0, x1 = int(np.floor(px[:, 0].min())), int(np.ceil(px[:, 0].max()))
+        y0, y1 = int(np.floor(px[:, 1].min())), int(np.ceil(px[:, 1].max()))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        xs, ys = np.meshgrid(np.arange(x0, x1 + 1), np.arange(y0, y1 + 1))
+        (ax, ay), (bx, by), (cx, cy) = px
+        det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
+        if abs(det) < 1e-9:
+            continue
+        l1 = ((bx - xs) * (cy - ys) - (cx - xs) * (by - ys)) / det
+        l2 = ((cx - xs) * (ay - ys) - (ax - xs) * (cy - ys)) / det
+        l3 = 1.0 - l1 - l2
+        inside = (l1 >= -0.002) & (l2 >= -0.002) & (l3 >= -0.002)
+        mask[ys[inside], xs[inside]] = True
+    pix = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(pix)
+    pix = pix.reshape(h, w, 4)
+    rgb = pix[:, :, :3]
+    mx, mn = rgb.max(axis=2), rgb.min(axis=2)
+    sat = np.where(mx > 1e-6, (mx - mn) / np.maximum(mx, 1e-6), 0.0)
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    d = np.maximum(mx - mn, 1e-6)
+    hue = np.where(mx == r, (g - b) / d % 6.0, np.where(mx == g, (b - r) / d + 2.0, (r - g) / d + 4.0)) * 60.0
+    lo, hi = hue_window
+    in_hue = (hue >= lo) | (hue <= hi)
+    hit = mask & in_hue & (sat > RECOLOUR_SAT_MIN)
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    t = np.array(target, dtype=np.float32)
+    t_lum = float(0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2])
+    scale = (lum[hit] / t_lum)[:, None]
+    rgb[hit] = np.clip(t[None, :] * scale, 0.0, 1.0)
+    img.pixels.foreach_set(pix.reshape(-1))
+    img.pack()
+    log(f"{team_id}: head recolour -- {int(sel.sum())} faces, mask {int(mask.sum())} px, "
+        f"remapped {int(hit.sum())} px to {target}")
+
+
+#: The one material every textured part shares, set by `_keep_base_color`.
+_TEX = {"material": None, "src": None}
+
+
+def _keep_base_color(team_id, ob):
+    """Keep exactly one material on the remesh: its Principled BSDF with the
+    base-colour image linked, every other image (normal, metallic-roughness)
+    unlinked and removed. The image is renamed `base_color` -- the name the
+    vehicle and building texture modules key on -- and downscaled at export."""
+    mats = [m for m in ob.data.materials if m is not None]
+    if len(mats) != 1 or not mats[0].use_nodes:
+        raise SystemExit(f"{team_id}: expected one node material on the remesh, found {[m.name for m in mats]}")
+    mat = mats[0]
+    tree = mat.node_tree
+    bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None:
+        raise SystemExit(f"{team_id}: no Principled BSDF on {mat.name}")
+    link = next((l for l in tree.links if l.to_node == bsdf and l.to_socket.name == "Base Color"), None)
+    if link is None or link.from_node.type != "TEX_IMAGE" or link.from_node.image is None:
+        raise SystemExit(f"{team_id}: Base Color is not an image on {mat.name} -- no bake to ship")
+    base = link.from_node.image
+    for node in list(tree.nodes):
+        if node.type == "TEX_IMAGE" and node.image is not base:
+            img = node.image
+            tree.nodes.remove(node)
+            if img is not None and img.users == 0:
+                bpy.data.images.remove(img)
+    for other in list(bpy.data.images):
+        if other is not base and other.users == 0:
+            bpy.data.images.remove(other)
+    base.name = "base_color"
+    if not ob.data.uv_layers:
+        raise SystemExit(f"{team_id}: the remesh carries no UV layer")
+    _TEX["material"] = mat
+    log(f"{team_id}: bake kept -- {mat.name}, base_color {base.size[0]}x{base.size[1]}, "
+        f"{len(ob.data.uv_layers)} uv layer(s)")
+
+
+def _borrow_uv(ob, src, near=None):
+    """Give a UV-less kit part (a blob joint, a keffiyeh) the source figure's
+    material and ONE uv -- the centroid uv of the source face nearest the
+    part's own centre (or `near`, when the part should take its colour from
+    somewhere else: a kit keffiyeh over a bare textured head borrows from the
+    shirt, not from the hair) -- so it takes that cloth colour of the bake."""
+    if _TEX["material"] is None or src is None or not src.data.uv_layers:
+        return
+    me_s = src.data
+    uv_s = me_s.uv_layers.active.data
+    cent = _face_centroids(src)
+    c = np.array(near, dtype=np.float64) if near is not None else _coords(ob).mean(axis=0)
+    i = int(np.argmin(((cent - c) ** 2).sum(axis=1)))
+    poly = me_s.polygons[i]
+    uv = np.mean([uv_s[l].uv[:] for l in poly.loop_indices], axis=0)
+    me = ob.data
+    layer = me.uv_layers.active if me.uv_layers else me.uv_layers.new(name="UVMap")
+    for loop in layer.data:
+        loop.uv = uv
+    me.materials.clear()
+    me.materials.append(_TEX["material"])
+
+
+def _blob(name, at, radius, src=None, **kw):
+    """`kit.blob` at this team's topology (`BLOB_KW`), textured if the team is."""
+    kw = {**_BLOB_KW_ACTIVE, **kw}
+    ob = kit.blob(name, at, radius, **kw)
+    _borrow_uv(ob, src)
+    return ob
+
+
+_BLOB_KW_ACTIVE = {}
+_TEAM = {"id": None}
 
 
 def _coords(ob):
@@ -239,26 +452,64 @@ def _find_crotch(cent, height):
 
 
 def _arm_axis(co, height, side):
-    """The spread arm's own axis, fitted to the points that can only be arm
-    (the outer 60% of its reach), so hip pouches at |y| ~ 0.14 H cannot
-    pull it. Returns (shoulder, tip, unit axis shoulder->tip)."""
+    """The spread arm's own joints. Returns (shoulder, elbow, wrist,
+    torso half-width), all measured.
+
+    B2 fitted this from a fixed torso half-width (0.105 H) and the centroid of
+    a 5 cm ring outboard of it above z = 0.62 H. The B3 militia figure broke
+    that: a broad chest rig puts torso flank INSIDE that ring, so the
+    "shoulder" read at z 1.19 on a 1.70 m man (true ~1.40) and the arm came
+    out 82 degrees from vertical -- half of it left in the torso. Measured,
+    not assumed, now: |y| bands of 2 cm scanned outward above z = 0.62 H;
+    a band that still spans the torso's height (belt to shoulder, ~0.23 H)
+    is torso, the first band that spans only an arm's thickness is where
+    the arm leaves the body; the shoulder is the centre of the first two
+    arm-only bands."""
     sgn = -1.0 if side == 0 else 1.0
     y = co[:, 1] * sgn
-    w_arm = ARM_ROOT_FALLBACK_F * height
-    # Two direct centroids, no extrapolation: a PCA line through the outer
-    # arm tilts toward +x because the hands point forward in an A-pose, and
-    # extrapolating it back to the torso put the first shoulder 0.45 m
-    # behind the man. The root ring sits above the hip pouches (z > 0.62 H);
-    # the tip band is the outermost 5 cm.
-    ring = co[(y > w_arm) & (y < w_arm + 0.05) & (co[:, 2] > 0.62 * height)]
-    outer = co[(y > 0.22 * height) & (co[:, 2] > 0.5 * height)]
-    if len(ring) < 8 or len(outer) < 20:
-        raise SystemExit(f"arm{side}: ring {len(ring)} / outer {len(outer)} points -- not an A-pose figure?")
-    tipband = outer[outer[:, 1] * sgn > (outer[:, 1] * sgn).max() - 0.05]
-    shoulder = Vector(ring.mean(axis=0))
-    tip = Vector(tipband.mean(axis=0))
-    axis = (tip - shoulder).normalized()
-    return shoulder, tip, axis, w_arm
+    upper = co[:, 2] > 0.62 * height
+    ymax = float(y[upper].max())
+    step = 0.02
+    w_arm = None
+    for lo in np.arange(0.09 * height, ymax - 0.05, step):
+        band = upper & (y >= lo) & (y < lo + step)
+        if band.sum() < 6:
+            continue
+        if co[band, 2].max() - co[band, 2].min() < ARM_BAND_Z_F * height:
+            w_arm = float(lo)
+            break
+    if w_arm is None:
+        raise SystemExit(f"arm{side}: no arm-only band found -- not an A-pose figure?")
+    # The shoulder is the centre of the first two arm-only bands -- the arm
+    # root where it leaves the torso. (A line fitted through every band and
+    # extrapolated back was tried first and read 0.09 m LOW on this figure:
+    # its forearm is flatter than its upper arm, so the fit averages the two
+    # slopes and lands under the deltoid.)
+    root = upper & (y >= w_arm) & (y < w_arm + 2.0 * step)
+    shoulder = Vector(co[root].mean(axis=0))
+    # The wrist is the WRIST band, not the fingertips: this figure's open
+    # hands cup upward, and a fingertip centroid put the axis 25 degrees
+    # flatter than the arm it was meant to follow.
+    above = co[:, 2] > 0.5 * height
+    wrist_sel = above & (y > ymax - WRIST_IN_F * height) & (y < ymax - HAND_F * height)
+    wrist = Vector(co[wrist_sel if wrist_sel.sum() >= 4 else above & (y > ymax - 0.05)].mean(axis=0))
+    # The elbow: an A-pose arm is bent (this one visibly -- upper arm out
+    # and down, forearm out and up), so a straight shoulder-to-wrist axis
+    # is 0.2 m long on a 0.55 m arm and the hung arm came out a stub. The
+    # elbow is the lowest band centroid in the middle of the |y| span; on
+    # a straight arm sloping down that is the window's outer end, which
+    # is still a fair elbow.
+    span = ymax - w_arm
+    best = None
+    for lo in np.arange(w_arm + 0.32 * span, w_arm + 0.66 * span, step):
+        band = above & (y >= lo) & (y < lo + step)
+        if band.sum() < 4:
+            continue
+        c = co[band].mean(axis=0)
+        if best is None or c[2] < best[2]:
+            best = c
+    elbow = Vector(best) if best is not None else shoulder.lerp(wrist, 0.45)
+    return shoulder, elbow, wrist, w_arm
 
 
 def _keep_only(ob, keep_idx):
@@ -311,7 +562,7 @@ def _radius_near(co, point, band=0.03):
 # one figure: cut, hang the arms, measure the joints
 # ---------------------------------------------------------------------------
 
-def cut_figure(src, height, prefix):
+def cut_figure(src, height, prefix, blobs=True):
     """Cut the standing source into rig.py parts at the origin. Returns
     (parts, joints) where joints is a dict of the measured points every later
     step (bones, kneel, corpse) reads."""
@@ -326,25 +577,40 @@ def cut_figure(src, height, prefix):
     z_ankle, z_boot, z_knee = ANKLE_F * H, BOOT_TOP_F * H, KNEE_F * H
     z_belt, z_neck, z_chin = zc + 0.08, NECK_F * H, CHIN_F * H
     head = co[co[:, 2] > z_chin]
-    x_head = head[:, 0].mean()
+    x_head, y_head = float(head[:, 0].mean()), float(head[:, 1].mean())
     axes = {side: _arm_axis(co, H, side) for side in (0, 1)}
-    w_arm = axes[0][3]
+    w_arm = max(axes[0][3], axes[1][3])
     log(f"{prefix}: crotch {zc:.3f} ({zc / H:.3f} H) arm-root |y| {w_arm:.3f} knee {z_knee:.3f} "
         f"neck {z_neck:.3f} chin {z_chin:.3f}")
 
-    def arm_side(p):
-        """0/1 if `p` lies within R_ARM of that arm's axis, outboard of the
-        torso; else None. The pouches at the waist are outboard too but far
-        below the line."""
-        for side in (0, 1):
-            shoulder, _tip, axis, _w = axes[side]
-            if abs(p[1]) <= w_arm or p[2] < 0.5 * H:
-                continue
-            d = Vector(p) - shoulder
+    def arm_side(p, y_out):
+        """0/1 if a face is arm: its OUTERMOST vertex (`y_out`, signed) lies
+        beyond the measured torso edge, and its centroid `p` is either above
+        the armpit line (0.62 H -- nothing but arm is out there) or within
+        R_ARM of the arm's axis (a low-hanging A-pose forearm). The pouches
+        at the waist are outboard too but below the line and far from the
+        axis. Two things B2 did differently, both measured wrong on a
+        2,000-tri figure with near-horizontal arms: it tested the CENTROID
+        against the torso edge, so a face straddling the armpit stayed with
+        the torso and stuck out as a spike once the arm was hung (a 6 cm
+        triangle reaches 6 cm past its own centroid); and it required the
+        axis test alone, which left a third of a thick forearm behind."""
+        if abs(y_out) <= w_arm or p[2] < 0.5 * H:
+            return None
+        side = 0 if y_out < 0 else 1
+        if p[2] > 0.62 * H:
+            return side
+        shoulder, elbow, wrist, _w = axes[side]
+        pv = Vector(p)
+        # The forearm segment runs on past the wrist by a hand's length:
+        # on the ATGM figure (arms 62 degrees from vertical) the fingertips
+        # sit below the armpit line, and a glove face left behind here
+        # floated beside the kneeling man at his old A-pose hand.
+        for a, b, past in ((shoulder, elbow, 0.05), (elbow, wrist, HAND_PAST_WRIST)):
+            axis = (b - a).normalized()
+            d = pv - a
             along = d.dot(axis)
-            if along < -0.05:
-                continue
-            if (d - axis * along).length < R_ARM_F * H:
+            if -0.05 <= along <= (b - a).length + past and (d - axis * along).length < R_ARM_F * H:
                 return side
         return None
 
@@ -353,15 +619,17 @@ def cut_figure(src, height, prefix):
     def put(i, name, role):
         classes.setdefault((name, role), set()).add(i)
 
+    vco = _coords(src)
+    y_outer = np.array([max((vco[v][1] for v in poly.vertices), key=abs) for poly in src.data.polygons])
     for i, (x, y, z) in enumerate(cent):
-        side = arm_side((x, y, z))
+        side = arm_side((x, y, z), y_outer[i])
         if side is not None:
             put(i, f"arm{side}", "uniform")
         elif z > z_chin:
             # A centred strip, |y| < FACE_HALF_W: the hooded figure's head
             # wraps to one side and an off-centre face strip read 30 degrees
             # off the way the man travels (mesh_gait.test.ts's facing sweep).
-            if x > x_head + 0.02 and FACE_LO_F * H < z < FACE_HI_F * H and abs(y) < FACE_HALF_W:
+            if x > x_head + 0.02 and FACE_LO_F * H < z < FACE_HI_F * H and abs(y - y_head) < FACE_HALF_W:
                 put(i, "face", "face")
             else:
                 put(i, "cranium", "keffiyeh")
@@ -384,54 +652,63 @@ def cut_figure(src, height, prefix):
     for (name, role), faces in classes.items():
         parts[name] = _piece(src, f"{prefix}_{name}", role, faces)
 
+    # The head's own centre in plan: the neck and head bones sit on it, and
+    # the face strip is cut about it. The militia figure's head sits 5 cm
+    # off the figure's axis, and with the bone ON the axis the strip's
+    # bearing from the bone read 26 degrees (mesh_gait.test.ts's facing
+    # sweep, limit 25) for a head that looks straight ahead.
     joints = {"H": H, "crotch": zc, "knee": z_knee, "ankle": z_ankle, "neck": z_neck, "chin": z_chin,
-              "belt": z_belt, "leg": {}, "arm": {}}
+              "belt": z_belt, "head_xy": (x_head, y_head), "leg": {}, "arm": {}}
     # Legs: the knee band's centroid per side is where the thigh and shin bones meet.
     for side in (0, 1):
         pc = _coords(parts[f"calf{side}"])
         top = pc[pc[:, 2] > z_knee - 0.05]
         joints["leg"][side] = (float(top[:, 0].mean()), float(top[:, 1].mean()))
 
-    # Arms: split each into upper and fore about the elbow, then hang it.
+    # Arms: split each into upper and fore at the measured elbow, then hang
+    # each segment separately -- the upper arm about the shoulder, the
+    # forearm about the moved elbow -- so a bent A-pose arm hangs straight
+    # at its full length.
     for side in (0, 1):
         arm = parts.pop(f"arm{side}")
-        shoulder, tip, axis, _w = axes[side]
-        length = (tip - shoulder).length
-        elbow = shoulder + axis * (length * ELBOW_FRAC)
-        wrist = shoulder + axis * (length * WRIST_FRAC)
+        shoulder, elbow, wrist, _w = axes[side]
         acent = _face_centroids(arm)
-        along = (acent - np.array(shoulder)) @ np.array(axis)
-        upper_faces = {i for i, t in enumerate(along) if t < length * ELBOW_FRAC}
+        upper_faces = {i for i, c in enumerate(acent) if abs(c[1]) < abs(elbow.y)}
         fore_faces = set(range(len(acent))) - upper_faces
         upper = _piece(arm, f"{prefix}_upperarm{side}", "uniform", upper_faces)
         fore = _piece(arm, f"{prefix}_forearm{side}", "uniform", fore_faces)
         bpy.data.objects.remove(arm, do_unlink=True)
-        # Hang: rotate about the shoulder so the axis reads ARM_HANG_DEG from
-        # vertical, outward, in the y-z plane.
         sgn = -1.0 if side == 0 else 1.0
         target = Vector((0.0, sgn * math.sin(math.radians(ARM_HANG_DEG)), -math.cos(math.radians(ARM_HANG_DEG))))
-        q = axis.rotation_difference(target)
-        mat = Matrix.Translation(shoulder) @ q.to_matrix().to_4x4() @ Matrix.Translation(-shoulder)
-        _transform(upper, mat)
-        _transform(fore, mat)
-        elbow_h, wrist_h = mat @ elbow, mat @ wrist
+        q_up = (elbow - shoulder).normalized().rotation_difference(target)
+        m_up = Matrix.Translation(shoulder) @ q_up.to_matrix().to_4x4() @ Matrix.Translation(-shoulder)
+        elbow_h = m_up @ elbow
+        q_fore = (wrist - elbow).normalized().rotation_difference(target)
+        m_fore = Matrix.Translation(elbow_h) @ q_fore.to_matrix().to_4x4() @ Matrix.Translation(-elbow)
+        _transform(upper, m_up)
+        _transform(fore, m_fore)
+        wrist_h = m_fore @ wrist
+        axis = (wrist - shoulder).normalized()
         k = H / kit.FIGURE_H
         parts[f"upperarm{side}"] = upper
         parts[f"forearm{side}"] = fore
-        parts[f"deltoid{side}"] = kit.blob(f"{prefix}_deltoid{side}", tuple(shoulder), BLOB_R["deltoid"] * k,
-                                           squash=(1.0, 1.0, 0.9))
-        parts[f"elbow{side}"] = kit.blob(f"{prefix}_elbow{side}", tuple(elbow_h), BLOB_R["elbow"] * k)
+        if blobs:
+            parts[f"deltoid{side}"] = _blob(f"{prefix}_deltoid{side}", tuple(shoulder), BLOB_R["deltoid"] * k,
+                                            src=src, squash=(1.0, 1.0, 0.9))
+            parts[f"elbow{side}"] = _blob(f"{prefix}_elbow{side}", tuple(elbow_h), BLOB_R["elbow"] * k, src=src)
         joints["arm"][side] = {"shoulder": tuple(shoulder), "elbow": tuple(elbow_h), "wrist": tuple(wrist_h)}
-        log(f"{prefix}: arm{side} A-pose {math.degrees(math.acos(abs(axis.z))):.1f} deg from vertical, "
-            f"hung to {ARM_HANG_DEG}; shoulder z {shoulder.z:.3f} elbow z {elbow_h.z:.3f}")
+        log(f"{prefix}: arm{side} A-pose {math.degrees(math.acos(abs(axis.z))):.1f} deg from vertical "
+            f"(upper {(elbow - shoulder).length:.2f} m, fore {(wrist - elbow).length:.2f} m), hung to "
+            f"{ARM_HANG_DEG}; shoulder z {shoulder.z:.3f} elbow z {elbow_h.z:.3f} wrist z {wrist_h.z:.3f}")
 
     # Knee and hip blobs, kit's own radii scaled to this figure.
     k = H / kit.FIGURE_H
     for side in (0, 1):
         lx, ly = joints["leg"][side]
-        parts[f"knee{side}"] = kit.blob(f"{prefix}_knee{side}", (lx, ly, z_knee), BLOB_R["knee"] * k)
-        parts[f"hip{side}"] = kit.blob(f"{prefix}_hip{side}", (lx, ly, zc), BLOB_R["hip"] * k,
-                                       squash=(1.05, 1.05, 1.05))
+        if blobs:
+            parts[f"knee{side}"] = _blob(f"{prefix}_knee{side}", (lx, ly, z_knee), BLOB_R["knee"] * k, src=src)
+            parts[f"hip{side}"] = _blob(f"{prefix}_hip{side}", (lx, ly, zc), BLOB_R["hip"] * k, src=src,
+                                        squash=(1.05, 1.05, 1.05))
     return parts, joints
 
 
@@ -455,12 +732,13 @@ def standing_bones(prefix, joints, dx, dy):
     H, zc, zk, za, zn, zh = (joints[k] for k in ("H", "crotch", "knee", "ankle", "neck", "chin"))
     sh0 = joints["arm"][0]["shoulder"]
     z_sh = max(joints["arm"][s]["shoulder"][2] for s in (0, 1))
+    hx, hy = joints["head_xy"]
     table = [
         ("root", None, (0.0, 0.0, 0.0), (0.0, 0.0, 0.15)),
         ("pelvis", "root", (0.0, 0.0, zc - 0.05), (0.0, 0.0, joints["belt"])),
         ("spine", "pelvis", (0.0, 0.0, joints["belt"]), (0.0, 0.0, z_sh - 0.02)),
-        ("neck", "spine", (0.0, 0.0, zn), (0.0, 0.0, zh)),
-        ("head", "neck", (0.0, 0.0, zh), (0.0, 0.0, H)),
+        ("neck", "spine", (hx, hy, zn), (hx, hy, zh)),
+        ("head", "neck", (hx, hy, zh), (hx, hy, H)),
     ]
     for side, name in ((0, "L"), (1, "R")):
         a = joints["arm"][side]
@@ -539,8 +817,10 @@ def _kneel(parts, joints, prefix):
         ("pelvis", "root", (0.0, 0.0, zc - 0.05 - drop), (0.0, 0.0, joints["belt"] - drop)),
         ("spine", "pelvis", (0.0, 0.0, joints["belt"] - drop),
          (0.0, 0.0, max(joints["arm"][s]["shoulder"][2] for s in (0, 1)) - drop - 0.02)),
-        ("neck", "spine", (0.0, 0.0, joints["neck"] - drop), (0.0, 0.0, joints["chin"] - drop)),
-        ("head", "neck", (0.0, 0.0, joints["chin"] - drop), (0.0, 0.0, H - drop)),
+        ("neck", "spine", (joints["head_xy"][0], joints["head_xy"][1], joints["neck"] - drop),
+         (joints["head_xy"][0], joints["head_xy"][1], joints["chin"] - drop)),
+        ("head", "neck", (joints["head_xy"][0], joints["head_xy"][1], joints["chin"] - drop),
+         (joints["head_xy"][0], joints["head_xy"][1], H - drop)),
     ]
     for side, name in ((0, "L"), (1, "R")):
         a = joints["arm"][side]
@@ -574,6 +854,150 @@ def _death_parts(src, height, prefix, x, y):
     return [ob]
 
 
+def _bend_forearms(parts, joints, prefix):
+    """Rest geometry for a hand-bound weapon carrier: each forearm rotated
+    rigidly about its own elbow, forward from the hang and a little inward,
+    so the hands meet a rifle held across the front (`FORE_BEND`). The elbow
+    blob is the pivot and stays; the wrist in `joints` moves with the part so
+    `standing_bones` draws the forearm bone along the bent forearm."""
+    for side, name in ((0, "L"), (1, "R")):
+        a = joints["arm"][side]
+        elbow = Vector(a["elbow"])
+        pitch, yaw = FORE_BEND[name]
+        inward = 1.0 if side == 0 else -1.0   # +Z yaw takes +x toward +y: inward for the left arm
+        mat = _rot_about(elbow, "Z", inward * yaw) @ _rot_about(elbow, "Y", -pitch)
+        _transform(parts[f"forearm{side}"], mat)
+        a["wrist"] = tuple(mat @ Vector(a["wrist"]))
+        log(f"{prefix}: forearm{side} bent {pitch:.0f} forward, {yaw:.0f} inward; wrist z {a['wrist'][2]:.3f}")
+
+
+def _rifle_at_hand(prefix, joints, dx, dy):
+    """`rig._weapon_parts`' seven-part rifle with its grip on the right
+    hand: the anchor is solved from the bent right wrist rather than taken
+    from kit's chest-height formula, and the rifle is yawed across the front."""
+    a = joints["arm"][1]
+    elbow, wrist = Vector(a["elbow"]), Vector(a["wrist"])
+    hand = wrist + (wrist - elbow).normalized() * HAND_REACH
+    yaw = math.radians(RIFLE_YAW_DEG)
+    c, s = math.cos(yaw), math.sin(yaw)
+    # grip centre = anchor + R(yaw)(-0.03, 0) + (0, 0, -0.065); anchor = at + (reach c, reach s, z_kit)
+    gx, gy, gz = hand.x - (-0.03 * c), hand.y - (-0.03 * s), hand.z + 0.065
+    reach, z_kit = 0.16, kit.POSTURE_EYE["standing"] * kit.FIGURE_H - 0.16
+    at = (gx - reach * c + dx, gy - reach * s + dy, gz - z_kit)
+    return rig._weapon_parts(prefix, at, yaw=yaw, posture="standing", aim=False)
+
+
+def _kit_keffiyeh_over(parts, pfx, src):
+    """kit's keffiyeh drape over the `{pfx}_cranium` part in `parts` (a dict
+    or list), coloured from the same figure's shirt bake -- the bible's fix
+    for a preview that ignored the head wrap. Returns the kef parts."""
+    seq = parts.values() if isinstance(parts, dict) else parts
+    cranium = next((o for o in seq if o.name == f"{pfx}_cranium"), None)
+    if cranium is None:
+        return []
+    co = _coords(cranium)
+    centre = ((co[:, 0].min() + co[:, 0].max()) / 2.0, (co[:, 1].min() + co[:, 1].max()) / 2.0,
+              co[:, 2].min() + 0.55 * (co[:, 2].max() - co[:, 2].min()))
+    radius = max(co[:, 0].max() - co[:, 0].min(), co[:, 1].max() - co[:, 1].min()) / 2.0 * 1.04
+    kef = kit.keffiyeh(f"{pfx}_kef", centre, radius=radius)
+    seq = parts.values() if isinstance(parts, dict) else parts
+    torso = next((o for o in seq if o.name == f"{pfx}_torso"), None)
+    near = None
+    if torso is not None:
+        tc = _coords(torso)
+        near = (tc[:, 0].min() + 0.02, tc[:, 1].mean(), tc[:, 2].max() - 0.05)
+    for ob_k in kef:
+        _borrow_uv(ob_k, src, near=near)
+    return kef
+
+
+def _death_parts_posed(src, height, prefix, x, y, add_kef=False):
+    """The corpse as a POSED fall (B3): the same cut as the living figure,
+    re-arranged rigidly in code -- left arm overhead, right arm out, right
+    thigh abducted and its shin splayed, head turned -- then laid face
+    down, rolled off flat, and decimated. `kit.blob` covers the joints that
+    turned. All of it on `{prefix}_death_root`, one part to one bone."""
+    dp = f"{prefix}_death"
+    parts, joints = cut_figure(src, height, dp, blobs=False)
+    k = height / kit.FIGURE_H
+    # Arms: the whole hung arm (upper + fore) about its shoulder.
+    for side, target in ((0, CORPSE_OVERHEAD), (1, CORPSE_OUT)):
+        a = joints["arm"][side]
+        shoulder, wrist = Vector(a["shoulder"]), Vector(a["wrist"])
+        axis = (wrist - shoulder).normalized()
+        q = axis.rotation_difference(target.normalized())
+        mat = Matrix.Translation(shoulder) @ q.to_matrix().to_4x4() @ Matrix.Translation(-shoulder)
+        _transform(parts[f"upperarm{side}"], mat)
+        _transform(parts[f"forearm{side}"], mat)
+        parts[f"deltoid{side}"] = _blob(f"{dp}_deltoid{side}", tuple(shoulder), BLOB_R["deltoid"] * k, src=src,
+                                        squash=(1.0, 1.0, 0.9))
+    # Right leg: thigh out about the hip (X), shin further out about the knee.
+    lx, ly = joints["leg"][1]
+    hip, knee = Vector((lx, ly, joints["crotch"])), Vector((lx, ly, joints["knee"]))
+    m_thigh = _rot_about(hip, "X", CORPSE_THIGH_DEG)
+    m_shin = _rot_about(m_thigh @ knee, "X", CORPSE_SHIN_DEG) @ m_thigh
+    _transform(parts["thigh1"], m_thigh)
+    _transform(parts["calf1"], m_shin)
+    _transform(parts["boot1"], m_shin)
+    parts["hip1"] = _blob(f"{dp}_hip1", tuple(hip), BLOB_R["hip"] * k, src=src, squash=(1.05, 1.05, 1.05))
+    parts["knee1"] = _blob(f"{dp}_knee1", tuple(m_thigh @ knee), BLOB_R["knee"] * k, src=src)
+    # Head turned about the neck's own axis; kit's keffiyeh (if the preview
+    # ignored the wrap) goes on BEFORE the turn and the lay-down, so it
+    # drapes over a standing head and then falls with it.
+    if add_kef:
+        for i, ob_k in enumerate(_kit_keffiyeh_over(parts, dp, src)):
+            parts[f"kef{i}"] = ob_k
+    hc = _coords(parts["cranium"])
+    m_head = _rot_about((hc[:, 0].mean(), hc[:, 1].mean(), 0.0), "Z", CORPSE_HEAD_DEG)
+    for n in ("cranium", "face", "kef0", "kef1", "kef2"):
+        if n in parts:
+            _transform(parts[n], m_head)
+    # Lay it down: height -> +x (head forward), forward -> -z (face down);
+    # roll about the body's long axis; lowest point on the ground, centred.
+    lay = Matrix.Rotation(math.radians(CORPSE_ROLL_DEG), 4, "X") @ Matrix.Rotation(math.radians(90.0), 4, "Y")
+    for ob in parts.values():
+        _transform(ob, lay)
+    allco = np.concatenate([_coords(ob) for ob in parts.values()])
+    shift = Matrix.Translation((x - (allco[:, 0].min() + allco[:, 0].max()) / 2.0, y, -allco[:, 2].min()))
+    for ob in parts.values():
+        _transform(ob, shift)
+    # ONE object, decimated once: collapsing each cut piece on its own
+    # shredded every seam (measured -- a first pass read as a heap of
+    # shards). Role `uniform` for the whole body, as B2's corpse was; on a
+    # textured team the bake colours the boots and face regardless.
+    body = _join(list(parts.values()), f"{dp}_body", "uniform")
+    # Re-weld the seams the pose did not open (each cut piece carries its
+    # own copy of the boundary vertices), so the collapse works on a mostly
+    # closed shell rather than a soup of open rims.
+    bm = bmesh.new()
+    bm.from_mesh(body.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    bm.to_mesh(body.data)
+    bm.free()
+    mod = body.modifiers.new("dec", type="DECIMATE")
+    mod.decimate_type = "COLLAPSE"
+    mod.ratio = CORPSE_DECIMATE
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+    log(f"{prefix}: posed corpse, {len(body.data.polygons)} polys, "
+        f"x {allco[:, 0].min() + shift.translation.x:+.2f}..{allco[:, 0].max() + shift.translation.x:+.2f}")
+    return [body]
+
+
+def _join(objs, name, role):
+    bpy.ops.object.select_all(action="DESELECT")
+    for ob in objs:
+        ob.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    if len(objs) > 1:
+        bpy.ops.object.join()
+    ob = bpy.context.view_layer.objects.active
+    ob.name = name
+    ob.data.name = name
+    ob["rl_role"] = role
+    return ob
+
+
 def _place(parts, dx, dy):
     for ob in parts.values():
         _transform(ob, Matrix.Translation((dx, dy, 0.0)))
@@ -591,6 +1015,8 @@ def _figure(src, height, spec, kneel):
     forced = {}
     if not kneel:
         parts, joints = cut_figure(src, height, prefix)
+        if spec["weapon"] in ("rifle", "launcher"):
+            _bend_forearms(parts, joints, prefix)
         bones = standing_bones(prefix, joints, x, y)
         _place(parts, x, y)
         eye_z = FACE_LO_F * height + 0.03
@@ -605,7 +1031,7 @@ def _figure(src, height, spec, kneel):
         _place(wparts, x, y)
         parts.update({f"w_{k}": v for k, v in wparts.items()})
     out = list(parts.values())
-    death = _death_parts(src, height, prefix, x, y)
+    death = _death_parts_posed(src, height, prefix, x, y, add_kef=ADD_KEFFIYEH[_TEAM["id"]])
     death_bone = rig._death_root_bone(prefix, x, y)
     bones.append(death_bone)
     for ob in death:
@@ -616,27 +1042,27 @@ def _figure(src, height, spec, kneel):
 
 def build_team(team_id):
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    _TEX["material"] = None
+    _TEAM["id"] = team_id
+    _BLOB_KW_ACTIVE.clear()
+    _BLOB_KW_ACTIVE.update(BLOB_KW.get(team_id, {}))
     src, height = _load_figure(team_id)
     figures = rig.TEAM_FIGURES[team_id]
     parts, bones, forced = [], [], {}
-    eyes = {}
+    eyes, hands = {}, {}
     for spec in figures:
-        p, b, f, eye_z, _j = _figure(src, height, spec, kneel=(spec["posture"] == "kneeling"))
+        p, b, f, eye_z, j = _figure(src, height, spec, kneel=(spec["posture"] == "kneeling"))
         parts += p
         bones += b
         forced.update(f)
         eyes[spec["prefix"]] = eye_z
+        hands[spec["prefix"]] = j
     if ADD_KEFFIYEH[team_id]:
-        # Crown over every head this team draws (deployed, walker): the head
-        # part's own bounding centre says where; kit sizes the drape.
+        # Crown over every LIVING head this team draws (deployed, walker) --
+        # the corpse got its own inside `_death_parts_posed`, before it fell.
         for ob in list(parts):
-            if ob.name.endswith("_cranium"):
-                pfx = ob.name[: -len("_cranium")]
-                co = _coords(ob)
-                centre = ((co[:, 0].min() + co[:, 0].max()) / 2.0, (co[:, 1].min() + co[:, 1].max()) / 2.0,
-                          co[:, 2].min() + 0.55 * (co[:, 2].max() - co[:, 2].min()))
-                radius = max(co[:, 0].max() - co[:, 0].min(), co[:, 1].max() - co[:, 1].min()) / 2.0 * 1.04
-                parts += kit.keffiyeh(f"{pfx}_kef", centre, radius=radius)
+            if ob.name.endswith("_cranium") and not ob.name.endswith("_death_cranium"):
+                parts += _kit_keffiyeh_over(parts, ob.name[: -len("_cranium")], src)
     bpy.data.objects.remove(src, do_unlink=True)
 
     # Crew weapons -- kit geometry, verbatim positions from teams.py.
@@ -657,12 +1083,34 @@ def build_team(team_id):
         forced.update({ob: "rcl_fire_forearm_R" for ob in tube})
         forced.update({ob: "prop" for ob in rounds})
         parts += tube + rounds
+    elif team_id == "militia_cell":
+        # Two riflemen, grip on each man's own bent right hand (`_rifle_at_hand`).
+        for spec in figures:
+            w = _rifle_at_hand(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
+            forced.update({ob: f"{spec['prefix']}_forearm_R" for ob in w})
+            parts += w
+    elif team_id == "rpg_team":
+        # The tube verbatim from `rig._rpg_extras` (teams.py's 38-degree
+        # launcher on rpg_fire's forearm_R); the loader's rifle at his hand.
+        tube, _b, f_tube = rig._rpg_extras()
+        forced.update(f_tube)
+        parts += tube
+        w = _rifle_at_hand("rpg_load", hands["rpg_load"], -0.30, 0.30)
+        forced.update({ob: "rpg_load_forearm_R" for ob in w})
+        parts += w
+    elif team_id == "atgm_cell":
+        # The tripod post verbatim from `rig._atgm_extras`, on the static
+        # `prop` bone -- hidden while the crew walks (`_key_death_visibility`).
+        post, prop_bones, f_post = rig._atgm_extras()
+        bones += prop_bones
+        forced.update(f_post)
+        parts += post
     else:
         raise SystemExit(f"no crew weapon rule for {team_id}")
 
-    want = {f"{s['prefix']}_forearm_R" for s in figures if s["weapon"] == "launcher"}
+    want = {f"{s['prefix']}_forearm_R" for s in figures if s["weapon"] in ("launcher", "rifle")}
     if want - set(forced.values()):
-        raise SystemExit(f"{team_id}: launcher declared but not bound: {want - set(forced.values())}")
+        raise SystemExit(f"{team_id}: weapon declared but not bound: {want - set(forced.values())}")
 
     if os.environ.get("CREW_DEBUG"):
         for ob in sorted(parts, key=lambda o: o.name):
@@ -676,7 +1124,18 @@ def build_team(team_id):
     merged = rig.join_by_role(parts)
     rig.build_clips(arm_obj, team_id)
     path = os.path.join(OUT_DIR, f"{team_id}.glb")
-    rig.export_glb(arm_obj, path)
+    textured = team_id in TEXTURED
+    if textured:
+        img = bpy.data.images["base_color"]
+        before = tuple(img.size)
+        if img.size[0] > TEXTURE_PX or img.size[1] > TEXTURE_PX:
+            img.scale(min(img.size[0], TEXTURE_PX), min(img.size[1], TEXTURE_PX))
+        log(f"{team_id}: base_color {before[0]}x{before[1]} -> {img.size[0]}x{img.size[1]}; "
+            f"images {[i.name for i in bpy.data.images]}")
+        for role, ob in merged.items():
+            has = any(m is not None for m in ob.data.materials)
+            log(f"  role {role:9s} material {'yes' if has else 'no '} uv {'yes' if ob.data.uv_layers else 'no '}")
+    rig.export_glb(arm_obj, path, materials=textured, jpeg_quality=JPEG_QUALITY)
     tris = sum(len(ob.data.polygons) for ob in merged.values())
     log(f"{team_id}: wrote {path} ({os.path.getsize(path)} bytes), roles {sorted(merged)}, {tris} tris, "
         f"clips {[a.name for a in bpy.data.actions]}")

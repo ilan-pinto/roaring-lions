@@ -47,6 +47,19 @@ import { buildMeshUnitTemplate, instantiateMeshUnit } from './mesh-unit';
 import { applyMeshClip } from './mesh-clip';
 import { CLIP_NAMES } from './mesh-anim';
 import { beginMeshDeath, liveFigureRoots, type MeshDeathPhase } from './mesh-death';
+import { TEXTURED_INFANTRY_TYPES } from './textured-infantry';
+
+// B3 (GH-179, 2026-09-30): three team GLBs carry a real `base_color` image
+// now, and `GLTFParser.loadImageSource` reaches for the global `self` to
+// pick a decode path -- `ReferenceError: self is not defined` under plain
+// Node, thrown from inside `loadMaterial`. The same shim
+// `mesh-vehicle-shipped.test.ts` has carried since the textured vehicles
+// landed: `self = globalThis` picks a path that then fails to decode (no
+// `Image` here either), which `GLTFLoader` logs rather than throws. Texture
+// PIXELS are not what this file checks.
+if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
+  (globalThis as { self?: unknown }).self = globalThis;
+}
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const TEAM_MESHES = `${REPO}art/meshes/`;
@@ -81,7 +94,9 @@ async function parseShipped(team: string) {
 /** Faction picks a colour ramp and nothing else -- no clip, name, track or
  *  duration below depends on it, so every team is read through one. */
 async function templateFor(team: string) {
-  return buildMeshUnitTemplate(await parseShipped(team), 'kdf');
+  // `allowTextured` mirrors `ThreeRenderer.loadMeshUnit`'s own computation:
+  // a listed team keeps its bake, an unlisted one that ships a texture throws.
+  return buildMeshUnitTemplate(await parseShipped(team), 'kdf', `${team}.glb`, TEXTURED_INFANTRY_TYPES.has(team));
 }
 
 describe('shipped infantry team meshes: the death clips exist', () => {
