@@ -141,6 +141,10 @@ for everything after.* One unit, in order:
 palette vehicle, drone or crew-weapon part **25**. At the CLI's default estimate of
 $0.02/credit, that is $0.80 / $0.70 / $0.50.
 
+**Measured 2026-09-30 on the GH-277 militia buildings, ahead of B0: a remesh of a
+*refined* task KEEPS its texture** (the remesh GLB carries the 2k `base_color` plus
+normal and metallic-roughness maps -- `docs/ASSET_PROVENANCE.md`, "field works").
+The line below is kept for the record of what was unknown when this section was written.
 **Unverified until the first textured unit of B0 (the `apc_eitan`):** that remesh of a
 *refined* task keeps its texture. If it does not, step 3 moves after step 4 (refine cannot take a remesh
 task, so the fallback is `retexture`, also 10). Measure it once; do not guess twice.
