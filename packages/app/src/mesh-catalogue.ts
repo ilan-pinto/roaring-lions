@@ -167,6 +167,13 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // the same kit.py/teams.py pipeline as the rest of this table.
   breach_team: { files: ['breach_team.glb'], faction: 'kdf' },
 
+  // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
+  // rig.py's parts and driven by rig.py's own clips
+  // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- GH-307's
+  // `TEXTURED_INFANTRY_TYPES` was still open when they shipped.
+  manpad_team: { files: ['manpad_team.glb'], faction: 'enemy' },
+  recoilless_team: { files: ['recoilless_team.glb'], faction: 'enemy' },
+
   // GH-149. Four figures for ONE unit type -- `data/units/civilians.json` is a
   // single type, so these are VARIANTS, and `three/units/mesh-variant.ts`
   // decides which entity draws which. THE ORDER OF THIS LIST IS THE VARIANT
@@ -222,6 +229,22 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // `apc_kipod` (landed in 2f93129) -- so both build a mesh at runtime.
   scout_shachaf: 'vehicles/scout_shachaf.glb',
   apc_kipod: 'vehicles/apc_kipod.glb',
+
+  // WP-A3.1 batch B2 (GH-179, 2026-09-30): the first units generated through
+  // `pnpm meshy` end to end (`docs/art/meshy-prompts-units.md` sections 6-7).
+  // Both enemy; `gun_truck` is textured (`TEXTURED_VEHICLE_TYPES`), the drone
+  // palette-painted through `VEHICLE_ROLE_PALETTE`.
+  gun_truck: 'vehicles/gun_truck.glb',
+  loiter_drone: 'vehicles/loiter_drone.glb',
+
+  // The two KDF drones (GH-286, batch B0a, 2026-09-30): Meshy text-to-3D
+  // previews remeshed at 800 tris and role-split in
+  // `tools/drones/export_meshy_drones.py`. Air units on the vehicle path, so
+  // they take `heli_peten`'s `AIR_LIFT_PX` lift and no ground conform. The
+  // sprite sheets' x1.5 `SIZE_CLASS["air"]` is baked into the GLBs (the
+  // lead's ruling on GH-290), so they draw at the size the billboards did.
+  recon_drone: 'vehicles/recon_drone.glb',
+  attack_drone: 'vehicles/attack_drone.glb',
 };
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */
@@ -340,6 +363,39 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
   'mortar_team.glb':
     'superseded by meshy_mortar_team.glb; kept as mesh_gait.test.ts’ 88.7% gait reference',
   'yahalom_squad.glb': 'superseded by yahalom_engineer.glb (the first mesh team with a work clip)',
+};
+
+/**
+ * Art that has landed AHEAD of the structure type that will draw it -- the
+ * opposite of retirement. `mesh-catalogue.test.ts` requires every
+ * `BUILDING_MESHES` key to be a real `data/structures.json` type, and the
+ * GH-277 field works (spec §8, plan Task 12) ship their meshes in October
+ * with no sim or data change until Stage 4/5 (Task 13 wires them). Each
+ * entry names the type that will claim it, so "not drawn yet" and "decided
+ * not to draw" (`RETIRED_MESH_FILES`) stay distinguishable. Task 13 moves
+ * each pair into `BUILDING_MESHES` and deletes it here.
+ */
+export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
+  'buildings/kdf_medic_station.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_medic_station_wreck.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_medic_station_construction.glb': 'kdf_medic_station (GH-277 Task 13)',
+  'buildings/kdf_outpost.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_outpost_wreck.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_outpost_construction.glb': 'kdf_outpost (GH-277 Task 13)',
+  'buildings/kdf_intel_centre.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_intel_centre_wreck.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_intel_centre_construction.glb': 'kdf_intel_centre (GH-277 Task 13)',
+  'buildings/kdf_workshop.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/kdf_workshop_wreck.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/kdf_workshop_construction.glb': 'kdf_workshop (GH-277 Task 13)',
+  'buildings/militia_field_clinic.glb': 'militia_field_clinic (GH-277 Task 13)',
+  'buildings/militia_field_clinic_wreck.glb': 'militia_field_clinic (GH-277 Task 13)',
+  'buildings/militia_firing_position.glb': 'militia_firing_position (GH-277 Task 13)',
+  'buildings/militia_firing_position_wreck.glb': 'militia_firing_position (GH-277 Task 13)',
+  'buildings/militia_observation_post.glb': 'militia_observation_post (GH-277 Task 13)',
+  'buildings/militia_observation_post_wreck.glb': 'militia_observation_post (GH-277 Task 13)',
+  'buildings/militia_weapons_workshop.glb': 'militia_weapons_workshop (GH-277 Task 13)',
+  'buildings/militia_weapons_workshop_wreck.glb': 'militia_weapons_workshop (GH-277 Task 13)',
 };
 
 /**
@@ -505,8 +561,10 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
  * since `missionUnitTypes`; the sheets had not.
  *
  * With the mesh path on:
- *  - `before` deploy: a fielded type with NO mesh -- `gun_truck`, the drones,
- *    `manpad_team`, `recoilless_team` today. Their sheet IS how they draw.
+ *  - `before` deploy: a fielded type with NO mesh -- `attack_drone` and
+ *    `recon_drone` today (B0a pending; `gun_truck`, `loiter_drone`,
+ *    `manpad_team` and `recoilless_team` got theirs in B2, 2026-09-30).
+ *    Their sheet IS how they draw.
  *  - `after` the first frame: a fielded mesh VEHICLE (its death still falls
  *    back to the sheet's `wreck` sprite -- `ThreeRenderer.addWreck` excludes
  *    rigged types only) and every deferred KDF buildable (drawn as a

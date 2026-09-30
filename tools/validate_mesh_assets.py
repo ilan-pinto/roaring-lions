@@ -219,6 +219,8 @@ REPO = os.path.dirname(HERE)
 # building must still not read as some other building.
 TEXTURED_BUILDING_EXEMPT = {
     "house", "apartment", "warehouse", "clinic", "hall", "fence",
+    # GH-277 field works, militia (Q11: textured); see textured-building.ts.
+    "militia_observation_post", "militia_weapons_workshop", "militia_field_clinic",
     # The A3.2 ramp set (GH-185, 2026-09-30): the four kit/palette buildings
     # replaced by Meshy text-to-3D remeshes shipping their own 2k bakes
     # (tools/buildings/export_meshy_ramp.py). Silhouette IoU still runs.
@@ -242,6 +244,33 @@ TEXTURED_BUILDING_EXEMPT = {
 TEXTURED_VEHICLE_EXEMPT = {
     "mbt_lavi", "ifv_namer", "technical", "rocket_battery", "paramotor", "heli_peten",
     "jeep_shoded",
+    # B2 (GH-179, 2026-09-30): generated through `pnpm meshy`, ships its own
+    # remesh bake -- `tools/vehicles/export_meshy_gun_truck.py`.
+    "gun_truck",
+    # `apc_eitan` joined on 2026-09-30 (GH-286 B0a): the kit hull was replaced
+    # by a Meshy remesh shipping its own base_color bake
+    # (tools/vehicles/export_meshy_eitan.py). Its kit RWS parts carry no
+    # material and still take the palette, as the gate's repaint does anyway.
+    "apc_eitan",
+    # `apc_kipod` followed the same day, on the lead's ruling after seeing
+    # the two side by side (tools/vehicles/export_meshy_kipod.py).
+    "apc_kipod",
+}
+
+# Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
+# batch B0b). EMPTY BY DESIGN: the list exists so the first textured team GLB
+# has somewhere named to be exempt, and is filled one team at a time as each
+# one lands -- never in bulk ahead of the asset. Pinned against
+# `TEXTURED_INFANTRY_TYPES` in
+# `packages/render/src/three/units/textured-infantry.ts` by
+# `textured-infantry.test.ts`, the same way the building and vehicle sets are
+# pinned; kept as its OWN set so neither of those pinning tests has to filter
+# this class out of its exact-match assertion. The entries are GLB basenames
+# (what this gate calls `unit_id`), which for a kit.py-convention team is also
+# the unit type id the runtime list is keyed by.
+TEXTURED_INFANTRY_EXEMPT = {
+    # GH-286 batch B0b (2026-09-30): tools/units/import_meshy_kdf_team.py.
+    "at_team", "demo_squad",
     # The A3.2 ramp set (GH-185, 2026-09-30): both replaced by Meshy
     # text-to-3D remeshes shipping their own base_color bake
     # (tools/vehicles/export_meshy_ramp.py). The Shachaf's kit RWS parts
@@ -251,7 +280,9 @@ TEXTURED_VEHICLE_EXEMPT = {
 
 # The union `textured_exempt` below actually checks against -- a mesh's
 # palette exemption does not care which asset class it is.
-TEXTURED_MESH_EXEMPT = TEXTURED_BUILDING_EXEMPT | TEXTURED_VEHICLE_EXEMPT
+TEXTURED_MESH_EXEMPT = (
+    TEXTURED_BUILDING_EXEMPT | TEXTURED_VEHICLE_EXEMPT | TEXTURED_INFANTRY_EXEMPT
+)
 
 
 def textured_exempt(unit_id):
@@ -305,6 +336,13 @@ VEHICLE_OWN_SPRITES = {
     "rocket_battery": ("ROCKETBATTERY_HULL",),
     "scout_shachaf": ("SHACHAF_HULL",),
     "technical": ("TECH_HULL", "TECH_TURR"),
+    # B2 (GH-179, 2026-09-30).
+    "gun_truck": ("GUNTRUCK_HULL", "GUNTRUCK_TURR"),
+    "loiter_drone": ("DRONE_LOITER",),
+    # GH-286 B0a (2026-09-30): the two drones moved from billboard to mesh;
+    # their own sheets are `SPRITE_MAP`'s `DRONE_RECON` / `DRONE_ATTACK`.
+    "recon_drone": ("DRONE_RECON",),
+    "attack_drone": ("DRONE_ATTACK",),
 }
 
 

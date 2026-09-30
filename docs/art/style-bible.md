@@ -141,9 +141,21 @@ for everything after.* One unit, in order:
 palette vehicle, drone or crew-weapon part **25**. At the CLI's default estimate of
 $0.02/credit, that is $0.80 / $0.70 / $0.50.
 
+**Measured 2026-09-30 on the GH-277 militia buildings, ahead of B0: a remesh of a
+*refined* task KEEPS its texture** (the remesh GLB carries the 2k `base_color` plus
+normal and metallic-roughness maps -- `docs/ASSET_PROVENANCE.md`, "field works").
+The line below is kept for the record of what was unknown when this section was written.
 **Unverified until the first textured unit of B0 (the `apc_eitan`):** that remesh of a
 *refined* task keeps its texture. If it does not, step 3 moves after step 4 (refine cannot take a remesh
 task, so the fallback is `retexture`, also 10). Measure it once; do not guess twice.
+
+**Measured on B0a's `apc_eitan` (2026-09-30): a remesh of a *refined* task keeps its
+texture.** The remesh task arrived with one `BakedMaterial` -- base colour 2048, normal
+2048, metallic-roughness 4096 -- re-baked onto the remesh's own fresh UVs, so the order
+above (refine, then remesh) stands and the `retexture` fallback (10) was not needed.
+One consequence worth knowing: the CLI has no standalone `refine <preview-id>`, so a
+textured unit runs `text --refine` as ONE call (30) and the preview cannot be judged
+before the refine spends; the remesh (5) is the step that can still be withheld.
 
 **Rules that are not optional:**
 
@@ -153,8 +165,8 @@ task, so the fallback is `retexture`, also 10). Measure it once; do not guess tw
   already approved.
 - **Supplied `.blend`/`.glb` files are used as-is** unless the lead says otherwise.
 - **Zero materials in a GLB**, except named textured exemptions
-  (`TEXTURED_BUILDING_TYPES` / `TEXTURED_MESH_EXEMPT`); an infantry bake needs its
-  own named list first (Q1).
+  (`TEXTURED_BUILDING_TYPES` / `TEXTURED_MESH_EXEMPT`). Infantry has its own list,
+  `TEXTURED_INFANTRY_TYPES`, empty until B0b fills it (Q1).
 - **Every spend is in `art/meshy/ledger.jsonl`**; `pnpm meshy -- spent` answers "how
   much".
 
@@ -163,6 +175,13 @@ landed on `main` (checked 2026-09-29; this line said it had not); the A-pose fla
 landed too (`--pose a-pose`, #293); refine does not send `remove_lighting`; and
 there is no `rig` command (priced at 5 in `pricing.ts`). Until it lands, rigging runs
 in the Meshy web UI and is logged by hand.
+
+The infantry bake list has landed too (GH-286): `TEXTURED_INFANTRY_TYPES` in
+`packages/render/src/three/units/textured-infantry.ts`, mirrored by
+`TEXTURED_INFANTRY_EXEMPT` in `tools/validate_mesh_assets.py` and pinned by
+`textured-infantry.test.ts`. It is **empty by design**: B0b adds `at_team` and
+`demo_squad` to both sides in the same change that ships each GLB. Until then an
+infantry GLB that ships a texture throws at load.
 
 **Riggable figures use `--pose`.** `text` and `image` take `--pose a-pose|t-pose|none`
 (default `none`, which sends the empty `pose_mode` as before). Batch B0b of GH-286
@@ -303,8 +322,8 @@ the numbers tables and ready prompts for all five are in `meshy-prompts-units.md
 
 | batch | units | why this order | credits |
 |---|---|---|---|
-| **B0a** | `recon_drone`, `attack_drone`, `apc_eitan` | lead priority, GH-286; no rig; the Eitan is the first textured vehicle, so the refine-then-remesh texture question is measured here | 25 + 25 + 35 = 85 |
-| **B0b** | `at_team`, `demo_squad` | lead priority, GH-286; the first rigged figures; needs the A-pose CLI flag and the infantry bake list (§7 q1) | 40 + 40 = 80 |
+| **B0a** | `recon_drone`, `attack_drone`, `apc_eitan` | lead priority, GH-286; no rig; the Eitan is the first textured vehicle, so the refine-then-remesh texture question is measured here. **Ran 2026-09-30: 85 spent, every unit on its first preview** (the attack drone's unasked-for wing and the Eitan's front cannon were cut in Blender); the lead then approved one recon re-roll (+25, a military hexacopter -- Meshy returned a four-arm quadcopter, accepted as such, guards added in Blender) and, after seeing the Eitan beside it, a Meshy textured `apc_kipod` (+35): **145 spent in all, 145 consumed** | 25 + 25 + 35 = 85 (+60 rulings) |
+| **B0b** | `at_team`, `demo_squad` | lead priority, GH-286; the first rigged figures; needs the A-pose CLI flag (landed) and the infantry bake list (§7 q1, landed empty) | 40 + 40 = 80 |
 | | *B0 subtotal* | *ceiling 330: one re-roll per unit, on the lead's go only* | *165* |
 | B2 | `gun_truck`, `manpad_team`, `recoilless_team`, `loiter_drone` | closes the no-GLB list; four units because B1 folded in (the drone is the cheap one) | 35 + 40 + 40 + 25 = 140 |
 | — | *bless 1 (B0 + B2)* | | |
@@ -332,9 +351,11 @@ Each has a recommended default; the batches run on the default unless you say
 otherwise.
 
 1. **Where does a shipped infantry bake get its exemption?** GH-160 was answered
-   "ship the bakes", but infantry has no named textured list. **Default:** add
-   `TEXTURED_INFANTRY_TYPES` beside the building and vehicle lists, pinned by the
-   same Python-vs-TS test, filled one team at a time as it lands.
+   "ship the bakes". **Done:** `TEXTURED_INFANTRY_TYPES`
+   (`packages/render/src/three/units/textured-infantry.ts`) sits beside the
+   building and vehicle lists, pinned against `TEXTURED_INFANTRY_EXEMPT` in
+   `tools/validate_mesh_assets.py` by the same Python-vs-TS test. It is empty
+   now and B0b fills it one team at a time as each lands.
 2. **Does `gun_truck` ship a bake?** **Default: yes**, to match `technical` beside
    it (+10 credits). Drones stay palette-painted — at 26 px a bake buys nothing.
 3. **Crew weapons: kit geometry or new Meshy parts?** **Default: kit geometry**
@@ -385,3 +406,56 @@ otherwise.
 12. **The Eitan's remote weapon station.** **Default: kit geometry** (`kit.rws`) on a
     ring the Meshy hull is asked to leave empty, 0 credits, `turret_pivot` placed by
     measurement. A Meshy RWS part is +25.
+
+## 8. Measured in B2 (2026-09-30)
+
+- **§4's open question is closed: a Meshy remesh of a refined task keeps its
+  bake.** The gun truck's remesh (5,000 tris) arrived with base colour, normal and
+  metallic-roughness maps in one `BakedMaterial`; no `retexture` was needed and
+  the unit stayed at 35 credits.
+- **§3's team-file cap does not account for `rig.py`'s copies.** A kneeling
+  figure ships three geometries (deployed kneel, D6 standing walker, prone
+  corpse), so a Meshy figure remeshed at the bible's 2,000 would put a two-man
+  crew near 11k. B2 remeshed at 1,500 and decimated corpses to half: 7,368 and
+  8,936 tris for the two teams.
+- **A rigged figure without a bought Meshy rig works:** cut at `rig.py`'s joints,
+  rigid-bound, `rig.py`'s own clips (`tools/units/import_meshy_crew_team.py`).
+  Its cost is the four per-figure copies above and a corpse that is the A-pose
+  body laid flat rather than a posed fall.
+- **Sarim machine line, used for `loiter_drone` and proposed for §5:** "a crude
+  workshop-built machine of an irregular militia in sun-faded dusty paint with
+  rough welded seams".
+- **Meshy honours the silhouette, not the angle or the count.** The gun truck's
+  "28 degrees" came back at 7.6 (fixed in Blender about the trunnion); the drone's
+  "two wingtip fins" came back as one tail fin, its "pusher" prop on the nose,
+  plus landing gear; the MANPAD figure's head wrap came back as a bare head.
+  Every one was fixed in Blender rather than re-rolled.
+
+## 9. Measured in B0b (2026-09-30, GH-286)
+
+- **A figure team costs 35, not 40.** The Meshy rig (step 5) was not bought
+  for either team: a remesh cut into `rig.py`'s parts and rigid-bound is driven
+  by `rig.py`'s own clips (`tools/units/import_meshy_kdf_team.py`), so the
+  5 credits buy nothing this pipeline uses. 70 spent against 80 approved.
+- **The refine's bake survives the remesh** (§4's open question): both 2,000-tri
+  remeshes arrived with base colour, normal and metallic-roughness maps. Only the
+  base colour ships, at 1024 / JPEG q85 (the infantry table's "ask 2048, ship
+  1024"); `pnpm encode:meshes` takes a team file from ~1.0 MiB to 312 KiB.
+- **A textured figure and palette kit weapons share one GLB.**
+  `buildMeshUnitTemplate` decides per MESH, so `uniform`/`boot`/`face` carry the
+  bake while `weapon`/`metal`/`charge` take the faction ramp. The blob joints that
+  hide a rigid cut are given the bake too (UVs pinned to the nearest face of the
+  part they cover), which keeps each role to one primitive and one material.
+- **§3's per-figure target holds at 2,000 for a team with no D6 walker:** the
+  two B0b teams ship 6,754 and 6,828 tris (kneel + standing + two half-decimated
+  corpses + kit weapons), under the 8,000 file cap. A team whose kneeling crew
+  walks on a walker would not fit at 2,000 (B2 remeshed at 1,500 for that reason).
+- **Meshy's A-pose is not straight.** Both figures came back with elbows bent and
+  palms turned up (arm axis 71–78° from vertical). Hung as one rigid unit per arm
+  the hands flare at the wrist; readable at gameplay zoom, visible at 2.5.
+- **Kit positions written for `kit.py`'s proportions need re-measuring on a
+  Meshy figure:** `rig._at_extras`' tube at z 1.02 sat at the kneeling Meshy
+  gunner's chin (his measured shoulder ring is lower than the kit's), so the
+  importer places it at the measured shoulder + the kit's own 0.175 offset; the
+  kit rifle's chest anchor assumed bent arms, so it is held level at the hung
+  hand instead.

@@ -9,10 +9,21 @@ front on 29 Sep: `recon_drone`, `attack_drone`, `at_team`, `demo_squad`, `apc_ei
 Every prompt is the §5 template with its slots filled and nothing added between them;
 the numbers above each prompt are what the lead approves **before any Meshy call**.
 
-**Nothing here has been sent to Meshy.** No API call and no render was made writing
-this page; the credit figures come from `pnpm meshy -- estimate` (no API call) and
-`pricing.ts`. Every call is announced with its estimate when its turn comes and waits
-for the lead's go (`style-bible.md` §4).
+**B0a's three prompts (sections 1, 2 and 5) were sent verbatim on 2026-09-30**, one
+preview each, on the lead's go; task ids, what Blender then did, and the silhouette
+numbers are in `docs/ASSET_PROVENANCE.md` ("Batch B0a units"). The attack drone's
+preview came back with a delta wing it was not asked for (cut in Blender -- section 2's
+warning was right), the Eitan's with a small cannon on the front deck (collapsed in
+Blender), and the recon drone's as a clean consumer-style quadcopter the lead judged
+short on combat look, so it took the one re-roll B0's ceiling allows: the lead asked
+for a military hexacopter (six guarded rotors, mast, gimballed ball, rails, battery
+pack, "not a smooth consumer drone" -- the prompt is `prompt_recon_v2.txt` in the run's
+scratchpad and in the ledger), Meshy returned a four-arm quadcopter with the rest of
+the brief present, and the lead accepted it with rotor guards added in Blender. The
+Kipod (section 6) followed the same day. Sections 3 and 4 (B0b) are still unsent; the credit figures
+come from `pnpm meshy -- estimate` (no API call) and `pricing.ts`, and every call is
+announced with its estimate when its turn comes and waits for the lead's go
+(`style-bible.md` §4).
 
 ## Costs, confirmed
 
@@ -231,3 +242,202 @@ set the `turret_pivot` at the bounding-box centre of the RWS geometry **read bac
 the exported GLB** (the shipped pivot sits near glTF (−1.12, 2.80, 0.03) and must not be
 copied), then `pnpm wreck:meshes`, `pnpm validate:meshes`, `pnpm encode:meshes -- --check`,
 and look at it at zoom 1.0 beside `mbt_lavi` and `apc_kipod` in `?sandbox`.
+
+## 6. `apc_kipod` — Kipod Screen Carrier (KDF, wheeled 6x6, seats six)
+
+Added 2026-09-30 on the lead's ruling after seeing the B0a Eitan in the sandbox ("the
+kipod looks terrible" beside it): the kit-built Kipod (`author_apc_kipod.py`, 808 tris,
+palette-painted) is replaced by a Meshy textured vehicle on the Eitan's process, 35
+credits. Before: `art/meshes/vehicles/apc_kipod.glb`, bounds 7.2 × 3.18 × 3.14 m, no
+`turret_pivot` (its `remote_mg` was a fixed pintle), clips `idle, wreck`.
+
+| item | number | source |
+|---|---|---|
+| class | textured vehicle, **35** credits (preview 20 + refine 10 + remesh 5) | bible §4 |
+| real size | **7.2 m** hull length — `KIPOD_HULL/manifest.json` `realMetres`, read at export time; scale uniformly | `render_apc_kipod.py` |
+| size class | `heavy_vehicle`, ×1.0 | `dimetric.py` |
+| remesh / cap | **8,000** / **10,000**, as the Eitan | §5 above |
+| bake | **yes** — joins `TEXTURED_VEHICLE_TYPES` + `TEXTURED_VEHICLE_EXEMPT` (pinned) like the Eitan | bible §7 q8 |
+| file | `art/meshes/vehicles/apc_kipod.glb`, contract v2, `+X` forward, origin at ground centre | bible §2 |
+| pivots | **`turret_pivot`** on the roof ring, carrying `kit.rws` with `author_apc_kipod.py`'s own `RWS_SIZE` (0.85, 0.65, 0.42) and 1.0 m barrel (`kit.rws`'s barrel runs +x since the B0a fix). The mesh gets the pivot the kit build never had; `wreck-recipes.ts` gains `turretPivot` for it | lead, 2026-09-30 |
+| the vehicle class the prompt describes | a heavier 6x6 troop carrier, from the unit's own data: 6 seats behind reactive plate (`hull.era`), `remote_mg` only. `author_apc_kipod.py`'s three levers against the Eitan are kept: **three evenly spaced axles / six wheels** (Eitan: four axles, eight), **a full-length tall boxy compartment with a flat roof** (Eitan: low raked glacis, rear cab), **slab screens standing proud of the flanks** (Eitan: flush skirts) | `author_apc_kipod.py` docstring |
+| nearest neighbour | **the new `apc_eitan`** (mesh) — must stay under 0.88. The kit Kipod read 0.786 against the Meshy Eitan; the new hull profile is what keeps it there or lower. Then `ifv_namer` (0.837 to the Eitan) | `pnpm validate:meshes` |
+| ownership / death | `SPECS["apc_kipod"].mesh_owner` in `export_mesh_vehicle.py` → the new exporter; `pnpm wreck:meshes -- --id=apc_kipod` after export | as the Eitan |
+
+```
+A single low-poly game-ready six-wheeled armoured personnel carrier, a machine of a
+fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and
+military. At rest, level. Three evenly spaced axles with six large wheels, a tall boxy
+troop compartment with a flat roof running the full length of the hull, thick slab
+armour screens standing proud of both flanks above the wheels, and a small empty round
+mounting ring on the roof with no weapon fitted. Real-world scale, 7.2 metres long.
+Olive paint, gunmetal, black tyres. Plain even lighting, no baked shadows, no ground, no
+base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text
+or markings of any kind.
+```
+
+712 characters. Blender as the Eitan, through the shared spec-driven
+`tools/vehicles/export_meshy_apc.py`: scale to 7.2 m, nose measured, tyres split as
+`hull_rubber` (three axles), any unasked-for weapon removed, `turret_pivot` at the
+measured ring, `kit.rws`, textures at 2048.
+
+---
+
+# Batch B2 — `gun_truck`, `manpad_team`, `recoilless_team`, `loiter_drone`
+
+**WP-A3.1 (GH-179), batch B2 · 2026-09-30 · numbers for the lead before any spend**
+
+Same shape as B0 above: an item/number/source table per unit, then the §5
+template with its slots filled. Two facts checked on the day, both of which move
+credits **down** from the bible's 140:
+
+- **PR #307 (`TEXTURED_INFANTRY_TYPES`) is OPEN, not merged** (checked 2026-09-30
+  12:45Z). So the two figure teams ship **palette-painted**: no `--refine`, and
+  the closed ten infantry roles are cut from geometry (height bands and side, the
+  same `zfrac` bands `import_meshy_soldier_irregular.py` uses) rather than from a
+  bake. If #307 lands mid-run the bake is NOT bought retroactively — that is a
+  re-roll-class spend and waits for the lead.
+- **There is still no `rig` CLI command** (`cli.ts` USAGE, checked today), and a
+  headless session cannot drive the Meshy web UI. So the bible's step 5 (Meshy
+  humanoid rig, 5 credits) is not taken. The figures are rigged through
+  `tools/units/rig.py` exactly as the brief asks: the remeshed figure is cut into
+  rigid parts named by `PART_BONE`'s own suffixes, bound one part to one bone on
+  rig.py's own `_standing_bones`/`_kneel_bones` tables, and every clip is rig.py's
+  own keyframe table (`idle`, `move`, `fire`, `down`, `wreck`). No hand-posing, no
+  weight painting; seams are hidden with `kit.blob` joints, kit's own mechanism.
+
+| unit | class | steps | credits |
+|---|---|---|---|
+| `gun_truck` | textured vehicle | preview 20 + refine 10 + remesh 5 | 35 |
+| `manpad_team` | figure team, palette (see above) | preview 20 + remesh 5 | 25 |
+| `recoilless_team` | figure team, palette | preview 20 + remesh 5 | 25 |
+| `loiter_drone` | drone part | preview 20 + remesh 5 | 25 |
+| | | **B2 planned** | **110** (about $2.20), against the approved cap of 140 |
+
+Balance read today: 4,630 credits. Every call goes through `pnpm meshy --` with
+`--name <id>`, so each lands under `art/meshy/<id>-20260930-<task>/` and in the
+ledger. One preview per unit; anything that would need a second call STOPS that
+unit and reports.
+
+## 6. `gun_truck` — AA Gun Truck (enemy, light vehicle, textured)
+
+Today: `assets/sprites/GUNTRUCK_HULL` + `GUNTRUCK_TURR`, primitives from
+`art/src/vehicles/gun_truck.blend` (hull 6.79 model units × 0.745 m = **5.06 m**
+real, gun crest 2.86 units); no GLB. `render_gun_truck.py` is the sprite source and
+its `turret_axis (-1.65, 0)` is the mount-ring position on that hull.
+
+| item | number | source |
+|---|---|---|
+| class | textured vehicle, **35** credits | bible §4, §7 q2 (default: ships a bake, to match `technical` beside it) |
+| real size | **5.4 m long** (bible §5 worked example 1; the sprite's `realMetres` 5.058 was the primitive hull, and a pickup under a twin AA gun is a long-bed truck). Width/height fall out of the Meshy proportions and are read back from the GLB | bible §5 |
+| drawn size | real metres × 1.0 (`light_vehicle`), through `MESH_SCALE` only. The sprite's `target_scale 1.84` was a frame-fitting fix for the elevated gun and does not apply to a mesh | `mesh-vehicle.ts`, `render_gun_truck.py` |
+| remesh `--polycount` | **5,000** | bible §3, light vehicle |
+| shipped cap | **8,000** | bible §3 |
+| measured neighbours | `technical` 49,268 (legacy), `mbt_lavi` 8,346 | bible §3 |
+| bake | **yes** — `--refine --tex 2k`, shipped at `tools/vehicles/textured.py`'s 2048 ceiling. Needs `gun_truck` in **both** `TEXTURED_VEHICLE_TYPES` (`textured-vehicle.ts`) and `TEXTURED_VEHICLE_EXEMPT` (`validate_mesh_assets.py`), pinned by `textured-vehicle.test.ts`. **Measured here, not in B0a** (B0a has not landed on `main`): whether a remesh of a refined task keeps its texture. If it does not, the fallback is a Blender decimate of the refined preview to ≤ 8,000 with UVs kept — **0 extra credits**, not `retexture` (+10) | bible §4 |
+| file | `art/meshes/vehicles/gun_truck.glb`, contract v2: `hull_hull`, `hull_plate`, `hull_rubber` (tyres, by axle-disc fit as `export_meshy_truck.py`), `hull_glass` (cab glazing if separable), `turret_metal` (pedestal, cradle, twin gun — the whole mount, as `technical`'s pintle is) | contract v2, `export_meshy_truck.py` |
+| pivots | **`turret_pivot`** (`extras.rl_pivot = "turret"`) at the mount ring, measured as the bounding-box centre of the turret geometry's lowest ring **read back from the cut**, never copied from the sprite's `(-1.65, 0)`. The gun traverses at runtime; the 28° elevation is baked, no `fire` (mesh vehicles carry `idle`/`wreck` only) | contract v2 |
+| facing | `+X` forward, cab first; measured by binning vertices along the long axis (cab/bonnet mass vs bed-and-gun mass), as `export_meshy_truck.py` did — never assumed | `export_meshy_truck.py` |
+| wreck | procedural: `WRECK_RECIPES['gun_truck'] = { hull: 'wheeled', turretPivot: 'turret_pivot' }` then `pnpm wreck:meshes -- --id=gun_truck`. `wreck-pass.test.ts` pins the recipe list ("eleven") and is updated with it | `wreck-recipes.ts` |
+| silhouette | twin barrels raised at ~28°, clearly above the cab; pedestal in a drop-side bed | `render_gun_truck.py` (the elevation is load-bearing there for cab clearance; here it is the lever) |
+| nearest neighbour | **`technical`** (mesh, 5.0 m pickup with a pintle MG): the same truck class, so this is the real IoU risk. Levers: the two long barrels above the cab line, the taller pedestal, a longer bed. Then `rocket_battery` (6×6 truck, much larger) and the `GUNTRUCK_*` sprites, excluded as its own. **Unmeasured until the gate runs**; if it collides the fix is profile (barrel elevation, pedestal height), never the limit | `validate_mesh_assets.py` |
+| app wiring | `VEHICLE_UNIT_MESHES`, `VEHICLE_ROLE_PALETTE` (from `render_gun_truck.py`'s own `ROLE_PALETTE`: hull dust.1, plate dust.2, metal gunmetal.2, rubber shadow.0, glass gunmetal.3, recess shadow.1) and `render_mesh_gate.py`'s `VEHICLE_ROLE_PALETTES` — the drift test parses the Python table, and `vehicle-mesh-role.test.ts` currently uses `gun_truck` as its example of an UNKNOWN vehicle; that case moves to a name that stays unknown | `render-vfx` |
+| sandbox | `?sandbox=beit_sahwan_outskirts` base set already fields one (`sandbox-force.ts`, hostile anchor +1,−5) | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready light pickup truck carrying a twin-barrel anti-aircraft gun on a pedestal mount in the bed, a civilian vehicle crudely converted for war, sun-faded dusty paint, welded plates. At rest, level. The twin gun barrels are raised steeply at about 28 degrees, clearly taller than the cab. Real-world scale, 5.4 metres long. Faded tan paint, gunmetal gun, black tyres. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+Bible §5 worked example 1, verbatim. 555 characters.
+
+## 7. `loiter_drone` — Loitering Munition (Sarim, air, kamikaze)
+
+The Sarim one; the KDF `attack_drone` is B0a's (§2 above). Today:
+`assets/sprites/DRONE_LOITER` from `art/src/drones/loitering_munition.blend`,
+measured **1.40 m long × 1.62 m span × 0.65 m tall** (WING, FUSE_*, FIN_0/1,
+PROP_*); the manifest's `realMetres` 1.62 is the span.
+
+| item | number | source |
+|---|---|---|
+| class | drone part, **25** credits | bible §4 |
+| real size | **1.62 m wingspan, 1.40 m long** | blend measured today; sprite manifest |
+| drawn size | **×1.5 baked into the GLB** per bible §7 q10's default: **2.43 m span, 2.10 m long**; real metres recorded in the provenance line. Same call B0a takes for its two drones | bible §7 q10 |
+| remesh `--polycount` | **800** | bible §3 |
+| shipped cap | **1,000** | bible §3 |
+| bake | **no** — palette-painted | bible §7 q2 |
+| file | `art/meshes/vehicles/loiter_drone.glb`, contract v2; roles `hull` (wing + fuselage), `plate` (fins), `metal` (warhead nose, propeller and hub), `glass` (seeker lens) — from `render_loiter.py`'s own `ROLE_PALETTE` assignments; cut by geometry (nose cap, tail disc, tip fins by position) | `render_loiter.py` |
+| pivots | **none**, matching B0a's two drones: a pusher prop at 26 px does not need a `rotor_pivot`, and the sprite's idle bob is not a vehicle clip (`idle`/`wreck` reserved) | `mesh-vehicle.ts` |
+| wreck | procedural: `WRECK_RECIPES['loiter_drone'] = { hull: 'air' }` ("air lies on its side"), `pnpm wreck:meshes -- --id=loiter_drone` | `wreck-recipes.ts` |
+| faction line | the bible has no Sarim MACHINE line and the Sarim VEHICLE line ("a civilian vehicle crudely converted for war") is false of a purpose-built munition. **Proposed, in the same register as the B0 "KDF machine" line:** *"a crude workshop-built machine of an irregular militia in sun-faded dusty paint with rough welded seams"*. If the lead prefers the vehicle line verbatim, say so before the call | bible §5 |
+| silhouette | swept delta wing, slim central fuselage, blunt seeker nose, pusher prop at the tail, two small vertical wingtip fins — the existing blend's own composition | `render_loiter.py` |
+| nearest neighbour | `attack_drone`'s sprite (cylinder + cross tail; `render_attack_drone.py` records the sprites were authored apart precisely for this), `recon_drone`'s sprite (quadcopter), `paramotor` mesh (a canopy many times the size). Plan shape differs from all three, so IoU risk is **low**; the fill gate is the one to watch on a thin wing, and the same planform already clears it as a sprite | gate |
+| app wiring | `VEHICLE_UNIT_MESHES`, `VEHICLE_ROLE_PALETTE` (hull dust.1, plate dust.2, metal gunmetal.2, rubber shadow.0, glass gunmetal.3, recess shadow.1 — `render_loiter.py`), `render_mesh_gate.py`'s `VEHICLE_ROLE_PALETTES`, `VEHICLE_OWN_SPRITES['loiter_drone'] = ('DRONE_LOITER',)`. Air lift already applies to `isAir` types on the mesh path | `render-vfx` |
+| sandbox | in the base set (`sandbox-force.ts`, hostile anchor −1,0); `attack_drone` is not fielded by the sandbox, so the side-by-side capture puts the two sprites/meshes together by placing the KDF drone through the sandbox force if it can, else the drone is photographed beside the `DRONE_ATTACK` billboard | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready loitering munition drone with a swept delta wing, a crude workshop-built machine of an irregular militia in sun-faded dusty paint with rough welded seams. At rest, level. A flat swept delta wing with a slim central fuselage, a short blunt seeker nose, a two-blade pusher propeller at the tail and a small vertical fin at each wingtip. Real-world scale, 1.6 metres wingspan. Dusty tan paint, gunmetal nose, black propeller. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+617 characters. Blender: scale span to 2.43 m, nose to `+X` (measured: the seeker
+end is the blunt, narrow end; the prop disc is the wide thin end), origin at ground
+centre, split by role, trim ≤ ~10% if over 1,000.
+
+## 8. `manpad_team` — MANPAD Team (Sarim, crew 2)
+
+Today: `assets/sprites/INF_MANPAD` from `teams.manpad_team` (kit), no GLB.
+`teams.py`'s composition, kept verbatim: gunner `mpd_fire` standing at (0.16, −0.22)
+with `kit.launcher` at z 1.30, **pitch 78°**, length 0.94, radius 0.065; spotter
+`mpd_spot` **kneeling** at (−0.28, 0.30) with `kit.binoculars`.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, **25** credits (palette, no Meshy rig — see the batch header) | bible §4 |
+| base figure | **one** Meshy figure, generated `--pose a-pose`, used for both men (the bible's re-pose method); the spotter is the same remesh re-posed kneeling in code | bible §5 |
+| height | **1.74 m** (bible worked example 2). Neighbours: `sarim_rifles`/`rpg_team` Meshy figures ship at 1.614 m, kit figures at 1.80 | bible §5, `import_meshy_rpg_team.py` |
+| remesh `--polycount` | **1,500** per figure — below the bible's 2,000 on purpose: rig.py ships a kneeling figure as THREE geometry copies (deployed kneel, standing walker for `move` per design D6, prone corpse), so a 2,000 figure would put this two-man file near 11k. With corpses decimated ×0.5: ≈ 1,500 × (1 + 0.5) + 1,500 × (1 + 1 + 0.5) + tube + binos ≈ **6,900** | bible §3, `rig.py` `_add_figure` |
+| shipped cap | 8,000 per file | bible §3 |
+| footprint | `teams.py`'s anchors above, feet at z = 0, `+X` forward, within ±1.2 m | bible §2 |
+| bake | **no** (#307 open) — roles cut from geometry: `boot` below the ankle band, `face` the forward upper-head band, `keffiyeh` the head above the face band, `webbing` the front-torso relief band if it separates cleanly, else folded into `uniform`; everything else `uniform`. Roles from the closed ten in both node name and `extras.rl_role` | contract v1 |
+| rig | **rig.py**: parts cut by plane at rig.py's own joint heights (scaled 1.74/1.80) and named `{prefix}_{suffix}` from `PART_BONE` (`torso`, `hips`, `upperarm0/1`, `forearm0/1`, `thigh0/1`, `calf0/1`, `boot0/1`, `neck`, `cranium`, `face`; kneeling `thigh_r/f`, `shin_r/f`, `boot_r/f`), so `rig_parts` binds them with no table change. A-pose arms are rotated to rig.py's hanging rest about the shoulder; the kneel is the standing parts re-arranged rigidly onto `_kneel_bones`; seams get `kit.blob` joints (`knee`, `hip`, `elbow` suffixes, already in `PART_BONE`). New entries in `TEAM_FIGURES`/`SUPPORTED_TEAMS`/`TEAM_MESH_OWNER` (owner = the new importer, so `all` never overwrites it). Clips: rig.py's `idle`, `move` (spotter walks on a standing walker, D6), `fire` (launcher impulse, `weapon="launcher"`), `down`, `wreck` (rigid prone copy on `{prefix}_death_root`). Then `pnpm gait:meshes -- --id=manpad_team` | `rig.py` |
+| crew weapon | **kit geometry**: `kit.launcher` at 78° bound to `mpd_fire_forearm_R`, `kit.binoculars` bound to `mpd_spot_head` — the `_at_extras` pattern | bible §7 q3 |
+| prompt deviation | the bible's worked example asks for the tube slung on the back and separates it in Blender. **Not done here**: a remesh is one welded shell, a diagonal cylinder fused to a back cannot be cut cleanly, and both men come from the one figure so the spotter would carry one too. The tube is kit geometry (q3's default) and the figure's signature slot is a small haversack instead | bible §5 |
+| nearest neighbour | **`rpg_team`** (Meshy, standing firer with a raised tube at 38°): levers are the 78° tube and the KNEELING spotter (rpg's loader stands). Then `sarim_rifles` (three standing riflemen). IoU unmeasured until the gate runs | `teams.py` docstring |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A small worn canvas haversack slung at the left hip. Real-world scale, 1.74 metres tall. Dusty tan cloth, olive webbing, brown leather. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+564 characters.
+
+## 9. `recoilless_team` — Recoilless Team (Sarim, crew 3 in data, 2 drawn)
+
+Today: `assets/sprites/INF_RECOILLESS` from `teams.recoilless_team` (kit), no GLB.
+Composition kept verbatim: firer `rcl_fire` **kneeling** at (0.20, −0.28) with the
+short fat tube at z **0.72**, pitch 0, length 0.86, radius 0.115; loader `rcl_load`
+**kneeling** at (−0.30, 0.30) beside two spare rounds on the ground (`kit.tube`
+0.52 × 0.075 at y 0.46 / 0.60). Nobody stands — that is the team's whole lever.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, **25** credits (palette, rig.py) | bible §4 |
+| base figure | one Meshy figure, `--pose a-pose`, both men from it. Note the kit firer wore a `helmet`/regular loadout and the loader a keffiyeh; the Meshy pair are both keffiyeh irregulars | `teams.py` |
+| height | **1.72 m** (bible worked example 3) | bible §5 |
+| remesh `--polycount` | **1,500** per figure; two kneeling figures = two walkers + two corpses ≈ 1,500 × 2 × 2.5 + tube + rounds ≈ **7,900** | as `manpad_team` |
+| shipped cap | 8,000 per file | bible §3 |
+| bake / roles | as `manpad_team` (palette, geometric roles) | |
+| rig | as `manpad_team`: both figures `posture="kneeling"`, `move_posture="standing"` (walkers), firer `weapon="launcher"` so `fire` gets the launcher brace; rounds on a static `prop` bone, hidden while the crew walks (`_key_death_visibility`'s own rule) | `rig.py` |
+| crew weapon | **kit geometry**: `kit.launcher(length=0.86, radius=0.115)` LOW at z 0.72 bound to `rcl_fire_forearm_R`; `rcl_round0/1` on `prop` | bible §7 q3 |
+| nearest neighbour | **`at_team`** — `teams.py` names it: a kneeling firer with a level tube. Levers kept: tube 0.30 m lower, shorter and a third thicker, and **no upright figure** (at_team's spotter stands). B0b's Meshy `at_team` has not landed on `main`, so the gate judges against the kit `at_team.glb` today. Then `atgm_cell`/`mortar_crew` (two kneeling irregulars around a ground mount — the real look-alike risk; lever: no tripod, a horizontal tube at hip height) | `teams.py` docstrings |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A heavy bandolier of large rounds across the chest. Real-world scale, 1.72 metres tall. Dusty tan cloth, olive webbing, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+Bible §5 worked example 3, verbatim. 558 characters.
+
+## Order inside B2
+
+`gun_truck` first (the textured path, and the remesh-keeps-texture measurement),
+then `loiter_drone` (cheap, same exporter shape), then the two figure teams (one
+importer serves both). One preview each, one remesh each, gates after every unit,
+commit per unit.

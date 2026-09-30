@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready loitering munition drone with a swept delta wing, a crude workshop-built machine of an irregular militia in sun-faded dusty paint with rough welded seams. At rest, level. A flat swept delta wing with a slim central fuselage, a short blunt seeker nose, a two-blade pusher propeller at the tail and a small vertical fin at each wingtip. Real-world scale, 1.6 metres wingspan. Dusty tan paint, gunmetal nose, black propeller. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2ac-f4ba-76b2-b111-f2e797ce49d4",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 412646408,
+    "prompt": "A single low-poly game-ready loitering munition drone with a swept delta wing, a crude workshop-built machine of an irregular militia in sun-faded dusty paint with rough welded seams. At rest, level. A flat swept delta wing with a slim central fuselage, a short blunt seeker nose, a two-blade pusher propeller at the tail and a small vertical fin at each wingtip. Real-world scale, 1.6 metres wingspan. Dusty tan paint, gunmetal nose, black propeller. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790777818305,
+    "progress": 100,
+    "started_at": 1790777818313,
+    "finished_at": 1790777897872,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2ac-f4ba-76b2-b111-f2e797ce49d4/output/model.glb?Expires=4944326400&Signature=OVvQs1wlZBiWEO7bssBtw-MaO3ekq334XMjz5Z3KMFG5FdXbm9OTrptWhTgPRSHhb-utXN~xFLGZ9YfwgDLnN6zEjFMdZkdpsxtr7mTa8vFi3MLYuORAXL~g-ol2N5SNtmF6335eeP8dXMKWHzLZOU~Eu5aNov8mvdxk~dpDkH0qW-spWcot9qIKZ-sJP9~OQz6MPQ15665uF7KkBndiGH2JRCoqMtt6bRiqMo-ZK8wqTy3lNuv9BP4l-jIMfVDTwxakjGQuSw4eUVAUsbR6jVW2xLrPLOp2xsqWZiMFecgwxX-opB30d11EltA085PhcvYv7ynNxgBYAJBRnwp98Q__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2ac-f4ba-76b2-b111-f2e797ce49d4/output/preview.png?Expires=4944326400&Signature=EbD1JQWI5OLFfIXSB8Cirs07KeijVipcYrXAMa~9cGNDvpOLi5MQdXwPLzyZX1Tvb3xkO3j0oyxCUm4SKe-nU2oy-TPSal9G5Nj3pvoug8dCfDJP0ITrw4ma1tSIPrlXrcaSDf30lS-EMz~fmRJT8mWcULsUuyYWFbDr7OVHflQeV1Dp~HK3eNaCa75uYOGVmJSPPwxx1PKEz4Ky860P1hyzvv7j-6L2uKpQyMu88wX~k8xyK9mNBR9G~oSih7l9wX5Np4TMAk6smnPOzS1yK1SFCn2dWRNkyvJEc~4STFPArXpQBWB8M4jOf765CADHAqwJ5NCC9Ajb5SEcjjC15A__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790777818305,
+    "started_at": 1790777818313,
+    "finished_at": 1790777897872
+  },
+  "usd_estimated": 0.4
+}

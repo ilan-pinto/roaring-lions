@@ -119,7 +119,7 @@ describe('the infantry-team owner table', () => {
     const declared = [...(teams as RegExpExecArray)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
     const owned = [...(block as RegExpExecArray)[1].matchAll(/^\s*"([a-z_]+)":/gm)].map((m) => m[1]).sort();
     expect(owned).toEqual(declared);
-    expect(owned.length).toBe(14);
+    expect(owned.length).toBe(16);
   });
 
   it('names sniper_team as export_meshy_sniper.py, and that script writes it', () => {
