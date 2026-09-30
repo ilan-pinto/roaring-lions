@@ -109,6 +109,7 @@ sys.path.insert(0, HERE)
 
 import kit  # noqa: E402
 import rig  # noqa: E402
+import teams  # noqa: E402
 
 REPO = os.path.dirname(TOOLS)
 OUT_DIR = os.path.join(REPO, "art", "meshes")
@@ -124,6 +125,16 @@ SOURCES = {
     "militia_cell": (os.path.join(REPO, "art", "meshy", "militia-cell-*-01a0f30b", "model.glb"), 1.70),
     "rpg_team": (os.path.join(REPO, "art", "meshy", "rpg-team-*-01a0f313", "model.glb"), 1.76),
     "atgm_cell": (os.path.join(REPO, "art", "meshy", "atgm-cell-*-01a0f313", "model.glb"), 1.72),
+    # B4 (GH-179, 2026-09-30): the three remaining enemy teams, numbers in
+    # `docs/art/meshy-prompts-units.md` §13-15. The batch STOPPED before any
+    # spend -- every text-to-3d POST answered HTTP 402 with 3,735 credits
+    # showing on `balance` -- so no remesh exists yet. `<remesh>` is a
+    # deliberate non-glob placeholder: `_src` fails loudly ("found []") until
+    # the remesh task's first eight hex replace it, the way B3's were filled
+    # in as each remesh landed.
+    "mortar_crew": (os.path.join(REPO, "art", "meshy", "mortar-crew-*-<remesh>", "model.glb"), 1.68),
+    "charge_squad": (os.path.join(REPO, "art", "meshy", "charge-squad-*-<remesh>", "model.glb"), 1.72),
+    "digger_crew": (os.path.join(REPO, "art", "meshy", "digger-crew-*-<remesh>", "model.glb"), 1.66),
 }
 
 #: Teams whose GLB ships the remesh's own base-colour bake (PR #307's
@@ -138,7 +149,10 @@ SOURCES = {
 #: `TEXTURE_PX` JPEG; the refine's normal and metallic-roughness maps are
 #: dropped (a 25 px figure cannot show them, and the characters doc's own
 #: rule is "single base-colour texture").
-TEXTURED = {"militia_cell", "rpg_team", "atgm_cell"}
+TEXTURED = {"militia_cell", "rpg_team", "atgm_cell",
+            # B4: same bake path, listed here so the import keeps the material;
+            # the runtime/gate lists are edited only when each GLB ships.
+            "mortar_crew", "charge_squad", "digger_crew"}
 TEXTURE_PX = 1024
 JPEG_QUALITY = 85
 
@@ -161,7 +175,23 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 # B3: the militia preview came back bare-headed and clean-cut
                 # (the wrap AND the ragged jacket were ignored), so it wears
                 # kit's keffiyeh, coloured from its own shirt's bake.
-                "militia_cell": True, "rpg_team": False, "atgm_cell": False}
+                "militia_cell": True, "rpg_team": False, "atgm_cell": False,
+                # B4: decided per preview once one exists (bare head -> True).
+                "mortar_crew": False, "charge_squad": False, "digger_crew": False}
+
+#: charge_squad only: put kit's `vest_f`/`vest_b` slabs (the `charge` role,
+#: verbatim from `rig._charge_squad_rest`) on both men. False while the
+#: Meshy figure is asked for the padded vest itself (§14's signature); flip
+#: it if the preview ignores the vest -- the bible's fix for a missed slot.
+CHARGE_KIT_VESTS = False
+
+#: digger_crew's entrenching tool: a short `wood` handle with a `metal`
+#: blade in the kneeling man's right hand, pointed at the heap, bound to
+#: `dig_forearm_R` so it hides with the kneel root while he walks. Not a
+#: `weapon` role (mesh_gait.test.ts's WEAPON_EXEMPT: "a digger: `wood`, no
+#: `weapon` role, no `fire` clip").
+TOOL_LENGTH, TOOL_RADIUS = 0.50, 0.018
+TOOL_BLADE = (0.14, 0.10, 0.02)
 
 #: `kit.blob` topology per team. B2 used kit's default (9 sides, 3 rings: 72
 #: glTF tris a blob, ~580 a body copy). B3's numbers tables budget the
@@ -169,7 +199,9 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
 #: cap, so its joints are coarser -- 7 x 2, 42 tris -- and the two standing
 #: teams take the same so the batch reads as one register.
 BLOB_KW = {"militia_cell": dict(sides=7, rings=2), "rpg_team": dict(sides=7, rings=2),
-           "atgm_cell": dict(sides=7, rings=2)}
+           "atgm_cell": dict(sides=7, rings=2),
+           "mortar_crew": dict(sides=7, rings=2), "charge_squad": dict(sides=7, rings=2),
+           "digger_crew": dict(sides=7, rings=2)}
 
 #: Hand-bound weapon carriers get both forearms bent forward at the elbow --
 #: rest geometry like the arm hang, one rigid rotation per forearm about its
@@ -887,6 +919,29 @@ def _rifle_at_hand(prefix, joints, dx, dy):
     return rig._weapon_parts(prefix, at, yaw=yaw, posture="standing", aim=False)
 
 
+def _entrenching_tool(prefix, bones, heap_at):
+    """digger_crew's tool (see TOOL_LENGTH): the handle runs from the kneeling
+    man's right hand toward the heap, the blade sits at its far end. The hand
+    is read off the KNEELING bone table (`{prefix}_forearm_R`'s tail is the
+    dropped wrist), not the standing joints `cut_figure` measured."""
+    fb = next(b for b in bones if b[0] == f"{prefix}_forearm_R")
+    elbow, wrist = Vector(fb[2]), Vector(fb[3])
+    hand = wrist + (wrist - elbow).normalized() * HAND_REACH
+    d = (Vector(heap_at) - hand)
+    d.z = min(d.z, -0.05)            # always down into the ground, never up
+    d.normalize()
+    yaw = math.atan2(d.y, d.x)
+    pitch = math.asin(max(-1.0, min(1.0, d.z)))
+    mid = hand + d * (TOOL_LENGTH * 0.45)
+    handle = kit.tube(f"{prefix}_tool_handle", TOOL_LENGTH, TOOL_RADIUS, tuple(mid),
+                      yaw=yaw, pitch=pitch, role="wood")
+    tip = hand + d * (TOOL_LENGTH * 0.95)
+    blade = kit.rot_z(f"{prefix}_tool_blade", TOOL_BLADE, tuple(tip), yaw, "metal")
+    log(f"{prefix}: tool from hand {tuple(round(v, 3) for v in hand)} toward heap, "
+        f"yaw {math.degrees(yaw):.0f} pitch {math.degrees(pitch):.0f}")
+    return [handle, blade]
+
+
 def _kit_keffiyeh_over(parts, pfx, src):
     """kit's keffiyeh drape over the `{pfx}_cranium` part in `parts` (a dict
     or list), coloured from the same figure's shirt bake -- the bible's fix
@@ -1105,6 +1160,52 @@ def build_team(team_id):
         bones += prop_bones
         forced.update(f_post)
         parts += post
+    elif team_id == "mortar_crew":
+        # B4: the 0.76 m tube verbatim from `rig._mortar_crew_extras`, on
+        # `prop`, hidden while the crew walks -- atgm_cell's shape exactly.
+        tube, prop_bones, f_tube = rig._mortar_crew_extras()
+        bones += prop_bones
+        forced.update(f_tube)
+        parts += tube
+    elif team_id == "charge_squad":
+        # B4: `rig._charge_squad_rest`'s order, on the Meshy cut -- chg1's
+        # satchel (and, under CHARGE_KIT_VESTS, both men's vest slabs) join
+        # the figure's own parts BEFORE the sprint lean, so all of it turns
+        # together; then `teams._lean_forward` (the same call, not a copy)
+        # leans every LIVING part of each man about his own ground line.
+        # The bones stay upright, as that builder leaves them: `build_clips`
+        # budgets the gait against REST_LEAN_RAD and keys FIRE_ROOT_LEAN. The
+        # corpse (`*_death_body`) is left as cut -- prone, not sprinting.
+        extra = {s["prefix"]: [] for s in figures}
+        for spec in figures:
+            x, y = spec["x"], spec["y"]
+            if CHARGE_KIT_VESTS:
+                extra[spec["prefix"]] += [
+                    kit.rot_z(f"{spec['prefix']}_vest_f", (0.10, 0.26, 0.32), (x + 0.16, y, 0.60), 0.0, "charge"),
+                    kit.rot_z(f"{spec['prefix']}_vest_b", (0.09, 0.26, 0.28), (x - 0.15, y, 0.62), 0.0, "charge"),
+                ]   # PART_BONE: vest_f / vest_b -> spine
+            if spec["prefix"] == "chg1":
+                sat = kit.box("chg_satchel", (0.26, 0.18, 0.20), (x - 0.12, y + 0.19, 0.74), "charge")
+                forced[sat] = "chg1_spine"
+                extra[spec["prefix"]].append(sat)
+        for spec in figures:
+            pfx = spec["prefix"]
+            living = [o for o in parts if o.name.startswith(pfx + "_") and "_death" not in o.name]
+            living += extra[pfx]
+            teams._lean_forward(living, rig.CHARGE_REST_LEAN_DEG, at_x=spec["x"])
+            parts += extra[pfx]
+            log(f"{pfx}: {len(living)} living parts leaned {rig.CHARGE_REST_LEAN_DEG} deg about x={spec['x']}")
+    elif team_id == "digger_crew":
+        # B4: the spoil heap verbatim from `rig._digger_extras` on the
+        # never-keyed `ground` bone (it stays through every clip), and the
+        # entrenching tool in the kneeling man's right hand.
+        heap, ground_bones, f_heap = rig._digger_extras()
+        bones += ground_bones
+        forced.update(f_heap)
+        parts += heap
+        tool = _entrenching_tool("dig", bones, (0.36, -0.06, 0.14))
+        forced.update({ob: "dig_forearm_R" for ob in tool})
+        parts += tool
     else:
         raise SystemExit(f"no crew weapon rule for {team_id}")
 
