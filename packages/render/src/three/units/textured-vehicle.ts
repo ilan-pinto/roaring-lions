@@ -29,6 +29,9 @@
  * (`tools/vehicles/export_meshy_eitan.py`), at the 35 credits the lead
  * approved on PR #290. Its `kit.rws` weapon station carries no material and
  * draws through `rampForVehicleRole` -- the textured branch is per MESH.
+ * `apc_kipod` followed the same day on the lead's ruling after seeing the
+ * two side by side (`tools/vehicles/export_meshy_kipod.py`), same shape:
+ * textured hull and tyres, palette kit RWS on its roof ring.
  *
  * Must stay in step with `TEXTURED_VEHICLE_EXEMPT` in
  * `tools/validate_mesh_assets.py` -- these types are skipped by the palette
@@ -49,4 +52,5 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'heli_peten',
   'jeep_shoded',
   'apc_eitan',
+  'apc_kipod',
 ]);

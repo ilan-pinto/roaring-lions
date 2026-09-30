@@ -198,12 +198,16 @@ disclosed per `CONTRIBUTING.md`. Each prompt is the section 5 template filled
 exactly as written in `docs/art/meshy-prompts-units.md` and sent verbatim; the
 prompt text of every task is in the committed `art/meshy/ledger.jsonl`, keyed
 by the ids below. 85 credits planned, 85 consumed as reported by Meshy
-(`pnpm meshy -- spent`). The remesh is what ships; each preview's only role was
-to be judged and remeshed.
+(`pnpm meshy -- spent`) for the three as planned; the lead's two same-day rulings
+(the recon re-roll, 25, and the Kipod, 35) took the run to **145 spent, 145
+consumed**. The remesh is what ships; each preview's only role was to be judged
+and remeshed.
 
 | File | Draws as | Preview task id | Refine task id | Remesh task id (shipped) | Real / drawn size |
 |---|---|---|---|---|---|
-| `art/meshes/vehicles/recon_drone.glb` | `recon_drone` (KDF recon quadcopter) | `01a0f268-0a89-7526-8e24-baaf0187f64b` | -- (palette-painted) | `01a0f26b-176a-75a8-a73c-2b5cffb3a701` (800 target, 797 shipped) | 0.9 m across; **drawn 1.35 m**, `SIZE_CLASS["air"]` x1.5 baked into the GLB (lead, PR #290) |
+| `art/meshes/vehicles/recon_drone.glb` | `recon_drone` (KDF recon quadcopter, **v2 -- the accepted re-roll**) | `01a0f292-52ff-715e-b359-57a5af7c3347` | -- (palette-painted) | `01a0f2aa-d9cc-7210-8289-3256750c1dec` (800 target, 785 + 96 guard-ring tris = 881 shipped) | 0.9 m across; **drawn 1.35 m**, `SIZE_CLASS["air"]` x1.5 baked into the GLB (lead, PR #290) |
+| *(retired 2026-09-30, same day)* `recon_drone` v1 | -- | `01a0f268-0a89-7526-8e24-baaf0187f64b` | -- | `01a0f26b-176a-75a8-a73c-2b5cffb3a701` (797) | the first, consumer-style quadcopter; superseded by v2 above |
+| `art/meshes/vehicles/apc_kipod.glb` | `apc_kipod` (KDF 6x6 screen carrier), replacing the kit hull -- the lead's follow-up after seeing the Eitan beside it | `01a0f2ac-f465-7172-aef7-0fcdb64f3f7a` | `01a0f2ae-970b-779d-9b4d-e55d2802ad95` (2k) | `01a0f2b4-c107-72f6-9e22-87fd1836afcf` (8,000 target, 8,052 shipped incl. the kit RWS) | 7.2 m long (`KIPOD_HULL` manifest), x1.0 |
 | `art/meshes/vehicles/attack_drone.glb` | `attack_drone` (KDF loitering munition) | `01a0f26b-85b1-77c6-8b52-db4616992ff2` | -- (palette-painted) | `01a0f26d-a93b-758f-87a0-631462cd6617` (800 target, 706 shipped after the wing cut) | 1.05 m long; **drawn 1.575 m**, same x1.5 |
 | `art/meshes/vehicles/apc_eitan.glb` | `apc_eitan` (KDF 8x8 APC), replacing the kit hull | `01a0f26e-3308-73bd-96b5-3cc85edcadfd` | `01a0f26f-63b4-77e3-88b8-cfc19c47b0d5` (2k) | `01a0f272-a1ff-72dd-b418-2d1f4c099595` (8,000 target, 7,961 shipped incl. the kit RWS) | 7.129 m long (`EITAN_HULL` manifest), x1.0 |
 
@@ -215,15 +219,34 @@ What Blender did to each, so the shipped file can be read against its source
   (body, arms, legs), `hull_metal` (rotors, motor tops, prop guards) and
   `hull_glass` (the camera ball). Zero materials. Nearest silhouettes at 64 px:
   `technical` mesh 0.384, `DRONE_LOITER` sprite 0.325, `attack_drone` 0.273.
-  **The lead judged this preview short on combat look and approved one re-roll
-  (a military hexacopter, +25).** That preview was spent the same day -- task
-  `01a0f292-52ff-715e-b359-57a5af7c3347`, prompt in the ledger -- and came
-  back as a four-arm quadcopter with no rotor guards (angular body, mast,
-  gimballed ball, side rails and legs all present), so under the one-preview
-  rule the work STOPPED there: its 5-credit remesh is unspent, this file's
-  ids still ship, and the lead decides between remeshing that preview and a
-  further re-roll. Its `task.json` and thumbnail are committed beside the
-  others.
+  **The lead judged this v1 preview short on combat look and approved one
+  re-roll (a military hexacopter, +25).** That preview came back as a
+  four-arm quadcopter with no rotor guards (angular body, mast, gimballed
+  ball, side rails and legs all present); the work stopped, and the lead
+  then **accepted it as the quadcopter**: remeshed (5), fitted with the same
+  numbers (x1.5, Rz as measured -- the preview's mast at y +0.36 and ball at
+  y -0.19 put the nose at -Y), and given the guards Meshy left out as four
+  flat 12-segment `metal` rings just outside the blade tips
+  (`_recon_guards`, 24 tris each, keeping the file at 881 under the
+  1,000 cap). The remesh dropped the mast, as it drops every whip. v2
+  ships; v1's ids above are retired. v2 IoU: `attack_drone` 0.267,
+  `DRONE_LOITER` sprite 0.331, `DRONE_ATTACK` sprite 0.201; nearest anything
+  `yahalom_engineer` 0.308.
+- **`apc_kipod`** -- same process as the Eitan, through the shared
+  `tools/vehicles/export_meshy_apc.py` (the Eitan re-exported through it
+  byte-identically when the code moved). Prompt and numbers table:
+  `docs/art/meshy-prompts-units.md` section 6. The preview delivered six
+  wheels on three evenly spaced axles, a tall boxy full-length compartment
+  and a large empty roof ring (1.25 m across -- "small" did not land); its
+  front-roof gun and whip antenna were dropped by the remesh itself, but two
+  thin flank-mounted barrels survive in the bake on the left side and are
+  left as they are (thin, hull-side, not a roof weapon). Blender: nose -X ->
+  +X, scaled to `KIPOD_HULL`'s 7.2 m, tyres split as `hull_rubber` (axles at
+  source x -0.614 / -0.027 / +0.506, radius 0.215), `turret_pivot` on the
+  ring at (-1.24, 0.00, 3.45) m with `kit.rws` at `author_apc_kipod.py`'s
+  own mount size. Footprint 7.2 x 3.72 m, 3.87 m tall with RWS. Nearest
+  silhouettes: **`apc_eitan` 0.819** (the pair the lead asked about),
+  `ifv_namer` 0.782, `rocket_battery` 0.725, `dozer_d9` 0.724.
 - **`attack_drone`** -- the preview delivered the prompt's cylinder, nose pod and
   cross tail AND an unasked-for swept delta wing (the Sarim `loiter_drone`'s
   plan). Per the bible ("a wrong preview is fixed in Blender") the 35 wing

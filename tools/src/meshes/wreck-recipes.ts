@@ -42,7 +42,9 @@ export interface WreckRecipe {
  */
 export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   apc_eitan: { hull: 'wheeled', turretPivot: 'turret_pivot' },
-  apc_kipod: { hull: 'wheeled' },
+  // The Meshy Kipod (2026-09-30) carries a `turret_pivot` for its kit RWS;
+  // the kit build it replaced had a fixed pintle and no pivot.
+  apc_kipod: { hull: 'wheeled', turretPivot: 'turret_pivot' },
   dozer_d9: { hull: 'tracked' },
   heli_peten: { hull: 'air', rotorPivot: 'rotor_pivot' },
   ifv_namer: { hull: 'tracked', turretPivot: 'turret_pivot' },

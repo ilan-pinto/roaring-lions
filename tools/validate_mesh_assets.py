@@ -241,6 +241,9 @@ TEXTURED_VEHICLE_EXEMPT = {
     # (tools/vehicles/export_meshy_eitan.py). Its kit RWS parts carry no
     # material and still take the palette, as the gate's repaint does anyway.
     "apc_eitan",
+    # `apc_kipod` followed the same day, on the lead's ruling after seeing
+    # the two side by side (tools/vehicles/export_meshy_kipod.py).
+    "apc_kipod",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's

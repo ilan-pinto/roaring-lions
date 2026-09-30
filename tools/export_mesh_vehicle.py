@@ -213,7 +213,14 @@ SPECS = {
         # for the reason given on scout_shachaf above.
         sprite_manifest=os.path.join(REPO, "assets", "sprites", "KIPOD_HULL", "manifest.json"),
         credit="Screen carrier APC -- authored from primitives for this repository, CC BY-SA 4.0",
-        mesh_owner=MESH_KIT_OWNED,
+        mesh_owner=(
+            "tools/vehicles/export_meshy_kipod.py -- art/meshes/vehicles/apc_kipod.glb "
+            "has been a Meshy text-to-3D remesh with its own base_color bake since "
+            "2026-09-30 (the lead's follow-up to GH-286 B0a), and has taken the vehicle "
+            "wreck pass. This spec is kept because the primitive build is the reference "
+            "the replacement was measured against -- point it at your own output path "
+            "to rebuild it."
+        ),
     ),
 }
 DEFAULT_UNIT = "apc_eitan"

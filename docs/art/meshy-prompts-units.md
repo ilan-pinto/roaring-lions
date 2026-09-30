@@ -15,8 +15,12 @@ numbers are in `docs/ASSET_PROVENANCE.md` ("Batch B0a units"). The attack drone'
 preview came back with a delta wing it was not asked for (cut in Blender -- section 2's
 warning was right), the Eitan's with a small cannon on the front deck (collapsed in
 Blender), and the recon drone's as a clean consumer-style quadcopter the lead judged
-short on combat look, so it takes the one re-roll B0's ceiling allows (a military
-hexacopter, section 1a). Sections 3 and 4 (B0b) are still unsent; the credit figures
+short on combat look, so it took the one re-roll B0's ceiling allows: the lead asked
+for a military hexacopter (six guarded rotors, mast, gimballed ball, rails, battery
+pack, "not a smooth consumer drone" -- the prompt is `prompt_recon_v2.txt` in the run's
+scratchpad and in the ledger), Meshy returned a four-arm quadcopter with the rest of
+the brief present, and the lead accepted it with rotor guards added in Blender. The
+Kipod (section 6) followed the same day. Sections 3 and 4 (B0b) are still unsent; the credit figures
 come from `pnpm meshy -- estimate` (no API call) and `pricing.ts`, and every call is
 announced with its estimate when its turn comes and waits for the lead's go
 (`style-bible.md` §4).
@@ -238,3 +242,41 @@ set the `turret_pivot` at the bounding-box centre of the RWS geometry **read bac
 the exported GLB** (the shipped pivot sits near glTF (−1.12, 2.80, 0.03) and must not be
 copied), then `pnpm wreck:meshes`, `pnpm validate:meshes`, `pnpm encode:meshes -- --check`,
 and look at it at zoom 1.0 beside `mbt_lavi` and `apc_kipod` in `?sandbox`.
+
+## 6. `apc_kipod` — Kipod Screen Carrier (KDF, wheeled 6x6, seats six)
+
+Added 2026-09-30 on the lead's ruling after seeing the B0a Eitan in the sandbox ("the
+kipod looks terrible" beside it): the kit-built Kipod (`author_apc_kipod.py`, 808 tris,
+palette-painted) is replaced by a Meshy textured vehicle on the Eitan's process, 35
+credits. Before: `art/meshes/vehicles/apc_kipod.glb`, bounds 7.2 × 3.18 × 3.14 m, no
+`turret_pivot` (its `remote_mg` was a fixed pintle), clips `idle, wreck`.
+
+| item | number | source |
+|---|---|---|
+| class | textured vehicle, **35** credits (preview 20 + refine 10 + remesh 5) | bible §4 |
+| real size | **7.2 m** hull length — `KIPOD_HULL/manifest.json` `realMetres`, read at export time; scale uniformly | `render_apc_kipod.py` |
+| size class | `heavy_vehicle`, ×1.0 | `dimetric.py` |
+| remesh / cap | **8,000** / **10,000**, as the Eitan | §5 above |
+| bake | **yes** — joins `TEXTURED_VEHICLE_TYPES` + `TEXTURED_VEHICLE_EXEMPT` (pinned) like the Eitan | bible §7 q8 |
+| file | `art/meshes/vehicles/apc_kipod.glb`, contract v2, `+X` forward, origin at ground centre | bible §2 |
+| pivots | **`turret_pivot`** on the roof ring, carrying `kit.rws` with `author_apc_kipod.py`'s own `RWS_SIZE` (0.85, 0.65, 0.42) and 1.0 m barrel (`kit.rws`'s barrel runs +x since the B0a fix). The mesh gets the pivot the kit build never had; `wreck-recipes.ts` gains `turretPivot` for it | lead, 2026-09-30 |
+| the vehicle class the prompt describes | a heavier 6x6 troop carrier, from the unit's own data: 6 seats behind reactive plate (`hull.era`), `remote_mg` only. `author_apc_kipod.py`'s three levers against the Eitan are kept: **three evenly spaced axles / six wheels** (Eitan: four axles, eight), **a full-length tall boxy compartment with a flat roof** (Eitan: low raked glacis, rear cab), **slab screens standing proud of the flanks** (Eitan: flush skirts) | `author_apc_kipod.py` docstring |
+| nearest neighbour | **the new `apc_eitan`** (mesh) — must stay under 0.88. The kit Kipod read 0.786 against the Meshy Eitan; the new hull profile is what keeps it there or lower. Then `ifv_namer` (0.837 to the Eitan) | `pnpm validate:meshes` |
+| ownership / death | `SPECS["apc_kipod"].mesh_owner` in `export_mesh_vehicle.py` → the new exporter; `pnpm wreck:meshes -- --id=apc_kipod` after export | as the Eitan |
+
+```
+A single low-poly game-ready six-wheeled armoured personnel carrier, a machine of a
+fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and
+military. At rest, level. Three evenly spaced axles with six large wheels, a tall boxy
+troop compartment with a flat roof running the full length of the hull, thick slab
+armour screens standing proud of both flanks above the wheels, and a small empty round
+mounting ring on the roof with no weapon fitted. Real-world scale, 7.2 metres long.
+Olive paint, gunmetal, black tyres. Plain even lighting, no baked shadows, no ground, no
+base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text
+or markings of any kind.
+```
+
+712 characters. Blender as the Eitan, through the shared spec-driven
+`tools/vehicles/export_meshy_apc.py`: scale to 7.2 m, nose measured, tyres split as
+`hull_rubber` (three axles), any unasked-for weapon removed, `turret_pivot` at the
+measured ring, `kit.rws`, textures at 2048.
