@@ -376,3 +376,28 @@ depends on someone remembering is provenance that eventually fails.
    exception** — that remains the project lead's call. Full method, per-file
    numbers, and the Blender scripts used are in
    `.superpowers/queue/blend-size-report.md`.
+
+---
+
+## WP-A3.1 batch B2 — the first units generated through `pnpm meshy` (GH-179)
+
+Four units, 2026-09-30, all Meshy **text-to-3D** through the CLI (`pnpm meshy`),
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl` (110 credits consumed against the 140 the lead
+approved). Prompts, numbers tables and the per-unit decisions are in
+`docs/art/meshy-prompts-units.md` §6–9. The downloaded `model.glb` sources sit
+under `art/meshy/<slug>-20260930-<task>/` and are **not committed** (the gun
+truck's refine folder alone is 359 MB across six formats); the ledger, each
+folder's `task.json` and thumbnail are. The task ids below are the provenance.
+
+| File | Draws as | Preview task id | Refine / remesh task id (shipped) | Notes |
+|---|---|---|---|---|
+| `art/meshes/vehicles/gun_truck.glb` | `gun_truck` (AA Gun Truck, enemy) | `01a0f2a6-bc37-7461-9b4f-4919d0ff1606` | refine `01a0f2a8-35a9-701b-b1a0-ccdeca412e1b` (2k), remesh `01a0f2ac-4384-735a-b5e1-0350426f017c` at 5,000 | **Textured** (`TEXTURED_VEHICLE_TYPES`): ships the remesh's own 2048 base-colour, normal and metallic-roughness bake. Measured here: a remesh of a refined task keeps its bake. 4,857 tris; 5.4 m long × 2.82 m wide × 2.79 m tall (barrels raised 20° in Blender to the bible's ~28°, the preview came back at 7.6°); `turret_pivot` at the pedestal foot; hull/turret cut by geometry, glass by the bake's luminance. `tools/vehicles/export_meshy_gun_truck.py`, then `pnpm wreck:meshes`. |
+| `art/meshes/vehicles/loiter_drone.glb` | `loiter_drone` (Loitering Munition, Sarim) | `01a0f2ac-f4ba-76b2-b111-f2e797ce49d4` | remesh `01a0f2af-af1e-7008-8287-3bd290e63791` at 800 | Palette-painted, zero materials. Real span **1.62 m**, shipped at ×1.5 = 2.43 m (bible §7 q10; the mesh path has no `SIZE_CLASS` air multiplier). 630 tris after cutting the preview's uninvited tricycle landing gear; the preview's nose prop and single tail fin were kept. `tools/vehicles/export_meshy_loiter_drone.py`. |
+| `art/meshes/manpad_team.glb` | `manpad_team` (MANPAD Team, Sarim) | `01a0f2ac-f4e5-7632-8b48-d8813d50890c` (`--pose a-pose`) | remesh `01a0f2af-b00a-715f-9b29-424e409d471a` at 1,500 | Palette-painted (PR #307's `TEXTURED_INFANTRY_TYPES` was open; no refine bought). ONE figure, 1.74 m, used for both men: cut into `rig.py` parts and driven by `rig.py`'s own clips (`idle`, `move`, `fire`, `down`, `wreck`) — `tools/units/import_meshy_crew_team.py`. The preview ignored the head wrap, so the man wears `kit.keffiyeh`. Tube and binoculars are kit geometry. 7,368 tris (kneel + walker + corpse per kneeling figure). |
+| `art/meshes/recoilless_team.glb` | `recoilless_team` (Recoilless Team, Sarim) | `01a0f2ac-f5b1-7146-b3e3-73be95e86ff2` (`--pose a-pose`) | remesh `01a0f2af-b122-75c8-bbe1-9c9da39e1aa2` at 1,500 | As `manpad_team`: one hooded figure, 1.72 m, both crew kneeling, tube and rounds kit geometry. 8,936 tris. |
+
+No Meshy rig was bought for either team: the CLI has no `rig` command and a
+headless session cannot drive the web UI, so the figures are rigid-bound to
+`rig.py`'s bone tables exactly as `kit.py` figures are (no hand-posing, no
+weight painting; `kit.blob` joints hide the cut seams).
