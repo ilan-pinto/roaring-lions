@@ -29,4 +29,11 @@
  * `pnpm validate:meshes` and named on a `NOT palette-checked` line; the
  * silhouette IoU check still runs.
  */
-export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([]);
+export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
+  // GH-286 batch B0b (2026-09-30): the first two Meshy-textured figure
+  // teams, built by tools/units/import_meshy_kdf_team.py. Each ships its
+  // remesh's 1024 base-colour bake on the figure roles (uniform, boot,
+  // face); the kit weapon roles in the same GLB carry no map and still take
+  // the faction ramp.
+  'at_team',
+]);
