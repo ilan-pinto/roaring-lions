@@ -238,9 +238,24 @@ TEXTURED_VEHICLE_EXEMPT = {
     "jeep_shoded",
 }
 
+# Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
+# batch B0b). EMPTY BY DESIGN: the list exists so the first textured team GLB
+# has somewhere named to be exempt, and is filled one team at a time as each
+# one lands -- never in bulk ahead of the asset. Pinned against
+# `TEXTURED_INFANTRY_TYPES` in
+# `packages/render/src/three/units/textured-infantry.ts` by
+# `textured-infantry.test.ts`, the same way the building and vehicle sets are
+# pinned; kept as its OWN set so neither of those pinning tests has to filter
+# this class out of its exact-match assertion. The entries are GLB basenames
+# (what this gate calls `unit_id`), which for a kit.py-convention team is also
+# the unit type id the runtime list is keyed by.
+TEXTURED_INFANTRY_EXEMPT = set()
+
 # The union `textured_exempt` below actually checks against -- a mesh's
 # palette exemption does not care which asset class it is.
-TEXTURED_MESH_EXEMPT = TEXTURED_BUILDING_EXEMPT | TEXTURED_VEHICLE_EXEMPT
+TEXTURED_MESH_EXEMPT = (
+    TEXTURED_BUILDING_EXEMPT | TEXTURED_VEHICLE_EXEMPT | TEXTURED_INFANTRY_EXEMPT
+)
 
 
 def textured_exempt(unit_id):

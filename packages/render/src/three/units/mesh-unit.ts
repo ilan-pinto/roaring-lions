@@ -35,7 +35,7 @@ import { gltfLoader } from './gltf-loader';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
-import { rampMaterial } from '../world-materials';
+import { rampMaterial, texturedMaterial } from '../world-materials';
 import { isMeshRole, rampForRole, type MeshFaction } from './mesh-role';
 import {
   isMeshClipName,
@@ -116,7 +116,14 @@ export function buildMeshUnitTemplate(
    * parameter buys a better message, and making it mandatory would have been
    * a churn cost paid by callers that never warn.
    */
-  label = '(unnamed glb)'
+  label = '(unnamed glb)',
+  /**
+   * The caller's answer to `TEXTURED_INFANTRY_TYPES.has(unitTypeId)` -- see
+   * `units/textured-infantry.ts`. Defaults to `false`, like
+   * `buildVehicleMeshTemplate`'s: a mesh that ships a texture for a team not
+   * on the list throws rather than being silently repainted over.
+   */
+  allowTextured = false
 ): MeshUnitTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
@@ -124,12 +131,32 @@ export function buildMeshUnitTemplate(
   const materials: THREE.Material[] = [];
   const geometries: THREE.BufferGeometry[] = [];
   const unmapped = new Set<string>();
+  const smuggled = new Set<string>();
 
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     const extrasRole = (mesh.userData as { rl_role?: unknown }).rl_role;
     const role = typeof extrasRole === 'string' && extrasRole.length > 0 ? extrasRole : mesh.name;
+    // The per-MESH textured opt-out, checked BEFORE the role: a textured mesh
+    // needs no ramp. Mirrors `buildVehicleMeshTemplate`'s identical block.
+    const loaded = mesh.material as THREE.Material | undefined;
+    const loadedMap =
+      loaded && 'map' in loaded ? ((loaded as { map?: THREE.Texture | null }).map ?? null) : null;
+    if (loadedMap) {
+      if (!allowTextured) {
+        smuggled.add(role || '(unnamed mesh)');
+        return;
+      }
+      const textured = texturedMaterial(loaded as THREE.Material);
+      mesh.material = textured;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.renderOrder = HULL_RENDER_ORDER;
+      if (!materials.includes(textured)) materials.push(textured);
+      geometries.push(mesh.geometry);
+      return;
+    }
     if (!isMeshRole(role)) {
       unmapped.add(role || '(unnamed mesh)');
       return;
@@ -143,6 +170,13 @@ export function buildMeshUnitTemplate(
     geometries.push(mesh.geometry);
   });
 
+  if (smuggled.size > 0) {
+    throw new Error(
+      `mesh-unit: ${label}: ${[...smuggled].join(', ')} ships a texture, but the team is not in ` +
+        `TEXTURED_INFANTRY_TYPES (textured-infantry.ts). Add it there and to TEXTURED_INFANTRY_EXEMPT ` +
+        `in tools/validate_mesh_assets.py, or export the GLB without materials.`
+    );
+  }
   if (unmapped.size > 0) {
     throw new Error(`mesh-unit: no ramp for rl_role ${[...unmapped].join(', ')}`);
   }
@@ -179,10 +213,11 @@ export function buildMeshUnitTemplate(
  */
 export async function loadMeshUnitTemplate(
   glbUrl: string,
-  faction: MeshFaction
+  faction: MeshFaction,
+  allowTextured = false
 ): Promise<MeshUnitTemplate> {
   const gltf = await gltfLoader().loadAsync(glbUrl);
-  return buildMeshUnitTemplate(gltf, faction, glbUrl);
+  return buildMeshUnitTemplate(gltf, faction, glbUrl, allowTextured);
 }
 
 /** One living entity's mesh instance: an independent clone (own skeleton,
