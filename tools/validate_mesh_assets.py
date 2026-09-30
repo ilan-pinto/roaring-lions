@@ -243,6 +243,14 @@ TEXTURED_VEHICLE_EXEMPT = {
     # B2 (GH-179, 2026-09-30): generated through `pnpm meshy`, ships its own
     # remesh bake -- `tools/vehicles/export_meshy_gun_truck.py`.
     "gun_truck",
+    # `apc_eitan` joined on 2026-09-30 (GH-286 B0a): the kit hull was replaced
+    # by a Meshy remesh shipping its own base_color bake
+    # (tools/vehicles/export_meshy_eitan.py). Its kit RWS parts carry no
+    # material and still take the palette, as the gate's repaint does anyway.
+    "apc_eitan",
+    # `apc_kipod` followed the same day, on the lead's ruling after seeing
+    # the two side by side (tools/vehicles/export_meshy_kipod.py).
+    "apc_kipod",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -319,6 +327,10 @@ VEHICLE_OWN_SPRITES = {
     # B2 (GH-179, 2026-09-30).
     "gun_truck": ("GUNTRUCK_HULL", "GUNTRUCK_TURR"),
     "loiter_drone": ("DRONE_LOITER",),
+    # GH-286 B0a (2026-09-30): the two drones moved from billboard to mesh;
+    # their own sheets are `SPRITE_MAP`'s `DRONE_RECON` / `DRONE_ATTACK`.
+    "recon_drone": ("DRONE_RECON",),
+    "attack_drone": ("DRONE_ATTACK",),
 }
 
 
