@@ -17,8 +17,16 @@ because each drone has TWO directories under `art/meshy/` (the preview and the
 remesh) and only the ledger says which is the shipped one. Both AI-generated
 (Meshy), disclosed per CONTRIBUTING.md; task ids in `docs/ASSET_PROVENANCE.md`.
 
-  recon_drone   preview 01a0f268-0a89-7526-8e24-baaf0187f64b
-                remesh  01a0f26b-176a-75a8-a73c-2b5cffb3a701  (797 tris)
+  recon_drone   v1 preview 01a0f268-0a89-7526-8e24-baaf0187f64b, remesh
+                01a0f26b-176a-75a8-a73c-2b5cffb3a701 (797 tris) -- RETIRED.
+                The lead judged v1 short on combat look and approved one
+                re-roll toward a military hexacopter; the re-roll came back a
+                four-arm quadcopter with an angular body, mast, gimballed
+                ball, side rails and legs, and the lead ACCEPTED it as the
+                quadcopter (2026-09-30):
+                v2 preview 01a0f292-52ff-715e-b359-57a5af7c3347, remesh
+                01a0f2aa-d9cc-7210-8289-3256750c1dec (785 tris). The remesh
+                dropped the thin antenna mast, as it dropped the Eitan's.
   attack_drone  preview 01a0f26b-85b1-77c6-8b52-db4616992ff2
                 remesh  01a0f26d-a93b-758f-87a0-631462cd6617  (734 tris)
 
@@ -37,10 +45,9 @@ reason `export_mesh_vehicle.py` reads a manifest rather than a literal.
 
 ORIENTATION, measured rather than assumed (2026-09-30, on the remesh):
 
-  recon_drone   body's horizontal principal axis is Y (88 deg); the camera
-                ball -- a ROUND blob in a top-down map of everything hanging
-                below the body floor, against the flat battery box at the
-                other end -- sits at y = -0.37, so the nose is -Y. Rz(+90).
+  recon_drone   (v2) the preview's antenna mast sits at y +0.36 and the
+                gimballed ball at y -0.19, so the nose is -Y. Rz(+90). (v1
+                measured the same way, by ball against battery box.)
   attack_drone  principal axis X; the radial extent tapers to 0.12 at -X (the
                 nose pod) and opens to 0.55 at +X (the cross tail), so the
                 nose is -X. Rz(180).
@@ -64,12 +71,12 @@ ROLES. One remeshed mesh per drone, split by face-centroid geometry into the
 vehicle vocabulary (`tools/vehicles/kit.py` ROLES), the split named in the
 numbers tables:
 
-  recon_drone   metal  rotors, motor tops and prop guards: r > 0.50 from the
-                       body centre AND z > 0.16 (the arms sit at z 0.00-0.15;
-                       the body's own end panels reach r 0.45 and stay hull)
-                glass  the camera ball: within 0.17 of its measured centre
-                       (0.00, -0.37, -0.13) and below z = -0.09
-                hull   everything else -- body, arms, landing legs
+  recon_drone   metal  rotors and motor tops: r > 0.45 from the body centre
+                       AND z > 0.15 (the arms sit lower; the body top is
+                       inside r 0.4) -- plus the four guard rings built here
+                glass  the gimballed ball: within 0.17 of its measured
+                       centre (-0.05, -0.19, -0.42) and below z = -0.25
+                hull   everything else -- body, arms, gimbal, landing legs
   attack_drone  glass  the nose sensor lens: the forward 8% of the length
                 metal  the nose pod behind it (x < -0.55), the cross tail and
                        propeller (x > 0.72), and the skids (z < -0.16)
@@ -120,10 +127,13 @@ def _credit(unit_id):
 
 
 def _remesh_source(name):
-    """`art/meshy/<slug>-<yyyymmdd>-<id8>/model.glb` for the ledger's
-    `kind: remesh` entry named `name` -- the ledger, not a glob over the
-    slug, decides which of a drone's two directories is current."""
+    """`art/meshy/<slug>-<yyyymmdd>-<id8>/model.glb` for the LAST ledger entry
+    of `kind: remesh` named `name` -- the ledger, not a glob over the slug,
+    decides which of a drone's directories is current, and the last entry
+    wins because the ledger is append-only and `recon_drone` has two remeshes
+    (v1, retired, and the accepted v2)."""
     ledger = os.path.join(MESHY_DIR, "ledger.jsonl")
+    task_id = None
     with open(ledger) as fh:
         for line in fh:
             line = line.strip()
@@ -132,16 +142,16 @@ def _remesh_source(name):
             entry = json.loads(line)
             if entry.get("kind") == "remesh" and entry.get("name") == name:
                 task_id = entry["id"]
-                # Slug AND id prefix: the CLI names a directory by the first
-                # eight hex digits of the task id, and two tasks submitted in
-                # the same minute can share them (recon's remesh and attack's
-                # preview both start 01a0f26b -- observed 2026-09-30).
-                slug = name.replace("_", "-")
-                hits = glob.glob(os.path.join(MESHY_DIR, f"{slug}-*-{task_id.split('-')[0]}", "model.glb"))
-                if len(hits) != 1:
-                    raise SystemExit(f"[{name}] expected one download dir for remesh task {task_id}, found {hits}")
-                return hits[0], task_id
-    raise SystemExit(f"[{name}] no kind=remesh entry named {name!r} in {ledger}")
+    if task_id is None:
+        raise SystemExit(f"[{name}] no kind=remesh entry named {name!r} in {ledger}")
+    # Slug AND id prefix: the CLI names a directory by the first eight hex
+    # digits of the task id, and two tasks submitted in the same minute can
+    # share them (recon's v1 remesh and attack's preview both start 01a0f26b).
+    slug = name.replace("_", "-")
+    hits = glob.glob(os.path.join(MESHY_DIR, f"{slug}-*-{task_id.split('-')[0]}", "model.glb"))
+    if len(hits) != 1:
+        raise SystemExit(f"[{name}] expected one download dir for remesh task {task_id}, found {hits}")
+    return hits[0], task_id
 
 
 def _read_real_metres(sheet):
@@ -153,17 +163,66 @@ def _read_real_metres(sheet):
 # Per-drone classification, in the SOURCE frame (before the Z rotation), on
 # face centroids. Each returns a role from `vehicle_kit.ROLES`.
 # ---------------------------------------------------------------------------
-RECON_BODY_CENTRE = (-0.017, -0.013)
-RECON_BALL_CENTRE = (0.0, -0.372, -0.127)
+# v2 numbers (2026-09-30, measured on the 785-tri remesh and its preview):
+# body bbox centre, the ball at the bottom of the gimbal (the preview puts
+# the mast at y +0.36 and the ball at y -0.19, so the nose is -Y), the four
+# motor hubs (centroids of the top 12% of z beyond r 0.4 per quadrant, at
+# z 0.195-0.205) and the blade reach around them (0.39-0.53).
+RECON_BODY_CENTRE = (0.033, -0.055)
+RECON_BALL_CENTRE = (-0.05, -0.19, -0.42)
+RECON_HUBS = ((0.518, 0.664), (0.547, -0.683), (-0.575, 0.662), (-0.623, -0.691))
+RECON_HUB_Z = 0.20
+#: Rotor guards -- the lead's brief asked for them, Meshy did not draw them,
+#: and the bible says a wrong preview is fixed in Blender: one flat annulus
+#: per rotor, `metal`, just outside the blade tips. Flat (one face ring, 24
+#: tris each) rather than a thickened ring so the file stays under the
+#: 1,000-tri drone cap: 785 + 4 x 24 = 881.
+GUARD_RADIUS = 0.50
+GUARD_WIDTH = 0.05
+GUARD_SEGMENTS = 12
 
 
 def _classify_recon(c):
     r = math.hypot(c.x - RECON_BODY_CENTRE[0], c.y - RECON_BODY_CENTRE[1])
-    if r > 0.50 and c.z > 0.16:
+    if r > 0.45 and c.z > 0.15:
         return "metal"
-    if c.z < -0.09 and (Vector(RECON_BALL_CENTRE) - c).length < 0.17:
+    if c.z < -0.25 and (Vector(RECON_BALL_CENTRE) - c).length < 0.17:
         return "glass"
     return "hull"
+
+
+def _recon_guards():
+    """Four flat rings in the SOURCE frame, one mesh, role metal -- joined
+    into `hull_metal` by `_add_guards` before the transforms."""
+    verts, faces = [], []
+    for hx, hy in RECON_HUBS:
+        base = len(verts)
+        for i in range(GUARD_SEGMENTS):
+            a = 2 * math.pi * i / GUARD_SEGMENTS
+            for rr in (GUARD_RADIUS + GUARD_WIDTH / 2.0, GUARD_RADIUS - GUARD_WIDTH / 2.0):
+                verts.append((hx + rr * math.cos(a), hy + rr * math.sin(a), RECON_HUB_Z))
+        for i in range(GUARD_SEGMENTS):
+            j = (i + 1) % GUARD_SEGMENTS
+            faces.append((base + 2 * i, base + 2 * j, base + 2 * j + 1, base + 2 * i + 1))
+    me = bpy.data.meshes.new("guards")
+    me.from_pydata(verts, [], faces)
+    me.validate()
+    me.update()
+    ob = bpy.data.objects.new("guards", me)
+    bpy.context.collection.objects.link(ob)
+    return ob
+
+
+def _add_guards(parts, label):
+    guards = _recon_guards()
+    target = parts["metal"]
+    bpy.ops.object.select_all(action="DESELECT")
+    guards.select_set(True)
+    target.select_set(True)
+    bpy.context.view_layer.objects.active = target
+    bpy.ops.object.join()
+    print(f"[{label}] added {len(RECON_HUBS)} rotor guards ({GUARD_SEGMENTS} segments, r {GUARD_RADIUS}) "
+          f"into hull_metal: now {len(target.data.polygons)} faces")
 
 
 ATTACK_NOSE_X = -0.892  # measured x-min of the remesh, the nose tip
@@ -184,9 +243,11 @@ def _attack_wing_face(face):
 SPECS = {
     "recon_drone": dict(
         sheet="DRONE_RECON", rot_z_deg=90.0, classify=_classify_recon, cut=None, axis="horizontal",
+        extras=_add_guards,
     ),
     "attack_drone": dict(
         sheet="DRONE_ATTACK", rot_z_deg=180.0, classify=_classify_attack, cut=_attack_wing_face, axis="x",
+        extras=None,
     ),
 }
 
@@ -299,6 +360,8 @@ def export_one(unit_id):
         _cut_faces(ob, spec["cut"], unit_id)
 
     parts = _split_by_role(ob, spec["classify"], unit_id)
+    if spec["extras"] is not None:
+        spec["extras"](parts, unit_id)
     objs = list(parts.values())
 
     # Rotation first (the classification above was written in the source
