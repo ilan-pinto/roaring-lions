@@ -216,8 +216,14 @@ What Blender did to each, so the shipped file can be read against its source
   `hull_glass` (the camera ball). Zero materials. Nearest silhouettes at 64 px:
   `technical` mesh 0.384, `DRONE_LOITER` sprite 0.325, `attack_drone` 0.273.
   **The lead judged this preview short on combat look and approved one re-roll
-  (a military hexacopter, +25); the replacement's ids retire these when it
-  lands.**
+  (a military hexacopter, +25).** That preview was spent the same day -- task
+  `01a0f292-52ff-715e-b359-57a5af7c3347`, prompt in the ledger -- and came
+  back as a four-arm quadcopter with no rotor guards (angular body, mast,
+  gimballed ball, side rails and legs all present), so under the one-preview
+  rule the work STOPPED there: its 5-credit remesh is unspent, this file's
+  ids still ship, and the lead decides between remeshing that preview and a
+  further re-roll. Its `task.json` and thumbnail are committed beside the
+  others.
 - **`attack_drone`** -- the preview delivered the prompt's cylinder, nose pod and
   cross tail AND an unasked-for swept delta wing (the Sarim `loiter_drone`'s
   plan). Per the bible ("a wrong preview is fixed in Blender") the 35 wing
