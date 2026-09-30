@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "2eed13ccde7b11abcecf7a527f246f4f8e9e1fca",
-  "blessedAt": "2026-09-30T18:15:43.609Z",
-  "reason": "PR #310 (B0a, main 2eed13cc): textured Meshy apc_eitan in the vehicle scenario (3021 px / mean 0.18 vs budget 300 / 0.02) and recon_drone now a mesh in relief (334 px / 0.0195 vs 40 / 0.004); quiet, open-ground, aftermath unchanged; every layer self-check PASS (CI run 36750724895). Lead approved 30 Sep.",
+  "commit": "786ffa00098d74818b7808d35d6852009fc4fdd4",
+  "blessedAt": "2026-09-30T19:03:46.924Z",
+  "reason": "PR #312 (B2, main 786ffa00): vehicle scenario 314 px / mean 0.0218 vs budget 300 / 0.02, located entirely on the heli_peten rotor blades and rotor shadow (diff clusters at x 360-480, y 600-700; nothing else moved): the rotor phase at the capture tick shifts because B2 added the two meshed drones to the flying set. quiet, open-ground, relief, aftermath 0 px; every layer self-check and repaint control PASS (CI run 36760289480).",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "3e7bf87e0be99750cca6a71005e647d69cbbd8abb079075c5c276a16b8a3d642"
+      "sha256": "e65512a910c66e01b801ecb356bc0c1009ff3d617ae2550ee657b416d1b49b7d"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "d063c0ed018263a44316f0d8b6bd1fb5d1f29c134bc9529db162e74f90ad3111"
+      "sha256": "06e85a77beef0b99aabae839f1cf9f3d328c09fe7a003f3cf1287f4850f0dd44"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "731470ffdd2f50d5e300f5941027388dede21f71d26e73148c1a1e5496ab7b6f"
+      "sha256": "49b767aad1a3167bfb9c9686b16f19f490bad318d2b92ebda3781d734a9a658f"
     }
   }
 }
