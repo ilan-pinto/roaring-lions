@@ -327,6 +327,7 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
  * landing task moves each entry into its catalogue table and deletes it here.
  */
 export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
+  'recon_zikit.glb': 'recon_zikit (GH-181 E5 Task 9; RIGGED_UNIT_MESHES, kdf)',
   'vehicles/heli_peten_gunship.glb': 'heli_peten_gunship (GH-181 E5 Task 9; VEHICLE_UNIT_MESHES)',
 };
 

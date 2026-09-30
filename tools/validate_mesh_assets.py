@@ -252,7 +252,10 @@ TEXTURED_VEHICLE_EXEMPT = {
 # this class out of its exact-match assertion. The entries are GLB basenames
 # (what this gate calls `unit_id`), which for a kit.py-convention team is also
 # the unit type id the runtime list is keyed by.
-TEXTURED_INFANTRY_EXEMPT = set()
+TEXTURED_INFANTRY_EXEMPT = {
+    # E5 part 2 (GH-181, 2026-09-30): tools/units/import_meshy_zikit_team.py.
+    "recon_zikit",
+}
 
 # The union `textured_exempt` below actually checks against -- a mesh's
 # palette exemption does not care which asset class it is.
