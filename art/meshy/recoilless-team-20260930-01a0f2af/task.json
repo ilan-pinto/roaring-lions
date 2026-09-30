@@ -1,0 +1,49 @@
+{
+  "request": {
+    "input_task_id": "01a0f2ac-f5b1-7146-b3e3-73be95e86ff2",
+    "target_formats": [
+      "glb"
+    ],
+    "topology": "triangle",
+    "target_polycount": 1500
+  },
+  "response": {
+    "id": "01a0f2af-b122-75c8-bbe1-9c9da39e1aa2",
+    "type": "remesh",
+    "name": "",
+    "art_style": "",
+    "object_prompt": "",
+    "style_prompt": "",
+    "negative_prompt": "",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "text_style_prompt": "",
+    "image_style_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790777995581,
+    "progress": 100,
+    "started_at": 1790777995588,
+    "finished_at": 1790778015031,
+    "expires_at": 1791037215031,
+    "task_error": null,
+    "model_url": "",
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2af-b122-75c8-bbe1-9c9da39e1aa2/output/model.glb?Expires=1791037215&Signature=dHxjeXgv0CXCQXN1FWvsPqgwb16s3A9In-6CiCaDPmgnE7gv500xykkJk007vlIzHLWNuNnKWr6fRu65GLq5dEaDpaJNmpp63C6ays6NB4H1GQK5vxUO0yaBpbyPaMeqBH~R77gVZN2J8oj9gPI8OR8glB~h9aRDs18lxtop7lJPEeydVM8Duqk~6HgpAZyXmuhho-nO2FVtmRzaCSMpxpW8w9pSzT7~Trp5Or0dzxYNK9PCXVzBOMC9JVr2qBDxTwPCbWU34C-A-lT8JZRwMZ1w8hW9cgN1~i7ZycWZNbRutknxcAC-t7UqBy1GRwiJklHDBomy6Nwy42P65BoQLQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2af-b122-75c8-bbe1-9c9da39e1aa2/output/preview.png?Expires=1791037215&Signature=HHWvrtXil1JTTgEsVo81~owINQ1x1TTruXYXi3CunUiFC37VtWqF6FsU3CuizbpJMnsc~jRYe4DiibBrZmVi9yGmC61zPJN7yh2ZhxhncYOBJFy7dcdXDhHQfkk3sWmSKXtPiDtETUxNFtOgAtcyYkBdhcv2hJNKRWdkl4C97kqSVI~c-PmQYZQJ4yWz~PCxLYjxl8bSY1tlzTM4jKi2UJsJDM1v6PC~7etr04iwHhY8PpbvJpdUxWpTWgx9KVSBZNWyuWpqeHSI7YHLp442FQAWjA1hFBmz3DxwZlc7H12LwjFXo-R3unXNKln0cD7lv0B3QxY6R382X~tjWQgE9Q__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [
+      {
+        "base_color": "",
+        "normal": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2af-b122-75c8-bbe1-9c9da39e1aa2/output/texture_0_normal.png?Expires=1791037215&Signature=KUcjqA-8ZnujkAkcOOXtwrV3zhXU1IYwyZUH8vyrvRwqVMEALMf0PxFD~qVYUxMZKiHtPEBubm2f7FCaONsTnhWztAuH07neizi-Kaw-vBP9-Ov8iqFJSx6H3lAS0IRbPiv8JyvNYn2z1zdvm4~D~FspaLypGTELnmUa3UCH12lR6~O2fN0uAFcyXAZdHx4rszsIY5vg8OVO1XRAeA2UVpihK8u9gCvU1dY7eRJJ9xXbCvcsEwMOHMr17THDmSEvn16ahSjhvm94ZdhJvVuAbjNCftZUi4BwVHZe97IXHSvbwHp743yXIwEEffCXtkuSU0Kg-L-D27RUCA0tEPBcbQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+      }
+    ],
+    "consumed_credits": 5
+  },
+  "consumed_credits": 5,
+  "timestamps": {
+    "created_at": 1790777995581,
+    "started_at": 1790777995588,
+    "finished_at": 1790778015031
+  },
+  "usd_estimated": 0.1
+}
