@@ -1,6 +1,6 @@
 # Meshy prompts — the A3.2 ramp set and the tunnel visuals
 
-**WP-A3.2 (GH-185) + GH-227 · numbers table, written before any spend · 2026-09-30**
+**WP-A3.2 (GH-185) + GH-227 · numbers table, written before any spend · 2026-09-30 · outcome appended the same day**
 
 The lead's go (GH-185, 30 Sep): *"A3.2 ramp set approved for Meshy now (4 buildings +
 4 vehicles textured, ~280 planned) with the tunnel visuals #227 (~50). Numbers table
@@ -136,7 +136,7 @@ A single low-poly game-ready small single-room breeze-block shed, vernacular con
 | wreck | `collapse()`; a breached run keeps stubs and a rubble apron inside its own tile | |
 
 ```
-A single low-poly game-ready one segment of a rendered masonry compound wall, vernacular construction of a fictional arid river-basin region: a straight solid wall of sun-bleached limestone-coloured rendered masonry with a square pier at each end slightly taller than the wall, a plain flat coping course along the top, patches where the render has fallen away showing block beneath, dust staining at the base. Real-world scale, 3 metres long, half a metre thick, 1.75 metres tall, flat unornamented ends so it butts against an identical copy. Limestone render, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+A single low-poly game-ready segment of a rendered masonry compound wall, vernacular construction of a fictional arid river-basin region: a straight solid wall of sun-bleached limestone-coloured rendered masonry with a square pier at each end slightly taller than the wall, a plain flat coping course along the top, patches where the render has fallen away showing block beneath, dust staining at the base. Real-world scale, 3 metres long, half a metre thick, 1.75 metres tall, flat unornamented ends so it butts against an identical copy. Limestone render, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
 ```
 
 ### `camp` — Field Camp (placed 2 × 2 by every mission, `produces_for` KDF)
@@ -153,7 +153,7 @@ A single low-poly game-ready one segment of a rendered masonry compound wall, ve
 | colour | KDF olive is in the bake; the palette `olive.1` wall colour of the kit path no longer applies | |
 
 ```
-A single low-poly game-ready small military field camp compound, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military: a square ring of stacked sandbags and wire-mesh earth-filled barriers, one olive canvas command tent in the middle, a thin steel radio mast with a small dish at one corner, a small generator and a few jerry cans and crates inside the ring, one gap in the ring as the entrance on the front side. Real-world scale, 7 metres square, tent 3.5 metres tall, mast 6 metres. Olive canvas, tan sandbags, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+A single low-poly game-ready small military field camp compound of a fictional army, plain matte olive-drab canvas and dark gunmetal fittings, clean and military: a square ring of stacked sandbags and wire-mesh earth-filled barriers, one olive canvas command tent in the middle, a thin steel radio mast with a small dish at one corner, a small generator and a few jerry cans and crates inside the ring, one gap in the ring as the entrance on the front side. Real-world scale, 7 metres square, tent 3.5 metres tall, mast 6 metres. Olive canvas, tan sandbags, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
 ```
 
 ## Vehicles — the shared rules
@@ -245,3 +245,18 @@ the `origin/main` file it replaces.
 
 Everything generated here is AI-generated art (Meshy), disclosed per `CONTRIBUTING.md`;
 task ids go to `docs/ASSET_PROVENANCE.md` per asset as it lands.
+
+## Outcome (2026-09-30)
+
+**260 credits spent, 260 consumed, every asset on its first preview.** The
+task ids, sizes and what Blender changed are in `docs/ASSET_PROVENANCE.md`
+("The A3.2 ramp set and the tunnel props"). Four things the previews did
+not deliver as prompted and were fixed in Blender rather than re-rolled, per
+the bible ("a wrong preview is fixed in Blender"): the wall's thickness
+(1.5 m, thinned to 0.6), the shanty's height (6.9 m, scaled by height to
+4.2), the D9's white star markings (scrubbed from all three bakes) and the
+Shachaf's grass-green paint (shifted toward olive). One thing the numbers
+table got wrong: the shanty's 9 m plan; at Meshy's proportions that is a
+two-storey hut, and the honest size is the class's, not the footprint's. The
+tunnel mouth arrived as an adit in a rock face rather than the sandbagged
+shaft head asked for, and reads as a tunnel entrance from the game's angle.
