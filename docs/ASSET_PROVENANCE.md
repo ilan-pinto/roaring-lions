@@ -256,6 +256,30 @@ the lead's ear.
 
 ---
 
+## E5 part 2 -- the bought-only special forces (GH-181, 2026-09-30)
+
+Two of the three staged units have art; both files are **held** (`HELD_MESH_FILES`,
+`packages/app/src/mesh-catalogue.ts`) until E5 Task 9 lands their unit JSON. Numbers
+tables, prompts and the credit plan: `docs/art/meshy-prompts-e5.md`. Every spend is a
+line in `art/meshy/ledger.jsonl`: **35 credits consumed** (Zikit preview 20 + refine 10
++ remesh 5) against 70 planned and the 140 cap. AI-generated (Meshy) where it says so,
+disclosed per `CONTRIBUTING.md`.
+
+| File | Draws as (once landed) | Source | Notes |
+|---|---|---|---|
+| `art/meshes/vehicles/heli_peten_gunship.glb` | `heli_peten_gunship` (Peten Gunship, KDF air) | `art/meshes/vehicles/heli_peten.glb` re-opened by `tools/vehicles/export_meshy_apache_gunship.py` -- the supplied Meshy Peten's own export, so the same AI-generated source as `heli_peten` above, **0 credits** | Adds `stores_hull` (stub wings, pylons, two drop tanks), `stores_metal` (four rocket pods, mast and dome) and `sensor_glass` (nose ball), every one UV-pinned to the Peten's `base_color` bake (one material; `TEXTURED_VEHICLE_TYPES`). Rotor graph unchanged; wreck re-made by `pnpm wreck:meshes` (recipe `air` + `rotor_pivot`). **41,771 tris** live (Peten 41,031), 4.684 m drawn size as the Peten. IoU against `heli_peten` **0.653** at 64 px (limit 0.88), against the `APACHE_HULL` sprite 0.408. |
+| `art/meshes/recon_zikit.glb` | `recon_zikit` (Shmamit Deep Recon Team, KDF) | Meshy text-to-3D preview `01a0f343-6390-741c-adee-20c9a3ec409e` (`--pose a-pose`), refine `01a0f344-3a27-7653-9d91-9e0db0ddef5b` (2k), remesh `01a0f346-7ff9-772a-aa3c-f0cae827210c` at 1,500 (arrived 1,541 with the bake); `art/meshy/recon-zikit-20260930-01a0f34{3,6}/` | **Textured** (`TEXTURED_INFANTRY_TYPES`): the remesh's base colour at 1024 JPEG q85 on `uniform`/`boot`/`face`. ONE figure cut into `rig.py` parts three times by `tools/units/import_meshy_zikit_team.py`: `zk_rifle` standing with the kit rifle level at the hand, `zk_radio` standing with a 0.9 m kit whip at 80 degrees over the pack, `zk_spot` kneeling behind a kit tripod scope on the `prop` bone. Corpses at 0.5, seam blobs at 6x2 (the two levers that hold three figures under the cap). **7,997 tris**, clips `idle, move, fire, down, wreck`, all `rig.py`'s own. Highest IoU: `mortar_team` 0.598 (mesh), `DRONE_RECON` 0.386 (sprite). No `rl_gait` yet: `pnpm gait:meshes` is scoped to `RIGGED_UNIT_MESHES`, so it runs at landing. |
+| `demo_tzav` (Shiryonan Demolition Carrier) | -- | **not generated.** Both `text` calls returned HTTP 402 `{"message":"API key credit limit reached"}` with 3,735 credits on the account balance: the API KEY's own spending limit is exhausted by the day's batches, which is a setting on the lead's side. No task was created and nothing was charged (the ledger shows the Zikit's three lines only). Prompt and numbers are ready in `meshy-prompts-e5.md` section 3 for the 35 credits once the key's limit is raised. | |
+
+Measured on the way: the Zikit figure came back with its A-pose arms BENT, hands forward
+(chord 78-81 degrees from vertical, tip x +0.32 against the shoulder's -0.07), which the
+B0b importer's "within 0.05 H of the shoulder-to-hand chord" arm test does not see -- the
+elbows stayed in the torso and only the hands hung. `import_meshy_zikit_team.py` widens
+the chord radius so the test becomes "outboard of the arm-root ring", which is safe on
+this figure because no pack face reaches that far out. The whip and the slung carbine
+were left out of the prompt on purpose (B0a measured that a remesh drops every thin whip;
+a slung gun on the base figure would arm all three men) and are kit geometry instead.
+
 ## What closing the source changes
 
 - **Code (MIT until 2026-09-18, then PolyForm Noncommercial 1.0.0 with `CLA.md`; effectively sole-authored)** — 747 of ~753 commits are the

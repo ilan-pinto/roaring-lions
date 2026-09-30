@@ -130,3 +130,21 @@ then `pnpm meshy -- remesh <refine id> --polycount 5000 --name demo_tzav --yes`.
 `pnpm encode:meshes` then `-- --check`, `pnpm test`, `pnpm typecheck`, `pnpm lint`. Held meshes
 cannot draw in a mission, so the in-game look is stood in for by headless renders through the
 gate's own rig at the game camera: zoomed in, and at gameplay scale beside a shipped neighbour.
+
+---
+
+## Outcome (2026-09-30, same day)
+
+| unit | spent | result |
+|---|---|---|
+| `heli_peten_gunship` | 0 | shipped held: 41,771 tris, IoU vs `heli_peten` **0.653** (first build, no re-render loop needed), wreck pass applied, `TEXTURED_VEHICLE_TYPES` |
+| `recon_zikit` | **35** (preview 20 + refine 10 + remesh 5; tasks `01a0f343` / `01a0f344` / `01a0f346`) | shipped held: 7,997 tris, five clips, `TEXTURED_INFANTRY_TYPES`; highest IoU 0.598 (`mortar_team`) |
+| `demo_tzav` | 0 | **stopped**: both `text` submissions answered HTTP 402 `API key credit limit reached` while `balance` read 3,735 -- the key's own limit, not the account. No task, no charge. Ready to run at 35 once the limit is raised |
+| | **35 of 70 planned, cap 140** | |
+
+Two numbers in section 2's table moved in the build and are recorded here rather than
+rewritten above: the corpses stay at B0b's 0.5 (0.3 was measured as spikes at zoom 2.5)
+and the tri budget was found in the seam blobs instead (24 of them at kit's 9x3 cost more
+than a whole figure; 6x2 hides a rigid cut just as well at 25 px), which is what puts
+three figures at 7,997 against the 8,000 cap. The `rl_gait` extra is not on the held file
+(`gait:meshes` is scoped to `RIGGED_UNIT_MESHES`) and is applied at landing.
