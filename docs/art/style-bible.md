@@ -157,8 +157,8 @@ task, so the fallback is `retexture`, also 10). Measure it once; do not guess tw
   already approved.
 - **Supplied `.blend`/`.glb` files are used as-is** unless the lead says otherwise.
 - **Zero materials in a GLB**, except named textured exemptions
-  (`TEXTURED_BUILDING_TYPES` / `TEXTURED_MESH_EXEMPT`); an infantry bake needs its
-  own named list first (Q1).
+  (`TEXTURED_BUILDING_TYPES` / `TEXTURED_MESH_EXEMPT`). Infantry has its own list,
+  `TEXTURED_INFANTRY_TYPES`, empty until B0b fills it (Q1).
 - **Every spend is in `art/meshy/ledger.jsonl`**; `pnpm meshy -- spent` answers "how
   much".
 
@@ -167,6 +167,13 @@ landed on `main` (checked 2026-09-29; this line said it had not); the A-pose fla
 landed too (`--pose a-pose`, #293); refine does not send `remove_lighting`; and
 there is no `rig` command (priced at 5 in `pricing.ts`). Until it lands, rigging runs
 in the Meshy web UI and is logged by hand.
+
+The infantry bake list has landed too (GH-286): `TEXTURED_INFANTRY_TYPES` in
+`packages/render/src/three/units/textured-infantry.ts`, mirrored by
+`TEXTURED_INFANTRY_EXEMPT` in `tools/validate_mesh_assets.py` and pinned by
+`textured-infantry.test.ts`. It is **empty by design**: B0b adds `at_team` and
+`demo_squad` to both sides in the same change that ships each GLB. Until then an
+infantry GLB that ships a texture throws at load.
 
 **Riggable figures use `--pose`.** `text` and `image` take `--pose a-pose|t-pose|none`
 (default `none`, which sends the empty `pose_mode` as before). Batch B0b of GH-286
@@ -308,7 +315,7 @@ the numbers tables and ready prompts for all five are in `meshy-prompts-units.md
 | batch | units | why this order | credits |
 |---|---|---|---|
 | **B0a** | `recon_drone`, `attack_drone`, `apc_eitan` | lead priority, GH-286; no rig; the Eitan is the first textured vehicle, so the refine-then-remesh texture question is measured here | 25 + 25 + 35 = 85 |
-| **B0b** | `at_team`, `demo_squad` | lead priority, GH-286; the first rigged figures; needs the A-pose CLI flag and the infantry bake list (§7 q1) | 40 + 40 = 80 |
+| **B0b** | `at_team`, `demo_squad` | lead priority, GH-286; the first rigged figures; needs the A-pose CLI flag (landed) and the infantry bake list (§7 q1, landed empty) | 40 + 40 = 80 |
 | | *B0 subtotal* | *ceiling 330: one re-roll per unit, on the lead's go only* | *165* |
 | B2 | `gun_truck`, `manpad_team`, `recoilless_team`, `loiter_drone` | closes the no-GLB list; four units because B1 folded in (the drone is the cheap one) | 35 + 40 + 40 + 25 = 140 |
 | — | *bless 1 (B0 + B2)* | | |
@@ -336,9 +343,11 @@ Each has a recommended default; the batches run on the default unless you say
 otherwise.
 
 1. **Where does a shipped infantry bake get its exemption?** GH-160 was answered
-   "ship the bakes", but infantry has no named textured list. **Default:** add
-   `TEXTURED_INFANTRY_TYPES` beside the building and vehicle lists, pinned by the
-   same Python-vs-TS test, filled one team at a time as it lands.
+   "ship the bakes". **Done:** `TEXTURED_INFANTRY_TYPES`
+   (`packages/render/src/three/units/textured-infantry.ts`) sits beside the
+   building and vehicle lists, pinned against `TEXTURED_INFANTRY_EXEMPT` in
+   `tools/validate_mesh_assets.py` by the same Python-vs-TS test. It is empty
+   now and B0b fills it one team at a time as each lands.
 2. **Does `gun_truck` ship a bake?** **Default: yes**, to match `technical` beside
    it (+10 credits). Drones stay palette-painted — at 26 px a bake buys nothing.
 3. **Crew weapons: kit geometry or new Meshy parts?** **Default: kit geometry**
