@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready military field medic station, a field work of a fictional army in plain matte olive-drab canvas and paint with dark gunmetal fittings and tan sandbags, clean and military. One ridge tent with a peaked canvas roof and a rolled-up entrance flap at the front, a shipping-container cabin standing tight against its rear side, a low sandbag skirt around the base, a folding stretcher leaning by the entrance, one jerrycan rack. Compact square footprint about 6 by 6 metres, tent ridge 3.2 metres high, container 2.6 metres high. Olive canvas, olive-painted steel, tan sandbags. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, entrance facing forward. No insignia, flags, crosses, crescents, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2a6-d11f-7400-aaa0-8332e0d33f6f",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3566363280,
+    "prompt": "A single low-poly game-ready military field medic station, a field work of a fictional army in plain matte olive-drab canvas and paint with dark gunmetal fittings and tan sandbags, clean and military. One ridge tent with a peaked canvas roof and a rolled-up entrance flap at the front, a shipping-container cabin standing tight against its rear side, a low sandbag skirt around the base, a folding stretcher leaning by the entrance, one jerrycan rack. Compact square footprint about 6 by 6 metres, tent ridge 3.2 metres high, container 2.6 metres high. Olive canvas, olive-painted steel, tan sandbags. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, entrance facing forward. No insignia, flags, crosses, crescents, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790777417108,
+    "progress": 100,
+    "started_at": 1790777417118,
+    "finished_at": 1790777514112,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2a6-d11f-7400-aaa0-8332e0d33f6f/output/model.glb?Expires=4944326400&Signature=UNly~f9x~SKJgt7WVRzoCVmwZWf6Pd~lXfOIswE0UOyrV~OSXlq3YIULUeHnZQC4skoGt7hWyX9NvdVfKTY4TU9qAOLKIicFx3iEQvWLYuYmRPzBTULeWOdi-USs105tCS3g77MtRzcZ76PqFXwvrO1RHEJLgUUi3AC7duUqvZWEiMsT3QVSK6WbJzKPllCdDG73vqrPvpAxfD2cmUF2Igcv0SgoEIz2PRcXoKxzjYNhfMc20cPR5HabUZBF79~mQ8Uhvs-2WMvK13S0XrHf5dICYgl4wWMTw~gtYUq3MfO00D2GgstnP~rVV6SawZbNio~pLmQ6TB2Iz9k0d5~mKQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2a6-d11f-7400-aaa0-8332e0d33f6f/output/preview.png?Expires=4944326400&Signature=llN6m8JOADjuyfYPvcqaMaaG9iaDRjKgcWM6m9t~vzjNOxFjxznc2h2SZPSBE4ZZ8AQIHvVMTBhbj9xusns8n3z9bhuPo5fYeW02cM7cZVDN8ns10m39r32v5suY-fMS1VHD4kjHj9eiR5XJ6gtQdi9Re7l7Ii-ZRYPxXgBmQtthQtZDedFJtLU7-OPsVQ33~3kSxX8zfE0qnaYIi-fIYB9fZjCDgaPsxG6wBJnUP6HC1w0cs0WVxYumsjtJWGKfYmFQGQbwtMXFAm0S2EMyC4laoTBHehcdMCmFL8aLw7nRzrwGhKPCpK1BF5NsDTuRoeIEYcnJJwcMhgI4PQ87sQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790777417108,
+    "started_at": 1790777417118,
+    "finished_at": 1790777514112
+  },
+  "usd_estimated": 0.4
+}

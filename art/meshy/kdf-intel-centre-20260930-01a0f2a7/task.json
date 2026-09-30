@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready military signals intelligence post, a field work of a fictional army in plain matte olive-drab paint with dark gunmetal fittings and tan sandbags, clean and military. One shipping-container cabin with a door and a small square window at the front, a tall square lattice mast rising from one rear corner with a whip antenna at the tip and a mid-size parabolic dish mounted halfway up, a small generator trailer beside the cabin, a low sandbag skirt. Compact square footprint about 6 by 6 metres, cabin 2.6 metres high, mast 9 metres high. Olive-painted steel, gunmetal lattice, tan sandbags. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, door facing forward. No insignia, flags, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2a7-0059-75c2-94ff-16a2387ffa05",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 366603499,
+    "prompt": "A single low-poly game-ready military signals intelligence post, a field work of a fictional army in plain matte olive-drab paint with dark gunmetal fittings and tan sandbags, clean and military. One shipping-container cabin with a door and a small square window at the front, a tall square lattice mast rising from one rear corner with a whip antenna at the tip and a mid-size parabolic dish mounted halfway up, a small generator trailer beside the cabin, a low sandbag skirt. Compact square footprint about 6 by 6 metres, cabin 2.6 metres high, mast 9 metres high. Olive-painted steel, gunmetal lattice, tan sandbags. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, door facing forward. No insignia, flags, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790777428585,
+    "progress": 100,
+    "started_at": 1790777428590,
+    "finished_at": 1790777489998,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2a7-0059-75c2-94ff-16a2387ffa05/output/model.glb?Expires=4944326400&Signature=qeW-DA0eRBP9ce5JURmqPmrgmDKlZ~KKc060I4QsCurIGOQjjFZt37CQTEwS6H~AxKB0SXFskPxAg33NRa-4tflfBtM2xDns9viIC2jeHZoh7sYHgNtLjnqymeeyL~lwKTBqQ85TKjks20OoHI2s3bffgQWJlU1d4oIiRkET1M5ok0djcu1X-n4wTO5S4a7ljv1cns-Ry81-NlKAjvXYqlExx8Y9P~jw~KDGvP8rZJzenOZNFecIik322hgcfvd0bt57fP-SxrIG0ChEwGZREYnJ5OPga1K9L0xWvBxxTuSnB~F4G3AkFTHPcQLzh~EYh8maZFXoHStEPd~ye2Tp2Q__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2a7-0059-75c2-94ff-16a2387ffa05/output/preview.png?Expires=4944326400&Signature=Ni~G0QPklAXc066Pe3vCg-Ja9LhwLXLmvhOcCbgZAfFDTFjYoXQGyvPoFHtbzvslJLIdA6363uOfhyVTJezgOFbJ4exIE5VbWzqxh0rGUkq-DOmJG9GYjFPqK84kXpeTTBMS7BODfd5mgJQ8pLQBZU7OtMSztaAZeUSD36HmBgAbbqaTb9nAeVwd80WN4EYH0cXWZe9qhJr191Vv3Rm5oocjTDuAhGQJwlPOl6q7pqBvd-~MrzFRg4KvaVk6Qnt4igqUjRto75BTDGxPDsrcS2LyhTKXbq5sOEGKSFJpWQRia1JACJwRiGE0yZp6b3Mw4Z3NyFLW5DcFP19SE-YS-w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790777428585,
+    "started_at": 1790777428590,
+    "finished_at": 1790777489998
+  },
+  "usd_estimated": 0.4
+}

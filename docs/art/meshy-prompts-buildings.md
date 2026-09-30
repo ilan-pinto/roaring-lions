@@ -505,3 +505,111 @@ re-derive it while wiring a new type.
    the map from mission JSON rather than from a map symbol"*). The lead may
    prefer symbols for all of them regardless, trading a mission-JSON edit
    for a map-grid edit.
+
+---
+
+## Field works — the eight GH-277 buildings (spec §8, 2026-09-30)
+
+Appended for `docs/superpowers/specs/2026-09-29-field-works-design.md` §3/§5/§8
+and plan Task 12 step 0: the numbers the lead approves before anything is
+generated, then the prompts. Art only — no `data/structures.json` entry, no
+catalogue wiring, nothing draws in a mission until Stage 4/5. **Credits:
+210 planned (4 KDF at 35 + OP and weapons workshop at 35), a hard cap — any
+re-roll stops and is reported, never spent.** Q11 as ruled: KDF works
+palette-painted, militia works textured.
+
+**Two rules every entry below is written against, both measured this session
+rather than read.** (1) The camera sees Blender `+X` and Blender `-Y` — the
+glTF `+X`/`+Z` pair `tools/building_facing.py` judges: a test box with one
+`glass` pane on Blender `+X` reads 7320/240 directional, and the same pane on
+Blender `-Y` reads the same 7320/240, so every entrance and every `glass`
+opening below goes on one of those two faces. (2) `pnpm validate:meshes`
+frames each render to its OWN bounds before the 64 px IoU, so size does not
+separate two buildings — only proportion and outline do. That is why every
+wreck below names the one element that survives standing or falls
+diagonally: eight collapsed 2×2 heaps would collide with each other, and a
+wreck is also compared against its own standing mesh under the same 0.88.
+
+### Numbers to approve
+
+| id | footprint | real size (m), height | polycount (remesh → cap) | paint | roles | front rule, `glass` | nearest silhouette neighbour, and what separates them | wreck profile | construction state |
+|---|---|---|---|---|---|---|---|---|---|
+| `kdf_medic_station` | 2×2 | 6×6, tent ridge 3.2, container 2.6 (1 storey) | 3,000 → 4,000 | palette (olive `wall` canvas, `metal` container, `trim` sandbags) | wall, metal, trim, glass | tent flap on `+X`; container window pane on `+X` tagged `glass` so the gate judges it | `shanty` (low shed, mono-pitch): the peaked ridge beside a flat box breaks the single slope; `camp`: 2×2 not 5×5 ring | tent flat on the ground, container tipped on its side, sandbags scattered | lower 45% + kit |
+| `kdf_outpost` | 2×2 | 6×6, parapet 1.8, bunker roof 4.5 (1.5 storeys) | 4,000 → 5,000 | palette (`trim` sandbags/gabions, `metal` roof and posts, `wood` frame) | wall, trim, metal, wood, glass | ladder on `+X`; the front firing slits tagged `glass` (an opening; draws `shadow.0`, which is what a slit looks like) | `militia_firing_position` (also sandbags): the outpost is square, symmetric and two-tier with a roofed centre; the FP is low, L-shaped and open at the back with one corner stack. `camp`: 2×2, no tent, no mast | front corner breached, bunker roof down on two posts, gabions burst | lower 45% + kit |
+| `kdf_intel_centre` | 2×2 | 6×6, cabin 2.6, mast 9.0 (3 storeys) | 4,000 → 5,000 | palette (`metal` cabin/mast/dish, `trim` sandbags, `glass` window) | metal, trim, glass, wall | door and window on `+X`; the window pane is the `glass` role the spec asks for | `concrete` (block + mast): the intel centre is a LOW box under a mast, concrete a 7.6 m block; `militia_observation_post`: wide-low-plus-mast vs narrow-tall tower | mast toppled diagonally across the pad, cabin crushed to 0.6 height, dish on the ground | lower 45% + kit |
+| `kdf_workshop` | 2×2 | 6×6, roof 5.0 (1.5 storeys) | 4,000 → 5,000 | palette (`metal` roof/posts/gantry, `wood` bench, `rust` drums) | metal, wood, rust, wall | open front on `+X`; no `glass` — unchecked, named on the passing path (an open canopy has no pane to model) | `warehouse` (12×12×6 shed): squarer (6 wide, 5 tall) and open-sided, posts visible; `militia_weapons_workshop`: canopy vs walled garage | roof down on the `-X` side to the ground, posts gone on that side, gantry beam fallen, drums scattered | lower 45% + kit |
+| `militia_field_clinic` | 2×2 | 6×6, 5.5 (1 storey + rooftop units) | 0 credits — kit-bash; ~8,000 after the crop | **textured** (crop of `clinic.glb`, which ships its bake) + palette sandbags | wall, roof, trim, metal, glass | crop keeps the clinic's real `+X` facade and `-Y` end (both camera-facing); cut faces sit on `-X`/`+Y`; the clinic's own `glass` comes with the crop | `clinic` (the parent): the crop is a 6×6 corner of a 10×14 block with a canvas annex and a sandbag ring added, so the outline is hut+tent+ring, not the parent's long slab; `kdf_medic_station`: masonry box with a tent, not tent with a container | roof collapsed, annex down, front wall breached, sandbags scattered | none (never built) |
+| `militia_firing_position` | 2×2 | 6×6, parapet 1.4, corner stack 3.0 | 0 credits — kit-bash from `shanty.glb` + `kit.sandbag_row`; ~1,500 | palette (it is `shanty.glb` plus sandbags; nothing textured exists to ship, so Q11's "textured" cannot apply at 0 credits — stated, not slipped) | wall, roof, metal, wood, rust, glass | shed window on `+X` (the shanty's own `glass`), parapet open at `+Y`; an L of sandbags on `+X`/`-Y` | `shanty` (the parent): the FP adds a 3 m corner stack and an L-shaped parapet and drops the shed's yard clutter; `kdf_outpost`: see above | sandbags tumbled to low heaps, shed roof flat on the ground | none |
+| `militia_observation_post` | **1×1** | 3×3, 8.0 (2.7 storeys) | 6,000 → 8,000 | **textured** (`--refine --tex 2k`) | wall, metal, wood, glass | ladder on `+X`; the lookout slots on `+X` split off as `glass` if the remesh separates them cleanly, else unchecked and named | `concrete` (6.6 m block + mast, aspect ~1.3): the OP is a 3 m-wide tower 8 m tall, aspect ~2.7, with a cabin wider than its legs | tower lying on its side diagonally, cabin crushed — a long low object | none |
+| `militia_weapons_workshop` | 2×2 | 6×6, roof 4.0, tank top 5.5 | 8,000 → 10,000 | **textured** (`--refine --tex 2k`) | wall, roof, metal, rust, glass | open bay on `+X`; a window pane on the `+X` facade tagged `glass` if separable | `kdf_workshop`: walled garage with a lean-to vs an open canopy; `shanty`: gabled 4 m block with a tank on legs vs a 3 m mono-pitch shed | roof in, lean-to down, A-frame toppled, tank on the ground | none |
+
+**Construction states (4, KDF only, L3).** One GLB each, `kdf_<id>_construction.glb`:
+the standing mesh bisected at 45% of its height (lower part kept, cut capped),
+plus one shared kit built in code — a two-lift scaffold tower at ONE corner
+(`metal`), two pallets of sandbags (`wood`, `trim`) and a spoil heap — placed
+asymmetrically so the construction silhouette is not the standing envelope
+shrunk. Task 13 drives it as a height clip from `stProgress`.
+
+**Wrecks (8)** follow the `_wreck.glb` pattern, derived in Blender from the
+standing export (0 credits), each with the profile named in the table.
+
+**Polycounts.** `docs/art/style-bible.md` §3 caps a palette building at 20,000;
+these are 2×2 works next to `camp` (5,241) and `concrete` (720), so the targets
+sit an order under the cap. Meshy previews arrive at 30,000 and are remeshed at
+the target (§3's lesson: Blender decimation collapses lattice and thin members;
+the OP tower and the intel mast are exactly that). Textured: `textured.py`'s
+`TEXTURE_PX` 2048 / JPEG 85, as every shipped textured building.
+
+**Colour.** The KDF works carry no material; `wall` takes the type's own
+`color` (proposed `olive.1`, the camp's) when Stage 5 adds the type, and the
+gate's `WALL_FALLBACK_KEY` until then. The militia OP and weapons workshop
+ship their bake through `TEXTURED_BUILDING_TYPES`/`TEXTURED_BUILDING_EXEMPT`
+(both lists, same commit, `textured-building.test.ts`). The field clinic
+carries the clinic's textured crop and joins the same lists; its sandbags stay
+on the palette by the per-MESH rule the warehouse roof cap already uses.
+
+### Prompts (each under the CLI's 800 characters; `--formats glb`)
+
+The shared vernacular paragraph and "the five things" of the earlier batch do
+not fit the CLI's limit beside a subject, so each prompt below carries the
+essentials inline: one object, no base, no baked light, real metres, the
+opening facing forward, nothing real. Orientation is fixed in Blender
+regardless of what Meshy does with "facing forward".
+
+**KDF faction line (structures)**: "a field work of a fictional army in plain
+matte olive-drab canvas and paint with dark gunmetal fittings and tan
+sandbags, clean and military" — the `style-bible.md` §5 KDF-machine line, in
+canvas and sandbags.
+**Militia line (structures)**: "an irregular work in a fictional arid region:
+breeze-block and rendered masonry the colour of sun-bleached limestone and
+dust ochre, rusted corrugated sheet, mismatched salvaged parts".
+
+**`kdf_medic_station`** (20 + 5):
+> A single low-poly game-ready military field medic station, a field work of a fictional army in plain matte olive-drab canvas and paint with dark gunmetal fittings and tan sandbags, clean and military. One ridge tent with a peaked canvas roof and a rolled-up entrance flap at the front, a shipping-container cabin standing tight against its rear side, a low sandbag skirt around the base, a folding stretcher leaning by the entrance, one jerrycan rack. Compact square footprint about 6 by 6 metres, tent ridge 3.2 metres high, container 2.6 metres high. Olive canvas, olive-painted steel, tan sandbags. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, entrance facing forward. No insignia, flags, crosses, crescents, text or markings of any kind.
+
+**`kdf_outpost`** (20 + 5):
+> A single low-poly game-ready military outpost strongpoint, a field work of a fictional army in plain matte olive-drab paint with dark gunmetal fittings and tan sandbags, clean and military. A square perimeter of stacked mesh gabion baskets and sandbags with a firing parapet along the top, a raised central bunker of sandbags on a plywood frame under a flat corrugated-steel roof on four steel posts, a steel ladder up to the parapet at the front. Compact square footprint about 6 by 6 metres, parapet 1.8 metres high, bunker roof 4.5 metres high. Tan sandbags, dust-coloured gabion fill, olive steel roof. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, ladder facing forward. No insignia, flags, text or markings of any kind.
+
+**`kdf_intel_centre`** (20 + 5):
+> A single low-poly game-ready military signals intelligence post, a field work of a fictional army in plain matte olive-drab paint with dark gunmetal fittings and tan sandbags, clean and military. One shipping-container cabin with a door and a small square window at the front, a tall square lattice mast rising from one rear corner with a whip antenna at the tip and a mid-size parabolic dish mounted halfway up, a small generator trailer beside the cabin, a low sandbag skirt. Compact square footprint about 6 by 6 metres, cabin 2.6 metres high, mast 9 metres high. Olive-painted steel, gunmetal lattice, tan sandbags. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, door facing forward. No insignia, flags, text or markings of any kind.
+
+**`kdf_workshop`** (20 + 5):
+> A single low-poly game-ready military field vehicle workshop, a field work of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. An open-sided canopy: a shallow-pitched corrugated-steel roof on six steel posts, a steel gantry hoist beam running under the roof with a chain block, a workbench and tall tool cabinet along the rear edge, a stack of tyres and oil drums at one side, a spare-parts crate, no walls on the front and sides. Compact square footprint about 6 by 6 metres, roof 5 metres high at the ridge. Olive-painted steel, gunmetal, dusty black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, open front facing forward. No insignia, flags, text or markings of any kind.
+
+**`militia_observation_post`** (20 + 10 + 5):
+> A single low-poly game-ready makeshift militia observation tower, an irregular work in a fictional arid region built from salvaged steel scaffolding and timber, sun-bleached and dusty, with rusted corrugated sheet. A tall narrow lattice scaffold tower of steel poles with plank floors, a small enclosed lookout cabin at the top with open viewing slots on the front and a corrugated-sheet roof, a sandbag ring around the base, a timber ladder up the front. Footprint about 3 by 3 metres, 8 metres tall. Rusted steel, weathered grey timber, dust-ochre sandbags. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, ladder facing forward. No insignia, flags, text or markings of any kind.
+
+**`militia_weapons_workshop`** (20 + 10 + 5):
+> A single low-poly game-ready makeshift militia vehicle and weapons workshop, an irregular work in a fictional arid region: breeze-block and rendered masonry the colour of sun-bleached limestone and dust ochre, rusted corrugated sheet, mismatched salvaged parts. A single-storey garage with a wide open front bay under a corrugated lean-to awning on timber props, a crude A-frame hoist gantry with a chain standing in the front yard, a welding-bottle cart, oil drums and a tyre stack, a rooftop water tank on steel legs. Compact square footprint about 6 by 6 metres, roof 4 metres high, tank top 5.5 metres. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, open bay facing forward. No insignia, flags, text or markings of any kind.
+
+**`militia_field_clinic`** and **`militia_firing_position`**: no prompt — kit-bashed
+in Blender from `clinic.glb` / `shanty.glb` and `tools/buildings/kit.py`'s
+`sandbag_row`, 0 credits, per the table.
+
+**Where the GLBs are held.** `mesh-catalogue.test.ts` requires every
+`BUILDING_MESHES` key to be a real `data/structures.json` type, and this task
+adds no data, so the twenty GLBs cannot be registered as building meshes yet.
+They are listed in a named holding list in `mesh-catalogue.ts`
+(`HELD_MESH_FILES`, each with the structure type that will claim it) rather
+than in `RETIRED_MESH_FILES`, so "not drawn yet" and "decided not to draw"
+stay distinguishable; Task 13 moves each entry into `BUILDING_MESHES`.

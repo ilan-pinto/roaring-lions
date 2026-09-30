@@ -42,7 +42,9 @@ export interface WreckRecipe {
  */
 export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   apc_eitan: { hull: 'wheeled', turretPivot: 'turret_pivot' },
-  apc_kipod: { hull: 'wheeled' },
+  // The Meshy Kipod (2026-09-30) carries a `turret_pivot` for its kit RWS;
+  // the kit build it replaced had a fixed pintle and no pivot.
+  apc_kipod: { hull: 'wheeled', turretPivot: 'turret_pivot' },
   dozer_d9: { hull: 'tracked' },
   heli_peten: { hull: 'air', rotorPivot: 'rotor_pivot' },
   ifv_namer: { hull: 'tracked', turretPivot: 'turret_pivot' },
@@ -52,6 +54,12 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   rocket_battery: { hull: 'wheeled' },
   scout_shachaf: { hull: 'wheeled' },
   technical: { hull: 'wheeled', turretPivot: 'turret_pivot' },
+  // The two KDF drones (GH-286 B0a, 2026-09-30). `air` like the Peten: a
+  // downed drone lies on its side. No pivot of any kind -- a quadcopter has
+  // four rotors and a file carries one `rotor_pivot`, so the rotors are
+  // static `hull_metal` (`tools/drones/export_meshy_drones.py`).
+  recon_drone: { hull: 'air' },
+  attack_drone: { hull: 'air' },
   // E5 part 2 (GH-181, 2026-09-30), HELD in `mesh-catalogue.ts` until its
   // data lands: the Gunship is the Peten's own export plus stores, so it
   // takes the Peten's recipe (tools/vehicles/export_meshy_apache_gunship.py).

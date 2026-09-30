@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready quadcopter reconnaissance drone, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. Four rotor arms in an X around a compact central body, with a small rounded camera ball hanging under the nose. Real-world scale, 0.9 metres across. Olive paint, gunmetal, black rotors. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f268-0a89-7526-8e24-baaf0187f64b",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 61337643,
+    "prompt": "A single low-poly game-ready quadcopter reconnaissance drone, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. Four rotor arms in an X around a compact central body, with a small rounded camera ball hanging under the nose. Real-world scale, 0.9 metres across. Olive paint, gunmetal, black rotors. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790773301719,
+    "progress": 100,
+    "started_at": 1790773301728,
+    "finished_at": 1790773352202,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f268-0a89-7526-8e24-baaf0187f64b/output/model.glb?Expires=4944326400&Signature=GfY~e~EJ4qDPBTJpVqwhg-8vO651L-lK7ZvzD4gJ5q56LmaNym7nzBnp~1ybIqro3eeO0ezv6OhYfeQL~~WgPyUwse~1okXrMKEBRKsmPm1pHZP6pElrWEiTBQIBfwPxpa9ltqTdCgprRF0XnR5GvwzZXv6sLgXsc996W40HyfeuwH1jg~KBKztua31bmVzDBNkwLWcZb2u0CXKa0~dRbD-46uOnDjJeDi4dZQYQAK310vHCvhJ2VhmX2PFyKsk9GqvBMUPVzuINJFZODoryX5~CIa0Klt7sc94oYieGC9fGR79rq9TDe~RXrNyYjZ17hFGNC~7pncM9tsDDXAEz0w__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f268-0a89-7526-8e24-baaf0187f64b/output/preview.png?Expires=4944326400&Signature=P9tFmfLScbXTkTvZPNnhyPaAxKnjM0gBu1QyaYxeelSP6qDgxbgnpHDlXplt1~bPgg~rXSWVyB0h244ThITT7hGkXdoFEfb3gNmNcXJBSYpUJsWkobUV9P4P~LBH3wnizym7regtE2bnWWL6VLN3dmNFU8adv3uia1-TcdHL7MNTkVCXT4c76vCc~slGrmRcsx5rSk112BI8oNd778zniEeF0bW0PDPO1J71uilRD9URLlsc2ZTXtJLK4KjW57UZ3DVWeqgAMpf8rSphaBty-tDQ-bngDe3TVWUFrrrYSuUz6mMRz3pE~ZtDVXKvs6JwO8~whHbVE-u0tAUWhtUVPw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790773301719,
+    "started_at": 1790773301728,
+    "finished_at": 1790773352202
+  },
+  "usd_estimated": 0.4
+}

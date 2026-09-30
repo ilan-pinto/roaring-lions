@@ -26,8 +26,10 @@ function sceneOf(parts: { name: string; role: string; map: THREE.Texture | null 
 const texture = () => new THREE.Texture();
 
 describe('the textured vehicle opt-out is a named list', () => {
-  it('covers exactly the seven supplied Meshy vehicles and the held Gunship variant', () => {
+  it('covers exactly the seven supplied Meshy vehicles, the B0a Eitan and Kipod, and the held E5 Gunship', () => {
     expect([...TEXTURED_VEHICLE_TYPES].sort()).toEqual([
+      'apc_eitan',
+      'apc_kipod',
       'heli_peten',
       'heli_peten_gunship',
       'ifv_namer',
@@ -74,7 +76,7 @@ describe('buildVehicleMeshTemplate, textured path', () => {
     expect(() =>
       buildVehicleMeshTemplate(
         sceneOf([{ name: 'hull_hull', role: 'hull', map: texture() }]),
-        'apc_eitan',
+        'scout_shachaf',
         false
       )
     ).toThrow(/not in TEXTURED_VEHICLE_TYPES/);

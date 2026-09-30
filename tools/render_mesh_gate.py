@@ -232,6 +232,16 @@ VEHICLE_ROLE_PALETTES = {
         "hull": "olive.0", "plate": "olive.1", "metal": "gunmetal.2",
         "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
     },
+    # The two KDF drones (GH-286 B0a, tools/drones/export_meshy_drones.py):
+    # KDF olive like apc_eitan; `metal` the rotors/guards (recon) and nose
+    # pod, tail and skids (attack); `glass` the camera ball / nose lens.
+    # Exactly the three roles each GLB carries.
+    "recon_drone": {
+        "hull": "olive.0", "metal": "gunmetal.2", "glass": "gunmetal.3",
+    },
+    "attack_drone": {
+        "hull": "olive.0", "metal": "gunmetal.2", "glass": "gunmetal.3",
+    },
     # E5 part 2 (GH-181): the Peten Gunship ships the Peten's bake, so this
     # row only names the repaint this gate makes -- KDF olive like the
     # drones -- for exactly the three roles the file carries. The Peten
