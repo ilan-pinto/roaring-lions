@@ -22,7 +22,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ImageToThreeDTask, RemeshTask, SubmitTaskResponse, TextToThreeDRequest, TextToThreeDTask } from './api-types';
+import type { ImageToThreeDRequest, ImageToThreeDTask, RemeshTask, SubmitTaskResponse, TextToThreeDRequest, TextToThreeDTask } from './api-types';
 import type { ImageOptions, RemeshOptions, TextOptions } from './args';
 import type { ImageTaskClient, RemeshTaskClient, TextTaskClient } from './client';
 import type { MeshyConfig } from './config';
@@ -46,6 +46,7 @@ function baseTextOptions(overrides: Partial<TextOptions> = {}): TextOptions {
     aiModel: 'meshy-6',
     polycount: 30000,
     topology: 'triangle',
+    pose: 'none',
     ultra: false,
     pbr: false,
     textureResolution: '2k',
@@ -66,6 +67,7 @@ function baseImageOptions(overrides: Partial<ImageOptions> = {}): ImageOptions {
     aiModel: 'meshy-6',
     polycount: 30000,
     topology: 'triangle',
+    pose: 'none',
     ultra: false,
     pbr: false,
     textureResolution: '2k',
@@ -214,6 +216,64 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].credits_estimated).toBe(20);
       expect(entries[0].credits_consumed).toBeUndefined();
+    });
+  });
+
+  describe('--pose reaches the request body', () => {
+    const originalDryRun = process.env.MESHY_DRY_RUN;
+
+    afterEach(() => {
+      if (originalDryRun === undefined) delete process.env.MESHY_DRY_RUN;
+      else process.env.MESHY_DRY_RUN = originalDryRun;
+      vi.restoreAllMocks();
+    });
+
+    function fakeTextClient() {
+      const submit = vi.fn<(req: TextToThreeDRequest) => Promise<SubmitTaskResponse>>(async () => ({ result: 'preview-task-1' }));
+      const client: TextTaskClient = {
+        submitTextTask: submit,
+        getTextTask: vi.fn(async (id: string): Promise<TextToThreeDTask> => textTask(id)),
+      };
+      return { client, submit };
+    }
+
+    it('text --pose a-pose sends pose_mode "a-pose"', async () => {
+      const { client, submit } = fakeTextClient();
+      await runText(client, CONFIG, baseTextOptions({ pose: 'a-pose' }), paths);
+      expect(submit.mock.calls[0][0]).toMatchObject({ mode: 'preview', pose_mode: 'a-pose' });
+    });
+
+    it('text --pose t-pose sends pose_mode "t-pose"', async () => {
+      const { client, submit } = fakeTextClient();
+      await runText(client, CONFIG, baseTextOptions({ pose: 't-pose' }), paths);
+      expect(submit.mock.calls[0][0]).toMatchObject({ pose_mode: 't-pose' });
+    });
+
+    it('text with the default pose still sends pose_mode "" -- unchanged', async () => {
+      const { client, submit } = fakeTextClient();
+      await runText(client, CONFIG, baseTextOptions(), paths);
+      expect(submit.mock.calls[0][0]).toMatchObject({ pose_mode: '' });
+    });
+
+    it('image --pose a-pose sends pose_mode; the default omits the key entirely', async () => {
+      const submit = vi.fn<(req: ImageToThreeDRequest) => Promise<SubmitTaskResponse>>(async () => ({ result: 'image-task-1' }));
+      const client: ImageTaskClient = {
+        submitImageTask: submit,
+        getImageTask: vi.fn(async (id: string): Promise<ImageToThreeDTask> => imageTask(id)),
+      };
+      await runImage(client, CONFIG, baseImageOptions({ pose: 'a-pose' }), paths);
+      await runImage(client, CONFIG, baseImageOptions(), paths);
+      expect(submit.mock.calls[0][0]).toMatchObject({ pose_mode: 'a-pose' });
+      expect(submit.mock.calls[1][0]).not.toHaveProperty('pose_mode');
+    });
+
+    it('the --dry-run printout shows the pose_mode', async () => {
+      process.env.MESHY_DRY_RUN = '1';
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      await runText(undefined, NO_KEY_CONFIG, baseTextOptions({ pose: 'a-pose' }), paths);
+      const out = log.mock.calls.map((c) => String(c[0])).join('\n');
+      expect(out).toContain('"pose_mode": "a-pose"');
+      expect(out).toContain('a-pose)'); // the plan line names it too
     });
   });
 

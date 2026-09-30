@@ -6,23 +6,26 @@
  * base model, not a unit; which unit it becomes is a decision made once it is
  * imported into Blender and is not this CLI's to make.
  */
-import type { TaskKind } from './options';
+import type { PoseFlag, TaskKind } from './options';
 
 export interface ProvenanceInput {
   readonly kind: TaskKind;
   readonly glbPath: string; // repo-relative
   readonly aiModel: string;
   readonly refined: boolean;
+  /** Omitted or `none` -> no pose constraint, and the line is unchanged. */
+  readonly pose?: PoseFlag;
   readonly taskId: string;
   readonly promptOrSource: string; // the text prompt, or the image path/URL
   readonly generatedAt: string; // yyyy-mm-dd
 }
 
 export function buildProvenanceLine(input: ProvenanceInput): string {
+  const poseNote = input.pose && input.pose !== 'none' ? `, ${input.pose}` : '';
   const method =
     input.kind === 'text'
-      ? `Meshy AI text-to-3d (${input.aiModel}${input.refined ? '+refine' : ''}, prompt: "${input.promptOrSource}")`
-      : `Meshy AI image-to-3d (${input.aiModel}, source: ${input.promptOrSource})`;
+      ? `Meshy AI text-to-3d (${input.aiModel}${input.refined ? '+refine' : ''}${poseNote}, prompt: "${input.promptOrSource}")`
+      : `Meshy AI image-to-3d (${input.aiModel}${poseNote}, source: ${input.promptOrSource})`;
   return (
     `| ${input.glbPath} | TODO: draws as | ${method} -- AI-generated, disclosed per CONTRIBUTING.md, ` +
     `task ${input.taskId}, generated ${input.generatedAt} |`

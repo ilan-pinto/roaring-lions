@@ -45,4 +45,18 @@ describe('buildProvenanceLine', () => {
     });
     expect(line).toContain('Meshy AI image-to-3d (meshy-6, source: ./ref.png)');
   });
+
+  it('names a non-default pose and leaves the default line unchanged', () => {
+    const base = {
+      kind: 'text' as const,
+      glbPath: 'art/meshy/x/model.glb',
+      aiModel: 'meshy-6',
+      refined: false,
+      taskId: 'id',
+      promptOrSource: 'a soldier',
+      generatedAt: '2026-09-29',
+    };
+    expect(buildProvenanceLine({ ...base, pose: 'a-pose' })).toContain('text-to-3d (meshy-6, a-pose, prompt: "a soldier")');
+    expect(buildProvenanceLine({ ...base, pose: 'none' })).toBe(buildProvenanceLine(base));
+  });
 });

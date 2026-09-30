@@ -56,7 +56,7 @@ import {
   type LedgerEntry,
 } from './ledger';
 import { isHttpUrl, resolveImageUrl, taskDirName } from './naming';
-import { TERMINAL_STATUSES, type TaskKind, type TaskStatus } from './options';
+import { poseModeFor, TERMINAL_STATUSES, type TaskKind, type TaskStatus } from './options';
 import { estimateCredits, estimateUsd, formatUsd, PRICING_SOURCE } from './pricing';
 import { buildProvenanceLine } from './provenance';
 
@@ -257,7 +257,7 @@ function buildPreviewRequest(opts: TextOptions): TextPreviewRequest {
     ...(opts.ultra ? { ultra_mode: true } : {}),
     topology: opts.topology,
     target_polycount: opts.polycount,
-    pose_mode: '',
+    pose_mode: poseModeFor(opts.pose),
     target_formats: opts.formats,
     origin_at: 'bottom',
   };
@@ -296,7 +296,7 @@ export async function runText(
   const refineCredits = opts.refine ? estimateCredits('text-refine', { textureResolution: opts.textureResolution }) : 0;
   const totalCredits = previewCredits + refineCredits;
 
-  console.log(`plan: text-to-3d preview "${opts.prompt}" (${opts.aiModel}, ${opts.modelType}, ${opts.polycount} tri budget)${opts.refine ? ' + refine' : ''}`);
+  console.log(`plan: text-to-3d preview "${opts.prompt}" (${opts.aiModel}, ${opts.modelType}, ${opts.polycount} tri budget${opts.pose !== 'none' ? `, ${opts.pose}` : ''})${opts.refine ? ' + refine' : ''}`);
   console.log(`estimate: ${priceCaption(totalCredits, config.usdPerCredit)}`);
 
   const previewBody = buildPreviewRequest(opts);
@@ -389,6 +389,7 @@ export async function runText(
     glbPath,
     aiModel: opts.aiModel,
     refined: opts.refine,
+    pose: opts.pose,
     taskId: previewId,
     promptOrSource: opts.prompt,
     generatedAt: new Date().toISOString().slice(0, 10),
@@ -415,6 +416,8 @@ function buildImageRequest(opts: ImageOptions, imageUrl: string): ImageToThreeDR
     ...(opts.texturePrompt ? { texture_prompt: opts.texturePrompt } : {}),
     topology: opts.topology,
     target_polycount: opts.polycount,
+    // Sent only when asked for: an image task's body has never carried it.
+    ...(opts.pose !== 'none' ? { pose_mode: poseModeFor(opts.pose) } : {}),
     target_formats: opts.formats,
     origin_at: 'bottom',
   };
@@ -434,7 +437,7 @@ export async function runImage(
   });
 
   console.log(
-    `plan: image-to-3d from ${opts.pathOrUrl} (${opts.aiModel}, ${opts.modelType}, ${opts.polycount} tri budget${opts.noTexture ? ', no texture' : ''})`
+    `plan: image-to-3d from ${opts.pathOrUrl} (${opts.aiModel}, ${opts.modelType}, ${opts.polycount} tri budget${opts.pose !== 'none' ? `, ${opts.pose}` : ''}${opts.noTexture ? ', no texture' : ''})`
   );
   console.log(`estimate: ${priceCaption(credits, config.usdPerCredit)}`);
 
@@ -496,6 +499,7 @@ export async function runImage(
     glbPath,
     aiModel: opts.aiModel,
     refined: false,
+    pose: opts.pose,
     taskId: id,
     promptOrSource: opts.pathOrUrl,
     generatedAt: new Date().toISOString().slice(0, 10),
@@ -680,6 +684,8 @@ Commands (network, need a key):
   balance                       credit balance
   text "<prompt>" [options]     text-to-3d, preview (+ --refine)
   image <path-or-url> [options] image-to-3d
+      text/image: --pose a-pose|t-pose|none   pose_mode sent to Meshy (default none;
+                                              a-pose is what a figure needs to be rigged)
   remesh <input-task-id> --polycount N [options]  retopologize a finished task
   status <id> [--kind text|image|remesh]
   download <id> [--kind ...] [--name ...]
