@@ -216,8 +216,10 @@ describe('which death path each shipped rig takes', () => {
     // B7 (2026-10-01): `meshy_soldier` and `sarim_rifles` are rig.py figures
     // now (toppling); their authored falls went with the supplied bipeds.
     yahalom_engineer: 'falling',
+    // The sniper's prone living pose on `death_root` still keys the same scale
+    // signature as its wreck (B7), so it still takes the already-down path;
+    // the mortar tableau is a rig.py team now (toppling).
     sniper_team: 'settling',
-    meshy_mortar_team: 'settling',
   };
 
   it.each(shippedTeams())('%s', async (team) => {

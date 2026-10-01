@@ -165,7 +165,7 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // `meshy_soldier.glb` (the supplied rifleman) is deleted, not retired.
   inf_squad: { files: ['inf_squad.glb'], faction: 'kdf' },
   sarim_rifles: { files: ['sarim_rifles.glb'], faction: 'enemy' },
-  mortar_team: { files: ['meshy_mortar_team.glb'], faction: 'kdf' },
+  mortar_team: { files: ['mortar_team.glb'], faction: 'kdf' }, // B7: as inf_squad; meshy_mortar_team.glb deleted
   yahalom_squad: { files: ['yahalom_engineer.glb'], faction: 'kdf' },
 
   // The star-gated Tzinah (docs/campaign/special_units/design.md §3), built by
@@ -375,8 +375,6 @@ export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
  * revert.
  */
 export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
-  'mortar_team.glb':
-    'superseded by meshy_mortar_team.glb; kept as mesh_gait.test.ts’ 88.7% gait reference',
   'yahalom_squad.glb': 'superseded by yahalom_engineer.glb (the first mesh team with a work clip)',
 };
 

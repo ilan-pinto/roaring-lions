@@ -70,8 +70,8 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   mbt_lavi: 1.15, ifv_namer: 1.6, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
   // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
   // supplied bipeds -- three men in kit's line read narrower than the supplied
-  // rifleman.
-  inf_squad: 0.47, mortar_team: 0.58, sniper_team: 0.51, sarim_rifles: 0.57,
+  // rifleman, the prone sniper pair wider than the sculpt.
+  inf_squad: 0.47, mortar_team: 0.46, sniper_team: 0.62, sarim_rifles: 0.57,
   at_team: 0.45, demo_squad: 0.45, yahalom_squad: 0.45, breach_team: 0.45, militia_cell: 0.45,
   // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
   // rear-shin-back kneel as `recoilless_team` below, two figures wide.

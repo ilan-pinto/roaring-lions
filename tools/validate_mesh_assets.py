@@ -305,7 +305,7 @@ TEXTURED_INFANTRY_EXEMPT = {
     # previews (`pnpm meshy -- refine`) and re-remeshed.
     "manpad_team", "recoilless_team",
     # B7: two supplied teams replaced on the crew importer's path.
-    "inf_squad", "sarim_rifles",
+    "inf_squad", "sarim_rifles", "mortar_team", "sniper_team",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's
