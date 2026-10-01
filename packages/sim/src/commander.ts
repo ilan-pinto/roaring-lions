@@ -31,6 +31,9 @@ export interface DoctrineZoneJson {
   value: number;
   /** True when the zone lies on the player's side of the wall. */
   forward?: boolean;
+  /** Round 2: where a main effort on this zone is fought FROM -- a line
+   *  behind the zone, so the fist comes onto prepared fire. */
+  fallback?: string;
   /** A route to watch, not ground to hold: no income, no standing garrison,
    *  staffed only while the enemy is seen in or near it. */
   watch?: boolean;
@@ -77,6 +80,24 @@ export interface DoctrineJson {
   anti_armour: readonly string[];
   /** Where withdrawn and idle units gather. */
   reserve_marker: string;
+  /** Round 2 (all three optional; absent = round 1 behaviour). */
+  main_effort?: {
+    /** A task is the main effort when it holds this share of all enemy
+     *  power seen, and at least `min_enemy` is seen in total. */
+    share_pct: number;
+    min_enemy: number;
+    /** Concentrate the ANTI-ARMOUR on the main effort only; the rest keep
+     *  their ground. Default false: everything goes. */
+    at_only?: boolean;
+    /** Fight from the zone's fallback line. Default true. */
+    use_fallback?: boolean;
+  };
+  /** A unit below this share of its hull, or routed, is withdrawn to the
+   *  reserve and never fed back in. */
+  preserve_hp_pct?: number;
+  /** Bank the wave budget while not pressed; release it in one wave at the
+   *  main effort once at least `min_bank` is banked. */
+  counterattack?: { min_bank: number; max_units: number };
   waves: {
     start_budget: number;
     income_per_point: number;
@@ -112,6 +133,10 @@ interface Task {
   abandoned: boolean;
   /** The quiet task leftovers and withdrawn units go to. */
   reserve?: boolean;
+  /** Round 2: this is the main effort. */
+  main?: boolean;
+  /** The zone's own marker, kept when `marker` moves to a fallback line. */
+  strike: string;
 }
 
 /** |v| without Math. */
@@ -136,6 +161,8 @@ export class Commander {
   private readonly assigned = new Map<number, number>();
   private readonly ambushed = new Set<number>();
   private readonly orderedAt = new Map<number, number>();
+  private readonly preserved = new Set<number>();
+  private readonly lastMarker = new Map<string, string>();
   private readonly abandonedPrev: boolean[];
   private lastWave = -1_000_000;
   private hq = -1;
@@ -238,7 +265,7 @@ export class Commander {
       }
       const softNeed = soft * ratio;
       return {
-        id, marker, standoff, rect,
+        id, marker, standoff, rect, strike: marker,
         // Contested ground is worth more than quiet ground: that is where
         // the income is being decided.
         utility: base + (armour + soft) * perEnemy,
@@ -269,9 +296,39 @@ export class Commander {
     const reserveIdx = tasks.length;
     tasks.push({
       id: 'reserve', marker: this.d.reserve_marker, standoff: this.d.reserve_marker, rect: [0, 0, 0, 0],
+      strike: this.d.reserve_marker,
       utility: -1, atNeed100: 0, softNeed100: 0, armour: 0, soft: 0, enemy: 0,
       armourSeen: false, abandoned: false, reserve: true,
     });
+    // --- round 2: main effort. One task holding most of what the enemy is
+    // showing takes everything; peripheral ground is written off and the
+    // fight is taken from that zone's fallback line. ---
+    let mainIdx = -1;
+    const me = this.d.main_effort;
+    if (me) {
+      let seen = 0;
+      for (const p of ep) seen += p;
+      let best = -1;
+      for (let ti = 0; ti < reserveIdx; ti++) if (best < 0 || tasks[ti].enemy > tasks[best].enemy) best = ti;
+      if (best >= 0 && seen >= me.min_enemy && tasks[best].enemy * 100 >= seen * me.share_pct) {
+        mainIdx = best;
+        const t = tasks[best];
+        t.main = true;
+        const zn = best < this.d.zones.length ? this.d.zones[best] : undefined;
+        if (zn?.fallback && me.use_fallback !== false) {
+          t.marker = zn.fallback;
+          t.standoff = zn.fallback;
+        }
+        t.utility = 1_000_000_000;
+        if (me.at_only === true) t.atNeed100 = 1_000_000_000;
+        for (let ti = 0; ti < reserveIdx; ti++) {
+          if (me.at_only === true) break;
+          if (ti === best) continue;
+          // Peripheral ground keeps nothing unless it is itself contested.
+          if (tasks[ti].enemy === 0) tasks[ti].softNeed100 = 0;
+        }
+      }
+    }
     const order = tasks.map((_, i) => i).sort((a, b) => tasks[b].utility - tasks[a].utility || a - b);
 
     // --- assignment: greedy by utility, nearest units first ---
@@ -287,12 +344,33 @@ export class Commander {
       if (isAT(id)) gotAT[ti] += p;
       gotAll[ti] += p;
     };
+    // Round 2 preservation: a damaged or routed unit leaves the fight for
+    // good and waits at the reserve.
+    const keep = this.d.preserve_hp_pct;
+    const leavingNow = new Set<number>();
+    if (keep !== undefined && keep !== null) {
+      for (const id of mine) {
+        if (this.preserved.has(id)) {
+          give(id, reserveIdx);
+          continue;
+        }
+        const full = sim.unitTypes[st.typeIdx[id]].hp;
+        if (st.routed[id] === 1 || (st.hp[id] >> 8) * 100 < (full >> 8) * keep) {
+          this.preserved.add(id);
+          leavingNow.add(id);
+          give(id, reserveIdx);
+        }
+      }
+    }
     // Dwell: recently ordered units stay on their task.
     for (const id of mine) {
       const prev = this.assigned.get(id);
       const at = this.orderedAt.get(id);
+      if (!free.has(id)) continue;
       if (prev === undefined || prev >= tasks.length || tasks[prev].reserve) continue;
       if (at === undefined || tick - at >= this.d.dwell_ticks) continue;
+      // A main effort overrides dwell: concentration is the point.
+      if (mainIdx >= 0 && prev !== mainIdx) continue;
       give(id, prev);
     }
     const nearest = (ti: number, atOnly: boolean): number => {
@@ -324,7 +402,7 @@ export class Commander {
       // Not enough left to do this one: write contested ground off rather
       // than feed it piecemeal. Quiet ground is held with what there is.
       const ab = this.d.abandon_ratio_pct;
-      if ((t.armour > 0 && availAT + gotAT[ti] < t.armour * ab) || (t.enemy > 0 && availAll + gotAll[ti] < t.enemy * ab)) {
+      if (!t.main && ((t.armour > 0 && availAT + gotAT[ti] < t.armour * ab) || (t.enemy > 0 && availAll + gotAll[ti] < t.enemy * ab))) {
         t.abandoned = true;
         continue;
       }
@@ -342,8 +420,10 @@ export class Commander {
     // Leftovers concentrate on the best task still being fought for; else
     // the reserve.
     let top = reserveIdx;
+    let topSoft = reserveIdx;
     for (const ti of order) if (!tasks[ti].reserve && !tasks[ti].abandoned) { top = ti; break; }
-    for (const id of [...free]) give(id, top);
+    for (const ti of order) if (!tasks[ti].reserve && !tasks[ti].abandoned && !tasks[ti].main) { topSoft = ti; break; }
+    for (const id of [...free]) give(id, me?.at_only === true && !isAT(id) && topSoft !== reserveIdx ? topSoft : top);
     // Units leaving ground just written off go to the reserve FIRST, rather
     // than straight across the open to their next task.
     for (const id of mine) {
@@ -362,8 +442,12 @@ export class Commander {
     for (let ti = 0; ti < tasks.length; ti++) {
       const t = tasks[ti];
       const moved: number[] = [];
+      // A task whose marker moved (a main effort falling back to its line)
+      // re-orders everyone on it, not only the newcomers.
+      const markerMoved = (this.lastMarker.get(t.id) ?? t.marker) !== t.marker;
+      this.lastMarker.set(t.id, t.marker);
       for (const id of mine) {
-        if (next.get(id) === ti && this.assigned.get(id) !== ti) moved.push(id);
+        if (next.get(id) === ti && (this.assigned.get(id) !== ti || markerMoved)) moved.push(id);
       }
       if (moved.length === 0) continue;
       // A unit leaving ground the doctrine has written off WITHDRAWS (move,
@@ -372,7 +456,7 @@ export class Commander {
       const going: number[] = [];
       for (const id of moved) {
         const prev = this.assigned.get(id);
-        if (prev !== undefined && prev < tasks.length && tasks[prev].abandoned) leaving.push(id);
+        if (leavingNow.has(id) || (prev !== undefined && prev < tasks.length && tasks[prev].abandoned)) leaving.push(id);
         else going.push(id);
         this.ambushed.delete(id);
       }
@@ -399,6 +483,52 @@ export class Commander {
 
     // --- waves: spend the budget where the deficit is largest ---
     if (tick - this.lastWave < this.d.waves.cooldown_ticks) return;
+    const ca = this.d.counterattack;
+    if (ca) {
+      // Round 2: bank while not pressed; when a main effort is on, release
+      // the bank as one wave that strikes the zone itself.
+      if (mainIdx < 0 || this.budget < ca.min_bank) return;
+      const t = tasks[mainIdx];
+      const wantAT = gotAT[mainIdx] < t.atNeed100;
+      const units: { unit: string; count: number; from: string }[] = [];
+      const [tx, ty] = this.markerFx(t.strike);
+      let from = this.d.waves.spawns[0];
+      let fromD = -1;
+      for (const sp of this.d.waves.spawns) {
+        const [sx, sy] = this.markerFx(sp);
+        const dd = dist(sx, sy, tx, ty);
+        if (fromD < 0 || dd < fromD) {
+          from = sp;
+          fromD = dd;
+        }
+      }
+      let n = 0;
+      let k = 0;
+      while (n < ca.max_units) {
+        // Alternate, anti-armour first when armour is what is pressing.
+        const menu = (k & 1) === (wantAT ? 0 : 1) ? this.d.waves.anti_armour : this.d.waves.general;
+        k++;
+        const w = menu[0];
+        if (w.cost > this.budget) {
+          const alt = (menu === this.d.waves.anti_armour ? this.d.waves.general : this.d.waves.anti_armour)[0];
+          if (alt.cost > this.budget) break;
+          continue;
+        }
+        this.budget -= w.cost;
+        units.push({ unit: w.unit, count: w.count, from });
+        n += w.count;
+      }
+      if (units.length === 0) return;
+      this.lastWave = tick;
+      const ids = this.rt.dispatchWave({ units, to: t.strike });
+      for (const id of ids) {
+        this.owned.add(id);
+        this.assigned.set(id, mainIdx);
+        this.orderedAt.set(id, tick);
+      }
+      this.trace.push({ tick, kind: 'wave', task: t.id, n: ids.length });
+      return;
+    }
     let worst = -1;
     let worstGap = 0;
     for (let ti = 0; ti < tasks.length; ti++) {

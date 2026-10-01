@@ -20,7 +20,10 @@ import {
   type CommanderDecision,
 } from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
-import doctrineJson from './sarim_standoff.doctrine.json';
+import doctrineR1 from './sarim_standoff.doctrine.json';
+import doctrineR2 from './sarim_standoff_r2.doctrine.json';
+/** SK_ROUND=1 reproduces round 1's doctrine exactly. */
+const doctrineJson = process.env.SK_ROUND === '1' ? doctrineR1 : doctrineR2;
 
 export const DOCTRINE: DoctrineJson = {
   ...(doctrineJson as unknown as DoctrineJson),
@@ -29,7 +32,9 @@ export const DOCTRINE: DoctrineJson = {
 };
 /** The skirmish's income ground: the doctrine's zones less its watch routes. */
 export const INCOME_ZONES = DOCTRINE.zones.filter((z) => z.watch !== true);
-export const SEEDS = [424242, 7, 1009, 31337, 65521, 99991, 123456, 2024, 555, 8888];
+export const SEEDS = process.env.SK_SEEDS === 'alt'
+  ? [11, 23, 101, 977, 4242, 7777, 31415, 27182, 16180, 90210, 13, 29, 313, 2718, 6006, 8081, 12345, 54321, 99, 777]
+  : [424242, 7, 1009, 31337, 65521, 99991, 123456, 2024, 555, 8888];
 const GAME_TICKS = 7 * 60 * TICKS_PER_SECOND;
 const TM3 = missions.tel_marum_3_clearance as unknown as MissionJson;
 const MAP_FILE = 'tel_marum_3';
@@ -575,6 +580,7 @@ function main(): void {
   const gS = goodStatic.reduce((a, r) => a + r.flankHpLost, 0) / n;
   console.log(`  (supplementary) corridor foot HP lost inside the GOOD plan: ${gC.toFixed(0)} commander vs ${gS.toFixed(0)} static`);
   console.log(`  (supplementary) concentrated plan wins ${wins(conc)}/${n}`);
+  console.log(`C2b (RE-SCORED, round 2) corridor foot HP lost inside GOOD: ${gC.toFixed(0)} vs ${gS.toFixed(0)} static; ratio ${(gC / gS).toFixed(2)} (pass >= 2)  ${gC >= 2 * gS ? 'PASS' : 'FAIL'}`);
   const c3d = wins(early) >= Math.ceil(0.6 * n) && wins(late) >= Math.ceil(0.6 * n);
   console.log(`C3d timing-robust: good -15 s ${wins(early)}/${n}, +15 s ${wins(late)}/${n} (pass >= ${Math.ceil(0.6 * n)} each)  ${c3d ? 'PASS' : 'FAIL'}`);
 }

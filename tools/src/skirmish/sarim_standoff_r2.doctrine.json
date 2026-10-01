@@ -1,0 +1,167 @@
+{
+  "id": "sarim_standoff_r2",
+  "side": 1,
+  "think_ticks": 20,
+  "power": {
+    "mbt_lavi": 1100,
+    "ifv_namer": 700,
+    "apc_eitan": 500,
+    "inf_squad": 300,
+    "at_team": 250,
+    "mortar_team": 200,
+    "recon_drone": 0,
+    "sarim_rifles": 340,
+    "atgm_cell": 300,
+    "recoilless_team": 220,
+    "manpad_team": 120,
+    "rocket_battery": 200
+  },
+  "default_power": 250,
+  "zones": [
+    {
+      "id": "inc_pass",
+      "rect": [
+        22,
+        12,
+        5,
+        6
+      ],
+      "marker": "pass",
+      "standoff_marker": "sk_pass_back",
+      "value": 10,
+      "fallback": "sk_pass_back"
+    },
+    {
+      "id": "inc_west",
+      "rect": [
+        7,
+        6,
+        6,
+        5
+      ],
+      "marker": "sk_west",
+      "standoff_marker": "sk_west_back",
+      "value": 8,
+      "fallback": "sk_west_back"
+    },
+    {
+      "id": "inc_east",
+      "rect": [
+        32,
+        5,
+        6,
+        5
+      ],
+      "marker": "sk_east",
+      "standoff_marker": "sk_east_back",
+      "value": 7,
+      "fallback": "sk_east_back"
+    },
+    {
+      "id": "inc_approach",
+      "rect": [
+        21,
+        22,
+        7,
+        5
+      ],
+      "marker": "approach",
+      "standoff_marker": "overwatch_west",
+      "value": 6,
+      "forward": true,
+      "fallback": "pass"
+    },
+    {
+      "id": "watch_corridor",
+      "rect": [
+        7,
+        12,
+        6,
+        13
+      ],
+      "marker": "saddle_narrow",
+      "standoff_marker": "sk_west",
+      "value": 0,
+      "watch": true,
+      "fallback": "sk_west"
+    }
+  ],
+  "hq": {
+    "unit": "rocket_battery",
+    "marker": "battery_position",
+    "radius_tiles": 8,
+    "value": 20
+  },
+  "min_hold_power": 300,
+  "attack_ratio_pct": 120,
+  "abandon_ratio_pct": 70,
+  "threat_radius_tiles": 6,
+  "hysteresis": 6144,
+  "dwell_ticks": 300,
+  "selection_jitter": 2048,
+  "value_jitter_pct": 15,
+  "ambush": {
+    "recoilless_team": 4
+  },
+  "standoff": [
+    "atgm_cell",
+    "manpad_team"
+  ],
+  "static": [
+    "rocket_battery"
+  ],
+  "armour": [
+    "mbt_lavi",
+    "ifv_namer",
+    "apc_eitan"
+  ],
+  "anti_armour": [
+    "atgm_cell",
+    "recoilless_team"
+  ],
+  "reserve_marker": "sk_reserve",
+  "waves": {
+    "start_budget": 500,
+    "income_per_point": 2,
+    "cooldown_ticks": 600,
+    "spawns": [
+      "town_edge",
+      "sarim_west"
+    ],
+    "anti_armour": [
+      {
+        "unit": "atgm_cell",
+        "count": 1,
+        "cost": 235
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "cost": 205
+      }
+    ],
+    "general": [
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "cost": 340
+      },
+      {
+        "unit": "recoilless_team",
+        "count": 1,
+        "cost": 205
+      }
+    ]
+  },
+  "main_effort": {
+    "share_pct": 60,
+    "min_enemy": 1800,
+    "at_only": true,
+    "use_fallback": false
+  },
+  "preserve_hp_pct": 40,
+  "counterattack": {
+    "min_bank": 700,
+    "max_units": 6
+  }
+}

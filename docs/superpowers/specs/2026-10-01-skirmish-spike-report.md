@@ -393,3 +393,153 @@ npx tsx src/skirmish/skirmish.ts --cost
 SK_DOC='{"abandon_ratio_pct":40}' npx tsx src/skirmish/skirmish.ts --only=naive,good
 SEED=7 SK_DEBUG=1 TRACE=1 npx tsx src/skirmish/dbg.ts naive commander   # one game, deaths + decisions
 ```
+
+---
+
+## Round 2: the bounded rerun
+
+The coordinator asked for this round after reading §7. It runs on the same branch,
+with the same criteria and the same plans. The round-1 doctrine is untouched and
+reproduces exactly under `SK_ROUND=1`. Round 2 is
+`tools/src/skirmish/sarim_standoff_r2.doctrine.json`, which is the default now.
+
+### R2.1 The three changes
+
+All three are optional doctrine blocks. With them absent, the commander behaves
+exactly as in round 1.
+
+- **Main effort** (`main_effort`). If one task holds at least 60% of all the enemy
+  power the commander has seen, and that total is at least 1,800, that task
+  becomes the main effort. It outranks everything else and takes **every
+  anti-armour unit** (`at_only`). The rifles keep their ground.
+- **Unit preservation** (`preserve_hp_pct: 40`). A unit below 40% of its hull, or a
+  routed one, withdraws to the reserve (`withdraw_to`) and is never fed back in.
+- **Bank, then counterattack** (`counterattack: {min_bank: 700, max_units: 6}`).
+  Round 1's wave rule spent whenever a task was short. The new rule spends
+  nothing while no main effort is on. When one is, it releases the bank in a
+  single wave of up to six units, anti-armour first if armour is pressing. The
+  wave commits at the main-effort zone itself.
+
+**Main effort was measured, not assumed.** Three versions were built before one
+was kept. Results are KDF wins out of 10 on the round's seeds:
+
+| Main-effort version | ×1 naive / good | ×2 naive / good |
+|---|---|---|
+| Everything, fought from a fallback line behind the zone | 9 / 10 | **10** / 5 |
+| Anti-armour only, fallback line | 9 / 9 | **10** / 5 |
+| Everything, no fallback | 10 / 9 | 5 / 6 |
+| **Anti-armour only, no fallback (kept)** | 10 / 10 | 4 / 5 |
+| Main effort off, the other two changes on | 9 / 9 | 4 / 7 |
+
+**The fallback line is actively harmful.** Falling back hands the income ground and
+the HQ's approach to the fist, and naive then wins on points. Concentrating the
+anti-armour is roughly neutral on these ten seeds. On 20 fresh seeds (R2.3) it is
+the better of the two: naive wins 10/20 with it and 15/20 without it.
+
+### R2.2 C2b, re-scored (the one criterion changed)
+
+**As committed:** the flank party's mean HP lost on the `flank` plan, commander
+vs the static garrison, needs to be at least 2×. **It cannot pass.** The static
+garrison already takes 1,552 of the lone flank party's 1,580 HP (98%), so the
+ceiling is 1.02×. The 2× threshold was carried over from the doctrine test, where
+the armour pinned the pass at the same time as the flank.
+
+**Re-scored as:** the same measure taken *inside the `good` plan*. That is the
+corridor party's HP lost while the armour pins the pass, commander vs static, and
+it still needs 2× or more. The threshold, the static control and the seeds are
+unchanged. Only the plan the flank is measured in changes: a supported flank, the
+one the criterion was written about. The harness prints both lines. The original
+stays in the table, marked as superseded.
+
+### R2.3 Results
+
+**Criteria, the fixed 10 seeds:**
+
+| Criterion | R2 ×1 | R2 ×2 | (R1 ×1 / ×2) |
+|---|---|---|---|
+| C1a take uncontested ground | **PASS** 10/10 | **PASS** 10/10 | P / P |
+| C1b dispute captures ≤ 30 s | **PASS** 82% | **PASS** 77% | P / P |
+| C1c out-earn naive | FAIL 0/10 | FAIL 6/10 | F / F |
+| C2a react to the flank | FAIL 7/10 (contact 8/10) | FAIL 0/10 (no contact: the flank dies south of the wall) | P / F |
+| C2b as committed (superseded) | 1.02× | 1.02× | F / F |
+| **C2b re-scored** (inside `good`) | FAIL 1.23× (894 vs 729) | **PASS 2.07×** (1,510 vs 729) | F / P |
+| C2c flank < good | **PASS** 0 < 10 | **PASS** 0 < 5 | P / P |
+| C3a good ≥ 7/10 | **PASS** 10/10 | FAIL 5/10 | P / F |
+| C3b passive 0, naive ≤ 3 | FAIL naive 10/10 | FAIL naive 4/10 | F / F |
+| C3c no script, traces unique | **PASS** | **PASS** | P / P |
+| C3d good ±15 s ≥ 6 | **PASS** 9, 10 | **PASS** 9, 6 | P / F |
+| *(supp.) C2a′ any west contact answered* | *10/10* | *10/10* | |
+
+**KDF wins vs the commander.** The 30 seeds pool the fixed 10 with 20 fresh ones
+(`SK_SEEDS=alt`):
+
+| Plan | R2 ×1, 10 seeds | R2 ×1, 30 | R2 ×2, 10 seeds | **R2 ×2, 30** | R1 ×2, 30 |
+|---|---|---|---|---|---|
+| passive | 0 | 0/30 | 0 | **0/30** | 0/30 |
+| flank | 0 | 0/30 | 0 | **0/30** | 0/30 |
+| naive | 10 | 27/30 | 4 | **14/30** | 15/30 |
+| good | 10 | 28/30 | 5 | **24/30** | 16/30 |
+| concentrated | 10 | 30/30 | 9 | **28/30** | 26/30 |
+| (static garrison: every plan but flank) | 10 | | 10 | | |
+
+**The coordinator's bar** is that naive loses most games while good still wins
+most. At ×1 it is **not met**: naive wins 27/30, because the force is too small
+for any doctrine. At ×2 on 30 seeds it is **met, narrowly**: naive loses 16/30
+(53%) and good wins 24/30 (80%). It is **not met on the fixed ten seeds** (naive
+4/10 loses, but good wins only 5/10), and C3b's committed threshold (naive ≤ 3/10)
+still fails there.
+
+What round 2 bought is the good plan. At ×2 the good plan went from 16/30 to
+24/30, which opens a 10-game gap over naive where round 1 had one. The naive rush
+itself was not slowed: 15/30 in round 1, 14/30 in round 2.
+
+**Ten seeds is not enough to judge this.** The same configuration read good 5/10
+on the fixed seeds and 19/20 on the fresh ones. One wave timing, or one ATGM
+volley that lands or does not, decides a game. Any future G4 reading should use
+30 seeds or more.
+
+**Why naive still wins half: the force, not the commander.** The Kornet fires 3
+rounds a minute for 400 damage against a 3,000-HP Lavi behind a Trophy. The
+commander's own fire log shows Sarim ATGMs land 1-5 rounds a game. A spread force,
+a massed block and a concentrated anti-armour main effort all lose to one tank
+leading an attack-move unless they field about 1.6× the KDF's logistics. That
+exchange rate is a G3/G-F number, and no doctrine change moves it.
+
+### R2.4 Determinism and cost
+
+- **Determinism.** `pnpm test:determinism` passes 11/11 with the golden hash
+  unmoved. `--determinism` at ×1 and ×2 gives an identical hash, score and trace
+  across two runs. `SK_ROUND=1` reproduces round 1's tables bit for bit. Lint and
+  `tsc` are clean.
+- **Cost at 300 living units** (3 runs). Commander think: mean 0.43-1.03 ms, max
+  5.2 ms, amortised **0.022-0.039 ms per tick**. That is about 2.5× round 1, and
+  still under 0.1% of the 50 ms budget. The 5.2 ms worst single think, on one tick
+  in twenty, is the first number worth watching. It comes from the per-think
+  assignment scan, which is O(tasks × own units²); G-G should make it O(units ×
+  tasks). The sim tick itself reads 3.0-3.3 ms with the commander against 1.8-2.2
+  without. That is the battle the commander provokes (more units moving and
+  firing), not the commander's own time.
+
+### R2.5 Final G4 recommendation: **GO, conditional**
+
+Go on the approach and on the round-2 doctrine as the starting design of WP-G-G,
+with three conditions attached to the go:
+
+1. **Skirmish budgets come from a measured exchange rate, not logistics.** At
+   logistics parity (×1) no doctrine version tried here makes naive lose. At about
+   1.6× (×2) the gradient appears: passive 0, flank 0, naive 47%, good 80%,
+   concentrated 93%. G3 decides this as part of the economy, and `pnpm balance`
+   should report a cross-doctrine rate it can be set from.
+2. **Drop the fallback line, keep the anti-armour main effort, keep preservation
+   and the bank.** Each was measured, with the ablation above.
+3. **Judge G4 on 30 seeds or more, and on the lead's five games.** Ten seeds swung
+   the good plan from 5/10 to 19/20. The lead's games still need the sandbox flag
+   from §7, which is a few hours of app work.
+
+**Why it is not a no-go:** every engineering risk is retired (determinism, cost,
+the vocabulary, fair perception), and the doctrine levers move the result in the
+right direction where the force allows it. What remains is a price, and pricing
+belongs to G3/G-F, not to another spike. **What would make it a no-go:** if G3's
+economy cannot give the AI doctrine about 1.6× effective force without breaking
+the campaign's own pricing. Then the commander needs typed counters that hurt
+armour (gap G-7, directed fire), not more tuning.
