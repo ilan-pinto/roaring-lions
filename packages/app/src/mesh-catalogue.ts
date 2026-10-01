@@ -366,14 +366,16 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 };
 
 /**
- * Art that has landed AHEAD of the structure type that will draw it -- the
- * opposite of retirement. `mesh-catalogue.test.ts` requires every
- * `BUILDING_MESHES` key to be a real `data/structures.json` type, and the
- * GH-277 field works (spec §8, plan Task 12) ship their meshes in October
- * with no sim or data change until Stage 4/5 (Task 13 wires them). Each
- * entry names the type that will claim it, so "not drawn yet" and "decided
- * not to draw" (`RETIRED_MESH_FILES`) stay distinguishable. Task 13 moves
- * each pair into `BUILDING_MESHES` and deletes it here.
+ * Art that has landed AHEAD of the type that will draw it -- the opposite
+ * of retirement. Two batches hold files here today: the GH-277 field works
+ * (spec §8, plan Task 12), whose structure types arrive at Stage 4/5 (Task
+ * 13 moves each pair into `BUILDING_MESHES`), and GH-298's four officers
+ * (spec `2026-09-30-field-commanders-design.md` §7, §8.2 E1), whose unit
+ * types arrive at Stage 5 (which moves each file into `RIGGED_UNIT_MESHES`
+ * / `VEHICLE_UNIT_MESHES`, runs `pnpm gait:meshes` on the teams -- it is
+ * scoped to the catalogue -- and deletes it here). Each entry names the
+ * type that will claim it, so "not drawn yet" and "decided not to draw"
+ * (`RETIRED_MESH_FILES`) stay distinguishable.
  */
 export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   'buildings/kdf_medic_station.glb': 'kdf_medic_station (GH-277 Task 13)',
@@ -396,6 +398,10 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   'buildings/militia_observation_post_wreck.glb': 'militia_observation_post (GH-277 Task 13)',
   'buildings/militia_weapons_workshop.glb': 'militia_weapons_workshop (GH-277 Task 13)',
   'buildings/militia_weapons_workshop_wreck.glb': 'militia_weapons_workshop (GH-277 Task 13)',
+  'officer_infantry.glb': 'officer_infantry (GH-298 Stage 5)',
+  'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
+  'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',
+  'vehicles/officer_armour.glb': 'officer_armour (GH-298 Stage 5)',
 };
 
 /**

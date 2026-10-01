@@ -260,6 +260,9 @@ TEXTURED_VEHICLE_EXEMPT = {
     # (tools/vehicles/export_meshy_ramp.py). The Shachaf's kit RWS parts
     # carry no material and still take the palette, as the gate repaints.
     "dozer_d9", "scout_shachaf",
+    # GH-298 (2026-09-30): the command Lavi, mbt_lavi.glb's own bake with a
+    # kit mast and cupola joined in (tools/vehicles/export_officer_armour.py).
+    "officer_armour",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -279,6 +282,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     # B3 (GH-179, 2026-09-30): generated through `pnpm meshy`, each ships its
     # remesh's own bake -- `tools/units/import_meshy_crew_team.py`.
     "militia_cell", "rpg_team", "atgm_cell",
+    # GH-298 (2026-09-30): the officer teams, tools/units/import_meshy_officers.py.
+    "officer_infantry", "officer_fires", "officer_engineer",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's

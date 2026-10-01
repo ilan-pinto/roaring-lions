@@ -26,7 +26,7 @@ function sceneOf(parts: { name: string; role: string; map: THREE.Texture | null 
 const texture = () => new THREE.Texture();
 
 describe('the textured vehicle opt-out is a named list', () => {
-  it('covers exactly the seven supplied Meshy vehicles plus the B0a Eitan and Kipod and the generated gun truck', () => {
+  it('covers exactly the supplied Meshy vehicles and every generated or held textured vehicle', () => {
     expect([...TEXTURED_VEHICLE_TYPES].sort()).toEqual([
       'apc_eitan',
       'apc_kipod',
@@ -36,6 +36,7 @@ describe('the textured vehicle opt-out is a named list', () => {
       'ifv_namer',
       'jeep_shoded',
       'mbt_lavi',
+      'officer_armour',
       'paramotor',
       'rocket_battery',
       'scout_shachaf',

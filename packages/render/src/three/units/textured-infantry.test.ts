@@ -34,7 +34,16 @@ describe('the textured infantry opt-out is a named list', () => {
   // B0b shipped the first two (GH-286), then B3 (GH-179) three more; the exact
   // list is pinned so an entry with no bake behind it is an edit made on purpose.
   it('names exactly the teams that ship a bake', () => {
-    expect([...TEXTURED_INFANTRY_TYPES].sort()).toEqual(['at_team', 'atgm_cell', 'demo_squad', 'militia_cell', 'rpg_team']);
+    expect([...TEXTURED_INFANTRY_TYPES].sort()).toEqual([
+      'at_team',
+      'atgm_cell',
+      'demo_squad',
+      'militia_cell',
+      'officer_engineer',
+      'officer_fires',
+      'officer_infantry',
+      'rpg_team',
+    ]);
   });
 
   it('agrees with TEXTURED_INFANTRY_EXEMPT in tools/validate_mesh_assets.py', () => {

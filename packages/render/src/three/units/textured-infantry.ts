@@ -42,4 +42,12 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   'militia_cell',
   'rpg_team',
   'atgm_cell',
+  // GH-298 (2026-09-30): the three officer teams, tools/units/
+  // import_meshy_officers.py -- each a new Meshy figure plus a B0b remesh as
+  // its second figure, both bakes in one 2048x1024 atlas. HELD art
+  // (HELD_MESH_FILES) until Stage 5 wires the unit types; listed now so the
+  // file that ships the bake is the file that names the exemption.
+  'officer_engineer',
+  'officer_fires',
+  'officer_infantry',
 ]);

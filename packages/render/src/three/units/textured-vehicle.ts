@@ -63,4 +63,8 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // material and draws through `rampForVehicleRole`, per mesh.
   'dozer_d9',
   'scout_shachaf',
+  // GH-298 (2026-09-30): the command Lavi is mbt_lavi.glb's own bake with a
+  // kit mast and cupola joined into its turret nodes
+  // (tools/vehicles/export_officer_armour.py). Held art until Stage 5.
+  'officer_armour',
 ]);
