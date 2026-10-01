@@ -1,0 +1,19 @@
+{
+  "unit": "recon_drone",
+  "source": "assets/meshes/vehicles/recon_drone.glb",
+  "source_sha256": "4f5e14fe25d52f8112028e4b95b831d84c26ed782daa62f487227044b4b88567",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": 0.88,
+  "ndc_box": [
+    0.06,
+    0.94,
+    0.3204,
+    0.6796
+  ],
+  "materials": {
+    "baked": 0,
+    "flat": 3
+  }
+}

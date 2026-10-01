@@ -86,3 +86,4 @@ art/blend/
 # Wrangler's local state (dev D1 shadow copy, cached auth, etc, WP-T1). Never
 # wanted in git, and it accumulates just from running `wrangler dev`.
 .wrangler/
+art/portraits/.roles.json
