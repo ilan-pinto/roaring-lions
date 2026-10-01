@@ -148,7 +148,12 @@ SOURCES = {
     # credits each), so each carries its bake now; the B2 remeshes
     # (`*-01a0f2af`) are superseded. Same preview mesh, same polycount: the
     # cut, the kneel and `_seat_launcher` re-run on near-identical shells.
-    "manpad_team": (os.path.join(REPO, "art", "meshy", "manpad-team-*-01a0f88f", "model.glb"), 1.74),
+    # Lead's ruling 2026-10-02 (B7 review, option 1): the refined B2 MANPAD
+    # figure read as a KDF soldier at game zoom (dark olive, helmet), so the
+    # team is built on the EXISTING Sarim body -- B3's militia_cell remesh
+    # with its tan bake and kit keffiyeh -- at 0 credits. The B2 preview, its
+    # refine and remesh (ledger 2026-09-30 / 10-01) are unused now.
+    "manpad_team": (os.path.join(REPO, "art", "meshy", "militia-cell-*-01a0f30b", "model.glb"), 1.70),
     "recoilless_team": (os.path.join(REPO, "art", "meshy", "recoilless-team-*-01a0f890", "model.glb"), 1.72),
     # B3 (GH-179, 2026-09-30): remeshes of REFINED tasks, so each carries its
     # own 2k bake -- see `TEXTURED` below. Folder ids filled in as each
@@ -178,7 +183,9 @@ SOURCES = {
     # path -- numbers in `docs/art/meshy-prompts-units.md` §19-23, task ids in
     # docs/ASSET_PROVENANCE.md. Each file reclaims its team id's own name.
     "inf_squad": (os.path.join(REPO, "art", "meshy", "inf-squad-*-01a0f89c", "model.glb"), 1.78),
-    "sarim_rifles": (os.path.join(REPO, "art", "meshy", "sarim-rifles-*-01a0f89e", "model.glb"), 1.74),
+    # Same ruling: the B7 Sarim rifleman preview (sarim-rifles-*-01a0f89e,
+    # unused now) read as KDF; the team is the militia_cell body three times.
+    "sarim_rifles": (os.path.join(REPO, "art", "meshy", "militia-cell-*-01a0f30b", "model.glb"), 1.70),
     "mortar_team": (os.path.join(REPO, "art", "meshy", "mortar-team-*-01a0f89f", "model.glb"), 1.76),
     "sniper_team": (os.path.join(REPO, "art", "meshy", "sniper-team-*-01a0f8a1", "model.glb"), 1.78),
     "yahalom_squad": (os.path.join(REPO, "art", "meshy", "yahalom-squad-*-01a0f8ab", "model.glb"), 1.78),
@@ -230,13 +237,7 @@ RECOLOUR = {"rpg_team": ((0.60, 0.52, 0.40), (300.0, 14.0)),      # dusty tan
             "digger_crew": ((0.55, 0.53, 0.48), (300.0, 20.0)),   # dusty grey
             # B6: the same rpg_team figure, the same rose scarf.
             "moto_rpg": ((0.60, 0.52, 0.40), (300.0, 14.0)),
-            # B7: the MANPAD refine painted the scarf and collar the same
-            # red-and-white check as B4's mortar crew; the same window.
-            "manpad_team": ((0.60, 0.52, 0.40), (300.0, 20.0)),
-            # B7: the Sarim rifleman came bare-headed under a saturated green
-            # headband; kit's keffiyeh covers the crown and the band's green
-            # goes to dusty tan where it still shows at the brow.
-            "sarim_rifles": ((0.60, 0.52, 0.40), (80.0, 160.0))}
+            }
 RECOLOUR_SAT_MIN = 0.16
 RECOLOUR_FLOOR_F = 0.74
 #: The mortar figure's chest bandolier came back in the same red check as
@@ -263,8 +264,8 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 # set from its preview.
                 "inf_squad": False, "mortar_team": False, "sniper_team": False,
                 "yahalom_squad": False,
-                # B7: the Sarim preview ignored the head wrap (a bare head
-                # under a green headband) -- kit's keffiyeh, militia's fix.
+                # B7 (2 Oct ruling): both on the militia_cell body, which came
+                # bare-headed -- kit's keffiyeh, militia's own fix.
                 "sarim_rifles": True}
 
 #: The role the cranium and neck cut take. Every Sarim figure wraps a scarf

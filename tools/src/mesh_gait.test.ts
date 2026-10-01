@@ -1036,11 +1036,11 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'rpg_team.glb move': 528,
   'charge_squad.glb move': 444, // B4: Meshy boots
   'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait; the source is bisected at its cut planes (B7 review), so every boot count below moved once more
-  'sarim_rifles.glb move': 918, // B7: Meshy boots, three men
+  'sarim_rifles.glb move': 1078, // B7 (2 Oct ruling): three of B3's militia_cell body
   'mortar_team.glb move': 590, // B7: Meshy boots -- two D6 walkers and the No.3
   'yahalom_squad.glb move': 508, // B7: Meshy boots, two men
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
-  'manpad_team.glb move': 428, // B7: re-remeshed from the refined B2 preview
+  'manpad_team.glb move': 711, // B7: re-remeshed from the refined B2 preview
   'recoilless_team.glb move': 518, // B7: re-remeshed from the refined B2 preview
   // B5 (2026-10-01): the Meshy breach figure, boot = below 0.09 H, two men.
   'breach_team.glb move': 396,

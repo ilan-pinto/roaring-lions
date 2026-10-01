@@ -632,8 +632,14 @@ otherwise.
 - **Kit positions assume kit bodies, again** (B0b's lesson, third time): the
   yahalom packs sat 0.18 m behind a kit axis and ran through a Meshy chest
   (86-89 samples inside). Seated behind the measured back; 0 inside; gated.
-- Counts (glTF tris, after the bisection): manpad 10,843, recoilless 12,432,
-  inf_squad 8,664, sarim 12,168, mortar_team 11,766, sniper 7,938, yahalom
+- **A dark-olive bake on a militia man reads as the other army** (the lead,
+  2 Oct). The B7 Sarim rifleman and the refined B2 MANPAD man were tan in
+  their thumbnails and KDF at 25 px; both teams moved to B3's militia_cell
+  body, the shipped Sarim figure, for 0 credits. The side's look is the BODY
+  the importer maps a team to, not the prompt's colour words -- 50 credits
+  of this batch bought figures that do not ship.
+- Counts (glTF tris, after the bisection): manpad 11,440, recoilless 12,432,
+  inf_squad 8,664, sarim 12,898, mortar_team 11,766, sniper 7,938, yahalom
   12,410 -- all over the 8,000 team cap, where the supplied files they
   replace read 31,965 / 180,670 / 20,544 / 30,876 / 27,991. 205 credits of
   the 240 approved.
