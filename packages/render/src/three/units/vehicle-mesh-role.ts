@@ -440,6 +440,18 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     metal: sliceFrom('gunmetal', 2, 2),
     glass: sliceFrom('gunmetal', 3, 1),
   },
+  // E5 part 2 (GH-181, 2026-10-01): the Shiryonan Demolition Carrier
+  // (`tools/vehicles/export_meshy_tzav.py`), hand-copied from the gate's
+  // `VEHICLE_ROLE_PALETTES["demo_tzav"]`. The hull and tracks ship their
+  // own bake and never reach these ramps; the kit RWS (`turret_metal`,
+  // `turret_plate`) draws through them at runtime -- `apc_eitan`'s own
+  // tones, the KDF olive this hull drives beside. Held until E6.
+  demo_tzav: {
+    hull: sliceFrom('olive', 0, 4),
+    plate: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+  },
 };
 
 /**
