@@ -239,3 +239,73 @@ describe('TurnController: the auto-turn', () => {
     expect(r.pendingTimers()).toBe(0);
   });
 });
+
+describe('TurnController: what a screen reader hears, and focus', () => {
+  it('reports the angle on player input only, never from the auto-turn', () => {
+    const r = rig();
+    r.tc.turnBy(15);
+    r.flush();
+    r.advance(AUTO_TURN_DELAY_MS + 10_000);
+    expect(r.tc.autoTurning).toBe(true);
+    expect(r.tc.yaw).toBeGreaterThan(70);
+    // One report: the key press. Ten seconds of turning said nothing.
+    expect(r.turns).toEqual([15]);
+  });
+
+  it('pauses the auto-turn while the control has focus, and restarts the clock on blur', () => {
+    const r = rig();
+    r.advance(AUTO_TURN_DELAY_MS + 500);
+    expect(r.tc.autoTurning).toBe(true);
+    r.tc.focus(true);
+    expect(r.tc.autoTurning).toBe(false);
+    const drawn = r.draws.length;
+    r.advance(AUTO_TURN_DELAY_MS * 3);
+    expect(r.draws.length).toBe(drawn);
+    expect(r.pendingTimers()).toBe(0);
+    r.tc.focus(false);
+    r.advance(AUTO_TURN_DELAY_MS - 50);
+    expect(r.tc.autoTurning).toBe(false);
+    r.advance(100);
+    expect(r.tc.autoTurning).toBe(true);
+  });
+
+  it('a focused control still turns by keys, and never by itself', () => {
+    const r = rig();
+    r.tc.focus(true);
+    r.tc.turnBy(15);
+    r.flush();
+    r.advance(AUTO_TURN_DELAY_MS * 2);
+    expect(r.draws).toEqual([15]);
+  });
+});
+
+describe('TurnController: reduced motion switched while the garage is open', () => {
+  it('switched back off, the auto-turn starts again after the quiet time', () => {
+    const r = rig({ reduced: true });
+    r.advance(AUTO_TURN_DELAY_MS * 2);
+    expect(r.tc.autoTurning).toBe(false);
+    r.setReduced(false);
+    r.tc.motionChanged();
+    r.advance(AUTO_TURN_DELAY_MS - 50);
+    expect(r.tc.autoTurning).toBe(false);
+    r.advance(100);
+    expect(r.tc.autoTurning).toBe(true);
+  });
+
+  it('switched on, it stops at once and arms nothing', () => {
+    const r = rig();
+    r.advance(AUTO_TURN_DELAY_MS + 500);
+    r.setReduced(true);
+    r.tc.motionChanged();
+    expect(r.tc.autoTurning).toBe(false);
+    expect(r.pendingTimers()).toBe(0);
+  });
+
+  it('a change that is not a change leaves a running clock alone', () => {
+    const r = rig();
+    r.advance(AUTO_TURN_DELAY_MS - 1000);
+    r.tc.motionChanged();
+    r.advance(1100);
+    expect(r.tc.autoTurning).toBe(true);
+  });
+});

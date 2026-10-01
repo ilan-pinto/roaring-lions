@@ -18,6 +18,8 @@
 
 /** Degrees per arrow-key press (OS key-repeat turns it continuously). */
 export const KEY_STEP_DEG = 15;
+/** Degrees per PageUp/PageDown press. */
+export const PAGE_STEP_DEG = 45;
 /** Degrees per CSS pixel of drag: one ~560 px bay width is ~280 degrees. */
 export const DRAG_DEG_PER_PX = 0.5;
 /** Quiet time before the auto-turn starts. */
@@ -46,7 +48,9 @@ export interface TurnDeps {
   /** Read each time the auto-turn would start, so a setting changed while
    *  the garage is open is honoured on the next idle. */
   reducedMotion(): boolean;
-  /** The angle changed (for `aria-valuenow`). */
+  /** The PLAYER changed the angle (for `aria-valuenow`). Never called by
+   *  the auto-turn: a value rewritten six times a second is announced six
+   *  times a second by a screen reader. */
   onTurn?(yawDeg: number): void;
 }
 
@@ -56,6 +60,7 @@ export class TurnController {
   private timer = 0;
   private auto = false;
   private held = false;
+  private focused = false;
   private last: number | null = null;
   private disposed = false;
 
@@ -104,6 +109,41 @@ export class TurnController {
     this.arm();
   }
 
+  /** The control has keyboard focus (or lost it). No auto-turn while it is
+   *  focused: a player working it by keys, or a screen reader sitting on
+   *  it, gets a model that holds still. Leaving it starts the quiet clock. */
+  focus(on: boolean): void {
+    if (this.disposed) return;
+    this.focused = on;
+    if (!on) {
+      this.arm();
+      return;
+    }
+    const wasTurning = this.auto;
+    this.interrupt();
+    // The auto-turn's next frame was already asked for; it has nothing new
+    // to draw now.
+    if (wasTurning && this.frameId !== 0) {
+      this.deps.cancelFrame(this.frameId);
+      this.frameId = 0;
+    }
+  }
+
+  /** The reduced-motion preference changed while the garage is open:
+   *  switched on, the turn stops where it is; switched back off, the quiet
+   *  clock starts again (unless it is already running). */
+  motionChanged(): void {
+    if (this.disposed) return;
+    if (this.deps.reducedMotion()) {
+      this.auto = false;
+      this.last = null;
+      if (this.timer !== 0) this.deps.clearTimer(this.timer);
+      this.timer = 0;
+    } else if (!this.auto && this.timer === 0) {
+      this.arm();
+    }
+  }
+
   /** Draw the current angle once, at the next frame -- a resize, or the
    *  model moved into a rebuilt bay. Not input: the clock is untouched. */
   redraw(): void {
@@ -134,15 +174,21 @@ export class TurnController {
     this.arm();
   }
 
-  /** (Re)start the quiet clock -- unless a pointer is held or the player
-   *  asked for reduced motion, in which case there is no clock at all. */
+  /** Whatever stops the auto-turn from starting: a held pointer, keyboard
+   *  focus, or the player's reduced-motion preference. */
+  private blocked(): boolean {
+    return this.disposed || this.held || this.focused || this.deps.reducedMotion();
+  }
+
+  /** (Re)start the quiet clock -- unless something `blocked` names is in
+   *  the way, in which case there is no clock at all. */
   private arm(): void {
     if (this.timer !== 0) this.deps.clearTimer(this.timer);
     this.timer = 0;
-    if (this.disposed || this.held || this.deps.reducedMotion()) return;
+    if (this.blocked()) return;
     this.timer = this.deps.setTimer(() => {
       this.timer = 0;
-      if (this.disposed || this.held || this.deps.reducedMotion()) return;
+      if (this.blocked()) return;
       this.auto = true;
       this.last = null;
       this.request();
@@ -164,9 +210,8 @@ export class TurnController {
       // previous frame to measure a step from.
       if (this.last !== null) {
         const dt = Math.min(Math.max(0, now - this.last), MAX_AUTO_STEP_MS);
-        const next = wrapDeg(this.yawDeg + (AUTO_TURN_DEG_PER_S * dt) / 1000);
-        if (Math.round(next) !== Math.round(this.yawDeg)) this.deps.onTurn?.(next);
-        this.yawDeg = next;
+        // Deliberately NOT reported through `onTurn`: see its comment.
+        this.yawDeg = wrapDeg(this.yawDeg + (AUTO_TURN_DEG_PER_S * dt) / 1000);
       }
       this.last = now;
     }

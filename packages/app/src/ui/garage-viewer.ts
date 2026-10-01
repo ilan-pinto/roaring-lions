@@ -43,7 +43,7 @@
 import { t } from '../i18n/t';
 import type { MeshFactionName } from '../mesh-catalogue';
 import type { RendererChoice } from '../renderer-choice';
-import { DRAG_DEG_PER_PX, KEY_STEP_DEG, TurnController } from './garage-turn';
+import { DRAG_DEG_PER_PX, KEY_STEP_DEG, PAGE_STEP_DEG, TurnController } from './garage-turn';
 import { webgl2Available } from './webgl-probe';
 
 /** Which GLB draws a unit, and through which path. */
@@ -107,6 +107,9 @@ export interface GarageModelDeps {
   readonly colors: GarageColors;
   readonly webgl?: () => boolean;
   readonly mount?: MountGarageView;
+  /** How long a selection must stay before its model starts loading
+   *  (`MOUNT_DELAY_MS`); a test passes 0. */
+  readonly mountDelayMs?: number;
   readonly reducedMotion?: () => boolean;
   readonly frame?: (cb: (now: number) => void) => number;
   readonly cancelFrame?: (id: number) => void;
@@ -129,6 +132,33 @@ export interface GarageModelHandle {
   adopt(plate: HTMLElement): void;
   dispose(): void;
 }
+
+/**
+ * A unit must stay selected this long before its model starts loading.
+ * Paging down the rail by keyboard selects a unit every key repeat (~30 ms);
+ * without this each one would start a GLB fetch and a Draco decode for a bay
+ * already left. 150 ms is under what a player reads as a delay against a
+ * load that takes 140-400 ms anyway (the mock's mount cost).
+ */
+export const MOUNT_DELAY_MS = 150;
+
+/** `fn`, asked once and then remembered. */
+export function memoise<T>(fn: () => T): () => T {
+  let known = false;
+  let value: T;
+  return () => {
+    if (!known) {
+      value = fn();
+      known = true;
+    }
+    return value;
+  };
+}
+
+/** The WebGL2 probe, once per page: whether the browser can draw it does not
+ *  change between one unit and the next, and each probe is a context made
+ *  and lost. */
+const webgl2Once = memoise(webgl2Available);
 
 /** The bare globals, looked up at CALL time, so a capture tool's frame-loop
  *  freeze stops this too (`scene-host.ts`'s `defaultFrame`). */
@@ -167,9 +197,15 @@ export function garageModel(
   let turn: TurnController | null = null;
   let resizeWatch: ResizeObserver | null = null;
   const off: (() => void)[] = [];
+  /** Ends the mount's debounce wait at once, so a handle disposed inside it
+   *  still settles `ready`. */
+  let wakeEarly: (() => void) | null = null;
 
   const keepPlate = (reason: PlateReason, err?: unknown): { shown: 'plate'; reason: PlateReason } => {
-    if (reason !== 'pixi') {
+    if (reason === 'pixi') {
+      // A choice, not a fault: said once, at `info`, never as a warning.
+      console.info(`garage model: ?renderer=pixi -- showing ${unit.id}'s plate, not its three.js model`);
+    } else {
       const why =
         reason === 'no-mesh'
           ? `${unit.id} has no mesh`
@@ -218,25 +254,42 @@ export function garageModel(
   /** The live control: focusable, labelled, turned by drag and keys. */
   function goLive(v: MountedGarageView): void {
     view = v;
+    /** Frames the view has drawn, mirrored onto `data-frames` after each
+     *  draw -- which is only ever on demand -- so a harness in a real browser
+     *  can prove an idle bay draws nothing (`pnpm ui:routes`). */
+    const countFrames = (): void => {
+      if (view) el.dataset.frames = String(view.stats().frames);
+    };
+    /** The value a screen reader reads: on player input only (see
+     *  `TurnDeps.onTurn`). */
+    const sayAngle = (deg: number): void => {
+      const n = Math.round(deg) % 360;
+      el.setAttribute('aria-valuenow', String(n));
+      el.setAttribute('aria-valuetext', t('garage.model.valuetext', { n }));
+    };
     const tc = new TurnController({
-      draw: (deg) => view?.draw(deg),
+      draw: (deg) => {
+        view?.draw(deg);
+        countFrames();
+      },
       frame: deps.frame ?? defaultFrame,
       cancelFrame: deps.cancelFrame ?? defaultCancel,
       setTimer: deps.setTimer ?? defaultSetTimer,
       clearTimer: deps.clearTimer ?? defaultClearTimer,
       reducedMotion: deps.reducedMotion ?? (() => false),
-      onTurn: (deg) => el.setAttribute('aria-valuenow', String(Math.round(deg) % 360)),
+      onTurn: sayAngle,
     });
     turn = tc;
+    countFrames();
     el.tabIndex = 0;
     el.setAttribute('role', 'slider');
     el.setAttribute('aria-label', t('garage.model.label', { name: unit.name }));
     el.setAttribute('aria-valuemin', '0');
     el.setAttribute('aria-valuemax', '359');
-    el.setAttribute('aria-valuenow', '0');
+    sayAngle(0);
     el.dataset.focusKey = 'model';
     const hint = document.createElement('span');
-    hint.className = 'rl-garage__model-hint';
+    hint.className = 'rl-garage__model-hint rl-plate';
     hint.setAttribute('aria-hidden', 'true');
     hint.textContent = t('garage.model.hint');
     el.appendChild(hint);
@@ -269,16 +322,47 @@ export function garageModel(
     listen('pointercancel', endDrag);
     listen('lostpointercapture', endDrag);
 
-    // Keys: Left/Right turn, Home goes back to the default face. Turning
-    // right drags the near side to the right, like a drag to the right.
+    // Keys, the ARIA slider set: Right/Up turn one step, Left/Down one step
+    // back, PageUp/PageDown a bigger one, Home to the default face. A turn
+    // has no maximum to go to, so End shows the far side (180). Right turns
+    // the near side to the right, like a drag to the right.
+    const KEY_TURN: Readonly<Record<string, number>> = {
+      ArrowRight: KEY_STEP_DEG,
+      ArrowUp: KEY_STEP_DEG,
+      ArrowLeft: -KEY_STEP_DEG,
+      ArrowDown: -KEY_STEP_DEG,
+      PageUp: PAGE_STEP_DEG,
+      PageDown: -PAGE_STEP_DEG,
+    };
     listen('keydown', (ev) => {
-      if (ev.key === 'ArrowRight') tc.turnBy(KEY_STEP_DEG);
-      else if (ev.key === 'ArrowLeft') tc.turnBy(-KEY_STEP_DEG);
+      const step = KEY_TURN[ev.key];
+      if (step !== undefined) tc.turnBy(step);
       else if (ev.key === 'Home') tc.turnTo(0);
+      else if (ev.key === 'End') tc.turnTo(180);
       else return;
       ev.preventDefault();
       ev.stopPropagation();
     });
+
+    // No auto-turn while the control has focus: a model that keeps moving
+    // under a player's keys, or under a screen reader, is the wrong answer.
+    listen('focus', () => tc.focus(true));
+    listen('blur', () => tc.focus(false));
+
+    // Reduced motion switched while the garage is open -- by the shell's own
+    // setting (`data-motion` on the root) or by the OS. Off again restarts
+    // the auto-turn's clock; on stops it where it is.
+    const media = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    const onMotion = (): void => tc.motionChanged();
+    if (media && typeof media.addEventListener === 'function') {
+      media.addEventListener('change', onMotion);
+      off.push(() => media.removeEventListener('change', onMotion));
+    }
+    if (typeof MutationObserver !== 'undefined') {
+      const watch = new MutationObserver(onMotion);
+      watch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
+      off.push(() => watch.disconnect());
+    }
 
     if (typeof ResizeObserver !== 'undefined') {
       resizeWatch = new ResizeObserver(() => {
@@ -295,7 +379,20 @@ export function garageModel(
     if (deps.renderer === 'pixi') return keepPlate('pixi');
     const source = deps.source(unit.id);
     if (source === null) return keepPlate('no-mesh');
-    if (!(deps.webgl ?? webgl2Available)()) return keepPlate('no-webgl2');
+    if (!(deps.webgl ?? webgl2Once)()) return keepPlate('no-webgl2');
+    // The debounce: a unit paged past inside `MOUNT_DELAY_MS` never fetches.
+    const delay = deps.mountDelayMs ?? MOUNT_DELAY_MS;
+    if (delay > 0) {
+      await new Promise<void>((resolve) => {
+        const id = (deps.setTimer ?? defaultSetTimer)(resolve, delay);
+        wakeEarly = () => {
+          (deps.clearTimer ?? defaultClearTimer)(id);
+          resolve();
+        };
+      });
+      wakeEarly = null;
+      if (disposed) return { shown: 'plate' };
+    }
     try {
       const mount = deps.mount ?? (await loadDoor());
       if (disposed) return { shown: 'plate' };
@@ -341,6 +438,7 @@ export function garageModel(
     dispose() {
       if (disposed) return;
       disposed = true;
+      wakeEarly?.();
       teardown();
     },
   };

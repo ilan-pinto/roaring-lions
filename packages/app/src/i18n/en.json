@@ -154,6 +154,7 @@
   "garage.plate.none": "{id} — no plate photographed",
   "garage.model.label": "{name}, turn with arrow keys",
   "garage.model.hint": "Drag or use the arrow keys to turn",
+  "garage.model.valuetext": "{n} {n, plural, one {degree} other {degrees}}",
   "garage.buy": "Buy for {price, plural, one {# credit} other {# credits}}",
   "garage.buy.aria": "buy {name} for {price, plural, one {# credit} other {# credits}}",
   "garage.buy.short": "{n, plural, one {# more credit} other {# more credits}}",

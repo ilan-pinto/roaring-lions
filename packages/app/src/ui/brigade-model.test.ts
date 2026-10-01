@@ -66,6 +66,7 @@ function setup() {
       groundTextureUrl: '/t/sand.jpg',
       colors: { key: 'k', fill: 'f', sky: 's', bounce: 'b', ground: 'g' },
       webgl: () => true,
+      mountDelayMs: 0,
       mount,
     },
   };
@@ -125,6 +126,7 @@ describe('the garage bay and its model', () => {
     // Left before the mount's promise has been looked at.
     s.dispose();
     await s.settle();
-    expect(s.views.every((v) => v.disposed === 1)).toBe(true);
+    expect(s.views).toHaveLength(1);
+    expect(s.views[0].disposed).toBe(1);
   });
 });

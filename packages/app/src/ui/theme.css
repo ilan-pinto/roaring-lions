@@ -4428,8 +4428,11 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-body);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
-  color: var(--ink-dim);
-  text-shadow: 0 0 3px var(--type-shadow), 0 0 8px var(--type-shadow);
+  /* On a `.rl-plate` (`garage-viewer.ts` gives the hint the class): the lit sand
+     under it is the brightest thing in the bay, and a halo alone read faint
+     there -- the same finding `.rl-plate`'s own comment records for type
+     over map sand. `--ink-label`, not `--ink-dim`, on that dark ground. */
+  color: var(--ink-label);
   pointer-events: none;
 }
 /* No plate photographed for this unit: the same "reserved, not broken" hatch

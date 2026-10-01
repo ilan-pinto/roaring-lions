@@ -298,20 +298,23 @@ export function visiblePoints(
  * about the vertical.
  */
 export function figureTurner(figures: readonly THREE.Bone[]): (yawDeg: number) => void {
-  const base = figures.map((b) => ({ b, q: b.quaternion.clone() }));
-  const up = new THREE.Vector3();
+  // Each figure's up axis, in its parent's space, worked out ONCE: nothing
+  // above a figure root rotates after this (the stage only translates, and
+  // a figure turns by its own bone), so per frame the turn is one
+  // quaternion multiply a figure and no matrix update at all.
   const pq = new THREE.Quaternion();
+  const base = figures
+    .filter((b) => b.parent !== null)
+    .map((b) => {
+      b.parent!.updateWorldMatrix(true, false);
+      b.parent!.getWorldQuaternion(pq);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(pq.invert()).normalize();
+      return { b, q: b.quaternion.clone(), up };
+    });
   const turn = new THREE.Quaternion();
   return (yawDeg) => {
     const r = THREE.MathUtils.degToRad(yawDeg);
-    for (const { b, q } of base) {
-      if (!b.parent) continue;
-      b.parent.updateMatrixWorld(true);
-      b.parent.getWorldQuaternion(pq);
-      up.set(0, 1, 0).applyQuaternion(pq.invert()).normalize();
-      turn.setFromAxisAngle(up, r);
-      b.quaternion.copy(turn).multiply(q);
-    }
+    for (const { b, q, up } of base) b.quaternion.copy(turn.setFromAxisAngle(up, r)).multiply(q);
   };
 }
 
