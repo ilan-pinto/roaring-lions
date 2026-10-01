@@ -90,9 +90,12 @@ says what colour it is. `weapon`/`metal`/`charge` are the kit parts.
 
 ## What each team carries, from `tools/units/teams.py` and `rig.py`
 
-  at_team     at_fire kneeling at (0.24, -0.30), `kit.launcher` at z 1.02,
-              pitch 0, length 1.16 on his forearm_R (`rig._at_extras`'s own
-              numbers); at_spot standing at (-0.32, 0.34) with
+  at_team     at_fire kneeling at (0.24, -0.30), `kit.launcher` level,
+              length 1.16, on his forearm_R -- but seated ON his +y shoulder
+              beside the head at cheek height, with a sight unit, pistol grip
+              and support handle and both arms re-seated on them
+              (`_shoulder_launcher`), NOT at `rig._at_extras`' centre-line
+              anchor, which on this figure ran through his head; at_spot standing at (-0.32, 0.34) with
               `kit.binoculars` on his head at this figure's measured eye
               height. Neither figure has a D6 walker: the gunner stays
               deployed through `move`, as in the kit file.
@@ -574,6 +577,159 @@ def _kneel(parts, joints, prefix):
     return bones, eye_z, drop
 
 
+# --- the shouldered Spike ----------------------------------------------------
+#
+# The first cut of this file put `kit.launcher` at the figure's own (x, y) --
+# rig._at_extras' anchor, which is the KIT figure's centre line -- so on this
+# figure the tube ran straight through the gunner's neck and head, rear cap
+# out behind his back and muzzle out past his face (the lead's screenshot,
+# 2026-10-01). It now rests ON the +y shoulder, the side whose forearm the
+# tube is bound to (`forearm_R`, side 1), BESIDE the head:
+#
+#   * axis at cheek height, `CHEEK_F` of the standing figure, dropped by the
+#     kneel; raised only if the shoulder under it would otherwise cut it;
+#   * laterally, the widest point of the head, neck or torso inside the
+#     tube's own height band, plus the tube's radius, plus `TUBE_GAP`;
+#   * the sight / command-launch unit: a block on the tube's inboard side,
+#     in front of the face, its eyepiece face at `EYE_F` height and
+#     `SIGHT_STANDOFF` ahead of the face, so the eye sits behind it;
+#   * a pistol grip under the tube `GRIP_FWD` ahead of the shoulder, and the
+#     firing arm (side 1) re-seated on it; a handle hanging from the sight
+#     unit's inboard edge, and the other arm (side 0) re-seated on that. The
+#     handle is as long as it must be for that arm to reach its foot: this
+#     remesh's arm is 0.45 m shoulder ring to fingertips, too short to reach
+#     the tube itself across the chest.
+#
+# Both arms are moved RIGIDLY as rest geometry -- one rotation of the upper
+# arm (and its elbow blob) about the shoulder, one of the forearm about the
+# new elbow, solved by two-bone IK from the arm's own segment lengths -- the
+# same kind of operation `_kneel` performs on the legs. No pose is keyed and
+# nothing is weight-painted; the bone table is rebuilt from the moved joints.
+# A target out of reach is approached along the same line and the shortfall
+# logged, never stretched.
+CHEEK_F = 0.905                # tube axis, fraction of standing H
+EYE_F = 0.935                  # eye height, fraction of standing H
+TUBE_RADIUS = 0.085            # kit.launcher's default, which this tube uses
+TUBE_LENGTH = 1.16             # rig._at_extras / teams.at_team
+TUBE_GAP = 0.02                # air between the tube and the head
+GRIP_FWD = 0.20                # pistol grip, ahead of the shoulder along +x
+TUBE_FWD = 0.20                # tube anchor ahead of the figure's centre, and
+                               # a WINDOW, not a free number. Outboard on +y,
+                               # the rear venturi meets at_spot's torso and
+                               # hanging -y arm going back (samples inside him,
+                               # worst clip: 6 at 0, 9 at 0.10, 3 at 0.18 -- a
+                               # 0.4 mm graze in move -- 0 from 0.20); going
+                               # forward its front ring enters the box behind
+                               # at_fire's own head (60-69 samples in the head
+                               # AABB at 0.22, still 2 cm off the head itself).
+                               # 0.20 is 0 on both, every clip, measured on the
+                               # exported GLB 2026-10-01.
+SIGHT_SIZE = (0.14, 0.13, 0.10)  # x deep, y wide (tube to in front of the eye), z tall
+SIGHT_STANDOFF = 0.04          # eyepiece face ahead of the face's front
+GRIP_SIZE = (0.045, 0.035, 0.10)
+HANDLE_W = (0.045, 0.035)      # support handle section; its length is solved
+REACH_USE = 0.97               # of the arm's shoulder->wrist length
+FIRE_POLE = (0.0, 0.5, -1.0)   # firing elbow: down and outboard
+SUPPORT_POLE = (0.4, -0.6, -1.0)  # support elbow: down, outboard, forward
+
+
+def _two_bone(S, E, W, T, pole):
+    """Rigid transforms (upper, fore) taking the arm S-E-W so its wrist lands
+    on T (or as near as the arm reaches), elbow bent toward `pole`."""
+    a, b = (E - S).length, (W - E).length
+    d_full = (T - S).length
+    d = min(max(d_full, abs(a - b) + 1e-4), a + b - 1e-4)
+    u = (T - S).normalized()
+    p = Vector(pole)
+    v = (p - u * p.dot(u)).normalized()
+    cos_a = (a * a + d * d - b * b) / (2.0 * a * d)
+    sin_a = math.sqrt(max(0.0, 1.0 - cos_a * cos_a))
+    E2 = S + (u * cos_a + v * sin_a) * a
+    W2 = S + u * d
+    q1 = (E - S).rotation_difference(E2 - S)
+    m_upper = Matrix.Translation(S) @ q1.to_matrix().to_4x4() @ Matrix.Translation(-S)
+    W1 = m_upper @ W
+    q2 = (W1 - E2).rotation_difference(W2 - E2)
+    m_fore = Matrix.Translation(E2) @ q2.to_matrix().to_4x4() @ Matrix.Translation(-E2) @ m_upper
+    return m_upper, m_fore, E2, W2, d_full - d
+
+
+def _band_max(parts, names, axis, lo, hi, band_axis, pick):
+    vals = []
+    for n in names:
+        co = _coords(parts[n])
+        m = (co[:, band_axis] >= lo) & (co[:, band_axis] <= hi)
+        if m.any():
+            vals.append(pick(co[m, axis]))
+    return pick(np.array(vals)) if vals else None
+
+
+def _shoulder_launcher(parts, joints, kbones, eye_z_unused, drop, prefix):
+    """Seat the Spike on the gunner's +y shoulder beside his head and re-seat
+    both hands on it (kneeling parts at the origin). Edits `kbones`' two arm
+    pairs in place; returns the launcher's own placement (origin frame)."""
+    H = joints["H"]
+    upper_body = ("cranium", "face", "neck", "torso", "deltoid0", "deltoid1")
+    axis_z = CHEEK_F * H - drop
+    eye_z = EYE_F * H - drop
+    # Lateral: the widest +y of anything above the shoulders in the tube's band.
+    y_wide = _band_max(parts, ("cranium", "face", "neck", "torso"), 1,
+                       axis_z - TUBE_RADIUS - TUBE_GAP, axis_z + TUBE_RADIUS + TUBE_GAP, 2, np.max)
+    tube_y = y_wide + TUBE_RADIUS + TUBE_GAP
+    # Vertical: whatever is under the tube's own footprint must clear it.
+    under = _band_max(parts, upper_body, 2, tube_y - TUBE_RADIUS, tube_y + TUBE_RADIUS, 1, np.max)
+    lifted = 0.0
+    if under is not None and under + TUBE_RADIUS + TUBE_GAP > axis_z:
+        lifted = under + TUBE_RADIUS + TUBE_GAP - axis_z
+        axis_z += lifted
+    face_front = _band_max(parts, ("face", "cranium"), 0, eye_z - 0.06, eye_z + 0.06, 2, np.max)
+
+    sh1 = Vector(joints["arm"][1]["shoulder"]) - Vector((0, 0, drop))
+    sight_c = Vector((face_front + SIGHT_STANDOFF + SIGHT_SIZE[0] / 2.0,
+                      tube_y - TUBE_RADIUS - SIGHT_SIZE[1] / 2.0 + 0.01,
+                      eye_z))
+    grip_c = Vector((sh1.x + GRIP_FWD, tube_y, axis_z - TUBE_RADIUS - GRIP_SIZE[2] / 2.0 + 0.01))
+    # Support handle: under the sight unit's inboard edge, down to where the
+    # support arm's wrist reaches at `REACH_USE` of its length.
+    a0 = joints["arm"][0]
+    S0 = Vector(a0["shoulder"]) - Vector((0, 0, drop))
+    reach0 = (Vector(a0["elbow"]) - Vector(a0["shoulder"])).length + (Vector(a0["wrist"]) - Vector(a0["elbow"])).length
+    hx = sight_c.x
+    hy = sight_c.y - SIGHT_SIZE[1] / 2.0 + HANDLE_W[1] / 2.0
+    top = sight_c.z - SIGHT_SIZE[2] / 2.0 + 0.01
+    flat2 = (hx - S0.x) ** 2 + (hy - S0.y) ** 2
+    foot = S0.z + math.sqrt(max(0.0, (REACH_USE * reach0) ** 2 - flat2)) + 0.02
+    foot = min(foot, top - 0.08)
+    handle_size = (HANDLE_W[0], HANDLE_W[1], top - foot)
+    handle_c = Vector((hx, hy, (top + foot) / 2.0))
+
+    names = {0: "L", 1: "R"}
+    reseat = {}
+    for side, target, pole in ((1, grip_c - Vector((0, 0, 0.02)), FIRE_POLE),
+                               (0, Vector((hx, hy, foot + 0.02)), SUPPORT_POLE)):
+        a = joints["arm"][side]
+        S = Vector(a["shoulder"]) - Vector((0, 0, drop))
+        E = Vector(a["elbow"]) - Vector((0, 0, drop))
+        W = Vector(a["wrist"]) - Vector((0, 0, drop))
+        m_up, m_fore, E2, W2, short = _two_bone(S, E, W, target, pole)
+        _transform(parts[f"upperarm{side}"], m_up)
+        _transform(parts[f"elbow{side}"], m_up)
+        _transform(parts[f"forearm{side}"], m_fore)
+        for i, (bn, parent, head, tail) in enumerate(kbones):
+            if bn == f"upperarm_{names[side]}":
+                kbones[i] = (bn, parent, tuple(S), tuple(E2))
+            elif bn == f"forearm_{names[side]}":
+                kbones[i] = (bn, parent, tuple(E2), tuple(W2))
+        reseat[side] = short
+    log(f"{prefix}: Spike axis z {axis_z:.3f} (cheek {CHEEK_F} H, lifted {lifted:.3f} for the shoulder), "
+        f"y {tube_y:+.3f} = widest head/neck/torso in band {y_wide:+.3f} + r {TUBE_RADIUS} + gap {TUBE_GAP}; "
+        f"sight eyepiece x {sight_c.x - SIGHT_SIZE[0] / 2.0:.3f} ahead of face {face_front:.3f} at eye z {eye_z:.3f}; "
+        f"firing wrist short of grip by {reseat[1] * 100:.1f} cm, support wrist short of handle by {reseat[0] * 100:.1f} cm")
+    return {"at": (TUBE_FWD, tube_y, axis_z),
+            "boxes": (("sight", SIGHT_SIZE, tuple(sight_c)), ("grip", GRIP_SIZE, tuple(grip_c)),
+                      ("handle", handle_size, tuple(handle_c)))}
+
+
 def _death_parts(src, height, prefix, x, y):
     """The whole standing source laid face-down, decimated (UVs survive the
     collapse), as ONE assembly named for `{prefix}_death_root`."""
@@ -611,6 +767,8 @@ def _figure(src, height, mat, spec):
     info = {"joints": joints, "drop": 0.0, "eye_z": FACE_LO_F * height + 0.03}
     if spec["posture"] == "kneeling":
         kbones, eye_z, drop = _kneel(parts, joints, prefix)
+        if spec["weapon"] == "launcher":
+            info["launcher"] = _shoulder_launcher(parts, joints, kbones, eye_z, drop, prefix)
         bones = rig._translate(kbones, x, y, prefix)
         info["eye_z"], info["drop"] = eye_z, drop
     else:
@@ -689,20 +847,26 @@ def build_team(team_id):
 
     # Crew weapons -- kit geometry, positions from teams.py / rig.py.
     if team_id == "at_team":
-        # rig._at_extras puts the kit's tube at z 1.02, 0.175 above the KIT
-        # figure's kneeling shoulder; this figure's measured shoulder ring
-        # sits lower, so the same offset keeps the tube ON the shoulder
-        # rather than at the chin. Level, length 1.16, verbatim otherwise.
-        fire = infos["at_fire"]
-        sh_z = fire["joints"]["arm"][1]["shoulder"][2] - fire["drop"]
-        tube = kit.launcher("at_tube", (0.24, -0.30, sh_z + 0.175), pitch=0.0, length=1.16)
+        # The Spike rests on at_fire's +y shoulder beside his head, placed by
+        # `_shoulder_launcher` from this figure's own measured head, neck and
+        # shoulders (see the comment above it) -- not on his centre line,
+        # where rig._at_extras' kit anchor ran it through his head. Level,
+        # length 1.16, as teams.at_team. Sight, pistol grip and the support
+        # handle are part of the launcher and ride the same forearm.
+        fire_spec = next(s for s in figures if s["prefix"] == "at_fire")
+        fx, fy = fire_spec["x"], fire_spec["y"]
+        seat = infos["at_fire"]["launcher"]
+        ax, ay, az = seat["at"]
+        tube = kit.launcher("at_tube", (fx + ax, fy + ay, az), pitch=0.0, length=TUBE_LENGTH, radius=TUBE_RADIUS)
+        for name, size, c in seat["boxes"]:
+            tube += [kit.box(f"at_tube_{name}", size, (fx + c[0], fy + c[1], c[2]), "weapon")]
         spot = infos["at_spot"]
         binos = kit.binoculars("at_binos", (-0.32, 0.34, spot["eye_z"] - kit.POSTURE_EYE["standing"] * kit.FIGURE_H - 0.04),
                                posture="standing")
         forced.update({ob: "at_fire_forearm_R" for ob in tube})
         forced.update({ob: "at_spot_head" for ob in binos})
         parts += tube + binos
-        log(f"at_team: tube axis z {sh_z + 0.175:.3f} on the kneeling gunner's shoulder ring z {sh_z:.3f}")
+        log(f"at_team: tube axis ({fx + ax:.3f}, {fy + ay:.3f}, {az:.3f}) beside the kneeling gunner's head")
     elif team_id == "demo_squad":
         charge = kit.demo_charge("demo_charge", (0.76, -0.16, 0.0))
         # The reel worn on the back, not through the shins: kit.cable_spool

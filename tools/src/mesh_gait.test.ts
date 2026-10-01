@@ -2121,7 +2121,11 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'militia_cell.glb mil1_forearm_R': 2.47, //    [0.47, 4.46]
   'rpg_team.glb rpg_load_forearm_R': 2.47, //    [0.47, 4.46]  the loader's rifle
   'rpg_team.glb rpg_fire_forearm_R': 34.04, //  [32.05, 36.06] the RPG, at rig._rpg_extras' 38 deg
-  'at_team.glb at_fire_forearm_R': 0.0, //      [-2.00, 2.00]  the Spike, at pitch 0
+  // Re-measured 2026-10-01 after the Spike moved onto the shoulder beside the
+  // head: still pitch 0, but the cloud now carries the sight unit, pistol grip
+  // and support handle, which tilt its principal axis by -0.80 (and its
+  // bearing by +1.68). Worst fire excursion from this idle mean: 6.47, unchanged.
+  'at_team.glb at_fire_forearm_R': -0.8, //     [-2.84, 1.24]  the Spike, at pitch 0
   // B2 (2026-09-30): kit.launcher geometry on Meshy figures -- teams.py's own
   // 78-deg MANPAD tube on the gunner's shoulder, and the recoilless tube level.
   'manpad_team.glb mpd_fire_forearm_R': 69.9, // the tube's principal axis with its wider venturi bell, read off the bytes; the tube itself is pitched 78
