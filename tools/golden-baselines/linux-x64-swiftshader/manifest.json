@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "d5cddb22565c766199c40899b10bab138aaa388a",
-  "blessedAt": "2026-10-01T11:02:07.928Z",
-  "reason": "#327 launcher re-seat: quiet's only change is the occlusion outline of a launcher team behind the building at (399-419,193-212), 128 px; all other scenarios 0 / unchanged on main run 36851623003",
+  "commit": "632e04ba638d572a542eefbb2a925ff1e6cbbdf3",
+  "blessedAt": "2026-10-01T22:50:08.237Z",
+  "reason": "A3.1 B7 infantry (#334-#337): vehicle moves on the new infantry figures (459-857,422-617, 2554 px); aftermath moves 303 px at its left edge (0-24,213-251), the shadow of an off-frame sandbox infantry figure; quiet/open-ground/relief within noise on main run 36936294442",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "676a089f143fc1b1871b8511009971f63d567487d69db66b7b586c4da346b077"
+      "sha256": "b09c0355909f3c2b1761379aa1ed6e9b06d73d9b3d8f32af620f04b31dc23aa9"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "c1455b52c95546b58d818525cc1de50b4ef64484b89bdcc543bfe069171fdfea"
+      "sha256": "ec3bac205d6af10597dc871780810249d6551ff4fe913e3631b045814f363f08"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "184beaaac7e96841d467844b534910965f978c491073917bd83894ed8ca7e16b"
+      "sha256": "f88e8aa51c7ec52e7614b21fd459ba2ebd9524d80b4d5559fc4004e0c3aea1b8"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "2eaca0107173a4c11e8be371885f4c2dbc9bc6a2b47725164496449ff1fb2b38"
+      "sha256": "8a4858bc0fdd366e0e12870a7646675e6c821fa93ec6a8b3b030f784e1906b19"
     }
   }
 }
