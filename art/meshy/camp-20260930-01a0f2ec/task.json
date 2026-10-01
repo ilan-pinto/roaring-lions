@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready small military field camp compound of a fictional army, plain matte olive-drab canvas and dark gunmetal fittings, clean and military: a square ring of stacked sandbags and wire-mesh earth-filled barriers, one olive canvas command tent in the middle, a thin steel radio mast with a small dish at one corner, a small generator and a few jerry cans and crates inside the ring, one gap in the ring as the entrance on the front side. Real-world scale, 7 metres square, tent 3.5 metres tall, mast 6 metres. Olive canvas, tan sandbags, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2ec-90f9-77bc-a6ff-b94c581afd55",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3735548630,
+    "prompt": "A single low-poly game-ready small military field camp compound of a fictional army, plain matte olive-drab canvas and dark gunmetal fittings, clean and military: a square ring of stacked sandbags and wire-mesh earth-filled barriers, one olive canvas command tent in the middle, a thin steel radio mast with a small dish at one corner, a small generator and a few jerry cans and crates inside the ring, one gap in the ring as the entrance on the front side. Real-world scale, 7 metres square, tent 3.5 metres tall, mast 6 metres. Olive canvas, tan sandbags, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790781986992,
+    "progress": 100,
+    "started_at": 1790781987010,
+    "finished_at": 1790782074875,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2ec-90f9-77bc-a6ff-b94c581afd55/output/model.glb?Expires=4944326400&Signature=cb89Lxni0G4ACju~avtw7Hx0PT9qonyoHcW-xskNfqcJaEBniK0WgTGgoAR3eI6kXTTnoc7-jy5Jw6oIEQ3bTmKYF35SW-CDd12k-YZHAaS1qCc3YhOqCARk9xWi9sdrkUgSZoJyW~zk7St-p95oRYCTTNnPtF3WoL1m~mkBW3syU-JhIo4DA957~ZgrsM9nF7WZVSNAqg2E6LmY~bwWIAdXt~rTSfOVbpq8ZSY9pB3e8tz17fdOTeV9tbBALzI8xXylU5GYGbt7zMdDMrrzXiI9WxdewCa1rmCdB3Z9tlFcsPGXVuaSBGUd3CG1fRa49d963ORlmf3P97aDVz2BJw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2ec-90f9-77bc-a6ff-b94c581afd55/output/preview.png?Expires=4944326400&Signature=C6exozXamUqKWZZjWlngfnng5FYbDHuAZMlG67KJSmx5blUm8kOCqJVA73OJvVp~01p3pKpgLZsQ77IQGyA6k8~LYtNjjO5tmmz1Py~KmX5fuEWQNnG8a1ongihhsWaXiOZxDo1zqQpagZ7Uff5sooorp5mPEJI29t1iE78K7x9ccryrbu5txi5EsbmulocujXihmIzFCDYsjK7uNtcTfaR95OGF2-NsugsUr~sF2JYWte5CdjYfVf7EEdQC-~EbpPzDdVuxSbETtzcFu9AHu5~m4FgqCBLJy9D1PH2QIV5W6S8hK77~MGl1VKmb6r0xtAw01v7XtEtUgOg1lQkueA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790781986992,
+    "started_at": 1790781987010,
+    "finished_at": 1790782074875
+  },
+  "usd_estimated": 0.4
+}

@@ -931,7 +931,13 @@ SHANTY = BuildingSpec(
     src=os.path.abspath("art/src/buildings/shanty.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_SHANTY"),
     unit="shanty",
-    mesh_owner=MESH_KIT_OWNED,
+    mesh_owner=(
+        "tools/buildings/export_meshy_ramp.py -- art/meshes/buildings/"
+        "shanty.glb and shanty_wreck.glb are a Meshy text-to-3D remesh with its "
+        "own base_color bake since 2026-09-30 (GH-185, the A3.2 ramp set), not "
+        "this kit source. The BLD_SHANTY sprite sheet below is still rendered "
+        "from `src` and is unaffected; only the glb pair is off limits."
+    ),
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     footprint_tiles=3,
     colour_key="dust.1",
@@ -983,7 +989,13 @@ CONCRETE = BuildingSpec(
     src=os.path.abspath("art/src/buildings/concrete.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_CONCRETE"),
     unit="concrete",
-    mesh_owner=MESH_KIT_OWNED,
+    mesh_owner=(
+        "tools/buildings/export_meshy_ramp.py -- art/meshes/buildings/"
+        "concrete.glb and concrete_wreck.glb are a Meshy text-to-3D remesh with its "
+        "own base_color bake since 2026-09-30 (GH-185, the A3.2 ramp set), not "
+        "this kit source. The BLD_CONCRETE sprite sheet below is still rendered "
+        "from `src` and is unaffected; only the glb pair is off limits."
+    ),
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     # 2, not 3: no map places '#', so this footprint is a choice rather than a
     # measurement. See author_concrete.py -- tall and narrow was the only
@@ -999,7 +1011,13 @@ WALL = BuildingSpec(
     src=os.path.abspath("art/src/buildings/wall.blend"),
     out_dir=os.path.abspath("assets/sprites/BLD_WALL"),
     unit="wall",
-    mesh_owner=MESH_KIT_OWNED,
+    mesh_owner=(
+        "tools/buildings/export_meshy_ramp.py -- art/meshes/buildings/"
+        "wall.glb and wall_wreck.glb are a Meshy text-to-3D remesh with its "
+        "own base_color bake since 2026-09-30 (GH-185, the A3.2 ramp set), not "
+        "this kit source. The BLD_WALL sprite sheet below is still rendered "
+        "from `src` and is unaffected; only the glb pair is off limits."
+    ),
     credit="Original work for Roaring Lions (CC BY-SA 4.0)",
     # data/structures.json: per_tile, one tile square, so a run of any length
     # is drawn one sprite per occupied tile.

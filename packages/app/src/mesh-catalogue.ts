@@ -77,7 +77,26 @@ export type PropKindName =
   | 'laundry_line'
   | 'tyre_pile'
   | 'rebar'
-  | 'wrecked_car';
+  | 'wrecked_car'
+  // The tunnel pieces (GH-227, 2026-09-30) -- see `TUNNEL_PROP_KIND_NAMES`.
+  | 'tunnel_mouth'
+  | 'tunnel_mouth_collapsed'
+  | 'tunnel_vent'
+  | 'tunnel_vent_collapsed'
+  | 'spoil_heap';
+
+/** The tunnel pieces, restated from `prop-role.ts`'s `TUNNEL_PROP_KINDS` for
+ *  the same bundle-rule reason `PropKindName` is. NOT in `PROP_KIND_NAMES`:
+ *  `propKindsFor` answers "which ground props can this map scatter", and
+ *  `prop-place.ts` never scatters these -- `three/tunnel-props.ts` stands
+ *  them on a route's own points. `meshPlanFor` adds them to every plan. */
+export const TUNNEL_PROP_KIND_NAMES: readonly PropKindName[] = [
+  'tunnel_mouth',
+  'tunnel_mouth_collapsed',
+  'tunnel_vent',
+  'tunnel_vent_collapsed',
+  'spoil_heap',
+];
 
 /** `PropKindName`'s own members, in the same order `prop-role.ts`'s
  *  `PROP_KINDS` declares them -- used wherever this file needs "every prop
@@ -150,7 +169,7 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
 
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
   // rig.py's parts and driven by rig.py's own clips
-  // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- PR #307's
+  // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- GH-307's
   // `TEXTURED_INFANTRY_TYPES` was still open when they shipped.
   manpad_team: { files: ['manpad_team.glb'], faction: 'enemy' },
   recoilless_team: { files: ['recoilless_team.glb'], faction: 'enemy' },
@@ -217,6 +236,15 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // palette-painted through `VEHICLE_ROLE_PALETTE`.
   gun_truck: 'vehicles/gun_truck.glb',
   loiter_drone: 'vehicles/loiter_drone.glb',
+
+  // The two KDF drones (GH-286, batch B0a, 2026-09-30): Meshy text-to-3D
+  // previews remeshed at 800 tris and role-split in
+  // `tools/drones/export_meshy_drones.py`. Air units on the vehicle path, so
+  // they take `heli_peten`'s `AIR_LIFT_PX` lift and no ground conform. The
+  // sprite sheets' x1.5 `SIZE_CLASS["air"]` is baked into the GLBs (the
+  // lead's ruling on GH-290), so they draw at the size the billboards did.
+  recon_drone: 'vehicles/recon_drone.glb',
+  attack_drone: 'vehicles/attack_drone.glb',
 };
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */
@@ -306,6 +334,14 @@ export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
   tyre_pile: 'props/tyre_pile.glb',
   rebar: 'props/rebar.glb',
   wrecked_car: 'props/wrecked_car.glb',
+  // The tunnel pieces (GH-227, 2026-09-30): loaded for every map (a sandbox
+  // `&tunnel` synthesises a route on a map that declares none), placed by
+  // `three/tunnel-props.ts` from the sim, never by `prop-place.ts`.
+  tunnel_mouth: 'props/tunnel_mouth.glb',
+  tunnel_mouth_collapsed: 'props/tunnel_mouth_collapsed.glb',
+  tunnel_vent: 'props/tunnel_vent.glb',
+  tunnel_vent_collapsed: 'props/tunnel_vent_collapsed.glb',
+  spoil_heap: 'props/spoil_heap.glb',
 };
 
 /**
@@ -330,14 +366,16 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 };
 
 /**
- * Art that has landed AHEAD of the structure type that will draw it -- the
- * opposite of retirement. `mesh-catalogue.test.ts` requires every
- * `BUILDING_MESHES` key to be a real `data/structures.json` type, and the
- * GH-277 field works (spec §8, plan Task 12) ship their meshes in October
- * with no sim or data change until Stage 4/5 (Task 13 wires them). Each
- * entry names the type that will claim it, so "not drawn yet" and "decided
- * not to draw" (`RETIRED_MESH_FILES`) stay distinguishable. Task 13 moves
- * each pair into `BUILDING_MESHES` and deletes it here.
+ * Art that has landed AHEAD of the type that will draw it -- the opposite
+ * of retirement. Two batches hold files here today: the GH-277 field works
+ * (spec §8, plan Task 12), whose structure types arrive at Stage 4/5 (Task
+ * 13 moves each pair into `BUILDING_MESHES`), and GH-298's four officers
+ * (spec `2026-09-30-field-commanders-design.md` §7, §8.2 E1), whose unit
+ * types arrive at Stage 5 (which moves each file into `RIGGED_UNIT_MESHES`
+ * / `VEHICLE_UNIT_MESHES`, runs `pnpm gait:meshes` on the teams -- it is
+ * scoped to the catalogue -- and deletes it here). Each entry names the
+ * type that will claim it, so "not drawn yet" and "decided not to draw"
+ * (`RETIRED_MESH_FILES`) stay distinguishable.
  */
 export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   'buildings/kdf_medic_station.glb': 'kdf_medic_station (GH-277 Task 13)',
@@ -360,6 +398,10 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   'buildings/militia_observation_post_wreck.glb': 'militia_observation_post (GH-277 Task 13)',
   'buildings/militia_weapons_workshop.glb': 'militia_weapons_workshop (GH-277 Task 13)',
   'buildings/militia_weapons_workshop_wreck.glb': 'militia_weapons_workshop (GH-277 Task 13)',
+  'officer_infantry.glb': 'officer_infantry (GH-298 Stage 5)',
+  'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
+  'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',
+  'vehicles/officer_armour.glb': 'officer_armour (GH-298 Stage 5)',
 };
 
 /**
@@ -473,7 +515,10 @@ export function meshPlanFor(
     vehicles: new Set([...roster].filter((id) => id in VEHICLE_UNIT_MESHES)),
     buildings: new Set([...structureTypes].filter((id) => id in BUILDING_MESHES)),
     decor: decorFamiliesFor(map),
-    props: propKindsFor(map),
+    // The tunnel pieces ride along on every map: a route can be synthesised
+    // by the sandbox on a map that declares none, and the five GLBs are
+    // ~115 KB together.
+    props: new Set([...propKindsFor(map), ...TUNNEL_PROP_KIND_NAMES]),
   };
 }
 

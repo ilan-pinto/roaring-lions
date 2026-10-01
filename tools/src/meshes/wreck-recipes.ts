@@ -42,15 +42,24 @@ export interface WreckRecipe {
  */
 export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   apc_eitan: { hull: 'wheeled', turretPivot: 'turret_pivot' },
-  apc_kipod: { hull: 'wheeled' },
+  // The Meshy Kipod (2026-09-30) carries a `turret_pivot` for its kit RWS;
+  // the kit build it replaced had a fixed pintle and no pivot.
+  apc_kipod: { hull: 'wheeled', turretPivot: 'turret_pivot' },
   dozer_d9: { hull: 'tracked' },
   heli_peten: { hull: 'air', rotorPivot: 'rotor_pivot' },
   ifv_namer: { hull: 'tracked', turretPivot: 'turret_pivot' },
   jeep_shoded: { hull: 'wheeled' },
   mbt_lavi: { hull: 'tracked', turretPivot: 'turret_pivot' },
+  // GH-298: the command Lavi is the shipped mbt_lavi.glb with a cupola, mast
+  // and whips joined into its own turret nodes (tools/vehicles/
+  // export_officer_armour.py), so it wrecks exactly as the Lavi does. Held
+  // art (HELD_MESH_FILES) until Stage 5 wires the unit.
+  officer_armour: { hull: 'tracked', turretPivot: 'turret_pivot' },
   paramotor: { hull: 'air', canopy: 'hull_hull' },
   rocket_battery: { hull: 'wheeled' },
-  scout_shachaf: { hull: 'wheeled' },
+  // The Meshy Shachaf (GH-185, 2026-09-30) carries a `turret_pivot` on its
+  // roof ring for the kit RWS (`cupola_mg`); the kit build had none.
+  scout_shachaf: { hull: 'wheeled', turretPivot: 'turret_pivot' },
   technical: { hull: 'wheeled', turretPivot: 'turret_pivot' },
   // B2 (GH-179, 2026-09-30): the Meshy gun truck traverses its twin AA gun
   // on a pedestal, so it takes the technical's own recipe; the Sarim
@@ -58,6 +67,12 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // its side like the other two air hulls.
   gun_truck: { hull: 'wheeled', turretPivot: 'turret_pivot' },
   loiter_drone: { hull: 'air' },
+  // The two KDF drones (GH-286 B0a, 2026-09-30). `air` like the Peten: a
+  // downed drone lies on its side. No pivot of any kind -- a quadcopter has
+  // four rotors and a file carries one `rotor_pivot`, so the rotors are
+  // static `hull_metal` (`tools/drones/export_meshy_drones.py`).
+  recon_drone: { hull: 'air' },
+  attack_drone: { hull: 'air' },
 };
 
 /**

@@ -275,9 +275,14 @@ Three settings fall out of it, and §6 asks the lead to pick one:
    chokepoint. The test form: block the best route's narrowest tile and re-run
    the field; a finite route must remain.
 3. **Price a detour in tiles, never in deaths.** A detour that runs through a
-   killing area is a fake choice; the Tel Marum saddle measurement is the
+   killing area is a fake choice. The Tel Marum saddle measurement was the
    evidence (through the pass 1.20 losses a run, up the corridor 0.30, same
-   3.54-minute clock — CLAUDE.md).
+   3.54-minute clock), and **it no longer holds on `main`**: since group
+   formations (`1ea1094a`) the same probe reads 3.80 and 3.10, because the
+   Grad now lands rounds on a flank that files up the corridor as a column
+   (re-measured 2026-09-30, PR #300; CLAUDE.md's Tel Marum bullet has the
+   mechanism). Tel Marum's detour is priced in deaths as well as tiles now,
+   so it is no longer an example of this rule.
 4. **Never lengthen a civilian's line to its refuge.** `CivilianFlight.step`
    (`packages/sim/src/civilians.ts`) breaks a civilian for the refuge on
    suppression > 0.3 (`CIV_FLEE_AT`) or a soldier inside 4 tiles

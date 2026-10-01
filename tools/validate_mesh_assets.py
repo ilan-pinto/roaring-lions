@@ -221,6 +221,10 @@ TEXTURED_BUILDING_EXEMPT = {
     "house", "apartment", "warehouse", "clinic", "hall", "fence",
     # GH-277 field works, militia (Q11: textured); see textured-building.ts.
     "militia_observation_post", "militia_weapons_workshop", "militia_field_clinic",
+    # The A3.2 ramp set (GH-185, 2026-09-30): the four kit/palette buildings
+    # replaced by Meshy text-to-3D remeshes shipping their own 2k bakes
+    # (tools/buildings/export_meshy_ramp.py). Silhouette IoU still runs.
+    "concrete", "shanty", "wall", "camp",
 }
 
 # 2026-09-07: the identical override, extended by the project lead to six
@@ -243,6 +247,22 @@ TEXTURED_VEHICLE_EXEMPT = {
     # B2 (GH-179, 2026-09-30): generated through `pnpm meshy`, ships its own
     # remesh bake -- `tools/vehicles/export_meshy_gun_truck.py`.
     "gun_truck",
+    # `apc_eitan` joined on 2026-09-30 (GH-286 B0a): the kit hull was replaced
+    # by a Meshy remesh shipping its own base_color bake
+    # (tools/vehicles/export_meshy_eitan.py). Its kit RWS parts carry no
+    # material and still take the palette, as the gate's repaint does anyway.
+    "apc_eitan",
+    # `apc_kipod` followed the same day, on the lead's ruling after seeing
+    # the two side by side (tools/vehicles/export_meshy_kipod.py).
+    "apc_kipod",
+    # The A3.2 ramp set (GH-185, 2026-09-30): both replaced by Meshy
+    # text-to-3D remeshes shipping their own base_color bake
+    # (tools/vehicles/export_meshy_ramp.py). The Shachaf's kit RWS parts
+    # carry no material and still take the palette, as the gate repaints.
+    "dozer_d9", "scout_shachaf",
+    # GH-298 (2026-09-30): the command Lavi, mbt_lavi.glb's own bake with a
+    # kit mast and cupola joined in (tools/vehicles/export_officer_armour.py).
+    "officer_armour",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -257,9 +277,13 @@ TEXTURED_VEHICLE_EXEMPT = {
 # (what this gate calls `unit_id`), which for a kit.py-convention team is also
 # the unit type id the runtime list is keyed by.
 TEXTURED_INFANTRY_EXEMPT = {
+    # GH-286 batch B0b (2026-09-30): tools/units/import_meshy_kdf_team.py.
+    "at_team", "demo_squad",
     # B3 (GH-179, 2026-09-30): generated through `pnpm meshy`, each ships its
     # remesh's own bake -- `tools/units/import_meshy_crew_team.py`.
     "militia_cell", "rpg_team", "atgm_cell",
+    # GH-298 (2026-09-30): the officer teams, tools/units/import_meshy_officers.py.
+    "officer_infantry", "officer_fires", "officer_engineer",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's
@@ -323,6 +347,10 @@ VEHICLE_OWN_SPRITES = {
     # B2 (GH-179, 2026-09-30).
     "gun_truck": ("GUNTRUCK_HULL", "GUNTRUCK_TURR"),
     "loiter_drone": ("DRONE_LOITER",),
+    # GH-286 B0a (2026-09-30): the two drones moved from billboard to mesh;
+    # their own sheets are `SPRITE_MAP`'s `DRONE_RECON` / `DRONE_ATTACK`.
+    "recon_drone": ("DRONE_RECON",),
+    "attack_drone": ("DRONE_ATTACK",),
 }
 
 
@@ -919,6 +947,12 @@ PROP_TRI_CAPS = {
     "tyre_pile": 260,
     "rebar": 140,
     "wrecked_car": 400,
+    # The tunnel pieces (GH-227, 2026-09-30, tools/terrain/export_meshy_tunnel.py).
+    "tunnel_mouth": 420,
+    "tunnel_mouth_collapsed": 420,
+    "tunnel_vent": 220,
+    "tunnel_vent_collapsed": 220,
+    "spoil_heap": 150,
 }
 
 
@@ -945,8 +979,8 @@ def check_prop_meshes(props_root):
     `PROP_TRI_CAPS[kind]` entry -- checked directly against the raw GLB bytes,
     never rendered (see module docstring, "props, the same way"). An empty
     directory is zero iterations, not a failure. A file whose name (minus
-    `.glb`) is not one of `PROP_TRI_CAPS`'s seven keys fails loudly rather
-    than being silently skipped.
+    `.glb`) is not one of `PROP_TRI_CAPS`'s keys (seven ground props plus the
+    five tunnel pieces) fails loudly rather than being silently skipped.
     """
     failures = []
     for path in sorted(glob.glob(os.path.join(props_root, "*.glb"))):
@@ -954,7 +988,7 @@ def check_prop_meshes(props_root):
         kind = os.path.splitext(name)[0]
         if kind not in PROP_TRI_CAPS:
             failures.append(
-                f"{name}: {kind!r} is not one of the seven prop kinds "
+                f"{name}: {kind!r} is not one of the prop kinds "
                 f"{sorted(PROP_TRI_CAPS)} -- PROP_TRI_CAPS has no cap for it"
             )
             continue

@@ -47,6 +47,7 @@ import {
   DECOR_MESHES,
   VFX_MESHES,
   PROP_MESHES,
+  TUNNEL_PROP_KIND_NAMES,
   RETIRED_MESH_FILES,
   HELD_MESH_FILES,
   claimedMeshFiles,
@@ -98,11 +99,11 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     expect(orphans).toEqual([]);
   });
 
-  it('holds only files that exist, and none that are claimed or retired (GH-277)', () => {
-    // HELD_MESH_FILES is art landed ahead of its structure type. It must be
-    // as honest as RETIRED_MESH_FILES in both directions: a held file that is
-    // gone is a stale entry, and a file that is held AND claimed is one that
-    // Task 13 wired without deleting the hold.
+  it('holds only files that exist, and none that are claimed or retired (GH-277, GH-298)', () => {
+    // HELD_MESH_FILES is art landed ahead of its structure or unit type. It
+    // must be as honest as RETIRED_MESH_FILES in both directions: a held file
+    // that is gone is a stale entry, and a file that is held AND claimed is
+    // one that Task 13 / Stage 5 wired without deleting the hold.
     const claimed = claimedMeshFiles();
     const held = Object.keys(HELD_MESH_FILES);
     expect(held.filter((f) => !existsSync(path.join(MESH_ROOT, f)))).toEqual([]);
@@ -289,9 +290,12 @@ describe('mesh catalogue: decor families', () => {
 
 describe('mesh catalogue: what has a mesh at all', () => {
   it('reports a type with no GLB as billboard-only', () => {
-    // `recon_drone` ships a sprite sheet and no mesh. The mesh path is
-    // additive: a type with no entry keeps its billboard rather than failing.
-    expect(hasUnitMesh('recon_drone')).toBe(false);
+    // No shipped unit type is meshless any more: `recon_drone` was the example
+    // until GH-286 B0a gave it a GLB, and `loiter_drone` until B2 (GH-179) did
+    // the same, both on 2026-09-30. `billboard_only` stands in for the next
+    // sprite-only type. The mesh path is additive: a type with no entry keeps
+    // its billboard rather than failing.
+    expect(hasUnitMesh('billboard_only')).toBe(false);
     expect(hasUnitMesh('inf_squad')).toBe(true);
     expect(hasUnitMesh('mbt_lavi')).toBe(true);
   });
@@ -329,21 +333,21 @@ describe('mesh catalogue: what has a mesh at all', () => {
 });
 
 describe('sprite sheet plan (level load time, step 1)', () => {
-  const spriteTypes = new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'recon_drone', 'heli_peten', 'sarim_rifles']);
+  const spriteTypes = new Set(['inf_squad', 'mbt_lavi', 'gun_truck', 'billboard_only', 'heli_peten', 'sarim_rifles']);
   const structureSprites = new Set(['house', 'wall', 'kiosk']);
 
   it('on the mesh path, only a fielded type with no mesh gates deploy', () => {
     const plan = spriteSheetPlan({
       meshPath: true,
-      // `recon_drone` is the meshless example here since B2 gave `gun_truck`
-      // a mesh (2026-09-30); it stays meshless until B0a lands.
-      roster: new Set(['inf_squad', 'mbt_lavi', 'recon_drone', 'sarim_rifles']),
+      // `billboard_only` is a stand-in: B2 gave `gun_truck` a mesh and B0a
+      // `recon_drone` (both 2026-09-30), leaving no shipped meshless type.
+      roster: new Set(['inf_squad', 'mbt_lavi', 'billboard_only', 'sarim_rifles']),
       deferred: new Set(['heli_peten']),
       spriteTypes,
       structureTypes: new Set(['house', 'wall']),
       structureSprites,
     });
-    expect([...plan.before].sort()).toEqual(['recon_drone']);
+    expect([...plan.before].sort()).toEqual(['billboard_only']);
     // A mesh vehicle still needs its wreck sprite; a deferred buildable its
     // billboard fallback. A rigged type needs neither.
     expect([...plan.after].sort()).toEqual(['heli_peten', 'mbt_lavi']);
@@ -365,7 +369,7 @@ describe('sprite sheet plan (level load time, step 1)', () => {
     expect(plan.before.size).toBe(0);
     expect(plan.after.size).toBe(0);
     // An unfielded no-mesh type is not loaded either: the roster decides.
-    expect(plan.before.has('recon_drone')).toBe(false);
+    expect(plan.before.has('billboard_only')).toBe(false);
   });
 
   it('a standing structure type with no building mesh still gets its sprite', () => {
@@ -416,7 +420,7 @@ describe('meshPlanFor', () => {
   const map = parseMap(maps.beit_sahwan_outskirts);
 
   it('splits a roster by mesh kind and drops a type with no mesh', () => {
-    const plan = meshPlanFor(map, new Set(['mbt_lavi', 'inf_squad', 'apc_eitan', 'recon_drone']));
+    const plan = meshPlanFor(map, new Set(['mbt_lavi', 'inf_squad', 'apc_eitan', 'billboard_only']));
     expect([...plan.rigged]).toEqual(['inf_squad']);
     expect([...plan.vehicles].sort()).toEqual(['apc_eitan', 'mbt_lavi']);
   });
@@ -476,19 +480,28 @@ describe('mesh catalogue: props (ground plan 2, Task 4)', () => {
     tunnels: [],
   };
 
+  const GROUND_PROP_KINDS = [
+    'jersey_barrier', 'water_tank', 'satellite_dish', 'laundry_line', 'tyre_pile', 'rebar', 'wrecked_car',
+  ].sort();
+
   it('PROP_MESHES lists every PROP_KINDS entry and every file exists under art/meshes/', () => {
-    expect(ALL_PROP_KINDS).toEqual(
-      ['jersey_barrier', 'water_tank', 'satellite_dish', 'laundry_line', 'tyre_pile', 'rebar', 'wrecked_car'].sort()
-    );
+    expect(ALL_PROP_KINDS).toEqual([...GROUND_PROP_KINDS, ...TUNNEL_PROP_KIND_NAMES].sort());
     for (const file of Object.values(PROP_MESHES)) {
       expect(existsSync(path.join(MESH_ROOT, file)), file).toBe(true);
     }
   });
 
-  it('propKindsFor is empty for a map with no road and no building tile, and full otherwise', () => {
+  it('propKindsFor is empty for a map with no road and no building tile, and every ground kind otherwise', () => {
     expect([...propKindsFor(bareMap)]).toEqual([]);
     // beit_sahwan_outskirts carries both roads and buildings.
-    expect([...propKindsFor(parseMap(maps.beit_sahwan_outskirts))].sort()).toEqual(ALL_PROP_KINDS);
+    expect([...propKindsFor(parseMap(maps.beit_sahwan_outskirts))].sort()).toEqual(GROUND_PROP_KINDS);
+  });
+
+  it('meshPlanFor carries the tunnel pieces on every map, bare or not (GH-227)', () => {
+    // A sandbox `&tunnel` synthesises a route on a map that declares none,
+    // and the placer reads the SIM, not the map -- so the five ride along.
+    const plan = meshPlanFor(bareMap, new Set());
+    expect([...plan.props].sort()).toEqual([...TUNNEL_PROP_KIND_NAMES].sort());
   });
 
   it('meshManifestFor(plan).props maps <kind> to meshUrl(PROP_MESHES[kind])', () => {

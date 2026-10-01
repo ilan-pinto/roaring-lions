@@ -623,7 +623,32 @@ def _one(label, src, family_roles, census, expect_ring, expect_pads, mpu, out_pa
     return _finalize_and_export(label, joined, out_path)
 
 
+def _refuse_if_not_ours(path):
+    """2026-09-30 (GH-185): `art/meshes/buildings/camp.glb` and its wreck are
+    `tools/buildings/export_meshy_ramp.py`'s now -- a Meshy text-to-3D remesh
+    with its own 2k bake, cut to the 2x2 every mission places the camp at.
+    This script is kept because the part-segmented source is what that one
+    was measured against; it refuses to write over a file whose embedded
+    `asset.copyright` is not its own (the `export_mesh_building.py`
+    provenance-drift guard, applied here by hand). `--out` still works."""
+    import struct
+    if not os.path.exists(path):
+        return
+    with open(path, "rb") as fh:
+        head = fh.read(20)
+        if len(head) < 20 or head[:4] != b"glTF":
+            return
+        length = struct.unpack_from("<I", head, 12)[0]
+        blob = json.loads(fh.read(length))
+    got = blob.get("asset", {}).get("copyright", "")
+    if got != CREDIT:
+        raise SystemExit(f"[camp] refusing to overwrite {path}: its copyright is "
+                         f"{got[:60]!r}..., not this script's -- see tools/mesh_ownership.py")
+
+
 def export():
+    _refuse_if_not_ours(OUT_IDLE)
+    _refuse_if_not_ours(OUT_WRECK)
     # The intact source's own longest axis-aligned extent, matching
     # export_meshy_tank.py's `_extent_of` convention and metres_per_unit's own
     # "real_metres is the unit's longest dimension on any axis".

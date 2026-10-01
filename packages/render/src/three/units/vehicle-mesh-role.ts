@@ -239,6 +239,20 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // GH-298: the command Lavi IS mbt_lavi.glb's bake with a kit mast and
+  // cupola joined into its own turret nodes (tools/vehicles/
+  // export_officer_armour.py), so it takes the Lavi's table verbatim. Needed
+  // even though every one of its meshes is textured: under Node the loader
+  // decodes no image, `map` reads null and the ramp path is what runs -- the
+  // same reason the Lavi's own entry exists. Held art until Stage 5.
+  officer_armour: {
+    hull: sliceFrom('olive', 0, 4),
+    plate: sliceFrom('olive', 1, 3),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
   // No sprite-rig script of its own -- the CC BY 3.0 `ifv_dmm08.blend` sheets
   // this Meshy export replaces (`NAMER_HULL`/`NAMER_TURR`,
   // `tools/render_namer.py`) never declared a `ROLE_PALETTE` of their own
@@ -382,6 +396,10 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     metal: sliceFrom('gunmetal', 2, 2),
     rubber: sliceFrom('shadow', 0, 3),
     glass: sliceFrom('gunmetal', 3, 1),
+    // `plate` since 2026-09-30 (GH-185): the Meshy Shachaf's kit RWS shield
+    // (`turret_plate`) draws through the palette while the hull and tyres
+    // ship their own bake -- the same shape as `apc_eitan`.
+    plate: sliceFrom('olive', 1, 3),
   },
   // `tools/vehicles/author_apc_kipod.py`'s own KDF olive tones, hand-copied
   // from the gate's `VEHICLE_ROLE_PALETTES["apc_kipod"]`. `plate` (the slab
@@ -395,6 +413,22 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     rubber: sliceFrom('shadow', 0, 3),
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
+  },
+  // The two KDF drones (GH-286 B0a, `tools/drones/export_meshy_drones.py`),
+  // hand-copied from the gate's `VEHICLE_ROLE_PALETTES` like every entry
+  // above. KDF olive like `apc_eitan`; `metal` is the rotors/guards (recon)
+  // and the nose pod, tail and skids (attack); `glass` the camera ball and
+  // the nose lens. Exactly the three roles each GLB carries -- no `plate`,
+  // `rubber` or `recess` part exists on either, so none is declared.
+  recon_drone: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    glass: sliceFrom('gunmetal', 3, 1),
+  },
+  attack_drone: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    glass: sliceFrom('gunmetal', 3, 1),
   },
 };
 

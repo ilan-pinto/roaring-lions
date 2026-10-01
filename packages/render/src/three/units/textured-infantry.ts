@@ -30,9 +30,24 @@
  * silhouette IoU check still runs.
  */
 export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
+  // GH-286 batch B0b (2026-09-30): the first two Meshy-textured figure
+  // teams, built by tools/units/import_meshy_kdf_team.py. Each ships its
+  // remesh's 1024 base-colour bake on the figure roles (uniform, boot,
+  // face); the kit weapon roles in the same GLB carry no map and still take
+  // the faction ramp.
+  'at_team',
+  'demo_squad',
   // B3 (GH-179, 2026-09-30): Meshy figures remeshed from a refined task, so
   // each ships its own base-colour bake -- tools/units/import_meshy_crew_team.py.
   'militia_cell',
   'rpg_team',
   'atgm_cell',
+  // GH-298 (2026-09-30): the three officer teams, tools/units/
+  // import_meshy_officers.py -- each a new Meshy figure plus a B0b remesh as
+  // its second figure, both bakes in one 2048x1024 atlas. HELD art
+  // (HELD_MESH_FILES) until Stage 5 wires the unit types; listed now so the
+  // file that ships the bake is the file that names the exemption.
+  'officer_engineer',
+  'officer_fires',
+  'officer_infantry',
 ]);
