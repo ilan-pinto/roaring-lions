@@ -410,7 +410,9 @@ const rev = arg('rev', '') || git(['merge-base', 'HEAD', 'main']);
 
 fs.mkdirSync(out, { recursive: true });
 
-const wanted = only ? SUBJECTS.filter((s) => s.id === only) : SUBJECTS;
+// `--only=a,b,c` names several subjects (B7 review: the eight teams of one batch).
+const onlyIds = new Set(only.split(',').filter(Boolean));
+const wanted = onlyIds.size ? SUBJECTS.filter((s) => onlyIds.has(s.id)) : SUBJECTS;
 if (wanted.length === 0) throw new Error(`--only=${only} names no subject in the parade`);
 
 // --------------------------------------------------------------- the run
