@@ -106,7 +106,6 @@ h2 { font-size: 20px; margin: 40px 0 6px; }
 .sub { color: var(--ink-mute); font-size: 12px; }
 .bar { position: relative; height: 8px; background: var(--well); border: 1px solid var(--panel-rule); }
 .bar > i { position: absolute; inset: 0 auto 0 0; }
-.bar.settle > i { background: var(--roar); }
 .bar.gate > i { border: 1px solid var(--ink-mute); background: none; }
 .bars { display: grid; grid-template-columns: 52px 1fr auto; gap: 4px 8px; align-items: center; font-size: 11px; color: var(--ink-mute); }
 .buy { display: inline-flex; align-items: center; gap: 6px; justify-content: center; font: 700 13px var(--font-body);
@@ -115,6 +114,19 @@ h2 { font-size: 20px; margin: 40px 0 6px; }
 .ghost { font: 600 12px var(--font-body); color: var(--ink-mute); background: none; border: 1px solid var(--panel-frame); padding: 6px 10px; }
 .link { color: var(--ink-label); font-size: 12px; text-decoration: underline; }
 
+.cr { color: var(--commend); }
+.coin-n { color: var(--roar); font-family: var(--font-mono); font-weight: 600; }
+.price2 { font-size: 13px; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.buy-cr { font: 700 13px var(--font-body); color: var(--commend); background: var(--tile-bg); border: 1px solid var(--commend); padding: 8px 10px; }
+.buy-cr:disabled { color: var(--ink-dim); border-color: var(--panel-frame); }
+.state.afford { color: var(--commend); }
+.bar.earn > i { background: var(--commend); }
+.tierrow { display: grid; grid-template-columns: 48px auto 1fr; gap: 8px; align-items: center; }
+.pips { display: inline-flex; gap: 4px; }
+.pips i { width: 14px; height: 14px; border: 1px solid var(--panel-frame); display: inline-block; }
+.pips i.pe { background: var(--commend); border-color: var(--commend); }
+.pips i.pc { border: 2px solid var(--roar); }
 /* confirm + receipts */
 .row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
 .dialog { background: var(--panel-bg-solid); border: 1px solid var(--roar-deep); padding: 16px; }
@@ -245,11 +257,11 @@ h2 { font-size: 20px; margin: 40px 0 6px; }
 
 <header>
   <h1>Roar coin shop: mock-ups (GH-317)</h1>
-  <p class="lede">Doc mock for <span class="mono">2026-10-01-roar-coin-shop-design.md</span>. It shows the Stores tab in every item state under Option B (the advance), the confirm dialog, receipts, the coin at 16/24/48 px, and the three emblem directions. Figures come from the 2026-10-01 <span class="mono">pnpm playtest</span> ladder (5,849 credits over 26 missions, mean 225 a mission). Prices are proposals.</p>
+  <p class="lede">Doc mock for <span class="mono">2026-10-01-roar-coin-shop-design.md</span>, revised to the lead's 1 Oct rulings: coins buy anything credits buy and replace the credit cost, and network play uses only what was earned. It shows the Stores tab in every item state with both prices, the confirm, receipts, the coin at 16/24/48 px, and the three emblem directions. The rate is 1 Roar coin = 10 credits (recommended). Figures come from the 2026-10-01 <span class="mono">pnpm playtest</span> ladder: 5,849 credits over 26 missions, a mean of 225 a mission.</p>
 </header>
 
 <h2>1 · The Stores tab, in the garage</h2>
-<p class="note">Mock state: a player after mission 6 (18 stars, Conduct 82, balance 0 credits, 1,050 Roar coins). The production build shows no Stores tab until the server account exists (spec §2.7). This mock is the dev view's layout with a live balance, so that buy controls can be shown.</p>
+<p class="note">Mock state: a player after mission 6, with 18 stars, Conduct 82, 1,240 credits and 765 Roar coins. The production build shows no Stores tab until the server account exists (spec §2.7); this is the dev view's layout with a live balance, so that buy controls can be shown.</p>
 
 <section class="stores" aria-label="The Stores">
   <div class="head">
@@ -263,16 +275,16 @@ h2 { font-size: 20px; margin: 40px 0 6px; }
     </div>
     <div class="wallet">
       <svg width="24" height="24" aria-hidden="true"><use href="#hex24"/></svg>
-      <span class="wallet-n">1,050</span><span class="wallet-word">Roar coins</span>
+      <span class="wallet-n">765</span><span class="wallet-word">Roar coins</span>
       <button class="topup">Add Roar coins</button>
     </div>
   </div>
   <div class="tabs" role="tablist" aria-label="Stores" style="margin-top:12px">
-    <button class="tab" role="tab" aria-selected="true">Early access</button>
+    <button class="tab" role="tab" aria-selected="true">Brigade</button>
     <button class="tab" role="tab" aria-selected="false">Cosmetics</button>
     <button class="tab" role="tab" aria-selected="false">Receipts</button>
   </div>
-  <p class="banner">Early access opens something sooner. Nothing here is out of reach for play: every item is earned free on its own path, and the line on each card says how far away that is.</p>
+  <p class="banner">Roar coins buy anything credits buy, in place of the credits, and your credits stay as they are. What you buy with coins plays in single-player. Co-op and skirmish use what you earn.</p>
 
   <div class="shelf-h">Units</div>
   <div class="cards">
@@ -282,79 +294,76 @@ h2 { font-size: 20px; margin: 40px 0 6px; }
       <div class="top"><span class="name">Breach team</span><span class="state earned">Earned</span></div>
       <div class="art">plate · breach_team</div>
       <div class="line">Earned after mission 5 · 12 stars</div>
-      <div class="sub">Yours on its gate, like anyone's.</div>
+      <div class="sub">Counts in co-op and skirmish.</div>
       <a class="link" href="#">Open in the brigade</a>
     </article>
 
-    <!-- ADVANCE (bought early) -->
+    <!-- BOUGHT WITH COINS -->
     <article class="card" data-state="advance">
-      <div class="top"><span class="name">Scout Shachaf</span><span class="state advance">Bought early</span></div>
+      <div class="top"><span class="name">Scout Shachaf</span><span class="state advance">Bought with coins</span></div>
       <div class="art">plate · scout_shachaf</div>
-      <div class="line">Settling from your pay: 450 of 1,800 credits</div>
+      <div class="line">Bought with <span class="coin-n">180</span> Roar coins · single-player only</div>
       <div class="bars">
-        <span>credits</span><div class="bar settle"><i style="width:25%"></i></div><span class="mono">450/1,800</span>
         <span>gate</span><div class="bar gate"><i style="width:60%"></i></div><span class="mono">18/30 ★</span>
+        <span>credits</span><div class="bar earn"><i style="width:69%"></i></div><span class="mono cr">1,240/1,800</span>
       </div>
-      <div class="sub">Ends when the credits settle (~6 missions) or the gate opens, whichever is first. Not in co-op or skirmish until then.</div>
-      <button class="ghost">Cancel · 41 h left, not yet deployed</button>
+      <div class="sub">To use it online, earn it: 30 stars (~7 missions) or 1,800 credits.</div>
+      <div class="btns"><button class="buy-cr" disabled>Earn with credits · 560 more</button><button class="ghost">Refund · 41 h, not fielded</button></div>
     </article>
 
-    <!-- EARNABLE (locked) -->
+    <!-- AFFORDABLE IN CREDITS -->
+    <article class="card" data-state="affordable">
+      <div class="top"><span class="name">Lavi MBT</span><span class="state afford">Affordable</span></div>
+      <div class="art">plate · mbt_lavi</div>
+      <div class="price2"><span class="cr">720 credits</span> <span class="sub">(you have 1,240)</span> · or <span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><span class="coin-n">75</span></span> Roar coins</div>
+      <div class="line">Earned free once your Conduct reaches 90 (now 82)</div>
+      <div class="btns"><button class="buy-cr">Buy · 720 credits</button><button class="buy"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg>Buy · 75 Roar coins</button></div>
+    </article>
+
+    <!-- LOCKED -->
     <article class="card" data-state="earnable">
       <div class="top"><span class="name">Kipod APC</span><span class="state earnable">Locked</span></div>
       <div class="art">plate · apc_kipod</div>
-      <div class="line">Earned free in ~13 missions</div>
+      <div class="price2"><span class="cr">3,200 credits</span> <span class="sub">(you have 1,240)</span> · or <span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><span class="coin-n">320</span></span> Roar coins</div>
+      <div class="line">Earned free in ~13 missions (18 of 44 stars), or about 9 missions of pay</div>
       <div class="bars">
         <span>gate</span><div class="bar gate"><i style="width:41%"></i></div><span class="mono">18/44 ★</span>
-        <span>credits</span><div class="bar settle"><i style="width:0%"></i></div><span class="mono">0/3,200</span>
+        <span>credits</span><div class="bar earn"><i style="width:39%"></i></div><span class="mono cr">1,240/3,200</span>
       </div>
-      <button class="buy"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg>Unlock early · 300 Roar coins</button>
-      <div class="sub">About $3 (part of the 500-coin pack). Its 3,200 credits still settle from your pay.</div>
+      <div class="btns"><button class="buy-cr" disabled>1,960 more credits</button><button class="buy"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg>Buy · 320 Roar coins</button></div>
     </article>
 
-    <!-- EARNABLE, conduct below floor -->
-    <article class="card" data-state="earnable">
-      <div class="top"><span class="name">Lavi MBT</span><span class="state earnable">Locked</span></div>
-      <div class="art">plate · mbt_lavi</div>
-      <div class="line">Earned free once your Conduct reaches 90 (now 82), or with 720 credits, about 4 missions of pay</div>
-      <button class="buy"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg>Unlock early · 100 Roar coins</button>
-    </article>
-
-    <!-- NEXT MISSION (not sold, G3) -->
-    <article class="card" data-state="next">
-      <div class="top"><span class="name">Officer Yoav</span><span class="state off">Not for sale</span></div>
-      <div class="art">portrait · officer</div>
-      <div class="line">Earned next mission (18 of 20 stars)</div>
-      <div class="sub">Under two missions away, so not sold.</div>
-    </article>
-
-    <!-- AFFORDABLE WITH CREDITS -->
-    <article class="card" data-state="credits">
-      <div class="top"><span class="name">Recon drone</span><span class="state off">Buy with credits</span></div>
-      <div class="art">plate · recon_drone</div>
-      <div class="line">You can buy this now with credits</div>
-      <a class="link" href="#">Open in the brigade · 220 credits</a>
-    </article>
-
-    <!-- NOT REACHABLE (G1) -->
+    <!-- LOCKED, bought-only (E5), held by G1 until D3 -->
     <article class="card" data-state="unreachable">
-      <div class="top"><span class="name">Gunship</span><span class="state off">Not for sale</span></div>
+      <div class="top"><span class="name">Peten gunship</span><span class="state off">Locked · not yet reachable</span></div>
       <div class="art">plate · heli_peten_gunship</div>
-      <div class="line">Not yet reachable by play</div>
-      <div class="sub">8,000 credits is more than a campaign pays (5,849). It is not sold until play can earn it.</div>
+      <div class="price2"><span class="cr">8,000 credits</span> · or <span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><span class="coin-n">800</span></span> Roar coins</div>
+      <div class="line">Bought-only: credits are its one earned path</div>
+      <div class="sub">8,000 is more than a lifetime of play pays today (5,849), so it is held off sale for coins (guard G1) until a fresh campaign pays again (decision 3). After that, about 1.4 campaigns of pay.</div>
     </article>
 
+  </div>
+
+  <div class="shelf-h">Upgrades · Lavi MBT · Firepower</div>
+  <div class="cards">
+    <article class="card" data-state="tier">
+      <div class="tierrow"><span class="sub">earned</span><span class="pips"><i class="pe"></i><i></i><i></i></span><span class="sub">tier 1 · online and offline</span></div>
+      <div class="tierrow"><span class="sub">coins</span><span class="pips"><i class="pc"></i><i class="pc"></i><i></i></span><span class="sub">tier 2 · single-player</span></div>
+      <div class="price2">Tier 3: <span class="cr">950 credits</span> · or <span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><span class="coin-n">95</span></span> Roar coins</div>
+      <div class="btns"><button class="buy-cr" disabled>Tier 2 first: 680 credits</button><button class="buy"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg>Tier 3 · 95 Roar coins</button></div>
+      <div class="sub">Online, the Lavi fires at tier 1, the rung you earned.</div>
+    </article>
   </div>
 
   <div class="row2">
     <!-- CONFIRM -->
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cf-t">
-      <h3 id="cf-t"><svg width="48" height="48" aria-hidden="true"><use href="#hex48"/></svg>Unlock the Kipod APC early?</h3>
+      <h3 id="cf-t"><svg width="48" height="48" aria-hidden="true"><use href="#hex48"/></svg>Buy the Kipod APC with Roar coins?</h3>
+      <p><span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><b class="coin-n">320 Roar coins</b></span>, in place of <span class="cr">3,200 credits</span>. Your 1,240 credits stay as they are.</p>
       <p>You would earn it free in <b>~13 missions</b> (18 of 44 stars).</p>
-      <p>Your next payouts settle its <b>3,200 credits</b>, as if you had bought it with credits. If the gate opens first, the credits come back.</p>
-      <p><span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><b>300 Roar coins</b></span> <span class="sub">(the 500-coin pack is $4.99)</span></p>
-      <p class="sub">You can cancel within 48 hours if you have not deployed it. If you earn it sooner than 10 missions, the difference comes back in coins.</p>
-      <div class="actions"><button class="ghost" autofocus>Not now</button><button class="buy">Unlock early</button></div>
+      <p><b>Single-player only.</b> Co-op and skirmish use what you earn.</p>
+      <p class="sub">The 500-coin pack is $4.99. You can refund it within 48 hours if you have not fielded it.</p>
+      <div class="actions"><button class="ghost" autofocus>Not now</button><button class="buy">Buy with coins</button></div>
     </div>
 
     <!-- RECEIPTS -->
@@ -362,12 +371,12 @@ h2 { font-size: 20px; margin: 40px 0 6px; }
       <h3>Receipts</h3>
       <div class="scroll">
       <table class="receipts">
-        <thead><tr><th>When</th><th>Item</th><th>Paid</th><th>Quoted</th><th>Outcome</th></tr></thead>
+        <thead><tr><th>When</th><th>Item</th><th>Coins</th><th>Replaced</th><th>Outcome</th></tr></thead>
         <tbody>
-          <tr><td class="mono">1 Oct 21:04</td><td>Scout Shachaf</td><td class="mono">200</td><td>6–9 missions</td><td>Settling, 450 / 1,800</td></tr>
-          <tr><td class="mono">28 Sep 19:40</td><td>Breach team</td><td class="mono">100</td><td>3–5 missions</td><td>Earned on gate after mission 5. You had it 4 missions early</td></tr>
-          <tr><td class="mono">27 Sep 18:12</td><td>Lavi MBT</td><td class="mono">100</td><td>3–5 missions</td><td>Cancelled, 100 coins returned</td></tr>
-          <tr><td class="mono">27 Sep 18:10</td><td>Company pack</td><td class="mono">+1,050</td><td>—</td><td>Steam order ···4F2A</td></tr>
+          <tr><td class="mono">1 Oct 21:10</td><td>Lavi firepower, tier 2</td><td class="mono">70</td><td class="mono cr">680 cr</td><td>Single-player. Online plays tier 1 (earned)</td></tr>
+          <tr><td class="mono">1 Oct 21:04</td><td>Scout Shachaf</td><td class="mono">180</td><td class="mono cr">1,800 cr</td><td>Single-player. 18 of 30 stars to earn it</td></tr>
+          <tr><td class="mono">28 Sep 19:40</td><td>Breach team</td><td class="mono">85</td><td class="mono cr">850 cr</td><td>Earned on gate after mission 5. Bought with coins 4 missions earlier</td></tr>
+          <tr><td class="mono">27 Sep 18:10</td><td>Company pack</td><td class="mono">+1,100</td><td>—</td><td>Steam order ···4F2A</td></tr>
         </tbody>
       </table>
       </div>
@@ -395,7 +404,7 @@ h2 { font-size: 20px; margin: 40px 0 6px; }
     <h3>Purchase animation (≤ 700 ms)</h3>
     <div class="anim-stage">
       <svg class="anim-coin" width="48" height="48" aria-hidden="true"><use href="#hex48"/></svg>
-      <div class="sub">The coin drops (120 ms), turns one hex face of 60° (250 ms) and is swept by a glint (160 ms). The card then flips to <i>Bought early</i> and its bar draws (170 ms). Reduced motion: an instant state change. Sound: a struck copper coin with a low growl tail, ≤ 600 ms.</div>
+      <div class="sub">The coin drops (120 ms), turns one hex face of 60° (250 ms) and is swept by a glint (160 ms). The card then flips to <i>Bought with coins</i> (170 ms), and its credit figure does not move. Reduced motion: an instant state change. Sound: a struck copper coin with a low growl tail, ≤ 600 ms.</div>
     </div>
   </div>
 </div>

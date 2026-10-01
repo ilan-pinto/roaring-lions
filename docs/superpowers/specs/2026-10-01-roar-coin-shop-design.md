@@ -1,260 +1,281 @@
 # The Roar coin shop and the coin — design (GH-317)
 
-**Date:** 2026-10-01 · **Status:** draft for the lead. Design only: no money flows, no shipping
-code, and the sim is untouched.
+**Date:** 2026-10-01 · **Revised:** 2026-10-01, to the lead's rulings of 1 Oct (§0.1).
+**Status:** draft for the lead. Design only: no money flows, no shipping code, and the sim is
+untouched.
 **Mock-ups:** `docs/superpowers/specs/2026-10-01-roar-coin-shop-mock.html` (self-contained;
 open it in a browser).
-**Extends:** WP-ST8 (`2026-09-28-st8-monetisation-content-plan.md`, #207), G7 (#199).
+**Extends:** WP-ST8 (`2026-09-28-st8-monetisation-content-plan.md`, #207) and G7 (#199).
 **Waits on:** ST5 (#204, auth), ST6 (#205, server-held account), ST7 (#206, Wallet pipeline).
 Money moves only once the account is server-held.
 
-## 0. The rule this design serves (lead, 30 Sep)
+## 0. The rules this design serves
 
-**Early access only.**
+### 0.1 The lead, 30 Sep and 1 Oct
 
-- Roar coins unlock **early** what the player can also earn with credits, stars or Conduct:
-  units, building abilities (field works, #277), and the rest of the earned path.
-- It is a time-saver, **never exclusive**. The earned path stays free and complete.
-- Co-op and skirmish use **only what each player earned**.
+**30 Sep — early access.** Roar coins unlock early what the player can also earn with
+credits, stars or Conduct: units, building abilities (field works, #277), and the rest of the
+earned path. The earned path stays free and complete.
 
-### 0.1 This rule amends ST8, and the amendment has to be written down
+**1 Oct — the rulings, which replace this spec's first draft (Option B, "the advance").**
 
-ST8's rule (approved 29 Sep) says Roar coins buy **only cosmetics** and **no unit, no upgrade**
-(§1 rules 4–5). Its §4 says no locked unit ever reads "or N Roar coins", and §7 lists units
-and upgrade tiers as never sold. The 30 Sep rule overturns those lines for one new class of
-item, the **early-access advance** (§1.2). Everything else in ST8 stands. That includes two
-currencies, credits never sold, no Conduct points, no loot boxes, no trading, and the T1–T11
-test for cosmetics. The amendment text is in §1.7. It lands with this spec, so ST8 and this
-document never disagree.
+1. **Coins buy everything credits buy.** That means:
+   - early unit unlocks;
+   - the bought-only special forces (E5: `recon_zikit`, `demo_tzav`, `heli_peten_gunship`);
+   - upgrade tiers.
+
+   In the lead's words: *"Whenever you have coins, your advance is faster across the board."*
+2. **Coins replace the credit cost.** An item paid in coins costs no credits, and the player
+   keeps their credits. It is not an advance and nothing is settled later.
+3. **Network play uses only what each player earned.** Co-op and skirmish ignore everything
+   bought with coins.
+
+### 0.2 These rulings amend ST8, so the amendment is written down
+
+ST8 (approved 29 Sep) says:
+- Roar coins buy **only cosmetics** (§1 rules 4–5);
+- no row shows both currencies (§4);
+- units and tiers are **never sold** (§7).
+
+The 1 Oct rulings overturn those lines. Everything else in ST8 stands:
+- two currencies;
+- **credits are never sold**, and coins never convert into a credit balance;
+- no Conduct points, stars or grades;
+- no loot boxes, no trading;
+- the T1–T11 test for cosmetics.
+
+The amendment text is in §1.8 and lands with this spec.
 
 ## 1. Economy
 
 ### 1.1 What the earned path pays today: measured
 
-All figures are from `pnpm playtest`, run on this branch (`origin/main` at `fc0fc13e`) on
-2026-10-01. The ladder is the optimal-play proof: 26 missions in `world.json` order, and
-`LADDER_CREDITS` = **5,849**, matching the pin.
+The figures come from `pnpm playtest`, run on `origin/main` at `fc0fc13e` on 2026-10-01. That
+is the optimal-play ladder: 26 missions in `world.json` order, and `LADDER_CREDITS` = **5,849**,
+matching the pin.
 
 | figure | value | source |
 |---|---|---|
 | credits, whole campaign | **5,849** | `credit ladder: 5849 over 26 missions` |
-| credits per mission | mean **225**, min 159 (`wadi_halam_5_depot`), max 310 (`khan_rafid_1_recon`, `qarn_hadid_1_recon`) | the 26 `<mission>: credits N` lines |
+| credits per mission | mean **225**, min 159, max 310 | the 26 `<mission>: credits N` lines |
 | cumulative after mission 1 / 4 / 8 / 14 / 18 / 26 | 217 / 977 / 1,916 / 3,279 / 4,268 / 5,849 | running sum |
 | star gates open (measured) | `breach_team` after mission **5**, `scout_shachaf` after **13**, `apc_kipod` after **19** | `gate … OPEN after mission N` |
 | Conduct gates (70–90) | all nine open after mission **1** on this ladder | `gate … (Conduct floor N)` |
 | mission length | `target_minutes` 5–7; **no real-player duration has ever been measured** (CLAUDE.md) | mission schema |
 
-**The hour figure is an assumption, and it is labelled as one everywhere it appears.** One
-mission is taken as **~10 minutes** of wall clock: the 5–7 minute target, plus the briefing,
-deploy and debrief. On that assumption, a campaign is ~4.3 hours. The shop never prints hours
-for this reason. It prints **missions**, which the account can count exactly (§2.4).
+**The hour figures are an assumption, and they are labelled as one wherever they appear.** A
+mission is taken to be **~10 minutes** of wall clock: the 5–7 minute target, plus the briefing,
+the deploy and the debrief. On that basis a campaign is ~4.3 hours.
 
-Current prices, from `data/units/kdf/*.json` and the staged and designed packages:
+The priced catalogue: everything credits buy, from `data/units/kdf/*.json`, the staged E5 JSON
+and the field-commanders spec.
 
-| class | items | credit prices | total |
+| class | items | credit prices | total credits |
 |---|---|---|---|
-| earned-or-bought units | 9 Conduct-gated (`recon_drone` … `mbt_lavi`) | 220–720 | 4,880 |
-| | 3 star-gated (`breach_team`, `scout_shachaf`, `apc_kipod`) | 850 / 1,800 / 3,200 | 5,850 |
+| earned-or-bought units | 12 (9 Conduct-gated, 3 star-gated) | 220–3,200 | 9,730 |
 | upgrade tiers | 147 rungs over 17 types | 25–950 | **34,965** |
-| E5 special forces (bought only, staged) | `recon_zikit`, `demo_tzav`, `heli_peten_gunship` | 4,250 / 6,500 / 8,000 | 18,750 |
-| field commanders (designed, not shipped) | Maya, Yoav, Dalia, Ronen | 1,200 / 1,500 / 1,800 / 2,400 | 6,900 |
+| E5 special forces (bought only, staged) | 3 | 4,250 / 6,500 / 8,000 | 18,750 |
+| field commanders (designed, not shipped) | 4 | 1,200 / 1,500 / 1,800 / 2,400 | 6,900 |
 | field works (#277) | 4 KDF works | no gate or price yet (Stage 5, G-NUM) | — |
-| **credit catalogue** | | | **≈ 70,345** |
+| **catalogue** | **166 items** | | **70,345** |
 
-### 1.2 Finding F1: today the earned path cannot reach most of the credit catalogue
+### 1.2 Finding F1: play cannot reach most of what coins would sell
 
 `payMission` (`packages/app/src/brigade-account.ts`) pays **only improvement**. Its `paid`
-record lives in the brigade account, which **survives a fresh campaign** (brigade spec D4).
-A second campaign therefore pays nothing for a mission it does not beat, so a player's
-**lifetime** credits are bounded by one campaign's ceiling: about 5,849, plus the few hundred
-a ★★★ re-run adds. That is **~8% of the ≈ 70,345 catalogue**. `demo_tzav` (6,500) and
-`heli_peten_gunship` (8,000) each cost more than a whole lifetime pays.
+record lives in the brigade account, and that account **survives a fresh campaign** (brigade
+D4). So a second campaign pays nothing for any mission it does not beat. **Lifetime earned
+credits are bounded by one campaign: ≈ 5,849, about 8% of the catalogue.** Two consequences:
+- `demo_tzav` (6,500) and `heli_peten_gunship` (8,000) each cost more than a lifetime pays;
+- maxing one tank's three upgrade tracks (`mbt_lavi`, 5,150) uses 88% of it.
 
-This bears directly on the rule. **An item the earned path cannot reach is not early access.
-Selling it is selling it exclusively.** The upgrades study's line that maxing every track
-takes "several campaigns' worth of earning" (`upgrades.md` §6.3) is true of the prices but
-false of the payout rule. One concrete fix: reset `paid` on a fresh campaign, so a second
-campaign pays again. That makes the catalogue reachable in about **12 campaigns (~52 hours
-on the 10-minute assumption)**. But that is an economy change, and it belongs to the
-balance analyst and the lead, not to this shop. Until it is decided, guard **G1** (§1.6)
-keeps every item the earned path cannot reach **out of the shop**.
+Under the 1 Oct rulings, coins buying these items is the intended "faster across the board".
+But an item play cannot reach becomes **coin-exclusive in practice**, which breaks the 30 Sep
+rule that the earned path stays complete. It also leaves network play, which counts only
+earned items, permanently short of most of the catalogue. **This is a decision (§5, D3)**, and
+the recommendation is to restore reachability before coins go live:
 
-### 1.3 The three models, each priced
+| option | what it does | effect |
+|---|---|---|
+| **R1. A fresh campaign resets `paid` (recommended, with R2 later)** | each campaign pays in full again; within a campaign, replay still pays improvement only (D2 unchanged) | catalogue reachable in **70,345 ÷ 5,849 ≈ 12 campaigns ≈ 52 hours** (10-minute assumption). One line in `payMission`'s caller, owned by the balance analyst |
+| R2. New earned sources | skirmish and co-op payouts (network games, so earned by definition), operations (ST8 §3) | spreads the 52 hours over more modes. Needs those modes, so it comes later |
+| R3. Lower catalogue prices | rescale tiers and E5 toward one lifetime | breaks the cost-curve fits (`upgrades.md`, E5 `numbers.md`); not recommended |
+| R4. Accept | coin-exclusive in practice | contradicts the 30 Sep rule; not recommended |
 
-The shop has to answer three questions: what a coin buys, whether it frees credits, and what
-happens when the item is later earned. The options below differ on exactly those.
+**Guard G1** (§1.7) carries this into the shop. An item is sellable for coins only while a
+measured instrument shows play can reach it. Since money waits on ST5–ST7 anyway, R1 has time
+to land first.
 
-**Option A — Flat unlock.** Coins buy the item permanently, exactly as a credit purchase
-does, at a fixed price per item: **1 coin ≈ 8 credits**, rounded to 25, with a floor of 50.
-Examples: `recon_drone` 50, `mbt_lavi` 100, `breach_team` 100, `scout_shachaf` 225,
-`apc_kipod` 400.
-*Weakness:* every coin spent on a unit **frees the credits** the player would otherwise have
-spent on it, and those credits go into upgrade tiers. So coins become credits one step
-removed, at a fixed rate. That is precisely what G7 rejected. The rule's "early" also means
-nothing here: the price is the same at mission 1 and at mission 18.
-Packs: 500 / 1,000 / 2,000 coins at $4.99 / $9.99 / $19.99, no bonus.
+### 1.3 The exchange rate: three options
 
-**Option B — The advance, priced by time saved. (Recommended.)** Coins open the item **now**.
-The item still costs its **credit price**: the brigade **settles that price from the next
-mission payouts** (100% of each payout, oldest advance first) until it is paid. The advance
-ends the moment either of these happens:
-- the credits settle. The item then becomes a normal credit purchase: earned, and permanent
-  across campaigns (brigade D4).
-- the earned gate opens first (stars, Conduct, story). Any credits already withheld are
-  **released back to the balance**, because they were earned credits and never coins, and
-  the item is earned on its gate, like anyone else's.
+Coins replace credits at a fixed rate. Every item's coin price is
+`ceil(credits ÷ rate)`, rounded **up** to a multiple of 5. The totals below are computed over
+all 166 items.
 
-From that point the player is **identical** to a player who never paid. The coin bought
-exactly the missions in between, and nothing else.
-- Coins never free a credit.
-- Coins never become one.
-- Coins never touch stars or Conduct.
-
-The price is set by the **missions saved**, measured for this player at this moment (§1.4),
-not by the unit's power.
-Packs: **500 / 1,050 / 2,200 coins at $4.99 / $9.99 / $19.99** (§1.5).
-
-**Option C — Campaign key.** A flat **75 coins** opens a **gate-earned** item for the current
-campaign only, until its gate opens. Nothing is permanent and no credits are involved.
-Credit-only items (tiers, E5) are never sold.
-*Weakness:* it covers only part of "the rest of the earned path"; the rule names units *and*
-building abilities *and* the rest. Its value also collapses for every Conduct-gated unit,
-which opens after mission 1.
-Packs: 300 / 800 coins at $2.99 / $7.99.
-
-|  | A flat | **B advance** | C key |
+| | **A. 1 coin = 5 credits** | **B. 1 coin = 10 credits (recommended)** | **C. 1 coin = 20 credits** |
 |---|---|---|---|
-| frees credits (a hidden coin→credit rate) | **yes** | no | no |
-| price tracks time saved (the rule's "early") | no | **yes** | partly |
-| covers credit-only items once reachable | yes | **yes** | no |
-| parity with a non-payer once earned | no (credits freed) | **exact** | exact |
-| complexity | low | medium (an advance ledger) | low |
-| everything listed in v1, from mission 0 | ≈ 2,125 coins | **≈ 1,400 coins** | ≈ 525 coins |
+| whole catalogue, in coins | 14,400 | **7,395** | 3,910 |
+| whole catalogue, in money (packs below) | ≈ $120 | **≈ $60** | ≈ $35 |
+| one campaign's pay (5,849 cr), in coins | 1,170 | **585** | 295 |
+| the $4.99 pack (500 coins) buys | 2,500 cr ≈ 11 missions of pay (~2 h) | **5,000 cr ≈ 22 missions, 85% of a campaign (~3.7 h)** | 10,000 cr ≈ 1.7 campaigns |
+| reads as | coins slower than playing well | **one pack is a real jump; the catalogue is a real spend** | one small pack outbuys a whole campaign: trivially cheap |
 
-### 1.4 The exchange rate: bands of missions saved (Option B)
+**B, item prices** (credits → coins):
 
-**Missions saved** is the smaller of two counts, each taken from the player's own position:
-- **missions to the gate:** stars or Conduct still needed, divided by this player's own
-  per-mission rate so far. Before the first mission, it falls back to the measured ladder
-  (§1.1).
-- **missions to settle:** `(credit price − credit balance) / this player's mean payout`. Before
-  the first mission, the mean falls back to 225. Settlement draws on the balance first, then on
-  payouts. If the balance already covers the price, the item is **not sold for coins**: the
-  card says "Affordable now with credits" and links to the garage.
+| item | credits | coins |
+|---|---|---|
+| `recon_drone` | 220 | 25 |
+| `mbt_lavi` | 720 | 75 |
+| `breach_team` | 850 | 85 |
+| `scout_shachaf` | 1,800 | 180 |
+| `apc_kipod` | 3,200 | 320 |
+| `recon_zikit` | 4,250 | 425 |
+| `demo_tzav` | 6,500 | 650 |
+| `heli_peten_gunship` | 8,000 | 800 |
+| an upgrade rung | 25–950 | 5–95 |
+| the four officers | 1,200–2,400 | 120–240 |
 
-The result is rounded **down**, in the player's favour.
+By class, B comes to:
+- tiers 3,830 coins;
+- E5 1,875;
+- units 1,000;
+- officers 690.
 
-| missions saved | price | per mission saved | example (fresh account, mission 0, ladder fallback) |
-|---|---|---|---|
-| 0–1 | **not sold** (G3) | — | every Conduct-gated unit for a clean player (gate after mission 1) |
-| 2 | 50 | 25 | `recon_drone`, for a player below Conduct 70 (settles after mission 2) |
-| 3–5 | 100 | 20–33 | `breach_team` (settles after 4, gate after 5): **100**; `mbt_lavi` below Conduct 90 (settles after 4): 100; Maya (gate after 5): 100 |
-| 6–9 | 200 | 22–33 | `scout_shachaf` (settles after 8, gate after 13): **200**; Yoav (settles after 7): 200; Dalia (8): 200 |
-| 10–14 | 300 | 21–30 | `apc_kipod` (settles after 14, gate after 19): **300**; Ronen (gate and settle after 12): 300 |
-| 15+ | 400 | ≤ 27 | `recon_zikit` (settles after 18), once G1 admits it |
+**Why B.**
+- **The whole catalogue at ≈ $60 is not trivially cheap.** Against the market (web, retrieved
+  2026-10-01, Sources) it sits above Steel Division 2's History Pass ($34.99) and above two
+  Company of Heroes 3 expansions ($24.99 each). That is because it is the largest bundle of
+  game-changing items this game sells, and every one is still earnable.
+- **One $4.99 pack is a meaningful jump**: 85% of a campaign's pay, landing in one go.
+- C undercuts play so far that the earned path stops mattering. A undercuts the coins.
 
-So the rate is **~25 coins per mission saved** (≈ $0.25 a mission, or ≈ $1.50 an hour on the
-10-minute assumption), and it is flat by design. Three properties follow from it.
-- **The price falls as the earned path closes in.** For a player who spends credits as they
-  earn them, the same Kipod costs 300 at mission 0, 200 at mission 10, 100 at mission 14 and 50
-  at mission 17, and is not sold from mission 18. Prices never rise, and a quote holds for 24
-  hours.
-- **Everything early from mission 0, v1 catalogue:** the three star units (100 + 200 + 300)
-  plus the four officers once they ship (100 + 200 + 200 + 300) come to **1,400 coins ≈ $14**.
-  The nine Conduct units are 0–100 depending on the player.
-- **Against the market (web, retrieved 2026-10-01; see Sources):** Company of Heroes 3's
-  Hammer & Shield battlegroup pack is $13.99, and Steel Division 2's campaign DLCs are
-  $14.99–16.99. A Total War: Warhammer III legendary-lord pack is $8.99. Those sell **content
-  the buyer could never otherwise get**. Ours sells **only time**, so "everything early"
-  should land at or below one such DLC, and at $14 it does. Going higher would make the time
-  look like content.
+### 1.4 Packs and Steam Wallet (rate B)
 
-### 1.5 Packs, bonuses and Steam Wallet
+| pack | coins | bonus | price (USD; Valve sets regional) | ≈ credits | net after Valve's 30% (ST7's figure) |
+|---|---|---|---|---|---|
+| Patrol | 500 | — | $4.99 | 5,000 | ≈ $3.49 |
+| Company | 1,100 | +10% | $9.99 | 11,000 | ≈ $6.99 |
+| Brigade | 2,400 | +20% | $19.99 | 24,000 | ≈ $13.99 |
+| Division | 6,500 | +30% | $49.99 | 65,000 | ≈ $34.99 |
 
-| pack | coins | bonus | price (USD; Valve sets regional) | net after Valve's 30% (ST7's figure) |
-|---|---|---|---|---|
-| Patrol | 500 | — | $4.99 | ≈ $3.49 |
-| Company | 1,050 | +5% | $9.99 | ≈ $6.99 |
-| Brigade | 2,200 | +10% | $19.99 | ≈ $13.99 |
+- **No orphans.** Every pack is a multiple of 100 and every price a multiple of 5, so a
+  remainder always buys something (ST8 §5.2). The cheapest items are 5-coin upgrade rungs.
+- **Division + Company (7,600 coins, $59.98) covers the whole catalogue (7,395).** There is no
+  larger pack, because the catalogue cannot absorb one.
+- **Fraud limit (ST6).** For its first 24 hours a new account can buy the Patrol and Company
+  packs only. ST6 names a brand-new account buying the largest package as the pattern that
+  matters.
+- **Bonuses are fixed and permanent.** No first-purchase doubler, no timer, no "sale ends"
+  (ST8 §5.4).
+- The 4.99 / 9.99 / 19.99 / 49.99 ladder is the common Steam free-to-play convention. That is
+  a general observation, not a sourced figure. Regional prices follow Valve's suggested table
+  at ST7.
 
-- **Every pack and every band price is a multiple of 50**, so a remainder always buys a
-  2-mission advance or sits at zero (ST8 §5.2, no orphaned coins).
-- **The largest pack (2,200) covers the whole v1 catalogue (1,400) with room to spare, and
-  there is no larger pack.** A $49.99 or $99.99 pack would sell coins the catalogue cannot
-  absorb, and ST6 names a new account buying the largest package as the fraud pattern that
-  matters. A new account is limited to the Patrol pack for its first 24 hours (ST6's limits).
-- **The bonus is fixed and permanent.** There are no first-purchase doublers, no timers and
-  no "sale ends" (ST8 §5.4).
-- The 4.99 / 9.99 / 19.99 ladder is the common Steam free-to-play convention. That is a
-  general observation, not a sourced figure. Regional prices come from Valve's suggested
-  table at ST7.
+### 1.5 The account: earned and coin-bought, held apart (for ST6 to enforce)
 
-### 1.6 Guards: how the rule is checked, item by item
+Every entitlement carries its **source**, and the network rule reads nothing else. Today the
+brigade account stores `unlocks: string[]` and `upgrades[unit][track] = tier`. ST6's
+server-held account splits both:
+
+```
+entitlements: {
+  units:    { [unitId]: { earned: boolean, coins: boolean } },
+  upgrades: { [unitId]: { [track]: { earned: number, coins: number } } }   // tier reached on each path
+}
+receipts: [ { id, at, item, coins, creditsEquivalent, state, steamOrder? } ]
+roarCoins: number            // server-authoritative balance; never a client field
+```
+
+- **`earned`** is set by play only:
+  - a gate opening (stars, Conduct, story; `unlockReason`);
+  - a credit purchase (`buyUnlock`, `buyUpgrade`). Credits are earned, so whatever they buy
+    is earned.
+- **`coins`** is set only by a server-confirmed coin purchase (ST7's `FinalizeTxn`, then the
+  debit). No client path writes it, exactly as no client path writes a `granted` credit
+  today.
+- **Single-player** (campaign, sandbox) uses `earned OR coins`, and for a tier,
+  `max(earned, coins)`.
+- **Network** (co-op, skirmish, any later 1v1) uses **`earned` only**. The pre-pass
+  (`applyUpgrades`, brigade D5) takes the tier map the mode hands it, so the sim never learns
+  either word and the determinism hash cannot tell them apart. The server builds the network
+  loadout itself; the client's copy is display only.
+- **Tiers are bought in order on each path.** A coin-bought tier 3 over an earned tier 1 plays
+  as tier 3 offline and tier 1 online. The garage shows both rungs (§2.2).
+- **Credits are never touched by coins.** Paying in coins debits `roarCoins` only, so
+  `balance` stays "earned grants minus credit spending" (the G4 invariant).
+
+### 1.6 Bought with coins, then earned
+
+There are three cases, and one rule covers all of them: **the item gains `earned: true`, and
+no coins come back.**
+
+| case | what happens | why |
+|---|---|---|
+| A gate opens on something bought with coins (e.g. `scout_shachaf` at 30 stars) | `earned` flips to true automatically; it now counts online | play reached it; nothing to charge or refund |
+| A credit-only item the player wants online (an E5 unit, a tier) | the card offers **"Earn it for network play: 3,200 credits"**; paying sets `earned` | credits are the earned path for these; the player chooses whether network play matters to them |
+| The player could already afford it in credits when buying with coins | the confirm says so first ("You have 3,400 credits, enough to earn this") | honesty, not a block: the lead's ruling is that coins replace credits |
+
+**Rejected: refunding coins when the item is later earned.** It would turn every coin purchase
+into a deposit that play pays back, the opposite of "faster across the board". It would also
+make a player's coin balance depend on their star count. The coins bought the item **sooner**.
+Once it is earned, the receipt records that ("Earned on gate after mission 13; bought with
+coins 8 missions earlier").
+
+### 1.7 Guards
 
 Each guard is written so it can fail.
 
-| # | guard | ties to the rule | how it is checked |
+| # | guard | ties to | how it is checked |
 |---|---|---|---|
-| G1 | **Reachable.** An item is listed only if the earned path reaches it within one lifetime of earning (today: one campaign, F1) | "never exclusive" | a catalogue spec walks the measured ladder and fails on an item the ladder cannot afford or open |
-| G2 | **Time, not power.** The price is a function of missions saved only; a unit's power, cost curve or tier never enters it | "a time-saver" | the price function takes `(missionsSaved)` and nothing else |
-| G3 | **Not sold under 2 missions.** | an advance of under 2 missions is noise sold as value | band table |
-| G4 | **No credit freed.** An advance settles the full credit price from earned payouts; coins never write a credit grant, and `granted` stays non-money (ST8 Q7) | two currencies, credits never sold | an account invariant: `balance` is always earned grants minus spending, with advances included |
-| G5 | **Earned-only in co-op and skirmish.** An item in the `advance` state is absent from every co-op and skirmish loadout until it settles or its gate opens | "co-op and skirmish use only what each player earned" | the loadout reads provenance; replays record commands only (ST8 §6) |
-| G6 | **Score-blind.** Stars, grade, Conduct and `creditsFor` are computed exactly as for any fielded unit | Conduct cannot be bought | measured: the six `(gate open)`/`(bought)` probes in today's playtest move **stars by 0** in every case, and credits by +0 to +33 per mission (`qarn_hadid_3_clearance` 212 → 245), all of it withheld by the advance anyway |
-| G7 | **Mission rules win.** A mission's allow list (e.g. #277's no intel centre on a tunnel mission) and `gate_only` placements ignore advances | the earned path is not reshaped | `resolveUpgrades` and the build allow list never read the advance ledger |
-| G8 | **No Conduct item.** A Conduct floor, Conduct points, ROE forgiveness and stars are never items | G7 (#199) | ST8 §7, unchanged |
-| G9 | **Known, kept, not random.** The exact item, the band and the missions saved are shown before payment; no loot, no expiry, no countdown | ST8 T7, T8 | unchanged |
-| G10 | **The honest line is computed, never written.** "Earned free in ~N missions" comes from the same function as the price | honesty | one function feeds the line and the price |
+| G1 | **Reachable by play.** An item is sold for coins only while play can reach it in finite play (after R1: across campaigns) | 30 Sep: never exclusive | a catalogue spec walks the measured ladder against each price and fails on an unreachable item |
+| G2 | **Network is earned-only.** No coin-sourced entitlement enters a co-op or skirmish loadout | 1 Oct ruling 3 | a loadout test with a coin-only account fields base units and base tiers; mutation: read `earned OR coins` → red |
+| G3 | **Coins never become credits.** No coin path writes a credit grant, and `balance` never rises from a coin purchase | ST8 rule 2, G7 | an account invariant over grants and spending |
+| G4 | **Score-blind.** Stars, grade, Conduct and `creditsFor` compute exactly as for any fielded unit. Conduct points, floors and stars are never items | G7 (#199) | today's six `(gate open)`/`(bought)` probes move **stars by 0** and credits by +0 to +33 a mission; the probe stays pinned |
+| G5 | **Mission rules win.** A mission's build allow list (e.g. #277's no intel centre on a tunnel mission) and `gate_only` placements ignore coin entitlements, as they ignore credit ones | the earned path is not reshaped | `resolveUpgrades` and the allow list read no source field |
+| G6 | **Known, kept, not random.** The exact item and both prices are shown before payment. No loot, no expiry, no countdown | ST8 T7, T8 | unchanged |
+| G7 | **The honest line is computed.** "Earned free in ~N missions" comes from the account, never from copy | honesty | one function feeds the line and the card |
 
-### 1.7 The ST8 amendment (text to land with this spec)
+A note on Conduct gates. `unlockReason` already lets a credit price open a Conduct-gated unit
+(`unlock.ts`, "a price opens the gate"). Coins do the same and no more. What stays unsellable
+is Conduct itself: points, floors and forgiveness.
 
-- **§1 rule 4** becomes: "Roar coins buy cosmetics, and **early access** to items the earned
-  path also reaches (the advance, spec 2026-10-01)."
-- **§1 rule 5** becomes: "Roar coins buy no brigade credit, no Conduct tier, no Conduct
-  advantage and no star, directly or through anything they buy. A unit or tier is bought only
-  as an advance, which settles its full credit price from earned payouts."
-- **T2–T4** do not apply to an advance; **G1–G10** apply instead.
-- **§4**: the Stores is the only surface showing a coin price. A locked unit on the brigade
-  board shows a **link** ("Early access in the Stores"), never a coin figure.
-- **§7**: "Units" and "Upgrade tiers" move from *never sold* to *sold only as an advance*.
-  Everything else in §7 stands.
+### 1.8 The ST8 amendment (text to land with this spec)
 
-### 1.8 Refunds (Steam constrains this)
+- **§1 rule 4** becomes: "Roar coins buy cosmetics, and **anything brigade credits buy** —
+  unit unlocks, bought-only units and upgrade tiers — at a fixed rate, in place of the credit
+  cost (spec 2026-10-01)."
+- **§1 rule 5** becomes: "Roar coins buy no brigade credit, no Conduct point, floor or
+  forgiveness, no star and no grade. A coin purchase never changes the credit balance.
+  **Co-op and skirmish use only what was earned**; a coin-bought entitlement is single-player
+  only."
+- **§1.1:**
+  - T2–T4 apply to cosmetics only.
+  - A credit-catalogue item sold for coins is checked against G1–G7 instead.
+  - T5–T11 still apply to every item.
+- **§4:** the Stores shows **both prices** on every credit-catalogue item (credits and Roar
+  coins). The brigade board shows the credit price and a link to the Stores. Neither header
+  shows the other currency's balance.
+- **§5.2:** item prices are multiples of 5 coins and packs multiples of 100.
+- **§7:** "Units", "Upgrade tiers" and E5's bought-only units move from *never sold* to *sold
+  for coins, single-player only*. "Brigade credits", "Stars, grades, Conduct …" and every
+  other line stand.
 
-Steam's published policy (web, retrieved 2026-10-01, Sources):
-- **in-game purchases** in Valve's own games are refundable within 48 hours if not consumed,
-  modified or transferred, and **third-party developers may opt in** on the same terms
-  (otherwise they are non-refundable);
+### 1.9 Refunds (Steam constrains this)
+
+Steam's published policy (web, retrieved 2026-10-01; Sources):
+- in-game purchases in Valve's own games are refundable within 48 hours if not consumed,
+  modified or transferred, and **third-party developers may opt in** on the same terms;
 - unused **Steam Wallet funds** are refundable within 14 days.
 
-Recommended policy:
+Recommended:
 1. **Opt in to the 48-hour refund for unspent coin packs.**
-2. **An advance is cancelled for its coins within 48 hours if the item has not been fielded in
-   a mission.** It is "consumed" by its first deploy. Cancelling is coin-to-coin, in game.
-   Withheld credits are released.
+2. **A coin purchase is refundable in coins within 48 hours** if the unit has not been fielded
+   in a mission, or, for a tier, no mission has been played since buying it. Fielding or
+   playing counts as consumed.
 3. **Chargeback or Valve-side reversal:** unspent coins are removed first. If they were spent,
-   the advances they paid for are revoked, newest first: the item returns to its earned-path
-   state, and settled credits stay with the player, since they were earned (ST8 §5.6).
-4. **ST7 confirms** how Valve's refund notice reaches our backend. Nothing here is asserted
-   about Valve's internal rules beyond the published page.
-
-### 1.9 Bought, then earned: one answer
-
-**Recommended: the advance simply ends. No coins come back, except a price guarantee.** If
-the item is earned in **fewer missions than its band assumed**, the difference between the
-paid band and the band of the missions actually saved is returned in coins.
-
-*Example.* A Kipod is advanced at mission 0 for 300 (10–14 missions). A strong player opens
-it at mission 9. Nine missions saved puts it in the 6–9 band (200), so 100 coins come back.
-
-Both alternatives were rejected:
-- **A full coin refund on earning** makes the advance free for anyone patient. It turns a
-  purchase into a deposit and teaches players to buy everything at mission 0.
-- **No guarantee at all** lets an optimistic quote overcharge a strong player, which the
-  honest line would then have misstated.
-
-The receipt records the outcome ("Earned after mission 9. You had it 9 missions early. 100
-coins returned.").
+   the coin-sourced entitlements they paid for are revoked, newest first. **Earned
+   entitlements are never touched.**
+4. **ST7 confirms** how Valve's refund notice reaches the backend. Nothing here is asserted
+   about Valve beyond the published page.
 
 ## 2. The shop screen
 
@@ -265,267 +286,266 @@ coins returned.").
 | beside the earned path it shortcuts | **yes**: same unit cards, same progress figures | no |
 | matches ST8 §4 ("the Stores", its own tab and header) | **yes** | no |
 | pressure | low: the player comes to the garage to spend earned credits first | a store on the title screen sells before anyone has played |
-| discoverability | a "Stores" tab beside the board, plus one link per locked card | high |
 
-**Recommended: the garage tab.** The menu gets no shop button. The Stores tab has three
-shelves: **Early access**, **Cosmetics** (ST8's catalogue) and **Receipts**. Its header shows
-the Roar coin balance and the Wallet top-up, and **never the credit balance** (ST8 §4).
+**Recommended: the garage tab.** The main menu gets no shop button. The Stores has three
+shelves: **Brigade** (units, E5, tiers), **Cosmetics** (ST8) and **Receipts**. Its header shows
+the Roar coin balance and the Wallet top-up. The credit balance appears only as the "you have"
+figure on a card, never in the Stores header (ST8 §4).
 
 ### 2.2 Item states
 
-Every Early-access card shows the unit (or work, or tier), its earned path in words, and how
-far the player has come along it. The state is one of:
+Every card shows **both prices** and the earned path's progress.
 
-| state | what the card says | control |
+| state | what the card says | controls |
 |---|---|---|
-| **Earned** | "Earned — after mission 9" (gate) or "Earned — bought with credits" | none; links to the garage card |
-| **Advance** (bought early) | "Bought early. Settling: 1,240 of 3,200 credits" **or** "Gate: 31 of 44 stars", whichever is closer, with a two-segment bar | "Cancel (until first deploy, 48 h)" |
-| **Earnable** (locked) | the honest line, "Earned free in ~6 missions (13 of 30 stars)", and the band price | "Unlock early — 200 Roar coins" |
-| **Next mission** | "Earned next mission. Not for sale" (G3) | none |
-| **Affordable with credits** | "You can buy this now with credits" | a link to the garage card; no coin price |
-| **Not reachable yet** | "Not yet reachable by play. Not for sale" (G1, F1) | none; this state disappears if the lead resets `paid` per campaign |
+| **Earned** | "Earned — after mission 5" or "Earned — bought with credits". Counts in network play | none; a link to the brigade |
+| **Bought with coins** | "Bought with 320 Roar coins. Single-player only". The earned path's progress, e.g. "Earn it for network play: 31 of 44 stars, or 3,200 credits" | "Earn it with credits" when affordable; "Refund (48 h, not yet fielded)" |
+| **Affordable in credits** | "3,200 credits (you have 3,400) · or 320 Roar coins". The honest line: "Earned free in ~6 missions" when a gate exists | "Buy · 3,200 credits" (primary, earned) and "Buy · 320 Roar coins" |
+| **Locked** | "3,200 credits (you have 1,240) · or 320 Roar coins". The honest line: "Earned free in ~13 missions (18 of 44 stars), or about 9 missions of pay" | "Buy · 320 Roar coins"; the credit button shows the shortfall, disabled |
 
-Progress is **always two figures**, so the player sees both earned paths and which one is
-nearer: the gate (stars, Conduct, story mission) and the credits. Only the nearer one sets the
-price.
+A tier card shows the two paths as two rows of pips: **earned** (solid, `--commend`, as in the
+garage today) and **coins** (hollow, `--roar`). The rung that plays online is always the
+earned one, and the card says so.
+
+**G1 holds until R1 or R2 lands.** Until then, an item play cannot reach shows "Not yet
+reachable by play — not sold" in place of the coin button.
 
 ### 2.3 Confirmation and receipts
 
 **Confirm** reuses `confirmDialog` (`ui/confirm.ts`: one open dialog, focus-trapped, closed by
-the router on leave). It reads, in this order:
+the router on leave). It reads, in order:
 1. the item;
-2. the honest line ("You would earn this free in ~6 missions");
-3. what settles ("Your next payouts settle its 1,800 credits, as if you had bought it with
-   credits");
-4. the price, in coins, and in money as the cheapest covering pack (ST8 Q9);
-5. the 48-hour cancel window.
+2. the price in coins and the credits it replaces ("320 Roar coins, in place of 3,200
+   credits; your credits stay as they are");
+3. the honest line ("You would earn it free in ~13 missions");
+4. **"Single-player only. Co-op and skirmish use what you earn"**;
+5. the money equivalent: the cheapest covering pack (ST8 Q9);
+6. the 48-hour refund window.
 
-The two buttons are **"Unlock early"** and **"Not now"**. "Not now" holds focus by default.
+The buttons are **"Buy with coins"** and **"Not now"**, and "Not now" holds focus by default.
 
-**Receipts.** One row per purchase, kept forever and shown newest first:
+**Receipts.** One row per purchase, kept forever, newest first:
 - date and time;
-- the item;
-- the coins paid and the band;
-- missions saved as quoted;
-- the outcome, when it comes ("Settled after mission 8", "Earned on gate after mission 9,
-  100 coins returned", "Cancelled, 200 coins returned");
+- item;
+- coins paid;
+- credits replaced;
+- the outcome when it comes ("Earned on gate after mission 13", "Earned with credits",
+  "Refunded, 320 coins");
 - the server order id.
 
-Pack purchases are receipts too, showing pack, coins and the Steam transaction reference.
-Money amounts come from Steam, never from the client.
+Pack purchases show the pack, the coins and the Steam transaction reference. Money amounts
+come from Steam, never from the client.
 
 ### 2.4 The honest line
 
-The line is computed (G10), counted in **missions**, never in hours, and states the gate in
-its own terms. Examples:
+The line is computed (G7) and counts **missions**, not hours. Examples:
 - "Earned free in ~2 missions";
-- "Earned free in ~6 missions (13 of 30 stars)";
-- "Earned free once your Conduct reaches 85 (now 82)", when credits are not nearer;
-- "Earned with 1,800 credits, about 8 missions of pay".
+- "Earned free in ~13 missions (18 of 44 stars)";
+- "Earned free once your Conduct reaches 85 (now 82)";
+- "About 9 missions of pay in credits".
 
-A Conduct gate has **no mission estimate** when the player's average sits below the floor,
-because Conduct is behaviour, not time. The line then shows the credits path only.
+A Conduct gate gets no mission estimate when the average sits below its floor, because
+Conduct is behaviour, not time. For an item no gate opens (E5, tiers), the line is the credit
+path alone.
 
 ### 2.5 Strings (every one through `t()`)
 
-New keys, all under `stores.*` in `en.json`:
-- `stores.tab`, `stores.shelf.early`, `stores.shelf.cosmetic`, `stores.shelf.receipts`;
-- `stores.wallet.word` ("{n, plural, one {Roar coin} other {Roar coins}}");
-- `stores.state.earned`, `stores.state.earnedBy.gate`, `stores.state.earnedBy.credits`,
-  `stores.state.advance.settling`, `stores.state.advance.gate`, `stores.state.next`,
-  `stores.state.unreachable`;
-- `stores.honest.missions` (plural), `stores.honest.stars`, `stores.honest.conduct`,
-  `stores.honest.credits`;
-- `stores.buy` and `stores.buy.aria` (with the name, coins and missions);
-- `stores.confirm.title`, `.line`, `.settles`, `.price`, `.money`, `.window`, `.yes`, `.no`;
-- `stores.cancel`, `stores.receipt.*`;
-- `stores.offline`, `stores.mock`.
+New keys sit under `stores.*` in `en.json`:
+- shelves and tabs: `stores.tab`, `stores.shelf.brigade`, `.cosmetic`, `.receipts`;
+- the wallet: `stores.wallet.word` ("{n, plural, one {Roar coin} other {Roar coins}}");
+- states: `stores.state.earned`, `.earnedBy.gate`, `.earnedBy.credits`, `.coins`,
+  `.coins.networkNote`, `.affordable`, `.locked`, `.unreachable`;
+- the two-price line: `stores.price.both`, `stores.price.have`;
+- the honest line: `stores.honest.missions`, `.stars`, `.conduct`, `.credits`;
+- buy buttons: `stores.buy.credits`, `stores.buy.coins` and their `.aria` forms;
+- `stores.earnForNetwork`;
+- the confirm: `stores.confirm.*`;
+- `stores.refund`, `stores.receipt.*`, `stores.offline`, `stores.mock`.
 
-Two rules from `CLAUDE.md` apply.
-- **No label table is resolved at module load**; state labels are accessor functions.
-- **The pseudo-locale capture must show every Stores string bracketed.**
+Two rules apply, both from `CLAUDE.md`:
+- no label table is resolved at module load;
+- every Stores string must appear bracketed in the pseudo-locale capture.
 
-The noun always sits beside the number ("200 Roar coins"); a bare figure is never a price.
+The noun always sits beside the number, so a bare figure is never a price.
 
 ### 2.6 Accessibility
 
 - **Keyboard:** roving tabindex over shelf, cards and buttons (the garage's F8 pattern), and
-  Enter on a card opens the confirm.
-- **Screen reader:** each card's state is a sentence, not only a colour or a bar
-  ("Breach team. Bought early. Settling 400 of 850 credits.").
-- **Colour vision:** state never rests on hue. Each state carries a word and a shape: a solid
-  bar for settling, a hollow one for the gate.
-- **Reduced motion:** the purchase animation (§3.4) becomes an instant state change.
-- **Text size:** `--ui-scale` and `--text-size` apply as in the garage.
-- **Focus** returns to the card after a purchase. A buy losing focus is the garage's own F8
-  bug, so it is not repeated here.
+  Enter opens the confirm.
+- **Screen reader:** each card's state reads as a sentence ("Kipod APC. Bought with coins.
+  Single-player only. 18 of 44 stars toward earning it.").
+- **Colour vision:** the two currencies differ in shape (the hex coin glyph versus the word
+  "credits") as well as colour, and earned pips are solid while coin pips are hollow.
+- **Reduced motion:** the purchase animation becomes an instant state change.
+- **Scaling:** `--ui-scale` and `--text-size` apply.
+- **Focus** returns to the card after a purchase.
 
 ### 2.7 Before the account is server-held (ST5–ST7)
 
 - **Production builds show no Stores tab and no coin anywhere** until the server account
-  answers. A client-side coin balance is "a suggestion, not a balance" (ST6), and ST8 Q2
-  makes coins unearnable in play, so there is nothing local to show.
-- **A dev mock** (proposed flag `&shop=mock`, sandbox-style, documented in `sandbox-help.ts`'s
-  table if built) renders the Stores tab from the real catalogue and the real honest lines. It
-  shows a balance of **0**, every buy control disabled, and a banner: "The Stores open when
-  your account is online." That is the instrument the lead judges the screen with, before any
-  money path exists.
-- **Offline, after launch:** the tab shows cached receipts and advances read-only, with
-  "Offline — purchases resume when you reconnect". Advances keep settling locally against
-  earned payouts and reconcile on reconnect, the server being authoritative.
+  answers. A client-side coin balance "is a suggestion, not a balance" (ST6), and ST8 Q2 makes
+  coins unearnable in play.
+- **A dev mock** (proposed flag `&shop=mock`, entered in `sandbox-help.ts`'s table if built)
+  draws the Stores from the real catalogue and the real honest lines, with a balance of **0**,
+  every coin button disabled, and a banner: "The Stores open when your account is online."
+  The lead judges the screen there before any money path exists.
+- **Offline after launch:** coin entitlements already confirmed stay usable in single-player
+  from the cached account, receipts are read-only, and new purchases wait for the reconnect.
 
 ## 3. Visual identity
 
-### 3.1 Register: the coin must not look earned or look like credits
+### 3.1 Register: the coin must not look earned, or look like credits
 
-- ST8 T6: no stars, no chevrons, no `--commend` gold, no kit Stars of David, no rank slip.
-- ST8 §4: a different shape *and* colour from credits. Credits are a figure in `--commend`
+- No earned signs (ST8 T6): no stars, no chevrons, no `--commend` gold, no kit Stars of David,
+  no rank slip.
+- A different shape and colour from credits (ST8 §4). Credits are a figure in `--commend`
   (`dust.0`) with no glyph.
-- The coin also must not look like the **Ari'im lion-head patch** sold as a badge (ST8 §2.2:
-  roundel, shield, tab). A coin in one of those frames would read as that cosmetic.
+- It must not read as the **Ari'im lion-head patch** sold as a badge (ST8 §2.2: roundel,
+  shield, tab).
 
-**Colour: copper, the terracotta ramp.** New semantic tokens in `theme.css`, mapped from
-palette keys only:
+**Colour: copper, the terracotta ramp.** These are new semantic tokens in `theme.css`, mapped
+from palette keys only:
 
 | token | palette key | use |
 |---|---|---|
-| `--roar` | `terracotta.0` | coin face, price figures, the Stores accent |
+| `--roar` | `terracotta.0` | coin face, coin prices, the Stores accent |
 | `--roar-mid` | `terracotta.1` | relief, mane |
-| `--roar-deep` | `terracotta.2` | rim, the line art at 16 px |
-| `--roar-hi` | `limestone.1` | the glint, the 48 px highlight |
-| `--roar-ink` | `shadow.1` | the mouth, outline on light grounds |
+| `--roar-deep` | `terracotta.2` | rim, the 16 px line art |
+| `--roar-hi` | `limestone.1` | glint, the 48 px highlight |
+| `--roar-ink` | `shadow.1` | the mouth, an outline on light grounds |
 
-Terracotta is not a team, VFX or group colour. It stays apart from `--commend` by
-**lightness as well as hue**, which survives all three CVD simulations: `terracotta.0` has luma
-≈ 125 against ≈ 189 for `dust.0`. That needs confirming with `tools/src/cvd.test.ts`'s
-method when the token lands.
+Terracotta is not a team, VFX or group colour. It stays apart from `--commend` in
+**lightness** as well as hue: luma ≈ 125 against ≈ 189 for `dust.0`, a gap that survives all
+three CVD simulations. Confirm it with `tools/src/cvd.test.ts`'s method when the token lands.
 
 ### 3.2 Three emblem directions (SVG in the mock)
 
-**A — Roaring Roundel.** A front three-quarter lion face, jaws open, with the mane as a
-notched rim around a round coin.
+**A, Roaring Roundel.** A front three-quarter lion face with jaws open; the mane is a notched
+rim on a round coin.
 - Strong at 48 px.
-- At 16 px it collapses to a brown disc with a dark hole.
-- Round is also the credits' implied shape and the patch's roundel.
+- At 16 px it collapses to a brown disc with a hole.
+- The roundel is the Ari'im patch's own frame.
 
-**B — Hex Seal. (Recommended.)** A pointy-top **hexagon** coin, with a lion's head **in
-profile, roaring left**, struck as one flat silhouette and the mane as a jagged back edge.
-- The hexagon is the campaign board's own shape (the Sahar basin diorama).
-- It is none of the patch's three frames.
-- It cannot be mistaken for a star.
-- A profile silhouette survives 16 px: open jaw, mane, hex.
+**B, Hex Seal (recommended).** A pointy-top **hexagon** coin bearing a lion's head **in
+profile, roaring left**, struck as one flat silhouette with the mane as a jagged back edge.
+- The hexagon is the campaign board's own shape.
+- It is none of the patch's frames, and it cannot be mistaken for a star.
+- The silhouette survives 16 px.
 
-**C — Mane Burst.** An abstract roar: twelve mane rays around an open-jaw glyph.
-- Best pure legibility at 16 px.
-- But rays around a centre **read as a star or a medal**, which is T6's earned register. That
-  is the reason it is not recommended.
+**C, Mane Burst.** Twelve mane rays around an open-jaw glyph.
+- The most legible at 16 px.
+- But rays around a centre read as a star or a medal, which is the earned register (T6).
 
-### 3.3 The in-game coin icon at 16 / 24 / 48 px
+### 3.3 The coin icon at 16 / 24 / 48 px
 
-- **16 px** (inline in prices and the wallet): the hex is filled `--roar-deep`, with the lion
-  silhouette in `--roar` and the mouth as one cut-out. There is no eye, no rim and no
-  gradient. It is drawn pixel-aligned as its own SVG, not scaled from 48.
-- **24 px** (cards and buttons): adds the rim (a `--roar-deep` stroke inside the hex), the
-  mane notches and the eye.
+- **16 px** (inline prices, the wallet): the hex in `--roar-deep` with the lion silhouette in
+  `--roar` and the mouth as one cut-out. No eye, no rim, no gradient. It is drawn
+  pixel-aligned as its own SVG, not scaled down from 48.
+- **24 px** (cards, buttons): adds the rim, the mane notches and the eye.
 - **48 px** (the confirm, receipts, the Stores header): the full strike, with a raised rim,
-  mane relief in `--roar-mid`, a `--roar-hi` glint on the upper-left facets (the sun's side,
-  as in the garage viewer's key light), and teeth.
+  the mane in `--roar-mid`, a `--roar-hi` glint on the upper-left facets (the sun's side) and
+  teeth.
 
-All three are SVG in DOM, like the kit sign (`kitIconSignHtml`), so both renderers draw them
-identically and they stay crisp. No world overlay, ever (CLAUDE.md, "no kit mark in the
-world").
+All three are SVG in the DOM, like the kit sign (`kitIconSignHtml`), so both renderers draw
+them identically. The coin is never drawn in the world.
 
 ### 3.4 The Stores' look, the purchase animation and the sound
 
-**Look.** The Stores tab is the garage's own panel:
-- `--panel-bg`, `--panel-frame` and `--panel-rule`, the `--font-display` header and the mono
-  wallet;
-- `--roar` replaces `--commend` as the accent;
-- cards are the garage's `rl-garage__card` with a copper keyline in place of the steel one.
+**Look.** The Stores uses the garage's own panel:
+- `--panel-bg`, `--panel-frame` and `--panel-rule`;
+- the `--font-display` header and the mono wallet;
+- the garage card.
 
-Settling bars are `--roar` (solid) and gate bars are `--ink-mute` (hollow). "Earned" uses
-`--good`. "Not for sale" states use `--ink-dim`. **Nothing in the Stores uses `--commend`.**
+The coin's register is `--roar`. Credit figures keep `--commend` wherever they appear,
+**including beside a coin price**, so each currency always wears its own colour. "Earned" uses
+`--good`, and states that are not for sale use `--ink-dim`.
 
-**Purchase animation** (≤ 700 ms, on `--ease`):
+**Purchase animation** (700 ms or less, on `--ease`), in four steps:
 1. the 48 px coin drops onto the card's corner (120 ms);
-2. it turns once by **60°**, one hex face, rather than spinning (250 ms);
-3. a `--roar-hi` glint sweeps it (160 ms);
-4. the card flips from *Earnable* to *Advance* and its settling bar draws from zero (170 ms).
+2. it turns once by **60°**, one hex face (250 ms);
+3. a `--roar-hi` glint sweeps across it (160 ms);
+4. the card flips to *Bought with coins* (170 ms).
 
-The wallet figure counts down in mono. Under `prefers-reduced-motion`, or `data-motion`
-reduced, the state changes at once and the coin appears static.
+Meanwhile the wallet counts down in mono and the credit figure on the card **does not move**,
+which shows that coins replaced credits. Under reduced motion the change is instant and
+static.
 
-**Sound brief.** One cue of ≤ 600 ms:
-- a **struck copper coin** (a low metallic "thunk", not a bright jingle);
-- a **short, low growl tail** at about −12 dB under the strike, so it reads as *Roar* without
-  becoming a roar sample;
-- mono-compatible, normalised to the game's SFX level, not ducking music, and **distinct from
-  the credit-purchase cue** (S3g item 5).
+**Sound brief.** One cue of 600 ms or less:
+- a **struck copper coin**: a low metallic thunk, not a bright jingle;
+- under it, a **short low growl tail** at about −12 dB;
+- mono-compatible, at the SFX level, with no music ducking;
+- **distinct from the credit-purchase cue** (S3g item 5).
 
-The source needs explicit redistribution rights (CLAUDE.md), **the lead's call**. It can be
-recorded or synthesised; it may not come from a paid pack.
+The source needs explicit redistribution rights (CLAUDE.md), and choosing it is **the lead's
+call**.
 
 ### 3.5 A 3D coin: Blender first, Meshy only if wanted
 
-The coin is a hexagonal prism with a relief, so **Blender builds it from the 48 px SVG**:
-import the curve, extrude it, bevel the rim, and apply the terracotta ramp. That costs **0
-credits** and is the recommended path under the Meshy policy (Blender for everything Meshy is
-not needed for).
+The coin is a hexagonal prism with a relief, so **Blender builds it from the 48 px SVG** for
+**0 credits**: import the curve, extrude, bevel the rim, apply the terracotta ramp.
 
-If the lead wants a sculpted lion relief Blender cannot easily make, the brief for the later
-Fable agent is below. **Meshy is not called by this design.**
+If the lead wants a sculpted relief, this is the brief for the later Fable agent. **Meshy is
+not called by this design.**
 
 > *Prompt (text-to-3D):* "A single hexagonal coin, pointy-top hexagon, thick raised rim,
 > centre relief of a lion's head in profile facing left with jaws wide open roaring and a
 > jagged mane, struck metal, copper, simple game-asset style, centred, no text, no
 > background, no other objects."
-> *Settings:* one preview, low poly (target ≈ 3,000 triangles), then one refine only if the
-> bake is wanted as-is. Otherwise repaint from the palette in Blender.
+>
+> *Settings:* one preview at low poly (≈ 3,000 triangles), then one refine only if the bake is
+> wanted as-is; otherwise repaint from the palette in Blender.
 
-*Estimate:* preview 20 credits plus refine 10 = **30 credits** (≈ $0.60 at the unverified
-$0.02 per credit), with a cap of **60** to allow one re-roll. The asset needs AI disclosure
-per CONTRIBUTING.md and a row in `docs/ASSET_PROVENANCE.md`.
+*Estimate:* preview 20 credits plus refine 10, so **30 credits** (≈ $0.60 at the unverified
+$0.02 a credit), capped at **60** to allow one re-roll. The coin also needs AI disclosure per
+CONTRIBUTING.md and a row in `docs/ASSET_PROVENANCE.md`.
 
 ## 4. What implementation would touch (not now)
 
-This is for scoping the later plan only.
-- **Server (ST6):** a `roarCoins` balance, an `advances[]` ledger
-  (`{item, coins, band, quotedMissions, creditsOwed, creditsSettled, state, at}`),
-  `receipts[]`.
-- **Brigade account:** `unlocks` gains provenance (`credits` | `advance`), and `payMission`
-  learns to route a payout to open advances first. That is still integer-only and still never
-  constructs a credit from coins.
-- **App:** the Stores tab in `ui/brigade.ts`'s screen, `stores.*` strings, the `--roar`
-  tokens, and the coin SVGs.
-- **Sim:** nothing. The sim never learns coins, advances or prices exist (invariant 4,
+- **Server (ST6):**
+  - `roarCoins`;
+  - `entitlements` with an `earned`/`coins` source per unit and per track (§1.5);
+  - `receipts`;
+  - the network loadout built from `earned` alone.
+- **Brigade account:** `unlocks` and `upgrades` gain a source. `payMission` gains R1's
+  per-campaign reset if D3 is taken (the balance analyst's call). Nothing writes a credit from
+  coins.
+- **App:** the Stores tab in `ui/brigade.ts`'s screen, `stores.*` strings, the `--roar` tokens,
+  the coin SVGs, and the mode-aware tier map handed to `applyUpgrades`.
+- **Sim:** nothing. The sim never learns that coins, sources or prices exist (invariant 4,
   brigade D5).
-- **Gates to add with it:** the G1 reachability spec over the ladder, a G4 account invariant,
-  and a G5 loadout-provenance test. Each arrives with a mutation that turns it red (CLAUDE.md,
-  "every check gets an input that makes it fail").
+- **Gates added with it:**
+  - G1 reachability over the ladder;
+  - the G2 network-loadout test;
+  - the G3 account invariant.
+
+  Each arrives with a mutation that turns it red (CLAUDE.md).
 
 ## 5. Decisions for the lead
 
+The 1 Oct rulings (coins buy everything credits buy, coins replace the credit cost, network
+is earned-only) are taken as settled. These remain open:
+
 | # | decision | recommended default |
 |---|---|---|
-| 1 | **The model** | **Option B, the advance.** Coins open the item now; its credit price settles from earned payouts; it ends on settlement or on the earned gate, whichever comes first |
-| 2 | **Pack prices** | **500 / 1,050 / 2,200 Roar coins at $4.99 / $9.99 / $19.99**; no larger pack; new accounts limited to 500 for 24 h |
-| 3 | **The exchange rate** | **Bands by missions saved: 2 → 50, 3–5 → 100, 6–9 → 200, 10–14 → 300, 15+ → 400 (~25 coins a mission); not sold under 2 missions.** Prices only fall; a quote holds 24 h |
-| 4 | **Where the shop lives** | **A garage tab, "Stores"** (shelves: Early access, Cosmetics, Receipts); no main-menu button |
-| 5 | **The emblem** | **B, Hex Seal**: a lion's head in profile roaring, on a hexagon, in the terracotta ramp (`--roar` = `terracotta.0`) |
-| 6 | **Bought, then earned** | **The advance ends; withheld credits are released; no coin refund, except the price guarantee** (earned sooner than the band → the difference back in coins) |
-| 7 | **The ST8 amendment** (§1.7) | **Land it with this spec**, so the two documents agree |
-| 8 | **Unreachable items (F1)** | **Exclude from the shop** every item one lifetime cannot reach (today: upgrade tiers beyond ~5,849 credits, `demo_tzav`, `heli_peten_gunship`). Separately, ask the balance analyst whether a fresh campaign should reset `paid` (catalogue reachable in ~12 campaigns) |
-| 9 | **Refunds** | **Opt in to Steam's 48 h for unspent packs; an advance is cancellable for 48 h until first deployed; chargebacks revoke unspent coins first, then advances newest-first** |
-| 10 | **Before ST5–ST7** | **No Stores tab in production; a `&shop=mock` dev view with a zero balance and disabled buys** |
-| 11 | **The purchase sound's source** | a recorded or synthesised copper strike with a low growl tail, with explicit redistribution rights. The lead names the source |
-| 12 | **3D coin** | **Blender from the SVG, 0 credits**; Meshy (≈ 30 credits, cap 60) only if the lead wants a sculpted relief |
+| 1 | **The exchange rate** | **B: 1 Roar coin = 10 credits**, prices rounded up to 5 coins (whole catalogue 7,395 coins ≈ $60; one campaign's pay ≈ 585 coins) |
+| 2 | **Pack prices** | **500 / 1,100 / 2,400 / 6,500 Roar coins at $4.99 / $9.99 / $19.99 / $49.99** (bonus 0 / 10 / 20 / 30%); no larger pack; new accounts limited to the first two packs for 24 h |
+| 3 | **Reachability (F1)** | **Ask the balance analyst to land R1: a fresh campaign resets `paid`, making the catalogue reachable in ~12 campaigns (~52 h)**, with skirmish and co-op payouts (R2) later. Until it lands, G1 keeps unreachable items off sale for coins |
+| 4 | **Bought with coins, then earned** | **The item gains `earned`; no coins come back.** A gate flips it automatically, and credit-only items offer "Earn it for network play" for their credit price |
+| 5 | **How the account separates sources** | **`earned`/`coins` per unit and per upgrade track, server-held (ST6); network reads `earned` only** |
+| 6 | **The ST8 amendment** (§1.8) | **Land it with this spec** |
+| 7 | **Where the shop lives** | **A garage tab, "Stores"** (Brigade, Cosmetics, Receipts); no main-menu button |
+| 8 | **The emblem** | **B, Hex Seal**: a profile lion roaring on a hexagon, in the terracotta ramp (`--roar` = `terracotta.0`) |
+| 9 | **Refunds** | **Opt in to Steam's 48 h for unspent packs; a coin purchase is refundable for 48 h until fielded or played; chargebacks revoke unspent coins first, then coin entitlements newest-first, and never touch earned ones** |
+| 10 | **Before ST5–ST7** | **No Stores tab in production; a `&shop=mock` dev view with a zero balance and disabled coin buttons** |
+| 11 | **The purchase sound's source** | a recorded or synthesised copper strike with a low growl tail, with explicit redistribution rights; the lead names the source |
+| 12 | **3D coin** | **Blender from the SVG, 0 credits**; Meshy (≈ 30 credits, cap 60) only for a sculpted relief |
 
 ## Sources (web, retrieved 2026-10-01)
 
-- Steam refund policy, in-game purchases and Wallet funds: <https://store.steampowered.com/steam_refunds/>
-- Company of Heroes 3 DLC prices (Hammer & Shield battlegroup pack $13.99; expansions $24.99): <https://steampulse.org/dlc/4095900>, <https://sysrqmts.com/prices/company-of-heroes-3-fire-steel>
-- Steel Division 2 DLC prices ($14.99–$16.99): <https://steampulse.org/dlc/1165510>, <https://steampulse.org/dlc/3761870>, <https://steampulse.org/dlc/1307600>
-- Total War: Warhammer III legendary-lord pack price ($8.99): <https://www.pcgamesn.com/total-war-warhammer-3/dlc-price>
+- Steam refund policy (in-game purchases, Wallet funds): <https://store.steampowered.com/steam_refunds/>
+- Company of Heroes 3 DLC prices (expansions $24.99; Hammer & Shield battlegroup pack $13.99): <https://steampulse.org/dlc/4095900>, <https://sysrqmts.com/prices/company-of-heroes-3-fire-steel>
+- Steel Division 2 DLC prices (History Pass $34.99; campaign DLCs $14.99–$16.99): <https://steampulse.org/dlc/988171>, <https://steampulse.org/dlc/1165510>, <https://steampulse.org/dlc/1307600>
+- Total War: Warhammer III legendary-lord pack ($8.99): <https://www.pcgamesn.com/total-war-warhammer-3/dlc-price>
 
-All other numbers in this document are measured in this repository on 2026-10-01, or stated as
-assumptions where they are not.
+Every other number here was measured in this repository on 2026-10-01, or is stated as an
+assumption.
