@@ -30,20 +30,20 @@ function sceneOf(parts: { role: string; map: THREE.Texture | null }[]): {
 const texture = () => new THREE.Texture();
 
 describe('the textured infantry opt-out is a named list', () => {
-  // B0b shipped the first two (GH-286), then B3 and B4 (GH-179) three each; the exact
-  // Filled one team at a time as its GLB lands (GH-286). Empty by design until
-  // Filled one team at a time as its GLB lands (GH-286); the exact list is pinned so
-  // an entry with no bake behind it is an edit that has to be made on purpose.
-  // list is pinned so an entry with no bake behind it is an edit made on purpose.
+  // Filled one team at a time as its GLB lands: B0b shipped the first two (GH-286),
+  // then B3 and B4 (GH-179) three each and B5/B6 one each. The exact list is pinned
+  // so an entry with no bake behind it is an edit made on purpose.
   it('names exactly the teams that ship a bake', () => {
     expect([...TEXTURED_INFANTRY_TYPES].sort()).toEqual([
       'at_team',
       'atgm_cell',
+      'breach_team',
       'charge_squad',
       'demo_squad',
       'digger_crew',
       'militia_cell',
       'mortar_crew',
+      'moto_rpg',
       'officer_engineer',
       'officer_fires',
       'officer_infantry',

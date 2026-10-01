@@ -4393,6 +4393,48 @@ button.rl-menu__item[data-kind='aside'] {
   object-fit: contain;
   transform-origin: 50% 50%;
 }
+/* GH-316: the unit's own model, turnable, laid over the plate. It is built
+   while the plate still shows and takes the bay only once its first frame is
+   drawn (`data-model="live"`), so a slow GLB never blanks the bay; the
+   plate is what stays whenever the model cannot be drawn
+   (`ui/garage-viewer.ts`). The canvas is transparent, so the plate's own
+   floor and vignette are the backdrop. */
+.rl-garage__model {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  touch-action: none;
+  cursor: grab;
+}
+.rl-garage__plate[data-model='live'] > .rl-garage__model {
+  opacity: 1;
+}
+.rl-garage__plate[data-model='live'] > .rl-garage__plate-img {
+  visibility: hidden;
+}
+.rl-garage__model[data-dragging='1'] {
+  cursor: grabbing;
+}
+/* The theme's one ring (`:focus-visible` above), drawn INSIDE the edge: the
+   plate's `overflow: hidden` would clip an outset one. */
+.rl-garage__model:focus-visible {
+  outline-offset: -2px; /* px-ok */
+}
+.rl-garage__model-hint {
+  position: absolute;
+  left: var(--s2);
+  bottom: var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  /* On a `.rl-plate` (`garage-viewer.ts` gives the hint the class): the lit sand
+     under it is the brightest thing in the bay, and a halo alone read faint
+     there -- the same finding `.rl-plate`'s own comment records for type
+     over map sand. `--ink-label`, not `--ink-dim`, on that dark ground. */
+  color: var(--ink-label);
+  pointer-events: none;
+}
 /* No plate photographed for this unit: the same "reserved, not broken" hatch
    the HUD draws for a type with no sheet, at bay size. */
 .rl-garage__plate[data-noplate='1'] {

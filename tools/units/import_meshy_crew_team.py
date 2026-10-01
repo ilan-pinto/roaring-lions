@@ -89,6 +89,20 @@ Both kneeling figures walk on a standing walker for `move` (design D6,
 rigidly on `{prefix}_death_root` (`rig._figure_death_parts`'s convention,
 with the man's own body instead of kit primitives).
 
+## B5 (GH-179, 2026-10-01): `breach_team`, the one KDF team on this path
+
+`breach_team` is the last kit-built KDF team and the brief named the B0b KDF
+importer (`import_meshy_kdf_team.py`) as its path. It goes through THIS file
+instead, deliberately: the B0b cut hangs each A-pose arm as one rigid unit
+(bible §9 -- "the hands flare at the wrist, visible at 2.5") and lays the
+corpse flat, where this file carries B3/B4's measured elbow cut, both
+forearms bent to a rifle for a carrier (`FORE_BEND`, `_rifle_at_hand`) and
+the posed corpse -- the fixes the batch was told to inherit. The only
+faction-specific thing in the cut is the head: a KDF helmet and neck are
+`uniform`, not `keffiyeh` (`HEAD_ROLE`), and no kit keffiyeh goes on. Its
+props are `rig._breach_extras`' own shield (on `brc_point_forearm_L`) and
+pole (on `brc_cover_spine`), through `PART_BONE`'s fallback as in the kit.
+
 After this: `pnpm gait:meshes -- --id=<team>`, `pnpm validate:meshes`,
 `pnpm encode:meshes`.
 """
@@ -133,6 +147,16 @@ SOURCES = {
     "mortar_crew": (os.path.join(REPO, "art", "meshy", "mortar-crew-*-01a0f5f3", "model.glb"), 1.68),
     "charge_squad": (os.path.join(REPO, "art", "meshy", "charge-squad-*-01a0f5f3", "model.glb"), 1.72),
     "digger_crew": (os.path.join(REPO, "art", "meshy", "digger-crew-*-01a0f5f3", "model.glb"), 1.66),
+    # B5 (GH-179, 2026-10-01): the KDF breach team, `meshy-prompts-units.md`
+    # §16 -- 1.78 m, the KDF rifleman reference. See the module docstring for
+    # why it is here and not in import_meshy_kdf_team.py.
+    "breach_team": (os.path.join(REPO, "art", "meshy", "breach-team-*-01a0f624", "model.glb"), 1.78),
+    # B6 (GH-179, 2026-10-01): moto_rpg's RIDERS are B3's rpg_team figure
+    # (the one Sarim preview that honoured the head wrap), re-posed seated
+    # by tools/units/import_meshy_moto_rpg.py, which loads it through this
+    # module's `_load_figure`/`cut_figure`/`_death_parts_posed`. No new
+    # Meshy figure, 0 credits. `build_team` here does NOT know this team.
+    "moto_rpg": (os.path.join(REPO, "art", "meshy", "rpg-team-*-01a0f313", "model.glb"), 1.76),
 }
 
 #: Teams whose GLB ships the remesh's own base-colour bake (PR #307's
@@ -150,7 +174,11 @@ SOURCES = {
 TEXTURED = {"militia_cell", "rpg_team", "atgm_cell",
             # B4: same bake path, listed here so the import keeps the material;
             # the runtime/gate lists are edited only when each GLB ships.
-            "mortar_crew", "charge_squad", "digger_crew"}
+            "mortar_crew", "charge_squad", "digger_crew",
+            # B5: the KDF breach team ships its own bake the same way.
+            "breach_team",
+            # B6: the riders carry rpg_team's bake; the bike is palette.
+            "moto_rpg"}
 TEXTURE_PX = 1024
 JPEG_QUALITY = 85
 
@@ -170,7 +198,9 @@ RECOLOUR = {"rpg_team": ((0.60, 0.52, 0.40), (300.0, 14.0)),      # dusty tan
             # Red sits at hue 0, so the window reaches to 20.
             "mortar_crew": ((0.60, 0.52, 0.40), (300.0, 20.0)),   # dusty tan
             # B4: the digger's bald crown was painted the same rose check.
-            "digger_crew": ((0.55, 0.53, 0.48), (300.0, 20.0))}   # dusty grey
+            "digger_crew": ((0.55, 0.53, 0.48), (300.0, 20.0)),   # dusty grey
+            # B6: the same rpg_team figure, the same rose scarf.
+            "moto_rpg": ((0.60, 0.52, 0.40), (300.0, 14.0))}
 RECOLOUR_SAT_MIN = 0.16
 RECOLOUR_FLOOR_F = 0.74
 #: The mortar figure's chest bandolier came back in the same red check as
@@ -188,7 +218,19 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 # mortar and charge came back in a HELMET with goggles, the
                 # digger bald -- so every one wears kit's keffiyeh, coloured
                 # from its own shirt's bake, exactly militia_cell's fix.
-                "mortar_crew": True, "charge_squad": True, "digger_crew": True}
+                "mortar_crew": True, "charge_squad": True, "digger_crew": True,
+                # B5: a KDF helmet, never a keffiyeh (see HEAD_ROLE).
+                "breach_team": False,
+                # B6: rpg_team's figure wraps its own scarf.
+                "moto_rpg": False}
+
+#: The role the cranium and neck cut take. Every Sarim figure wraps a scarf
+#: there (`keffiyeh`, the module docstring's "Roles"); a KDF figure wears a
+#: helmet over a bare neck, and on a textured team the role only has to be in
+#: the closed set -- the bake says what colour it is -- so it is `uniform`,
+#: exactly what import_meshy_kdf_team.py's cut gives at_team and demo_squad.
+HEAD_ROLE = {"breach_team": "uniform"}
+HEAD_ROLE_DEFAULT = "keffiyeh"
 
 #: charge_squad only: put kit's `vest_f`/`vest_b` slabs (the `charge` role,
 #: verbatim from `rig._charge_squad_rest`) on both men. False while the
@@ -219,7 +261,36 @@ TOOL_BLADE = (0.14, 0.10, 0.02)
 #: as labour; the walker walks with his arms out, which a 25 px rare unit
 #: can carry rather than a second preview.
 ARMS_FORWARD = {"digger_crew"}
-CORPSE_ROLL_BY_TEAM = {"digger_crew": 90.0}
+#: The same fix per SIDE (B5, 2026-10-01): which arm sides (0 = left/-y,
+#: 1 = right/+y) stay on the torso. `ARMS_FORWARD` is both sides; the
+#: breach figure came back with its LEFT arm bent across the chest holding
+#: the rifle the prompt never asked for, while its right arm is a true
+#: A-pose arm that cuts and hangs normally. A side listed here gets the
+#: synthetic hanging joints and no arm parts; `_bend_forearms`,
+#: `_death_parts_posed` and the deltoid/elbow blobs all skip it.
+ARMS_ON_TORSO = {"digger_crew": {0, 1}, "breach_team": {0}}
+#: A weapon the preview BAKED into the figure, per team: the region (in
+#: fractions of H, +X forward) cut off the torso as its own `weapon` piece
+#: and force-bound to `{prefix}_spine` -- it is held in the hand that stays
+#: on the torso, so it rides with the torso, never with `forearm_R`. The
+#: breach preview came with a compact carbine across the chest in the LEFT
+#: hand (measured 2026-10-01: faces at x > 0.06 H between z 0.52 and 0.72 H
+#: and y -0.14..+0.04 H, where the chest front sits at x 0.02-0.04 H).
+#: Cutting it out would leave the carrier and the gripping hand open; a kit
+#: rifle beside it would be a second gun. So it IS the team's rifle: no kit
+#: rifle, no hand-bound weapon, and `rig.TEAM_FIGURES` declares
+#: `weapon=None` with a `FIRE_ROOT_LEAN` brace for the fire clip.
+WEAPON_ON_SPINE = {"breach_team": dict(x_min=0.06, y=(-0.16, 0.08), z=(0.50, 0.74))}
+#: The refine painted a small readable name tape on the breach figure's
+#: carrier ("no text" in the prompt notwithstanding): the texels of the
+#: upper-chest faces in this region whose luminance is above `lum_min` are
+#: set to the region's own dark median, so the tape goes the carrier's
+#: black. Fractions of H, +X forward.
+LABEL_FLATTEN = {"breach_team": dict(x_min=-0.02, y=(-0.08, 0.08), z=(0.68, 0.82), lum_min=0.35)}
+CORPSE_ROLL_BY_TEAM = {"digger_crew": 90.0,
+                       # B5: the left arm across the chest (ARMS_ON_TORSO) would hold a
+                       # face-down body off the ground, as the digger's forward arms did.
+                       "breach_team": 90.0}
 #: ...and lies head AWAY from the heap (the generic corpse falls head-forward,
 #: +x, which from the digger's anchor at x -0.34 puts the head inside the
 #: mound at x +0.36).
@@ -227,7 +298,10 @@ CORPSE_YAW_BY_TEAM = {"digger_crew": 180.0}
 #: charge_squad's two corpses: single-file anchors 0.16 m apart in y put one
 #: 1.8 m body on top of the other (kit's did the same). The death roots are
 #: offset sideways so the pair reads as two men down, not a heap.
-CORPSE_Y_OFFSET = {"charge_squad": {"chg0": -0.30, "chg1": 0.30}}
+CORPSE_Y_OFFSET = {"charge_squad": {"chg0": -0.30, "chg1": 0.30},
+                   # B5: anchors 0.42 m apart in y and two 1.8 m bodies on their
+                   # side still overlapped; pushed apart the same way.
+                   "breach_team": {"brc_point": -0.22, "brc_cover": 0.22}}
 
 #: `kit.blob` topology per team. B2 used kit's default (9 sides, 3 rings: 72
 #: glTF tris a blob, ~580 a body copy). B3's numbers tables budget the
@@ -237,7 +311,8 @@ CORPSE_Y_OFFSET = {"charge_squad": {"chg0": -0.30, "chg1": 0.30}}
 BLOB_KW = {"militia_cell": dict(sides=7, rings=2), "rpg_team": dict(sides=7, rings=2),
            "atgm_cell": dict(sides=7, rings=2),
            "mortar_crew": dict(sides=7, rings=2), "charge_squad": dict(sides=7, rings=2),
-           "digger_crew": dict(sides=7, rings=2)}
+           "digger_crew": dict(sides=7, rings=2), "breach_team": dict(sides=7, rings=2),
+           "moto_rpg": dict(sides=7, rings=2)}
 
 #: Hand-bound weapon carriers get both forearms bent forward at the elbow --
 #: rest geometry like the arm hang, one rigid rotation per forearm about its
@@ -347,6 +422,8 @@ def _load_figure(team_id):
     ob.name = "figure_src"
     if team_id in RECOLOUR and team_id in TEXTURED:
         _recolour_head(team_id, ob, height, *RECOLOUR[team_id])
+    if team_id in LABEL_FLATTEN and team_id in TEXTURED:
+        _flatten_label(team_id, ob, height, **LABEL_FLATTEN[team_id])
     return ob, height
 
 
@@ -411,6 +488,65 @@ def _recolour_head(team_id, ob, height, target, hue_window):
     img.pack()
     log(f"{team_id}: head recolour -- {int(sel.sum())} faces, mask {int(mask.sum())} px, "
         f"remapped {int(hit.sum())} px to {target}")
+
+
+def _flatten_label(team_id, ob, height, x_min, y, z, lum_min):
+    """See LABEL_FLATTEN. Rasterises the faces inside the region into a
+    mask on `base_color` (the same rasteriser `_recolour_head` uses) and
+    sets every masked texel brighter than `lum_min` to the median of the
+    masked texels that are not."""
+    img = bpy.data.images["base_color"]
+    w, h = img.size
+    me = ob.data
+    cent = _face_centroids(ob)
+    H = height
+    sel = ((cent[:, 0] > x_min * H) & (cent[:, 1] > y[0] * H) & (cent[:, 1] < y[1] * H)
+           & (cent[:, 2] > z[0] * H) & (cent[:, 2] < z[1] * H))
+    mask = _uv_mask(me, sel, w, h)
+    pix = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(pix)
+    pix = pix.reshape(h, w, 4)
+    rgb = pix[:, :, :3]
+    lum = 0.2126 * rgb[:, :, 0] + 0.7152 * rgb[:, :, 1] + 0.0722 * rgb[:, :, 2]
+    dark = mask & (lum <= lum_min)
+    hit = mask & (lum > lum_min)
+    if dark.sum() == 0 or hit.sum() == 0:
+        log(f"{team_id}: label flatten -- {int(sel.sum())} faces, mask {int(mask.sum())} px, nothing to do")
+        return
+    fill = np.median(rgb[dark], axis=0)
+    rgb[hit] = fill
+    img.pixels.foreach_set(pix.reshape(-1))
+    img.pack()
+    log(f"{team_id}: label flatten -- {int(sel.sum())} faces, mask {int(mask.sum())} px, "
+        f"{int(hit.sum())} px above {lum_min} set to {tuple(round(float(c), 3) for c in fill)}")
+
+
+def _uv_mask(me, sel, w, h):
+    """A boolean (h, w) mask of the texels covered by the UV triangles of the
+    faces `sel` selects."""
+    uv = np.empty(len(me.loops) * 2, dtype=np.float32)
+    me.uv_layers.active.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)
+    mask = np.zeros((h, w), dtype=bool)
+    for i in np.nonzero(sel)[0]:
+        poly = me.polygons[i]
+        tri = uv[list(poly.loop_indices)][:3]
+        px = np.stack([(tri[:, 0] % 1.0) * (w - 1), (tri[:, 1] % 1.0) * (h - 1)], axis=1)
+        x0, x1 = int(np.floor(px[:, 0].min())), int(np.ceil(px[:, 0].max()))
+        y0, y1 = int(np.floor(px[:, 1].min())), int(np.ceil(px[:, 1].max()))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        xs, ys = np.meshgrid(np.arange(x0, x1 + 1), np.arange(y0, y1 + 1))
+        (ax, ay), (bx, by), (cx, cy) = px
+        det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
+        if abs(det) < 1e-9:
+            continue
+        l1 = ((bx - xs) * (cy - ys) - (cx - xs) * (by - ys)) / det
+        l2 = ((cx - xs) * (ay - ys) - (ax - xs) * (cy - ys)) / det
+        l3 = 1.0 - l1 - l2
+        inside = (l1 >= -0.002) & (l2 >= -0.002) & (l3 >= -0.002)
+        mask[ys[inside], xs[inside]] = True
+    return mask
 
 
 #: The one material every textured part shares, set by `_keep_base_color`.
@@ -647,16 +783,19 @@ def cut_figure(src, height, prefix, blobs=True):
     z_belt, z_neck, z_chin = zc + 0.08, NECK_F * H, CHIN_F * H
     head = co[co[:, 2] > z_chin]
     x_head, y_head = float(head[:, 0].mean()), float(head[:, 1].mean())
-    merge_arms = _TEAM["id"] in ARMS_FORWARD
+    on_torso = ARMS_ON_TORSO.get(_TEAM["id"], set())
+    merge_arms = on_torso == {0, 1}
     if merge_arms:
         # See ARMS_FORWARD: nothing is outboard, every face stays torso.
         axes = None
         w_arm = float(np.abs(co[co[:, 2] > 0.62 * H][:, 1]).max()) + 0.01
     else:
-        axes = {side: _arm_axis(co, H, side) for side in (0, 1)}
-        w_arm = max(axes[0][3], axes[1][3])
+        axes = {side: (None if side in on_torso else _arm_axis(co, H, side)) for side in (0, 1)}
+        w_arm = max(a[3] for a in axes.values() if a is not None)
     log(f"{prefix}: crotch {zc:.3f} ({zc / H:.3f} H) arm-root |y| {w_arm:.3f} knee {z_knee:.3f} "
-        f"neck {z_neck:.3f} chin {z_chin:.3f}{' (arms kept on the torso)' if merge_arms else ''}")
+        f"neck {z_neck:.3f} chin {z_chin:.3f}"
+        f"{' (arms kept on the torso)' if merge_arms else ''}"
+        f"{f' (arm sides {sorted(on_torso)} kept on the torso)' if on_torso and not merge_arms else ''}")
 
     def arm_side(p, y_out):
         """0/1 if a face is arm: its OUTERMOST vertex (`y_out`, signed) lies
@@ -673,6 +812,8 @@ def cut_figure(src, height, prefix, blobs=True):
         if axes is None or abs(y_out) <= w_arm or p[2] < 0.5 * H:
             return None
         side = 0 if y_out < 0 else 1
+        if axes[side] is None:
+            return None   # ARMS_ON_TORSO: this side's arm stays with the torso
         if p[2] > 0.62 * H:
             return side
         shoulder, elbow, wrist, _w = axes[side]
@@ -690,16 +831,21 @@ def cut_figure(src, height, prefix, blobs=True):
         return None
 
     classes = {}
+    head_role = HEAD_ROLE.get(_TEAM["id"], HEAD_ROLE_DEFAULT)
 
     def put(i, name, role):
         classes.setdefault((name, role), set()).add(i)
 
     vco = _coords(src)
     y_outer = np.array([max((vco[v][1] for v in poly.vertices), key=abs) for poly in src.data.polygons])
+    wos = WEAPON_ON_SPINE.get(_TEAM["id"])
     for i, (x, y, z) in enumerate(cent):
         side = arm_side((x, y, z), y_outer[i])
         if side is not None:
             put(i, f"arm{side}", "uniform")
+        elif (wos is not None and x > wos["x_min"] * H and wos["y"][0] * H < y < wos["y"][1] * H
+              and wos["z"][0] * H < z < wos["z"][1] * H):
+            put(i, "carbine", "weapon")
         elif z > z_chin:
             # A centred strip, |y| < FACE_HALF_W: the hooded figure's head
             # wraps to one side and an off-centre face strip read 30 degrees
@@ -707,9 +853,9 @@ def cut_figure(src, height, prefix, blobs=True):
             if x > x_head + 0.02 and FACE_LO_F * H < z < FACE_HI_F * H and abs(y - y_head) < FACE_HALF_W:
                 put(i, "face", "face")
             else:
-                put(i, "cranium", "keffiyeh")
+                put(i, "cranium", head_role)
         elif z > z_neck:
-            put(i, "neck", "keffiyeh")
+            put(i, "neck", head_role)
         elif z > z_belt:
             put(i, "torso", "uniform")
         elif z > zc - 0.02:
@@ -745,7 +891,7 @@ def cut_figure(src, height, prefix, blobs=True):
     # forearm about the moved elbow -- so a bent A-pose arm hangs straight
     # at its full length.
     for side in (0, 1):
-        if merge_arms:
+        if side in on_torso:
             # Synthetic hanging joints (see ARMS_FORWARD): nothing binds to
             # the arm bones, but the bone tables, kneel and clips read them.
             sgn = -1.0 if side == 0 else 1.0
@@ -947,6 +1093,8 @@ def _bend_forearms(parts, joints, prefix):
     blob is the pivot and stays; the wrist in `joints` moves with the part so
     `standing_bones` draws the forearm bone along the bent forearm."""
     for side, name in ((0, "L"), (1, "R")):
+        if f"forearm{side}" not in parts:
+            continue   # ARMS_ON_TORSO: that arm is on the torso, nothing to bend
         a = joints["arm"][side]
         elbow = Vector(a["elbow"])
         pitch, yaw = FORE_BEND[name]
@@ -1151,6 +1299,9 @@ def _figure(src, height, spec, kneel):
         bones += standing_bones(wp, wjoints, x, y)
         _place(wparts, x, y)
         parts.update({f"w_{k}": v for k, v in wparts.items()})
+    if "carbine" in parts:
+        forced[parts["carbine"]] = f"{prefix}_spine"   # WEAPON_ON_SPINE
+        log(f"{prefix}: baked carbine kept as `weapon` on spine, {len(parts['carbine'].data.polygons)} faces")
     out = list(parts.values())
     dy_death = CORPSE_Y_OFFSET.get(_TEAM["id"], {}).get(prefix, 0.0)
     death = _death_parts_posed(src, height, prefix, x, y + dy_death, add_kef=ADD_KEFFIYEH[_TEAM["id"]])
@@ -1273,6 +1424,22 @@ def build_team(team_id):
         tool = _entrenching_tool("dig", parts, (0.36, -0.06, 0.14))
         forced.update({ob: "dig_spine" for ob in tool})
         parts += tool
+    elif team_id == "breach_team":
+        # B5: no kit rifle -- the figure's own carbine is on the torso (see
+        # WEAPON_ON_SPINE). `rig._breach_extras` verbatim for the props: the
+        # pole resolves through PART_BONE (`pole`/`pole_head` -> spine) as in
+        # the kit file; the shield is FORCED to brc_point's spine rather than
+        # PART_BONE's `forearm_L`, because this figure's left arm is on the
+        # torso (ARMS_ON_TORSO) and the forearm_L bone it would ride swings
+        # with the gait while the arm it belongs to does not. The plate
+        # stands 0.28 m ahead of the man's centre line, where his left
+        # forearm, bent across the chest, would hold its handle.
+        props, _b, f_props = rig._breach_extras()
+        forced.update(f_props)
+        for ob in props:
+            if ob.name == "brc_point_shield":
+                forced[ob] = "brc_point_spine"
+        parts += props
     else:
         raise SystemExit(f"no crew weapon rule for {team_id}")
 
@@ -1312,10 +1479,13 @@ def build_team(team_id):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    names = list(SOURCES) if argv in ([], ["all"]) else argv
+    names = [n for n in SOURCES if n != "moto_rpg"] if argv in ([], ["all"]) else argv
     for name in names:
         if name not in SOURCES:
             raise SystemExit(f"unknown team {name!r}; have {sorted(SOURCES)}")
+        if name == "moto_rpg":
+            raise SystemExit("moto_rpg is built by tools/units/import_meshy_moto_rpg.py (its riders "
+                             "only come from this module's SOURCES)")
         build_team(name)
 
 

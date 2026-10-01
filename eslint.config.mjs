@@ -239,6 +239,13 @@ export default tseslint.config(
                 'player, including one on ?renderer=pixi who is shown the plate instead.',
             },
             {
+              name: '@lions/render/three-garage',
+              message:
+                'The garage\'s turnable model is three.js. It must reach packages/app via a dynamic import() ' +
+                '(see ui/garage-viewer.ts) -- a static one puts three.js in the main chunk for every ' +
+                'player, including one on ?renderer=pixi who is shown the plate instead.',
+            },
+            {
               name: '@lions/render/terrain',
               message:
                 'The terrain barrel exists for terrain-parity.test.ts (and packages/render\'s own test suite) to ' +

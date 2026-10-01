@@ -1278,7 +1278,8 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
   'manpad_team.glb move': 350,
   'recoilless_team.glb move': 440,
-  'breach_team.glb move': 1152,
+  // B5 (2026-10-01): the Meshy breach figure, boot = below 0.09 H, two men.
+  'breach_team.glb move': 396,
   'civilians/civilian_woman.glb move': 328,
   'civilians/office_worker.glb move': 346,
   'civilians/farm_worker.glb move': 279,
@@ -1934,7 +1935,6 @@ const WEAPON_RIGS: readonly {
   { file: 'demo_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
   { file: 'militia_cell.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire'] },
   { file: 'rpg_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire'] },
-  { file: 'breach_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 2, clips: ['fire'] },
   // One armed figure: `at_fire` holds the Spike, `at_spot` holds binoculars
   // bound to his HEAD, so only one `_forearm_R` owns any `weapon` vertex.
   // This file was in `WEAPON_EXEMPT` until it gained a `fire` clip.
@@ -1977,6 +1977,11 @@ export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
   'digger_crew.glb': 'a digger: `wood`, no `weapon` role, no `fire` clip',
   'sniper_team.glb': 'no arm bones -- 14 joints, all root, pelvis and legs',
   'moto_rpg.glb': 'no arm bones; the launcher rides `m_launcher` off the machine',
+  'breach_team.glb':
+    'B5 (2026-10-01): the Meshy preview came with its carbine baked into one shell with the ' +
+    'torso, held across the chest in the LEFT hand; it ships as a `weapon` piece on each ' +
+    "man's `spine` (import_meshy_crew_team.py's WEAPON_ON_SPINE), no kit rifle beside it, " +
+    'so no `_forearm_R` owns a weapon vertex and `fire` is a FIRE_ROOT_LEAN brace',
   'meshy_mortar_team.glb': 'no arm bones on either posture -- root/abdomen/chest/head only',
   'yahalom_engineer.glb':
     'its `weapon` role puts EIGHT vertices spanning 0.076 m on `RightHand` -- a fitting, ' +
@@ -2114,8 +2119,6 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'demo_squad.glb demo_b_forearm_R': 2.47, //    [0.47, 4.46]  the level carry
   'militia_cell.glb mil0_forearm_R': 2.47, //    [0.46, 4.47]
   'militia_cell.glb mil1_forearm_R': 2.47, //    [0.47, 4.46]
-  'breach_team.glb brc_cover_forearm_R': 2.47, // [0.47, 4.46]
-  'breach_team.glb brc_point_forearm_R': 2.47, // [0.46, 4.47]
   'rpg_team.glb rpg_load_forearm_R': 2.47, //    [0.47, 4.46]  the loader's rifle
   'rpg_team.glb rpg_fire_forearm_R': 34.04, //  [32.05, 36.06] the RPG, at rig._rpg_extras' 38 deg
   'at_team.glb at_fire_forearm_R': 0.0, //      [-2.00, 2.00]  the Spike, at pitch 0
@@ -2221,7 +2224,6 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
     }
     expect(gated.map((w) => w.file).sort()).toEqual([
       'at_team.glb',
-      'breach_team.glb',
       'demo_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',

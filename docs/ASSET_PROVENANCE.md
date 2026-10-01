@@ -746,6 +746,65 @@ no weights; `pnpm gait:meshes` stamped each `rl_gait`. Gates on 2026-10-01:
 
 ---
 
+## WP-A3.1 batch B5 — `breach_team`, the last KDF team (GH-179)
+
+One team, 2026-10-01, Meshy **text-to-3D** through the CLI (`pnpm meshy`):
+one A-pose preview, one refine (2k), one remesh — **35 credits** against the
+65 the lead approved for B5 + B6 together (no Meshy rig call, as B0b–B4).
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl`. Numbers table and prompt in `meshy-prompts-units.md`
+§16; what the preview honoured and what the importer fixed in `style-bible.md`
+§12. The downloaded `model.glb` and texture sources sit under
+`art/meshy/breach-team-20261001-<task>/` and are **not committed**; the ledger,
+each folder's `task.json` and thumbnail are. Joins `TEXTURED_INFANTRY_TYPES` /
+`TEXTURED_INFANTRY_EXEMPT`: palette, framing and fill skip it, silhouette IoU
+still runs.
+
+| File | Draws as | Preview task id (`--pose a-pose`) | Refine task id (2k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/breach_team.glb` | `breach_team` (Tzinah Breach Team, KDF) | `01a0f621-408f-76f7-b088-42053e79a5b9` | `01a0f622-31d0-74c7-bf96-fb238e1f232e` | `01a0f624-9323-75cf-af68-5d597c4b0af6` at 2,000 | ONE figure, 1.78 m, both men standing; kit `ballistic_shield` (`metal`) on `brc_point_spine`, kit `breach_pole` (`charge`) on `brc_cover_spine` — the tells, unchanged. The preview came holding a compact carbine across the chest in the LEFT hand (not the A-pose asked for) with the right arm out: the left arm stays on the torso (`ARMS_ON_TORSO`), the carbine is cut off as a `weapon` piece on `spine` and IS the rifle (no kit rifle, `TEAM_FIGURES` `weapon=None`, `fire` is a `FIRE_ROOT_LEAN` brace); the refine's small name tape on the carrier flattened to the carrier's black (`LABEL_FLATTEN`). Corpses on their side, pushed ±0.22 m apart. **6,552 tris** (6,864 glTF), 0.99 MB source / 0.29 MB shipped. Worst IoU neighbour `apartment` 0.578 (worst unit `demo_squad` 0.524) |
+
+Through `tools/units/import_meshy_crew_team.py` — not the B0b KDF importer the
+batch plan named, because this one carries B3/B4's measured elbow cut and the
+posed corpse; the only KDF-specific thing it needed was a head-role override
+(`HEAD_ROLE`: helmet and neck `uniform`, no kit keffiyeh). `rig.TEAM_MESH_OWNER`
+moves with it. Gates on 2026-10-01: `validate:meshes` (85 mesh units),
+`validate:assets`, `test` (7,668), `typecheck`, `lint`, `validate:ui` all green;
+the boot-vertex pin and the weapon pins in `tools/src/mesh_gait.test.ts` moved
+with the bytes (`breach_team.glb` is in `WEAPON_EXEMPT` now, with the reason).
+
+---
+
+## WP-A3.1 batch B6 — `moto_rpg`, a Meshy bike under B3's riders (GH-179)
+
+One unit, 2026-10-01, Meshy **text-to-3D** through the CLI (`pnpm meshy`): one
+preview (no pose, no refine — a palette part) and one remesh — **25 credits**;
+B5 + B6 together **60 against the 65 the lead approved**. The riders cost
+nothing: they are B3's `rpg_team` figure (its remesh and bake, already on disk)
+re-posed seated in code. AI-generated and disclosed per `CONTRIBUTING.md`;
+every spend is a line in `art/meshy/ledger.jsonl`. Numbers table and prompt in
+`meshy-prompts-units.md` §17; what the preview honoured and what the importer
+did in `style-bible.md` §13. The downloaded `model.glb` sources sit under
+`art/meshy/moto-rpg-20261001-<task>/` and are **not committed**; the ledger,
+each folder's `task.json` and thumbnail are. Joins `TEXTURED_INFANTRY_TYPES` /
+`TEXTURED_INFANTRY_EXEMPT` for the riders' bake; the bike's own meshes carry no
+UV and take the enemy ramp (the loader decides per mesh).
+
+| File | Draws as | Preview task id | Remesh task id (shipped) | Riders | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/moto_rpg.glb` | `moto_rpg` (Armed Motorcycle, enemy) | `01a0f62f-c542-709f-a687-4c7c07808be6` | `01a0f631-e3c6-7076-8eae-cf95ec4d032a` at 1,500 | `rpg_team` remesh `01a0f313-bf75-727d-8573-8fb7f04c2453` (B3), 1.76 m, rose scarf remapped to tan | The bike scaled to 2.2 m (`teams._motorcycle`), front found by the wider end (bars) and turned to `+X`; its hoop wheels (1,500 tris keep no spokes) cut out and `kit.tube` cylinders stood on axles read from the ground-contact points (`weapon`, as kit's tyres); saddle and rear bag `webbing`, the rest `metal`. Riders seated rigidly from `cut_figure`'s parts (thighs 75° forward, shins back to the pegs, the rider leaned 12° with hands on the bars, the pillion upright with hands on his knees), one unit per seat bone; kit launcher on `m_launcher` at the pillion's measured shoulder; `rig._moto_bone_table`'s shape with measured heads, `rig.build_moto_clips` unchanged (`idle`, `move`, `fire`, `wreck` — no `down`). Wreck: the same bike through `teams._tip_over`, decimated 0.45, plus two posed corpses at `teams.moto_rpg`'s own anchors. **7,348 tris**, 1.05 MB source / 0.37 MB shipped. Worst IoU neighbour `digger_crew` 0.650 |
+
+Through `tools/units/import_meshy_moto_rpg.py` (new; owner in
+`rig.TEAM_MESH_OWNER`), which borrows `import_meshy_crew_team.py`'s loader, cut
+and posed corpse for the riders. The preview honoured the knobbly tyres, the
+long saddle and "no rider"; the "two panniers and a rolled bedroll" came as one
+roll bag on the rear rack. Gates on 2026-10-01: `validate:meshes` (85 mesh
+units), `validate:assets`, `test`, `typecheck`, `lint`, `validate:ui` all green;
+`mesh_gait.test.ts`'s `moto_rpg` pins (a non-walker whose boots do not move,
+no arm bones) held unchanged.
+
+---
+
 ## The GH-277 field works (Meshy text-to-3D, remeshed; two textured), 2026-09-30
 
 Eight buildings for the field-works design (`docs/superpowers/specs/2026-09-29-

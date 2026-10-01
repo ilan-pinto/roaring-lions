@@ -931,6 +931,155 @@ try {
     );
   }
 
+  // --- the garage's turnable model (GH-316) --------------------------------
+  //
+  // The bay draws the unit's own GLB through `@lions/render/three-garage`,
+  // one WebGL context per unit shown. Three things only a real browser can
+  // check: the model reaches `data-model="live"` on a WebGL2 runner (jsdom
+  // has no WebGL, so every unit test lands on the plate); paging to another
+  // unit gives the FIRST unit's context back; and a soft leave through the
+  // garage's own menu link gives the second one back too -- the scene host's
+  // rule, read off canvases stashed before each change exactly as leg (a)
+  // reads the host's. Plus one real key press on the focused control, since
+  // a synthetic event would skip the browser's own focus and key routing.
+  //
+  // `reducedMotion: 'reduce'`: the auto-turn must not start (5 s after the
+  // model goes live) before this leg presses a key on a slow runner, and the
+  // idle read below needs a bay with nothing to animate. Every WebGL2
+  // context the page makes is recorded by an init script, so the
+  // fast-paging step can count the live ones -- including any made for a
+  // unit the bay had already left.
+  {
+    const modelCtx = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
+    await modelCtx.addInitScript(
+      '(function () { var orig = HTMLCanvasElement.prototype.getContext; window.__rlGl = [];' +
+        ' HTMLCanvasElement.prototype.getContext = function (type) {' +
+        '  var ctx = orig.apply(this, arguments);' +
+        '  if (type === "webgl2" && ctx && !window.__rlGl.some(function (e) { return e.c === this; }, this))' +
+        '   window.__rlGl.push({ c: this, g: ctx });' +
+        '  return ctx; }; })()'
+    );
+    await modelCtx.addInitScript(garageSeedScript());
+    // Music off, the lead's default for every test browser.
+    await modelCtx.addInitScript(
+      'try { localStorage.setItem("lions.settings", JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 1, voice: 1, radio: true } })); } catch (e) {}'
+    );
+    const m = await modelCtx.newPage();
+    m.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    const modelWarnings: string[] = [];
+    m.on('console', (msg: ConsoleMessage) => {
+      if (msg.type() === 'error') errors.push(msg.text());
+      else if (msg.type() === 'warning') modelWarnings.push(msg.text());
+    });
+    m.on('pageerror', (e) => errors.push(String(e)));
+    // Strings, not functions: see `GARAGE_ARM` below for the `__name` trap.
+    const MODEL_STATE =
+      '(() => { var p = document.querySelector(".rl-garage__plate");' +
+      ' var c = document.querySelector(".rl-garage__card[aria-selected=\\"true\\"]");' +
+      ' return { model: p ? p.getAttribute("data-model") : null, reason: p ? p.getAttribute("data-model-reason") : null,' +
+      ' unit: c ? c.getAttribute("data-unit") : null }; })()';
+    const SETTLED = (unit: string): string =>
+      '(() => { var p = document.querySelector(".rl-garage__plate");' +
+      ' var c = document.querySelector(".rl-garage__card[aria-selected=\\"true\\"]");' +
+      ' var s = p ? p.getAttribute("data-model") : null;' +
+      ` return !!c && c.getAttribute("data-unit") === ${JSON.stringify(unit)} && s !== null && s !== "pending"; })()`;
+    type ModelState = { model: string | null; reason: string | null; unit: string | null };
+    const settled = async (unit: string): Promise<ModelState> => {
+      await m.waitForFunction(SETTLED(unit), null, { timeout: 60_000 });
+      return m.evaluate<ModelState>(MODEL_STATE);
+    };
+    const STASH = (slot: string): string => `window.${slot} = document.querySelector(".rl-garage__model canvas");`;
+    const LOST = (slot: string): string =>
+      `(() => { var c = window.${slot}; var g = c ? c.getContext("webgl2") : null;` +
+      ' return { stashed: !!c, lost: g ? g.isContextLost() : null }; })()';
+    type LostRead = { stashed: boolean; lost: boolean | null };
+
+    await m.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await m.waitForSelector('.rl-garage__card[aria-selected="true"]');
+    const first = (await m.getAttribute('.rl-garage__card[aria-selected="true"]', 'data-unit')) ?? '';
+    const a = await settled(first);
+    console.log(`[${TAG}] garage model: ${first} -> data-model=${a.model}${a.reason ? ` (${a.reason})` : ''}`);
+    expect(a.model === 'live', `garage model: ${first} did not reach "live" on a WebGL2 runner: ${JSON.stringify(a)}`);
+    await m.evaluate(STASH('__rlModelA'));
+
+    // On demand: the view's own frame count (`stats().frames`, mirrored to
+    // `data-frames` after each draw) must not move while nothing happens.
+    const frames = (): Promise<number> =>
+      m.evaluate<number>('Number(document.querySelector(".rl-garage__model").getAttribute("data-frames"))');
+    const idle0 = await frames();
+    await m.waitForTimeout(2000);
+    const idle1 = await frames();
+    console.log(`[${TAG}] garage model: ${idle1 - idle0} frame(s) drawn in 2 s idle (frames ${idle0} -> ${idle1})`);
+    expect(idle0 >= 1, `garage model: the view reports ${idle0} frames, so not even its first was counted`);
+    expect(idle1 === idle0, `garage model: an idle bay drew ${idle1 - idle0} frame(s) in 2 s; it must draw none`);
+
+    // A real key press on the focused control turns it one step, and draws.
+    await m.focus('.rl-garage__model');
+    await m.keyboard.press('ArrowRight');
+    const turned = await m.getAttribute('.rl-garage__model', 'aria-valuenow');
+    expect(turned === '15', `garage model: one ArrowRight read aria-valuenow=${turned}, expected 15`);
+    await m.waitForFunction(`Number(document.querySelector(".rl-garage__model").getAttribute("data-frames")) > ${idle1}`);
+
+    // Page to another unit: the first context must be given back.
+    const second = first === 'at_team' ? 'mbt_lavi' : 'at_team';
+    await m.click(`.rl-garage__card[data-unit="${second}"]`);
+    const b = await settled(second);
+    expect(b.model === 'live', `garage model: ${second} did not reach "live": ${JSON.stringify(b)}`);
+    const aAfter = await m.evaluate<LostRead>(LOST('__rlModelA'));
+    console.log(`[${TAG}] garage model: paged ${first} -> ${second}; ${first}'s context lost=${String(aAfter.lost)}`);
+    expect(aAfter.stashed, `garage model: no canvas was stashed for ${first}`);
+    expect(aAfter.lost === true, `garage model: paging from ${first} to ${second} left ${first}'s WebGL context alive`);
+
+    // Paging FAST: five cards clicked back to back. The bay must end with
+    // exactly one live context, and it must be the one on screen; every
+    // other context the page made -- any unit that got far enough to make
+    // one, and the WebGL2 probe -- must be lost.
+    const rail = await m.$$eval('.rl-garage__card', (els) => els.map((e) => e.getAttribute('data-unit') ?? ''));
+    const burst = rail.filter((id) => id !== second && id !== '').slice(0, 5);
+    for (const id of burst) await m.click(`.rl-garage__card[data-unit="${id}"]`);
+    const last = burst[burst.length - 1];
+    const c = await settled(last);
+    expect(c.model === 'live', `garage model: after paging fast, ${last} did not reach "live": ${JSON.stringify(c)}`);
+    await m.waitForTimeout(500);
+    const gl = await m.evaluate<{ made: number; live: number; liveIsShown: boolean; shown: number }>(
+      '(() => { var shown = document.querySelectorAll(".rl-garage__model canvas");' +
+        ' var live = window.__rlGl.filter(function (e) { return !e.g.isContextLost(); });' +
+        ' return { made: window.__rlGl.length, live: live.length, shown: shown.length,' +
+        '  liveIsShown: live.length === 1 && shown.length === 1 && live[0].c === shown[0] }; })()'
+    );
+    console.log(
+      `[${TAG}] garage model: paged fast through ${burst.join(', ')}; ${gl.made} WebGL2 context(s) made in all, ` +
+        `${gl.live} live, ${gl.shown} canvas on screen`
+    );
+    expect(gl.shown === 1, `garage model: ${gl.shown} model canvases in the bay after paging fast, expected 1`);
+    expect(gl.live === 1, `garage model: ${gl.live} WebGL2 contexts still live after paging fast, expected exactly 1`);
+    expect(gl.liveIsShown, 'garage model: the one live context after paging fast is not the canvas on screen');
+    await m.evaluate(STASH('__rlModelB'));
+
+    // A SOFT leave, through the garage's own link: the router's disposer.
+    const leaveFrom = modelWarnings.length;
+    await m.click('.rl-menu--garage a[href="/"]');
+    await m.waitForSelector('a[href="/campaign"]');
+    await m.waitForTimeout(750);
+    const bAfter = await m.evaluate<LostRead>(LOST('__rlModelB'));
+    const boots = await m.evaluate<number>('performance.getEntriesByName("rl:boot").length');
+    console.log(
+      `[${TAG}] garage model: soft leave to the menu; ${last}'s context lost=${String(bAfter.lost)}, boots=${boots}`
+    );
+    expect(boots === 1, `garage model: the menu link reloaded the page (boots=${boots}), so this was not a soft leave`);
+    expect(bAfter.stashed, `garage model: no canvas was stashed for ${last}`);
+    expect(bAfter.lost === true, `garage model: a soft leave of the garage left ${last}'s WebGL context alive`);
+    // The garage's own leave, not the menu it lands on: under this context's
+    // reduced motion the menu's scene host warns that it is keeping its
+    // plate, which is that screen's correct path and nothing this leave did.
+    const GARAGE_LEAVE_WARNING = /WebGL|loseContext|DRACO|Worker|garage model/i;
+    const bad = modelWarnings
+      .slice(leaveFrom)
+      .filter((w) => GARAGE_LEAVE_WARNING.test(w) && !NOT_A_LEAVE_WARNING.test(w));
+    for (const w of bad) expect(false, `garage model: the garage's leave logged a warning: ${w.slice(0, 300)}`);
+    await modelCtx.close();
+  }
+
   // --- the garage buys in place (WP-S3g F3) ------------------------------
   // The old remount read ONE flat colour for ~210 ms (spec F3, capture
   // `05-buy-upgrade-120ms`), then landed the bay on the first card with focus

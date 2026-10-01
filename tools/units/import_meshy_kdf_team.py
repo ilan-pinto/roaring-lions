@@ -46,7 +46,11 @@ split the role into two primitives or sample texel (0,0)).
 This is the B2 method (`tools/units/import_meshy_crew_team.py`, the Sarim
 crews, on branch art/a31-b2 at the time of writing) with the texture carried
 through; the two files are siblings and should fold into one once both are
-on main.
+on main. B5 (GH-179, 2026-10-01) took the third KDF team, `breach_team`,
+through the crew importer rather than this one: that file carries the B3/B4
+measured elbow cut, the posed corpse and the per-side arms-on-torso rule the
+breach preview needed, and a KDF head is one `HEAD_ROLE` entry there. This
+file still owns `at_team` and `demo_squad`.
 
 ## What ships as texture
 
