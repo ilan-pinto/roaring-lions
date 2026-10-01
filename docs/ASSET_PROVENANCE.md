@@ -442,6 +442,36 @@ chips are pulled to a warm neutral grey and the earth to terra rossa. Mean rgb
 
 ---
 
+## The Roar coin's lion relief (Meshy text-to-3D, GH-317), 2026-10-01
+
+The lion on the Roar coin (`tools/roar_coin.py`, PR #331). The first build
+extruded the shop mock's own SVG profile and read as a dinosaur; the lead chose
+a sculpted relief on 1 Oct ("Option 2", budget about 30 credits, cap 60).
+AI-generated with Meshy, disclosed per `CONTRIBUTING.md`. **One preview,
+20 credits** (~$0.40), no refine, no remesh, no re-roll; the task and its
+prompt are in `art/meshy/ledger.jsonl`.
+
+| File | Draws as | Preview task id | Refine / remesh | Size / tris |
+|---|---|---|---|---|
+| `art/meshy/roar-lion-relief-20261001-01a0f804/model.glb` | the relief on `assets/ui/roar_coin/roar_coin_*.png` and `.svg` | `01a0f804-bc39-778e-acc9-2861fb68fa5e` (meshy-6, standard, 508,666 tris) | -- (palette; Blender decimates) | 33 mm across, 2.0 mm deep on the coin; 16,000 tris |
+
+What Blender did (`tools/roar_coin.py`, headless 5.2, 0 credits,
+deterministic): clipped the lion off its round plaque at the measured plane
+(y 0.31, inside the plaque's ring), turned it face-up, scaled it to 33 mm on
+its longer axis and 2.0 mm deep (the sculpt's 0.80-unit depth over a
+1.9-unit plaque would have stood 14 mm off a 4 mm coin), seated it 0.12 mm
+under the face, decimated it with the collapse modifier to 16,000 triangles,
+and coloured it per face from height and radius alone: the high relief and
+the inner disc `limestone.1`, the mane `terracotta.1`, the mouth and the
+mane's deepest grooves `shadow.1`. The groove ink is what makes the mane read
+at 24 and 48 px, where `terracotta.1` on the `terracotta.0` face is
+tone-on-tone. The 16/24/48 SVGs are traced from an unlit ID render of the
+same scene, not drawn by hand. The coin body, rim and sizes are unchanged.
+The preview `model.glb` (9.1 MB) is committed because it is the script's
+only input; there is no remesh to commit instead.
+
+---
+
 ## Unit voices (ElevenLabs, supplied by the lead, 2026-09-29)
 
 Five Hebrew voice lines in `assets/audio/voice/he/`, wired to `data/audio.json`

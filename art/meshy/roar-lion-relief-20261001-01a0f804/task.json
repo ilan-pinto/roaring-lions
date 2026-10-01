@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single round bas-relief medallion of a roaring lion head, carved in low relief on a flat circular plaque with a flat back, like a coin seal or heraldic crest. Front-facing lion head, jaws wide open in a roar showing the fangs, heavy brow, broad nose, and a full thick mane of bold carved locks framing the whole face in a ring. Bold simple sculpted shapes, crisp deep recesses, no fine texture. Plain matte stone, one material, no colour, no paint. Centred, one object, no text, no background, no other objects.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f804-bc39-778e-acc9-2861fb68fa5e",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1359511198,
+    "prompt": "A single round bas-relief medallion of a roaring lion head, carved in low relief on a flat circular plaque with a flat back, like a coin seal or heraldic crest. Front-facing lion head, jaws wide open in a roar showing the fangs, heavy brow, broad nose, and a full thick mane of bold carved locks framing the whole face in a ring. Bold simple sculpted shapes, crisp deep recesses, no fine texture. Plain matte stone, one material, no colour, no paint. Centred, one object, no text, no background, no other objects.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790867456739,
+    "progress": 100,
+    "started_at": 1790867456767,
+    "finished_at": 1790867540990,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f804-bc39-778e-acc9-2861fb68fa5e/output/model.glb?Expires=4944412800&Signature=dA7rl955Tdl~8PngAm2EMGHi8qBxz-0AUvf0BldkB3vrvj~aI1lU7szH9kWGyKYJ4Jy6bLlX-xTBL216zDLyJk~TmjpXVNKMPD7hOMNzImFH3Rl5-smCvBePh9hxfAXW~6DHTVwPv~1P~9GageXrT7LuF2oi0v7rlywSNnImP5bDLvNAkfEatqayp7kMvoBG214mQ9dLPvkkrwU-jw7F46ciYtAvg39Tx3paGR1RyW9eBIABNZMzJ9Ua38kDRDc8yAPdvNtozOqY-kL61NdwW2sgvZ-RW5-msEkGBVXVkwJD9oGhiSdn1Ritujrnn8ji4mg61qt2Ec8KCQ4jP6itLA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f804-bc39-778e-acc9-2861fb68fa5e/output/preview.png?Expires=4944412800&Signature=I7RITNuV-gYM8gTTnV4FcRlIYH1ycBryzCVS7TGevoad7a~lstPGZHYj8m71qzIpXmm6aFKqu2i6U7yz4fLYFBFeuJ41OYdIOOBqYa57mievqyrK-xePggbRSGGI6mHw62t8aT6Xbrw2kVxL3PWMLvaEh0vhd72xZuBSYeoMwCHyuhHu4BYllsgxxfl2671Q-xG5j6E9kvNHsHsCxGF4zOKGWt~OiTbrN5VBu~eS1TVYEpeu--KuGnlwVy49XpkVdJxKr45wY5YhO0ChVNQlS6zurCcx0EcoHAFNxMoK8JaewFiIQWqpDxBvOgBnc25V~0IDcLI5ee4NWT0EPLGsjQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790867456739,
+    "started_at": 1790867456767,
+    "finished_at": 1790867540990
+  },
+  "usd_estimated": 0.4
+}

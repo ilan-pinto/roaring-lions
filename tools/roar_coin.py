@@ -1,4 +1,5 @@
-"""Build and render the Roar coin (GH-317), emblem B "Hex Seal".
+"""Build and render the Roar coin (GH-317), emblem B "Hex Seal", with the
+Meshy-sculpted lion relief the lead chose on 1 Oct ("Option 2").
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --python tools/roar_coin.py
@@ -6,27 +7,39 @@
 (or any Blender on PATH / in BLENDER_BIN).
 
 A pointy-top hex coin, 40 mm across flats and 4 mm thick, with a 0.6 mm raised
-rim, bearing a lion's head in profile, roaring left. The relief (mane, head,
-mouth, teeth, eye) is extruded and bevelled from the emblem B paths in
-docs/superpowers/specs/2026-10-01-roar-coin-shop-mock.html, which live in a
-48 px space; one SVG unit is 40/39 mm so the hex is exactly 40 mm across flats.
+rim, bearing a front-facing roaring lion's head in relief, full mane framing
+the face. The relief is the Meshy text-to-3D preview in RELIEF_GLB (AI-generated,
+disclosed in docs/ASSET_PROVENANCE.md): a round bas-relief plaque whose lion is
+clipped off its plaque, turned face-up, scaled to LION_MM across and RELIEF_MM
+deep, decimated to about RELIEF_TRIS triangles and seated on the coin face. The
+coin body, rim and sizes are the ones the first build approved; only the lion
+changed. The flat extruded profile it replaces read as a dinosaur.
 
-Colour is palette keys only (data/palette.json via dimetric.palette_linear):
+Colour is palette keys only (data/palette.json via dimetric.palette_linear),
+assigned per face of the relief from its own height and radius -- no texture:
 
     face terracotta.0 | mane terracotta.1 | rim terracotta.2
-    head + glint limestone.1 | mouth + eye shadow.1
+    lion's face limestone.1 (the high relief) | mouth and deep recesses shadow.1
 
 Standard view transform, transparent film, BINARY alpha (every pixel is in or
 out). The sun is fixed; the object rotates. No noise is used, so there is no
-mathutils.noise (nondeterministic in Blender 5.2) anywhere in here.
+mathutils.noise (nondeterministic in Blender 5.2) anywhere in here, and the
+decimation is Blender's own collapse modifier on fixed input, so re-running
+gives the same bytes.
 
 Writes assets/ui/roar_coin/:
     roar_coin_{16,24,48,96,512}.png        the shipped strike at each size
     roar_coin_{16,24}_flat.png             the flat cut, the losing candidate
     roar_coin_spin.png                     24 frames, 0.6 s, 6x4 contact sheet
-    roar_coin_{16,24,48}.svg               the flat cut, generated from the same
-                                           polygons and the same palette
+    roar_coin_{16,24,48}.svg               the flat cut, TRACED from the relief:
+                                           pixel-exact at 16 and 24, a
+                                           simplified contour at 48
 and saves the scene to art/src/ui/roar_coin.blend.
+
+The flat cut is an "ID render" of the same scene: every material switched to
+an unlit emission of its palette colour, the sun and the world off, so each
+pixel is exactly one palette key and the SVGs are cut from the same lion the
+PNGs show rather than from a second drawing.
 """
 import math
 import os
@@ -44,6 +57,8 @@ from dimetric import palette_linear  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(ROOT, "assets", "ui", "roar_coin")
 OUT_BLEND = os.path.join(ROOT, "art", "src", "ui", "roar_coin.blend")
+RELIEF_GLB = os.path.join(ROOT, "art", "meshy", "roar-lion-relief-20261001-01a0f804",
+                          "model.glb")
 
 # --- the approved numbers ----------------------------------------------------
 FLATS_MM = 40.0
@@ -53,54 +68,40 @@ RIM_WIDTH_MM = 2.0                 # radial width of the rim band
 MM = FLATS_MM / 39.0               # mm per SVG unit (hex flats span 4.5..43.5)
 Z_TOP = THICK_MM / 2.0             # rim top
 Z_FACE = Z_TOP - RIM_MM            # face plane
-MANE_TOP = Z_TOP - 0.1             # relief stays inside the rim's height
-HEAD_TOP = Z_TOP
-INLAY = 0.03                       # mouth/eye sit this far over the head
 BEVEL_MM = 0.18
+
+# --- the relief ---------------------------------------------------------------
+LION_MM = 33.0                     # the lion's longest axis (it is taller than wide)
+RELIEF_MM = 2.0                    # nose tip above the coin face; the rim is 0.6
+SINK_MM = 0.12                     # the clipped base sits this far under the face
+RELIEF_TRIS = 16000                # decimation target
+# Measured on the preview (2026-10-01): the plaque face plane is y = 0.35, its
+# edge ring tops out at y 0.33 and the lion's outermost mane lock reaches
+# r 0.847 while the ring starts at 0.9, so a cut at 0.31 keeps every lock and
+# nothing of the plaque.
+PLAQUE_CUT = 0.31
+PLAQUE_RING_R = 0.86
+# Per-face classification, in normalised relief height (0 the base, 1 the nose)
+# and radius over the lion's half-extent.
+HEAD_H = 0.50                      # above this the relief is the lion's face
+FACE_R = 0.40                      # inside this radius, so is anything not a recess
+INK_H = 0.30                       # below this, inside INK_R, a deep recess
+INK_R = 0.42
+GROOVE_H = 0.12                    # below this anywhere: the mane's grooves and its base edge
 
 KEYS = {"face": "terracotta.0", "mane": "terracotta.1", "rim": "terracotta.2",
         "head": "limestone.1", "ink": "shadow.1"}
 
-# --- emblem B, 48 px master, copied from the mock (hex48) --------------------
 HEX_OUTER = "24,1.5 43.5,12.75 43.5,35.25 24,46.5 4.5,35.25 4.5,12.75"
-MANE_D = ("M27 10 L31 12.5 L35 11.5 L34.5 15.5 L38 18 L35 21 L38 24.5 L34.5 27 "
-          "L36 31 L31.5 31 L29.5 35 L26.5 32 L22.5 34 L23 29 Z")
-HEAD_D = ("M28 13 L21 13.5 L14.5 16.5 L11 20.5 L17 21.8 L12.5 27.5 L19.5 27 "
-          "L15.5 31 L22.5 31.5 L28.5 28.5 L31 21 Z")
-MOUTH_D = "M11 20.5 L22 24 L12.5 27.5 Z"
-TEETH_D = "M13.3 21.3 L14.3 23 L15.2 21.7 Z M14.6 26.3 L15.5 24.8 L16.4 26 Z"
-EYE = (21.5, 17.2, 1.1)            # cx, cy, r
-
-# --- the flat cuts: the mock's hex24 and hex16, own viewBoxes ----------------
-FLAT_24 = {
-    "view": 24,
-    "layers": [
-        ("rim", "12,1 22,6.75 22,17.25 12,23 2,17.25 2,6.75"),
-        ("face", "12,2.8 20.4,7.7 20.4,16.3 12,21.2 3.6,16.3 3.6,7.7"),
-        ("mane", "M13.5 5 L16 6 L17.5 8 L19 10 L17.5 11.5 L19 13.5 L17 15 L15.5 17.5 "
-                 "L13 16.5 L11.5 17.5 L11.5 14 Z"),
-        ("head", "M14 6.5 L10.5 6.8 L7 8.5 L5.5 10.5 L8.5 11 L6.5 14 L10 13.6 L8 15.5 "
-                 "L11.5 15.8 L14.5 14 L15.5 10.5 Z"),
-        ("ink", "M5.5 10.5 L11 12 L6.5 14 Z"),
-        ("ink", "M10.2 8.2 L11.4 8.2 L11.4 9.4 L10.2 9.4 Z"),
-    ],
-}
-FLAT_16 = {
-    "view": 16,
-    "layers": [
-        ("rim", "8,0.5 15,4.5 15,11.5 8,15.5 1,11.5 1,4.5"),
-        ("face", "M10 3 L12.5 4.5 L13 7 L12 8.5 L13 10.5 L11 12 L9 12.5 L6.5 11.5 L4 11.5 "
-                 "L5.5 9.5 L3.5 9.5 L3 7.5 L5 5.5 L7.5 4 Z"),
-        ("rim", "M3 7.5 L7.5 8.5 L3.5 9.5 Z"),
-    ],
-}
-# 16 px in the mock is hex in --roar-deep, silhouette in --roar, mouth cut in
-# --roar-deep: the "face" key is the silhouette there and "rim" the hex and cut.
+HEX_INNER = "24,4.5 41,14.3 41,33.7 24,43.5 7,33.7 7,14.3"
 
 SIZES = (16, 24, 48, 96, 512)
 SUPER = {16: 8, 24: 8, 48: 6, 96: 4, 512: 2}
 FRAMES = 24
 SPIN_TILE = 128
+TRACE_SUPER = 4                    # the 48 px SVG is traced at 192 px
+TRACE_TOL = 0.35                   # Douglas-Peucker tolerance, in 48 px units
+TRACE_MIN_AREA = 0.75              # loops under this, in 48 px units squared, are dropped
 
 
 # --- geometry parsing --------------------------------------------------------
@@ -128,22 +129,43 @@ def parse_polys(d):
     return polys
 
 
-def to_mm(pt):
-    """SVG 48-space (y down) to coin millimetres (y up, centred)."""
-    return ((pt[0] - 24.0) * MM, -(pt[1] - 24.0) * MM)
-
-
 # --- Blender build -----------------------------------------------------------
+MATERIALS = []
+
+
 def material(name, key):
+    """Principled for the strike; an unlit emission of the same palette colour
+    behind a Mix Shader whose factor `id_mode` sets, for the ID render."""
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
-    bsdf = mat.node_tree.nodes["Principled BSDF"]
-    bsdf.inputs["Base Color"].default_value = palette_linear(key)
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    bsdf = nodes["Principled BSDF"]
+    out = nodes["Material Output"]
+    colour = palette_linear(key)
+    bsdf.inputs["Base Color"].default_value = colour
     bsdf.inputs["Metallic"].default_value = 0.0
     bsdf.inputs["Roughness"].default_value = 0.55
     if "Specular IOR Level" in bsdf.inputs:
         bsdf.inputs["Specular IOR Level"].default_value = 0.25
+    emit = nodes.new("ShaderNodeEmission")
+    emit.inputs["Color"].default_value = colour
+    emit.inputs["Strength"].default_value = 1.0
+    mix = nodes.new("ShaderNodeMixShader")
+    mix.name = "id_mix"
+    mix.inputs["Fac"].default_value = 0.0
+    links.new(bsdf.outputs["BSDF"], mix.inputs[1])
+    links.new(emit.outputs["Emission"], mix.inputs[2])
+    links.new(mix.outputs["Shader"], out.inputs["Surface"])
+    MATERIALS.append(mat)
     return mat
+
+
+def id_mode(on):
+    for mat in MATERIALS:
+        mat.node_tree.nodes["id_mix"].inputs["Fac"].default_value = 1.0 if on else 0.0
+    sc = bpy.context.scene
+    bpy.data.objects["Sun"].hide_render = on
+    sc.world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.0 if on else 0.45
 
 
 def prism(name, polys_mm, z0, z1, key, bevel=0.0, parent=None):
@@ -213,26 +235,121 @@ def hex_mm(flats_mm):
             for k in range(6)]
 
 
+def relief(parent):
+    """The Meshy lion, clipped off its plaque, turned face-up, scaled to the
+    coin, decimated, and coloured per face from height and radius."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=RELIEF_GLB)
+    imported = [o for o in bpy.data.objects if o not in before]
+    meshes = [o for o in imported if o.type == "MESH"]
+    if len(meshes) != 1:
+        raise RuntimeError(f"expected one mesh in {RELIEF_GLB}, got {len(meshes)}")
+    src = meshes[0]
+    src_mesh = src.data
+    n = len(src_mesh.vertices)
+    co = np.empty(n * 3, dtype=np.float32)
+    src_mesh.vertices.foreach_get("co", co)
+    co = co.reshape(n, 3) @ np.array(src.matrix_world.to_3x3().transposed(), dtype=np.float32)
+    co += np.array(src.matrix_world.translation, dtype=np.float32)
+    # The plaque's flat back must be the +Y slab and the relief must face -Y;
+    # the clip below assumes exactly that orientation and refuses any other.
+    ext = co.max(0) - co.min(0)
+    if int(np.argmin(ext)) != 1:
+        raise RuntimeError(f"relief thin axis is not Y: extent {ext}")
+    slab = 0.02 * ext[1]
+    back = (co[:, 1] > co[:, 1].max() - slab).sum()
+    front = (co[:, 1] < co[:, 1].min() + slab).sum()
+    if back <= front:
+        raise RuntimeError(f"plaque back not at +Y ({back} vs {front} slab verts)")
+
+    tris = np.empty(len(src_mesh.loop_triangles) * 3, dtype=np.int32)
+    src_mesh.loop_triangles.foreach_get("vertices", tris)
+    tris = tris.reshape(-1, 3)
+    for o in imported:
+        bpy.data.objects.remove(o)
+    bpy.data.meshes.remove(src_mesh)
+
+    # Clip: keep triangles entirely on the lion's side of the cut and inside
+    # the plaque ring; the cut edge is sunk under the coin face, so a sliver
+    # of base is never seen.
+    r = np.hypot(co[:, 0], co[:, 2])
+    keep_v = (co[:, 1] < PLAQUE_CUT) & (r < PLAQUE_RING_R)
+    keep_t = keep_v[tris].all(axis=1)
+    tris = tris[keep_t]
+    used = np.unique(tris)
+    remap = np.full(n, -1, dtype=np.int64)
+    remap[used] = np.arange(len(used))
+    co = co[used]
+    tris = remap[tris]
+
+    # Turn face-up (-Y -> +Z, +Z -> +Y), centre on the plaque's axis (the
+    # medallion is already centred on the origin), then scale: XY to LION_MM
+    # on the longer axis, depth to RELIEF_MM, base at Z_FACE - SINK_MM.
+    x, y, z = co[:, 0], co[:, 2], PLAQUE_CUT - co[:, 1]
+    span = max(x.max() - x.min(), y.max() - y.min())
+    s_xy = LION_MM / span
+    s_z = RELIEF_MM / z.max()
+    xm, ym, zm = x * s_xy, y * s_xy, z * s_z + (Z_FACE - SINK_MM)
+
+    bm = bmesh.new()
+    verts = [bm.verts.new((float(a), float(b), float(c))) for a, b, c in zip(xm, ym, zm)]
+    for a, b, c in tris:
+        try:
+            bm.faces.new((verts[a], verts[b], verts[c]))
+        except ValueError:
+            pass                       # a duplicate face in the source
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    bmesh.ops.recalc_face_normals(bm, faces=list(bm.faces))
+    mesh = bpy.data.meshes.new("lion_dense")
+    bm.to_mesh(mesh)
+    bm.free()
+    dense = bpy.data.objects.new("lion_dense", mesh)
+    bpy.context.collection.objects.link(dense)
+    mod = dense.modifiers.new("decimate", "DECIMATE")
+    mod.decimate_type = "COLLAPSE"
+    mod.ratio = min(1.0, RELIEF_TRIS / max(1, len(mesh.polygons)))
+    mod.use_collapse_triangulate = True
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    lion_mesh = bpy.data.meshes.new_from_object(dense.evaluated_get(dg))
+    bpy.data.objects.remove(dense)
+    bpy.data.meshes.remove(mesh)
+
+    for key in ("mane", "head", "ink"):
+        lion_mesh.materials.append(material(f"m_lion_{key}", KEYS[key]))
+    nv = len(lion_mesh.vertices)
+    vco = np.empty(nv * 3, dtype=np.float32)
+    lion_mesh.vertices.foreach_get("co", vco)
+    vco = vco.reshape(nv, 3)
+    v_h = (vco[:, 2] - (Z_FACE - SINK_MM)) / RELIEF_MM
+    v_r = np.hypot(vco[:, 0], vco[:, 1]) / (LION_MM / 2.0)
+    for poly in lion_mesh.polygons:
+        idx = list(poly.vertices)
+        h = float(v_h[idx].mean())
+        rr = float(v_r[idx].mean())
+        if (h < INK_H and rr < INK_R) or h < GROOVE_H:
+            poly.material_index = 2
+        elif h >= HEAD_H or rr < FACE_R:
+            poly.material_index = 1
+        else:
+            poly.material_index = 0
+    lion_mesh.shade_smooth()
+    lion = bpy.data.objects.new("lion", lion_mesh)
+    bpy.context.collection.objects.link(lion)
+    lion.parent = parent
+    print(f"relief: {len(lion_mesh.polygons)} tris, {nv} verts, "
+          f"{LION_MM} mm across, {RELIEF_MM} mm deep")
+    return lion
+
+
 def build():
     pivot = bpy.data.objects.new("coin", None)
     bpy.context.collection.objects.link(pivot)
-
     outer = hex_mm(FLATS_MM)
     inner = hex_mm(FLATS_MM - 2 * RIM_WIDTH_MM)
     ring("rim", outer, inner, -Z_TOP, Z_TOP, KEYS["rim"], pivot)
     prism("face", [inner], -Z_TOP, Z_FACE, KEYS["face"], parent=pivot)
-
-    def poly_mm(d):
-        return [[to_mm(p) for p in poly] for poly in parse_polys(d)]
-
-    prism("mane", poly_mm(MANE_D), Z_FACE, MANE_TOP, KEYS["mane"], BEVEL_MM, pivot)
-    prism("head", poly_mm(HEAD_D), Z_FACE, HEAD_TOP, KEYS["head"], BEVEL_MM, pivot)
-    prism("mouth", poly_mm(MOUTH_D), HEAD_TOP, HEAD_TOP + INLAY, KEYS["ink"], 0.0, pivot)
-    prism("teeth", poly_mm(TEETH_D), HEAD_TOP, HEAD_TOP + INLAY * 2, KEYS["head"], 0.0, pivot)
-    cx, cy, r = EYE
-    eye = [to_mm((cx + r * math.cos(math.tau * k / 10), cy + r * math.sin(math.tau * k / 10)))
-           for k in range(10)]
-    prism("eye", [eye], HEAD_TOP, HEAD_TOP + INLAY, KEYS["ink"], 0.0, pivot)
+    relief(pivot)
     return pivot
 
 
@@ -331,7 +448,7 @@ def render_coin(res, tmp):
     return binary_downsample(render_rgba(res * f, tmp), f)
 
 
-# --- the flat cut ------------------------------------------------------------
+# --- the flat cut: an ID render, classified onto the palette -----------------
 def palette_hex(key):
     import json
     with open(os.path.join(ROOT, "data", "palette.json")) as fh:
@@ -342,61 +459,166 @@ def palette_hex(key):
 
 def srgb_u8(key):
     hx = palette_hex(key)
-    return [int(hx[i:i + 2], 16) / 255.0 for i in (1, 3, 5)]
+    return np.array([int(hx[i:i + 2], 16) / 255.0 for i in (1, 3, 5)], dtype=np.float32)
 
 
-def point_in_polys(px, py, polys):
-    """Even-odd fill over all of a layer's subpaths, vectorised."""
-    inside = np.zeros(px.shape, dtype=bool)
-    for poly in polys:
-        n = len(poly)
-        for k in range(n):
-            x0, y0 = poly[k]
-            x1, y1 = poly[(k + 1) % n]
-            if y0 == y1:
-                continue
-            cond = ((y0 > py) != (y1 > py))
-            xi = x0 + (py - y0) * (x1 - x0) / (y1 - y0)
-            inside ^= cond & (px < xi)
-    return inside
+LAYER_ORDER = ("rim", "face", "mane", "head", "ink")
 
 
-def flat_cut(spec, res, f=16):
-    view = spec["view"]
-    n = res * f
-    c = (np.arange(n) + 0.5) * view / n
-    px, py = np.meshgrid(c, c)
-    out = np.zeros((n, n, 4), dtype=np.float32)
-    for key, d in spec["layers"]:
-        m = point_in_polys(px, py, parse_polys(d))
+def classify(arr):
+    """Per pixel, the index into LAYER_ORDER of the nearest palette colour, or
+    -1 outside the coin."""
+    cols = np.stack([srgb_u8(KEYS[k]) for k in LAYER_ORDER])
+    d = ((arr[..., None, :3] - cols[None, None]) ** 2).sum(-1)
+    idx = d.argmin(-1)
+    idx[arr[..., 3] < 0.5] = -1
+    return idx
+
+
+def flat_from_ids(idx):
+    out = np.zeros(idx.shape + (4,), dtype=np.float32)
+    for k, key in enumerate(LAYER_ORDER):
+        m = idx == k
         out[m, :3] = srgb_u8(KEYS[key])
         out[m, 3] = 1.0
-    return binary_downsample(out, f)
+    return out
 
 
-def write_svg(path, spec):
-    view = spec["view"]
+def id_render(res, tmp, f):
+    """A supersampled unlit render, binary-downsampled by f, classified."""
+    id_mode(True)
+    try:
+        arr = binary_downsample(render_rgba(res * f, tmp), f)
+    finally:
+        id_mode(False)
+    return classify(arr)
+
+
+def pixel_runs_path(mask):
+    """A path of one rect per horizontal run: pixel-exact at the SVG's size."""
+    parts = []
+    for yy in range(mask.shape[0]):
+        row = mask[yy]
+        xx = 0
+        while xx < len(row):
+            if row[xx]:
+                x0 = xx
+                while xx < len(row) and row[xx]:
+                    xx += 1
+                parts.append(f"M{x0} {yy}h{xx - x0}v1h{x0 - xx}z")
+            else:
+                xx += 1
+    return "".join(parts)
+
+
+def trace_loops(mask):
+    """Boundary loops of a binary mask on the pixel lattice, inside on the
+    left. Returns lists of (x, y) corner points in pixel units."""
+    h, w = mask.shape
+    pad = np.zeros((h + 2, w + 2), dtype=bool)
+    pad[1:-1, 1:-1] = mask
+    edges = {}
+    ys, xs = np.nonzero(pad)
+    for yy, xx in zip(ys.tolist(), xs.tolist()):
+        x0, y0 = xx - 1, yy - 1
+        if not pad[yy - 1, xx]:
+            edges.setdefault((x0, y0), []).append((x0 + 1, y0))          # top, going right
+        if not pad[yy, xx + 1]:
+            edges.setdefault((x0 + 1, y0), []).append((x0 + 1, y0 + 1))  # right, going down
+        if not pad[yy + 1, xx]:
+            edges.setdefault((x0 + 1, y0 + 1), []).append((x0, y0 + 1))  # bottom, going left
+        if not pad[yy, xx - 1]:
+            edges.setdefault((x0, y0 + 1), []).append((x0, y0))          # left, going up
+    loops = []
+    while edges:
+        start = next(iter(edges))
+        loop, cur = [start], start
+        while True:
+            nxt = edges[cur].pop()
+            if not edges[cur]:
+                del edges[cur]
+            if nxt == start:
+                break
+            loop.append(nxt)
+            cur = nxt
+        loops.append(loop)
+    return loops
+
+
+def simplify(points, tol):
+    """Douglas-Peucker on a closed loop, split at its two farthest points."""
+    pts = np.array(points, dtype=np.float64)
+    if len(pts) < 4:
+        return pts.tolist()
+
+    def dp(idx):
+        a, b = pts[idx[0]], pts[idx[-1]]
+        if len(idx) <= 2:
+            return [idx[0]]
+        ab = b - a
+        nrm = np.hypot(*ab)
+        seg = pts[idx[1:-1]]
+        if nrm == 0:
+            dist = np.hypot(*(seg - a).T)
+        else:
+            dist = np.abs(ab[0] * (seg[:, 1] - a[1]) - ab[1] * (seg[:, 0] - a[0])) / nrm
+        k = int(dist.argmax())
+        if dist[k] > tol:
+            return dp(idx[:k + 2]) + dp(idx[k + 1:])
+        return [idx[0]]
+
+    far = int(np.argmax(np.hypot(*(pts - pts[0]).T)))
+    idx = list(range(len(pts)))
+    out = dp(idx[:far + 1]) + dp(idx[far:] + [0])
+    return [pts[i].tolist() for i in out]
+
+
+def loop_area(points):
+    pts = np.array(points, dtype=np.float64)
+    x, y = pts[:, 0], pts[:, 1]
+    return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def traced_path(mask, scale, tol):
     rows = []
-    for key, d in spec["layers"]:
-        d = d if re.search(r"[A-Za-z]", d) else "M" + d.replace(" ", " L") + " Z"
-        rows.append(f'  <path d="{d}" fill="{palette_hex(KEYS[key])}" fill-rule="evenodd"/>')
+    for loop in trace_loops(mask):
+        if loop_area(loop) < TRACE_MIN_AREA * scale * scale:
+            continue                   # a fleck under a pixel at 48
+        pts = simplify(loop, tol * scale)
+        if len(pts) < 3:
+            continue
+        rows.append("M" + " L".join(f"{x / scale:.2f} {y / scale:.2f}" for x, y in pts) + " Z")
+    return " ".join(rows)
+
+
+def write_svg(path, view, layers):
+    rows = [f'  <path d="{d}" fill="{palette_hex(KEYS[key])}" fill-rule="evenodd"/>'
+            for key, d in layers if d]
     with open(path, "w") as fh:
         fh.write(f'<svg xmlns="http://www.w3.org/2000/svg" width="{view}" height="{view}" '
                  f'viewBox="0 0 {view} {view}">\n' + "\n".join(rows) + "\n</svg>\n")
 
 
-def write_svg48(path):
-    outer = HEX_OUTER
-    spec = {"view": 48, "layers": [
-        ("rim", outer),
-        ("face", "24,4.5 41,14.3 41,33.7 24,43.5 7,33.7 7,14.3"),
-        ("mane", MANE_D), ("head", HEAD_D), ("ink", MOUTH_D),
-        ("head", TEETH_D),
-        ("ink", " ".join(f"{EYE[0] + EYE[2] * math.cos(math.tau * k / 10):.2f},"
-                         f"{EYE[1] + EYE[2] * math.sin(math.tau * k / 10):.2f}"
-                         for k in range(10))),
-    ]}
-    write_svg(path, spec)
+def svg_pixel_exact(path, idx):
+    """16 and 24: every layer as pixel runs of the classified render, so the
+    DOM draws the PNG's own pixels."""
+    view = idx.shape[0]
+    write_svg(path, view, [(key, pixel_runs_path(idx == k)) for k, key in enumerate(LAYER_ORDER)])
+
+
+def hex_path(points):
+    return "M" + " L".join(p.replace(",", " ") for p in points.split(" ")) + " Z"
+
+
+def svg_traced(path, idx, scale):
+    """48: the hexes as polygons, the lion's three layers as simplified contours
+    of the ID render, each layer filled over the ones under it."""
+    mane, head, ink = (LAYER_ORDER.index(k) for k in ("mane", "head", "ink"))
+    layers = [("rim", hex_path(HEX_OUTER)), ("face", hex_path(HEX_INNER)),
+              ("mane", traced_path(idx >= mane, scale, TRACE_TOL)),
+              ("head", traced_path(idx >= head, scale, TRACE_TOL)),
+              ("ink", traced_path(idx == ink, scale, TRACE_TOL))]
+    write_svg(path, idx.shape[0] // scale, layers)
 
 
 # --- main --------------------------------------------------------------------
@@ -408,19 +630,26 @@ def main():
     pivot = build()
     bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND)
     tmp = os.path.join(OUT_DIR, "_tmp.png")
+    only = os.environ.get("ROAR_COIN_ONLY")        # a diagnostic subset, dev only
 
     pivot.rotation_euler = (0.0, 0.0, 0.0)
     for res in SIZES:
+        if only and str(res) not in only.split(","):
+            continue
         save_rgba(os.path.join(OUT_DIR, f"roar_coin_{res}.png"), render_coin(res, tmp))
         print("relief", res)
-    # The flat cut of the SVG, kept beside the relief render at 16 and 24 px. The
-    # relief render ships as roar_coin_{16,24}.png: it won on contrast (the
-    # limestone head against terracotta); the flat 16 is tone-on-tone.
-    for res, spec in ((16, FLAT_16), (24, FLAT_24)):
-        save_rgba(os.path.join(OUT_DIR, f"roar_coin_{res}_flat.png"), flat_cut(spec, res))
-    write_svg(os.path.join(OUT_DIR, "roar_coin_16.svg"), FLAT_16)
-    write_svg(os.path.join(OUT_DIR, "roar_coin_24.svg"), FLAT_24)
-    write_svg48(os.path.join(OUT_DIR, "roar_coin_48.svg"))
+    if only:
+        os.remove(tmp)
+        return
+    # The flat cut at 16 and 24, kept beside the relief render as the losing
+    # candidate: judged 2026-10-01, the lit relief ships at both (the limestone
+    # face and the dark mouth hold up; the flat cut is tone-on-tone at 16).
+    for res in (16, 24):
+        idx = id_render(res, tmp, SUPER[res])
+        save_rgba(os.path.join(OUT_DIR, f"roar_coin_{res}_flat.png"), flat_from_ids(idx))
+        svg_pixel_exact(os.path.join(OUT_DIR, f"roar_coin_{res}.svg"), idx)
+    idx48 = id_render(48 * TRACE_SUPER, tmp, 2)
+    svg_traced(os.path.join(OUT_DIR, "roar_coin_48.svg"), idx48, TRACE_SUPER)
 
     # 24-frame spin about the vertical screen axis: 0.6 s, so 40 fps.
     cols, rows = 6, 4
