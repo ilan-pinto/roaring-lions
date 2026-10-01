@@ -835,6 +835,63 @@ no arm bones) held unchanged.
 
 ---
 
+## WP-A3.1 batch B7 — the eight teams without a bake (GH-179)
+
+Eight unit types, 2026-10-01, on the lead's "Run all 8" (160–240 credits,
+ceiling 300): **205 credits spent, no re-roll.** AI-generated (Meshy) and
+disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl`. Numbers tables and prompts in
+`meshy-prompts-units.md` §18–23; what each preview honoured and what the
+importer fixed in `style-bible.md` §14. The downloaded `model.glb` and texture
+sources sit under `art/meshy/<slug>-20261001-<task>/` and are **not
+committed**; the ledger, each folder's `task.json` and thumbnail are. All
+eight join `TEXTURED_INFANTRY_TYPES` / `TEXTURED_INFANTRY_EXEMPT`: palette,
+framing and fill skip them, silhouette IoU still runs. Three things this
+batch did differently from B3–B6:
+
+- **Two bakes were bought on previews that already existed.** The CLI gained
+  `pnpm meshy -- refine <preview-task-id>` (the `--refine` half of `text` on
+  its own), so `manpad_team` and `recoilless_team` -- B2's figures, the ones
+  the lead judged and #327 seated -- cost 15 each (refine 10 + remesh 5 at
+  B2's 1,500), not a new 35-credit figure. The re-remesh is a fresh shell of
+  the same preview, so the cut, the kneel and `_seat_launcher` re-ran on it;
+  `launcher_clearance.test.ts` reads 0 inside on both.
+- **The four civilians keep their supplied figures and ship the bake those
+  sources always carried -- 0 credits.** `tools/import_meshy_civilians.py`
+  keeps one material (the B3 rule, `_keep_base_color`, shared) and exports it
+  at 1024 JPEG; same geometry, same supplied clips, same `rl_gait` to the
+  fourth decimal. `validate_mesh_assets.py` maps the four file basenames to
+  the one type id (`TEXTURED_FILE_TYPE`) so the two pinned lists stay equal.
+- **The five supplied teams are REPLACED** (`meshy_soldier.glb`,
+  `meshy_mortar_team.glb`, `yahalom_engineer.glb` deleted; `sarim_rifles.glb`
+  and `sniper_team.glb` overwritten) by A-pose figures through
+  `tools/units/import_meshy_crew_team.py`, each under its team id's own
+  name. What went with them: the supplied `moveFire`, `fall`, `fallAlt` and
+  `wreckAlt` clips (rig.py topples per figure), the mortar's limbered march
+  (the crew walk on D6 walkers now) and the sniper sculpt's ghillie drape.
+  `yahalom_squad`'s `work` did NOT go: rig.py builds it now (`build_work_clip`,
+  a kneeler body on `yah_ak_root` shown in `work` alone, its own mast pitched
+  into the ground), so the tunnel charge still plays a man at the mast.
+
+| File | Draws as | Preview task id (`--pose a-pose`) | Refine task id (2k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/manpad_team.glb` | `manpad_team` (MANPAD Team, enemy) | B2's `01a0f2ac-f4e5-7632-8b48-d8813d50890c` | `01a0f88a-c202-7630-85cf-d6fc9ec596ac` | `01a0f88f-07fa-7056-820b-4a231e864cff` at 1,500 | The refine painted the scarf and collar red-and-white check: `RECOLOUR` to dusty tan (B4's window). The tube found no seat inside `SEAT_OUT_MAX` 0.10 -- the nearest candidate failed by 3 samples within 2 cm and 1 vertex in the bore -- so the search's outboard limit is 0.12 (measured, then widened) and the tube rests over the deltoid at out 0.105. The support hand reads 17 cm short of the stock (B2's gripstock, no handle). **7,685 polys / 8,976 glTF tris**, 0.37 MB shipped |
+| `art/meshes/recoilless_team.glb` | `recoilless_team` (Recoilless Team, enemy) | B2's `01a0f2ac-f5b1-7146-b3e3-73be95e86ff2` | `01a0f88c-8d6f-74b8-8c45-bffaf4ce1e90` | `01a0f890-4780-708b-8c6d-dae7e73166ea` at 1,500 | A grey hood and tan rig, no recolour. Seat found at the old limits (pushed 0.200, rest 0.33). **9,092 polys / 10,366 glTF tris** |
+| `art/meshes/inf_squad.glb` | `inf_squad` (Rifle Squad, KDF) | `01a0f891-8aa4-76c1-97ca-260bac7383b5` | `01a0f892-61d1-703e-b0bd-226ab87adaff` | `01a0f89c-f6c6-7272-a46c-bc4a5a02abb7` at 1,500 | The preview came holding its carbine across the chest in BOTH hands (not the A-pose): both arms stay on the torso (`ARMS_ON_TORSO`), the carbine ships as `weapon` on each man's `spine` (`WEAPON_ON_SPINE`), no kit rifle, `fire` is a 3-degree `FIRE_ROOT_LEAN` brace -- breach_team's shape on both sides. Three men at kit's line. **7,290 polys / 7,746 glTF tris**, 0.39 MB shipped. This file is the bible's 1.78 m KDF reference now |
+| `art/meshes/sarim_rifles.glb` | `sarim_rifles` (Sarim Rifles, enemy) | `01a0f894-4a4e-7291-b64d-a9d96dc8c408` | `01a0f895-4da3-7456-8dd7-c70a75566455` | `01a0f89e-7b37-7588-8fae-85a8979448c6` at 1,500 | A-pose honoured; the head wrap ignored (bare head, a saturated green headband): kit's keffiyeh over the crown, and the band's green remapped to tan (`RECOLOUR`, a non-wrapping hue window, new). Three riflemen in `teams.py`'s wedge, kit rifles at the bent hand. Joins `rig.SUPPORTED_TEAMS`. **8,721 polys / 10,157 glTF tris** |
+| `art/meshes/mortar_team.glb` | `mortar_team` (60mm Mortar Team, KDF) | `01a0f897-130a-7292-904b-e1c69d00549f` | `01a0f898-1301-72be-b851-7fa06623fb66` | `01a0f89f-ca03-719d-b2c1-1439abe166d3` at 1,000 | A-pose honoured, helmet and pouches. Two kneelers on D6 walkers (new for this team -- the kit's crew had none), the No.3 standing with a kit rifle, `rig._mortar_team_extras` on `prop`. **8,141 polys / 9,704 glTF tris**, 8% over the 8,000 cap at 1,000 tris a figure (three men, two of them three times) |
+| `art/meshes/sniper_team.glb` | `sniper_team` (Sniper Team, KDF) | `01a0f89a-112b-76f6-be96-e757cf292ba7` | `01a0f89a-d374-7120-acea-40834aa11577` | `01a0f8a1-15c0-75ee-8fc3-40b12f5bdcb3` at 1,500 | The preview came AIMING its carbine, arms up on the gun, no ghillie hood. Kept: `rig._sniper_rest`'s two bodies with Meshy geometry -- the standing walker (carbine on `spine`) for `move`, and the same cut laid on its chest on `death_root` (`_prone_parts`: head lifted 38 deg, legs splayed, arms under it) for every other clip, with kit's long rifle and bipod lying beside the head and a small kit glasses box at the spotter's face. The carbine turned along the body ran through the lying man's head and was dropped from the prone copy. **6,596 polys / 6,954 glTF tris** |
+| `art/meshes/yahalom_squad.glb` | `yahalom_squad` (Yahalom Engineers, KDF) | `01a0f8a2-8570-74fb-812e-bf374a02e002` | `01a0f8a3-5e19-7267-95d0-e80a06084f24` | `01a0f8ab-7294-7338-b207-1ed04b57ec44` at 2,000 | A-pose honoured, knee pads and goggles, no cord coil, a small green shoulder patch left as painted. Kit packs on both spines, the 1.45 m mast level at yah_a's hung hand (`metal`, not `weapon` -- a sensor mast is not a barrel), yah_b's rifle at his hand, and the `work` kneeler. **9,460 polys / 10,482 glTF tris** -- the third body is the cap's cost |
+| `art/meshes/civilians/*.glb` (4) | `civilians` | supplied (see "The supplied Meshy assets") | — | — | Bake kept at 1024 JPEG; 0.27–0.32 MB shipped each |
+
+Gates on 2026-10-01: `validate:meshes`, `encode:meshes --check`, `test`
+(`mesh_gait.test.ts` re-pinned: the control is the rig.py mortar_team, the
+fall/moveFire/marker/two-posture tests that measured the deleted files are
+gone with them, `sniper_team` stays the one multiplier under 1.0 at 0.972),
+`launcher_clearance.test.ts` (0 inside on all four), `typecheck`, `lint`.
+
+---
+
 ## The GH-277 field works (Meshy text-to-3D, remeshed; two textured), 2026-09-30
 
 Eight buildings for the field-works design (`docs/superpowers/specs/2026-09-29-

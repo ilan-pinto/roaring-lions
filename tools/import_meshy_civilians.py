@@ -176,12 +176,20 @@ sys.path.insert(0, HERE)
 import civilian_retarget as retarget  # noqa: E402
 import civilian_roles as roles  # noqa: E402
 import import_meshy_soldier as soldier  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "units"))
+from import_meshy_crew_team import _keep_base_color  # noqa: E402  -- the B3 bake-keeping rule, shared
 
 SRC_DIR = os.path.join(REPO, "art", "blend", "civilian")
 OUT_DIR = os.path.join(REPO, "art", "meshes", "civilians")
 
 #: See the module docstring. Same value as every other Meshy import here.
 FORWARD_FIX_DEG = 90.0
+
+#: The shipped bake: the crew importer's own numbers (B3), "ask 2048, ship
+#: 1024" -- a 25 px figure cannot show more, and four civilians at 4096
+#: would add ~50 MB to a boot.
+TEXTURE_PX = 1024
+JPEG_QUALITY = 85
 
 #: Clip build order. Three, not the contract's six -- `fire`, `work` and
 #: `wreck` are deliberately unauthored, see the module docstring.
@@ -837,8 +845,20 @@ def build_figure(figure, print_islands=False):
         + ", ".join(f"{r}={n} ({n / total:.1%})" for r, n in counts.items())
     )
 
-    # --- 3. zero materials (the contract's own "not negotiable").
-    scratch_mesh.data.materials.clear()
+    # --- 3. ONE material: the figure's own base-colour bake (B7, GH-179).
+    # Until 2026-10-01 this line cleared every material -- the contract's
+    # "zero materials", written before any infantry bake exemption existed.
+    # `civilians` is in TEXTURED_INFANTRY_TYPES / TEXTURED_INFANTRY_EXEMPT
+    # now, so the supplied 4096 bake is kept the way the crew importer keeps
+    # a remesh's (`_keep_base_color`: the Principled BSDF with its base
+    # colour image alone, renamed `base_color`), downscaled to TEXTURE_PX and
+    # exported as JPEG. Same geometry, same clips, same rig as before.
+    _keep_base_color(figure, scratch_mesh)
+    img = bpy.data.images["base_color"]
+    before = tuple(img.size)
+    if img.size[0] > TEXTURE_PX or img.size[1] > TEXTURE_PX:
+        img.scale(min(img.size[0], TEXTURE_PX), min(img.size[1], TEXTURE_PX))
+    print(f"  {figure}: base_color {before[0]}x{before[1]} -> {img.size[0]}x{img.size[1]}")
 
     hips_rest = scratch_arm.data.bones["Hips"].matrix_local.copy()
     arm_world = scratch_arm.matrix_world.copy()
@@ -917,7 +937,7 @@ def build_figure(figure, print_islands=False):
     for clip in CLIP_ORDER:
         action = write_clip(scratch_arm, clip, frames_by_clip[clip])
         tmp_path = os.path.join(tmp_dir, f"{clip}.glb")
-        soldier.export_glb(scratch_arm, tmp_path)
+        soldier.export_glb(scratch_arm, tmp_path, materials=True, jpeg_quality=JPEG_QUALITY)
         clip_paths[clip] = tmp_path
         scratch_arm.animation_data.action = None
         action.use_fake_user = False

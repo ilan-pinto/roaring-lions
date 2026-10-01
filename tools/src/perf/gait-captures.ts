@@ -310,9 +310,12 @@ const SUBJECTS: readonly Subject[] = [
   { id: 'sniper_team', x: 30, bodies: 1, fireRange: 5, moveFire: false },
   { id: 'charge_squad', x: 33, bodies: 1, fireRange: 1, moveFire: false },
   { id: 'yahalom_squad', x: 36, bodies: 1, fireRange: null, moveFire: false },
+  // B7 (2026-10-01): the two B2 crews, textured on their own previews.
+  { id: 'manpad_team', x: 39, bodies: 1, fireRange: 5, moveFire: false },
+  { id: 'recoilless_team', x: 42, bodies: 1, fireRange: 5, moveFire: false },
   // Last, because four bodies need four tiles and the lane pitch is three.
   // Nothing stands to its right, so it spills into empty ground.
-  { id: 'civilians', x: 39, bodies: 4, fireRange: null, moveFire: false },
+  { id: 'civilians', x: 45, bodies: 4, fireRange: null, moveFire: false },
 ];
 
 /** Unarmed, enemy-faction, human-scale, and unchanged by this milestone --
@@ -476,12 +479,27 @@ function diskBytes(file: string): number | null {
  *  today, and falling through rather than 404ing is the right answer if
  *  there ever are). */
 const revCache = new Map<string, Buffer | null>();
+/**
+ * B7 (GH-179, 2026-10-01): three types changed FILE NAME when their supplied
+ * Meshy asset was replaced by a rig.py figure under the team id's own name.
+ * A "before" run asks the fork point for the file the page requests NOW,
+ * which at the fork point is the superseded kit build (`RETIRED_MESH_FILES`
+ * kept it on disk) -- not the asset the player saw. The map answers with
+ * what the catalogue pointed at then.
+ */
+const BEFORE_NAME: Readonly<Record<string, string>> = {
+  'inf_squad.glb': 'meshy_soldier.glb',
+  'mortar_team.glb': 'meshy_mortar_team.glb',
+  'yahalom_squad.glb': 'yahalom_engineer.glb',
+};
+
 function revBytes(file: string): Buffer | null {
   const hit = revCache.get(file);
   if (hit !== undefined) return hit;
   let bytes: Buffer | null = null;
+  const revFile = BEFORE_NAME[file] ?? file;
   try {
-    bytes = execFileSync('git', ['-C', repo, 'show', `${rev}:assets/meshes/${file}`], {
+    bytes = execFileSync('git', ['-C', repo, 'show', `${rev}:assets/meshes/${revFile}`], {
       maxBuffer: 256 * 1024 * 1024,
     });
   } catch {
@@ -529,6 +547,15 @@ async function captureRevision(revision: 'before' | 'after'): Promise<void> {
   });
   page.setDefaultTimeout(STEP_TIMEOUT_MS);
   page.setDefaultNavigationTimeout(STEP_TIMEOUT_MS);
+  // Music off before boot -- the lead's rule for every test browser
+  // (`lions.settings`, `packages/app/src/settings.ts`, merged over defaults).
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('lions.settings', JSON.stringify({ audio: { music: 0 } }));
+    } catch {
+      /* storage blocked: the page boots with its defaults */
+    }
+  });
   page.on('console', (msg) => {
     const text = msg.text();
     if (text.includes('no mesh queued') || text.includes('rl_gait')) console.log('  page:', text);

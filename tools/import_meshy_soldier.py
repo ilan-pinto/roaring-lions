@@ -2201,7 +2201,7 @@ def check_clip_semantics(frames_by_clip, hips_rest, arm_world, bearings_by_clip)
     return travel
 
 
-def export_glb(arm_obj, path):
+def export_glb(arm_obj, path, materials=False, jpeg_quality=85):
     """`tools/units/rig.py`'s own `export_glb` settings, plus
     `export_optimize_animation_size=False`, and called ONCE PER CLIP against
     an armature carrying exactly one action at a time -- see `main()`'s own
@@ -2265,7 +2265,12 @@ def export_glb(arm_obj, path):
         export_animation_mode="ACTIONS",
         export_force_sampling=True,
         export_extras=True,
-        export_materials="NONE",
+        # `materials=True` is the B7 civilians path (GH-179): the figure's
+        # own base-colour bake ships as JPEG on the role meshes that carry a
+        # UV layer -- rig.export_glb's own switch, for a type named in
+        # TEXTURED_INFANTRY_TYPES / TEXTURED_INFANTRY_EXEMPT.
+        **(dict(export_materials="EXPORT", export_image_format="JPEG", export_jpeg_quality=jpeg_quality)
+           if materials else dict(export_materials="NONE")),
         export_rest_position_armature=True,
         export_optimize_animation_size=False,
     )

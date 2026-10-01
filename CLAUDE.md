@@ -1940,7 +1940,7 @@ the paragraph above, ~:306) -- nothing new here.
   per-figure `{prefix}_death_root`, and every clip keys both roots' scale (1/0
   living, 0/1 dead). All sixteen infantry team GLBs now carry `down` and `wreck`
   (`moto_rpg` carries `wreck` only — a motorcycle cannot go prone;
-  `yahalom_engineer` also carries `work`), civilians carry `down`, and
+  `yahalom_squad` also carries `work`, built by rig.py since B7), civilians carry `down`, and
   `units/mesh-death.ts` plays them: 0.4 s fade, then a persistent `MeshWreck`.
   **Since 2026-09-17 that is the exception, not the rule** (design
   `2026-09-17-infantry-animation-design.md`): the three Meshy bipeds carry

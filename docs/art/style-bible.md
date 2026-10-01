@@ -26,7 +26,7 @@ against its class's reference first:
 
 | class | reference | why that one |
 |---|---|---|
-| infantry | the 1.78 m KDF rifleman (`meshy_soldier.glb`) | the thing every other unit is judged against |
+| infantry | the 1.78 m KDF rifleman (`inf_squad.glb` since B7; `meshy_soldier.glb` before) | the thing every other unit is judged against |
 | vehicles | `technical.glb` (enemy light) / `mbt_lavi.glb` (heavy) | the two ends of the ground roster |
 | air | `recon_drone`, drawn at `SIZE_CLASS["air"]` 1.5 | an air unit must be at least as clickable as a soldier (25.8 px vs 25.7) |
 | buildings | the tile (3 m) and the storey (3 m) | a building's base *is* a tile diamond |
@@ -304,8 +304,9 @@ both of the first two lists — `manpad_team` and `recoilless_team` are kit-buil
 that never exported a GLB — so the work is **17 distinct units**, not 19. The other ten
 kit-built teams: `demo_squad`, `at_team`, `breach_team` (KDF); `militia_cell`,
 `rpg_team`, `atgm_cell`, `mortar_crew`, `charge_squad`, `digger_crew`, `moto_rpg`
-(enemy). Already Meshy-sourced and out of scope: `inf_squad`, `sarim_rifles`,
-`mortar_team`, `yahalom_squad`, `sniper_team`.
+(enemy). Already Meshy-sourced and out of scope at the time: `inf_squad`, `sarim_rifles`,
+`mortar_team`, `yahalom_squad`, `sniper_team` -- replaced in B7 (§14) on the lead's
+2026-10-01 ruling, with the civilians' supplied bakes kept.
 
 Three units per session, one importer run and one gate run each, two batches per
 visual bless (from CI numbers only).
@@ -590,3 +591,39 @@ otherwise.
 - **"Two canvas panniers and a rolled bedroll" came as one roll bag** -- the
   silhouette, not the count (bible §8 again). Kept: it is the lateral mass
   the kit's panniers existed for and the pillion's back rests on it.
+
+## 14. Measured in B7 (2026-10-01)
+
+- **A refine can be bought on an old preview.** `refine <preview-task-id>`
+  (new CLI command) textured B2's two figures a day after their previews for
+  10 credits each; the remesh of the refined task at the SAME polycount gave a
+  near-identical shell, but not an identical one -- the MANPAD's seat search
+  found no seat inside its 0.10 m outboard limit where B2's had, by 3 samples
+  within 2 cm. The search now reports the nearest candidate and which rule
+  refused it before anyone widens a limit.
+- **"Standing in a relaxed A-pose" lost twice more -- to "rifleman" and to
+  "sniper".** Both KDF previews came holding a carbine (across the chest in
+  both hands; aimed). Both kept: `ARMS_ON_TORSO` on both sides, the carbine as
+  the weapon on `spine`, a `FIRE_ROOT_LEAN` brace. The engineer, the mortar
+  crewman and the Sarim rifleman honoured the pose. Score on this pipeline:
+  nine previews of twenty-one ignored the pose line.
+- **A prone pose is the kneel's method laid flat, and the arms decide what
+  works.** With its arms welded to the gun, the sniper's body lies on them;
+  the long rifle has to lie BESIDE the head rather than under the hands, and
+  kit's prone offsets (written for a 0.25 m-thick kit body) put it inside a
+  0.5 m-thick Meshy one. Placed from the measured head instead.
+- **`work` is built in rig.py now** (`build_work_clip`, `work_posture`): a
+  third body per figure that kneels, shown in one clip, its own mast pitched
+  into the ground. The cost is the body -- `yahalom_squad` ships 10,482 glTF
+  tris, the largest team file in the batch.
+- **A mast is `metal`.** kit.tube's default `weapon` role put a 48-vertex bar
+  on `forearm_R` and the weapon-axis gate read it as a barrel too small to
+  gate. The role was wrong, not the gate.
+- **The civilians' bake was there all along.** Four supplied 4096 bakes,
+  dropped at import since GH-149 by the contract's "zero materials"; kept now
+  at 1024 JPEG for 0 credits, with the four basenames mapped to one type id
+  on the gate side so the pinned lists stay equal.
+- Counts (glTF tris): manpad 8,976, recoilless 10,366, inf_squad 7,746,
+  sarim 10,157, mortar_team 9,704, sniper 6,954, yahalom 10,482 -- four over
+  the 8,000 team cap, where the supplied files they replace read 31,965 /
+  180,670 / 20,544 / 30,876 / 27,991. 205 credits of the 240 approved.

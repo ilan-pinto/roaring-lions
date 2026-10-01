@@ -42,6 +42,13 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { buildMeshUnitTemplate, instantiateMeshUnit } from './mesh-unit';
 import { CLIP_NAMES } from './mesh-anim';
 import { MESH_ROLES, isMeshRole } from './mesh-role';
+import { TEXTURED_INFANTRY_TYPES } from './textured-infantry';
+
+// A GLB with a baked image (B7) decodes through browser globals in three's
+// loader; `mesh-team-death-shipped.test.ts` makes the same provision.
+if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
+  (globalThis as { self?: unknown }).self = globalThis;
+}
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const CIVILIAN_MESHES = `${REPO}art/meshes/civilians/`;
@@ -100,21 +107,26 @@ describe('shipped civilian GLBs', () => {
       const gltf = await parseShipped(figure);
       // Not `.not.toThrow()`: `buildMeshUnitTemplate` names the offending role
       // or clip in its own message, and losing that is losing the whole value.
-      const template = buildMeshUnitTemplate(gltf, 'civilian');
+      // `allowTextured` as `ThreeRenderer.loadMeshUnit` computes it for the
+      // `civilians` type: the four files ship their supplied bake since B7.
+      const template = buildMeshUnitTemplate(gltf, 'civilian', `${figure}.glb`, TEXTURED_INFANTRY_TYPES.has('civilians'));
       expect(template.materials.length).toBeGreaterThan(0);
       expect(template.geometries.length).toBe(template.materials.length);
     }
   );
 
-  it.each(shippedFigures())('%s: carries zero materials, images and textures', async (figure) => {
+  it.each(shippedFigures())('%s: carries exactly one material, one image and one texture -- its own bake', async (figure) => {
     const gltf = await parseShipped(figure);
-    // The parser hands back the raw glTF JSON, which is where the contract's
-    // "zero of each" is actually observable -- a `THREE.Mesh` always has SOME
-    // material once three.js has finished with it.
+    // The parser hands back the raw glTF JSON, which is where the count is
+    // actually observable -- a `THREE.Mesh` always has SOME material once
+    // three.js has finished with it. "Zero of each" (the contract) held until
+    // B7 (GH-179, 2026-10-01); `civilians` is in TEXTURED_INFANTRY_TYPES now
+    // and ships the supplied 1024 base-colour bake, one per file.
+    expect(TEXTURED_INFANTRY_TYPES.has('civilians')).toBe(true);
     const json = (gltf.parser as { json: Record<string, unknown[]> }).json;
-    expect(json.materials ?? []).toHaveLength(0);
-    expect(json.images ?? []).toHaveLength(0);
-    expect(json.textures ?? []).toHaveLength(0);
+    expect(json.materials ?? []).toHaveLength(1);
+    expect(json.images ?? []).toHaveLength(1);
+    expect(json.textures ?? []).toHaveLength(1);
   });
 
   it.each(shippedFigures())('%s: every role is in the closed set', async (figure) => {
