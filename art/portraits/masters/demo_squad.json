@@ -1,0 +1,22 @@
+{
+  "unit": "demo_squad",
+  "source": "assets/meshes/demo_squad.glb",
+  "source_sha256": "f8da856068004ce87a9acfc53c7a5539dd8349fd46235b6579230fcd744f6b10",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.1303,
+    0.8697,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 3,
+    "flat": 3
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "unit": "manpad_team",
+  "source": "assets/meshes/manpad_team.glb",
+  "source_sha256": "62403e6f2b7b336c922887df19d91ab6ed1119a5c775b30ca42dfb5a5cd5bb61",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.2666,
+    0.7334,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 2
+  }
+}

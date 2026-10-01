@@ -1,7 +1,7 @@
 {
   "unit": "inf_squad",
   "source": "assets/meshes/inf_squad.glb",
-  "source_sha256": "a36cd86f0350aa602a3f44425478a1f9f6727389e1ef7b486b8c1252d630ad1c",
+  "source_sha256": "ddc6ca9c4ea505b832a1e125442d3d7462c0ab6125daec39376945c7362605a9",
   "yaw_deg": -125.0,
   "elevation_deg": 12.0,
   "fov_deg": 30.0,
@@ -10,13 +10,13 @@
     0.88
   ],
   "ndc_box": [
+    0.0755,
+    0.9245,
     0.06,
-    0.94,
-    0.0729,
-    0.9271
+    0.94
   ],
   "materials": {
-    "baked": 0,
-    "flat": 7
+    "baked": 4,
+    "flat": 0
   }
 }

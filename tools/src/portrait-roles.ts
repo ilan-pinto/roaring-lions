@@ -9,10 +9,11 @@ import {
   VEHICLE_MESH_ROLES,
 } from '../../packages/render/src/three/units/vehicle-mesh-role';
 
-const out: Record<string, Record<string, string>> = { figure: {}, kdf_figure: {} };
+const out: Record<string, Record<string, string>> = { figure: {}, figure_enemy: {} };
 for (const r of MESH_ROLES) {
   try {
     out.figure[r] = liftTone(rampForRole(r, 'kdf'));
+    out.figure_enemy[r] = liftTone(rampForRole(r, 'enemy'));
   } catch {
     /* role with no ramp */
   }
@@ -27,5 +28,4 @@ for (const id of process.argv.slice(3)) {
     }
   }
 }
-delete out.kdf_figure;
 writeFileSync(process.argv[2], JSON.stringify(out, null, 2));

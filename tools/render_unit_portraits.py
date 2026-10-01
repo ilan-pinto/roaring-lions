@@ -20,7 +20,8 @@ LEFT (row 1).
 
 Deterministic: no random source, no `mathutils.noise`; the fit loop is a fixed
 number of rounds. Writes the 512 px master and the 192 px shipped PNG
-(Lanczos on premultiplied alpha) to art/portraits/; replaces nothing shipped.
+(Lanczos on premultiplied alpha) to art/portraits/
+(no --only renders the full KDF + Sarim roster); replaces nothing shipped.
 """
 import hashlib
 import json
@@ -66,14 +67,25 @@ SHIPPED_PX = 192           # 14
 ROUGHNESS = 0.85           # 6  WORLD_ROUGHNESS
 FIT_ROUNDS = 24
 
+# Figure teams live in meshes/ itself, vehicles and air in meshes/vehicles/.
 FIGURES = {"inf_squad", "at_team", "mortar_team", "sniper_team", "demo_squad",
-           "breach_team", "yahalom_squad"}
+           "breach_team", "yahalom_squad", "recon_zikit",
+           "atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles"}
+ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles"}
+ROSTER = (
+    # KDF (19)
+    "inf_squad,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
+    "mbt_lavi,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,"
+    "heli_peten,heli_peten_gunship,attack_drone,recon_drone,"
+    # Sarim (6)
+    "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone"
+)
 OUT_DIR = os.path.join(REPO, "art", "portraits")
 
 
 def parse_args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    args = {"only": "inf_squad,mbt_lavi,recon_drone", "source": "assets",
+    args = {"only": ROSTER, "source": "assets",
             "roles": "", "out": OUT_DIR}
     for a in argv:
         k, _, v = a.lstrip("-").partition("=")
@@ -160,7 +172,8 @@ def flat_material(cache, hexv):
 
 def paint(unit, table):
     cache, report = {}, {"baked": 0, "flat": 0}
-    roles = table["figure"] if unit in FIGURES else table[unit]
+    roles = (table["figure_enemy" if unit in ENEMY_FIGURES else "figure"]
+             if unit in FIGURES else table[unit])
     for ob in [o for o in bpy.context.scene.objects if o.type == "MESH"]:
         mats = [s.material for s in ob.material_slots]
         if mats and all(has_bake(m) for m in mats):

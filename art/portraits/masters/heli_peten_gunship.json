@@ -1,0 +1,22 @@
+{
+  "unit": "heli_peten_gunship",
+  "source": "assets/meshes/vehicles/heli_peten_gunship.glb",
+  "source_sha256": "0fa678abd26f8cc6099fea2ff4dd8bcd46a1edbc76b733517b5380ff76320e8c",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.2902,
+    0.7098
+  ],
+  "materials": {
+    "baked": 7,
+    "flat": 0
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "unit": "attack_drone",
+  "source": "assets/meshes/vehicles/attack_drone.glb",
+  "source_sha256": "762d60410c6454f6e85fdce4345013b20eb0867746c84a009504d0d1691e09e5",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1933,
+    0.8067
+  ],
+  "materials": {
+    "baked": 0,
+    "flat": 3
+  }
+}
