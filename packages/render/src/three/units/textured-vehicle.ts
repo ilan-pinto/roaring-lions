@@ -72,4 +72,10 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // own bake (tools/vehicles/export_meshy_apache_gunship.py), so it ships
   // the same photograph. HELD in mesh-catalogue.ts until Task 9.
   'heli_peten_gunship',
+  // E5 part 2 (GH-181, 2026-10-01): the Shiryonan Demolition Carrier is a
+  // Meshy text-to-3D remesh shipping its own 2k bake
+  // (tools/vehicles/export_meshy_tzav.py); its kit RWS carries no material
+  // and draws through `rampForVehicleRole`, per mesh, like the Eitan's.
+  // HELD in mesh-catalogue.ts until E6 wires the unit.
+  'demo_tzav',
 ]);

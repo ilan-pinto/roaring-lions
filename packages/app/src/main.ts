@@ -161,8 +161,10 @@ import {
   spriteSheetPlan,
   meshPlanFor,
   meshManifestFor,
+  dracoDecoderPath,
 } from './mesh-catalogue';
 import { rendererOptionsFor } from './renderer-options';
+import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { timeOfDayOf } from './time-of-day';
@@ -1006,8 +1008,12 @@ async function main(): Promise<void> {
    *  ledger contract can carry a star at all -- a town added to `world.json`
    *  counts itself in without an edit here (the tutorial is deliberately off
    *  the map, so it is never in this sum at all). */
-  async function mountBrigade(host: HTMLElement): Promise<Disposer> {
+  async function mountBrigade(host: HTMLElement, req: RouteRequest): Promise<Disposer> {
     const worldData = parseWorld(world);
+    // The bay's turnable model (GH-316) takes the campaign board's renderer
+    // rule: `?renderer=pixi` keeps the plate and never downloads three.
+    const renderer = resolveRendererChoice(req.query.get('renderer'), readStoredRenderer());
+    if (renderer.persist) rememberRenderer(renderer.persist);
     const { boughtUnits, ownedTiers, balance } = accountState();
     /** The KDF roster as the garage draws it, off one account's bought set.
      *  Called at mount and again for every answer: a purchase can open a
@@ -1054,6 +1060,16 @@ async function main(): Promise<void> {
       // unit `pnpm plates:units` has not photographed reads as absent and the
       // bay draws its reserved hatch -- never a broken <img>.
       plate: (typeId) => unitPlate(`${BASE}ui/plates/units/`, typeId),
+      // GH-316: the unit's own GLB, turnable, over the plate above -- which
+      // stays the picture until the model's first frame, and whenever the
+      // model cannot be drawn.
+      model: {
+        source: (typeId) => garageModelSource(typeId),
+        renderer: renderer.choice,
+        dracoDecoderPath: dracoDecoderPath(),
+        groundTextureUrl: garageGroundTexture(BASE),
+        colors: garageColors(),
+      },
       // The raw unit JSON, for the bay's stat panel and every rung's benefit
       // lines. Same `units` catalogue `kdfUnits` above is built from, so the
       // numbers the garage prints and the numbers `applyUpgrades` hands the
@@ -1123,7 +1139,7 @@ async function main(): Promise<void> {
     routes: [
       { name: 'menu', pattern: '/', mount: (host, req) => mountMenu(host, req) },
       { name: 'campaign', pattern: '/campaign', mount: (host, req) => mountCampaign(host, req) },
-      { name: 'brigade', pattern: '/brigade', mount: (host) => mountBrigade(host) },
+      { name: 'brigade', pattern: '/brigade', mount: (host, req) => mountBrigade(host, req) },
       // The picker. Nothing is passed in: the screen reads the map enumeration
       // and SANDBOX_FLAGS itself, so a new map cannot be missing from it.
       { name: 'free-play', pattern: '/free-play', mount: (host) => showSandbox(host) },

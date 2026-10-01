@@ -407,6 +407,9 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   // E5 part 2 (GH-181, 2026-09-30): the unit JSON is staged, not shipped.
   'recon_zikit.glb': 'recon_zikit (GH-181 E5 Task 9; RIGGED_UNIT_MESHES, kdf)',
   'vehicles/heli_peten_gunship.glb': 'heli_peten_gunship (GH-181 E5 Task 9; VEHICLE_UNIT_MESHES)',
+  // E5 part 2 (GH-181, 2026-10-01): the Tzav's unit JSON is staged and its
+  // placed charge is E6's, so the file waits for E6 to wire it.
+  'vehicles/demo_tzav.glb': 'demo_tzav (GH-181 E5 -> E6; VEHICLE_UNIT_MESHES)',
 };
 
 /**

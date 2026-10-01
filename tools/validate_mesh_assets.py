@@ -266,6 +266,11 @@ TEXTURED_VEHICLE_EXEMPT = {
     # E5 part 2 (GH-181, 2026-09-30): the Peten Gunship ships the Peten's own
     # bake (tools/vehicles/export_meshy_apache_gunship.py); held until Task 9.
     "heli_peten_gunship",
+    # E5 part 2 (GH-181, 2026-10-01): the Shiryonan Demolition Carrier ships
+    # its remesh's own bake (tools/vehicles/export_meshy_tzav.py); its kit
+    # RWS parts carry no material and take the palette, as the gate repaints.
+    # Held until E6 wires the unit.
+    "demo_tzav",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,

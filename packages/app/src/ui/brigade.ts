@@ -62,6 +62,7 @@ import {
 import { kitIconSignDecorHtml, kitLevelLabel, kitPipsHtml, kitSummary, kitSymbolSvg } from './kit-sign';
 import { markSvg } from './mark';
 import { plateFit } from './plate-fit';
+import { garageModel, type GarageModelDeps, type GarageModelHandle } from './garage-viewer';
 import { flash, prefersReducedMotion } from './motion';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
@@ -141,6 +142,11 @@ export interface BrigadeOptions {
    *  reserved hatch — the same "reserved, not broken" language the rail's card
    *  art uses. */
   plate?: (typeId: string) => { url: string; size: readonly [number, number]; extent: readonly [number, number] } | null;
+  /** The turnable 3D model that replaces the plate in the bay (GH-316,
+   *  `ui/garage-viewer.ts`). The plate above is still built first: it is the
+   *  picture until the model's first frame is up, and the one the bay keeps
+   *  whenever the model cannot be drawn. Absent: the plate, always. */
+  model?: GarageModelDeps;
   /** The unit's raw JSON, for the bay's stat panel and for every rung's
    *  benefit lines. Required, not optional: a garage with no numbers is the
    *  list this screen replaced. An id the caller does not know should hand
@@ -928,12 +934,26 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     }
   }
 
+  /** The bay's live model, kept ACROSS `renderBay` calls for the same unit:
+   *  a purchase rebuilds the bay around the unit it already shows, and the
+   *  model moves into the new plate with its context, its angle and its
+   *  idle clock intact. A different unit gets a new one, and the old one
+   *  gives its WebGL context back first. */
+  let bayModel: GarageModelHandle | null = null;
+  const dropModel = (): void => {
+    bayModel?.dispose();
+    bayModel = null;
+  };
+
   function renderBay(): void {
     bay.replaceChildren();
     board.replaceChildren();
     panel = null;
     const row = rows.find((r) => r.u.id === selectedId);
-    if (row === undefined) return;
+    if (row === undefined) {
+      dropModel();
+      return;
+    }
     const { u } = row;
     // F7: zero credits, and only zero -- five is still an account with a
     // future, and no account at all (this screen's own "as before" reading)
@@ -1024,6 +1044,16 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       plate.appendChild(el('div', 'rl-garage__plate-maxed', t('garage.chip.maxed')));
     }
     bay.appendChild(plate);
+    // The model draws over the plate's own picture (GH-316), prepended so the
+    // kit mark and the Maxed stamp above stay on top of it.
+    if (opts.model) {
+      if (bayModel !== null && bayModel.unitId === u.id) {
+        bayModel.adopt(plate);
+      } else {
+        dropModel();
+        bayModel = garageModel(plate, u, { ...opts.model, reducedMotion: opts.model.reducedMotion ?? reduced });
+      }
+    }
 
     bay.appendChild(el('h2', 'rl-garage__name', u.name));
     bay.appendChild(el('div', 'rl-garage__role', roleLabel(u.role)));
@@ -1387,6 +1417,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     window.removeEventListener('blur', onBlur);
     cancelAnimationFrame(countRaf);
     for (const id of timers) window.clearTimeout(id);
+    dropModel();
     wrap.remove();
   };
 }

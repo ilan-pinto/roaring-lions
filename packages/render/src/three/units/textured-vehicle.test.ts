@@ -30,6 +30,7 @@ describe('the textured vehicle opt-out is a named list', () => {
     expect([...TEXTURED_VEHICLE_TYPES].sort()).toEqual([
       'apc_eitan',
       'apc_kipod',
+      'demo_tzav',
       'dozer_d9',
       'gun_truck',
       'heli_peten',
