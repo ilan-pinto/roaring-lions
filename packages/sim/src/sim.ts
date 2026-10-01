@@ -2668,6 +2668,18 @@ export class Sim {
     });
   }
 
+  /**
+   * Where `side` last saw `target`, or null when it never has. Read-only; the
+   * G0 skirmish spike's commander perceives the enemy through this and
+   * `contactLevel` alone, so it knows what a player on that side would know and
+   * nothing more. No caller outside the spike reads it.
+   */
+  lastSeenOf(side: number, target: number): readonly [Fx, Fx] | null {
+    const k = side * this.capacity + target;
+    if (this.lastSeenValid[k] === 0) return null;
+    return [this.lastSeenX[k], this.lastSeenY[k]];
+  }
+
   /** Contact confidence 0..ONE of `target` as known to `side`. */
   contactConfidence(side: number, target: number): Fx {
     return this.contact[side * this.capacity + target];

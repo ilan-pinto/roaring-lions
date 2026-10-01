@@ -1648,71 +1648,81 @@ export class MissionRuntime {
       out.push({ kind: 'trigger', tick, id: t.id ?? `trigger_${i}` });
       if (t.say) out.push({ kind: 'say', tick, speaker: t.say.speaker, text: t.say.text });
 
-      if (t.do.kind === 'commit' || t.do.kind === 'withdraw_to') {
-        // Living AND on the surface: the sim would refuse the buried ids
-        // anyway, but filtering here keeps the patrol-splice below honest —
-        // a patroller must not lose its beat on the strength of an order it
-        // never received. A fully buried group consumes the trigger and
-        // commands nothing, which the mission log already records.
-        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
-          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
-        );
-        if (ids.length > 0 && t.do.to) {
-          const [x, y] = this.markerPos(t.do.to);
-          this.sim.queueCommand({ kind: t.do.kind === 'commit' ? 'attackMove' : 'move', ids, x, y });
-          // A trigger order overrides the standing stance, and for a patrol it
-          // has to say so out loud. `stepPatrols` re-issues the next waypoint
-          // the instant a unit stops moving, so without this the ordered move
-          // completes and the patrol immediately walks the unit back the way it
-          // came -- a `withdraw_to` that returns to the fight, and a `commit`
-          // that wanders off it. Silent, and it defeated the trigger entirely.
-          const ordered = new Set(ids);
-          for (let k = this.patrols.length - 1; k >= 0; k--) {
-            if (ordered.has(this.patrols[k].id)) this.patrols.splice(k, 1);
-          }
+      this.execDo(t.do, tick, out);
+    }
+  }
+
+  /**
+   * Execute one trigger `do` -- the vocabulary's action half. Factored out of
+   * stepTriggers for the G0 skirmish spike, so a commander can drive the SAME
+   * code path a mission trigger does (`command` below) instead of a parallel
+   * one. Behaviour for triggers is byte-identical.
+   */
+  private execDo(d: NonNullable<MissionJson['triggers']>[number]['do'], tick: number, out: MissionEvent[]): void {
+    if (d.kind === 'commit' || d.kind === 'withdraw_to') {
+      // Living AND on the surface: the sim would refuse the buried ids
+      // anyway, but filtering here keeps the patrol-splice below honest —
+      // a patroller must not lose its beat on the strength of an order it
+      // never received. A fully buried group consumes the trigger and
+      // commands nothing, which the mission log already records.
+      const ids = (this.groups.get(d.group ?? '') ?? []).filter(
+        (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+      );
+      if (ids.length > 0 && d.to) {
+        const [x, y] = this.markerPos(d.to);
+        this.sim.queueCommand({ kind: d.kind === 'commit' ? 'attackMove' : 'move', ids, x, y });
+        // A trigger order overrides the standing stance, and for a patrol it
+        // has to say so out loud. `stepPatrols` re-issues the next waypoint
+        // the instant a unit stops moving, so without this the ordered move
+        // completes and the patrol immediately walks the unit back the way it
+        // came -- a `withdraw_to` that returns to the fight, and a `commit`
+        // that wanders off it. Silent, and it defeated the trigger entirely.
+        const ordered = new Set(ids);
+        for (let k = this.patrols.length - 1; k >= 0; k--) {
+          if (ordered.has(this.patrols[k].id)) this.patrols.splice(k, 1);
         }
-      } else if (t.do.kind === 'spawn') {
-        for (const p of t.do.units ?? []) this.spawnPlacement(p, 1);
-      } else if (t.do.kind === 'reinforce') {
-        // Player-side arrival (GDD §6). `spawn` stays side-1-only so no
-        // existing mission changes behaviour.
-        for (const p of t.do.units ?? []) this.spawnPlacement(p, 0);
-      } else if (t.do.kind === 'dismount') {
-        // Everyone out of every carrier in the group. Queued as a command rather
-        // than reaching into sim state, same as commit and withdraw_to.
-        //
-        // Silently does nothing when the group is empty, its carriers are dead,
-        // or nobody is aboard. A trigger whose carrier was killed on the way in
-        // is ordinary play, not an error -- and the squad has already bailed out
-        // shaken, which is the interesting outcome.
-        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter(
-          // A buried carrier does not open its doors: nobody dismounts into
-          // solid earth. (The sim refuses the id too; this keeps the
-          // `ids.length > 0` gate honest.)
-          (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
-        );
-        if (ids.length > 0) this.sim.queueCommand({ kind: 'unload', ids });
-      } else if (t.do.kind === 'remove') {
-        // The enemy's act: every living member of `group`, restricted to
-        // `zone` when given, leaves play through `removeFromPlay` rather
-        // than a command queued at the sim — there is no Command variant
-        // for this, because nothing outside a mission trigger can ever
-        // cause it (invariant 4 unaffected: the runtime is still the only
-        // caller, and it resolves on a tick boundary with no RNG draw).
-        // validate_data.mjs is what keeps `group` naming a real placement
-        // and never covering the whole starting_force.
-        const zone = t.do.zone !== undefined ? this.zone(t.do.zone) : undefined;
-        const ids = (this.groups.get(t.do.group ?? '') ?? []).filter((id) => {
-          if (this.sim.state.alive[id] !== 1) return false;
-          if (zone === undefined) return true;
-          return zoneContains(zone, this.sim.state.posX[id] >> 16, this.sim.state.posY[id] >> 16);
-        });
-        for (const id of ids) {
-          const side = this.sim.state.side[id];
-          const unit = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
-          this.sim.removeFromPlay(id);
-          out.push({ kind: 'removed', tick, entity: id, side, unit });
-        }
+      }
+    } else if (d.kind === 'spawn') {
+      for (const p of d.units ?? []) this.spawnPlacement(p, 1);
+    } else if (d.kind === 'reinforce') {
+      // Player-side arrival (GDD §6). `spawn` stays side-1-only so no
+      // existing mission changes behaviour.
+      for (const p of d.units ?? []) this.spawnPlacement(p, 0);
+    } else if (d.kind === 'dismount') {
+      // Everyone out of every carrier in the group. Queued as a command rather
+      // than reaching into sim state, same as commit and withdraw_to.
+      //
+      // Silently does nothing when the group is empty, its carriers are dead,
+      // or nobody is aboard. A trigger whose carrier was killed on the way in
+      // is ordinary play, not an error -- and the squad has already bailed out
+      // shaken, which is the interesting outcome.
+      const ids = (this.groups.get(d.group ?? '') ?? []).filter(
+        // A buried carrier does not open its doors: nobody dismounts into
+        // solid earth. (The sim refuses the id too; this keeps the
+        // `ids.length > 0` gate honest.)
+        (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+      );
+      if (ids.length > 0) this.sim.queueCommand({ kind: 'unload', ids });
+    } else if (d.kind === 'remove') {
+      // The enemy's act: every living member of `group`, restricted to
+      // `zone` when given, leaves play through `removeFromPlay` rather
+      // than a command queued at the sim — there is no Command variant
+      // for this, because nothing outside a mission trigger can ever
+      // cause it (invariant 4 unaffected: the runtime is still the only
+      // caller, and it resolves on a tick boundary with no RNG draw).
+      // validate_data.mjs is what keeps `group` naming a real placement
+      // and never covering the whole starting_force.
+      const zone = d.zone !== undefined ? this.zone(d.zone) : undefined;
+      const ids = (this.groups.get(d.group ?? '') ?? []).filter((id) => {
+        if (this.sim.state.alive[id] !== 1) return false;
+        if (zone === undefined) return true;
+        return zoneContains(zone, this.sim.state.posX[id] >> 16, this.sim.state.posY[id] >> 16);
+      });
+      for (const id of ids) {
+        const side = this.sim.state.side[id];
+        const unit = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
+        this.sim.removeFromPlay(id);
+        out.push({ kind: 'removed', tick, entity: id, side, unit });
       }
     }
   }
@@ -1730,30 +1740,70 @@ export class MissionRuntime {
       }
       if (!due) continue;
       this.spawnedWaves[i] = true;
-      const spawned: number[] = [];
-      for (const u of w.units) {
-        if (!u.from) throw new Error(`mission ${this.mission.id}: wave unit ${u.unit} has no "from"`);
-        // `group`/`tag` pass through, so a wave can be addressed by the same
-        // triggers a garrison can. Dropping them here is why `withdraw_to`,
-        // `commit` and `eliminate_hvt` could not name a wave at all, and why
-        // `wadi_halam_2_laager` works around it by spawning its four waves
-        // through `timer_s` triggers instead (#88).
-        spawned.push(
-          ...this.spawnPlacement(
-            { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag },
-            1
-          )
-        );
-      }
-      out.push({ kind: 'wave', tick, count: spawned.length });
-      // The story voice on the wave, after the event it annotates -- the same
-      // ordering a trigger's say keeps relative to its trigger event.
-      if (w.say) out.push({ kind: 'say', tick, speaker: w.say.speaker, text: w.say.text });
-      if (w.to && spawned.length > 0) {
-        const [x, y] = this.markerPos(w.to);
-        this.sim.queueCommand({ kind: 'attackMove', ids: spawned, x, y });
-      }
+      this.spawnWave(w, tick, out);
     }
+  }
+
+  /** One wave's arrival. Factored out of stepWaves for the G0 spike so a
+   *  commander's wave goes through the same spawn path a timed wave does. */
+  private spawnWave(w: Pick<NonNullable<NonNullable<MissionJson['enemy']>['waves']>[number], 'units' | 'to' | 'say'>, tick: number, out: MissionEvent[]): number[] {
+    const spawned: number[] = [];
+    for (const u of w.units) {
+      if (!u.from) throw new Error(`mission ${this.mission.id}: wave unit ${u.unit} has no "from"`);
+      // `group`/`tag` pass through, so a wave can be addressed by the same
+      // triggers a garrison can. Dropping them here is why `withdraw_to`,
+      // `commit` and `eliminate_hvt` could not name a wave at all, and why
+      // `wadi_halam_2_laager` works around it by spawning its four waves
+      // through `timer_s` triggers instead (#88).
+      spawned.push(
+        ...this.spawnPlacement(
+          { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag },
+          1
+        )
+      );
+    }
+    out.push({ kind: 'wave', tick, count: spawned.length });
+    // The story voice on the wave, after the event it annotates -- the same
+    // ordering a trigger's say keeps relative to its trigger event.
+    if (w.say) out.push({ kind: 'say', tick, speaker: w.say.speaker, text: w.say.text });
+    if (w.to && spawned.length > 0) {
+      const [x, y] = this.markerPos(w.to);
+      this.sim.queueCommand({ kind: 'attackMove', ids: spawned, x, y });
+    }
+    return spawned;
+  }
+
+  // --- G0 skirmish spike: the commander's door --------------------------
+  //
+  // Three additions, each one a vocabulary gap the spike report names. None is
+  // reached by any shipped mission, so no shipped behaviour moves.
+
+  /** Name (or rename) a group at run time. Groups are fixed at authoring time
+   *  today; a commander regroups as it reassigns. */
+  setGroup(name: string, ids: readonly number[]): void {
+    this.groups.set(name, [...ids]);
+  }
+
+  /** Run one trigger action NOW, through the trigger's own code path. Adds one
+   *  kind the schema lacks: `stance` re-arms an ambush of `tiles` on every
+   *  living member of `group` (stances are placement-time only today). */
+  command(d: NonNullable<MissionJson['triggers']>[number]['do'] & { tiles?: number }): MissionEvent[] {
+    const out: MissionEvent[] = [];
+    if (d.kind === 'stance') {
+      const ids = (this.groups.get(d.group ?? '') ?? []).filter(
+        (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+      );
+      for (const id of ids) this.sim.setAmbush(id, fx.from(d.tiles ?? 3));
+      return out;
+    }
+    this.execDo(d, this.sim.tickCount, out);
+    return out;
+  }
+
+  /** Dispatch one wave NOW -- a wave no timer and no objective released. */
+  dispatchWave(w: Pick<NonNullable<NonNullable<MissionJson['enemy']>['waves']>[number], 'units' | 'to' | 'say'>): number[] {
+    const out: MissionEvent[] = [];
+    return this.spawnWave(w, this.sim.tickCount, out);
   }
 
   private stepObjectives(tick: number, out: MissionEvent[]): void {

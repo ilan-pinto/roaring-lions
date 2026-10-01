@@ -7,6 +7,8 @@ export const SIM_VERSION = 1;
 export { fx, ONE, HALF, HALF_TURN, QUARTER_TURN, FX_MAX, FX_MIN, type Fx } from './fixed';
 export { Rng } from './rng';
 export { FlowField } from './flowfield';
+// G0 skirmish spike only (scratch branch).
+export { Commander, type DoctrineJson, type CommanderDecision } from './commander';
 export {
   MissionRuntime,
   MISSION_EVENT_KINDS,
