@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single old Lebanon cedar tree, Cedrus libani, stylized low-poly game asset. One massive thick straight trunk with rough bark. Foliage in several wide flat horizontal tiers, stacked layers of dense dark blue-green needles spreading sideways like broad plates, clear gaps of bare trunk and thick horizontal branches between the layers. Irregular asymmetric crown ending in a wide flat table-shaped top, much wider than tall at the top. Not a cone, not a pine, not a Christmas tree. Isolated on a plain background, no ground, no rocks, no shadows, flat matte colors.",
+    "model_type": "lowpoly",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f636-1df3-70c1-b014-5cd62fc58c7e",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "lowpoly",
+    "seed": 2638970054,
+    "prompt": "A single old Lebanon cedar tree, Cedrus libani, stylized low-poly game asset. One massive thick straight trunk with rough bark. Foliage in several wide flat horizontal tiers, stacked layers of dense dark blue-green needles spreading sideways like broad plates, clear gaps of bare trunk and thick horizontal branches between the layers. Irregular asymmetric crown ending in a wide flat table-shaped top, much wider than tall at the top. Not a cone, not a pine, not a Christmas tree. Isolated on a plain background, no ground, no rocks, no shadows, flat matte colors.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790837138529,
+    "progress": 100,
+    "started_at": 1790837138545,
+    "finished_at": 1790837455601,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f636-1df3-70c1-b014-5cd62fc58c7e/output/model.glb?Expires=4944412800&Signature=AP8-ndJQuyUv2rxG28lDcgUqUbjTE916dnKQvVyXQYIpyoqn1fj-ZS1nw70BqGUHjY5XiykY20CFUWkL4oX61q~cuqbI9loWx2FP8ebaQ3oRc1NL2ZqpKReVWemxREOErjn15H-~hZxOM5KslpyMbnlWOYSUKuurLMIjm0MxZhw6xfg0Q7~Ve~Dewnrzwdow0~LRaXzoVvqx4mEEVEUoqKY76JbCwxTivD4CNrO17PiHCIFH346Ydqg8gRBGEyoEph4XC4tbv9ozBCze~-Dgg9t76lvnr~WjXHfmxNj7JQLqe0prSGJ5lSkVTZ72mILrcFdjiB4oZsxgklj9Mmopew__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f636-1df3-70c1-b014-5cd62fc58c7e/output/preview.png?Expires=4944412800&Signature=Am0poaeEgYQbfW0dliYPcK3iTJi3YOynS3Mp9yfilA2LxeD5cNw~hfyTN2EKJKhfiVCC2uygHGo5bH9YFDesVS-3u0cExbA8gxWwvc5YWQiuV0YNuxk~hY1FP9Pg7VTFXUsrolWx3dRO5AknaQlspQJFxtSOSrIEHg9vb7FEQaS3DFv9Mkohhf3fgHazQ6Bi4qu5VPNXGo9N78VLW2iyuuqABqTnrhaJSwN6TDZnYuImv4ntHkAkW~Lhmn0msufiotRToKDQVytkOM1xKxXsXaaTTfT1ZsGrI3JvUsppIpANPOEWTBPO0xYUd6s0U4cFwI2F3~xL~vnApS6PyT~qcg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790837138529,
+    "started_at": 1790837138545,
+    "finished_at": 1790837455601
+  },
+  "usd_estimated": 0.4
+}
