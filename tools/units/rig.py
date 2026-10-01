@@ -199,7 +199,7 @@ TEAM_MESH_OWNER = {
     "sniper_team": "tools/export_meshy_sniper.py",
     "yahalom_squad": MESH_KIT_OWNED,
     "digger_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
-    "moto_rpg": MESH_KIT_OWNED,
+    "moto_rpg": "tools/units/import_meshy_moto_rpg.py",       # B6 (GH-179, 2026-10-01)
     "breach_team": "tools/units/import_meshy_crew_team.py",   # B5 (GH-179, 2026-10-01)
     "manpad_team": "tools/units/import_meshy_crew_team.py",
     "recoilless_team": "tools/units/import_meshy_crew_team.py",

@@ -560,3 +560,33 @@ otherwise.
   a third wrist rule for one figure.
 - Counts: 6,552 tris (two standing men, two posed corpses, shield, pole, no
   kit rifles), under the 8,000 team cap; 0.29 MB shipped.
+
+## 13. Measured in B6 (2026-10-01)
+
+- **A 1,500-tri remesh of a spoked wheel is a hoop.** Meshy's preview
+  modelled real spokes (970k tris); the remesh kept rim and tread and lost
+  every spoke. Rather than a second remesh (5 more credits, past the cap),
+  the hoop faces are cut out by an axle-disc fit and `kit.tube` cylinders --
+  the kit bike's own wheel -- stand on the measured axles and spin on the
+  wheel bones. At 25 px a spinning cylinder is a wheel; a spinning hoop is a
+  flicker.
+- **Measure an axle from the ground, not from a centroid.** The centroid of
+  everything under 0.6 m in each half of the bike read 0.26 m inward of the
+  true axle (the engine is down there too). The tyre bottoms are the only
+  points under z = 0.04 and sit directly below the axles; the radius is half
+  the tyre top in the column above them.
+- **A seated rider is the kneel's method again:** the standing cut's parts
+  re-arranged rigidly in code (thighs forward about the hip, shins back
+  about the moved knee, the upper body lifted to the saddle and leaned, each
+  arm swung to an elbow target then a hand target), then one rigid unit per
+  seat bone -- exactly the shape `teams._rider` had, with Meshy geometry.
+  `cut_figure` from the crew importer needed nothing new.
+- **A riders' corpse budget is 0.35, not 0.5.** A file carrying a bike, a
+  tipped bike, two 2,000-tri men and two corpses read 8,110 tris at the crew
+  teams' 0.5; the thrown riders decimate to 0.35 and the file ships 7,348.
+- **The remesh keeps its front where the preview had it (-X)**, found by the
+  wider end rather than assumed: the bars measure |y| 0.34 against the rear
+  bag's 0.21.
+- **"Two canvas panniers and a rolled bedroll" came as one roll bag** -- the
+  silhouette, not the count (bible §8 again). Kept: it is the lateral mass
+  the kit's panniers existed for and the pillion's back rests on it.

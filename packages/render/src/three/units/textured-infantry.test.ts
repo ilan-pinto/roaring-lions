@@ -31,7 +31,7 @@ const texture = () => new THREE.Texture();
 
 describe('the textured infantry opt-out is a named list', () => {
   // Filled one team at a time as its GLB lands (GH-286). Empty by design until
-  // B0b shipped the first two (GH-286), then B3 and B4 (GH-179) three each and B5 one; the exact
+  // B0b shipped the first two (GH-286), then B3 and B4 (GH-179) three each and B5/B6 one each; the exact
   // list is pinned so an entry with no bake behind it is an edit made on purpose.
   it('names exactly the teams that ship a bake', () => {
     expect([...TEXTURED_INFANTRY_TYPES].sort()).toEqual([
@@ -43,6 +43,7 @@ describe('the textured infantry opt-out is a named list', () => {
       'digger_crew',
       'militia_cell',
       'mortar_crew',
+      'moto_rpg',
       'officer_engineer',
       'officer_fires',
       'officer_infantry',

@@ -829,6 +829,14 @@ silhouette area without extending the frame" — `teams._motorcycle`), asked of
 Meshy so they come as one shell; if they do not come, kit's `pannier0/1` and
 `bedroll` boxes go on the remesh in `webbing`.
 
+**Sent 2026-10-01**, verbatim: §16's prompt as `text --pose a-pose --refine --tex 2k`
+(30) then `remesh --polycount 2000` (5); §17's as `text` (20) then `remesh
+--polycount 1500` (5) — 60 of the 65 approved. Task ids in
+`docs/ASSET_PROVENANCE.md` (B5, B6); what each preview honoured in
+`style-bible.md` §12–§13. The breach preview ignored the A-pose (carbine held
+across the chest in the left hand) and the bike preview folded the panniers
+and bedroll into one roll bag; both were fixed in Blender, no re-roll.
+
 ## Order inside B5 / B6
 
 `breach_team` first (B5: the KDF look is read beside `at_team` and `demo_squad`

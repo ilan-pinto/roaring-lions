@@ -49,6 +49,10 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // B5 (GH-179, 2026-10-01): the last KDF team, same path (the crew
   // importer, with the helmet cut as `uniform`).
   'breach_team',
+  // B6 (GH-179, 2026-10-01): the riders are rpg_team's textured figure
+  // re-posed seated (tools/units/import_meshy_moto_rpg.py); the Meshy bike
+  // beside them carries no UV and takes the ramp -- per mesh, as B0b.
+  'moto_rpg',
   // GH-298 (2026-09-30): the three officer teams, tools/units/
   // import_meshy_officers.py -- each a new Meshy figure plus a B0b remesh as
   // its second figure, both bakes in one 2048x1024 atlas. HELD art

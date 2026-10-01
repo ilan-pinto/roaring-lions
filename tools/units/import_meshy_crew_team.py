@@ -151,6 +151,12 @@ SOURCES = {
     # §16 -- 1.78 m, the KDF rifleman reference. See the module docstring for
     # why it is here and not in import_meshy_kdf_team.py.
     "breach_team": (os.path.join(REPO, "art", "meshy", "breach-team-*-01a0f624", "model.glb"), 1.78),
+    # B6 (GH-179, 2026-10-01): moto_rpg's RIDERS are B3's rpg_team figure
+    # (the one Sarim preview that honoured the head wrap), re-posed seated
+    # by tools/units/import_meshy_moto_rpg.py, which loads it through this
+    # module's `_load_figure`/`cut_figure`/`_death_parts_posed`. No new
+    # Meshy figure, 0 credits. `build_team` here does NOT know this team.
+    "moto_rpg": (os.path.join(REPO, "art", "meshy", "rpg-team-*-01a0f313", "model.glb"), 1.76),
 }
 
 #: Teams whose GLB ships the remesh's own base-colour bake (PR #307's
@@ -170,7 +176,9 @@ TEXTURED = {"militia_cell", "rpg_team", "atgm_cell",
             # the runtime/gate lists are edited only when each GLB ships.
             "mortar_crew", "charge_squad", "digger_crew",
             # B5: the KDF breach team ships its own bake the same way.
-            "breach_team"}
+            "breach_team",
+            # B6: the riders carry rpg_team's bake; the bike is palette.
+            "moto_rpg"}
 TEXTURE_PX = 1024
 JPEG_QUALITY = 85
 
@@ -190,7 +198,9 @@ RECOLOUR = {"rpg_team": ((0.60, 0.52, 0.40), (300.0, 14.0)),      # dusty tan
             # Red sits at hue 0, so the window reaches to 20.
             "mortar_crew": ((0.60, 0.52, 0.40), (300.0, 20.0)),   # dusty tan
             # B4: the digger's bald crown was painted the same rose check.
-            "digger_crew": ((0.55, 0.53, 0.48), (300.0, 20.0))}   # dusty grey
+            "digger_crew": ((0.55, 0.53, 0.48), (300.0, 20.0)),   # dusty grey
+            # B6: the same rpg_team figure, the same rose scarf.
+            "moto_rpg": ((0.60, 0.52, 0.40), (300.0, 14.0))}
 RECOLOUR_SAT_MIN = 0.16
 RECOLOUR_FLOOR_F = 0.74
 #: The mortar figure's chest bandolier came back in the same red check as
@@ -210,7 +220,9 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 # from its own shirt's bake, exactly militia_cell's fix.
                 "mortar_crew": True, "charge_squad": True, "digger_crew": True,
                 # B5: a KDF helmet, never a keffiyeh (see HEAD_ROLE).
-                "breach_team": False}
+                "breach_team": False,
+                # B6: rpg_team's figure wraps its own scarf.
+                "moto_rpg": False}
 
 #: The role the cranium and neck cut take. Every Sarim figure wraps a scarf
 #: there (`keffiyeh`, the module docstring's "Roles"); a KDF figure wears a
@@ -299,7 +311,8 @@ CORPSE_Y_OFFSET = {"charge_squad": {"chg0": -0.30, "chg1": 0.30},
 BLOB_KW = {"militia_cell": dict(sides=7, rings=2), "rpg_team": dict(sides=7, rings=2),
            "atgm_cell": dict(sides=7, rings=2),
            "mortar_crew": dict(sides=7, rings=2), "charge_squad": dict(sides=7, rings=2),
-           "digger_crew": dict(sides=7, rings=2), "breach_team": dict(sides=7, rings=2)}
+           "digger_crew": dict(sides=7, rings=2), "breach_team": dict(sides=7, rings=2),
+           "moto_rpg": dict(sides=7, rings=2)}
 
 #: Hand-bound weapon carriers get both forearms bent forward at the elbow --
 #: rest geometry like the arm hang, one rigid rotation per forearm about its
@@ -1466,10 +1479,13 @@ def build_team(team_id):
 
 def main():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    names = list(SOURCES) if argv in ([], ["all"]) else argv
+    names = [n for n in SOURCES if n != "moto_rpg"] if argv in ([], ["all"]) else argv
     for name in names:
         if name not in SOURCES:
             raise SystemExit(f"unknown team {name!r}; have {sorted(SOURCES)}")
+        if name == "moto_rpg":
+            raise SystemExit("moto_rpg is built by tools/units/import_meshy_moto_rpg.py (its riders "
+                             "only come from this module's SOURCES)")
         build_team(name)
 
 
