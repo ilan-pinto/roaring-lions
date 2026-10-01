@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready armoured tracked bulldozer, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A full-width steel dozer blade held clear of the tracks on two push arms at the front, a tall armoured cab with small slit windows set back over the rear third, a tall vertical exhaust stack beside the cab, and a single ripper tine projecting behind. Real-world scale, 6.8 metres long over the blade. Olive paint, gunmetal, dark track rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2f5-f6d6-736c-99cd-18b3ce9c8941",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 448238891,
+    "prompt": "A single low-poly game-ready armoured tracked bulldozer, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A full-width steel dozer blade held clear of the tracks on two push arms at the front, a tall armoured cab with small slit windows set back over the rear third, a tall vertical exhaust stack beside the cab, and a single ripper tine projecting behind. Real-world scale, 6.8 metres long over the blade. Olive paint, gunmetal, dark track rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790782603418,
+    "progress": 100,
+    "started_at": 1790782603425,
+    "finished_at": 1790782685391,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2f5-f6d6-736c-99cd-18b3ce9c8941/output/model.glb?Expires=4944326400&Signature=bOcdvcJicYnNEZ~lZXKUZV5kTNd0Nul3aUcCcS38T0NF14jM8PrJENLTtr55oKWs5s~CqBKLaXAXqsRBysh~vwFWETGuDAHxqC9JhA5~Rj0NPkfTtEC01zwQvAHufIQE8d4VJDG0iSV3gopUkgu2N4ibVtY4bVyq0W-f6BGOXp4IF9Rn2YWf7brGuT84wlFg93Ig92ihlQTsoESDwMdxc1iYkSdwugus2MDjlAjfMbbhcpphIxoeSblvVcThDavfdxE70LcgAJTYfYUq04W-8RziKqLoBD6~~FmShiTq1UAf9nke0jhMDWA-SHrTUoLuaxO~xnChTvrdAXnCrtsdJg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2f5-f6d6-736c-99cd-18b3ce9c8941/output/preview.png?Expires=4944326400&Signature=MM-ly6vdKSxgMO2siUvDlF4UTdCLo0oHMkoS8HuYn3o3WWCr8zwpRgraT1agPIV10kfIFdXqDp2uH1JvcU1GmCJRpU9mTmZn8vMz2Bnm5L3K~gOtEyQI5v0wjVYL4Ozxmqjft6EBX8qAN84Q5DXa4cJPJDXGFLrmYjt5gVA7v4hopvo5LNxafDFfkvY6X-VBJQz5~zFgOykWvs8IR8pvcZA4xPlYpn6xor0Yfcvy4Q7QT3dNBirQQ8OHwAEAeYuArj~y7sxINCV07T1U5VCiy4yuoBmzCnte6OGumqjOVwe5rEFxz8rZ-CTEhUcZcKxaW4TQFKJhdbOIoYaFi4LD4w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790782603418,
+    "started_at": 1790782603425,
+    "finished_at": 1790782685391
+  },
+  "usd_estimated": 0.4
+}

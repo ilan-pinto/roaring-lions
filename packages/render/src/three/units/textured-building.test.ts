@@ -37,16 +37,20 @@ const texture = () => new THREE.Texture();
 // against the CURRENT material shape).
 
 describe('the textured opt-out is a named list', () => {
-  it('covers exactly the six supplied Meshy buildings plus the three GH-277 militia works', () => {
+  it('covers exactly the six supplied Meshy buildings, the three GH-277 militia works and the four A3.2 ramp buildings', () => {
     expect([...TEXTURED_BUILDING_TYPES].sort()).toEqual([
       'apartment',
+      'camp',
       'clinic',
+      'concrete',
       'fence',
       'hall',
       'house',
       'militia_field_clinic',
       'militia_observation_post',
       'militia_weapons_workshop',
+      'shanty',
+      'wall',
       'warehouse',
     ]);
   });

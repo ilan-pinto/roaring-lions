@@ -190,6 +190,107 @@ ids above are the provenance record.
 
 ---
 
+## The A3.2 ramp set and the tunnel props (Meshy text-to-3D) -- GH-185, GH-227
+
+Run 2026-09-30 on the lead's go (GH-185: "A3.2 ramp set approved for Meshy
+now"), numbers table first (`docs/art/meshy-prompts-ramp.md`, commit
+`004919c2`, before any spend). All eight generations are **AI-generated with
+Meshy**, disclosed per `CONTRIBUTING.md`; every prompt is in the committed
+`art/meshy/ledger.jsonl`, keyed by the ids below. **260 credits planned, 260
+consumed** as Meshy reported them (`pnpm meshy -- spent`), against the
+lead's cap of 295; every asset landed on its first preview, no re-roll.
+`apc_kipod` and `apc_eitan` were not generated -- both already landed on
+`art/b0a-meshy` (`67395cf0`, `123996c2`).
+
+| File | Draws as | Preview task id | Refine task id (2k) | Remesh task id (shipped) | Size / tris |
+|---|---|---|---|---|---|
+| `art/meshes/buildings/concrete.glb` + `_wreck` | `concrete` | `01a0f2ec-7896-7074-8d8a-72b2f9aecb84` | `01a0f2ed-9020-7387-81b4-548a56793d07` | `01a0f2f0-8294-768e-abfa-826e41790eaa` (8,000) | 3.6 x 5.3 m plan, 9.0 m tall; 7,650 / 7,961 tris |
+| `art/meshes/buildings/shanty.glb` + `_wreck` | `shanty` | `01a0f2ec-809b-73f7-9bff-ea4c54fbd962` | `01a0f2ee-b802-70bf-8ca3-b0429bda18ff` | `01a0f2f1-e83f-73bc-8a3e-63f57aa2cc7b` (8,000) | 5.2 x 5.5 m, 4.2 m tall; 7,415 / 8,881 tris |
+| `art/meshes/buildings/wall.glb` + `_wreck` | `wall` (per tile) | `01a0f2ec-88ce-71c7-9760-eb48f7666e8e` | `01a0f2ed-a3ea-7635-b5ea-b74f7908558a` | `01a0f2f0-8aad-7226-853f-a303523907c1` (3,000) | 3.0 x 0.6 m, 1.4 m tall; 3,087 / 2,479 tris |
+| `art/meshes/buildings/camp.glb` + `_wreck` | `camp` | `01a0f2ec-90f9-77bc-a6ff-b94c581afd55` | `01a0f2ee-02f1-7003-b5fb-a42b51d2a546` | `01a0f2f0-ed6c-70a5-8006-0dfdf43fbb3e` (10,000) | 7.5 x 7.5 m, 3.9 m tall; 9,543 / 8,628 tris |
+| `art/meshes/vehicles/dozer_d9.glb` | `dozer_d9` | `01a0f2f5-f6d6-736c-99cd-18b3ce9c8941` | `01a0f2f7-5b78-7680-8858-58c0c6811915` | `01a0f2fc-483b-7240-aaf6-83a2e652230b` (8,000) | 6.832 m (`D9_HULL` manifest) x 4.39 x 3.62 m; 7,901 tris |
+| `art/meshes/vehicles/scout_shachaf.glb` | `scout_shachaf` | `01a0f2f5-fe36-7782-a377-67246cc7f8c5` | `01a0f2f7-193a-7547-9a83-e916293d9e51` | `01a0f2fc-508c-716d-b370-820ecd3229e6` (5,000) | 4.6 m (`SHACHAF_HULL` manifest) x 2.54 x 3.06 m; 5,076 tris incl. the kit RWS |
+| `art/meshes/props/tunnel_mouth.glb` (+ `_collapsed`) | tunnel mouth (GH-227) | `01a0f30a-7298-75be-a4ae-64a250efc379` | -- (palette) | `01a0f314-6b95-741e-8848-5d5097c6e607` (400) | 2.4 x 1.47 x 1.46 m; 402 tris |
+| `art/meshes/props/tunnel_vent.glb` (+ `_collapsed`) | tunnel vent (GH-227) | `01a0f30a-80b8-7402-aa3b-0ffa9b1dbd86` | -- (palette) | `01a0f314-73ed-70e4-9112-dd9692dc493b` (200) | 0.82 x 0.64 x 0.80 m; 207 tris |
+| `art/meshes/props/spoil_heap.glb` | spoil heap (GH-227) | -- (built from primitives in Blender) | -- | -- | 1.6 x 1.6 x 0.5 m; 108 tris |
+
+What Blender did to each (`tools/buildings/export_meshy_ramp.py`,
+`tools/vehicles/export_meshy_ramp.py`, `tools/terrain/export_meshy_tunnel.py`):
+
+- **The four buildings** ship their own 2k bake (`TEXTURED_BUILDING_TYPES` /
+  `TEXTURED_BUILDING_EXEMPT`, pinned). Each remesh was turned so the openings
+  face the camera half (the yaw chosen by dark-face area on Blender `+X`/`-Y`,
+  printed for all four candidates), scaled on ONE declared axis, grounded and
+  centred, and split into `wall` / `roof` / `glass` -- the openings on the
+  camera half, so `building_facing.py` can judge the front: `concrete` reads
+  directional 171 / 11 px (15.6x), `shanty` 840 / 0; `wall` and `camp` model
+  no glass and are named unchecked, like `warehouse`. The **wreck** of each is
+  `render_building.collapse()` on the textured mesh (the kit's own seed-free
+  dice / punch / crush / spill), so the rubble carries the photograph -- no
+  second generation. Three things the previews did not deliver as asked and
+  Blender settled: the wall came back **1.5 m thick** and is thinned in Y
+  alone to 0.6 m (every course on its long faces untouched); the shanty came
+  back **6.9 m tall** at its 9 m plan and is scaled by HEIGHT to 4.2 m
+  (5.2 x 5.5 m plan inside its 3-tile block) rather than by plan; the camp
+  is cut to **7.5 m** across, the 2x2 every one of the six missions places it
+  at plus a quarter-tile apron, where the shipped GLB it replaces was 15 m
+  (`export_meshy_camp.py` assumed 5x5). The remesh dropped the camp's thin
+  mast tip; the concrete's tank and the shanty's tank and crates survived.
+- **`dozer_d9`** -- blade at the `-x` end of the remesh (vertical plate area
+  1.02 against 0.59), turned to `+X`; tracks split as `hull_rubber` by the low
+  outboard band (|y| > 0.36, z under 0.375 above the belly line, x within
+  the track span -- the blade and push arms lie beyond it); scaled to the
+  sprite manifest's 6.832 m. **The refine put a white five-point star on
+  each hull flank** although the prompt asked for no markings; the exporter's
+  `scrub_white` paints every near-white texel over from its olive
+  neighbours (17,052 texels, 0.4 % of the bake, dilated 6 texels so the
+  anti-aliased rim goes too) and flattens the same footprint in the normal
+  and metallic-roughness bakes, which carried the star's relief -- a
+  one-texel fill left a ghost star on the hull, measured before the
+  dilation was added. No pivot, no weapon; `wreck-recipes.ts` keeps `tracked`.
+- **`scout_shachaf`** -- nose measured at `-x` (roof profile low there, the
+  raised cab at `+x`), turned to `+X`; two axles found from the contact
+  patches at turned x +0.565 / -0.589; tyres `hull_rubber` (radius 0.255);
+  scaled to 4.6 m. The remesh KEPT the sensor mast, rising from the centre of
+  the roof ring; `turret_pivot` sits on that ring at (-0.99, 0.00, 2.21) m
+  carrying `kit.rws` at (0.55, 0.45, 0.30) m with a 0.7 m barrel (the
+  `cupola_mg`), the mast through it; `wreck-recipes.ts` gains `turretPivot`.
+  Its bake came back a **saturated grass green** beside the D9's olive;
+  `olive_shift` pulls the green band (56 % of the texels) toward olive in HSV
+  (hue -22 deg, saturation x0.62, value x0.80). Both vehicles ship their bake
+  (`TEXTURED_VEHICLE_TYPES` / `TEXTURED_VEHICLE_EXEMPT`, pinned); the
+  Shachaf's RWS parts carry no material (`plate` added to its palette on
+  both sides). `tools/vehicles/kit.py`'s `rws` barrel fix is B0a's hunk,
+  applied verbatim so the two branches merge clean.
+- **The tunnel pieces** are palette props under the prop contract, new kinds
+  in `PROP_KINDS` / `PROP_TRI_CAPS` (both sides, pinned) and `PROP_MESHES`.
+  The mouth came back as a timber-framed adit in a rock face rather than a
+  sandbagged shaft head; it opens toward `+X` (the recessed back wall's
+  faces point there) and is scaled to 2.4 m across, one role `rust`. The
+  vent is scaled to 0.8 m tall and split by height into `metal` (pipe) over
+  `rust` (earth ring). The two `_collapsed` twins are the same meshes
+  slumped in Blender (height x0.45, hash-jittered slump); the spoil heap is
+  a hash-jittered hemisphere from nothing. **Nothing in the renderer read a
+  tunnel mesh before this**: `packages/render/src/three/tunnel-props.ts`
+  stands them on the route's own points (`tunnelPointAt`, `tunnelVent`,
+  `tnProgress`) under the trail's identification rule
+  (`collapsedRouteLevel`), and `tunnel-props.test.ts` pins that rule --
+  an unidentified route shows at most the spoil heap where anyone can see
+  the dig head; the mouth and vent draw only at level 2; the collapsed twins
+  only for a route that was identified when it died.
+
+**Gates** (2026-09-30): `pnpm validate:meshes` passes -- 53 mesh units against
+38 sprite units, 12 prop meshes contract-checked; `pnpm validate:assets`,
+`pnpm test` (7,504), `pnpm typecheck`, `pnpm lint` all green. The mesh gate
+prints no per-pair IoU on a pass; the nearest pairs were not measured
+separately here.
+
+**Sources.** `art/meshy/ledger.jsonl`, each task's `task.json`, the eight
+shipped remesh `model.glb` files (six textured, 9-11 MB each; the two tunnel
+remeshes under 40 KB) are committed with this set, as B0a's were; the
+previews and refine folders (10-23 MB and 200+ MB per asset) stay untracked;
+their task ids above are the record.
+
 ## Batch B0a units (Meshy text-to-3D, remeshed) -- GH-286
 
 Style bible batch B0a (`docs/art/style-bible.md` section 6), run 2026-09-30 on
@@ -469,6 +570,89 @@ depends on someone remembering is provenance that eventually fails.
 
 ---
 
+
+## GH-286 batch B0b — the first Meshy-textured rigged figure teams
+
+Two units, 2026-09-30, both Meshy **text-to-3D** through the CLI (`pnpm meshy`),
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl` (**70 credits consumed** against the 80 the lead
+approved: preview 20 + refine 10 + remesh 5 per unit; the 5-credit Meshy rig
+was not bought — the CLI has no `rig` command, a headless session cannot drive
+the web UI, and a figure cut into `rig.py`'s parts does not need one). Prompts
+and numbers tables are in `docs/art/meshy-prompts-units.md` §3–4, used verbatim.
+Under `art/meshy/<slug>-20260930-<task>/`: each task's `task.json` and
+thumbnail, the ledger, and the two REMESH `model.glb` files (the importer's
+actual input, ~10.5 MB each with their 2048/4096 maps) are committed; the
+preview and refine downloads (six formats, ~100 MB per refine) are not.
+
+| File | Draws as | Preview task id | Refine / remesh task id (shipped) | Notes |
+|---|---|---|---|---|
+| `art/meshes/at_team.glb` | `at_team` (Spike AT Team, KDF) | `01a0f2fa-3d74-7553-8559-fc36a338cd92` (`--pose a-pose`) | refine `01a0f2fb-2e11-70ac-8034-d21b9b58d534` (2k), remesh `01a0f2fd-1f66-779a-9a23-370974ee442a` at 2,000 | **Textured** (`TEXTURED_INFANTRY_TYPES`): ships the remesh's base-colour bake at 1024, JPEG q85, on `uniform`/`boot`/`face`; the normal and metallic-roughness maps are dropped. ONE figure, 1.78 m, cut into `rig.py` parts for both men (`tools/units/import_meshy_kdf_team.py`): `at_fire` kneeling (2,051 tris) with `kit.launcher` level on the shoulder, `at_spot` standing (2,051) with `kit.binoculars`; two prone corpses at half. **6,754 tris**, 1014928 bytes after the gait pass (321540 encoded). Clips `idle, move, fire, down, wreck`, all `rig.py`'s own. |
+| `art/meshes/demo_squad.glb` | `demo_squad` (Combat Engineers, KDF) | `01a0f2fb-6ba7-7245-9bd0-22edca38a2a6` (`--pose a-pose`) | refine `01a0f2fc-8731-76a4-af00-4d4805d08fb1` (2k), remesh `01a0f302-184a-701e-a5c6-daa76f54f83f` at 2,000 | As `at_team`: `demo_a` kneeling (2,061 tris) beside `kit.demo_charge` on the `prop` bone, `demo_b` standing (2,061) with the kit rifle held level at his hung right hand and `kit.cable_spool` worn on the back (the kit drew it through the shins). **6,828 tris**, 1048200 bytes after the gait pass (323484 encoded). Same five clips. |
+
+Measured in this batch: a remesh of a refined task keeps its bake (both
+figures arrived with base colour + normal + metallic-roughness); Meshy honoured
+the A-pose, helmet, carrier, boots, goggles and knee pads, and returned bent
+elbows with upturned palms rather than a straight A-pose — the importer hangs
+each arm as one rigid unit about its shoulder ring, so the hands flare
+slightly at the wrist. `pnpm validate:meshes` passes with both on the
+`NOT palette-checked` line (silhouette IoU still runs and clears 0.88).
+
+## WP-A3.1 batch B2 — the first units generated through `pnpm meshy` (GH-179)
+
+Four units, 2026-09-30, all Meshy **text-to-3D** through the CLI (`pnpm meshy`),
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl` (110 credits consumed against the 140 the lead
+approved). Prompts, numbers tables and the per-unit decisions are in
+`docs/art/meshy-prompts-units.md` §6–9. The downloaded `model.glb` sources sit
+under `art/meshy/<slug>-20260930-<task>/` and are **not committed** (the gun
+truck's refine folder alone is 359 MB across six formats); the ledger, each
+folder's `task.json` and thumbnail are. The task ids below are the provenance.
+
+| File | Draws as | Preview task id | Refine / remesh task id (shipped) | Notes |
+|---|---|---|---|---|
+| `art/meshes/vehicles/gun_truck.glb` | `gun_truck` (AA Gun Truck, enemy) | `01a0f2a6-bc37-7461-9b4f-4919d0ff1606` | refine `01a0f2a8-35a9-701b-b1a0-ccdeca412e1b` (2k), remesh `01a0f2ac-4384-735a-b5e1-0350426f017c` at 5,000 | **Textured** (`TEXTURED_VEHICLE_TYPES`): ships the remesh's own 2048 base-colour, normal and metallic-roughness bake. Measured here: a remesh of a refined task keeps its bake. 4,857 tris; 5.4 m long × 2.82 m wide × 2.79 m tall (barrels raised 20° in Blender to the bible's ~28°, the preview came back at 7.6°); `turret_pivot` at the pedestal foot; hull/turret cut by geometry, glass by the bake's luminance. `tools/vehicles/export_meshy_gun_truck.py`, then `pnpm wreck:meshes`. |
+| `art/meshes/vehicles/loiter_drone.glb` | `loiter_drone` (Loitering Munition, Sarim) | `01a0f2ac-f4ba-76b2-b111-f2e797ce49d4` | remesh `01a0f2af-af1e-7008-8287-3bd290e63791` at 800 | Palette-painted, zero materials. Real span **1.62 m**, shipped at ×1.5 = 2.43 m (bible §7 q10; the mesh path has no `SIZE_CLASS` air multiplier). 630 tris after cutting the preview's uninvited tricycle landing gear; the preview's nose prop and single tail fin were kept. `tools/vehicles/export_meshy_loiter_drone.py`. |
+| `art/meshes/manpad_team.glb` | `manpad_team` (MANPAD Team, Sarim) | `01a0f2ac-f4e5-7632-8b48-d8813d50890c` (`--pose a-pose`) | remesh `01a0f2af-b00a-715f-9b29-424e409d471a` at 1,500 | Palette-painted (PR #307's `TEXTURED_INFANTRY_TYPES` was open; no refine bought). ONE figure, 1.74 m, used for both men: cut into `rig.py` parts and driven by `rig.py`'s own clips (`idle`, `move`, `fire`, `down`, `wreck`) — `tools/units/import_meshy_crew_team.py`. The preview ignored the head wrap, so the man wears `kit.keffiyeh`. Tube and binoculars are kit geometry. 7,368 tris (kneel + walker + corpse per kneeling figure). |
+| `art/meshes/recoilless_team.glb` | `recoilless_team` (Recoilless Team, Sarim) | `01a0f2ac-f5b1-7146-b3e3-73be95e86ff2` (`--pose a-pose`) | remesh `01a0f2af-b122-75c8-bbe1-9c9da39e1aa2` at 1,500 | As `manpad_team`: one hooded figure, 1.72 m, both crew kneeling, tube and rounds kit geometry. 8,936 tris. |
+
+No Meshy rig was bought for either team: the CLI has no `rig` command and a
+headless session cannot drive the web UI, so the figures are rigid-bound to
+`rig.py`'s bone tables exactly as `kit.py` figures are (no hand-posing, no
+weight painting; `kit.blob` joints hide the cut seams).
+
+---
+
+## WP-A3.1 batch B3 — the first textured infantry (GH-179)
+
+Three teams, 2026-09-30, Meshy **text-to-3D** through the CLI (`pnpm meshy`):
+one A-pose preview, one refine (2k), one remesh each — **105 credits** against
+the 120 the lead approved (35 a unit; the 5 the plan held for a Meshy rig call
+was not spent — the figures are rigged through `rig.py`, as B2's were).
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl`. Prompts, numbers tables and the per-unit decisions are
+in `docs/art/meshy-prompts-units.md` §10–12. The downloaded `model.glb` and
+texture sources sit under `art/meshy/<slug>-20260930-<task>/` and are **not
+committed** (each refine folder is ~130 MB across six formats); the ledger,
+each folder's `task.json` and thumbnail are. The task ids below are the
+provenance. All three are the first entries in `TEXTURED_INFANTRY_TYPES` /
+`TEXTURED_INFANTRY_EXEMPT` (#307): the palette, framing and fill checks skip
+them and silhouette IoU still runs.
+
+| File | Draws as | Preview task id (`--pose a-pose`) | Refine task id (2k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/militia_cell.glb` | `militia_cell` (Militia Cell, enemy) | `01a0f307-59d9-75fd-bd39-76311d703bed` | `01a0f308-4984-7657-9dcf-9132e3fafb6a` | `01a0f30b-c1ee-748b-9915-6aaabecbe861` at 2,000 | ONE figure, 1.70 m, both men. The preview ignored the head wrap AND the open jacket (a clean bare-headed tan soldier came back), so both men wear `kit.keffiyeh`, coloured from their own shirt's bake. Base colour 2048 → 1024 JPEG; normal and metallic-roughness dropped. **7,746 glTF tris**, 1.10 MB source / 355 KB shipped. |
+| `art/meshes/rpg_team.glb` | `rpg_team` (RPG Team, enemy) | `01a0f30b-c2bc-7569-bdce-13ec56567f8f` | `01a0f30c-e042-7315-85b2-bf36b9f01a5a` | `01a0f313-bf75-727d-8573-8fb7f04c2453` at 2,000 | One figure, 1.76 m. The head wrap came back but painted **rose pink**; its texels (head and collar faces, red-magenta hue, saturation > 0.16) are remapped to dusty tan at their own luminance in the importer. The spare-rounds pack came as a small backpack. `rpg_fire` walks with his tube now (`animates=True`). **7,082 tris**, 1.02 MB / 333 KB. |
+| `art/meshes/atgm_cell.glb` | `atgm_cell` (ATGM Cell, enemy) | `01a0f30b-c390-7426-a0f8-e745b1d7589b` | `01a0f30c-c781-701e-a0c7-50e45ee6552f` | `01a0f313-c015-77e4-8b32-fd22a37957f9` at 1,100 | One figure, 1.72 m, both crew kneeling (B2's `_kneel`) on D6 walkers; the quilted jacket came as asked. Its pink-white cap is remapped to limestone the same way. Tripod is `kit.atgm_tripod` on `prop`. **7,228 tris**, 1.11 MB / 369 KB. |
+
+All three through `tools/units/import_meshy_crew_team.py` (B2's importer,
+extended): rigid one-part-to-one-bone on `rig.py`'s tables, `rig.py`'s own
+clips, no hand-posing, no weights. The corpse is no longer the A-pose body laid
+flat: the same cut parts are re-arranged rigidly in code (left arm overhead,
+right arm out, right knee bent, head turned, body rolled 12°), welded, and
+decimated once at 0.5. Kit weapons (`rifle`, `launcher`, `atgm_tripod`) stay
+palette-painted beside the textured figure — the loader decides per mesh.
+
 ## The GH-277 field works (Meshy text-to-3D, remeshed; two textured), 2026-09-30
 
 Eight buildings for the field-works design (`docs/superpowers/specs/2026-09-29-
@@ -574,3 +758,4 @@ node itself — the first exports shipped `images: None` and were caught by
 reading the GLB's JSON chunk, not by the export succeeding; and a 1.35 m whip
 put `officer_fires` under the gate's 6% fill floor (5.2%), because the gate
 frames each unit to its own bounds — 0.85 m clears it at 9.1%.
+

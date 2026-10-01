@@ -146,6 +146,13 @@ SUPPORTED_TEAMS = (
     "at_team", "rpg_team", "mortar_team", "mortar_crew", "atgm_cell",
     "sniper_team", "yahalom_squad", "digger_crew", "moto_rpg",
     "breach_team",
+    # B2, GH-179, 2026-09-30: Meshy figures cut into this module's parts and
+    # driven by its clips -- built by tools/units/import_meshy_crew_team.py,
+    # which owns both files below. Listed here so `build_clips`/`TEAM_FIGURES`
+    # serve them; `export_mesh_team.py -- all` skips them by owner. No
+    # parentheses in this comment: mesh_ownership.test.ts reads the tuple
+    # with a regex that stops at the first closing bracket.
+    "manpad_team", "recoilless_team",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -176,22 +183,26 @@ DEFAULT_TEAM = "inf_squad"
 #: rather than a permanent unexplained block on a file nobody else claims.
 TEAM_MESH_OWNER = {
     "inf_squad": MESH_KIT_OWNED,
-    "militia_cell": MESH_KIT_OWNED,
+    # B3 (GH-179, 2026-09-30): Meshy figures with their own bake, cut and
+    # driven by this module through tools/units/import_meshy_crew_team.py.
+    "militia_cell": "tools/units/import_meshy_crew_team.py",
     # B0b (GH-286, 2026-09-30): both are Meshy figures with their bake, cut
     # into this module's parts and driven by its clips -- built by
     # tools/units/import_meshy_kdf_team.py, which owns both files.
     "demo_squad": "tools/units/import_meshy_kdf_team.py",
     "charge_squad": MESH_KIT_OWNED,
     "at_team": "tools/units/import_meshy_kdf_team.py",
-    "rpg_team": MESH_KIT_OWNED,
+    "rpg_team": "tools/units/import_meshy_crew_team.py",
     "mortar_team": MESH_KIT_OWNED,
     "mortar_crew": MESH_KIT_OWNED,
-    "atgm_cell": MESH_KIT_OWNED,
+    "atgm_cell": "tools/units/import_meshy_crew_team.py",
     "sniper_team": "tools/export_meshy_sniper.py",
     "yahalom_squad": MESH_KIT_OWNED,
     "digger_crew": MESH_KIT_OWNED,
     "moto_rpg": MESH_KIT_OWNED,
     "breach_team": MESH_KIT_OWNED,
+    "manpad_team": "tools/units/import_meshy_crew_team.py",
+    "recoilless_team": "tools/units/import_meshy_crew_team.py",
 }
 assert set(TEAM_MESH_OWNER) == set(SUPPORTED_TEAMS), (
     "TEAM_MESH_OWNER needs exactly one entry per SUPPORTED_TEAMS member -- "
@@ -1094,8 +1105,14 @@ TEAM_FIGURES = {
         _f("chg1", -0.46, 0.10, headgear="keffiyeh", loadout="irregular", mirror=True),
     ],
     "rpg_team": [
+        # B3 (GH-179): `rpg_fire` WALKS now, with his tube -- the B2
+        # `mpd_fire` precedent. `animates=False` was a sprite-sheet fact
+        # (`teams.py` pins rpg_fire's stride to 0.0 so the tube never
+        # moves between frames); on a mesh it meant one man carried frozen
+        # across the ground beside a walking loader, the GH-145 complaint
+        # `mesh_gait.test.ts`'s STILL_FIGURES recorded as authored.
         _f("rpg_fire", 0.18, -0.26, headgear="keffiyeh", loadout="irregular",
-           animates=False, weapon="launcher"),
+           weapon="launcher"),
         _f("rpg_load", -0.30, 0.30, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
     ],
     "demo_squad": [
@@ -1152,6 +1169,25 @@ TEAM_FIGURES = {
         _f("dig", -0.34, 0.04, posture="kneeling", headgear="keffiyeh",
            loadout="irregular", animates=False, move_posture="standing"),
     ],
+    # B2 (GH-179): positions verbatim from `teams.manpad_team` /
+    # `teams.recoilless_team`. Geometry is NOT `kit.figure()` here -- see
+    # `tools/units/import_meshy_crew_team.py`, which builds the parts and
+    # calls this module's `build_clips` with these specs. The MANPAD gunner
+    # walks with his tube (`animates=True`, unlike `rpg_fire`, whose
+    # stride=0 pin is a sprite-sheet fact); the spotter and both recoilless
+    # crew kneel deployed and walk on a D6 walker.
+    "manpad_team": [
+        _f("mpd_fire", 0.16, -0.22, headgear="keffiyeh", loadout="irregular",
+           leader=True, weapon="launcher"),
+        _f("mpd_spot", -0.28, 0.30, posture="kneeling", headgear="keffiyeh",
+           loadout="irregular", animates=False, move_posture="standing"),
+    ],
+    "recoilless_team": [
+        _f("rcl_fire", 0.20, -0.28, posture="kneeling", headgear="keffiyeh",
+           loadout="irregular", animates=False, weapon="launcher", move_posture="standing"),
+        _f("rcl_load", -0.30, 0.30, posture="kneeling", headgear="keffiyeh",
+           loadout="irregular", leader=True, animates=False, move_posture="standing"),
+    ],
     # moto_rpg is NOT built through `_add_figure`/PART_BONE at all -- see
     # `_moto_rpg_rest`, which force-binds every single part it creates to an
     # explicit bone name. These six entries exist only so `figure_prefixes`
@@ -1188,6 +1224,7 @@ def _check_team_figures_against_teams():
         "mortar_team": "kdf", "mortar_crew": "enemy", "atgm_cell": "enemy",
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
         "moto_rpg": "enemy", "breach_team": "kdf",
+        "manpad_team": "enemy", "recoilless_team": "enemy",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
@@ -2380,10 +2417,17 @@ def build_clips(arm_obj, team_id):
     # this pass does not build (see the module docstring).
 
 
-def export_glb(arm_obj, path):
+def export_glb(arm_obj, path, materials=False, jpeg_quality=85):
+    """`materials=False` is every kit team: zero materials, the contract.
+    `materials=True` is the B3 (GH-179) textured path for a team named in
+    `TEXTURED_INFANTRY_TYPES` / `TEXTURED_INFANTRY_EXEMPT`: the figure's own
+    base-colour bake ships as JPEG, on the role meshes that carry a UV layer;
+    a kit weapon mesh has none and is exported without a material."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     bpy.ops.object.select_all(action="DESELECT")
     bpy.context.view_layer.objects.active = arm_obj
+    extra = (dict(export_materials="EXPORT", export_image_format="JPEG", export_jpeg_quality=jpeg_quality)
+             if materials else dict(export_materials="NONE"))
     bpy.ops.export_scene.gltf(
         filepath=path,
         export_format="GLB",
@@ -2395,8 +2439,8 @@ def export_glb(arm_obj, path):
         export_animation_mode="ACTIONS",
         export_force_sampling=True,
         export_extras=True,
-        export_materials="NONE",
         export_rest_position_armature=True,
+        **extra,
     )
 
 

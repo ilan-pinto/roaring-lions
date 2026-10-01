@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready tunnel air vent on flat ground: a short vertical corrugated metal pipe stub with a hinged steel hatch lid propped open, a ring of loose turned earth around its base. Real-world scale, 1.2 metres across, under one metre tall. Rust-streaked corrugated metal, brown earth. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f30a-80b8-7402-aa3b-0ffa9b1dbd86",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2016265475,
+    "prompt": "A single low-poly game-ready tunnel air vent on flat ground: a short vertical corrugated metal pipe stub with a hinged steel hatch lid propped open, a ring of loose turned earth around its base. Real-world scale, 1.2 metres across, under one metre tall. Rust-streaked corrugated metal, brown earth. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790783952616,
+    "progress": 100,
+    "started_at": 1790783952627,
+    "finished_at": 1790784078082,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f30a-80b8-7402-aa3b-0ffa9b1dbd86/output/model.glb?Expires=4944326400&Signature=o-Ml6NmWOg6I8dW5n3nmT~pUDHAYiiMWudq4XIuFjUIil7rTNtZXTMHXWZktQWFwY1G3MatrMD0W-~tzONAvtrD~EH9Q9AANbzKHNj3mcCs3REKpyhbkUINBcXBIvrlq3JzQpYvq2ntbN9~HkJ9U74o7le9DeoniP9HJdhx4zZJNeLMGsml-y8lt70XZ~2dfIYFuU0Xn~TihLBVH3J5p2PpALFvZX-b0qk-nRULmSVqJae6vhdks-gsNlQQg29uCYo~33~~gvOz1l51SN207jVCYaQ3u6fL87Va7TNdtpp30TIkf6PPMEAIG6kcLkGYmoKwqWDwjVZ1NrGPOz0X3mw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f30a-80b8-7402-aa3b-0ffa9b1dbd86/output/preview.png?Expires=4944326400&Signature=ZJOKJOtdxM~5t9wNx~2iVOWgKJTQlcnDVJSn5bYwBJMJ2mG3FJMhtsVp0l~TrR9eh-Csy3M8aTB4n7OoXvU8P9KcyFr5rmKmTYMX~77P3PlaEIx-98Twi34ANXUsj1vcgt5P7doo3puF3c7XklAaDuTRH8mYYuL5rRQ4zHeex0yZ5--HQt2W~oXSCwaofoUgAXlqL-HyD2jr0pWpPUaqmFoNC5fyDy~jS5A5RVQm5yn9rc0teHdvg0U-PshW4F2aTsVBQx7PBv984IOuR1WBsmi~uQEaw-JzOew9xcCx8qE0N6tZg9pWDiqh6~PHo5UVnWS8d1Rzw87AnH3ARgUVzw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790783952616,
+    "started_at": 1790783952627,
+    "finished_at": 1790784078082
+  },
+  "usd_estimated": 0.4
+}

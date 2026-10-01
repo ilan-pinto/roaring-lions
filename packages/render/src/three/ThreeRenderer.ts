@@ -385,6 +385,7 @@ import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
+import { TunnelProps, type TunnelPropsInput, type TunnelRouteView } from './tunnel-props';
 import {
   trackKindFor,
   stepTrackAccum,
@@ -2165,6 +2166,10 @@ export class ThreeRenderer implements Renderer {
    *  rather than a second, independently-ticking counter that could drift
    *  out of step with it. */
   private trailMeshDirty = true;
+  /** GH-227: the tunnel mouth / vent / spoil-heap props, rebuilt on the same
+   *  `trailMeshDirty` cadence from the same sim reads the trail uses, under
+   *  the same identification rule -- see `./tunnel-props.ts`. */
+  private readonly tunnelProps = new TunnelProps();
 
   /**
    * Vehicle track marks (tread ruts, tyre prints), now stamped into
@@ -2496,6 +2501,7 @@ export class ThreeRenderer implements Renderer {
     // only so a reader scanning this constructor sees the ground-plane
     // meshes grouped together.
     this.scene.add(this.trailMesh.mesh);
+    this.scene.add(this.tunnelProps.group);
     // Both decal pools lie on the same ground plane as the trail, so they
     // are grouped with it for the same reader's-eye reason -- scene-graph
     // position carries no draw-order meaning in this backend (`renderOrder`
@@ -2993,6 +2999,7 @@ export class ThreeRenderer implements Renderer {
     // "added once in the constructor, no scene.remove needed" reasoning
     // just above.
     this.trailMesh.dispose();
+    this.tunnelProps.dispose();
     // BEFORE the renderer goes, and nulled: the composer owns three
     // full-screen render targets plus SMAA's two lookup textures, none of
     // which `WebGLRenderer.dispose()` reaches, and they have to be deleted
@@ -3159,6 +3166,7 @@ export class ThreeRenderer implements Renderer {
     );
     if (this.trailMeshDirty) {
       this.trailMesh.update(this.buildTrailInput());
+      this.tunnelProps.update(this.buildTunnelPropsInput(), this.propSet);
       this.trailMeshDirty = false;
     }
     // The decals' age is SIM time (R-14), never `dtMs`: the tick the sim has
@@ -3688,6 +3696,41 @@ export class ThreeRenderer implements Renderer {
    * every callback, matching Pixi exactly -- trails are what the PLAYER has
    * found, never the AI's own contact state.
    */
+  /**
+   * GH-227: one `TunnelRouteView` per route for `tunnel-props.ts`, from the
+   * same reads `buildTrailInput` makes and two more the trail never needed
+   * (`tunnelPointAt` for the mouth and the dig head, `tunnelVent` for the
+   * exit). Route points are raw tile coordinates; the half-tile puts a
+   * piece on the tile's centre, where `Sim.tunnelVent` already puts the
+   * vent. Side hardcoded to 0, as the trail's is.
+   */
+  private buildTunnelPropsInput(): TunnelPropsInput {
+    const sim = this.sim;
+    const routes: TunnelRouteView[] = [];
+    for (let r = 0; r < sim.tunnelCount; r++) {
+      const mouth = sim.tunnelPointAt(r, 0);
+      const vent = sim.tunnelVent(r);
+      const head = sim.tunnelPointAt(r, sim.tnProgress[r]);
+      const headX = fx.toNumber(head[0]) + 0.5;
+      const headY = fx.toNumber(head[1]) + 0.5;
+      routes.push({
+        alive: sim.tnAlive[r] !== 0,
+        contactLevel: sim.tunnelContactLevel(0, r),
+        ventOpen: sim.tnVentOpen[r] !== 0,
+        progressTiles: fx.toNumber(sim.tnProgress[r]),
+        lengthTiles: fx.toNumber(sim.tnLength[r]),
+        mouth: [fx.toNumber(mouth[0]) + 0.5, fx.toNumber(mouth[1]) + 0.5],
+        vent: [fx.toNumber(vent[0]), fx.toNumber(vent[1])],
+        digHead: [headX, headY],
+        digHeadSeen: sim.sideSeesTile(0, Math.floor(headX), Math.floor(headY)),
+      });
+    }
+    return {
+      routes,
+      groundY: (x, y) => groundWorldY(this.retained.elevation, sim.width, sim.height, x, y),
+    };
+  }
+
   private buildTrailInput(): TrailInstanceInput {
     const sim = this.sim;
     return {
@@ -5648,6 +5691,9 @@ export class ThreeRenderer implements Renderer {
     this.disposePropGeometrySet(this.propSet);
     this.propSet = { parts };
     this.terrainDirty = true;
+    // The tunnel props draw from this set (GH-227); their last rebuild may
+    // have run before it landed.
+    this.trailMeshDirty = true;
   }
 
   /** `disposeDecorGeometrySet`'s counterpart for the prop set's source clones. */

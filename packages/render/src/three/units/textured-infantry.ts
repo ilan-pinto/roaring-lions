@@ -37,6 +37,11 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // the faction ramp.
   'at_team',
   'demo_squad',
+  // B3 (GH-179, 2026-09-30): Meshy figures remeshed from a refined task, so
+  // each ships its own base-colour bake -- tools/units/import_meshy_crew_team.py.
+  'militia_cell',
+  'rpg_team',
+  'atgm_cell',
   // GH-298 (2026-09-30): the three officer teams, tools/units/
   // import_meshy_officers.py -- each a new Meshy figure plus a B0b remesh as
   // its second figure, both bakes in one 2048x1024 atlas. HELD art
