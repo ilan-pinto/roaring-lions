@@ -213,12 +213,10 @@ describe('shipped infantry team meshes: the death clips exist', () => {
  */
 describe('which death path each shipped rig takes', () => {
   const EXPECTED_PHASE: Readonly<Record<string, MeshDeathPhase>> = {
-    // B7 (2026-10-01): `meshy_soldier` and `sarim_rifles` are rig.py figures
-    // now (toppling); their authored falls went with the supplied bipeds.
-    yahalom_engineer: 'falling',
-    // The sniper's prone living pose on `death_root` still keys the same scale
-    // signature as its wreck (B7), so it still takes the already-down path;
-    // the mortar tableau is a rig.py team now (toppling).
+    // B7 (2026-10-01): the three supplied bipeds with authored falls and
+    // the mortar tableau are replaced by rig.py figures (toppling); the
+    // sniper's prone living pose on `death_root` still keys the same scale
+    // signature as its wreck, so it still takes the already-down path.
     sniper_team: 'settling',
   };
 

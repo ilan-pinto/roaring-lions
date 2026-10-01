@@ -160,13 +160,15 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // was supplied as OUR infantry. Which side an asset fights for is a design
   // call, not one a naming heuristic gets to infer, which is why every faction
   // here is written down rather than derived.
-  // B7 (GH-179, 2026-10-01): a Meshy A-pose figure with its bake through
-  // tools/units/import_meshy_crew_team.py, under the team id's own name;
-  // `meshy_soldier.glb` (the supplied rifleman) is deleted, not retired.
+  // B7 (GH-179, 2026-10-01): all four are Meshy A-pose figures with their
+  // bake through tools/units/import_meshy_crew_team.py now, and each file
+  // carries its team id's own name -- `meshy_soldier.glb`,
+  // `meshy_mortar_team.glb` and `yahalom_engineer.glb` (the supplied,
+  // palette-painted assets) are deleted, not retired.
   inf_squad: { files: ['inf_squad.glb'], faction: 'kdf' },
   sarim_rifles: { files: ['sarim_rifles.glb'], faction: 'enemy' },
-  mortar_team: { files: ['mortar_team.glb'], faction: 'kdf' }, // B7: as inf_squad; meshy_mortar_team.glb deleted
-  yahalom_squad: { files: ['yahalom_engineer.glb'], faction: 'kdf' },
+  mortar_team: { files: ['mortar_team.glb'], faction: 'kdf' },
+  yahalom_squad: { files: ['yahalom_squad.glb'], faction: 'kdf' },
 
   // The star-gated Tzinah (docs/campaign/special_units/design.md §3), built by
   // the same kit.py/teams.py pipeline as the rest of this table.
@@ -375,7 +377,9 @@ export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
  * revert.
  */
 export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
-  'yahalom_squad.glb': 'superseded by yahalom_engineer.glb (the first mesh team with a work clip)',
+  // Empty since B7 (GH-179, 2026-10-01): the three kit builds it held
+  // (`inf_squad.glb`, `mortar_team.glb`, `yahalom_squad.glb`) are live again
+  // under the same names, as Meshy figures through the crew importer.
 };
 
 /**

@@ -45,10 +45,10 @@
     "buildings/warehouse_wreck.glb": "2c18c8c06db02b01f71545448c2096bad49469f586f40b4cba218efe37627685",
     "campaign/sahar_basin.glb": "1981a43333944f411eb41054d10561776aa2a5b56d64c9bb48094537eaf6b56b",
     "charge_squad.glb": "ec40e2512118c43c34085dee0f6e6e1defb2917ecc0dded264dca42c3f7bff52",
-    "civilians/civilian_child.glb": "452390d1e917b8356e8890325c4b79e2bb87c35f41ccb035e701c68c9e68dbd6",
-    "civilians/civilian_woman.glb": "38ebc3086bdab53bc8a830d5758b9ee726df158bbb45df8abec75c3da2f8c418",
-    "civilians/farm_worker.glb": "3d71ffd177dc00a3b8ca88c4d5eb92fe5d67bcc837a03d6bb48fc44a6c900532",
-    "civilians/office_worker.glb": "df1fb41b5411ba87d23d6995eff284ccd22218d713b663bc39f6db9f246dfd05",
+    "civilians/civilian_child.glb": "3f4e0519b9d8a338ba784ad50c34a033a14de7a7bc9261a6bf981b6c4d3f2ee4",
+    "civilians/civilian_woman.glb": "452690539695e283d4ca8a63e0199a928eeaee560626fafef2a80a795dad9c8d",
+    "civilians/farm_worker.glb": "b1b984c27dab58429b54b7fac0daadcae820e2d8b01e65bbb9bf9cf009a00060",
+    "civilians/office_worker.glb": "7d366447deefa379daba590af28ae6b765c9f0f968736b0f943ad00dd7bb3a13",
     "decor/boulder_0.glb": "e7ead33b157ace8cf7c1104add746ac076caf459b76b0e9b4e3c5acac7d9ac6b",
     "decor/boulder_1.glb": "44674343ae70d6e1a9483b0f854b99cb6d77226197c788276a41fd9317ad48e8",
     "decor/boulder_2.glb": "516721a97fbc067314d446a960a18b3df2acb44ab9a23590bab40190aaa69a87",
@@ -126,7 +126,6 @@
     "vfx/explosion_burst.glb": "c111861d350311378a23a73568b9c8ab5fc42308e6d33d107f75db39d68f1702",
     "vfx/muzzle_flash.glb": "cd6d18faa40aaa5ceaeb4a104efc4dd2f62fb99632a56ff3f2d9c03b0294db7b",
     "vfx/smoke_plume.glb": "66787596e321cb586e56e2dfb2923618717820b9e1f2b9bdf8acbd254133bc69",
-    "yahalom_engineer.glb": "8f07ee6590da623f271b3d413d04b1cd9b825011a5a9831437c299e1433cc3ba",
-    "yahalom_squad.glb": "c4ab471b25276c0edd36375b3a65611d3a5518495a6fc29ba25005fd9b5cae85"
+    "yahalom_squad.glb": "6cb5e560b9136d62d1a35551c3f6ddb6bca60a72edf5403ad9ef536e90045bb2"
   }
 }

@@ -186,9 +186,11 @@ DEFAULT_TEAM = "inf_squad"
 #: script's OWN output path, so retiring that script turns this into a red test
 #: rather than a permanent unexplained block on a file nobody else claims.
 TEAM_MESH_OWNER = {
-    # B7 (GH-179, 2026-10-01): the supplied Meshy rifleman is replaced by an
-    # A-pose figure with its bake, cut and driven by this module through
-    # tools/units/import_meshy_crew_team.py, under this team id's own name.
+    # B7 (GH-179, 2026-10-01): the five supplied Meshy teams are replaced by
+    # A-pose figures with their bake, cut and driven by this module through
+    # tools/units/import_meshy_crew_team.py -- inf_squad, mortar_team and
+    # yahalom_squad reclaim their own file names from the superseded kit
+    # builds; sniper_team leaves tools/export_meshy_sniper.py.
     "inf_squad": "tools/units/import_meshy_crew_team.py",
     # B3 (GH-179, 2026-09-30): Meshy figures with their own bake, cut and
     # driven by this module through tools/units/import_meshy_crew_team.py.
@@ -205,7 +207,7 @@ TEAM_MESH_OWNER = {
     "atgm_cell": "tools/units/import_meshy_crew_team.py",
     # B7 (GH-179, 2026-10-01): was tools/export_meshy_sniper.py.
     "sniper_team": "tools/units/import_meshy_crew_team.py",
-    "yahalom_squad": MESH_KIT_OWNED,
+    "yahalom_squad": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
     "digger_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "moto_rpg": "tools/units/import_meshy_moto_rpg.py",       # B6 (GH-179, 2026-10-01)
     "breach_team": "tools/units/import_meshy_crew_team.py",   # B5 (GH-179, 2026-10-01)
@@ -1180,8 +1182,15 @@ TEAM_FIGURES = {
         _f(s["prefix"], s["x"], s["sign"] * SNIPER_CLOSE_IDLE, posture="standing")
         for s in SNIPER_SPECS
     ],
+    # B7 (GH-179, 2026-10-01): `yah_a` carries a third body, a KNEELER on
+    # `yah_ak_root` (`_kneeler_prefix`), shown in `work` alone -- the mast
+    # driven into the ground for the whole of a tunnel charge, the clip
+    # `yahalom_engineer.glb` was the only mesh to carry. Built by
+    # import_meshy_crew_team.py (a kneel copy of the standing cut, its own
+    # mast pitched into the ground on `yah_ak_forearm_R`); keyed by
+    # `build_work_clip`. The kit export of this team is superseded.
     "yahalom_squad": [
-        _f("yah_a", 0.30, -0.20, leader=True),
+        _f("yah_a", 0.30, -0.20, leader=True, work_posture="kneeling"),
         _f("yah_b", -0.34, 0.26, weapon="rifle"),
     ],
     # B5 (GH-179, 2026-10-01): `weapon=None` since the Meshy figure landed --

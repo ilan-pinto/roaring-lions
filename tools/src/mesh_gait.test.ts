@@ -385,7 +385,7 @@ describe('countTracePeaks', () => {
     ['inf_squad.glb', 'move'],
     ['sarim_rifles.glb', 'move'],
     ['mortar_team.glb', 'move'],
-    ['yahalom_engineer.glb', 'move'],
+    ['yahalom_squad.glb', 'move'],
     ['breach_team.glb', 'move'],
     ['civilians/civilian_woman.glb', 'move'],
     ['civilians/office_worker.glb', 'move'],
@@ -695,7 +695,8 @@ const GAIT_MULTIPLIER_FLOOR = 0.8;
  * assertions were added to catch.
  */
 const GAIT_MULTIPLIER_OUTLIERS: Readonly<Record<string, number>> = {
-  yahalom_squad: 2.6454,
+  // B7 (2026-10-01): `yahalom_squad` left this table -- the supplied biped it
+  // named is deleted and the rig.py figure reads 1.1991, inside the band.
   // 2.4842 on the kit figure (stride 1.5297 m); 2.6453 since B4 (GH-179,
   // 2026-10-01) put a Meshy figure on the same rig.py gait: its legs are
   // shorter relative to its height (crotch at 0.47 H of 1.72 m, 0.81 m,
@@ -1040,12 +1041,12 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'militia_cell.glb move': 582,
   'rpg_team.glb move': 528,
   'charge_squad.glb move': 444, // B4: Meshy boots
-  'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait
-  'sarim_rifles.glb move': 1078, // B7: Meshy boots, three men
+  'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait; the source is bisected at its cut planes (B7 review), so every boot count below moved once more
+  'sarim_rifles.glb move': 1078, // B7 (2 Oct ruling): three of B3's militia_cell body
   'mortar_team.glb move': 590, // B7: Meshy boots -- two D6 walkers and the No.3
-  'yahalom_engineer.glb move': 1632,
+  'yahalom_squad.glb move': 508, // B7: Meshy boots, two men
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
-  'manpad_team.glb move': 711, // B7 (2 Oct ruling): built on B3's militia_cell body, the shipped Sarim figure
+  'manpad_team.glb move': 711, // B7: re-remeshed from the refined B2 preview
   'recoilless_team.glb move': 518, // B7: re-remeshed from the refined B2 preview
   // B5 (2026-10-01): the Meshy breach figure, boot = below 0.09 H, two men.
   'breach_team.glb move': 396,
@@ -1132,7 +1133,6 @@ const SWING_LIFT_FLOOR = 0.05;
  * is a boot's height profile over 0.67 s at 25 px.
  */
 const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
-  'sniper_team.glb move': -0.012, // B7: the Meshy walker, re-measured
   // Not reversed -- positive, same sign as every other rig -- just small.
   // 0.010998631554512578 (rounded to 0.011 below): the swing-lift fraction
   // `swingLiftFraction` reads off the shipped `digger_crew.glb` `move`
@@ -1145,6 +1145,7 @@ const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
   // sits among its own siblings, not as a derivation of the number --
   // `sniper_team` above is the precedent for a small chirality reading with
   // no confirmed mechanism. Treat the number as pinned, not as explained.
+  'sniper_team.glb move': -0.012, // B7: the Meshy walker, re-measured
   'digger_crew.glb move': 0.011,
   // B4 (GH-179, 2026-10-01): the Meshy mortar crew's D6 walker reads
   // 0.0435 -- positive, the right sign, just under the 0.05 floor, the same
@@ -1163,7 +1164,8 @@ describe('mesh unit gait -- per figure, not per file', () => {
 
   it('reads a known number of figures, and every still one is named', () => {
     // B7 (2026-10-01): 21 clips, 41 figures -- the two supplied `moveFire`
-    // clips went with their bipeds; E5's recon_zikit walks three.
+    // clips went with their bipeds; inf_squad/sarim/mortar_team are three
+    // men each on rig.py's gait, and E5's recon_zikit walks three.
     expect(rows).toHaveLength(21);
     const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
     // 40 visible figures over 20 clips: two each on the six original
@@ -1425,9 +1427,6 @@ export const FACING_EXEMPT: Readonly<Record<string, string>> = {
   'moto_rpg.glb':
     'a pillion rig: its `face` role binds entirely to `rid_seat`, `pas_seat` and two death ' +
     'roots, so it carries no head joint. Correct as built; `measureFacing` raises on it.',
-  'yahalom_engineer.glb':
-    'no `face` mesh -- gated through its `headfront` MARKER instead, below, so this is a ' +
-    'change of instrument rather than a hole.',
 };
 
 interface FacingRow {
@@ -1518,7 +1517,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // and a review while every caller's `for` loop passed in 0 ms.
     // B2 (2026-09-30) adds twelve: manpad_team six, recoilless_team six.
     // E5 (2026-10-01) adds nine: recon_zikit's three heads over idle, fire and move.
-    expect(rows).toHaveLength(106); // B7 stage 3: mortar_team and sniper_team read through their own face meshes now
+    expect(rows).toHaveLength(114); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1545,6 +1544,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'rpg_team.glb',
       'sarim_rifles.glb',
       'sniper_team.glb',
+      'yahalom_squad.glb',
     ]);
     console.log(
       `mesh facing: ${rows.length} figure-clips gated across ${files.size} GLBs.\n` +
@@ -1655,6 +1655,13 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'sniper_team.glb fire',
       'sniper_team.glb idle',
       'sniper_team.glb idle',
+      'yahalom_squad.glb down',
+      'yahalom_squad.glb down',
+      'yahalom_squad.glb down',
+      'yahalom_squad.glb fire',
+      'yahalom_squad.glb idle',
+      'yahalom_squad.glb move',
+      'yahalom_squad.glb work',
     ]);
   });
 
@@ -1684,39 +1691,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     }
   );
 
-  it('gates yahalom_engineer through its marker, since it ships no face mesh', () => {
-    // The one file `measureFacing` cannot read that another instrument can.
-    // Without this, `yahalom_squad` -- a shipped KDF unit with four clips --
-    // has no facing coverage of any kind.
-    for (const clip of ['idle', 'move', 'down', 'work']) {
-      const figs = measureMarkerFacing(`${MESHES}yahalom_engineer.glb`, clip);
-      expect(figs, `yahalom ${clip}`).toHaveLength(2);
-      for (const f of figs) {
-        expect(f.hiddenInClip, `${clip} ${f.marker}`).toBe(false);
-        expect(Math.abs(f.meanDeg), `${clip} ${f.marker}`).toBeLessThan(FACE_MEAN_DEG);
-      }
-    }
-  });
 });
 
-// ---------------------------------------------------------------------------
-// Step 3b -- the WEAPON axis, from geometry, and the two facing instruments
-// against each other.
-// ---------------------------------------------------------------------------
 
-/**
- * Where each rig family's weapon geometry lives, and which joint carries it.
- *
- * Both halves have to be per-family and neither is a mistake in the art. On a
- * `kit.py` team the rifle is its own `weapon` role and the rig has no hand
- * bone at all, so the cloud hangs off `*_forearm_R`. On the Meshy bipeds the
- * rifle is MODELLED but has no `weapon` role -- `classify_vertex_roles` splits
- * by base-colour texture and the rifle is the same olive as the uniform -- so
- * the cloud is `uniform` vertices on `*_RightHand`.
- *
- * `figures` is asserted, not discovered: `at_team` has one armed figure and a
- * spotter, `demo_squad` one rifleman and one charge-carrier.
- */
 const WEAPON_RIGS: readonly {
   readonly file: string;
   readonly role: string;
@@ -1737,11 +1714,12 @@ const WEAPON_RIGS: readonly {
   { file: 'manpad_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
   { file: 'recoilless_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
   // B7 (2026-10-01): the two supplied bipeds (`uniform`-on-`RightHand`,
-  // `moveFire`) are rig.py figures now -- sarim with kit rifles on
-  // `forearm_R` like militia_cell; inf_squad's carbine is on `spine`
-  // (WEAPON_EXEMPT).
+  // `moveFire`) are rig.py figures with kit rifles on `forearm_R` now, like
+  // militia_cell; mortar_team's No.3 and yahalom's rifleman join them.
   { file: 'sarim_rifles.glb', role: 'weapon', joint: /_forearm_R$/, figures: 3, clips: ['fire'] },
   { file: 'mortar_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  // yahalom: yah_b's rifle alone -- the masts are `metal`, not weapons.
+  { file: 'yahalom_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
   { file: 'recon_zikit.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
 ];
 
@@ -1773,9 +1751,6 @@ export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
     'torso, held across the chest in the LEFT hand; it ships as a `weapon` piece on each ' +
     "man's `spine` (import_meshy_crew_team.py's WEAPON_ON_SPINE), no kit rifle beside it, " +
     'so no `_forearm_R` owns a weapon vertex and `fire` is a FIRE_ROOT_LEAN brace',
-  'yahalom_engineer.glb':
-    'its `weapon` role puts EIGHT vertices spanning 0.076 m on `RightHand` -- a fitting, ' +
-    'not a barrel, and far under WEAPON_MIN_EXTENT_M. Recorded as a gap, not gated.',
   'civilians/civilian_woman.glb': 'a civilian: `FORBIDDEN_ROLES` bans `weapon` outright',
   'civilians/office_worker.glb': 'a civilian',
   'civilians/farm_worker.glb': 'a civilian',
@@ -1929,12 +1904,13 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'at_team.glb at_fire_forearm_R': -0.8, //     [-2.84, 1.24]  the Spike, at pitch 0
   // B2 (2026-09-30): kit.launcher geometry on Meshy figures -- teams.py's own
   // 78-deg MANPAD tube on the gunner's shoulder, and the recoilless tube level.
-  // B7 (2026-10-01): the Sarim riflemen's kit rifles at the hung hand
-  // (`_rifle_at_hand`, the militia carry).
+  // B7 (2026-10-01): the three replaced teams' kit rifles at the hung hand
+  // (`_rifle_at_hand`, the militia carry) and yah_a's level mast.
   'sarim_rifles.glb sar0_forearm_R': 2.48,
   'sarim_rifles.glb sar1_forearm_R': 2.48,
   'sarim_rifles.glb sar2_forearm_R': 2.48,
-  'mortar_team.glb mtr_no3_forearm_R': 2.48, // B7: the No.3's rifle, the same carry
+  'mortar_team.glb mtr_no3_forearm_R': 2.48,
+  'yahalom_squad.glb yah_b_forearm_R': 2.48,
   'manpad_team.glb mpd_fire_forearm_R': 80.29, // [78.39, 82.39] the 1.30 m tube at 78 deg, gripstock below the shoulder
   // Pitch 0 as before; the pistol grip and support handle hang under the
   // front half of a short fat tube and tilt its cloud's axis 5.2 deg down.
@@ -2041,6 +2017,7 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
       'recon_zikit.glb',
       'rpg_team.glb',
       'sarim_rifles.glb',
+      'yahalom_squad.glb',
     ]);
     console.log(
       `mesh weapon elevation: ${gated.length} of ${WEAPON_RIGS.length} weapon rigs gated ` +
@@ -2280,14 +2257,15 @@ describe('mesh gait tables -- every key names something real', () => {
 // `tools/units/import_meshy_rpg_team.py` is a WIP whose output has never
 // shipped.
 describe('mesh unit death -- the fall clips (design D3, gate 3)', () => {
-  // B7 (2026-10-01): `meshy_soldier` and `sarim_rifles` are rig.py figures now
-  // (they topple per figure, D5); the engineer is the one supplied biped left.
-  const FALL_FILES = ['yahalom_engineer.glb'];
-  const FALL_ALT_FILES = ['yahalom_engineer.glb'];
+  // B7 (2026-10-01): no shipped rig carries an authored fall any more -- the
+  // three supplied bipeds that did are replaced by rig.py figures, which
+  // topple per figure (D5). The gate stays armed for the day one returns.
+  const FALL_FILES: string[] = [];
+  const FALL_ALT_FILES: string[] = [];
   const withFall = RIGS.filter((r) => r.clips.includes('fall'));
   const withFallAlt = RIGS.filter((r) => r.clips.includes('fallAlt'));
 
-  it('exactly the Meshy bipeds still shipped carry fall, and those with a second fall carry fallAlt', () => {
+  it('no shipped rig carries fall or fallAlt (the Meshy bipeds that did are replaced)', () => {
     expect(withFall.map((r) => r.file).sort()).toEqual(FALL_FILES);
     expect(withFallAlt.map((r) => r.file).sort()).toEqual(FALL_ALT_FILES);
   });

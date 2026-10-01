@@ -39,6 +39,7 @@ describe('the textured infantry opt-out is a named list', () => {
       'atgm_cell',
       'breach_team',
       'charge_squad',
+      'civilians',
       'demo_squad',
       'digger_crew',
       'inf_squad',
@@ -55,6 +56,7 @@ describe('the textured infantry opt-out is a named list', () => {
       'rpg_team',
       'sarim_rifles',
       'sniper_team',
+      'yahalom_squad',
     ]);
   });
 

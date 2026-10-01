@@ -68,6 +68,9 @@ describe('a held launcher stays out of its holder', () => {
  */
 const MOUNTED: readonly (readonly [string, string, readonly string[], readonly string[], string, RegExp])[] = [
   // file, label, clips, roles, mount joint, body joints
+  ['yahalom_squad.glb', 'yah_a pack', ['idle', 'fire', 'move'], ['webbing'], 'yah_a_spine', /^yah_a_(head|neck|spine|pelvis)$/],
+  ['yahalom_squad.glb', 'yah_b pack', ['idle', 'fire', 'move'], ['webbing'], 'yah_b_spine', /^yah_b_(head|neck|spine|pelvis)$/],
+  ['yahalom_squad.glb', 'yah_ak pack (work)', ['work'], ['webbing'], 'yah_ak_spine', /^yah_ak_(head|neck|spine|pelvis)$/],
   ['mortar_team.glb', 'the mortar vs its crew', ['idle', 'fire'], ['weapon', 'metal'], 'prop', /^mtr_(crew0|crew1|no3)_/],
 ];
 
