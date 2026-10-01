@@ -200,7 +200,7 @@ TEAM_MESH_OWNER = {
     "yahalom_squad": MESH_KIT_OWNED,
     "digger_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "moto_rpg": MESH_KIT_OWNED,
-    "breach_team": MESH_KIT_OWNED,
+    "breach_team": "tools/units/import_meshy_crew_team.py",   # B5 (GH-179, 2026-10-01)
     "manpad_team": "tools/units/import_meshy_crew_team.py",
     "recoilless_team": "tools/units/import_meshy_crew_team.py",
 }
@@ -1003,6 +1003,8 @@ _check_gait_identity_at_reference()
 #: already relies on `root` for.
 FIRE_ROOT_LEAN = {
     "charge_squad": {"chg0": math.radians(4.0), "chg1": math.radians(4.0)},
+    # B5: breach_team's fire is a brace -- see TEAM_FIGURES' breach entry.
+    "breach_team": {"brc_point": math.radians(3.0), "brc_cover": math.radians(3.0)},
 }
 
 
@@ -1158,9 +1160,18 @@ TEAM_FIGURES = {
         _f("yah_a", 0.30, -0.20, leader=True),
         _f("yah_b", -0.34, 0.26, weapon="rifle"),
     ],
+    # B5 (GH-179, 2026-10-01): `weapon=None` since the Meshy figure landed --
+    # its carbine is baked into one shell with the torso, held across the
+    # chest in the LEFT hand, and ships as a `weapon` piece on `spine`
+    # (import_meshy_crew_team.py's WEAPON_ON_SPINE). Nothing rides a hand,
+    # so `build_fire_clip`'s raise-and-recoil would aim an empty arm; the
+    # fire clip is the FIRE_ROOT_LEAN brace instead. The kit build of
+    # this team (`export_mesh_team.py` with its own out_path) loses its kit
+    # rifles with this; that file is superseded and the shield and pole --
+    # the tells -- are untouched.
     "breach_team": [
-        _f("brc_point", 0.32, -0.18, leader=True, weapon="rifle"),
-        _f("brc_cover", -0.30, 0.24, weapon="rifle"),
+        _f("brc_point", 0.32, -0.18, leader=True),
+        _f("brc_cover", -0.30, 0.24),
     ],
     # Stands to relocate for `move`, as `teams.digger_crew` itself does --
     # design D6 (`2026-09-17-infantry-animation-design.md`); the walker is

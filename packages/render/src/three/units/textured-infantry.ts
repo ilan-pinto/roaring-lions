@@ -46,6 +46,9 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   'mortar_crew',
   'charge_squad',
   'digger_crew',
+  // B5 (GH-179, 2026-10-01): the last KDF team, same path (the crew
+  // importer, with the helmet cut as `uniform`).
+  'breach_team',
   // GH-298 (2026-09-30): the three officer teams, tools/units/
   // import_meshy_officers.py -- each a new Meshy figure plus a B0b remesh as
   // its second figure, both bakes in one 2048x1024 atlas. HELD art

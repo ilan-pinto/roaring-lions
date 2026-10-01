@@ -531,3 +531,32 @@ otherwise.
 - Counts: mortar 7,995 / charge 7,478 / digger 6,214 glTF triangles, all under
   the 8,000 team cap with corpses and walkers; worst IoU neighbours 0.549 /
   0.502 / 0.557 (limit 0.88).
+
+## 12. Measured in B5 (2026-10-01)
+
+- **"Standing in a relaxed A-pose" lost to the subject noun.** The breach
+  preview came back with a compact carbine held across the chest in the
+  left hand and only the right arm out -- "assault breacher" outweighed the
+  pose line, the seventh time on this pipeline that a preview ignored a
+  slot. The fix is the B4 digger's, one-sided: `ARMS_ON_TORSO` now names
+  arm SIDES, so the left arm stays on the torso with synthetic joints while
+  the right arm is cut and hung normally.
+- **A baked weapon is kept as the weapon, not cut out.** Deleting the
+  carbine would open the carrier and the gripping hand; a kit rifle beside
+  it would be a second gun. It is cut off the torso as a `weapon` piece on
+  `spine` (`WEAPON_ON_SPINE`), `rig.TEAM_FIGURES` declares `weapon=None`,
+  and the fire clip is a 3-degree `FIRE_ROOT_LEAN` brace -- the rifle
+  raise-and-recoil on an empty hung arm read as pointing. The gait test's
+  weapon-on-`forearm_R` pins moved to `WEAPON_EXEMPT` with that reason.
+- **The refine paints readable text when the prompt says not to.** A small
+  name tape on the carrier; `LABEL_FLATTEN` rasterises the upper-chest
+  faces' UV triangles and sets texels above 0.35 luminance to the region's
+  dark median. Cheaper than a re-roll, and the hue window is not involved:
+  it is a luminance cut inside a geometric region.
+- **An arm whose forearm points FORWARD measures short in |y|.** The wrist
+  band is found by |y|, so a bent arm reaching +x reads 0.05 m of forearm
+  and the hung arm ends at the hip with the glove on the holster. At 2.5 it
+  reads as a hand resting on the belt; left as measured rather than adding
+  a third wrist rule for one figure.
+- Counts: 6,552 tris (two standing men, two posed corpses, shield, pole, no
+  kit rifles), under the 8,000 team cap; 0.29 MB shipped.

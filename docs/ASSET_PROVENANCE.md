@@ -709,6 +709,35 @@ no weights; `pnpm gait:meshes` stamped each `rl_gait`. Gates on 2026-10-01:
 
 ---
 
+## WP-A3.1 batch B5 — `breach_team`, the last KDF team (GH-179)
+
+One team, 2026-10-01, Meshy **text-to-3D** through the CLI (`pnpm meshy`):
+one A-pose preview, one refine (2k), one remesh — **35 credits** against the
+65 the lead approved for B5 + B6 together (no Meshy rig call, as B0b–B4).
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl`. Numbers table and prompt in `meshy-prompts-units.md`
+§16; what the preview honoured and what the importer fixed in `style-bible.md`
+§12. The downloaded `model.glb` and texture sources sit under
+`art/meshy/breach-team-20261001-<task>/` and are **not committed**; the ledger,
+each folder's `task.json` and thumbnail are. Joins `TEXTURED_INFANTRY_TYPES` /
+`TEXTURED_INFANTRY_EXEMPT`: palette, framing and fill skip it, silhouette IoU
+still runs.
+
+| File | Draws as | Preview task id (`--pose a-pose`) | Refine task id (2k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/breach_team.glb` | `breach_team` (Tzinah Breach Team, KDF) | `01a0f621-408f-76f7-b088-42053e79a5b9` | `01a0f622-31d0-74c7-bf96-fb238e1f232e` | `01a0f624-9323-75cf-af68-5d597c4b0af6` at 2,000 | ONE figure, 1.78 m, both men standing; kit `ballistic_shield` (`metal`) on `brc_point_spine`, kit `breach_pole` (`charge`) on `brc_cover_spine` — the tells, unchanged. The preview came holding a compact carbine across the chest in the LEFT hand (not the A-pose asked for) with the right arm out: the left arm stays on the torso (`ARMS_ON_TORSO`), the carbine is cut off as a `weapon` piece on `spine` and IS the rifle (no kit rifle, `TEAM_FIGURES` `weapon=None`, `fire` is a `FIRE_ROOT_LEAN` brace); the refine's small name tape on the carrier flattened to the carrier's black (`LABEL_FLATTEN`). Corpses on their side, pushed ±0.22 m apart. **6,552 tris** (6,864 glTF), 0.99 MB source / 0.29 MB shipped. Worst IoU neighbour `apartment` 0.578 (worst unit `demo_squad` 0.524) |
+
+Through `tools/units/import_meshy_crew_team.py` — not the B0b KDF importer the
+batch plan named, because this one carries B3/B4's measured elbow cut and the
+posed corpse; the only KDF-specific thing it needed was a head-role override
+(`HEAD_ROLE`: helmet and neck `uniform`, no kit keffiyeh). `rig.TEAM_MESH_OWNER`
+moves with it. Gates on 2026-10-01: `validate:meshes` (85 mesh units),
+`validate:assets`, `test` (7,668), `typecheck`, `lint`, `validate:ui` all green;
+the boot-vertex pin and the weapon pins in `tools/src/mesh_gait.test.ts` moved
+with the bytes (`breach_team.glb` is in `WEAPON_EXEMPT` now, with the reason).
+
+---
+
 ## The GH-277 field works (Meshy text-to-3D, remeshed; two textured), 2026-09-30
 
 Eight buildings for the field-works design (`docs/superpowers/specs/2026-09-29-
