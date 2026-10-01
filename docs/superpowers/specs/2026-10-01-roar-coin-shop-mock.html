@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roar Coin Shop</title>
+<!--
+  Doc mock for GH-317 (spec: 2026-10-01-roar-coin-shop-design.md). NOT UI source:
+  `pnpm validate:ui` scans packages/app/src and assets/campaign only.
+
+  Colour discipline mirrors the game's: the ONLY place a hex appears is the --rl-*
+  block below, which reproduces what packages/app's Vite palette plugin publishes
+  from data/palette.json (key -> --rl-<ramp>-<index>). Everything after it uses
+  semantic tokens, exactly as theme.css does, plus the five proposed --roar tokens.
+-->
+<style>
+:root {
+  /* --- data/palette.json, as the Vite plugin publishes it (keys in comments) --- */
+  --rl-limestone-0: #F2E8D5; /* limestone.0 */
+  --rl-limestone-1: #E6D8BE; /* limestone.1 */
+  --rl-limestone-4: #B8A182; /* limestone.4 */
+  --rl-dust-0: #E0B87A;      /* dust.0  (credits: --commend) */
+  --rl-terracotta-0: #C1663F;/* terracotta.0 */
+  --rl-terracotta-1: #9E4F30;/* terracotta.1 */
+  --rl-terracotta-2: #7A3B24;/* terracotta.2 */
+  --rl-olive-2: #4E5433;     /* olive.2 */
+  --rl-gunmetal-0: #C3C7C4;  /* gunmetal.0 */
+  --rl-gunmetal-1: #8E9491;  /* gunmetal.1 */
+  --rl-gunmetal-3: #363B39;  /* gunmetal.3 */
+  --rl-shadow-0: #23241F;    /* shadow.0 */
+  --rl-shadow-1: #14150F;    /* shadow.1 */
+  --rl-shadow-2: #0A0A08;    /* shadow.2 */
+  --rl-scrub-0: #6B8A4A;     /* scrub.0 */
+
+  /* --- theme.css semantic tokens (same mappings as the shipped file) --- */
+  --panel-bg: color-mix(in srgb, var(--rl-shadow-1) 92%, transparent);
+  --panel-bg-solid: var(--rl-shadow-1);
+  --panel-frame: var(--rl-gunmetal-3);
+  --panel-rule: color-mix(in srgb, var(--rl-gunmetal-3) 70%, transparent);
+  --well: var(--rl-shadow-1);
+  --scrim: var(--rl-shadow-2);
+  --tile-bg: var(--rl-shadow-0);
+  --ink: var(--rl-limestone-0);
+  --ink-mute: var(--rl-limestone-4);
+  --ink-dim: var(--rl-gunmetal-1);
+  --ink-label: var(--rl-gunmetal-0);
+  --good: var(--rl-scrub-0);
+  --commend: var(--rl-dust-0);
+  --band-mission: var(--rl-olive-2);
+
+  /* --- PROPOSED (spec §3.1): the Roar coin's own register --- */
+  --roar: var(--rl-terracotta-0);
+  --roar-mid: var(--rl-terracotta-1);
+  --roar-deep: var(--rl-terracotta-2);
+  --roar-hi: var(--rl-limestone-1);
+  --roar-ink: var(--rl-shadow-1);
+
+  --font-display: 'Big Shoulders Display', 'Oswald', 'Haettenschweiler', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: 'Barlow', system-ui, -apple-system, sans-serif;
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px 16px 64px;
+  background: var(--scrim); color: var(--ink);
+  font: 14px/1.5 var(--font-body);
+}
+main { max-width: 1180px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+h1 { font-size: 28px; }
+h2 { font-size: 20px; margin: 40px 0 6px; }
+.lede { color: var(--ink-mute); max-width: 70ch; margin: 6px 0 0; }
+.note { color: var(--ink-dim); font-size: 12px; }
+.mono { font-family: var(--font-mono); }
+
+/* --- the Stores screen, built from the garage's own panel language --- */
+.stores { margin-top: 16px; background: var(--panel-bg); border: 1px solid var(--panel-frame); padding: 16px; }
+.head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  padding-bottom: 12px; border-bottom: 1px solid var(--panel-frame); }
+.brand { display: flex; gap: 12px; align-items: center; }
+.title { font-size: 26px; font-weight: 900; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tab { font: 600 12px var(--font-body); letter-spacing: .18em; text-transform: uppercase; color: var(--ink-mute);
+  background: none; border: 1px solid var(--panel-frame); padding: 6px 12px; }
+.tab[aria-selected="true"] { color: var(--ink); border-color: var(--roar); }
+.wallet { display: flex; align-items: center; gap: 8px; }
+.wallet-n { font: 600 22px var(--font-mono); color: var(--roar); }
+.wallet-word { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-mute); }
+.topup { font: 600 12px var(--font-body); color: var(--ink); background: var(--tile-bg); border: 1px solid var(--roar-deep); padding: 6px 10px; }
+.banner { margin: 12px 0 0; padding: 8px 12px; border-left: 3px solid var(--roar); background: var(--tile-bg); color: var(--ink-mute); }
+.shelf-h { margin: 18px 0 8px; font-size: 13px; color: var(--ink-label); letter-spacing: .18em; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.card { background: var(--tile-bg); border: 1px solid var(--panel-frame); padding: 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card[data-state="earnable"] { border-color: var(--roar-deep); }
+.card[data-state="advance"] { border-color: var(--roar); }
+.card .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.card .name { font: 800 16px var(--font-display); text-transform: uppercase; letter-spacing: .04em; }
+.state { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
+.state.earned { color: var(--good); }
+.state.advance, .state.earnable { color: var(--roar); }
+.state.off { color: var(--ink-dim); }
+.art { height: 64px; background: var(--well); border: 1px solid var(--panel-rule); display: grid; place-items: center; color: var(--ink-dim); font-size: 11px; }
+.line { color: var(--ink); }
+.sub { color: var(--ink-mute); font-size: 12px; }
+.bar { position: relative; height: 8px; background: var(--well); border: 1px solid var(--panel-rule); }
+.bar > i { position: absolute; inset: 0 auto 0 0; }
+.bar.gate > i { border: 1px solid var(--ink-mute); background: none; }
+.bars { display: grid; grid-template-columns: 52px 1fr auto; gap: 4px 8px; align-items: center; font-size: 11px; color: var(--ink-mute); }
+.buy { display: inline-flex; align-items: center; gap: 6px; justify-content: center; font: 700 13px var(--font-body);
+  color: var(--roar-ink); background: var(--roar); border: 0; padding: 8px 10px; }
+.buy:disabled { background: var(--panel-frame); color: var(--ink-dim); }
+.ghost { font: 600 12px var(--font-body); color: var(--ink-mute); background: none; border: 1px solid var(--panel-frame); padding: 6px 10px; }
+.link { color: var(--ink-label); font-size: 12px; text-decoration: underline; }
+
+.cr { color: var(--commend); }
+.coin-n { color: var(--roar); font-family: var(--font-mono); font-weight: 600; }
+.price2 { font-size: 13px; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.buy-cr { font: 700 13px var(--font-body); color: var(--commend); background: var(--tile-bg); border: 1px solid var(--commend); padding: 8px 10px; }
+.buy-cr:disabled { color: var(--ink-dim); border-color: var(--panel-frame); }
+.state.afford { color: var(--commend); }
+.bar.earn > i { background: var(--commend); }
+.tierrow { display: grid; grid-template-columns: 48px auto 1fr; gap: 8px; align-items: center; }
+.pips { display: inline-flex; gap: 4px; }
+.pips i { width: 14px; height: 14px; border: 1px solid var(--panel-frame); display: inline-block; }
+.pips i.pe { background: var(--commend); border-color: var(--commend); }
+.pips i.pc { border: 2px solid var(--roar); }
+/* confirm + receipts */
+.row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+.dialog { background: var(--panel-bg-solid); border: 1px solid var(--roar-deep); padding: 16px; }
+.dialog h3 { font-size: 18px; display: flex; gap: 10px; align-items: center; }
+.dialog p { margin: 8px 0; }
+.dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.receipts { width: 100%; border-collapse: collapse; font-size: 12px; }
+.receipts th { text-align: left; color: var(--ink-label); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid var(--panel-frame); padding: 6px 4px; }
+.receipts td { border-bottom: 1px solid var(--panel-rule); padding: 6px 4px; vertical-align: top; }
+.scroll { overflow-x: auto; }
+
+/* coin + emblem exhibits */
+.exhibit { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 12px; }
+.ex { background: var(--panel-bg); border: 1px solid var(--panel-frame); padding: 16px; }
+.ex.rec { border-color: var(--roar); }
+.ex h3 { font-size: 16px; }
+.sizes { display: flex; gap: 20px; align-items: flex-end; margin: 12px 0; flex-wrap: wrap; }
+.sizes figure { margin: 0; text-align: center; font-size: 11px; color: var(--ink-dim); }
+.sizes .big svg { width: 128px; height: 128px; }
+.ground { display: flex; gap: 8px; margin-top: 8px; }
+.ground span { display: inline-flex; gap: 6px; align-items: center; padding: 6px 8px; font-size: 12px; }
+.g-dark { background: var(--tile-bg); }
+.g-light { background: var(--rl-limestone-1); color: var(--roar-ink); }
+.inline-price { display: inline-flex; align-items: center; gap: 4px; vertical-align: -3px; }
+.vs { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; margin-top: 8px; font-size: 12px; color: var(--ink-mute); }
+.cred { font: 600 16px var(--font-mono); color: var(--commend); }
+
+/* purchase animation preview */
+.anim-stage { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.anim-coin { animation: rl-roar-buy 700ms var(--ease) infinite alternate; transform-origin: 50% 50%; }
+@keyframes rl-roar-buy {
+  0% { transform: translateY(-14px) rotate(0deg); opacity: 0; }
+  17% { transform: translateY(0) rotate(0deg); opacity: 1; }
+  53% { transform: rotate(60deg); }
+  100% { transform: rotate(60deg); }
+}
+@media (prefers-reduced-motion: reduce) { .anim-coin { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+
+<!-- One symbol per emblem direction and size. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- B · Hex Seal (recommended), 48 px master -->
+    <symbol id="hex48" viewBox="0 0 48 48">
+      <polygon points="24,1.5 43.5,12.75 43.5,35.25 24,46.5 4.5,35.25 4.5,12.75" fill="var(--roar-deep)"/>
+      <polygon points="24,4.5 41,14.3 41,33.7 24,43.5 7,33.7 7,14.3" fill="var(--roar)"/>
+      <polygon points="24,7 38.8,15.5 38.8,32.5 24,41 9.2,32.5 9.2,15.5" fill="none" stroke="var(--roar-deep)" stroke-width="1"/>
+      <polyline points="24,4.5 7,14.3 7,25" fill="none" stroke="var(--roar-hi)" stroke-width="1.2" opacity=".8"/>
+      <!-- mane: jagged back edge -->
+      <path d="M27 10 L31 12.5 L35 11.5 L34.5 15.5 L38 18 L35 21 L38 24.5 L34.5 27 L36 31 L31.5 31 L29.5 35 L26.5 32 L22.5 34 L23 29 Z" fill="var(--roar-mid)"/>
+      <!-- head, roaring left -->
+      <path d="M28 13 L21 13.5 L14.5 16.5 L11 20.5 L17 21.8 L12.5 27.5 L19.5 27 L15.5 31 L22.5 31.5 L28.5 28.5 L31 21 Z" fill="var(--roar-hi)"/>
+      <path d="M11 20.5 L22 24 L12.5 27.5 Z" fill="var(--roar-ink)"/>
+      <path d="M13.3 21.3 L14.3 23 L15.2 21.7 Z M14.6 26.3 L15.5 24.8 L16.4 26 Z" fill="var(--roar-hi)"/>
+      <circle cx="21.5" cy="17.2" r="1.1" fill="var(--roar-ink)"/>
+      <path d="M24 13.5 L26.5 16 L24.8 19" fill="none" stroke="var(--roar-mid)" stroke-width=".8"/>
+    </symbol>
+    <!-- B at 24 px: rim, notches, eye; no teeth or glint -->
+    <symbol id="hex24" viewBox="0 0 24 24">
+      <polygon points="12,1 22,6.75 22,17.25 12,23 2,17.25 2,6.75" fill="var(--roar-deep)"/>
+      <polygon points="12,2.8 20.4,7.7 20.4,16.3 12,21.2 3.6,16.3 3.6,7.7" fill="var(--roar)"/>
+      <path d="M13.5 5 L16 6 L17.5 8 L19 10 L17.5 11.5 L19 13.5 L17 15 L15.5 17.5 L13 16.5 L11.5 17.5 L11.5 14 Z" fill="var(--roar-mid)"/>
+      <path d="M14 6.5 L10.5 6.8 L7 8.5 L5.5 10.5 L8.5 11 L6.5 14 L10 13.6 L8 15.5 L11.5 15.8 L14.5 14 L15.5 10.5 Z" fill="var(--roar-hi)"/>
+      <path d="M5.5 10.5 L11 12 L6.5 14 Z" fill="var(--roar-ink)"/>
+      <rect x="10.2" y="8.2" width="1.2" height="1.2" fill="var(--roar-ink)"/>
+    </symbol>
+    <!-- B at 16 px: hex + one silhouette + mouth cut. Pixel-aligned, no detail -->
+    <symbol id="hex16" viewBox="0 0 16 16">
+      <polygon points="8,0.5 15,4.5 15,11.5 8,15.5 1,11.5 1,4.5" fill="var(--roar-deep)"/>
+      <path d="M10 3 L12.5 4.5 L13 7 L12 8.5 L13 10.5 L11 12 L9 12.5 L6.5 11.5 L4 11.5 L5.5 9.5 L3.5 9.5 L3 7.5 L5 5.5 L7.5 4 Z" fill="var(--roar)"/>
+      <path d="M3 7.5 L7.5 8.5 L3.5 9.5 Z" fill="var(--roar-deep)"/>
+    </symbol>
+
+    <!-- A · Roaring Roundel -->
+    <symbol id="roundel48" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="22.5" fill="var(--roar-deep)"/>
+      <g fill="var(--roar-mid)">
+        <path d="M24 3 L27 9 L21 9 Z"/><path d="M24 3 L27 9 L21 9 Z" transform="rotate(30 24 24)"/>
+        <path d="M24 3 L27 9 L21 9 Z" transform="rotate(60 24 24)"/><path d="M24 3 L27 9 L21 9 Z" transform="rotate(90 24 24)"/>
+        <path d="M24 3 L27 9 L21 9 Z" transform="rotate(120 24 24)"/><path d="M24 3 L27 9 L21 9 Z" transform="rotate(150 24 24)"/>
+        <path d="M24 3 L27 9 L21 9 Z" transform="rotate(180 24 24)"/><path d="M24 3 L27 9 L21 9 Z" transform="rotate(210 24 24)"/>
+        <path d="M24 3 L27 9 L21 9 Z" transform="rotate(240 24 24)"/><path d="M24 3 L27 9 L21 9 Z" transform="rotate(270 24 24)"/>
+        <path d="M24 3 L27 9 L21 9 Z" transform="rotate(300 24 24)"/><path d="M24 3 L27 9 L21 9 Z" transform="rotate(330 24 24)"/>
+      </g>
+      <circle cx="24" cy="24" r="15" fill="var(--roar)"/>
+      <path d="M15 19 Q24 12 33 19 L31 26 Q24 31 17 26 Z" fill="var(--roar-hi)"/>
+      <circle cx="19.5" cy="20" r="1.4" fill="var(--roar-ink)"/><circle cx="28.5" cy="20" r="1.4" fill="var(--roar-ink)"/>
+      <path d="M22 22.5 L26 22.5 L24 24.5 Z" fill="var(--roar-ink)"/>
+      <ellipse cx="24" cy="30" rx="5" ry="4.2" fill="var(--roar-ink)"/>
+      <path d="M20.5 28 L21.5 30 L22.3 27.8 Z M27.5 28 L26.5 30 L25.7 27.8 Z" fill="var(--roar-hi)"/>
+    </symbol>
+    <symbol id="roundel16" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="7.5" fill="var(--roar-deep)"/>
+      <circle cx="8" cy="8" r="5.2" fill="var(--roar)"/>
+      <ellipse cx="8" cy="10" rx="2" ry="1.6" fill="var(--roar-ink)"/>
+    </symbol>
+
+    <!-- C · Mane Burst -->
+    <symbol id="burst48" viewBox="0 0 48 48">
+      <g fill="var(--roar)">
+        <path d="M24 1 L28 14 L20 14 Z"/><path d="M24 1 L28 14 L20 14 Z" transform="rotate(30 24 24)"/>
+        <path d="M24 1 L28 14 L20 14 Z" transform="rotate(60 24 24)"/><path d="M24 1 L28 14 L20 14 Z" transform="rotate(90 24 24)"/>
+        <path d="M24 1 L28 14 L20 14 Z" transform="rotate(120 24 24)"/><path d="M24 1 L28 14 L20 14 Z" transform="rotate(150 24 24)"/>
+        <path d="M24 1 L28 14 L20 14 Z" transform="rotate(180 24 24)"/><path d="M24 1 L28 14 L20 14 Z" transform="rotate(210 24 24)"/>
+        <path d="M24 1 L28 14 L20 14 Z" transform="rotate(240 24 24)"/><path d="M24 1 L28 14 L20 14 Z" transform="rotate(270 24 24)"/>
+        <path d="M24 1 L28 14 L20 14 Z" transform="rotate(300 24 24)"/><path d="M24 1 L28 14 L20 14 Z" transform="rotate(330 24 24)"/>
+      </g>
+      <circle cx="24" cy="24" r="12" fill="var(--roar-deep)"/>
+      <path d="M15 22 Q24 14 33 22 L30 24 Q24 20 18 24 Z" fill="var(--roar-hi)"/>
+      <path d="M17 26 Q24 33 31 26 L29 25 Q24 29 19 25 Z" fill="var(--roar-hi)"/>
+      <path d="M19 23 L20 26 L21 23.5 Z M29 23 L28 26 L27 23.5 Z" fill="var(--roar-hi)"/>
+    </symbol>
+    <symbol id="burst16" viewBox="0 0 16 16">
+      <g fill="var(--roar)">
+        <path d="M8 0 L9.5 5 L6.5 5 Z"/><path d="M8 0 L9.5 5 L6.5 5 Z" transform="rotate(45 8 8)"/>
+        <path d="M8 0 L9.5 5 L6.5 5 Z" transform="rotate(90 8 8)"/><path d="M8 0 L9.5 5 L6.5 5 Z" transform="rotate(135 8 8)"/>
+        <path d="M8 0 L9.5 5 L6.5 5 Z" transform="rotate(180 8 8)"/><path d="M8 0 L9.5 5 L6.5 5 Z" transform="rotate(225 8 8)"/>
+        <path d="M8 0 L9.5 5 L6.5 5 Z" transform="rotate(270 8 8)"/><path d="M8 0 L9.5 5 L6.5 5 Z" transform="rotate(315 8 8)"/>
+      </g>
+      <circle cx="8" cy="8" r="4.5" fill="var(--roar-deep)"/>
+      <path d="M5.5 7.5 Q8 5.5 10.5 7.5 M5.5 8.8 Q8 11 10.5 8.8" stroke="var(--roar-hi)" stroke-width="1" fill="none"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header>
+  <h1>Roar coin shop: mock-ups (GH-317)</h1>
+  <p class="lede">Doc mock for <span class="mono">2026-10-01-roar-coin-shop-design.md</span>, revised to the lead's 1 Oct rulings: coins buy anything credits buy and replace the credit cost, and network play uses only what was earned. It shows the Stores tab in every item state with both prices, the confirm, receipts, the coin at 16/24/48 px, and the three emblem directions. The rate is 1 Roar coin = 10 credits (recommended). Figures come from the 2026-10-01 <span class="mono">pnpm playtest</span> ladder: 5,849 credits over 26 missions, a mean of 225 a mission.</p>
+</header>
+
+<h2>1 · The Stores tab, in the garage</h2>
+<p class="note">Mock state: a player after mission 6, with 18 stars, Conduct 82, 1,240 credits and 765 Roar coins. The production build shows no Stores tab until the server account exists (spec §2.7); this is the dev view's layout with a live balance, so that buy controls can be shown.</p>
+
+<section class="stores" aria-label="The Stores">
+  <div class="head">
+    <div class="brand">
+      <svg width="24" height="24" aria-hidden="true"><use href="#hex24"/></svg>
+      <span class="title">The garage</span>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Garage">
+      <button class="tab" role="tab" aria-selected="false">Brigade</button>
+      <button class="tab" role="tab" aria-selected="true">Stores</button>
+    </div>
+    <div class="wallet">
+      <svg width="24" height="24" aria-hidden="true"><use href="#hex24"/></svg>
+      <span class="wallet-n">765</span><span class="wallet-word">Roar coins</span>
+      <button class="topup">Add Roar coins</button>
+    </div>
+  </div>
+  <div class="tabs" role="tablist" aria-label="Stores" style="margin-top:12px">
+    <button class="tab" role="tab" aria-selected="true">Brigade</button>
+    <button class="tab" role="tab" aria-selected="false">Cosmetics</button>
+    <button class="tab" role="tab" aria-selected="false">Receipts</button>
+  </div>
+  <p class="banner">Roar coins buy anything credits buy, in place of the credits, and your credits stay as they are. What you buy with coins plays in single-player. Co-op and skirmish use what you earn.</p>
+
+  <div class="shelf-h">Units</div>
+  <div class="cards">
+
+    <!-- EARNED -->
+    <article class="card" data-state="earned">
+      <div class="top"><span class="name">Breach team</span><span class="state earned">Earned</span></div>
+      <div class="art">plate · breach_team</div>
+      <div class="line">Earned after mission 5 · 12 stars</div>
+      <div class="sub">Counts in co-op and skirmish.</div>
+      <a class="link" href="#">Open in the brigade</a>
+    </article>
+
+    <!-- BOUGHT WITH COINS -->
+    <article class="card" data-state="advance">
+      <div class="top"><span class="name">Scout Shachaf</span><span class="state advance">Bought with coins</span></div>
+      <div class="art">plate · scout_shachaf</div>
+      <div class="line">Bought with <span class="coin-n">180</span> Roar coins · single-player only</div>
+      <div class="bars">
+        <span>gate</span><div class="bar gate"><i style="width:60%"></i></div><span class="mono">18/30 ★</span>
+        <span>credits</span><div class="bar earn"><i style="width:69%"></i></div><span class="mono cr">1,240/1,800</span>
+      </div>
+      <div class="sub">To use it online, earn it: 30 stars (~7 missions) or 1,800 credits.</div>
+      <div class="btns"><button class="buy-cr" disabled>Earn with credits · 560 more</button><button class="ghost">Refund · 41 h, not fielded</button></div>
+    </article>
+
+    <!-- AFFORDABLE IN CREDITS -->
+    <article class="card" data-state="affordable">
+      <div class="top"><span class="name">Lavi MBT</span><span class="state afford">Affordable</span></div>
+      <div class="art">plate · mbt_lavi</div>
+      <div class="price2"><span class="cr">720 credits</span> <span class="sub">(you have 1,240)</span> · or <span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><span class="coin-n">75</span></span> Roar coins</div>
+      <div class="line">Earned free once your Conduct reaches 90 (now 82)</div>
+      <div class="btns"><button class="buy-cr">Buy · 720 credits</button><button class="buy"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg>Buy · 75 Roar coins</button></div>
+    </article>
+
+    <!-- LOCKED -->
+    <article class="card" data-state="earnable">
+      <div class="top"><span class="name">Kipod APC</span><span class="state earnable">Locked</span></div>
+      <div class="art">plate · apc_kipod</div>
+      <div class="price2"><span class="cr">3,200 credits</span> <span class="sub">(you have 1,240)</span> · or <span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><span class="coin-n">320</span></span> Roar coins</div>
+      <div class="line">Earned free in ~13 missions (18 of 44 stars), or about 9 missions of pay</div>
+      <div class="bars">
+        <span>gate</span><div class="bar gate"><i style="width:41%"></i></div><span class="mono">18/44 ★</span>
+        <span>credits</span><div class="bar earn"><i style="width:39%"></i></div><span class="mono cr">1,240/3,200</span>
+      </div>
+      <div class="btns"><button class="buy-cr" disabled>1,960 more credits</button><button class="buy"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg>Buy · 320 Roar coins</button></div>
+    </article>
+
+    <!-- LOCKED, bought-only (E5), held by G1 until D3 -->
+    <article class="card" data-state="unreachable">
+      <div class="top"><span class="name">Peten gunship</span><span class="state off">Locked · not yet reachable</span></div>
+      <div class="art">plate · heli_peten_gunship</div>
+      <div class="price2"><span class="cr">8,000 credits</span> · or <span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><span class="coin-n">800</span></span> Roar coins</div>
+      <div class="line">Bought-only: credits are its one earned path</div>
+      <div class="sub">8,000 is more than a lifetime of play pays today (5,849), so it is held off sale for coins (guard G1) until a fresh campaign pays again (decision 3). After that, about 1.4 campaigns of pay.</div>
+    </article>
+
+  </div>
+
+  <div class="shelf-h">Upgrades · Lavi MBT · Firepower</div>
+  <div class="cards">
+    <article class="card" data-state="tier">
+      <div class="tierrow"><span class="sub">earned</span><span class="pips"><i class="pe"></i><i></i><i></i></span><span class="sub">tier 1 · online and offline</span></div>
+      <div class="tierrow"><span class="sub">coins</span><span class="pips"><i class="pc"></i><i class="pc"></i><i></i></span><span class="sub">tier 2 · single-player</span></div>
+      <div class="price2">Tier 3: <span class="cr">950 credits</span> · or <span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><span class="coin-n">95</span></span> Roar coins</div>
+      <div class="btns"><button class="buy-cr" disabled>Tier 2 first: 680 credits</button><button class="buy"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg>Tier 3 · 95 Roar coins</button></div>
+      <div class="sub">Online, the Lavi fires at tier 1, the rung you earned.</div>
+    </article>
+  </div>
+
+  <div class="row2">
+    <!-- CONFIRM -->
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cf-t">
+      <h3 id="cf-t"><svg width="48" height="48" aria-hidden="true"><use href="#hex48"/></svg>Buy the Kipod APC with Roar coins?</h3>
+      <p><span class="inline-price"><svg width="16" height="16" aria-hidden="true"><use href="#hex16"/></svg><b class="coin-n">320 Roar coins</b></span>, in place of <span class="cr">3,200 credits</span>. Your 1,240 credits stay as they are.</p>
+      <p>You would earn it free in <b>~13 missions</b> (18 of 44 stars).</p>
+      <p><b>Single-player only.</b> Co-op and skirmish use what you earn.</p>
+      <p class="sub">The 500-coin pack is $4.99. You can refund it within 48 hours if you have not fielded it.</p>
+      <div class="actions"><button class="ghost" autofocus>Not now</button><button class="buy">Buy with coins</button></div>
+    </div>
+
+    <!-- RECEIPTS -->
+    <div class="dialog" style="border-color:var(--panel-frame)">
+      <h3>Receipts</h3>
+      <div class="scroll">
+      <table class="receipts">
+        <thead><tr><th>When</th><th>Item</th><th>Coins</th><th>Replaced</th><th>Outcome</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1 Oct 21:10</td><td>Lavi firepower, tier 2</td><td class="mono">70</td><td class="mono cr">680 cr</td><td>Single-player. Online plays tier 1 (earned)</td></tr>
+          <tr><td class="mono">1 Oct 21:04</td><td>Scout Shachaf</td><td class="mono">180</td><td class="mono cr">1,800 cr</td><td>Single-player. 18 of 30 stars to earn it</td></tr>
+          <tr><td class="mono">28 Sep 19:40</td><td>Breach team</td><td class="mono">85</td><td class="mono cr">850 cr</td><td>Earned on gate after mission 5. Bought with coins 4 missions earlier</td></tr>
+          <tr><td class="mono">27 Sep 18:10</td><td>Company pack</td><td class="mono">+1,100</td><td>—</td><td>Steam order ···4F2A</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<h2>2 · The coin at 16 / 24 / 48 px (Direction B, recommended)</h2>
+<p class="lede">Each size is its own drawing rather than a scaled copy. At 16 px it is the hex, one silhouette and the mouth cut. 24 px adds the rim, mane and eye. 48 px adds the relief, the teeth and the glint on the sun's side.</p>
+<div class="exhibit">
+  <div class="ex rec">
+    <div class="sizes">
+      <figure><svg width="16" height="16"><use href="#hex16"/></svg><figcaption>16</figcaption></figure>
+      <figure><svg width="24" height="24"><use href="#hex24"/></svg><figcaption>24</figcaption></figure>
+      <figure><svg width="48" height="48"><use href="#hex48"/></svg><figcaption>48</figcaption></figure>
+      <figure class="big"><svg viewBox="0 0 48 48"><use href="#hex48"/></svg><figcaption>48 master, enlarged</figcaption></figure>
+    </div>
+    <div class="ground">
+      <span class="g-dark"><svg width="16" height="16"><use href="#hex16"/></svg> 300 Roar coins</span>
+      <span class="g-light"><svg width="16" height="16"><use href="#hex16"/></svg> 300 Roar coins</span>
+    </div>
+    <div class="vs">Beside credits, with a different shape and colour: <span class="cred">3,200</span> credits &nbsp;·&nbsp; <span class="inline-price"><svg width="16" height="16"><use href="#hex16"/></svg><span class="mono" style="color:var(--roar)">300</span></span> Roar coins</div>
+  </div>
+  <div class="ex">
+    <h3>Purchase animation (≤ 700 ms)</h3>
+    <div class="anim-stage">
+      <svg class="anim-coin" width="48" height="48" aria-hidden="true"><use href="#hex48"/></svg>
+      <div class="sub">The coin drops (120 ms), turns one hex face of 60° (250 ms) and is swept by a glint (160 ms). The card then flips to <i>Bought with coins</i> (170 ms), and its credit figure does not move. Reduced motion: an instant state change. Sound: a struck copper coin with a low growl tail, ≤ 600 ms.</div>
+    </div>
+  </div>
+</div>
+
+<h2>3 · Three emblem directions</h2>
+<div class="exhibit">
+  <div class="ex">
+    <h3>A · Roaring Roundel</h3>
+    <div class="sizes">
+      <figure><svg width="16" height="16"><use href="#roundel16"/></svg><figcaption>16</figcaption></figure>
+      <figure><svg width="48" height="48"><use href="#roundel48"/></svg><figcaption>48</figcaption></figure>
+      <figure class="big"><svg viewBox="0 0 48 48"><use href="#roundel48"/></svg><figcaption>master</figcaption></figure>
+    </div>
+    <p class="sub">A front three-quarter face with the mane as a notched rim. Rich at 48 px. At 16 px it becomes a brown disc with a hole, and the roundel is the Ari'im patch's own frame.</p>
+  </div>
+  <div class="ex rec">
+    <h3>B · Hex Seal (recommended)</h3>
+    <div class="sizes">
+      <figure><svg width="16" height="16"><use href="#hex16"/></svg><figcaption>16</figcaption></figure>
+      <figure><svg width="48" height="48"><use href="#hex48"/></svg><figcaption>48</figcaption></figure>
+      <figure class="big"><svg viewBox="0 0 48 48"><use href="#hex48"/></svg><figcaption>master</figcaption></figure>
+    </div>
+    <p class="sub">A profile lion roaring, on the campaign board's hexagon. The profile survives 16 px. It is none of the patch's frames (roundel, shield, tab) and cannot be read as a star.</p>
+  </div>
+  <div class="ex">
+    <h3>C · Mane Burst</h3>
+    <div class="sizes">
+      <figure><svg width="16" height="16"><use href="#burst16"/></svg><figcaption>16</figcaption></figure>
+      <figure><svg width="48" height="48"><use href="#burst48"/></svg><figcaption>48</figcaption></figure>
+      <figure class="big"><svg viewBox="0 0 48 48"><use href="#burst48"/></svg><figcaption>master</figcaption></figure>
+    </div>
+    <p class="sub">An abstract roar: rays around an open jaw. The most legible at 16 px, but rays around a centre read as a star or a medal, which is the earned register (ST8 T6).</p>
+  </div>
+</div>
+
+<p class="note" style="margin-top:32px">Palette keys used: terracotta.0–2 (coin), limestone.1 (glint and face), shadow.1 (mouth), and the theme.css panel tokens. The only hex values are in the --rl-* block, which mirrors data/palette.json.</p>
+</main>
+</body>
+</html>
