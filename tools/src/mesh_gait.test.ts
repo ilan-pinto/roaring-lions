@@ -936,7 +936,13 @@ const GAIT_MULTIPLIER_FLOOR = 0.8;
  */
 const GAIT_MULTIPLIER_OUTLIERS: Readonly<Record<string, number>> = {
   yahalom_squad: 2.6454,
-  charge_squad: 2.4842,
+  // 2.4842 on the kit figure (stride 1.5297 m); 2.6453 since B4 (GH-179,
+  // 2026-10-01) put a Meshy figure on the same rig.py gait: its legs are
+  // shorter relative to its height (crotch at 0.47 H of 1.72 m, 0.81 m,
+  // against kit's), so the same thigh swing covers 1.4365 m and the
+  // multiplier the 1.9 tiles/s asks for grows 6%. The ceiling argument above
+  // is unchanged -- the stride cannot grow -- and so is the follow-up.
+  charge_squad: 2.6453,
 };
 
 /**
@@ -995,7 +1001,9 @@ const CADENCE_STEPS_PER_S_CEILING = 6.0;
 /** `charge_squad`'s own measured cadence, named rather than admitted by a
  *  wider ceiling -- see `GAIT_MULTIPLIER_OUTLIERS` for why its stride cannot
  *  grow. */
-const CADENCE_OUTLIERS: Readonly<Record<string, number>> = { charge_squad: 7.46 };
+// 7.46 on the kit figure; 7.94 on B4's Meshy figure, the GAIT_MULTIPLIER
+// entry above times the same 0.6667 s cycle.
+const CADENCE_OUTLIERS: Readonly<Record<string, number>> = { charge_squad: 7.94 };
 
 describe('mesh unit gait -- the sweep over every rigged type', () => {
   const gaited = RIGS.filter((r) => !(r.typeId in GAIT_EXEMPT));
@@ -1260,7 +1268,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // parts, so the boot mesh is the figure's own boots, not kit's.
   'militia_cell.glb move': 582,
   'rpg_team.glb move': 528,
-  'charge_squad.glb move': 1152,
+  'charge_squad.glb move': 444, // B4: Meshy boots
   'meshy_soldier.glb move': 989,
   'meshy_soldier.glb moveFire': 989,
   'sarim_rifles.glb move': 4101,
@@ -1276,8 +1284,8 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'civilians/farm_worker.glb move': 279,
   'civilians/civilian_child.glb move': 284,
   'atgm_cell.glb move': 234, // B3: a 1,100-tri Meshy remesh's boots on the D6 walker
-  'mortar_crew.glb move': 1152,
-  'digger_crew.glb move': 576,
+  'mortar_crew.glb move': 300, // B4: a 1,100-tri Meshy remesh's boots on the D6 walker
+  'digger_crew.glb move': 205, // B4: Meshy boots on the D6 walker
 };
 
 /**
@@ -1366,6 +1374,13 @@ const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
   // `sniper_team` above is the precedent for a small chirality reading with
   // no confirmed mechanism. Treat the number as pinned, not as explained.
   'digger_crew.glb move': 0.011,
+  // B4 (GH-179, 2026-10-01): the Meshy mortar crew's D6 walker reads
+  // 0.0435 -- positive, the right sign, just under the 0.05 floor, the same
+  // instrument and clip as every other row. Its kit predecessor cleared the
+  // floor; the Meshy boot is a smaller, lower shape on the same rig.py gait
+  // (the digger above was already the smallest of the three crews on kit).
+  // Pinned, not explained, as the digger's own entry is.
+  'mortar_crew.glb move': 0.043,
 };
 
 describe('mesh unit gait -- per figure, not per file', () => {

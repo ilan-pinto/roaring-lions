@@ -677,6 +677,38 @@ flat: the same cut parts are re-arranged rigidly in code (left arm overhead,
 right arm out, right knee bent, head turned, body rolled 12°), welded, and
 decimated once at 0.5. Kit weapons (`rifle`, `launcher`, `atgm_tripod`) stay
 palette-painted beside the textured figure — the loader decides per mesh.
+---
+
+## WP-A3.1 batch B4 — the last three enemy teams (GH-179)
+
+Three teams, 2026-10-01, Meshy **text-to-3D** through the CLI (`pnpm meshy`):
+one A-pose preview, one refine (2k), one remesh each — **105 credits** against
+the 120 the lead approved (35 a unit, no Meshy rig call; the 30 Sep attempt
+answered HTTP 402 before any spend and is recorded in
+`docs/art/meshy-prompts-units.md`). AI-generated and disclosed per
+`CONTRIBUTING.md`; every spend is a line in `art/meshy/ledger.jsonl`. Prompts,
+numbers tables and the per-unit decisions are in `meshy-prompts-units.md`
+§13–15; what each preview honoured and what the importer fixed in
+`style-bible.md` §11. The downloaded `model.glb` and texture sources sit under
+`art/meshy/<slug>-20261001-<task>/` and are **not committed**; the ledger, each
+folder's `task.json` and thumbnail are. All three join `TEXTURED_INFANTRY_TYPES`
+/ `TEXTURED_INFANTRY_EXEMPT`: palette, framing and fill skip them, silhouette
+IoU still runs.
+
+| File | Draws as | Preview task id (`--pose a-pose`) | Refine task id (2k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/mortar_crew.glb` | `mortar_crew` (Mortar Crew, enemy) | `01a0f5ef-c4df-71f9-833b-cf974437337b` | `01a0f5f0-87b4-7418-84d9-e40f53dcb913` | `01a0f5f3-5e48-70e5-9aa6-f249c78e1dd7` at 1,100 | Two kneelers (B2's `_kneel`, D6 walkers) round `kit.mortar` on `prop`; 7,995 tris, 1.22 MB source / 0.41 MB shipped. Preview came in a helmet with goggles and a slung gun: kit keffiyeh over the crown; the refine's red-and-white check on helmet, collar and bandolier remapped to dusty tan. Worst IoU neighbour `recoilless_team` 0.549 |
+| `art/meshes/charge_squad.glb` | `charge_squad` (Suicide Squad, enemy) | `01a0f5f0-7b09-76f5-8452-315d719f0236` | `01a0f5f1-63b0-77dc-a0b2-30e2aeaf247f` | `01a0f5f3-5e8b-7032-93bb-1a9bdae9af32` at 2,000 | Two standing men, 20° rest lean through `teams._lean_forward`, `chg1`'s kit satchel (`charge`), no weapon; 7,478 tris. Preview came helmeted: kit keffiyeh. Corpses offset ±0.30 m so the single-file pair does not fall in one heap. Worst IoU neighbour `wall` 0.502 |
+| `art/meshes/digger_crew.glb` | `digger_crew` (Digger Crew, enemy) | `01a0f5f0-995a-76d1-8158-3585f4847011` | `01a0f5f1-8793-7094-80ee-b3535f37513b` | `01a0f5f3-5ee3-739e-a016-4ea1ce94669d` at 2,000 | One kneeler at `rig._digger_extras`' heap on `ground`, kit entrenching tool (`wood` + `metal`) in his hands; 6,214 tris. Preview came bald with both arms reaching FORWARD, not an A-pose: arms kept on the torso (`ARMS_FORWARD`), corpse on its side, head away from the heap; the rose check on the crown remapped to grey. Four clips (no `work` anywhere). Worst IoU neighbour `moto_rpg` 0.557 |
+
+All three through `tools/units/import_meshy_crew_team.py` (B3's importer): rigid
+one-part-to-one-bone on `rig.py`'s tables, `rig.py`'s own clips, no hand-posing,
+no weights; `pnpm gait:meshes` stamped each `rl_gait`. Gates on 2026-10-01:
+`validate:meshes` (83 mesh units), `validate:assets`, `test` (7,653), `typecheck`,
+`lint` all green; the boot-vertex, swing-lift and charge-squad cadence pins in
+`tools/src/mesh_gait.test.ts` moved with the bytes.
+
+---
 
 ## The GH-277 field works (Meshy text-to-3D, remeshed; two textured), 2026-09-30
 
