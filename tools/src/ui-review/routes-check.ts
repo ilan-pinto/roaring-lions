@@ -931,6 +931,97 @@ try {
     );
   }
 
+  // --- the garage's turnable model (GH-316) --------------------------------
+  //
+  // The bay draws the unit's own GLB through `@lions/render/three-garage`,
+  // one WebGL context per unit shown. Three things only a real browser can
+  // check: the model reaches `data-model="live"` on a WebGL2 runner (jsdom
+  // has no WebGL, so every unit test lands on the plate); paging to another
+  // unit gives the FIRST unit's context back; and a soft leave through the
+  // garage's own menu link gives the second one back too -- the scene host's
+  // rule, read off canvases stashed before each change exactly as leg (a)
+  // reads the host's. Plus one real key press on the focused control, since
+  // a synthetic event would skip the browser's own focus and key routing.
+  {
+    const modelCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await modelCtx.addInitScript(garageSeedScript());
+    // Music off, the lead's default for every test browser.
+    await modelCtx.addInitScript(
+      'try { localStorage.setItem("lions.settings", JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 1, voice: 1, radio: true } })); } catch (e) {}'
+    );
+    const m = await modelCtx.newPage();
+    m.setDefaultTimeout(ACTION_TIMEOUT_MS);
+    const modelWarnings: string[] = [];
+    m.on('console', (msg: ConsoleMessage) => {
+      if (msg.type() === 'error') errors.push(msg.text());
+      else if (msg.type() === 'warning') modelWarnings.push(msg.text());
+    });
+    m.on('pageerror', (e) => errors.push(String(e)));
+    // Strings, not functions: see `GARAGE_ARM` below for the `__name` trap.
+    const MODEL_STATE =
+      '(() => { var p = document.querySelector(".rl-garage__plate");' +
+      ' var c = document.querySelector(".rl-garage__card[aria-selected=\\"true\\"]");' +
+      ' return { model: p ? p.getAttribute("data-model") : null, reason: p ? p.getAttribute("data-model-reason") : null,' +
+      ' unit: c ? c.getAttribute("data-unit") : null }; })()';
+    const SETTLED = (unit: string): string =>
+      '(() => { var p = document.querySelector(".rl-garage__plate");' +
+      ' var c = document.querySelector(".rl-garage__card[aria-selected=\\"true\\"]");' +
+      ' var s = p ? p.getAttribute("data-model") : null;' +
+      ` return !!c && c.getAttribute("data-unit") === ${JSON.stringify(unit)} && s !== null && s !== "pending"; })()`;
+    type ModelState = { model: string | null; reason: string | null; unit: string | null };
+    const settled = async (unit: string): Promise<ModelState> => {
+      await m.waitForFunction(SETTLED(unit), null, { timeout: 60_000 });
+      return m.evaluate<ModelState>(MODEL_STATE);
+    };
+    const STASH = (slot: string): string => `window.${slot} = document.querySelector(".rl-garage__model canvas");`;
+    const LOST = (slot: string): string =>
+      `(() => { var c = window.${slot}; var g = c ? c.getContext("webgl2") : null;` +
+      ' return { stashed: !!c, lost: g ? g.isContextLost() : null }; })()';
+    type LostRead = { stashed: boolean; lost: boolean | null };
+
+    await m.goto(`http://localhost:${PORT}/brigade`, { waitUntil: 'load' });
+    await m.waitForSelector('.rl-garage__card[aria-selected="true"]');
+    const first = (await m.getAttribute('.rl-garage__card[aria-selected="true"]', 'data-unit')) ?? '';
+    const a = await settled(first);
+    console.log(`[${TAG}] garage model: ${first} -> data-model=${a.model}${a.reason ? ` (${a.reason})` : ''}`);
+    expect(a.model === 'live', `garage model: ${first} did not reach "live" on a WebGL2 runner: ${JSON.stringify(a)}`);
+    await m.evaluate(STASH('__rlModelA'));
+
+    // A real key press on the focused control turns it one step.
+    await m.focus('.rl-garage__model');
+    await m.keyboard.press('ArrowRight');
+    const turned = await m.getAttribute('.rl-garage__model', 'aria-valuenow');
+    expect(turned === '15', `garage model: one ArrowRight read aria-valuenow=${turned}, expected 15`);
+
+    // Page to another unit: the first context must be given back.
+    const second = first === 'at_team' ? 'mbt_lavi' : 'at_team';
+    await m.click(`.rl-garage__card[data-unit="${second}"]`);
+    const b = await settled(second);
+    expect(b.model === 'live', `garage model: ${second} did not reach "live": ${JSON.stringify(b)}`);
+    const aAfter = await m.evaluate<LostRead>(LOST('__rlModelA'));
+    console.log(`[${TAG}] garage model: paged ${first} -> ${second}; ${first}'s context lost=${String(aAfter.lost)}`);
+    expect(aAfter.stashed, `garage model: no canvas was stashed for ${first}`);
+    expect(aAfter.lost === true, `garage model: paging from ${first} to ${second} left ${first}'s WebGL context alive`);
+    await m.evaluate(STASH('__rlModelB'));
+
+    // A SOFT leave, through the garage's own link: the router's disposer.
+    const leaveFrom = modelWarnings.length;
+    await m.click('.rl-menu--garage a[href="/"]');
+    await m.waitForSelector('a[href="/campaign"]');
+    await m.waitForTimeout(750);
+    const bAfter = await m.evaluate<LostRead>(LOST('__rlModelB'));
+    const boots = await m.evaluate<number>('performance.getEntriesByName("rl:boot").length');
+    console.log(
+      `[${TAG}] garage model: soft leave to the menu; ${second}'s context lost=${String(bAfter.lost)}, boots=${boots}`
+    );
+    expect(boots === 1, `garage model: the menu link reloaded the page (boots=${boots}), so this was not a soft leave`);
+    expect(bAfter.stashed, `garage model: no canvas was stashed for ${second}`);
+    expect(bAfter.lost === true, `garage model: a soft leave of the garage left ${second}'s WebGL context alive`);
+    const bad = modelWarnings.slice(leaveFrom).filter((w) => LEAVE_WARNING.test(w) && !NOT_A_LEAVE_WARNING.test(w));
+    for (const w of bad) expect(false, `garage model: the garage's leave logged a warning: ${w.slice(0, 300)}`);
+    await modelCtx.close();
+  }
+
   // --- the garage buys in place (WP-S3g F3) ------------------------------
   // The old remount read ONE flat colour for ~210 ms (spec F3, capture
   // `05-buy-upgrade-120ms`), then landed the bay on the first card with focus
