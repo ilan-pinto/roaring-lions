@@ -623,7 +623,17 @@ otherwise.
   dropped at import since GH-149 by the contract's "zero materials"; kept now
   at 1024 JPEG for 0 credits, with the four basenames mapped to one type id
   on the gate side so the pinned lists stay equal.
-- Counts (glTF tris): manpad 8,976, recoilless 10,366, inf_squad 7,746,
-  sarim 10,157, mortar_team 9,704, sniper 6,954, yahalom 10,482 -- four over
-  the 8,000 team cap, where the supplied files they replace read 31,965 /
-  180,670 / 20,544 / 30,876 / 27,991. 205 credits of the 240 approved.
+- **A triangle that straddles a cut becomes a spike.** At 1,000-1,500 tris
+  a remesh's triangles reach ~10 cm; classified whole by centroid, the ones
+  crossing the knee or the arm root tore into shards when the kneel or the
+  arm hang turned their neighbours (the lead's review of the mortar team).
+  The source is bisected along the hinge planes before the cut now, for
+  every team on this path. Not a remesh problem and not a decimation one.
+- **Kit positions assume kit bodies, again** (B0b's lesson, third time): the
+  yahalom packs sat 0.18 m behind a kit axis and ran through a Meshy chest
+  (86-89 samples inside). Seated behind the measured back; 0 inside; gated.
+- Counts (glTF tris, after the bisection): manpad 10,843, recoilless 12,432,
+  inf_squad 8,664, sarim 12,168, mortar_team 11,766, sniper 7,938, yahalom
+  12,410 -- all over the 8,000 team cap, where the supplied files they
+  replace read 31,965 / 180,670 / 20,544 / 30,876 / 27,991. 205 credits of
+  the 240 approved.
