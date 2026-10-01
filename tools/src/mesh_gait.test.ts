@@ -1130,11 +1130,11 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'rpg_team.glb move': 528,
   'charge_squad.glb move': 444, // B4: Meshy boots
   'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait
-  'sarim_rifles.glb move': 918, // B7: Meshy boots, three men
+  'sarim_rifles.glb move': 1078, // B7 (2 Oct ruling): three of B3's militia_cell body
   'meshy_mortar_team.glb move': 3268,
   'yahalom_engineer.glb move': 1632,
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
-  'manpad_team.glb move': 428, // B7: re-remeshed from the refined B2 preview; the source is bisected at its hinge planes (review fix)
+  'manpad_team.glb move': 711, // B7 (2 Oct ruling): built on B3's militia_cell body, the shipped Sarim figure
   'recoilless_team.glb move': 518, // B7: re-remeshed from the refined B2 preview
   // B5 (2026-10-01): the Meshy breach figure, boot = below 0.09 H, two men.
   'breach_team.glb move': 396,
