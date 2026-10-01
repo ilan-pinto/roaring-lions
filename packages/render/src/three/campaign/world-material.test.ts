@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import {
+  BRIGHT_GAMMA,
+  campaignUniforms,
   campaignWorldMaterial,
   HOVER_BRIGHT,
+  REGION_STATE_CHUNK,
   REGION_VISUALS,
   SCENERY_VISUAL,
-  WORLD_SHADE,
 } from './world-material';
 import type { CampaignRegionStatus } from './world-scene';
 
@@ -68,19 +70,42 @@ describe('region state is drained, never faded', () => {
 });
 
 describe('campaignWorldMaterial', () => {
-  const make = (visual = REGION_VISUALS.live): { m: THREE.ShaderMaterial; map: THREE.Texture } => {
+  const make = (
+    visual = REGION_VISUALS.live
+  ): { m: THREE.MeshStandardMaterial; map: THREE.Texture; loaded: THREE.MeshStandardMaterial } => {
     const map = new THREE.Texture();
-    // What GLTFLoader stamps on a baseColorTexture, which is the whole
-    // hazard: this renderer's output is pass-through, so an sRGB internal
-    // format decodes on every sample with nothing to re-encode it.
+    // What GLTFLoader builds for a baseColorTexture: a standard material,
+    // metallicFactor 1 (black with no environment), the map tagged sRGB.
     map.colorSpace = THREE.SRGBColorSpace;
-    return { m: campaignWorldMaterial(map, visual), map };
+    const loaded = new THREE.MeshStandardMaterial({ map, metalness: 1 });
+    return { m: campaignWorldMaterial(loaded, visual), map, loaded };
   };
 
-  it('forces NoColorSpace on the bake', () => {
-    const { m, map } = make();
-    expect(map.colorSpace).toBe(THREE.NoColorSpace);
-    expect(m.uniforms.uMap.value).toBe(map);
+  /** Run the material's own `onBeforeCompile` over three's real standard
+   *  shader source, as `WebGLRenderer` would, and hand back the result. */
+  const compiled = (m: THREE.Material): { fragmentShader: string; uniforms: Record<string, THREE.IUniform> } => {
+    const shader = {
+      uniforms: {} as Record<string, THREE.IUniform>,
+      vertexShader: THREE.ShaderLib.standard.vertexShader,
+      fragmentShader: THREE.ShaderLib.standard.fragmentShader,
+    };
+    m.onBeforeCompile(shader as unknown as THREE.WebGLProgramParametersWithUniforms, {} as THREE.WebGLRenderer);
+    return shader;
+  };
+
+  it('is a lit standard material, like every textured world object in a mission', () => {
+    const { m } = make();
+    expect(m.isMeshStandardMaterial).toBe(true);
+    // glTF's default metallicFactor 1 renders black with no env map.
+    expect(m.metalness).toBe(0);
+  });
+
+  it('keeps the bake sRGB -- the output encodes, so the sample must decode', () => {
+    // The OLD pairing was pass-through output + NoColorSpace. Since S3a the
+    // renderer encodes sRGB (world-view.ts), so a NoColorSpace bake would
+    // draw washed out. Both halves move together or neither does.
+    const { map } = make();
+    expect(map.colorSpace).toBe(THREE.SRGBColorSpace);
   });
 
   it('mipmaps the 4096 bake — it is drawn at every board size', () => {
@@ -89,46 +114,52 @@ describe('campaignWorldMaterial', () => {
     expect(map.minFilter).toBe(THREE.LinearMipmapLinearFilter);
   });
 
+  it('clones the loaded material and shares the one bake', () => {
+    // readWorldScene disposes the loaded material straight after; two meshes
+    // sharing it would otherwise share their region state.
+    const { m, map, loaded } = make();
+    expect(m).not.toBe(loaded);
+    expect(m.map).toBe(map);
+  });
+
   it('carries the state it was built with into its uniforms', () => {
     const { m } = make(REGION_VISUALS.locked);
-    expect(m.uniforms.uSat.value).toBe(REGION_VISUALS.locked.sat);
-    expect(m.uniforms.uBright.value).toBe(REGION_VISUALS.locked.bright);
+    expect(campaignUniforms(m).uSat.value).toBe(REGION_VISUALS.locked.sat);
+    expect(campaignUniforms(m).uBright.value).toBe(REGION_VISUALS.locked.bright);
   });
 
-  it('gives each material its own light vector, not a shared one', () => {
-    // A shared THREE.Vector3 across five materials is one `.set()` away from
-    // relighting the whole board by accident.
+  it('gives each material its own state, not a shared one', () => {
     const a = make().m;
     const b = make().m;
-    expect(a.uniforms.uLightDir.value).not.toBe(b.uniforms.uLightDir.value);
-    expect(a.uniforms.uShade.value).toBe(WORLD_SHADE);
+    expect(campaignUniforms(a).uSat).not.toBe(campaignUniforms(b).uSat);
   });
 
-  it('actually reads uSat and uBright in the fragment shader', () => {
-    const frag = code(make().m.fragmentShader);
-    expect(frag).toMatch(/mix\s*\(\s*vec3\s*\(\s*grey\s*\)\s*,\s*lit\s*,\s*uSat\s*\)/);
-    expect(frag).toMatch(/\*\s*uBright/);
+  it('wires the SAME uniform objects into the compiled shader', () => {
+    // world-view.ts writes state after the program exists; a copy would
+    // freeze every region at the state it compiled with.
+    const { m } = make();
+    const s = compiled(m);
+    expect(s.uniforms.uSat).toBe(campaignUniforms(m).uSat);
+    expect(s.uniforms.uBright).toBe(campaignUniforms(m).uBright);
   });
 
-  it('lights from a WORLD normal, so turning the board changes the lit side', () => {
-    // The alternative -- `normalMatrix * normal`, which every other material
-    // in this backend uses -- is view space, and nails the shading to the
-    // screen. The board then reads as a texture sliding over a shape that is
-    // not moving.
-    const vert = code(make().m.vertexShader);
-    expect(vert).toMatch(/mat3\s*\(\s*modelMatrix\s*\)\s*\*\s*normal/);
-    expect(vert).not.toMatch(/normalMatrix/);
+  it('actually injects the state chunk after the bake is sampled', () => {
+    const frag = compiled(make().m).fragmentShader;
+    expect(frag).toMatch(/uniform float uSat;/);
+    expect(frag).toMatch(/uniform float uBright;/);
+    const at = frag.indexOf('#include <map_fragment>');
+    expect(at).toBeGreaterThan(-1);
+    const after = code(frag.slice(at));
+    expect(after.indexOf(code(REGION_STATE_CHUNK).trim())).toBeGreaterThan(-1);
+    const chunk = code(REGION_STATE_CHUNK);
+    expect(chunk).toMatch(/mix\s*\(\s*vec3\s*\(\s*rlGrey\s*\)\s*,\s*diffuseColor\.rgb\s*,\s*uSat\s*\)/);
+    expect(chunk).toMatch(/pow\s*\(\s*uBright\s*,\s*2\.2\s*\)/);
+    expect(BRIGHT_GAMMA).toBe(2.2);
   });
 
-  it('does not band the shade — this is terrain, not a building facet', () => {
-    // The retired `texturedBuildingMaterial` quantized into
-    // TEXTURED_SHADE_STEPS because a building's facets break on real edges.
-    // The same banding across a hillside draws contour terraces that are not
-    // in the source. (A building is a plain `MeshStandardMaterial` under the
-    // scene sun since 2026-09-14; this screen still has its own smooth-shade
-    // material -- see the spec's section 9.)
-    const frag = code(make().m.fragmentShader);
-    expect(frag).not.toMatch(/floor\s*\(/);
-    expect(frag).toMatch(/1\.0\s*-\s*uShade\s*\*\s*\(\s*1\.0\s*-\s*nl\s*\)/);
+  it('shares one compiled program across every region', () => {
+    const a = make().m;
+    const b = make(REGION_VISUALS.locked).m;
+    expect(a.customProgramCacheKey()).toBe(b.customProgramCacheKey());
   });
 });

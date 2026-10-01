@@ -15,7 +15,7 @@
 //
 // Run: `pnpm --filter @lions/tools e5:probes` (exit 1 when a claim fails).
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sim, fx, TICKS_PER_SECOND, type UnitTypeJson } from '@lions/sim';
@@ -30,7 +30,10 @@ const STAGED = join(ROOT, 'docs', 'campaign', 'special_units', 'e5');
  *  unit and an upgradable one, since the drafts carry their `upgrades` tracks. */
 export type StagedUnit = UnitTypeJson & UpgradableUnit;
 export function stagedUnit(id: string): StagedUnit {
-  return JSON.parse(readFileSync(join(STAGED, `${id}.json`), 'utf8')) as StagedUnit;
+  // A landed unit (GH-181 part 2: the Zikit and the Gunship) moved to data/units/kdf; the
+  // Tzav is still staged. Same bytes either way, so the frozen probe bands do not move.
+  const landed = join(ROOT, 'data', 'units', 'kdf', `${id}.json`);
+  return JSON.parse(readFileSync(existsSync(landed) ? landed : join(STAGED, `${id}.json`), 'utf8')) as StagedUnit;
 }
 
 /** A staged draft at its maximum tiers -- the pre-pass `harness.ts`'s `unitsAtMaxTier`

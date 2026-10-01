@@ -80,7 +80,7 @@ describe('measureGait over every shipped rigged mesh', () => {
   // total shape of the whole tree, not just that each individual call did
   // not throw.
   it('declares a gait for every file except the one named exemption', () => {
-    expect(ALL_RIGGED_FILES.length).toBe(21);
+    expect(ALL_RIGGED_FILES.length).toBe(22);
 
     const skipped: string[] = [];
     const declared: string[] = [];
@@ -97,7 +97,7 @@ describe('measureGait over every shipped rigged mesh', () => {
     }
 
     expect(skipped.sort()).toEqual(['moto_rpg.glb']);
-    expect(declared.length).toBe(20);
+    expect(declared.length).toBe(21);
     // Only the two Meshy-sourced bipeds carry moveFire today.
     expect(moveFireCount).toBe(2);
   });
