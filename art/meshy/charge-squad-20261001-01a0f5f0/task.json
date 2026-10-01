@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A thick bulky padded vest with wide square pockets across the chest and back, worn over the shirt. Real-world scale, 1.72 metres tall. Dusty grey cloth, dark brown, olive webbing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "a-pose",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f5f0-7b09-76f5-8452-315d719f0236",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2796214296,
+    "prompt": "A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A thick bulky padded vest with wide square pockets across the chest and back, worn over the shirt. Real-world scale, 1.72 metres tall. Dusty grey cloth, dark brown, olive webbing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790832573655,
+    "progress": 100,
+    "started_at": 1790832573667,
+    "finished_at": 1790832630556,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f5f0-7b09-76f5-8452-315d719f0236/output/model.glb?Expires=4944412800&Signature=fObVMwQqCmf4yIyk7IaPOyIvqXrnfFNBsHf-cw~oANNt-CmFkW8IiOrK7QQpLkOkNFlyKQTtWa8n738JmNSlKshAIm-yPl6vA1nuEwAIb~sL0pieJUuAzyCv-9Dp5QfGg7fm0LVco2IUZBabv7r06gW-lGaCcbpQGxALbQHRXRXX5B2KltXT5ldpKTn0Vt8dWZA0xY~y~ZWPj-e8xFSr~k3CKnSjx-dKrToTZGNTxixAXBAfJYZGtwmWKJhsIVz2kR-qYiaCcLUgMhEfApx~NHDl2UoviqCRdrm4SA8j9q8kxY2ykzXFpMp5QvTengU0XtmiDq-e5bvlEnEY1A7Qng__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f5f0-7b09-76f5-8452-315d719f0236/output/preview.png?Expires=4944412800&Signature=bMGK7-S5o7iZjy8Iu7O6PHtp5PpJoUSmLpsgfTNCj5anLATQFJ45OYRut6OimHXBogBEpgH6kBFnnJHD-b9ydN9iRDnD-mhHq9YQ5RkURMfTKoL2lWReYxRSLXekGR7GIyGTcZgaKuNYNB0oahgTQus-Rr5dfaf9XN6c2Elto~gdiQpG8ART3dsPAK73wzI0HC9wcQvpvVD~Q2QJgv3XDcekjXjZLmy6Xo1strErQF3oHYHptvZ93e3e2EWRO~iES3oJNB2qB5K4tjNSCz1TisOPPEUS0QIJ~jLwrTD~PCl3cf~Jl1biP0YRV2uTs4KwWtGfRNHDnoJtrgEQIN0Jvw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790832573655,
+    "started_at": 1790832573667,
+    "finished_at": 1790832630556
+  },
+  "usd_estimated": 0.4
+}

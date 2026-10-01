@@ -494,3 +494,40 @@ otherwise.
 - Counts: militia 7,746 / rpg 7,082 / atgm 7,228 glTF triangles, all under
   the 8,000 team cap with the corpse and (for the kneelers) the walker
   included; 333-369 KB each shipped with a 1024 JPEG bake.
+
+## 11. Measured in B4 (2026-10-01)
+
+- **The 30 Sep run answered HTTP 402 on every text-to-3d POST with 3,735
+  credits showing**; the lead raised the key's credit limit on 1 Oct and the
+  same request body went through unchanged. The CLI prints the status and
+  swallows Meshy's response body (`MeshyApiError.body`), so the reason is
+  still not on record — worth printing.
+- **"a keffiyeh wrapped over the head" was ignored by all three previews**
+  (two helmets with goggles, one bald head), the fourth, fifth and sixth
+  times on this pipeline. Kit's keffiyeh over the crown is now the default
+  expectation, not the exception; its borrowed texel is taken from the SOURCE
+  figure's upper back rather than the part's own torso bounds, because a
+  kneeling torso sits 0.45 m lower than the standing source it is matched
+  against and B4's mortar crew wore a black (belt-and-holster) keffiyeh
+  beside their own tan walkers until that was found.
+- **The refine paints a red-and-white check where it reads "keffiyeh".** On
+  the mortar figure it painted the helmet, collar AND chest bandolier in it;
+  on the digger the bald crown. `RECOLOUR`'s hue window reaches to 20° for
+  both (red sits at hue 0) and the mortar's floor drops to 0.55 H.
+- **Meshy honours "A-pose" most of the time, not all of it.** The digger
+  preview came with both arms reaching forward (elbows behind the torso at
+  0.6 H, hands at x +0.62 m), so nothing was outboard in |y| for the arm cut
+  to find. Rather than a second preview: the upper body stays ONE `torso` part
+  on `spine` with synthetic hanging arm joints (bone tables and clips are
+  unchanged), the corpse lies on its side (a face-down body on forward arms
+  floats), and the tool is placed from the real hands. A kneeling digger with
+  his arms out to the mound reads as labour; the walker walks arms-out, which
+  a 25 px rare unit carries.
+- **A Meshy figure's legs are shorter than kit's at the same height**
+  (crotch at 0.47 H), so the same `rig.py` thigh swing covers less ground:
+  `charge_squad`'s stride went 1.530 → 1.437 m and its pinned gait outliers
+  (multiplier 2.4842 → 2.6453, cadence 7.46 → 7.94) moved with it. The
+  recommended follow-up — a longer stride for the sprinter — stands.
+- Counts: mortar 7,995 / charge 7,478 / digger 6,214 glTF triangles, all under
+  the 8,000 team cap with corpses and walkers; worst IoU neighbours 0.549 /
+  0.502 / 0.557 (limit 0.88).

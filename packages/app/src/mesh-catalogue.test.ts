@@ -99,11 +99,11 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     expect(orphans).toEqual([]);
   });
 
-  it('holds only files that exist, and none that are claimed or retired (GH-277)', () => {
-    // HELD_MESH_FILES is art landed ahead of its structure type. It must be
-    // as honest as RETIRED_MESH_FILES in both directions: a held file that is
-    // gone is a stale entry, and a file that is held AND claimed is one that
-    // Task 13 wired without deleting the hold.
+  it('holds only files that exist, and none that are claimed or retired (GH-277, GH-298)', () => {
+    // HELD_MESH_FILES is art landed ahead of its structure or unit type. It
+    // must be as honest as RETIRED_MESH_FILES in both directions: a held file
+    // that is gone is a stale entry, and a file that is held AND claimed is
+    // one that Task 13 / Stage 5 wired without deleting the hold.
     const claimed = claimedMeshFiles();
     const held = Object.keys(HELD_MESH_FILES);
     expect(held.filter((f) => !existsSync(path.join(MESH_ROOT, f)))).toEqual([]);

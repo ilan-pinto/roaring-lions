@@ -50,6 +50,11 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   ifv_namer: { hull: 'tracked', turretPivot: 'turret_pivot' },
   jeep_shoded: { hull: 'wheeled' },
   mbt_lavi: { hull: 'tracked', turretPivot: 'turret_pivot' },
+  // GH-298: the command Lavi is the shipped mbt_lavi.glb with a cupola, mast
+  // and whips joined into its own turret nodes (tools/vehicles/
+  // export_officer_armour.py), so it wrecks exactly as the Lavi does. Held
+  // art (HELD_MESH_FILES) until Stage 5 wires the unit.
+  officer_armour: { hull: 'tracked', turretPivot: 'turret_pivot' },
   paramotor: { hull: 'air', canopy: 'hull_hull' },
   rocket_battery: { hull: 'wheeled' },
   // The Meshy Shachaf (GH-185, 2026-09-30) carries a `turret_pivot` on its
@@ -68,6 +73,14 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // static `hull_metal` (`tools/drones/export_meshy_drones.py`).
   recon_drone: { hull: 'air' },
   attack_drone: { hull: 'air' },
+  // E5 part 2 (GH-181, 2026-09-30), HELD in `mesh-catalogue.ts` until its
+  // data lands: the Gunship is the Peten's own export plus stores, so it
+  // takes the Peten's recipe (tools/vehicles/export_meshy_apache_gunship.py).
+  heli_peten_gunship: { hull: 'air', rotorPivot: 'rotor_pivot' },
+  // E5 part 2 (GH-181, 2026-10-01), HELD until E6 wires the unit: a tracked
+  // engineering hull carrying a kit RWS under `turret_pivot`
+  // (tools/vehicles/export_meshy_tzav.py), so it wrecks like the Namer.
+  demo_tzav: { hull: 'tracked', turretPivot: 'turret_pivot' },
 };
 
 /**

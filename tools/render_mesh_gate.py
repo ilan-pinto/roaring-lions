@@ -260,6 +260,23 @@ VEHICLE_ROLE_PALETTES = {
     "attack_drone": {
         "hull": "olive.0", "metal": "gunmetal.2", "glass": "gunmetal.3",
     },
+    # E5 part 2 (GH-181): the Peten Gunship ships the Peten's bake, so this
+    # row only names the repaint this gate makes -- KDF olive like the
+    # drones -- for exactly the three roles the file carries. The Peten
+    # itself has no row and takes the fallback; giving the variant one keeps
+    # its render off the warning channel while it is held.
+    "heli_peten_gunship": {
+        "hull": "olive.0", "metal": "gunmetal.2", "glass": "gunmetal.3",
+    },
+    # E5 part 2 (GH-181, 2026-10-01): the Shiryonan Demolition Carrier ships
+    # its own bake, so this row only names the repaint this gate makes -- KDF
+    # olive like apc_eitan -- for the four roles the file carries: the hull
+    # and the tracks (`rubber`) from the remesh, `metal`/`plate` from the kit
+    # RWS. Held until E6 wires the unit.
+    "demo_tzav": {
+        "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",
+        "rubber": "shadow.0",
+    },
 }
 VEHICLE_ROLE_PALETTE_FALLBACK = {
     "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",

@@ -447,6 +447,31 @@ the lead's ear.
 
 ---
 
+## E5 part 2 -- the bought-only special forces (GH-181, 2026-09-30)
+
+All three staged units have art; every file is **held** (`HELD_MESH_FILES`,
+`packages/app/src/mesh-catalogue.ts`) until E5 Task 9 lands their unit JSON. Numbers
+tables, prompts and the credit plan: `docs/art/meshy-prompts-e5.md`. Every spend is a
+line in `art/meshy/ledger.jsonl`: **70 credits consumed** (Zikit preview 20 + refine 10
++ remesh 5 on 2026-09-30; Tzav preview 20 + refine 10 + remesh 5 on 2026-10-01, once the
+key's limit was raised) against 70 planned and the 140 cap. AI-generated (Meshy) where it says so,
+disclosed per `CONTRIBUTING.md`.
+
+| File | Draws as (once landed) | Source | Notes |
+|---|---|---|---|
+| `art/meshes/vehicles/heli_peten_gunship.glb` | `heli_peten_gunship` (Peten Gunship, KDF air) | `art/meshes/vehicles/heli_peten.glb` re-opened by `tools/vehicles/export_meshy_apache_gunship.py` -- the supplied Meshy Peten's own export, so the same AI-generated source as `heli_peten` above, **0 credits** | Adds `stores_hull` (stub wings, pylons, two drop tanks), `stores_metal` (four rocket pods, mast and dome) and `sensor_glass` (nose ball), every one UV-pinned to the Peten's `base_color` bake (one material; `TEXTURED_VEHICLE_TYPES`). Rotor graph unchanged; wreck re-made by `pnpm wreck:meshes` (recipe `air` + `rotor_pivot`). **41,771 tris** live (Peten 41,031), 4.684 m drawn size as the Peten. IoU against `heli_peten` **0.653** at 64 px (limit 0.88), against the `APACHE_HULL` sprite 0.408. |
+| `art/meshes/recon_zikit.glb` | `recon_zikit` (Shmamit Deep Recon Team, KDF) | Meshy text-to-3D preview `01a0f343-6390-741c-adee-20c9a3ec409e` (`--pose a-pose`), refine `01a0f344-3a27-7653-9d91-9e0db0ddef5b` (2k), remesh `01a0f346-7ff9-772a-aa3c-f0cae827210c` at 1,500 (arrived 1,541 with the bake); `art/meshy/recon-zikit-20260930-01a0f34{3,6}/` | **Textured** (`TEXTURED_INFANTRY_TYPES`): the remesh's base colour at 1024 JPEG q85 on `uniform`/`boot`/`face`. ONE figure cut into `rig.py` parts three times by `tools/units/import_meshy_zikit_team.py`: `zk_rifle` standing with the kit rifle level at the hand, `zk_radio` standing with a 0.9 m kit whip at 80 degrees over the pack, `zk_spot` kneeling behind a kit tripod scope on the `prop` bone. Corpses at 0.5, seam blobs at 6x2 (the two levers that hold three figures under the cap). **7,997 tris**, clips `idle, move, fire, down, wreck`, all `rig.py`'s own. Highest IoU: `mortar_team` 0.598 (mesh), `DRONE_RECON` 0.386 (sprite). No `rl_gait` yet: `pnpm gait:meshes` is scoped to `RIGGED_UNIT_MESHES`, so it runs at landing. |
+| `art/meshes/vehicles/demo_tzav.glb` | `demo_tzav` (Shiryonan Demolition Carrier, KDF tracked engineering vehicle) | Meshy text-to-3D preview `01a0f5f2-08a8-734f-8348-a80f63b20b30`, refine `01a0f5f3-3cdf-71c8-9061-cd8698e04795` (2k), remesh `01a0f5f6-8e92-7148-834f-9bd3e136c31e` at 5,000 (arrived 4,888 faces with the bake); `art/meshy/demo-tzav-20261001-01a0f5f{2,6}/`; **35 credits** on 2026-10-01 (the 2026-09-30 attempt's two 402s charged nothing) | **Textured** (`TEXTURED_VEHICLE_TYPES`): the remesh's own `base_color` at 2048, normal and metallic-roughness kept at 2048, no bake fix (hue 86 / sat 0.41 / val 0.29 in the linear buffer, between the D9's 70/0.51/0.29 and the Eitan's 102/0.29/0.33). `tools/vehicles/export_meshy_tzav.py`: crate end measured at +X (no turn), tracks split as `hull_rubber` (2,088 faces, the outboard band |y| 0.27..0.41 below 0.375 of the belly), **8.5 m declared** over arm and crate (no sprite manifest yet; E6's `TZAV_HULL` must render from this GLB), x 4.15 x 4.02 m; `turret_pivot` with the Eitan-sized `kit.rws` on the measured cab roof at (-2.49, 0, 3.57) m. **4,940 tris** live; wreck by `pnpm wreck:meshes` (recipe `tracked` + `turret_pivot`, live-vs-wreck IoU 0.739). Highest IoU at 64 px: `apc_eitan` 0.838, `apc_kipod` 0.799, `ifv_namer` 0.792, `dozer_d9` 0.765 (mesh); `KIPOD_HULL` 0.749 (sprite); fill 22.3%. The remesh kept the two roof whips the prompt did not ask for; they are a few pixels at any zoom and were left. Held until E6. |
+
+Measured on the way: the Zikit figure came back with its A-pose arms BENT, hands forward
+(chord 78-81 degrees from vertical, tip x +0.32 against the shoulder's -0.07), which the
+B0b importer's "within 0.05 H of the shoulder-to-hand chord" arm test does not see -- the
+elbows stayed in the torso and only the hands hung. `import_meshy_zikit_team.py` widens
+the chord radius so the test becomes "outboard of the arm-root ring", which is safe on
+this figure because no pack face reaches that far out. The whip and the slung carbine
+were left out of the prompt on purpose (B0a measured that a remesh drops every thin whip;
+a slung gun on the base figure would arm all three men) and are kit geometry instead.
+
 ## What closing the source changes
 
 - **Code (MIT until 2026-09-18, then PolyForm Noncommercial 1.0.0 with `CLA.md`; effectively sole-authored)** — 747 of ~753 commits are the
@@ -570,6 +595,7 @@ depends on someone remembering is provenance that eventually fails.
 
 ---
 
+
 ## GH-286 batch B0b — the first Meshy-textured rigged figure teams
 
 Two units, 2026-09-30, both Meshy **text-to-3D** through the CLI (`pnpm meshy`),
@@ -651,6 +677,38 @@ flat: the same cut parts are re-arranged rigidly in code (left arm overhead,
 right arm out, right knee bent, head turned, body rolled 12°), welded, and
 decimated once at 0.5. Kit weapons (`rifle`, `launcher`, `atgm_tripod`) stay
 palette-painted beside the textured figure — the loader decides per mesh.
+---
+
+## WP-A3.1 batch B4 — the last three enemy teams (GH-179)
+
+Three teams, 2026-10-01, Meshy **text-to-3D** through the CLI (`pnpm meshy`):
+one A-pose preview, one refine (2k), one remesh each — **105 credits** against
+the 120 the lead approved (35 a unit, no Meshy rig call; the 30 Sep attempt
+answered HTTP 402 before any spend and is recorded in
+`docs/art/meshy-prompts-units.md`). AI-generated and disclosed per
+`CONTRIBUTING.md`; every spend is a line in `art/meshy/ledger.jsonl`. Prompts,
+numbers tables and the per-unit decisions are in `meshy-prompts-units.md`
+§13–15; what each preview honoured and what the importer fixed in
+`style-bible.md` §11. The downloaded `model.glb` and texture sources sit under
+`art/meshy/<slug>-20261001-<task>/` and are **not committed**; the ledger, each
+folder's `task.json` and thumbnail are. All three join `TEXTURED_INFANTRY_TYPES`
+/ `TEXTURED_INFANTRY_EXEMPT`: palette, framing and fill skip them, silhouette
+IoU still runs.
+
+| File | Draws as | Preview task id (`--pose a-pose`) | Refine task id (2k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/mortar_crew.glb` | `mortar_crew` (Mortar Crew, enemy) | `01a0f5ef-c4df-71f9-833b-cf974437337b` | `01a0f5f0-87b4-7418-84d9-e40f53dcb913` | `01a0f5f3-5e48-70e5-9aa6-f249c78e1dd7` at 1,100 | Two kneelers (B2's `_kneel`, D6 walkers) round `kit.mortar` on `prop`; 7,995 tris, 1.22 MB source / 0.41 MB shipped. Preview came in a helmet with goggles and a slung gun: kit keffiyeh over the crown; the refine's red-and-white check on helmet, collar and bandolier remapped to dusty tan. Worst IoU neighbour `recoilless_team` 0.549 |
+| `art/meshes/charge_squad.glb` | `charge_squad` (Suicide Squad, enemy) | `01a0f5f0-7b09-76f5-8452-315d719f0236` | `01a0f5f1-63b0-77dc-a0b2-30e2aeaf247f` | `01a0f5f3-5e8b-7032-93bb-1a9bdae9af32` at 2,000 | Two standing men, 20° rest lean through `teams._lean_forward`, `chg1`'s kit satchel (`charge`), no weapon; 7,478 tris. Preview came helmeted: kit keffiyeh. Corpses offset ±0.30 m so the single-file pair does not fall in one heap. Worst IoU neighbour `wall` 0.502 |
+| `art/meshes/digger_crew.glb` | `digger_crew` (Digger Crew, enemy) | `01a0f5f0-995a-76d1-8158-3585f4847011` | `01a0f5f1-8793-7094-80ee-b3535f37513b` | `01a0f5f3-5ee3-739e-a016-4ea1ce94669d` at 2,000 | One kneeler at `rig._digger_extras`' heap on `ground`, kit entrenching tool (`wood` + `metal`) in his hands; 6,214 tris. Preview came bald with both arms reaching FORWARD, not an A-pose: arms kept on the torso (`ARMS_FORWARD`), corpse on its side, head away from the heap; the rose check on the crown remapped to grey. Four clips (no `work` anywhere). Worst IoU neighbour `moto_rpg` 0.557 |
+
+All three through `tools/units/import_meshy_crew_team.py` (B3's importer): rigid
+one-part-to-one-bone on `rig.py`'s tables, `rig.py`'s own clips, no hand-posing,
+no weights; `pnpm gait:meshes` stamped each `rl_gait`. Gates on 2026-10-01:
+`validate:meshes` (83 mesh units), `validate:assets`, `test` (7,653), `typecheck`,
+`lint` all green; the boot-vertex, swing-lift and charge-squad cadence pins in
+`tools/src/mesh_gait.test.ts` moved with the bytes.
+
+---
 
 ## The GH-277 field works (Meshy text-to-3D, remeshed; two textured), 2026-09-30
 
@@ -694,3 +752,67 @@ What is committed under `art/meshy/`: each REMESH folder's `model.glb`
 the loose texture PNGs a remesh writes beside its GLB (duplicates of what the
 GLB embeds) are not committed -- the same "the ledger and task ids are the
 record" convention the seven ground props follow above.
+
+---
+
+## GH-286 batch B0b — the first Meshy-textured rigged figure teams
+
+Two units, 2026-09-30, both Meshy **text-to-3D** through the CLI (`pnpm meshy`),
+AI-generated and disclosed per `CONTRIBUTING.md`; every spend is a line in
+`art/meshy/ledger.jsonl` (**70 credits consumed** against the 80 the lead
+approved: preview 20 + refine 10 + remesh 5 per unit; the 5-credit Meshy rig
+was not bought — the CLI has no `rig` command, a headless session cannot drive
+the web UI, and a figure cut into `rig.py`'s parts does not need one). Prompts
+and numbers tables are in `docs/art/meshy-prompts-units.md` §3–4, used verbatim.
+Under `art/meshy/<slug>-20260930-<task>/`: each task's `task.json` and
+thumbnail, the ledger, and the two REMESH `model.glb` files (the importer's
+actual input, ~10.5 MB each with their 2048/4096 maps) are committed; the
+preview and refine downloads (six formats, ~100 MB per refine) are not.
+
+| File | Draws as | Preview task id | Refine / remesh task id (shipped) | Notes |
+|---|---|---|---|---|
+| `art/meshes/at_team.glb` | `at_team` (Spike AT Team, KDF) | `01a0f2fa-3d74-7553-8559-fc36a338cd92` (`--pose a-pose`) | refine `01a0f2fb-2e11-70ac-8034-d21b9b58d534` (2k), remesh `01a0f2fd-1f66-779a-9a23-370974ee442a` at 2,000 | **Textured** (`TEXTURED_INFANTRY_TYPES`): ships the remesh's base-colour bake at 1024, JPEG q85, on `uniform`/`boot`/`face`; the normal and metallic-roughness maps are dropped. ONE figure, 1.78 m, cut into `rig.py` parts for both men (`tools/units/import_meshy_kdf_team.py`): `at_fire` kneeling (2,051 tris) with `kit.launcher` level on the shoulder, `at_spot` standing (2,051) with `kit.binoculars`; two prone corpses at half. **6,754 tris**, 1014928 bytes after the gait pass (321540 encoded). Clips `idle, move, fire, down, wreck`, all `rig.py`'s own. |
+| `art/meshes/demo_squad.glb` | `demo_squad` (Combat Engineers, KDF) | `01a0f2fb-6ba7-7245-9bd0-22edca38a2a6` (`--pose a-pose`) | refine `01a0f2fc-8731-76a4-af00-4d4805d08fb1` (2k), remesh `01a0f302-184a-701e-a5c6-daa76f54f83f` at 2,000 | As `at_team`: `demo_a` kneeling (2,061 tris) beside `kit.demo_charge` on the `prop` bone, `demo_b` standing (2,061) with the kit rifle held level at his hung right hand and `kit.cable_spool` worn on the back (the kit drew it through the shins). **6,828 tris**, 1048200 bytes after the gait pass (323484 encoded). Same five clips. |
+
+Measured in this batch: a remesh of a refined task keeps its bake (both
+figures arrived with base colour + normal + metallic-roughness); Meshy honoured
+the A-pose, helmet, carrier, boots, goggles and knee pads, and returned bent
+elbows with upturned palms rather than a straight A-pose — the importer hangs
+each arm as one rigid unit about its shoulder ring, so the hands flare
+slightly at the wrist. `pnpm validate:meshes` passes with both on the
+`NOT palette-checked` line (silhouette IoU still runs and clears 0.88).
+
+---
+
+## GH-298 — the officers (held art, Stage 5 wires it)
+
+Four units, 2026-09-30, three of them Meshy **text-to-3D** through the CLI
+(`pnpm meshy`), AI-generated and disclosed per `CONTRIBUTING.md`; every spend is
+a line in `art/meshy/ledger.jsonl` (**105 credits consumed** against the 155 the
+lead planned and the 310 cap: preview 20 + refine 10 + remesh 5 per figure team,
+0 for the command tank, which is a Blender variant of the shipped Lavi). Numbers,
+prompts and the credit plan are `docs/art/meshy-prompts-officers.md`, used
+verbatim. No unit JSON exists yet, so all four files sit in `HELD_MESH_FILES`
+(`packages/app/src/mesh-catalogue.ts`) and draw nothing until Stage 5 of the
+field-commanders spec claims them. Under `art/meshy/<slug>-20260930-<task>/`:
+each task's `task.json` and thumbnail and the three REMESH `model.glb` files
+(the importer's input, ~11 MB each with their 2048 maps) are committed; the
+preview and refine downloads are not.
+
+| File | Draws as (Stage 5) | Preview task id | Refine / remesh task id (shipped) | Notes |
+|---|---|---|---|---|
+| `art/meshes/officer_infantry.glb` | `officer_infantry` (Capt. Maya Pereg, infantry company commander) | `01a0f33e-aa5b-71e4-bd3c-ee5f17fbc82e` (`--pose a-pose`) | refine `01a0f33f-9c56-72af-a11d-009f1def0ced` (2k), remesh `01a0f342-783f-748a-a4ce-88fc2d808a21` at 2,000 (2,041 tris) | **Textured** (`TEXTURED_INFANTRY_TYPES`). Two figures, two people: `maya` standing (1.68 m, patrol cap, the new figure) and `sig`, the signaller, cut from B0b's `at_team` remesh (`01a0f2fd-…`, 0 credits) with a kit whip antenna on his rucksack and the kit rifle. Both bakes in ONE 2048x1024 atlas (1024 a figure, JPEG q85). `tools/units/import_meshy_officers.py`. **7,429 tris** in the shipped bytes (incl. the two half-decimated corpses), 1205456 bytes, 498184 encoded. Clips `idle, move, fire, down, wreck`, `rig.py`'s own; stride sized from `inf_squad.json` until the officer JSON lands. |
+| `art/meshes/officer_fires.glb` | `officer_fires` (Capt. Sagi Sharav, forward observer) | `01a0f341-6d50-72a9-b8e8-747cb13c7e5a` (`--pose a-pose`) | refine `01a0f342-41c0-719d-ab81-af6a4e515af0` (2k), remesh `01a0f344-2e47-74ac-bdd3-b050b4075658` at 2,000 (2,075 tris) | As above. Meshy returned Sagi with a helmet and both hands on a rifle across his chest rather than the A-pose asked for; the importer keeps his upper body as one rigid part (no arm cut) and kneels him at a kit laser designator on a tripod (`prop` bone); `rto`, the radio operator, is the `at_team` remesh again with whip and rifle. **7,292 tris**, 1188220 bytes, 488816 encoded. |
+| `art/meshes/officer_engineer.glb` | `officer_engineer` (Capt. Dalia Charsit, engineer commander) | `01a0f341-6e1f-7447-afce-b8e055b07548` (`--pose a-pose`) | refine `01a0f342-49ef-747e-b7b2-f3b33c0a0824` (2k), remesh `01a0f344-2e90-70f4-b19f-05fbb19e842f` at 2,000 (2,071 tris) | As above. `dalia` standing (1.70 m, helmet) with a kit mine probe held in the right hand; `sap`, the sapper, cut from B0b's `demo_squad` remesh (`01a0f302-…`, 0 credits) with whip, rifle and a slung kit satchel (`charge`). **7,521 tris**, 1237456 bytes, 495992 encoded. |
+| `art/meshes/vehicles/officer_armour.glb` | `officer_armour` (Capt. Ronen Heled, command Lavi) | none (0 credits) | none | **Textured** (`TEXTURED_VEHICLE_TYPES`): the shipped `mbt_lavi.glb` (itself Meshy, above) re-exported by `tools/vehicles/export_officer_armour.py` with a kit commander's cupola, a three-section telescoping mast to z 4.8 m and two whip antennas, each UV-pinned to the paint it sits on and JOINED into the Lavi's own four nodes, so the file keeps the Lavi's bake, material and `turret_pivot`. **8,610 tris** (the Lavi's 8,346 plus the kit parts), 2849668 bytes. Wreck by `pnpm wreck:meshes` (recipe `tracked` + `turret_pivot`). IoU vs `mbt_lavi` **0.525** (limit 0.88): the mast changes the frame the gate fits, which is the whole of R8's answer. |
+
+Measured in this batch: Meshy paints a small sleeve badge on every KDF figure
+whatever the prompt says, so the importer scrubs chroma/brightness outliers
+under each officer's upper-arm faces before the atlas is built (1,285 / 186 /
+262 texels replaced); a GENERATED Blender image is silently skipped by the glTF
+exporter, and comparing two `bpy` node wrappers with `is` removed the texture
+node itself — the first exports shipped `images: None` and were caught by
+reading the GLB's JSON chunk, not by the export succeeding; and a 1.35 m whip
+put `officer_fires` under the gate's 6% fill floor (5.2%), because the gate
+frames each unit to its own bounds — 0.85 m clears it at 9.1%.
+

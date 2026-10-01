@@ -260,6 +260,17 @@ TEXTURED_VEHICLE_EXEMPT = {
     # (tools/vehicles/export_meshy_ramp.py). The Shachaf's kit RWS parts
     # carry no material and still take the palette, as the gate repaints.
     "dozer_d9", "scout_shachaf",
+    # GH-298 (2026-09-30): the command Lavi, mbt_lavi.glb's own bake with a
+    # kit mast and cupola joined in (tools/vehicles/export_officer_armour.py).
+    "officer_armour",
+    # E5 part 2 (GH-181, 2026-09-30): the Peten Gunship ships the Peten's own
+    # bake (tools/vehicles/export_meshy_apache_gunship.py); held until Task 9.
+    "heli_peten_gunship",
+    # E5 part 2 (GH-181, 2026-10-01): the Shiryonan Demolition Carrier ships
+    # its remesh's own bake (tools/vehicles/export_meshy_tzav.py); its kit
+    # RWS parts carry no material and take the palette, as the gate repaints.
+    # Held until E6 wires the unit.
+    "demo_tzav",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -279,6 +290,12 @@ TEXTURED_INFANTRY_EXEMPT = {
     # B3 (GH-179, 2026-09-30): generated through `pnpm meshy`, each ships its
     # remesh's own bake -- `tools/units/import_meshy_crew_team.py`.
     "militia_cell", "rpg_team", "atgm_cell",
+    # B4 (GH-179, 2026-10-01): the three remaining enemy teams, same importer.
+    "mortar_crew", "charge_squad", "digger_crew",
+    # GH-298 (2026-09-30): the officer teams, tools/units/import_meshy_officers.py.
+    "officer_infantry", "officer_fires", "officer_engineer",
+    # E5 part 2 (GH-181, 2026-09-30): tools/units/import_meshy_zikit_team.py.
+    "recon_zikit",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's

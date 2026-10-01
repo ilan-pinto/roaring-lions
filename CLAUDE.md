@@ -2257,48 +2257,64 @@ the paragraph above, ~:306) -- nothing new here.
   are identical before and after -- no shipped plan ever drove a vehicle up the corridor
   (mission I's drone is `domain: air` and flies over boulders), so the field costs the
   optimal-play proofs nothing and closes an exploit they never used.
-  The fire-based half is now settled, and not in the direction this bullet used to point.
-  Measured over ten seeds with the armour's orders held byte-identical in both arms and only
-  the foot's route changed (`tools/src/backtest/saddle-price.ts`): through the pass costs
-  **1.20 losses a run**, up the corridor **0.30**, on the same 3.54-minute clock —
-  **all three numbers measured before group formations (2026-09-15); `saddle-price.ts`
-  issues group orders, which now land in formation instead of converging on one point, so
-  they may not reproduce.** The pass
-  kills the men -- seven of those twelve deaths are the `mortar_team` -- and the corridor
-  kills nobody on foot at all; its three deaths over ten seeds are every one of them armour,
-  lost in the pass fight the foot walked away from.
-  The authored answer -- let the Grad at `battery_position` charge for it, since it reaches
-  the corridor at 17 tiles and `rocket` is in `INDIRECT_MASK` (`sim.ts:244`) so it needs no
-  sight of its own, while `selectTarget` (`sim.ts:2887`) gates each shot on **per-side**
-  identification -- still does not work, and **`selectTarget` is not why.** That was the
-  recorded leading explanation and it is now disproved: hand the Sarim side contact and the
+  The fire-based half was settled once, and group formations unsettled it. Measured over
+  ten seeds with the armour's orders held byte-identical in both arms and only the foot's
+  route changed (`tools/src/backtest/saddle-price.ts`), **on `fc0fc13e` (2026-09-30):
+  through the pass 3.80 losses a run (9/10 wins), up the corridor 3.10 (10/10), on a
+  4.6-minute clock.** The corridor's dead are infantry now -- over ten seeds `inf_squad` x20,
+  `at_team` x3 and `mortar_team` x1, plus seven `apc_eitan` -- so "the corridor kills nobody
+  on foot", which this bullet used to say, is retired. Walked commit by commit from
+  `a32f31ad`, where the probe was written and read **1.20 / 0.30 on a 3.54-minute clock**,
+  exactly two commits move it. `708690c7` (Tel Marum III's `get_the_block_out` evacuation
+  primary) takes the pass to 1.30 and the clock to 4.6 min: the probe escorts nobody, so
+  every run now waits on that primary's timer, and the three new civilians shift entity ids.
+  **`1ea1094a` (a group order lands in formation) does the rest -- 1.30 -> 3.80 and
+  0.30 -> 3.10 -- and nothing since has moved either number.** Putting `exact: true` on every
+  order in the probe reads 1.30 / 0.30 on `fc0fc13e`, so the whole move is formation
+  slotting and not a unit, tuning or map change.
+  What formations changed is the POSTURE, not the fire. The foot's one order to [10,12]
+  used to stack all five units on the corridor's north exit row, the one row
+  `tm_spotter_narrow` sees: together they shot it off its hill at 57-65 s in seven seeds of
+  ten, and the Grad never had a corridor target. A formation order files them down the
+  two-tile slot as a column (y 12-15), so only the lead squad on the exit row sees the
+  spotter, it loses that duel alone at ~60 s, and the spotter lives to 155-162 s -- long
+  enough for the Grad's rounds at t=111 and t=141 to land in the column. Slotting only the
+  armour (the foot's orders `exact`) leaves the corridor with no infantry dead at all (0.70
+  a run, every one an Eitan, lost to the armour's own slotting). So **the authored answer
+  works now** -- let the Grad at `battery_position` charge for the corridor, since it reaches
+  it at 17 tiles and `rocket` is in `INDIRECT_MASK` (`sim.ts:244`) so it needs no sight of
+  its own, while `selectTarget` (`sim.ts:2887`) gates each shot on **per-side**
+  identification -- because a group order now leaves a player's column where the one
+  spotter can call rounds onto it. Whether 3.10 against the pass's 3.80 is the price the
+  design wanted is a balance call nobody has made. Before formations it did not work, and
+  **`selectTarget` was not why.** That was the recorded leading explanation and it was
+  disproved: hand the Sarim side contact and the
   battery shells the man in the corridor on its very next reload, three rounds in two
   minutes, every time. Its rule is `hurts` first and then nearest, so a flanker is not
   immune, only LAST IN THE QUEUE -- with a decoy at [24,13] the battery spends three rockets
   killing that and turns west on the fourth. Both halves are pinned as behaviour, not prose,
   in `tel_marum_doctrine.test.ts`.
-  What actually fails is the observer, and it is geometry rather than tuning. **Every post
-  that can see the corridor stands inside the corridor's own weapons.** The only sightlines
-  into a straight slot in a rock wall run along its axis, so distance along that axis IS the
-  standoff: at `sarim_rifles`' sight 9 the best standoff for seeing even ONE of the twelve
-  corridor tiles is 9.0 and for ten of them 4.0, against an 8-tile rifle and `at_team`'s
-  9-tile Spike. `tm_spotter_narrow` at [12,4] sees **2 of 12** -- the north exit row and
-  nothing below it, exactly as its briefing says -- and moving it to the best sight-9 post
-  ([11,8], 10 of 12) changes the mission by **nothing at all**: 0.30 either way, because the
-  flank shoots it off its hill at 48 s instead of 59 s. Nor does a longer lens help:
-  `manpad_team` is the roster's best standing eye at sight 12 and still buys only 9.2 tiles
-  of standoff for half the corridor, and every observer variant measured -- moved rifleman,
-  manpad at 6/12, manpad seeing all twelve -- returns **0.30, unchanged**. The ceiling shows
-  the idea is sound and merely unreachable: unkillable permanent contact on the corridor
-  takes it to **1.20, exactly level with the pass**, and turns the corridor's dead into
-  infantry. The binding constraint is `grad_122`'s `rof_per_min: 2` -- one round per 30 s --
-  against a battery dead by ~155 s in every plan that presses the pass. Nothing that can
-  watch a two-tile defile lives the ninety seconds three rounds would take. **So do not add
-  a spotter**, and do not read the shipped one as broken content: it buys the Grad exactly
-  the one round at the corridor exit that the briefing promises. Closing the rest needs
-  something that SHOOTS the corridor rather than something that watches it, which is a
-  design call and not a bug. A trigger cannot do it either -- the schema's `do` vocabulary
-  is commit/withdraw_to/spawn/reinforce/dismount, with no reveal, so it would take
+  The observer geometry still stands, because it is terrain. **Every post that can see the
+  corridor stands inside the corridor's own weapons.** The only sightlines into a straight
+  slot in a rock wall run along its axis, so distance along that axis IS the standoff: at
+  `sarim_rifles`' sight 9 the best standoff for seeing even ONE of the twelve corridor tiles
+  is 9.0 and for ten of them 4.0, against an 8-tile rifle and `at_team`'s 9-tile Spike.
+  `tm_spotter_narrow` at [12,4] sees **2 of 12** -- the north exit row and nothing below it,
+  exactly as its briefing says -- and `manpad_team`, the roster's best standing eye at sight
+  12, buys only 9.2 tiles of standoff for half the corridor. What that geometry COSTS has
+  inverted. Before formations every observer variant read 0.30 and the conclusion was "do
+  not add a spotter". On `fc0fc13e` the probe's own sweep reads: shipped rifleman 3.10;
+  moved to the best sight-9 post ([11,8], 10 of 12) **0.70**; `manpad_team` at [8,3] (6 of
+  12, 9.2 standoff) **4.90**; `manpad_team` at [10,6] (12 of 12, 6.0) **0.70**. An eye that
+  sees MORE of the corridor draws the whole column's fire and dies early; the shipped one
+  sees only the exit row, fights one squad at a time, and lives. And the probe's
+  `perfect eyes` row is **no longer a ceiling** -- it reads 2.60 up the corridor, BELOW the
+  shipped spotter's 3.10 (the pass is unchanged at 3.80) -- so read nothing off it until
+  someone works out why more contact now costs the player less. The pre-formation
+  conclusions it supported (the Grad's `rof_per_min: 2` as the binding constraint; a spotter
+  as the wrong tool; "closing it needs something that SHOOTS the corridor") are retired with
+  it. One part stands: a trigger cannot reveal a unit -- the schema's `do` vocabulary is
+  commit/withdraw_to/spawn/reinforce/dismount -- so a scripted reveal would take
   `mission.ts`.
   Two sight facts stand unchanged: **nothing north of the wall can see the hollow** -- 841
   open tiles see [24,29] and not one is at y <= 17, so the hollow is dead ground twice over
