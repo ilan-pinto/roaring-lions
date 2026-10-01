@@ -867,7 +867,7 @@ async function loadMeshVariants(renderer: Renderer): Promise<void> {
   const meshBase = `/@fs${root}/art/meshes/`;
   const r = renderer as unknown as MeshCapableRenderer;
   await Promise.all([
-    r.loadMeshUnit('inf_squad', `${meshBase}meshy_soldier.glb`, 'kdf'),
+    r.loadMeshUnit('inf_squad', `${meshBase}inf_squad.glb`, 'kdf'),
     ...MESH_VEHICLE_TYPES.map((id) => r.loadVehicleMesh(id, `${meshBase}vehicles/${id}.glb`)),
   ]);
 }

@@ -91,7 +91,7 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
     // Not cache-first: re-exporting a mesh changes the bytes under the same
     // URL, so a returning player has to be able to pick the new one up.
     for (const p of [
-      'meshes/meshy_soldier.glb',
+      'meshes/inf_squad.glb',
       'meshes/vehicles/mbt_lavi.glb',
       'textures/desert_sand_tile.jpg',
       'sprites/INF_RIFLE.png',
@@ -115,12 +115,12 @@ describe.each(DEPLOYMENTS)('the service worker policy ($name)', ({ sw, base }) =
     // A 206 stored in the Cache API and replayed as a 200 is a corrupt file.
     // Asserted on a path that WOULD otherwise be cached, so this proves the
     // range check wins rather than merely agreeing with the directory rule.
-    expect(strategyFor(at('meshes/meshy_soldier.glb'), GET)).toBe('swr');
-    expect(strategyFor(at('meshes/meshy_soldier.glb'), RANGED)).toBe('passthrough');
+    expect(strategyFor(at('meshes/inf_squad.glb'), GET)).toBe('swr');
+    expect(strategyFor(at('meshes/inf_squad.glb'), RANGED)).toBe('passthrough');
   });
 
   it('ignores anything that is not a same-origin GET', () => {
-    expect(strategyFor(at('meshes/meshy_soldier.glb'), { ...GET, method: 'POST' })).toBe('passthrough');
+    expect(strategyFor(at('meshes/inf_squad.glb'), { ...GET, method: 'POST' })).toBe('passthrough');
     expect(strategyFor(new URL('https://example.com/meshes/x.glb'), GET)).toBe('passthrough');
   });
 
