@@ -1,16 +1,34 @@
 /**
  * How a campaign region says what state it is in, without repainting it.
  *
- * ## Why not the toon ramp, and why not CSS
+ * ## The board is on the lit pipeline (S3a, GH-180)
+ *
+ * Until 2026-10-01 this file carried its own `ShaderMaterial`: a private
+ * `uLightDir`, a 34% smooth shade, and a pass-through output with the bake
+ * tagged `NoColorSpace` -- the named exemption the lit renderer spec left
+ * standing (§9). That made the diorama read differently from the same
+ * assets in a mission. It is now what every textured world object in the
+ * battlefield is: a `MeshStandardMaterial` over an sRGB bake
+ * (`world-materials.ts`'s `texturedMaterial`, imported, not copied), lit by
+ * `lighting.ts`'s one sun and one hemisphere bounce, encoded to sRGB through
+ * ACES by the renderer (`world-view.ts`). Both colour-space halves moved in
+ * one change, on purpose: either one alone renders the board too dark or too
+ * pale and it still looks like a plausible diorama.
+ *
+ * The sun is a scene object outside the board's pivot, so it stays fixed in
+ * WORLD space while the board turns under it -- the lit side changes as it
+ * rotates, which is what the old world-normal shader existed to do. The
+ * standard material's view-space lighting is correct here precisely because
+ * the camera never moves. And the shade is smooth: a standard material has
+ * no bands, which is right for continuous terrain.
+ *
+ * ## Why not the palette, and why not CSS
  *
  * The asset is the named exemption from the palette repaint: its subject is
  * BIOME, colour at a constant normal, unlike a kit-built asset's ramp
  * albedo, which is chosen by ROLE (see `textured-world.ts`'s top comment).
- * That contrast was written against `toonRampMaterial`, which indexed a ramp
- * by `N.L`; that material is gone since 2026-09-14 and a kit-built mesh is a
- * flat ramp albedo under the scene sun now -- which changes nothing about
- * why a biome bake cannot be repainted from a role ramp. So region state has to be expressed as an operation ON the bake
- * rather than as a substitution for it.
+ * So region state has to be expressed as an operation ON the bake rather
+ * than as a substitution for it.
  *
  * The flat PNG board answers the same question with a CSS `filter`
  * (`theme.css`: `grayscale(0.55) saturate(0.55)` for a finished country,
@@ -18,66 +36,24 @@
  * why it is a filter and not `opacity` -- opacity composites the region
  * against a near-black page and is indistinguishable from painting it black.
  * A canvas has no per-object CSS filter, so the same two operations are done
- * here in the fragment shader, on the same reasoning and to the same
- * intent: **drain saturation and drop brightness; never fade toward the
- * ground.**
+ * here, injected into the standard material's fragment shader right after
+ * the bake is sampled: **drain saturation and drop brightness; never fade
+ * toward the ground.**
  *
- * ## The one number that is not the flat board's
+ * ## The numbers are display-referred; the shader is not
  *
- * `uShade` is new here and has no counterpart on a PNG: the board turns, and
- * a bake with no directional term turns underneath a light that is nailed to
- * the screen. `uLightDir` is a fixed WORLD vector and the vertex shader
- * emits a WORLD normal (`mat3(modelMatrix) * normal`), so the lit side of
- * the board changes as it rotates -- which is what makes the rotation read
- * as an object turning rather than as a texture sliding.
- *
- * That is deliberately NOT a banded shade. Until Task 7, the battlefield's
- * textured buildings quantized into shade bands so a building's facets
- * broke at the same angles its toon-ramped neighbours' did -- right for a
- * flat-faced building, where the banding lands on real edges. Task 7 put
- * every world material, textured buildings included, under one real sun
- * instead (`world-materials.ts`), so that comparison no longer holds
- * elsewhere in this tree -- but the reasoning this screen was built on still
- * does: this board is continuous terrain, where hard bands would draw
- * contour terraces across every hillside that are not in the source, so it
- * stays smooth. Match the SHAPE of the thing being lit.
+ * `REGION_VISUALS` keeps the values it was tuned with, which were tuned on a
+ * pass-through screen where a multiplier landed on the screen value
+ * directly. The albedo is LINEAR now, so `uBright` is applied as
+ * `pow(uBright, 2.2)`: a locked region at 0.58 still reads at about 0.58 of
+ * its own value after the sRGB encode, instead of at 0.78. Desaturation is a
+ * luma mix in linear light, which drains to the same grey the eye expects.
  */
 import * as THREE from 'three';
 
-import type { CampaignRegionStatus } from './world-scene';
+import { texturedMaterial } from '../world-materials';
 
-/**
- * Makes a `base_color` map from `GLTFLoader` safe for THIS screen's own
- * colour pipeline.
- *
- * Own definition, not a re-export, as of Task 7: the battlefield renderer's
- * equivalent (`world-materials.ts`'s `prepareTexturedMap`) used to live in
- * `units/textured-building.ts` and was re-exported from here under this
- * name so a reader would not have to already know that a campaign world and
- * a Meshy house shared a colour-space hazard -- Task 7 deleted that copy
- * along with the rest of the toon-ramp pipeline, and moved the battlefield's
- * own version to `world-materials.ts` tagged `SRGBColorSpace`, because
- * `ThreeRenderer`'s output is standard sRGB now. This screen is a
- * deliberate, separate exemption from that migration (`world-view.ts`'s own
- * top comment: `applyPalettePipeline` was never called here, and
- * `outputColorSpace` is set directly, still pass-through
- * `LinearSRGBColorSpace` -- "keeps its own smooth-shade material this
- * phase", the design spec's own words), so this map still wants
- * `NoColorSpace`: `GLTFLoader` stamps `SRGBColorSpace` on a baseColorTexture
- * regardless of what renders it, and with no matching encode on output
- * here, a decoded sample would come out wrong twice over. Measured
- * elsewhere in this tree (when this was still the shared function), getting
- * it wrong drops a lit wall from rgb 67 to 51 and still looks like a
- * building.
- */
-export function prepareCampaignMap(map: THREE.Texture): THREE.Texture {
-  map.colorSpace = THREE.NoColorSpace;
-  map.generateMipmaps = true;
-  map.minFilter = THREE.LinearMipmapLinearFilter;
-  map.magFilter = THREE.LinearFilter;
-  map.needsUpdate = true;
-  return map;
-}
+import type { CampaignRegionStatus } from './world-scene';
 
 /** Saturation multiplier and brightness multiplier for one region state. */
 export interface RegionVisual {
@@ -136,70 +112,65 @@ export const SCENERY_VISUAL: RegionVisual = { sat: 0.72, bright: 0.86 };
  *  locked one — which is not a control and never gets this — could not. */
 export const HOVER_BRIGHT = 1.16;
 
+/** The uniforms one campaign material carries, readable before its program
+ *  compiles: `world-view.ts` writes state into these and the injected shader
+ *  reads the same objects. */
+export interface CampaignUniforms {
+  readonly uSat: THREE.IUniform<number>;
+  readonly uBright: THREE.IUniform<number>;
+}
+
+/** The display-to-linear exponent `uBright` goes through. 2.2 rather than
+ *  the exact sRGB curve: a multiplier is not a colour, and the piecewise
+ *  toe matters only below 0.04, where no region state lives. */
+export const BRIGHT_GAMMA = 2.2;
+
+/** The chunk injected after `<map_fragment>`. Exported so the test can
+ *  assert on the code that ships rather than on a copy of it. */
+export const REGION_STATE_CHUNK = /* glsl */ `
+  // Rec. 709 luma, so draining chroma leaves the terrain's own value
+  // structure standing -- a locked region still reads as mountains and
+  // valleys rather than as one grey shape.
+  float rlGrey = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+  diffuseColor.rgb = mix(vec3(rlGrey), diffuseColor.rgb, uSat) * pow(uBright, ${BRIGHT_GAMMA.toFixed(1)});
+`;
+
 /**
- * How far the world sun dims a face turned fully away from it.
+ * The material one campaign mesh draws through: `texturedMaterial` over the
+ * GLB's own loaded material, plus the region-state chunk.
  *
- * Small, because the bake already carries the diorama's own lighting: this
- * is the term that makes rotation legible, not the term that lights the
- * scene. At 0 the board is a flat picture that spins; at 1 the far side goes
- * black and the bake stops being visible at all.
+ * One per MESH: the state is a uniform, and a shared material would mean
+ * locking one region locked every region. The texture IS shared -- one 4096
+ * bake for the whole board -- and every material reuses one compiled
+ * program through `customProgramCacheKey`.
  */
-export const WORLD_SHADE = 0.34;
+export function campaignWorldMaterial(
+  loaded: THREE.Material,
+  visual: RegionVisual
+): THREE.MeshStandardMaterial {
+  // A CLONE: `readWorldScene` disposes the loaded material straight after,
+  // and two meshes may share one -- which would share their state. A clone
+  // shares the texture by reference, so the board still holds one bake.
+  const m = texturedMaterial(loaded.clone());
+  const uniforms: CampaignUniforms = {
+    uSat: { value: visual.sat },
+    uBright: { value: visual.bright },
+  };
+  m.userData.campaign = uniforms;
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uSat = uniforms.uSat;
+    shader.uniforms.uBright = uniforms.uBright;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform float uSat;\nuniform float uBright;\nvoid main() {')
+      .replace('#include <map_fragment>', `#include <map_fragment>\n${REGION_STATE_CHUNK}`);
+  };
+  m.customProgramCacheKey = () => 'rl-campaign-region';
+  return m;
+}
 
-/** The sun, in world space -- the toon-ramp era's own long-standing
- *  constant, so the board is lit from where the battlefield used to be lit
- *  from. */
-export const WORLD_LIGHT_DIR = new THREE.Vector3(0.5, 1, 0.3).normalize();
-
-/**
- * The material one campaign mesh draws through.
- *
- * One per MESH, sharing the single `base_color` the GLB ships -- the tint is
- * a uniform, so a shared material would mean locking one region locked every
- * region.
- *
- * `map` goes through `prepareCampaignMap` (above) for `NoColorSpace`: see
- * that function's own doc comment for why this screen still wants it.
- */
-export function campaignWorldMaterial(map: THREE.Texture, visual: RegionVisual): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      uMap: { value: prepareCampaignMap(map) },
-      uLightDir: { value: WORLD_LIGHT_DIR.clone() },
-      uShade: { value: WORLD_SHADE },
-      uSat: { value: visual.sat },
-      uBright: { value: visual.bright },
-    },
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      varying vec3 vWorldNormal;
-      void main() {
-        vUv = uv;
-        // WORLD normal, not the usual view-space one: the light is fixed in
-        // the world and the board turns under it.
-        vWorldNormal = mat3(modelMatrix) * normal;
-        gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform sampler2D uMap;
-      uniform vec3 uLightDir;
-      uniform float uShade;
-      uniform float uSat;
-      uniform float uBright;
-      varying vec2 vUv;
-      varying vec3 vWorldNormal;
-
-      void main() {
-        vec3 texel = texture2D(uMap, vUv).rgb;
-        float nl = max(dot(normalize(vWorldNormal), normalize(uLightDir)), 0.0);
-        vec3 lit = texel * (1.0 - uShade * (1.0 - nl));
-        // Rec. 709 luma, so draining chroma leaves the terrain's own value
-        // structure standing -- a locked region still reads as mountains and
-        // valleys rather than as one grey shape.
-        float grey = dot(lit, vec3(0.2126, 0.7152, 0.0722));
-        gl_FragColor = vec4(mix(vec3(grey), lit, uSat) * uBright, 1.0);
-      }
-    `,
-  });
+/** The state uniforms of a material `campaignWorldMaterial` built. */
+export function campaignUniforms(m: THREE.Material): CampaignUniforms {
+  const u = (m.userData as { campaign?: CampaignUniforms }).campaign;
+  if (!u) throw new Error('campaignUniforms: not a campaign world material');
+  return u;
 }

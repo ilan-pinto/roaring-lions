@@ -1728,14 +1728,14 @@ hillside draw contour terraces that are not in the source.
 mission renderer antialiases too (SMAA in the composer, plus the raw
 renderer's own MSAA for the composer-less path). Its silhouette is a rotating
 hex rim, the worst place aliasing could land.
-**This screen did NOT move onto the lit pipeline, and that is the spec's own
-scope call** (§9): `world-view.ts` still sets `outputColorSpace =
-LinearSRGBColorSpace` by hand and `world-material.ts` still tags its bake
-`NoColorSpace`, so the diorama is pass-through where the mission is sRGB +
-ACES. Nothing shares a light between them yet. Moving it onto `lighting.ts`'s
-sun is the named one-file follow-up; until someone does it, expect the board
-to read slightly differently from the same assets in a mission, and do not
-"fix" one of the two colour spaces in isolation.
+**The board is on the lit pipeline since 2026-10-01 (S3a, GH-180, PR #332).**
+It renders sRGB with ACES tone mapping at exposure 1.0, lit by `lighting.ts`'s
+own `DAY_LIGHTS` sun and hemisphere with a 2048 shadow map fitted to the board,
+so it reads like the same assets in a mission. The lights sit in the scene
+OUTSIDE the board's pivot, so the light stays fixed in world space while the
+board turns -- the same rule `uLightDir` used to enforce by hand. Kept: the
+transparent canvas, antialiasing, the region tints, the drained
+`outland_scenery`, the fixed camera and every flat-PNG fallback path.
 
 A click on locked ground **says why**, into an `aria-live` line. That is not
 polish: the ground is one canvas, so a click that resolved to nothing and
