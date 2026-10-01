@@ -71,7 +71,7 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
   // supplied bipeds -- three men in kit's line read narrower than the supplied
   // rifleman.
-  inf_squad: 0.47, mortar_team: 0.58, sniper_team: 0.51, sarim_rifles: 0.59,
+  inf_squad: 0.47, mortar_team: 0.58, sniper_team: 0.51, sarim_rifles: 0.57,
   at_team: 0.45, demo_squad: 0.45, yahalom_squad: 0.45, breach_team: 0.45, militia_cell: 0.45,
   // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
   // rear-shin-back kneel as `recoilless_team` below, two figures wide.
