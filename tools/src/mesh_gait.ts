@@ -45,7 +45,7 @@ export const SAMPLES = 40;
 
 type Gltf = {
   nodes?: { name?: string; children?: number[]; matrix?: number[]; translation?: number[]; rotation?: number[]; scale?: number[]; mesh?: number; skin?: number }[];
-  meshes?: { name?: string; primitives: { attributes: Record<string, number> }[] }[];
+  meshes?: { name?: string; primitives: { attributes: Record<string, number>; indices?: number }[] }[];
   skins?: { joints: number[]; inverseBindMatrices?: number }[];
   animations?: { name?: string; channels: { sampler: number; target: { node?: number; path: string } }[]; samplers: { input: number; output: number; interpolation?: string }[] }[];
   accessors?: { bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string }[];
@@ -1510,4 +1510,163 @@ function orientAwayFromJoint(
  */
 export function groundPerCycleM(speedTilesPerSecond: number, clipSeconds: number): number {
   return speedTilesPerSecond * clipSeconds * MESH_UNITS_PER_TILE;
+}
+
+
+export interface HeldWeaponClearance {
+  /** Weapon surface samples: every vertex the figure's `forearm_R` dominantly
+   *  owns in a `weapon`/`metal` role, plus every edge between two of them at
+   *  2 cm -- a tube is two rings with no vertex in its middle. */
+  readonly samples: number;
+  /** Instants of the clip at which the weapon was drawn (not scaled out). */
+  readonly instants: number;
+  /** The worst instant's count of samples inside the holder's own head,
+   *  neck and torso, by generalised winding number (> 0.5). */
+  readonly worstInside: number;
+}
+
+/**
+ * Does a held weapon pass through the body of the man holding it?
+ *
+ * PR #325 found at_team's Spike running through its gunner's head, and the
+ * same defect on rpg_team, manpad_team and recoilless_team -- 520 to 1140
+ * samples inside -- with every other gate in this file green, because none
+ * of them puts the weapon and the body in the same question. This does, on
+ * the exported bytes, through each clip's own skinning: the weapon's samples
+ * (see `HeldWeaponClearance.samples`) against the triangles whose three
+ * vertices `figure`'s `head`, `neck` or `spine` dominantly own, tested by
+ * generalised winding number, which is robust on the cut pieces' open seams
+ * where ray parity is not. `SAMPLES_HELD` instants per clip, ends included.
+ *
+ * Throws when no weapon vertex rides `${figure}_forearm_R` or no body
+ * triangle rides its upper body: an empty measurement is a silent pass.
+ */
+export const SAMPLES_HELD = 9;
+
+export function measureHeldWeaponInBody(path: string, clip: string, figure: string): HeldWeaponClearance {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const { tracks, start, end } = readClip(glb, clip);
+  const hand = `${figure}_forearm_R`;
+  const upper = new Set([`${figure}_head`, `${figure}_neck`, `${figure}_spine`]);
+  interface Part {
+    pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null;
+    verts: number[]; edges: [number, number][]; tris: [number, number, number][];
+  }
+  const weapon: Part[] = [];
+  const body: Part[] = [];
+  for (const node of nodes) {
+    if (node.mesh === undefined || node.skin === undefined) continue;
+    const skin = glb.json.skins?.[node.skin];
+    if (!skin) continue;
+    const role = node.name ?? meshes[node.mesh]?.name ?? '';
+    const isWeapon = role === 'weapon' || role === 'metal';
+    for (const prim of meshes[node.mesh].primitives) {
+      if (prim.indices === undefined) continue;
+      const pos = readAccessor(glb, prim.attributes.POSITION);
+      const joints = readAccessor(glb, prim.attributes.JOINTS_0);
+      const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
+      const ibm = skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices);
+      const dom: string[] = [];
+      for (let v = 0; v < pos.count; v++) {
+        let best = -1, bw = 0;
+        for (let k = 0; k < 4; k++) {
+          const w = weights.data[v * 4 + k];
+          if (w > bw) { bw = w; best = joints.data[v * 4 + k]; }
+        }
+        dom.push(best < 0 ? '' : (nodes[skin.joints[best]]?.name ?? ''));
+      }
+      const idx = readAccessor(glb, prim.indices).data;
+      const tris: [number, number, number][] = [];
+      for (let i = 0; i + 2 < idx.length; i += 3) tris.push([idx[i], idx[i + 1], idx[i + 2]]);
+      if (isWeapon) {
+        const keep = dom.map((d) => d === hand);
+        const verts = dom.flatMap((d, v) => (d === hand ? [v] : []));
+        if (verts.length === 0) continue;
+        const seen = new Set<string>();
+        const edges: [number, number][] = [];
+        for (const t of tris) {
+          if (!keep[t[0]] || !keep[t[1]] || !keep[t[2]]) continue;
+          for (const [a, b] of [[t[0], t[1]], [t[1], t[2]], [t[2], t[0]]]) {
+            const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+            if (!seen.has(key)) { seen.add(key); edges.push([a, b]); }
+          }
+        }
+        weapon.push({ pos, joints, weights, skin, ibm, verts, edges, tris: [] });
+      } else {
+        const own = tris.filter((t) => upper.has(dom[t[0]]) && upper.has(dom[t[1]]) && upper.has(dom[t[2]]));
+        if (own.length) body.push({ pos, joints, weights, skin, ibm, verts: [], edges: [], tris: own });
+      }
+    }
+  }
+  if (weapon.length === 0) throw new Error(`${path}: no weapon/metal vertex rides ${hand}`);
+  if (body.length === 0) throw new Error(`${path}: no triangle rides ${figure}'s head, neck or spine`);
+
+  let worst = 0, instants = 0, samples = 0;
+  for (let s = 0; s < SAMPLES_HELD; s++) {
+    const t = start + ((end - start) * s) / (SAMPLES_HELD - 1);
+    const worlds = nodeWorlds(glb, tracks, t);
+    const pts: [number, number, number][] = [];
+    for (const p of weapon) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      const at = new Map<number, [number, number, number]>();
+      const get = (v: number) => {
+        let q = at.get(v);
+        if (!q) { q = skinPoint(p.pos, p.joints, p.weights, v, mats); at.set(v, q); }
+        return q;
+      };
+      for (const v of p.verts) pts.push(get(v));
+      for (const [a, b] of p.edges) {
+        const A = get(a), B = get(b);
+        const n = Math.max(2, Math.floor(Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]) / 0.02));
+        for (let k = 1; k < n; k++) {
+          const u = k / n;
+          pts.push([A[0] + (B[0] - A[0]) * u, A[1] + (B[1] - A[1]) * u, A[2] + (B[2] - A[2]) * u]);
+        }
+      }
+    }
+    // Scaled out (`down`/`wreck`, or a kneeler's `move`): nothing is drawn.
+    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const q of pts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], q[k]); hi[k] = Math.max(hi[k], q[k]); }
+    if (Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;
+    const tri: number[] = [];
+    for (const p of body) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      for (const [a, b, c] of p.tris) {
+        tri.push(...skinPoint(p.pos, p.joints, p.weights, a, mats), ...skinPoint(p.pos, p.joints, p.weights, b, mats),
+          ...skinPoint(p.pos, p.joints, p.weights, c, mats));
+      }
+    }
+    lo = [Infinity, Infinity, Infinity]; hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < tri.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], tri[i + k]); hi[k] = Math.max(hi[k], tri[i + k]); }
+    if (Math.min(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;   // the holder is scaled out
+    instants++;
+    samples = pts.length;
+    let inside = 0;
+    for (const q of pts) {
+      // Outside the body's box the winding number is ~0; skip the sum.
+      if (q[0] < lo[0] || q[1] < lo[1] || q[2] < lo[2] || q[0] > hi[0] || q[1] > hi[1] || q[2] > hi[2]) continue;
+      if (windingNumber(q, tri) > 0.5) inside++;
+    }
+    worst = Math.max(worst, inside);
+  }
+  return { samples, instants, worstInside: worst };
+}
+
+/** Generalised winding number of `p` against a flat triangle list (nine
+ *  numbers a triangle): the solid angle each subtends, summed, over 4 pi. */
+function windingNumber(p: readonly number[], tri: readonly number[]): number {
+  let sum = 0;
+  for (let i = 0; i < tri.length; i += 9) {
+    const ax = tri[i] - p[0], ay = tri[i + 1] - p[1], az = tri[i + 2] - p[2];
+    const bx = tri[i + 3] - p[0], by = tri[i + 4] - p[1], bz = tri[i + 5] - p[2];
+    const cx = tri[i + 6] - p[0], cy = tri[i + 7] - p[1], cz = tri[i + 8] - p[2];
+    const la = Math.hypot(ax, ay, az), lb = Math.hypot(bx, by, bz), lc = Math.hypot(cx, cy, cz);
+    const det = ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
+    const den = la * lb * lc + (ax * bx + ay * by + az * bz) * lc + (bx * cx + by * cy + bz * cz) * la
+      + (cx * ax + cy * ay + cz * az) * lb;
+    sum += 2 * Math.atan2(det, den);
+  }
+  return sum / (4 * Math.PI);
 }

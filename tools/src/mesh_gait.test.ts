@@ -2120,7 +2120,18 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'militia_cell.glb mil0_forearm_R': 2.47, //    [0.46, 4.47]
   'militia_cell.glb mil1_forearm_R': 2.47, //    [0.47, 4.46]
   'rpg_team.glb rpg_load_forearm_R': 2.47, //    [0.47, 4.46]  the loader's rifle
-  'rpg_team.glb rpg_fire_forearm_R': 34.04, //  [32.05, 36.06] the RPG, at rig._rpg_extras' 38 deg
+  // Re-measured 2026-10-01 after the three shouldered launchers moved off
+  // the kit figure's centre line onto the gunner's shoulder beside his head
+  // (`import_meshy_crew_team.py`'s `_seat_launcher`). Each tube keeps its
+  // pitch; what moved is the CLOUD. `kit.launcher` offsets its tube 0.20 m
+  // forward HORIZONTALLY but its rear flare along the PITCHED axis, so on a
+  // pitched tube the flare sits 0.20 sin(pitch) off the bore (0.12 m on the
+  // RPG, 0.20 on the MANPAD, 0 on a level tube), and that dragged the cloud's
+  // principal axis DOWN -- 34.04 for a 38-deg RPG, 69.9 for a 78-deg MANPAD. The seated
+  // flare is on the bore, and the RPG gains its warhead, so the axis now reads
+  // close to the authored pitch. Worst fire excursion from these idle means:
+  // RPG 6.50, MANPAD 6.64, recoilless 6.47 (all under the 12 the gate allows).
+  'rpg_team.glb rpg_fire_forearm_R': 39.57, //  [37.60, 41.57] the RPG at 38 deg, warhead on
   // Re-measured 2026-10-01 after the Spike moved onto the shoulder beside the
   // head: still pitch 0, but the cloud now carries the sight unit, pistol grip
   // and support handle, which tilt its principal axis by -0.80 (and its
@@ -2128,8 +2139,10 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'at_team.glb at_fire_forearm_R': -0.8, //     [-2.84, 1.24]  the Spike, at pitch 0
   // B2 (2026-09-30): kit.launcher geometry on Meshy figures -- teams.py's own
   // 78-deg MANPAD tube on the gunner's shoulder, and the recoilless tube level.
-  'manpad_team.glb mpd_fire_forearm_R': 69.9, // the tube's principal axis with its wider venturi bell, read off the bytes; the tube itself is pitched 78
-  'recoilless_team.glb rcl_fire_forearm_R': 0.0,
+  'manpad_team.glb mpd_fire_forearm_R': 80.29, // [78.39, 82.39] the 1.30 m tube at 78 deg, gripstock below the shoulder
+  // Pitch 0 as before; the pistol grip and support handle hang under the
+  // front half of a short fat tube and tilt its cloud's axis 5.2 deg down.
+  'recoilless_team.glb rcl_fire_forearm_R': -5.2, // [-7.24, -3.15]
 };
 
 /**

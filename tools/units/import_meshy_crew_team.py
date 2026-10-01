@@ -72,16 +72,27 @@ missed a slot); `uniform` everything else; `weapon`/`metal` the kit parts.
 No `webbing`: a chest rig on a bakeless remesh cannot be told from the shirt
 by geometry, and a wrong band reads as a wrong army.
 
-## What each team carries, verbatim from `tools/units/teams.py`
+## What each team carries, from `tools/units/teams.py`
 
-  manpad_team      mpd_fire standing at (0.16, -0.22) with `kit.launcher` at
-                   z 1.30, pitch 78 deg, length 0.94, radius 0.065, on his
-                   forearm_R; mpd_spot kneeling at (-0.28, 0.30) with
-                   `kit.binoculars` on his head.
-  recoilless_team  rcl_fire kneeling at (0.20, -0.28), `kit.launcher` LOW at
-                   z 0.72, pitch 0, length 0.86, radius 0.115, on forearm_R;
-                   rcl_load kneeling at (-0.30, 0.30); two spare rounds
-                   (`kit.tube` 0.52 x 0.075) on the ground on a `prop` bone.
+The figures' positions are teams.py's. The three shouldered launchers are
+NOT at teams.py's anchors any more: those are the KIT figure's centre line,
+and on these Meshy figures they ran each tube through its gunner's head or
+chest. `_seat_launcher` seats each one on its gunner's +y shoulder beside
+his head and re-seats both his hands on it (see the comment above
+`LAUNCHERS`, and PR #325 for the same fix on at_team):
+
+  manpad_team      mpd_fire standing at (0.16, -0.22) with the MANPAD at
+                   teams.py's 78 deg and 0.065 radius, 1.30 m long with a
+                   gripstock, on his forearm_R; mpd_spot kneeling at
+                   (-0.28, 0.30) with `kit.binoculars` on his head.
+  recoilless_team  rcl_fire kneeling at (0.20, -0.28), the recoilless rifle
+                   SHOULDERED, pitch 0, length 0.86, radius 0.115, on
+                   forearm_R; rcl_load kneeling at (-0.30, 0.30); two spare
+                   rounds (`kit.tube` 0.52 x 0.075) on the ground on a `prop`
+                   bone.
+  rpg_team         rpg_fire standing at (0.18, -0.26) with the RPG at 38 deg,
+                   warhead on, on his forearm_R; rpg_load at (-0.30, 0.30)
+                   with a rifle at his hand.
 
 Both kneeling figures walk on a standing walker for `move` (design D6,
 `rig._walker_specs`), and every figure carries a prone corpse for
@@ -124,6 +135,7 @@ sys.path.insert(0, HERE)
 import kit  # noqa: E402
 import rig  # noqa: E402
 import teams  # noqa: E402
+from import_meshy_kdf_team import _two_bone  # noqa: E402  PR #325's two-bone IK
 
 REPO = os.path.dirname(TOOLS)
 OUT_DIR = os.path.join(REPO, "art", "meshes")
@@ -1066,6 +1078,7 @@ def _kneel(parts, joints, prefix):
     bones.append(("thigh_f", "pelvis", tuple(hip1k), tuple(knee1)))
     bones.append(("shin_f", "thigh_f", tuple(knee1), tuple(ankle1)))
     eye_z = FACE_LO_F * H + 0.03 - drop
+    joints["drop"] = drop   # `_seat_launcher` seats a kneeling gunner's tube from it
     return bones, eye_z
 
 
@@ -1253,6 +1266,438 @@ def _death_parts_posed(src, height, prefix, x, y, add_kef=False):
     return [body]
 
 
+# ---------------------------------------------------------------------------
+# the shouldered launchers (rpg_team, manpad_team, recoilless_team)
+# ---------------------------------------------------------------------------
+#
+# B2/B3 built each of these with `kit.launcher` at teams.py's own anchor --
+# the KIT figure's centre line -- so on these Meshy figures the RPG ran
+# through rpg_fire's chest (945 tube samples inside head/neck/torso on
+# `fire`), the MANPAD through mpd_fire's head (406-653 in the head's own box)
+# and the recoilless rifle through rcl_fire's chest (671). PR #325 found and
+# fixed the same defect on at_team's Spike (`import_meshy_kdf_team.py`'s
+# `_shoulder_launcher`); this is the same fix, generalised to a PITCHED tube:
+#
+#   * the tube rests ON the +y shoulder -- the side whose `forearm_R` it is
+#     bound to -- BESIDE the head. The search starts with its supporting
+#     point (`rest`, a fraction of the tube from the rear) on that shoulder's
+#     joint, laterally at the widest point of the head, face, neck or
+#     keffiyeh plus the bore's radius plus `SEAT_GAP`, and takes the FIRST
+#     seat that clears, trying in this order: pushed off the shoulder along
+#     the bore's own normal (straight up for a level tube, mostly backward for
+#     the MANPAD's 78 deg) in `SEAT_STEP`s, then the tube slid forward along
+#     its bore a `SEAT_SLIDE_STEP` of its length at a time, then stepped
+#     outboard -- so it sits as close to the head and as low on the shoulder
+#     as the body allows, and leaves the shoulder only if nothing nearer fits;
+#   * "clears" is measured: every surface sample of the bore solids and the
+#     sight is outside the body (generalised winding number) and at least
+#     `SEAT_GAP` from the gunner's own body, `mate_gap` from the other man's
+#     (both breathe and sway in `idle`; a walking gunner's mate walks beside
+#     him with swinging arms), and no body vertex is inside a bore. The body
+#     is every living part of both men except the gunner's two arms, which
+#     are re-seated below; the grips and the handle are verified after;
+#   * the pitch and the tube's length and radius stay each weapon's own
+#     silhouette lever (teams.py: the RPG at 38 deg, the MANPAD near-vertical
+#     at 78, the recoilless level, short and fat); what each one carries is
+#     declared in `LAUNCHERS` below so it reads as itself;
+#   * both arms are re-seated RIGIDLY as rest geometry by `_two_bone`
+#     (PR #325's own two-bone IK, imported, not copied): the firing hand on
+#     the pistol grip, the support hand on the support handle (its length
+#     solved so that hand can reach it, never into the body) or on a named
+#     point of the weapon. No pose is keyed and nothing is weight-painted;
+#     the arm bones are rewritten from the moved joints, so every clip (idle,
+#     move, fire, down/wreck) drives the seated geometry. A walking gunner's
+#     arms are not swung in `move` (`rig.build_move_clip`).
+#
+# Tube frame: `u` along the bore (+ toward the muzzle), `v` = +y (outboard,
+# so a NEGATIVE v is toward the face), `w` = the bore's own "up" -- for a
+# level tube +z, for the MANPAD's 78 deg mostly backward. Every number in
+# `LAUNCHERS` is in that frame, from the supporting point.
+SEAT_GAP = 0.02                # air between any launcher sample and the body
+SEAT_STEP = 0.005              # search step, both directions
+SEAT_LIFT_MAX = 0.20           # how far off the shoulder joint, along the bore's normal, the search looks
+SEAT_OUT_MAX = 0.10            # how far outboard of the head rule it may step
+SEAT_SLIDE_STEP = 0.01         # of the tube's length, per step of sliding it forward
+SEAT_SLIDE_MAX = 0.20          # the furthest it may slide forward on the shoulder
+SIGHT_STANDOFF = 0.04          # eyepiece face ahead of the face's front (PR #325)
+LAUNCH_REACH_USE = 0.97        # of an arm's shoulder->wrist length (PR #325's REACH_USE)
+HANDLE_GAP = 0.04              # the support handle's clearance: twice SEAT_GAP, for the fire recoil
+LAUNCH_FIRE_POLE = (0.0, 0.5, -1.0)      # firing elbow: down and outboard (PR #325)
+LAUNCH_SUPPORT_POLE = (0.4, -0.6, -1.0)  # support elbow: down, outboard, forward (PR #325)
+#: Parts never counted as body for the seat: the two arms are moved after it.
+SEAT_ARM_PARTS = ("upperarm0", "upperarm1", "elbow0", "elbow1", "forearm0", "forearm1")
+
+#: Per team. `rest` is where along the tube (fraction from the rear) the
+#: shoulder carries it. `bores` are (name, u0, u1, r0, r1, role) solids of
+#: revolution on the bore -- r0 == r1 a cylinder, else a cone. `boxes` are
+#: (name, size (u, v, w), centre (u, v, w), role); a centre given as the
+#: string "sight" is placed by `_sight_centre` (the eyepiece SIGHT_STANDOFF
+#: ahead of the face, at eye height where the tube allows). `grip` names the
+#: box the firing hand closes on; `handle` is (attach (u, v, w), direction
+#: (u, v, w), section, min length, max length) -- the support hand's -- or
+#: None, and then `support` (u, v, w) is the point that hand closes on.
+#: `mate_gap` is the seat's clearance to the OTHER man, per team, measured.
+LAUNCHERS = {
+    # The RPG-7: a 0.96 m tube (r 0.075, rig._rpg_extras' own radius) at
+    # teams.py's 38 deg, the rear venturi flare, and the PG-7's warhead on
+    # the muzzle -- a narrow stem, the fat body, the nose cone -- which is
+    # what makes it read as an RPG and not a pipe. Overall 1.27 m against
+    # the kit tube's 1.24. Optic on the inboard side, the pistol grip and
+    # the forward grip under the bore. `mate_gap` 0.02 (SEAT_GAP): measured
+    # clear of the loader in every clip at that; 0.06 stepped the tube 3.5 cm
+    # further outboard for nothing.
+    "rpg_team": dict(
+        prefix="rpg_fire", name="rpg_tube", pitch=38.0, rest=0.35, length=0.96, mate_gap=0.02,
+        bores=(("rpg_tube", 0.0, 0.96, 0.075, 0.075, "weapon"),
+               ("rpg_tube_bell", -0.04, 0.12, 0.11, 0.11, "weapon"),
+               ("rpg_tube_stem", 0.96, 1.02, 0.04, 0.04, "weapon"),
+               ("rpg_tube_head", 1.02, 1.13, 0.105, 0.105, "weapon"),
+               ("rpg_tube_nose", 1.13, 1.27, 0.105, 0.02, "weapon")),
+        boxes=(("rpg_tube_sight", (0.09, 0.05, 0.07), "sight", "metal"),
+               ("rpg_tube_grip", (0.045, 0.035, 0.11), (0.22, 0.0, -0.075 - 0.045), "weapon")),
+        grip="rpg_tube_grip",
+        handle=((0.20, -0.05, -0.05), (0.0, -0.6, -0.8), (0.04, 0.035), 0.08, 0.30)),
+    # The MANPAD (Strela/Igla class): teams.py's near-vertical 78 deg and
+    # 0.065 radius, but LONG -- 1.30 m against the kit's 0.94, still short
+    # of a real 1.44-1.57 m tube -- with a seeker cap on the front, a small
+    # rear flare, and the gripstock: a stock standing off the bore below the
+    # shoulder, the pistol grip under its far end, the support hand on the
+    # stock itself. A handle for it was tried in five directions and cut his
+    # chest in every one: the tube sits beside the shoulder, so anything
+    # reaching across to the left hand crosses the torso. `mate_gap` 0.08:
+    # at 0.02 his spotter's walker, swinging its arms in `move`, put 157
+    # tube samples inside itself (22 at 0.06).
+    "manpad_team": dict(
+        prefix="mpd_fire", name="mpd_tube", pitch=78.0, rest=0.30, length=1.30, mate_gap=0.08,
+        bores=(("mpd_tube", 0.0, 1.30, 0.065, 0.065, "weapon"),
+               ("mpd_tube_bell", -0.03, 0.08, 0.085, 0.085, "weapon"),
+               ("mpd_tube_cap", 1.24, 1.33, 0.075, 0.075, "metal")),
+        boxes=(("mpd_tube_stock", (0.05, 0.04, 0.26), (-0.15, 0.0, -0.065 - 0.13), "metal"),
+               ("mpd_tube_grip", (0.11, 0.035, 0.04), (-0.185, 0.0, -0.065 - 0.24), "weapon")),
+        grip="mpd_tube_grip",
+        handle=None, support=(-0.15, -0.03, -0.065 - 0.156)),
+    # The recoilless rifle (Carl Gustaf class), SHOULDERED from the kneel --
+    # teams.py's own words ("shouldered from a crouch, not tripod-mounted"),
+    # where the kit's z 0.72 ran it through this figure's chest. Short and
+    # fat as teams.py has it (0.86 m, r 0.115); the venturi flare at 1.35 r
+    # rather than the kit's 1.7 r, a 0.39 m disc behind the gunner's head.
+    # Optic on the inboard side in front of the eye, pistol grip, forward
+    # grip. `mate_gap` 0.06: at 0.02 the kneeling loader, swaying in `idle`
+    # beside him, took 23-32 samples of the flare.
+    "recoilless_team": dict(
+        prefix="rcl_fire", name="rcl_tube", pitch=0.0, rest=0.45, length=0.86, mate_gap=0.06,
+        bores=(("rcl_tube", 0.0, 0.86, 0.115, 0.115, "weapon"),
+               ("rcl_tube_bell", -0.04, 0.12, 0.155, 0.155, "weapon")),
+        boxes=(("rcl_tube_sight", (0.10, 0.05, 0.08), "sight", "metal"),
+               ("rcl_tube_grip", (0.045, 0.035, 0.10), (0.12, 0.0, -0.115 - 0.04), "weapon")),
+        grip="rcl_tube_grip",
+        handle=((0.26, -0.05, -0.10), (0.0, -0.6, -0.8), (0.04, 0.035), 0.08, 0.30)),
+}
+
+
+def _tube_frame(pitch_deg):
+    p = math.radians(pitch_deg)
+    d = Vector((math.cos(p), 0.0, math.sin(p)))
+    v = Vector((0.0, 1.0, 0.0))
+    w = Vector((-math.sin(p), 0.0, math.cos(p)))
+    return d, v, w
+
+
+def _winding(P, T):
+    """Generalised winding number of points P (n,3) w.r.t. triangles T (m,3,3):
+    > 0.5 is inside. Robust on the cut pieces' open seams (the census in
+    PR #325 used the same measure)."""
+    out = np.zeros(len(P))
+    for s in range(0, len(P), 128):
+        p = P[s:s + 128][:, None, :]
+        a, b, c = (T[None, :, k, :] - p for k in range(3))
+        la, lb, lc = (np.linalg.norm(x, axis=-1) for x in (a, b, c))
+        det = np.einsum("...i,...i", a, np.cross(b, c))
+        den = (la * lb * lc + np.einsum("...i,...i", a, b) * lc + np.einsum("...i,...i", b, c) * la
+               + np.einsum("...i,...i", c, a) * lb)
+        out[s:s + 128] = (2.0 * np.arctan2(det, den)).sum(axis=1) / (4.0 * np.pi)
+    return out
+
+
+def _tris(ob):
+    me = ob.data
+    me.calc_loop_triangles()
+    idx = np.empty(len(me.loop_triangles) * 3, dtype=np.int64)
+    me.loop_triangles.foreach_get("vertices", idx)
+    return _coords(ob)[idx.reshape(-1, 3)]
+
+
+def _seat_samples(cfg, P, sight_c):
+    """Surface samples of the bore solids and the sight at pivot `P`: rings
+    of 12 every 1 cm (end caps included), and the sight's twelve edges at
+    1 cm -- the same density PR #325's census tests the exported GLB at."""
+    d, v, w = _tube_frame(cfg["pitch"])
+    u_rear = -cfg["rest"] * cfg["length"]
+    pts = []
+    for _n, u0, u1, r0, r1, _role in cfg["bores"]:
+        n = max(2, int((u1 - u0) / 0.01) + 1)
+        for t in np.linspace(0.0, 1.0, n):
+            c = P + d * (u_rear + u0 + (u1 - u0) * t)
+            r = r0 + (r1 - r0) * t
+            rings = (r, r * 0.5) if t in (0.0, 1.0) else (r,)
+            for rr in rings:
+                for k in range(12):
+                    a = 2.0 * math.pi * k / 12
+                    pts.append(tuple(c + v * (rr * math.cos(a)) + w * (rr * math.sin(a))))
+    if sight_c is not None:
+        for name, size, c, _role in cfg["boxes"]:
+            if c != "sight":
+                continue
+            corners = [Vector((su, sv, sw)) for su in (-size[0] / 2, size[0] / 2)
+                       for sv in (-size[1] / 2, size[1] / 2) for sw in (-size[2] / 2, size[2] / 2)]
+            for i, a in enumerate(corners):
+                for b in corners[i + 1:]:
+                    if sum(abs(a[k] - b[k]) > 1e-9 for k in range(3)) != 1:
+                        continue   # the twelve edges only
+                    for t in np.linspace(0.0, 1.0, max(2, int((a - b).length / 0.01) + 1)):
+                        q = sight_c + a + (b - a) * t
+                        pts.append(tuple(P + d * q.x + v * q.y + w * q.z))
+    return np.array(pts)
+
+
+def _seat_clear(cfg, P, sight_c, bvh, T, body_v, bvh_mate=None):
+    """True when no launcher sample is inside the body or within SEAT_GAP of
+    it (`mate_gap` of the other man), AND no body vertex is inside a bore
+    solid (a fat tube could swallow an ear whole with every one of its own
+    samples outside)."""
+    pts = _seat_samples(cfg, P, sight_c)
+    for p in pts:
+        q = Vector(p)
+        hit = bvh.find_nearest(q)
+        if hit[0] is not None and hit[3] < SEAT_GAP:
+            return False
+        if bvh_mate is not None:
+            hit = bvh_mate.find_nearest(q)
+            if hit[0] is not None and hit[3] < cfg["mate_gap"]:
+                return False
+    d = np.array(_tube_frame(cfg["pitch"])[0])
+    rel = body_v - np.array(P)
+    along = rel @ d
+    radial = np.linalg.norm(rel - np.outer(along, d), axis=1)
+    u_rear = -cfg["rest"] * cfg["length"]
+    for _n, u0, u1, r0, r1, _role in cfg["bores"]:
+        t = (along - (u_rear + u0)) / (u1 - u0)
+        m = (t >= 0.0) & (t <= 1.0)
+        if (radial[m] < (r0 + (r1 - r0) * t[m]) + SEAT_GAP).any():
+            return False
+    return not (_winding(pts, T) > 0.5).any()
+
+
+def _sight_centre(cfg, P, face_front, eye_z):
+    """The sight's centre in the tube frame: on the bore's inboard side, its
+    rear (eyepiece) face SIGHT_STANDOFF ahead of the face along the bore, its
+    w at eye height as far as the bore's own radius allows."""
+    d, v, w = _tube_frame(cfg["pitch"])
+    box = next(b for b in cfg["boxes"] if b[2] == "sight")
+    su, sv, sw = box[1]
+    r = cfg["bores"][0][3]
+    eye = Vector((face_front, P.y, eye_z))
+    u_eye = (eye - P).dot(d)
+    w_eye = (eye - P).dot(w)
+    w_c = max(-r + sw / 2.0, min(r - sw / 2.0 + 0.02, w_eye))
+    return Vector((u_eye + SIGHT_STANDOFF + su / 2.0, -(r + sv / 2.0), w_c))
+
+
+def _seat_launcher(team_id, spec, parts, bones, joints, drop):
+    """Seat `LAUNCHERS[team_id]` on its gunner's +y shoulder beside his head
+    and re-seat both his hands on it. `parts` is the team's PLACED part list,
+    `bones` its translated bone table (the two arm pairs are rewritten in
+    place); returns the launcher's part objects (not yet bound)."""
+    from mathutils.bvhtree import BVHTree
+    cfg = LAUNCHERS[team_id]
+    pfx, fx, fy = spec["prefix"], spec["x"], spec["y"]
+    mine = {o.name[len(pfx) + 1:]: o for o in parts
+            if o.name.startswith(pfx + "_") and "_death" not in o.name}
+    # The other man, deployed -- and on his D6 walker too, but only if the
+    # gunner WALKS with the launcher (`animates`): a kneeling gunner's tube
+    # is drawn only while he kneels, and every walker only in `move`
+    # (`_key_death_visibility`). Never the gunner's own walker (`{pfx}w_*`),
+    # which stands where he kneels and is never drawn beside his tube.
+    def _other(o):
+        if o.name.startswith(pfx + "_") or o.name.startswith(pfx + "w_") or "_death" in o.name:
+            return False
+        if o.get("rl_role") in ("weapon", "metal"):
+            return False
+        walker = any(o.name.startswith(s["prefix"] + "_") for s in rig._walker_specs(rig.TEAM_FIGURES[team_id]))
+        return spec["animates"] or not walker
+    others = [o for o in parts if _other(o)]
+    body = [o for n, o in mine.items() if n not in SEAT_ARM_PARTS] + others
+    T = np.concatenate([_tris(o) for o in body])
+    body_v = np.concatenate([_coords(o) for o in body])
+
+    def _bvh(tris):
+        return BVHTree.FromPolygons([tuple(p) for p in tris.reshape(-1, 3)],
+                                    [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(len(tris))])
+    bvh = _bvh(T)
+    bvh_mate = _bvh(np.concatenate([_tris(o) for o in others])) if others else None
+    H = joints["H"]
+    off = Vector((fx, fy, -drop))
+    sh1 = Vector(joints["arm"][1]["shoulder"]) + off
+    head = np.concatenate([_coords(o) for n, o in mine.items()
+                           if n in ("cranium", "face", "neck") or n.startswith("kef_")])
+    r = cfg["bores"][0][3]
+    y_head = float(head[:, 1].max()) + r + SEAT_GAP
+    face = _coords(mine["face"])
+    eye_z = FACE_LO_F * H + 0.03 - drop
+    band = face[np.abs(face[:, 2] - eye_z) < 0.06]
+    face_front = float((band if len(band) else face)[:, 0].max())
+
+    seat = None
+    rest0 = cfg["rest"]
+    has_sight = any(b[2] == "sight" for b in cfg["boxes"])
+    w_bore = _tube_frame(cfg["pitch"])[2]
+    for k_out in range(int(round(SEAT_OUT_MAX / SEAT_STEP)) + 1):
+        y = y_head + k_out * SEAT_STEP
+        for k_slide in range(int(round(SEAT_SLIDE_MAX / SEAT_SLIDE_STEP)) + 1):
+            cfg = dict(cfg, rest=rest0 - k_slide * SEAT_SLIDE_STEP)
+            for k_up in range(int(round(SEAT_LIFT_MAX / SEAT_STEP)) + 1):
+                P = Vector((sh1.x, y, sh1.z)) + w_bore * (k_up * SEAT_STEP)
+                sight_c = _sight_centre(cfg, P, face_front, eye_z) if has_sight else None
+                if _seat_clear(cfg, P, sight_c, bvh, T, body_v, bvh_mate):
+                    seat = (P, sight_c, k_out, k_up, k_slide)
+                    break
+            if seat:
+                break
+        if seat:
+            break
+    if seat is None:
+        raise SystemExit(f"{team_id}: no seat for {cfg['name']} within {SEAT_OUT_MAX} m outboard, "
+                         f"{SEAT_LIFT_MAX} m above {pfx}'s shoulder and {SEAT_SLIDE_MAX} of its length forward "
+                         f"-- look at the figure before widening any of them")
+    P, sight_c, k_out, k_up, k_slide = seat
+    d, v, w = _tube_frame(cfg["pitch"])
+    u_rear = -cfg["rest"] * cfg["length"]
+    R = Matrix(((d.x, v.x, w.x), (d.y, v.y, w.y), (d.z, v.z, w.z))).to_4x4()
+    Rz = Matrix(((-w.x, v.x, d.x), (-w.y, v.y, d.y), (-w.z, v.z, d.z))).to_4x4()   # local z -> bore
+
+    def at(uvw):
+        return P + d * uvw[0] + v * uvw[1] + w * uvw[2]
+
+    out = []
+    for name, u0, u1, r0, r1, role in cfg["bores"]:
+        if abs(r0 - r1) < 1e-9:
+            out.append(kit.tube(name, u1 - u0, r0, tuple(at((u_rear + (u0 + u1) / 2.0, 0.0, 0.0))),
+                                pitch=math.radians(cfg["pitch"]), role=role))
+        else:
+            ob = kit.prism(name, r0, r1, u1 - u0, (0.0, 0.0, 0.0), sides=8, role=role)
+            _transform(ob, Matrix.Translation(at((u_rear + u0, 0.0, 0.0))) @ Rz)
+            out.append(ob)
+    centres = {}
+    for name, size, c, role in cfg["boxes"]:
+        c = sight_c if c == "sight" else Vector(c)
+        ob = kit.box(name, size, (0.0, 0.0, 0.0), role)
+        _transform(ob, Matrix.Translation(at(c)) @ R)
+        centres[name] = at(c)
+        out.append(ob)
+
+    # Support handle: hung from its attach point along its direction, as long
+    # as the support arm needs to reach its foot (PR #325's handle, solved) --
+    # but never into the body: every point of its axis keeps its own half
+    # section plus HANDLE_GAP clear, so the fire clip's recoil (the tube rides
+    # forearm_R, the chest rides spine) cannot carry its foot into the chest.
+    # If no clear length reaches, the longest clear one is taken and the
+    # support wrist's shortfall logged, never the handle driven through him.
+    a0 = joints["arm"][0]
+    S0 = Vector(a0["shoulder"]) + off
+    reach0 = ((Vector(a0["elbow"]) - Vector(a0["shoulder"])).length
+              + (Vector(a0["wrist"]) - Vector(a0["elbow"])).length)
+    if cfg.get("handle") is None:
+        # No handle: the support hand closes on a named point of the weapon.
+        A = at(cfg["support"])
+        D = (A - S0).normalized()
+        length, foot = 0.0, A + D * 0.02
+    else:
+        attach_t, dir_t, section, lmin, lmax = cfg["handle"]
+        A = at(attach_t)
+        D = (d * dir_t[0] + v * dir_t[1] + w * dir_t[2]).normalized()
+        clear_r = 0.5 * math.hypot(*section) + HANDLE_GAP
+
+        def handle_clear(L):
+            n = max(2, int(L / 0.01) + 1)
+            axis = np.array([tuple(A + D * (L * t)) for t in np.linspace(0.0, 1.0, n)])
+            if any(bvh.find_nearest(Vector(p))[3] < clear_r for p in axis[1:]):
+                return False
+            return not (_winding(axis, T) > 0.5).any()
+
+        length, best_clear = None, None
+        for k in range(int(round((lmax - lmin) / 0.005)) + 1):
+            L = lmin + k * 0.005
+            if not handle_clear(L):
+                break
+            best_clear = L
+            if (A + D * L - S0).length <= LAUNCH_REACH_USE * reach0:
+                length = L
+                break
+        if best_clear is None:
+            raise SystemExit(f"{team_id}: {cfg['name']}'s support handle cuts the body even at {lmin} m")
+        if length is None:
+            length = best_clear
+        foot = A + D * length
+        hob = kit.box(f"{cfg['name']}_handle", (section[0], section[1], length), (0.0, 0.0, 0.0), "weapon")
+        # local z -> D, local x -> the bore where it can be, y completing the frame
+        xz = (d - D * d.dot(D)).normalized()
+        yz = D.cross(xz)
+        M = Matrix(((xz.x, yz.x, D.x), (xz.y, yz.y, D.y), (xz.z, yz.z, D.z))).to_4x4()
+        _transform(hob, Matrix.Translation(A + D * (length / 2.0)) @ M)
+        out.append(hob)
+
+    # Both arms, rigidly, by PR #325's two-bone IK.
+    names = {0: "L", 1: "R"}
+    short = {}
+    for side, target, pole in ((1, centres[cfg["grip"]], LAUNCH_FIRE_POLE),
+                               (0, foot - D * 0.02, LAUNCH_SUPPORT_POLE)):
+        a = joints["arm"][side]
+        S, E, W = (Vector(a[k]) + off for k in ("shoulder", "elbow", "wrist"))
+        m_up, m_fore, E2, W2, sh = _two_bone(S, E, W, target, pole)
+        _transform(mine[f"upperarm{side}"], m_up)
+        _transform(mine[f"elbow{side}"], m_up)
+        _transform(mine[f"forearm{side}"], m_fore)
+        for i, (bn, parent, h, t) in enumerate(bones):
+            if bn == f"{pfx}_upperarm_{names[side]}":
+                bones[i] = (bn, parent, tuple(S), tuple(E2))
+            elif bn == f"{pfx}_forearm_{names[side]}":
+                bones[i] = (bn, parent, tuple(E2), tuple(W2))
+        short[side] = sh
+    # Every launcher part, accessories included, against the body at rest:
+    # the seat search tests the bore and the sight; the grips and the handle
+    # are placed after it, so they are verified here and REFUSED if they cut
+    # the body (their hands, the two re-seated arms, are not body).
+    bad = {}
+    for ob in out:
+        me = ob.data
+        co = _coords(ob)
+        samp = [co]
+        for e in me.edges:
+            a, b = co[e.vertices[0]], co[e.vertices[1]]
+            n = max(2, int(np.linalg.norm(b - a) / 0.01) + 1)
+            samp.append(a + (b - a) * np.linspace(0.0, 1.0, n)[:, None])
+        samp = np.concatenate(samp)
+        inside = int((_winding(samp, T) > 0.5).sum())
+        near = min(bvh.find_nearest(Vector(p))[3] for p in samp)
+        # Half the seat's gap: the search samples a bore as a 12-gon and the
+        # mesh is an 8-gon, so a corner it never sampled can sit a few mm
+        # nearer than SEAT_GAP (measured: 16.7 mm on the RPG's flare).
+        if inside or near < SEAT_GAP / 2.0:
+            bad[ob.name] = (inside, round(near, 4))
+    if bad:
+        raise SystemExit(f"{team_id}: launcher parts inside the body, or within {SEAT_GAP / 2.0} m of it, "
+                         f"at rest (part: (samples inside, nearest m)): {bad}")
+    log(f"{team_id}: {cfg['name']} pitch {cfg['pitch']} rests at ({P.x:+.3f}, {P.y:+.3f}, {P.z:.3f}) over "
+        f"{pfx}'s +y shoulder joint ({sh1.x:+.3f}, {sh1.y:+.3f}, {sh1.z:.3f}): head rule y {y_head:+.3f} "
+        f"(widest head/face/neck/keffiyeh + r {r} + gap {SEAT_GAP}) stepped out {k_out * SEAT_STEP:.3f}, "
+        f"pushed {k_up * SEAT_STEP:.3f} off the joint along the bore's normal to clear the body by {SEAT_GAP}, "
+        f"slid forward to rest "
+        f"{cfg['rest']:.2f} of its length from the rear (declared {rest0:.2f}); "
+        f"support handle {length:.3f} m; firing wrist short of grip by {short[1] * 100:.1f} cm, "
+        f"support wrist short of handle by {short[0] * 100:.1f} cm")
+    return out
+
+
 def _join(objs, name, role):
     bpy.ops.object.select_all(action="DESELECT")
     for ob in objs:
@@ -1284,7 +1729,9 @@ def _figure(src, height, spec, kneel):
     forced = {}
     if not kneel:
         parts, joints = cut_figure(src, height, prefix)
-        if spec["weapon"] in ("rifle", "launcher"):
+        if spec["weapon"] == "rifle":
+            # A launcher's arms are re-seated on its grips by `_seat_launcher`
+            # instead, from the hanging rest.
             _bend_forearms(parts, joints, prefix)
         bones = standing_bones(prefix, joints, x, y)
         _place(parts, x, y)
@@ -1336,18 +1783,26 @@ def build_team(team_id):
         for ob in list(parts):
             if ob.name.endswith("_cranium") and not ob.name.endswith("_death_cranium"):
                 parts += _kit_keffiyeh_over(parts, ob.name[: -len("_cranium")], src)
+    launcher = []
+    if team_id in LAUNCHERS:
+        # The shouldered launcher, seated on its gunner's own measured body
+        # BEFORE any other weapon exists (see `_seat_launcher`).
+        gunner = next(s for s in figures if s["prefix"] == LAUNCHERS[team_id]["prefix"])
+        launcher = _seat_launcher(team_id, gunner, parts, bones, hands[gunner["prefix"]],
+                                  hands[gunner["prefix"]].get("drop", 0.0))
     bpy.data.objects.remove(src, do_unlink=True)
 
-    # Crew weapons -- kit geometry, verbatim positions from teams.py.
+    # Crew weapons -- kit geometry; positions from teams.py except the three
+    # shouldered launchers, seated above.
     if team_id == "manpad_team":
-        tube = kit.launcher("mpd_tube", (0.16, -0.22, 1.30), pitch=math.radians(78.0), length=0.94, radius=0.065)
+        tube = launcher
         binos = kit.binoculars("mpd_binos", (-0.28, 0.30, eyes["mpd_spot"] - kit.POSTURE_EYE["standing"] * kit.FIGURE_H - 0.04),
                                posture="standing")
         forced.update({ob: "mpd_fire_forearm_R" for ob in tube})
         forced.update({ob: "mpd_spot_head" for ob in binos})
         parts += tube + binos
     elif team_id == "recoilless_team":
-        tube = kit.launcher("rcl_tube", (0.20, -0.28, 0.72), pitch=0.0, length=0.86, radius=0.115)
+        tube = launcher
         rounds = [
             kit.tube("rcl_round0", 0.52, 0.075, (-0.10, 0.46, 0.075), yaw=math.radians(90.0)),
             kit.tube("rcl_round1", 0.52, 0.075, (-0.10, 0.60, 0.075), yaw=math.radians(90.0)),
@@ -1363,10 +1818,10 @@ def build_team(team_id):
             forced.update({ob: f"{spec['prefix']}_forearm_R" for ob in w})
             parts += w
     elif team_id == "rpg_team":
-        # The tube verbatim from `rig._rpg_extras` (teams.py's 38-degree
-        # launcher on rpg_fire's forearm_R); the loader's rifle at his hand.
-        tube, _b, f_tube = rig._rpg_extras()
-        forced.update(f_tube)
+        # The RPG seated on rpg_fire's shoulder (teams.py's 38 deg, see
+        # LAUNCHERS) on his forearm_R; the loader's rifle at his hand.
+        tube = launcher
+        forced.update({ob: "rpg_fire_forearm_R" for ob in tube})
         parts += tube
         w = _rifle_at_hand("rpg_load", hands["rpg_load"], -0.30, 0.30)
         forced.update({ob: "rpg_load_forearm_R" for ob in w})
