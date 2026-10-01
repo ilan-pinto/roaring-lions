@@ -755,3 +755,84 @@ unit whose nearest neighbour IS `atgm_cell`, so the IoU is read early), then
 `charge_squad` (the standing path plus the rest lean, new to the importer), then
 `digger_crew` (one kneeler, the heap on `ground`, the tool). One preview, one
 refine, one remesh each; gates after every unit; commit per unit.
+
+## 16. `breach_team` — Tzinah Breach Team (KDF, crew 6, 2 drawn)
+
+Today: `art/meshes/breach_team.glb`, kit-built, **9,272 glTF tris, 2 figures,
+933 KB**, bounds 2.38 × 1.01 m on the ground and 1.86 m high (the pole's
+head), clips `idle, move, fire, down, wreck` (measured 2026-10-01). The last
+kit-built KDF team, judged beside `meshy_soldier`, `at_team` and `demo_squad`.
+Composition kept verbatim: `brc_point` standing at (0.32, −0.18), leader,
+rifle, `kit.ballistic_shield` on his LEFT forearm; `brc_cover` standing at
+(−0.30, 0.24), rifle, `kit.breach_pole` slung on his back (`rig._breach_extras`,
+`PART_BONE`'s `shield` → `forearm_L`, `pole`/`pole_head` → `spine`).
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits (preview 20 + refine 10 as one `text --refine` call, remesh 5; no Meshy rig — bible §9) | bible §4, §9 |
+| base figure | **one** Meshy KDF figure, `--pose a-pose`, both men standing from it | bible §5 |
+| height | **1.78 m** — the KDF rifleman reference, as `at_team` and `demo_squad` | bible §1 |
+| remesh `--polycount` | **2,000** — two standing men, no walker: 2 × (2,000 + ~340 blobs) + 2 posed corpses × ~1,000 (decimate 0.5) + 2 kit rifles ~2 × 90 + shield (`rbox`, chamfered) ~100 + pole ~40 ≈ **7,100**; cap 8,000. `militia_cell` (two standing riflemen, same cut) landed 7,746 | bible §3, §10 |
+| bake | **yes** — 2k asked, 1024 shipped; `breach_team` joins `TEXTURED_INFANTRY_TYPES` + `TEXTURED_INFANTRY_EXEMPT` | #307 |
+| roles | `uniform`, `boot`, `face` cut by geometry; the helmet and neck are `uniform` (a KDF head, not a `keffiyeh`); `weapon` the kit rifles, `metal` the shield, `charge` the pole — exactly today's role set less `webbing`/`skin_shadow`, which the bake carries | contract v1 |
+| rig | **through `tools/units/import_meshy_crew_team.py`**, not the B0b KDF importer: B3/B4's measured elbow cut, both forearms bent forward for a rifle carrier (`FORE_BEND`), the rifle at the bent right hand (`_rifle_at_hand`), the POSED corpse. The B0b cut hangs each arm as one rigid unit (hands flare at the wrist, bible §9) and lays the corpse flat; the brief's "inherit the corpse and recolour fixes" is why the newer path carries this one. The crew importer gains a per-team head-role override (`HEAD_ROLE`, `uniform` here) and the breach rule; `rig.TEAM_MESH_OWNER` moves to it | `rig.py`, bible §9–§11 |
+| crew weapon | **kit geometry**: `rig._weapon_parts` rifle at each man's hand; `kit.ballistic_shield("brc_point_shield", (0.32, −0.18, 0))` on `brc_point_forearm_L`, its plate stood 0.28 m ahead of the man's centre line as today; `kit.breach_pole("brc_cover_pole", (−0.30, 0.24, 0))` on `brc_cover_spine`. Both verbatim from `rig._breach_extras` — the shield is THE tell and stays kit so its size is pinned, not asked of Meshy | `teams.py`, bible §7 q3 |
+| nearest neighbour | **`demo_squad`** (two KDF men; `teams.py` names this unit as *its* collision risk — levers: both men UPRIGHT here where demo has one low over the charge, a 0.55 × 1.20 m plate stood upright in front where demo's satchel is a low box on the ground), then `yahalom_squad` (a thin level mast at the hip and square packs, against a thick near-upright pole on the BACK) and `militia_cell`/`inf_squad` (two standing riflemen with nothing held out). Levers kept: all of them — the shield and the pole are kit and unchanged | `teams.py` docstrings |
+| sandbox | not in the base set — reached only by `upgrades_to` in `deir_amun_2_foothold` and `khan_rafid_3_clearance`; the capture spawns it in the sandbox through the console | `data/missions/`, `sandbox-force.ts` |
+
+```
+A single low-poly game-ready assault breacher, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. A heavy padded assault vest with wide shoulder pads over the plate carrier and a clear face visor raised on the helmet. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, gunmetal. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+About 590 characters. The vest bulk and the raised visor are the one thing
+the prompt adds — upper-body mass and a helmet profile that is not the
+rifleman's — because the levers that matter (shield, pole) are kit. If the
+visor comes back as a painted stripe or nothing, nothing is lost: the
+silhouette is in the kit parts, as it is for every KDF team.
+
+## 17. `moto_rpg` — Armed Motorcycle (enemy, crew 2, 2 drawn)
+
+Today: `art/meshes/moto_rpg.glb`, kit-built, **4,516 glTF tris, 432 KB**, bounds
+2.48 × 1.70 m (the union over clips — the tipped wreck and thrown riders set the
+frame) and 2.09 m high, clips `idle, move, fire, wreck` — **no `down`**
+(`TEAM_CLIP_DROP`: a motorcycle cannot go prone; CLAUDE.md "Mesh units").
+Built from scratch in `rig._moto_rpg_rest`: a rigid machine on `m_root`, two
+spinning wheel bones, the launcher on its own pitching bone, each rider ONE
+rigid unit on `rid_seat`/`pas_seat`, three wreck bones (`mw`, `mw_a`, `mw_b`).
+That topology and `rig.build_moto_clips` are kept verbatim; only the geometry
+bound to it changes.
+
+| item | number | source |
+|---|---|---|
+| class | **vehicle part, palette-painted, 25 credits** (preview 20 + remesh 5, no refine — the bike takes the enemy ramp like every kit vehicle part); the riders **0 credits** | bible §4, §6 B6 |
+| the bike | a Meshy off-road motorcycle, remeshed, scaled to **2.2 m** long (`teams._motorcycle`), `+X` forward, origin at ground centre, tyres on z = 0. Measured on the remesh, not assumed: the wheel centres (the two wheel bones' heads), the saddle height (where the riders sit), the bars (where the rider's hands go) | `teams.py` |
+| remesh `--polycount` | **1,500** for the bike (bible §3: part caps serve download size; the kit bike is 1,850 tris with 14-segment wheels). The wreck is the same remesh tipped through `teams._tip_over` and decimated to 0.4 (~600) | bible §3, §8 |
+| the riders | **B3's `rpg_team` remesh** (`01a0f313-bf75-727d-8573-8fb7f04c2453`, 1.76 m, with its rose-to-tan head-wrap `RECOLOUR`; the one Sarim figure that honoured the keffiyeh), cut by `import_meshy_crew_team.cut_figure` and re-arranged RIGIDLY in code into a seat: pelvis on the saddle, thighs forward-down, shins down to the pegs, forearms bent forward to the bars (rider) or to the pillion's own knees (passenger), torso leaned forward 12° on the rider only. Each rider is then one rigid unit on its seat bone, as the kit riders are. Bake kept: 2k → 1024 | bible §6 B6 ("re-posed seated"), `rig._moto_rpg_rest` |
+| shipped estimate | bike 1,500 + wreck bike ~600 + riders 2 × (2,000 + ~200 blobs) + 2 posed corpses × ~700 (decimate 0.35) + kit launcher ~60 ≈ **7,560**; cap 8,000. If over, the rider's `uniform` group is welded and decimated once (0.8) the way the corpse is, never per piece | bible §3, §10 |
+| bake | the riders ship the `rpg_team` bake, so `moto_rpg` joins `TEXTURED_INFANTRY_TYPES` + `TEXTURED_INFANTRY_EXEMPT`; the bike's `metal`/`weapon`/`webbing` meshes carry no UV and take the ramp — the per-mesh rule B0b measured | #307, bible §9 |
+| roles | bike: tyres `weapon` (kit's own call — gunmetal.3, the darkest non-shadow tone), saddle and panniers `webbing` where the remesh separates them by geometry, everything else `metal`; riders `uniform`/`boot`/`face`/`keffiyeh`; launcher `weapon` | `teams._motorcycle` |
+| rig | `rig._moto_bone_table` with the two wheel heads at the MEASURED axles and the seat bones at the measured saddle; `rig.build_clips(arm, "moto_rpg")` unchanged (bob 0.02 m, dip 1.6°, two wheel turns, launcher levels for `fire`, three wreck bones) | `rig.py` |
+| crew weapon | **kit geometry**: `kit.launcher("pas_rpg", (−0.50, −0.17, z), yaw π, pitch 30°, length 1.18, radius 0.075)` on `m_launcher`, verbatim from `rig._moto_rpg_rest` with `z` re-measured at the Meshy pillion's shoulder so the tube still rides OVER his shoulder — the tallest point, the tell | `teams.moto_rpg` |
+| corpses | two posed corpses (`_death_parts_posed`) at `teams.moto_rpg`'s own (0.30, −0.42) and (−0.32, 0.46), on `mw_a_death_root`/`mw_b_death_root`; the tipped bike on `mw_death_root` | `rig._moto_rpg_rest` |
+| nearest neighbour | **`technical`** (the other enemy two-wheeler-adjacent light vehicle — levers: taller than it is long, ~1.9 m against 2.2, and a wheel-base line no infantry sheet has), `digger_crew` (whose worst IoU neighbour IS this file at 0.557), `rpg_team` (the same tube, on a standing man). Levers kept: the tube up at 30° over the pillion, the two-wheel line, two men in a row | `teams.py` docstring, provenance B4 |
+| sandbox | one in the base set at hostile −5, +6 | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready rugged off-road motorcycle with knobbly tyres and a long two-person saddle, a civilian vehicle crudely converted for war, sun-faded dusty paint, welded plates. At rest, level. Two canvas panniers and a rolled bedroll strapped over the rear rack behind the empty saddle, no rider. Real-world scale, 2.2 metres long. Faded tan paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+About 520 characters. "No rider" is in the signature slot on purpose: Meshy
+honours the silhouette (bible §8), and a bike prompt without it risks a baked
+figure welded to the saddle that no cut could remove cleanly. The panniers and
+bedroll are kit's own fill lever ("lateral mass is the only lever that adds
+silhouette area without extending the frame" — `teams._motorcycle`), asked of
+Meshy so they come as one shell; if they do not come, kit's `pannier0/1` and
+`bedroll` boxes go on the remesh in `webbing`.
+
+## Order inside B5 / B6
+
+`breach_team` first (B5: the KDF look is read beside `at_team` and `demo_squad`
+before the cheaper unit spends), then `moto_rpg` (B6: the bike preview, no
+refine; riders from a figure already on disk). **Lead-approved cap: 65 credits**
+(breach 35–40, moto 25); planned spend 35 + 25 = **60**. Anything that would
+need a re-roll or a second call stops and reports the cost instead.
