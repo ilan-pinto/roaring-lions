@@ -75,4 +75,6 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // bake through the crew importer, under their team ids' own file names.
   'inf_squad',
   'sarim_rifles',
+  'mortar_team',
+  'sniper_team',
 ]);

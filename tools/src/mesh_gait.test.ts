@@ -28,7 +28,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  ACTIVE_TRAVEL_FRACTION,
   circularMeanDeg,
   clipSeconds,
   countTracePeaks,
@@ -126,17 +125,16 @@ function wiredMortarGlb(): string {
 }
 
 describe('mesh unit gait', () => {
-  it('the kit.py mortar_team walks -- the control for the instrument itself', () => {
+  // B7 (GH-179, 2026-10-01): the kit.py build this control measured (0.887)
+  // is superseded by the Meshy figure on rig.py's own gait -- the SAME
+  // keyframe table, sized from the same speed -- so the control is the
+  // rig.py mortar_team still, on its D6 walkers (0.938 measured at the
+  // swap). The supplied `meshy_mortar_team.glb` (#145's subject) is deleted.
+  it('the rig.py mortar_team walks -- the control for the instrument itself', () => {
     const m = measureRoleTravel(`${MESHES}mortar_team.glb`, 'boot', 'move');
     const ground = groundPerCycleM(mortarSpeedTilesPerSecond(), m.clipSeconds);
     expect(ground).toBeCloseTo(1.3, 2);
     expect(m.maxTravelM / ground).toBeGreaterThan(0.85);
-  });
-
-  it('the Meshy mortar_team walks rather than slides (#145)', () => {
-    const m = measureRoleTravel(`${MESHES}meshy_mortar_team.glb`, 'boot', 'move');
-    const ground = groundPerCycleM(mortarSpeedTilesPerSecond(), m.clipSeconds);
-    expect(m.maxTravelM / ground).toBeGreaterThan(WALK_FLOOR);
   });
 
   it('whichever GLB the mesh catalogue wires to mortar_team is the one that walks', () => {
@@ -376,94 +374,6 @@ describe('mesh unit gait -- the kit teams take their stride from their speed', (
 // `move` keys to scale 0. A confident number, off geometry the player cannot
 // see. `hiddenInClip` exists so the next reader is told rather than having to
 // know.
-describe('measureFacing and the two-posture rigs', () => {
-  it('says so when the joints it read are scaled out of the clip', () => {
-    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'move');
-    expect(figs).toHaveLength(3);
-    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(true);
-  });
-
-  it('reads the standing rig that IS on screen, and finds it marching forward', () => {
-    // Task 4 turned the supplied standing tableau 180 degrees
-    // (`import_meshy_mortar_team.py`'s `STAND_YAW_DEG`): it faces Blender +Y,
-    // where every standing constant in that file assumed -Y. Before the fix
-    // these read +25.4 / +7.2 / -15.9 -- and that was NOT evidence the crew
-    // marched forward, because the `face` ROLE is defined as the -Y half of
-    // each head and `FORWARD_FIX_DEG` maps -Y to +X, so the measurement and
-    // the role assignment shared the same wrong assumption and agreed with
-    // each other. The picture is what settled it; this pins the result.
-    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'move', /_st_chest$/);
-    expect(figs).toHaveLength(3);
-    for (const f of figs) {
-      expect(f.hiddenInClip, f.joint).toBe(false);
-      expect(Math.abs(f.meanDeg), f.joint).toBeLessThan(20);
-    }
-  });
-
-  it('leaves the deployed crew splayed around their own tube, which is correct', () => {
-    // `idle` is the KNEELING tableau and was measured when that source landed.
-    // A crew spread around a mortar is not a facing defect, and this pass did
-    // not touch it -- these three numbers are unchanged to the tenth of a
-    // degree across the rebuild.
-    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'idle');
-    expect(figs.map((f) => Math.round(f.meanDeg * 10) / 10)).toEqual([-7.5, 83.9, -67.3]);
-    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(false);
-  });
-
-  it('reads a single-posture rig as visible, so the flag is not always true', () => {
-    const figs = measureFacing(`${MESHES}inf_squad.glb`, 'move');
-    expect(figs).toHaveLength(3);
-    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(false);
-  });
-});
-
-// `measureRoleFootprint` -- where a gait's travel goes, and whether it leaves
-// the ground. Both were needed to derive `rig.py`'s `THIGH_CAP`: peak-to-peak
-// travel alone cannot tell a long step from a high heel kick, and a longer
-// swing lifts a straight-legged figure off the floor.
-describe('measureRoleFootprint', () => {
-  it('splits a kit gait into its step and its lift', () => {
-    const f = measureRoleFootprint(`${MESHES}militia_cell.glb`, 'boot', 'move');
-    const [x, y, z] = f.axisTravelM;
-    // Forward is +X in the mesh contract, and a gait is overwhelmingly along
-    // it: the lift is under half the step and the lateral component is noise.
-    expect(x).toBeGreaterThan(1.0);
-    expect(y).toBeLessThan(x * 0.5);
-    expect(z).toBeLessThan(x * 0.2);
-  });
-
-  it('keeps a boot on the ground -- the bound rig.py sizes its stride against', () => {
-    // `floatM` is the highest the lowest moving boot vertex ever gets. The
-    // stride grew ~35% in this pass and this did NOT, because `_stance_drop`
-    // sinks the root by exactly the reach a swung leg loses. Shipped before:
-    // 0.0922 m on a one-walker team.
-    for (const team of ['militia_cell', 'charge_squad', 'demo_squad', 'at_team']) {
-      const f = measureRoleFootprint(`${MESHES}${team}.glb`, 'boot', 'move');
-      expect(f.floatM, `${team} float`).toBeLessThan(0.0922);
-      expect(f.activeVertexCount, `${team} active`).toBeGreaterThan(100);
-    }
-  });
-
-  it('ignores the collapsed prone geometry every kit rig hides inside boot', () => {
-    // Without `ACTIVE_TRAVEL_FRACTION` this reads the `death_root` corpse's
-    // boots, which sit at a literal z=0 on every rig.py build and at -0.3875
-    // on the Meshy mortar team -- so `floatM` was 0.0000 for nine teams and
-    // measured nothing. The filter is what makes the number mean anything.
-    const withFilter = measureRoleFootprint(`${MESHES}at_team.glb`, 'boot', 'move');
-    expect(withFilter.floatM).toBeGreaterThan(0.01);
-    expect(withFilter.activeVertexCount).toBeLessThan(
-      measureRoleTravel(`${MESHES}at_team.glb`, 'boot', 'move').vertexCount
-    );
-    expect(ACTIVE_TRAVEL_FRACTION).toBeGreaterThan(0);
-  });
-});
-
-// gait-pass's Fix round 1: `cycleS` names a cycle and measures a clip, and
-// peak-to-peak travel cannot tell one gait cycle baked into a clip from two.
-// `countTracePeaks` is the periodicity instrument gait-pass.ts warns from.
-// Calibrated here against every clip the pass currently declares a gait
-// for -- the seventeen declarations across fifteen files, read off the
-// FORWARD axis of `bestVertexTrace`.
 describe('countTracePeaks', () => {
   const SEVENTEEN: readonly [string, string][] = [
     ['demo_squad.glb', 'move'],
@@ -474,7 +384,7 @@ describe('countTracePeaks', () => {
     ['charge_squad.glb', 'move'],
     ['inf_squad.glb', 'move'],
     ['sarim_rifles.glb', 'move'],
-    ['meshy_mortar_team.glb', 'move'],
+    ['mortar_team.glb', 'move'],
     ['yahalom_engineer.glb', 'move'],
     ['breach_team.glb', 'move'],
     ['civilians/civilian_woman.glb', 'move'],
@@ -507,15 +417,6 @@ describe('countTracePeaks', () => {
   // `at_team.glb` was the second file here until B0b (2026-09-30) replaced
   // the kit figures with a Meshy remesh; its height trace now reads one
   // cycle like everyone else's, so the mortar team is the remaining witness.
-  it.each(['meshy_mortar_team.glb'])(
-    '%s: the height axis over-counts a real single cycle -- this is why forward is used',
-    (file) => {
-      const fp = measureRoleFootprint(`${MESHES}${file}`, 'boot', 'move');
-      expect(countTracePeaks(fp.bestVertexTrace.forwardM)).toBe(1);
-      expect(countTracePeaks(fp.bestVertexTrace.heightM)).toBe(2);
-    }
-  );
-
   it('returns 0 for a flat (no-travel) trace rather than dividing by a zero span', () => {
     expect(countTracePeaks([0.5, 0.5, 0.5, 0.5])).toBe(0);
     expect(countTracePeaks([])).toBe(0);
@@ -821,7 +722,11 @@ const GAIT_MULTIPLIER_OUTLIERS: Readonly<Record<string, number>> = {
  * sculpted legs deliver slightly more travel at the same joint angles. See
  * `GAIT_MULTIPLIER_FLOOR`.
  */
-const GAIT_MULTIPLIER_UNDER_ONE: Readonly<Record<string, number>> = { sniper_team: 0.9144 };
+// B7 (2026-10-01): `sniper_team` is a rig.py walker now (the supplied sculpt
+// is replaced) and still the one file under 1.0 -- 0.972: its 0.45 tiles/s is
+// the slowest speed in the tree and rig.py's stride floor sizes a cycle that
+// covers slightly more ground than the sim moves it.
+const GAIT_MULTIPLIER_UNDER_ONE: Readonly<Record<string, number>> = { sniper_team: 0.972 };
 
 /** Slack on an outlier's own recorded number -- enough that float noise and a
  *  cosmetic re-export do not red the gate, far too little to hide a drift. */
@@ -1123,7 +1028,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // read was kit.py's own boot mesh.
   'demo_squad.glb move': 214,
   'at_team.glb move': 257,
-  'sniper_team.glb move': 176,
+  'sniper_team.glb move': 238, // B7: Meshy boots on the standing walker
   // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
   // parts, so the boot mesh is the figure's own boots, not kit's.
   'militia_cell.glb move': 582,
@@ -1131,7 +1036,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'charge_squad.glb move': 444, // B4: Meshy boots
   'inf_squad.glb move': 558, // B7: Meshy boots, three men, rig.py gait
   'sarim_rifles.glb move': 729, // B7: Meshy boots, three men
-  'meshy_mortar_team.glb move': 3268,
+  'mortar_team.glb move': 420, // B7: Meshy boots -- two D6 walkers and the No.3
   'yahalom_engineer.glb move': 1632,
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
   'manpad_team.glb move': 328, // B7: re-remeshed from the refined B2 preview
@@ -1219,7 +1124,7 @@ const SWING_LIFT_FLOOR = 0.05;
  * is a boot's height profile over 0.67 s at 25 px.
  */
 const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
-  'sniper_team.glb move': -0.065,
+  'sniper_team.glb move': -0.012, // B7: the Meshy walker, re-measured
   // Not reversed -- positive, same sign as every other rig -- just small.
   // 0.010998631554512578 (rounded to 0.011 below): the swing-lift fraction
   // `swingLiftFraction` reads off the shipped `digger_crew.glb` `move`
@@ -1509,24 +1414,12 @@ const FACE_LEVER_FLOOR_M = 0.03;
  * printed, and asserted against the bytes rather than trusted.
  */
 export const FACING_EXEMPT: Readonly<Record<string, string>> = {
-  'sniper_team.glb':
-    'no `face` mesh and no head, neck or arm bone of any kind -- 14 joints, all root, ' +
-    'pelvis and legs. There is no facing to read on this rig by any instrument.',
   'moto_rpg.glb':
     'a pillion rig: its `face` role binds entirely to `rid_seat`, `pas_seat` and two death ' +
     'roots, so it carries no head joint. Correct as built; `measureFacing` raises on it.',
   'yahalom_engineer.glb':
     'no `face` mesh -- gated through its `headfront` MARKER instead, below, so this is a ' +
     'change of instrument rather than a hole.',
-  'meshy_mortar_team.glb idle':
-    'the kneeling tableau: a crew spread around its own tube is not a facing defect ' +
-    '(−7.5 / +83.9 / −67.3, pinned exactly above).',
-  'meshy_mortar_team.glb fire':
-    'the same deployed crew, serving the tube (−10.8 / +45.8 / −73.3).',
-  'meshy_mortar_team.glb move':
-    'every head joint in this clip is keyed to zero scale -- the standing posture is a ' +
-    'SECOND rig with no head bone. Read through `/_st_chest$/` above; `hiddenInClip` ' +
-    'catches it here.',
 };
 
 interface FacingRow {
@@ -1616,7 +1509,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // `measureFacing` return `[]` for all four civilians through two tasks
     // and a review while every caller's `for` loop passed in 0 ms.
     // B2 (2026-09-30) adds twelve: manpad_team six, recoilless_team six.
-    expect(rows).toHaveLength(89); // B7 stage 2: inf_squad and sarim_rifles have no moveFire and hide their corpses
+    expect(rows).toHaveLength(97); // B7 stage 3: mortar_team and sniper_team read through their own face meshes now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1635,12 +1528,13 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'digger_crew.glb',
       'inf_squad.glb',
       'manpad_team.glb',
-      'meshy_mortar_team.glb',
       'militia_cell.glb',
       'mortar_crew.glb',
+      'mortar_team.glb',
       'recoilless_team.glb',
       'rpg_team.glb',
       'sarim_rifles.glb',
+      'sniper_team.glb',
     ]);
     console.log(
       `mesh facing: ${rows.length} figure-clips gated across ${files.size} GLBs.\n` +
@@ -1716,6 +1610,17 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'mortar_crew.glb idle',
       'mortar_crew.glb move',
       'mortar_crew.glb move',
+      'mortar_team.glb down',
+      'mortar_team.glb down',
+      'mortar_team.glb down',
+      'mortar_team.glb down',
+      'mortar_team.glb down',
+      'mortar_team.glb fire',
+      'mortar_team.glb fire',
+      'mortar_team.glb idle',
+      'mortar_team.glb idle',
+      'mortar_team.glb move',
+      'mortar_team.glb move',
       'recoilless_team.glb down',
       'recoilless_team.glb down',
       'recoilless_team.glb down',
@@ -1731,6 +1636,12 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'sarim_rifles.glb down',
       'sarim_rifles.glb down',
       'sarim_rifles.glb down',
+      'sniper_team.glb down',
+      'sniper_team.glb down',
+      'sniper_team.glb fire',
+      'sniper_team.glb fire',
+      'sniper_team.glb idle',
+      'sniper_team.glb idle',
     ]);
   });
 
@@ -1817,6 +1728,7 @@ const WEAPON_RIGS: readonly {
   // `forearm_R` like militia_cell; inf_squad's carbine is on `spine`
   // (WEAPON_EXEMPT).
   { file: 'sarim_rifles.glb', role: 'weapon', joint: /_forearm_R$/, figures: 3, clips: ['fire'] },
+  { file: 'mortar_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
 ];
 
 /**
@@ -1834,7 +1746,9 @@ export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
   'mortar_crew.glb': 'as atgm_cell -- the tube is `prop`',
   'charge_squad.glb': 'carries a `charge`, not a weapon; no `weapon` role on the rig at all',
   'digger_crew.glb': 'a digger: `wood`, no `weapon` role, no `fire` clip',
-  'sniper_team.glb': 'no arm bones -- 14 joints, all root, pelvis and legs',
+  'sniper_team.glb':
+    'B7 (2026-10-01): its standing carbine rides `spine` (WEAPON_ON_SPINE) and its prone ' +
+    'rifle lies on each `death_root` beside the man; no `_forearm_R` owns a weapon vertex',
   'inf_squad.glb':
     'B7 (2026-10-01): as breach_team -- the Meshy preview came holding its carbine across the ' +
     "chest in BOTH hands; it ships as a `weapon` piece on each man's `spine` (WEAPON_ON_SPINE), " +
@@ -1845,7 +1759,6 @@ export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
     'torso, held across the chest in the LEFT hand; it ships as a `weapon` piece on each ' +
     "man's `spine` (import_meshy_crew_team.py's WEAPON_ON_SPINE), no kit rifle beside it, " +
     'so no `_forearm_R` owns a weapon vertex and `fire` is a FIRE_ROOT_LEAN brace',
-  'meshy_mortar_team.glb': 'no arm bones on either posture -- root/abdomen/chest/head only',
   'yahalom_engineer.glb':
     'its `weapon` role puts EIGHT vertices spanning 0.076 m on `RightHand` -- a fitting, ' +
     'not a barrel, and far under WEAPON_MIN_EXTENT_M. Recorded as a gap, not gated.',
@@ -2007,6 +1920,7 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'sarim_rifles.glb sar0_forearm_R': 2.48,
   'sarim_rifles.glb sar1_forearm_R': 2.48,
   'sarim_rifles.glb sar2_forearm_R': 2.48,
+  'mortar_team.glb mtr_no3_forearm_R': 2.48, // B7: the No.3's rifle, the same carry
   'manpad_team.glb mpd_fire_forearm_R': 80.29, // [78.39, 82.39] the 1.30 m tube at 78 deg, gripstock below the shoulder
   // Pitch 0 as before; the pistol grip and support handle hang under the
   // front half of a short fat tube and tilt its cloud's axis 5.2 deg down.
@@ -2106,6 +2020,7 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
       'demo_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
+      'mortar_team.glb',
       'recoilless_team.glb',
       'rpg_team.glb',
       'sarim_rifles.glb',

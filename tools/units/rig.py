@@ -200,10 +200,11 @@ TEAM_MESH_OWNER = {
     "charge_squad": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "at_team": "tools/units/import_meshy_kdf_team.py",
     "rpg_team": "tools/units/import_meshy_crew_team.py",
-    "mortar_team": MESH_KIT_OWNED,
+    "mortar_team": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
     "mortar_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "atgm_cell": "tools/units/import_meshy_crew_team.py",
-    "sniper_team": "tools/export_meshy_sniper.py",
+    # B7 (GH-179, 2026-10-01): was tools/export_meshy_sniper.py.
+    "sniper_team": "tools/units/import_meshy_crew_team.py",
     "yahalom_squad": MESH_KIT_OWNED,
     "digger_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "moto_rpg": "tools/units/import_meshy_moto_rpg.py",       # B6 (GH-179, 2026-10-01)
@@ -1150,9 +1151,13 @@ TEAM_FIGURES = {
         # `yah_a`'s mast already get.
         _f("at_spot", -0.32, 0.34, leader=True),
     ],
+    # B7 (GH-179, 2026-10-01): the two crew walk on D6 walkers now, as
+    # `mortar_crew`'s do -- the Meshy file replaces the supplied limbered
+    # march, and a kneeler with no walker slides across the ground in `move`
+    # (the GH-145 complaint). The kit export of this team is superseded.
     "mortar_team": [
-        _f("mtr_crew0", -0.14, -0.54, posture="kneeling", animates=False),
-        _f("mtr_crew1", -0.14, 0.54, posture="kneeling", animates=False),
+        _f("mtr_crew0", -0.14, -0.54, posture="kneeling", animates=False, move_posture="standing"),
+        _f("mtr_crew1", -0.14, 0.54, posture="kneeling", animates=False, move_posture="standing"),
         _f("mtr_no3", -0.62, 0.0, leader=True, weapon="rifle"),
     ],
     "mortar_crew": [
