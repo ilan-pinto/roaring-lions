@@ -541,7 +541,8 @@ assert FIRE_SHOULDER + FIRE_ELBOW == 0.0, (FIRE_SHOULDER, FIRE_ELBOW)
 #  * **No static raise.** `FIRE_SHOULDER`/`FIRE_ELBOW` bring a rifle UP to
 #    the aim and hold it there for the whole clip; a launcher is already on
 #    the shoulder and already on the axis (measured: `at_team`'s tube reads
-#    -0.02 deg through `measureWeaponAxis` on `idle`). Every term here is an
+#    -0.02 deg through `measureWeaponAxis` on `idle`; -0.80 since the
+#    2026-10-01 re-seat put a sight and two grips in its cloud). Every term here is an
 #    impulse on `_recoil_curve`, zero at both ends, so the aim the rest pose
 #    establishes is the aim the clip keeps.
 #  * **An order of magnitude smaller.** The largest is 3.2 deg against the
