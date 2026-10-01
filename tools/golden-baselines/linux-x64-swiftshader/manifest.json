@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "95af5d55f6c79f070b353de19b3f318fd7386743",
-  "blessedAt": "2026-09-30T21:41:43.162Z",
-  "reason": "PR #314 (A3.2 ramp set + tunnel props, main 95af5d55): vehicle 2959 px (textured dozer_d9 2191 + building corner + minimap); quiet 341 (camp prop, a wall piece, minimap building markers after camp cut to 2x2); aftermath 362 (minimap building footprints); relief 127 (the new tunnel vent prop at the corridor); open-ground 80 (one wall piece, wall thinned 1.5 -> 0.6 m). Every cluster located on #314's art; repaint controls and layer self-checks PASS (CI run 36779593434).",
+  "commit": "c9a85c4d67a430123ebec52af739acd43f86d0d0",
+  "blessedAt": "2026-10-01T09:46:48.949Z",
+  "reason": "GH-322 Sur highland biome (#326): Tel Marum (relief) and Qarn Hadid (aftermath) take the highland ground, cedars and rocks; quiet/open-ground/vehicle unchanged on main run 36843803264",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "b8303b012cde69e318dbfb71d7a6d2993712254b2163830981027077e15b237c"
+      "sha256": "18f68437c40c99e1541c80887196f394eee175a5d6bd9ba72a30a877821645fa"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "f020ffd5078216294792951f06e5172661f819543d9a3b8c19adeb0a1136ddf5"
+      "sha256": "b0939380224e4d76de81a62b1c675a23563b5a968a3a5af03dc439ce51317281"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "873cfaad915ca17289543548a6671818ff86c353deeb5fcabda17b4650ed233e"
+      "sha256": "862c19ce2504f3bdf39c39277aed6c6337cfe88ed786484dc7d8e1302c09ca12"
     },
     "aftermath": {
       "tick": 300,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "34a494c029de0d3d0807017c81599b15d484c1b0a3cd756e609da1dd53a54783"
+      "sha256": "2eaca0107173a4c11e8be371885f4c2dbc9bc6a2b47725164496449ff1fb2b38"
     }
   }
 }
