@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -121,14 +121,16 @@ describe('the import list matches the shipped roster exactly, in both directions
     // The exemption in both directions, like the pin it relaxes: a held id
     // whose GLB is gone is stale, and a held id that has gained its unit JSON
     // is an authored weight block nothing reads -- move it into the import
-    // list and delete the hold.
-    // On DISK, not `shippedVehicleIds()`: that list excludes every
-    // `HELD_MESH_FILES` vehicle since E5's Gunship (GH-181), and a weight
-    // hold is for exactly those files -- `officer_armour` is held in both
-    // places, so asking the filtered roster read "held but no GLB shipped"
-    // for a GLB that was there all along (PR #319's red `gates` job).
+    // list and delete the hold. "Ships a GLB" means ON DISK here, not
+    // `shippedVehicleIds()`: that list already drops every `HELD_MESH_FILES`
+    // vehicle (E5), and a held id is exactly one of those.
+    const shipped = new Set(
+      readdirSync(VEHICLE_MESHES)
+        .filter((f) => f.endsWith('.glb'))
+        .map((f) => f.replace(/\.glb$/, '')),
+    );
     for (const id of VEHICLE_WEIGHT_HELD_UNIT_IDS) {
-      expect(existsSync(path.join(VEHICLE_MESHES, `${id}.glb`)), `${id}: held but no GLB shipped`).toBe(true);
+      expect(shipped.has(id), `${id}: held but no GLB shipped`).toBe(true);
       expect(unitJson(id), `${id}: held but its unit JSON exists`).toBeNull();
       expect(VEHICLE_WEIGHT_IMPORTED_UNIT_IDS).not.toContain(id);
     }
