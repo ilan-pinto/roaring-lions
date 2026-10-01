@@ -26,7 +26,7 @@ import type { ImageToThreeDRequest, ImageToThreeDTask, RemeshTask, SubmitTaskRes
 import type { ImageOptions, RemeshOptions, TextOptions } from './args';
 import type { ImageTaskClient, RemeshTaskClient, TextTaskClient } from './client';
 import type { MeshyConfig } from './config';
-import { runImage, runRemesh, runText } from './cli';
+import { runImage, runRefine, runRemesh, runText } from './cli';
 import { readLedger, summarizeLedger } from './ledger';
 
 const CONFIG: MeshyConfig = {
@@ -183,6 +183,30 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
       const entries = readLedger(paths.ledgerPath);
       expect(entries).toHaveLength(1);
       expect(entries[0]).toMatchObject({ id: 'remesh-task-1', kind: 'remesh', mode: 'remesh', credits_estimated: 5, credits_consumed: 5 });
+    });
+
+    it('(a) a standalone refine run writes one `text`/`refine` line against the preview it was given (B7)', async () => {
+      const submit = vi.fn(async (body: TextToThreeDRequest): Promise<SubmitTaskResponse> => {
+        expect(body).toEqual({ mode: 'refine', preview_task_id: 'preview-from-b2', texture_resolution: '2k' });
+        return { result: 'refine-task-b7' };
+      });
+      const client: TextTaskClient = {
+        submitTextTask: submit,
+        getTextTask: vi.fn(async (id: string): Promise<TextToThreeDTask> => textTask(id, { consumed_credits: 10 })),
+      };
+
+      const code = await runRefine(
+        client,
+        CONFIG,
+        { previewTaskId: 'preview-from-b2', pbr: false, textureResolution: '2k', texturePrompt: undefined, formats: ['glb'], name: 'manpad_team', yes: true, json: false },
+        paths
+      );
+
+      expect(code).toBe(0);
+      expect(submit).toHaveBeenCalledTimes(1);
+      const entries = readLedger(paths.ledgerPath);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({ id: 'refine-task-b7', kind: 'text', mode: 'refine', name: 'manpad_team', credits_estimated: 10, credits_consumed: 10 });
     });
 
     it('(b) a run that fails before success leaves the estimate-only line intact', async () => {

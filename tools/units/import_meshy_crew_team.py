@@ -143,8 +143,13 @@ OUT_DIR = os.path.join(REPO, "art", "meshes")
 #: team -> (Meshy remesh folder glob, figure height in metres -- the numbers
 #: table's 1.74 / 1.72, bible §5 worked examples 2 and 3; B3's §10-12).
 SOURCES = {
-    "manpad_team": (os.path.join(REPO, "art", "meshy", "manpad-team-*-01a0f2af", "model.glb"), 1.74),
-    "recoilless_team": (os.path.join(REPO, "art", "meshy", "recoilless-team-*-01a0f2af", "model.glb"), 1.72),
+    # B7 (GH-179, 2026-10-01): both B2 figures re-remeshed at the same 1,500
+    # from a REFINE of their own B2 preview (`pnpm meshy -- refine`, 10
+    # credits each), so each carries its bake now; the B2 remeshes
+    # (`*-01a0f2af`) are superseded. Same preview mesh, same polycount: the
+    # cut, the kneel and `_seat_launcher` re-run on near-identical shells.
+    "manpad_team": (os.path.join(REPO, "art", "meshy", "manpad-team-*-01a0f88f", "model.glb"), 1.74),
+    "recoilless_team": (os.path.join(REPO, "art", "meshy", "recoilless-team-*-01a0f890", "model.glb"), 1.72),
     # B3 (GH-179, 2026-09-30): remeshes of REFINED tasks, so each carries its
     # own 2k bake -- see `TEXTURED` below. Folder ids filled in as each
     # remesh landed (docs/ASSET_PROVENANCE.md has the full task ids).
@@ -169,6 +174,14 @@ SOURCES = {
     # module's `_load_figure`/`cut_figure`/`_death_parts_posed`. No new
     # Meshy figure, 0 credits. `build_team` here does NOT know this team.
     "moto_rpg": (os.path.join(REPO, "art", "meshy", "rpg-team-*-01a0f313", "model.glb"), 1.76),
+    # B7 (GH-179, 2026-10-01): the five supplied Meshy teams replaced on this
+    # path -- numbers in `docs/art/meshy-prompts-units.md` §19-23, task ids in
+    # docs/ASSET_PROVENANCE.md. Each file reclaims its team id's own name.
+    "inf_squad": (os.path.join(REPO, "art", "meshy", "inf-squad-*-01a0f89c", "model.glb"), 1.78),
+    "sarim_rifles": (os.path.join(REPO, "art", "meshy", "sarim-rifles-*-01a0f89e", "model.glb"), 1.74),
+    "mortar_team": (os.path.join(REPO, "art", "meshy", "mortar-team-*-01a0f89f", "model.glb"), 1.76),
+    "sniper_team": (os.path.join(REPO, "art", "meshy", "sniper-team-*-01a0f8a1", "model.glb"), 1.78),
+    "yahalom_squad": (os.path.join(REPO, "art", "meshy", "yahalom-squad-*-01a0f8ab", "model.glb"), 1.78),
 }
 
 #: Teams whose GLB ships the remesh's own base-colour bake (PR #307's
@@ -190,7 +203,11 @@ TEXTURED = {"militia_cell", "rpg_team", "atgm_cell",
             # B5: the KDF breach team ships its own bake the same way.
             "breach_team",
             # B6: the riders carry rpg_team's bake; the bike is palette.
-            "moto_rpg"}
+            "moto_rpg",
+            # B7: the two B2 teams, refined on their own previews, and the
+            # five replaced supplied teams.
+            "manpad_team", "recoilless_team",
+            "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad"}
 TEXTURE_PX = 1024
 JPEG_QUALITY = 85
 
@@ -212,7 +229,14 @@ RECOLOUR = {"rpg_team": ((0.60, 0.52, 0.40), (300.0, 14.0)),      # dusty tan
             # B4: the digger's bald crown was painted the same rose check.
             "digger_crew": ((0.55, 0.53, 0.48), (300.0, 20.0)),   # dusty grey
             # B6: the same rpg_team figure, the same rose scarf.
-            "moto_rpg": ((0.60, 0.52, 0.40), (300.0, 14.0))}
+            "moto_rpg": ((0.60, 0.52, 0.40), (300.0, 14.0)),
+            # B7: the MANPAD refine painted the scarf and collar the same
+            # red-and-white check as B4's mortar crew; the same window.
+            "manpad_team": ((0.60, 0.52, 0.40), (300.0, 20.0)),
+            # B7: the Sarim rifleman came bare-headed under a saturated green
+            # headband; kit's keffiyeh covers the crown and the band's green
+            # goes to dusty tan where it still shows at the brow.
+            "sarim_rifles": ((0.60, 0.52, 0.40), (80.0, 160.0))}
 RECOLOUR_SAT_MIN = 0.16
 RECOLOUR_FLOOR_F = 0.74
 #: The mortar figure's chest bandolier came back in the same red check as
@@ -234,14 +258,24 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 # B5: a KDF helmet, never a keffiyeh (see HEAD_ROLE).
                 "breach_team": False,
                 # B6: rpg_team's figure wraps its own scarf.
-                "moto_rpg": False}
+                "moto_rpg": False,
+                # B7: four KDF teams (helmets, see HEAD_ROLE); sarim_rifles
+                # set from its preview.
+                "inf_squad": False, "mortar_team": False, "sniper_team": False,
+                "yahalom_squad": False,
+                # B7: the Sarim preview ignored the head wrap (a bare head
+                # under a green headband) -- kit's keffiyeh, militia's fix.
+                "sarim_rifles": True}
 
 #: The role the cranium and neck cut take. Every Sarim figure wraps a scarf
 #: there (`keffiyeh`, the module docstring's "Roles"); a KDF figure wears a
 #: helmet over a bare neck, and on a textured team the role only has to be in
 #: the closed set -- the bake says what colour it is -- so it is `uniform`,
 #: exactly what import_meshy_kdf_team.py's cut gives at_team and demo_squad.
-HEAD_ROLE = {"breach_team": "uniform"}
+HEAD_ROLE = {"breach_team": "uniform",
+             # B7: the four KDF teams on this path wear helmets.
+             "inf_squad": "uniform", "mortar_team": "uniform",
+             "sniper_team": "uniform", "yahalom_squad": "uniform"}
 HEAD_ROLE_DEFAULT = "keffiyeh"
 
 #: charge_squad only: put kit's `vest_f`/`vest_b` slabs (the `charge` role,
@@ -280,7 +314,18 @@ ARMS_FORWARD = {"digger_crew"}
 #: A-pose arm that cuts and hangs normally. A side listed here gets the
 #: synthetic hanging joints and no arm parts; `_bend_forearms`,
 #: `_death_parts_posed` and the deltoid/elbow blobs all skip it.
-ARMS_ON_TORSO = {"digger_crew": {0, 1}, "breach_team": {0}}
+ARMS_ON_TORSO = {"digger_crew": {0, 1}, "breach_team": {0},
+                 # B7: the rifleman preview came holding its carbine across
+                 # the chest in BOTH hands (the subject noun beat the pose
+                 # line, as on breach_team) -- both arms stay on the torso,
+                 # the baked carbine is the rifle (WEAPON_ON_SPINE), and the
+                 # fire clip is a FIRE_ROOT_LEAN brace. No kit rifle.
+                 "inf_squad": {0, 1},
+                 # B7: the sniper preview came AIMING its carbine -- both arms
+                 # up on the gun, no A-pose, no ghillie hood. Kept rather than
+                 # re-rolled: laid on its chest with the carbine turned to run
+                 # along the body, an aiming man IS a man on the scope.
+                 "sniper_team": {0, 1}}
 #: A weapon the preview BAKED into the figure, per team: the region (in
 #: fractions of H, +X forward) cut off the torso as its own `weapon` piece
 #: and force-bound to `{prefix}_spine` -- it is held in the hand that stays
@@ -292,7 +337,14 @@ ARMS_ON_TORSO = {"digger_crew": {0, 1}, "breach_team": {0}}
 #: rifle beside it would be a second gun. So it IS the team's rifle: no kit
 #: rifle, no hand-bound weapon, and `rig.TEAM_FIGURES` declares
 #: `weapon=None` with a `FIRE_ROOT_LEAN` brace for the fire clip.
-WEAPON_ON_SPINE = {"breach_team": dict(x_min=0.06, y=(-0.16, 0.08), z=(0.50, 0.74))}
+WEAPON_ON_SPINE = {"breach_team": dict(x_min=0.06, y=(-0.16, 0.08), z=(0.50, 0.74)),
+                   # B7: the carbine runs diagonally across the chest from the
+                   # right hip to the left shoulder; the box is wide enough
+                   # for the barrel and the magazine, measured on the remesh.
+                   "inf_squad": dict(x_min=0.07, y=(-0.20, 0.16), z=(0.44, 0.78)),
+                   # B7: the sniper's carbine is held out ahead of the chest at
+                   # shoulder height, barrel forward.
+                   "sniper_team": dict(x_min=0.10, y=(-0.22, 0.22), z=(0.56, 0.88))}
 #: The refine painted a small readable name tape on the breach figure's
 #: carrier ("no text" in the prompt notwithstanding): the texels of the
 #: upper-chest faces in this region whose luminance is above `lum_min` are
@@ -489,7 +541,9 @@ def _recolour_head(team_id, ob, height, target, hue_window):
     d = np.maximum(mx - mn, 1e-6)
     hue = np.where(mx == r, (g - b) / d % 6.0, np.where(mx == g, (b - r) / d + 2.0, (r - g) / d + 4.0)) * 60.0
     lo, hi = hue_window
-    in_hue = (hue >= lo) | (hue <= hi)
+    # A window given as (300, 20) wraps through red; one given as (95, 150)
+    # does not (B7: the Sarim rifleman's green headband).
+    in_hue = ((hue >= lo) | (hue <= hi)) if lo > hi else ((hue >= lo) & (hue <= hi))
     hit = mask & in_hue & (sat > RECOLOUR_SAT_MIN)
     lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
     t = np.array(target, dtype=np.float32)
@@ -1267,6 +1321,116 @@ def _death_parts_posed(src, height, prefix, x, y, add_kef=False):
 
 
 # ---------------------------------------------------------------------------
+# sniper_team: the prone LIVING pose (B7)
+# ---------------------------------------------------------------------------
+#
+# `rig._sniper_rest`'s contract: the prone build on `{prefix}_death_root` is
+# the living pose (`idle`, `fire`, tightened for `down`/`wreck`) and the
+# standing build on `root` is `move` alone; `rig.build_sniper_clips` flips
+# which is visible. The prone body here is the KNEEL's method laid flat: the
+# same standing cut re-arranged rigidly in code before the lay-down -- both
+# arms swung forward and the forearms turned in to meet the rifle, the head
+# lifted on the neck to look down the barrel, the legs splayed unevenly --
+# then laid on its chest with its head at kit's own +0.78 m from the anchor,
+# so `kit.sniper_rifle`/`kit.binoculars`'s prone offsets (written for the
+# kit figure) land on this body's hands and face unchanged.
+PRONE_ARM_DIR = (0.30, 0.10, 0.95)      # standing frame: mostly "up", a little forward and out
+PRONE_FORE_IN_DEG = 28.0                # forearm turned in toward the centre line, about the elbow
+PRONE_HEAD_LIFT_DEG = 38.0              # face raised off the ground, about the neck
+PRONE_LEG_SPREAD_DEG = (-5.0, 11.0)     # per side, about the hip -- never parallel (kit's own rule)
+PRONE_HEAD_X = 0.78                     # kit.figure's prone head centre, ahead of the anchor
+CARRY_SNIPER_RIFLE_Z = 0.72             # standing carry height as a fraction of POSTURE_EYE["standing"] (kit's own)
+
+
+def _prone_parts(src, height, prefix, x, y):
+    """The sniper's living prone body: every cut part of the standing figure,
+    re-arranged and laid down, each part keeping its own role, all of them
+    on `{prefix}_death_root`. Returns (parts, head_centre)."""
+    dp = f"{prefix}_death"
+    parts, joints = cut_figure(src, height, dp, blobs=False)
+    k = height / kit.FIGURE_H
+    for side in (0, 1):
+        if f"upperarm{side}" not in parts:
+            continue
+        a = joints["arm"][side]
+        sgn = -1.0 if side == 0 else 1.0
+        shoulder, elbow, wrist = Vector(a["shoulder"]), Vector(a["elbow"]), Vector(a["wrist"])
+        target = Vector((PRONE_ARM_DIR[0], sgn * PRONE_ARM_DIR[1], PRONE_ARM_DIR[2])).normalized()
+        q = (wrist - shoulder).normalized().rotation_difference(target)
+        m_arm = Matrix.Translation(shoulder) @ q.to_matrix().to_4x4() @ Matrix.Translation(-shoulder)
+        _transform(parts[f"upperarm{side}"], m_arm)
+        _transform(parts[f"forearm{side}"], m_arm)
+        elbow_m = m_arm @ elbow
+        # Forearm turned in about the moved elbow -- a rotation about the
+        # standing X axis, which is the prone body's vertical.
+        m_fore = _rot_about(elbow_m, "X", sgn * PRONE_FORE_IN_DEG)
+        _transform(parts[f"forearm{side}"], m_fore)
+        parts[f"deltoid{side}"] = _blob(f"{dp}_deltoid{side}", tuple(shoulder), BLOB_R["deltoid"] * k, src=src,
+                                        squash=(1.0, 1.0, 0.9))
+        parts[f"elbow{side}"] = _blob(f"{dp}_elbow{side}", tuple(elbow_m), BLOB_R["elbow"] * k, src=src)
+    for side in (0, 1):
+        lx, ly = joints["leg"][side]
+        hip = Vector((lx, ly, joints["crotch"]))
+        m_leg = _rot_about(hip, "X", PRONE_LEG_SPREAD_DEG[side])
+        for n in (f"thigh{side}", f"calf{side}", f"boot{side}"):
+            _transform(parts[n], m_leg)
+        parts[f"hip{side}"] = _blob(f"{dp}_hip{side}", tuple(hip), BLOB_R["hip"] * k, src=src, squash=(1.05, 1.05, 1.05))
+    hx, hy = joints["head_xy"]
+    m_head = _rot_about((hx, hy, joints["neck"]), "Y", -PRONE_HEAD_LIFT_DEG)
+    for n in ("cranium", "face", "neck"):
+        if n in parts:
+            _transform(parts[n], m_head)
+    if "carbine" in parts:
+        # A baked carbine held out ahead of the chest (WEAPON_ON_SPINE) ends
+        # up UNDER the chest once the body lies on it, with the arms that
+        # hold it; it is dropped from the prone copy and kit's long sniper
+        # rifle lies along the body instead (the `sniper_team` rule), where
+        # the first cut -- the carbine turned up about its rear end -- ran it
+        # through the lying man's own head.
+        bpy.data.objects.remove(parts.pop("carbine"), do_unlink=True)
+    # Lay it down: height -> +x (head forward), forward -> -z (face down).
+    lay = Matrix.Rotation(math.radians(90.0), 4, "Y")
+    for ob in parts.values():
+        _transform(ob, lay)
+    allco = np.concatenate([_coords(ob) for ob in parts.values()])
+    hc = _coords(parts["cranium"])
+    head_x = (hc[:, 0].min() + hc[:, 0].max()) / 2.0
+    shift = Matrix.Translation((x + PRONE_HEAD_X - head_x, y - (allco[:, 1].min() + allco[:, 1].max()) / 2.0,
+                                -allco[:, 2].min()))
+    for ob in parts.values():
+        _transform(ob, shift)
+    hc = _coords(parts["cranium"])
+    head_c = (float(hc[:, 0].mean()), float(hc[:, 1].mean()), float(hc[:, 2].mean()))
+    allco = np.concatenate([_coords(ob) for ob in parts.values()])
+    log(f"{prefix}: prone body x {allco[:, 0].min():+.2f}..{allco[:, 0].max():+.2f} "
+        f"z max {allco[:, 2].max():.3f}, head at {tuple(round(v, 3) for v in head_c)}")
+    return list(parts.values()), head_c
+
+
+def _sniper_figure(src, height, spec):
+    """One sniper: the standing walker on `root` (move) and the prone living
+    body on `death_root` (every other clip) -- `rig._sniper_rest`'s two
+    rigs with Meshy geometry. Returns (parts, bones, forced, eye_z, joints,
+    prone_head)."""
+    prefix, x, y = spec["prefix"], spec["x"], spec["y"]
+    parts, joints = cut_figure(src, height, prefix)
+    bones = standing_bones(prefix, joints, x, y)
+    _place(parts, x, y)
+    eye_z = FACE_LO_F * height + 0.03
+    forced = {}
+    if "carbine" in parts:
+        forced[parts["carbine"]] = f"{prefix}_spine"   # WEAPON_ON_SPINE, as `_figure`
+    out = list(parts.values())
+    prone, head_c = _prone_parts(src, height, prefix, x, y)
+    death_bone = rig._death_root_bone(prefix, x, y)
+    bones.append(death_bone)
+    for ob in prone:
+        forced[ob] = death_bone[0]
+    out += prone
+    return out, bones, forced, eye_z, joints, head_c
+
+
+# ---------------------------------------------------------------------------
 # the shouldered launchers (rpg_team, manpad_team, recoilless_team)
 # ---------------------------------------------------------------------------
 #
@@ -1316,7 +1480,12 @@ def _death_parts_posed(src, height, prefix, x, y, add_kef=False):
 SEAT_GAP = 0.02                # air between any launcher sample and the body
 SEAT_STEP = 0.005              # search step, both directions
 SEAT_LIFT_MAX = 0.20           # how far off the shoulder joint, along the bore's normal, the search looks
-SEAT_OUT_MAX = 0.10            # how far outboard of the head rule it may step
+SEAT_OUT_MAX = 0.12            # how far outboard of the head rule it may step -- 0.10 until B7
+                               # (2026-10-01): the MANPAD's re-remesh (the refined B2 preview at the
+                               # same 1,500) found no seat at 0.10, and the nearest candidate (out
+                               # 0.100, up 0, slide 0.10) failed by 3 samples within 2 cm of the
+                               # gunner and 1 vertex in the bore -- the tube over his deltoid, a
+                               # shouldered carry. Measured before widening, as the message asks.
 SEAT_SLIDE_STEP = 0.01         # of the tube's length, per step of sliding it forward
 SEAT_SLIDE_MAX = 0.20          # the furthest it may slide forward on the shoulder
 SIGHT_STANDOFF = 0.04          # eyepiece face ahead of the face's front (PR #325)
@@ -1460,11 +1629,46 @@ def _seat_samples(cfg, P, sight_c):
     return np.array(pts)
 
 
+def _seat_violations(cfg, P, sight_c, bvh, T, body_v, bvh_mate=None):
+    """How a candidate seat fails: (samples within SEAT_GAP of the gunner,
+    samples within `mate_gap` of the other man, body vertices inside a bore
+    solid, samples inside the body by winding number). All four zero is a
+    clear seat. Counted in full rather than short-circuited so a FAILED
+    search can say which rule refused the nearest candidate (B7: the
+    MANPAD's re-remesh found no seat and the message named three limits
+    without saying which one bit)."""
+    pts = _seat_samples(cfg, P, sight_c)
+    body_hits = mate_hits = 0
+    for p in pts:
+        q = Vector(p)
+        hit = bvh.find_nearest(q)
+        if hit[0] is not None and hit[3] < SEAT_GAP:
+            body_hits += 1
+        if bvh_mate is not None:
+            hit = bvh_mate.find_nearest(q)
+            if hit[0] is not None and hit[3] < cfg["mate_gap"]:
+                mate_hits += 1
+    d = np.array(_tube_frame(cfg["pitch"])[0])
+    rel = body_v - np.array(P)
+    along = rel @ d
+    radial = np.linalg.norm(rel - np.outer(along, d), axis=1)
+    u_rear = -cfg["rest"] * cfg["length"]
+    swallowed = 0
+    for _n, u0, u1, r0, r1, _role in cfg["bores"]:
+        t = (along - (u_rear + u0)) / (u1 - u0)
+        m = (t >= 0.0) & (t <= 1.0)
+        swallowed += int((radial[m] < (r0 + (r1 - r0) * t[m]) + SEAT_GAP).sum())
+    inside = int((_winding(pts, T) > 0.5).sum())
+    return body_hits, mate_hits, swallowed, inside
+
+
 def _seat_clear(cfg, P, sight_c, bvh, T, body_v, bvh_mate=None):
     """True when no launcher sample is inside the body or within SEAT_GAP of
     it (`mate_gap` of the other man), AND no body vertex is inside a bore
     solid (a fat tube could swallow an ear whole with every one of its own
-    samples outside)."""
+    samples outside). Short-circuits on the first violation: the search
+    asks this of ~18,000 candidates, and the full counts (`_seat_violations`)
+    are for the report when none of them clears."""
     pts = _seat_samples(cfg, P, sight_c)
     for p in pts:
         q = Vector(p)
@@ -1551,6 +1755,7 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     rest0 = cfg["rest"]
     has_sight = any(b[2] == "sight" for b in cfg["boxes"])
     w_bore = _tube_frame(cfg["pitch"])[2]
+    nearest = None   # the least-violating candidate, reported if none clears
     for k_out in range(int(round(SEAT_OUT_MAX / SEAT_STEP)) + 1):
         y = y_head + k_out * SEAT_STEP
         for k_slide in range(int(round(SEAT_SLIDE_MAX / SEAT_SLIDE_STEP)) + 1):
@@ -1566,9 +1771,25 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
         if seat:
             break
     if seat is None:
+        # Which rule refused: the full counts on a coarse grid of the same
+        # search (every tenth step), reported for the least-violating one.
+        for k_out in range(0, int(round(SEAT_OUT_MAX / SEAT_STEP)) + 1, 10):
+            y = y_head + k_out * SEAT_STEP
+            for k_slide in range(0, int(round(SEAT_SLIDE_MAX / SEAT_SLIDE_STEP)) + 1, 10):
+                cfg_k = dict(cfg, rest=rest0 - k_slide * SEAT_SLIDE_STEP)
+                for k_up in range(0, int(round(SEAT_LIFT_MAX / SEAT_STEP)) + 1, 10):
+                    P = Vector((sh1.x, y, sh1.z)) + w_bore * (k_up * SEAT_STEP)
+                    sight_c = _sight_centre(cfg_k, P, face_front, eye_z) if has_sight else None
+                    viol = _seat_violations(cfg_k, P, sight_c, bvh, T, body_v, bvh_mate)
+                    if nearest is None or sum(viol) < sum(nearest[0]):
+                        nearest = (viol, k_out, k_up, k_slide, tuple(round(c, 3) for c in P))
+        viol, k_out, k_up, k_slide, at_p = nearest
         raise SystemExit(f"{team_id}: no seat for {cfg['name']} within {SEAT_OUT_MAX} m outboard, "
                          f"{SEAT_LIFT_MAX} m above {pfx}'s shoulder and {SEAT_SLIDE_MAX} of its length forward "
-                         f"-- look at the figure before widening any of them")
+                         f"-- look at the figure before widening any of them. Nearest candidate at {at_p} "
+                         f"(out {k_out * SEAT_STEP:.3f}, up {k_up * SEAT_STEP:.3f}, slide {k_slide * SEAT_SLIDE_STEP:.2f}): "
+                         f"{viol[0]} samples within {SEAT_GAP} of the gunner, {viol[1]} within mate_gap "
+                         f"{cfg['mate_gap']} of the other man, {viol[2]} body vertices in a bore, {viol[3]} samples inside")
     P, sight_c, k_out, k_up, k_slide = seat
     d, v, w = _tube_frame(cfg["pitch"])
     u_rear = -cfg["rest"] * cfg["length"]
@@ -1750,6 +1971,29 @@ def _figure(src, height, spec, kneel):
         forced[parts["carbine"]] = f"{prefix}_spine"   # WEAPON_ON_SPINE
         log(f"{prefix}: baked carbine kept as `weapon` on spine, {len(parts['carbine'].data.polygons)} faces")
     out = list(parts.values())
+    if spec.get("work_posture") == "kneeling":
+        # B7 (yahalom_squad): a third body, kneeling, shown in `work` alone --
+        # the same cut on a kneel, its own mast pitched from its right hand
+        # into the ground on `{kp}_forearm_R`, its pack on `{kp}_spine`.
+        kp = rig._kneeler_prefix(spec)
+        kparts, kjoints = cut_figure(src, height, kp)
+        kbones, _eye = _kneel(kparts, kjoints, kp)
+        bones += rig._translate(kbones, x, y, kp)
+        _place(kparts, x, y)
+        out += list(kparts.values())
+        wr = Vector(kjoints["arm"][1]["wrist"]) + Vector((x, y, -kjoints["drop"]))
+        ground = Vector((wr.x + 0.85, wr.y, 0.0))
+        d = ground - wr
+        length = d.length + 0.25
+        pitch = math.atan2(d.z, math.hypot(d.x, d.y))
+        mid = wr + d.normalized() * (length * 0.5 - 0.15)
+        mast = kit.tube(f"{kp}_mast", length, 0.030, tuple(mid), yaw=math.atan2(d.y, d.x), pitch=pitch, role="metal")
+        pack = teams._yah_pack(f"{kp}_pack", (x, y, 0.0), kneel=True)
+        forced[mast] = f"{kp}_forearm_R"
+        forced[pack] = f"{kp}_spine"
+        out += [mast, pack]
+        log(f"{prefix}: work kneeler {kp}, mast {length:.2f} m from hand {tuple(round(v, 2) for v in wr)} "
+            f"at {math.degrees(pitch):.0f} deg")
     dy_death = CORPSE_Y_OFFSET.get(_TEAM["id"], {}).get(prefix, 0.0)
     death = _death_parts_posed(src, height, prefix, x, y + dy_death, add_kef=ADD_KEFFIYEH[_TEAM["id"]])
     death_bone = rig._death_root_bone(prefix, x, y + dy_death)
@@ -1770,8 +2014,13 @@ def build_team(team_id):
     figures = rig.TEAM_FIGURES[team_id]
     parts, bones, forced = [], [], {}
     eyes, hands = {}, {}
+    prone_heads = {}
     for spec in figures:
-        p, b, f, eye_z, j = _figure(src, height, spec, kneel=(spec["posture"] == "kneeling"))
+        if team_id == "sniper_team":
+            p, b, f, eye_z, j, head_c = _sniper_figure(src, height, spec)
+            prone_heads[spec["prefix"]] = head_c
+        else:
+            p, b, f, eye_z, j = _figure(src, height, spec, kneel=(spec["posture"] == "kneeling"))
         parts += p
         bones += b
         forced.update(f)
@@ -1790,7 +2039,9 @@ def build_team(team_id):
         gunner = next(s for s in figures if s["prefix"] == LAUNCHERS[team_id]["prefix"])
         launcher = _seat_launcher(team_id, gunner, parts, bones, hands[gunner["prefix"]],
                                   hands[gunner["prefix"]].get("drop", 0.0))
-    bpy.data.objects.remove(src, do_unlink=True)
+    src_fig = src if team_id == "sniper_team" else None   # the prone rifle borrows its bake below
+    if src_fig is None:
+        bpy.data.objects.remove(src, do_unlink=True)
 
     # Crew weapons -- kit geometry; positions from teams.py except the three
     # shouldered launchers, seated above.
@@ -1895,8 +2146,101 @@ def build_team(team_id):
             if ob.name == "brc_point_shield":
                 forced[ob] = "brc_point_spine"
         parts += props
+    elif team_id == "inf_squad":
+        # B7: no kit rifle -- each man's own baked carbine is on his torso
+        # (WEAPON_ON_SPINE, ARMS_ON_TORSO), exactly breach_team's shape.
+        pass
+    elif team_id == "sarim_rifles":
+        # B7: three riflemen, grip on each man's own bent right hand --
+        # militia_cell's rule, three times.
+        for spec in figures:
+            w = _rifle_at_hand(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
+            forced.update({ob: f"{spec['prefix']}_forearm_R" for ob in w})
+            parts += w
+    elif team_id == "mortar_team":
+        # B7: the 1.02 m tube verbatim from `rig._mortar_team_extras` on
+        # `prop`, hidden while the crew walk on their D6 walkers; the No.3's
+        # rifle at his hand.
+        tube, prop_bones, f_tube = rig._mortar_team_extras()
+        bones += prop_bones
+        forced.update(f_tube)
+        parts += tube
+        w = _rifle_at_hand("mtr_no3", hands["mtr_no3"], -0.62, 0.0)
+        forced.update({ob: "mtr_no3_forearm_R" for ob in w})
+        parts += w
+    elif team_id == "sniper_team":
+        # B7: each man's prop twice -- carried on the standing walker
+        # (`spine` for the slung rifle, `head` for the glasses, as
+        # `rig._sniper_rest`) and lying with the prone body on its
+        # `death_root`. The prone offsets are kit's own, written for a head
+        # at +0.78 from the anchor, which is where `_prone_parts` put it.
+        baked = any(o.name.endswith("_carbine") for o in parts)
+        for sspec in rig.SNIPER_SPECS:
+            pfx, sx, sy = sspec["prefix"], sspec["x"], sspec["sign"] * rig.SNIPER_CLOSE_IDLE
+            if sspec["role"] == "rifle":
+                # Standing: the figure's own baked carbine (on spine,
+                # WEAPON_ON_SPINE, bound by `_sniper_figure`) if the preview
+                # came holding one, else kit's slung rifle. Prone: always
+                # kit's long rifle with its bipod, lying along the body.
+                carried = [] if baked else kit.sniper_rifle(f"{pfx}_rifle", (sx, sy, 0.0), posture="standing")
+                forced.update({ob: f"{pfx}_spine" for ob in carried})
+                # kit.sniper_rifle's prone offsets were written for kit's
+                # 0.25 m-thick prone figure; this body lies ~0.5 m thick with
+                # its arms under it, so the same tube vanished inside it. The
+                # rifle lies BESIDE the head on the outboard side at shoulder
+                # height, muzzle well past the helmet, the bipod standing on
+                # the ground under the muzzle.
+                hx, hy, hz = prone_heads[pfx]
+                side = -1.0 if sy < 0 else 1.0
+                ry, rz = hy + side * 0.17, hz - 0.15
+                lying = [
+                    kit.tube(f"{pfx}_death_rifle", 1.24, 0.05, (hx + 0.25, ry, rz), role="weapon"),
+                    kit.box(f"{pfx}_death_rifle_bipod", (0.06, 0.30, rz - 0.02), (hx + 0.75, ry, (rz - 0.02) / 2.0 + 0.01), "metal"),
+                ]
+                if baked:
+                    # One material per role: the `weapon` mesh already holds
+                    # the baked carbine, and a UV-less tube joined to it
+                    # exports as a second primitive that three.js names
+                    # `weapon_1`/`weapon_2` -- a role nothing maps. The tube
+                    # borrows the bake and one uv (a blob joint's rule).
+                    _borrow_uv(lying[0], src_fig)
+            else:
+                carried = kit.binoculars(f"{pfx}_binos", (sx, sy, eyes[pfx] - kit.POSTURE_EYE["standing"] * kit.FIGURE_H - 0.04),
+                                         posture="standing")
+                forced.update({ob: f"{pfx}_head" for ob in carried})
+                hx, hy, hz = prone_heads[pfx]
+                # Glasses at the lifted face: just ahead of the head's own centre.
+                lying = [kit.box(f"{pfx}_death_binos", (0.10, 0.18, 0.07), (hx + 0.15, hy, hz - 0.03), "metal")]
+            forced.update({ob: f"{pfx}_death_root" for ob in lying})
+            parts += carried + lying
+    elif team_id == "yahalom_squad":
+        # B7: the packs verbatim from `rig._yahalom_extras` (kit, on both
+        # spines -- the boxy tell), the rifle at yah_b's hand, and the mast
+        # held LEVEL at yah_a's own measured right hand rather than at the
+        # kit figure's: 1.45 m with the sensor head box at its far end, on
+        # `forecarm_R` so it hides with him in down/wreck.
+        a = hands["yah_a"]["arm"][1]
+        elbow, wrist = Vector(a["elbow"]), Vector(a["wrist"])
+        hand = wrist + (wrist - elbow).normalized() * HAND_REACH + Vector((0.30, -0.20, 0.0))
+        mast_len = 1.45
+        # `metal`, not kit's default `weapon`: a sensor mast is not a barrel,
+        # and the gait test's weapon-axis sweep reads every `weapon` vertex
+        # on a `forearm_R` as one (48 vertices of mast failed its 50 floor).
+        mast = [kit.tube("yah_mast", mast_len, 0.030, (hand.x + mast_len * 0.5 - 0.20, hand.y, hand.z), yaw=0.0, pitch=0.0, role="metal")]
+        head = [kit.box("yah_head", (0.16, 0.10, 0.04), (hand.x + mast_len - 0.20, hand.y, hand.z), "metal")]
+        forced.update({ob: "yah_a_forearm_R" for ob in mast + head})
+        packs = [teams._yah_pack("yah_pack_a", (0.30, -0.20, 0.0)), teams._yah_pack("yah_pack_b", (-0.34, 0.26, 0.0))]
+        forced[packs[0]] = "yah_a_spine"
+        forced[packs[1]] = "yah_b_spine"
+        parts += mast + head + packs
+        w = _rifle_at_hand("yah_b", hands["yah_b"], -0.34, 0.26)
+        forced.update({ob: "yah_b_forearm_R" for ob in w})
+        parts += w
     else:
         raise SystemExit(f"no crew weapon rule for {team_id}")
+
+    if src_fig is not None:
+        bpy.data.objects.remove(src_fig, do_unlink=True)
 
     want = {f"{s['prefix']}_forearm_R" for s in figures if s["weapon"] in ("launcher", "rifle")}
     if want - set(forced.values()):
@@ -1910,6 +2254,7 @@ def build_team(team_id):
                 f"-> {forced.get(ob, '(table)')}")
     arm_obj = rig.build_armature(bones)
     prefixes = {s["prefix"] for s in figures} | {s["prefix"] for s in rig._walker_specs(figures)}
+    prefixes |= {rig._kneeler_prefix(s) for s in figures if s.get("work_posture") == "kneeling"}
     rig.rig_parts(parts, arm_obj, forced, prefixes)
     merged = rig.join_by_role(parts)
     rig.build_clips(arm_obj, team_id)
