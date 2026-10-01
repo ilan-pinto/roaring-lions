@@ -121,8 +121,14 @@ describe('the import list matches the shipped roster exactly, in both directions
     // The exemption in both directions, like the pin it relaxes: a held id
     // whose GLB is gone is stale, and a held id that has gained its unit JSON
     // is an authored weight block nothing reads -- move it into the import
-    // list and delete the hold.
-    const shipped = new Set(shippedVehicleIds());
+    // list and delete the hold. "Ships a GLB" means ON DISK here, not
+    // `shippedVehicleIds()`: that list already drops every `HELD_MESH_FILES`
+    // vehicle (E5), and a held id is exactly one of those.
+    const shipped = new Set(
+      readdirSync(VEHICLE_MESHES)
+        .filter((f) => f.endsWith('.glb'))
+        .map((f) => f.replace(/\.glb$/, '')),
+    );
     for (const id of VEHICLE_WEIGHT_HELD_UNIT_IDS) {
       expect(shipped.has(id), `${id}: held but no GLB shipped`).toBe(true);
       expect(unitJson(id), `${id}: held but its unit JSON exists`).toBeNull();
