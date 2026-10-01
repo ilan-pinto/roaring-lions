@@ -40,6 +40,7 @@
  */
 
 import { DECOR, type ParsedMap } from '@lions/data';
+import { terrainTonesFor } from './terrain-themes';
 
 /** Which ramp pair a rigged mesh is shaded through. Mirrors
  *  `three/units/mesh-role.ts`'s own `MeshFaction`, restated as a string union
@@ -59,6 +60,7 @@ export type DecorFamilyName =
   | 'bush'
   | 'tree'
   | 'desert_tree'
+  | 'cedar'
   | 'rock'
   | 'slab'
   | 'boulder'
@@ -280,6 +282,9 @@ export const DECOR_MESHES: Readonly<Record<DecorFamilyName, readonly string[]>> 
     'decor/desert_tree_1.glb',
     'decor/desert_tree_2.glb',
   ],
+  // GH-322: the Sur highland's Cedrus libani -- one Meshy base fitted to the
+  // decor contract at 5.4 / 4.4 / 3.3 m (`tools/terrain/fit_meshy_cedar.py`).
+  cedar: ['decor/cedar_0.glb', 'decor/cedar_1.glb', 'decor/cedar_2.glb'],
   rock: ['decor/rock_0.glb', 'decor/rock_1.glb', 'decor/rock_2.glb'],
   slab: ['decor/slab_0.glb', 'decor/slab_1.glb', 'decor/slab_2.glb'],
   boulder: ['decor/boulder_0.glb', 'decor/boulder_1.glb', 'decor/boulder_2.glb'],
@@ -683,6 +688,12 @@ export function missionUnitTypes(mission: unknown, unitIds: ReadonlySet<string>)
 export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
   const out = new Set<DecorFamilyName>();
   const { width, height, blocked, cover, decor, boulder } = map;
+  // The species `decor-place.ts` reads, through the same function the
+  // renderer's tones come from -- NOT a literal per theme, which is the trap
+  // the old `terrain === 'green'` ternary was: a third species broke it.
+  const tones = terrainTonesFor(map);
+  const extra = tones.openScatter;
+  let sawOpen = false;
   for (let t = 0; t < width * height; t++) {
     const d = decor[t];
     // A ridge is the one blocked tile that draws decor; every other blocked
@@ -704,16 +715,24 @@ export function decorFamiliesFor(map: ParsedMap): Set<DecorFamilyName> {
     // Must agree with `decor-place.ts`'s `familyFor` and with
     // `TERRAIN_THEMES[map.terrain].groveFamily`: fetching the family the
     // renderer will not place leaves a grove drawing nothing at all.
-    if (d === DECOR.grove) out.add(map.terrain === 'green' ? 'tree' : 'desert_tree');
+    if (d === DECOR.grove) out.add(tones.groveFamily);
     else if (d === DECOR.knoll) out.add('rock');
     else if (d === DECOR.ridge) out.add('slab');
     else if (cover[t] > 0) out.add('bush');
     else {
       // The fallback branch rolls between the two per tile, so a map with any
-      // plain open ground can produce either.
+      // plain open ground can produce either -- unless the theme keeps no sand.
       out.add('grass');
-      out.add('sand');
+      if (!extra || extra.sandKeep > 0) out.add('sand');
+      sawOpen = true;
     }
+  }
+  // GH-322's open-ground pass places these four on plain open ground.
+  if (extra && sawOpen) {
+    out.add(extra.tree);
+    out.add('boulder');
+    out.add('bush');
+    out.add('rock');
   }
   return out;
 }

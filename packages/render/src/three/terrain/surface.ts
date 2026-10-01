@@ -172,7 +172,8 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  *    ratio to its own measured mean (`mesh.ts`'s `GROUND_ALBEDOS`):
  *
  *      * open ground: `desert_sand_tile.jpg` on an `arid` map,
- *        `green_basin_tile.jpg` on a `green` one. Chosen by `map.terrain`,
+ *        `green_basin_tile.jpg` on a `green` one, `highland_v2_tile.jpg` on
+ *        a `highland` one (GH-322). Chosen by `map.terrain`,
  *        the same read that picks the tone bundle -- before 2026-09-03 it was
  *        the sand unconditionally, so the Naharin river basin drew as desert.
  *      * a `^` rock ridge, top and cliff face: `rock_ground_tile.jpg`.
@@ -280,7 +281,7 @@ export const SURFACE_OVERSHOOT_LEVELS = 0.3;
  * exists.
  */
 export const SURFACE_SHADING_EXEMPTION = {
-  what: "the drawn ground's six sampled albedos, applied as a ratio to each image's own mean, at the fragment stage only -- open ground (desert_sand_tile on arid, green_basin_tile on green), a ^ ridge (rock_ground_tile), an r road (knoll_scree_tile as its grain at a 2-tile repeat since R-7; road_track_tile is still listed and bound to nothing), a 1/2/3 cover tile (rough_scrub_tile), an o grove floor (orchard_floor_tile) and an n rocky knoll (knoll_scree_tile)",
+  what: "the drawn ground's six sampled albedos, applied as a ratio to each image's own mean, at the fragment stage only -- open ground (desert_sand_tile on arid, green_basin_tile on green, highland_v2_tile on highland), a ^ ridge (rock_ground_tile), an r road (knoll_scree_tile as its grain at a 2-tile repeat since R-7; road_track_tile is still listed and bound to nothing), a 1/2/3 cover tile (rough_scrub_tile), an o grove floor (orchard_floor_tile) and an n rocky knoll (knoll_scree_tile)",
   why: 'material and relief are legible; since 2026-09-14 the ground is lit and shadowed by the scene sun like every other object, so the shade term is no longer an exemption from anything',
   notExempt: [
     'every vertex colour emitted by buildGround (still asserted palette-only), cover tiers included -- groundTone still does not branch on cover',

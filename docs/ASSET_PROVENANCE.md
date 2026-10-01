@@ -406,6 +406,42 @@ and stays distinct as `bush_1` instead (script docstring "DESERT TREE").
 
 ---
 
+## The Sur highland biome -- the Lebanon cedar and the V2 ground (GH-322), 2026-10-01
+
+Two assets for the `highland` terrain theme the eight Sur maps declare, both
+approved by the lead on 1 Oct ("ground V2", "the Meshy cedar"). AI-generated,
+disclosed per `CONTRIBUTING.md`.
+
+**The cedar** -- Meshy **text-to-3D** through `pnpm meshy`, a preview plus one
+remesh, **25 credits** (~$0.50), both tasks in `art/meshy/ledger.jsonl`, which
+also records the prompt. No texture was requested: decor is a palette ramp
+slice, zero materials by contract. `tools/terrain/fit_meshy_cedar.py` (Blender
+5.2 headless, 0 credits, deterministic) splits the remesh into `trunk` /
+`foliage` roles by geometry alone and writes three uniform scales of the one
+base.
+
+| File(s) (`art/meshes/decor/`) | Preview task id | Remesh task id (shipped source) | heights | tris shipped |
+|---|---|---|---|---|
+| `cedar_0` / `cedar_1` / `cedar_2` | `01a0f636-1df3-70c1-b014-5cd62fc58c7e` (meshy-6, lowpoly, 20,963 tris) | `01a0f63b-65fb-74f9-a672-098b61015362` (`--polycount 1500`) | 5.4 / 4.4 / 3.3 m | 1,523 each (250 trunk / 1,273 foliage faces) |
+
+Committed under `art/meshy/`: the remesh folder's `model.glb` (the fit
+script's only input) and both tasks' `task.json` and `thumbnail.png`. The
+preview `model.glb` and the remesh's loose `texture_0_normal.png` are not, the
+same convention as every batch above.
+
+**The ground** -- `art/textures/highland_v2_tile.png` (shipped as
+`assets/textures/highland_v2_tile.jpg` by `tools/textures/encode_ground_tiles.py`)
+is authored by `tools/textures/author_highland_tile.py` from the SUPPLIED
+`art/blend/terrain tiles /Meshy_AI_image_rock.png` (the image the lead fed to
+Meshy; md5 `ccd28b05894a57bb5c9f8483981372ad`, gitignored with the rest of
+`art/blend/`), never used before this. No Meshy call, 0 credits: a blurred-
+luminance mask separates the limestone chips from the earth between them, the
+chips are pulled to a warm neutral grey and the earth to terra rossa. Mean rgb
+162.3 / 135.1 / 116.8, declared in `GROUND_ALBEDOS` and measured by
+`tools/src/ground-albedo.test.ts`.
+
+---
+
 ## Unit voices (ElevenLabs, supplied by the lead, 2026-09-29)
 
 Five Hebrew voice lines in `assets/audio/voice/he/`, wired to `data/audio.json`

@@ -17,7 +17,7 @@ import { paletteColor, paletteTeamColors, variantAwareResolver, type ParsedMap }
 import { QUALITY_PRESETS, type RendererOptions } from '@lions/render';
 import { dracoDecoderPath } from './mesh-catalogue';
 import type { ColorVision, Quality } from './settings';
-import { TERRAIN_GROUND_TEXTURE, TERRAIN_THEMES } from './terrain-themes';
+import { TERRAIN_GROUND_TEXTURE, terrainTonesFor } from './terrain-themes';
 
 /** The slice of the player's settings a `RendererOptions` is built from.
  *  Named rather than passed as the whole `Settings` object so a caller with
@@ -54,7 +54,8 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
       paletteColor('group.g8'),
       paletteColor('group.g9'),
     ],
-    terrainTones: TERRAIN_THEMES[map.terrain],
+    // The theme's bundle, by identity unless the map overrides its grove.
+    terrainTones: terrainTonesFor(map),
     tracerColors: [paletteColor('vfx.tracer'), paletteColor('vfx.ember')],
     // GH-149. Deliberately NOT `tracerColors` -- an arcing round is
     // ordnance, not a bullet, and drew green until now. See

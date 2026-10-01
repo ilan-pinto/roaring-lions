@@ -1191,9 +1191,20 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
       {
         layer: 'vignette',
-        minDiffPixels: 19800,
+        minDiffPixels: 5580,
         minMeanAbsChannelDelta: 1.13,
         rationale:
+          'GH-322 (2026-10-01, the Sur highland): tel_marum now draws terra rossa earth and grey ' +
+          'karst rock instead of sand and limestone, and the corners the vignette darkens are ' +
+          'darker to begin with, so the same multiplicative falloff carries fewer pixels over ' +
+          'pixelmatch\'s 0.1 perceptual threshold: switching vignette off moves 16746 px / 1.5933 ' +
+          'here, bit-identical across 4 consecutive full-gate runs (macOS 15 / M3 Pro, headless ' +
+          'Chromium, software SwiftShader, frame loop frozen; main at 7dc3d134 reads 59731 / ' +
+          '3.4321 under the same conditions, so the fall is the content, not the pass). PIXEL ' +
+          'floor re-derived as a third of that reading, rounded down: 5580, from 19800 -- a ' +
+          'fall, recorded as one and pending the lead\'s N-7 approval in the GH-322 PR. The ' +
+          'MAGNITUDE floor is unchanged: 1.5933 still clears 1.13 by 1.4x. A pass that stops ' +
+          'running still reads 0 px / 0.0000 and fails both. ' +
           GROUND_T11 +
           'switching vignette off moves 59731 px / 3.4314 here, bit-identical across r1-r3 -- ' +
           'within 1% of the 59402/3.4137 reading the floor was set from. Unchanged. ' +

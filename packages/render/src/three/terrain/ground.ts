@@ -49,7 +49,7 @@
  * `open-ground` and `vehicle` golden scenarios are expected to hold their
  * noise floor across this change while `relief` moves wholesale.
  */
-import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
+import { composite, quantise, groundTone, quantisePalette } from './tones';
 import { DECOR_RIDGE, DECOR_ROAD, hexToUnit, levelAt, pushPolygon, WORLD_PER_LEVEL } from './shared';
 import {
   buildTerrainSurface,
@@ -197,8 +197,8 @@ export function groundAlbedoSlotsUsed(input: TerrainInput): ReadonlySet<GroundAl
 export function tileBaseToneHex(input: TerrainInput, tones: TerrainTones, ti: number, background: string): string {
   const decorHere = input.decor ? input.decor[ti] : 0;
   return decorHere === DECOR_ROAD
-    ? quantise(composite(background, tones.open, 1), PALETTE_HEXES)
-    : groundTone(input, tones, ti, PALETTE_HEXES, background);
+    ? quantise(composite(background, tones.open, 1), quantisePalette(tones))
+    : groundTone(input, tones, ti, quantisePalette(tones), background);
 }
 
 /**
@@ -235,8 +235,8 @@ export function buildGround(input: TerrainInput, tones: TerrainTones, background
   const groundUv: number[] = [];
   const indices: number[] = [];
 
-  const faceEastHex = quantise(composite(background, tones.rock, FACE_ALPHA_EAST), PALETTE_HEXES);
-  const faceSouthHex = quantise(composite(background, tones.rock, FACE_ALPHA_SOUTH), PALETTE_HEXES);
+  const faceEastHex = quantise(composite(background, tones.rock, FACE_ALPHA_EAST), quantisePalette(tones));
+  const faceSouthHex = quantise(composite(background, tones.rock, FACE_ALPHA_SOUTH), quantisePalette(tones));
   const faceEastColor = hexToUnit(faceEastHex);
   const faceSouthColor = hexToUnit(faceSouthHex);
 

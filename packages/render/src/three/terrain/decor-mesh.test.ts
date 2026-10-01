@@ -4,6 +4,8 @@ import { buildDecorMesh, disposeDecorMesh, stripToBatchAttributes, swayingFoliag
 import { swayVertexChunk } from './sway';
 import type { DecorGeometrySet } from './decor-mesh';
 import type { DecorPlacement } from './decor-place';
+import { rampForDecorRole } from './decor-role';
+import { liftTone } from '../world-materials';
 
 function geo(): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
@@ -296,5 +298,53 @@ describe('the foliage batch sways (Task 7)', () => {
     for (const child of group.children) {
       expect(((child as THREE.BatchedMesh).material as THREE.Material).customProgramCacheKey()).not.toBe('rl-foliage-sway');
     }
+  });
+});
+
+describe('buildDecorMesh decorColors (GH-322)', () => {
+  const set: DecorGeometrySet = {
+    parts: new Map([
+      ['rock_0', [{ role: 'rock', geometry: geo() }]],
+      ['slab_0', [{ role: 'rock', geometry: geo() }]],
+      ['bush_0', [{ role: 'foliage', geometry: geo() }]],
+    ]),
+  };
+  const placements: DecorPlacement[] = [
+    { family: 'rock', variant: 0, x: 0, z: 0, y: 0, yawTurns: 0, scale: 1 },
+    { family: 'slab', variant: 0, x: 1, z: 1, y: 0, yawTurns: 0, scale: 1 },
+    { family: 'bush', variant: 0, x: 2, z: 2, y: 0, yawTurns: 0, scale: 1 },
+  ];
+  const byName = (g: THREE.Group, name: string): THREE.BatchedMesh => {
+    const m = batchesOf(g).find((b) => b.name === name);
+    if (!m) throw new Error(`no ${name}`);
+    return m;
+  };
+  const colorsTexture = (m: THREE.BatchedMesh): unknown => (m as unknown as { _colorsTexture: unknown })._colorsTexture;
+
+  it('builds an untinted batch exactly as before: ramp-coloured material, no instance colours', () => {
+    const plain = buildDecorMesh(placements, set);
+    const rock = byName(plain, 'decor-rock');
+    expect(colorsTexture(rock)).toBeNull();
+    expect((rock.material as THREE.MeshStandardMaterial).color.getHexString()).toBe(
+      new THREE.Color(liftTone(rampForDecorRole('rock'))).getHexString()
+    );
+    // A tint for a family the batch does not hold switches nothing over.
+    const other = buildDecorMesh(placements, set, undefined, { 'cedar:foliage': '#3E5C2E' });
+    expect(colorsTexture(byName(other, 'decor-rock'))).toBeNull();
+    expect(colorsTexture(byName(other, 'decor-foliage'))).toBeNull();
+  });
+
+  it('tints a keyed family inside its role batch, and gives the unkeyed one its old tone, at +0 draws', () => {
+    const g = buildDecorMesh(placements, set, undefined, { 'slab:rock': '#6E6960' });
+    expect(batchesOf(g).length).toBe(2);
+    const rock = byName(g, 'decor-rock');
+    expect((rock.material as THREE.MeshStandardMaterial).color.getHex()).toBe(0xffffff);
+    const c = new THREE.Color();
+    rock.getColorAt(0, c);
+    expect(c.getHexString()).toBe(new THREE.Color(liftTone(rampForDecorRole('rock'))).getHexString());
+    rock.getColorAt(1, c);
+    expect(c.getHexString()).toBe(new THREE.Color('#6E6960').getHexString());
+    // The foliage batch had no key and is untouched.
+    expect(colorsTexture(byName(g, 'decor-foliage'))).toBeNull();
   });
 });

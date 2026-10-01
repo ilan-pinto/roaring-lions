@@ -185,11 +185,13 @@ function tally(tiles: string[]): Record<string, number> {
 // ---------------------------------------------------------------------------
 
 describe('the map the design specifies', () => {
-  it('is a 48x48 arid basin with the elevation range 0-7', () => {
+  it('is a 48x48 highland basin with the elevation range 0-7', () => {
     expect(MAP.width).toBe(48);
     expect(MAP.height).toBe(48);
     expect(MAP.rows).toHaveLength(48);
-    expect(MAP.terrain).toBe('arid');
+    // GH-322: the Sur highland, keeping its olive terraces by name.
+    expect(MAP.terrain).toBe('highland');
+    expect(MAP.grove).toBe('olive');
     expect(MAP.elevation).toBeDefined();
     expect(MAP.elevation).toHaveLength(48);
     const levels = new Set((MAP.elevation ?? []).join(''));

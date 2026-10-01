@@ -31,13 +31,57 @@ import { DECOR_ROAD, DECOR_RIDGE } from './shared';
  *  a hand-copied list goes stale silently the first time the palette changes,
  *  and `quantise` would start snapping to a partial palette without a single
  *  failing test pointing at why. */
-const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
+const ramps = paletteJson.ramps as Record<string, { colors: string[]; theme_only?: boolean }>;
 const reserved = paletteJson.reserved as Record<string, { colors: Record<string, string> }>;
 
 export const PALETTE_HEXES: readonly string[] = [
   ...Object.values(ramps).flatMap((ramp) => ramp.colors),
   ...Object.values(reserved).flatMap((band) => Object.values(band.colors)),
 ];
+
+/**
+ * The palette every terrain theme quantises onto: `PALETTE_HEXES` minus the
+ * ramps `data/palette.json` marks `theme_only` (GH-322's `karst`).
+ *
+ * Why a theme-only ramp exists at all: `quantise` snaps to the NEAREST entry
+ * in whatever set it is given, so adding a colour to the shared set can move
+ * a tile on a map that never asked for it. Measured when `karst` landed: in
+ * the shared set it moved 11 of the 18 non-highland maps' composed terrain.
+ * Keeping it out of this set and letting a theme opt in by name
+ * (`TerrainTones.paletteRamps`) makes adding a biome's colours a change to
+ * that biome only. `PALETTE_HEXES` stays the whole palette, because it is
+ * also the palette GUARANTEE every test checks output against, and a karst
+ * grey on a highland map is a palette entry.
+ */
+export const SHARED_PALETTE_HEXES: readonly string[] = [
+  ...Object.values(ramps)
+    .filter((ramp) => ramp.theme_only !== true)
+    .flatMap((ramp) => ramp.colors),
+  ...Object.values(reserved).flatMap((band) => Object.values(band.colors)),
+];
+
+const themePalettes = new Map<string, readonly string[]>();
+
+/** The set `tones`' theme quantises onto: the shared palette plus any
+ *  theme-only ramp it names. Memoised by the ramp list, so the hot builder
+ *  loops pay one Map lookup per call rather than a rebuild. An unknown ramp
+ *  name throws -- a typo here would otherwise quantise a whole biome onto
+ *  the shared palette and look merely "a bit off". */
+export function quantisePalette(tones: Pick<TerrainTones, 'paletteRamps'>): readonly string[] {
+  const names = tones.paletteRamps;
+  if (names === undefined || names.length === 0) return SHARED_PALETTE_HEXES;
+  const key = names.join(',');
+  const cached = themePalettes.get(key);
+  if (cached) return cached;
+  const extra = names.flatMap((name) => {
+    const ramp = ramps[name];
+    if (!ramp) throw new Error(`quantisePalette: unknown palette ramp "${name}"`);
+    return ramp.theme_only === true ? ramp.colors : [];
+  });
+  const built = [...SHARED_PALETTE_HEXES, ...extra];
+  themePalettes.set(key, built);
+  return built;
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.charAt(0) === '#' ? hex.slice(1) : hex;

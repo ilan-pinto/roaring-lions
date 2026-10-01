@@ -166,6 +166,7 @@ export {
   type TerrainCell,
   type TerrainSink,
   type TerrainTheme,
+  type GroveSpecies,
 } from './map';
 
 /** Brigade economy step 3 (spec 2026-09-15 §4.3): patches a unit's JSON

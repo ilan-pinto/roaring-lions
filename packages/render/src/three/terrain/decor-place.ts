@@ -15,7 +15,7 @@
  * Several independent streams come from offsetting the coordinates, which is
  * cheaper than threading a seed and just as stable.
  */
-import type { GroveFamily } from '../../api';
+import type { GroveFamily, OpenScatter } from '../../api';
 import { tileHash } from '../../tile-hash';
 import { ROAD_EDGE_FALLOFF, ROAD_HALF_WIDTH, buildRoadGraph, roadDistanceAt, type RoadGraph } from './road-graph';
 import {
@@ -62,6 +62,11 @@ const DENSITY: Record<Exclude<DecorFamily, 'grass' | 'sand' | 'bush'>, number> =
   // authored `o`, so every one of them draws its tree. The species differs
   // (`GroveFamily`), the placement rule does not.
   desert_tree: 1.0,
+  // The Sur highland's grove (GH-322): 0.6 a tile and NO twin (see the twin
+  // rule below). A 5.4 m cedar is 1.6x an olive and spans up to 1.6 tiles;
+  // at the olive's 1.0 plus its twin, the mock photographed Qarn Hadid's
+  // grove as one closed canopy rather than as trees.
+  cedar: 0.6,
   rock: 0.75,
   slab: 0.6,
   boulder: 1.0,
@@ -511,7 +516,8 @@ export function decorPlacements(input: TerrainInput, density: number = SCATTER_D
       // tile is the theme's (`GroveFamily`). Keyed on the literal olive it
       // stopped firing on every arid map at once and thinned every desert
       // grove to one tree -- caught by this file's own twin tests.
-      if (family === grove && tileHash(x * 3, y * 7) > 0.62) {
+      // A cedar grove never twins (GH-322, see `DENSITY.cedar`).
+      if (family === grove && family !== 'cedar' && tileHash(x * 3, y * 7) > 0.62) {
         const jx2 = tileHash(x + 601, y + 491) - 0.5;
         const jy2 = tileHash(x + 491, y + 601) - 0.5;
         out.push({
@@ -537,6 +543,10 @@ export function decorPlacements(input: TerrainInput, density: number = SCATTER_D
   // nothing (`ThreeRenderer.ground-control.test.ts`'s I-1 case) never pays
   // to rebuild it a second time, road-bearing maps included.
   const graph = sawRoad ? cachedRoadGraph(input) : emptyRoadGraph(width, height);
+  const extra = input.openScatter;
+  // 1 when the theme declares no open scatter: `keepSand` then never drops a
+  // tuft, so every theme before GH-322 places exactly what it placed.
+  const sandKeep = extra ? extra.sandKeep : 1;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const t = y * width + x;
@@ -557,6 +567,7 @@ export function decorPlacements(input: TerrainInput, density: number = SCATTER_D
           const mx = x + 0.5 + Math.cos(angle) * radius;
           const mz = y + 0.5 + Math.sin(angle) * radius;
           if (!isOpenScatterAt(input, graph, mx, mz)) continue;
+          if (clusterFamily === 'sand' && !keepSand(sandKeep, mx, mz)) continue;
           out.push({
             family: clusterFamily,
             variant: Math.floor(tileHash(x * 19 + k + 8101, y * 23 + k + 5407) * VARIANTS_PER_FAMILY),
@@ -579,7 +590,7 @@ export function decorPlacements(input: TerrainInput, density: number = SCATTER_D
         const jy = tileHash(x + 13, y + 401) - 0.5;
         const sx = x + 0.5 + jx * 0.6;
         const sz = y + 0.5 + jy * 0.6;
-        if (isOpenScatterAt(input, graph, sx, sz)) {
+        if (isOpenScatterAt(input, graph, sx, sz) && (singletonFamily !== 'sand' || keepSand(sandKeep, sx, sz))) {
           out.push({
             family: singletonFamily,
             variant: Math.floor(tileHash(x + 53, y + 991) * VARIANTS_PER_FAMILY),
@@ -594,5 +605,146 @@ export function decorPlacements(input: TerrainInput, density: number = SCATTER_D
     }
   }
 
+  if (extra) placeOpenScatter(input, extra, surface, out);
   return out;
+}
+
+/** Whether a sand tuft at `(px, pz)` survives a theme's `sandKeep`. Keyed on
+ *  the tuft's own tile through a dedicated stream (5551/7717), so the kept
+ *  fraction is spatially even rather than all-or-nothing per clump. `keep`
+ *  of 1 keeps every tuft (`tileHash` is strictly below 1). */
+function keepSand(keep: number, px: number, pz: number): boolean {
+  return keep >= 1 || tileHash(Math.floor(px) + 5551, Math.floor(pz) + 7717) < keep;
+}
+
+/**
+ * GH-322's open-ground pass: trees, outcrop boulders, bushes and stone chips
+ * over plain open ground, denser on the "foothill" (within two tiles of a
+ * ridge, a knoll or higher ground). One roll a tile on its own stream
+ * (4441/6673) -- tree, boulder, bush and chip take consecutive bands of it,
+ * so the four probabilities add. A foothill chip also gathers a cluster of
+ * 2-4 more stones on `chipCluster` of its tiles: scree collects below slopes.
+ *
+ * Never within a tile of a road or a building: a cedar in a doorway or on a
+ * verge reads as authored content nobody authored. Every stream offset here
+ * is unused by the passes above, so turning this on moves none of their
+ * placements -- what a highland map loses relative to arid is only what
+ * `sandKeep` drops.
+ *
+ * Decor never reaches the sim (`applyTerrain` passes blocked/cover/elevation/
+ * boulder only): a cedar here is no cover, blocks no sight line and stops
+ * no vehicle. The band-6 occlusion outline keeps a unit behind one legible.
+ */
+function placeOpenScatter(
+  input: TerrainInput,
+  s: OpenScatter,
+  surface: ReturnType<typeof buildTerrainSurface>,
+  out: DecorPlacement[]
+): void {
+  const { width, height, blocked, cover, decor, boulder, elevation } = input;
+  const grove: GroveFamily = input.groveFamily ?? 'desert_tree';
+  const decorAt = (t: number): number => (decor ? decor[t] : 0);
+  const nearRelief = (x: number, y: number): boolean => {
+    const h0 = elevation ? elevation[y * width + x] : 0;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const nt = ny * width + nx;
+        const nd = decorAt(nt);
+        if (nd === DECOR_RIDGE || nd === DECOR_KNOLL) return true;
+        if (elevation && elevation[nt] > h0) return true;
+      }
+    }
+    return false;
+  };
+  const nearStructureOrRoad = (x: number, y: number): boolean => {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const nt = ny * width + nx;
+        const nd = decorAt(nt);
+        if (blocked[nt] !== 0 && nd !== DECOR_RIDGE) return true;
+        if (nd === DECOR_ROAD) return true;
+      }
+    }
+    return false;
+  };
+  // Cluster members are re-checked against the same rule the grass and sand
+  // members are -- a radius of up to 0.9 tile can carry one off its tile.
+  const graph = cachedRoadGraphOrEmpty(input);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = y * width + x;
+      if (blocked[t] !== 0) continue;
+      const isBoulder = boulder ? boulder[t] !== 0 : false;
+      if (familyFor(decorAt(t), cover[t], isBoulder, grove) !== 'open') continue;
+      if (nearStructureOrRoad(x, y)) continue;
+      const foot = nearRelief(x, y);
+      const treeP = foot ? s.treeFoothill : s.treePlain;
+      const boulderP = foot ? s.boulderFoothill : s.boulderPlain;
+      const chipP = foot ? s.chipFoothill : s.chipPlain;
+      const roll = tileHash(x + 4441, y + 6673);
+      const scaleRoll = tileHash(x + 303, y + 7001);
+      const px = x + 0.5 + (tileHash(x + 8101, y + 2207) - 0.5) * 0.7;
+      const pz = y + 0.5 + (tileHash(x + 2207, y + 8101) - 0.5) * 0.7;
+      let family: DecorFamily;
+      let scale: number;
+      if (roll < treeP) {
+        family = s.tree;
+        scale = 0.85 + scaleRoll * 0.3;
+      } else if (roll < treeP + boulderP) {
+        // An outcrop: the `b` field's own 2.1-2.5 m boulders at half to full size.
+        family = 'boulder';
+        scale = 0.45 + scaleRoll * 0.6;
+      } else if (roll < treeP + boulderP + s.bush) {
+        family = 'bush';
+        scale = 0.9 + scaleRoll * 0.5;
+      } else if (roll < treeP + boulderP + s.bush + chipP) {
+        family = 'rock';
+        scale = 0.6 + scaleRoll * 0.7;
+        if (foot && tileHash(x + 1777, y + 919) < s.chipCluster) {
+          const n = 2 + Math.floor(tileHash(x + 8887, y + 227) * 3);
+          for (let k = 0; k < n; k++) {
+            const a = tileHash(x * 7 + k + 5003, y * 5 + k + 2707) * TAU;
+            const r = 0.35 + tileHash(x * 5 + k + 1301, y * 3 + k + 4409) * 0.55;
+            const cx = px + Math.cos(a) * r;
+            const cz = pz + Math.sin(a) * r;
+            if (!isOpenScatterAt(input, graph, cx, cz)) continue;
+            out.push({
+              family: 'rock',
+              variant: Math.floor(tileHash(x * 19 + k + 8101, y * 23 + k + 5407) * VARIANTS_PER_FAMILY),
+              x: cx,
+              z: cz,
+              y: surfaceWorldY(surface, cx, cz),
+              yawTurns: tileHash(x * 29 + k + 9203, y * 31 + k + 6301),
+              scale: 0.5 + tileHash(x * 37 + k + 4801, y * 41 + k + 2003) * 0.6,
+            });
+          }
+        }
+      } else {
+        continue;
+      }
+      out.push({
+        family,
+        variant: Math.floor(tileHash(x + 9901, y + 1301) * VARIANTS_PER_FAMILY),
+        x: px,
+        z: pz,
+        y: surfaceWorldY(surface, px, pz),
+        yawTurns: tileHash(x + 7001, y + 303),
+        scale,
+      });
+    }
+  }
+}
+
+/** `cachedRoadGraph` when the map has a road tile at all, the empty graph
+ *  otherwise -- the same choice `decorPlacements` makes from its own scan. */
+function cachedRoadGraphOrEmpty(input: TerrainInput): RoadGraph {
+  const { decor, width, height } = input;
+  if (decor && decor.includes(DECOR_ROAD)) return cachedRoadGraph(input);
+  return emptyRoadGraph(width, height);
 }

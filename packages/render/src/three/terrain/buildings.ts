@@ -68,7 +68,7 @@
  * structure's own footprint the way the arid theme's happens to be.
  */
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
+import { composite, quantise, groundTone, quantisePalette } from './tones';
 import { tileHash } from '../../tile-hash';
 import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
 import {
@@ -353,11 +353,11 @@ export function buildBuildings(
     // this tile before `drawBuildingTile`'s box goes over it in Pixi's
     // `spriteLayer`. The composite base for every fill below, exactly as
     // `grove.ts` uses it for its own tree/shadow tones.
-    const gt = groundTone(input, tones, ti, PALETTE_HEXES, background);
-    const wallSouthHex = quantise(composite(gt, WALL_SOUTH_HEX, WALL_ALPHA), PALETTE_HEXES);
-    const wallEastHex = quantise(composite(gt, WALL_EAST_HEX, WALL_ALPHA * b.wear), PALETTE_HEXES);
-    const roofHex = quantise(composite(gt, b.roofBase, b.wear), PALETTE_HEXES);
-    const clutterHex = quantise(composite(roofHex, CLUTTER_HEX, CLUTTER_ALPHA), PALETTE_HEXES);
+    const gt = groundTone(input, tones, ti, quantisePalette(tones), background);
+    const wallSouthHex = quantise(composite(gt, WALL_SOUTH_HEX, WALL_ALPHA), quantisePalette(tones));
+    const wallEastHex = quantise(composite(gt, WALL_EAST_HEX, WALL_ALPHA * b.wear), quantisePalette(tones));
+    const roofHex = quantise(composite(gt, b.roofBase, b.wear), quantisePalette(tones));
+    const clutterHex = quantise(composite(roofHex, CLUTTER_HEX, CLUTTER_ALPHA), quantisePalette(tones));
 
     const roofY = topY + b.heightPx * WORLD_Y_PER_LIFT_PIXEL;
     pushBox(x, y, topY, roofY, wallSouthHex, wallEastHex, roofHex, clutterHex, b.integrity);

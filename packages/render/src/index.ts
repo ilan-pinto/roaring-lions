@@ -22,7 +22,7 @@ export const RENDER_VERSION = 1;
 // rather than joining the lazy entry point. See `decor.ts`'s own comment for
 // why it is redeclared rather than imported from `renderer.ts`.
 export { TERRAIN_DECOR } from './decor';
-export type { RendererOptions, TerrainTones, TerrainScatter, ObjectiveZoneView, TimeOfDay } from './api';
+export type { RendererOptions, TerrainTones, TerrainScatter, OpenScatter, GroveFamily, ObjectiveZoneView, TimeOfDay } from './api';
 // Backend-neutral by construction (no three import -- see the file's own
 // header), so it stays a static export of the barrel like `TERRAIN_DECOR`
 // rather than joining a lazy entry point. `main.ts` reads `QUALITY_PRESETS`

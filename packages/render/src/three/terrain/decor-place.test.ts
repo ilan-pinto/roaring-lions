@@ -23,6 +23,7 @@ import {
 } from './shared';
 import { tileHash } from '../../tile-hash';
 import type { TerrainInput } from './types';
+import type { OpenScatter } from '../../api';
 
 /** A w*h map, everything open ground, with per-tile overrides applied after. */
 function input(w: number, h: number, edit?: (i: TerrainInput, decor: Uint8Array, blocked: Uint8Array, cover: Uint8Array) => void): TerrainInput {
@@ -748,5 +749,94 @@ describe('the density dial (R-4, N-22)', () => {
     expect(ratio).toBeLessThan(0.56);
     const rest = (ps: readonly DecorPlacement[]) => ps.filter((p) => p.family !== 'grass' && p.family !== 'sand');
     expect(rest(half)).toEqual(rest(full));
+  });
+});
+
+// -- GH-322: the highland's open-ground pass and cedar groves ------------
+describe('openScatter (GH-322)', () => {
+  const HIGHLAND: OpenScatter = {
+    tree: 'cedar',
+    treePlain: 0.008,
+    treeFoothill: 0.035,
+    boulderPlain: 0.015,
+    boulderFoothill: 0.05,
+    bush: 0.05,
+    chipPlain: 0.12,
+    chipFoothill: 0.2,
+    chipCluster: 0.5,
+    sandKeep: 0,
+  };
+  /** 40x40 open ground with a ridge row across the middle and a road column
+   *  down x=5 -- relief for the foothill bands, a road for the clearance. */
+  const map = (extra?: OpenScatter, grove?: 'tree' | 'cedar'): TerrainInput =>
+    input(40, 40, (i, decor, blocked) => {
+      for (let x = 0; x < 40; x++) {
+        decor[20 * 40 + x] = DECOR_RIDGE;
+        blocked[20 * 40 + x] = 1;
+      }
+      for (let y = 0; y < 40; y++) decor[y * 40 + 5] = DECOR_ROAD;
+      for (let x = 30; x < 34; x++) decor[2 * 40 + x] = DECOR_GROVE;
+      i.openScatter = extra;
+      i.groveFamily = grove;
+    });
+  const count = (ps: readonly DecorPlacement[], f: string): number => ps.filter((p) => p.family === f).length;
+
+  it('places exactly what it placed before when the theme declares none', () => {
+    const before = decorPlacements(map());
+    // The same input object with the field present but undefined is the
+    // arid/green case as `composeTerrain` builds it.
+    expect(decorPlacements(map(undefined))).toEqual(before);
+    expect(count(before, 'cedar')).toBe(0);
+    expect(count(before, 'sand')).toBeGreaterThan(0);
+  });
+
+  it('adds cedars, outcrops, bushes and chips, and keeps every placement the passes before it made', () => {
+    const before = decorPlacements(map());
+    const after = decorPlacements(map({ ...HIGHLAND, sandKeep: 1 }));
+    // sandKeep 1: nothing dropped, so the old list is a strict prefix.
+    expect(after.slice(0, before.length)).toEqual(before);
+    for (const f of ['cedar', 'boulder', 'bush', 'rock']) expect(count(after, f), f).toBeGreaterThan(0);
+  });
+
+  it('drops every sand tuft at sandKeep 0 and leaves the grass alone', () => {
+    const before = decorPlacements(map());
+    const after = decorPlacements(map(HIGHLAND));
+    expect(count(after, 'sand')).toBe(0);
+    expect(count(after, 'grass')).toBe(count(before, 'grass'));
+  });
+
+  it('grows cedars denser on the foothill than on the plain', () => {
+    const ps = decorPlacements(map({ ...HIGHLAND, treePlain: 0.05, treeFoothill: 0.5 })).filter((p) => p.family === 'cedar');
+    const foot = ps.filter((p) => Math.abs(Math.floor(p.z) - 20) <= 2).length;
+    // Foothill rows are 4 of the 39 open rows (18, 19, 21, 22).
+    expect(foot / 4).toBeGreaterThan((ps.length - foot) / 35);
+  });
+
+  it('keeps every open-ground object at least a tile off the road', () => {
+    const ps = decorPlacements(map({ ...HIGHLAND, treePlain: 0.3, boulderPlain: 0.3, bush: 0.2, chipPlain: 0.2 }));
+    const added = ps.filter((p) => ['cedar', 'boulder', 'bush'].includes(p.family));
+    expect(added.length).toBeGreaterThan(0);
+    for (const p of added) expect(Math.abs(Math.floor(p.x) - 5), JSON.stringify(p)).toBeGreaterThan(1);
+  });
+
+  it('plants the open-ground species independently of the grove species', () => {
+    const ps = decorPlacements(map(HIGHLAND, 'tree'));
+    // Umm Zeitoun's case: olives on the grove tiles, cedars on the hill.
+    const onGrove = ps.filter((p) => Math.floor(p.z) === 2 && Math.floor(p.x) >= 30 && Math.floor(p.x) < 34);
+    expect(onGrove.length).toBeGreaterThan(0);
+    expect(onGrove.every((p) => p.family === 'tree' || p.family === 'grass')).toBe(true);
+    expect(count(ps, 'cedar')).toBeGreaterThan(0);
+  });
+
+  it('never twins a cedar grove tile, and rolls it at 0.6', () => {
+    const grove = input(30, 30, (i, decor) => {
+      decor.fill(DECOR_GROVE);
+      i.groveFamily = 'cedar';
+    });
+    const trees = decorPlacements(grove).filter((p) => p.family === 'cedar');
+    let expected = 0;
+    for (let y = 0; y < 30; y++) for (let x = 0; x < 30; x++) if (tileHash(x + 449, y + 823) < 0.6) expected++;
+    expect(trees.length).toBe(expected);
+    expect(trees.every((p) => p.scale >= 0.8)).toBe(true);
   });
 });

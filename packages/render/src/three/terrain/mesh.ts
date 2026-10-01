@@ -171,6 +171,7 @@ export function vertexColorMaterial(): THREE.MeshStandardMaterial {
  * | rough_scrub_tile   | 2     | .129 | .258   |
  * | orchard_floor_tile | 2     | .130 | .196   |
  * | knoll_scree_tile   | 3     | .207 | .207   |
+ * | highland_v2_tile   | 3     | .337 | .337   |
  *
  * `desert_sand_tile`'s 0.060 is the reference: it is the surface that was
  * signed off on screen at gain 1, so it is what "enough" looks like. The
@@ -215,6 +216,23 @@ export const GROUND_ALBEDOS = {
    * a second, greener source was not asked for.
    */
   green_basin_tile: { tiles: 2, gain: 2, mean: [156.3, 128.0, 84.9] },
+  /**
+   * Open ground, `highland` -- the eight Sur maps (GH-322, the lead's "V2").
+   *
+   * Terra rossa earth dominant between grey limestone chips, authored from
+   * the supplied `Meshy_AI_image_rock.png` by `tools/textures/
+   * author_highland_tile.py`. The image carries both materials itself: the
+   * ratio form keeps a texel's hue relative to this mean, so the chips stay
+   * grey and the earth red-brown while `tones.open` (`dust.5`) sets only the
+   * average.
+   *
+   * 3 tiles a repeat, the knoll's, for the knoll's reason: a chip lands at
+   * about 5 screen pixels at zoom 1 and reads as broken stone, and as stones
+   * at 2.5, without competing with the slab and chip decor standing on it.
+   * Gain 1: its raw contrast is .337, the highest in the table and 5.6x the
+   * sand's -- terra rossa against pale chips is a strong value step.
+   */
+  highland_v2_tile: { tiles: 3, gain: 1, mean: [162.3, 135.1, 116.8] },
   /**
    * A `^` rock ridge, its flat top and the cliff faces below it alike.
    *

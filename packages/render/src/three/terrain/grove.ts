@@ -62,7 +62,7 @@
  * would have.
  */
 import { TILE_W, TILE_H, WORLD_Y_PER_LIFT_PIXEL } from '../../project';
-import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
+import { composite, quantise, groundTone, quantisePalette } from './tones';
 import { tileHash } from '../../tile-hash';
 import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
 import {
@@ -322,9 +322,9 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
       const topY = levelHere * WORLD_PER_LEVEL;
       const cx = x + 0.5;
       const cz = y + 0.5;
-      const baseHex = groundTone(input, tones, ti, PALETTE_HEXES, background);
+      const baseHex = groundTone(input, tones, ti, quantisePalette(tones), background);
 
-      pushShadow(cx, cz, topY, quantise(composite(baseHex, tones.rock, SHADOW_ALPHA), PALETTE_HEXES));
+      pushShadow(cx, cz, topY, quantise(composite(baseHex, tones.rock, SHADOW_ALPHA), quantisePalette(tones)));
 
       // One dominant tree, a second smaller one on the same threshold Pixi
       // uses (renderer.ts:1690).
@@ -342,11 +342,11 @@ export function buildGroves(input: TerrainInput, tones: TerrainTones, background
         const rx = (12.5 + b * 4) * scale;
         const ry = rx * tones.crownRatio;
 
-        const trunkHex = quantise(composite(baseHex, tones.trunk, 0.98), PALETTE_HEXES);
-        const trunkLitHex = quantise(composite(trunkHex, tones.trunkLit, 0.5), PALETTE_HEXES);
-        const leafDarkHex = quantise(composite(baseHex, tones.leafDark, 0.97), PALETTE_HEXES);
-        const leafMidHex = quantise(composite(leafDarkHex, tones.leafMid, 0.92), PALETTE_HEXES);
-        const leafLitHex = quantise(composite(leafMidHex, tones.leafLit, 0.8), PALETTE_HEXES);
+        const trunkHex = quantise(composite(baseHex, tones.trunk, 0.98), quantisePalette(tones));
+        const trunkLitHex = quantise(composite(trunkHex, tones.trunkLit, 0.5), quantisePalette(tones));
+        const leafDarkHex = quantise(composite(baseHex, tones.leafDark, 0.97), quantisePalette(tones));
+        const leafMidHex = quantise(composite(leafDarkHex, tones.leafMid, 0.92), quantisePalette(tones));
+        const leafLitHex = quantise(composite(leafMidHex, tones.leafLit, 0.8), quantisePalette(tones));
 
         pushTree(
           cx,
