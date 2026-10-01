@@ -41,7 +41,10 @@ TURN_DEG = 35.0            # 1  forward turned off the camera axis, nose screen-
 FOV_DEG = 30.0             # 4  vertical
 ELEV_FIGURE_DEG = 12.0     # 4
 ELEV_VEHICLE_DEG = 18.0    # 4  vehicles and air
-FILL_FRACTION = 0.88       # 5  longer axis of the projected silhouette
+# 5  per-class fill rule: (axis, fraction). Figures: longer axis at 88%.
+#    Vehicles and air (lead, 1 Oct): silhouette WIDTH at 92%, so a hull or a
+#    drone reads at a 40 px chip; its height is whatever the width leaves.
+FILL_RULE = {"figure": ("longer", 0.88), "vehicle": ("width", 0.92)}
 KEY_ENERGY = 3.2           # 7
 KEY_AZ_DEG, KEY_EL_DEG = 40.0, 50.0       # 7  screen-left, up
 KEY_HEX = "#F2E8D5"        # limestone.0
@@ -287,7 +290,7 @@ def turn_unit():
     return math.degrees(theta)
 
 
-def fit(cam, view_back):
+def fit(cam, view_back, rule):
     sc = bpy.context.scene
     pts = posed_points()
     lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
@@ -308,7 +311,9 @@ def fit(cam, view_back):
         box = (x0, x1, y0, y1)
         target = target + right * ((x0 + x1) / 2 - 0.5) * 2 * half * dist \
             + up * ((y0 + y1) / 2 - 0.5) * 2 * half * dist
-        dist *= max(x1 - x0, y1 - y0) / FILL_FRACTION
+        axis, frac = rule
+        extent = (x1 - x0) if axis == "width" else max(x1 - x0, y1 - y0)
+        dist *= extent / frac
     cam.location = target + view_back * dist
     bpy.context.view_layer.update()
     ndc = [world_to_camera_view(sc, cam, p) for p in pts]
@@ -356,7 +361,8 @@ def main():
         elev = ELEV_FIGURE_DEG if unit in FIGURES else ELEV_VEHICLE_DEG
         cam, view_back = build_scene(elev)
         yaw = turn_unit()
-        box = fit(cam, view_back)
+        rule = FILL_RULE["figure" if unit in FIGURES else "vehicle"]
+        box = fit(cam, view_back, rule)
         m = os.path.join(masters, f"{unit}.png")
         bpy.context.scene.render.filepath = m
         bpy.ops.render.render(write_still=True)
@@ -364,7 +370,7 @@ def main():
         downsample(m, s)
         meta = {"unit": unit, "source": os.path.relpath(path, REPO), "source_sha256": sha256(path),
                 "yaw_deg": round(yaw, 3), "elevation_deg": elev, "fov_deg": FOV_DEG,
-                "fill": FILL_FRACTION, "ndc_box": [round(v, 4) for v in box], "materials": report}
+                "fill": list(rule), "ndc_box": [round(v, 4) for v in box], "materials": report}
         json.dump(meta, open(os.path.join(masters, f"{unit}.json"), "w"), indent=2)
         print(f"PORTRAIT_OK: {unit} src={meta['source']} baked={report['baked']} "
               f"flat={report['flat']} box={meta['ndc_box']} -> {m}")
