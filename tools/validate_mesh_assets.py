@@ -301,6 +301,9 @@ TEXTURED_INFANTRY_EXEMPT = {
     "officer_infantry", "officer_fires", "officer_engineer",
     # E5 part 2 (GH-181, 2026-09-30): tools/units/import_meshy_zikit_team.py.
     "recon_zikit",
+    # B7 (GH-179, 2026-10-01): the B2 teams' bakes, bought on their own
+    # previews (`pnpm meshy -- refine`) and re-remeshed.
+    "manpad_team", "recoilless_team",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's

@@ -67,4 +67,8 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // and rifle carry no map and take the faction ramp. HELD in
   // mesh-catalogue.ts until Task 9 lands its unit JSON.
   'recon_zikit',
+  // B7 (GH-179, 2026-10-01): the two B2 teams, their bake bought on the B2
+  // preview itself (`pnpm meshy -- refine`) and re-remeshed at B2's 1,500.
+  'manpad_team',
+  'recoilless_team',
 ]);

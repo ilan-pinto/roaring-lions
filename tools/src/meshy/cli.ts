@@ -28,10 +28,12 @@ import {
   parseBalanceArgs,
   parseDownloadArgs,
   parseEstimateImageArgs,
+  parseEstimateRefineArgs,
   parseEstimateRemeshArgs,
   parseEstimateTextArgs,
   parseImageArgs,
   parseListArgs,
+  parseRefineArgs,
   parseRemeshArgs,
   parseSpentArgs,
   parseStatusArgs,
@@ -40,6 +42,7 @@ import {
   type DownloadOptions,
   type ImageOptions,
   type ListOptions,
+  type RefineOptions,
   type RemeshOptions,
   type SpentOptions,
   type StatusOptions,
@@ -170,9 +173,19 @@ function priceCaption(credits: number, usdPerCredit: number): string {
 
 function runEstimate(rest: readonly string[], usdPerCredit: number): number {
   const subkind = rest[0];
-  if (subkind !== 'text' && subkind !== 'image' && subkind !== 'remesh') {
-    console.error('estimate: expected "text", "image" or "remesh" as the first argument');
+  if (subkind !== 'text' && subkind !== 'image' && subkind !== 'remesh' && subkind !== 'refine') {
+    console.error('estimate: expected "text", "image", "remesh" or "refine" as the first argument');
     return 1;
+  }
+  if (subkind === 'refine') {
+    const opts = parseEstimateRefineArgs(rest.slice(1));
+    const credits = estimateCredits('text-refine', { textureResolution: opts.textureResolution });
+    if (opts.json) {
+      console.log(JSON.stringify({ kind: 'refine', credits, usd: estimateUsd(credits, usdPerCredit), usdPerCredit, source: PRICING_SOURCE }));
+    } else {
+      console.log(`estimate: refine ${priceCaption(credits, usdPerCredit)}`);
+    }
+    return 0;
   }
   if (subkind === 'remesh') {
     const opts = parseEstimateRemeshArgs(rest.slice(1));
@@ -588,6 +601,85 @@ export async function runRemesh(
 }
 
 // ---------------------------------------------------------------------------
+// refine (standalone, against an existing preview task)
+// ---------------------------------------------------------------------------
+
+function buildStandaloneRefineRequest(opts: RefineOptions): TextRefineRequest {
+  return {
+    mode: 'refine',
+    preview_task_id: opts.previewTaskId,
+    ...(opts.pbr ? { enable_pbr: true } : {}),
+    texture_resolution: opts.textureResolution,
+    ...(opts.texturePrompt ? { texture_prompt: opts.texturePrompt } : {}),
+  };
+}
+
+/**
+ * The refine half of `runText` on its own: the preview already exists on
+ * Meshy's side (B2's figures, 2026-09-30), so this buys its bake without a
+ * second preview. Outputs land in their own `art/meshy/<name>-<date>-<id>/`
+ * folder (a refine task has its own id); the ledger line is `kind: text,
+ * mode: refine`, exactly what `text --refine` writes for the same spend.
+ */
+export async function runRefine(
+  client: TextTaskClient | undefined,
+  config: MeshyConfig,
+  opts: RefineOptions,
+  paths: MeshyPaths = DEFAULT_PATHS
+): Promise<number> {
+  const credits = estimateCredits('text-refine', { textureResolution: opts.textureResolution });
+  console.log(`plan: refine preview ${opts.previewTaskId} (${opts.textureResolution}${opts.pbr ? ', pbr' : ''})`);
+  console.log(`estimate: ${priceCaption(credits, config.usdPerCredit)}`);
+
+  const body = buildStandaloneRefineRequest(opts);
+
+  if (process.env.MESHY_DRY_RUN === '1') {
+    console.log('MESHY_DRY_RUN=1 -- printing the request and stopping before any POST:');
+    console.log(JSON.stringify(body, null, 2));
+    return 0;
+  }
+  if (!client) {
+    throw new Error('internal: runRefine called with no client outside MESHY_DRY_RUN=1');
+  }
+  if (!(await confirmSpend(credits, estimateUsd(credits, config.usdPerCredit), opts.yes))) {
+    console.log('aborted -- nothing was spent');
+    return 1;
+  }
+
+  const submitted = await client.submitTextTask(body);
+  const id = submitted.result;
+  appendLedgerEntry(paths.ledgerPath, ledgerEntry('text', 'refine', id, { name: opts.name }, credits, config.usdPerCredit));
+  console.log(`submitted refine task ${id}`);
+
+  const finalTask = await pollTask(() => client.getTextTask(id), `refine ${id}`);
+  if (finalTask.status !== 'SUCCEEDED') {
+    console.error(`refine task ${id} ended ${finalTask.status}: ${finalTask.task_error?.message ?? '(no message)'}`);
+    return 1;
+  }
+  if (finalTask.consumed_credits !== undefined) {
+    patchLedgerCreditsConsumed(paths.ledgerPath, id, finalTask.consumed_credits);
+  }
+
+  const dirName = taskDirName(opts.name ?? opts.previewTaskId, id);
+  const dir = path.join(paths.artDir, dirName);
+  await downloadTaskOutputs(finalTask, dir);
+  writeTaskJson(dir, {
+    request: body,
+    response: finalTask,
+    consumed_credits: finalTask.consumed_credits,
+    timestamps: {
+      created_at: finalTask.created_at,
+      started_at: finalTask.started_at,
+      finished_at: finalTask.finished_at,
+      expires_at: finalTask.expires_at,
+    },
+    usd_estimated: estimateUsd(credits, config.usdPerCredit),
+  });
+  console.log(`downloaded refine outputs into ${path.relative(REPO_ROOT, dir)}`);
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // status / download / list
 // ---------------------------------------------------------------------------
 
@@ -687,12 +779,14 @@ Commands (network, need a key):
       text/image: --pose a-pose|t-pose|none   pose_mode sent to Meshy (default none;
                                               a-pose is what a figure needs to be rigged)
   remesh <input-task-id> --polycount N [options]  retopologize a finished task
+  refine <preview-task-id> [--tex 2k|4k|8k] [--pbr] [--texture-prompt ...]
+                                texture an EXISTING preview task (the --refine half alone)
   status <id> [--kind text|image|remesh]
   download <id> [--kind ...] [--name ...]
   list [--kind ...] [--page N]
 
 Local only (no key needed):
-  estimate text|image|remesh [options]  credit/USD cost, no API call
+  estimate text|image|remesh|refine [options]  credit/USD cost, no API call
   spent                                 sums art/meshy/ledger.jsonl
 
 Every command accepts --json. See docs/ART_PIPELINE.md's
@@ -719,7 +813,7 @@ async function main(): Promise<number> {
 
   const dryRun = process.env.MESHY_DRY_RUN === '1';
 
-  if (command === 'text' || command === 'image' || command === 'remesh') {
+  if (command === 'text' || command === 'image' || command === 'remesh' || command === 'refine') {
     // The trio of commands that may run without a key: MESHY_DRY_RUN=1
     // prints the request and stops before any POST (see `commandNeedsApiKey`),
     // so `client` stays undefined rather than forcing a key nobody is about
@@ -734,6 +828,7 @@ async function main(): Promise<number> {
     const ctx = { isTTY: process.stdin.isTTY === true };
     if (command === 'text') return runText(client, config, parseTextArgs(rest, ctx));
     if (command === 'image') return runImage(client, config, parseImageArgs(rest, ctx));
+    if (command === 'refine') return runRefine(client, config, parseRefineArgs(rest, ctx));
     return runRemesh(client, config, parseRemeshArgs(rest, ctx));
   }
 

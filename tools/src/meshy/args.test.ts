@@ -20,6 +20,8 @@ import {
   parseStatusArgs,
   parseTextArgs,
   tokenizeArgs,
+  parseRefineArgs,
+  parseEstimateRefineArgs,
 } from './args';
 
 const TTY = { isTTY: true };
@@ -435,5 +437,24 @@ describe('parseStatusArgs / parseDownloadArgs / parseListArgs / parseBalanceArgs
   it('spent takes only --json', () => {
     expect(parseSpentArgs([])).toEqual({ json: false });
     expect(parseSpentArgs(['--json'])).toEqual({ json: true });
+  });
+});
+
+describe('parseRefineArgs (B7: a texture pass on an existing preview)', () => {
+  it('takes the preview task id and defaults to a 2k bake', () => {
+    const opts = parseRefineArgs(['01a0f2ac-preview', '--name', 'manpad_team', '--yes'], NO_TTY);
+    expect(opts).toEqual({
+      previewTaskId: '01a0f2ac-preview', pbr: false, textureResolution: '2k', texturePrompt: undefined,
+      formats: ['glb'], name: 'manpad_team', yes: true, json: false,
+    });
+  });
+  it('refuses a missing id, a second positional and a flag refine does not take', () => {
+    expect(() => parseRefineArgs(['--yes'], NO_TTY)).toThrow(/missing required <preview-task-id>/);
+    expect(() => parseRefineArgs(['a', 'b', '--yes'], NO_TTY)).toThrow(/unexpected extra/);
+    expect(() => parseRefineArgs(['a', '--polycount', '5', '--yes'], NO_TTY)).toThrow(/unrecognised flag/);
+  });
+  it('estimate refine reads --tex and nothing else', () => {
+    expect(parseEstimateRefineArgs(['--tex', '8k'])).toEqual({ textureResolution: '8k', json: false });
+    expect(() => parseEstimateRefineArgs(['x'])).toThrow(/unexpected argument/);
   });
 });

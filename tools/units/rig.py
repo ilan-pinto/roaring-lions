@@ -1071,10 +1071,12 @@ def _weapon_parts(prefix, at, yaw=0.0, posture="standing", aim=False):
 # re-derived -- REST_FIGURES's own discipline, carried forward.
 
 def _f(prefix, x, y, posture="standing", headgear="helmet", loadout="regular",
-       leader=False, mirror=False, animates=True, weapon=None, move_posture=None):
+       leader=False, mirror=False, animates=True, weapon=None, move_posture=None,
+       work_posture=None):
     return dict(prefix=prefix, x=x, y=y, posture=posture, headgear=headgear,
                 loadout=loadout, leader=leader, mirror=mirror,
-                animates=animates, weapon=weapon, move_posture=move_posture)
+                animates=animates, weapon=weapon, move_posture=move_posture,
+                work_posture=work_posture)
 
 
 #: sniper_team's own rest spacing -- copied verbatim from `teams.sniper_team`
@@ -1292,6 +1294,11 @@ def _figure_death_parts(spec):
 
 def _walker_prefix(spec):
     return f"{spec['prefix']}w"
+
+
+def _kneeler_prefix(spec):
+    """The `work` body of a figure with `work_posture="kneeling"` (B7)."""
+    return f"{spec['prefix']}k"
 
 
 def _walker_specs(figures):
@@ -1981,7 +1988,7 @@ def _key_scale(pb, value, frames):
 _VIS_FRAMES = (0, 1)
 
 
-def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=False):
+def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=False, working=False):
     """Explicit scale keys for every figure's `root`/`death_root` (and the
     team's shared `prop` bone, if it has one) -- the switch that actually
     hides whichever rig, living or dead, is not this clip's.
@@ -2014,11 +2021,15 @@ def _key_death_visibility(pbones, figures, has_prop, alive, frame=0, moving=Fals
         walkers = walkers or has_walker
         # A figure with a walker shows its deployed body in every living
         # clip but `move`, where the walker shows instead (design D6).
-        deployed = alive_scale if not (has_walker and moving) else 0.0
+        has_kneeler = spec.get("work_posture") == "kneeling"
+        deployed = alive_scale if not ((has_walker and moving) or (has_kneeler and working)) else 0.0
         _key_scale(pbones[f"{prefix}_root"], deployed, _VIS_FRAMES)
         _key_scale(pbones[f"{prefix}_death_root"], dead_scale, _VIS_FRAMES)
         if has_walker:
             _key_scale(pbones[f"{_walker_prefix(spec)}_root"], 1.0 if (alive and moving) else 0.0, _VIS_FRAMES)
+        if has_kneeler:
+            # B7: the `work` body shows in `work` alone (yahalom_squad).
+            _key_scale(pbones[f"{_kneeler_prefix(spec)}_root"], 1.0 if (alive and working) else 0.0, _VIS_FRAMES)
     if has_prop:
         # The deployed launcher/mortar is carried, not modelled, while a crew
         # walks -- a tripod gliding beside a walking crew is the bug D6 fixes.
@@ -2271,6 +2282,34 @@ def build_death_clip(arm_obj, team_id, clip_name):
     _key_death_visibility(pbones, figures, "prop" in pbones, alive=False)
 
 
+#: `work` (B7, yahalom_squad): six frames at 6 fps, looped -- `teams.
+#: TEAM_CLIP_ADD`'s own numbers for the sprite's work cycle.
+WORK_FRAMES = 6
+WORK_PUMP_RAD = 0.22      # the mast arm driving down and lifting, about forearm_R
+WORK_SPINE_RAD = 0.08     # the torso leaning into the press
+
+
+def build_work_clip(arm_obj, figures):
+    """`work`: every figure with a `work_posture` kneeler shows that body
+    (its standing root hidden) and pumps its right forearm -- the mast,
+    bound to it, drives into the ground and lifts. A cycle, so it loops;
+    `_key_death_visibility(working=True)` is what flips the bodies."""
+    _new_action(arm_obj, "work")
+    bones = arm_obj.data.bones
+    pbones = arm_obj.pose.bones
+    _key_death_visibility(pbones, figures, "prop" in pbones, alive=True, working=True)
+    for f in range(0, WORK_FRAMES + 1):
+        t = f / WORK_FRAMES
+        pump = 0.5 - 0.5 * math.cos(2.0 * math.pi * t)
+        for spec in figures:
+            if spec.get("work_posture") != "kneeling":
+                continue
+            kp = _kneeler_prefix(spec)
+            key(pbones[f"{kp}_forearm_R"], bones[f"{kp}_forearm_R"], AXIS_Y, WORK_PUMP_RAD * pump, f)
+            key(pbones[f"{kp}_upperarm_R"], bones[f"{kp}_upperarm_R"], AXIS_Y, 0.5 * WORK_PUMP_RAD * pump, f)
+            key(pbones[f"{kp}_spine"], bones[f"{kp}_spine"], AXIS_Y, WORK_SPINE_RAD * pump, f)
+
+
 def build_sniper_clips(arm_obj, gait):
     """sniper_team's own five clips -- bespoke, not `build_idle_clip`/
     `build_move_clip`/`build_fire_clip`/`build_death_clip`'s
@@ -2433,8 +2472,10 @@ def build_clips(arm_obj, team_id):
         build_fire_clip(arm_obj, figures, leaners)
     build_death_clip(arm_obj, team_id, "down")
     build_death_clip(arm_obj, team_id, "wreck")
-    # `work`: only `teams.TEAM_CLIP_ADD` scopes it to yahalom_squad, which
-    # this pass does not build (see the module docstring).
+    # `work`: `teams.TEAM_CLIP_ADD` scopes it to yahalom_squad; since B7 a
+    # figure declaring `work_posture="kneeling"` has a kneeler body for it.
+    if any(s.get("work_posture") == "kneeling" for s in figures):
+        build_work_clip(arm_obj, figures)
 
 
 def export_glb(arm_obj, path, materials=False, jpeg_quality=85):
