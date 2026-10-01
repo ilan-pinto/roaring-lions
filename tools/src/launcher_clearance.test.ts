@@ -19,7 +19,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { measureHeldWeaponInBody } from './mesh_gait';
+import { measureHeldWeaponInBody, measureMountedPartInBody } from './mesh_gait';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 
@@ -51,5 +51,39 @@ describe('a held launcher stays out of its holder', () => {
         expect(measureHeldWeaponInBody(`${MESHES}${file}`, clip, figure).instants, `${file} ${clip}`).toBe(0);
       }
     });
+  }
+});
+
+/**
+ * B7 review (2026-10-01): the same defect class on parts that are not held.
+ * yahalom_squad's square packs (`webbing` on each man's `spine`) sat at
+ * `teams._yah_pack`'s kit position, 0.18 m behind a kit figure's axis, which
+ * on a Meshy torso (back at x -0.25) ran each box through the chest -- in
+ * every clip, `work` included. And mortar_team's tube and bipod (`prop`,
+ * shared) must stay out of all three crewmen. Falsified by pointing `MESHES`
+ * at the pre-fix GLBs (the first B7 commits): yah_a 86 / 86 / 89 samples
+ * inside on idle / fire / move, yah_b 86 / 88 / 89, the work kneeler yah_ak
+ * 79 -- all red; the mortar read 0 on both GLBs (its placement was never
+ * the defect there; the shards were the cut, see `_bisect_source`).
+ */
+const MOUNTED: readonly (readonly [string, string, readonly string[], readonly string[], string, RegExp])[] = [
+  // file, label, clips, roles, mount joint, body joints
+  ['mortar_team.glb', 'the mortar vs its crew', ['idle', 'fire'], ['weapon', 'metal'], 'prop', /^mtr_(crew0|crew1|no3)_/],
+];
+
+describe('a mounted kit part stays out of the body it rides', () => {
+  for (const [file, label, clips, roles, joint, body] of MOUNTED) {
+    for (const clip of clips) {
+      it(`${file} ${clip}: ${label} -- no sample inside`, () => {
+        const r = measureMountedPartInBody(`${MESHES}${file}`, clip, {
+          roles,
+          joint,
+          bodyJoint: (name) => body.test(name),
+        });
+        expect(r.instants, `${file} ${clip}: instants with the part drawn`).toBeGreaterThan(0);
+        expect(r.samples, `${file} ${clip}: part samples`).toBeGreaterThan(100);
+        expect(r.worstInside, `${file} ${clip}: samples inside`).toBe(0);
+      }, 30_000); // the mortar's 2,432 samples against three whole crewmen read ~10 s
+    }
   }
 });

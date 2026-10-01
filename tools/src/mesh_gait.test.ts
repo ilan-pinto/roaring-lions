@@ -1028,7 +1028,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // read was kit.py's own boot mesh.
   'demo_squad.glb move': 214,
   'at_team.glb move': 257,
-  'sniper_team.glb move': 238, // B7: Meshy boots on the standing walker
+  'sniper_team.glb move': 332, // B7: Meshy boots on the standing walker
   // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
   // parts, so the boot mesh is the figure's own boots, not kit's.
   'militia_cell.glb move': 582,
@@ -1036,11 +1036,11 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'charge_squad.glb move': 444, // B4: Meshy boots
   'inf_squad.glb move': 558, // B7: Meshy boots, three men, rig.py gait
   'sarim_rifles.glb move': 729, // B7: Meshy boots, three men
-  'mortar_team.glb move': 420, // B7: Meshy boots -- two D6 walkers and the No.3
+  'mortar_team.glb move': 590, // B7: Meshy boots -- two D6 walkers and the No.3
   'yahalom_engineer.glb move': 1632,
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
-  'manpad_team.glb move': 328, // B7: re-remeshed from the refined B2 preview
-  'recoilless_team.glb move': 410, // B7: re-remeshed from the refined B2 preview
+  'manpad_team.glb move': 428, // B7: re-remeshed from the refined B2 preview; the source is bisected at its hinge planes (review fix)
+  'recoilless_team.glb move': 518, // B7: re-remeshed from the refined B2 preview
   // B5 (2026-10-01): the Meshy breach figure, boot = below 0.09 H, two men.
   'breach_team.glb move': 396,
   'civilians/civilian_woman.glb move': 328,

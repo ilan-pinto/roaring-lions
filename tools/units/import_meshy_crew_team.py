@@ -488,7 +488,118 @@ def _load_figure(team_id):
         _recolour_head(team_id, ob, height, *RECOLOUR[team_id])
     if team_id in LABEL_FLATTEN and team_id in TEXTURED:
         _flatten_label(team_id, ob, height, **LABEL_FLATTEN[team_id])
+    _bisect_source(team_id, ob, height)
     return ob, height
+
+
+def _bisect_source(team_id, ob, height):
+    """Cut the source shell along every plane `cut_figure` classifies by, so
+    no triangle straddles a cut (B7 review). A remesh at 1,000-1,500 tris
+    has triangles up to ~10 cm across; a triangle crossing the knee plane
+    stayed whole with whichever side its centroid fell on, and the kneel
+    then rotated it against its neighbours into a spike -- the shards on
+    the mortar team's thighs and shoulders. Bisected, every part ends
+    exactly on its plane and the blob joints cover a clean seam. The arm
+    planes are the measured arm roots (|y| = w_arm), skipped for a figure
+    whose arms stay on the torso. Face count grows ~10-15%."""
+    H = height
+    co = _coords(ob)
+    zc = CROTCH_FALLBACK_F * H
+    # The HINGE planes only -- where a rigid re-arrangement (the kneel, the
+    # arm hang) turns one part against its neighbour: ankle, knee, crotch and
+    # the two arm roots. Every plane bisected adds a ring of triangles round
+    # the whole body (all nine cut planes read +95% on a 974-tri shell; these
+    # five about +40%), and the neck, chin, belt and face cuts never move
+    # against each other.
+    # (plane point, normal, which faces may be split: a predicate on the face
+    # centroid, so a leg plane never splits the torso and an arm plane never
+    # splits the hips -- each cut then adds one ring where it is needed.)
+    planes = [((0.0, 0.0, f * H), (0.0, 0.0, 1.0), (lambda c, zf=f * H: abs(c[2] - zf) < 0.12)) for f in (ANKLE_F, KNEE_F)]
+    planes += [((0.0, 0.0, zc), (0.0, 0.0, 1.0), (lambda c: abs(c[2] - zc) < 0.12))]
+    on_torso = ARMS_ON_TORSO.get(team_id, set())
+    # The arm axes are measured BEFORE the cut and cached for `cut_figure`:
+    # a bisected ring at |y| = w_arm puts torso-height vertices into the
+    # first arm-only band `_arm_axis` scans for, and the shoulder it reads
+    # steps 2 cm outboard -- on the MANPAD that moved the launcher's seat
+    # search off the seat it had found.
+    axes = {}
+    for side in (0, 1):
+        if side in on_torso:
+            continue
+        axes[side] = _arm_axis(co, H, side)
+        w = axes[side][3]
+        sgn = -1.0 if side == 0 else 1.0
+        planes.append(((0.0, sgn * w, 0.0), (0.0, 1.0, 0.0),
+                       (lambda c, w=w, sgn=sgn: c[2] > 0.55 * H and abs(c[1] * sgn - w) < 0.08)))
+    _ARM_AXES_CACHE.clear()
+    _ARM_AXES_CACHE.update({side: tuple(tuple(v) if hasattr(v, "__len__") else v for v in ax) for side, ax in axes.items()})
+    before = len(ob.data.polygons)
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    for pco, pno, near in planes:
+        faces = [f for f in bm.faces if near(f.calc_center_median())]
+        verts = {v for f in faces for v in f.verts}
+        edges = {e for f in faces for e in f.edges}
+        bmesh.ops.bisect_plane(bm, geom=list(verts) + list(edges) + faces, plane_co=pco, plane_no=pno, dist=1e-5)
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    log(f"{team_id}: bisected at {len(planes)} cut planes -- {before} -> {len(ob.data.polygons)} tris")
+
+
+#: The source figure's arm axes as `_arm_axis` read them BEFORE the bisection
+#: (see `_bisect_source`); `cut_figure` takes these over a fresh measurement.
+_ARM_AXES_CACHE = {}
+
+
+def _part_samples(objs):
+    """Surface samples of kit parts: every vertex plus every edge at 1 cm."""
+    pts = []
+    for ob in objs:
+        co = _coords(ob)
+        pts.extend(co.tolist())
+        for e in ob.data.edges:
+            a, b = co[e.vertices[0]], co[e.vertices[1]]
+            n = max(2, int(np.linalg.norm(b - a) / 0.01) + 1)
+            for t in np.linspace(0.0, 1.0, n)[1:-1]:
+                pts.append((a + (b - a) * t).tolist())
+    return np.array(pts, dtype=np.float64)
+
+
+def _inside_count(sample_objs, body_objs):
+    """How many surface samples of `sample_objs` lie inside the union of
+    `body_objs`, by generalised winding number -- the census PR #325 ran
+    and `launcher_clearance.test.ts` repeats on the exported bytes."""
+    if not body_objs:
+        return 0
+    P = _part_samples(sample_objs)
+    T = np.concatenate([_tris(o) for o in body_objs])
+    return int((_winding(P, T) > 0.5).sum())
+
+
+def _pack_behind(name, pfx, parts, kneel):
+    """yahalom_squad's square pack seated BEHIND the figure's own measured
+    back (B7 review): `teams._yah_pack` centres it 0.18 m behind the kit
+    figure's axis, which on a Meshy torso (back at x -0.25) ran the box
+    through the chest. The pack's front face sits 1 cm behind the furthest
+    back point of the torso in the pack's own height band."""
+    seq = parts.values() if isinstance(parts, dict) else parts
+    torso = next(o for o in seq if o.name == f"{pfx}_torso")
+    hips = next((o for o in seq if o.name == f"{pfx}_hips"), None)
+    sx, sy, sz = teams.YAH_PACK_SIZE
+    cz = 0.95 - (0.54 if kneel else 0.0)
+    tc = _coords(torso)
+    band = tc[(tc[:, 2] > cz - sz / 2.0) & (tc[:, 2] < cz + sz / 2.0)]
+    if len(band) == 0:
+        band = tc
+    back_x = float(band[:, 0].min())
+    cy = float(band[:, 1].mean())
+    pack = kit.box(name, (sx, sy, sz), (back_x - sx / 2.0 - 0.01, cy, cz), role="webbing")
+    inside = _inside_count([pack], [o for o in (torso, hips) if o is not None])
+    log(f"{pfx}: pack behind the back at x {back_x - sx / 2.0 - 0.01:+.3f} (back {back_x:+.3f}); "
+        f"{inside} samples inside the torso")
+    return pack, inside
 
 
 def _recolour_head(team_id, ob, height, target, hue_window):
@@ -856,7 +967,10 @@ def cut_figure(src, height, prefix, blobs=True):
         axes = None
         w_arm = float(np.abs(co[co[:, 2] > 0.62 * H][:, 1]).max()) + 0.01
     else:
-        axes = {side: (None if side in on_torso else _arm_axis(co, H, side)) for side in (0, 1)}
+        axes = {side: (None if side in on_torso else
+                       (tuple(Vector(v) if isinstance(v, tuple) else v for v in _ARM_AXES_CACHE[side])
+                        if side in _ARM_AXES_CACHE else _arm_axis(co, H, side)))
+                for side in (0, 1)}
         w_arm = max(a[3] for a in axes.values() if a is not None)
     log(f"{prefix}: crotch {zc:.3f} ({zc / H:.3f} H) arm-root |y| {w_arm:.3f} knee {z_knee:.3f} "
         f"neck {z_neck:.3f} chin {z_chin:.3f}"
@@ -1988,7 +2102,7 @@ def _figure(src, height, spec, kneel):
         pitch = math.atan2(d.z, math.hypot(d.x, d.y))
         mid = wr + d.normalized() * (length * 0.5 - 0.15)
         mast = kit.tube(f"{kp}_mast", length, 0.030, tuple(mid), yaw=math.atan2(d.y, d.x), pitch=pitch, role="metal")
-        pack = teams._yah_pack(f"{kp}_pack", (x, y, 0.0), kneel=True)
+        pack, _in = _pack_behind(f"{kp}_pack", kp, kparts, kneel=True)
         forced[mast] = f"{kp}_forearm_R"
         forced[pack] = f"{kp}_spine"
         out += [mast, pack]
@@ -2162,6 +2276,15 @@ def build_team(team_id):
         # `prop`, hidden while the crew walk on their D6 walkers; the No.3's
         # rifle at his hand.
         tube, prop_bones, f_tube = rig._mortar_team_extras()
+        # The tube and bipod must be clear of every crewman at rest (B7
+        # review): counted here, and `launcher_clearance.test.ts` repeats
+        # it on the exported bytes.
+        crew = [o for o in parts if "_death" not in o.name and not o.name.startswith("mtr_crew0w")
+                and not o.name.startswith("mtr_crew1w") and o.get("rl_role") not in ("weapon", "metal")]
+        inside = _inside_count(tube, crew)
+        log(f"mortar_team: mortar samples inside the crew at kit's (0.26, 0): {inside}")
+        if inside:
+            raise SystemExit(f"mortar_team: {inside} mortar samples inside a crewman -- move the mount, do not ship it")
         bones += prop_bones
         forced.update(f_tube)
         parts += tube
@@ -2229,9 +2352,17 @@ def build_team(team_id):
         mast = [kit.tube("yah_mast", mast_len, 0.030, (hand.x + mast_len * 0.5 - 0.20, hand.y, hand.z), yaw=0.0, pitch=0.0, role="metal")]
         head = [kit.box("yah_head", (0.16, 0.10, 0.04), (hand.x + mast_len - 0.20, hand.y, hand.z), "metal")]
         forced.update({ob: "yah_a_forearm_R" for ob in mast + head})
-        packs = [teams._yah_pack("yah_pack_a", (0.30, -0.20, 0.0)), teams._yah_pack("yah_pack_b", (-0.34, 0.26, 0.0))]
-        forced[packs[0]] = "yah_a_spine"
-        forced[packs[1]] = "yah_b_spine"
+        # Kit's own positions ran the boxes through both torsos (B7 review);
+        # the "before" count is logged beside the seated one.
+        packs = []
+        for pfx, at in (("yah_a", (0.30, -0.20, 0.0)), ("yah_b", (-0.34, 0.26, 0.0))):
+            kit_pack = teams._yah_pack(f"{pfx}_kitpack", at)
+            body = [o for o in parts if o.name in (f"{pfx}_torso", f"{pfx}_hips")]
+            log(f"{pfx}: kit pack position -- {_inside_count([kit_pack], body)} samples inside the torso (before)")
+            bpy.data.objects.remove(kit_pack, do_unlink=True)
+            pack, _in = _pack_behind(f"yah_pack_{pfx[-1]}", pfx, parts, kneel=False)
+            forced[pack] = f"{pfx}_spine"
+            packs.append(pack)
         parts += mast + head + packs
         w = _rifle_at_hand("yah_b", hands["yah_b"], -0.34, 0.26)
         forced.update({ob: "yah_b_forearm_R" for ob in w})
