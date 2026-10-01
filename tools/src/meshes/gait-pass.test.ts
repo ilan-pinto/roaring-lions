@@ -80,7 +80,7 @@ describe('measureGait over every shipped rigged mesh', () => {
   // total shape of the whole tree, not just that each individual call did
   // not throw.
   it('declares a gait for every file except the one named exemption', () => {
-    expect(ALL_RIGGED_FILES.length).toBe(21);
+    expect(ALL_RIGGED_FILES.length).toBe(22);
 
     const skipped: string[] = [];
     const declared: string[] = [];
@@ -97,9 +97,10 @@ describe('measureGait over every shipped rigged mesh', () => {
     }
 
     expect(skipped.sort()).toEqual(['moto_rpg.glb']);
-    expect(declared.length).toBe(20);
-    // Only the two Meshy-sourced bipeds carry moveFire today.
-    expect(moveFireCount).toBe(2);
+    expect(declared.length).toBe(21); // E5's recon_zikit joined
+    // B7 (2026-10-01): no shipped rig carries moveFire -- the two supplied
+    // bipeds that did are replaced by rig.py figures.
+    expect(moveFireCount).toBe(0);
   });
 
   it.each(EXPECTED_SKIP_TYPES)('%s is a named skip, and really is degenerate', (type) => {
@@ -151,13 +152,6 @@ describe('measureGait declares exactly what the instrument independently measure
     expect(declared.clips.move?.cycleS).toBe(fresh.clipSeconds);
   });
 
-  it('moveFire: strideM/cycleS equal a fresh, independently-invoked measureRoleFootprint call', () => {
-    const abs = path.join(MESHES, 'meshy_soldier.glb');
-    const declared = measureGait(abs);
-    const fresh = measureRoleFootprint(abs, 'boot', 'moveFire');
-    expect(declared.clips.moveFire?.strideM).toBe(fresh.axisTravelM[0]);
-    expect(declared.clips.moveFire?.cycleS).toBe(fresh.clipSeconds);
-  });
 
   // Cross-checked against the exact ratios `mesh_gait.test.ts` already gates
   // for these files, using groundPerCycleM the same way that suite does --

@@ -160,14 +160,23 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // was supplied as OUR infantry. Which side an asset fights for is a design
   // call, not one a naming heuristic gets to infer, which is why every faction
   // here is written down rather than derived.
-  inf_squad: { files: ['meshy_soldier.glb'], faction: 'kdf' },
+  // B7 (GH-179, 2026-10-01): all four are Meshy A-pose figures with their
+  // bake through tools/units/import_meshy_crew_team.py now, and each file
+  // carries its team id's own name -- `meshy_soldier.glb`,
+  // `meshy_mortar_team.glb` and `yahalom_engineer.glb` (the supplied,
+  // palette-painted assets) are deleted, not retired.
+  inf_squad: { files: ['inf_squad.glb'], faction: 'kdf' },
   sarim_rifles: { files: ['sarim_rifles.glb'], faction: 'enemy' },
-  mortar_team: { files: ['meshy_mortar_team.glb'], faction: 'kdf' },
-  yahalom_squad: { files: ['yahalom_engineer.glb'], faction: 'kdf' },
+  mortar_team: { files: ['mortar_team.glb'], faction: 'kdf' },
+  yahalom_squad: { files: ['yahalom_squad.glb'], faction: 'kdf' },
 
   // The star-gated Tzinah (docs/campaign/special_units/design.md §3), built by
   // the same kit.py/teams.py pipeline as the rest of this table.
   breach_team: { files: ['breach_team.glb'], faction: 'kdf' },
+
+  // E5 (GH-181, 2026-10-01): the bought-only Shmamit deep recon team, a Meshy
+  // figure cut into rig.py's parts (`tools/units/import_meshy_zikit_team.py`).
+  recon_zikit: { files: ['recon_zikit.glb'], faction: 'kdf' },
 
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
   // rig.py's parts and driven by rig.py's own clips
@@ -231,6 +240,10 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // `apc_kipod` (landed in 2f93129) -- so both build a mesh at runtime.
   scout_shachaf: 'vehicles/scout_shachaf.glb',
   apc_kipod: 'vehicles/apc_kipod.glb',
+
+  // E5 (GH-181, 2026-10-01): the bought-only Peten Gunship, a Meshy export
+  // (`tools/vehicles/export_meshy_apache_gunship.py`); an air unit on this path.
+  heli_peten_gunship: 'vehicles/heli_peten_gunship.glb',
 
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): the first units generated through
   // `pnpm meshy` end to end (`docs/art/meshy-prompts-units.md` sections 6-7).
@@ -364,10 +377,9 @@ export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
  * revert.
  */
 export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
-  'inf_squad.glb': 'superseded by meshy_soldier.glb (the supplied KDF rifleman)',
-  'mortar_team.glb':
-    'superseded by meshy_mortar_team.glb; kept as mesh_gait.test.ts’ 88.7% gait reference',
-  'yahalom_squad.glb': 'superseded by yahalom_engineer.glb (the first mesh team with a work clip)',
+  // Empty since B7 (GH-179, 2026-10-01): the three kit builds it held
+  // (`inf_squad.glb`, `mortar_team.glb`, `yahalom_squad.glb`) are live again
+  // under the same names, as Meshy figures through the crew importer.
 };
 
 /**
@@ -409,9 +421,6 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
   'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',
   'vehicles/officer_armour.glb': 'officer_armour (GH-298 Stage 5)',
-  // E5 part 2 (GH-181, 2026-09-30): the unit JSON is staged, not shipped.
-  'recon_zikit.glb': 'recon_zikit (GH-181 E5 Task 9; RIGGED_UNIT_MESHES, kdf)',
-  'vehicles/heli_peten_gunship.glb': 'heli_peten_gunship (GH-181 E5 Task 9; VEHICLE_UNIT_MESHES)',
   // E5 part 2 (GH-181, 2026-10-01): the Tzav's unit JSON is staged and its
   // placed charge is E6's, so the file waits for E6 to wire it.
   'vehicles/demo_tzav.glb': 'demo_tzav (GH-181 E5 -> E6; VEHICLE_UNIT_MESHES)',

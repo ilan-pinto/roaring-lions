@@ -55,6 +55,7 @@ G0 #164 answered 18 Sep and closed. Answer the rest on their issues: G1 #165 · 
 
 ## 4. Landed — append-only, newest first
 
+- 2026-10-01 · **E5 part 2 landing #181 (PR pending)** · the Shmamit Deep Recon Team (`recon_zikit`, 4,250) and the Peten Gunship (`heli_peten_gunship`, 8,000) moved from staging into `data/units/kdf`, meshes un-held, `rl_gait` applied to the Zikit, garage plates shot, mesh_gait/footprint/weight pins extended · **the Tzav (`demo_tzav`) stays staged**: its placed charge is E6 G1 (sim, Stage 4) and a landed Tzav could not do its job · sim untouched, determinism hash and playtest ladder unmoved, `(bought)` probes unchanged · garage icons are the generic glyph (no sprite sheet for either; `unitIcon` is sheet-cropped) · Roar coins: items play cannot reach stay off sale for coins (#317/#329), nothing coin-side built
 - 2026-10-01 · **#327 → d5cddb22 rpg/manpad/recoilless launchers on the shoulder** · new launcher_clearance test · re-blessed 6143eb65 · **#326 → c9a85c4d Sur highland biome (GH-322)** · cedars, brown earth, rocks; lead: open groves 0.6/tile, relief vignette floor 5,580 · re-blessed 318bcea6 · **#325** Spike launcher fix
 - 2026-10-01 · **#324** A3.1 B5+B6 · **#323** garage 3D turntable (#316) · **#321 #320 #319 #318** B4, Shiryonan carrier, Peten + Shmamit, officers · blesses 0626983c e31ebdf3 2ca0c68c 70729d4b
 - 2026-09-30 · **#310–#315** B0a, FW buildings, B2, B0b, A3.2 ramp set, B3 (Meshy; #277 #286 #179 #185 #227)

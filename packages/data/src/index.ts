@@ -108,6 +108,9 @@ import yahalomSquad from '../../../data/units/kdf/yahalom_squad.json';
 import breachTeam from '../../../data/units/kdf/breach_team.json';
 import scoutShachaf from '../../../data/units/kdf/scout_shachaf.json';
 import apcKipod from '../../../data/units/kdf/apc_kipod.json';
+// E5 bought-only special forces (GH-181): `unlock` is `{ price }` alone, credits, no star gate.
+import reconZikit from '../../../data/units/kdf/recon_zikit.json';
+import heliPetenGunship from '../../../data/units/kdf/heli_peten_gunship.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -305,6 +308,8 @@ export const units = {
   breach_team: breachTeam,
   scout_shachaf: scoutShachaf,
   apc_kipod: apcKipod,
+  recon_zikit: reconZikit,
+  heli_peten_gunship: heliPetenGunship,
   militia_cell: militiaCell,
   rpg_team: rpgTeam,
   atgm_cell: atgmCell,

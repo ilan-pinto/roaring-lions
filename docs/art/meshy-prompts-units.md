@@ -844,3 +844,240 @@ before the cheaper unit spends), then `moto_rpg` (B6: the bike preview, no
 refine; riders from a figure already on disk). **Lead-approved cap: 65 credits**
 (breach 35–40, moto 25); planned spend 35 + 25 = **60**. Anything that would
 need a re-roll or a second call stops and reports the cost instead.
+
+---
+
+# Batch B7 — the eight teams without a bake
+
+**WP-A3.1 (GH-179), batch B7 · 2026-10-01 · approved by the lead ("Run all 8",
+160–240 credits, never more than 300)**
+
+The eight unit types still outside `TEXTURED_INFANTRY_TYPES` after B6: the two
+B2 figure teams that shipped palette-painted because #307 had not merged
+(`manpad_team`, `recoilless_team`), and the six SUPPLIED Meshy assets the bible
+§6 had marked out of scope (`inf_squad` → `meshy_soldier.glb`, `mortar_team` →
+`meshy_mortar_team.glb`, `yahalom_squad` → `yahalom_engineer.glb`,
+`sarim_rifles`, `sniper_team`, `civilians`), every one palette-painted and four
+of them far over the bible's 8,000 team cap (31,965 / 180,670 / 20,544 / 30,876
+/ 27,991 tris; measured 2026-10-01 from the bytes). Three facts checked on the
+day set the plan:
+
+- **A refine can be bought on a preview that already exists.** Meshy's refine
+  takes a `preview_task_id`; B2's two previews (2026-09-30) are still on
+  Meshy's side. The CLI gains `refine <preview-task-id>` (the `--refine` half of
+  `text` on its own, 10 credits at 2k), so the two B2 figures the lead already
+  judged -- and whose launcher seats #327 tuned -- get their bake for **15 each**
+  (refine 10 + remesh 5), not a new 35-credit figure.
+- **The four civilians keep their SUPPLIED figures and ship the bake those
+  sources already carry -- 0 credits.** Four new A-pose previews would cost 140
+  and push the batch past the 300 ceiling; one figure re-posed four ways would
+  erase the adult/child variety the brief says to keep; and a `rig.py` cut would
+  replace the supplied idle/run/crawl clips with keyframe tables for a type that
+  neither shoots nor digs. `import_meshy_civilians.py` reads its gitignored
+  sources (`art/blend/civilian/`, each with one 4096² base-colour bake) and
+  gains a textured path on the B3 shape: keep the material, ship 1024 JPEG, add
+  `civilians` to both lists. Same geometry, same clips, same gait pins.
+- **The five supplied teams are REPLACED on B3–B6's path** -- one A-pose
+  preview, `--refine --tex 2k`, one remesh, `rig.py` through
+  `tools/units/import_meshy_crew_team.py`, 35 each. The files take their team
+  id's own name (`inf_squad.glb`, `mortar_team.glb`, `yahalom_squad.glb` -- the
+  superseded `kit.py` builds on disk, which `RETIRED_MESH_FILES` kept for a
+  reversible swap -- plus `sarim_rifles.glb`, `sniper_team.glb`), the catalogue
+  points each type at its own file, and `meshy_soldier.glb`,
+  `meshy_mortar_team.glb` and `yahalom_engineer.glb` are deleted with the tests
+  that measured their bytes. The supplied clips go with them (`fall`, `fallAlt`,
+  `wreckAlt`, `moveFire`, and `yahalom_engineer`'s `work`); what each loses is
+  recorded in its own table below, and `yahalom_squad`'s `work` is the one
+  loss that decides whether the unit is done or skipped.
+
+| unit | class | steps | credits |
+|---|---|---|---|
+| `manpad_team` | B2 figure, bake bought on its preview | refine 10 + remesh 5 | 15 |
+| `recoilless_team` | B2 figure, bake bought on its preview | refine 10 + remesh 5 | 15 |
+| `inf_squad` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `sarim_rifles` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `mortar_team` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `sniper_team` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `yahalom_squad` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
+| `civilians` | supplied figures, bake kept | — | 0 |
+| | | **B7 planned** | **205** (about $4.10), inside the lead's 160–240; ceiling 300 |
+
+Balance read 2026-10-01: 3,490 credits. One preview per unit; a re-roll only
+for an unusable preview, logged with the reason; anything that would pass 300
+stops and reports.
+
+## 18. `manpad_team` and `recoilless_team` — the bake on the B2 figures
+
+| item | number | source |
+|---|---|---|
+| preview tasks | `manpad_team` `01a0f2ac-f4e5-7632-8b48-d8813d50890c`; `recoilless_team` `01a0f2ac-f5b1-7146-b3e3-73be95e86ff2` | `import_meshy_crew_team.py` SOURCES, provenance B2 |
+| refine | `refine <preview> --tex 2k --name <id>`, 10 each; ship 1024 JPEG as B3 | this batch's CLI command |
+| remesh | `--polycount 1500` of the REFINED task, as B2's 1,500 (a walker-carrying team; B2 landed 8,967 / 10,408 tris) | bible §8 |
+| heights | 1.74 / 1.72, unchanged | B2 tables |
+| what moves | the figure geometry is a fresh remesh of the SAME preview mesh at the SAME polycount, so the cut, the kneel and `_seat_launcher`'s search re-run on near-identical shells; the seats are re-measured, not copied, and `launcher_clearance.test.ts` must stay at 0 inside. `ADD_KEFFIYEH["manpad_team"]` stays True (the preview was bare-headed). The MANPAD man's kit keffiyeh borrows its colour from his shirt's bake, as militia's did | #327, B3 |
+| lists | both join `TEXTURED_INFANTRY_TYPES` / `TEXTURED_INFANTRY_EXEMPT` and the importer's `TEXTURED` | #307 |
+
+No prompt: nothing new is generated.
+
+## 19. `inf_squad` — Rifle Squad (KDF, crew 8, 3 drawn)
+
+Today: `art/meshes/meshy_soldier.glb`, the supplied rifleman, **31,965 tris, 3
+figures, 3.2 MB**, 1.67 m high (the bible's own §1 line calls it 1.78 -- the
+bytes read 1.67), clips `idle, move, moveFire, fire, down, fall, wreck`. The
+kit composition is kept verbatim (`rig.TEAM_FIGURES["inf_squad"]`): `f0` at
+(0.0, −0.78), `f1` at (0.20, 0.0) leader, `f2` at (0.0, 0.78), three standing
+riflemen in a wide line -- "the baseline every other silhouette has to differ
+from".
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4, batch header |
+| base figure | **one** Meshy KDF figure, `--pose a-pose`, all three men from it | bible §5 |
+| height | **1.78 m** -- the KDF rifleman reference the bible names; this file becomes that reference | bible §1 |
+| remesh `--polycount` | **1,500** -- THREE standing men: 3 × (1,500 + ~340 blobs) + 3 posed corpses × ~750 (decimate 0.5) + 3 kit rifles × ~90 ≈ **8,040**; at the bible's 2,000 the file would read ~10,300 | bible §3, §10 |
+| bake | yes, 2k → 1024; `inf_squad` in both lists | #307 |
+| roles | `uniform`, `boot`, `face` by geometry; helmet and neck `uniform` (`HEAD_ROLE`, the B5 KDF rule); `weapon` the kit rifles | contract v1 |
+| rig | the crew importer's standing cut, both forearms bent to the rifle (`FORE_BEND`), `_rifle_at_hand` on each man -- `militia_cell`'s rule, three times | B3 |
+| what is lost | the supplied `moveFire` (walk-and-shoot) and `fall` clips; `resolveMeshMotionClip` falls back to `fire` and the topple plays instead, as on every rig.py team | `mesh-anim.ts`, `mesh-death.ts` |
+| nearest neighbour | **`sarim_rifles`** (three standing riflemen; `teams.py`: the straight line at even spacing against its diagonal wedge) and `militia_cell` (two). Levers kept: three in a line, centre man stepped forward, rifles | `teams.py` |
+| sandbox | three in the base set | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready rifleman, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. A small radio pouch on the left shoulder strap and a rolled olive poncho strapped across the lower back. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan suede. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The signature is deliberately small: the rifleman is the baseline, and every
+other KDF team was asked for the thing that makes it NOT this man (a rucksack,
+goggles and a tool bag, a vest and visor). The rifle is kit.
+
+## 20. `sarim_rifles` — Sarim Rifles (enemy, crew 8, 3 drawn)
+
+Today: `art/meshes/sarim_rifles.glb`, the supplied irregular, **30,876 tris,
+3 figures, 4.1 MB**, 1.63 m high, nine clips. Composition kept verbatim from
+`teams.sarim_rifles`: `sar0` at (0.34, −0.90), `sar1` at (0.0, 0.0) leader,
+`sar2` at (−0.34, 0.86) -- the diagonal wedge.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4 |
+| base figure | one Meshy Sarim figure, `--pose a-pose`, all three from it | bible §5 |
+| height | **1.74 m** -- the trim mountain brigade, B2's MANPAD height; the supplied file's 1.61 sat under the bible's 1.66 floor | bible §3 |
+| remesh `--polycount` | **1,500**, as `inf_squad`: ≈ **8,040** | bible §3 |
+| bake | yes, 2k → 1024; both lists | #307 |
+| roles | `uniform`, `boot`, `face`, `keffiyeh` by geometry; `weapon` the kit rifles; kit keffiyeh if the preview ignores the wrap (`ADD_KEFFIYEH`), head-wrap recolour if it paints one saturated (`RECOLOUR`) | B3/B4 |
+| rig | as `inf_squad`; `rig.py` gains `sarim_rifles` in `SUPPORTED_TEAMS` / `TEAM_FIGURES` / `TEAM_MESH_OWNER` (it was never a kit export) | `rig.py` |
+| what is lost | `moveFire`, `fall`, `fallAlt`, `wreckAlt` | as `inf_squad` |
+| nearest neighbour | **`inf_squad`** (above) and **`militia_cell`** (two standing irregulars in a touching pair, open jacket). Levers kept: three, the wedge, no jacket bulk | `teams.py` |
+| sandbox | two in the base set | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready irregular fighter, an irregular militia fighter in a mix of dusty civilian clothes and a worn tan chest rig, a keffiyeh wrapped over the head and lower face, worn boots. Standing in a relaxed A-pose, arms slightly away from the body. A short cropped field jacket with the sleeves rolled to the elbow and a single bandolier of rifle magazines across the chest. Real-world scale, 1.74 metres tall. Dusty tan cloth, faded olive, brown leather. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The cropped jacket is the Sarim register beside the coastal militia's ragged
+open one: trimmer, a shade more uniform, and nothing that adds crest or width.
+
+## 21. `mortar_team` — 60mm Mortar Team (KDF, crew 3, 3 drawn)
+
+Today: `art/meshes/meshy_mortar_team.glb`, two supplied 980k-vertex sculpts
+retargeted into a 180,670-tri file (5.8 MB) with synthesized clips. Composition
+kept verbatim from `rig.TEAM_FIGURES["mortar_team"]`: `kit.mortar` 1.02 m at
+(0.26, 0, 0) on `prop`; `mtr_crew0`/`mtr_crew1` kneeling at (−0.14, ∓0.54);
+`mtr_no3` standing at (−0.62, 0.0), leader, with a rifle.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4 |
+| base figure | one Meshy KDF figure, `--pose a-pose`; two kneeling from it (`_kneel`) and one standing | bible §5 |
+| height | **1.76 m** | bible §3 |
+| remesh `--polycount` | **1,000** -- two kneelers each ship three copies plus a standing man: 2 × (1,000 + ~460 + 1,000 + ~340 + ~500) + (1,000 + 340 + 500) + mortar 64 + rifle 90 ≈ **8,650**, 8% over the cap, where 1,100 (B4's kneeler number) reads ~9,300; the bake carries the read | bible §3, B4 |
+| bake | yes, 2k → 1024; both lists | #307 |
+| roles | as `inf_squad` (KDF head `uniform`); `weapon`/`metal` the kit mortar and rifle | contract v1 |
+| rig | B2's kneel and walker for the two crew (`move_posture="standing"`, `animates=False`), the standing No.3 with `_rifle_at_hand`; `rig._mortar_team_extras` verbatim on `prop`, hidden while the crew walks | `rig.py` |
+| what is lost | the supplied limbered-march `move` (tube shouldered); the crew walk on D6 walkers with nothing carried, as `mortar_crew` does | `import_meshy_mortar_team.py` |
+| nearest neighbour | **`mortar_crew`** (two kneeling irregulars and a 0.76 tube; the third man and the 1.02 tube are the levers), `atgm_cell`, `at_team` (one kneeler, one stander). Levers kept: three figures, the tallest spike | `teams.py` |
+| the gait control | `mesh_gait.test.ts` measures the kit `mortar_team.glb` as the instrument's CONTROL (0.887 coverage); that file is overwritten here, so the control moves to a B3 rig.py walker whose coverage is pinned | `mesh_gait.test.ts` |
+| sandbox | one in the base set | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready mortar crewman, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. A tall boxy tan ammunition rucksack on the back with a short round bomb canister strapped to each side. Real-world scale, 1.76 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The pack with its two canisters is what says "mortar" about a man who is not
+holding the tube (the tube is kit) -- rear mass, so it does not read as
+`at_team`'s plain box rucksack from the camera's side.
+
+## 22. `sniper_team` — Sniper Team (KDF, crew 2, 2 drawn)
+
+Today: `art/meshes/sniper_team.glb`, two supplied sculpts (one prone pair, one
+standing pair) under `tools/export_meshy_sniper.py`, **27,991 tris, 0.8 MB**,
+three roles. `rig._sniper_rest`'s contract is kept exactly: `snp_a` at (0.10,
+−0.24) with the rifle, `snp_b` at (−0.24, +0.24) with binoculars; the PRONE
+build on `{prefix}_death_root` is the LIVING pose (`idle`, `fire`, and tightened
+to ±0.12 for `down`/`wreck`), the standing walker on `root` is `move` alone,
+`rig.build_sniper_clips` unchanged.
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4 |
+| base figure | one Meshy KDF figure, `--pose a-pose`, both men from it: a standing cut for the walker and the SAME cut re-arranged rigidly prone -- the kneel's method, flat: the body laid on its chest, both arms swung forward to the rifle (or the binoculars), the head raised on the neck. Bible §2: no prompt asks for a prone figure | `rig._sniper_rest` |
+| height | **1.78 m** | bible §1 |
+| remesh `--polycount` | **1,500** -- each man ships twice (prone + walker, no separate corpse): 2 × (1,500 + ~340 + 1,500 + ~340) + kit sniper rifle and binoculars twice ≈ **7,800** | bible §3 |
+| bake | yes, 2k → 1024; both lists | #307 |
+| roles | `uniform`, `boot`, `face` (KDF head `uniform`); `weapon` the kit sniper rifle, `metal` the binoculars | contract v1 |
+| what is lost | the sculpted ghillie drape; the Meshy figure asks for a ghillie hood instead | below |
+| nearest neighbour | nothing prone lives in the set (the gate compares `idle` only, and this is the one prone idle); `teams.py` calls it "the one sheet with no collision risk worth naming" | `teams.py` |
+| gait pins | `sniper_team` is `GAIT_MULTIPLIER_UNDER_ONE`'s one entry (0.9144) and the slowest cadence in the tree; both move with the new walker and are re-pinned from the bytes | `mesh_gait.test.ts` |
+| sandbox | not in the base set; fielded by missions; the capture spawns it | |
+
+```
+A single low-poly game-ready sniper, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. A shaggy ghillie hood of shredded burlap strips covering the helmet and draped down over the upper back. Real-world scale, 1.78 metres tall. Olive drab cloth, dusty tan burlap, black webbing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The hood is on the head and the upper back only, on purpose: a full cape over
+the A-pose arms would weld the arms to the torso and defeat the cut.
+
+## 23. `yahalom_squad` — Yahalom Engineers (KDF, crew 5, 2 drawn)
+
+Today: `art/meshes/yahalom_engineer.glb`, the supplied engineer, **20,544
+tris, 2.7 MB**, eight clips including the tree's only `work`. Composition from
+`rig.TEAM_FIGURES["yahalom_squad"]`: `yah_a` at (0.30, −0.20) leader with the
+1.45 m mast and sensor head on `forearm_R`, `yah_b` at (−0.34, 0.26) with a
+rifle; kit packs on both spines (`rig._yahalom_extras`).
+
+| item | number | source |
+|---|---|---|
+| class | figure team, textured, **35** credits | bible §4 |
+| base figure | one Meshy KDF figure, `--pose a-pose`, both standing from it | bible §5 |
+| height | **1.78 m** | bible §1 |
+| remesh `--polycount` | **2,000** -- two standing men, no walker: ≈ **7,100** as `breach_team` | bible §3 |
+| bake | yes, 2k → 1024; both lists | #307 |
+| `work` | `rig.py` has never built it ("not built here", its own docstring), and `yahalom_engineer.glb` is the only mesh with one: `resolveClip` plays `work` for the whole of a tunnel charge. **The unit is done only if a `work` clip ships with it** -- the lead kneeling at the mast (a kneel copy of `yah_a` on its own root, the mast pitched into the ground), built through rig.py the way the walker is. If that cannot be built honestly inside this batch, the unit is SKIPPED and the reason is this row | `clip.ts`, `rig.py` |
+| nearest neighbour | `breach_team` (two KDF men, shield and pole), `demo_squad`. Levers kept: the level mast at hip height, the square packs, two upright men | `teams.py` |
+| sandbox | two in the base set | `sandbox-force.ts` |
+
+```
+A single low-poly game-ready combat engineer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. Thick padded knee guards and elbow pads, and a coil of thick cord slung over one shoulder across the chest. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+The packs and the mast are kit (the tells), so the prompt asks for pads and a
+coil -- surface, not silhouette -- and loses nothing if Meshy ignores them.
+
+**Sent 2026-10-01, verbatim, all eight: 205 credits, no re-roll.** The two
+refines, the five previews (`text --pose a-pose --refine --tex 2k`) and the
+seven remeshes are in `docs/ASSET_PROVENANCE.md` ("batch B7") with task ids;
+what each preview honoured and what the importer fixed in `style-bible.md`
+§14. The rifleman and the sniper came holding a carbine instead of the A-pose
+(kept, as B5's breach team was); the Sarim rifleman came bare-headed under a
+green headband (kit keffiyeh, recolour); `yahalom_squad` was NOT skipped --
+its `work` clip is built through rig.py now (§23's own condition).
+
+## Order inside B7
+
+The two refines first (cheapest, and the first measurement of a refine on an
+old preview), then `inf_squad` (the reference, and the three-man cut), then
+`sarim_rifles` (the same cut on the Sarim line), `mortar_team` (kneel + stand
++ prop), `sniper_team` (the new prone pose), civilians (no spend), and
+`yahalom_squad` last, after its `work` question is answered. One preview, one
+refine, one remesh each; gates after every unit; commit per unit; one PR per
+two units.

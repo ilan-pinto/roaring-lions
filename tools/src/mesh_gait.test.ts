@@ -28,7 +28,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  ACTIVE_TRAVEL_FRACTION,
   circularMeanDeg,
   clipSeconds,
   countTracePeaks,
@@ -41,7 +40,6 @@ import {
   measureRoleTravelByFigure,
   measureRootTravel,
   measureWeaponAxis,
-  MESH_UNITS_PER_TILE,
   readGlb,
   rotationDeltaDeg,
   swingLiftFraction,
@@ -127,17 +125,16 @@ function wiredMortarGlb(): string {
 }
 
 describe('mesh unit gait', () => {
-  it('the kit.py mortar_team walks -- the control for the instrument itself', () => {
+  // B7 (GH-179, 2026-10-01): the kit.py build this control measured (0.887)
+  // is superseded by the Meshy figure on rig.py's own gait -- the SAME
+  // keyframe table, sized from the same speed -- so the control is the
+  // rig.py mortar_team still, on its D6 walkers (0.938 measured at the
+  // swap). The supplied `meshy_mortar_team.glb` (#145's subject) is deleted.
+  it('the rig.py mortar_team walks -- the control for the instrument itself', () => {
     const m = measureRoleTravel(`${MESHES}mortar_team.glb`, 'boot', 'move');
     const ground = groundPerCycleM(mortarSpeedTilesPerSecond(), m.clipSeconds);
     expect(ground).toBeCloseTo(1.3, 2);
     expect(m.maxTravelM / ground).toBeGreaterThan(0.85);
-  });
-
-  it('the Meshy mortar_team walks rather than slides (#145)', () => {
-    const m = measureRoleTravel(`${MESHES}meshy_mortar_team.glb`, 'boot', 'move');
-    const ground = groundPerCycleM(mortarSpeedTilesPerSecond(), m.clipSeconds);
-    expect(m.maxTravelM / ground).toBeGreaterThan(WALK_FLOOR);
   });
 
   it('whichever GLB the mesh catalogue wires to mortar_team is the one that walks', () => {
@@ -186,127 +183,6 @@ describe('mesh unit facing', () => {
   // between them on this asset: 1-3 degrees on a square head, up to ~7 on a
   // bladed one (`moveFire` reads +10.8 there and +17.6 here). Every clip
   // still clears its ceiling with real margin on BOTH.
-  function headingCeilings(): Record<string, number> {
-    const py = readFileSync(fileURLToPath(new URL('../import_meshy_soldier.py', import.meta.url)), 'utf8');
-    const table = /\nCLIP_SEMANTICS = \{\n([\s\S]*?)\n\}\n/.exec(py);
-    expect(table, 'CLIP_SEMANTICS not found in tools/import_meshy_soldier.py').not.toBeNull();
-    const out: Record<string, number> = {};
-    for (const entry of (table as RegExpExecArray)[1].split(/\n {4}(?=")/)) {
-      // The FIRST chunk still carries its own indent; the split consumed it
-      // for every later one.
-      const name = /^\s*"(\w+)":/.exec(entry);
-      const heading = /"heading":\s*(?:None|\{"mean_deg":\s*([\d.]+))/.exec(entry);
-      expect(name, `a CLIP_SEMANTICS entry has no parseable clip name: ${entry.slice(0, 60)}`).not.toBeNull();
-      expect(heading, `CLIP_SEMANTICS['${name?.[1]}'] has no parseable "heading"`).not.toBeNull();
-      if ((heading as RegExpExecArray)[1] !== undefined) {
-        out[(name as RegExpExecArray)[1]] = Number((heading as RegExpExecArray)[1]);
-      }
-    }
-    // `wreck` is the one exemption, so five of the six carry a number. A
-    // parse that silently found none would otherwise make every assertion
-    // below vacuous.
-    expect(Object.keys(out).sort()).toEqual(['down', 'fire', 'idle', 'move', 'moveFire']);
-    return out;
-  }
-
-  it.each(['idle', 'fire', 'down'])(
-    'the KDF rifleman faces what he is shooting in %s (was -156/-163/sweeping)',
-    (clip) => {
-      const figs = measureFacing(`${MESHES}meshy_soldier.glb`, clip);
-      expect(figs.length).toBe(3);
-      for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(headingCeilings()[clip]);
-    }
-  );
-
-  it('reads the same rifleman walking CORRECTLY, so the reading is of the clip', () => {
-    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'move');
-    // The count assertion is not decoration: `for (const f of [])` passes in
-    // 0 ms, which is exactly how this instrument stayed blind to all four
-    // civilian rigs through two tasks and a review.
-    expect(figs.length).toBe(3);
-    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(headingCeilings().move);
-  });
-
-  it('binds moveFire, and reads it as bladed rather than broken', () => {
-    // `Run_and_Shoot_withSkin.glb` was on disk and bound to nothing. It is a
-    // genuine walk-and-shoot mocap: the body blades to the target and the
-    // eyes square to the sights, so the head sits left of the line of
-    // travel -- and the WEAPON sits on the axis of travel, measured at +0.31
-    // deg by the Python gate, which is why that clip is the control the
-    // weapon check is calibrated against. The sibling Sarim rig's own
-    // `moveFire` measures +42 and the design doc records it as "bladed but
-    // not broken"; this one is milder, hence its own wider ceiling.
-    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'moveFire');
-    expect(figs.length).toBe(3);
-    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(headingCeilings().moveFire);
-  });
-
-  it('leaves wreck facing backward, which is a corpse and not a defect', () => {
-    // Deliberately NOT in the band. `wreck` is the last frame of
-    // `Shot_and_Blown_Back` -- a body thrown round by the round that killed
-    // it lies where the blast put it. The design doc records the -166 so the
-    // next reader does not "fix" it, and `CLIP_SEMANTICS['wreck']['heading']`
-    // is `None` in the import script for the same reason. Pinned here so a
-    // future facing sweep that quietly squares every clip shows up as a red
-    // test rather than as a corpse politely facing the enemy.
-    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'wreck');
-    expect(figs.length).toBe(3);
-    for (const f of figs) expect(Math.abs(f.meanDeg)).toBeGreaterThan(120);
-  });
-
-  // Task 3. `HEAD_JOINT_RE` was `/_(head|Head)$/`, which needs a FIGURE PREFIX
-  // to match -- `f0_Head` on a three-man team file. A single-figure GLB names
-  // the bone plainly `Head`, so all four civilians matched nothing,
-  // `measureFacing` returned `[]`, and every caller in this tree spells its
-  // check as a `for` loop over the result. The whole family read as "measured,
-  // and fine". This is the guard on that: assert the COUNT, not just the
-  // angles, because an empty result passes any angle assertion ever written.
-  it.each(['civilian_woman', 'office_worker', 'farm_worker', 'civilian_child'])(
-    'measures %s at all -- one figure, not silently zero',
-    (figure) => {
-      const figs = measureFacing(`${MESHES}civilians/${figure}.glb`, 'move');
-      expect(figs.length).toBe(1);
-      expect(figs[0].joint).toBe('Head');
-    }
-  );
-
-  it.each(['office_worker', 'farm_worker', 'civilian_child'])(
-    '%s runs facing forward',
-    (figure) => {
-      // Measured after Task 3 bound `Running` to `move`: office_worker +14.1,
-      // farm_worker +2.3, civilian_child +0.4. The band is 30 rather than the
-      // 20 used for the soldiers because this instrument is noisier on these
-      // rigs -- see the `civilian_woman` exclusion below for how much.
-      const figs = measureFacing(`${MESHES}civilians/${figure}.glb`, 'move');
-      for (const f of figs) expect(Math.abs(f.meanDeg)).toBeLessThan(30);
-    }
-  );
-
-  it('reads civilian_woman through a 16 mm lever, so her angle is NOT asserted', () => {
-    // A NAMED exclusion with its measurement, not an oversight. `measureFacing`
-    // takes its bearing from the head joint to the centroid of that joint's own
-    // `face` vertices, so the lever arm it measures over is a property of the
-    // asset. In bind pose, ground-plane: sarim_rifles 0.0813 m, office_worker
-    // 0.0692, farm_worker 0.0639, meshy_soldier 0.0582, civilian_child 0.0505
-    // -- and civilian_woman **0.0160**, three to five times shorter, because
-    // her head-weighted `face` vertices sit almost symmetrically around the
-    // joint. The bearing is then made mostly of skinning wobble: she reads a
-    // spread of 78.7 deg on a STANDING `idle` and +26.0 mean on `move`, where
-    // the rig's own `Head`->`headfront` marker (the build-time instrument in
-    // `import_meshy_civilians.py`) reads that same idle at -3.86 with a spread
-    // of 5.83 and that same move at -0.08.
-    //
-    // So this pins the DEFECT, not the facing: if a later change shortens or
-    // lengthens that lever the count and the clip still have to work, and
-    // anyone tempted to add her to the band test above finds this first.
-    // Task 7 must not gate civilian facing on `measureFacing` until the lever
-    // is fixed -- taking the bearing from the rig's `headfront` marker, which
-    // every one of these rigs carries, would fix it for all of them.
-    const figs = measureFacing(`${MESHES}civilians/civilian_woman.glb`, 'move');
-    expect(figs.length).toBe(1);
-    expect(figs[0].maxDeg - figs[0].minDeg).toBeGreaterThan(30);
-  });
-
   it('leaves the Sarim militia facing where it already faced', () => {
     // The design's section 2.1 measured this asset at +10..+11 across every
     // standing clip and called that the authored contrapposto rather than a
@@ -376,25 +252,8 @@ describe('mesh unit gait -- the run clips', () => {
   // without either a flicker or a clamp wide enough to disable rate-matching
   // for everything else. 2.6 is the worst multiplier anything else in the tree
   // needs; measured here, `meshy_soldier` 1.125 and `sarim_rifles` 1.244.
-  const MAX_RATE_MATCH = 2.6;
-
-  it.each([
-    ['inf_squad', 'meshy_soldier.glb', 0.9],
-    ['sarim_rifles', 'sarim_rifles.glb', 0.9],
-  ])('%s fires on the move at a speed its own legs could reach', (_label, file, speed) => {
-    const m = measureRoleTravel(`${MESHES}${file}`, 'boot', 'moveFire');
-    const implied = m.maxTravelM / m.clipSeconds;
-    const wanted = speed * MESH_UNITS_PER_TILE;
-    expect(wanted / implied).toBeLessThan(MAX_RATE_MATCH);
-  });
 });
 
-// Fix round 1: meanDeg was an arithmetic mean of degrees, which is wrong at
-// exactly the place this instrument most needs to be right -- two bearings
-// two degrees apart across the +/-180 wrap (e.g. +179, -179) arithmetic-
-// average to 0, "facing forward", for what is actually a figure facing
-// backward. A pure unit test of the averaging, no GLB involved: construct
-// bearings straddling the wrap point directly.
 describe('circularMeanDeg', () => {
   it('averages bearings across the +/-180 wrap instead of collapsing to 0', () => {
     // An arithmetic mean of [179, -179] is 0. The circular mean is +/-180 --
@@ -515,94 +374,6 @@ describe('mesh unit gait -- the kit teams take their stride from their speed', (
 // `move` keys to scale 0. A confident number, off geometry the player cannot
 // see. `hiddenInClip` exists so the next reader is told rather than having to
 // know.
-describe('measureFacing and the two-posture rigs', () => {
-  it('says so when the joints it read are scaled out of the clip', () => {
-    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'move');
-    expect(figs).toHaveLength(3);
-    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(true);
-  });
-
-  it('reads the standing rig that IS on screen, and finds it marching forward', () => {
-    // Task 4 turned the supplied standing tableau 180 degrees
-    // (`import_meshy_mortar_team.py`'s `STAND_YAW_DEG`): it faces Blender +Y,
-    // where every standing constant in that file assumed -Y. Before the fix
-    // these read +25.4 / +7.2 / -15.9 -- and that was NOT evidence the crew
-    // marched forward, because the `face` ROLE is defined as the -Y half of
-    // each head and `FORWARD_FIX_DEG` maps -Y to +X, so the measurement and
-    // the role assignment shared the same wrong assumption and agreed with
-    // each other. The picture is what settled it; this pins the result.
-    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'move', /_st_chest$/);
-    expect(figs).toHaveLength(3);
-    for (const f of figs) {
-      expect(f.hiddenInClip, f.joint).toBe(false);
-      expect(Math.abs(f.meanDeg), f.joint).toBeLessThan(20);
-    }
-  });
-
-  it('leaves the deployed crew splayed around their own tube, which is correct', () => {
-    // `idle` is the KNEELING tableau and was measured when that source landed.
-    // A crew spread around a mortar is not a facing defect, and this pass did
-    // not touch it -- these three numbers are unchanged to the tenth of a
-    // degree across the rebuild.
-    const figs = measureFacing(`${MESHES}meshy_mortar_team.glb`, 'idle');
-    expect(figs.map((f) => Math.round(f.meanDeg * 10) / 10)).toEqual([-7.5, 83.9, -67.3]);
-    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(false);
-  });
-
-  it('reads a single-posture rig as visible, so the flag is not always true', () => {
-    const figs = measureFacing(`${MESHES}meshy_soldier.glb`, 'move');
-    expect(figs).toHaveLength(3);
-    for (const f of figs) expect(f.hiddenInClip, f.joint).toBe(false);
-  });
-});
-
-// `measureRoleFootprint` -- where a gait's travel goes, and whether it leaves
-// the ground. Both were needed to derive `rig.py`'s `THIGH_CAP`: peak-to-peak
-// travel alone cannot tell a long step from a high heel kick, and a longer
-// swing lifts a straight-legged figure off the floor.
-describe('measureRoleFootprint', () => {
-  it('splits a kit gait into its step and its lift', () => {
-    const f = measureRoleFootprint(`${MESHES}militia_cell.glb`, 'boot', 'move');
-    const [x, y, z] = f.axisTravelM;
-    // Forward is +X in the mesh contract, and a gait is overwhelmingly along
-    // it: the lift is under half the step and the lateral component is noise.
-    expect(x).toBeGreaterThan(1.0);
-    expect(y).toBeLessThan(x * 0.5);
-    expect(z).toBeLessThan(x * 0.2);
-  });
-
-  it('keeps a boot on the ground -- the bound rig.py sizes its stride against', () => {
-    // `floatM` is the highest the lowest moving boot vertex ever gets. The
-    // stride grew ~35% in this pass and this did NOT, because `_stance_drop`
-    // sinks the root by exactly the reach a swung leg loses. Shipped before:
-    // 0.0922 m on a one-walker team.
-    for (const team of ['militia_cell', 'charge_squad', 'demo_squad', 'at_team']) {
-      const f = measureRoleFootprint(`${MESHES}${team}.glb`, 'boot', 'move');
-      expect(f.floatM, `${team} float`).toBeLessThan(0.0922);
-      expect(f.activeVertexCount, `${team} active`).toBeGreaterThan(100);
-    }
-  });
-
-  it('ignores the collapsed prone geometry every kit rig hides inside boot', () => {
-    // Without `ACTIVE_TRAVEL_FRACTION` this reads the `death_root` corpse's
-    // boots, which sit at a literal z=0 on every rig.py build and at -0.3875
-    // on the Meshy mortar team -- so `floatM` was 0.0000 for nine teams and
-    // measured nothing. The filter is what makes the number mean anything.
-    const withFilter = measureRoleFootprint(`${MESHES}at_team.glb`, 'boot', 'move');
-    expect(withFilter.floatM).toBeGreaterThan(0.01);
-    expect(withFilter.activeVertexCount).toBeLessThan(
-      measureRoleTravel(`${MESHES}at_team.glb`, 'boot', 'move').vertexCount
-    );
-    expect(ACTIVE_TRAVEL_FRACTION).toBeGreaterThan(0);
-  });
-});
-
-// gait-pass's Fix round 1: `cycleS` names a cycle and measures a clip, and
-// peak-to-peak travel cannot tell one gait cycle baked into a clip from two.
-// `countTracePeaks` is the periodicity instrument gait-pass.ts warns from.
-// Calibrated here against every clip the pass currently declares a gait
-// for -- the seventeen declarations across fifteen files, read off the
-// FORWARD axis of `bestVertexTrace`.
 describe('countTracePeaks', () => {
   const SEVENTEEN: readonly [string, string][] = [
     ['demo_squad.glb', 'move'],
@@ -611,12 +382,10 @@ describe('countTracePeaks', () => {
     ['militia_cell.glb', 'move'],
     ['rpg_team.glb', 'move'],
     ['charge_squad.glb', 'move'],
-    ['meshy_soldier.glb', 'move'],
-    ['meshy_soldier.glb', 'moveFire'],
+    ['inf_squad.glb', 'move'],
     ['sarim_rifles.glb', 'move'],
-    ['sarim_rifles.glb', 'moveFire'],
-    ['meshy_mortar_team.glb', 'move'],
-    ['yahalom_engineer.glb', 'move'],
+    ['mortar_team.glb', 'move'],
+    ['yahalom_squad.glb', 'move'],
     ['breach_team.glb', 'move'],
     ['civilians/civilian_woman.glb', 'move'],
     ['civilians/office_worker.glb', 'move'],
@@ -648,15 +417,6 @@ describe('countTracePeaks', () => {
   // `at_team.glb` was the second file here until B0b (2026-09-30) replaced
   // the kit figures with a Meshy remesh; its height trace now reads one
   // cycle like everyone else's, so the mortar team is the remaining witness.
-  it.each(['meshy_mortar_team.glb'])(
-    '%s: the height axis over-counts a real single cycle -- this is why forward is used',
-    (file) => {
-      const fp = measureRoleFootprint(`${MESHES}${file}`, 'boot', 'move');
-      expect(countTracePeaks(fp.bestVertexTrace.forwardM)).toBe(1);
-      expect(countTracePeaks(fp.bestVertexTrace.heightM)).toBe(2);
-    }
-  );
-
   it('returns 0 for a flat (no-travel) trace rather than dividing by a zero span', () => {
     expect(countTracePeaks([0.5, 0.5, 0.5, 0.5])).toBe(0);
     expect(countTracePeaks([])).toBe(0);
@@ -783,12 +543,12 @@ function riggedFiles(): RiggedFile[] {
       });
     }
   }
-  // 18 unit types, 21 files -- `civilians` is four variants of one type;
-  // B2 (2026-09-30) added `manpad_team` and `recoilless_team`.
+  // 19 unit types, 22 files -- `civilians` is four variants of one type;
+  // B2 (2026-09-30) added `manpad_team` and `recoilless_team`; E5 (2026-10-01) `recon_zikit`.
   // Numbers, not `> 0`: a catalogue that lost half its entries would still
   // clear a positive count.
-  expect(Object.keys(RIGGED_UNIT_MESHES)).toHaveLength(18);
-  expect(out).toHaveLength(21);
+  expect(Object.keys(RIGGED_UNIT_MESHES)).toHaveLength(19);
+  expect(out).toHaveLength(22);
   return out;
 }
 
@@ -935,7 +695,8 @@ const GAIT_MULTIPLIER_FLOOR = 0.8;
  * assertions were added to catch.
  */
 const GAIT_MULTIPLIER_OUTLIERS: Readonly<Record<string, number>> = {
-  yahalom_squad: 2.6454,
+  // B7 (2026-10-01): `yahalom_squad` left this table -- the supplied biped it
+  // named is deleted and the rig.py figure reads 1.1991, inside the band.
   // 2.4842 on the kit figure (stride 1.5297 m); 2.6453 since B4 (GH-179,
   // 2026-10-01) put a Meshy figure on the same rig.py gait: its legs are
   // shorter relative to its height (crotch at 0.47 H of 1.72 m, 0.81 m,
@@ -962,7 +723,11 @@ const GAIT_MULTIPLIER_OUTLIERS: Readonly<Record<string, number>> = {
  * sculpted legs deliver slightly more travel at the same joint angles. See
  * `GAIT_MULTIPLIER_FLOOR`.
  */
-const GAIT_MULTIPLIER_UNDER_ONE: Readonly<Record<string, number>> = { sniper_team: 0.9144 };
+// B7 (2026-10-01): `sniper_team` is a rig.py walker now (the supplied sculpt
+// is replaced) and still the one file under 1.0 -- 0.972: its 0.45 tiles/s is
+// the slowest speed in the tree and rig.py's stride floor sizes a cycle that
+// covers slightly more ground than the sim moves it.
+const GAIT_MULTIPLIER_UNDER_ONE: Readonly<Record<string, number>> = { sniper_team: 0.972 };
 
 /** Slack on an outlier's own recorded number -- enough that float noise and a
  *  cosmetic re-export do not red the gate, far too little to hide a drift. */
@@ -1015,7 +780,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     const declaring = RIGS.filter((r) => r.declared !== undefined).map((r) => r.typeId);
     const silent = RIGS.filter((r) => r.declared === undefined).map((r) => r.typeId);
     expect([...new Set(silent)].sort()).toEqual(Object.keys(GAIT_EXEMPT).sort());
-    expect(new Set(declaring).size).toBe(17);
+    expect(new Set(declaring).size).toBe(18);
     for (const [type, why] of Object.entries(GAIT_EXEMPT)) {
       expect(why.length, `${type}: a reason, not a name`).toBeGreaterThan(20);
     }
@@ -1030,7 +795,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
   });
 
   it('every gaited file declares a `move` gait, so none can be skipped by absence', () => {
-    expect(gaited).toHaveLength(20);
+    expect(gaited).toHaveLength(21);
     for (const rig of gaited) {
       expect(rig.declared?.has('move'), `${rig.file}: rl_gait.move`).toBe(true);
     }
@@ -1181,8 +946,10 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
         checked++;
       }
     }
-    // Seventeen types over twenty files, two of which declare `moveFire` too.
-    expect(checked).toBe(22);
+    // Eighteen types over twenty-one files (E5's recon_zikit included); since
+    // B7 (2026-10-01) none declares `moveFire` (the two supplied bipeds that
+    // did are replaced).
+    expect(checked).toBe(21);
   });
 });
 
@@ -1241,6 +1008,11 @@ export const STILL_FIGURES: Readonly<Record<string, string>> = {
     'rig.py: _f("demo_a", posture="kneeling", animates=False) -- the charge layer, deployed',
   'at_team.glb move at_fire_root':
     'rig.py: _f("at_fire", posture="kneeling", animates=False) -- the launcher gunner, deployed',
+  // E5 (2026-10-01): authored, not a defect -- design `docs/campaign/special_units/design.md`
+  // calls the spotter "a kneeling man behind a low tripod"; his boots hold the tripod's
+  // ground while the two riflemen walk (import_meshy_zikit_team.py, `zk_spot`).
+  'recon_zikit.glb move zk_spot_root':
+    'import_meshy_zikit_team.py: the kneeling spotter behind the tripod stays planted while two riflemen walk',
 };
 
 /** A figure in `STILL_FIGURES` must measure this still, in metres of forward
@@ -1263,23 +1035,23 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // read was kit.py's own boot mesh.
   'demo_squad.glb move': 214,
   'at_team.glb move': 257,
-  'sniper_team.glb move': 176,
+  'sniper_team.glb move': 332, // B7: Meshy boots on the standing walker
   // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
   // parts, so the boot mesh is the figure's own boots, not kit's.
   'militia_cell.glb move': 582,
   'rpg_team.glb move': 528,
   'charge_squad.glb move': 444, // B4: Meshy boots
-  'meshy_soldier.glb move': 989,
-  'meshy_soldier.glb moveFire': 989,
-  'sarim_rifles.glb move': 4101,
-  'sarim_rifles.glb moveFire': 4101,
-  'meshy_mortar_team.glb move': 3268,
-  'yahalom_engineer.glb move': 1632,
+  'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait; the source is bisected at its cut planes (B7 review), so every boot count below moved once more
+  'sarim_rifles.glb move': 1078, // B7 (2 Oct ruling): three of B3's militia_cell body
+  'mortar_team.glb move': 590, // B7: Meshy boots -- two D6 walkers and the No.3
+  'yahalom_squad.glb move': 508, // B7: Meshy boots, two men
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
-  'manpad_team.glb move': 350,
-  'recoilless_team.glb move': 440,
+  'manpad_team.glb move': 711, // B7: re-remeshed from the refined B2 preview
+  'recoilless_team.glb move': 518, // B7: re-remeshed from the refined B2 preview
   // B5 (2026-10-01): the Meshy breach figure, boot = below 0.09 H, two men.
   'breach_team.glb move': 396,
+  // E5 (2026-10-01): the Meshy recon figure, boot = below 0.09 H, three men.
+  'recon_zikit.glb move': 332,
   'civilians/civilian_woman.glb move': 328,
   'civilians/office_worker.glb move': 346,
   'civilians/farm_worker.glb move': 279,
@@ -1361,7 +1133,6 @@ const SWING_LIFT_FLOOR = 0.05;
  * is a boot's height profile over 0.67 s at 25 px.
  */
 const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
-  'sniper_team.glb move': -0.065,
   // Not reversed -- positive, same sign as every other rig -- just small.
   // 0.010998631554512578 (rounded to 0.011 below): the swing-lift fraction
   // `swingLiftFraction` reads off the shipped `digger_crew.glb` `move`
@@ -1374,6 +1145,7 @@ const SWING_LIFT_OUTLIERS: Readonly<Record<string, number>> = {
   // sits among its own siblings, not as a derivation of the number --
   // `sniper_team` above is the precedent for a small chirality reading with
   // no confirmed mechanism. Treat the number as pinned, not as explained.
+  'sniper_team.glb move': -0.012, // B7: the Meshy walker, re-measured
   'digger_crew.glb move': 0.011,
   // B4 (GH-179, 2026-10-01): the Meshy mortar crew's D6 walker reads
   // 0.0435 -- positive, the right sign, just under the 0.05 floor, the same
@@ -1391,7 +1163,10 @@ describe('mesh unit gait -- per figure, not per file', () => {
   });
 
   it('reads a known number of figures, and every still one is named', () => {
-    expect(rows).toHaveLength(22);
+    // B7 (2026-10-01): 21 clips, 41 figures -- the two supplied `moveFire`
+    // clips went with their bipeds; inf_squad/sarim/mortar_team are three
+    // men each on rig.py's gait, and E5's recon_zikit walks three.
+    expect(rows).toHaveLength(21);
     const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
     // 40 visible figures over 20 clips: two each on the six original
     // `kit.py` teams and `yahalom_engineer`, three each on `meshy_soldier`
@@ -1403,7 +1178,7 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // mortar-team precedent) are not in it.
     // B2's two crews add four: the MANPAD gunner and the spotter's walker, and
     // both recoilless walkers.
-    expect(live).toHaveLength(44);
+    expect(live).toHaveLength(41);
     // Both directions, the way GAIT_EXEMPT is: every named still figure must
     // be a figure that really exists and really is still, and every figure
     // that is still must be named.
@@ -1549,8 +1324,13 @@ describe('mesh unit gait -- one file’s locomotion clips against each other', (
     return move && moveFire ? [[r.file, move, moveFire] as const] : [];
   });
 
-  it('two files carry both locomotion clips', () => {
-    expect(both.map(([file]) => file)).toEqual(['meshy_soldier.glb', 'sarim_rifles.glb']);
+  it('no file carries both locomotion clips any more', () => {
+    // B7 (2026-10-01): the two supplied bipeds that shipped a `moveFire`
+    // (`meshy_soldier.glb`, `sarim_rifles.glb`) are replaced by rig.py
+    // figures, which build `move` and `fire` only;
+    // `resolveMeshMotionClip` falls back to `fire`. The pairwise check
+    // below stays for the day a rig ships both again.
+    expect(both.map(([file]) => file)).toEqual([]);
   });
 
   it.each(both)('%s walks and walks-firing at speeds within a small factor', (file, move, moveFire) => {
@@ -1644,24 +1424,9 @@ const FACE_LEVER_FLOOR_M = 0.03;
  * printed, and asserted against the bytes rather than trusted.
  */
 export const FACING_EXEMPT: Readonly<Record<string, string>> = {
-  'sniper_team.glb':
-    'no `face` mesh and no head, neck or arm bone of any kind -- 14 joints, all root, ' +
-    'pelvis and legs. There is no facing to read on this rig by any instrument.',
   'moto_rpg.glb':
     'a pillion rig: its `face` role binds entirely to `rid_seat`, `pas_seat` and two death ' +
     'roots, so it carries no head joint. Correct as built; `measureFacing` raises on it.',
-  'yahalom_engineer.glb':
-    'no `face` mesh -- gated through its `headfront` MARKER instead, below, so this is a ' +
-    'change of instrument rather than a hole.',
-  'meshy_mortar_team.glb idle':
-    'the kneeling tableau: a crew spread around its own tube is not a facing defect ' +
-    '(−7.5 / +83.9 / −67.3, pinned exactly above).',
-  'meshy_mortar_team.glb fire':
-    'the same deployed crew, serving the tube (−10.8 / +45.8 / −73.3).',
-  'meshy_mortar_team.glb move':
-    'every head joint in this clip is keyed to zero scale -- the standing posture is a ' +
-    'SECOND rig with no head bone. Read through `/_st_chest$/` above; `hiddenInClip` ' +
-    'catches it here.',
 };
 
 interface FacingRow {
@@ -1751,7 +1516,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // `measureFacing` return `[]` for all four civilians through two tasks
     // and a review while every caller's `for` loop passed in 0 ms.
     // B2 (2026-09-30) adds twelve: manpad_team six, recoilless_team six.
-    expect(rows).toHaveLength(101);
+    // E5 (2026-10-01) adds nine: recon_zikit's three heads over idle, fire and move.
+    expect(rows).toHaveLength(114); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1768,14 +1534,17 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'civilians/office_worker.glb',
       'demo_squad.glb',
       'digger_crew.glb',
+      'inf_squad.glb',
       'manpad_team.glb',
-      'meshy_mortar_team.glb',
-      'meshy_soldier.glb',
       'militia_cell.glb',
       'mortar_crew.glb',
+      'mortar_team.glb',
       'recoilless_team.glb',
+      'recon_zikit.glb',
       'rpg_team.glb',
       'sarim_rifles.glb',
+      'sniper_team.glb',
+      'yahalom_squad.glb',
     ]);
     console.log(
       `mesh facing: ${rows.length} figure-clips gated across ${files.size} GLBs.\n` +
@@ -1832,9 +1601,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'digger_crew.glb down',
       'digger_crew.glb idle',
       'digger_crew.glb move',
-      // B2's crews follow the atgm_cell shape: a walker root hidden off
-      // `move`, the deployed root hidden on it, and both on `down`. The MANPAD
-      // gunner stands and walks himself, so manpad_team reads one fewer.
+      'inf_squad.glb down',
+      'inf_squad.glb down',
+      'inf_squad.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
@@ -1851,6 +1620,17 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'mortar_crew.glb idle',
       'mortar_crew.glb move',
       'mortar_crew.glb move',
+      'mortar_team.glb down',
+      'mortar_team.glb down',
+      'mortar_team.glb down',
+      'mortar_team.glb down',
+      'mortar_team.glb down',
+      'mortar_team.glb fire',
+      'mortar_team.glb fire',
+      'mortar_team.glb idle',
+      'mortar_team.glb idle',
+      'mortar_team.glb move',
+      'mortar_team.glb move',
       'recoilless_team.glb down',
       'recoilless_team.glb down',
       'recoilless_team.glb down',
@@ -1861,8 +1641,27 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'recoilless_team.glb idle',
       'recoilless_team.glb move',
       'recoilless_team.glb move',
+      'recon_zikit.glb down',
+      'recon_zikit.glb down',
+      'recon_zikit.glb down',
       'rpg_team.glb down',
       'rpg_team.glb down',
+      'sarim_rifles.glb down',
+      'sarim_rifles.glb down',
+      'sarim_rifles.glb down',
+      'sniper_team.glb down',
+      'sniper_team.glb down',
+      'sniper_team.glb fire',
+      'sniper_team.glb fire',
+      'sniper_team.glb idle',
+      'sniper_team.glb idle',
+      'yahalom_squad.glb down',
+      'yahalom_squad.glb down',
+      'yahalom_squad.glb down',
+      'yahalom_squad.glb fire',
+      'yahalom_squad.glb idle',
+      'yahalom_squad.glb move',
+      'yahalom_squad.glb work',
     ]);
   });
 
@@ -1892,39 +1691,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     }
   );
 
-  it('gates yahalom_engineer through its marker, since it ships no face mesh', () => {
-    // The one file `measureFacing` cannot read that another instrument can.
-    // Without this, `yahalom_squad` -- a shipped KDF unit with four clips --
-    // has no facing coverage of any kind.
-    for (const clip of ['idle', 'move', 'down', 'work']) {
-      const figs = measureMarkerFacing(`${MESHES}yahalom_engineer.glb`, clip);
-      expect(figs, `yahalom ${clip}`).toHaveLength(2);
-      for (const f of figs) {
-        expect(f.hiddenInClip, `${clip} ${f.marker}`).toBe(false);
-        expect(Math.abs(f.meanDeg), `${clip} ${f.marker}`).toBeLessThan(FACE_MEAN_DEG);
-      }
-    }
-  });
 });
 
-// ---------------------------------------------------------------------------
-// Step 3b -- the WEAPON axis, from geometry, and the two facing instruments
-// against each other.
-// ---------------------------------------------------------------------------
 
-/**
- * Where each rig family's weapon geometry lives, and which joint carries it.
- *
- * Both halves have to be per-family and neither is a mistake in the art. On a
- * `kit.py` team the rifle is its own `weapon` role and the rig has no hand
- * bone at all, so the cloud hangs off `*_forearm_R`. On the Meshy bipeds the
- * rifle is MODELLED but has no `weapon` role -- `classify_vertex_roles` splits
- * by base-colour texture and the rifle is the same olive as the uniform -- so
- * the cloud is `uniform` vertices on `*_RightHand`.
- *
- * `figures` is asserted, not discovered: `at_team` has one armed figure and a
- * spotter, `demo_squad` one rifleman and one charge-carrier.
- */
 const WEAPON_RIGS: readonly {
   readonly file: string;
   readonly role: string;
@@ -1944,20 +1713,14 @@ const WEAPON_RIGS: readonly {
   // `weapon` on the static `prop` bone, not on any forearm.
   { file: 'manpad_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
   { file: 'recoilless_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
-  {
-    file: 'meshy_soldier.glb',
-    role: 'uniform',
-    joint: /_RightHand$/,
-    figures: 3,
-    clips: ['fire', 'moveFire'],
-  },
-  {
-    file: 'sarim_rifles.glb',
-    role: 'uniform',
-    joint: /_RightHand$/,
-    figures: 3,
-    clips: ['fire', 'moveFire'],
-  },
+  // B7 (2026-10-01): the two supplied bipeds (`uniform`-on-`RightHand`,
+  // `moveFire`) are rig.py figures with kit rifles on `forearm_R` now, like
+  // militia_cell; mortar_team's No.3 and yahalom's rifleman join them.
+  { file: 'sarim_rifles.glb', role: 'weapon', joint: /_forearm_R$/, figures: 3, clips: ['fire'] },
+  { file: 'mortar_team.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  // yahalom: yah_b's rifle alone -- the masts are `metal`, not weapons.
+  { file: 'yahalom_squad.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
+  { file: 'recon_zikit.glb', role: 'weapon', joint: /_forearm_R$/, figures: 1, clips: ['fire'] },
 ];
 
 /**
@@ -1975,17 +1738,19 @@ export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
   'mortar_crew.glb': 'as atgm_cell -- the tube is `prop`',
   'charge_squad.glb': 'carries a `charge`, not a weapon; no `weapon` role on the rig at all',
   'digger_crew.glb': 'a digger: `wood`, no `weapon` role, no `fire` clip',
-  'sniper_team.glb': 'no arm bones -- 14 joints, all root, pelvis and legs',
+  'sniper_team.glb':
+    'B7 (2026-10-01): its standing carbine rides `spine` (WEAPON_ON_SPINE) and its prone ' +
+    'rifle lies on each `death_root` beside the man; no `_forearm_R` owns a weapon vertex',
+  'inf_squad.glb':
+    'B7 (2026-10-01): as breach_team -- the Meshy preview came holding its carbine across the ' +
+    "chest in BOTH hands; it ships as a `weapon` piece on each man's `spine` (WEAPON_ON_SPINE), " +
+    'no kit rifle, and `fire` is a FIRE_ROOT_LEAN brace',
   'moto_rpg.glb': 'no arm bones; the launcher rides `m_launcher` off the machine',
   'breach_team.glb':
     'B5 (2026-10-01): the Meshy preview came with its carbine baked into one shell with the ' +
     'torso, held across the chest in the LEFT hand; it ships as a `weapon` piece on each ' +
     "man's `spine` (import_meshy_crew_team.py's WEAPON_ON_SPINE), no kit rifle beside it, " +
     'so no `_forearm_R` owns a weapon vertex and `fire` is a FIRE_ROOT_LEAN brace',
-  'meshy_mortar_team.glb': 'no arm bones on either posture -- root/abdomen/chest/head only',
-  'yahalom_engineer.glb':
-    'its `weapon` role puts EIGHT vertices spanning 0.076 m on `RightHand` -- a fitting, ' +
-    'not a barrel, and far under WEAPON_MIN_EXTENT_M. Recorded as a gap, not gated.',
   'civilians/civilian_woman.glb': 'a civilian: `FORBIDDEN_ROLES` bans `weapon` outright',
   'civilians/office_worker.glb': 'a civilian',
   'civilians/farm_worker.glb': 'a civilian',
@@ -2139,10 +1904,19 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'at_team.glb at_fire_forearm_R': -0.8, //     [-2.84, 1.24]  the Spike, at pitch 0
   // B2 (2026-09-30): kit.launcher geometry on Meshy figures -- teams.py's own
   // 78-deg MANPAD tube on the gunner's shoulder, and the recoilless tube level.
+  // B7 (2026-10-01): the three replaced teams' kit rifles at the hung hand
+  // (`_rifle_at_hand`, the militia carry) and yah_a's level mast.
+  'sarim_rifles.glb sar0_forearm_R': 2.48,
+  'sarim_rifles.glb sar1_forearm_R': 2.48,
+  'sarim_rifles.glb sar2_forearm_R': 2.48,
+  'mortar_team.glb mtr_no3_forearm_R': 2.48,
+  'yahalom_squad.glb yah_b_forearm_R': 2.48,
   'manpad_team.glb mpd_fire_forearm_R': 80.29, // [78.39, 82.39] the 1.30 m tube at 78 deg, gripstock below the shoulder
   // Pitch 0 as before; the pistol grip and support handle hang under the
   // front half of a short fat tube and tilt its cloud's axis 5.2 deg down.
   'recoilless_team.glb rcl_fire_forearm_R': -5.2, // [-7.24, -3.15]
+  // E5 (2026-10-01): the Zikit's one kit rifle, a level carry like the other kit teams.
+  'recon_zikit.glb zk_rifle_forearm_R': 2.47, //  [0.46, 4.47]  idle; fire [2.47, 5.84]
 };
 
 /**
@@ -2154,14 +1928,8 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
  */
 const WEAPON_IDLE_ELEVATION_TOL_DEG = 3;
 
-export const WEAPON_ELEVATION_EXEMPT: Readonly<Record<string, string>> = {
-  'meshy_soldier.glb':
-    'the cloud is `uniform`-on-`RightHand`, not a `weapon` role: sleeve and hand dominate its ' +
-    'principal axis in elevation (+14.47 on `idle`, +14.65 on the supplier`s own aimed `moveFire`)',
-  'sarim_rifles.glb':
-    'as meshy_soldier, and more starkly -- **-50.29 deg on a standing `idle`**, which is a ' +
-    'forearm pointing down and not a rifle pointing down',
-};
+// B7 (2026-10-01): empty -- both entries named the supplied bipeds, replaced.
+export const WEAPON_ELEVATION_EXEMPT: Readonly<Record<string, string>> = {};
 
 describe('mesh unit weapons -- the axis measured from the weapon, not from a bone', () => {
   it('every rigged GLB either has a gated weapon axis or a stated reason', () => {
@@ -2244,8 +2012,12 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
       'demo_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
+      'mortar_team.glb',
       'recoilless_team.glb',
+      'recon_zikit.glb',
       'rpg_team.glb',
+      'sarim_rifles.glb',
+      'yahalom_squad.glb',
     ]);
     console.log(
       `mesh weapon elevation: ${gated.length} of ${WEAPON_RIGS.length} weapon rigs gated ` +
@@ -2309,16 +2081,6 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
     }
   );
 
-  it('does NOT gate `move`, because a one-handed run carry really does swing', () => {
-    // Recorded so nobody tightens it later. On the Meshy rigs `Running`
-    // carries the rifle one-handed at the side, so the barrel's bearing
-    // sweeps: measured 101-109 deg of spread on `meshy_soldier` and 192 on
-    // `sarim_rifles`. There is no single heading here for a ceiling to mean
-    // anything against, and a tight bound would fail correct art.
-    const axes = measureWeaponAxis(`${MESHES}meshy_soldier.glb`, 'uniform', 'move', /_RightHand$/);
-    expect(axes).toHaveLength(3);
-    for (const a of axes) expect(a.maxDeg - a.minDeg).toBeGreaterThan(60);
-  });
 });
 
 /**
@@ -2358,8 +2120,6 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
  * not mean to.
  */
 const FACE_MARKER_OFFSET_DEG: Readonly<Record<string, number>> = {
-  'meshy_soldier.glb': -0.6,
-  'sarim_rifles.glb': 12.3,
   'civilians/office_worker.glb': 13.3,
   'civilians/farm_worker.glb': 1.3,
   'civilians/civilian_child.glb': 0.0,
@@ -2391,10 +2151,6 @@ describe('mesh unit facing -- two instruments, gated against each other', () => 
       'civilians/civilian_child.glb idle',
       'civilians/farm_worker.glb idle',
       'civilians/office_worker.glb idle',
-      'meshy_soldier.glb fire',
-      'meshy_soldier.glb idle',
-      'sarim_rifles.glb fire',
-      'sarim_rifles.glb idle',
     ]);
   });
 
@@ -2501,12 +2257,15 @@ describe('mesh gait tables -- every key names something real', () => {
 // `tools/units/import_meshy_rpg_team.py` is a WIP whose output has never
 // shipped.
 describe('mesh unit death -- the fall clips (design D3, gate 3)', () => {
-  const FALL_FILES = ['meshy_soldier.glb', 'sarim_rifles.glb', 'yahalom_engineer.glb'];
-  const FALL_ALT_FILES = ['sarim_rifles.glb', 'yahalom_engineer.glb'];
+  // B7 (2026-10-01): no shipped rig carries an authored fall any more -- the
+  // three supplied bipeds that did are replaced by rig.py figures, which
+  // topple per figure (D5). The gate stays armed for the day one returns.
+  const FALL_FILES: string[] = [];
+  const FALL_ALT_FILES: string[] = [];
   const withFall = RIGS.filter((r) => r.clips.includes('fall'));
   const withFallAlt = RIGS.filter((r) => r.clips.includes('fallAlt'));
 
-  it('exactly the three Meshy bipeds carry fall, and the two with a second fall carry fallAlt', () => {
+  it('no shipped rig carries fall or fallAlt (the Meshy bipeds that did are replaced)', () => {
     expect(withFall.map((r) => r.file).sort()).toEqual(FALL_FILES);
     expect(withFallAlt.map((r) => r.file).sort()).toEqual(FALL_ALT_FILES);
   });

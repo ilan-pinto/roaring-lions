@@ -2583,9 +2583,9 @@ function boughtProbe(
     });
   };
   const measured = { result: 'ongoing' as 'ongoing' | 'victory' | 'defeat', stars: 0 as Stars, roeScore: 0, credits: 0, minutes: 0 };
-  run(id, plan, ledger, 'victory', label, baseStars, undefined, new Set([unitId]), undefined, undefined, measured, [
-    stagedUnit(unitId),
-  ], (evs) => {
+  run(id, plan, ledger, 'victory', label, baseStars, undefined, new Set([unitId]), undefined, undefined, measured,
+    // A landed unit is already in `units`; registering it again as an extra would double it.
+    unitId in units ? [] : [stagedUnit(unitId)], (evs) => {
     for (const e of evs) {
       if (e.kind === 'fire' && mineEver.has(e.shooter)) {
         seen.rounds++;

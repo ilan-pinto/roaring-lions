@@ -1544,12 +1544,33 @@ export interface HeldWeaponClearance {
 export const SAMPLES_HELD = 9;
 
 export function measureHeldWeaponInBody(path: string, clip: string, figure: string): HeldWeaponClearance {
+  return measureMountedPartInBody(path, clip, {
+    roles: ['weapon', 'metal'],
+    joint: `${figure}_forearm_R`,
+    bodyJoint: (name) => name === `${figure}_head` || name === `${figure}_neck` || name === `${figure}_spine`,
+  });
+}
+
+/** A kit part mounted on one joint, against the body triangles another set
+ *  of joints owns -- `measureHeldWeaponInBody` with the three choices
+ *  exposed (B7 review): a pack on `spine` against its own torso, a mortar
+ *  on `prop` against every crewman. */
+export interface MountedPartSpec {
+  /** Node names (roles) whose vertices count as the part when `joint` owns them. */
+  readonly roles: readonly string[];
+  /** The joint that must dominantly own a vertex for it to be part of the part. */
+  readonly joint: string;
+  /** Which dominant joints make a triangle "the body" the part must stay out of. */
+  readonly bodyJoint: (jointName: string) => boolean;
+}
+
+export function measureMountedPartInBody(path: string, clip: string, spec: MountedPartSpec): HeldWeaponClearance {
   const glb = readGlb(path);
   const nodes = glb.json.nodes ?? [];
   const meshes = glb.json.meshes ?? [];
   const { tracks, start, end } = readClip(glb, clip);
-  const hand = `${figure}_forearm_R`;
-  const upper = new Set([`${figure}_head`, `${figure}_neck`, `${figure}_spine`]);
+  const hand = spec.joint;
+  const roleSet = new Set(spec.roles);
   interface Part {
     pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null;
     verts: number[]; edges: [number, number][]; tris: [number, number, number][];
@@ -1561,7 +1582,7 @@ export function measureHeldWeaponInBody(path: string, clip: string, figure: stri
     const skin = glb.json.skins?.[node.skin];
     if (!skin) continue;
     const role = node.name ?? meshes[node.mesh]?.name ?? '';
-    const isWeapon = role === 'weapon' || role === 'metal';
+    const isWeapon = roleSet.has(role);
     for (const prim of meshes[node.mesh].primitives) {
       if (prim.indices === undefined) continue;
       const pos = readAccessor(glb, prim.attributes.POSITION);
@@ -1595,13 +1616,13 @@ export function measureHeldWeaponInBody(path: string, clip: string, figure: stri
         }
         weapon.push({ pos, joints, weights, skin, ibm, verts, edges, tris: [] });
       } else {
-        const own = tris.filter((t) => upper.has(dom[t[0]]) && upper.has(dom[t[1]]) && upper.has(dom[t[2]]));
+        const own = tris.filter((t) => spec.bodyJoint(dom[t[0]]) && spec.bodyJoint(dom[t[1]]) && spec.bodyJoint(dom[t[2]]));
         if (own.length) body.push({ pos, joints, weights, skin, ibm, verts: [], edges: [], tris: own });
       }
     }
   }
-  if (weapon.length === 0) throw new Error(`${path}: no weapon/metal vertex rides ${hand}`);
-  if (body.length === 0) throw new Error(`${path}: no triangle rides ${figure}'s head, neck or spine`);
+  if (weapon.length === 0) throw new Error(`${path}: no ${spec.roles.join('/')} vertex rides ${hand}`);
+  if (body.length === 0) throw new Error(`${path}: no triangle rides the body joints named for ${hand}`);
 
   let worst = 0, instants = 0, samples = 0;
   for (let s = 0; s < SAMPLES_HELD; s++) {

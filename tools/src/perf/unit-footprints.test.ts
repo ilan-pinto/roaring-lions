@@ -74,8 +74,8 @@ describe('posed and hull-only footprints', () => {
     expect(rows.find((r) => r.unit === 'mbt_lavi')?.excluded).toContain('turret_metal');
     expect(rows.find((r) => r.unit === 'heli_peten')?.excluded).toContain('rotor_metal');
   });
-  it('the idle pose is what is measured: it is not the bind pose (it is wider for the Meshy rifleman, weapon up)', () => {
-    const { json, bin } = readGlb(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../art/meshes/meshy_soldier.glb')));
+  it('the idle pose is what is measured: it is not the bind pose (it differs for the kneeling AT team, whose kneel root shows in idle and whose corpse root in the bind pose)', () => {
+    const { json, bin } = readGlb(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../art/meshes/at_team.glb')));
     const idle = footprintOf(json, bin, { clip: 'idle' }).halfDiagonalTiles;
     const bind = footprintOf(json, bin, { clip: 'no-such-clip' }).halfDiagonalTiles;
     expect(Math.abs(idle - bind)).toBeGreaterThan(0.01);

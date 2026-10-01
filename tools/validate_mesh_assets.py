@@ -301,6 +301,22 @@ TEXTURED_INFANTRY_EXEMPT = {
     "officer_infantry", "officer_fires", "officer_engineer",
     # E5 part 2 (GH-181, 2026-09-30): tools/units/import_meshy_zikit_team.py.
     "recon_zikit",
+    # B7 (GH-179, 2026-10-01): the B2 teams' bakes bought on their own
+    # previews, and the supplied civilians' own bakes kept
+    # (tools/import_meshy_civilians.py) -- see TEXTURED_FILE_TYPE.
+    "manpad_team", "recoilless_team", "civilians",
+    # B7: the five supplied teams replaced on the crew importer's path.
+    "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
+}
+
+# A unit TYPE that draws several files: this gate names a mesh by its file
+# basename (`civilian_woman`), the runtime list by the type id (`civilians`,
+# `mesh-catalogue.ts`'s RIGGED_UNIT_MESHES), and textured-infantry.test.ts
+# pins the two lists equal -- so the basenames resolve to their type here
+# rather than being listed four times on one side.
+TEXTURED_FILE_TYPE = {
+    "civilian_woman": "civilians", "office_worker": "civilians",
+    "farm_worker": "civilians", "civilian_child": "civilians",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's
@@ -314,7 +330,7 @@ def textured_exempt(unit_id):
     """True if `unit_id` (or its living form, for a `_wreck` variant) ships
     its own material. Mirrors `own_sprite_dirs`' own `_wreck` stripping."""
     base = unit_id[:-len("_wreck")] if unit_id.endswith("_wreck") else unit_id
-    return base in TEXTURED_MESH_EXEMPT
+    return TEXTURED_FILE_TYPE.get(base, base) in TEXTURED_MESH_EXEMPT
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "units"))
 

@@ -86,7 +86,7 @@ function plate(): HTMLElement {
 
 function deps(over: Partial<GarageModelDeps> = {}): GarageModelDeps {
   return {
-    source: (id) => (id === 'inf_squad' ? { kind: 'rigged', url: '/meshes/meshy_soldier.glb', faction: 'kdf' } : null),
+    source: (id) => (id === 'inf_squad' ? { kind: 'rigged', url: '/meshes/inf_squad.glb', faction: 'kdf' } : null),
     renderer: 'three',
     dracoDecoderPath: '/draco/',
     groundTextureUrl: '/textures/desert_sand_tile.jpg',
@@ -229,7 +229,7 @@ describe('garageModel: live', () => {
     expect(o).toMatchObject({
       typeId: 'inf_squad',
       kind: 'rigged',
-      meshUrl: '/meshes/meshy_soldier.glb',
+      meshUrl: '/meshes/inf_squad.glb',
       faction: 'kdf',
       dracoDecoderPath: '/draco/',
       groundTextureUrl: '/textures/desert_sand_tile.jpg',
