@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready rugged off-road motorcycle with knobbly tyres and a long two-person saddle, a civilian vehicle crudely converted for war, sun-faded dusty paint, welded plates. At rest, level. Two canvas panniers and a rolled bedroll strapped over the rear rack behind the empty saddle, no rider. Real-world scale, 2.2 metres long. Faded tan paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f62f-c542-709f-a687-4c7c07808be6",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3125906354,
+    "prompt": "A single low-poly game-ready rugged off-road motorcycle with knobbly tyres and a long two-person saddle, a civilian vehicle crudely converted for war, sun-faded dusty paint, welded plates. At rest, level. Two canvas panniers and a rolled bedroll strapped over the rear rack behind the empty saddle, no rider. Real-world scale, 2.2 metres long. Faded tan paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790836724406,
+    "progress": 100,
+    "started_at": 1790836724429,
+    "finished_at": 1790836788990,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f62f-c542-709f-a687-4c7c07808be6/output/model.glb?Expires=4944412800&Signature=fFGtTORgDxB478n2zn6Hl92kw8J6DkR-S7Ltv3S7DQWvL-zJswgLpCiBGBbbUGT4VbEPvHmM30cYxosJF0smtiHknf54MYrfP~xYIz0arv9f5o7e7egH1CyUehznfCk3AeYYb8BLsN7aQY622JcFIVmyisvIPnZF6PH3pixqUkusXC8OUYi4ZFctz1N7pXmIyCfc0ZHBtz0sGuScJ6euIKmFpvr996prU~9-rDkowA73PtIEsWC303AjUzz9OhOdwmtrNiJ0YxkCN7y1~WRYHvg7lAyBYgkgBBxuJ8VScDueMIGCvI8W44o7UgsMSyh1wts6k7lnazbJqgc-yhO4Ng__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f62f-c542-709f-a687-4c7c07808be6/output/preview.png?Expires=4944412800&Signature=ac~ORsSTXmmo5-WirRJi0WN6N8xA4NoNLrgvCFlOV87ZJKfOpHlRpA45ZtT85OlbBEP1fxHw~YmyqvUF9NjcX2PxhnOTizFOS88rEohtwpIPNgmiSK3MQcz6sWkJwEHcjfXgMPnQhO2GJTeIomc4cF5083oLvgBcbk0CRZCJaH~PBdIHcu3vVMLfjQj8F9kWsq0RbdwJKUrRiQYkM-0reJiuso0i46IgwGcwQUh9oU1QRNhtAUI2uH8wk-zcfXSVAWNNKPN0Ip1JNZigDUGRWYefDQNdEkKxjC60PUyg4T7r6j1LtrSO~Qbh44ANVspAHN9~Nr4a7N3OlmGAxmwcwg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790836724406,
+    "started_at": 1790836724429,
+    "finished_at": 1790836788990
+  },
+  "usd_estimated": 0.4
+}

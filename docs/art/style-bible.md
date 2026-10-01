@@ -531,3 +531,62 @@ otherwise.
 - Counts: mortar 7,995 / charge 7,478 / digger 6,214 glTF triangles, all under
   the 8,000 team cap with corpses and walkers; worst IoU neighbours 0.549 /
   0.502 / 0.557 (limit 0.88).
+
+## 12. Measured in B5 (2026-10-01)
+
+- **"Standing in a relaxed A-pose" lost to the subject noun.** The breach
+  preview came back with a compact carbine held across the chest in the
+  left hand and only the right arm out -- "assault breacher" outweighed the
+  pose line, the seventh time on this pipeline that a preview ignored a
+  slot. The fix is the B4 digger's, one-sided: `ARMS_ON_TORSO` now names
+  arm SIDES, so the left arm stays on the torso with synthetic joints while
+  the right arm is cut and hung normally.
+- **A baked weapon is kept as the weapon, not cut out.** Deleting the
+  carbine would open the carrier and the gripping hand; a kit rifle beside
+  it would be a second gun. It is cut off the torso as a `weapon` piece on
+  `spine` (`WEAPON_ON_SPINE`), `rig.TEAM_FIGURES` declares `weapon=None`,
+  and the fire clip is a 3-degree `FIRE_ROOT_LEAN` brace -- the rifle
+  raise-and-recoil on an empty hung arm read as pointing. The gait test's
+  weapon-on-`forearm_R` pins moved to `WEAPON_EXEMPT` with that reason.
+- **The refine paints readable text when the prompt says not to.** A small
+  name tape on the carrier; `LABEL_FLATTEN` rasterises the upper-chest
+  faces' UV triangles and sets texels above 0.35 luminance to the region's
+  dark median. Cheaper than a re-roll, and the hue window is not involved:
+  it is a luminance cut inside a geometric region.
+- **An arm whose forearm points FORWARD measures short in |y|.** The wrist
+  band is found by |y|, so a bent arm reaching +x reads 0.05 m of forearm
+  and the hung arm ends at the hip with the glove on the holster. At 2.5 it
+  reads as a hand resting on the belt; left as measured rather than adding
+  a third wrist rule for one figure.
+- Counts: 6,552 tris (two standing men, two posed corpses, shield, pole, no
+  kit rifles), under the 8,000 team cap; 0.29 MB shipped.
+
+## 13. Measured in B6 (2026-10-01)
+
+- **A 1,500-tri remesh of a spoked wheel is a hoop.** Meshy's preview
+  modelled real spokes (970k tris); the remesh kept rim and tread and lost
+  every spoke. Rather than a second remesh (5 more credits, past the cap),
+  the hoop faces are cut out by an axle-disc fit and `kit.tube` cylinders --
+  the kit bike's own wheel -- stand on the measured axles and spin on the
+  wheel bones. At 25 px a spinning cylinder is a wheel; a spinning hoop is a
+  flicker.
+- **Measure an axle from the ground, not from a centroid.** The centroid of
+  everything under 0.6 m in each half of the bike read 0.26 m inward of the
+  true axle (the engine is down there too). The tyre bottoms are the only
+  points under z = 0.04 and sit directly below the axles; the radius is half
+  the tyre top in the column above them.
+- **A seated rider is the kneel's method again:** the standing cut's parts
+  re-arranged rigidly in code (thighs forward about the hip, shins back
+  about the moved knee, the upper body lifted to the saddle and leaned, each
+  arm swung to an elbow target then a hand target), then one rigid unit per
+  seat bone -- exactly the shape `teams._rider` had, with Meshy geometry.
+  `cut_figure` from the crew importer needed nothing new.
+- **A riders' corpse budget is 0.35, not 0.5.** A file carrying a bike, a
+  tipped bike, two 2,000-tri men and two corpses read 8,110 tris at the crew
+  teams' 0.5; the thrown riders decimate to 0.35 and the file ships 7,348.
+- **The remesh keeps its front where the preview had it (-X)**, found by the
+  wider end rather than assumed: the bars measure |y| 0.34 against the rear
+  bag's 0.21.
+- **"Two canvas panniers and a rolled bedroll" came as one roll bag** -- the
+  silhouette, not the count (bible §8 again). Kept: it is the lateral mass
+  the kit's panniers existed for and the pillion's back rests on it.
