@@ -13,7 +13,8 @@
  *   1. The campaign screen and the mission it launches share a camera, so
  *      the board reads as the same world seen from further away rather than
  *      as a different game's menu.
- *   2. The sun is fixed in world space (`world-material.ts`'s `uLightDir`),
+ *   2. The sun is fixed in world space (`lighting.ts`'s, added to the scene
+ *      outside the board's pivot by `world-view.ts`),
  *      so turning the board changes which slopes are lit. An orbiting
  *      camera with a view-space light would turn the model and leave the
  *      shading nailed to the screen, which reads as a texture sliding over
