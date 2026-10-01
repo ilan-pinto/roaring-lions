@@ -50,4 +50,10 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   'officer_engineer',
   'officer_fires',
   'officer_infantry',
+  // E5 part 2 (GH-181, 2026-09-30): the Shmamit deep recon team, built by
+  // tools/units/import_meshy_zikit_team.py from one Meshy figure with its
+  // 1024 base-colour bake on uniform/boot/face; its kit whip, tripod scope
+  // and rifle carry no map and take the faction ramp. HELD in
+  // mesh-catalogue.ts until Task 9 lands its unit JSON.
+  'recon_zikit',
 ]);

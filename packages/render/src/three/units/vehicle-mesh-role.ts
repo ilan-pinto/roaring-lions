@@ -430,6 +430,16 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     metal: sliceFrom('gunmetal', 2, 2),
     glass: sliceFrom('gunmetal', 3, 1),
   },
+  // E5 part 2 (GH-181, 2026-09-30): the Peten Gunship. Every mesh in its GLB
+  // carries the Peten's bake, so at runtime none of these ramps is reached
+  // (the textured branch is per mesh); the row exists because the gate's
+  // `VEHICLE_ROLE_PALETTES` names the variant and `vehicle-mesh-role.test.ts`
+  // requires this table to agree with every vehicle the gate knows.
+  heli_peten_gunship: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    glass: sliceFrom('gunmetal', 3, 1),
+  },
 };
 
 /**

@@ -33,6 +33,7 @@ describe('the textured vehicle opt-out is a named list', () => {
       'dozer_d9',
       'gun_truck',
       'heli_peten',
+      'heli_peten_gunship',
       'ifv_namer',
       'jeep_shoded',
       'mbt_lavi',

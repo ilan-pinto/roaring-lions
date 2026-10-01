@@ -67,4 +67,9 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // kit mast and cupola joined into its turret nodes
   // (tools/vehicles/export_officer_armour.py). Held art until Stage 5.
   'officer_armour',
+  // E5 part 2 (GH-181, 2026-09-30): the Peten Gunship is heli_peten.glb
+  // re-opened with stores added, every added part UV-pinned to the Peten's
+  // own bake (tools/vehicles/export_meshy_apache_gunship.py), so it ships
+  // the same photograph. HELD in mesh-catalogue.ts until Task 9.
+  'heli_peten_gunship',
 ]);
