@@ -367,14 +367,16 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 
 /**
  * Art that has landed AHEAD of the type that will draw it -- the opposite
- * of retirement. Two batches hold files here today: the GH-277 field works
+ * of retirement. Three batches hold files here today: the GH-277 field works
  * (spec §8, plan Task 12), whose structure types arrive at Stage 4/5 (Task
- * 13 moves each pair into `BUILDING_MESHES`), and GH-298's four officers
+ * 13 moves each pair into `BUILDING_MESHES`); GH-298's four officers
  * (spec `2026-09-30-field-commanders-design.md` §7, §8.2 E1), whose unit
  * types arrive at Stage 5 (which moves each file into `RIGGED_UNIT_MESHES`
  * / `VEHICLE_UNIT_MESHES`, runs `pnpm gait:meshes` on the teams -- it is
- * scoped to the catalogue -- and deletes it here). Each entry names the
- * type that will claim it, so "not drawn yet" and "decided not to draw"
+ * scoped to the catalogue -- and deletes it here); and the E5 special forces
+ * (GH-181), whose unit JSON is staged under `docs/campaign/special_units/e5/`
+ * until E5 Task 9 wires the catalogue. Each entry names the type that will
+ * claim it, so "not drawn yet" and "decided not to draw"
  * (`RETIRED_MESH_FILES`) stay distinguishable.
  */
 export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
@@ -402,6 +404,9 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
   'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',
   'vehicles/officer_armour.glb': 'officer_armour (GH-298 Stage 5)',
+  // E5 part 2 (GH-181, 2026-09-30): the unit JSON is staged, not shipped.
+  'recon_zikit.glb': 'recon_zikit (GH-181 E5 Task 9; RIGGED_UNIT_MESHES, kdf)',
+  'vehicles/heli_peten_gunship.glb': 'heli_peten_gunship (GH-181 E5 Task 9; VEHICLE_UNIT_MESHES)',
 };
 
 /**

@@ -45,6 +45,7 @@ describe('the textured infantry opt-out is a named list', () => {
       'officer_engineer',
       'officer_fires',
       'officer_infantry',
+      'recon_zikit',
       'rpg_team',
     ]);
   });

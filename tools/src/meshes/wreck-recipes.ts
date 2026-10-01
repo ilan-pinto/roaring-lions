@@ -73,6 +73,10 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // static `hull_metal` (`tools/drones/export_meshy_drones.py`).
   recon_drone: { hull: 'air' },
   attack_drone: { hull: 'air' },
+  // E5 part 2 (GH-181, 2026-09-30), HELD in `mesh-catalogue.ts` until its
+  // data lands: the Gunship is the Peten's own export plus stores, so it
+  // takes the Peten's recipe (tools/vehicles/export_meshy_apache_gunship.py).
+  heli_peten_gunship: { hull: 'air', rotorPivot: 'rotor_pivot' },
 };
 
 /**

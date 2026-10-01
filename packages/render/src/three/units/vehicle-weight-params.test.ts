@@ -16,10 +16,28 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const VEHICLE_MESHES = path.join(REPO, 'art/meshes/vehicles');
 const UNIT_DIRS = ['data/units/kdf', 'data/units/enemy'];
 
+/**
+ * `HELD_MESH_FILES` in `packages/app/src/mesh-catalogue.ts`, read as TEXT:
+ * a vehicle GLB landed ahead of its unit JSON (E5, GH-181: the unit files
+ * are staged under `docs/campaign/special_units/` until their landing
+ * task) has no `mobility.weight` to import yet, and `render` may not import
+ * `app` to ask. The same "parse the other side's source" shape
+ * `textured-vehicle.test.ts` uses on the Python gate. A held entry that is
+ * not on disk is `mesh-catalogue.test.ts`'s failure, not this file's.
+ */
+function heldVehicleIds(): Set<string> {
+  const src = readFileSync(path.join(REPO, 'packages/app/src/mesh-catalogue.ts'), 'utf8');
+  const block = /HELD_MESH_FILES[^=]*=\s*\{([^}]*)\}/.exec(src);
+  const keys = [...(block?.[1] ?? '').matchAll(/'vehicles\/([a-z_0-9]+)\.glb'/g)].map((m) => m[1]);
+  return new Set(keys);
+}
+
 function shippedVehicleIds(): string[] {
+  const held = heldVehicleIds();
   return readdirSync(VEHICLE_MESHES)
     .filter((f) => f.endsWith('.glb'))
-    .map((f) => f.replace(/\.glb$/, ''));
+    .map((f) => f.replace(/\.glb$/, ''))
+    .filter((id) => !held.has(id));
 }
 
 function unitJson(id: string): Record<string, unknown> | null {
@@ -103,8 +121,14 @@ describe('the import list matches the shipped roster exactly, in both directions
     // The exemption in both directions, like the pin it relaxes: a held id
     // whose GLB is gone is stale, and a held id that has gained its unit JSON
     // is an authored weight block nothing reads -- move it into the import
-    // list and delete the hold.
-    const shipped = new Set(shippedVehicleIds());
+    // list and delete the hold. "Ships a GLB" means ON DISK here, not
+    // `shippedVehicleIds()`: that list already drops every `HELD_MESH_FILES`
+    // vehicle (E5), and a held id is exactly one of those.
+    const shipped = new Set(
+      readdirSync(VEHICLE_MESHES)
+        .filter((f) => f.endsWith('.glb'))
+        .map((f) => f.replace(/\.glb$/, '')),
+    );
     for (const id of VEHICLE_WEIGHT_HELD_UNIT_IDS) {
       expect(shipped.has(id), `${id}: held but no GLB shipped`).toBe(true);
       expect(unitJson(id), `${id}: held but its unit JSON exists`).toBeNull();
