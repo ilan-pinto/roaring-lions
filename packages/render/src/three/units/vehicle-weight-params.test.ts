@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_LAG_TILES } from './vehicle-weight';
 import type { VehicleWeightParams } from './vehicle-weight';
 import {
+  VEHICLE_WEIGHT_HELD_UNIT_IDS,
   VEHICLE_WEIGHT_IMPORTED_UNIT_IDS,
   VEHICLE_WEIGHT_MASS_CLASS,
   VEHICLE_WEIGHT_ROLE_DEFAULTS,
@@ -108,11 +109,25 @@ describe('the import list matches the shipped roster exactly, in both directions
   it('imports neither more nor fewer unit ids than art/meshes/vehicles/*.glb ships', () => {
     const shipped = new Set(shippedVehicleIds());
     const imported = new Set(VEHICLE_WEIGHT_IMPORTED_UNIT_IDS);
-    const missing = [...shipped].filter((id) => !imported.has(id)).sort();
+    const held = new Set(VEHICLE_WEIGHT_HELD_UNIT_IDS);
+    const missing = [...shipped].filter((id) => !imported.has(id) && !held.has(id)).sort();
     const extra = [...imported].filter((id) => !shipped.has(id)).sort();
     // Two separate arrays in the failure message, not one combined diff: a
     // reader should not have to guess whether a name is missing or extra.
     expect({ missing, extra }).toEqual({ missing: [], extra: [] });
+  });
+
+  it('holds only ids that ship a GLB and have NO unit JSON yet (GH-298)', () => {
+    // The exemption in both directions, like the pin it relaxes: a held id
+    // whose GLB is gone is stale, and a held id that has gained its unit JSON
+    // is an authored weight block nothing reads -- move it into the import
+    // list and delete the hold.
+    const shipped = new Set(shippedVehicleIds());
+    for (const id of VEHICLE_WEIGHT_HELD_UNIT_IDS) {
+      expect(shipped.has(id), `${id}: held but no GLB shipped`).toBe(true);
+      expect(unitJson(id), `${id}: held but its unit JSON exists`).toBeNull();
+      expect(VEHICLE_WEIGHT_IMPORTED_UNIT_IDS).not.toContain(id);
+    }
   });
 });
 

@@ -492,7 +492,9 @@ describe('parseWreckArgs', () => {
 });
 
 describe('WRECK_RECIPES', () => {
-  it('names the thirteen shipped vehicles, the held E5 Gunship, and nothing else', () => {
+  it('names the shipped vehicles plus the held E5 Gunship and command Lavi, and nothing else', () => {
+    // The thirteen shipped vehicles, plus two held files under art/meshes/vehicles/ that
+    // each need a wreck: GH-181's Peten Gunship and GH-298's command Lavi (`officer_armour`).
     expect(Object.keys(WRECK_RECIPES).sort()).toEqual([
       'apc_eitan',
       'apc_kipod',
@@ -505,6 +507,7 @@ describe('WRECK_RECIPES', () => {
       'jeep_shoded',
       'loiter_drone',
       'mbt_lavi',
+      'officer_armour',
       'paramotor',
       'recon_drone',
       'rocket_battery',

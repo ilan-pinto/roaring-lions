@@ -142,6 +142,19 @@ const BY_UNIT_ID: ReadonlyMap<string, WeightSource> = new Map(
 export const VEHICLE_WEIGHT_IMPORTED_UNIT_IDS: readonly string[] = Array.from(BY_UNIT_ID.keys());
 
 /**
+ * Vehicle GLBs shipped AHEAD of their unit JSON -- `HELD_MESH_FILES` in
+ * `packages/app/src/mesh-catalogue.ts`, restated here by id because this
+ * package cannot import `app`. A held id has nothing to import, so the
+ * both-directions pin above would read it as `missing` forever; listing it
+ * here keeps that pin exact for everything else, and the test asserts the
+ * OTHER direction for each entry (no unit JSON on disk yet), so a held id
+ * that gains its JSON becomes a red test rather than a silently unread block.
+ * Stage 5 of GH-298 moves `officer_armour` into `VEHICLE_UNIT_JSON` and
+ * deletes it here.
+ */
+export const VEHICLE_WEIGHT_HELD_UNIT_IDS: readonly string[] = ['officer_armour'];
+
+/**
  * Role defaults, keyed by `UnitType.role` -- a field the sim already parses
  * and the renderer already has, so this is not a second hand-kept id table of
  * the `VEHICLE_TRACK_KIND` kind. Every entry here stays under
