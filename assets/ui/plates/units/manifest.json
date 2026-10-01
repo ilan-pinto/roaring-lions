@@ -158,6 +158,24 @@
         240,
         163
       ]
+    },
+    "heli_peten_gunship": {
+      "file": "heli_peten_gunship.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        549,
+        389
+      ]
+    },
+    "recon_zikit": {
+      "file": "recon_zikit.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        260,
+        240
+      ]
     }
   }
 }
