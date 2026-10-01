@@ -82,7 +82,26 @@ export const PROP_KINDS = [
   'tyre_pile',
   'rebar',
   'wrecked_car',
+  // The tunnel pieces (GH-227, with the A3.2 ramp set, 2026-09-30). Not
+  // placed by `prop-place.ts` at all: `tunnel-props.ts` stands them on a
+  // route's own points from the sim's reads, under the trail's own
+  // identification rule. They share the prop contract, batch geometry and
+  // palette (`rust` is turned earth, `metal` the vent pipe).
+  'tunnel_mouth',
+  'tunnel_mouth_collapsed',
+  'tunnel_vent',
+  'tunnel_vent_collapsed',
+  'spoil_heap',
 ] as const;
+
+/** The five tunnel kinds, for the plan and the tunnel placer. */
+export const TUNNEL_PROP_KINDS = [
+  'tunnel_mouth',
+  'tunnel_mouth_collapsed',
+  'tunnel_vent',
+  'tunnel_vent_collapsed',
+  'spoil_heap',
+] as const satisfies readonly PropKind[];
 
 export type PropKind = (typeof PROP_KINDS)[number];
 
@@ -97,4 +116,9 @@ export const PROP_TRI_CAPS: Readonly<Record<PropKind, number>> = {
   tyre_pile: 260,
   rebar: 140,
   wrecked_car: 400,
+  tunnel_mouth: 420,
+  tunnel_mouth_collapsed: 420,
+  tunnel_vent: 220,
+  tunnel_vent_collapsed: 220,
+  spoil_heap: 150,
 };

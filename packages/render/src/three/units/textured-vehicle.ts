@@ -51,8 +51,18 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'paramotor',
   'heli_peten',
   'jeep_shoded',
+  // B2 (GH-179, 2026-09-30): the first vehicle generated through `pnpm meshy`
+  // end to end; ships its remesh's own bake (bible section 7 q2).
+  'gun_truck',
   'apc_eitan',
   'apc_kipod',
+  // The A3.2 ramp set (GH-185, 2026-09-30): `dozer_d9` (a palette-painted
+  // part-segmentation source until now) and `scout_shachaf` (kit-built) are
+  // Meshy text-to-3D remeshes shipping their own 2k bakes through
+  // `tools/vehicles/export_meshy_ramp.py`; the Shachaf's kit RWS carries no
+  // material and draws through `rampForVehicleRole`, per mesh.
+  'dozer_d9',
+  'scout_shachaf',
   // E5 part 2 (GH-181, 2026-09-30): the Peten Gunship is heli_peten.glb
   // re-opened with stores added, every added part UV-pinned to the Peten's
   // own bake (tools/vehicles/export_meshy_apache_gunship.py), so it ships

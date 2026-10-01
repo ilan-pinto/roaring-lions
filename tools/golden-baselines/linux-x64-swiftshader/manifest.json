@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "8beb66377f27a02b95f35a624e68fd5aa104e43e",
-  "blessedAt": "2026-09-29T09:25:28.852Z",
-  "reason": "WP-A4 readability (PR #272, main 8beb6637): HP bars only when damaged/selected/hovered, team-colour ground ring (vehicles: hull ellipse). Moves quiet (one occluded full-health bar gone), vehicle and relief. PR run 36525207020: all layer self-checks PASS; open-ground and aftermath unchanged; combat captured (report-only). Lead approved G-NUM/G-MOCK 29 Sep.",
+  "commit": "95af5d55f6c79f070b353de19b3f318fd7386743",
+  "blessedAt": "2026-09-30T21:41:43.162Z",
+  "reason": "PR #314 (A3.2 ramp set + tunnel props, main 95af5d55): vehicle 2959 px (textured dozer_d9 2191 + building corner + minimap); quiet 341 (camp prop, a wall piece, minimap building markers after camp cut to 2x2); aftermath 362 (minimap building footprints); relief 127 (the new tunnel vent prop at the corridor); open-ground 80 (one wall piece, wall thinned 1.5 -> 0.6 m). Every cluster located on #314's art; repaint controls and layer self-checks PASS (CI run 36779593434).",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "8eed810889cf0dbbfb7ef850b333a3e4f7d7246fee26d6cf9bfda80bd7e28893"
+      "sha256": "479a5ab3d220cf3d615939424844e1519382c14dcffa1b0bcfdd9f4ce7e90518"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "5b9df9111a189c707bb17fe24bc3afef9f3192be69d9d67b1682584f4b9ca3eb"
+      "sha256": "b8303b012cde69e318dbfb71d7a6d2993712254b2163830981027077e15b237c"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "60a9f81380143d11b1af353bf18409c1417e049f094fac750a2a8106b0697459"
+      "sha256": "f020ffd5078216294792951f06e5172661f819543d9a3b8c19adeb0a1136ddf5"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c8c1712b85f0cc74ac6cd7ce6d75e3fbf1ab574e7b3a128309d5180ad13a5bdf"
+      "sha256": "873cfaad915ca17289543548a6671818ff86c353deeb5fcabda17b4650ed233e"
     },
     "aftermath": {
       "tick": 300,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "731470ffdd2f50d5e300f5941027388dede21f71d26e73148c1a1e5496ab7b6f"
+      "sha256": "34a494c029de0d3d0807017c81599b15d484c1b0a3cd756e609da1dd53a54783"
     }
   }
 }

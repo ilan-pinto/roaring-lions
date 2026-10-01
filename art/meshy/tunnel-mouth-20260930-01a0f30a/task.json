@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready tunnel entrance dug into flat ground: a square shaft opening framed with rough timber beams and lined with corrugated metal sheet, a low ring of stacked sandbags around three sides, a spread of loose excavated earth around it. Real-world scale, 2.4 metres across, under one metre tall. Tan sandbags, rust-streaked corrugated metal, brown earth, grey timber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f30a-7298-75be-a4ae-64a250efc379",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 311324647,
+    "prompt": "A single low-poly game-ready tunnel entrance dug into flat ground: a square shaft opening framed with rough timber beams and lined with corrugated metal sheet, a low ring of stacked sandbags around three sides, a spread of loose excavated earth around it. Real-world scale, 2.4 metres across, under one metre tall. Tan sandbags, rust-streaked corrugated metal, brown earth, grey timber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790783945382,
+    "progress": 100,
+    "started_at": 1790783945390,
+    "finished_at": 1790784038976,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f30a-7298-75be-a4ae-64a250efc379/output/model.glb?Expires=4944326400&Signature=gWuId7X4h09oM7nbXFWN9Q4RR0EzuFW9WPT4k7u0EFR9VL6wCZx3yIH6iPKRwNuN8Zs7b3O88zKMlomhyweX31XwpeJotA4YVfY6BbnyzUsQg8JO2iFGtv2MMoXgCFAqNuQPeVHleHToyKjyG76HdbuLPYlE9ZlT2SzbyUjmDbwCuxunrHTSRud1SDcuQuh03K3cBaBBfDLdXgr4ZKnm00xsX0gUiJWPwVA6PI45nfPWITPBwE-Y6kpGbeYkkmASAxr664lEiJ5WLYqvhB9YDchaQnXO4IvwKqIhgWobKdvTivFawwj8eCs4oTsl1NfzsCW2QHUvg~vr7Wmt-DpeiA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f30a-7298-75be-a4ae-64a250efc379/output/preview.png?Expires=4944326400&Signature=CUL-TUcm3shw46R9KLGw1FHAjCo9ad94QsVQFxyKE3AnUQy3XJ44H5mXvtInnGIrk4voDZUX7uCkD-Jpd3ne8RuEJpNZoep3AkAPgti1puCvr4PVZh3JI~rUuhpTlVnq4rFgDwSjAzJM9bI3-lVEuqYrza2iGiEqCsWTKVqivzKp9VsNkS930eml26ti127Dw-SW24unf9li7Ap1PORkyxoVfcnuL6g0ryhTC~6NR4X57MZweDpmL1Q8jJsV-AdYJojMciuW7Ed0kY-ZVdAxBiH2AgDAlQMhJo1dteeirm~AwbviGwk741U7RKMtkNuqL83SpfIvoxBJ8EEsbRtjZQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790783945382,
+    "started_at": 1790783945390,
+    "finished_at": 1790784038976
+  },
+  "usd_estimated": 0.4
+}

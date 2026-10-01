@@ -77,7 +77,26 @@ export type PropKindName =
   | 'laundry_line'
   | 'tyre_pile'
   | 'rebar'
-  | 'wrecked_car';
+  | 'wrecked_car'
+  // The tunnel pieces (GH-227, 2026-09-30) -- see `TUNNEL_PROP_KIND_NAMES`.
+  | 'tunnel_mouth'
+  | 'tunnel_mouth_collapsed'
+  | 'tunnel_vent'
+  | 'tunnel_vent_collapsed'
+  | 'spoil_heap';
+
+/** The tunnel pieces, restated from `prop-role.ts`'s `TUNNEL_PROP_KINDS` for
+ *  the same bundle-rule reason `PropKindName` is. NOT in `PROP_KIND_NAMES`:
+ *  `propKindsFor` answers "which ground props can this map scatter", and
+ *  `prop-place.ts` never scatters these -- `three/tunnel-props.ts` stands
+ *  them on a route's own points. `meshPlanFor` adds them to every plan. */
+export const TUNNEL_PROP_KIND_NAMES: readonly PropKindName[] = [
+  'tunnel_mouth',
+  'tunnel_mouth_collapsed',
+  'tunnel_vent',
+  'tunnel_vent_collapsed',
+  'spoil_heap',
+];
 
 /** `PropKindName`'s own members, in the same order `prop-role.ts`'s
  *  `PROP_KINDS` declares them -- used wherever this file needs "every prop
@@ -148,6 +167,13 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // the same kit.py/teams.py pipeline as the rest of this table.
   breach_team: { files: ['breach_team.glb'], faction: 'kdf' },
 
+  // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
+  // rig.py's parts and driven by rig.py's own clips
+  // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- GH-307's
+  // `TEXTURED_INFANTRY_TYPES` was still open when they shipped.
+  manpad_team: { files: ['manpad_team.glb'], faction: 'enemy' },
+  recoilless_team: { files: ['recoilless_team.glb'], faction: 'enemy' },
+
   // GH-149. Four figures for ONE unit type -- `data/units/civilians.json` is a
   // single type, so these are VARIANTS, and `three/units/mesh-variant.ts`
   // decides which entity draws which. THE ORDER OF THIS LIST IS THE VARIANT
@@ -203,6 +229,13 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // `apc_kipod` (landed in 2f93129) -- so both build a mesh at runtime.
   scout_shachaf: 'vehicles/scout_shachaf.glb',
   apc_kipod: 'vehicles/apc_kipod.glb',
+
+  // WP-A3.1 batch B2 (GH-179, 2026-09-30): the first units generated through
+  // `pnpm meshy` end to end (`docs/art/meshy-prompts-units.md` sections 6-7).
+  // Both enemy; `gun_truck` is textured (`TEXTURED_VEHICLE_TYPES`), the drone
+  // palette-painted through `VEHICLE_ROLE_PALETTE`.
+  gun_truck: 'vehicles/gun_truck.glb',
+  loiter_drone: 'vehicles/loiter_drone.glb',
 
   // The two KDF drones (GH-286, batch B0a, 2026-09-30): Meshy text-to-3D
   // previews remeshed at 800 tris and role-split in
@@ -301,6 +334,14 @@ export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
   tyre_pile: 'props/tyre_pile.glb',
   rebar: 'props/rebar.glb',
   wrecked_car: 'props/wrecked_car.glb',
+  // The tunnel pieces (GH-227, 2026-09-30): loaded for every map (a sandbox
+  // `&tunnel` synthesises a route on a map that declares none), placed by
+  // `three/tunnel-props.ts` from the sim, never by `prop-place.ts`.
+  tunnel_mouth: 'props/tunnel_mouth.glb',
+  tunnel_mouth_collapsed: 'props/tunnel_mouth_collapsed.glb',
+  tunnel_vent: 'props/tunnel_vent.glb',
+  tunnel_vent_collapsed: 'props/tunnel_vent_collapsed.glb',
+  spoil_heap: 'props/spoil_heap.glb',
 };
 
 /**
@@ -473,7 +514,10 @@ export function meshPlanFor(
     vehicles: new Set([...roster].filter((id) => id in VEHICLE_UNIT_MESHES)),
     buildings: new Set([...structureTypes].filter((id) => id in BUILDING_MESHES)),
     decor: decorFamiliesFor(map),
-    props: propKindsFor(map),
+    // The tunnel pieces ride along on every map: a route can be synthesised
+    // by the sandbox on a map that declares none, and the five GLBs are
+    // ~115 KB together.
+    props: new Set([...propKindsFor(map), ...TUNNEL_PROP_KIND_NAMES]),
   };
 }
 
@@ -522,8 +566,10 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
  * since `missionUnitTypes`; the sheets had not.
  *
  * With the mesh path on:
- *  - `before` deploy: a fielded type with NO mesh -- `gun_truck`, the drones,
- *    `manpad_team`, `recoilless_team` today. Their sheet IS how they draw.
+ *  - `before` deploy: a fielded type with NO mesh -- `attack_drone` and
+ *    `recon_drone` today (B0a pending; `gun_truck`, `loiter_drone`,
+ *    `manpad_team` and `recoilless_team` got theirs in B2, 2026-09-30).
+ *    Their sheet IS how they draw.
  *  - `after` the first frame: a fielded mesh VEHICLE (its death still falls
  *    back to the sheet's `wreck` sprite -- `ThreeRenderer.addWreck` excludes
  *    rigged types only) and every deferred KDF buildable (drawn as a

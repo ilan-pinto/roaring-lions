@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready combat engineer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. Dust goggles pushed up on the helmet, padded knee guards, and a rolled canvas tool bag strapped across the back. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "a-pose",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a0f2fb-6ba7-7245-9bd0-22edca38a2a6",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3669960133,
+    "prompt": "A single low-poly game-ready combat engineer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body. Dust goggles pushed up on the helmet, padded knee guards, and a rolled canvas tool bag strapped across the back. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1790782960675,
+    "progress": 100,
+    "started_at": 1790782960682,
+    "finished_at": 1790783028368,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2fb-6ba7-7245-9bd0-22edca38a2a6/output/model.glb?Expires=4944326400&Signature=epjGvuI2wsmQdj16DMRT5Re9ygqskrOPwyYhYPT9ser5r1eT9jPZfZzYY-eRWdhbq6BCeZs6gOeBU6zHsUutRUsluVZhradsH9qcwDXGUXGUjQ1f1T9CkYOJ-i1EZHAow8cCuRIw72VZx9exyyNa4kSTwqC~qtnkROv~BUyJbe0cK51mjGr-RZB8Zy8QzZNB6~BL~UkhK~3CjcN~W3TnpJylm6RSg0Ke~0axHnOOc94~vpxUCyLVs2tDvYae2u5~w3Vi-eM1A0IP3YhKBkmqZwh6fV7Oygw67J698TN3mKCwYEVdj3RmKamLv4kH2j9lPqmqcqs~-FTjBzJgzv~MZQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a0f2fb-6ba7-7245-9bd0-22edca38a2a6/output/preview.png?Expires=4944326400&Signature=CT4ib1DrinIY~elqAPS8OJ44Gp0ux9X2M28d-w5LNV146CvCbJWeu~vRy3YlOWndGyhblMWZ2HF1lc2D0lAQdC~AuFEd3emDMmKUWWnOQxMiAN8wwHgmQmfLTJCHX91uB-SxaQNbKPsxFn3F88aqCzjv0vOnrxwcQ2VVPxQAMX5rmogDpxdGW8hIP-NwYIWN~F9-azEoq07pz3sjLUXHzfN8B6GkEeaIu2xEtD~3pQ9WANmfhdXBKrwzB2B~q~6i-dATckzv0Uo6htyP7spUAoIHmb2Jua-A2zqX5LweiIi5DE-8OVdqbnUXdKSBbOMlCn32IoCxB2zdoBuZghSz7w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1790782960675,
+    "started_at": 1790782960682,
+    "finished_at": 1790783028368
+  },
+  "usd_estimated": 0.4
+}

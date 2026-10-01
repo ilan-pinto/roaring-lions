@@ -406,3 +406,91 @@ otherwise.
 12. **The Eitan's remote weapon station.** **Default: kit geometry** (`kit.rws`) on a
     ring the Meshy hull is asked to leave empty, 0 credits, `turret_pivot` placed by
     measurement. A Meshy RWS part is +25.
+
+## 8. Measured in B2 (2026-09-30)
+
+- **§4's open question is closed: a Meshy remesh of a refined task keeps its
+  bake.** The gun truck's remesh (5,000 tris) arrived with base colour, normal and
+  metallic-roughness maps in one `BakedMaterial`; no `retexture` was needed and
+  the unit stayed at 35 credits.
+- **§3's team-file cap does not account for `rig.py`'s copies.** A kneeling
+  figure ships three geometries (deployed kneel, D6 standing walker, prone
+  corpse), so a Meshy figure remeshed at the bible's 2,000 would put a two-man
+  crew near 11k. B2 remeshed at 1,500 and decimated corpses to half: 7,368 and
+  8,936 tris for the two teams.
+- **A rigged figure without a bought Meshy rig works:** cut at `rig.py`'s joints,
+  rigid-bound, `rig.py`'s own clips (`tools/units/import_meshy_crew_team.py`).
+  Its cost is the four per-figure copies above and a corpse that is the A-pose
+  body laid flat rather than a posed fall.
+- **Sarim machine line, used for `loiter_drone` and proposed for §5:** "a crude
+  workshop-built machine of an irregular militia in sun-faded dusty paint with
+  rough welded seams".
+- **Meshy honours the silhouette, not the angle or the count.** The gun truck's
+  "28 degrees" came back at 7.6 (fixed in Blender about the trunnion); the drone's
+  "two wingtip fins" came back as one tail fin, its "pusher" prop on the nose,
+  plus landing gear; the MANPAD figure's head wrap came back as a bare head.
+  Every one was fixed in Blender rather than re-rolled.
+
+## 9. Measured in B0b (2026-09-30, GH-286)
+
+- **A figure team costs 35, not 40.** The Meshy rig (step 5) was not bought
+  for either team: a remesh cut into `rig.py`'s parts and rigid-bound is driven
+  by `rig.py`'s own clips (`tools/units/import_meshy_kdf_team.py`), so the
+  5 credits buy nothing this pipeline uses. 70 spent against 80 approved.
+- **The refine's bake survives the remesh** (§4's open question): both 2,000-tri
+  remeshes arrived with base colour, normal and metallic-roughness maps. Only the
+  base colour ships, at 1024 / JPEG q85 (the infantry table's "ask 2048, ship
+  1024"); `pnpm encode:meshes` takes a team file from ~1.0 MiB to 312 KiB.
+- **A textured figure and palette kit weapons share one GLB.**
+  `buildMeshUnitTemplate` decides per MESH, so `uniform`/`boot`/`face` carry the
+  bake while `weapon`/`metal`/`charge` take the faction ramp. The blob joints that
+  hide a rigid cut are given the bake too (UVs pinned to the nearest face of the
+  part they cover), which keeps each role to one primitive and one material.
+- **§3's per-figure target holds at 2,000 for a team with no D6 walker:** the
+  two B0b teams ship 6,754 and 6,828 tris (kneel + standing + two half-decimated
+  corpses + kit weapons), under the 8,000 file cap. A team whose kneeling crew
+  walks on a walker would not fit at 2,000 (B2 remeshed at 1,500 for that reason).
+- **Meshy's A-pose is not straight.** Both figures came back with elbows bent and
+  palms turned up (arm axis 71–78° from vertical). Hung as one rigid unit per arm
+  the hands flare at the wrist; readable at gameplay zoom, visible at 2.5.
+- **Kit positions written for `kit.py`'s proportions need re-measuring on a
+  Meshy figure:** `rig._at_extras`' tube at z 1.02 sat at the kneeling Meshy
+  gunner's chin (his measured shoulder ring is lower than the kit's), so the
+  importer places it at the measured shoulder + the kit's own 0.175 offset; the
+  kit rifle's chest anchor assumed bent arms, so it is held level at the hung
+  hand instead.
+
+## 10. Measured in B3 (2026-09-30)
+
+- **A refine-then-remesh figure ships its bake through rig.py.** The
+  remesh's `BakedMaterial` survives every cut (`_piece` keeps UVs and the
+  slot); a `kit.blob` joint or a kit keffiyeh joining a textured role borrows
+  the material and ONE uv from the nearest source face (or from the shirt,
+  for a head wrap), so it takes the local cloth colour. Kit weapons keep no
+  UV and stay palette-painted -- `buildMeshUnitTemplate` decides per mesh.
+- **Meshy paints a head wrap pink.** Both B3 previews that honoured the wrap
+  (rpg, atgm) made it rose/pink-white -- saturated colour on the one part of
+  an enemy figure the eye goes to. The importer remaps red-magenta texels on
+  the head and collar faces to the faction's tan/limestone at their own
+  luminance (`RECOLOUR`). Cheaper than a re-roll and the hue window leaves
+  skin and shirt alone. The militia preview ignored the wrap AND the open
+  jacket; kit's keffiyeh, coloured from the shirt bake, covers the head.
+- **A 2,000-tri A-pose figure is not B2's 1,500 one.** Its arms are near
+  horizontal and bent at the elbow, its hands cup upward, and its chest rig
+  is wider than the 0.105 H torso half-width B2 assumed. The cut now MEASURES
+  the torso edge (|y| bands above the armpit line), the elbow (the lowest
+  band mid-arm), the wrist (a band inside the fingertips), classifies a face
+  by its OUTERMOST vertex (a 6 cm triangle straddling the armpit otherwise
+  stays behind as a spike), and hangs upper arm and forearm separately.
+  Rifle carriers get both forearms bent forward at the elbow so the kit rifle
+  sits at the hands.
+- **The neck and head bones sit on the head's own centre**, not the figure
+  axis: `mesh_gait.test.ts` reads facing as the bearing from the head joint
+  to the face strip, and a head 5 cm off-axis read 26 degrees for a man
+  looking straight ahead.
+- **The corpse is posed, not laid flat** (B2's weakest point): the cut parts
+  re-arranged rigidly before the lay-down, then welded (`remove_doubles`) and
+  decimated ONCE -- collapsing each open piece on its own shreds every seam.
+- Counts: militia 7,746 / rpg 7,082 / atgm 7,228 glTF triangles, all under
+  the 8,000 team cap with the corpse and (for the kneelers) the walker
+  included; 333-369 KB each shipped with a 1024 JPEG bake.
