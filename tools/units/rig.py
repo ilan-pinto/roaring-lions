@@ -190,15 +190,15 @@ TEAM_MESH_OWNER = {
     # into this module's parts and driven by its clips -- built by
     # tools/units/import_meshy_kdf_team.py, which owns both files.
     "demo_squad": "tools/units/import_meshy_kdf_team.py",
-    "charge_squad": MESH_KIT_OWNED,
+    "charge_squad": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "at_team": "tools/units/import_meshy_kdf_team.py",
     "rpg_team": "tools/units/import_meshy_crew_team.py",
     "mortar_team": MESH_KIT_OWNED,
-    "mortar_crew": MESH_KIT_OWNED,
+    "mortar_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "atgm_cell": "tools/units/import_meshy_crew_team.py",
     "sniper_team": "tools/export_meshy_sniper.py",
     "yahalom_squad": MESH_KIT_OWNED,
-    "digger_crew": MESH_KIT_OWNED,
+    "digger_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "moto_rpg": MESH_KIT_OWNED,
     "breach_team": MESH_KIT_OWNED,
     "manpad_team": "tools/units/import_meshy_crew_team.py",

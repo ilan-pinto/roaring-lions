@@ -282,6 +282,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     # B3 (GH-179, 2026-09-30): generated through `pnpm meshy`, each ships its
     # remesh's own bake -- `tools/units/import_meshy_crew_team.py`.
     "militia_cell", "rpg_team", "atgm_cell",
+    # B4 (GH-179, 2026-10-01): the three remaining enemy teams, same importer.
+    "mortar_crew", "charge_squad", "digger_crew",
     # GH-298 (2026-09-30): the officer teams, tools/units/import_meshy_officers.py.
     "officer_infantry", "officer_fires", "officer_engineer",
 }

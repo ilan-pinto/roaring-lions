@@ -125,16 +125,14 @@ SOURCES = {
     "militia_cell": (os.path.join(REPO, "art", "meshy", "militia-cell-*-01a0f30b", "model.glb"), 1.70),
     "rpg_team": (os.path.join(REPO, "art", "meshy", "rpg-team-*-01a0f313", "model.glb"), 1.76),
     "atgm_cell": (os.path.join(REPO, "art", "meshy", "atgm-cell-*-01a0f313", "model.glb"), 1.72),
-    # B4 (GH-179, 2026-09-30): the three remaining enemy teams, numbers in
-    # `docs/art/meshy-prompts-units.md` §13-15. The batch STOPPED before any
-    # spend -- every text-to-3d POST answered HTTP 402 with 3,735 credits
-    # showing on `balance` -- so no remesh exists yet. `<remesh>` is a
-    # deliberate non-glob placeholder: `_src` fails loudly ("found []") until
-    # the remesh task's first eight hex replace it, the way B3's were filled
-    # in as each remesh landed.
-    "mortar_crew": (os.path.join(REPO, "art", "meshy", "mortar-crew-*-<remesh>", "model.glb"), 1.68),
-    "charge_squad": (os.path.join(REPO, "art", "meshy", "charge-squad-*-<remesh>", "model.glb"), 1.72),
-    "digger_crew": (os.path.join(REPO, "art", "meshy", "digger-crew-*-<remesh>", "model.glb"), 1.66),
+    # B4 (GH-179, 2026-10-01): the three remaining enemy teams, numbers in
+    # `docs/art/meshy-prompts-units.md` §13-15. The 30 Sep run stopped at
+    # HTTP 402 before any spend; the lead raised the key's credit limit and
+    # the three ran on 1 Oct -- remeshes of the 2k-refined tasks, ids in
+    # docs/ASSET_PROVENANCE.md.
+    "mortar_crew": (os.path.join(REPO, "art", "meshy", "mortar-crew-*-01a0f5f3", "model.glb"), 1.68),
+    "charge_squad": (os.path.join(REPO, "art", "meshy", "charge-squad-*-01a0f5f3", "model.glb"), 1.72),
+    "digger_crew": (os.path.join(REPO, "art", "meshy", "digger-crew-*-01a0f5f3", "model.glb"), 1.66),
 }
 
 #: Teams whose GLB ships the remesh's own base-colour bake (PR #307's
@@ -166,9 +164,19 @@ JPEG_QUALITY = 85
 #: target's chroma at their own luminance, so folds and shading survive.
 #: Skin (hue ~20-30 deg) and the tan shirt sit outside the window.
 RECOLOUR = {"rpg_team": ((0.60, 0.52, 0.40), (300.0, 14.0)),      # dusty tan
-            "atgm_cell": ((0.80, 0.77, 0.70), (300.0, 14.0))}     # limestone
+            "atgm_cell": ((0.80, 0.77, 0.70), (300.0, 14.0)),     # limestone
+            # B4: the mortar refine painted the helmet a red-and-white check
+            # and the collar rose -- a real-world pattern, in saturated red.
+            # Red sits at hue 0, so the window reaches to 20.
+            "mortar_crew": ((0.60, 0.52, 0.40), (300.0, 20.0)),   # dusty tan
+            # B4: the digger's bald crown was painted the same rose check.
+            "digger_crew": ((0.55, 0.53, 0.48), (300.0, 20.0))}   # dusty grey
 RECOLOUR_SAT_MIN = 0.16
 RECOLOUR_FLOOR_F = 0.74
+#: The mortar figure's chest bandolier came back in the same red check as
+#: its helmet, so its window reaches down to the belt line; the tan shirt and
+#: olive rig sit outside the hue window either way.
+RECOLOUR_FLOOR_BY_TEAM = {"mortar_crew": 0.55}
 
 #: Whether the figure needs kit's keffiyeh over the crown (see module docstring).
 ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
@@ -176,8 +184,11 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 # (the wrap AND the ragged jacket were ignored), so it wears
                 # kit's keffiyeh, coloured from its own shirt's bake.
                 "militia_cell": True, "rpg_team": False, "atgm_cell": False,
-                # B4: decided per preview once one exists (bare head -> True).
-                "mortar_crew": False, "charge_squad": False, "digger_crew": False}
+                # B4 (2026-10-01): all three previews ignored the head wrap --
+                # mortar and charge came back in a HELMET with goggles, the
+                # digger bald -- so every one wears kit's keffiyeh, coloured
+                # from its own shirt's bake, exactly militia_cell's fix.
+                "mortar_crew": True, "charge_squad": True, "digger_crew": True}
 
 #: charge_squad only: put kit's `vest_f`/`vest_b` slabs (the `charge` role,
 #: verbatim from `rig._charge_squad_rest`) on both men. False while the
@@ -186,12 +197,37 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
 CHARGE_KIT_VESTS = False
 
 #: digger_crew's entrenching tool: a short `wood` handle with a `metal`
-#: blade in the kneeling man's right hand, pointed at the heap, bound to
-#: `dig_forearm_R` so it hides with the kneel root while he walks. Not a
+#: blade in the kneeling man's hands, pointed at the heap, bound to
+#: `dig_spine` with the torso that holds it (ARMS_FORWARD below), so it
+#: hides with the kneel root while he walks. Not a
 #: `weapon` role (mesh_gait.test.ts's WEAPON_EXEMPT: "a digger: `wood`, no
 #: `weapon` role, no `fire` clip").
-TOOL_LENGTH, TOOL_RADIUS = 0.50, 0.018
+TOOL_LENGTH, TOOL_RADIUS = (0.50, 0.90), 0.018   # handle length: hand-to-heap, clamped
 TOOL_BLADE = (0.14, 0.10, 0.02)
+
+#: Figures whose preview did NOT come back in an A-pose but with both arms
+#: reaching FORWARD (the digger: elbows behind the torso at 0.6 H, hands at
+#: x +0.62 m and 0.78 H -- measured 2026-10-01). Nothing is outboard of the
+#: torso in |y|, so `_arm_axis` has no band to find and the arms cannot be
+#: cut and hung without a seam through the chest rig. The whole upper body
+#: is kept as ONE `torso` part on `spine` instead, with synthetic hanging
+#: arm joints so the bone tables and clips are unchanged; the corpse lies on
+#: its SIDE (roll 90) rather than face down, since arms that reach forward
+#: would otherwise hold a face-down body off the ground; and the tool is
+#: read off the real hands (the torso's forward-most vertices) and bound to
+#: `spine` with them. A kneeling digger with his arms out to the mound reads
+#: as labour; the walker walks with his arms out, which a 25 px rare unit
+#: can carry rather than a second preview.
+ARMS_FORWARD = {"digger_crew"}
+CORPSE_ROLL_BY_TEAM = {"digger_crew": 90.0}
+#: ...and lies head AWAY from the heap (the generic corpse falls head-forward,
+#: +x, which from the digger's anchor at x -0.34 puts the head inside the
+#: mound at x +0.36).
+CORPSE_YAW_BY_TEAM = {"digger_crew": 180.0}
+#: charge_squad's two corpses: single-file anchors 0.16 m apart in y put one
+#: 1.8 m body on top of the other (kit's did the same). The death roots are
+#: offset sideways so the pair reads as two men down, not a heap.
+CORPSE_Y_OFFSET = {"charge_squad": {"chg0": -0.30, "chg1": 0.30}}
 
 #: `kit.blob` topology per team. B2 used kit's default (9 sides, 3 rings: 72
 #: glTF tris a blob, ~580 a body copy). B3's numbers tables budget the
@@ -330,7 +366,8 @@ def _recolour_head(team_id, ob, height, target, hue_window):
     # Down to the upper chest, not just the neck cut: the rpg figure's
     # scarf hangs to the collarbones, and the hue window is what keeps
     # the shirt and the rig out of it.
-    sel = ((cent[:, 2] > RECOLOUR_FLOOR_F * height) & ~(head & face_strip))
+    floor_f = RECOLOUR_FLOOR_BY_TEAM.get(team_id, RECOLOUR_FLOOR_F)
+    sel = ((cent[:, 2] > floor_f * height) & ~(head & face_strip))
     uv = np.empty(len(me.loops) * 2, dtype=np.float32)
     me.uv_layers.active.data.foreach_get("uv", uv)
     uv = uv.reshape(-1, 2)
@@ -610,10 +647,16 @@ def cut_figure(src, height, prefix, blobs=True):
     z_belt, z_neck, z_chin = zc + 0.08, NECK_F * H, CHIN_F * H
     head = co[co[:, 2] > z_chin]
     x_head, y_head = float(head[:, 0].mean()), float(head[:, 1].mean())
-    axes = {side: _arm_axis(co, H, side) for side in (0, 1)}
-    w_arm = max(axes[0][3], axes[1][3])
+    merge_arms = _TEAM["id"] in ARMS_FORWARD
+    if merge_arms:
+        # See ARMS_FORWARD: nothing is outboard, every face stays torso.
+        axes = None
+        w_arm = float(np.abs(co[co[:, 2] > 0.62 * H][:, 1]).max()) + 0.01
+    else:
+        axes = {side: _arm_axis(co, H, side) for side in (0, 1)}
+        w_arm = max(axes[0][3], axes[1][3])
     log(f"{prefix}: crotch {zc:.3f} ({zc / H:.3f} H) arm-root |y| {w_arm:.3f} knee {z_knee:.3f} "
-        f"neck {z_neck:.3f} chin {z_chin:.3f}")
+        f"neck {z_neck:.3f} chin {z_chin:.3f}{' (arms kept on the torso)' if merge_arms else ''}")
 
     def arm_side(p, y_out):
         """0/1 if a face is arm: its OUTERMOST vertex (`y_out`, signed) lies
@@ -627,7 +670,7 @@ def cut_figure(src, height, prefix, blobs=True):
         the torso and stuck out as a spike once the arm was hung (a 6 cm
         triangle reaches 6 cm past its own centroid); and it required the
         axis test alone, which left a third of a thick forearm behind."""
-        if abs(y_out) <= w_arm or p[2] < 0.5 * H:
+        if axes is None or abs(y_out) <= w_arm or p[2] < 0.5 * H:
             return None
         side = 0 if y_out < 0 else 1
         if p[2] > 0.62 * H:
@@ -702,6 +745,17 @@ def cut_figure(src, height, prefix, blobs=True):
     # forearm about the moved elbow -- so a bent A-pose arm hangs straight
     # at its full length.
     for side in (0, 1):
+        if merge_arms:
+            # Synthetic hanging joints (see ARMS_FORWARD): nothing binds to
+            # the arm bones, but the bone tables, kneel and clips read them.
+            sgn = -1.0 if side == 0 else 1.0
+            down = Vector((0.0, sgn * math.sin(math.radians(ARM_HANG_DEG)), -math.cos(math.radians(ARM_HANG_DEG))))
+            sh = Vector((x_head, sgn * 0.12 * H, 0.80 * H))
+            el = sh + down * (0.17 * H)
+            wr = el + down * (0.15 * H)
+            joints["arm"][side] = {"shoulder": tuple(sh), "elbow": tuple(el), "wrist": tuple(wr)}
+            log(f"{prefix}: arm{side} kept on the torso; synthetic joints shoulder z {sh.z:.3f} wrist z {wr.z:.3f}")
+            continue
         arm = parts.pop(f"arm{side}")
         shoulder, elbow, wrist, _w = axes[side]
         acent = _face_centroids(arm)
@@ -919,25 +973,28 @@ def _rifle_at_hand(prefix, joints, dx, dy):
     return rig._weapon_parts(prefix, at, yaw=yaw, posture="standing", aim=False)
 
 
-def _entrenching_tool(prefix, bones, heap_at):
+def _entrenching_tool(prefix, parts, heap_at):
     """digger_crew's tool (see TOOL_LENGTH): the handle runs from the kneeling
-    man's right hand toward the heap, the blade sits at its far end. The hand
-    is read off the KNEELING bone table (`{prefix}_forearm_R`'s tail is the
-    dropped wrist), not the standing joints `cut_figure` measured."""
-    fb = next(b for b in bones if b[0] == f"{prefix}_forearm_R")
-    elbow, wrist = Vector(fb[2]), Vector(fb[3])
-    hand = wrist + (wrist - elbow).normalized() * HAND_REACH
-    d = (Vector(heap_at) - hand)
+    man's hands toward the heap, the blade sits at its far end. The hands are
+    read off GEOMETRY -- the forward-most vertices of the kneeling
+    `{prefix}_torso` part, which on an ARMS_FORWARD figure carries the arms
+    -- so the tool sits where the man is actually reaching, and it binds to
+    the same `spine` bone the torso does (see the ARMS_FORWARD note)."""
+    torso = next(o for o in parts if o.name == f"{prefix}_torso")
+    tc = _coords(torso)
+    hand = Vector(tc[tc[:, 0] > tc[:, 0].max() - 0.08].mean(axis=0))
+    d = Vector(heap_at) + Vector((0.0, 0.0, 0.12)) - hand   # the heap's top, not its centre
+    length = max(TOOL_LENGTH[0], min(TOOL_LENGTH[1], d.length))
     d.z = min(d.z, -0.05)            # always down into the ground, never up
     d.normalize()
     yaw = math.atan2(d.y, d.x)
     pitch = math.asin(max(-1.0, min(1.0, d.z)))
-    mid = hand + d * (TOOL_LENGTH * 0.45)
-    handle = kit.tube(f"{prefix}_tool_handle", TOOL_LENGTH, TOOL_RADIUS, tuple(mid),
+    mid = hand + d * (length * 0.45)
+    handle = kit.tube(f"{prefix}_tool_handle", length, TOOL_RADIUS, tuple(mid),
                       yaw=yaw, pitch=pitch, role="wood")
-    tip = hand + d * (TOOL_LENGTH * 0.95)
+    tip = hand + d * (length * 0.95)
     blade = kit.rot_z(f"{prefix}_tool_blade", TOOL_BLADE, tuple(tip), yaw, "metal")
-    log(f"{prefix}: tool from hand {tuple(round(v, 3) for v in hand)} toward heap, "
+    log(f"{prefix}: tool {length:.2f} m from hands {tuple(round(v, 3) for v in hand)} toward heap, "
         f"yaw {math.degrees(yaw):.0f} pitch {math.degrees(pitch):.0f}")
     return [handle, blade]
 
@@ -955,12 +1012,16 @@ def _kit_keffiyeh_over(parts, pfx, src):
               co[:, 2].min() + 0.55 * (co[:, 2].max() - co[:, 2].min()))
     radius = max(co[:, 0].max() - co[:, 0].min(), co[:, 1].max() - co[:, 1].min()) / 2.0 * 1.04
     kef = kit.keffiyeh(f"{pfx}_kef", centre, radius=radius)
-    seq = parts.values() if isinstance(parts, dict) else parts
-    torso = next((o for o in seq if o.name == f"{pfx}_torso"), None)
-    near = None
-    if torso is not None:
-        tc = _coords(torso)
-        near = (tc[:, 0].min() + 0.02, tc[:, 1].mean(), tc[:, 2].max() - 0.05)
+    # The borrowed texel comes from the SOURCE figure's upper back (the shirt
+    # between the shoulder blades), named in the source's own standing frame.
+    # B3 took it from the part's torso bounds, which on a KNEELING figure sit
+    # 0.45 m lower than the standing source they are matched against -- the
+    # nearest source face was then the belt and holster, and B4's mortar
+    # crew wore a black keffiyeh while their own walkers wore tan.
+    sc = _coords(src)
+    Hs = float(sc[:, 2].max())
+    band = sc[(sc[:, 2] > 0.74 * Hs) & (sc[:, 2] < 0.80 * Hs)]
+    near = (float(band[:, 0].min()) + 0.02, 0.0, 0.77 * Hs)
     for ob_k in kef:
         _borrow_uv(ob_k, src, near=near)
     return kef
@@ -977,6 +1038,8 @@ def _death_parts_posed(src, height, prefix, x, y, add_kef=False):
     k = height / kit.FIGURE_H
     # Arms: the whole hung arm (upper + fore) about its shoulder.
     for side, target in ((0, CORPSE_OVERHEAD), (1, CORPSE_OUT)):
+        if f"upperarm{side}" not in parts:
+            continue   # ARMS_FORWARD: the arms are on the torso, nothing to throw
         a = joints["arm"][side]
         shoulder, wrist = Vector(a["shoulder"]), Vector(a["wrist"])
         axis = (wrist - shoulder).normalized()
@@ -1009,7 +1072,10 @@ def _death_parts_posed(src, height, prefix, x, y, add_kef=False):
             _transform(parts[n], m_head)
     # Lay it down: height -> +x (head forward), forward -> -z (face down);
     # roll about the body's long axis; lowest point on the ground, centred.
-    lay = Matrix.Rotation(math.radians(CORPSE_ROLL_DEG), 4, "X") @ Matrix.Rotation(math.radians(90.0), 4, "Y")
+    roll = CORPSE_ROLL_BY_TEAM.get(_TEAM["id"], CORPSE_ROLL_DEG)
+    yaw = CORPSE_YAW_BY_TEAM.get(_TEAM["id"], 0.0)
+    lay = (Matrix.Rotation(math.radians(yaw), 4, "Z") @ Matrix.Rotation(math.radians(roll), 4, "X")
+           @ Matrix.Rotation(math.radians(90.0), 4, "Y"))
     for ob in parts.values():
         _transform(ob, lay)
     allco = np.concatenate([_coords(ob) for ob in parts.values()])
@@ -1086,8 +1152,9 @@ def _figure(src, height, spec, kneel):
         _place(wparts, x, y)
         parts.update({f"w_{k}": v for k, v in wparts.items()})
     out = list(parts.values())
-    death = _death_parts_posed(src, height, prefix, x, y, add_kef=ADD_KEFFIYEH[_TEAM["id"]])
-    death_bone = rig._death_root_bone(prefix, x, y)
+    dy_death = CORPSE_Y_OFFSET.get(_TEAM["id"], {}).get(prefix, 0.0)
+    death = _death_parts_posed(src, height, prefix, x, y + dy_death, add_kef=ADD_KEFFIYEH[_TEAM["id"]])
+    death_bone = rig._death_root_bone(prefix, x, y + dy_death)
     bones.append(death_bone)
     for ob in death:
         forced[ob] = death_bone[0]
@@ -1203,8 +1270,8 @@ def build_team(team_id):
         bones += ground_bones
         forced.update(f_heap)
         parts += heap
-        tool = _entrenching_tool("dig", bones, (0.36, -0.06, 0.14))
-        forced.update({ob: "dig_forearm_R" for ob in tool})
+        tool = _entrenching_tool("dig", parts, (0.36, -0.06, 0.14))
+        forced.update({ob: "dig_spine" for ob in tool})
         parts += tool
     else:
         raise SystemExit(f"no crew weapon rule for {team_id}")
