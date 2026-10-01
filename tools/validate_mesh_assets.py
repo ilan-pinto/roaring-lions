@@ -304,6 +304,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     # B7 (GH-179, 2026-10-01): the B2 teams' bakes, bought on their own
     # previews (`pnpm meshy -- refine`) and re-remeshed.
     "manpad_team", "recoilless_team",
+    # B7: two supplied teams replaced on the crew importer's path.
+    "inf_squad", "sarim_rifles",
 }
 
 # The union `textured_exempt` below actually checks against -- a mesh's

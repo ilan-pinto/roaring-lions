@@ -160,7 +160,10 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // was supplied as OUR infantry. Which side an asset fights for is a design
   // call, not one a naming heuristic gets to infer, which is why every faction
   // here is written down rather than derived.
-  inf_squad: { files: ['meshy_soldier.glb'], faction: 'kdf' },
+  // B7 (GH-179, 2026-10-01): a Meshy A-pose figure with its bake through
+  // tools/units/import_meshy_crew_team.py, under the team id's own name;
+  // `meshy_soldier.glb` (the supplied rifleman) is deleted, not retired.
+  inf_squad: { files: ['inf_squad.glb'], faction: 'kdf' },
   sarim_rifles: { files: ['sarim_rifles.glb'], faction: 'enemy' },
   mortar_team: { files: ['meshy_mortar_team.glb'], faction: 'kdf' },
   yahalom_squad: { files: ['yahalom_engineer.glb'], faction: 'kdf' },
@@ -372,7 +375,6 @@ export const PROP_MESHES: Readonly<Record<PropKindName, string>> = {
  * revert.
  */
 export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
-  'inf_squad.glb': 'superseded by meshy_soldier.glb (the supplied KDF rifleman)',
   'mortar_team.glb':
     'superseded by meshy_mortar_team.glb; kept as mesh_gait.test.ts’ 88.7% gait reference',
   'yahalom_squad.glb': 'superseded by yahalom_engineer.glb (the first mesh team with a work clip)',

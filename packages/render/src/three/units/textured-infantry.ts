@@ -71,4 +71,8 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // preview itself (`pnpm meshy -- refine`) and re-remeshed at B2's 1,500.
   'manpad_team',
   'recoilless_team',
+  // B7: two of the supplied Meshy teams replaced by A-pose figures with their
+  // bake through the crew importer, under their team ids' own file names.
+  'inf_squad',
+  'sarim_rifles',
 ]);

@@ -153,6 +153,10 @@ SUPPORTED_TEAMS = (
     # parentheses in this comment: mesh_ownership.test.ts reads the tuple
     # with a regex that stops at the first closing bracket.
     "manpad_team", "recoilless_team",
+    # B7, GH-179, 2026-10-01: the supplied Sarim rifleman is replaced by a
+    # Meshy A-pose figure on the same path; it was never a kit export, so it
+    # joins here for `build_clips`/`TEAM_FIGURES` and nothing else.
+    "sarim_rifles",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -182,7 +186,10 @@ DEFAULT_TEAM = "inf_squad"
 #: script's OWN output path, so retiring that script turns this into a red test
 #: rather than a permanent unexplained block on a file nobody else claims.
 TEAM_MESH_OWNER = {
-    "inf_squad": MESH_KIT_OWNED,
+    # B7 (GH-179, 2026-10-01): the supplied Meshy rifleman is replaced by an
+    # A-pose figure with its bake, cut and driven by this module through
+    # tools/units/import_meshy_crew_team.py, under this team id's own name.
+    "inf_squad": "tools/units/import_meshy_crew_team.py",
     # B3 (GH-179, 2026-09-30): Meshy figures with their own bake, cut and
     # driven by this module through tools/units/import_meshy_crew_team.py.
     "militia_cell": "tools/units/import_meshy_crew_team.py",
@@ -203,6 +210,7 @@ TEAM_MESH_OWNER = {
     "breach_team": "tools/units/import_meshy_crew_team.py",   # B5 (GH-179, 2026-10-01)
     "manpad_team": "tools/units/import_meshy_crew_team.py",
     "recoilless_team": "tools/units/import_meshy_crew_team.py",
+    "sarim_rifles": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
 }
 assert set(TEAM_MESH_OWNER) == set(SUPPORTED_TEAMS), (
     "TEAM_MESH_OWNER needs exactly one entry per SUPPORTED_TEAMS member -- "
@@ -1006,6 +1014,8 @@ FIRE_ROOT_LEAN = {
     "charge_squad": {"chg0": math.radians(4.0), "chg1": math.radians(4.0)},
     # B5: breach_team's fire is a brace -- see TEAM_FIGURES' breach entry.
     "breach_team": {"brc_point": math.radians(3.0), "brc_cover": math.radians(3.0)},
+    # B7: the rifleman's carbine is baked across his chest (see TEAM_FIGURES).
+    "inf_squad": {"f0": math.radians(3.0), "f1": math.radians(3.0), "f2": math.radians(3.0)},
 }
 
 
@@ -1096,10 +1106,16 @@ SNIPER_SPECS = (
 
 
 TEAM_FIGURES = {
+    # B7 (GH-179, 2026-10-01): `weapon=None` since the Meshy figure landed --
+    # its carbine is baked into the torso, held across the chest in both
+    # hands, and ships as a `weapon` piece on `spine`
+    # (import_meshy_crew_team.py's WEAPON_ON_SPINE); the fire clip is the
+    # FIRE_ROOT_LEAN brace, as breach_team's. The kit build of this team is
+    # superseded (it would lose its kit rifles with this).
     "inf_squad": [
-        _f("f0", 0.0, -0.78, weapon="rifle"),
-        _f("f1", 0.20, 0.0, leader=True, weapon="rifle"),
-        _f("f2", 0.0, 0.78, weapon="rifle"),
+        _f("f0", 0.0, -0.78),
+        _f("f1", 0.20, 0.0, leader=True),
+        _f("f2", 0.0, 0.78),
     ],
     "militia_cell": [
         _f("mil0", 0.0, -0.24, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
@@ -1202,6 +1218,14 @@ TEAM_FIGURES = {
         _f("rcl_load", -0.30, 0.30, posture="kneeling", headgear="keffiyeh",
            loadout="irregular", leader=True, animates=False, move_posture="standing"),
     ],
+    # B7 (GH-179): positions verbatim from `teams.sarim_rifles` -- the
+    # diagonal wedge that separates three irregular riflemen from
+    # inf_squad's straight line. Built by import_meshy_crew_team.py.
+    "sarim_rifles": [
+        _f("sar0", 0.34, -0.90, headgear="keffiyeh", loadout="irregular", weapon="rifle"),
+        _f("sar1", 0.0, 0.0, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
+        _f("sar2", -0.34, 0.86, headgear="keffiyeh", loadout="irregular", weapon="rifle"),
+    ],
     # moto_rpg is NOT built through `_add_figure`/PART_BONE at all -- see
     # `_moto_rpg_rest`, which force-binds every single part it creates to an
     # explicit bone name. These six entries exist only so `figure_prefixes`
@@ -1239,6 +1263,7 @@ def _check_team_figures_against_teams():
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
         "moto_rpg": "enemy", "breach_team": "kdf",
         "manpad_team": "enemy", "recoilless_team": "enemy",
+        "sarim_rifles": "enemy",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
