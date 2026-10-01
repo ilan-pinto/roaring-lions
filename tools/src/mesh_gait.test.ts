@@ -1034,8 +1034,8 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'militia_cell.glb move': 582,
   'rpg_team.glb move': 528,
   'charge_squad.glb move': 444, // B4: Meshy boots
-  'inf_squad.glb move': 558, // B7: Meshy boots, three men, rig.py gait
-  'sarim_rifles.glb move': 729, // B7: Meshy boots, three men
+  'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait
+  'sarim_rifles.glb move': 918, // B7: Meshy boots, three men
   'mortar_team.glb move': 590, // B7: Meshy boots -- two D6 walkers and the No.3
   'yahalom_engineer.glb move': 1632,
   // B2 (2026-09-30): Meshy remeshes cut into rig.py parts, boot = below 0.09 H.
