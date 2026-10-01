@@ -634,25 +634,14 @@ checked on the day:
 | `digger_crew` | figure team, textured, rig.py | preview 20 + refine 10 + remesh 5 | 35 |
 | | | **B4 planned** | **105** (about $2.10), against the approved cap of 120 |
 
-**Run 2026-09-30: STOPPED before any spend — 0 of 120 credits consumed.**
-Every `pnpm meshy -- text … --pose a-pose --refine --tex 2k --yes` POST to
-`/openapi/v2/text-to-3d` answered **HTTP 402** (five attempts over seven
-minutes, 17:06–17:13 UTC: the three units once each, then `mortar_crew` twice
-more, alone) while `pnpm meshy -- balance` read **3,735 credits** before,
-between and after, `list --kind text` showed no B4 task created, and the
-ledger stayed at 32 lines. The request body was dry-run first
-(`MESHY_DRY_RUN=1`) and matches B3's byte for byte but for the prompt. It is
-not a concurrency cap: the account's last task (another session's characters
-remesh) succeeded at 17:04:38 UTC, two minutes before the first refusal, and
-nothing was `IN_PROGRESS` during any attempt. The CLI prints the status and
-swallows Meshy's response body (`MeshyApiError.body`, `client.ts`), so the
-reason is not on record — a 402 with credits showing points at the account's
-plan or API entitlement, which only the lead can read in the Meshy dashboard.
-Nothing was re-rolled and no call was made outside the CLI. The importer's
-three team rules landed in the same change (`import_meshy_crew_team.py`,
-`<remesh>` placeholders in `SOURCES`), unexecuted: no A-pose source exists to
-run them on. Resume by filling the three remesh ids and running §4's steps
-2–9 per unit; the numbers above stand.
+**Run 2026-09-30: STOPPED before any spend.** Every text-to-3d POST answered
+HTTP 402 (five attempts, 17:06–17:13 UTC) while `balance` read 3,735 credits
+and `list` showed no task created; the request body was dry-run first and is
+B3's with the B4 prompt. **Run 2026-10-01: 105 spent, nothing stopped, no
+re-roll** — the lead raised the key's credit limit and the same calls went
+through; task ids in `docs/ASSET_PROVENANCE.md`, what each preview honoured
+and what the importer fixed in `style-bible.md` §11. The CLI still swallows
+Meshy's 402 body (`MeshyApiError.body`), so why it refused is not on record.
 
 All three are `faction: 'enemy'` in `mesh-catalogue.ts` and take the bible's
 one irregular line verbatim, in B3's spelling (`worn boots` — a kneeling
