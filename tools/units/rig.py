@@ -2152,9 +2152,17 @@ def build_move_clip(arm_obj, figures, gait):
             key(pbones[f"{prefix}_thigh_R"], bones[f"{prefix}_thigh_R"], AXIS_Y, p["thigh_r"], f)
             key(pbones[f"{prefix}_shin_L"], bones[f"{prefix}_shin_L"], AXIS_Y, p["shin_l"], f)
             key(pbones[f"{prefix}_shin_R"], bones[f"{prefix}_shin_R"], AXIS_Y, p["shin_r"], f)
-            key(pbones[f"{prefix}_upperarm_L"], bones[f"{prefix}_upperarm_L"], AXIS_Y, p["arm_l"], f)
-            key(pbones[f"{prefix}_upperarm_R"], bones[f"{prefix}_upperarm_R"], AXIS_Y, p["arm_r"], f)
-            key(pbones[f"{prefix}_forearm_L"], bones[f"{prefix}_forearm_L"], AXIS_Y, p["elbow_l"], f)
+            # A walking launcher carrier (`rpg_fire`, `mpd_fire`) keeps both
+            # hands where the rest pose seats them -- on the launcher's grips
+            # (`import_meshy_crew_team._seat_launcher`) -- instead of swinging
+            # them: the tube rides `forearm_R`, so a 0.20 rad arm swing swung
+            # a shouldered tube through his own head and his loader, and the
+            # support hand's 0.52 left the weapon altogether. Legs, hips,
+            # spine, head and bob are keyed as for anyone else.
+            if spec.get("weapon") != "launcher":
+                key(pbones[f"{prefix}_upperarm_L"], bones[f"{prefix}_upperarm_L"], AXIS_Y, p["arm_l"], f)
+                key(pbones[f"{prefix}_upperarm_R"], bones[f"{prefix}_upperarm_R"], AXIS_Y, p["arm_r"], f)
+                key(pbones[f"{prefix}_forearm_L"], bones[f"{prefix}_forearm_L"], AXIS_Y, p["elbow_l"], f)
             key(pbones[f"{prefix}_hip_L"], bones[f"{prefix}_hip_L"], AXIS_Y, p["hip_l"], f)
             key(pbones[f"{prefix}_hip_R"], bones[f"{prefix}_hip_R"], AXIS_Y, p["hip_r"], f)
             key_axes(pbones[f"{prefix}_spine"], bones[f"{prefix}_spine"],

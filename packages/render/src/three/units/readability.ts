@@ -73,9 +73,10 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // `atgm_cell` reads 0.49 since its Meshy mesh landed (B3, 2026-09-30): the same
   // rear-shin-back kneel as `recoilless_team` below, two figures wide.
   rpg_team: 0.45, atgm_cell: 0.49, mortar_crew: 0.45, charge_squad: 0.45, digger_crew: 0.45,
-  // `recoilless_team` reads 0.48 since its Meshy mesh landed (B2, 2026-09-30): a real
-  // kneel with the rear shin laid back is a wider footprint than the kit pair.
-  recoilless_team: 0.48, civilians: 0.45,
+  // `recoilless_team` read 0.48 when its Meshy mesh landed (B2, 2026-09-30): a real
+  // kneel with the rear shin laid back is a wider footprint than the kit pair. 0.46
+  // since its tube moved from the hip onto the shoulder (2026-10-01), shorter in front.
+  recoilless_team: 0.46, civilians: 0.45,
   jeep_shoded: 1.03, technical: 1.02, dozer_d9: 1.56, rocket_battery: 1.16, moto_rpg: 0.55,
   // `gun_truck` measured 1.17 once its mesh landed (B2, 2026-09-30; 1.15 x its own
   // 5.4 m footprint) -- it was the infantry class 0.55 while billboard-only.
