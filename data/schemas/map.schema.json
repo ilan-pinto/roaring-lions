@@ -41,9 +41,14 @@
     },
     "terrain": {
       "type": "string",
-      "enum": ["arid", "green"],
+      "enum": ["arid", "green", "highland"],
       "default": "arid",
-      "description": "Terrain theme: which tone bundle and ground texture the renderer draws this map with. Presentation only -- it never reaches the sim, exactly like the decor layer. 'arid' is the Sahar limestone-and-dust look every map before Naharin uses; 'green' is the Naharin river basin. Adding a theme is a renderer change; adding a map that uses one is not."
+      "description": "Terrain theme: which tone bundle and ground texture the renderer draws this map with. Presentation only -- it never reaches the sim, exactly like the decor layer. 'arid' is the Sahar limestone-and-dust look every map before Naharin uses; 'green' is the Naharin river basin; 'highland' is the Sur front (GH-322): terra rossa earth between grey limestone, cedars on the slopes, scree and outcrops. validate_data.mjs requires 'highland' on every map a Sur mission uses. Adding a theme is a renderer change; adding a map that uses one is not."
+    },
+    "grove": {
+      "type": "string",
+      "enum": ["olive", "desert", "cedar"],
+      "description": "Which tree species this map's 'o' grove tiles draw, overriding the terrain theme's own (arid: desert, green: olive, highland: cedar). Presentation only. Absent means the theme's species. Umm Zeitoun sets 'olive': its groves are its olive terraces by name, while the rest of the highland around them grows cedar."
     },
     "elevation": {
       "type": "array",

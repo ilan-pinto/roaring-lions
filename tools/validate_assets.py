@@ -290,7 +290,7 @@ TERRAIN_PALETTE_EXEMPTION = (
     "NOT palette-checked -- the drawn ground's six sampled albedos, at the",
     "fragment stage only, each applied as a ratio to its own measured mean so",
     "the surface still AVERAGES to its data/palette.json tone:",
-    "  open ground   desert_sand_tile (arid) / green_basin_tile (green)",
+    "  open ground   desert_sand_tile (arid) / green_basin_tile (green) / highland_v2_tile (highland)",
     "  ^ rock ridge  rock_ground_tile",
     "  r dirt road   knoll_scree_tile as grain, 2-tile repeat (road_track_tile unbound)",
     "  1/2/3 cover   rough_scrub_tile, at a per-tier strength",

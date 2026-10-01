@@ -40,6 +40,7 @@ import {
   type ParsedMap,
 } from '@lions/data';
 import { decorPlacements, type TerrainInput } from '@lions/render/terrain';
+import { terrainTonesFor } from './terrain-themes';
 import {
   RIGGED_UNIT_MESHES,
   VEHICLE_UNIT_MESHES,
@@ -256,11 +257,14 @@ describe('mesh catalogue: decor families', () => {
         blocked: sim.blocked,
         cover: sim.cover,
         boulder: sim.boulder,
-        // `composeTerrain` passes `TerrainTones.groveFamily`; this stand-in
-        // resolves the same value from the same place the theme table does,
-        // so a green map is compared against olives and an arid one against
-        // desert trees rather than both against whatever the default is.
-        groveFamily: parsed.terrain === 'green' ? ('tree' as const) : ('desert_tree' as const),
+        // `composeTerrain` passes `TerrainTones.groveFamily` and
+        // `.openScatter`; this resolves both through `terrainTonesFor`, the
+        // app's one route from a map to its tones, so a green map is compared
+        // against olives, an arid one against desert trees, a highland one
+        // against cedars and its open-ground pass, and Umm Zeitoun against
+        // its olive override -- never against whatever the default is.
+        groveFamily: terrainTonesFor(parsed).groveFamily,
+        openScatter: terrainTonesFor(parsed).openScatter,
       },
     };
   }
@@ -279,12 +283,15 @@ describe('mesh catalogue: decor families', () => {
   }
 
   it('leaves a family out when the map cannot place it', () => {
-    // The saving has to be real: tel_marum has no cover tiles and no grove, so
-    // it must not download bush, tree or rock. If this ever passes trivially
-    // (every map wanting every family) the whole decor half of the change is
-    // dead weight and should be deleted rather than kept.
+    // The saving has to be real: beit_sahwan_outskirts is arid with no knoll
+    // or ridge, so it must not download a cedar, a slab or the olive; and
+    // tel_marum is highland with no grove and no cover, so it fetches its
+    // open-ground pass (cedar, boulder, bush, rock) but neither sand -- the
+    // theme keeps none -- nor any grove species but its own. If this ever
+    // passes trivially (every map wanting every family) the whole decor half
+    // of the change is dead weight and should be deleted rather than kept.
     const planned = decorFamiliesFor(parseMap(maps.tel_marum));
-    expect([...planned].sort()).toEqual(['boulder', 'grass', 'sand', 'slab']);
+    expect([...planned].sort()).toEqual(['boulder', 'bush', 'cedar', 'grass', 'rock', 'slab']);
   });
 });
 
@@ -324,6 +331,7 @@ describe('mesh catalogue: what has a mesh at all', () => {
       bush: 3,
       tree: 3,
       desert_tree: 3,
+      cedar: 3,
       rock: 3,
       slab: 3,
       boulder: 3,
@@ -468,6 +476,7 @@ describe('mesh catalogue: props (ground plan 2, Task 4)', () => {
     width: 8,
     height: 8,
     terrain: 'arid',
+    grove: null,
     blocked: new Uint8Array(64),
     boulder: new Uint8Array(64),
     boulderCount: 0,

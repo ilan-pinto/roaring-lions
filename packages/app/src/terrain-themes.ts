@@ -26,8 +26,8 @@
  * looking at it. Typing this as a `Record` makes a missing theme a compile
  * error, not a test.
  */
-import { paletteColor, type TerrainTheme } from '@lions/data';
-import type { TerrainTones } from '@lions/render';
+import { paletteColor, type GroveSpecies, type ParsedMap, type TerrainTheme } from '@lions/data';
+import type { GroveFamily, TerrainTones } from '@lions/render';
 
 export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
   arid: {
@@ -113,7 +113,100 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     // N-18: a pale limestone haze over the basin rather than a desert dust.
     haze: paletteColor('limestone.1'),
   },
+  // GH-322: the Sur front -- "rockets range onto Kedem's north from behind a
+  // mountain wall". The lead's rulings of 1 Oct, on the revision-2 mock:
+  // brown terra rossa earth dominant between grey limestone (ground V2), the
+  // Meshy Cedrus libani, more stones and outcrops, the mock's densities.
+  // Every value below is the approved mock's (GH-322's numbers table, R2.1-
+  // R2.5), and any non-highland map is pinned unmoved by
+  // `terrain-defaults.test.ts`.
+  highland: {
+    // dust.5 over the V2 image. The ratio form keeps the image's own hue
+    // per texel, so this sets the AVERAGE only: limestone.6 on the same image
+    // read tan-orange, limestone.5 read as sand again.
+    open: paletteColor('dust.5'),
+    // Maquis is green, not dust: the scrub tile's twigs on olive.
+    cover: [paletteColor('olive.1'), paletteColor('olive.2'), paletteColor('olive.3')],
+    // Grey limestone, the theme-only `karst` ramp (`paletteRamps` below).
+    blocked: paletteColor('karst.3'),
+    underBuilding: paletteColor('shadow.0'),
+    road: paletteColor('karst.3'),
+    rut: paletteColor('dust.5'),
+    rock: paletteColor('karst.3'),
+    rockLit: paletteColor('karst.1'),
+    earth: paletteColor('terracotta.2'),
+    low: paletteColor('olive.2'),
+    trunk: paletteColor('dust.5'),
+    trunkLit: paletteColor('dust.3'),
+    leafDark: paletteColor('olive.3'),
+    leafMid: paletteColor('scrub.1'),
+    leafLit: paletteColor('olive.1'),
+    bladeLit: paletteColor('limestone.2'),
+    bladeShade: paletteColor('limestone.5'),
+    spoil: paletteColor('terracotta.1'),
+    crownRatio: 0.52,
+    scatter: 'stone',
+    groveFamily: 'cedar',
+    // A cool pale-stone haze instead of the desert's dust.
+    haze: paletteColor('karst.0'),
+    // `karst` is `theme_only` in palette.json: only a theme that names it
+    // quantises onto it, which is what keeps every other map unmoved.
+    paletteRamps: ['karst'],
+    decorColors: {
+      // The lead's pick: cedar needles on scrub.1, a deep blue-green that
+      // reads as a conifer under the sun where olive reads as an olive.
+      'cedar:foliage': paletteColor('scrub.1'),
+      // Grey-green garrigue, one olive step darker than the ramp's own lift.
+      'bush:foliage': paletteColor('olive.2'),
+      // Left at limestone.6 the chips and outcrops read as orange crumbs on
+      // the earth; grey limestone, the ridge walls' own family.
+      'boulder:rock': paletteColor('karst.2'),
+      'rock:rock': paletteColor('karst.2'),
+      'slab:rock': paletteColor('karst.3'),
+    },
+    openScatter: {
+      tree: 'cedar',
+      // Cedars climb the slopes; the basin floor stays open for the fight.
+      // Tel Marum: ~26 cedars on 1534 open tiles.
+      treePlain: 0.008,
+      treeFoothill: 0.035,
+      boulderPlain: 0.015,
+      boulderFoothill: 0.05,
+      bush: 0.05,
+      chipPlain: 0.12,
+      chipFoothill: 0.2,
+      chipCluster: 0.5,
+      // No sand tufts: pale litter on this ground read as yellow patches.
+      sandKeep: 0,
+    },
+    macroHue: [paletteColor('karst.0'), paletteColor('terracotta.2')],
+  },
 };
+
+/**
+ * The `GroveFamily` a map's grove override names (`map.schema.json`'s
+ * `grove`). Total, so a species added to the schema without a mesh family is
+ * a compile error.
+ */
+export const GROVE_SPECIES_FAMILY: Record<GroveSpecies, GroveFamily> = {
+  olive: 'tree',
+  desert: 'desert_tree',
+  cedar: 'cedar',
+};
+
+/**
+ * The tones a map draws with: its theme's bundle, with the grove species
+ * swapped when the map overrides it (GH-322 -- Umm Zeitoun keeps its olive
+ * terraces inside the cedar highland). A map with no override gets the
+ * theme's bundle BY IDENTITY, so every map before the override existed is
+ * handed exactly the object it always was.
+ */
+export function terrainTonesFor(map: Pick<ParsedMap, 'terrain' | 'grove'>): TerrainTones {
+  const theme = TERRAIN_THEMES[map.terrain];
+  if (map.grove === null) return theme;
+  const groveFamily = GROVE_SPECIES_FAMILY[map.grove];
+  return groveFamily === theme.groveFamily ? theme : { ...theme, groveFamily };
+}
 
 /**
  * The OPEN-GROUND albedo each theme draws, as the basename of a file in
@@ -139,4 +232,6 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
 export const TERRAIN_GROUND_TEXTURE: Record<TerrainTheme, string> = {
   arid: 'desert_sand_tile',
   green: 'green_basin_tile',
+  // GH-322's "V2": terra rossa between grey limestone chips.
+  highland: 'highland_v2_tile',
 };

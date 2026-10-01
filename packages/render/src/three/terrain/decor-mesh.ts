@@ -8,7 +8,7 @@
  * families across four roles is four draws, not eighteen.
  */
 import * as THREE from 'three';
-import { rampMaterial } from '../world-materials';
+import { liftTone, rampMaterial } from '../world-materials';
 import { rampForDecorRole, type DecorMeshRole } from './decor-role';
 import type { DecorPlacement } from './decor-place';
 import { swayVertexChunk } from './sway';
@@ -106,11 +106,21 @@ const TAU = Math.PI * 2;
  * `sway`, when given, makes the `foliage` batch sway (`swayingFoliageMaterial`);
  * every other role keeps the plain ramp material. Each batch is named
  * `decor-<role>`.
+ *
+ * `decorColors` (`TerrainTones.decorColors`, GH-322) tints a family inside
+ * its role's batch: keyed `<family>:<role>`, a hex each. A batch with at
+ * least one keyed family takes a WHITE material and gives every instance its
+ * absolute tone through `setColorAt` -- the keyed tone, or the role's own
+ * `liftTone` for an unkeyed family, which is exactly the colour the material
+ * would have carried (instance colour multiplies material colour). +0 draw
+ * calls. A batch with no keyed family is built exactly as before, with no
+ * instance-colour attribute at all.
  */
 export function buildDecorMesh(
   placements: readonly DecorPlacement[],
   set: DecorGeometrySet,
-  sway?: SwayUniforms
+  sway?: SwayUniforms,
+  decorColors?: Readonly<Record<string, string>>
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = 'decor';
@@ -193,6 +203,12 @@ export function buildDecorMesh(
       role === 'foliage' && sway !== undefined ? swayingFoliageMaterial(ramp, sway) : rampMaterial(ramp)
     );
     mesh.name = `decor-${role}`;
+    const tinted = tintsForRole(decorColors, role, acc.parts);
+    let roleTone: THREE.Color | null = null;
+    if (tinted !== null) {
+      (mesh.material as THREE.MeshStandardMaterial).color.set(0xffffff);
+      roleTone = new THREE.Color(liftTone(ramp));
+    }
     // Both, for every role. A boulder casts onto the ground it sits on and
     // takes a building's shadow across it; foliage is no different -- a tree
     // that took no shadow would be the one object on the map lit from
@@ -231,6 +247,7 @@ export function buildDecorMesh(
         position.set(p.x, p.y, p.z);
         m.compose(position, q, scale);
         mesh.setMatrixAt(inst, m);
+        if (tinted !== null && roleTone !== null) mesh.setColorAt(inst, tinted.get(p.family) ?? roleTone);
         added++;
       }
     }
@@ -242,6 +259,27 @@ export function buildDecorMesh(
     group.add(mesh);
   }
   return group;
+}
+
+/** The `decorColors` entries that apply to `role`'s batch, by family, as
+ *  colours -- or null when none does, which is what keeps an untinted theme's
+ *  batches byte-identical to before (no material change, no colour
+ *  attribute). `keys` are the batch's own `<family>_<variant>` keys, so a
+ *  tint for a family the map never placed does not switch a batch over. */
+function tintsForRole(
+  decorColors: Readonly<Record<string, string>> | undefined,
+  role: string,
+  keys: ReadonlySet<string>
+): Map<string, THREE.Color> | null {
+  if (decorColors === undefined) return null;
+  const out = new Map<string, THREE.Color>();
+  for (const key of keys) {
+    const family = key.replace(/_\d+$/, '');
+    if (out.has(family)) continue;
+    const hex = decorColors[`${family}:${role}`];
+    if (hex !== undefined) out.set(family, new THREE.Color(hex));
+  }
+  return out.size === 0 ? null : out;
 }
 
 export function disposeDecorMesh(group: THREE.Group): void {

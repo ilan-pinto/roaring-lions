@@ -3,6 +3,7 @@
  "name": "Tel Marum — The Gateway",
  "width": 48,
  "height": 48,
+ "terrain": "highland",
  "markers": {
   "start_line": [
    24,

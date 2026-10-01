@@ -80,16 +80,76 @@ export interface TerrainTones {
    * `hazeKey: null`). Pixi ignores it.
    */
   haze: string;
+  // -- GH-322, the Sur highland. Every field below is OPTIONAL and its
+  // absence is exactly the behaviour before it existed, so `arid` and
+  // `green` declare none of them and draw byte-for-byte as they did
+  // (`packages/app/src/terrain-defaults.test.ts` pins that on every
+  // non-highland map). All four are read by the three.js backend only.
+  /**
+   * Theme-only palette ramps this theme's terrain quantises onto, on top of
+   * the shared palette (`terrain/tones.ts` `quantisePalette`). A ramp marked
+   * `theme_only` in `data/palette.json` is invisible to every theme that
+   * does not name it here -- which is what lets a biome add colours without
+   * moving a tile on any other map. Absent: the shared palette alone.
+   */
+  paletteRamps?: readonly string[];
+  /**
+   * Per-family decor tints, keyed `<family>:<role>` (e.g. `cedar:foliage`),
+   * each an already-resolved hex. A keyed family's instances in that role's
+   * batch draw this tone instead of the role's ramp tone, through
+   * `BatchedMesh.setColorAt` -- +0 draw calls. Absent or empty: every
+   * family draws its role's ramp tone and no instance colour is set at all.
+   */
+  decorColors?: Readonly<Record<string, string>>;
+  /**
+   * Extra decor scattered over plain open ground: trees, outcrop boulders,
+   * bushes and stone chips, denser near relief. Absent: open ground carries
+   * only the clustered grass and sand tufts.
+   */
+  openScatter?: OpenScatter;
+  /**
+   * The ground macro field's two hue targets, `[bright, dark]`, as resolved
+   * hexes. Absent: `limestone.2` / `dust.1`, the desert's pair, which every
+   * theme used before this field existed.
+   */
+  macroHue?: readonly [string, string];
 }
 
 /**
- * The two grove species a theme can choose between, and the whole of the
- * `DecorFamily` union that is about trees. Authored here rather than in
+ * Open-ground decor beyond the grass and sand tufts (GH-322). Each tile of
+ * plain open ground rolls once on its own hash stream; the first band the
+ * roll falls in places that family -- tree, then boulder, then bush, then
+ * chip -- so the probabilities add rather than compete. "Foothill" is a tile
+ * within two tiles of a ridge, a knoll or any higher ground: cedars climb
+ * the slopes and scree gathers below them while the basin floor stays open.
+ * No object lands within a tile of a road or a building.
+ */
+export interface OpenScatter {
+  /** The species a tree roll places -- independent of the grove-tile species,
+   *  so a map can keep its olive groves and still grow cedars on the hill. */
+  readonly tree: GroveFamily;
+  readonly treePlain: number;
+  readonly treeFoothill: number;
+  readonly boulderPlain: number;
+  readonly boulderFoothill: number;
+  readonly bush: number;
+  readonly chipPlain: number;
+  readonly chipFoothill: number;
+  /** Chance a foothill chip also gathers 2-4 more stones within 0.9 tile. */
+  readonly chipCluster: number;
+  /** Fraction of the clustered sand tufts kept: 1 keeps every one, 0 none. */
+  readonly sandKeep: number;
+}
+
+/**
+ * The grove species a theme or a map can choose between, and the whole of
+ * the `DecorFamily` union that is about trees. Authored here rather than in
  * `three/terrain/decor-place.ts` so `TerrainTones` -- which every backend
  * reads -- does not depend on a three-only module; `DecorFamily` imports it
- * back, so the two cannot drift.
+ * back, so the two cannot drift. `cedar` is the Sur highland's Cedrus libani
+ * (GH-322).
  */
-export type GroveFamily = 'tree' | 'desert_tree';
+export type GroveFamily = 'tree' | 'desert_tree' | 'cedar';
 
 export interface RendererOptions {
   background: string;

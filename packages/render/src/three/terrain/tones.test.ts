@@ -21,7 +21,7 @@
  * behaviour change shipped with no test covering it either way.
  */
 import { describe, it, expect } from 'vitest';
-import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
+import { composite, quantise, quantisePalette, groundTone, PALETTE_HEXES, SHARED_PALETTE_HEXES } from './tones';
 import { tileHash } from '../../tile-hash';
 import type { TerrainInput } from './types';
 import type { TerrainTones } from '../../api';
@@ -151,5 +151,32 @@ describe('groundTone', () => {
       PALETTE_HEXES
     );
     expect(groundTone(input, TONES, ti, PALETTE_HEXES, BACKGROUND).toUpperCase()).toBe(expected.toUpperCase());
+  });
+});
+
+describe('quantisePalette (GH-322 theme-only ramps)', () => {
+  it('leaves a theme-only ramp out of the shared set, and only there', () => {
+    const karst = ['#CFCBBF', '#ABA698', '#8A857A', '#6E6960', '#524E47'];
+    for (const hex of karst) {
+      expect(PALETTE_HEXES).toContain(hex);
+      expect(SHARED_PALETTE_HEXES).not.toContain(hex);
+    }
+    expect(SHARED_PALETTE_HEXES.length).toBe(PALETTE_HEXES.length - karst.length);
+  });
+
+  it('gives a theme with no paletteRamps the shared set, by identity', () => {
+    expect(quantisePalette({})).toBe(SHARED_PALETTE_HEXES);
+    expect(quantisePalette({ paletteRamps: [] })).toBe(SHARED_PALETTE_HEXES);
+  });
+
+  it('adds a named theme-only ramp, and snaps a grey to it only then', () => {
+    const highland = quantisePalette({ paletteRamps: ['karst'] });
+    expect(highland).toContain('#8A857A');
+    expect(quantise('#8A857A', highland)).toBe('#8A857A');
+    expect(quantise('#8A857A', quantisePalette({}))).not.toBe('#8A857A');
+  });
+
+  it('throws on a ramp name that does not exist rather than quantising onto the shared set', () => {
+    expect(() => quantisePalette({ paletteRamps: ['karts'] })).toThrow(/unknown palette ramp "karts"/);
   });
 });

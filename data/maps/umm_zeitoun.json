@@ -3,7 +3,8 @@
  "name": "Umm Zeitoun — The Basin",
  "width": 48,
  "height": 48,
- "terrain": "arid",
+ "terrain": "highland",
+ "grove": "olive",
  "markers": {
   "kdf_start": [
    24,

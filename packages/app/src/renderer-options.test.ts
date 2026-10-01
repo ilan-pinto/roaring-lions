@@ -21,6 +21,48 @@ describe('rendererOptionsFor', () => {
     expect(g.groundTextureUrl).toBe('/textures/green_basin_tile.jpg');
   });
 
+  // GH-322: the Sur highland is a third theme, and Umm Zeitoun overrides
+  // its grove species inside it.
+  it('resolves the highland theme for a Sur map, with its own ground image', () => {
+    const hill = parseMap(maps.tel_marum);
+    expect(hill.terrain).toBe('highland');
+    const o = rendererOptionsFor(hill, HIGH, '/');
+    expect(o.terrainTones).toBe(TERRAIN_THEMES.highland);
+    expect(o.terrainTones.groveFamily).toBe('cedar');
+    expect(o.terrainTones.openScatter?.tree).toBe('cedar');
+    expect(o.terrainTones.paletteRamps).toEqual(['karst']);
+    expect(o.terrainTones.open).toBe(paletteColor('dust.5'));
+    expect(o.terrainTones.decorColors?.['cedar:foliage']).toBe(paletteColor('scrub.1'));
+    expect(o.groundTextureUrl).toBe('/textures/highland_v2_tile.jpg');
+  });
+
+  it('keeps olive groves on Umm Zeitoun and changes nothing else about the highland', () => {
+    for (const id of ['umm_zeitoun', 'umm_zeitoun_3', 'umm_zeitoun_4'] as const) {
+      const m = parseMap(maps[id]);
+      expect(m.grove, id).toBe('olive');
+      const t = rendererOptionsFor(m, HIGH, '/').terrainTones;
+      expect(t.groveFamily, id).toBe('tree');
+      // The open-ground cedars stay: only the `o` tiles are olive terraces.
+      expect(t.openScatter?.tree, id).toBe('cedar');
+      expect({ ...t, groveFamily: 'cedar' }).toEqual(TERRAIN_THEMES.highland);
+    }
+  });
+
+  it('hands a map without a grove override its theme bundle by identity', () => {
+    expect(arid.grove).toBeNull();
+    expect(green.grove).toBeNull();
+    expect(rendererOptionsFor(parseMap(maps.qarn_hadid), HIGH, '/').terrainTones).toBe(TERRAIN_THEMES.highland);
+  });
+
+  it('gives arid and green none of the highland-only fields, so they draw as before', () => {
+    for (const t of [TERRAIN_THEMES.arid, TERRAIN_THEMES.green]) {
+      expect(t.paletteRamps).toBeUndefined();
+      expect(t.decorColors).toBeUndefined();
+      expect(t.openScatter).toBeUndefined();
+      expect(t.macroHue).toBeUndefined();
+    }
+  });
+
   it('serves every ground texture from the deploy base', () => {
     const o = rendererOptionsFor(arid, HIGH, '/roaring-lions/');
     const urls = [o.groundTextureUrl, o.rockTextureUrl, o.scrubTextureUrl, o.groveTextureUrl, o.knollTextureUrl];

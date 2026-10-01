@@ -20,6 +20,7 @@ import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import AjvModule from 'ajv/dist/2020.js';
 import { elevationFailures } from './validate_map_grid.mjs';
+import { regionBiomeFailures } from './validate_biome.mjs';
 import {
   commanderRankFailures,
   narrativeTextFailures,
@@ -1039,6 +1040,20 @@ const structureSymbols = new Map(
       if (!listed.has(m) && !OFF_MAP.has(m)) {
         failures.push(`data/missions/${m}.json: no town in world.json lists it, so nothing can start it`);
       }
+    }
+
+    // A region's maps declare the region's biome (GH-322): a Sur map with no
+    // `terrain: highland` draws the Marj desert on the northern front, and
+    // nothing at runtime would ever say so -- see validate_biome.mjs.
+    {
+      const missionsById = new Map();
+      for (const m of missionIds) missionsById.set(m, loadJson(join(ROOT, 'data/missions', `${m}.json`)));
+      const mapsById = new Map();
+      for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
+        const mp = loadJson(file);
+        if (mp?.id) mapsById.set(mp.id, mp);
+      }
+      failures.push(...regionBiomeFailures(world, missionsById, mapsById));
     }
 
     // An unlock may name an unauthored mission -- the campaign is authored front to

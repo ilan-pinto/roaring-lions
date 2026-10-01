@@ -98,6 +98,18 @@
         "#A9C4D1",
         "#4E7186"
       ]
+    },
+    "karst": {
+      "theme_only": true,
+      "role": "the Sur highland's grey limestone -- ridge walls, outcrops, scree chips, the highland haze. Procedural terrain and decor tint only (GH-322).",
+      "colors": [
+        "#CFCBBF",
+        "#ABA698",
+        "#8A857A",
+        "#6E6960",
+        "#524E47"
+      ],
+      "note": "Added for the highland biome (GH-322). Descending brightness like every ramp: index 0 is the lightest. A warm NEUTRAL grey, which no existing ramp holds: gunmetal jumps from luma 96 (gunmetal.2) to 146 (gunmetal.1) and is blue-cast, and limestone.5/6 are warm brown, so every grey composite between them quantised to an olive or limestone entry -- measured in the GH-322 mock as a green rim on a ridge face. `theme_only` keeps it OUT of the terrain quantiser's shared set: a theme opts in by naming it in TerrainTones.paletteRamps (only highland does). Measured before that flag existed: added to the shared set, karst moved the composed terrain of 11 of the 18 non-highland maps -- Beit Sahwan and Wadi Halam among them -- because some arid and green composites sit nearer a karst grey than the entry they used to snap to. packages/app/src/terrain-defaults.test.ts pins every non-highland map against the commit before this ramp existed."
     }
   },
   "reserved": {
@@ -158,5 +170,5 @@
     }
   },
   "mask_key": "#FF00FF",
-  "total_colors": 71
+  "total_colors": 76
 }

@@ -2334,11 +2334,14 @@ export class ThreeRenderer implements Renderer {
     this.macroTex = macroTexture(buildMacroField(sim.width, sim.height));
     this.groundMat.uniforms.uMacro.value = this.macroTex;
     (this.groundMat.uniforms.uMapSize.value as THREE.Vector2).set(sim.width, sim.height);
+    // A theme may name its own pair (`TerrainTones.macroHue`, GH-322: the
+    // highland pulls toward pale karst and terra rossa); absent, the desert's.
+    const macroHue = opts.terrainTones.macroHue;
     (this.groundMat.uniforms.uMacroBright.value as THREE.Vector3).fromArray(
-      neutralTint(this.overlayColor('limestone.2', '#D9C7A7'))
+      neutralTint(macroHue ? macroHue[0] : this.overlayColor('limestone.2', '#D9C7A7'))
     );
     (this.groundMat.uniforms.uMacroDark.value as THREE.Vector3).fromArray(
-      neutralTint(this.overlayColor('dust.1', '#D1A668'))
+      neutralTint(macroHue ? macroHue[1] : this.overlayColor('dust.1', '#D1A668'))
     );
     // The road's three palette tones (#226, spec 3.2), as LINEAR light: they
     // are mixed into `diffuseColor`, which holds the vertex colour `toGeometry`
@@ -8688,7 +8691,12 @@ export class ThreeRenderer implements Renderer {
     // function's own doc comment for why giving `composeTerrain` a decor
     // layer, rather than reconstructing an `input` here, is the coherent
     // choice (this method has no `TerrainInput` of its own to reach for).
-    this.decorGroup = buildDecorMesh(composed.decorPlacements, this.decorSet, this.sway);
+    this.decorGroup = buildDecorMesh(
+      composed.decorPlacements,
+      this.decorSet,
+      this.sway,
+      this.opts.terrainTones.decorColors
+    );
     this.scene.add(this.decorGroup);
 
     // The textured half of the same placement list. `buildDecorMesh` above
@@ -9386,6 +9394,9 @@ export function composeTerrain(
     boulder: sim.boulder,
     // The theme's grove species, read only by `decorPlacements` below.
     groveFamily: tones.groveFamily,
+    // GH-322: the theme's extra open-ground decor, read only by
+    // `decorPlacements`. Absent on every theme but `highland`.
+    openScatter: tones.openScatter,
   };
   const ground = buildGround(input, tones, background);
   const scatter = buildScatter(input, tones, background);

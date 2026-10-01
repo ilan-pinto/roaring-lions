@@ -47,9 +47,19 @@ import structureCatalogue from '../../../data/structures.json';
  * tone bundle `main.ts` hands the renderer and the shape of the open-ground
  * scatter. Adding a theme is a renderer change; adding a MAP is not.
  */
-export type TerrainTheme = 'arid' | 'green';
+export type TerrainTheme = 'arid' | 'green' | 'highland';
 
-const TERRAIN_THEMES: ReadonlySet<string> = new Set<TerrainTheme>(['arid', 'green']);
+const TERRAIN_THEMES: ReadonlySet<string> = new Set<TerrainTheme>(['arid', 'green', 'highland']);
+
+/**
+ * Which species a map's `o` grove tiles draw, overriding its theme's own
+ * (GH-322). Presentation only, like `terrain`. Absent means the theme's
+ * species; the one map family that sets it is Umm Zeitoun, whose groves are
+ * its olive terraces by name while the rest of the Sur highland grows cedar.
+ */
+export type GroveSpecies = 'olive' | 'desert' | 'cedar';
+
+const GROVE_SPECIES: ReadonlySet<string> = new Set<GroveSpecies>(['olive', 'desert', 'cedar']);
 
 export interface TunnelJson {
   id: string;
@@ -75,6 +85,8 @@ export interface MapJson {
   zones?: Record<string, readonly number[]>;
   /** Terrain theme. Absent means 'arid', which is every map authored before Naharin. */
   terrain?: string;
+  /** Grove species override (GH-322). Absent means the theme's own species. */
+  grove?: string;
   /** Per-tile elevation, one digit 0-9 per tile, same dimensions as `rows`.
    *  Absent means every tile is height 0, which is every map authored before
    *  the elevation milestone. Orthogonal to the terrain symbol on purpose:
@@ -125,6 +137,9 @@ export interface ParsedMap {
   height: number;
   /** Terrain theme. Presentation only -- never given to Sim. */
   terrain: TerrainTheme;
+  /** The `o` tiles' species when the map overrides its theme's; null when it
+   *  does not. Presentation only -- never given to Sim. */
+  grove: GroveSpecies | null;
   /** 1 = impassable to everything on the ground, row-major width*height.
    *  Buildings and `^` ridges. This is the mask infantry path on. */
   blocked: Uint8Array;
@@ -252,8 +267,12 @@ export function parseMap(json: MapJson): ParsedMap {
   const terrain = json.terrain ?? 'arid';
   if (!TERRAIN_THEMES.has(terrain)) {
     throw new Error(
-      `map ${json.id}: unknown terrain theme "${terrain}" (known: arid, green)`
+      `map ${json.id}: unknown terrain theme "${terrain}" (known: ${[...TERRAIN_THEMES].join(', ')})`
     );
+  }
+  const grove = json.grove ?? null;
+  if (grove !== null && !GROVE_SPECIES.has(grove)) {
+    throw new Error(`map ${json.id}: unknown grove species "${grove}" (known: ${[...GROVE_SPECIES].join(', ')})`);
   }
   if (rows.length !== height) {
     throw new Error(`map ${json.id}: ${rows.length} rows, declared height ${height}`);
@@ -379,7 +398,7 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
 }
 
 /**

@@ -23,7 +23,7 @@
  */
 import { FACE_ALPHA_EAST, FACE_ALPHA_SOUTH } from './ground';
 import { TILE_W, TILE_H } from '../../project';
-import { composite, quantise, groundTone, PALETTE_HEXES } from './tones';
+import { composite, quantise, groundTone, quantisePalette } from './tones';
 import { tileHash } from '../../tile-hash';
 import { CLAMP_LIMIT, clampCenterToTile } from './clamp';
 import {
@@ -226,8 +226,8 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
   // slope face on the map shares these two colours, same as `ground.ts`'s
   // own `faceEastHex`/`faceSouthHex` -- worth saying so a reviewer sampling a
   // single face pixel does not mistake a shared colour for a missing one.
-  const faceEastHex = quantise(composite(background, tones.rock, FACE_ALPHA_EAST), PALETTE_HEXES);
-  const faceSouthHex = quantise(composite(background, tones.rock, FACE_ALPHA_SOUTH), PALETTE_HEXES);
+  const faceEastHex = quantise(composite(background, tones.rock, FACE_ALPHA_EAST), quantisePalette(tones));
+  const faceSouthHex = quantise(composite(background, tones.rock, FACE_ALPHA_SOUTH), quantisePalette(tones));
 
   const pushQuad = (
     p0: [number, number, number],
@@ -427,14 +427,14 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     // one.
     const rockFaced = decorHere === DECOR_RIDGE;
     if (drop > 1 && !rockFaced) {
-      const strataHex = quantise(composite(faceHex, tones.blocked, 0.35), PALETTE_HEXES);
+      const strataHex = quantise(composite(faceHex, tones.blocked, 0.35), quantisePalette(tones));
       for (let i = 1; i < drop; i++) {
         pushFaceBand(faceTag, x, y, topY - i * WORLD_PER_LEVEL, strataHex);
       }
     }
 
     // 2. Lit top edge: drawn regardless of drop (renderer.ts:1336-1338).
-    const edgeHex = quantise(composite(faceHex, tones.rockLit, 0.45), PALETTE_HEXES);
+    const edgeHex = quantise(composite(faceHex, tones.rockLit, 0.45), quantisePalette(tones));
     pushFaceBand(faceTag, x, y, topY, edgeHex);
 
     // 3. Scree at the foot, drops of 2+ only (renderer.ts:1340-1355). Sits on
@@ -454,7 +454,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
     const neighborY = faceTag === 0 ? y : y + 1;
     const neighborInBounds = neighborX >= 0 && neighborX < width && neighborY >= 0 && neighborY < height;
     const screeBaseHex = neighborInBounds
-      ? groundTone(input, tones, neighborY * width + neighborX, PALETTE_HEXES, background)
+      ? groundTone(input, tones, neighborY * width + neighborX, quantisePalette(tones), background)
       : background;
     const hCount = tileHash(x * 29 + faceTag * 101 + drop, y * 31 + faceTag * 103);
     const n = 3 + (Math.floor(hCount * 1000) & 1);
@@ -463,8 +463,8 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
       const bits = tileHash(x * 43 + faceTag * 113 + k * 3, y * 47 + faceTag * 127 + k * 11);
       const r = 2 + bits * 1.5;
       const aClamped = Math.max(SCREE_A_MIN, Math.min(SCREE_A_MAX, a));
-      const screeHex = quantise(composite(screeBaseHex, tones.rock, 0.9), PALETTE_HEXES);
-      const hlHex = quantise(composite(screeHex, tones.rockLit, 0.5), PALETTE_HEXES);
+      const screeHex = quantise(composite(screeBaseHex, tones.rock, 0.9), quantisePalette(tones));
+      const hlHex = quantise(composite(screeHex, tones.rockLit, 0.5), quantisePalette(tones));
       // Onto the LOWER tile, off the exact shared edge -- SCREE_INSET's own
       // doc comment says so; a `- SCREE_INSET` sign here previously put it
       // on the RAISED tile's side instead, inside the wedge the face quad
@@ -505,7 +505,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
       // mark on this tile composites over, per the rule this task inherits
       // (`groundTone`, not the raw background, is the base a mark alpha-fills
       // against).
-      const baseHex = groundTone(input, tones, ti, PALETTE_HEXES, background);
+      const baseHex = groundTone(input, tones, ti, quantisePalette(tones), background);
 
       if (blocked) {
         // A `^` ridge TOP draws no synthetic grain any more, for the same
@@ -564,9 +564,9 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
             const px = (a - 0.5) * (TILE_W - 20);
             const py = (b - 0.5) * (TILE_H - 10);
             const r = 3 + a * 5;
-            const blobHex = quantise(composite(baseHex, tones.rock, 0.95), PALETTE_HEXES);
+            const blobHex = quantise(composite(baseHex, tones.rock, 0.95), quantisePalette(tones));
             pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
-            const hlHex = quantise(composite(blobHex, tones.rockLit, 0.8), PALETTE_HEXES);
+            const hlHex = quantise(composite(blobHex, tones.rockLit, 0.8), quantisePalette(tones));
             pushMark(cx, cz, HIGHLIGHT_EPSILON,
               px - r * 0.2,
               py - r * 0.22,
@@ -592,7 +592,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               const bh = 2.6 + a * 1.8;
               const bladeHex = quantise(
                 composite(baseHex, b > 0.4 ? tones.bladeLit : tones.bladeShade, 0.6 + a * 0.3),
-                PALETTE_HEXES
+                quantisePalette(tones)
               );
               // halfW 0.5 matches Pixi's own 1px stroke width exactly
               // (renderer.ts:1594's `width: 1`) -- not a rounder-looking
@@ -609,7 +609,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               const a = tileHash(x * 31, y * 3);
               const bx = (a - 0.5) * 30;
               const by = (rnd - 0.9) * 18;
-              const tussockHex = quantise(composite(baseHex, tones.low, 0.8), PALETTE_HEXES);
+              const tussockHex = quantise(composite(baseHex, tones.low, 0.8), quantisePalette(tones));
               // Pixi's three strokes (renderer.ts:1612-1615) run from (bx, by)
               // to (bx + k*2.6, by - 4.2 - a*1.6) for k in {-1, 0, 1}: exact
               // tip height 4.2 + a*1.6, exact base 0. Padded by 0.6 on both
@@ -669,10 +669,10 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
               // to -- not the much heavier tone a knoll/ridge blob uses,
               // which reads correctly as "impassable rock" rather than
               // "ordinary open ground with grain".
-              const blobHex = quantise(composite(baseHex, tones.rock, 0.15 + b * 0.25), PALETTE_HEXES);
+              const blobHex = quantise(composite(baseHex, tones.rock, 0.15 + b * 0.25), quantisePalette(tones));
               pushMark(cx, cz, MARK_EPSILON, px, py, diamondCorners(r, r * 0.62), blobHex, needsContainment);
               if (a > 0.72) {
-                const hlHex = quantise(composite(blobHex, tones.rockLit, 0.5), PALETTE_HEXES);
+                const hlHex = quantise(composite(blobHex, tones.rockLit, 0.5), quantisePalette(tones));
                 pushMark(cx, cz, HIGHLIGHT_EPSILON,
                   px - r * 0.3,
                   py - r * 0.3,
@@ -685,7 +685,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
             if (rnd > 0.84 && coverHere === 0) {
               // Dry bush (renderer.ts:1643-1650).
               const a = tileHash(x * 31, y * 3);
-              const bushHex = quantise(composite(baseHex, tones.low, 0.55), PALETTE_HEXES);
+              const bushHex = quantise(composite(baseHex, tones.low, 0.55), quantisePalette(tones));
               pushMark(cx, cz, MARK_EPSILON,
                 (a - 0.5) * 30,
                 (rnd - 0.9) * 18,
@@ -702,7 +702,7 @@ export function buildScatter(input: TerrainInput, tones: TerrainTones, backgroun
             // centred; centring it here is a small, deliberate approximation
             // -- rubble reads the same as scattered debris either way.
             const c = tones.cover[Math.min(coverHere, 3) - 1];
-            const rubbleHex = quantise(composite(baseHex, c, 0.9), PALETTE_HEXES);
+            const rubbleHex = quantise(composite(baseHex, c, 0.9), quantisePalette(tones));
             for (let k = 0; k < coverHere + 2; k++) {
               const a = tileHash(x * 7 + k, y * 13 + k);
               const b = tileHash(x * 31 + k, y * 3 + k);

@@ -6,7 +6,7 @@
  * type from a file that does not exist yet. `ground.ts` imports both of
  * these rather than redeclaring them.
  */
-import type { GroveFamily } from '../../api';
+import type { GroveFamily, OpenScatter } from '../../api';
 
 /** Plain-array geometry. No three.js types, so builders stay headless. */
 export interface MeshData {
@@ -92,4 +92,10 @@ export interface TerrainInput {
    * cannot put a Mediterranean olive back on a dune.
    */
   groveFamily?: GroveFamily;
+  /**
+   * Extra open-ground decor -- `TerrainTones.openScatter`, passed through by
+   * `composeTerrain` (GH-322). Absent means none: open ground carries only
+   * the clustered grass and sand, as it did before the field existed.
+   */
+  openScatter?: OpenScatter;
 }
