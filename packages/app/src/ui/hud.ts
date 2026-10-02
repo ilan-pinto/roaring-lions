@@ -221,9 +221,12 @@ export interface HudDeps {
    *  exercise the row, which prints `row.key` unchanged (the same as an
    *  identity mapping). */
   keyFor?: (action: string) => string;
-  /** The idle-frame URL for a unit type, or null where the type ships no sprite
-   *  sheet. Resolved once at boot in main.ts from each sheet's own manifest. */
-  portrait?: (typeId: string) => string | null;
+  /** The picture URL for a unit type, or null where the type has none.
+   *  Resolved once at boot in main.ts: the Blender portrait (GH-153), else the
+   *  cropped icon, else a sheet frame. `slot` is `'chip'` for the selection
+   *  chip -- where a figure team shows its ONE lead figure -- and `'full'`
+   *  for the unit card. */
+  portrait?: (typeId: string, slot: 'chip' | 'full') => string | null;
   /** True when the URL `portrait` above returned for this type came from a
    *  cropped `unitIcon` rather than a whole sheet frame -- `artHtml` uses this
    *  only to set `data-icon="1"`, which `theme.css` reads to pick
@@ -1706,7 +1709,7 @@ export class Hud {
           // theme.css's per-level border tint. Absent at level 0, so an
           // unkitted chip is byte-identical to one drawn before the kit.
           `${kit > 0 ? ` data-kit="${kit}"` : ''}>` +
-          chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK), kit, c.pinned) +
+          chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK, 'chip'), kit, c.pinned) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
           // The name in its own span: `text-overflow`/wrapping does nothing
@@ -1759,9 +1762,10 @@ export class Hud {
     typeId: string,
     bucket: ReturnType<typeof roleBucket>,
     cls: string,
-    markSize: number
+    markSize: number,
+    slot: 'chip' | 'full'
   ): string {
-    const src = this.deps.portrait?.(typeId) ?? null;
+    const src = this.deps.portrait?.(typeId, slot) ?? null;
     if (src === null) {
       // Same wording as the brigade screen's own art gap (`brigade.art.noSprite`
       // -- `{id} — no sprite sheet`, `en.json`): one sentence for "this type
@@ -1871,11 +1875,11 @@ export class Hud {
     return (
       `<div class="rl-card" data-type="${escapeHtml(type.id)}">` +
       `<div class="rl-card__frame">` +
-      this.artHtml(type.id, bucket, 'rl-card__art', CARD_MARK) +
+      this.artHtml(type.id, bucket, 'rl-card__art', CARD_MARK, 'full') +
       // The corner badge only where there IS art. Without it the placeholder
       // already carries the mark, and two of the same shape in one 72px frame
       // reads as a rendering fault rather than as emphasis.
-      (this.deps.portrait?.(type.id) != null
+      (this.deps.portrait?.(type.id, 'full') != null
         ? `<span class="rl-card__badge">${roleBadgeSvg(bucket, CARD_BADGE)}</span>`
         : '') +
       // The frame's summary level, beside the name's three-track pips (D2).

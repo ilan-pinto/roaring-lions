@@ -1,0 +1,24 @@
+{
+  "unit": "mortar_team",
+  "variant": "lead",
+  "source": "assets/meshes/mortar_team.glb",
+  "source_sha256": "a057fc8cf138f94b0c8a5d6dd562dad52302501f39e1f9767b0e6e8cdf56c7eb",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.3019,
+    0.6981,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 3,
+    "flat": 2
+  },
+  "lead_figure": "mtr_crew1"
+}

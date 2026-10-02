@@ -19,9 +19,29 @@ forward points toward the camera, 35 degrees off the camera axis, to screen
 LEFT (row 1).
 
 Deterministic: no random source, no `mathutils.noise`; the fit loop is a fixed
-number of rounds. Writes the 512 px master and the 192 px shipped PNG
-(Lanczos on premultiplied alpha) to art/portraits/
-(no --only renders the full KDF + Sarim roster); replaces nothing shipped.
+number of rounds. Writes the 512 px master (art/portraits/masters/, not
+shipped) and the 192 px shipped PNG (Lanczos on premultiplied alpha) under
+assets/ui/portraits/units/, which `packages/app/src/ui/portrait.ts` globs.
+No --only renders the full KDF + Sarim roster.
+
+Two variants (`--variant=team|lead|both`, default both):
+
+- `team`: the whole team as the GLB lays it out (spec row 3). Drawn in every
+  slot larger than a chip: the HUD card, the dock tile, the brigade screen.
+- `lead`: figure teams only. ONE figure, the team's front man, for the HUD
+  selection chip (40 px; the lead's call, 2 Oct: "at <= 48 px, infantry teams
+  show one figure"). Written to `units/lead/` and `masters/lead/`. Same angles,
+  same lights, same 88% longer-axis fill, fitted to that figure alone.
+
+  Which figure: the rig binds each figure rigidly to its own root bone
+  (`<prefix>_root`, plus `<prefix>w_root` for a figure with a second pose
+  root and `<prefix>_death_root`), and every role mesh is shared across the
+  team, so a figure is the set of vertices whose bone descends from a root
+  with its prefix. The FRONT figure is the one whose root stands furthest
+  along the unit's own forward (+X) -- the point man, the gunner -- with a
+  tie broken by which is nearer the camera. Everything else, the shared
+  `prop` root included (a mortar tube, an ATGM tripod), is deleted before the
+  fit, so the framing sees one man.
 """
 import hashlib
 import json
@@ -80,13 +100,15 @@ ROSTER = (
     # Sarim (6)
     "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone"
 )
-OUT_DIR = os.path.join(REPO, "art", "portraits")
+OUT_DIR = os.path.join(REPO, "art", "portraits")          # masters (not shipped)
+SHIP_DIR = os.path.join(REPO, "assets", "ui", "portraits", "units")  # shipped 192 px
+LEAD_SUBDIR = "lead"
 
 
 def parse_args():
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     args = {"only": ROSTER, "source": "assets",
-            "roles": "", "out": OUT_DIR}
+            "roles": "", "out": OUT_DIR, "ship": SHIP_DIR, "variant": "both"}
     for a in argv:
         k, _, v = a.lstrip("-").partition("=")
         args[k] = v
@@ -303,6 +325,77 @@ def turn_unit():
     return math.degrees(theta)
 
 
+def figure_roots(arm):
+    """Candidate figure prefixes: top-level `<prefix>_root` bones, excluding
+    death roots, the shared `prop`, and a `<prefix>w_root` second pose root
+    whose `<prefix>` is already a candidate."""
+    names = [b.name for b in arm.data.bones if b.parent is None]
+    prefixes = [n[:-len("_root")] for n in names
+                if n.endswith("_root") and "death" not in n]
+    return [p for p in prefixes if not (p.endswith("w") and p[:-1] in prefixes)]
+
+
+def root_of(bone):
+    while bone.parent is not None:
+        bone = bone.parent
+    return bone.name
+
+
+def isolate_lead(unit, view_back):
+    """Delete every vertex that does not belong to the front figure. Returns
+    the kept prefix. Raises if the rig has fewer than two figures, since a
+    'lead' portrait of a one-man rig would silently duplicate the team one."""
+    import bmesh
+    arms = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
+    if len(arms) != 1:
+        raise SystemExit(f"{unit}: lead variant expects one armature, found {len(arms)}")
+    arm = arms[0]
+    prefixes = figure_roots(arm)
+    if len(prefixes) < 2:
+        raise SystemExit(f"{unit}: lead variant needs >= 2 figures, found {prefixes}")
+    fwd = arm.matrix_world.to_3x3() @ Vector((1.0, 0.0, 0.0))
+    def key(p):
+        head = arm.matrix_world @ arm.data.bones[f"{p}_root"].head_local
+        return (round(head.dot(fwd), 4), round(head.dot(view_back), 4))
+    lead = max(prefixes, key=key)
+    others = [p for p in prefixes if p != lead]
+
+    def keep(root_name):
+        if not root_name.startswith(lead):
+            return False
+        # `f1` must not keep `f10`: what follows the prefix is `_` or `w_`.
+        rest = root_name[len(lead):]
+        return rest.startswith("_") or rest.startswith("w_")
+
+    kept = 0
+    for ob in mesh_objects():
+        groups = {g.index: g.name for g in ob.vertex_groups}
+        bm = bmesh.new()
+        bm.from_mesh(ob.data)
+        deform = bm.verts.layers.deform.active
+        doomed = []
+        for v in bm.verts:
+            w = v[deform] if deform is not None else {}
+            if not w:
+                doomed.append(v)
+                continue
+            gi = max(w.keys(), key=lambda k: w[k])
+            name = groups.get(gi)
+            bone = arm.data.bones.get(name) if name else None
+            if bone is None or not keep(root_of(bone)):
+                doomed.append(v)
+        bmesh.ops.delete(bm, geom=doomed, context="VERTS")
+        kept += len(bm.verts)
+        bm.to_mesh(ob.data)
+        bm.free()
+        ob.data.update()
+    bpy.context.view_layer.update()
+    if kept == 0:
+        raise SystemExit(f"{unit}: lead figure {lead!r} owns no vertices")
+    print(f"LEAD: {unit}: kept {lead!r} ({kept} verts), dropped {others}")
+    return lead
+
+
 def fit(cam, view_back, rule):
     sc = bpy.context.scene
     pts = posed_points()
@@ -361,32 +454,49 @@ def main():
         subprocess.run(["npx", "tsx", "src/portrait-roles.ts", roles_path, *vehicles],
                        cwd=os.path.join(REPO, "tools"), check=True)
     table = json.load(open(roles_path))
-    masters = os.path.join(args["out"], "masters")
-    shipped = os.path.join(args["out"], "units")
-    os.makedirs(masters, exist_ok=True)
-    os.makedirs(shipped, exist_ok=True)
+    variants = {"team": ["team"], "lead": ["lead"], "both": ["team", "lead"]}[args["variant"]]
+    for v in variants:
+        sub = "" if v == "team" else LEAD_SUBDIR
+        os.makedirs(os.path.join(args["out"], "masters", sub), exist_ok=True)
+        os.makedirs(os.path.join(args["ship"], sub), exist_ok=True)
 
     for unit in units:
-        path, used = import_unit(unit, args["source"])
-        drop_dead_geometry(unit)
-        pose_idle()
-        report = paint(unit, table)
-        elev = ELEV_FIGURE_DEG if unit in FIGURES else ELEV_VEHICLE_DEG
-        cam, view_back = build_scene(elev)
-        yaw = turn_unit()
-        rule = FILL_RULE["figure" if unit in FIGURES else "vehicle"]
-        box = fit(cam, view_back, rule)
-        m = os.path.join(masters, f"{unit}.png")
-        bpy.context.scene.render.filepath = m
-        bpy.ops.render.render(write_still=True)
-        s = os.path.join(shipped, f"{unit}.png")
-        downsample(m, s)
-        meta = {"unit": unit, "source": os.path.relpath(path, REPO), "source_sha256": sha256(path),
-                "yaw_deg": round(yaw, 3), "elevation_deg": elev, "fov_deg": FOV_DEG,
-                "fill": list(rule), "ndc_box": [round(v, 4) for v in box], "materials": report}
-        json.dump(meta, open(os.path.join(masters, f"{unit}.json"), "w"), indent=2)
-        print(f"PORTRAIT_OK: {unit} src={meta['source']} baked={report['baked']} "
-              f"flat={report['flat']} box={meta['ndc_box']} -> {m}")
+        for variant in variants:
+            if variant == "lead" and unit not in FIGURES:
+                continue
+            render_one(unit, variant, args, table)
+    if args["ship"] == SHIP_DIR:
+        subprocess.run(["python3", os.path.join(HERE, "portrait_manifest.py")], check=True)
+
+
+def render_one(unit, variant, args, table):
+    sub = "" if variant == "team" else LEAD_SUBDIR
+    masters = os.path.join(args["out"], "masters", sub)
+    shipped = os.path.join(args["ship"], sub)
+    path, used = import_unit(unit, args["source"])
+    drop_dead_geometry(unit)
+    pose_idle()
+    report = paint(unit, table)
+    elev = ELEV_FIGURE_DEG if unit in FIGURES else ELEV_VEHICLE_DEG
+    cam, view_back = build_scene(elev)
+    yaw = turn_unit()
+    lead = isolate_lead(unit, view_back) if variant == "lead" else None
+    rule = FILL_RULE["figure" if unit in FIGURES else "vehicle"]
+    box = fit(cam, view_back, rule)
+    m = os.path.join(masters, f"{unit}.png")
+    bpy.context.scene.render.filepath = m
+    bpy.ops.render.render(write_still=True)
+    s = os.path.join(shipped, f"{unit}.png")
+    downsample(m, s)
+    meta = {"unit": unit, "variant": variant, "source": os.path.relpath(path, REPO),
+            "source_sha256": sha256(path),
+            "yaw_deg": round(yaw, 3), "elevation_deg": elev, "fov_deg": FOV_DEG,
+            "fill": list(rule), "ndc_box": [round(v, 4) for v in box], "materials": report}
+    if lead is not None:
+        meta["lead_figure"] = lead
+    json.dump(meta, open(os.path.join(masters, f"{unit}.json"), "w"), indent=2)
+    print(f"PORTRAIT_OK: {unit} [{variant}] src={meta['source']} baked={report['baked']} "
+          f"flat={report['flat']} box={meta['ndc_box']} -> {m}")
 
 
 if __name__ == "__main__":
