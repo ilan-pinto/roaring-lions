@@ -1,6 +1,6 @@
 # HANDOVER — Roaring Lions programme ledger
 
-Updated: 2026-10-02 (2 Oct landings: #329 #331 #332 #333 #334–#337 B7 infantry #338 #340 portraits #339 #341 #342 #343 #347 #348 #349 #351; blesses 318bcea6 6143eb65 ecc70e28 76d154d0; Meshy about 2,090 of 4,000 spent (about 1,910 left; art/meshy/ledger.jsonl sums 1,605 consumed, the rest is not logged there); issues #330 #344 #345 #346 filed; G-G0 spike rounds 1–2 conditional GO on #168) · main: 2b539784 · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct) · next milestone: M1 30 Oct (M2 27 Nov · M3 12 Feb · M4 16 Apr 2027) · open issues this week: #274 #277 #279 #280 #291 #298 #317 #330 #344 #345 #346
+Updated: 2026-10-02 (2 Oct landings: #329 #331 #332 #333 #334–#337 B7 infantry #338 #340 portraits #339 #341 #342 #343 #347 #348 #349 #351; blesses 318bcea6 6143eb65 ecc70e28 76d154d0; Meshy balance 3,125 after Namer v2 (API read 2 Oct); art/meshy/ledger.jsonl logs 1,605 consumed; issues #330 #344 #345 #346 filed; G-G0 spike rounds 1–2 conditional GO on #168) · main: 2b539784 · plan: https://claude.ai/artifact/SND5uxua1RtGy82cxR3JC7 · stage: 2 underway (G1 due 2 Oct) · next milestone: M1 30 Oct (M2 27 Nov · M3 12 Feb · M4 16 Apr 2027) · open issues this week: #274 #277 #279 #280 #291 #298 #317 #330 #344 #345 #346
 
 Rules: under 200 lines, one line per item, edited per section. Details live in the spec, the plan or the SDD ledger a line links to. Updated at every landing and every gate answer. Committed with a pathspec from a main worktree, never from the shared tree.
 
