@@ -38,17 +38,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { parseGlbHeadless } from './headless-gltf';
 import { buildMeshUnitTemplate, instantiateMeshUnit } from './mesh-unit';
 import { CLIP_NAMES } from './mesh-anim';
 import { MESH_ROLES, isMeshRole } from './mesh-role';
 import { TEXTURED_INFANTRY_TYPES } from './textured-infantry';
 
-// A GLB with a baked image (B7) decodes through browser globals in three's
-// loader; `mesh-team-death-shipped.test.ts` makes the same provision.
-if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
-  (globalThis as { self?: unknown }).self = globalThis;
-}
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const CIVILIAN_MESHES = `${REPO}art/meshes/civilians/`;
@@ -68,14 +63,7 @@ function shippedFigures(): string[] {
 }
 
 async function parseShipped(figure: string) {
-  const bytes = readFileSync(`${CIVILIAN_MESHES}${figure}.glb`);
-  // `Buffer` is a `Uint8Array` view over a pool, so hand `parseAsync` a
-  // standalone `ArrayBuffer` rather than the whole pool behind it.
-  const ab = bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength
-  ) as ArrayBuffer;
-  return new GLTFLoader().parseAsync(ab, '');
+  return parseGlbHeadless(readFileSync(`${CIVILIAN_MESHES}${figure}.glb`));
 }
 
 /** Every `rl_role` (falling back to the node name, exactly as

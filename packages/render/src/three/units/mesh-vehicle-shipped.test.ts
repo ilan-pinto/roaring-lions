@@ -71,17 +71,13 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { parseGlbHeadless } from './headless-gltf';
 import { buildVehicleMeshTemplate, instantiateVehicleMesh } from './mesh-vehicle';
 import type { VehicleMeshTemplate } from './mesh-vehicle';
 import { CLIP_NAMES } from './mesh-anim';
 import { transitionIsCut } from './mesh-clip';
 import { TEXTURED_VEHICLE_TYPES } from './textured-vehicle';
 
-// See this file's own top comment, 2026-09-07 paragraph.
-if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
-  (globalThis as { self?: unknown }).self = globalThis;
-}
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const VEHICLE_MESHES = `${REPO}art/meshes/vehicles/`;
@@ -111,11 +107,7 @@ function shippedVehicleIds(): string[] {
 }
 
 async function parseShipped(id: string) {
-  const bytes = readFileSync(`${VEHICLE_MESHES}${id}.glb`);
-  // `Buffer` is a `Uint8Array` view over a pool, so hand `parseAsync` a
-  // standalone `ArrayBuffer` rather than the whole pool behind it.
-  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  return new GLTFLoader().parseAsync(ab, '');
+  return parseGlbHeadless(readFileSync(`${VEHICLE_MESHES}${id}.glb`));
 }
 
 async function templateFor(id: string): Promise<VehicleMeshTemplate> {
