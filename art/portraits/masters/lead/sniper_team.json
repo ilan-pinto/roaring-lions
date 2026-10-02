@@ -1,0 +1,24 @@
+{
+  "unit": "sniper_team",
+  "variant": "lead",
+  "source": "assets/meshes/sniper_team.glb",
+  "source_sha256": "18b71e15c3aa16dd380b5bf060901be82be4987135c7e59d28db2d7249f9087b",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.06,
+    0.94,
+    0.2711,
+    0.7289
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 1
+  },
+  "lead_figure": "snp_a"
+}

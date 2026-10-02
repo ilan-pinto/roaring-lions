@@ -1,0 +1,24 @@
+{
+  "unit": "atgm_cell",
+  "variant": "lead",
+  "source": "assets/meshes/atgm_cell.glb",
+  "source_sha256": "e0c9061f4e4ad7bbf3e5ce78676caf01a8b2f6a436158a4b0f55ec294f3e70d0",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.2495,
+    0.7505,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 2
+  },
+  "lead_figure": "atgm_crew1"
+}

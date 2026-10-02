@@ -10,11 +10,14 @@ import { describe, expect, it } from 'vitest';
 import {
   PORTRAIT_FACING,
   portraitFile,
+  portraitIds,
   portraitUrl,
+  spriteCropIcon,
   unitIcon,
   unitPlate,
   type SheetManifest,
   type UnitIcon,
+  type UnitPortraits,
 } from './portrait';
 
 /** A sheet with clips, as INF_SQUAD's manifest is shaped. */
@@ -125,13 +128,13 @@ describe('portrait url', () => {
   });
 });
 
-describe('unitIcon', () => {
+describe('spriteCropIcon', () => {
   const fakeCatalogue: Record<string, UnitIcon> = {
     INF_SQUAD: { url: '/ui/icons/units/INF_SQUAD.png', size: 128, extent: [111, 105] },
   };
 
   it('resolves a known sheet from its base path', () => {
-    expect(unitIcon('/sprites/INF_SQUAD/', fakeCatalogue)).toEqual({
+    expect(spriteCropIcon('/sprites/INF_SQUAD/', fakeCatalogue)).toEqual({
       url: '/ui/icons/units/INF_SQUAD.png',
       size: 128,
       extent: [111, 105],
@@ -139,27 +142,166 @@ describe('unitIcon', () => {
   });
 
   it('accepts a base path with no trailing slash too', () => {
-    expect(unitIcon('/sprites/INF_SQUAD', fakeCatalogue)).toEqual(fakeCatalogue.INF_SQUAD);
+    expect(spriteCropIcon('/sprites/INF_SQUAD', fakeCatalogue)).toEqual(fakeCatalogue.INF_SQUAD);
   });
 
   it('returns null for a sheet the catalogue never built one for', () => {
     // A building sheet: no icon is ever cropped for `BLD_*`, so this reads
     // exactly like an unknown sheet -- there is nothing that distinguishes
     // the two cases here, and there does not need to be.
-    expect(unitIcon('/sprites/BLD_HOUSE/', fakeCatalogue)).toBeNull();
+    expect(spriteCropIcon('/sprites/BLD_HOUSE/', fakeCatalogue)).toBeNull();
   });
 
   it('returns null for a sheet this catalogue does not know at all', () => {
-    expect(unitIcon('/sprites/TNK_HULL/', fakeCatalogue)).toBeNull();
+    expect(spriteCropIcon('/sprites/TNK_HULL/', fakeCatalogue)).toBeNull();
   });
 
   it('reads a real cropped icon off the shipped catalogue by default', () => {
     // No catalogue argument: exercises the module's own `import.meta.glob` +
     // manifest join against the real `assets/ui/icons/units/` output.
-    const icon = unitIcon('/sprites/INF_SQUAD/');
+    const icon = spriteCropIcon('/sprites/INF_SQUAD/');
     expect(icon).not.toBeNull();
     expect(icon?.size).toBe(128);
     expect(icon?.url).toContain('INF_SQUAD');
+  });
+});
+
+describe('unitIcon (GH-153: the portrait first, the sheet crop as fallback)', () => {
+  const crops: Record<string, UnitIcon> = {
+    INF_MILITIA: { url: '/ui/icons/units/INF_MILITIA.png', size: 128, extent: [100, 110] },
+    INF_SQUAD: { url: '/ui/icons/units/INF_SQUAD.png', size: 128, extent: [111, 105] },
+  };
+  const portraits: Record<string, UnitPortraits> = {
+    inf_squad: {
+      full: { url: '/p/inf_squad.png', size: 192, extent: [160, 170] },
+      lead: { url: '/p/lead/inf_squad.png', size: 192, extent: [60, 170] },
+    },
+    mbt_lavi: { full: { url: '/p/mbt_lavi.png', size: 192, extent: [177, 110] } },
+  };
+
+  it('prefers the portrait over the sheet crop', () => {
+    expect(unitIcon('inf_squad', '/sprites/INF_SQUAD/', 'full', portraits, crops)?.url).toBe('/p/inf_squad.png');
+  });
+
+  it('gives a chip the lead figure, and every larger slot the whole team', () => {
+    expect(unitIcon('inf_squad', '/sprites/INF_SQUAD/', 'chip', portraits, crops)?.url).toBe('/p/lead/inf_squad.png');
+    expect(unitIcon('inf_squad', '/sprites/INF_SQUAD/', 'full', portraits, crops)?.url).toBe('/p/inf_squad.png');
+  });
+
+  it('gives a chip the whole portrait when the type has no lead figure (a vehicle)', () => {
+    expect(unitIcon('mbt_lavi', undefined, 'chip', portraits, crops)?.url).toBe('/p/mbt_lavi.png');
+  });
+
+  it('falls back to the sheet crop for a type with no portrait', () => {
+    expect(unitIcon('militia_cell', '/sprites/INF_MILITIA/', 'chip', portraits, crops)).toEqual(crops.INF_MILITIA);
+  });
+
+  it('is null with neither a portrait nor a sheet', () => {
+    expect(unitIcon('civilians', undefined, 'full', portraits, crops)).toBeNull();
+  });
+
+  it('reads the shipped portraits by default, lead figure included', () => {
+    expect(unitIcon('inf_squad', undefined, 'full')?.url).toContain('inf_squad');
+    expect(unitIcon('inf_squad', undefined, 'chip')?.url).toContain('lead');
+    expect(unitIcon('recon_zikit', undefined, 'full')?.size).toBe(192);
+  });
+});
+
+// Every unit in `data/units` must have a picture or be NAMED as not having
+// one. Read off disk -- the content directory, the portrait manifest, the
+// shipped PNGs -- so a unit added to `data/units` with no portrait, or a
+// portrait PNG deleted, is a red spec rather than a quiet hatch in the HUD.
+// Falsified 2 Oct by moving `mbt_lavi.png`, then `lead/at_team.png`, aside:
+// red both times, naming the file.
+describe('unit portrait coverage (GH-153)', () => {
+  const ROOT = path.join(__dirname, '../../../..');
+  /** Types the portrait roster does not cover, and the sprite-crop icon each
+   *  falls back to (`spriteCropIcon`): enemy types the lead has not asked for
+   *  portraits of (the numbers doc's "What this proposal does not decide"). */
+  const CROP_FALLBACK: Record<string, string> = {
+    charge_squad: 'INF_CHARGE',
+    digger_crew: 'INF_DIGGER',
+    gun_truck: 'GUNTRUCK_HULL',
+    militia_cell: 'INF_MILITIA',
+    mortar_crew: 'INF_MORTAR_E',
+    moto_rpg: 'MOTO_RPG',
+    paramotor: 'PARA_MOTOR',
+    rpg_team: 'INF_RPG',
+    technical: 'TECH_HULL',
+  };
+  /** Types with no picture at all: the HUD draws the role mark on the hatch. */
+  const NO_PICTURE = new Set(['civilians']);
+  /** Figure teams with a portrait: each must also ship the one-figure chip
+   *  variant. A literal, not derived from the manifest under test. */
+  const FIGURE_TEAMS = [
+    'inf_squad',
+    'at_team',
+    'mortar_team',
+    'sniper_team',
+    'demo_squad',
+    'breach_team',
+    'yahalom_squad',
+    'recon_zikit',
+    'sarim_rifles',
+    'atgm_cell',
+    'manpad_team',
+    'recoilless_team',
+  ];
+
+  const unitFiles = (dir: string): string[] =>
+    fs
+      .readdirSync(dir, { withFileTypes: true })
+      .flatMap((e) =>
+        e.isDirectory() ? unitFiles(path.join(dir, e.name)) : e.name.endsWith('.json') ? [path.join(dir, e.name)] : []
+      );
+  const unitIds = unitFiles(path.join(ROOT, 'data/units'))
+    .flatMap((f) => {
+      const j = JSON.parse(fs.readFileSync(f, 'utf8')) as { id?: string } | { id?: string }[];
+      return Array.isArray(j) ? j : [j];
+    })
+    .map((u) => u.id)
+    .filter((id): id is string => typeof id === 'string');
+  const shipDir = path.join(ROOT, 'assets/ui/portraits/units');
+  const manifest = (
+    JSON.parse(fs.readFileSync(path.join(shipDir, 'manifest.json'), 'utf8')) as {
+      portraits: Record<string, { file: string; lead?: { file: string } }>;
+    }
+  ).portraits;
+
+  it('every unit has a portrait on disk, or a named fallback', () => {
+    // Vacuity guard: 19 KDF + 15 enemy + civilians today.
+    expect(unitIds.length).toBeGreaterThan(30);
+    const bad: string[] = [];
+    for (const id of unitIds) {
+      if (NO_PICTURE.has(id)) continue;
+      const entry = manifest[id] as { file: string } | undefined;
+      if (entry !== undefined) {
+        if (!fs.existsSync(path.join(shipDir, entry.file))) bad.push(`${id}: ${entry.file} missing`);
+        continue;
+      }
+      const sheet = CROP_FALLBACK[id] as string | undefined;
+      if (sheet === undefined) bad.push(`${id}: no portrait and no named fallback`);
+      else if (!fs.existsSync(path.join(ROOT, `assets/ui/icons/units/${sheet}.png`)))
+        bad.push(`${id}: fallback icon ${sheet}.png missing`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('a named fallback is retired the day its portrait lands', () => {
+    const stale = Object.keys(CROP_FALLBACK).filter((id) => id in manifest);
+    expect(stale, 'delete these from CROP_FALLBACK').toEqual([]);
+  });
+
+  it('every figure-team portrait ships its one-figure chip variant, on disk', () => {
+    const bad = FIGURE_TEAMS.filter((id) => {
+      const lead = (manifest[id] as { lead?: { file: string } } | undefined)?.lead;
+      return lead === undefined || !fs.existsSync(path.join(shipDir, lead.file));
+    });
+    expect(bad, 'figure teams with no lead-figure chip portrait').toEqual([]);
+  });
+
+  it('the module catalogue sees every manifest entry', () => {
+    expect(portraitIds().sort()).toEqual(Object.keys(manifest).sort());
   });
 });
 
