@@ -112,11 +112,18 @@ describe('runText / runImage ledger patch and dry-run wiring', () => {
   let paths: { artDir: string; ledgerPath: string };
 
   beforeEach(() => {
+    // `run*` prints a human progress log (plan, estimate, poll lines, the
+    // provenance snippet): ~200 lines a CI run that no test here reads off
+    // the console. A test that DOES read it spies `console.log` itself and
+    // gets this same spy back, its calls scoped to that test.
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     dir = mkdtempSync(path.join(tmpdir(), 'meshy-cli-test-'));
     paths = { artDir: path.join(dir, 'art'), ledgerPath: path.join(dir, 'ledger.jsonl') };
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     rmSync(dir, { recursive: true, force: true });
   });
 
