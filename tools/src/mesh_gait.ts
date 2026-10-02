@@ -1651,14 +1651,20 @@ export function measureMountedPartInBody(path: string, clip: string, spec: Mount
     let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
     for (const q of pts) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], q[k]); hi[k] = Math.max(hi[k], q[k]); }
     if (Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;
-    const tri: number[] = [];
+    const triList: number[] = [];
     for (const p of body) {
       const mats = computeSkinMats(p.skin, worlds, p.ibm);
-      for (const [a, b, c] of p.tris) {
-        tri.push(...skinPoint(p.pos, p.joints, p.weights, a, mats), ...skinPoint(p.pos, p.joints, p.weights, b, mats),
-          ...skinPoint(p.pos, p.joints, p.weights, c, mats));
-      }
+      // Each vertex is skinned once, not once per triangle that shares it.
+      const skinned = new Map<number, [number, number, number]>();
+      const at = (v: number): [number, number, number] => {
+        let q = skinned.get(v);
+        if (!q) { q = skinPoint(p.pos, p.joints, p.weights, v, mats); skinned.set(v, q); }
+        return q;
+      };
+      for (const [a, b, c] of p.tris) triList.push(...at(a), ...at(b), ...at(c));
     }
+    const soup = buildTriChunks(Float64Array.from(triList));
+    const tri = soup.tri;
     lo = [Infinity, Infinity, Infinity]; hi = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < tri.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], tri[i + k]); hi[k] = Math.max(hi[k], tri[i + k]); }
     if (Math.min(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;   // the holder is scaled out
@@ -1668,22 +1674,121 @@ export function measureMountedPartInBody(path: string, clip: string, spec: Mount
     for (const q of pts) {
       // Outside the body's box the winding number is ~0; skip the sum.
       if (q[0] < lo[0] || q[1] < lo[1] || q[2] < lo[2] || q[0] > hi[0] || q[1] > hi[1] || q[2] > hi[2]) continue;
-      if (windingNumber(q, tri) > 0.5) inside++;
+      if (windingInside(q, soup)) inside++;
     }
     worst = Math.max(worst, inside);
   }
   return { samples, instants, worstInside: worst };
 }
 
+interface TriNode {
+  /** Triangle range [a, b) in the reordered soup. */
+  a: number; b: number;
+  /** Area-weighted centroid, summed area vector, total area, radius about c. */
+  c: number[]; s: number[]; area: number; r: number;
+  left: TriNode | null; right: TriNode | null;
+}
+interface TriChunks {
+  readonly tri: Float64Array;
+  readonly root: TriNode | null;
+}
+
+/** Reorders the triangles by a recursive median split on the longest axis and
+ *  builds a Barnes-Hut tree over them (leaves of <= 8), so far triangles can
+ *  be summed by their far-field term instead of one by one. */
+function buildTriChunks(flat: Float64Array): TriChunks {
+  const n = flat.length / 9;
+  if (n === 0) return { tri: flat, root: null };
+  const cen = new Float64Array(n * 3);
+  for (let t = 0; t < n; t++) for (let k = 0; k < 3; k++) {
+    cen[t * 3 + k] = (flat[t * 9 + k] + flat[t * 9 + 3 + k] + flat[t * 9 + 6 + k]) / 3;
+  }
+  const order = Array.from({ length: n }, (_, i) => i);
+  const ranges: [number, number][] = [];
+  const split = (a: number, b: number): void => {
+    ranges.push([a, b]);
+    if (b - a <= 8) return;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = a; i < b; i++) for (let k = 0; k < 3; k++) {
+      const v = cen[order[i] * 3 + k]; lo[k] = Math.min(lo[k], v); hi[k] = Math.max(hi[k], v);
+    }
+    let ax = 0;
+    for (let k = 1; k < 3; k++) if (hi[k] - lo[k] > hi[ax] - lo[ax]) ax = k;
+    const part = order.slice(a, b).sort((x, y) => cen[x * 3 + ax] - cen[y * 3 + ax] || x - y);
+    for (let i = a; i < b; i++) order[i] = part[i - a];
+    const m = (a + b) >> 1;
+    split(a, m); split(m, b);
+  };
+  split(0, n);
+  const tri = new Float64Array(flat.length);
+  for (let i = 0; i < n; i++) tri.set(flat.subarray(order[i] * 9, order[i] * 9 + 9), i * 9);
+  const make = (a: number, b: number): TriNode => {
+    const c = [0, 0, 0], sv = [0, 0, 0];
+    let area = 0;
+    for (let i = a; i < b; i++) {
+      const o = i * 9;
+      const ux = tri[o + 3] - tri[o], uy = tri[o + 4] - tri[o + 1], uz = tri[o + 5] - tri[o + 2];
+      const vx = tri[o + 6] - tri[o], vy = tri[o + 7] - tri[o + 1], vz = tri[o + 8] - tri[o + 2];
+      const nx = 0.5 * (uy * vz - uz * vy), ny = 0.5 * (uz * vx - ux * vz), nz = 0.5 * (ux * vy - uy * vx);
+      const ar = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      sv[0] += nx; sv[1] += ny; sv[2] += nz; area += ar;
+      for (let k = 0; k < 3; k++) c[k] += ar * (tri[o + k] + tri[o + 3 + k] + tri[o + 6 + k]) / 3;
+    }
+    for (let k = 0; k < 3; k++) c[k] = area > 0 ? c[k] / area : tri[a * 9 + k];
+    let r = 0;
+    for (let i = a; i < b; i++) for (let v = 0; v < 3; v++) {
+      r = Math.max(r, Math.hypot(tri[i * 9 + v * 3] - c[0], tri[i * 9 + v * 3 + 1] - c[1], tri[i * 9 + v * 3 + 2] - c[2]));
+    }
+    if (b - a <= 8) return { a, b, c, s: sv, area, r, left: null, right: null };
+    const m = (a + b) >> 1;
+    return { a, b, c, s: sv, area, r, left: make(a, m), right: make(m, b) };
+  };
+  return { tri, root: make(0, n) };
+}
+
+/** `windingNumber(p, all) > 0.5`, decided exactly. A node far from `p`
+ *  (d > 2.5 r from its area-weighted centroid) contributes its far-field
+ *  term S.(c-p)/d^3 / 4 pi, with the error bounded by 6 area r^2 / (d-r)^4 /
+ *  4 pi (second-order Taylor remainder of the solid-angle kernel, generous --
+ *  measured error is ~100x under it). Bounds are summed; when the estimate
+ *  lies within the summed bound of the 0.5 threshold, everything is redone
+ *  exactly, so the verdict is the exact one. */
+function windingInside(p: readonly number[], soup: TriChunks): boolean {
+  if (!soup.root) return false;
+  let bound = 0, sum = 0;
+  const visit = (nd: TriNode): void => {
+    const dx = nd.c[0] - p[0], dy = nd.c[1] - p[1], dz = nd.c[2] - p[2];
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (d > 2.5 * nd.r) {
+      const e = (6 * nd.area * nd.r * nd.r) / ((d - nd.r) ** 4 * 4 * Math.PI);
+      if (e < 0.003 && bound + e < 0.3) {
+        sum += (nd.s[0] * dx + nd.s[1] * dy + nd.s[2] * dz) / (d * d * d * 4 * Math.PI);
+        bound += e;
+        return;
+      }
+    }
+    if (nd.left && nd.right) { visit(nd.left); visit(nd.right); return; }
+    sum += windingRange(p, soup.tri, nd.a, nd.b);
+  };
+  visit(soup.root);
+  if (Math.abs(sum - 0.5) > bound) return sum > 0.5;
+  return windingNumber(p, soup.tri) > 0.5;
+}
+
+function windingRange(p: readonly number[], tri: Float64Array, from: number, to: number): number {
+  return windingNumber(p, tri.subarray(from * 9, to * 9));
+}
+
 /** Generalised winding number of `p` against a flat triangle list (nine
  *  numbers a triangle): the solid angle each subtends, summed, over 4 pi. */
-function windingNumber(p: readonly number[], tri: readonly number[]): number {
+function windingNumber(p: readonly number[], tri: Float64Array): number {
   let sum = 0;
   for (let i = 0; i < tri.length; i += 9) {
     const ax = tri[i] - p[0], ay = tri[i + 1] - p[1], az = tri[i + 2] - p[2];
     const bx = tri[i + 3] - p[0], by = tri[i + 4] - p[1], bz = tri[i + 5] - p[2];
     const cx = tri[i + 6] - p[0], cy = tri[i + 7] - p[1], cz = tri[i + 8] - p[2];
-    const la = Math.hypot(ax, ay, az), lb = Math.hypot(bx, by, bz), lc = Math.hypot(cx, cy, cz);
+    const la = Math.sqrt(ax * ax + ay * ay + az * az), lb = Math.sqrt(bx * bx + by * by + bz * bz),
+      lc = Math.sqrt(cx * cx + cy * cy + cz * cz);
     const det = ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
     const den = la * lb * lc + (ax * bx + ay * by + az * bz) * lc + (bx * cx + by * cy + bz * cz) * la
       + (cx * ax + cy * ay + cz * az) * lb;
