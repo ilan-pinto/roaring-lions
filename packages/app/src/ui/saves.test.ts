@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { showSaves, type SavesDeps } from './saves';
 import { Router } from '../shell/router';
 import { ACCOUNT_KEY, emptyAccount } from '../brigade-account';
@@ -226,6 +226,9 @@ describe('showSaves', () => {
   // the tutorial flag -- the order `writeActive`'s doc comment now names), so
   // failing write 2 is exactly the half-written state that matters.
   it('a storage refusal partway through a load is named in the status line, and the load is not reported as done', async () => {
+    // `saves.ts` logs the refusal (`console.error('saves:', err)`): expected
+    // here, so it is captured and asserted rather than printed into CI logs.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const store = quotaStore(2);
     saveSlot(store, 'a', 'Checkpoint', active, '0.68.0', 1);
     const stage = document.createElement('div');
@@ -241,10 +244,15 @@ describe('showSaves', () => {
       'Could not write to browser storage \u2014 the save may be incomplete. Free some space and try again.'
     );
     expect(changed).toBe(0);
+    expect(error).toHaveBeenCalledWith('saves:', expect.anything());
+    error.mockRestore();
     stage.remove();
   });
 
   it('a storage refusal on the save form is named in the status line, and adds no slot', () => {
+    // `saves.ts` logs the refusal (`console.error('saves:', err)`): expected
+    // here, so it is captured and asserted rather than printed into CI logs.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const store = quotaStore(1);
     const stage = document.createElement('div');
     document.body.appendChild(stage);
@@ -255,6 +263,8 @@ describe('showSaves', () => {
     expect(stage.querySelector('.rl-saves__msg')?.textContent).toContain('Could not write to browser storage');
     expect(stage.querySelectorAll('.rl-saves__row')).toHaveLength(0);
     expect(changed).toBe(0);
+    expect(error).toHaveBeenCalledWith('saves:', expect.anything());
+    error.mockRestore();
     stage.remove();
   });
 });

@@ -630,6 +630,11 @@ describe('the rotate controls', () => {
 });
 
 describe('nobody gets a blank screen', () => {
+  // Every fallback here is announced by `worldmap3d.ts` with one
+  // `campaign board: ...` console.warn: expected on these paths, so it is
+  // silenced rather than printed into CI logs.
+  beforeEach(() => void vi.spyOn(console, 'warn').mockImplementation(() => {}));
+  afterEach(() => vi.mocked(console.warn).mockRestore());
   it('falls back to the flat board where there is no WebGL2', async () => {
     const s = mountScreen({}, { webgl: () => false });
     expect(await s.ready).toBe('flat');
@@ -661,6 +666,11 @@ describe('nobody gets a blank screen', () => {
 });
 
 describe('showCampaign picks the board from the renderer the player chose', () => {
+  // Every fallback here is announced by `worldmap3d.ts` with one
+  // `campaign board: ...` console.warn: expected on these paths, so it is
+  // silenced rather than printed into CI logs.
+  beforeEach(() => void vi.spyOn(console, 'warn').mockImplementation(() => {}));
+  afterEach(() => vi.mocked(console.warn).mockRestore());
   const mount = (): HTMLElement => {
     const stage = document.createElement('div');
     showCampaign(stage, { base: '/', world, countries, ledger: {} });

@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "632e04ba638d572a542eefbb2a925ff1e6cbbdf3",
-  "blessedAt": "2026-10-01T22:50:08.237Z",
-  "reason": "A3.1 B7 infantry (#334-#337): vehicle moves on the new infantry figures (459-857,422-617, 2554 px); aftermath moves 303 px at its left edge (0-24,213-251), the shadow of an off-frame sandbox infantry figure; quiet/open-ground/relief within noise on main run 36936294442",
+  "commit": "f36e75721991dd46b78c0632e55a5dc8d76a58c4",
+  "blessedAt": "2026-10-02T10:33:23.293Z",
+  "reason": "ifv_namer v2 (#341): vehicle moves on the two Namers (287-1203,306-676, 8749 px); aftermath 103 px at its left edge (0-4,42-110), off-frame shadow; quiet/open-ground/relief 0 px on main run 36995088298",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b09c0355909f3c2b1761379aa1ed6e9b06d73d9b3d8f32af620f04b31dc23aa9"
+      "sha256": "726862784498ea32de9f656bd0f95b1a26aa3bb9364f2a08aa66f9a5fcb9d8dd"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "ec3bac205d6af10597dc871780810249d6551ff4fe913e3631b045814f363f08"
+      "sha256": "11210c8749b44d0ba4c35a5eceee66fb10ff514683aaf3cd41dda97fdb1d1014"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "f88e8aa51c7ec52e7614b21fd459ba2ebd9524d80b4d5559fc4004e0c3aea1b8"
+      "sha256": "b773d38b6d8795567b818e7b37d2a8772abbd889c35210cab8d138ec02a68ef6"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "8a4858bc0fdd366e0e12870a7646675e6c821fa93ec6a8b3b030f784e1906b19"
+      "sha256": "9a4682009b02e3a8591f10da5d8400cdd0209864f6ede5e2a1aba5e12ed56a59"
     }
   }
 }

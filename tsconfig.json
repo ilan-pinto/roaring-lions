@@ -4,6 +4,7 @@
     "packages/*/src/**/*.ts",
     "packages/app/vite.config.ts",
     "tools/src/**/*.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vitest.setup.ts"
   ]
 }

@@ -45,6 +45,10 @@
  */
 export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'mbt_lavi',
+  // B8 (GH-179, 2026-10-02): the Namer is a Meshy text-to-3D remesh shipping
+  // its own 2k bake through `tools/vehicles/export_meshy_ramp.py`, with a kit
+  // RWS on its roof ring like the Eitan's; the 2026-08 image-to-3D hull it
+  // replaces was already on this list.
   'ifv_namer',
   'technical',
   'rocket_battery',

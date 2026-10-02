@@ -71,7 +71,9 @@ describe('ELLIPSE_BY_TYPE (G-MOCK: "Team colour + ellipse")', () => {
     expect(ELLIPSE_PAD_TILES).toBe(0.3);
     expect(ELLIPSE_BY_TYPE.mbt_lavi).toEqual({ along: 1.17, across: 0.78, offsetAlong: -0.18 });
     // Fix round 1: grown from the mocked 1.52 x 0.97 so its hull corners are inside.
-    expect(ELLIPSE_BY_TYPE.ifv_namer).toEqual({ along: 1.61, across: 1.03, offsetAlong: 0 });
+    // B8 v2 (2026-10-02): the Namer is a new Meshy remesh (7.3 m x 4.12 m), so
+    // the generator re-measured it at 1.61 x 1.05 -- the mock's rule, not its number.
+    expect(ELLIPSE_BY_TYPE.ifv_namer).toEqual({ along: 1.61, across: 1.05, offsetAlong: 0 });
   });
   it('is for ground vehicles only: no figure and no aircraft', () => {
     for (const id of ['inf_squad', 'at_team', 'heli_peten', 'paramotor', 'recon_drone']) {

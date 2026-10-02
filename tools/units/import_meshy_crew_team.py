@@ -2054,6 +2054,292 @@ def _place(parts, dx, dy):
 
 
 # ---------------------------------------------------------------------------
+# B8: Meshy crew-weapon parts, textured through the figure's own atlas
+# ---------------------------------------------------------------------------
+#
+# The lead's 2 Oct follow-ups after the portrait sheet: the kit mortar read
+# as a crude grey frame beside three Meshy crewmen, and the sniper's kit tube
+# as a flat panel beside the prone pair. Each part is one Meshy text-to-3D
+# preview, refined at 8k and remeshed at the crew-weapon cap (600), loaded
+# here from the ledger's LAST remesh named `MESHY_PARTS[team]["name"]`
+# (`docs/art/meshy-prompts-units.md` sections 25-26).
+#
+# WHY AN ATLAS. The part arrives with its own bake, and a role that joins a
+# part on one material with a part on another exports as TWO primitives
+# which three.js names `weapon_1`/`weapon_2` -- roles nothing maps
+# (`_borrow_uv`'s own note). So the GLB keeps ONE material: the part's base
+# colour is scaled to TEXTURE_PX and composed BESIDE the figure's in one
+# 2 x TEXTURE_PX by TEXTURE_PX `base_color`, the figure's uvs are mapped
+# into u [0, 0.5) BEFORE the cut (so every blob and borrowed uv follows) and
+# the part's into [0.5, 1). A kit piece left in a role the part now shares
+# (the No.3's rifle beside the mortar, the standing spotter's glasses beside
+# the scope) borrows one uv from the PART's bake, so the role stays one
+# material. The figure keeps exactly the texel density it had: its half of
+# the atlas IS its 1024 bake.
+MESHY_PARTS = {
+    "mortar_team": {
+        "name": "mortar_team_mortar",
+        # The whole assembly (tube, bipod, baseplate, sight) is one `weapon`
+        # mesh on `prop` at kit's own anchor -- the point the importer's
+        # `_inside_count` and `launcher_clearance.test.ts`'s MOUNTED row
+        # refuse on. Scaled so the longest bounding-box axis reads this many
+        # metres (the preview's 35-degree tube reaches further forward than
+        # kit's 74-degree spike: a 1.3 m tube lies ~1.1 m along the ground).
+        "longest_m": 1.40,
+        "anchor": (0.26, 0.0),
+    },
+    "sniper_team": {
+        "name": "sniper_team_rifle",
+        # Two loose pieces in one preview: the rifle (the larger island) and
+        # the spotting scope on its tripod. The rifle's long axis is scaled
+        # to the kit tube's 1.24 m and the scope takes the same factor.
+        "rifle_m": 1.24,
+    },
+}
+
+
+def _part_source(name):
+    """The ledger's LAST `kind: remesh` task named `name`, as
+    `tools/vehicles/export_meshy_ramp.py` finds a vehicle's."""
+    import json
+    ledger = os.path.join(REPO, "art", "meshy", "ledger.jsonl")
+    task_id = None
+    with open(ledger) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            entry = json.loads(line)
+            if entry.get("kind") == "remesh" and entry.get("name") == name:
+                task_id = entry["id"]
+    if task_id is None:
+        raise SystemExit(f"no kind=remesh entry named {name!r} in {ledger}")
+    hits = glob.glob(os.path.join(REPO, "art", "meshy", f"{name.replace('_', '-')}-*-{task_id.split('-')[0]}", "model.glb"))
+    if len(hits) != 1:
+        raise SystemExit(f"expected one download dir for remesh task {task_id}, found {hits}")
+    return hits[0], task_id
+
+
+def _load_part(team_id):
+    """Import the part's remesh as one mesh object with its world transform
+    applied, keeping only its base-colour image (renamed `part_color`, its
+    own material dropped -- the part draws through the figure's material
+    once the atlas is composed). Returns (object, image)."""
+    cfg = MESHY_PARTS[team_id]
+    path, task_id = _part_source(cfg["name"])
+    before = set(bpy.data.objects)
+    before_img = set(bpy.data.images)
+    bpy.ops.import_scene.gltf(filepath=path)
+    new = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+    if len(new) != 1:
+        raise SystemExit(f"{team_id}: expected one mesh in the part remesh, found {[o.name for o in new]}")
+    ob = new[0]
+    for o in list(bpy.data.objects):
+        if o not in before and o.type != "MESH":
+            bpy.data.objects.remove(o, do_unlink=True)
+    ob.parent = None
+    bpy.ops.object.select_all(action="DESELECT")
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    mats = [m for m in ob.data.materials if m is not None]
+    if len(mats) != 1 or not mats[0].use_nodes:
+        raise SystemExit(f"{team_id}: expected one node material on the part remesh, found {[m.name for m in mats]}")
+    tree = mats[0].node_tree
+    bsdf = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    link = next((l for l in tree.links if bsdf is not None and l.to_node == bsdf and l.to_socket.name == "Base Color"), None)
+    if link is None or link.from_node.type != "TEX_IMAGE" or link.from_node.image is None:
+        raise SystemExit(f"{team_id}: the part's Base Color is not an image -- no bake to compose")
+    img = link.from_node.image
+    img.name = "part_color"
+    for other in list(bpy.data.images):
+        if other not in before_img and other is not img:
+            bpy.data.images.remove(other)
+    ob.data.materials.clear()
+    bpy.data.materials.remove(mats[0])
+    if not ob.data.uv_layers:
+        raise SystemExit(f"{team_id}: the part remesh carries no UV layer")
+    log(f"{team_id}: part {os.path.relpath(path, REPO)} (remesh {task_id}): {len(ob.data.polygons)} tris, "
+        f"part_color {img.size[0]}x{img.size[1]}")
+    ob.name = "part_src"
+    return ob, img
+
+
+def _remap_u(ob, lo, hi):
+    """Map every uv's u from [0, 1) into [lo, hi)."""
+    layer = ob.data.uv_layers.active
+    uv = np.empty(len(ob.data.loops) * 2, dtype=np.float32)
+    layer.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)
+    uv[:, 0] = lo + (uv[:, 0] % 1.0) * (hi - lo)
+    layer.data.foreach_set("uv", uv.ravel())
+
+
+def _scaled_pixels(img, w, h):
+    """The image's RGB(A) buffer resampled to (w, h) -- on a COPY, so the
+    datablock the material still references is untouched until replaced."""
+    tmp = img.copy()
+    tmp.scale(w, h)
+    px = np.array(tmp.pixels[:], dtype=np.float32).reshape(h, w, tmp.channels)
+    bpy.data.images.remove(tmp)
+    return px
+
+
+def _compose_atlas(team_id, src, part, part_img):
+    """One `base_color` of 2*TEXTURE_PX x TEXTURE_PX: the figure's bake on the
+    left, the part's on the right; the figure's uvs into [0, 0.5), the
+    part's into [0.5, 1); the part takes the figure's material. Sets
+    `_TEX["atlas"]` so the export step ships the atlas at that size rather
+    than squashing it to a square."""
+    fig_img = bpy.data.images["base_color"]
+    W, H = 2 * TEXTURE_PX, TEXTURE_PX
+    left = _scaled_pixels(fig_img, TEXTURE_PX, TEXTURE_PX)
+    right = _scaled_pixels(part_img, TEXTURE_PX, TEXTURE_PX)
+    ch = left.shape[2]
+    if right.shape[2] != ch:
+        rgba = np.ones((TEXTURE_PX, TEXTURE_PX, ch), dtype=np.float32)
+        n = min(ch, right.shape[2])
+        rgba[..., :n] = right[..., :n]
+        right = rgba
+    atlas = bpy.data.images.new("atlas_color", W, H, alpha=(ch == 4))
+    atlas.pixels = np.concatenate([left, right], axis=1).ravel().tolist()
+    atlas.update()
+    mat = _TEX["material"]
+    for node in mat.node_tree.nodes:
+        if node.type == "TEX_IMAGE" and node.image is fig_img:
+            node.image = atlas
+    fig_img.name = "figure_color"
+    atlas.name = "base_color"
+    _remap_u(src, 0.0, 0.5)
+    _remap_u(part, 0.5, 1.0)
+    part.data.materials.clear()
+    part.data.materials.append(mat)
+    for stale in (fig_img, part_img):
+        if stale.users == 0:
+            bpy.data.images.remove(stale)
+    _TEX["atlas"] = (W, H)
+    log(f"{team_id}: atlas {W}x{H} -- figure bake left, part bake right; images {[i.name for i in bpy.data.images]}")
+
+
+def _separate_islands(ob):
+    """Split `ob` into its loose pieces, largest first (by face count).
+    A remesh's UV seams split its vertices (the B8 sniper part came apart
+    into 361 'islands' by vertex connectivity), so coincident vertices are
+    welded first -- UVs live on the loops and are untouched."""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-4)
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    bpy.ops.object.select_all(action="DESELECT")
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.separate(type="LOOSE")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    pieces = [o for o in bpy.context.selected_objects if o.type == "MESH"]
+    pieces.sort(key=lambda o: -len(o.data.polygons))
+    return pieces
+
+
+def _part_extent_log(ob):
+    co = _coords(ob)
+    log(f"  {ob.name:22s} role {ob.get('rl_role'):7s} x {co[:, 0].min():+.2f}..{co[:, 0].max():+.2f} "
+        f"y {co[:, 1].min():+.2f}..{co[:, 1].max():+.2f} z {co[:, 2].min():+.2f}..{co[:, 2].max():+.2f} "
+        f"({len(ob.data.polygons)} tris)")
+
+
+def _long_axis_yaw(co):
+    """Yaw (degrees) that turns the xy long axis of `co` onto +X, read off
+    the 2-D covariance; which END leads is settled by the caller."""
+    xy = co[:, :2] - co[:, :2].mean(axis=0)
+    w, v = np.linalg.eigh(xy.T @ xy)
+    ax = v[:, int(np.argmax(w))]
+    return -math.degrees(math.atan2(ax[1], ax[0]))
+
+
+def _meshy_mortar(team_id, part):
+    """The mortar: scaled by its longest axis, turned so the muzzle (the
+    highest vertex cluster) leads the baseplate (the lowest) along +X,
+    baseplate centre on kit's anchor, on the ground, role `weapon`."""
+    cfg = MESHY_PARTS[team_id]
+    co = _coords(part)
+    ext = co.max(axis=0) - co.min(axis=0)
+    scale = cfg["longest_m"] / float(ext.max())
+    z = co[:, 2] - co[:, 2].min()
+    plate = co[z < 0.06 * z.max()][:, :2].mean(axis=0)
+    muzzle = co[z > 0.90 * z.max()][:, :2].mean(axis=0)
+    d = muzzle - plate
+    yaw = -math.degrees(math.atan2(d[1], d[0]))
+    log(f"{team_id}: mortar source extent {tuple(round(float(e), 3) for e in ext)}, scale {scale:.4f}, "
+        f"muzzle leads the plate by {math.hypot(*d):.3f} source units at {-yaw:+.1f} deg -> yaw {yaw:+.1f}")
+    _transform(part, Matrix.Scale(scale, 4))
+    _transform(part, Matrix.Rotation(math.radians(yaw), 4, "Z"))
+    co = _coords(part)
+    z = co[:, 2] - co[:, 2].min()
+    plate = co[z < 0.06 * z.max()][:, :2].mean(axis=0)
+    ax, ay = cfg["anchor"]
+    _transform(part, Matrix.Translation((ax - plate[0], ay - plate[1], -co[:, 2].min())))
+    part.name = part.data.name = "mtr_tube"
+    part["rl_role"] = "weapon"
+    _part_extent_log(part)
+    return part
+
+
+def _meshy_sniper_kit(team_id, part):
+    """The rifle and the spotting scope from one preview: separated by
+    connectivity, the rifle turned muzzle +X (the thinner end -- the stock
+    is the taller one), scaled to `rifle_m`, the scope by the same factor,
+    both left where that leaves them for the caller to place. Returns
+    (rifle, scope)."""
+    cfg = MESHY_PARTS[team_id]
+    pieces = _separate_islands(part)
+    if len(pieces) < 2:
+        raise SystemExit(f"{team_id}: the part remesh is one island -- no spotting scope to split off")
+    rifle, scope = pieces[0], pieces[1]
+    for extra in pieces[2:]:
+        # Loose slivers (a strap end, a bipod foot) go with the nearer piece.
+        c = _coords(extra).mean(axis=0)
+        near = min((rifle, scope), key=lambda o: float(((_coords(o).mean(axis=0) - c) ** 2).sum()))
+        bpy.ops.object.select_all(action="DESELECT")
+        extra.select_set(True)
+        near.select_set(True)
+        bpy.context.view_layer.objects.active = near
+        bpy.ops.object.join()
+    log(f"{team_id}: islands -> rifle {len(rifle.data.polygons)} tris, scope {len(scope.data.polygons)} tris, "
+        f"{len(pieces) - 2} sliver(s) merged")
+    co = _coords(rifle)
+    yaw = _long_axis_yaw(co)
+    _transform(rifle, Matrix.Rotation(math.radians(yaw), 4, "Z"))
+    co = _coords(rifle)
+    x0, x1 = co[:, 0].min(), co[:, 0].max()
+    front = co[co[:, 0] > x1 - 0.2 * (x1 - x0)]
+    back = co[co[:, 0] < x0 + 0.2 * (x1 - x0)]
+    if (front[:, 2].max() - front[:, 2].min()) > (back[:, 2].max() - back[:, 2].min()):
+        _transform(rifle, Matrix.Rotation(math.radians(180.0), 4, "Z"))
+        yaw += 180.0
+    scale = cfg["rifle_m"] / float(x1 - x0)
+    log(f"{team_id}: rifle long axis {x1 - x0:.3f} source units, yaw {yaw:+.1f}, scale {scale:.4f}")
+    _transform(scope, Matrix.Rotation(math.radians(yaw), 4, "Z"))
+    for ob in (rifle, scope):
+        _transform(ob, Matrix.Scale(scale, 4))
+    return rifle, scope
+
+
+def _seat_on_ground(ob, name, role, x, y):
+    """xy bounding-box centre on (x, y), lowest vertex on z = 0."""
+    co = _coords(ob)
+    cx, cy = (co[:, 0].min() + co[:, 0].max()) / 2.0, (co[:, 1].min() + co[:, 1].max()) / 2.0
+    _transform(ob, Matrix.Translation((x - cx, y - cy, -co[:, 2].min())))
+    ob.name = ob.data.name = name
+    ob["rl_role"] = role
+    _part_extent_log(ob)
+    return ob
+
+
+# ---------------------------------------------------------------------------
 # teams
 # ---------------------------------------------------------------------------
 
@@ -2122,10 +2408,17 @@ def _figure(src, height, spec, kneel):
 def build_team(team_id):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     _TEX["material"] = None
+    _TEX.pop("atlas", None)
     _TEAM["id"] = team_id
     _BLOB_KW_ACTIVE.clear()
     _BLOB_KW_ACTIVE.update(BLOB_KW.get(team_id, {}))
     src, height = _load_figure(team_id)
+    part_src = None
+    if team_id in MESHY_PARTS:
+        # B8: the Meshy crew weapon, before the cut so every figure uv (and
+        # every blob that borrows one) lands in the atlas's left half.
+        part_src, part_img = _load_part(team_id)
+        _compose_atlas(team_id, src, part_src, part_img)
     figures = rig.TEAM_FIGURES[team_id]
     parts, bones, forced = [], [], {}
     eyes, hands = {}, {}
@@ -2276,7 +2569,13 @@ def build_team(team_id):
         # B7: the 1.02 m tube verbatim from `rig._mortar_team_extras` on
         # `prop`, hidden while the crew walk on their D6 walkers; the No.3's
         # rifle at his hand.
-        tube, prop_bones, f_tube = rig._mortar_team_extras()
+        _kit_tube, prop_bones, _f_kit = rig._mortar_team_extras()
+        for ob in _kit_tube:
+            bpy.data.objects.remove(ob, do_unlink=True)
+        # B8: the Meshy mortar on the same `prop` bone at the same anchor
+        # (`MESHY_PARTS`), one `weapon` mesh through the atlas.
+        tube = [_meshy_mortar(team_id, part_src)]
+        part_src = None
         # The tube and bipod must be clear of every crewman at rest (B7
         # review): counted here, and `launcher_clearance.test.ts` repeats
         # it on the exported bytes.
@@ -2287,9 +2586,14 @@ def build_team(team_id):
         if inside:
             raise SystemExit(f"mortar_team: {inside} mortar samples inside a crewman -- move the mount, do not ship it")
         bones += prop_bones
-        forced.update(f_tube)
+        forced.update({ob: "prop" for ob in tube})
         parts += tube
         w = _rifle_at_hand("mtr_no3", hands["mtr_no3"], -0.62, 0.0)
+        for ob in w:
+            # One material per role: the kit rifle shares `weapon` with the
+            # textured mortar, so it borrows one uv from the mortar's bake
+            # (its tube, a dark gunmetal texel) rather than exporting bare.
+            _borrow_uv(ob, tube[0], near=_coords(tube[0]).mean(axis=0))
         forced.update({ob: "mtr_no3_forearm_R" for ob in w})
         parts += w
     elif team_id == "sniper_team":
@@ -2299,6 +2603,10 @@ def build_team(team_id):
         # `death_root`. The prone offsets are kit's own, written for a head
         # at +0.78 from the anchor, which is where `_prone_parts` put it.
         baked = any(o.name.endswith("_carbine") for o in parts)
+        # B8: the Meshy rifle and spotting scope (one preview, two islands),
+        # placed below in the kit pieces' own positions.
+        rifle_m, scope_m = _meshy_sniper_kit(team_id, part_src)
+        part_src = None
         for sspec in rig.SNIPER_SPECS:
             pfx, sx, sy = sspec["prefix"], sspec["x"], sspec["sign"] * rig.SNIPER_CLOSE_IDLE
             if sspec["role"] == "rifle":
@@ -2316,25 +2624,24 @@ def build_team(team_id):
                 # the ground under the muzzle.
                 hx, hy, hz = prone_heads[pfx]
                 side = -1.0 if sy < 0 else 1.0
-                ry, rz = hy + side * 0.17, hz - 0.15
-                lying = [
-                    kit.tube(f"{pfx}_death_rifle", 1.24, 0.05, (hx + 0.25, ry, rz), role="weapon"),
-                    kit.box(f"{pfx}_death_rifle_bipod", (0.06, 0.30, rz - 0.02), (hx + 0.75, ry, (rz - 0.02) / 2.0 + 0.01), "metal"),
-                ]
-                if baked:
-                    # One material per role: the `weapon` mesh already holds
-                    # the baked carbine, and a UV-less tube joined to it
-                    # exports as a second primitive that three.js names
-                    # `weapon_1`/`weapon_2` -- a role nothing maps. The tube
-                    # borrows the bake and one uv (a blob joint's rule).
-                    _borrow_uv(lying[0], src_fig)
+                ry = hy + side * 0.17
+                # B8: the Meshy rifle lies on its own bipod on the ground,
+                # outboard of the head at the kit tube's x (centre hx+0.25,
+                # muzzle past the helmet), role `weapon` through the atlas.
+                lying = [_seat_on_ground(rifle_m, f"{pfx}_death_rifle", "weapon", hx + 0.25, ry)]
             else:
                 carried = kit.binoculars(f"{pfx}_binos", (sx, sy, eyes[pfx] - kit.POSTURE_EYE["standing"] * kit.FIGURE_H - 0.04),
                                          posture="standing")
                 forced.update({ob: f"{pfx}_head" for ob in carried})
+                for ob in carried:
+                    # One material per role: the standing glasses share
+                    # `metal` with the textured scope below, so they borrow
+                    # one uv from the scope's bake.
+                    _borrow_uv(ob, scope_m, near=_coords(scope_m).mean(axis=0))
                 hx, hy, hz = prone_heads[pfx]
-                # Glasses at the lifted face: just ahead of the head's own centre.
-                lying = [kit.box(f"{pfx}_death_binos", (0.10, 0.18, 0.07), (hx + 0.15, hy, hz - 0.03), "metal")]
+                # B8: the Meshy spotting scope on its tripod, on the ground
+                # just ahead of the lifted face, role `metal` through the atlas.
+                lying = [_seat_on_ground(scope_m, f"{pfx}_death_scope", "metal", hx + 0.30, hy)]
             forced.update({ob: f"{pfx}_death_root" for ob in lying})
             parts += carried + lying
     elif team_id == "yahalom_squad":
@@ -2395,8 +2702,9 @@ def build_team(team_id):
     if textured:
         img = bpy.data.images["base_color"]
         before = tuple(img.size)
-        if img.size[0] > TEXTURE_PX or img.size[1] > TEXTURE_PX:
-            img.scale(min(img.size[0], TEXTURE_PX), min(img.size[1], TEXTURE_PX))
+        cap_w, cap_h = _TEX.get("atlas") or (TEXTURE_PX, TEXTURE_PX)
+        if img.size[0] > cap_w or img.size[1] > cap_h:
+            img.scale(min(img.size[0], cap_w), min(img.size[1], cap_h))
         log(f"{team_id}: base_color {before[0]}x{before[1]} -> {img.size[0]}x{img.size[1]}; "
             f"images {[i.name for i in bpy.data.images]}")
         for role, ob in merged.items():
