@@ -1,7 +1,7 @@
 {
   "unit": "ifv_namer",
   "source": "assets/meshes/vehicles/ifv_namer.glb",
-  "source_sha256": "9caa102bd380717189f312e708f9ac70167a833a996d211041d5ac0b4d9282a9",
+  "source_sha256": "b670edde436e3e267eb0c61de0e865d9ae382310c9ea80b1d80e3c7f46579071",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,
@@ -12,11 +12,11 @@
   "ndc_box": [
     0.04,
     0.96,
-    0.2459,
-    0.7541
+    0.1643,
+    0.8357
   ],
   "materials": {
-    "baked": 4,
-    "flat": 0
+    "baked": 2,
+    "flat": 2
   }
 }

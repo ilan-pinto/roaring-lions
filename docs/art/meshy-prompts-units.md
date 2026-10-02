@@ -1081,3 +1081,105 @@ old preview), then `inf_squad` (the reference, and the three-man cut), then
 `yahalom_squad` last, after its `work` question is answered. One preview, one
 refine, one remesh each; gates after every unit; commit per unit; one PR per
 two units.
+
+
+---
+
+# Batch B8 — the lead's 2 Oct follow-ups: `ifv_namer`, the mortar, the sniper rifle
+
+**WP-A3.1 (GH-179), batch B8 · 2026-10-02 · approved by the lead after the portrait
+sheet (about 90 credits planned, 150 cap, one preview per item)**
+
+Three things the portrait sheet made plain. `ifv_namer` ships a 2026-08 image-to-3D
+hull whose bake is one flat olive-grey (`export_meshy_namer.py`, 40,612 tris) beside
+the B0a/A3.2 textured vehicles; `mortar_team`'s mortar is `kit.mortar` (136 + 36
+tris, four boxes and a tube, palette) beside three Meshy crewmen; `sniper_team`'s
+prone rifle is a kit tube with a box bipod and the spotter's glasses a kit box.
+
+**The standing rule since 2 Oct (the lead): every model at MAXIMUM DETAIL** --
+detailed prompts (gear, weathering), the refine at the highest texture setting
+(`--tex 8k`, 15), and simplification only to a measured budget, saying what the cap
+cost. The §5 template's "never ask for high detail" is read as "polycount comes from
+the remesh, not from adjectives", which still holds: the prompts below name GEAR, not
+adjectives. "No insignia" stays for the figures and the parts; the vehicle prompt
+allows faint stencils with no readable text and forbids real-world insignia, flags
+and emblems (the D9's refine put a white star on a hull whose prompt forbade all
+markings, `_fix_bake`'s `scrub_white`).
+
+| unit | class | steps | credits |
+|---|---|---|---|
+| `ifv_namer` | textured vehicle, tracked, kit RWS | preview 20 + refine 8k 15 + remesh 5 | 40 |
+| `mortar_team` mortar | crew weapon part, textured | preview 20 + refine 8k 15 + remesh 5 | 40 |
+| `sniper_team` rifle + spotting scope | crew weapon part, textured, one object | preview 20 + refine 8k 15 + remesh 5 | 40 |
+| | | **B8 planned** | **120** (about $2.40); cap 150 |
+
+**Sent 2026-10-02, all three previews usable, 120 credits, no re-roll** — what each
+delivered and what Blender did is in `style-bible.md` §15 and `docs/ASSET_PROVENANCE.md`
+("batch B8"): the Namer with an unasked-for glacis gun (collapsed), the mortar at ~35°
+rather than 70° (kept), the sniper piece with both the rifle and the scope as asked.
+
+Balance read 2026-10-02: 3,285 credits before the batch, 3,165 after. The 8k refine is +5 over the bible's 2k per
+item, which is why 120 and not the 105 a 2k batch would cost; a single re-roll at 40
+would reach 160, over the cap, so there is NO re-roll in this batch -- an unusable
+preview stops and reports. The preview is judged BEFORE the refine spends (B7's
+`refine <preview-task-id>`), so a bad preview costs 20, not 40.
+
+## 24. `ifv_namer` — Namer IFV (KDF, tracked, `cannon_30` RWS)
+
+Today: `art/meshes/vehicles/ifv_namer.glb`, 40,612 tris, a 2026-08 Meshy image-to-3D
+`.blend` (gitignored, `export_meshy_namer.py`) with a 2048 bake that is one flat
+olive-grey, Meshy's own turret as `turret_metal`/`turret_glass` on `turret_pivot`.
+
+| item | number | source |
+|---|---|---|
+| class | textured vehicle, **40** credits (preview 20 + refine 8k 15 + remesh 5) | lead, 2 Oct |
+| real size | **7.3 m** hull length -- `NAMER_HULL/manifest.json` `realMetres`, read at export; scale uniformly | `render_namer.py` |
+| size class | `heavy_vehicle`, x1.0 | `dimetric.py` |
+| remesh / cap | **8,000** / **10,000**, the heavy row (`mbt_lavi` 8,346, Eitan 7,951, Kipod 8,052) | bible §3 |
+| bake | yes; already in `TEXTURED_VEHICLE_TYPES` / `TEXTURED_VEHICLE_EXEMPT` -- nothing to add. 8k refine shipped at `textured.TEXTURE_PX` 2048 ("dont drop resolution" is the vehicle rule; 2048 is its ceiling) | `textured.py` |
+| file | `art/meshes/vehicles/ifv_namer.glb`, contract v2, `+X` forward, origin at ground centre; `hull_hull` + `hull_rubber` (the track band, `kind="tracked"` as the D9), `turret_pivot` on the ring | bible §2 |
+| exporter | a spec in `tools/vehicles/export_meshy_ramp.py` (the tracked split and the ring RWS are both there already); `export_meshy_namer.py` is deleted -- its source is gitignored and a live exporter of a retired source is the hazard `mesh_ownership.py` names | `export_meshy_ramp.py` |
+| RWS | `kit.rws` on the ring, 0 credits: size (1.0, 0.8, 0.5), barrel 1.2 m (a 30 mm, longer than the Eitan's 0.95 `rws_50`) | `kit.py` |
+| what the prompt describes | the unit's own data: `role ifv`, `cannon_30`, troops in the back, a Merkava-pattern heavy hull: wedge glacis, full-length flat roof, skirts over the tracks, rear door, stowage | `ifv_namer.json` |
+| nearest neighbour | `apc_eitan` (the old Namer read 0.837 against it), `mbt_lavi` (tracked). Levers: tracks and skirts (not eight wheels), no turret (an RWS), the full-length flat roof (not a gun turret) | `pnpm validate:meshes` |
+| wreck / weight | `wreck-recipes.ts` `ifv_namer: tracked, turretPivot` and `vehicle-weight-params.ts` are keyed by unit id and stay; `pnpm wreck:meshes -- --id=ifv_namer` after export | CLAUDE.md |
+| sandbox | in the base set; portrait re-rendered (`render_unit_portraits.py --only=ifv_namer`) | |
+
+```
+A single low-poly game-ready tracked heavy infantry fighting vehicle, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A long low tracked hull on a tank chassis with a steep wedge glacis, a flat-roofed troop compartment over the full length, heavy side skirts over the tracks, a rear door, smoke dischargers, stowage baskets, tow cables and a small empty round mounting ring on the roof with no weapon fitted. Dusty weathering, chipped edges, faint stencils with no readable text. Real-world scale, 7.3 metres long. Olive paint, gunmetal, dark rubber track pads. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No real-world insignia, flags or emblems.
+```
+
+789 characters.
+
+## 25. `mortar_team` — the mortar (KDF crew weapon part)
+
+| item | number | source |
+|---|---|---|
+| class | crew weapon part, textured, **40** credits | lead, 2 Oct |
+| calibre | the unit is `60mm Mortar Team` (`mortar_60`); the lead asked for an 81/120 mm read. A 120 mm (1.7 m tube, 1 m plate) does not fit between crewmen 1.08 m apart; the model is a **medium (81 mm-class) mortar, tube 1.3 m** -- the kit's 1.02 m tube was already "the tallest spike" that separates the team from `mortar_crew`'s 0.76 | `teams.py`, `mortar_team.json` |
+| remesh / cap | **600** (the crew-weapon cap; the row's 400 target is for a tube, this has a bipod, plate, wheels and sight). The team file is already over the 8,000 team cap (11,766); +600 -172 = +428 | bible §3 |
+| bake | the figure's atlas: the part's 8k bake is scaled to 1024 and composed BESIDE the figure's 1024 bake in one 2048x1024 `base_color` (figure u in [0, 0.5), part u in [0.5, 1)), so the GLB keeps ONE material and every role one primitive (`weapon_1`/`weapon_2` from a second material is a role nothing maps -- B7's `_borrow_uv` note). The No.3's kit rifle borrows a uv from the part's bake so `weapon` stays one material | `import_meshy_crew_team.py` |
+| placement | the whole part is role `weapon` on `prop` at kit's (0.26, 0, 0) -- the anchor `launcher_clearance.test.ts`'s MOUNTED row and the importer's own `_inside_count` refuse on; baseplate centre on the anchor, muzzle toward +X, scaled by the tube's own measured length | `rig._mortar_team_extras` |
+| what is lost | nothing: the tube and bipod were kit boxes | |
+
+```
+A single low-poly game-ready medium infantry mortar set up for firing, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A smooth steel tube 1.3 metres long elevated at seventy degrees on an adjustable two-legged bipod with elevation and traverse hand wheels, a round ribbed steel baseplate on the ground, a small optical sight unit on the bipod bracket, and a carrying handle on the tube. Worn gunmetal, chipped olive paint, dust. Real-world scale, 1.3 metre tube. Gunmetal, olive paint, black rubber grips. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+750 characters.
+
+## 26. `sniper_team` — the rifle and the spotting scope (KDF crew weapon part)
+
+| item | number | source |
+|---|---|---|
+| class | crew weapon part, textured, **40** credits -- ONE preview carrying both the rifle and the spotter's scope, split in Blender by connectivity; the brief allows one preview per item and the team has a spotter (`snp_b`) | lead, 2 Oct |
+| remesh / cap | **600** for both pieces together (the cap); the team ships 7,938, under the cap, +600 -190 (kit tube, bipod box, glasses box twice) | bible §3 |
+| bake | the figure's atlas, as the mortar; the standing spotter's kit binoculars borrow a uv from the scope's bake so `metal` stays one material | |
+| placement | rifle: `weapon` on `snp_a_death_root`, lying on its bipod beside the prone head (B7's rule: outboard side at shoulder height, muzzle past the helmet), scaled to 1.25 m; scope: `metal` on `snp_b_death_root`, on its tripod just ahead of the lifted face. The standing walker keeps its baked carbine and the kit binoculars (B7) | `_prone_parts` |
+| gait pins | the walker is untouched, so `sniper_team`'s 0.972 multiplier and cadence pins should not move; re-measured by `mesh_gait` either way | `mesh_gait.test.ts` |
+
+```
+A single low-poly game-ready long-range sniper rifle on its folding bipod with a spotting scope on a short tripod beside, weapons of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level, both on the ground as one object. A heavy bolt-action rifle 1.25 metres long with a thick fluted barrel, muzzle brake, long scope on a rail, adjustable cheek rest and box magazine, bipod legs down; the spotting scope with an angled eyepiece on a low tripod alongside. Worn gunmetal, scuffed olive stock, dust. Real-world scale, 1.25 metre rifle. Gunmetal, olive paint, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+795 characters.

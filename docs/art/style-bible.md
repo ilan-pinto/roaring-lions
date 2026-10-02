@@ -157,6 +157,14 @@ One consequence worth knowing: the CLI has no standalone `refine <preview-id>`, 
 textured unit runs `text --refine` as ONE call (30) and the preview cannot be judged
 before the refine spends; the remesh (5) is the step that can still be withheld.
 
+**The lead's standing rule since 2 Oct 2026 — every model at MAXIMUM DETAIL.**
+Detailed prompts (gear, weathering; stencils with no readable text on a vehicle,
+still no real-world insignia), the refine at the highest texture setting
+(`--tex 8k`, 15 credits, +5 over the 2k row above), and simplification only to a
+MEASURED budget, saying what the cap cost. Polycount still comes from the remesh
+and the class row in §3, never from adjectives. A textured unit is therefore 40
+credits, not 35, and a crew weapon part that ships a bake is 40, not 25 (B8).
+
 **Rules that are not optional:**
 
 - **One preview per concept.** A wrong preview is fixed in Blender. A re-roll is a
@@ -643,3 +651,29 @@ otherwise.
   12,410 -- all over the 8,000 team cap, where the supplied files they
   replace read 31,965 / 180,670 / 20,544 / 30,876 / 27,991. 205 credits of
   the 240 approved.
+
+## 15. Measured in B8 (2026-10-02)
+
+- **An 8k refine's remesh carries 8k.** The Namer's 8,000-tri remesh arrived
+  with an 8192² base colour and 4096² normal / metallic-roughness (74 MB GLB);
+  the two 600-tri parts likewise (40 and 66 MB). All of it is downscaled at
+  export (2048 for a vehicle, 1024 for a figure's atlas half), so the 8k buys a
+  sharper 2048, not a bigger file; the downloads are not committed.
+- **"No weapon fitted" lost again on a tracked hull.** The Namer preview put a
+  gun tube on the glacis, as the Eitan's did; the ramp module gained the APC
+  module's `gun` collapse for it.
+- **A remesh is a triangle soup by vertex connectivity.** `separate(LOOSE)` on
+  the sniper part gave 361 islands; a `remove_doubles` at 0.1 mm first gives the
+  two objects the prompt asked for. UVs live on loops and survive the weld.
+- **A textured part beside a textured figure needs ONE material, so it needs an
+  atlas.** Two materials in one role export as two primitives (`weapon_1`,
+  `weapon_2`) that no role maps; the importer composes the part's bake beside the
+  figure's in a 2048×1024 `base_color` and remaps u. Kit pieces left in a shared
+  role borrow a uv from the part.
+- **"Elevated at seventy degrees" was ignored.** The mortar came at ~35°, a
+  machine-gun angle with a mortar's round plate; shipped as is and named in the
+  provenance for the lead to rule on.
+- Counts: `ifv_namer` 7,842 tris (hull 2,588, tracks 5,202, kit RWS 22);
+  `mortar_team` 10,743 (was 11,766); `sniper_team` 8,012 (was 7,938). 120
+  credits, no re-roll, balance 3,165 after.
+
