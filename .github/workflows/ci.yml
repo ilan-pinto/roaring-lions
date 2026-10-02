@@ -41,6 +41,9 @@ jobs:
       # coverage test (every discovered hull sheet has a manifest entry) fails
       # loudly on the same input. Neither is redundant with the other.
       - run: python3 tools/crop_unit_icons.py --check
+      # GH-153: the Blender unit portraits' manifest (size + alpha extent of
+      # each team and lead-figure PNG) must match the PNGs it describes.
+      - run: python3 tools/portrait_manifest.py --check
       # Level load time, step 4: `art/meshes/` is the uncompressed source of
       # record and `assets/meshes/` is the Draco-compressed copy that SHIPS.
       # Every other mesh gate reads the source, so a shipped file that is

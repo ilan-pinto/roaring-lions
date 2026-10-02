@@ -68,7 +68,7 @@ import {
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
-import { portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
+import { portraitIds, portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
 import { CivFlightWatch, type CivObservation } from './ui/civ-flight';
@@ -742,10 +742,12 @@ const SPRITE_MAP: Record<string, SpriteSpec> = {
  * it can set `data-icon` the same way the mission HUD does.
  */
 const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: boolean } | null> => {
-  const spec = SPRITE_MAP[id];
-  if (!spec) return null;
-  const icon = unitIcon(spec.path);
+  const spec = SPRITE_MAP[id] as SpriteSpec | undefined;
+  // The Blender portrait first (GH-153), whole team -- every brigade slot is
+  // larger than a chip -- and it needs no sprite sheet at all.
+  const icon = unitIcon(id, spec?.path, 'full');
   if (icon !== null) return { url: icon.url, isIcon: true };
+  if (!spec) return null;
   try {
     const res = await fetch(`${spec.path}manifest.json`);
     if (!res.ok) return null;
@@ -2245,13 +2247,30 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * position, and a click-select can reach it.
    */
   const portraits: Record<string, string> = {};
-  /** Which ids in `portraits` above came from a cropped `unitIcon` rather than
-   *  a whole sheet frame -- read by the HUD and the dock to set `data-icon`. */
+  /** Which ids in `portraits` above came from `unitIcon` (a Blender portrait
+   *  or a cropped icon) rather than a whole sheet frame -- read by the HUD and
+   *  the dock to set `data-icon`. */
   const portraitIcons = new Set<string>();
+  /** The HUD selection chip's picture where it differs from `portraits`: a
+   *  figure team's ONE lead figure (GH-153; the lead's call, 2 Oct -- at
+   *  <= 48 px a team shows one man). Every larger slot reads `portraits`. */
+  const chipPortraits: Record<string, string> = {};
+
+  // A type with a portrait but no sprite sheet (`recon_zikit`,
+  // `heli_peten_gunship`, `dozer_d9`) gets its picture here; the sheet loop
+  // below never sees it.
+  for (const id of portraitIds()) {
+    const full = unitIcon(id, undefined, 'full');
+    if (full === null) continue;
+    portraits[id] = full.url;
+    portraitIcons.add(id);
+    const chip = unitIcon(id, undefined, 'chip');
+    if (chip !== null && chip.url !== full.url) chipPortraits[id] = chip.url;
+  }
 
   for (const [id, spec] of Object.entries(SPRITE_MAP)) {
     const { path } = spec;
-    const icon = unitIcon(path);
+    const icon = unitIcon(id, path, 'full');
     if (icon !== null) {
       portraits[id] = icon.url;
       portraitIcons.add(id);
@@ -2721,7 +2740,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // reads the same table) is closed over rather than copied, so a rebind
     // repaints the button the next time the HUD ticks.
     keyFor: (id) => (isAction(id) ? keyLabel(bindings[id]) : id),
-    portrait: (typeId) => portraits[typeId] ?? null,
+    portrait: (typeId, slot) => (slot === 'chip' ? chipPortraits[typeId] : undefined) ?? portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
     kitOf: (typeId) => kitByType.get(typeId) ?? null,
     kitLevelOf,

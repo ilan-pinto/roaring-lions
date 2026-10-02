@@ -1,0 +1,265 @@
+{
+  "version": 1,
+  "size": 192,
+  "portraits": {
+    "apc_eitan": {
+      "file": "apc_eitan.png",
+      "extent": [
+        182,
+        132
+      ]
+    },
+    "apc_kipod": {
+      "file": "apc_kipod.png",
+      "extent": [
+        182,
+        148
+      ]
+    },
+    "at_team": {
+      "file": "at_team.png",
+      "extent": [
+        165,
+        174
+      ],
+      "lead": {
+        "file": "lead/at_team.png",
+        "extent": [
+          136,
+          174
+        ]
+      }
+    },
+    "atgm_cell": {
+      "file": "atgm_cell.png",
+      "extent": [
+        174,
+        160
+      ],
+      "lead": {
+        "file": "lead/atgm_cell.png",
+        "extent": [
+          101,
+          174
+        ]
+      }
+    },
+    "attack_drone": {
+      "file": "attack_drone.png",
+      "extent": [
+        181,
+        123
+      ]
+    },
+    "breach_team": {
+      "file": "breach_team.png",
+      "extent": [
+        132,
+        174
+      ],
+      "lead": {
+        "file": "lead/breach_team.png",
+        "extent": [
+          74,
+          174
+        ]
+      }
+    },
+    "demo_squad": {
+      "file": "demo_squad.png",
+      "extent": [
+        148,
+        174
+      ],
+      "lead": {
+        "file": "lead/demo_squad.png",
+        "extent": [
+          89,
+          174
+        ]
+      }
+    },
+    "dozer_d9": {
+      "file": "dozer_d9.png",
+      "extent": [
+        182,
+        132
+      ]
+    },
+    "heli_peten": {
+      "file": "heli_peten.png",
+      "extent": [
+        182,
+        86
+      ]
+    },
+    "heli_peten_gunship": {
+      "file": "heli_peten_gunship.png",
+      "extent": [
+        182,
+        86
+      ]
+    },
+    "ifv_namer": {
+      "file": "ifv_namer.png",
+      "extent": [
+        182,
+        102
+      ]
+    },
+    "inf_squad": {
+      "file": "inf_squad.png",
+      "extent": [
+        168,
+        174
+      ],
+      "lead": {
+        "file": "lead/inf_squad.png",
+        "extent": [
+          64,
+          174
+        ]
+      }
+    },
+    "jeep_shoded": {
+      "file": "jeep_shoded.png",
+      "extent": [
+        182,
+        134
+      ]
+    },
+    "loiter_drone": {
+      "file": "loiter_drone.png",
+      "extent": [
+        182,
+        82
+      ]
+    },
+    "manpad_team": {
+      "file": "manpad_team.png",
+      "extent": [
+        94,
+        174
+      ],
+      "lead": {
+        "file": "lead/manpad_team.png",
+        "extent": [
+          57,
+          174
+        ]
+      }
+    },
+    "mbt_lavi": {
+      "file": "mbt_lavi.png",
+      "extent": [
+        182,
+        144
+      ]
+    },
+    "mortar_team": {
+      "file": "mortar_team.png",
+      "extent": [
+        132,
+        174
+      ],
+      "lead": {
+        "file": "lead/mortar_team.png",
+        "extent": [
+          81,
+          174
+        ]
+      }
+    },
+    "recoilless_team": {
+      "file": "recoilless_team.png",
+      "extent": [
+        174,
+        164
+      ],
+      "lead": {
+        "file": "lead/recoilless_team.png",
+        "extent": [
+          114,
+          174
+        ]
+      }
+    },
+    "recon_drone": {
+      "file": "recon_drone.png",
+      "extent": [
+        182,
+        77
+      ]
+    },
+    "recon_zikit": {
+      "file": "recon_zikit.png",
+      "extent": [
+        128,
+        174
+      ],
+      "lead": {
+        "file": "lead/recon_zikit.png",
+        "extent": [
+          94,
+          174
+        ]
+      }
+    },
+    "rocket_battery": {
+      "file": "rocket_battery.png",
+      "extent": [
+        182,
+        168
+      ]
+    },
+    "sarim_rifles": {
+      "file": "sarim_rifles.png",
+      "extent": [
+        174,
+        116
+      ],
+      "lead": {
+        "file": "lead/sarim_rifles.png",
+        "extent": [
+          82,
+          174
+        ]
+      }
+    },
+    "scout_shachaf": {
+      "file": "scout_shachaf.png",
+      "extent": [
+        182,
+        172
+      ]
+    },
+    "sniper_team": {
+      "file": "sniper_team.png",
+      "extent": [
+        174,
+        72
+      ],
+      "lead": {
+        "file": "lead/sniper_team.png",
+        "extent": [
+          174,
+          94
+        ]
+      }
+    },
+    "yahalom_squad": {
+      "file": "yahalom_squad.png",
+      "extent": [
+        174,
+        164
+      ],
+      "lead": {
+        "file": "lead/yahalom_squad.png",
+        "extent": [
+          110,
+          174
+        ]
+      }
+    }
+  }
+}

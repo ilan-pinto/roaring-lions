@@ -20,12 +20,13 @@
 // is now the FALLBACK: `portraitFile`/`portraitUrl` below hand back a raw
 // sheet frame only for a sheet the crop pipeline has not (yet) produced an
 // icon for. GH-153's dedicated Blender-rendered portraits are the later step
-// that replaces the PNGs under `assets/ui/icons/units/` with hand-composed art
-// -- `unitIcon`'s contract (`UnitIcon { url, size, extent }`) does not change
-// when that lands, only what `pnpm icons:units` writes into it.
+// that landed in PR 338 and is wired below: `unitIcon` returns that portrait
+// for every unit that has one, and the crop (`spriteCropIcon`) for the rest.
+// `UnitIcon { url, size, extent }` is unchanged.
 
 import manifest from '../../../../assets/ui/icons/units/manifest.json';
 import plateManifestJson from '../../../../assets/ui/plates/units/manifest.json';
+import portraitManifestJson from '../../../../assets/ui/portraits/units/manifest.json';
 
 /** The subset of a sheet manifest this needs. Structural, so a test can hand it
  *  an object rather than a file. */
@@ -170,21 +171,128 @@ for (const [sheet, entry] of Object.entries(iconManifest.icons)) {
 }
 
 /**
- * The cropped icon for a sheet, or null when none was built for it --
- * `BLD_*` sheets, `*_TURR` sheets (composited into their hull's own icon, not
- * given one of their own) and any sheet the icon pipeline has not reached yet
- * all read the same way: no icon, fall back to the sheet frame.
+ * The cropped sprite-sheet icon for a sheet, or null when none was built for
+ * it -- `BLD_*` sheets, `*_TURR` sheets (composited into their hull's own
+ * icon, not given one of their own) and any sheet the icon pipeline has not
+ * reached yet all read the same way: no icon, fall back to the sheet frame.
+ *
+ * Since GH-153's Blender portraits landed this is the FALLBACK picture, drawn
+ * only for a unit `unitIcon` below finds no portrait for (the enemy types
+ * outside the portrait roster: militia, technical, moto_rpg and the rest).
  *
  * `basePath` is a `SPRITE_MAP` path, always ending in `/`; its last segment is
  * the sheet name the icon manifest keys on.
  */
-export function unitIcon(
+export function spriteCropIcon(
   basePath: string,
   catalogue: Readonly<Record<string, UnitIcon>> = ICONS
 ): UnitIcon | null {
   const trimmed = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
   const sheet = trimmed.slice(trimmed.lastIndexOf('/') + 1);
   return catalogue[sheet] ?? null;
+}
+
+// --- Blender unit portraits (GH-153, S3a) -----------------------------------
+//
+// `tools/render_unit_portraits.py` renders each unit's own shipped GLB at one
+// three-quarter angle under the garage's lights
+// (docs/superpowers/specs/2026-10-01-unit-portraits-numbers.md) and writes a
+// 192 px PNG per unit id to `assets/ui/portraits/units/`, plus, for a figure
+// team, a ONE-figure variant under `lead/` -- the team's front man, fitted to
+// the frame alone. `tools/portrait_manifest.py` records each file's size and
+// alpha extent, and CI's `--check` holds the manifest to the PNGs.
+//
+// Which picture a slot gets is the lead's call (2 Oct): at chip size (40 px,
+// <= 48) a figure team shows its lead figure, because three men in a 40 px
+// square are three 13 px smudges; every larger slot -- the unit card, the dock
+// tile, the brigade screen -- shows the whole team, whose composition is what
+// identifies its type there.
+//
+// Keyed by unit id rather than sprite sheet, so a type with no sheet at all
+// (`recon_zikit`, `heli_peten_gunship`, `dozer_d9`) still gets a picture. The
+// images are DOM, not canvas, so both backends -- and `&nomesh` -- draw the
+// same ones.
+
+/** Which slot a picture is for. `chip` is the HUD selection chip, the one
+ *  slot at or under 48 px; `full` is everything larger. */
+export type PortraitSlot = 'chip' | 'full';
+
+interface PortraitManifestFile {
+  file: string;
+  extent: number[];
+}
+
+interface PortraitManifest {
+  version: number;
+  size: number;
+  portraits: Record<string, PortraitManifestFile & { lead?: PortraitManifestFile }>;
+}
+
+// The same `unknown` cast the two manifests above take, for the same reason.
+const portraitManifest = portraitManifestJson as unknown as PortraitManifest;
+
+/** Every portrait PNG the glob found, by path relative to the portraits
+ *  directory (`inf_squad.png`, `lead/inf_squad.png`) -- the manifest's own
+ *  `file` key. */
+const portraitUrlByFile: Record<string, string> = {};
+for (const [path, url] of Object.entries(
+  import.meta.glob('../../../../assets/ui/portraits/units/**/*.png', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  }) as Record<string, string>
+)) {
+  const marker = '/portraits/units/';
+  portraitUrlByFile[path.slice(path.indexOf(marker) + marker.length)] = url;
+}
+
+/** One unit's portraits: the whole team, and the lead figure where one was
+ *  rendered (figure teams only). */
+export interface UnitPortraits {
+  full: UnitIcon;
+  lead?: UnitIcon;
+}
+
+function portraitIcon(entry: PortraitManifestFile, url: string): UnitIcon {
+  const [w, h] = entry.extent;
+  return { url, size: portraitManifest.size, extent: [w, h] };
+}
+
+/** Built once at module load: every manifest entry whose PNG the glob above
+ *  actually captured, so a stale entry reads as absent, never a broken img. */
+const PORTRAITS: Record<string, UnitPortraits> = {};
+for (const [id, entry] of Object.entries(portraitManifest.portraits)) {
+  const url = portraitUrlByFile[entry.file];
+  if (url === undefined) continue;
+  const leadUrl = entry.lead === undefined ? undefined : portraitUrlByFile[entry.lead.file];
+  PORTRAITS[id] =
+    entry.lead !== undefined && leadUrl !== undefined
+      ? { full: portraitIcon(entry, url), lead: portraitIcon(entry.lead, leadUrl) }
+      : { full: portraitIcon(entry, url) };
+}
+
+/** Every unit id with a Blender portrait -- for a caller that must offer a
+ *  picture to a type its sprite map does not name. */
+export function portraitIds(catalogue: Readonly<Record<string, UnitPortraits>> = PORTRAITS): string[] {
+  return Object.keys(catalogue);
+}
+
+/**
+ * The picture a unit type shows in a UI slot: its Blender portrait when one
+ * ships (the lead figure in a `chip` slot, when the type has one), otherwise
+ * the cropped sprite-sheet icon for `basePath` (`spriteCropIcon`), otherwise
+ * null -- and the caller falls back to a sheet frame or the hatch, as before.
+ */
+export function unitIcon(
+  typeId: string,
+  basePath: string | undefined,
+  slot: PortraitSlot = 'full',
+  portraits: Readonly<Record<string, UnitPortraits>> = PORTRAITS,
+  catalogue: Readonly<Record<string, UnitIcon>> = ICONS
+): UnitIcon | null {
+  const p = portraits[typeId];
+  if (p !== undefined) return slot === 'chip' ? (p.lead ?? p.full) : p.full;
+  return basePath === undefined ? null : spriteCropIcon(basePath, catalogue);
 }
 
 // --- engine-rendered unit plates (Task 15, GH-153's garage) -----------------

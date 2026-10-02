@@ -2190,7 +2190,9 @@ body {
    a plain downscale of a smooth photograph rather than a palette-quantised
    sprite. Nearest-neighbour would re-alias what Lanczos already anti-aliased
    -- the opposite mistake from the sheet-frame rule above. No size changes;
-   the icon fills the same frame the sheet frame did. */
+   the icon fills the same frame the sheet frame did. The Blender unit
+   portraits (GH-153: 192 px, Lanczos from a 512 px render) are the same kind
+   of image and carry the same attribute. */
 .rl-chip__art[data-icon='1'],
 .rl-card__art[data-icon='1'],
 .rl-tile__art[data-icon='1'],
