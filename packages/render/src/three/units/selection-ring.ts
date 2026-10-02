@@ -144,13 +144,20 @@ export function ringHaloAlpha(s: number): number {
   return smoothstep(0, f, s) * (1 - smoothstep(SELECTION_RING.haloTiles, SELECTION_RING.haloTiles + f, s));
 }
 
-const T = glslFloat(SELECTION_RING.thicknessTiles);
-const PX = glslFloat(SELECTION_RING.minThicknessPx);
+/** The ring's look, as the shader bakes it. `SELECTION_RING`'s own values are
+ *  the default; GH-346's prototype (`readability-levers.ts`) passes others. */
+export interface RingStyle {
+  readonly coreAlpha: number;
+  readonly haloAlpha: number;
+  readonly thicknessTiles: number;
+  readonly minThicknessPx: number;
+}
+
+const DEFAULT_RING_STYLE: RingStyle = SELECTION_RING;
+
 const F = glslFloat(SELECTION_RING.featherTiles);
-const CORE_A = glslFloat(SELECTION_RING.coreAlpha);
 const HALO = glslFloat(SELECTION_RING.haloTiles);
 const HALO_END = glslFloat(SELECTION_RING.haloTiles + SELECTION_RING.featherTiles);
-const HALO_A = glslFloat(SELECTION_RING.haloAlpha);
 
 const RING_VERTEX_SHADER = /* glsl */ `
   attribute vec2 aOffset;
@@ -169,7 +176,12 @@ const RING_VERTEX_SHADER = /* glsl */ `
   }
 `;
 
-const RING_FRAGMENT_SHADER = /* glsl */ `
+function ringFragmentShader(style: RingStyle): string {
+  const T = glslFloat(style.thicknessTiles);
+  const PX = glslFloat(style.minThicknessPx);
+  const CORE_A = glslFloat(style.coreAlpha);
+  const HALO_A = glslFloat(style.haloAlpha);
+  return /* glsl */ `
   uniform float uPxPerTile;
   uniform vec3 uHaloColor;
   varying vec2 vLocal;
@@ -193,6 +205,7 @@ const RING_FRAGMENT_SHADER = /* glsl */ `
     gl_FragColor = vec4(vColor * ca + uHaloColor * ha * (1.0 - ca), a);
   }
 `;
+}
 
 /**
  * The ring's material: the annulus shader above, `uHaloColor` (LINEAR,
@@ -201,14 +214,14 @@ const RING_FRAGMENT_SHADER = /* glsl */ `
  * wins against the ground it was conformed to; `DoubleSide` like every flat
  * mark in this backend, since nothing here depends on winding.
  */
-export function createSelectionRingMaterial(halo: Rgb): THREE.ShaderMaterial {
+export function createSelectionRingMaterial(halo: Rgb, style: RingStyle = DEFAULT_RING_STYLE): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       uPxPerTile: { value: ringPxPerTile(1) },
       uHaloColor: { value: new THREE.Vector3(halo[0], halo[1], halo[2]) },
     },
     vertexShader: RING_VERTEX_SHADER,
-    fragmentShader: RING_FRAGMENT_SHADER,
+    fragmentShader: ringFragmentShader(style),
     transparent: true,
     blending: THREE.CustomBlending,
     blendEquation: THREE.AddEquation,
@@ -362,7 +375,7 @@ export class SelectionRingBatch {
   /** `capacity` defaults to `SELECTION_RING.capacity`. `resolveShadow` is
    *  called once per `endFrame`, so it should hand back a CACHED linear
    *  tuple (`cachedHexToLinear`), not parse a hex every frame. */
-  constructor(opts: { capacity?: number; resolveShadow: () => Rgb }) {
+  constructor(opts: { capacity?: number; resolveShadow: () => Rgb; style?: RingStyle }) {
     const capacity = opts.capacity ?? SELECTION_RING.capacity;
     if (!Number.isInteger(capacity) || capacity < 1) {
       throw new Error(`SelectionRingBatch: capacity must be a positive integer, got ${capacity}`);
@@ -427,7 +440,7 @@ export class SelectionRingBatch {
     this.layoutDirty = false;
     geometry.setDrawRange(0, 0);
 
-    this.mesh = new THREE.Mesh(geometry, createSelectionRingMaterial(this.resolveShadow()));
+    this.mesh = new THREE.Mesh(geometry, createSelectionRingMaterial(this.resolveShadow(), opts.style));
     this.mesh.name = 'selection-ring';
     this.mesh.renderOrder = SELECTION_RING_RENDER_ORDER;
     this.mesh.castShadow = false;
