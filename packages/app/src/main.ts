@@ -1089,6 +1089,12 @@ async function main(): Promise<void> {
       // its own first gesture. Mute and the volume sliders are honoured
       // inside `playUi`; a set with no decoded clip plays its synth arm.
       onCue: (cue) => battleAudio().playUi(CUE_SET[cue]),
+      // The Stores tab (GH-317), a preview for everyone: a zero coin balance
+      // and every Buy disabled. It reads the account and writes nothing.
+      stores: {
+        coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
+        paid: ledgerStore.readAccount().paid,
+      },
       onReset: ledgerStore.available
         ? () => {
             telemetry().account('reset', ledgerStore.resetAccount());

@@ -67,6 +67,7 @@ import { flash, prefersReducedMotion } from './motion';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
+import { showStores } from './stores';
 
 export interface BrigadeUnit {
   id: string;
@@ -184,6 +185,21 @@ export interface BrigadeOptions {
    *  Absent reads `motion.ts`'s `prefersReducedMotion()` -- the setting, then
    *  the OS. A seam for tests, which have neither. */
   reducedMotion?: () => boolean;
+  /** The Stores tab (GH-317), a PREVIEW: visible to everyone, sells nothing
+   *  (`ui/stores.ts`). Absent: the garage draws no view tabs at all, exactly
+   *  as before -- a test or a caller that never asked for the Stores does not
+   *  get one. */
+  stores?: GarageStoresOptions;
+}
+
+/** What the Stores tab needs beyond what the garage already holds. */
+export interface GarageStoresOptions {
+  /** The Roar coin art (`assets/ui/roar_coin/`), by pixel size. */
+  coinSrc: (size: 16 | 24 | 48) => string;
+  /** The account's per-mission pay record, for the honest line's mean pay. */
+  paid?: Readonly<Record<string, number>>;
+  /** Open on the Stores tab rather than the brigade. */
+  open?: boolean;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -367,6 +383,41 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   brand.appendChild(titles);
   head.appendChild(brand);
 
+  // The two views (GH-317): the brigade -- the rail, bay and board below --
+  // and the Stores. Drawn only when the caller asked for a Stores at all.
+  // Left/Right/Home/End move between them, the rail tabs' own F8 pattern.
+  type View = 'brigade' | 'stores';
+  let view: View = 'brigade';
+  const viewEls = new Map<View, HTMLButtonElement>();
+  if (opts.stores !== undefined) {
+    const views = el('div', 'rl-garage__views');
+    views.setAttribute('role', 'tablist');
+    views.setAttribute('aria-label', t('garage.view.label'));
+    for (const v of ['brigade', 'stores'] as const) {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'rl-garage__view';
+      tab.dataset.view = v;
+      tab.dataset.focusKey = `view:${v}`;
+      tab.setAttribute('role', 'tab');
+      tab.textContent = t(`garage.view.${v}`);
+      tab.addEventListener('click', () => setView(v));
+      viewEls.set(v, tab);
+      views.appendChild(tab);
+    }
+    views.addEventListener('keydown', (ev: KeyboardEvent) => {
+      if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight' && ev.key !== 'Home' && ev.key !== 'End') return;
+      const order = [...viewEls.entries()];
+      const at = order.findIndex(([, tab]) => tab === document.activeElement);
+      const to = rovingStep(ev.key, at, order.length);
+      if (to === null) return;
+      ev.preventDefault();
+      setView(order[to][0]);
+      order[to][1].focus();
+    });
+    head.appendChild(views);
+  }
+
   // The wallet is built ONCE and survives every purchase: `renderWallet`
   // repaints its figure, so the spend flash below runs on a node that is still
   // on screen afterwards (F3: it used to run on one the remount had removed).
@@ -473,6 +524,51 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   const board = el('aside', 'rl-garage__board');
   body.append(rail, bay, board);
   wrap.appendChild(body);
+
+  // The Stores' slot: the body's own grid row, shown in its place. Rebuilt on
+  // every visit, so it always reads the account as the brigade last left it
+  // (a credit purchase on the board moves its "you have" figures).
+  const storesHost = el('div', 'rl-garage__stores');
+  storesHost.hidden = true;
+  wrap.appendChild(storesHost);
+  let storesDispose: Disposer | null = null;
+  function setView(v: View): void {
+    view = v;
+    for (const [k, tab] of viewEls) {
+      tab.setAttribute('aria-selected', k === v ? 'true' : 'false');
+      tab.tabIndex = k === v ? 0 : -1;
+    }
+    body.hidden = v !== 'brigade';
+    storesHost.hidden = v !== 'stores';
+    // The header's credit wallet stays off the Stores (spec §1.8, §4: neither
+    // header shows the other currency's balance).
+    if (wallet !== null) wallet.hidden = v === 'stores';
+    storesDispose?.();
+    storesDispose = null;
+    const so = opts.stores;
+    if (v !== 'stores' || so === undefined) return;
+    storesDispose = showStores(storesHost, {
+      units: state.units,
+      ledger: opts.ledger,
+      credits: state.credits,
+      owned: state.owned,
+      paid: so.paid,
+      coinSrc: so.coinSrc,
+      missionName: opts.missionName,
+      portrait: opts.portrait,
+      onOpenUnit: (unitId) => {
+        if (!rows.some((r) => r.u.id === unitId)) return;
+        selectedId = unitId;
+        activeTrack = null;
+        // The bucket filter may hide the unit asked for; open on All.
+        bucket = 'all';
+        syncTabs();
+        renderBay();
+        setView('brigade');
+        cardEls.get(unitId)?.focus();
+      },
+    });
+  }
 
   /** The bay's stat panel (`garage-stats.ts`'s `statPanel`), rebuilt with the
    *  bay. A rung's hover and focus address it through `panel.preview`, which
@@ -737,6 +833,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   // where Shift+1 is `!`, `trackForDigit` never sees a digit anyway.
   wrap.addEventListener('keydown', (ev: KeyboardEvent) => {
     if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+    // The board is not drawn while the Stores is: a digit there is not a jump.
+    if (view !== 'brigade') return;
     const target = ev.target instanceof HTMLElement ? ev.target : null;
     if (target !== null && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
     const trackNames = [...board.querySelectorAll<HTMLElement>('[data-track]')].map((e) => e.dataset.track ?? '');
@@ -1408,6 +1506,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     countRaf = requestAnimationFrame(step);
   }
 
+  if (opts.stores !== undefined) setView(opts.stores.open === true ? 'stores' : 'brigade');
   host.appendChild(wrap);
   // Leaving mid-purchase stops the count's frame and every flash's timeout
   // BEFORE the node goes, so nothing this screen started writes to it after.
@@ -1418,6 +1517,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     cancelAnimationFrame(countRaf);
     for (const id of timers) window.clearTimeout(id);
     dropModel();
+    storesDispose?.();
+    storesDispose = null;
     wrap.remove();
   };
 }
