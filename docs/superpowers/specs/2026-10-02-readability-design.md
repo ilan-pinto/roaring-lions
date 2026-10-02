@@ -49,6 +49,12 @@ The cost does not resolve in the noise: −0.15 ms CPU and −0.05 ms GPU p95. T
 | `dusk` | report-only | 1 / 0.0000 | 48 / 0.0028 | 390,190–418,229 | the same mark as `quiet` |
 | `combat` | report-only | 7609 / 1.3266 | 4613 / 0.2271 | whole frame | inside its own run-to-run noise |
 
+**Driven through the UI on the shipped tree.**
+- The Free play picker now lists only `roe, tunnel, sur, civ, ditch, nomesh, decals, kit`.
+- A map card launched with the mouse. A rifle squad clicked with the real mouse read back `selection [5]`, the squad aimed at. 14 team rings were drawn.
+- `/mission/beit_sahwan_1_recon`, deployed with its button, drew 10 team rings.
+- `pnpm ui:routes --port=5271` passed: "one realm, two missions, no reload, nothing left behind". The first run failed in its voices leg ("Execution context was destroyed", 683 s in, load average ~30 from other sessions). A second run of the committed tree, with no file touched during it, passed.
+
 `quiet`, `vehicle`, `relief` and `aftermath` go red and need one bless. Their layer floors do not move: the rings and marks are in the `overlays` layer, which no layer check hides, and the `units` toggle does not touch them. `aftermath`'s rule is "no unit in its frame", and a ring entering from the edge does not break that rule, so blessing it as is is proposed rather than reframing.
 
 
