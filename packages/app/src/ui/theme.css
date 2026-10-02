@@ -149,6 +149,15 @@
   /* Earned, not a state: stars, citations, the stripe. Its own token so a reward never
      borrows the caution colour (the stripe stars used --warn until 2026-09-11). */
   --commend: var(--rl-dust-0);
+  /* The Roar coin's own register (GH-317, spec 2026-10-01 §3.1): copper, the
+     terracotta ramp. Never --commend (that is credits, and earned), so each
+     currency always wears its own colour, and apart from it in lightness as
+     well as hue. Palette keys only, like every other token here. */
+  --roar: var(--rl-terracotta-0);
+  --roar-mid: var(--rl-terracotta-1);
+  --roar-deep: var(--rl-terracotta-2);
+  --roar-hi: var(--rl-limestone-1);
+  --roar-ink: var(--rl-shadow-1);
   /* Bought, per type (garage uplift §2 goal 4, D3): steel, never gold -- gold
      is veterancy and credits. Shares its value with --ink-label by D3's own
      choice; kit is told apart by SHAPE (pips, the bevelled mark) and by the
@@ -4283,6 +4292,327 @@ button.rl-menu__item[data-kind='aside'] {
    and changed nothing on screen. */
 .rl-garage__card[hidden] {
   display: none;
+}
+
+/* --- the garage's two views and the Stores (GH-317) ---------------------
+   The view tabs sit in the header between the title and the wallet. The
+   body and the Stores share the screen's one `1fr` row, and whichever is
+   `hidden` must actually go: both set an author `display`, which beats the
+   UA's `[hidden]` rule (the GH-237 trap named just above). */
+.rl-garage__views {
+  display: flex;
+  gap: var(--s1);
+}
+.rl-menu--garage .rl-garage__view {
+  padding: var(--s2) var(--s4);
+  font-family: var(--font-display);
+  font-size: var(--t-body);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-garage__view[aria-selected='true'] {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.rl-garage__view[data-view='stores'][aria-selected='true'] {
+  border-color: var(--roar);
+  background: color-mix(in srgb, var(--roar) 16%, transparent);
+}
+.rl-garage__view:focus-visible,
+.rl-stores__shelf:focus-visible,
+.rl-stores__open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.rl-garage__body[hidden],
+.rl-garage__stores[hidden],
+.rl-garage__wallet[hidden],
+.rl-stores__panel[hidden] {
+  display: none;
+}
+.rl-garage__stores {
+  min-height: 0;
+  overflow-y: auto;
+}
+.rl-menu--garage .rl-stores {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  font-size: var(--t-body);
+  color: var(--ink);
+}
+.rl-stores__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s4);
+}
+.rl-stores__wallet {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-stores__wallet-coin {
+  flex: none;
+}
+.rl-menu--garage .rl-stores__wallet-n {
+  font-family: var(--font-mono);
+  font-size: var(--t-h2);
+  font-weight: 600;
+  color: var(--roar);
+}
+.rl-menu--garage .rl-stores__wallet-word {
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__notice {
+  flex: 1 1 20rem;
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border-left: 3px solid var(--roar);
+  background: var(--tile-bg);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+}
+.rl-stores__packs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--s2);
+}
+.rl-stores__pack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2) var(--s3);
+  background: var(--tile-bg);
+  border: 1px solid var(--panel-frame);
+}
+.rl-menu--garage .rl-stores__pack-name {
+  font-family: var(--font-display);
+  font-size: var(--t-h3);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-stores__pack-coins,
+.rl-stores__coin-price {
+  display: inline-flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: var(--s1);
+}
+.rl-menu--garage .rl-stores__pack-bonus,
+.rl-menu--garage .rl-stores__pack-word,
+.rl-menu--garage .rl-stores__coin-word {
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__coin-n {
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--roar);
+}
+.rl-stores__coin {
+  flex: none;
+}
+.rl-stores__shelves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  border-bottom: 1px solid var(--panel-frame);
+  padding-bottom: var(--s2);
+}
+.rl-menu--garage .rl-stores__shelf {
+  padding: var(--s1) var(--s3);
+  font-family: var(--font-display);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-stores__shelf[aria-selected='true'] {
+  color: var(--ink);
+  border-color: var(--roar);
+}
+.rl-menu--garage .rl-stores__lede,
+.rl-menu--garage .rl-stores__empty {
+  margin: 0 0 var(--s2);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+  max-width: 70ch;
+}
+.rl-menu--garage .rl-stores__shelf-h {
+  margin: var(--s3) 0 var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-stores__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: var(--s3);
+}
+.rl-stores__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  min-width: 0;
+  padding: var(--s3);
+  background: var(--tile-bg);
+  border: 1px solid var(--panel-frame);
+}
+.rl-stores__card[data-state='earned'] {
+  border-color: color-mix(in srgb, var(--good) 60%, var(--panel-frame));
+}
+.rl-stores__card[data-state='affordable'] {
+  border-color: var(--commend);
+}
+.rl-stores__card-top,
+.rl-stores__tier-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.rl-menu--garage .rl-stores__card-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-h3);
+  font-weight: 800;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+.rl-menu--garage .rl-stores__state {
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-dim);
+}
+.rl-menu--garage .rl-stores__state--earned {
+  color: var(--good);
+}
+.rl-menu--garage .rl-stores__state--affordable {
+  color: var(--commend);
+}
+.rl-menu--garage .rl-stores__state--locked {
+  color: var(--roar);
+}
+.rl-menu--garage .rl-stores__tag {
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-stores__card-art {
+  width: 4rem;
+  height: 4rem;
+  object-fit: contain;
+  background: var(--well);
+  border: 1px solid var(--panel-rule);
+}
+.rl-stores__price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+}
+.rl-menu--garage .rl-stores__credits {
+  font-family: var(--font-mono);
+  font-size: var(--t-body);
+  color: var(--commend);
+}
+.rl-menu--garage .rl-stores__have,
+.rl-menu--garage .rl-stores__or,
+.rl-menu--garage .rl-stores__tier-next {
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+}
+.rl-menu--garage .rl-stores__honest {
+  font-size: var(--t-small);
+  color: var(--ink);
+}
+.rl-stores__btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: auto;
+}
+.rl-menu--garage .rl-stores__buy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: var(--s1) var(--s3);
+  font-family: var(--font-body);
+  font-size: var(--t-small);
+  font-weight: 700;
+  color: var(--roar-ink);
+  background: var(--roar);
+  border: 0;
+  cursor: pointer;
+}
+.rl-stores__buy:disabled {
+  color: var(--ink-dim);
+  background: var(--panel-frame);
+  cursor: not-allowed;
+}
+.rl-stores__buy:disabled .rl-stores__coin {
+  opacity: 0.55;
+}
+.rl-menu--garage .rl-stores__open {
+  padding: var(--s1) var(--s3);
+  font-family: var(--font-body);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+}
+.rl-menu--garage .rl-stores__offsale {
+  font-size: var(--t-small);
+  color: var(--ink-dim);
+}
+.rl-stores__tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--panel-rule);
+}
+.rl-menu--garage .rl-stores__tier-track {
+  font-family: var(--font-display);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-stores__pips {
+  display: inline-flex;
+  gap: var(--s1);
+  margin-right: auto;
+}
+.rl-stores__pip {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 1px solid var(--panel-frame);
+}
+.rl-stores__pip--earned {
+  background: var(--commend);
+  border-color: var(--commend);
 }
 .rl-garage__card:hover,
 .rl-garage__card:focus-visible {
