@@ -459,7 +459,7 @@ describe('deploy screen beat layout (GH-162)', () => {
     const el = document.createElement('div');
     showLoading(el, firstLight.name, firstLightBriefing);
     const expected = briefingBeats(firstLightBriefing);
-    expect(expected.length).toBe(8); // First Light's own count -- see the issue text.
+    expect(expected.length).toBe(5); // First Light's own count since GH-345 cut it to two problems.
     const rendered = [...el.querySelectorAll<HTMLParagraphElement>('.rl-loading__beat')];
     expect(rendered).toHaveLength(expected.length);
     expect(rendered.map((p) => p.textContent)).toEqual(expected);

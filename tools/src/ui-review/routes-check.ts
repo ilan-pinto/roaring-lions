@@ -2161,8 +2161,10 @@ try {
   }
 
   // --- K4: the account pass, on a mission with a dock ------------------------
+  // Beit Sahwan II since GH-345: First Light lost its `resources` (and with
+  // them its dock), so the first dock-bearing mission is the foothold.
   {
-    const { ctx, page: p } = await kitPage('/mission/beit_sahwan_breach', true, `${TAG} K4`);
+    const { ctx, page: p } = await kitPage('/mission/beit_sahwan_2_foothold', true, `${TAG} K4`);
     await p.evaluate(() => (window as unknown as { __lions?: { step(n: number): void } }).__lions?.step(40));
     await p.waitForTimeout(400);
     const selected = await p.evaluate<number>(SELECT_ALL_OWN);
