@@ -121,6 +121,22 @@ describe('showMenu continue/start', () => {
 });
 
 describe('showEndScreen', () => {
+  // GH-345: what Conduct was spent on, not only the number left.
+  it('prints the invoice summary beside Conduct, and the old line on a clean fight', () => {
+    const host = document.createElement('div');
+    showEndScreen(host, {
+      result: 'defeat',
+      roe: 85,
+      survivors: 9,
+      missionId: 'a',
+      conduct: 'Clinic struck ×2 −10 · +1 more',
+    });
+    expect(host.querySelector('.rl-endsummary')?.textContent).toBe('Conduct 85 · Clinic struck ×2 −10 · +1 more');
+    const clean = document.createElement('div');
+    showEndScreen(clean, { result: 'victory', roe: 100, survivors: 9, missionId: 'a', conduct: '' });
+    expect(clean.querySelector('.rl-endsummary')?.textContent).toBe('Conduct 100 · 9 units walking out');
+  });
+
   it('draws the next-mission link with the GH-261 arrow after the words', () => {
     const host = document.createElement('div');
     showEndScreen(host, { result: 'victory', roe: 94, survivors: 11, missionId: 'a', nextMissionId: 'b' });

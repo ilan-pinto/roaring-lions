@@ -14,9 +14,11 @@
 
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { PlayerIntent } from '../input/intents';
+import type { FireState } from '../ui/fire-state';
+import type { HudElement } from '../ui/hud-elements';
 
 export interface PredicateJson {
-  kind: 'intent' | 'sim' | 'mission' | 'elapsed_s' | 'all_of' | 'any_of' | 'hover';
+  kind: 'intent' | 'sim' | 'mission' | 'elapsed_s' | 'all_of' | 'any_of' | 'hover' | 'camera';
   intent?: string;
   verb?: 'move' | 'attackMove';
   via?: 'click' | 'box' | 'group';
@@ -29,6 +31,14 @@ export interface PredicateJson {
   seconds?: number;
   of?: PredicateJson[];
   target?: 'enemy' | 'structure' | 'any';
+  /** hover only (GH-345): what the projected-fire panel says about the
+   *  hovered enemy -- `ui/fire-state.ts`'s word for it. Implies an enemy. */
+  projection?: Exclude<FireState, 'holding'>;
+  /** mission only (GH-345): the trigger or objective id the event carries. */
+  id?: string;
+  /** camera only (GH-345): tiles the view's centre has moved from where it
+   *  stood when the tutorial started. */
+  tiles?: number;
 }
 
 export interface StepJson {
@@ -39,6 +49,8 @@ export interface StepJson {
   focus?: { kind: 'marker' | 'zone' | 'none'; marker?: string; zone?: string };
   nudge_after_s?: number;
   nudge?: string;
+  /** HUD elements added when this step opens (GH-345, `hud-visibility.ts`). */
+  reveal?: HudElement[];
 }
 
 /** What the runtime can be told about. `sideOf` and `typeIdOf` are read-only
@@ -48,7 +60,18 @@ export type TutorialInput =
   | { kind: 'sim'; event: SimEvent; sideOf: (entity: number) => number; typeIdOf?: (entity: number) => string }
   | { kind: 'mission'; event: MissionEvent }
   | { kind: 'tick' }
-  | { kind: 'hover'; entity: number; structure: number; sideOf: (entity: number) => number };
+  | {
+      kind: 'hover';
+      entity: number;
+      structure: number;
+      sideOf: (entity: number) => number;
+      /** What the fire panel says about `entity` for the current selection,
+       *  or null when it says nothing (no selection, not an enemy). */
+      projection?: FireState | null;
+    }
+  /** How far the view's centre has moved from where the tutorial found it,
+   *  in tiles. The caller measures; the runtime only compares. */
+  | { kind: 'camera'; tilesFromStart: number };
 
 export interface TutorialState {
   readonly steps: readonly StepJson[];
@@ -109,13 +132,23 @@ export function matches(
       }
       return true;
     }
-    case 'mission':
-      return input.kind === 'mission' && input.event.kind === pred.event;
+    case 'mission': {
+      if (input.kind !== 'mission' || input.event.kind !== pred.event) return false;
+      if (pred.id === undefined) return true;
+      // Only `trigger` and `objective` carry an authored id; every other
+      // event's id-shaped field is an entity number, which an authored
+      // string can never name.
+      const e = input.event;
+      return (e.kind === 'trigger' || e.kind === 'objective') && e.id === pred.id;
+    }
+    case 'camera':
+      return input.kind === 'camera' && input.tilesFromStart >= (pred.tiles ?? 1);
     case 'hover': {
       if (input.kind !== 'hover') return false;
       const want = pred.target ?? 'any';
       const onEnemy = input.entity >= 0 && input.sideOf(input.entity) === 1;
       const onStructure = input.structure >= 0;
+      if (pred.projection !== undefined) return onEnemy && input.projection === pred.projection;
       if (want === 'enemy') return onEnemy;
       if (want === 'structure') return onStructure;
       // 'any': hovering literally anything -- any entity regardless of side,

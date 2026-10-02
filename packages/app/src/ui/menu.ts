@@ -503,6 +503,10 @@ export interface EndScreenOptions {
   /** Hostile units still alive at the end, read off the sim by the caller.
    *  Shown as "Remaining enemy forces withdrew (N)" on a victory when > 0. */
   withdrew?: number;
+  /** GH-345: the Conduct invoice's one-line summary ("Clinic struck ×2 −10 ·
+   *  +1 more", `conduct-invoice.ts`'s `invoiceSummary`). Empty or absent for a
+   *  clean fight, which keeps the old line. */
+  conduct?: string;
 }
 
 export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Disposer {
@@ -577,8 +581,11 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
   }
 
   const summary = document.createElement('div');
-  summary.className = 'rl-dim';
-  summary.textContent = t('menu.end.summary', { roe: opts.roe, n: opts.survivors });
+  summary.className = 'rl-dim rl-endsummary';
+  // GH-345: what Conduct was spent on, not just the number left.
+  summary.textContent = opts.conduct
+    ? t('menu.end.summaryInvoice', { roe: opts.roe, invoice: opts.conduct })
+    : t('menu.end.summary', { roe: opts.roe, n: opts.survivors });
   p.body.appendChild(summary);
 
   const nav = document.createElement('div');

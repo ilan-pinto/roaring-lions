@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { TICKS_PER_SECOND } from '@lions/sim';
 import {
   beatDwellMs,
+  clocklessObjectives,
   clockText,
   countSuppressed,
   holdClock,
@@ -17,6 +18,7 @@ import {
   stepBeat,
   stripObjectives,
   textToneClass,
+  withoutHiddenClocks,
   worstPenalties,
   type MissionView,
   type ObjectiveView,
@@ -266,17 +268,17 @@ describe('worstPenalties', () => {
         ['cover', 0.4],
         ['target moving', 0.9],
       ])
-    ).toEqual(['cover 40%', 'range 81%']);
+    ).toEqual(['cover −60%', 'range −19%']);
   });
 
-  it('drops a factor that rounds to 100% — a row saying a penalty costs nothing is noise', () => {
+  it('drops a factor that rounds to no penalty — a row saying a penalty costs nothing is noise', () => {
     expect(
       worstPenalties([
         ['range', 0.996],
         ['cover', 1],
         ['target moving', 0.9],
       ])
-    ).toEqual(['target moving 90%']);
+    ).toEqual(['target moving −10%']);
   });
 
   it('is empty when nothing is degrading the shot', () => {
@@ -306,5 +308,21 @@ describe('beatDwellMs', () => {
 
   it('floors at six seconds, so a one-word beat is still readable', () => {
     expect(beatDwellMs('Go.')).toBe(6000);
+  });
+});
+
+describe('withoutHiddenClocks (GH-345 clock: false)', () => {
+  const objs = [
+    { id: 'survive_relief', text: 'Hold', primary: true, status: 'active', type: 'survive_until', ticksLeft: 6000 },
+    { id: 'evac', text: 'Evacuate', primary: true, status: 'active', type: 'evacuate_before', ticksLeft: 5400 },
+  ];
+  it('drops only the clockless objective countdown, so the strip shows the one that can fail', () => {
+    const out = withoutHiddenClocks(objs, clocklessObjectives([{ id: 'survive_relief', clock: false }, { id: 'evac' }]));
+    expect(out[0].ticksLeft).toBeUndefined();
+    expect(out[1].ticksLeft).toBe(5400);
+    expect(holdClock({ name: 'x', result: 'ongoing', objectives: out })?.id).toBe('evac');
+  });
+  it('changes nothing for a mission that authors no clock: false', () => {
+    expect(withoutHiddenClocks(objs, clocklessObjectives(undefined))).toEqual(objs);
   });
 });

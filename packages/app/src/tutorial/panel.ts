@@ -23,16 +23,15 @@ export function tutorialPanel(host: HTMLElement, opts: { onSkip: () => void }): 
     rank: 'inspect',
     title: '',
     tag: '',
-    // Under the clock rather than along the bottom edge, where 11px of mono
-    // went unread. Centred on the clock, so the width is capped at whatever
-    // clears the briefing on the left — 40.5rem (648px at scale 1) is twice
-    // the briefing's right edge (8 + 300) plus a gutter. A floor here would be
-    // a floor on how far it may cover the objectives list, so there is none:
-    // on a narrow window the lesson gets thin rather than covering what it is
-    // teaching about.
+    // GH-345: in the radio's own slot, top left (`.rl-cmd` in theme.css:
+    // the strip's height plus 0.625rem, one --s2 in from the edge, 32.5rem
+    // wide). The radio is hidden for the whole tutorial, so the lesson takes
+    // the place the player's eye already goes for orders -- and the two can
+    // no longer overlap, which they did when the panel sat under the clock
+    // and covered the radio's own text.
     place:
-      'top:6.25rem;left:50%;transform:translateX(-50%);' +
-      'width:min(38.75rem,calc(100vw - 40.5rem))',
+      'top:calc(var(--hud-strip-h) + 0.625rem);left:var(--s2);' +
+      'width:min(32.5rem,calc(100vw - 2 * var(--s2)))',
   });
   p.el.classList.add('rl-tutorial');
 

@@ -179,7 +179,7 @@
      (`.rl-world__say[data-tone='bad']`), a poor dock tile's price
      (`.rl-tile[data-poor='1'] .rl-tile__cost`), the boot-failure screen
      (`.rl-boot-error`), the debrief's deduction list
-     (`.rl-debrief__deductions li`) and the tutorial nudge
+     (`.rl-debrief__cost`) and the tutorial nudge
      (`.rl-tutorial__nudge`) -- so a bad-tone string cannot land back on the
      unreadable fill token by accident. */
   --bad-text: var(--rl-team-hostile-text);
@@ -1696,6 +1696,13 @@ body {
 
 /* --- commander -------------------------------------------------------- */
 
+/* GH-345: a HUD surface the progressive-disclosure set hides (tutorial beats,
+   a mission's hud.hidden). An attribute rather than each pane's own display,
+   which every pane already drives for its own reasons; this has to win over
+   all of them, hence the one !important. */
+[data-hud-hidden] {
+  display: none !important;
+}
 .rl-cmd {
   position: absolute;
   left: var(--s2);
@@ -2437,6 +2444,34 @@ body {
   white-space: nowrap;
   pointer-events: none;
   z-index: 5;
+}
+/* GH-345: the Conduct invoice pinned open under the strip's Conduct field. */
+.rl-invoice {
+  position: absolute;
+  top: calc(var(--hud-strip-h) + 0.25rem);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 18rem;
+  padding: var(--s1) var(--s2);
+  pointer-events: none;
+  z-index: 6;
+}
+.rl-invoice__line {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: var(--s2);
+}
+/* GH-345: the remedy under the panel's verdict -- what to DO about "not
+   identified" or "in cover". The panel is nowrap for its rows; the remedy is
+   a sentence and wraps inside a measure of its own. */
+.rl-fire__why {
+  margin-top: var(--s1);
+  padding-top: var(--s1);
+  border-top: 1px solid var(--panel-frame);
+  white-space: normal;
+  max-width: 22rem;
+  color: var(--ink-dim);
+  font-size: 0.875em;
 }
 
 .rl-bigbanner {
@@ -3305,8 +3340,20 @@ button.rl-menu__item[data-kind='aside'] {
 }
 /* The account of the taken, the same ink the board's own line takes. */
 .rl-debrief__taken { margin: 0 0 0.5rem; color: var(--ink); }
-.rl-debrief__deductions, .rl-debrief__secondaries { margin: 0.25rem 0 0.5rem 1.2em; padding: 0; }
-.rl-debrief__deductions li { color: var(--bad-text); }
+.rl-debrief__secondaries { margin: 0.25rem 0 0.5rem 1.2em; padding: 0; }
+/* GH-345: the Conduct invoice, cause / when / cost. */
+.rl-debrief__deductions { margin: 0.25rem 0 0.5rem; border-collapse: collapse; width: 100%; }
+.rl-debrief__deductions th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-debrief__deductions th, .rl-debrief__deductions td { padding: 0.15rem 0.5rem 0.15rem 0; border-bottom: 1px solid var(--panel-frame); }
+.rl-debrief__when { color: var(--ink-dim); font-family: var(--font-mono); }
+.rl-debrief__cost { color: var(--bad-text); font-family: var(--font-mono); text-align: right; }
 .rl-debrief__secondary[data-carries='1'] { color: var(--commend); }
 /* `__unlocked` is a `ul` -- one line per unlock, since each carries its own
    reason -- so it needs the same list reset the two lists above take, or the

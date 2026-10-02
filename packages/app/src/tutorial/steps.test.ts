@@ -53,6 +53,10 @@ describe('shipped tutorial steps', () => {
           if (p.kind === 'intent') expect(p.intent, where).toBeDefined();
           if (p.kind === 'sim' || p.kind === 'mission') expect(p.event, where).toBeDefined();
           if (p.kind === 'elapsed_s') expect(p.seconds, where).toBeDefined();
+          if (p.kind === 'camera') expect(p.tiles, where).toBeDefined();
+          // An id only means something on the two events that carry an
+          // authored one; on any other kind it would silently match nothing.
+          if (p.kind === 'mission' && p.id !== undefined) expect(['trigger', 'objective'], where).toContain(p.event);
           if (p.kind === 'all_of' || p.kind === 'any_of') {
             expect((p.of ?? []).length, where).toBeGreaterThan(1);
           }
@@ -69,11 +73,12 @@ describe('shipped tutorial steps', () => {
     const allowed: Record<string, string[]> = {
       intent: ['kind', 'intent', 'verb', 'via', 'action', 'append'],
       sim: ['kind', 'event', 'side', 'by_unit', 'loaded'],
-      mission: ['kind', 'event'],
+      mission: ['kind', 'event', 'id'],
       elapsed_s: ['kind', 'seconds'],
       all_of: ['kind', 'of'],
       any_of: ['kind', 'of'],
-      hover: ['kind', 'target'],
+      hover: ['kind', 'target', 'projection'],
+      camera: ['kind', 'tiles'],
     };
     for (const t of all) {
       for (const s of t.steps) {

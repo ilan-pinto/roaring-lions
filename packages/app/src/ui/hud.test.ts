@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { units, type KitLevel } from '@lions/data';
-import { Sim, fx, type UnitTypeJson } from '@lions/sim';
+import { Sim, fx, type HitProjection, type UnitTypeJson } from '@lions/sim';
 import { Hud, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
 import type { KitSummary } from './kit-sign';
 import { alertNotice } from './mission-notice';
@@ -2490,5 +2490,133 @@ describe('GH-261 drawn marks', () => {
     const heavy = r.host.querySelector('.rl-card .rl-warn');
     expect(mark(heavy)).toBe('heavy');
     expect(heavy?.textContent?.trim()).toBe('heavy');
+  });
+});
+
+// GH-345: progressive disclosure. The Hud asks `isShown` and nothing else; the
+// rule that builds the set is `tutorial/hud-visibility.ts`'s, tested there.
+describe('HUD disclosure (isShown)', () => {
+  it('a hidden surface is off the strip, and its pane carries data-hud-hidden', () => {
+    const hidden = new Set(['conduct', 'objective', 'objectives', 'clock', 'speed', 'mute', 'radio', 'feed', 'hint']);
+    const r = rig(mission({ roe: 90 }), { isShown: (el) => !hidden.has(el) });
+    expect(r.host.querySelector('[data-tip="conduct"]')).toBeNull();
+    expect(r.host.querySelector('[data-obj]')).toBeNull();
+    expect(r.host.querySelector('[data-open-objectives]')).toBeNull();
+    expect(r.host.querySelector('.rl-strip__chips')!.hasAttribute('data-hud-hidden')).toBe(true);
+    expect(r.host.querySelector('.rl-cmd')!.hasAttribute('data-hud-hidden')).toBe(true);
+    expect(r.host.querySelector('.rl-clock')!.hasAttribute('data-hud-hidden')).toBe(true);
+    expect(r.host.querySelector('.rl-hint')!.hasAttribute('data-hud-hidden')).toBe(true);
+    // The leave button and the mission name are never part of the set.
+    expect(r.host.querySelector('.rl-hud__leave')).not.toBeNull();
+    expect(r.strip()).toContain('Beit Sahwan II');
+  });
+
+  it('a hidden feed is inert: a note written while hidden never surfaces', () => {
+    let feedOn = false;
+    const r = rig(mission(), { isShown: (el) => el !== 'feed' || feedOn });
+    r.hud.note('Contact east', 'live');
+    feedOn = true;
+    r.tick();
+    expect(r.host.querySelector('.rl-feed')!.textContent).not.toContain('Contact east');
+    r.hud.note('Second line', 'live');
+    expect(r.host.querySelector('.rl-feed')!.textContent).toContain('Second line');
+  });
+
+  it('a reveal lands on the next tick, and everything shows with no isShown at all', () => {
+    let on = false;
+    const r = rig(mission({ roe: 90 }), { isShown: (el) => el !== 'conduct' || on });
+    expect(r.host.querySelector('[data-tip="conduct"]')).toBeNull();
+    on = true;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('[data-tip="conduct"]')).not.toBeNull();
+    const plain = rig(mission({ roe: 90 }));
+    expect(plain.host.querySelector('[data-hud-hidden]')).toBeNull();
+    expect(plain.host.querySelector('[data-tip="conduct"]')).not.toBeNull();
+  });
+});
+
+// GH-345 (spec §a beat 5, decisions 1 and 5): the four states the tutorial
+// teaches, worded by the panel itself. `projectHit` is stubbed so each test
+// names the sim's answer outright -- the classifier is `fire-state.ts`'s, and
+// its own suite covers the choice; this covers the words.
+describe('projected fire wording (GH-345)', () => {
+  function firePanel(answer: HitProjection): string {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const { sim, ids } = makeSim();
+    vi.spyOn(sim, 'projectHit').mockReturnValue(answer);
+    const hud = new Hud(host, {
+      sim,
+      getSelection: () => [ids[0]],
+      getMission: () => null,
+      hoverStructure: () => -1,
+      hoverEntity: () => ids[1],
+      gameVersion: '0.1',
+      commander: TEST_COMMANDER,
+    });
+    hud.onTick();
+    return host.querySelector('.rl-fire')!.textContent!.replace(/\s+/g, ' ');
+  }
+  const factors = (o: Partial<Record<'coverMod' | 'motionMod' | 'rangeFalloff', number>>) => ({
+    p: fx.from(0.1),
+    accuracy: fx.from(0.6),
+    rangeFalloff: fx.from(o.rangeFalloff ?? 1),
+    coverMod: fx.from(o.coverMod ?? 1),
+    motionMod: fx.from(o.motionMod ?? 1),
+    stanceMod: fx.from(1),
+    suppressionMod: fx.from(1),
+  });
+
+  it('A: not identified says so and says what to do about it', () => {
+    const text = firePanel({ kind: 'unidentified' });
+    expect(text).toContain('Not identified · no firing solution');
+    expect(text).toContain('Keep eyes on it');
+  });
+  it('B: cover prints as a penalty, never as the multiplier, with its remedy', () => {
+    const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.09), hurts: true, factors: factors({ coverMod: 0.14 }) });
+    expect(text).toContain('cover −86%');
+    expect(text).not.toContain('cover 14%');
+    expect(text).toContain('Flank it');
+  });
+  it('C: a moving target prints its penalty and its remedy', () => {
+    const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.38), hurts: true, factors: factors({ motionMod: 0.6 }) });
+    expect(text).toContain('target moving −40%');
+    expect(text).toContain('Wait for it to stop');
+  });
+  it('D: out of reach names range AND sight and the reach, read from unit data', () => {
+    const text = firePanel({ kind: 'noSolution' });
+    expect(text).toContain('Out of range or out of sight · rifles reach 8 tiles');
+    expect(text).not.toContain('no unit can engage');
+  });
+  it('a clean shot carries no remedy line', () => {
+    const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) });
+    expect(text).toContain('50%');
+    expect(text).not.toContain('Flank');
+    expect(text).not.toContain('Wait for it');
+  });
+});
+
+describe('the Conduct invoice under the strip (GH-345)', () => {
+  const lines = [{ label: 'Clinic struck', cause: 'struck' as const, count: 2, total: 10, ticks: [820, 1040] }];
+  it('a click on Conduct pins the running ledger open, and a second click closes it', () => {
+    const r = rig(mission({ roe: 90 }), { conductInvoice: () => ({ lines, floor: 70 }) });
+    const inv = r.host.querySelector<HTMLElement>('.rl-invoice')!;
+    expect(inv.style.display).toBe('none');
+    r.host.querySelector<HTMLElement>('[data-tip="conduct"]')!.click();
+    expect(inv.style.display).toBe('');
+    expect(inv.textContent).toContain('Conduct 90 · floor 70');
+    expect(inv.textContent).toContain('Clinic struck ×2');
+    expect(inv.textContent).toContain('0:41');
+    expect(inv.textContent).toContain('−10');
+    r.host.querySelector<HTMLElement>('[data-tip="conduct"]')!.click();
+    expect(inv.style.display).toBe('none');
+  });
+  it('opened with nothing deducted, it reads the definition; hidden Conduct cannot open it', () => {
+    const r = rig(mission({ roe: 100 }), { conductInvoice: () => ({ lines: [] }) });
+    r.hud.setInvoiceOpen(true);
+    expect(r.host.querySelector('.rl-invoice')!.textContent).toContain('Conduct');
+    const q = rig(mission({ roe: 100 }), { conductInvoice: () => ({ lines }), isShown: (el) => el !== 'conduct' });
+    q.hud.setInvoiceOpen(true);
+    expect(q.host.querySelector<HTMLElement>('.rl-invoice')!.style.display).toBe('none');
   });
 });

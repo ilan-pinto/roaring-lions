@@ -5,7 +5,7 @@ import { showEndScreen } from './menu';
 import { showDebrief, type DebriefOptions } from './debrief';
 
 const debrief = (over: Partial<DebriefOptions>): DebriefOptions => ({
-  result: 'victory', stars: 2, roe: 80, roeFloor: 60, deductions: [], ticks: 1200, lost: [],
+  result: 'victory', stars: 2, roe: 80, roeFloor: 60, invoice: [], ticks: 1200, lost: [],
   secondaries: [], marked: 0, promoted: 0, unlocked: [], missionId: 'm', ...over,
 });
 

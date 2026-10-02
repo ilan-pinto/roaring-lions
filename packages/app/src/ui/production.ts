@@ -217,6 +217,13 @@ export class ReinforcementDock {
    * Idempotent -- `Element.remove()` on a detached node is a no-op, and
    * calling an already-called `bindTip` disposer a second time is too.
    */
+  /** GH-345: on or off screen by the HUD disclosure set (`dock`). Off is
+   *  inert too: a `display: none` dock takes no clicks, and `main.ts` gates
+   *  the production key on the same set. */
+  setShown(on: boolean): void {
+    this.el.toggleAttribute('data-hud-hidden', !on);
+  }
+
   destroy(): void {
     for (const off of this.tipDisposers) off();
     this.el.remove();
