@@ -1022,3 +1022,20 @@ reading the GLB's JSON chunk, not by the export succeeding; and a 1.35 m whip
 put `officer_fires` under the gate's 6% fill floor (5.2%), because the gate
 frames each unit to its own bounds — 0.85 m clears it at 9.1%.
 
+## WP-A3.1 batch B8 v2 — `ifv_namer` (GH-179), 2026-10-02
+
+The lead's ruling on the first B8 Namer (`art/namer-props`, PR #339: it read as a
+WWII tank destroyer — sloped, low, an old-style turret, too light an olive — and
+is not shipped there): re-do it on this branch at about 40 credits, cap 80.
+**40 credits spent, no re-roll.** AI-generated (Meshy) and disclosed per
+`CONTRIBUTING.md`; numbers and the prompt in `meshy-prompts-units.md` ("Batch B8
+v2"). The downloads (54–74 MB at 8k) are not committed; the ledger, `task.json`
+and thumbnails are. The CLI gained `--negative` (the API's `negative_prompt`) for
+this preview.
+
+| File | Draws as | Preview task id | Refine task id (8k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| `art/meshes/vehicles/ifv_namer.glb` | `ifv_namer` (Namer IFV, KDF) | `01a0fb1d-984a-75ee-a4e2-1576a4c39a12` (negative: "tank destroyer, sloped casemate, gun turret, cannon barrel, WWII, vintage, low hull, rivets") | `01a0fb1f-8375-72f5-92f7-eb196c89d804` | `01a0fb22-2611-760e-934f-b77197039b9a` at 8,000 (arrived 8,048) | **Textured** (`TEXTURED_VEHICLE_TYPES`, already listed): the remesh's 8k base colour, normal and metallic-roughness at 2048 JPEG q85. The preview honoured the hull — tall slab-sided box, bonnet at the front with headlights, flat high roof, skirts over six large road wheels, vertical rear ramp — and STILL grew a gun turret with a barrel over the bonnet, negative prompt or not; `export_meshy_ramp.py` collapses it onto the roof (`turret`, 532 verts) with the whip the remesh kept (13 verts), and seats `kit.rws` (1.0×0.8×0.5, 1.2 m) where it stood (`rws.at`, +0.92 m, roof 3.24 m). Rz 180 (end-plate area +x 0.74 vs −x 0.51: the ramp is the vertical end), 7.3 m from `NAMER_HULL`, tracked split at the measured band. The bake came back desert tan; `sand_olive` pulls its tan band (58% of texels) 22° toward yellow-green at 0.85 sat / 0.82 value, into the Eitan's register. `pnpm wreck:meshes` after; `export_meshy_namer.py` deleted. **7,810 tris** (hull 2,354 / tracks 5,404 / RWS 22), 7.3 × 4.12 × 3.74 m with the RWS. Ring rows re-pasted from `unit-footprints.ts` (1.61, ellipse 1.61 × 1.05). |
+
+**Portrait re-rendered** (`tools/render_unit_portraits.py --only=ifv_namer`).
+

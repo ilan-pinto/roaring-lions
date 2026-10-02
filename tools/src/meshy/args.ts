@@ -184,6 +184,7 @@ const GENERATE_VALUED_FLAGS: ReadonlySet<string> = new Set([
   'pose',
   'tex',
   'texture-prompt',
+  'negative',
   'formats',
 ]);
 const GENERATE_BOOLEAN_FLAGS: ReadonlySet<string> = new Set(['ultra', 'pbr', 'yes', 'json']);
@@ -200,6 +201,10 @@ export interface GenerateCommonOptions {
   readonly pbr: boolean;
   readonly textureResolution: TextureResolution;
   readonly texturePrompt: string | undefined;
+  /** `--negative`: a text preview's `negative_prompt` (B8 v2, 2026-10-02: the
+   *  first Namer honoured every named feature and still read as a WWII tank
+   *  destroyer; naming what it must not be is the API's own lever for that). */
+  readonly negativePrompt?: string | undefined;
   readonly formats: readonly TargetFormat[];
   readonly yes: boolean;
   readonly json: boolean;
@@ -225,6 +230,7 @@ function parseGenerateCommon(options: ReadonlyMap<string, string>): GenerateComm
     pbr: options.get('pbr') === 'true',
     textureResolution,
     texturePrompt: options.get('texture-prompt'),
+    negativePrompt: options.get('negative'),
     formats,
     yes: options.get('yes') === 'true',
     json: options.get('json') === 'true',

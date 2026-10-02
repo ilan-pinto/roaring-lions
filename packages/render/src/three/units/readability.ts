@@ -67,7 +67,7 @@ export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 } as
  */
 export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // dozer_d9 and scout_shachaf re-measured from their A3.2 Meshy exports (GH-185, 2026-09-30).
-  mbt_lavi: 1.15, ifv_namer: 1.6, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
+  mbt_lavi: 1.15, ifv_namer: 1.61, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
   // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
   // supplied bipeds -- three men in kit's line read narrower than the supplied
   // rifleman, the prone sniper pair wider than the sculpt.
@@ -131,7 +131,7 @@ export interface RingEllipse {
  */
 export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   mbt_lavi: { along: 1.17, across: 0.78, offsetAlong: -0.18 },
-  ifv_namer: { along: 1.61, across: 1.03, offsetAlong: 0 },
+  ifv_namer: { along: 1.61, across: 1.05, offsetAlong: 0 },
   apc_eitan: { along: 1.52, across: 0.83, offsetAlong: 0 },
   jeep_shoded: { along: 1.1, across: 0.69, offsetAlong: 0 },
   // Both re-measured 2026-09-30 (GH-185) from the Meshy exports by

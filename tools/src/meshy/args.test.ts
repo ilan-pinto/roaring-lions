@@ -154,6 +154,8 @@ describe('parseTextArgs', () => {
         '4k',
         '--texture-prompt',
         'weathered limestone',
+        '--negative',
+        'turret, tank destroyer',
         '--formats',
         'glb,obj',
         '--yes',
@@ -171,6 +173,7 @@ describe('parseTextArgs', () => {
       pbr: true,
       textureResolution: '4k',
       texturePrompt: 'weathered limestone',
+      negativePrompt: 'turret, tank destroyer',
       formats: ['glb', 'obj'],
       yes: true,
     });
