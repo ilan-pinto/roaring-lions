@@ -1691,3 +1691,106 @@ function windingNumber(p: readonly number[], tri: readonly number[]): number {
   }
   return sum / (4 * Math.PI);
 }
+
+export interface ArmClearance {
+  /** Arm vertices: every non-weapon vertex `figure`'s `upperarm_*` or
+   *  `forearm_*` dominantly owns. */
+  readonly samples: number;
+  /** Instants of the clip at which the figure was drawn (not scaled out). */
+  readonly instants: number;
+  /** The worst instant's count of arm vertices inside the same figure's own
+   *  head, neck and torso, by generalised winding number (> 0.5). */
+  readonly worstInside: number;
+}
+
+/**
+ * How deep does a figure's own arm sit inside his own upper body?
+ *
+ * #327 seated the launchers on the shoulder and re-seated both gunner arms
+ * rigidly with `_two_bone`; its census recorded the arms going deeper into
+ * the torso (rpg 223 -> 391 arm vertices inside). `measureHeldWeaponInBody`
+ * cannot see that: there the part and the body are told apart by ROLE, and
+ * an arm and a torso share the `uniform` role. Here they are told apart by
+ * JOINT alone -- arm joints against `head`/`neck`/`spine` -- with the
+ * `weapon`/`metal` roles excluded, so the tube riding `forearm_R` is not
+ * counted as arm. Vertices only (an arm is dense; a tube is not), at
+ * `SAMPLES_HELD` instants, ends included.
+ *
+ * Throws when no arm vertex or no body triangle is found for `figure`: an
+ * empty measurement is a silent pass.
+ */
+export function measureArmInBody(path: string, clip: string, figure: string): ArmClearance {
+  const glb = readGlb(path);
+  const nodes = glb.json.nodes ?? [];
+  const meshes = glb.json.meshes ?? [];
+  const { tracks, start, end } = readClip(glb, clip);
+  const armRe = new RegExp(`^${figure}_(upperarm|forearm)_[LR]$`);
+  const isBody = (n: string) => n === `${figure}_head` || n === `${figure}_neck` || n === `${figure}_spine`;
+  interface Part {
+    pos: Accessor; joints: Accessor; weights: Accessor; skin: { joints: number[] }; ibm: Accessor | null;
+    verts: number[]; tris: [number, number, number][];
+  }
+  const parts: Part[] = [];
+  let armCount = 0, bodyCount = 0;
+  for (const node of nodes) {
+    if (node.mesh === undefined || node.skin === undefined) continue;
+    const skin = glb.json.skins?.[node.skin];
+    if (!skin) continue;
+    const role = node.name ?? meshes[node.mesh]?.name ?? '';
+    const held = role === 'weapon' || role === 'metal';
+    for (const prim of meshes[node.mesh].primitives) {
+      if (prim.indices === undefined) continue;
+      const pos = readAccessor(glb, prim.attributes.POSITION);
+      const joints = readAccessor(glb, prim.attributes.JOINTS_0);
+      const weights = readAccessor(glb, prim.attributes.WEIGHTS_0);
+      const ibm = skin.inverseBindMatrices === undefined ? null : readAccessor(glb, skin.inverseBindMatrices);
+      const dom: string[] = [];
+      for (let v = 0; v < pos.count; v++) {
+        let best = -1, bw = 0;
+        for (let k = 0; k < 4; k++) {
+          const w = weights.data[v * 4 + k];
+          if (w > bw) { bw = w; best = joints.data[v * 4 + k]; }
+        }
+        dom.push(best < 0 ? '' : (nodes[skin.joints[best]]?.name ?? ''));
+      }
+      const verts = held ? [] : dom.flatMap((d, v) => (armRe.test(d) ? [v] : []));
+      const idx = readAccessor(glb, prim.indices).data;
+      const tris: [number, number, number][] = [];
+      for (let i = 0; i + 2 < idx.length; i += 3) {
+        if (isBody(dom[idx[i]]) && isBody(dom[idx[i + 1]]) && isBody(dom[idx[i + 2]])) tris.push([idx[i], idx[i + 1], idx[i + 2]]);
+      }
+      armCount += verts.length;
+      bodyCount += tris.length;
+      if (verts.length || tris.length) parts.push({ pos, joints, weights, skin, ibm, verts, tris });
+    }
+  }
+  if (armCount === 0) throw new Error(`${path}: no arm vertex rides ${figure}'s arm joints`);
+  if (bodyCount === 0) throw new Error(`${path}: no triangle rides ${figure}'s head, neck or spine`);
+
+  let worst = 0, instants = 0;
+  for (let s = 0; s < SAMPLES_HELD; s++) {
+    const t = start + ((end - start) * s) / (SAMPLES_HELD - 1);
+    const worlds = nodeWorlds(glb, tracks, t);
+    const pts: [number, number, number][] = [];
+    const tri: number[] = [];
+    for (const p of parts) {
+      const mats = computeSkinMats(p.skin, worlds, p.ibm);
+      for (const v of p.verts) pts.push(skinPoint(p.pos, p.joints, p.weights, v, mats));
+      for (const [a, b, c] of p.tris) {
+        tri.push(...skinPoint(p.pos, p.joints, p.weights, a, mats), ...skinPoint(p.pos, p.joints, p.weights, b, mats),
+          ...skinPoint(p.pos, p.joints, p.weights, c, mats));
+      }
+    }
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < tri.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], tri[i + k]); hi[k] = Math.max(hi[k], tri[i + k]); }
+    if (Math.min(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;   // scaled out
+    instants++;
+    let inside = 0;
+    for (const q of pts) {
+      if (q[0] < lo[0] || q[1] < lo[1] || q[2] < lo[2] || q[0] > hi[0] || q[1] > hi[1] || q[2] > hi[2]) continue;
+      if (windingNumber(q, tri) > 0.5) inside++;
+    }
+    worst = Math.max(worst, inside);
+  }
+  return { samples: armCount, instants, worstInside: worst };
+}

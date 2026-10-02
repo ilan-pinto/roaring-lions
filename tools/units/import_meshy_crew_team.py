@@ -1658,7 +1658,7 @@ LAUNCHERS = {
                ("mpd_tube_cap", 1.24, 1.33, 0.075, 0.075, "metal")),
         boxes=(("mpd_tube_stock", (0.05, 0.04, 0.26), (-0.15, 0.0, -0.065 - 0.13), "metal"),
                ("mpd_tube_grip", (0.11, 0.035, 0.04), (-0.185, 0.0, -0.065 - 0.24), "weapon")),
-        grip="mpd_tube_grip",
+        grip="mpd_tube_grip", grip_group=("mpd_tube_stock", "mpd_tube_grip"),
         handle=None, support=(-0.15, -0.03, -0.065 - 0.156)),
     # The recoilless rifle (Carl Gustaf class), SHOULDERED from the kneel --
     # teams.py's own words ("shouldered from a crouch, not tripod-mounted"),
@@ -1822,6 +1822,98 @@ def _sight_centre(cfg, P, face_front, eye_z):
     return Vector((u_eye + SIGHT_STANDOFF + su / 2.0, -(r + sv / 2.0), w_c))
 
 
+#: Follow-up to #327: re-seating both gunner arms with `_two_bone` sank
+#: them into the chest (arm vertices inside his own head/neck/spine, read off
+#: the exported GLB by `mesh_gait.measureArmInBody`: rpg 223 -> 391, manpad
+#: 29 -> 274, recoilless 152 -> 225; gated by `launcher_arms.test.ts`). Four
+#: levers are now MEASURED rather than declared, each the least move that
+#: helps, and none may leave a hand further off its seat:
+#:   * the elbow's SWIVEL about the shoulder->wrist line (`_arm_swivel`), in
+#:     ARM_SWIVEL_STEP_DEG steps within ARM_SWIVEL_MAX_DEG of the declared
+#:     pole, never with the elbow above its own shoulder (ELBOW_RISE_MAX);
+#:   * the firing GRIP slid along the bore (GRIP_SLIDE), staying GRIP_ON_TUBE
+#:     inside either end -- with the MANPAD's whole gripstock and its support
+#:     point riding it (`grip_group`), scored on both arms together;
+#:   * the SUPPORT seat: a handle's attach point slid along the bore
+#:     (HANDLE_SLIDE) and inboard (HANDLE_INBOARD), its hang swung about the
+#:     bore (HANDLE_SWING, kept well below the bore's side) and raked toward
+#:     the muzzle (HANDLE_RAKE); with no handle, the point moved over its stock
+#:     face (SUPPORT_SLIDE). The hand never rises above, or reaches further
+#:     across him than, its declared seat (a hand lifted beside the face read
+#:     worse than the overlap it removed), and every handle passes its own
+#:     clearance;
+#:   * the SHOULDER protracted forward and out (SHOULDER_PROTRACT), as a
+#:     reaching shoulder rides its scapula -- at most 3 cm each way, inside
+#:     the deltoid blob that hides the cut.
+ARM_SWIVEL_STEP_DEG = 5.0
+ARM_SWIVEL_SEARCH_STEP_DEG = 15.0   # coarser while a seat search calls it per candidate
+ARM_SWIVEL_MAX_DEG = 90.0
+ELBOW_RISE_MAX = 0.0           # m an elbow may sit above its own shoulder joint (the declared pole is exempt)
+#: The joints whose parts are "his own upper body" for that count -- the same
+#: three `measureArmInBody` reads off the GLB.
+ARM_BODY_BONES = ("spine", "neck", "head")
+#: The parts each arm bone carries (rig.PART_BONE), as `_seat_launcher` moves them.
+ARM_UPPER_PARTS = ("upperarm{}", "elbow{}")
+ARM_FORE_PARTS = ("forearm{}",)
+HANDLE_SLIDE = tuple(round(0.05 * k, 3) for k in range(-2, 5))      # m along the bore, + muzzle
+HANDLE_SWING = (-30.0, -15.0, 0.0, 10.0, 20.0, 30.0)                # deg about the bore, + inboard
+HANDLE_RAKE = (0.0, 0.2, 0.4)                                       # + toward the muzzle
+HANDLE_INBOARD = (0.0, -0.03, -0.06)                                # m, - toward his face
+SUPPORT_SLIDE = {"u": (-0.02, 0.0, 0.02),                           # m, tube frame, on the stock face
+                 "w": tuple(round(0.02 * k, 3) for k in range(-3, 6))}
+SUPPORT_SHORT_SLACK = 0.005    # m a re-seated wrist may sit further off its seat than the declared one
+GRIP_SLIDE = tuple(round(0.02 * k, 3) for k in range(-5, 11))      # m along the bore
+GRIP_ON_TUBE = 0.03
+SHOULDER_PROTRACT = (0.0, 0.01, 0.02, 0.03)   # m; the deltoid blob's radius is 0.078 H/1.8
+
+
+def _arm_swivel(team_id, pfx, side, mine, upper_T, S, E, W, target, pole, quiet=False, shift=None):
+    """(pole, count): the pole for `_two_bone` that keeps arm `side` out of
+    `upper_T`, and how many of the arm's vertices are still inside it."""
+    u = (target - S).normalized()
+    p0 = Vector(pole)
+    v0 = (p0 - u * p0.dot(u)).normalized()
+    w0 = u.cross(v0)
+    up = np.concatenate([_coords(mine[n.format(side)]) for n in ARM_UPPER_PARTS if n.format(side) in mine])
+    fore = np.concatenate([_coords(mine[n.format(side)]) for n in ARM_FORE_PARTS if n.format(side) in mine])
+    if shift is not None:   # a protracted shoulder: the whole arm, joints and parts, moved first
+        up, fore = up + np.array(shift), fore + np.array(shift)
+        S, E, W = S + shift, E + shift, W + shift
+
+    def moved(m, co):
+        M = np.array(m)
+        return co @ M[:3, :3].T + M[:3, 3]
+
+    lo, hi = upper_T.reshape(-1, 3).min(axis=0), upper_T.reshape(-1, 3).max(axis=0)
+
+    def inside(co):
+        box = np.all((co >= lo) & (co <= hi), axis=1)
+        return int((_winding(co[box], upper_T) > 0.5).sum()) if box.any() else 0
+
+    step = ARM_SWIVEL_SEARCH_STEP_DEG if quiet else ARM_SWIVEL_STEP_DEG
+    n = int(round(ARM_SWIVEL_MAX_DEG / step))
+    best = None
+    scores = []
+    for k in sorted(range(-n, n + 1), key=abs):
+        th = math.radians(k * step)
+        p = v0 * math.cos(th) + w0 * math.sin(th)
+        m_up, m_fore, E2, _W2, _sh = _two_bone(S, E, W, target, p)
+        if k and E2.z > S.z + ELBOW_RISE_MAX:
+            continue   # never an elbow cocked above the shoulder to dodge the chest
+        c = inside(moved(m_up, up)) + inside(moved(m_fore, fore))
+        scores.append((k * step, c))
+        if best is None or c < best[1]:
+            best = (k * step, c, p, E2 - S)
+    declared = dict(scores)[0.0]
+    if quiet:
+        return tuple(best[2]), best[1]
+    log(f"{team_id}: {pfx} arm{side} elbow swivel {best[0]:+.0f} deg from the declared pole "
+        f"(elbow at shoulder {tuple(round(x, 3) for x in best[3])}): "
+        f"{declared} -> {best[1]} arm vertices inside his own upper body at rest "
+        f"(sweep {' '.join(f'{a:+.0f}:{c}' for a, c in sorted(scores))})")
+    return tuple(best[2]), best[1]
+
+
 def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     """Seat `LAUNCHERS[team_id]` on its gunner's +y shoulder beside his head
     and re-seat both his hands on it. `parts` is the team's PLACED part list,
@@ -1923,13 +2015,21 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
             ob = kit.prism(name, r0, r1, u1 - u0, (0.0, 0.0, 0.0), sides=8, role=role)
             _transform(ob, Matrix.Translation(at((u_rear + u0, 0.0, 0.0))) @ Rz)
             out.append(ob)
-    centres = {}
-    for name, size, c, role in cfg["boxes"]:
-        c = sight_c if c == "sight" else Vector(c)
-        ob = kit.box(name, size, (0.0, 0.0, 0.0), role)
-        _transform(ob, Matrix.Translation(at(c)) @ R)
-        centres[name] = at(c)
-        out.append(ob)
+    # Re-seat the two hands (follow-up to #327): the firing hand's grip slides
+    # along the bore (GRIP_SLIDE) and the support hand's seat is searched
+    # (HANDLE_* / SUPPORT_SLIDE) to whatever keeps each arm out of his own
+    # chest, every arm with its elbow swivel measured too (`_arm_swivel`).
+    # A team whose stock and support point hang off the grip (`grip_group`,
+    # the MANPAD's gripstock) slides them together and is scored on both arms
+    # at once; otherwise the two hands are independent.
+    upper_T = np.concatenate([_tris(o) for n, o in mine.items()
+                              if rig.PART_BONE.get(n) in ARM_BODY_BONES or n.startswith("kef_")])
+    a1 = joints["arm"][1]
+    a1S, a1E, a1W = (Vector(a1[k]) + off for k in ("shoulder", "elbow", "wrist"))
+    reach1 = (a1E - a1S).length + (a1W - a1E).length
+    grip_c = next(Vector(c) for n, _s, c, _r in cfg["boxes"] if n == cfg["grip"])
+    short1_cap = max(0.0, (at(grip_c) - a1S).length - reach1) + SUPPORT_SHORT_SLACK
+    group = cfg.get("grip_group", (cfg["grip"],))
 
     # Support handle: hung from its attach point along its direction, as long
     # as the support arm needs to reach its foot (PR #325's handle, solved) --
@@ -1942,37 +2042,118 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
     S0 = Vector(a0["shoulder"]) + off
     reach0 = ((Vector(a0["elbow"]) - Vector(a0["shoulder"])).length
               + (Vector(a0["wrist"]) - Vector(a0["elbow"])).length)
+    a0S, a0E, a0W = (Vector(a0[k]) + off for k in ("shoulder", "elbow", "wrist"))
     if cfg.get("handle") is None:
-        # No handle: the support hand closes on a named point of the weapon.
-        A = at(cfg["support"])
-        D = (A - S0).normalized()
-        length, foot = 0.0, A + D * 0.02
+        # No handle: the support hand closes on a named point of the weapon --
+        # the declared one, or another on the same stock face (SUPPORT_SLIDE).
+        def solve(du, dw, grip_du=0.0):
+            A = at((cfg["support"][0] + du + grip_du, cfg["support"][1], cfg["support"][2] + dw))
+            D = (A - S0).normalized()
+            return A, D, 0.0, A + D * 0.02
+        cands = [(du, dw) for du in SUPPORT_SLIDE["u"] for dw in SUPPORT_SLIDE["w"]]
+        cands_zero = (0.0, 0.0)
     else:
         attach_t, dir_t, section, lmin, lmax = cfg["handle"]
-        A = at(attach_t)
-        D = (d * dir_t[0] + v * dir_t[1] + w * dir_t[2]).normalized()
         clear_r = 0.5 * math.hypot(*section) + HANDLE_GAP
 
-        def handle_clear(L):
-            n = max(2, int(L / 0.01) + 1)
-            axis = np.array([tuple(A + D * (L * t)) for t in np.linspace(0.0, 1.0, n)])
-            if any(bvh.find_nearest(Vector(p))[3] < clear_r for p in axis[1:]):
-                return False
-            return not (_winding(axis, T) > 0.5).any()
+        def solve(du, dphi, rake, dv, grip_du=0.0):
+            A = at((attach_t[0] + du, attach_t[1] + dv, attach_t[2]))
+            r_vw = math.hypot(dir_t[1], dir_t[2])
+            phi = math.atan2(-dir_t[1], -dir_t[2]) + math.radians(dphi)
+            Dt = (dir_t[0] + rake, -math.sin(phi) * r_vw, -math.cos(phi) * r_vw)
+            D = (d * Dt[0] + v * Dt[1] + w * Dt[2]).normalized()
 
-        length, best_clear = None, None
-        for k in range(int(round((lmax - lmin) / 0.005)) + 1):
-            L = lmin + k * 0.005
-            if not handle_clear(L):
-                break
-            best_clear = L
-            if (A + D * L - S0).length <= LAUNCH_REACH_USE * reach0:
-                length = L
-                break
-        if best_clear is None:
-            raise SystemExit(f"{team_id}: {cfg['name']}'s support handle cuts the body even at {lmin} m")
-        if length is None:
-            length = best_clear
+            def handle_clear(L):
+                n = max(2, int(L / 0.01) + 1)
+                axis = np.array([tuple(A + D * (L * t)) for t in np.linspace(0.0, 1.0, n)])
+                if any(bvh.find_nearest(Vector(p))[3] < clear_r for p in axis[1:]):
+                    return False
+                return not (_winding(axis, T) > 0.5).any()
+
+            length, best_clear = None, None
+            for k in range(int(round((lmax - lmin) / 0.005)) + 1):
+                L = lmin + k * 0.005
+                if not handle_clear(L):
+                    break
+                best_clear = L
+                if (A + D * L - S0).length <= LAUNCH_REACH_USE * reach0:
+                    length = L
+                    break
+            if best_clear is None:
+                return None
+            if length is None:
+                length = best_clear
+            return A, D, length, A + D * length
+        cands = [(du, dphi, rk, dv) for du in HANDLE_SLIDE for dphi in HANDLE_SWING for rk in HANDLE_RAKE
+                 for dv in HANDLE_INBOARD]
+        cands_zero = (0.0, 0.0, 0.0, 0.0)
+
+    def short_of(foot, D):
+        return max(0.0, ((foot - D * 0.02) - a0S).length - reach0)
+
+    declared = solve(*cands_zero)
+    if declared is None:
+        raise SystemExit(f"{team_id}: {cfg['name']}'s support handle cuts the body even at its declared seat")
+    short_cap = short_of(declared[3], declared[1]) + SUPPORT_SHORT_SLACK
+
+    def support_search(grip_du):
+        best, tried = None, []
+        ref = solve(*cands_zero, grip_du=grip_du) or declared   # the declared seat, riding the grip
+        for c in sorted(cands, key=lambda c: sum(abs(x) / sc for x, sc in zip(c, (1.0, 100.0, 1.0, 1.0)))):
+            sol = solve(*c, grip_du=grip_du)
+            if sol is None or short_of(sol[3], sol[1]) > short_cap:
+                continue
+            # The support hand never rises above, or reaches further across
+            # his body than, its declared seat: a hand lifted beside the face
+            # to dodge the chest reads worse than the overlap it removes.
+            hand, hand0 = sol[3] - sol[1] * 0.02, ref[3] - ref[1] * 0.02
+            if hand.z > hand0.z + 1e-6 or hand.y > hand0.y + 1e-6:
+                continue
+            _pole, inside = _arm_swivel(team_id, pfx, 0, mine, upper_T, a0S, a0E, a0W, sol[3] - sol[1] * 0.02,
+                                        LAUNCH_SUPPORT_POLE, quiet=True)
+            tried.append((c, inside))
+            if best is None or inside < best[1]:
+                best = (c, inside, sol)
+        return best, tried
+
+    coupled = len(group) > 1
+    fixed_support = None if coupled else support_search(0.0)
+    grip_tried = []
+    group_u = [c[0] for n, _s, c, _r in cfg["boxes"] if n in group]
+    for du in sorted(GRIP_SLIDE, key=abs):
+        # Every sliding box stays on the bore, GRIP_ON_TUBE in from either end.
+        if du and not all(u_rear + GRIP_ON_TUBE <= u + du <= u_rear + cfg["length"] - GRIP_ON_TUBE for u in group_u):
+            continue
+        g = at(grip_c + Vector((du, 0.0, 0.0)))
+        if max(0.0, (g - a1S).length - reach1) > short1_cap:
+            continue
+        _p, n1 = _arm_swivel(team_id, pfx, 1, mine, upper_T, a1S, a1E, a1W, g, LAUNCH_FIRE_POLE, quiet=True)
+        sup = support_search(du) if coupled else fixed_support
+        if sup[0] is None:
+            continue
+        n0 = sup[0][1] if coupled else 0
+        grip_tried.append((du, n1 + n0, sup))
+    grip_du, _n, (best, tried) = min(grip_tried, key=lambda t: (t[1], abs(t[0])))
+    by_du = {t[0]: t[1] for t in grip_tried}
+    log(f"{team_id}: {'+'.join(group)} slid {grip_du:+.3f} m along the bore: "
+        f"{'both arms' if coupled else 'firing arm'} {by_du[0.0]} -> {by_du[grip_du]} vertices inside his "
+        f"upper body ({' '.join(f'{a:+.3f}:{n}' for a, n in sorted(by_du.items()))})")
+    (c_best, inside_best, (A, D, length, foot)) = best
+    log(f"{team_id}: support seat moved {c_best} from the declared one: {dict(tried).get(cands_zero)} -> "
+        f"{inside_best} support-arm vertices inside his upper body ({len(tried)} seats tried: "
+        f"{' '.join('/'.join(f'{x:+.3f}' for x in c) + f':{n}' for c, n in sorted(tried))})")
+
+    centres = {}
+    for name, size, c, role in cfg["boxes"]:
+        c = sight_c if c == "sight" else Vector(c)
+        if name in group:
+            c = c + Vector((grip_du, 0.0, 0.0))
+        ob = kit.box(name, size, (0.0, 0.0, 0.0), role)
+        _transform(ob, Matrix.Translation(at(c)) @ R)
+        centres[name] = at(c)
+        out.append(ob)
+
+    if cfg.get("handle") is not None:
         foot = A + D * length
         hob = kit.box(f"{cfg['name']}_handle", (section[0], section[1], length), (0.0, 0.0, 0.0), "weapon")
         # local z -> D, local x -> the bore where it can be, y completing the frame
@@ -1982,13 +2163,36 @@ def _seat_launcher(team_id, spec, parts, bones, joints, drop):
         _transform(hob, Matrix.Translation(A + D * (length / 2.0)) @ M)
         out.append(hob)
 
-    # Both arms, rigidly, by PR #325's two-bone IK.
+    # Both arms, rigidly, by PR #325's two-bone IK -- elbow swivel MEASURED
+    # (`_arm_swivel`), so the re-seated arm stays out of his own chest.
     names = {0: "L", 1: "R"}
     short = {}
     for side, target, pole in ((1, centres[cfg["grip"]], LAUNCH_FIRE_POLE),
                                (0, foot - D * 0.02, LAUNCH_SUPPORT_POLE)):
         a = joints["arm"][side]
         S, E, W = (Vector(a[k]) + off for k in ("shoulder", "elbow", "wrist"))
+        # Protraction: a shoulder reaching forward or across rides its
+        # scapula forward and out. Searched in SHOULDER_PROTRACT steps (out
+        # from the midline, forward), never past the deltoid blob that hides
+        # the seam, and kept only where it takes arm vertices out of the chest.
+        reach = (E - S).length + (W - E).length
+        out_y = -1.0 if side == 0 else 1.0
+        trials = []
+        for o in SHOULDER_PROTRACT:
+            for f in SHOULDER_PROTRACT:
+                shift = Vector((f, out_y * o, 0.0))
+                if (target - (S + shift)).length - reach > max(0.0, (target - S).length - reach) + 1e-6:
+                    continue   # never leave the hand further off its seat
+                p_, n_ = _arm_swivel(team_id, pfx, side, mine, upper_T, S, E, W, target, pole, quiet=True,
+                                     shift=shift)
+                trials.append((n_, o + f, shift))
+        n_best, _mag, shift = min(trials, key=lambda t: (t[0], t[1]))
+        pole, _inside = _arm_swivel(team_id, pfx, side, mine, upper_T, S, E, W, target, pole, shift=shift)
+        log(f"{team_id}: {pfx} shoulder{side} protracted {tuple(round(x, 3) for x in shift)}: "
+            f"{min(t[0] for t in trials if t[1] == 0)} -> {n_best} arm vertices inside (swivel search)")
+        for n in ("upperarm", "elbow", "forearm"):
+            _transform(mine[f"{n}{side}"], Matrix.Translation(shift))
+        S, E, W = S + shift, E + shift, W + shift
         m_up, m_fore, E2, W2, sh = _two_bone(S, E, W, target, pole)
         _transform(mine[f"upperarm{side}"], m_up)
         _transform(mine[f"elbow{side}"], m_up)
