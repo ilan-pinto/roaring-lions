@@ -31,46 +31,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { parseGlbHeadless } from './headless-gltf';
 
-// Since B0b (GH-286, 2026-09-30) two team GLBs (`at_team`, `demo_squad`)
-// carry a real `base_color` image, and `GLTFParser.loadImageSource` reaches
-// for the global `self` that plain Node does not define -- the same
-// `ReferenceError: self is not defined` `mesh-vehicle-shipped.test.ts` met
-// on 2026-09-07, and the same shim (see that file's top comment): the decode
-// then fails inside GLTFLoader's own error handler as a console warning,
-// and clips, roots and scale tracks are still built.
-if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
-  (globalThis as { self?: unknown }).self = globalThis;
-}
 import { buildMeshUnitTemplate, instantiateMeshUnit } from './mesh-unit';
 import { applyMeshClip } from './mesh-clip';
 
-// Since B0b (GH-286, 2026-09-30) two team GLBs (`at_team`, `demo_squad`)
-// carry a real `base_color` image, and `GLTFParser.loadImageSource` reaches
-// for the global `self` that plain Node does not define -- the same
-// `ReferenceError: self is not defined` `mesh-vehicle-shipped.test.ts` met
-// on 2026-09-07, and the same shim (see that file's top comment): the decode
-// then fails inside GLTFLoader's own error handler as a console warning,
-// and clips, roots and scale tracks are still built.
-if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
-  (globalThis as { self?: unknown }).self = globalThis;
-}
 import { CLIP_NAMES } from './mesh-anim';
 import { beginMeshDeath, liveFigureRoots, type MeshDeathPhase } from './mesh-death';
 import { TEXTURED_INFANTRY_TYPES } from './textured-infantry';
 
-// B3 (GH-179, 2026-09-30): three team GLBs carry a real `base_color` image
-// now, and `GLTFParser.loadImageSource` reaches for the global `self` to
-// pick a decode path -- `ReferenceError: self is not defined` under plain
-// Node, thrown from inside `loadMaterial`. The same shim
-// `mesh-vehicle-shipped.test.ts` has carried since the textured vehicles
-// landed: `self = globalThis` picks a path that then fails to decode (no
-// `Image` here either), which `GLTFLoader` logs rather than throws. Texture
-// PIXELS are not what this file checks.
-if (typeof (globalThis as { self?: unknown }).self === 'undefined') {
-  (globalThis as { self?: unknown }).self = globalThis;
-}
 
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 const TEAM_MESHES = `${REPO}art/meshes/`;
@@ -95,11 +64,7 @@ function shippedTeams(): string[] {
 }
 
 async function parseShipped(team: string) {
-  const bytes = readFileSync(`${TEAM_MESHES}${team}.glb`);
-  // `Buffer` is a `Uint8Array` view over a shared pool, so hand `parseAsync`
-  // a standalone `ArrayBuffer` rather than the whole pool behind it.
-  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  return new GLTFLoader().parseAsync(ab, '');
+  return parseGlbHeadless(readFileSync(`${TEAM_MESHES}${team}.glb`));
 }
 
 /** Faction picks a colour ramp and nothing else -- no clip, name, track or
