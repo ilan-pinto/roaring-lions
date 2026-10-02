@@ -1,5 +1,6 @@
 {
   "unit": "sniper_team",
+  "variant": "team",
   "source": "assets/meshes/sniper_team.glb",
   "source_sha256": "ffbba88c9cebe900f3aa5aece998b9adc8a04283f44b1144c65b5be8f9daa570",
   "yaw_deg": -125.0,

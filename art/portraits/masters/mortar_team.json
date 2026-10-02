@@ -1,5 +1,6 @@
 {
   "unit": "mortar_team",
+  "variant": "team",
   "source": "assets/meshes/mortar_team.glb",
   "source_sha256": "3b5b02412c10df3837ea45b1c67b085bf684f4eaf12352013b8c1163d443b421",
   "yaw_deg": -125.0,
