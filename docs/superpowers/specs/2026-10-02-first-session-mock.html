@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First Session Mock</title>
+<!--
+  Doc mock for GH-345 (spec: 2026-10-02-first-session-design.md). NOT UI source:
+  `pnpm validate:ui` scans packages/app/src and assets/campaign only.
+
+  "Before" images are real captures of origin/main at 76d154d0, 1440x900, music
+  off, ANGLE/Metal, taken with a scratch Playwright walk (not committed). "After"
+  panels are the SAME captures with the elements the spec hides hatched out and
+  labelled, plus HTML stand-ins for new copy. Nothing here was built.
+
+  Colour discipline mirrors the game's: hex appears only in the --rl-* block,
+  copied from data/palette.json keys; everything else uses semantic tokens.
+-->
+<style>
+:root {
+  --rl-limestone-0: #F2E8D5; /* limestone.0 */
+  --rl-limestone-4: #B8A182; /* limestone.4 */
+  --rl-dust-0: #E0B87A;      /* dust.0 */
+  --rl-terracotta-0: #C1663F;/* terracotta.0 */
+  --rl-olive-2: #4E5433;     /* olive.2 */
+  --rl-gunmetal-0: #C3C7C4;  /* gunmetal.0 */
+  --rl-gunmetal-1: #8E9491;  /* gunmetal.1 */
+  --rl-gunmetal-3: #363B39;  /* gunmetal.3 */
+  --rl-shadow-0: #23241F;    /* shadow.0 */
+  --rl-shadow-1: #14150F;    /* shadow.1 */
+  --rl-shadow-2: #0A0A08;    /* shadow.2 */
+  --rl-scrub-0: #6B8A4A;     /* scrub.0 */
+
+  --panel-bg: color-mix(in srgb, var(--rl-shadow-1) 92%, transparent);
+  --panel-frame: var(--rl-gunmetal-3);
+  --scrim: var(--rl-shadow-2);
+  --tile-bg: var(--rl-shadow-0);
+  --ink: var(--rl-limestone-0);
+  --ink-mute: var(--rl-limestone-4);
+  --ink-dim: var(--rl-gunmetal-1);
+  --ink-label: var(--rl-gunmetal-0);
+  --good: var(--rl-scrub-0);
+  --bad: var(--rl-terracotta-0);
+  --commend: var(--rl-dust-0);
+  --band-mission: var(--rl-olive-2);
+  --font-display: 'Big Shoulders Display', 'Oswald', 'Haettenschweiler', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: 'Barlow', system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 64px; background: var(--scrim); color: var(--ink); font: 14px/1.5 var(--font-body); }
+main { max-width: 1240px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+h1 { font-size: 28px; }
+h2 { font-size: 20px; margin: 44px 0 6px; }
+h3 { font-size: 15px; margin: 0 0 6px; color: var(--ink-label); }
+.lede { color: var(--ink-mute); max-width: 78ch; margin: 6px 0 0; }
+.note { color: var(--ink-dim); font-size: 12px; margin: 6px 0 0; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+@media (max-width: 860px) { .pair { grid-template-columns: 1fr; } }
+figure { margin: 0; }
+figcaption { font-size: 12px; color: var(--ink-dim); margin-top: 6px; }
+.shot { position: relative; width: 100%; aspect-ratio: 1440 / 900; background: var(--tile-bg); overflow: hidden; border: 1px solid var(--panel-frame); }
+.shot img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* A hatch over an element the spec hides at this beat. Box in % of 1440x900. */
+.hide { position: absolute; background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--rl-shadow-2) 88%, transparent) 0 6px, color-mix(in srgb, var(--rl-shadow-1) 70%, transparent) 6px 12px); outline: 1px dashed var(--ink-dim); display: flex; align-items: center; justify-content: center; text-align: center; font: 600 10px/1.2 var(--font-mono); color: var(--ink-mute); padding: 2px; }
+.tag { position: absolute; font: 600 10px/1.2 var(--font-mono); background: var(--commend); color: var(--rl-shadow-1); padding: 2px 5px; border-radius: 2px; max-width: 38%; }
+.tag.bad { background: var(--bad); color: var(--ink); }
+.tut { position: absolute; left: .6%; top: 5.8%; width: 36%; background: var(--panel-bg); border: 1px solid var(--panel-frame); border-left: 3px solid var(--commend); padding: .8% 1%; }
+.tut b { display: block; font: 700 clamp(9px, 1.25vw, 17px)/1.1 var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
+.tut span { display: block; font-size: clamp(8px, .95vw, 13px); color: var(--ink); margin-top: 3px; }
+.tut i { position: absolute; right: 2%; top: 6%; font: 600 clamp(7px,.7vw,10px) var(--font-mono); color: var(--ink-dim); font-style: normal; }
+/* The fire panel, as shipped and as proposed. */
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; }
+.fire { background: var(--panel-bg); border: 1px solid var(--panel-frame); padding: 10px 12px; font-size: 13px; }
+.fire .h { font: 600 10px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-label); margin-bottom: 4px; }
+.fire .dim { color: var(--ink-dim); }
+.fire .bad { color: var(--bad); }
+.fire .good { color: var(--good); }
+.fire .why { display: block; margin-top: 6px; font-size: 12px; color: var(--ink-mute); border-top: 1px solid var(--panel-frame); padding-top: 6px; }
+.fire.was { opacity: .78; }
+.state { font: 600 11px var(--font-mono); color: var(--commend); margin-bottom: 6px; }
+.state.off { color: var(--ink-dim); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+td, th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--panel-frame); }
+th { font: 600 10px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-label); }
+td.n { text-align: right; font-family: var(--font-mono); }
+td.neg { color: var(--bad); text-align: right; font-family: var(--font-mono); }
+.feedline { background: var(--panel-bg); border: 1px solid var(--panel-frame); padding: 6px 12px; text-align: center; font-size: 15px; }
+</style>
+</head>
+<body>
+<main>
+<h1>First session: tutorial strip, fire panel, Conduct invoice</h1>
+<p class="lede">GH-345 mock. Left: what a new player sees on <code>main</code> today. Right: the same frame under the spec. Hatched boxes are HUD elements the spec keeps hidden at that beat, labelled with the beat that reveals them. Nothing here is built.</p>
+
+<h2>Beat 1: look around (was "Take command")</h2>
+<div class="pair">
+  <figure>
+    <div class="shot"><img src="assets/first-session/tut-01-beat1-take-command.jpg" alt="Tutorial on main at first frame: full strip, clock, radio overlapped by the step panel, minimap, controls hint"></div>
+    <figcaption>Before, 9:59. Step 1/14 already asks for a selection. The step panel covers the radio's own briefing text, and the strip shows Conduct, the objective, a 10:00 clock, objectives, speed and mute. Seven things on screen before the first click.</figcaption>
+  </figure>
+  <figure>
+    <div class="shot"><img src="assets/first-session/tut-01-beat1-take-command.jpg" alt="">
+      <div class="hide" style="left:24.5%;top:0;width:47%;height:4.6%">Conduct, objective, Objectives: beat 8/9</div>
+      <div class="hide" style="left:87.8%;top:0;width:11.8%;height:4.6%">speed, mute: never in tutorial</div>
+      <div class="hide" style="left:47.2%;top:5.6%;width:5.6%;height:4.4%">clock</div>
+      <div class="hide" style="left:38%;top:96.4%;width:34%;height:3.2%">hint: beat 3</div>
+      <div class="tut"><i>1 / 9</i><b>Look around</b><span>This is the training ground. Move the view with WASD or the arrow keys, or click the small map in the corner.</span></div>
+      <span class="tag" style="left:84.6%;top:72.6%">minimap revealed at beat 1</span>
+      <span class="tag" style="left:1%;top:28%">radio slot holds the lesson; radio itself hidden</span>
+    </div>
+    <figcaption>After. The world, the leave button and the mission name, the minimap, and one lesson in the radio's slot (which also ends the overlap). Done when the camera has moved 6 tiles from the start.</figcaption>
+  </figure>
+</div>
+
+<h2>Beat 2: take command</h2>
+<div class="pair">
+  <figure>
+    <div class="shot"><img src="assets/first-session/tut-02-beat2-selected.jpg" alt="Tutorial on main after a selection: order row and unit card appear"></div>
+    <figcaption>Before, beat 2/14 "Move by bounds". The card is fine. The order row offers Attack-move (RMB) and Halt, and the lesson says "right-click to send them", but nothing says right-click IS attack-move.</figcaption>
+  </figure>
+  <figure>
+    <div class="shot"><img src="assets/first-session/tut-02-beat2-selected.jpg" alt="">
+      <div class="hide" style="left:24.5%;top:0;width:47%;height:4.6%">beat 8/9</div>
+      <div class="hide" style="left:87.8%;top:0;width:11.8%;height:4.6%">never</div>
+      <div class="hide" style="left:47.2%;top:5.6%;width:5.6%;height:4.4%">clock</div>
+      <div class="hide" style="left:46.6%;top:78.2%;width:16.4%;height:3.2%">order row: beat 3</div>
+      <div class="hide" style="left:40.8%;top:96.4%;width:28.2%;height:3.2%">hint: beat 3</div>
+      <div class="tut"><i>2 / 9</i><b>Take command</b><span>Click the rifle squad. The card at the bottom says what you have selected and what it carries.</span></div>
+      <span class="tag" style="left:39%;top:79.5%">card revealed at beat 2</span>
+    </div>
+    <figcaption>After. One new element, the card, and it appears only when the player has selected something. Done on <code>intent select</code>.</figcaption>
+  </figure>
+</div>
+
+<h2>Beat 3: advance</h2>
+<div class="pair">
+  <figure>
+    <div class="shot"><img src="assets/first-session/tut-05-fire-projected.jpg" alt="Tutorial on main 26 seconds in: the squad walked into the courtyard and is broken"></div>
+    <figcaption>Before, 9:33. A right-click toward the wall (beat 2) put the squad in range of the two militia cells that hold the courtyard from t=0. It was BROKEN at 92/400 hp while the panel still taught beat 3, "Move as one". Three "under fire" notices and the projected-fire panel showing "pinned, holding fire" were the first combat a new player saw.</figcaption>
+  </figure>
+  <figure>
+    <div class="shot"><img src="assets/first-session/tut-03-beat3-move-as-one.jpg" alt="">
+      <div class="hide" style="left:24.5%;top:0;width:47%;height:4.6%">beat 8/9</div>
+      <div class="hide" style="left:87.8%;top:0;width:11.8%;height:4.6%">never</div>
+      <div class="hide" style="left:47.2%;top:5.6%;width:5.6%;height:4.4%">clock</div>
+      <div class="tut"><i>3 / 9</i><b>Advance</b><span>Right-click the marked ground. Your men go there and fight whatever they meet on the way. H halts them.</span></div>
+      <span class="tag" style="left:46.6%;top:75.4%">order row revealed</span>
+      <span class="tag" style="left:40.8%;top:93.4%">controls hint revealed</span>
+      <span class="tag bad" style="left:56%;top:32%">no hostile spawned yet: the courtyard is empty until beat 4</span>
+    </div>
+    <figcaption>After. The order row and hint arrive with the verb they describe. Nobody hostile exists until beat 4 spawns them by trigger, so beat 3 cannot be lost.</figcaption>
+  </figure>
+</div>
+
+<h2>Beat 5: read the fire panel, then shoot</h2>
+<p class="lede">Today the panel exists but nothing teaches it, and two of its strings explain nothing. Below: the shipped strings as captured, then the proposed states. Each "after" panel is what the player is asked to hover in beat 5.</p>
+<div class="pair">
+  <figure>
+    <div class="shot"><img src="assets/first-session/fl-02-mortar-hover.jpg" alt="First Light: projected fire on the mortar crew"></div>
+    <figcaption>Before, First Light at 4:53. "Rifle Squad 41% rifles · range 70% · suppressed 97%". Each factor is printed as a MULTIPLIER, so "suppressed 97%" means almost no penalty but reads as almost total. The more common state measured in a scripted hover sweep was a bare "no unit can engage", with no reason.</figcaption>
+  </figure>
+  <div>
+    <div class="panels" style="margin-top:0">
+      <div class="fire was"><div class="h">Shipped · Projected fire · Militia Cell</div><span class="dim">contact not identified — no firing solution</span><span class="why">Says the problem, not the remedy.</span></div>
+      <div class="fire was"><div class="h">Shipped · Projected fire · Militia Cell</div><span class="dim">no unit can engage</span><span class="why">Out of range? No line of sight? It does not say which.</span></div>
+      <div class="fire was"><div class="h">Shipped · Projected fire · Militia Cell</div>Rifle Squad <b>1%</b> <span class="dim">rifles · cover 14% · range 25%</span><span class="why">Measured First Light 0:28. "cover 14%" is the multiplier 0.14.</span></div>
+    </div>
+  </div>
+</div>
+<div class="panels">
+  <div class="fire"><div class="state">A · not identified</div><div class="h">Projected fire · Militia Cell</div><span class="bad">Not identified · no firing solution</span><span class="why">Keep eyes on it: stay still in sight of it, or get closer. Nobody fires at a contact they have not identified.</span></div>
+  <div class="fire"><div class="state">B · in cover</div><div class="h">Projected fire · Militia Cell</div>Rifle Squad <b>9%</b> <span class="dim">rifles</span><br><span class="dim">in heavy cover</span> <span class="bad">−86%</span><span class="why">Cover is the ground they stand on. Flank it, or pin it and move.</span></div>
+  <div class="fire"><div class="state">C · moving</div><div class="h">Projected fire · Militia Cell</div>Rifle Squad <b>38%</b> <span class="dim">rifles</span><br><span class="dim">target moving</span> <span class="bad">−40%</span><span class="why">It is hard to hit something running. Wait for it to stop.</span></div>
+  <div class="fire"><div class="state">D · out of reach</div><div class="h">Projected fire · Militia Cell</div><span class="dim">Out of range or out of sight</span> <span class="dim">· rifles reach 8 tiles</span><span class="why">Replaces "no unit can engage". The reach is read from unit data, no sim change.</span></div>
+  <div class="fire"><div class="state off">E · cannot penetrate (not stageable)</div><div class="h">Projected fire · —</div><span class="dim">No enemy unit in data/units/enemy has side armour above 15, and the lightest KDF weapon has 8 mm penetration against a threshold of side armour ÷ 4. This state is unreachable against any shipped enemy.</span><span class="why">The beat teaches A–D. E waits for an armoured enemy unit.</span></div>
+</div>
+<p class="note">The percentages in B and C are illustrative. The real numbers come from <code>sim.projectHit</code> as today; only the wording changes, from the multiplier to the penalty (1 − multiplier).</p>
+
+<h2>The Conduct invoice</h2>
+<p class="lede">The deductions are already collected in <code>main.ts</code> and printed one per line in the debrief, as raw sim reasons. The invoice groups them by cause, names the place, and shows the same ledger in four places.</p>
+<div class="panels">
+  <div>
+    <h3>1 · Feed, at the moment it happens</h3>
+    <div class="feedline"><b style="color:var(--bad)">Clinic struck −5</b> · Conduct 95</div>
+    <p class="note">Was: "Conduct −5 (fire into protected structure (z_clinic)) → 95". That is the sim's English reason with the zone id in it.</p>
+  </div>
+  <div>
+    <h3>2 · Strip, on hover or click of Conduct</h3>
+    <div class="fire"><div class="h">Conduct 85 · floor 70</div>
+      <table><tr><td>Clinic struck ×2</td><td class="n">0:41</td><td class="neg">−10</td></tr>
+      <tr><td>Heavy fire near civilians</td><td class="n">1:12</td><td class="neg">−3</td></tr>
+      <tr><td>House destroyed</td><td class="n">1:30</td><td class="neg">−2</td></tr></table>
+      <span class="why">Replaces the definition-only tooltip. The definition becomes the empty-state line.</span></div>
+  </div>
+  <div>
+    <h3>3 · End screen</h3>
+    <div class="fire"><div class="h">Withdraw and regroup · defeat</div>Conduct 85 <span class="dim">· Clinic struck ×2 −10 · +1 more</span></div>
+    <p class="note">Was: "Conduct 100 · 9 units walking out". It keeps the worst line and counts the rest.</p>
+  </div>
+  <div>
+    <h3>4 · Debrief</h3>
+    <div class="fire"><div class="h">Conduct · 85 of 100 · floor 70</div>
+      <table><tr><th>Cause</th><th>When</th><th>Cost</th></tr>
+      <tr><td>Clinic struck ×2</td><td class="n">0:41, 0:52</td><td class="neg">−10</td></tr>
+      <tr><td>Heavy fire near civilians</td><td class="n">1:12</td><td class="neg">−3</td></tr>
+      <tr><td>House destroyed</td><td class="n">1:30</td><td class="neg">−2</td></tr></table></div>
+  </div>
+</div>
+
+<h2>First Light at t = 0, for scale</h2>
+<div class="pair">
+  <figure>
+    <div class="shot"><img src="assets/first-session/fl-01-t0.jpg" alt="First Light at the first frame: dock with 21 tiles, two clocks, logistics, intel, radio, title card"></div>
+    <figcaption>Before, 4:59. The dock is open with 21 tiles, 15 of them locked behind Conduct, stars or credits, two countdowns in the strip (4:59 relief, 4:29 families), logistics, intel, the radio, the title card, three feed notices and 11 units. The playtest's "18 locked units" is this dock, not the tutorial's: the tutorial mission declares no <code>resources</code> and mounts no dock.</figcaption>
+  </figure>
+  <figure>
+    <div class="shot"><img src="assets/first-session/fl-01-t0.jpg" alt="">
+      <div class="hide" style="left:0;top:61%;width:22.8%;height:38.8%">dock: Beit Sahwan II (first <code>resources</code> mission after the cut)</div>
+      <div class="hide" style="left:67%;top:0;width:20.8%;height:4.6%">logistics, intel: II</div>
+      <div class="hide" style="left:41.6%;top:0;width:10.6%;height:4.6%">second clock: one countdown only</div>
+      <span class="tag" style="left:1%;top:24%">radio stays: First Light is a story mission</span>
+    </div>
+    <figcaption>After. Two problems: hold the yard, bring two families in. One countdown (the families' deadline, the one that can fail). No dock, no logistics or intel, no mortar or spotter, no outpost section.</figcaption>
+  </figure>
+</div>
+</main>
+</body>
+</html>
