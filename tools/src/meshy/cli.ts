@@ -265,6 +265,7 @@ function buildPreviewRequest(opts: TextOptions): TextPreviewRequest {
   return {
     mode: 'preview',
     prompt: opts.prompt,
+    ...(opts.negativePrompt ? { negative_prompt: opts.negativePrompt } : {}),
     model_type: opts.modelType,
     ai_model: opts.aiModel,
     ...(opts.ultra ? { ultra_mode: true } : {}),
@@ -774,7 +775,7 @@ const USAGE = `pnpm meshy -- <command> [options]
 
 Commands (network, need a key):
   balance                       credit balance
-  text "<prompt>" [options]     text-to-3d, preview (+ --refine)
+  text "<prompt>" [options]     text-to-3d, preview (+ --refine; --negative "..." = negative_prompt)
   image <path-or-url> [options] image-to-3d
       text/image: --pose a-pose|t-pose|none   pose_mode sent to Meshy (default none;
                                               a-pose is what a figure needs to be rigged)

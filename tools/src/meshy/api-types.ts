@@ -18,6 +18,8 @@ import type {
 export interface TextPreviewRequest {
   readonly mode: 'preview';
   readonly prompt: string;
+  /** `--negative`: what the preview must NOT be (the API's own field). */
+  readonly negative_prompt?: string;
   readonly model_type: ModelType;
   readonly ai_model: AiModel;
   readonly ultra_mode?: boolean;

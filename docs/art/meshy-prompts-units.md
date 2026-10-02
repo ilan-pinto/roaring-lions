@@ -1085,6 +1085,37 @@ two units.
 
 ---
 
+# Batch B8 v2 — `ifv_namer` again (the lead's ruling, 2026-10-02)
+
+The B8 Namer (section 24 on `art/namer-props`, 40 credits, not shipped) read as a
+WWII tank destroyer at the capture: sloped, low, an old-style turret, too light an
+olive. The lead's ruling: re-do it, about 40 credits, cap 80. The real Namer, named
+feature by feature in the prompt this time and ahead of its fittings: a tall, boxy
+hull on the Merkava IV chassis with the ENGINE AT THE FRONT; a flat high roof; side
+skirts over large road wheels; a rear ramp; a small remote weapon station on the roof
+(an RCWS, not a turret -- `kit.rws` on an empty ring, as every KDF vehicle here);
+modern sand-olive matching the other KDF vehicles.
+
+| item | number | source |
+|---|---|---|
+| class | textured vehicle, **40** credits (preview 20 + refine 8k 15 + remesh 5); cap 80 (one re-roll) | lead, 2 Oct |
+| negative prompt | the API's `negative_prompt`, through the CLI's new `--negative` (this branch): "tank destroyer, sloped casemate, gun turret, cannon barrel, WWII, vintage, low hull, rivets" | lead, 2 Oct |
+| everything else | as section 24: 7.3 m from `NAMER_HULL`, `heavy_vehicle` x1.0, remesh 8,000 / cap 10,000, 2048 bake, `export_meshy_ramp.py` spec (tracked split, gun collapse if a gun arrives again, `kit.rws` 1.0x0.8x0.5 / 1.2 m on the measured ring), `pnpm wreck:meshes`, `export_meshy_namer.py` deleted, portrait re-rendered | section 24 |
+| what section 24 measured for this | tracks took 5,202 of 7,790 remesh faces; the ring read 1.28 m across; the Meshy hull came 3.84 m tall with the RWS at 7.3 m long | provenance B8 |
+
+```
+A single low-poly game-ready modern tracked heavy armoured personnel carrier, a machine of a fictional army in plain matte sand-olive paint with dark gunmetal fittings, clean and military. At rest, level. A tall boxy slab-sided hull on a main battle tank chassis, engine compartment at the front under a short sloped bonnet, a flat high roof running the full length, tall side skirts hanging over large road wheels, a vertical rear ramp door, a small empty round mounting ring on the roof with no weapon fitted, stowage bins. Dusty weathering, chipped edges. Real-world scale, 7.3 metres long. Sand-olive paint, gunmetal, dark rubber track pads. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No real-world insignia, flags or emblems.
+```
+
+794 characters; negative prompt 91.
+
+**Sent 2026-10-02: one preview, usable, 40 credits, no re-roll.** The hull came as
+asked (tall box, bonnet, flat roof, skirts, rear ramp) with a gun turret on the roof
+despite the negative prompt — collapsed in Blender, the kit RCWS seated in its place
+— and a desert-tan bake, pulled to sand-olive by `export_meshy_ramp.py`'s new
+`sand_olive`. Provenance: `docs/ASSET_PROVENANCE.md`, "batch B8 v2".
+
+
 # Batch B8 — the lead's 2 Oct follow-ups: `ifv_namer`, the mortar, the sniper rifle
 
 **WP-A3.1 (GH-179), batch B8 · 2026-10-02 · approved by the lead after the portrait

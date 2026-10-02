@@ -682,3 +682,16 @@ otherwise.
 - Counts: `mortar_team` 10,743 tris (was 11,766); `sniper_team` 8,012 (was
   7,938). 120 credits, no re-roll, balance 3,165 after.
 
+## 16. Measured in B8 v2 (2026-10-02, the Namer again)
+
+- **The negative prompt did not remove the turret.** `negative_prompt` ("tank
+  destroyer, sloped casemate, gun turret, cannon barrel, WWII, vintage, low hull,
+  rivets") moved the ERA and the hull -- a tall modern box with a bonnet and a rear
+  ramp where v1 was a sloped casemate -- and still left a gun turret on the roof.
+  On this pipeline "no weapon fitted" has now lost four times (Eitan, Kipod stub,
+  Namer v1, Namer v2); the exporter's collapse is the reliable half, not the prompt.
+- **A colour word in the prompt is a suggestion.** "Sand-olive" came back desert
+  tan; the bake fix (`sand_olive`, a hue pull like the Shachaf's `olive_shift`)
+  is what put it beside the Eitan. Judge colour on the capture, not the thumbnail.
+- `ifv_namer` 7,810 tris (hull 2,354, tracks 5,404, kit RWS 22); 40 credits,
+  balance 3,125 after.

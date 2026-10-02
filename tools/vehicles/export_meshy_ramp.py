@@ -1,6 +1,11 @@
 """Export the A3.2 ramp vehicles -- `dozer_d9` and `scout_shachaf` -- from
 their Meshy text-to-3D remeshes as TEXTURED vehicle glTFs, mesh contract v2
-(GH-185, 2026-09-30; numbers and prompts in `docs/art/meshy-prompts-ramp.md`).
+(GH-185, 2026-09-30; numbers and prompts in `docs/art/meshy-prompts-ramp.md`),
+and since B8 (2026-10-02) `ifv_namer` too: a tracked hull with a kit RWS on
+its ring, replacing the 2026-08 image-to-3D export (`export_meshy_namer.py`,
+deleted -- its source was gitignored and a live exporter of a retired source
+is the hazard `tools/mesh_ownership.py` names). Its numbers and prompt are in
+`docs/art/meshy-prompts-units.md` section 24.
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --python tools/vehicles/export_meshy_ramp.py -- scout_shachaf [--probe]
@@ -71,6 +76,14 @@ OLIVE_HUE_HI = 165.0
 OLIVE_HUE_SHIFT = 22.0    # degrees toward yellow
 OLIVE_SAT_MUL = 0.62
 OLIVE_VAL_MUL = 0.80
+#: `sand_olive`: the tan band pulled toward the roster's sand-olive (the B8 v2
+#: Namer's bake came back desert tan beside the Eitan's and Kipod's olive).
+SAND_SAT_MIN = 0.12
+SAND_HUE_LO = 15.0
+SAND_HUE_HI = 60.0
+SAND_HUE_SHIFT = 22.0     # degrees toward yellow-green
+SAND_SAT_MUL = 0.85
+SAND_VAL_MUL = 0.82
 
 REPO = os.path.dirname(TOOLS)
 MESHY_DIR = os.path.join(REPO, "art", "meshy")
@@ -79,7 +92,8 @@ OUT_DIR = os.path.join(REPO, "art", "meshes", "vehicles")
 # the source alone, which files this script writes.
 OUT_DOZER_D9 = os.path.join(OUT_DIR, "dozer_d9.glb")
 OUT_SCOUT_SHACHAF = os.path.join(OUT_DIR, "scout_shachaf.glb")
-OUTPUTS = {"dozer_d9": OUT_DOZER_D9, "scout_shachaf": OUT_SCOUT_SHACHAF}
+OUT_IFV_NAMER = os.path.join(OUT_DIR, "ifv_namer.glb")
+OUTPUTS = {"dozer_d9": OUT_DOZER_D9, "scout_shachaf": OUT_SCOUT_SHACHAF, "ifv_namer": OUT_IFV_NAMER}
 TURRET_PIVOT_NODE = "turret_pivot"
 
 
@@ -108,6 +122,22 @@ class RampVehicleSpec:
     # bake fixes, applied to the base_color pixels before export
     scrub_white: bool = False            # paint out near-white blobs (a marking the prompt forbade)
     olive_shift: bool = False            # pull a grass-green bake toward the roster's olive
+    sand_olive: bool = False             # pull a desert-tan bake toward the roster's sand-olive
+    # an unasked-for gun to collapse (SOURCE frame after rot_z: x_max of the
+    # tube's root face, z_min, |y| max) -- `export_meshy_apc.py`'s method:
+    # every vertex forward of the root inside the box is pointmerged onto
+    # the root face so the tube degenerates and the mesh stays closed
+    gun: Optional[tuple] = None
+    # an unasked-for TURRET to collapse (SOURCE frame after rot_z: x0, x1,
+    # y0, y1, z_floor): every vertex inside the xy box above the floor is
+    # pointmerged onto one point ON the floor at the box's centre, so the
+    # turret degenerates into a flat fan in the roof and the roof stays
+    # closed. The B8 v2 Namer (2026-10-02) grew a gun turret despite a
+    # negative prompt naming it; the kit RWS then sits where it stood.
+    turret: Optional[tuple] = None
+    # more boxes collapsed the same way (a whip antenna the remesh kept, which
+    # would otherwise double the measured height the wreck recipe scales by)
+    collapse_boxes: tuple = ()
 
 
 def _credit(what):
@@ -146,6 +176,25 @@ SPECS = {
         rws={"size": (0.55, 0.45, 0.30), "barrel": 0.7, "ring_seed": (-0.99, 0.0),
              "search_r": 0.45, "band": 0.06, "max_across": 0.9, "z_max": 2.22},
         olive_shift=True,
+    ),
+    # Namer v2 (B8, 2026-10-02, the lead's ruling after the first attempt read
+    # as a WWII tank destroyer): numbers below are read off a --probe of its
+    # 8,000-tri remesh (`docs/art/meshy-prompts-units.md`, "Batch B8 v2").
+    "ifv_namer": RampVehicleSpec(
+        unit_id="ifv_namer", sheet="NAMER_HULL", credit=_credit("Namer heavy IFV"),
+        # Probe of remesh 01a0fb22 (SOURCE frame, zmin -0.682): end plate
+        # area +x 0.74 / -x 0.51 -> the rear ramp is +x, the bonnet -x, so
+        # Rz(180). Track run dense to z 0.30 above zmin (|y| 0.337-0.517),
+        # the skirts a thinner band above it. The gun turret stood at source
+        # x -0.25..+0.30 / |y| < 0.26 above the roof (0.84), its barrel over
+        # the bonnet to x -0.79 at z 0.88-0.90; the remesh kept a whip at
+        # source x +0.63, y -0.11, to z 1.357. All in the TURNED frame below.
+        kind="tracked", rot_z_deg=180.0, tri_cap=10000,
+        track_ay=0.32, track_z_top=-0.372, track_x=(-0.96, 0.96),
+        turret=(-0.32, 0.80, -0.30, 0.30, 0.160),
+        collapse_boxes=((-0.67, -0.59, 0.08, 0.15, 0.160),),
+        rws={"size": (1.0, 0.8, 0.5), "barrel": 1.2, "at": (0.92, 0.0)},
+        sand_olive=True,
     ),
 }
 
@@ -296,6 +345,31 @@ def _fix_bake(spec, img):
         rgb[..., 1] = np.where(green, g2, g)
         rgb[..., 2] = np.where(green, b2, b)
         print(f"[{spec.unit_id}] olive_shift: {n_green} green texels ({100.0 * n_green / (w * h):.1f}%) pulled toward olive")
+    if spec.sand_olive:
+        mx = rgb.max(axis=2)
+        mn = rgb.min(axis=2)
+        d = np.maximum(mx - mn, 1e-6)
+        sat = np.where(mx > 0, d / np.maximum(mx, 1e-6), 0.0)
+        r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+        hue = np.where(mx == r, ((g - b) / d) % 6.0, np.where(mx == g, (b - r) / d + 2.0, (r - g) / d + 4.0)) * 60.0
+        tan = (sat > SAND_SAT_MIN) & (hue > SAND_HUE_LO) & (hue < SAND_HUE_HI)
+        n_tan = int(tan.sum())
+        hue2 = np.where(tan, hue + SAND_HUE_SHIFT, hue)
+        sat2 = np.where(tan, sat * SAND_SAT_MUL, sat)
+        val2 = np.where(tan, mx * SAND_VAL_MUL, mx)
+        c = val2 * sat2
+        hp = (hue2 % 360.0) / 60.0
+        x = c * (1.0 - np.abs(hp % 2.0 - 1.0))
+        m = val2 - c
+        z = np.zeros_like(c)
+        i = hp.astype(np.int32) % 6
+        r2 = np.select([i == 0, i == 1, i == 2, i == 3, i == 4, i == 5], [c, x, z, z, x, c]) + m
+        g2 = np.select([i == 0, i == 1, i == 2, i == 3, i == 4, i == 5], [x, c, c, x, z, z]) + m
+        b2 = np.select([i == 0, i == 1, i == 2, i == 3, i == 4, i == 5], [z, z, x, c, c, x]) + m
+        rgb[..., 0] = np.where(tan, r2, r)
+        rgb[..., 1] = np.where(tan, g2, g)
+        rgb[..., 2] = np.where(tan, b2, b)
+        print(f"[{spec.unit_id}] sand_olive: {n_tan} tan texels ({100.0 * n_tan / (w * h):.1f}%) pulled toward sand-olive")
     px[..., :3] = np.clip(rgb, 0.0, 1.0)
     img.pixels = px.ravel().tolist()
     img.update()
@@ -370,6 +444,44 @@ def _probe(spec, ob):
             print(f"[{spec.unit_id}] roof band {i} z {lo - zmin:+.3f}..{hi - zmin:+.3f}: {len(band)} verts "
                   f"x[{min(p.x for p in band):+.2f},{max(p.x for p in band):+.2f}] "
                   f"y[{min(p.y for p in band):+.2f},{max(p.y for p in band):+.2f}]")
+
+
+def _collapse_gun(spec, ob):
+    """`export_meshy_apc.py`'s gun collapse, on a turned source: the tube's
+    vertices (forward of `x_max` -- the nose is +X after rot_z -- above
+    `z_min`, within `ay` of the centre line) are merged onto one point on
+    the root face, so the barrel degenerates away and nothing needs filling
+    (a delete-and-fill on a remesh's UV-split seams never closes)."""
+    x_max, z_min, ay = spec.gun
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    gun = [v for v in bm.verts if v.co.x > x_max + 0.005 and v.co.z > z_min and abs(v.co.y) < ay]
+    if len(gun) < 8:
+        raise SystemExit(f"[{spec.unit_id}] only {len(gun)} verts in the gun box -- re-measure `gun` with --probe")
+    zc = sum(v.co.z for v in gun) / len(gun)
+    before = len(bm.faces)
+    bmesh.ops.pointmerge(bm, verts=gun, merge_co=(x_max, 0.0, zc))
+    bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=bm.edges)
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    print(f"[{spec.unit_id}] gun collapsed: {len(gun)} verts merged, {before} -> {len(ob.data.polygons)} faces")
+
+
+def _collapse_turret(spec, ob, box=None, label="turret"):
+    x0, x1, y0, y1, zf = box or spec.turret
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    box = [v for v in bm.verts if x0 <= v.co.x <= x1 and y0 <= v.co.y <= y1 and v.co.z > zf + 0.005]
+    if len(box) < 8:
+        raise SystemExit(f"[{spec.unit_id}] only {len(box)} verts in the {label} box -- re-measure it with --probe")
+    before = len(bm.faces)
+    bmesh.ops.pointmerge(bm, verts=box, merge_co=((x0 + x1) / 2.0, (y0 + y1) / 2.0, zf))
+    bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=bm.edges)
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    print(f"[{spec.unit_id}] {label} collapsed: {len(box)} verts merged onto the roof, {before} -> {len(ob.data.polygons)} faces")
 
 
 def _axles(spec, ob):
@@ -468,13 +580,19 @@ def export(unit_id, probe=False, out_path=None):
     ob.matrix_world = Matrix.Identity(4)
     print(f"[{unit_id}] source {os.path.relpath(src, REPO)} (remesh task {task_id}): {len(ob.data.polygons)} faces")
     base = _rename_textures(spec, ob)
-    if not probe and (spec.scrub_white or spec.olive_shift):
+    if not probe and (spec.scrub_white or spec.olive_shift or spec.sand_olive):
         _fix_bake(spec, base)
     _bake([ob], Matrix.Rotation(math.radians(spec.rot_z_deg), 4, "Z"))
     if probe:
         _probe(spec, ob)
         print(f"[{unit_id}] --probe: nothing written (rot_z {spec.rot_z_deg} applied first)")
         return None
+    if spec.gun is not None:
+        _collapse_gun(spec, ob)
+    if spec.turret is not None:
+        _collapse_turret(spec, ob)
+    for i, box in enumerate(spec.collapse_boxes):
+        _collapse_turret(spec, ob, box=box, label=f"box {i}")
 
     if spec.kind == "wheeled":
         axles = _axles(spec, ob)
@@ -505,7 +623,14 @@ def export(unit_id, probe=False, out_path=None):
     extra = {}
     pivot_obj = None
     if spec.rws is not None:
-        pivot = _ring_centre(spec, parts["hull"])
+        if "at" in spec.rws:
+            # Where the collapsed turret stood: the roof's own top under it.
+            ax, ay = spec.rws["at"]
+            roof = max(v.co.z for v in parts["hull"].data.vertices if math.hypot(v.co.x - ax, v.co.y - ay) < 0.4)
+            pivot = Vector((ax, ay, roof))
+            print(f"[{unit_id}] rws seated at the collapsed turret's place ({ax:+.2f}, {ay:+.2f}), roof z {roof:+.3f}")
+        else:
+            pivot = _ring_centre(spec, parts["hull"])
         raw = vehicle_kit.rws("rws", spec.rws["size"], (pivot.x, pivot.y, pivot.z), barrel_len=spec.rws["barrel"])
         turret = _join_by_role(spec, raw, "turret")
         pivot_obj = bpy.data.objects.new(TURRET_PIVOT_NODE, None)
