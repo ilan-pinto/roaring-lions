@@ -3264,6 +3264,12 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink-dim);
 }
 
+.rl-endwithdrew {
+  margin: 0 0 var(--s2);
+  font-family: var(--font-mono);
+  font-size: var(--t-m);
+}
+
 /* The debrief screen (`ui/debrief.ts`, Task 9) -- the full card that would not
    fit in the 26.25rem end panel above. `--t-lg` does not exist in this file;
    `.rl-debrief__tier` uses `--t-card`, the same token `.rl-panel__title` is

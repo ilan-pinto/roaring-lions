@@ -7,6 +7,7 @@ import { objectiveGlyph } from './hud-model';
 import { symbolLabel } from './symbol';
 import { panel } from './panel';
 import { tierName } from './grade-copy';
+import { withdrewLine } from './withdrew';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 
@@ -45,6 +46,8 @@ export interface DebriefOptions {
   promotion?: { rank: string; stars: number; line?: { plate: string; text: string } };
   next?: { id: string; name: string; villainLine?: string };
   missionId: string;
+  /** Hostile units still alive at the end (victory only; see `withdrewLine`). */
+  withdrew?: number;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -145,6 +148,9 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
   row(t('debrief.row.marked.label'), String(o.marked), 'rl-debrief__marked');
   row(t('debrief.row.promoted.label'), String(o.promoted), 'rl-debrief__promoted');
   b.appendChild(grid);
+
+  const withdrew = withdrewLine(o.result, o.withdrew);
+  if (withdrew !== null) b.appendChild(el('div', 'rl-debrief__withdrew rl-dim', withdrew));
 
   if (o.taken) b.appendChild(el('div', 'rl-debrief__taken', o.taken));
 
