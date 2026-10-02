@@ -330,6 +330,7 @@ import {
   setSilhouetteOutlineZoom,
   isSilhouette,
   SILHOUETTE_OUTLINE_UNIFORM_KEY,
+  SILHOUETTE_OUTLINE_PX,
 } from './units/silhouette';
 import {
   loadMeshUnitTemplate,
@@ -465,6 +466,7 @@ import {
 import { GroundPing } from './units/ground-ping';
 import { ELLIPSE_BY_TYPE, HP_BAR, RING_CLASS_OVERRIDE, ringClassOf, ringRadiusFor } from './units/readability';
 import { SelectionRingBatch } from './units/selection-ring';
+import { LEVER, contactScale, contactShapeOf, contactTriangles, patchRim } from './units/readability-levers';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -1441,6 +1443,13 @@ export class ThreeRenderer implements Renderer {
    * group's.
    */
   private readonly selectionRing: SelectionRingBatch;
+  /** GH-346 prototype (`&bigrings`): the faint team ring under every
+   *  UNSELECTED unit, one more batch in the same group. null when off. */
+  private readonly teamRing: SelectionRingBatch | null;
+  /** GH-346 prototype (`&footscale`): 1 when off. */
+  private get footScale(): number {
+    return this.opts.readability?.footScale ?? 1;
+  }
   private readonly selectionRingGroup = new THREE.Group();
   /** `push`'s placement, reused for every ring every frame: no per-unit
    *  object literal in the overlay loop. `color` is `cachedHexToLinear`'s own
@@ -2349,10 +2358,20 @@ export class ThreeRenderer implements Renderer {
     // The ring's halo is `shadow.1`, resolved through `overlayColor` like
     // every other overlay colour and converted by `cachedHexToLinear`, so
     // `endFrame`'s once-a-frame read parses no hex.
+    const bigRings = opts.readability?.bigRings === true;
     this.selectionRing = new SelectionRingBatch({
       resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+      ...(bigRings ? { style: LEVER.bigRings.selected } : {}),
     });
+    this.teamRing = bigRings
+      ? new SelectionRingBatch({
+          resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+          style: LEVER.bigRings.team,
+          capacity: LEVER.bigRings.teamCapacity,
+        })
+      : null;
     this.selectionRingGroup.name = 'selection-ring-layer';
+    if (this.teamRing) this.selectionRingGroup.add(this.teamRing.mesh);
     this.selectionRingGroup.add(this.selectionRing.mesh);
     // The ground's macro field (spec 3.1, G4): built once, since it depends
     // on the map's size alone. Its hue pull resolves through `overlayColor`
@@ -2418,6 +2437,14 @@ export class ThreeRenderer implements Renderer {
     this.silhouetteMeshMaterials = SILHOUETTE_COLOR_KEY_BY_SIDE.map((key, slot) =>
       createMeshSilhouetteMaterial(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]))
     );
+    // GH-346 prototype (`&teamband`): the occlusion outline drawn ALWAYS, not
+    // only where the unit is hidden. The stencil still punches the body's own
+    // footprint out, so what shows is a team-colour rim around every mesh
+    // unit -- and an occluded one keeps exactly the outline it had. Same
+    // objects, same band (6), no new draw call.
+    if (opts.readability?.teamBand === true) {
+      for (const m of this.silhouetteMeshMaterials) m.depthFunc = THREE.AlwaysDepth;
+    }
     // `stencil: true` is NOT boilerplate: `units/silhouette.ts` masks a
     // unit's own far side out of its occlusion silhouette with a one-bit
     // stencil, and three.js's own default is `stencil: false`. With no
@@ -2976,6 +3003,7 @@ export class ThreeRenderer implements Renderer {
     this.decalMaterial.dispose();
     this.selectionRing.dispose();
     this.fireLinkFlashMaterial?.dispose();
+    this.teamRing?.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -6301,6 +6329,9 @@ export class ThreeRenderer implements Renderer {
         // rather than a second visibility test, is what keeps a silhouette
         // from ever revealing a fogged unit.
         attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
+        this.applyRimLift(entity.root, type);
+        // GH-346 prototype (`&footscale`): infantry exaggerated about its feet.
+        entity.root.scale.multiplyScalar(this.footScale);
         this.meshUnitEntities.set(i, entity);
         this.scene.add(entity.root);
       }
@@ -6533,9 +6564,11 @@ export class ThreeRenderer implements Renderer {
     if (playing === null) return;
     const action = entity.actions.get(playing);
     if (!action) return;
+    // `/ this.footScale`: a scaled figure's stride is scaled with it (GH-346
+    // prototype; 1 when off, so the shipped rate is untouched).
     action.timeScale =
       isLocomotionClip(playing) && !carried
-        ? gaitTimeScale(template.gait?.get(playing), anim.speed, cadenceScale(anim))
+        ? gaitTimeScale(template.gait?.get(playing), anim.speed, cadenceScale(anim)) / this.footScale
         : 1;
   }
 
@@ -6637,6 +6670,7 @@ export class ThreeRenderer implements Renderer {
         if (deathRoot) entity.root.remove(deathRoot);
         attachMeshSilhouette(entity.root, this.silhouetteMaterialFor(st.side[i]));
         if (deathRoot) entity.root.add(deathRoot);
+        this.applyRimLift(entity.root, type);
         this.vehicleMeshEntities.set(i, entity);
         this.scene.add(entity.root);
       }
@@ -7757,11 +7791,19 @@ export class ThreeRenderer implements Renderer {
    * decals sample. false when the batch refuses it; the caller then draws the
    * billboard fallback.
    */
-  private pushSelectionRing(i: number, type: Sim['unitTypes'][number], x: number, z: number, side: number): boolean {
+  private pushSelectionRing(
+    i: number,
+    type: Sim['unitTypes'][number],
+    x: number,
+    z: number,
+    side: number,
+    batch: SelectionRingBatch = this.selectionRing,
+    scale = this.opts.readability?.bigRings === true ? LEVER.bigRings.selectedScale : 1
+  ): boolean {
     const p = this.ringScratch;
     p.x = x;
     p.z = z;
-    p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type));
+    p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type)) * scale;
     p.color = cachedHexToLinear(this.opts.teamColors[side]);
     const e = ELLIPSE_BY_TYPE[type.id];
     if (e === undefined) {
@@ -7770,8 +7812,8 @@ export class ThreeRenderer implements Renderer {
       p.headingRad = undefined;
     } else {
       const heading = fx.toNumber(this.sim.state.facing[i]) * Math.PI * 2;
-      p.alongTiles = e.along;
-      p.acrossTiles = e.across;
+      p.alongTiles = e.along * scale;
+      p.acrossTiles = e.across * scale;
       p.headingRad = heading;
       // Centred on the HULL, not the unit origin (fix round 1): the hull
       // box's own centre sits `offsetAlong` tiles along the heading.
@@ -7779,7 +7821,7 @@ export class ThreeRenderer implements Renderer {
       p.z = z + e.offsetAlong * Math.sin(heading);
     }
     // The entity id keys the batch's position cache (fix round 1).
-    return this.selectionRing.push(p, this.decalSampleY, i);
+    return batch.push(p, this.decalSampleY, i);
   }
 
   // ------------------------------------------------------------------
@@ -7977,6 +8019,40 @@ export class ThreeRenderer implements Renderer {
     return fx.toNumber(type.weapons[0].effectiveRange) > 0;
   }
 
+  /** GH-346 prototype (`&rimlift`): a per-class fresnel rim on every material
+   *  of a freshly instantiated mesh unit. A no-op when the lever is off. */
+  private applyRimLift(root: THREE.Object3D, type: Sim['unitTypes'][number]): void {
+    if (this.opts.readability?.rimLift !== true) return;
+    const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
+    const strength = LEVER.rim.strength[cls];
+    const color = cachedHexToLinear(this.overlayColor(LEVER.rim.colorKey, '#F2E8D5'));
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || isSilhouette(mesh)) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) patchRim(m, strength, color, this.opts.readability?.rimPower ?? LEVER.rim.power);
+    });
+  }
+
+  /** GH-346 prototype (`&contacts`): one hostile's mark, over its head, with a
+   *  dark halo under it. `unknown` while only suspected. */
+  private pushContactMark(
+    anchor: readonly [number, number, number],
+    type: Sim['unitTypes'][number],
+    r: number,
+    contactLevel: number,
+    scale: number
+  ): void {
+    const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
+    const shape = contactShapeOf(cls, contactLevel);
+    const h = LEVER.contacts.halfPx * scale;
+    const at = billboardPoint(anchor, 0, r + LEVER.contacts.liftPx * scale);
+    const halo = this.overlayColor('shadow.1', '#14150F');
+    const team = this.opts.teamColors[1] ?? this.overlayColor('team.hostile', '#D93A2B');
+    for (const t of contactTriangles(shape, h + LEVER.contacts.haloPx * scale)) this.overlayBatch.triangle(at, t, halo, 0.85);
+    for (const t of contactTriangles(shape, h)) this.overlayBatch.triangle(at, t, team, 1);
+  }
+
   /** The shared occlusion-silhouette material for `side` -- one of three for
    *  the whole scene, not one per unit. See `silhouetteMeshMaterials`' own
    *  field doc comment. */
@@ -8005,6 +8081,14 @@ export class ThreeRenderer implements Renderer {
         SILHOUETTE_OUTLINE_UNIFORM_KEY
       ];
       if (w) w.value *= HIT_FLASH_WIDTH_SCALE;
+    }
+    // GH-346 prototype (`&teamband=<px>`): every mesh outline at that width.
+    const bandPx = this.opts.readability?.teamBand === true ? this.opts.readability.teamBandPx : undefined;
+    if (bandPx !== undefined) {
+      for (const m of this.silhouetteMeshMaterials) {
+        const u = (m.userData as Record<string, { value: number } | undefined>)[SILHOUETTE_OUTLINE_UNIFORM_KEY];
+        if (u) u.value *= bandPx / SILHOUETTE_OUTLINE_PX;
+      }
     }
     for (const instancer of this.unitInstancers.values()) instancer.setOutlineZoom(zoom);
     for (const instancer of this.turretInstancers.values()) instancer.setOutlineZoom(zoom);
@@ -8041,6 +8125,9 @@ export class ThreeRenderer implements Renderer {
     this.numeralBatch.beginFrame();
     this.chevronBatch.beginFrame();
     this.selectionRing.beginFrame();
+    this.teamRing?.beginFrame();
+    const lv = this.opts.readability;
+    const markScale = contactScale(this.camera.zoom);
 
     const st = this.sim.state;
     const n = this.snapshottedCount;
@@ -8195,6 +8282,13 @@ export class ThreeRenderer implements Renderer {
         grp > 0 && this.opts.groupColors.length > 0 ? this.opts.groupColors[(grp - 1) % this.opts.groupColors.length] : '';
       const accentDefault = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
 
+      // GH-346 prototype (`&bigrings`): a faint team ring under every
+      // unselected unit standing on open ground.
+      if (this.teamRing && !selected && inside < 0) this.pushSelectionRing(i, type, ix, iy, side, this.teamRing, 1);
+      // GH-346 prototype (`&contacts`): a shape-coded mark over every
+      // observed hostile, at a screen size that never shrinks below zoom 1's.
+      if (lv?.contacts === true && side === 1) this.pushContactMark(anchor, type, r, this.sim.contactLevel(0, i), markScale);
+
       // Selection ring (A4, GH-186): on the ground, in team colour, for a
       // unit standing on it. The old flat billboard ellipse -- renderer.ts:
       // `g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color:
@@ -8227,6 +8321,7 @@ export class ThreeRenderer implements Renderer {
     // The ground rings pushed above, drawn in one call -- or none, and hidden,
     // when nothing on open ground is selected.
     this.selectionRing.endFrame(this.camera.zoom);
+    this.teamRing?.endFrame(this.camera.zoom);
 
     // Building status: an integrity bar once a building has been hit, and a
     // pip per man inside -- renderer.ts's own comment: "you should be able
