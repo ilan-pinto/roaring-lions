@@ -769,6 +769,16 @@ describe('writeShellInstances', () => {
     expect(out.colors[SHELL_TRAIL_SEGMENTS * 12]).toBeCloseTo(r1, 6);
   });
 
+  it('writes nothing for a burst streak that has not left the gun yet (t < 0)', () => {
+    const shells = [
+      { ...spawnShell(0, 0, 7, 0, 0, 'mg'), t: 0.05 },
+      { ...spawnShell(0, 0, 7, 0, 0, 'mg'), t: -0.05 },
+      { ...spawnShell(0, 0, 7, 0, 0, 'mg'), t: -0.1 },
+    ];
+    const out = sBuffers(SHELL_TRAIL_SEGMENTS * 3);
+    expect(writeShellInstances(shells, ['#FF0000', '#00FF00'], null, 0, 0, out)).toBe(SHELL_TRAIL_SEGMENTS);
+  });
+
   it('fades the streak from tail to head, reaching full alpha only at the round itself', () => {
     const shells = [{ ...spawnShell(0, 0, 12, 0, 0, 'mortar'), t: 1 }];
     const out = sBuffers(SHELL_TRAIL_SEGMENTS);

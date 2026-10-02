@@ -256,6 +256,8 @@ import {
   shellKindFor,
   shellHasLanded,
   isIndirectShell,
+  isBurstShell,
+  spawnBurst,
   SHELL_PROFILES,
   type ShellModel,
 } from './units/shells';
@@ -266,6 +268,16 @@ import {
   MISS_SCORCH_POWER,
 } from './units/missile-fx';
 import type { MissileLanding, TargetTrack } from './units/missiles';
+import { missileClassOf, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
+import {
+  TARGET_RING_SCALE,
+  pulseAt,
+  PULSE_S,
+  PULSE_MIN_GAP_S,
+  HIT_FLASH_S,
+  HIT_FLASH_WIDTH_SCALE,
+  landingDelayS,
+} from './units/fire-link';
 import {
   ParticleInstancer,
   TracerBatch,
@@ -316,6 +328,8 @@ import {
   attachMeshSilhouette,
   detachMeshSilhouette,
   setSilhouetteOutlineZoom,
+  isSilhouette,
+  SILHOUETTE_OUTLINE_UNIFORM_KEY,
 } from './units/silhouette';
 import {
   loadMeshUnitTemplate,
@@ -1945,6 +1959,20 @@ export class ThreeRenderer implements Renderer {
   private readonly emitterLibrary = new EmitterLibrary();
   private particleSystem: ParticleSystem | null = null;
   private tracers: TracerModel[] = [];
+  /** Fire link (`units/fire-link.ts`): who the selection is shooting,
+   *  shown as a pulse on the target per shot and a flash when a round
+   *  lands -- the duel line's replacement. */
+  /** Fire link's own presentation clock, seconds: the clamped frame clock
+   *  every FX ager already runs on. Never a sim tick, never read back. */
+  private fireLinkClockS = 0;
+  /** `pulse`: one contracting ring per shot the selection fired. */
+  private fireLinkPulses: { target: number; bornS: number }[] = [];
+  /** `flash`: a hit on `target` that will be SEEN to land at `startS`. */
+  private fireLinkFlashes: { target: number; startS: number }[] = [];
+  /** `flash`: the silhouette meshes currently wearing the flash material,
+   *  by entity, with the material each one wore before. */
+  private readonly fireLinkFlashed = new Map<number, { mesh: THREE.Mesh; was: THREE.Material | THREE.Material[] }[]>();
+  private fireLinkFlashMaterial: THREE.MeshBasicMaterial | null = null;
   private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true, false);
   private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false, false);
   /**
@@ -2947,6 +2975,7 @@ export class ThreeRenderer implements Renderer {
     this.decalsFading.dispose();
     this.decalMaterial.dispose();
     this.selectionRing.dispose();
+    this.fireLinkFlashMaterial?.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -3135,6 +3164,8 @@ export class ThreeRenderer implements Renderer {
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
     this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
+    this.fireLinkClockS += this.frameDtSeconds(dtMs);
+    this.stepFireLinkFlashes();
     // Ages every active muzzle-flash and rewrites the shared uFlash* arrays
     // every registered toon-ramp/terrain material already points at -- see
     // `FlashLightManager.step`'s own doc comment. Presentation-only timing
@@ -4289,6 +4320,10 @@ export class ThreeRenderer implements Renderer {
     // round that is supposed to be seen crossing the gap. Drawing both would
     // show the round travelling along a line already claiming it had
     // arrived.
+    // Fire link: is this the SELECTED unit's own shot? Read off the
+    // renderer's own selection, never fed back (invariant 4).
+    const linked = st.side[e.shooter] === 0 && this.selection.includes(e.shooter);
+    let flightS: number | null = null;
     if (shellKind === null) {
       this.tracers.push(spawnTracer(this.curX[e.shooter], this.curY[e.shooter], tx, ty, st.side[e.shooter]));
     }
@@ -4396,14 +4431,37 @@ export class ThreeRenderer implements Renderer {
         target: atStruct ? -1 : e.target, willHit: e.willHit,
         shooterAir: type.isAir, targetAir, tick: e.tick, shooter: e.shooter,
       });
+      const mcls = missileClassOf(cls);
+      flightS = Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]) / SIM_PROJ_SPEED_TILES_S[mcls ?? 'atgm'];
     } else if (shellKind !== null) {
-      const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
-      // GH-149: the arcing kinds and the direct kinds live in separate
-      // arrays and separate batches -- see the `bolts` field's own doc
-      // comment for the three things that differ between them, none of
-      // which is per-shell.
-      if (isIndirectShell(shellKind)) this.shells.push(shell);
-      else this.bolts.push(shell);
+      if (isBurstShell(shellKind)) {
+        // Machine-gun and rifle fire: a burst of short streaks, each its own
+        // travelling round, staggered inside the weapon's own cooldown --
+        // `units/shells.ts`'s `spawnBurst`. Never a full-span line.
+        const burst = spawnBurst(mzX, mzY, tx, ty, st.side[e.shooter], shellKind, e.shooter * 7919 + e.tick, e.willHit);
+        for (const b of burst) this.bolts.push(b);
+        flightS = burst.length > 0 ? burst[0].duration : null;
+      } else {
+        const shell = spawnShell(mzX, mzY, tx, ty, st.side[e.shooter], shellKind);
+        flightS = shell.duration;
+        // GH-149: the arcing kinds and the direct kinds live in separate
+        // arrays and separate batches -- see the `bolts` field's own doc
+        // comment for the three things that differ between them, none of
+        // which is per-shell.
+        if (isIndirectShell(shellKind)) this.shells.push(shell);
+        else this.bolts.push(shell);
+      }
+    }
+
+    if (linked && !atStruct && e.target >= 0) {
+      // One pulse per beat, not per round: a coax burst would otherwise
+      // stack five rings on top of each other.
+      if (!this.fireLinkPulses.some((p) => p.target === e.target && this.fireLinkClockS - p.bornS < PULSE_MIN_GAP_S)) {
+        this.fireLinkPulses.push({ target: e.target, bornS: this.fireLinkClockS });
+      }
+      if (e.willHit) {
+        this.fireLinkFlashes.push({ target: e.target, startS: this.fireLinkClockS + landingDelayS(flightS) });
+      }
     }
 
     // LEAD DECISION (28 Sep, GH-250): no ground backblast for an AIR
@@ -7724,6 +7782,125 @@ export class ThreeRenderer implements Renderer {
     return this.selectionRing.push(p, this.decalSampleY, i);
   }
 
+  // ------------------------------------------------------------------
+  // Fire link (`units/fire-link.ts`). Presentation only:
+  // every input is sim state this renderer already reads, nothing is
+  // written back.
+  // ------------------------------------------------------------------
+
+  /** A ring's outer semi-axis for a unit, tiles: the selection ring's own
+   *  radius, or the larger semi-axis of its hull ellipse. */
+  private fireLinkRingRadius(type: Sim['unitTypes'][number]): number {
+    const e = ELLIPSE_BY_TYPE[type.id];
+    if (e !== undefined) return Math.max(e.along, e.across);
+    return ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type));
+  }
+
+  /** Interpolated position of entity `i` this frame. */
+  private fireLinkPos(i: number, alpha: number): [number, number] {
+    return [this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha, this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha];
+  }
+
+  /**
+   * Where a target's pulse lands, tiles: around the unit, or -- for a unit
+   * inside a building, which has no ground of its own to stand a ring on --
+   * around that building's footprint, so the house you are shooting into is
+   * what gets ringed.
+   */
+  private fireLinkTargetShape(t: number, alpha: number): { x: number; z: number; along: number; across: number } {
+    const st = this.sim.state;
+    const inside = st.garrisonedIn[t];
+    if (inside >= 0) {
+      const ss = this.sim.structures;
+      const w = ss.maxX[inside] - ss.minX[inside] + 1;
+      const h = ss.maxY[inside] - ss.minY[inside] + 1;
+      return {
+        x: (ss.minX[inside] + ss.maxX[inside] + 1) / 2,
+        z: (ss.minY[inside] + ss.maxY[inside] + 1) / 2,
+        // An ellipse through the footprint's CORNERS needs sqrt(2) x the
+        // half-extent; anything less runs under the walls and is hidden.
+        along: (w / 2) * Math.SQRT2 + 0.3,
+        across: (h / 2) * Math.SQRT2 + 0.3,
+      };
+    }
+    const type = this.sim.unitTypes[st.typeIdx[t]];
+    const [x, z] = this.fireLinkPos(t, alpha);
+    const r = this.fireLinkRingRadius(type) * TARGET_RING_SCALE;
+    return { x, z, along: r, across: r };
+  }
+
+  /** The pulse: one ground ring contracting onto the target per shot the
+   *  selection fires, in the overlay tier the range envelope already draws
+   *  in -- +0 draw calls while anything is selected. */
+  private drawFireLinkOverlays(alpha: number): void {
+    if (this.fireLinkPulses.length === 0) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const elevation = this.retained.elevation;
+    const halo = this.overlayColor('shadow.1', '#14150F');
+    const now = this.fireLinkClockS;
+    this.fireLinkPulses = this.fireLinkPulses.filter((p) => now - p.bornS < PULSE_S && p.target < n && st.alive[p.target] === 1);
+    for (const p of this.fireLinkPulses) {
+      const k = pulseAt(now - p.bornS);
+      if (k === null) continue;
+      const shape = this.fireLinkTargetShape(p.target, alpha);
+      const { rightR, upR } = tileRadiusToEllipsePx(Math.max(shape.along, shape.across) * k.scale, TILE_W, TILE_H);
+      const anchor: [number, number, number] = [
+        shape.x,
+        groundWorldY(elevation, this.sim.width, this.sim.height, shape.x, shape.z),
+        shape.z,
+      ];
+      this.overlayBatch.ellipseRing(anchor, rightR, upR, 4, halo, k.alpha * 0.5);
+      this.overlayBatch.ellipseRing(anchor, rightR, upR, 2, this.opts.teamColors[st.side[p.target]] ?? this.opts.teamColors[1], k.alpha);
+    }
+  }
+
+  /** `flash`: the occlusion outline's own material with NO depth test, so
+   *  the outline shows whether the target stands in the open or behind a
+   *  wall. The first cut used an ordinary depth test, and a target behind a
+   *  building then lost BOTH outlines for the flash -- the occlusion one was
+   *  swapped away and the flash one failed the depth test. The stencil still
+   *  punches the body's own footprint out, so it stays an outline. */
+  private fireLinkFlashMat(): THREE.MeshBasicMaterial {
+    if (this.fireLinkFlashMaterial === null) {
+      const m = createMeshSilhouetteMaterial(this.opts.teamColors[1]);
+      m.depthTest = false;
+      this.fireLinkFlashMaterial = m;
+    }
+    return this.fireLinkFlashMaterial;
+  }
+
+  /** `flash`: swaps a target's silhouette meshes onto the flash material for
+   *  `HIT_FLASH_S` from the moment its round visibly lands, then back. The
+   *  silhouette already draws every frame, so this is +0 draw calls. */
+  private stepFireLinkFlashes(): void {
+    if (this.fireLinkFlashes.length === 0 && this.fireLinkFlashed.size === 0) return;
+    const st = this.sim.state;
+    const now = this.fireLinkClockS;
+    this.fireLinkFlashes = this.fireLinkFlashes.filter((f) => now < f.startS + HIT_FLASH_S && st.alive[f.target] === 1);
+    const active = new Set<number>();
+    for (const f of this.fireLinkFlashes) if (now >= f.startS) active.add(f.target);
+    for (const [id, list] of this.fireLinkFlashed) {
+      if (active.has(id)) continue;
+      for (const { mesh, was } of list) mesh.material = was;
+      this.fireLinkFlashed.delete(id);
+    }
+    for (const id of active) {
+      if (this.fireLinkFlashed.has(id)) continue;
+      const root = this.meshUnitEntities.get(id)?.root ?? this.vehicleMeshEntities.get(id)?.root;
+      if (!root) continue;
+      const mat = this.fireLinkFlashMat();
+      const list: { mesh: THREE.Mesh; was: THREE.Material | THREE.Material[] }[] = [];
+      root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || !isSilhouette(mesh)) return;
+        list.push({ mesh, was: mesh.material });
+        mesh.material = mat;
+      });
+      this.fireLinkFlashed.set(id, list);
+    }
+  }
+
   /** `this.opts.resolveColor(key)` if the app supplied one, `fallback`
    *  otherwise -- the identical optional-resolver shape `renderer.ts`'s own
    *  handful of `resolveColor`-through-a-ring-colour call sites already use
@@ -7822,6 +7999,13 @@ export class ThreeRenderer implements Renderer {
   private updateSilhouetteOutlineWidth(): void {
     const zoom = this.camera.zoom;
     setSilhouetteOutlineZoom(this.silhouetteMeshMaterials, zoom);
+    if (this.fireLinkFlashMaterial !== null) {
+      setSilhouetteOutlineZoom([this.fireLinkFlashMaterial], zoom);
+      const w = (this.fireLinkFlashMaterial.userData as Record<string, { value: number } | undefined>)[
+        SILHOUETTE_OUTLINE_UNIFORM_KEY
+      ];
+      if (w) w.value *= HIT_FLASH_WIDTH_SCALE;
+    }
     for (const instancer of this.unitInstancers.values()) instancer.setOutlineZoom(zoom);
     for (const instancer of this.turretInstancers.values()) instancer.setOutlineZoom(zoom);
   }
@@ -8279,33 +8463,12 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
-    // Engagement reticles: brackets on whatever the selected units are
-    // shooting at, with a faint line so the duel is readable at a glance.
-    // The duel line is the one overlay in this method connecting two
-    // INDEPENDENT world anchors (shooter, target) rather than small pixel
-    // offsets from one -- `OverlayBatch.lineWorld`'s own doc comment (and
-    // `pushLineWorld`'s, `units/overlay-geometry.ts`) has the full reasoning
-    // for why that needs its own primitive.
-    for (const i of this.selection) {
-      if (i >= n || st.alive[i] === 0 || st.side[i] !== 0) continue;
-      const t = st.curTarget[i];
-      if (t < 0 || t >= n || st.alive[t] === 0) continue;
-      const tx = this.prevX[t] + (this.curX[t] - this.prevX[t]) * alpha;
-      const ty = this.prevY[t] + (this.curY[t] - this.prevY[t]) * alpha;
-      const groundYt2 = groundWorldY(elevation, width, height, tx, ty);
-      const targetAnchor: [number, number, number] = [tx, groundYt2, ty];
-      const R = 15;
-      const c = this.opts.teamColors[1];
-      for (const [mx, my] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
-        this.overlayBatch.line(targetAnchor, mx * R, my * (R / 2) - my * 4, mx * R, my * (R / 2), 2, c, 1);
-        this.overlayBatch.line(targetAnchor, mx * R, my * (R / 2), mx * R - mx * 7, my * (R / 2), 2, c, 1);
-      }
-      const shx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
-      const shy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      const groundYs2 = groundWorldY(elevation, width, height, shx, shy);
-      const shooterAnchor: [number, number, number] = [shx, groundYs2, shy];
-      this.overlayBatch.lineWorld(shooterAnchor, targetAnchor, 1, c, 0.35);
-    }
+    // Fire link (`units/fire-link.ts`): the selection's shots pulse onto
+    // their target, in the overlay tier the range envelope already draws in.
+    // It replaced a 1 px duel line from shooter to target plus corner
+    // brackets, retired by the lead (2 Oct) once tracers, missiles and
+    // muzzle flashes carried the fire itself.
+    this.drawFireLinkOverlays(alpha);
 
     // Permanent-wreck fallback: a unit type with no real `wreck` clip
     // (`clipOrFallback(sheet, 'wreck') !== 'wreck'`, `mbt_lavi`'s
