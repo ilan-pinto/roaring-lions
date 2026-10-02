@@ -64,11 +64,6 @@ describe('routes', () => {
       nomesh: true,
       decals: false,
       kit: false,
-      teamband: false,
-      bigrings: false,
-      contacts: false,
-      rimlift: false,
-      footscale: false,
     });
     expect(unknownParams(url.searchParams)).toEqual([]);
 

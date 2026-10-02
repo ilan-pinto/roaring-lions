@@ -1,13 +1,15 @@
 /**
  * GH-346: the battlefield-readability instrument. Measures how far units
- * stand out from the ground they stand on, and photographs every prototype
- * lever (`packages/render/src/three/units/readability-levers.ts`) before and
- * after, on a mixed fight, at the default tactical zoom (1) and at 0.5.
+ * stand out from the ground they stand on, and photographs a mixed fight at
+ * the default tactical zoom (1) and at 0.5, on one or more TARGETS: a target
+ * is a name, a dev server port and optional extra URL flags, so a before and
+ * after is two trees served side by side (`main@5272,branch@5271`).
  *
- * Run against a dev server you started yourself (it never starts or stops
+ * Run against dev servers you started yourself (it never starts or stops
  * one), music off:
- *   cd tools && npx tsx src/perf/readability-captures.ts --port=5271 --out=<dir>
- *     [--maps=beit_sahwan_outskirts,tel_marum,wadi_halam_basin] [--variants=base,teamband,...]
+ *   cd tools && npx tsx src/perf/readability-captures.ts --targets=main@5272,branch@5271 --out=<dir>
+ *     [--maps=beit_sahwan_outskirts,tel_marum,wadi_halam_basin]
+ * A target may carry flags after a `+`: `ditch@5271+&ditch`.
  *
  * ## What is measured, and how
  *
@@ -37,24 +39,21 @@ import { resolve } from 'node:path';
 
 const args = process.argv.slice(2);
 const arg = (k: string, d: string): string => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
-const PORT = Number(arg('port', '5271'));
-if (PORT === 5177) throw new Error('5177 is the lead’s dev server; use another port');
+/** name -> { port, extra URL flags }. */
+const TARGETS: Record<string, { port: number; flags: string }> = Object.fromEntries(
+  arg('targets', 'branch@5271')
+    .split(',')
+    .map((t) => {
+      const [name, rest] = t.split('@');
+      const [port, flags = ''] = rest.split('+');
+      if (Number(port) === 5177) throw new Error('5177 is the lead’s dev server; use another port');
+      return [name, { port: Number(port), flags }];
+    })
+);
 const OUT = resolve(arg('out', '.superpowers/readability'));
 const MAPS = arg('maps', 'beit_sahwan_outskirts,tel_marum,wadi_halam_basin').split(',');
-const VARIANTS: Record<string, string> = {
-  base: '',
-  teamband: '&teamband',
-  bigrings: '&bigrings',
-  contacts: '&contacts',
-  rimlift: '&rimlift',
-  rimbroad: '&rimlift=2.2',
-  footscale: '&footscale',
-  teamband15: '&teamband=1.5',
-  combo: '&teamband&bigrings&contacts&rimlift&footscale',
-  recommended: '&bigrings&contacts&footscale',
-};
-const WANT = arg('variants', Object.keys(VARIANTS).join(',')).split(',');
-const ZOOMS = [1, 0.5];
+const WANT = Object.keys(TARGETS);
+const ZOOMS = arg('zooms', '1,0.5').split(',').map(Number);
 const TARGET_TICK = Number(arg('tick', '400'));
 const ORDER_TICK = 60;
 const ROOT = resolve(import.meta.dirname, '../../..');
@@ -263,8 +262,8 @@ function measure(A: PNG, B: PNG, units: UnitShot[], zoom: number, rows: string[]
   return out;
 }
 
-async function boot(page: Page, map: string, flags: string): Promise<void> {
-  await page.goto(`http://127.0.0.1:${PORT}/?sandbox=${map}&sur&civ${flags}`);
+async function boot(page: Page, map: string, target: { port: number; flags: string }): Promise<void> {
+  await page.goto(`http://127.0.0.1:${target.port}/?sandbox=${map}&sur&civ${target.flags}`);
   await page.waitForFunction(() => (window as unknown as { __lions?: { sim?: unknown } }).__lions?.sim, null, {
     timeout: 180000,
   });
@@ -435,7 +434,7 @@ if (args.includes('--cost')) {
         await page.addInitScript(() => {
           localStorage.setItem('lions.settings', JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 0, voice: 0, radio: false } }));
         });
-        await boot(page, map, VARIANTS[v]);
+        await boot(page, map, TARGETS[v]);
         await stage(page);
         for (const z of ZOOMS) {
           const r = await page.evaluate((z) => {
@@ -501,7 +500,7 @@ for (const map of MAPS) {
       localStorage.setItem('lions.settings', JSON.stringify({ version: 1, audio: { master: 1, music: 0, sfx: 0, voice: 0, radio: false } }));
     });
     page.on('pageerror', (e) => console.log(`[readability] pageerror ${e.message}`));
-    await boot(page, map, VARIANTS[v]);
+    await boot(page, map, TARGETS[v]);
     const staged = await stage(page);
     if (staged.frozenAt > ORDER_TICK) console.warn(`[readability] ${map}/${v}: froze at tick ${staged.frozenAt}, past the order tick`);
     await hideChrome(page);

@@ -16,20 +16,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName =
-  | 'roe'
-  | 'tunnel'
-  | 'sur'
-  | 'civ'
-  | 'ditch'
-  | 'nomesh'
-  | 'decals'
-  | 'kit'
-  | 'teamband'
-  | 'bigrings'
-  | 'contacts'
-  | 'rimlift'
-  | 'footscale';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'nomesh' | 'decals' | 'kit';
 
 export interface UrlParam {
   name: string;
@@ -70,13 +57,6 @@ export const SANDBOX_FLAGS: readonly { name: SandboxFlagName; blurb: string }[] 
     blurb:
       'the sandbox force pre-kitted, level 1–3 by type -- the kit sign on the unit icons and the HUD card to walk',
   },
-  // GH-346: the battlefield-readability prototype levers. Design-branch
-  // only, three-only, never on a mission (`RendererOptions.readability`).
-  { name: 'teamband', blurb: 'readability prototype: a team-colour outline on every unit, not only when hidden (=<px> for its width)' },
-  { name: 'bigrings', blurb: 'readability prototype: a bigger selection ring, and a faint team ring under every unit' },
-  { name: 'contacts', blurb: 'readability prototype: a shape-coded mark over every hostile in sight' },
-  { name: 'rimlift', blurb: 'readability prototype: a light rim on unit bodies, strongest on infantry (=<power>)' },
-  { name: 'footscale', blurb: 'readability prototype: infantry drawn larger than life (=<scale>, default 1.3)' },
 ];
 
 /** Everything the app reads off the query string — including the five keys

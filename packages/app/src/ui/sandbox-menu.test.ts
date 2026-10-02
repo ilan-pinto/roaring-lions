@@ -159,11 +159,6 @@ describe('the launch URL', () => {
       nomesh: true,
       decals: false,
       kit: false,
-      teamband: false,
-      bigrings: false,
-      contacts: false,
-      rimlift: false,
-      footscale: false,
     });
     expect(unknownParams(params)).toEqual([]);
   });

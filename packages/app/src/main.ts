@@ -1727,21 +1727,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(!mission && wantDecals
       ? { decalShowcase: { x: anchors.friendly[0], y: anchors.friendly[1] } }
       : {}),
-    // GH-346's readability prototype: sandbox only, like the showcase.
-    // A flag may carry a number (`&teamband=1.5`): read it, else the default.
-    ...(!mission && (flags.teamband || flags.bigrings || flags.contacts || flags.rimlift || flags.footscale)
-      ? {
-          readability: {
-            teamBand: flags.teamband,
-            teamBandPx: Number(params.get('teamband')) || undefined,
-            bigRings: flags.bigrings,
-            contacts: flags.contacts,
-            rimLift: flags.rimlift,
-            rimPower: Number(params.get('rimlift')) || undefined,
-            footScale: flags.footscale ? Number(params.get('footscale')) || 1.3 : 1,
-          },
-        }
-      : {}),
   };
   // Three is the default as of Phase D; Pixi remains reachable through
   // `?renderer=pixi`, which `renderer-choice.ts` persists so it survives the

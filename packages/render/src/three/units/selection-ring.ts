@@ -4,8 +4,8 @@
  *
  * One non-instanced `THREE.Mesh`, rewritten every frame: `beginFrame`, one
  * `push` per selected unit, `endFrame`. Each ring is an `n = 4` conforming
- * grid -- `n = 6` above 0.72 tile (`RING_GRID_LARGE`) and `n = 7` above 1.28
- * (`RING_GRID_XL`) -- placed by
+ * grid -- `n = 6` above 0.72 tile (`RING_GRID_LARGE`), `n = 7` above 1.23
+ * (`RING_GRID_XL`) and `n = 9` above 1.5 (`RING_GRID_XXL`, GH-346) -- placed by
  * `writeDecalGrid` -- the decal pool's PURE maths, not the
  * pool itself, whose sim-time-dated ring buffer and multiply blend are both
  * wrong for a bright mark rewritten every frame (spec sec 1) -- so a ring
@@ -29,8 +29,9 @@
  * a ring are half as thick on screen as its sides. The floor exists so a ring
  * never breaks up at the 0.35 zoom clamp, and that happens first on the thin
  * axis; `ringPxPerTile` reads that one. Consequence: the floor binds below
- * zoom ~1.1, so at zoom 1 the band is 0.066 tiles (1.5 px tall, 3.0 px wide)
- * rather than 0.06 (1.36 / 2.7). Swapping `upR` for `rightR` in
+ * zoom ~1.1, so at zoom 1 the selected band is 0.11 tiles (2.5 px tall,
+ * 5.0 px wide) rather than 0.10 (2.26 / 4.5), and the team ring's 0.066 tiles
+ * (1.5 px) rather than 0.05 (GH-346 numbers; `readability.ts`). Swapping `upR` for `rightR` in
  * `ringPxPerTile` is the whole of the other reading.
  *
  * Unlit and fog-blind by construction: no light uniform, no fog read. It is
@@ -54,9 +55,11 @@ import {
   RING_CACHE,
   RING_GRID_LARGE,
   RING_GRID_XL,
+  RING_GRID_XXL,
   RING_LARGE_TILES,
   RING_SAG_STEPS,
   RING_XL_TILES,
+  RING_XXL_TILES,
   SELECTION_RING,
 } from './readability';
 import { SELECTION_RING_RENDER_ORDER } from './render-order';
@@ -68,12 +71,13 @@ export const RING_GRID = 4;
 /** The larger grids, their thresholds and the lift lattice are measured
  *  numbers and live in `readability.ts` with the rest (fix rounds 1 and 2);
  *  re-exported here for this module's readers. */
-export { RING_GRID_LARGE, RING_GRID_XL, RING_LARGE_TILES, RING_SAG_STEPS, RING_XL_TILES };
+export { RING_GRID_LARGE, RING_GRID_XL, RING_GRID_XXL, RING_LARGE_TILES, RING_SAG_STEPS, RING_XL_TILES, RING_XXL_TILES };
 
 /** The grid a ring with semi-axes `a`, `b` is drawn on: 4x4, 6x6 over
- *  `RING_LARGE_TILES`, 7x7 over `RING_XL_TILES`. */
+ *  `RING_LARGE_TILES`, 7x7 over `RING_XL_TILES`, 9x9 over `RING_XXL_TILES`. */
 export function ringGridFor(a: number, b: number): number {
   const r = Math.max(a, b);
+  if (r > RING_XXL_TILES) return RING_GRID_XXL;
   if (r > RING_XL_TILES) return RING_GRID_XL;
   return r > RING_LARGE_TILES ? RING_GRID_LARGE : RING_GRID;
 }
@@ -307,11 +311,12 @@ function markUsed(attr: THREE.BufferAttribute, range: UpdateRange, first: number
 /** `[key, x, z, along, across, heading, n]` per slot in the position cache. */
 const CACHE_FIELDS = 7;
 const SMALL_VERTS = RING_GRID * RING_GRID;
-/** A large slot is sized for the BIGGEST large grid (7x7); a 6x6 ring in it
- *  uses the first 36 vertices, and its unused index tail is degenerate. */
-const LARGE_VERTS = RING_GRID_XL * RING_GRID_XL;
+/** A large slot is sized for the BIGGEST large grid (9x9 since GH-346); a
+ *  6x6 or 7x7 ring in it uses the first 36 or 49 vertices, and its unused
+ *  index tail is degenerate. */
+const LARGE_VERTS = RING_GRID_XXL * RING_GRID_XXL;
 const SMALL_INDICES = gridTriangles(RING_GRID) * 3;
-const LARGE_INDICES = gridTriangles(RING_GRID_XL) * 3;
+const LARGE_INDICES = gridTriangles(RING_GRID_XXL) * 3;
 
 /**
  * Three grid sizes, ONE draw call. The buffers hold `capacity` large slots
@@ -428,7 +433,7 @@ export class SelectionRingBatch {
     }
     this.largeSlots = slots;
     this.largeSlotGrid = new Uint8Array(capacity);
-    for (let slot = 0; slot < capacity; slot++) this.layOut(slot, RING_GRID_XL);
+    for (let slot = 0; slot < capacity; slot++) this.layOut(slot, RING_GRID_XXL);
     for (let slot = 0; slot < capacity; slot++) {
       const small = indices.subarray(largeIndices + slot * SMALL_INDICES, largeIndices + (slot + 1) * SMALL_INDICES);
       writeGridIndices(small, slot, RING_GRID);

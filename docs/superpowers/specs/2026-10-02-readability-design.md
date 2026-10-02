@@ -2,6 +2,56 @@
 
 GitHub #346 · playtest critique (2 Oct), item 2 · base `main` `f1d82335` (v0.109.0, PR #342 merged) · three.js only · the sim is untouched · **nothing here ships until the lead approves**: every lever is behind its own sandbox flag and is never reachable from a mission.
 
+## Decision (the lead, 2 Oct) and what shipped
+
+- **Shipped as the game's default**, missions and sandbox alike, with no flag: **`bigrings`** (§3.2) and **`contacts`** (§3.3). The lead approved the contact marks as a world overlay, with the comparison page as the mock (D-3).
+- **Not shipped:** `teamband`, `footscale`, `rimlift`. Their flags are removed with them, so no dead flag ships. §3.1 and §3.4 stay as the record of what was measured.
+- **Where the numbers live:**
+  - The rings are in `units/readability.ts`: `SELECTION_RING` (0.10 tile / 2.5 px / 0.95 / halo 0.5), `SELECTED_RING_SCALE` 1.25 and `TEAM_RING`.
+  - The marks are in `units/contact-marks.ts`.
+  - `readability-levers.ts` and `RendererOptions.readability` are gone.
+- **Two things the prototype did not have:**
+  1. **A 9×9 conforming tier.** x1.25 took the Namer's selected ellipse to 2.01 × 1.31 tiles, and the burial sweep at the drawn size (`tools/src/ring_burial_selected.test.ts`, new) buried it 0.032 wu on Tel Marum, and the D9 and Kipod 0.023, against the 0.02 limit. A ring over 1.5 tiles (`RING_XXL_TILES`) is now conformed on 9 × 9 (`RING_GRID_XXL`). A boundary sweep at 1.49 / 1.5 / 1.51 lives in `ring_burial_xxl.test.ts`.
+  2. **The pulse lands on the team ring.** #342's pulse contracted to 1.15× the target's ring, and with a team ring now under every target that drew a second red ring ~3 px outside it as it landed. `TARGET_RING_SCALE` is 1, so the pulse closes onto the target's own team ring.
+- **What the contact mark keeps clear of:**
+  - The HP bar. Its lowest point stays above `r + 11` px at every zoom (`contact-marks.test.ts`).
+  - The hit flash. That is an outline, band 6.
+  - The pulse. That is a ground ring.
+
+### Shipped measurements (2 Oct)
+
+**How these were taken.**
+- `main` at `7fa1abdf` and this branch were served side by side: two dev servers, with `main` in a second worktree.
+- **Frame cost** used `readability-captures.ts --cost --targets=main@5281,branch@5271 --rounds=10`, on the staged fight on `wadi_halam_basin` at zoom 1. That was DPR 2, ANGLE/Metal on an M3 Pro, with the two trees interleaved over n = 10 rounds.
+- **Gate impact** used `readability-gate-impact.ts --base-port=5281 --port=5271`, which is the gate's own capture protocol on SwiftShader.
+- **Caveat.** All three runs predate the last threshold fix (`RING_XL_TILES` 1.28 → 1.23). That fix changes one thing on screen: the Grad's 1.25-tile team ring is conformed on 7 × 7 instead of 6 × 6.
+
+**Frame cost:**
+
+| | CPU p50 ms, median of 10 | GPU p95 ms, median of 10 (mean ± sd) | draw calls |
+|---|---|---|---|
+| main | 18.35 | 22.10 (22.26 ± 0.54) | 841 |
+| this branch | 18.20 | 22.05 (22.22 ± 0.53) | 842 |
+
+The cost does not resolve in the noise: −0.15 ms CPU and −0.05 ms GPU p95. The prototype's +1.1 ms on this view was the infantry ×1.3, which did not ship. The only structural cost is **+1 draw call** for the team-ring batch.
+
+**Memory.** Large ring slots are sized for 9 × 9 now (81 vertices, was 49). With the team ring's 512 slots, the two batches hold 3.5 MiB of ring buffers (vertex attributes and indices), against 0.8 MiB for the one batch on `main`.
+
+**Visual gate.** Differing pixels / meanAbsChannelDelta against `main`, with the box the change sits in (capture px, 1400 × 900):
+
+| scenario | gated | control | changed | where | what |
+|---|---|---|---|---|---|
+| `quiet` | yes | 3 / 0.0001 | **86 / 0.0041** | 390,190–418,231 | a hollow-diamond contact mark over the hostile outlined behind the town building |
+| `open-ground` | yes | 0 / 0.0000 | 0 / 0.0000 | (its unit-free region) | none |
+| `vehicle` | yes | 61 / 0.0054 | **3802 / 0.1652** | 285,346–1218,678 | team rings under the whole parked force |
+| `relief` | yes | 0 / 0.0000 | **83 / 0.0035** | 484,517–532,544 | a blue team ring between the corridor boulders |
+| `aftermath` | yes | 0 / 0.0000 | **146 / 0.0071** | 0,218–10,248 | a team ring of a unit just off the left edge, poking in |
+| `dusk` | report-only | 1 / 0.0000 | 48 / 0.0028 | 390,190–418,229 | the same mark as `quiet` |
+| `combat` | report-only | 7609 / 1.3266 | 4613 / 0.2271 | whole frame | inside its own run-to-run noise |
+
+`quiet`, `vehicle`, `relief` and `aftermath` go red and need one bless. Their layer floors do not move: the rings and marks are in the `overlays` layer, which no layer check hides, and the `units` toggle does not touch them. `aftermath`'s rule is "no unit in its frame", and a ring entering from the edge does not break that rule, so blessing it as is is proposed rather than reframing.
+
+
 > "Make the fight readable at a glance. Olive-on-olive units, houses, and scrub. Contacts are tiny diamonds. Garage plates are clearer than the battlefield — that's backwards for an RTS. Bigger selection rings, stronger team-color bands, distinct silhouettes (tracks / boots / technicals) at tactical zoom. This is higher leverage than any new unit."
 
 The comparison page (every lever, before and after, three maps, zoom 1 and 0.5, with the numbers under each pair) is `/private/tmp/claude-501/-Users-ilpinto-dev-roaring-lions/5d1f74e7-c36f-4120-a675-5c63c714fcf1/scratchpad/readability/index.html`. It is session-local, so it is not committed; the instruments that produced it are (§7), and re-running them rebuilds every number and image.
@@ -262,7 +312,7 @@ Four things to read off it:
 - **D-7. Billboard parity.** None of this reaches `&nomesh` or Pixi. Fine? (VFX already owe Pixi nothing; these are not VFX.)
 - **D-8. Plates.** Keep the garage plates free of the team ring and band?
 
-## 6. Verified through the UI
+## 6. Verified through the UI (prototype)
 
 The flags were driven the way a developer reaches them, not through `__lions`:
 
@@ -275,7 +325,7 @@ The flags were driven the way a developer reaches them, not through `__lions`:
 
 ## 7. Instruments (committed)
 
-- `tools/src/perf/readability-captures.ts`: the capture and measurement harness of §2/§3, and `--cost` for §3.6. It never starts or stops a dev server, and refuses port 5177.
+- `tools/src/perf/readability-captures.ts`: the capture and measurement harness of §2/§3, and `--cost` for §3.6 and the shipped measurements. It never starts or stops a dev server, and refuses port 5177.
 - `tools/src/perf/readability-gate-impact.ts`: §4.
 - `packages/render/src/three/units/readability-levers.ts`: the levers' numbers and shapes.
-- The sandbox flags: `teamband`, `bigrings`, `contacts`, `rimlift`, `footscale`.
+- The prototype's five sandbox flags (`teamband`, `bigrings`, `contacts`, `rimlift`, `footscale`) and `readability-levers.ts` were removed when the lead chose. The two shipped levers are the default, and the instruments now compare two dev servers (`--targets=main@<port>,branch@<port>`, `--base-port`) rather than flags.

@@ -284,25 +284,6 @@ export interface RendererOptions {
    */
   decalShowcase?: { readonly x: number; readonly y: number };
   /**
-   * GH-346's readability PROTOTYPE levers (`three/units/readability-levers.ts`).
-   * Three-only and sandbox-only, exactly like `decalShowcase`: the app sets it
-   * from `&teamband`/`&bigrings`/`&contacts`/`&rimlift` and never on a
-   * mission. `PixiRenderer` ignores it. Absent is every lever off, which is
-   * today's frame.
-   */
-  readability?: {
-    readonly teamBand?: boolean;
-    /** The team band's width in screen px (default 2.5, the occlusion outline's). */
-    readonly teamBandPx?: number;
-    readonly bigRings?: boolean;
-    readonly contacts?: boolean;
-    readonly rimLift?: boolean;
-    /** The rim's fresnel power (default 4: a narrow edge light). */
-    readonly rimPower?: number;
-    /** Infantry mesh scale (1 = off). */
-    readonly footScale?: number;
-  };
-  /**
    * The light this map is lit by (`three/time-of-day.ts`, N-20): `dawn`,
    * `day` or `dusk`, and `night` resolves to `dusk` (D10). Absent is `day`,
    * which is today's frame to the bit.

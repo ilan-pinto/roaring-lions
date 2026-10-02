@@ -9,11 +9,15 @@ import {
   RING_GRID_XL,
   RING_LARGE_TILES,
   RING_XL_TILES,
+  RING_GRID_XXL,
+  RING_XXL_TILES,
   RING_SAG_STEPS,
   ringClassOf,
   RADIUS_BY_TYPE,
   ringRadiusFor,
+  SELECTED_RING_SCALE,
   SELECTION_RING,
+  TEAM_RING,
 } from './readability';
 
 describe('ringClassOf', () => {
@@ -29,17 +33,17 @@ describe('SELECTION_RING', () => {
   it('the thickness floor holds at the zoom clamp', () => {
     expect(Math.max(SELECTION_RING.thicknessTiles * 45.25 * 0.35, SELECTION_RING.minThicknessPx)).toBeGreaterThanOrEqual(1.5);
   });
-  it('the floor itself is 1.5 screen px, not merely satisfied by the tile width', () => {
-    // 0.06 tiles x 45.25 x 0.35 = 0.95 px: at the zoom clamp the FLOOR is what draws.
-    expect(SELECTION_RING.thicknessTiles * 45.25 * 0.35).toBeLessThan(1.5);
-    expect(SELECTION_RING.minThicknessPx).toBe(1.5);
+  it('the floor itself is 2.5 screen px, not merely satisfied by the tile width', () => {
+    // 0.10 tiles x 45.25 x 0.35 = 1.58 px: at the zoom clamp the FLOOR is what draws.
+    expect(SELECTION_RING.thicknessTiles * 45.25 * 0.35).toBeLessThan(2.5);
+    expect(SELECTION_RING.minThicknessPx).toBe(2.5);
   });
-  it('carries the approved shape numbers', () => {
-    expect(SELECTION_RING.thicknessTiles).toBe(0.06);
+  it('carries the approved shape numbers (GH-346: the bigger ring)', () => {
+    expect(SELECTION_RING.thicknessTiles).toBe(0.1);
     expect(SELECTION_RING.featherTiles).toBe(0.015);
-    expect(SELECTION_RING.coreAlpha).toBe(0.9);
+    expect(SELECTION_RING.coreAlpha).toBe(0.95);
     expect(SELECTION_RING.haloTiles).toBe(0.03);
-    expect(SELECTION_RING.haloAlpha).toBe(0.35);
+    expect(SELECTION_RING.haloAlpha).toBe(0.5);
     expect(SELECTION_RING.capacity).toBe(256);
   });
   it('orders the classes: foot < light < armour, and every ring is wider than its own thickness', () => {
@@ -47,6 +51,13 @@ describe('SELECTION_RING', () => {
     expect(r.foot).toBeLessThan(r.light);
     expect(r.light).toBeLessThan(r.armour);
     for (const v of Object.values(r)) expect(v).toBeGreaterThan(SELECTION_RING.thicknessTiles);
+  });
+});
+
+describe('GH-346 ring numbers', () => {
+  it('the selected ring draws at 1.25 x the type ring, and the team ring carries its approved numbers', () => {
+    expect(SELECTED_RING_SCALE).toBe(1.25);
+    expect(TEAM_RING).toEqual({ thicknessTiles: 0.05, minThicknessPx: 1.5, coreAlpha: 0.55, haloAlpha: 0.3, capacity: 512 });
   });
 });
 
@@ -97,11 +108,17 @@ describe('the ring grid and cache numbers (Task 5, fix round 1)', () => {
     expect(Math.max(...Object.values(RADIUS_BY_TYPE).filter((r) => r < 0.6))).toBeLessThanOrEqual(RING_LARGE_TILES);
     for (const e of Object.values(ELLIPSE_BY_TYPE)) expect(e.along).toBeGreaterThan(RING_LARGE_TILES);
   });
-  it('fix round 2: a third tier, 7x7 over 1.28 tiles (fix round 3, was 1.4) -- exactly the four grown ellipses', () => {
+  it('a third tier, 7x7 over 1.23 tiles (1.4, then 1.28 in fix round 3, then 1.23 for GH-346\'s thicker band)', () => {
     expect(RING_GRID_XL).toBe(7);
-    expect(RING_XL_TILES).toBe(1.28);
+    expect(RING_XL_TILES).toBe(1.23);
     const xl = Object.entries(ELLIPSE_BY_TYPE).filter(([, e]) => e.along > RING_XL_TILES).map(([id]) => id).sort();
-    expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer']);
+    expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer', 'rocket_battery']);
+  });
+  it('GH-346: a fourth tier, 9x9 over 1.5 tiles -- at 1x exactly the four grown ellipses', () => {
+    expect(RING_GRID_XXL).toBe(9);
+    expect(RING_XXL_TILES).toBe(1.5);
+    const xxl = Object.entries(ELLIPSE_BY_TYPE).filter(([, e]) => e.along > RING_XXL_TILES).map(([id]) => id).sort();
+    expect(xxl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer']);
   });
   it('a cached ring is rebuilt past 0.05 tile of travel or about 2 degrees of turn', () => {
     expect(RING_CACHE.moveTiles).toBe(0.05);
