@@ -1,0 +1,22 @@
+{
+  "unit": "dozer_d9",
+  "source": "assets/meshes/vehicles/dozer_d9.glb",
+  "source_sha256": "fde9615c04df5450d45406367b2959b1095694134d728b68a4b75c91858dbc15",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1687,
+    0.8313
+  ],
+  "materials": {
+    "baked": 2,
+    "flat": 0
+  }
+}

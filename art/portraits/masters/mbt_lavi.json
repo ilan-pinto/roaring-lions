@@ -1,0 +1,22 @@
+{
+  "unit": "mbt_lavi",
+  "source": "assets/meshes/vehicles/mbt_lavi.glb",
+  "source_sha256": "7d15a28005d45a52ed7db3b5fe8ebaef30c2481533fed535f9218f4e224f4afc",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1401,
+    0.8599
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  }
+}
