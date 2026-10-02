@@ -544,6 +544,7 @@
   "conduct.line": "{label}{count, plural, one {} other { ×#}} −{total}",
   "conduct.summary.more": "{line} · +{n} more",
   "conduct.invoice.head": "Conduct {roe} · floor {floor}",
+  "conduct.invoice.headNoFloor": "Conduct {roe}",
   "conduct.invoice.cause": "Cause",
   "conduct.invoice.when": "When",
   "conduct.invoice.cost": "Cost",

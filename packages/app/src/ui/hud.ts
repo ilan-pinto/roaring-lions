@@ -989,7 +989,11 @@ export class Hud {
     const roe = this.deps.getMission()?.roe;
     const head =
       roe !== undefined
-        ? `<div class="rl-label">${t('conduct.invoice.head', { roe, floor: inv.floor ?? 0 })}</div>`
+        ? `<div class="rl-label">${
+            inv.floor !== undefined
+              ? t('conduct.invoice.head', { roe, floor: inv.floor })
+              : t('conduct.invoice.headNoFloor', { roe })
+          }</div>`
         : '';
     const rows = inv.lines
       .map(

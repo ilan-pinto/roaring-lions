@@ -4371,10 +4371,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         );
         tut = advance(tut, { kind: 'tick' }, now);
         refreshHudShown();
-        // GH-345 beat 9: the beat that reveals Conduct opens its invoice for
-        // the length of the beat. Only on a CHANGE, so a player who closes it
-        // mid-beat is not overruled four times a second.
-        const invoiceBeat = !tut.done && (tut.steps[tut.index]?.reveal ?? []).includes('conduct');
+        // GH-345 beat 9: the beat that reveals Conduct opens its invoice, and
+        // it stays open past the last beat (the index clamps to it) until the
+        // player clicks Conduct -- it is the last thing the tutorial teaches.
+        // Only on a CHANGE, so a player who closes it is not overruled four
+        // times a second.
+        const invoiceBeat = (tut.steps[Math.min(tut.index, tut.steps.length - 1)]?.reveal ?? []).includes('conduct');
         if (invoiceBeat !== tutInvoiceOpen) {
           tutInvoiceOpen = invoiceBeat;
           hud.setInvoiceOpen(invoiceBeat);

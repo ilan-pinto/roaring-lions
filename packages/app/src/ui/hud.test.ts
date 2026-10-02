@@ -2620,3 +2620,14 @@ describe('the Conduct invoice under the strip (GH-345)', () => {
     expect(q.host.querySelector<HTMLElement>('.rl-invoice')!.style.display).toBe('none');
   });
 });
+
+describe('the invoice head with no floor (GH-345)', () => {
+  it('never prints "floor 0" for a mission that declares none', () => {
+    const lines = [{ label: 'Clinic struck', cause: 'struck' as const, count: 1, total: 5, ticks: [7200] }];
+    const r = rig(mission({ roe: 95 }), { conductInvoice: () => ({ lines }) });
+    r.hud.setInvoiceOpen(true);
+    const text = r.host.querySelector('.rl-invoice')!.textContent!;
+    expect(text).toContain('Conduct 95');
+    expect(text).not.toContain('floor');
+  });
+});

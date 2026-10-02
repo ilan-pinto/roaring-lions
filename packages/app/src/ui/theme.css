@@ -2448,9 +2448,10 @@ body {
 /* GH-345: the Conduct invoice pinned open under the strip's Conduct field. */
 .rl-invoice {
   position: absolute;
-  top: calc(var(--hud-strip-h) + 0.25rem);
-  left: 50%;
-  transform: translateX(-50%);
+  top: calc(var(--hud-strip-h) + 0.625rem);
+  /* Beside the radio's slot (32.5rem from one --s2), never over it: the
+     tutorial's step panel lives there and beat 9 opens both at once. */
+  left: calc(32.5rem + 2 * var(--s2));
   min-width: 18rem;
   padding: var(--s1) var(--s2);
   pointer-events: none;
