@@ -59,6 +59,7 @@
  * transaction and `ui/saves.ts` has to tell the player when a load was half
  * applied (profile.ts, I2).
  */
+import { emptyRoarTest, loadRoarTest, saveRoarTest, type RoarTestAccount } from './roar-test';
 import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
 import {
   emptyAccount,
@@ -143,6 +144,10 @@ export interface LedgerStore {
    *  this module knowing what a slot is. */
   readSlotsRaw(): string | null;
   writeSlotsRaw(json: string): void;
+  /** The Roar coin TEST wallet (`roar-test.ts`, key `lions.roar.test`): a
+   *  test tool, never a money field of the brigade account. */
+  readRoarTest(): RoarTestAccount;
+  writeRoarTest(a: RoarTestAccount): void;
 }
 
 /**
@@ -201,6 +206,10 @@ function overStorage(store: StorageLike | null): LedgerStore {
     readSlotsRaw: (): string | null => store?.getItem(SAVES_KEY) ?? null,
     writeSlotsRaw: (json: string): void => {
       if (store) store.setItem(SAVES_KEY, json);
+    },
+    readRoarTest: (): RoarTestAccount => (store ? loadRoarTest(store) : emptyRoarTest()),
+    writeRoarTest: (a: RoarTestAccount): void => {
+      if (store) saveRoarTest(store, a);
     },
   };
 }

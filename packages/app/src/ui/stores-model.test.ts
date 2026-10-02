@@ -3,6 +3,7 @@ import { units } from '@lions/data';
 import type { LedgerData, MissionResult, UnlockGate } from '@lions/sim';
 import {
   COIN_PACKS,
+  buyEnabled,
   LIFETIME_CREDITS,
   coinPrice,
   meanPay,
@@ -189,5 +190,21 @@ describe('item states', () => {
     expect(items.units.some((u) => u.id === 'inf_squad')).toBe(false);
     expect(items.tiers.some((t) => t.unitId === 'inf_squad')).toBe(true);
     expect(unitItem({ id: 'x', name: 'X' }, input()).state).toBe('earned');
+  });
+});
+
+describe('buyEnabled: no Buy without ?testcoins, whatever the wallet holds', () => {
+  it('a non-TEST wallet enables nothing, even one rich enough for everything', () => {
+    const items = storeItems(input({ credits: 0 }));
+    const all = [...items.units, ...items.tiers];
+    const rich = { test: false, coins: 1_000_000 };
+    expect(all.length).toBeGreaterThan(40);
+    expect(all.filter((i) => buyEnabled(i, rich))).toEqual([]);
+    // ...while the same wallet as TEST does enable some: the guard is not vacuous.
+    expect(all.filter((i) => buyEnabled(i, { ...rich, test: true })).length).toBeGreaterThan(10);
+  });
+
+  it('a pack is never enabled by a TEST wallet', () => {
+    for (const pack of COIN_PACKS) expect(buyEnabled(pack, { test: true, coins: 1_000_000 })).toBe(false);
   });
 });

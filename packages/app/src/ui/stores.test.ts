@@ -91,14 +91,59 @@ describe('the Stores preview: no Buy is ever enabled', () => {
     dispose();
   });
 
-  it('every item card shows both prices; an off-sale item has no Buy at all', () => {
-    const { host, dispose } = mountStores({ credits: 9999 });
+  it('a card carries ONE price line, coins first; off-sale items are a counted line, not cards', () => {
+    const { host, dispose } = mountStores({ credits: 1240 });
     const kipod = host.querySelector('[data-item="apc_kipod"]');
-    expect(kipod?.querySelector('.rl-stores__credits')?.textContent).toBe('3200 credits');
-    expect(kipod?.querySelector('.rl-stores__coin-n')?.textContent).toBe('320');
-    const gunship = host.querySelector('[data-item="heli_peten_gunship"]');
-    expect(gunship?.getAttribute('data-state')).toBe('offSale');
-    expect(gunship?.querySelector('button[data-buy]')).toBeNull();
+    const lines = kipod?.querySelectorAll('.rl-stores__price') ?? [];
+    expect(lines).toHaveLength(1);
+    expect(lines[0].firstElementChild?.querySelector('.rl-stores__coin-n')?.textContent).toBe('320');
+    expect(lines[0].querySelector('.rl-stores__credits')?.textContent).toBe('3200 credits');
+    // The diet: no "(you have …)", no per-card rule sentence, no Open button.
+    expect(kipod?.textContent).not.toMatch(/you have|co-op|Open in the brigade/);
+    expect(kipod?.querySelector('.rl-stores__path')?.textContent).toMatch(/^Free in ~\d+ missions?$/);
+    expect(kipod?.querySelectorAll('button')).toHaveLength(1);
+    expect(host.querySelector('[data-item="heli_peten_gunship"]')).toBeNull();
+    expect(host.querySelector('.rl-stores__offsale-count')?.textContent).toMatch(/^1 item is not on sale yet/);
+    // The co-op/skirmish rule is said once, in the shelf's intro.
+    expect(host.querySelectorAll('.rl-stores__lede')).toHaveLength(1);
+    expect((host.textContent ?? '').match(/co-op and skirmish/g)).toHaveLength(1);
+    dispose();
+  });
+
+  it('the default view hides owned items; "Show owned (N)" reveals them', () => {
+    const { host, dispose } = mountStores({
+      units: roster(new Set(['breach_team'])),
+      ledger: { 'roe.mission_ratings': { a: 80 } },
+      owned: { mbt_lavi: { armour: 3, sensors: 3, firepower: 3 } },
+    });
+    const visible = (sel: string): boolean => {
+      const e = host.querySelector<HTMLElement>(sel);
+      return e !== null && e.closest('[hidden]') === null;
+    };
+    expect(visible('[data-item="breach_team"]')).toBe(false); // bought with credits
+    expect(visible('[data-item="recon_drone"]')).toBe(false); // Conduct 70 earned
+    expect(visible('[data-item="apc_kipod"]')).toBe(true); // for sale
+    const toggle = host.querySelector<HTMLButtonElement>('.rl-stores__owned');
+    const owned = host.querySelectorAll('[data-owned="1"]').length;
+    expect(owned).toBeGreaterThan(3);
+    expect(toggle?.textContent).toMatch(/^Show owned \(\d+\)$/);
+    expect(toggle?.getAttribute('aria-pressed')).toBe('false');
+    toggle?.click();
+    expect(toggle?.getAttribute('aria-pressed')).toBe('true');
+    expect(visible('[data-item="breach_team"]')).toBe(true);
+    expect(visible('[data-item="recon_drone"]')).toBe(true);
+    expect(visible('[data-item="tiers:mbt_lavi"]')).toBe(true);
+    toggle?.click();
+    expect(visible('[data-item="breach_team"]')).toBe(false);
+    dispose();
+  });
+
+  it('groups the cards under Units, Special forces and Upgrades', () => {
+    const { host, dispose } = mountStores();
+    const groups = [...host.querySelectorAll<HTMLElement>('.rl-stores__group')].map((g) => g.dataset.group);
+    expect(groups).toEqual(['units', 'special', 'tiers']);
+    expect(host.querySelector('[data-group="special"] [data-item="recon_zikit"]')).not.toBeNull();
+    expect(host.querySelector('[data-group="units"] [data-item="recon_zikit"]')).toBeNull();
     dispose();
   });
 
@@ -133,6 +178,72 @@ describe('the Stores preview: no Buy is ever enabled', () => {
     expect(host.querySelector('.rl-stores')).not.toBeNull();
     dispose();
     expect(host.childElementCount).toBe(0);
+  });
+});
+
+describe('the Stores with a TEST wallet (?testcoins)', () => {
+  const test = { coins: 400, grant: 5000, receipts: [] };
+
+  it('enables a coin Buy exactly where the wallet covers an item for sale; packs stay disabled', () => {
+    const asks: unknown[] = [];
+    const { host, dispose } = mountStores({ test, onBuy: (a) => asks.push(a), credits: 0 });
+    const buy = (k: string): HTMLButtonElement | null => host.querySelector<HTMLButtonElement>(`button[data-buy="${k}"]`);
+    expect(buy('unit:apc_kipod')?.disabled).toBe(false); // 320 <= 400
+    expect(buy('unit:recon_zikit')?.disabled).toBe(true); // 425 > 400
+    expect(buy('unit:heli_peten_gunship')).toBeNull(); // G1: off sale
+    expect(buy('tier:apc_kipod.armour.1')).toBeNull(); // unit not open yet: nothing to buy
+    expect(buy('tier:inf_squad.armour.1')?.disabled).toBe(false);
+    const packs = [...host.querySelectorAll<HTMLButtonElement>('button[data-buy^="pack:"]')];
+    expect(packs).toHaveLength(COIN_PACKS.length);
+    expect(packs.filter((b) => !b.disabled)).toEqual([]);
+    buy('unit:apc_kipod')?.click();
+    expect(asks).toEqual([{ kind: 'unit', unitId: 'apc_kipod' }]);
+    // The balance shows, labelled TEST.
+    expect(host.querySelector('.rl-stores__wallet-n')?.textContent).toBe('400');
+    expect(host.querySelector('.rl-stores__test')?.textContent).toBe('TEST');
+    dispose();
+  });
+
+  it('a coin-bought unit reads "Bought with coins" and offers no Buy', () => {
+    const { host, dispose } = mountStores({
+      test,
+      units: roster(new Set(['apc_kipod'])),
+      coin: { earnedUnits: new Set(), coinUnits: new Set(['apc_kipod']), earnedTiers: {}, coinTiers: {} },
+    });
+    const card = host.querySelector('[data-item="apc_kipod"]');
+    expect(card?.getAttribute('data-state')).toBe('coins');
+    expect(card?.querySelector('button[data-buy]')).toBeNull();
+    // ...and its tiers open for coins.
+    expect(host.querySelector<HTMLButtonElement>('button[data-buy="tier:apc_kipod.armour.1"]')?.disabled).toBe(false);
+    dispose();
+  });
+
+  it('Receipts lists TEST grants and purchases, newest first', () => {
+    const { host, dispose } = mountStores({
+      test: {
+        coins: 80,
+        grant: 400,
+        receipts: [
+          { kind: 'grant', id: '1', at: 1, coins: 400 },
+          { kind: 'unit', id: '2', at: 2, unitId: 'apc_kipod', coins: 320, credits: 3200 },
+        ],
+      },
+    });
+    const rows = [...host.querySelectorAll('[data-shelf="receipts"] tbody tr')];
+    expect(rows.map((r) => r.getAttribute('data-receipt'))).toEqual(['unit', 'grant']);
+    expect(rows[0].textContent).toContain('Kipod');
+    dispose();
+  });
+
+  it('Grant shows only with the TEST wallet', () => {
+    let grants = 0;
+    const withTest = mountStores({ test, onGrant: () => grants++ });
+    withTest.host.querySelector<HTMLButtonElement>('button[data-buy="grant"]')?.click();
+    expect(grants).toBe(1);
+    withTest.dispose();
+    const preview = mountStores({ onGrant: () => grants++ });
+    expect(preview.host.querySelector('button[data-buy="grant"]')).toBeNull();
+    preview.dispose();
   });
 });
 
@@ -175,12 +286,42 @@ describe('the garage\'s Stores tab', () => {
     expect(host.childElementCount).toBe(0);
   });
 
-  it('"Open in the brigade" selects that unit on the brigade tab', () => {
-    const { host, dispose } = mountGarage();
-    host.querySelector<HTMLButtonElement>('.rl-garage__view[data-view="stores"]')?.click();
-    host.querySelector<HTMLButtonElement>('[data-item="apc_kipod"] .rl-stores__open')?.click();
-    expect(host.querySelector<HTMLElement>('.rl-garage__body')?.hidden).toBe(false);
-    expect(host.querySelector('.rl-garage__card[aria-selected="true"]')?.getAttribute('data-unit')).toBe('apc_kipod');
+  it('a TEST-coin buy opens the unit on the garage rail, and the Stores redraws on the same shelf', () => {
+    const coinUnits = new Set<string>();
+    let coins = 1000;
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const dispose = showBrigade(host, {
+      units: roster(),
+      ledger: {},
+      missionName: () => undefined,
+      baseOf: (id) => ((units as Record<string, unknown>)[id] as { id: string } | undefined) ?? { id },
+      possibleStars: 78,
+      credits: 0,
+      owned: {},
+      stores: {
+        coinSrc,
+        open: true,
+        read: () => ({
+          coin: { earnedUnits: new Set(), coinUnits, earnedTiers: {}, coinTiers: {} },
+          test: { coins, grant: 1000, receipts: [] },
+        }),
+        onBuy: (ask) => {
+          if (ask.kind !== 'unit') return undefined;
+          coinUnits.add(ask.unitId);
+          coins -= 320;
+          return { units: roster(coinUnits), credits: 0, owned: {} };
+        },
+      },
+    });
+    expect(host.querySelector('.rl-garage__card[data-unit="apc_kipod"]')?.getAttribute('data-locked')).toBe('1');
+    host.querySelector<HTMLButtonElement>('button[data-buy="unit:apc_kipod"]')?.click();
+    expect(host.querySelector('.rl-garage__card[data-unit="apc_kipod"]')?.getAttribute('data-locked')).toBe('0');
+    expect(host.querySelector('[data-item="apc_kipod"]')?.getAttribute('data-state')).toBe('coins');
+    expect(host.querySelector('.rl-stores__wallet-n')?.textContent).toBe('680');
+    // Focus lands on what is now for sale for that unit -- its upgrades --
+    // never <body> (its own card is owned, so hidden).
+    expect(document.activeElement?.getAttribute('data-focus')).toBe('card:tiers:apc_kipod');
     dispose();
   });
 

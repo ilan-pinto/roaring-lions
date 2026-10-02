@@ -67,7 +67,8 @@ import { flash, prefersReducedMotion } from './motion';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 import { bucketVisible, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
-import { showStores } from './stores';
+import { showStores, type CoinAsk, type StoresShelf, type StoresTestWallet } from './stores';
+import type { CoinHalf } from './stores-model';
 
 export interface BrigadeUnit {
   id: string;
@@ -200,6 +201,15 @@ export interface GarageStoresOptions {
   paid?: Readonly<Record<string, number>>;
   /** Open on the Stores tab rather than the brigade. */
   open?: boolean;
+  /** The coin half of the account and, with `?testcoins`, the TEST wallet --
+   *  read afresh on every draw of the Stores, so a purchase is seen at once. */
+  read?: () => { coin: CoinHalf; test?: StoresTestWallet };
+  /** A Buy pressed with TEST coins. The caller buys and saves, then answers
+   *  with the garage's account as it now stands (a coin-bought unit opens, a
+   *  coin tier lands); the Stores redraws in place either way. */
+  onBuy?: (ask: CoinAsk) => GarageState | void;
+  /** The TEST Grant button. The caller adds coins and saves. */
+  onGrant?: () => void;
 }
 
 const el = (tag: string, cls: string, text?: string): HTMLElement => {
@@ -532,7 +542,24 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   storesHost.hidden = true;
   wrap.appendChild(storesHost);
   let storesDispose: Disposer | null = null;
-  function setView(v: View): void {
+  let storesShelf: StoresShelf = 'early';
+  let storesOwned = false;
+  /** A coin purchase's answer: the garage redraws around the account as the
+   *  store now holds it -- quietly, since it is not on screen -- and the
+   *  Stores is drawn again with focus back on the control that asked. */
+  function storesAnswered(next: GarageState | void, focusKey: string): void {
+    if (next !== undefined) {
+      state = next;
+      rows = classify();
+      selectedId = retainSelection(selectedId, rows.map((r) => r.u.id));
+      renderWallet();
+      renderCards();
+      syncTabs();
+      renderBay();
+    }
+    setView('stores', focusKey);
+  }
+  function setView(v: View, focusKey?: string): void {
     view = v;
     for (const [k, tab] of viewEls) {
       tab.setAttribute('aria-selected', k === v ? 'true' : 'false');
@@ -547,7 +574,35 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     storesDispose = null;
     const so = opts.stores;
     if (v !== 'stores' || so === undefined) return;
+    const live = so.read?.();
+    const onBuy = so.onBuy;
+    const onGrant = so.onGrant;
     storesDispose = showStores(storesHost, {
+      coin: live?.coin,
+      test: live?.test,
+      shelf: storesShelf,
+      onShelf: (s) => {
+        storesShelf = s;
+      },
+      showOwned: storesOwned,
+      onShowOwned: (on) => {
+        storesOwned = on;
+      },
+      focusKey,
+      onBuy:
+        onBuy === undefined
+          ? undefined
+          : (ask) => {
+              const key = ask.kind === 'unit' ? `unit:${ask.unitId}` : `tier:${ask.unitId}.${ask.track}.${ask.tier + 1}`;
+              storesAnswered(onBuy(ask), key);
+            },
+      onGrant:
+        onGrant === undefined
+          ? undefined
+          : () => {
+              onGrant();
+              storesAnswered(undefined, 'grant');
+            },
       units: state.units,
       ledger: opts.ledger,
       credits: state.credits,
@@ -556,17 +611,6 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       coinSrc: so.coinSrc,
       missionName: opts.missionName,
       portrait: opts.portrait,
-      onOpenUnit: (unitId) => {
-        if (!rows.some((r) => r.u.id === unitId)) return;
-        selectedId = unitId;
-        activeTrack = null;
-        // The bucket filter may hide the unit asked for; open on All.
-        bucket = 'all';
-        syncTabs();
-        renderBay();
-        setView('brigade');
-        cardEls.get(unitId)?.focus();
-      },
     });
   }
 
