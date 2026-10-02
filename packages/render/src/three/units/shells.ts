@@ -114,6 +114,7 @@
  * scale either.
  */
 import { WEAPON_CLASS } from '@lions/sim';
+import { OWNED_TRAIL_SCALE } from './fire-link';
 
 /**
  * How a round flies.
@@ -155,6 +156,9 @@ export interface ShellModel {
   duration: number;
   /** Elapsed seconds. A shell is live while this is `< duration`. */
   t: number;
+  /** Fire link's `owned` concept: the selected unit's own round, drawn with
+   *  a longer, wider trail. Absent is every other round. */
+  owned?: boolean;
 }
 
 export interface ShellProfile {
@@ -440,7 +444,7 @@ export function shellPointAt(s: ShellModel, u: number): { x: number; y: number; 
  * trailing one that starts before it was fired.
  */
 export function shellTrailSpan(s: ShellModel): { tail: number; head: number } {
-  const trailS = SHELL_PROFILES[s.kind].trailS;
+  const trailS = SHELL_PROFILES[s.kind].trailS * (s.owned === true ? OWNED_TRAIL_SCALE : 1);
   return { tail: clamp((s.t - trailS) / s.duration, 0, 1), head: shellProgress(s) };
 }
 

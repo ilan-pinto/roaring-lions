@@ -2361,6 +2361,24 @@ body {
 }
 .rl-card__callsign { color: var(--commend); font-weight: 600; }
 .rl-card__record, .rl-card__replaces { font-size: var(--t-s); }
+/* proto/fire-link: who the selected unit is shooting -- the card half of the
+   fire link, beside the condition line. Hostile tone, the target's chip art. */
+.rl-card__engaging {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 2px;
+  color: var(--bad-text);
+  font-weight: 700;
+}
+.rl-card__engaging-art {
+  width: 1.375rem;
+  height: 1.375rem;
+  object-fit: contain;
+  border: 1px solid color-mix(in srgb, var(--bad) 70%, transparent);
+  border-radius: 3px;
+  flex: none;
+}
 .rl-card__hp {
   margin-left: auto;
   white-space: nowrap;

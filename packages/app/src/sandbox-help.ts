@@ -138,6 +138,15 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: 'dawn | day | dusk | night — the sandbox’s light; a mission uses its own',
   },
   {
+    name: 'firelink',
+    // A value flag like `tod`. proto/fire-link: which of the prototype
+    // replacements for the retired shooter-to-target duel line draws
+    // (`packages/render/src/three/units/fire-link.ts`). Comma-separated
+    // concepts combine. Sandbox only: a mission always gets the default.
+    blurb:
+      'ring | ticks | owned | flash | pulse | legacy | none, comma-separated to combine — how the selected unit’s fire is linked to its target (default ring)',
+  },
+  {
     name: 'pseudo',
     // Wraps the `en` catalogue in the pseudo-locale transform (i18n/pseudo.ts)
     // instead of loading a real one -- the fake-translation pass a screen

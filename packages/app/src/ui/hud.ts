@@ -234,6 +234,9 @@ export interface HudDeps {
    *  way a palette-quantised sheet frame is). Absent in tests that do not
    *  exercise it, which is the same as every type reading as a sheet frame. */
   portraitIsIcon?: (typeId: string) => boolean;
+  /** proto/fire-link: name the selected unit's current target on its card
+   *  ("Engaging: <enemy>", with that enemy's portrait). Absent is off. */
+  showEngaging?: boolean;
   /** The campaign roster entry a fielded unit was drawn from, if any -- the
    *  card's callsign and service record. Absent in tests and for a fresh spawn
    *  with no campaign history. Readonly, matching `MissionRuntime.rosterEntryOf`:
@@ -1905,10 +1908,30 @@ export class Hud {
       `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct)}" ` +
       `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
       `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : t('hud.card.holdingPosition')}</div>` +
+      this.engagingHtml(id) +
       `<div class="rl-card__cols">` +
       `<div><div class="rl-label">${t('hud.card.armamentLabel')}</div>${arms.join('')}</div>` +
       `<div><div class="rl-label">${t('hud.card.capabilitiesLabel')}</div>${caps.map((c) => `<div>${c}</div>`).join('')}</div>` +
       `</div></div></div>`
+    );
+  }
+
+  /** proto/fire-link: "Engaging: <enemy>" with the enemy's chip portrait,
+   *  for a friendly unit with a live target -- the card half of the fire
+   *  link. Reads `curTarget`, which the sim already exposes; writes
+   *  nothing. */
+  private engagingHtml(id: number): string {
+    if (this.deps.showEngaging !== true) return '';
+    const st = this.deps.sim.state;
+    if (st.side[id] !== 0) return '';
+    const tgt = st.curTarget[id];
+    if (tgt < 0 || tgt >= st.alive.length || st.alive[tgt] === 0) return '';
+    const ttype = this.deps.sim.unitTypes[st.typeIdx[tgt]];
+    return (
+      `<div class="rl-card__engaging">` +
+      this.artHtml(ttype.id, roleBucket(ttype), 'rl-card__engaging-art', 14, 'chip') +
+      `<span>${t('hud.card.engaging', { target: escapeHtml(ttype.name) })}</span>` +
+      `</div>`
     );
   }
 

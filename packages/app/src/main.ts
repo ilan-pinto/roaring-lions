@@ -42,6 +42,9 @@ import {
   type EmitterSpec,
   type Renderer,
   type RendererOptions,
+  parseFireLink,
+  fireLinkShowsCard,
+  FIRE_LINK_CONCEPTS,
 } from '@lions/render';
 import {
   units,
@@ -1708,6 +1711,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // since the sim never reads it.
   const tod = timeOfDayOf((mission as { map: object } | undefined) ?? null, params);
   if (tod.warning) console.warn(`[lions] ${tod.warning}`);
+  // proto/fire-link: `&firelink=` picks the prototype that replaces the
+  // retired duel line -- sandbox only; a mission always gets the default.
+  const fireLink = parseFireLink(mission ? null : params.get('firelink'));
+  if (fireLink.unknown.length > 0) {
+    console.warn(`[lions] &firelink: unknown concept(s) ${fireLink.unknown.join(', ')} -- known: ${FIRE_LINK_CONCEPTS.join(', ')}`);
+  }
   const opts: RendererOptions = {
     ...rendererOptionsFor(
       map,
@@ -1715,6 +1724,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       BASE
     ),
     timeOfDay: tod.value,
+    fireLink: fireLink.concepts,
     // Sandbox only: a mission brings its own battle, and a dev flag must
     // never change how one looks.
     ...(!mission && wantDecals
@@ -2742,6 +2752,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     keyFor: (id) => (isAction(id) ? keyLabel(bindings[id]) : id),
     portrait: (typeId, slot) => (slot === 'chip' ? chipPortraits[typeId] : undefined) ?? portraits[typeId] ?? null,
     portraitIsIcon: (typeId) => portraitIcons.has(typeId),
+    showEngaging: fireLinkShowsCard(fireLink.concepts),
     kitOf: (typeId) => kitByType.get(typeId) ?? null,
     kitLevelOf,
     // A closure over `runtime`, not a snapshot of it: the Hud is constructed

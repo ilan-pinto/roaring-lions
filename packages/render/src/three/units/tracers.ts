@@ -59,6 +59,9 @@ export interface TracerModel {
    *  not the frame-count `renderer.ts` uses. */
   ttl: number;
   side: number;
+  /** The lifetime this tracer started with, when not `TRACER_LIFETIME_S`
+   *  (fire link's `owned` concept lingers the selected unit's own fire). */
+  life?: number;
 }
 
 /** 9 frames at the renderer's nominal 60 Hz, matching `renderer.ts`'s
@@ -93,5 +96,5 @@ export function stepTracers(tracers: readonly TracerModel[], dt: number): Tracer
 /** Linear fade-to-nothing over the tracer's lifetime. Mirrors
  *  `renderer.ts:2601`'s `alpha: t.ttl / 9`. */
 export function tracerAlpha(t: TracerModel): number {
-  return t.ttl / TRACER_LIFETIME_S;
+  return t.ttl / (t.life ?? TRACER_LIFETIME_S);
 }

@@ -66,6 +66,13 @@ export {
 } from './audio';
 export { type EmitterSpec } from './vfx';
 export type { Renderer } from './api';
+export {
+  type FireLinkConcept,
+  FIRE_LINK_CONCEPTS,
+  DEFAULT_FIRE_LINK,
+  parseFireLink,
+  fireLinkShowsCard,
+} from './fire-link-concepts';
 
 // Layout constants and the shapes the app passes around -- but deliberately
 // NOT `isoX`, `isoY`, `worldToScreen` or `screenToWorldFlat`. Projection is a

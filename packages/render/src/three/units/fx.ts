@@ -363,6 +363,7 @@ import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../projec
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
 import { groundWorldY, type ElevationSource } from '../ground-height';
 import { tracerAlpha, type TracerModel } from './tracers';
+import { OWNED_WIDTH_SCALE } from './fire-link';
 import {
   shellPointAt,
   shellTrailSpan,
@@ -796,7 +797,7 @@ export interface TracerInstanceBuffers {
  */
 export function writeTracerInstances(
   tracers: readonly TracerModel[],
-  tracerColors: readonly [string, string],
+  tracerColors: readonly string[],
   elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
@@ -1008,7 +1009,7 @@ export function liftedSegmentQuadInto(
  */
 export function writeShellInstances(
   shells: readonly ShellModel[],
-  tracerColors: readonly [string, string],
+  tracerColors: readonly string[],
   elevation: ElevationSource,
   mapWidth: number,
   mapHeight: number,
@@ -1023,7 +1024,7 @@ export function writeShellInstances(
     const { tail, head } = shellTrailSpan(s);
     // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
     // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.
-    const widthPx = SHELL_PROFILES[s.kind].widthPx;
+    const widthPx = SHELL_PROFILES[s.kind].widthPx * (s.owned === true ? OWNED_WIDTH_SCALE : 1);
     const [r, g, b] = cachedHexToLinear(tracerColors[s.side] ?? tracerColors[0]);
     for (let seg = 0; seg < SHELL_TRAIL_SEGMENTS; seg++) {
       const fA = seg / SHELL_TRAIL_SEGMENTS;
@@ -1540,7 +1541,7 @@ export class TracerBatch {
    */
   update(
     tracers: readonly TracerModel[],
-    tracerColors: readonly [string, string],
+    tracerColors: readonly string[],
     elevation: ElevationSource,
     mapWidth: number,
     mapHeight: number
@@ -1663,7 +1664,7 @@ export class ShellBatch {
 
   update(
     shells: readonly ShellModel[],
-    tracerColors: readonly [string, string],
+    tracerColors: readonly string[],
     elevation: ElevationSource,
     mapWidth: number,
     mapHeight: number

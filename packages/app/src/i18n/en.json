@@ -376,6 +376,7 @@
   "hud.card.cap.markTarget": "earns intel while stationary",
   "hud.card.cap.none": "<span class=\"rl-dim\">none</span>",
   "hud.card.holdingPosition": "holding position",
+  "hud.card.engaging": "Engaging: {target}",
   "hud.card.armamentLabel": "Armament",
   "hud.card.capabilitiesLabel": "Capabilities",
 

@@ -17,6 +17,7 @@ import type { RenderQuality } from './quality';
 import type { TimeOfDay } from './three/time-of-day';
 
 export type { TimeOfDay } from './three/time-of-day';
+import type { FireLinkConcept } from './fire-link-concepts';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
 export type TerrainScatter = 'stone' | 'sward';
@@ -292,6 +293,14 @@ export interface RendererOptions {
    * `shellColors`.
    */
   timeOfDay?: TimeOfDay;
+  /**
+   * How the selected unit's fire is linked to its target in the world
+   * (`three/units/fire-link.ts`; `proto/fire-link`). Absent is
+   * `DEFAULT_FIRE_LINK`. Three-only and sandbox-switchable
+   * (`&firelink=`); `PixiRenderer` ignores it, like `shellColors`, and keeps
+   * its own duel line.
+   */
+  fireLink?: readonly FireLinkConcept[];
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */
