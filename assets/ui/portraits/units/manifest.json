@@ -159,7 +159,7 @@
     "mortar_team": {
       "file": "mortar_team.png",
       "extent": [
-        132,
+        154,
         174
       ],
       "lead": {
@@ -237,13 +237,13 @@
       "file": "sniper_team.png",
       "extent": [
         174,
-        72
+        68
       ],
       "lead": {
         "file": "lead/sniper_team.png",
         "extent": [
           174,
-          94
+          89
         ]
       }
     },
