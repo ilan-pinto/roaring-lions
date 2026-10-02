@@ -1115,8 +1115,10 @@ markings, `_fix_bake`'s `scrub_white`).
 
 **Sent 2026-10-02, all three previews usable, 120 credits, no re-roll** — what each
 delivered and what Blender did is in `style-bible.md` §15 and `docs/ASSET_PROVENANCE.md`
-("batch B8"): the Namer with an unasked-for glacis gun (collapsed), the mortar at ~35°
-rather than 70° (kept), the sniper piece with both the rifle and the scope as asked.
+("batch B8"): the Namer with an unasked-for glacis gun (collapsed) -- **rejected by the
+lead at the capture as a WWII tank destroyer; not shipped, v2 on `art/namer-v2`** -- the
+mortar at ~35° rather than 70° (kept), the sniper piece with both the rifle and the scope
+as asked.
 
 Balance read 2026-10-02: 3,285 credits before the batch, 3,165 after. The 8k refine is +5 over the bible's 2k per
 item, which is why 120 and not the 105 a 2k batch would cost; a single re-roll at 40

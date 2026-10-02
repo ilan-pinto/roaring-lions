@@ -673,7 +673,12 @@ otherwise.
 - **"Elevated at seventy degrees" was ignored.** The mortar came at ~35°, a
   machine-gun angle with a mortar's round plate; shipped as is and named in the
   provenance for the lead to rule on.
-- Counts: `ifv_namer` 7,842 tris (hull 2,588, tracks 5,202, kit RWS 22);
-  `mortar_team` 10,743 (was 11,766); `sniper_team` 8,012 (was 7,938). 120
-  credits, no re-roll, balance 3,165 after.
+- **A detailed prompt can still land in the wrong era.** The Namer preview
+  honoured every named feature and read as a WWII tank destroyer anyway
+  (sloped, low, an old-style turret, too light an olive) -- the lead rejected
+  it at the capture; it is not shipped and a v2 runs on `art/namer-v2` with the
+  hull's SHAPE (tall, boxy, engine forward, flat high roof, rear ramp) named
+  ahead of its fittings. 40 credits bought a measurement, not a mesh.
+- Counts: `mortar_team` 10,743 tris (was 11,766); `sniper_team` 8,012 (was
+  7,938). 120 credits, no re-roll, balance 3,165 after.
 

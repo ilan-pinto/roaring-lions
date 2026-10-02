@@ -1,11 +1,6 @@
 """Export the A3.2 ramp vehicles -- `dozer_d9` and `scout_shachaf` -- from
 their Meshy text-to-3D remeshes as TEXTURED vehicle glTFs, mesh contract v2
-(GH-185, 2026-09-30; numbers and prompts in `docs/art/meshy-prompts-ramp.md`),
-and since B8 (2026-10-02) `ifv_namer` too: a tracked hull with a kit RWS on
-its ring, replacing the 2026-08 image-to-3D export (`export_meshy_namer.py`,
-deleted -- its source was gitignored and a live exporter of a retired source
-is the hazard `tools/mesh_ownership.py` names). Its numbers and prompt are in
-`docs/art/meshy-prompts-units.md` section 24.
+(GH-185, 2026-09-30; numbers and prompts in `docs/art/meshy-prompts-ramp.md`).
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --python tools/vehicles/export_meshy_ramp.py -- scout_shachaf [--probe]
@@ -84,8 +79,7 @@ OUT_DIR = os.path.join(REPO, "art", "meshes", "vehicles")
 # the source alone, which files this script writes.
 OUT_DOZER_D9 = os.path.join(OUT_DIR, "dozer_d9.glb")
 OUT_SCOUT_SHACHAF = os.path.join(OUT_DIR, "scout_shachaf.glb")
-OUT_IFV_NAMER = os.path.join(OUT_DIR, "ifv_namer.glb")
-OUTPUTS = {"dozer_d9": OUT_DOZER_D9, "scout_shachaf": OUT_SCOUT_SHACHAF, "ifv_namer": OUT_IFV_NAMER}
+OUTPUTS = {"dozer_d9": OUT_DOZER_D9, "scout_shachaf": OUT_SCOUT_SHACHAF}
 TURRET_PIVOT_NODE = "turret_pivot"
 
 
@@ -114,11 +108,6 @@ class RampVehicleSpec:
     # bake fixes, applied to the base_color pixels before export
     scrub_white: bool = False            # paint out near-white blobs (a marking the prompt forbade)
     olive_shift: bool = False            # pull a grass-green bake toward the roster's olive
-    # an unasked-for gun to collapse (SOURCE frame after rot_z: x_max of the
-    # tube's root face, z_min, |y| max) -- `export_meshy_apc.py`'s method:
-    # every vertex forward of the root inside the box is pointmerged onto
-    # the root face so the tube degenerates and the mesh stays closed
-    gun: Optional[tuple] = None
 
 
 def _credit(what):
@@ -157,16 +146,6 @@ SPECS = {
         rws={"size": (0.55, 0.45, 0.30), "barrel": 0.7, "ring_seed": (-0.99, 0.0),
              "search_r": 0.45, "band": 0.06, "max_across": 0.9, "z_max": 2.22},
         olive_shift=True,
-    ),
-    # Namer (B8, 2026-10-02, the lead's follow-up after the portrait sheet):
-    # numbers below are filled from a --probe of its 8,000-tri remesh.
-    "ifv_namer": RampVehicleSpec(
-        unit_id="ifv_namer", sheet="NAMER_HULL", credit=_credit("Namer heavy IFV"),
-        kind="tracked", rot_z_deg=180.0, tri_cap=10000,
-        track_ay=0.30, track_z_top=-0.277, track_x=(-0.95, 0.80),
-        gun=(0.78, -0.10, 0.06),
-        rws={"size": (1.0, 0.8, 0.5), "barrel": 1.2, "ring_seed": (-0.21, 0.0),
-             "search_r": 0.9, "band": 0.06, "max_across": 1.6, "z_max": 3.36},
     ),
 }
 
@@ -393,28 +372,6 @@ def _probe(spec, ob):
                   f"y[{min(p.y for p in band):+.2f},{max(p.y for p in band):+.2f}]")
 
 
-def _collapse_gun(spec, ob):
-    """`export_meshy_apc.py`'s gun collapse, on a turned source: the tube's
-    vertices (forward of `x_max` -- the nose is +X after rot_z -- above
-    `z_min`, within `ay` of the centre line) are merged onto one point on
-    the root face, so the barrel degenerates away and nothing needs filling
-    (a delete-and-fill on a remesh's UV-split seams never closes)."""
-    x_max, z_min, ay = spec.gun
-    bm = bmesh.new()
-    bm.from_mesh(ob.data)
-    gun = [v for v in bm.verts if v.co.x > x_max + 0.005 and v.co.z > z_min and abs(v.co.y) < ay]
-    if len(gun) < 8:
-        raise SystemExit(f"[{spec.unit_id}] only {len(gun)} verts in the gun box -- re-measure `gun` with --probe")
-    zc = sum(v.co.z for v in gun) / len(gun)
-    before = len(bm.faces)
-    bmesh.ops.pointmerge(bm, verts=gun, merge_co=(x_max, 0.0, zc))
-    bmesh.ops.dissolve_degenerate(bm, dist=1e-6, edges=bm.edges)
-    bm.to_mesh(ob.data)
-    bm.free()
-    ob.data.update()
-    print(f"[{spec.unit_id}] gun collapsed: {len(gun)} verts merged, {before} -> {len(ob.data.polygons)} faces")
-
-
 def _axles(spec, ob):
     zmin = min(v.co.z for v in ob.data.vertices)
     contact = [v.co.x for v in ob.data.vertices if abs(v.co.y) > spec.wheel_ay and v.co.z < zmin + spec.tyre_z_band]
@@ -518,8 +475,6 @@ def export(unit_id, probe=False, out_path=None):
         _probe(spec, ob)
         print(f"[{unit_id}] --probe: nothing written (rot_z {spec.rot_z_deg} applied first)")
         return None
-    if spec.gun is not None:
-        _collapse_gun(spec, ob)
 
     if spec.kind == "wheeled":
         axles = _axles(spec, ob)
