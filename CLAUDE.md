@@ -696,13 +696,15 @@ yours; each one records what the next phase inherits.
   asked for, which looks plausible and is wrong. Billboards have no hull to
   invert, so that path dilates the atlas alpha instead. Costs no extra draw
   call over the fill: measured +24 on 310, both ways.
-- **Every shot that is one round draws a travelling projectile; only a STREAM
-  keeps the flat tracer.** `units/shells.ts` is the whole model and it now
-  serves both halves — `mortar`/`rocket` arc (GH-145), and since GH-149
-  `bolt` (`apfsds`, `autocannon`) flies the same streak with no arc and a
-  much shorter trail. `small_arms` and
-  `hmg` deliberately keep `TracerBatch`'s full-span ribbon, which is right
-  for a rifle burst and was wrong for everything else. Three things about
+- **Every shot draws a travelling projectile; no line spans the gap any
+  more** (PR #342, 2 Oct 2026, the lead: "no need for the straight lines").
+  `units/shells.ts` is the whole model — `mortar`/`rocket` arc (GH-145),
+  `bolt` (`apfsds`, `autocannon`) flies a short flat streak (GH-149), and
+  since #342 `small_arms` and `hmg` fire bursts of short streaks too (rifle
+  2 a burst, mg 3; numbers in the PR) instead of `TracerBatch`'s full-span
+  ribbon. Who shoots whom is shown by a pulse ring contracting onto the
+  selected unit's target, a red outline flash on each hit, and "Engaging:
+  <enemy>" on the unit card; the old duel line is deleted. Three things about
   this are worth knowing before touching it. **The flat tracer was never
   absent from direct fire** — the complaint "direct fire has no visible
   projectile" is literally false and substantially true: photographed at

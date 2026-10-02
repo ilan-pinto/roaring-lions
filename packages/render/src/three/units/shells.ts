@@ -59,11 +59,34 @@
  * this file, and `ThreeRenderer.onFire` hands a `'missile'` to `MissileFx`
  * (`units/missile-fx.ts`) instead of to a `ShellBatch`. No dead profile.
  *
- * `small_arms` and `hmg` deliberately KEEP the flat tracer. A rifle burst
- * and a `.50` stream are the one case the full-span ribbon is right for:
- * the rounds really do arrive within a frame, the shots come 5-7 a second,
- * and replacing that with a queue of discrete travelling streaks would turn
- * the most common effect on the field into visual noise.
+ * ## Machine-gun and rifle fire: short streaks, not a full-span line (2 Oct 2026)
+ *
+ * `small_arms` and `hmg` kept the flat full-span tracer until the fire-link
+ * work, on the argument that a rifle burst really does arrive within a frame.
+ * The lead overruled it: once the selected unit's duel line was retired, the
+ * full-span ribbon was the one line left joining shooter to target on every
+ * frame of a firefight, and it read as exactly that line. They now fly the
+ * two kinds below, through the same `bolts` array and `ShellBatch` as a
+ * tank round (depth-tested, band 2, `tracerColors`), each `fire` event
+ * becoming a BURST of a few streaks staggered inside the weapon's own
+ * cooldown (`BURST_PROFILES`, `spawnBurst`):
+ *
+ *  - **`rifle`** (`small_arms`) -- 2 streaks a burst, 0.08 s apart, 22
+ *    tiles/s, a 0.045 s trail (~1.0 tile), 1.6 px wide, 5 lift px (a
+ *    rifleman's shoulder). A 7-tile shot flies 0.32 s, about 19 frames.
+ *  - **`mg`** (`hmg`) -- 3 streaks a burst, 0.05 s apart, 26 tiles/s, a
+ *    0.05 s trail (~1.3 tiles), 2.2 px wide, 7 lift px (a pintle or RWS).
+ *    A 7-tile shot flies 0.27 s, about 16 frames.
+ *
+ * Sized by the bolt's own lesson (below): the streak must be clearly shorter
+ * than the gap and occupy several distinct positions inside it, or it reads
+ * as a flash rather than a round. Both streaks are under a fifth of a 7-tile
+ * gap and cross it in 16-19 frames. The stagger fits the cooldown: a rifle
+ * fires every 4 ticks (0.2 s, 300 rpm) and its second streak leaves at 0.08 s;
+ * an HMG every 3 (0.15 s, 380 rpm) and its third leaves at 0.10 s, so bursts
+ * never overlap into a solid stream. Each streak lands a little to one side
+ * of the target -- tighter on a hit, wider on a miss -- from a hash of the
+ * shooter and tick, never `Math.random`, so a replay draws the same burst.
  *
  * ## Nothing was added to the sim, and nothing needed to be
  *
@@ -127,7 +150,7 @@ import { WEAPON_CLASS } from '@lions/sim';
  *
  * An ATGM or an RPG is NOT a shell since GH-250 -- see `ProjectileKind`.
  */
-export type ShellKind = 'mortar' | 'rocket' | 'bolt';
+export type ShellKind = 'mortar' | 'rocket' | 'bolt' | 'rifle' | 'mg';
 
 /** What `shellKindFor` answers: a `ShellKind` this module flies, or
  *  `'missile'`, which `units/missiles.ts` flies (GH-250, spec D5). */
@@ -255,6 +278,36 @@ export const SHELL_PROFILES: Record<ShellKind, ShellProfile> = {
     baseLiftPx: 9, trailS: 0.08, widthPx: 3.5, minDurationS: 0.1,
     indirect: false, impactPower: 0,
   },
+  // Machine-gun and rifle streaks -- see this module's top comment,
+  // "Machine-gun and rifle fire", for every number here.
+  rifle: {
+    speedTilesS: 22, apexPxPerTile: 0, apexMinPx: 0, apexMaxPx: 0,
+    baseLiftPx: 5, trailS: 0.045, widthPx: 1.6, minDurationS: 0.12,
+    indirect: false, impactPower: 0,
+  },
+  mg: {
+    speedTilesS: 26, apexPxPerTile: 0, apexMinPx: 0, apexMaxPx: 0,
+    baseLiftPx: 7, trailS: 0.05, widthPx: 2.2, minDurationS: 0.12,
+    indirect: false, impactPower: 0,
+  },
+};
+
+/** How a `fire` event of a burst kind becomes several streaks. */
+export interface BurstProfile {
+  /** Streaks per `fire` event. */
+  rounds: number;
+  /** Seconds between one streak leaving and the next. `rounds - 1` of these
+   *  must fit inside the weapon's cooldown, or bursts merge into a stream. */
+  spacingS: number;
+  /** Half-width, tiles, of where a streak lands across the line of fire
+   *  when the shot hits, and when it misses. */
+  spreadHitTiles: number;
+  spreadMissTiles: number;
+}
+
+export const BURST_PROFILES: Readonly<Record<'rifle' | 'mg', BurstProfile>> = {
+  rifle: { rounds: 2, spacingS: 0.08, spreadHitTiles: 0.15, spreadMissTiles: 0.6 },
+  mg: { rounds: 3, spacingS: 0.05, spreadHitTiles: 0.2, spreadMissTiles: 0.7 },
 };
 
 /** A point-blank shot (a mortar at its own 4-tile minimum, or a shot whose
@@ -324,9 +377,9 @@ function clamp(v: number, lo: number, hi: number): number {
  *    and `he` fly a `missile` -- `units/missiles.ts`'s, not a profile here
  *    (GH-250). `he` is the Peten gunship's rocket pod, the first `he`
  *    weapon on the roster (E5); it flies the unguided variant.
- *  - `small_arms` and `hmg` keep the tracer -- see this module's top
- *    comment, "GH-149", for why a rifle burst is the one case the full-span
- *    ribbon is right for.
+ *  - `small_arms` flies a `rifle` burst and `hmg` an `mg` burst -- short
+ *    travelling streaks, see this module's top comment, "Machine-gun and
+ *    rifle fire". They kept the full-span tracer until 2 Oct 2026.
  *  - `interceptor` and `demolition` keep it too, for the duller reason that
  *    neither travels anywhere: no shipped unit fires an interceptor, and a
  *    satchel charge is placed at arm's length.
@@ -335,6 +388,8 @@ export function shellKindFor(cls: number): ProjectileKind | null {
   if (cls === WEAPON_CLASS.mortar) return 'mortar';
   if (cls === WEAPON_CLASS.rocket) return 'rocket';
   if (cls === WEAPON_CLASS.apfsds || cls === WEAPON_CLASS.autocannon) return 'bolt';
+  if (cls === WEAPON_CLASS.small_arms) return 'rifle';
+  if (cls === WEAPON_CLASS.hmg) return 'mg';
   if (
     cls === WEAPON_CLASS.atgm ||
     cls === WEAPON_CLASS.rpg ||
@@ -352,6 +407,57 @@ export function shellKindFor(cls: number): ProjectileKind | null {
  *  fact lives on the profile. */
 export function isIndirectShell(kind: ShellKind): boolean {
   return SHELL_PROFILES[kind].indirect;
+}
+
+/** True for the kinds a `fire` event turns into a BURST of streaks. */
+export function isBurstShell(kind: ShellKind): kind is 'rifle' | 'mg' {
+  return kind === 'rifle' || kind === 'mg';
+}
+
+/** A deterministic 0..1 from two integers -- a burst's scatter must not
+ *  come from `Math.random`, or a replay would draw a different burst. */
+function burstHash(a: number, b: number): number {
+  let h = Math.imul(a | 0, 0x9e3779b1) ^ Math.imul((b | 0) + 0x632be5ab, 0x85ebca77);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * One `fire` event of a burst kind, as `BURST_PROFILES[kind].rounds` streaks.
+ * Streak `k` is spawned `k * spacingS` seconds LATE -- its `t` starts
+ * negative, and it is not drawn until `t` reaches 0 -- and lands a hashed
+ * distance across the line of fire from the target (tighter on a hit). A
+ * miss also carries a little past the target. `seed` makes the scatter
+ * repeatable: the caller passes something per shot, like shooter and tick.
+ */
+export function spawnBurst(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+  side: number,
+  kind: 'rifle' | 'mg',
+  seed: number,
+  willHit: boolean
+): ShellModel[] {
+  const b = BURST_PROFILES[kind];
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const len = Math.hypot(dx, dy);
+  const ux = len > 1e-6 ? dx / len : 1;
+  const uy = len > 1e-6 ? dy / len : 0;
+  const spread = willHit ? b.spreadHitTiles : b.spreadMissTiles;
+  const out: ShellModel[] = [];
+  for (let k = 0; k < b.rounds; k++) {
+    const across = (burstHash(seed, k * 2) * 2 - 1) * spread;
+    const along = willHit ? 0 : burstHash(seed, k * 2 + 1) * spread;
+    const shell = spawnShell(sx, sy, tx - uy * across + ux * along, ty + ux * across + uy * along, side, kind);
+    shell.t = -k * b.spacingS;
+    out.push(shell);
+  }
+  return out;
 }
 
 /** A round leaving the tube, at zero elapsed time. Flight time and apex are
@@ -408,6 +514,12 @@ export function stepShells(shells: readonly ShellModel[], dt: number): ShellMode
 
 /** How far through its own flight a shell is, clamped to 0..1. `duration` is
  *  never zero (`SHELL_MIN_DURATION_S`), so this never divides by zero. */
+/** A burst's later streaks wait with a negative `t`; nothing of them is
+ *  drawn until it reaches 0. */
+export function shellLaunched(s: ShellModel): boolean {
+  return s.t >= 0;
+}
+
 export function shellProgress(s: ShellModel): number {
   return clamp(s.t / s.duration, 0, 1);
 }
