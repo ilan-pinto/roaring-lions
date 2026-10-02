@@ -1039,3 +1039,26 @@ this preview.
 
 **Portrait re-rendered** (`tools/render_unit_portraits.py --only=ifv_namer`).
 
+## WP-A3.1 batch B8 — the lead's 2 Oct follow-ups: the Namer, the mortar, the sniper rifle (GH-179)
+
+Three items, 2026-10-02, approved by the lead after the portrait sheet (about 90
+planned, cap 150): **120 credits spent, no re-roll; the Namer's 40 did not ship (see its row)** — preview 20 + refine 15 +
+remesh 5 per item, the refine at **8k**, the lead's standing rule since 2 Oct
+("every model at MAXIMUM DETAIL"; `style-bible.md` §4). AI-generated (Meshy) and
+disclosed per `CONTRIBUTING.md`; every spend is a line in `art/meshy/ledger.jsonl`.
+Numbers tables and prompts in `meshy-prompts-units.md` §24–26; what arrived and
+what Blender did in `style-bible.md` §15. The downloaded `model.glb` and texture
+sources (54–74 MB each at 8k) sit under `art/meshy/<slug>-20261002-<task>/` and
+are **not committed**, as B7's were not; the ledger, each folder's `task.json`
+and thumbnail are. The two B7 figure remeshes the importer rebuilds on
+(`mortar-team-*-01a0f89f`, `sniper-team-*-01a0f8a1`) were re-downloaded from
+Meshy for 0 credits inside its three-day window; the same rule applies to them.
+
+| File | Draws as | Preview task id | Refine task id (8k) | Remesh task id (shipped) | Notes |
+|---|---|---|---|---|---|
+| *(not shipped)* | `ifv_namer` (Namer IFV, KDF) | `01a0fae0-8b20-71c2-bfbb-0a8f4b1c6b27` | `01a0fae2-4538-758c-9314-297369eeeff9` | `01a0fae4-ce58-77b8-bf8a-90a0876f2fef` at 8,000 | **UNUSED — the lead's 2 Oct ruling: the preview read as a WWII tank destroyer (sloped, low, an old-style turret, too light an olive), so the shipped `ifv_namer.glb` stays the 2026-08 image-to-3D hull and a v2 is generated on its own branch (`art/namer-v2`). 40 credits, ledger lines kept.** What this attempt measured, for v2: the remesh's tracked split read 5,202 of 7,790 faces in the track band; the preview put a gun on the glacis (collapsed, 52 verts); the roof ring measured 1.28 m across at (−0.117, 0) in the 7.3 m frame. |
+| `art/meshes/mortar_team.glb` (the mortar) | `mortar_team`'s `weapon` on `prop` | `01a0fae0-8f0b-70aa-bc3e-0f4c44e2ec5a` | `01a0fae2-4563-723f-a67a-aa4a8ecc3a8d` | `01a0fae4-ced0-703c-885c-de5d8b3228f7` at 600 (arrived 589) | One mesh — tube, bipod with hand wheels, round baseplate, sight — scaled to 1.40 m on its longest axis, baseplate centre on kit's (0.26, 0) anchor, muzzle +X. **Elevated ~35°, not the prompted 70°**: kept (no re-roll budget at 8k; a tilt of the whole assembly would lift the plate). Textured through the figure's atlas (`import_meshy_crew_team.py`, "B8"): one 2048×1024 `base_color`, figure left / part right, one material. The No.3's kit rifle borrows a uv from the mortar's bake. 0 samples inside any crewman (`launcher_clearance`). Team file 11,766 → **10,743 glTF tris** (the kit plate and bipods go). |
+| `art/meshes/sniper_team.glb` (the rifle and the spotting scope) | `sniper_team`'s `weapon` on `snp_a_death_root`, `metal` on `snp_b_death_root` | `01a0fae0-89ab-7725-9fbf-5cfb7ff3af18` | `01a0fae2-45b3-715c-8cc1-eae6c688ccf5` | `01a0fae4-cecf-7493-ac81-22d91d8c5dac` at 600 (arrived 564) | ONE preview carried both, as asked: split by connectivity after welding the remesh's UV-split vertices (before the weld it fell into 361 "islands"), rifle 501 tris / scope 63. The rifle turned muzzle +X (the thinner end), scaled to 1.24 m on its long axis, lying on its own bipod beside the prone head (B7's place); the scope on its tripod 0.30 m ahead of the spotter's lifted face. The standing spotter's kit glasses borrow a uv from the scope's bake so `metal` stays one material; the standing walker keeps its baked carbine. 7,938 → **8,012 glTF tris**; the gait pins (0.972) did not move. |
+
+**Portraits re-rendered** for `mortar_team` and `sniper_team` (`tools/render_unit_portraits.py --only`).
+
