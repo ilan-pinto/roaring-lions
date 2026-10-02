@@ -155,14 +155,16 @@ function queryString(query: URLSearchParams): string {
  * undercut `main.ts`'s own claim that "a reload keeps carrying them". A
  * capture pass that reloads between shots is exactly the case this breaks.
  *
- * Only these two, and only when the TARGET is silent: a link that names
+ * Only these, and only when the TARGET is silent: a link that names
  * `?lang=he` means it, and must not be overruled by the URL it was clicked
  * from. `fresh`, `renderer` and the sandbox flags are deliberately NOT here --
  * `fresh` is a one-shot landing instruction (`start({ drop })` strips it),
  * `renderer` persists per origin in `localStorage` instead, and a sandbox flag
  * belongs to one map's URL rather than to the session.
  */
-const STICKY_QUERY_KEYS = ['lang', 'pseudo'] as const;
+// `testcoins` (GH-317, a TEST tool) rides along too, so the TEST wallet is
+// still in reach after a trip to the campaign map or a mission and back.
+const STICKY_QUERY_KEYS = ['lang', 'pseudo', 'testcoins'] as const;
 
 interface Mounted {
   req: RouteRequest;

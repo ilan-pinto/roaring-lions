@@ -151,6 +151,13 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     // only what an unrecorded line sounds like, and only in a dev build.
     blurb: 'dev builds only: a synth tick per voice line class where no line is recorded yet -- never shipped as a voice',
   },
+  {
+    name: 'testcoins',
+    // GH-317, the lead's go-ahead on 2 Oct. A TEST TOOL, live on every build:
+    // anyone with the link can unlock things free. Remove or gate it before
+    // release. Not a SANDBOX_FLAGS entry: it belongs to the garage.
+    blurb: '<n> — TEST Roar coins in the garage Stores (seeds n once, Grant adds n); buys unlock locally, packs stay disabled',
+  },
   ...SANDBOX_FLAGS,
 ];
 

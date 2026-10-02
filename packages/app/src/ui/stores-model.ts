@@ -3,14 +3,15 @@
 // hand-keyed price: every coin figure is `coinPrice(credits)` of a credit
 // price the unit's own JSON authors, so a retuned unit re-prices itself.
 //
-// This is a PREVIEW (spec 2026-10-01 decision 10, as amended by the lead on
-// 2 Oct): the tab is visible to everyone, the balance reads 0, and no Buy and
-// no pack is ever enabled. There is no money path at all -- no coin balance
-// is written, nothing reaches the brigade account, no network call is made.
-// `buyEnabled` is the one predicate every Buy control asks, and it answers
-// `false` for every input; `stores.test.ts` holds it there.
+// Without `?testcoins` this is a PREVIEW (spec 2026-10-01 decision 10, as
+// amended by the lead on 2 Oct): the balance reads 0 and no Buy and no pack
+// is ever enabled. With it (the lead's go-ahead, 2 Oct), a local TEST wallet
+// (`roar-test.ts`) buys what credits buy at 1 coin = 10 credits. Real-money
+// packs stay disabled either way: `PURCHASES_OPEN` is false. `buyEnabled` is
+// the one predicate every Buy control asks.
 import { conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import type { UpgradeTracks } from '@lions/data';
+import { buyTierWithCoins, buyUnitWithCoins, type RoarTestAccount } from '../roar-test';
 
 /** Spec §1.3, decision 1 (the lead's ruling): 1 Roar coin = 10 credits. */
 export const CREDITS_PER_COIN = 10;
@@ -73,6 +74,21 @@ export interface StoreInput {
   /** What the account has been paid so far, for the player's own mean pay.
    *  Absent: the ladder mean. */
   readonly paid?: Readonly<Record<string, number>>;
+  /** The coin half (`roar-test.ts`). Absent: nothing was bought with coins,
+   *  and `owned` and every `unlock.bought` are the earned half alone. When
+   *  present, `owned` and `unlock.bought` are the SINGLE-PLAYER view (earned
+   *  OR coins), and these say which part of it came from coins. */
+  readonly coin?: CoinHalf;
+}
+
+export interface CoinHalf {
+  /** Units the brigade account bought with credits (earned). */
+  readonly earnedUnits: ReadonlySet<string>;
+  /** Units bought with coins. */
+  readonly coinUnits: ReadonlySet<string>;
+  /** Tiers reached on each path. */
+  readonly earnedTiers: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  readonly coinTiers: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
 export interface StoreUnit {
@@ -87,7 +103,7 @@ export interface StoreUnit {
  *  `earned` (play or credits opened it), `affordable` (the earned credits on
  *  hand cover it), `locked` (they do not, or the unit must open first), and
  *  `offSale` (G1: play cannot reach it, so coins may not sell it). */
-export type StoreState = 'earned' | 'affordable' | 'locked' | 'offSale';
+export type StoreState = 'earned' | 'coins' | 'affordable' | 'locked' | 'offSale';
 
 /** The honest line (spec §2.4, guard G7): computed from the account, never
  *  copy. A discriminated value the screen turns into a `t()` sentence. */
@@ -95,6 +111,7 @@ export type Honest =
   | { kind: 'earnedGate' }
   | { kind: 'earnedCredits' }
   | { kind: 'earnedStart' }
+  | { kind: 'coins' }
   | { kind: 'owned' }
   | { kind: 'conduct'; floor: number }
   | { kind: 'stars'; missions: number; have: number; need: number }
@@ -124,6 +141,8 @@ export interface TierItem {
   /** Tiers owned, and the track's length. */
   readonly owned: number;
   readonly length: number;
+  /** Of `owned`, the tiers reached on the earned path (the rest are coins). */
+  readonly earned: number;
   /** The next rung, or `null` when the track is maxed. */
   readonly next: { tier: number; credits: number; coins: number } | null;
   readonly state: StoreState;
@@ -199,8 +218,14 @@ export function unitItem(u: StoreUnit, input: StoreInput): UnitItem {
     specialForces: gate !== undefined && isBoughtOnly(gate),
   };
   if (gate === undefined) return { ...base, state: 'earned', honest: { kind: 'earnedStart' } };
-  if (gate.bought === true) return { ...base, state: 'earned', honest: { kind: 'earnedCredits' } };
+  // Play opening the gate makes it earned even if coins bought it first
+  // (spec §1.6): it counts online from then on, and no coins come back.
   if (earnedOpen(gate, input.ledger)) return { ...base, state: 'earned', honest: { kind: 'earnedGate' } };
+  const coin = input.coin;
+  if (gate.bought === true && (coin === undefined || coin.earnedUnits.has(u.id) || !coin.coinUnits.has(u.id))) {
+    return { ...base, state: 'earned', honest: { kind: 'earnedCredits' } };
+  }
+  if (coin?.coinUnits.has(u.id) === true) return { ...base, state: 'coins', honest: { kind: 'coins' } };
   // G1: only an item play cannot reach goes off sale. A gate play opens
   // (stars, Conduct, a mission) is reachable whatever its price.
   if (price !== undefined && isBoughtOnly(gate) && price > LIFETIME_CREDITS) {
@@ -217,8 +242,11 @@ export function tierItem(u: StoreUnit, track: string, input: StoreInput, unitOpe
   const owned = Math.min(input.owned?.[u.id]?.[track] ?? 0, tiers.length);
   const rung = owned < tiers.length ? tiers[owned] : undefined;
   const next = rung === undefined ? null : { tier: owned + 1, credits: rung.price, coins: coinPrice(rung.price) };
-  const base = { kind: 'tier' as const, unitId: u.id, unitName: u.name, track, owned, length: tiers.length, next };
-  if (next === null) return { ...base, state: 'earned', honest: { kind: 'owned' } };
+  const earned = Math.min(input.coin?.earnedTiers[u.id]?.[track] ?? owned, owned);
+  const base = { kind: 'tier' as const, unitId: u.id, unitName: u.name, track, owned, earned, length: tiers.length, next };
+  if (next === null) {
+    return earned === tiers.length ? { ...base, state: 'earned', honest: { kind: 'owned' } } : { ...base, state: 'coins', honest: { kind: 'coins' } };
+  }
   if (!unitOpen) return { ...base, state: 'locked', honest: { kind: 'unlockFirst' } };
   if (next.credits > LIFETIME_CREDITS) return { ...base, state: 'offSale', honest: { kind: 'unreachable', lifetime: LIFETIME_CREDITS } };
   const affordable = input.credits !== undefined && input.credits >= next.credits;
@@ -235,7 +263,8 @@ export function storeItems(input: StoreInput): { units: UnitItem[]; tiers: TierI
   for (const u of input.units) {
     const item = unitItem(u, input);
     if (item.credits !== undefined) units.push(item);
-    for (const track of Object.keys(u.upgrades ?? {})) tiers.push(tierItem(u, track, input, item.state === 'earned'));
+    const open = item.state === 'earned' || item.state === 'coins';
+    for (const track of Object.keys(u.upgrades ?? {})) tiers.push(tierItem(u, track, input, open));
   }
   return { units, tiers };
 }
@@ -243,21 +272,77 @@ export function storeItems(input: StoreInput): { units: UnitItem[]; tiers: TierI
 /** The coin wallet as the preview holds it: always 0, never written. */
 export const PREVIEW_BALANCE = 0;
 
-/** False until the server-held account (ST5-ST7). The preview's whole money
- *  path is this one constant; `stores.test.ts` fails if any Buy enables. */
+/** The coin wallet a Buy is asked against. `test: false` is the preview. */
+export interface CoinWallet {
+  readonly test: boolean;
+  readonly coins: number;
+}
+export const PREVIEW_WALLET: CoinWallet = { test: false, coins: PREVIEW_BALANCE };
+
+/** False until the server-held account (ST5-ST7): no REAL money moves, and no
+ *  pack can be bought, TEST wallet or not. `stores.test.ts` fails if any pack
+ *  enables. */
 export const PURCHASES_OPEN: boolean = false;
 
-/**
- * Whether a coin Buy (or a pack) may be pressed. The preview's answer is
- * `false`, for every item and every wallet: purchases open when online
- * accounts arrive (ST5-ST7), and until then there is no money path at all.
- * Every Buy and pack control on the screen asks this and nothing else, which
- * is what makes the "no Buy is ever enabled" guard a test of the screen.
- */
-export function buyEnabled(item: UnitItem | TierItem | CoinPack): boolean {
-  if (!PURCHASES_OPEN) return false;
-  // Unreachable in the preview. Kept as the rule the day purchases open: a
-  // pack is bought from Steam, an item only while it is for sale.
-  return 'usdCents' in item || item.state === 'affordable' || item.state === 'locked';
+/** The coin price of what a Buy would buy, or `null` when nothing is for sale. */
+export function coinCost(item: UnitItem | TierItem): number | null {
+  if (item.state !== 'affordable' && item.state !== 'locked') return null;
+  if (item.kind === 'unit') return item.coins ?? null;
+  // A tier of a unit that is not open yet ("Unlock the unit first").
+  if (item.honest.kind === 'unlockFirst') return null;
+  return item.next?.coins ?? null;
 }
 
+/**
+ * Whether a Buy (or a pack) may be pressed, against `wallet`. Every Buy and
+ * pack control on the screen asks this and nothing else, which makes the
+ * guards in `stores.test.ts` tests of the screen.
+ *
+ * - A pack is real money: enabled only once `PURCHASES_OPEN`, never by a
+ *   TEST wallet.
+ * - An item needs a TEST wallet (`?testcoins`), an item for sale (G1 keeps
+ *   `offSale` off; earned and coin-bought items have nothing left to buy),
+ *   and coins enough to cover it. Without `?testcoins` this is `false` for
+ *   every item: the preview.
+ */
+export function buyEnabled(item: UnitItem | TierItem | CoinPack, wallet: CoinWallet = PREVIEW_WALLET): boolean {
+  if ('usdCents' in item) return PURCHASES_OPEN;
+  if (!wallet.test) return false;
+  const cost = coinCost(item);
+  return cost !== null && cost > 0 && wallet.coins >= cost;
+}
+
+
+/** What a TEST-coin Buy asks for. */
+export type CoinAsk =
+  | { kind: 'unit'; unitId: string }
+  | { kind: 'tier'; unitId: string; track: string; tier: number };
+
+/**
+ * A TEST-coin purchase, decided by the SAME derivation the screen draws from:
+ * the item is found in `storeItems(input)`, and `buyEnabled` against the TEST
+ * wallet must say yes. So the screen and the purchase cannot disagree --
+ * nothing earned, coin-bought, off sale (G1), unopened ("unlock the unit
+ * first") or unaffordable is ever bought, and a stale ask (two tabs) is
+ * refused. The coin price is the item's own `coinPrice` of its JSON price;
+ * the ask carries no price at all. Writes only the TEST wallet: credits, and
+ * the brigade account, are untouched.
+ */
+export function buyWithTestCoins(
+  input: StoreInput,
+  roar: RoarTestAccount,
+  ask: CoinAsk,
+  at: number
+): { account: RoarTestAccount; ok: boolean } {
+  const refuse = { account: roar, ok: false };
+  const wallet: CoinWallet = { test: true, coins: roar.coins };
+  const items = storeItems(input);
+  if (ask.kind === 'unit') {
+    const item = items.units.find((u) => u.id === ask.unitId);
+    if (item === undefined || !buyEnabled(item, wallet) || item.coins === undefined || item.credits === undefined) return refuse;
+    return buyUnitWithCoins(roar, item.id, item.coins, item.credits, at);
+  }
+  const item = items.tiers.find((x) => x.unitId === ask.unitId && x.track === ask.track);
+  if (item === undefined || item.next === null || item.next.tier !== ask.tier || !buyEnabled(item, wallet)) return refuse;
+  return buyTierWithCoins(roar, item.unitId, item.track, item.next.tier, item.owned, item.next.coins, item.next.credits, at);
+}

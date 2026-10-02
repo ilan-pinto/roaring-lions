@@ -4325,7 +4325,7 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-garage__view:focus-visible,
 .rl-stores__shelf:focus-visible,
-.rl-stores__open:focus-visible {
+.rl-stores__owned:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -4346,11 +4346,13 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-body);
   color: var(--ink);
 }
+/* The head: the balance, Grant (TEST) and the compact "Get Roar coins" row
+   beside them -- never above the items (the lead's declutter, 2 Oct). */
 .rl-stores__head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--s4);
+  gap: var(--s3) var(--s5);
 }
 .rl-stores__wallet {
   display: flex;
@@ -4372,65 +4374,67 @@ button.rl-menu__item[data-kind='aside'] {
   text-transform: uppercase;
   color: var(--ink-mute);
 }
-.rl-menu--garage .rl-stores__notice {
-  flex: 1 1 20rem;
-  margin: 0;
-  padding: var(--s2) var(--s3);
-  border-left: 3px solid var(--roar);
-  background: var(--tile-bg);
-  font-size: var(--t-small);
-  color: var(--ink-mute);
-}
 .rl-stores__packs {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-  gap: var(--s2);
-}
-.rl-stores__pack {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-left: auto;
+}
+.rl-menu--garage .rl-stores__packs-h {
+  font-family: var(--font-display);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-label);
+}
+.rl-menu--garage .rl-stores__pack {
+  display: inline-flex;
+  align-items: baseline;
   gap: var(--s1);
-  padding: var(--s2) var(--s3);
+  padding: var(--s1) var(--s2);
+  font-family: var(--font-body);
+  font-size: var(--t-small);
+  color: var(--ink);
   background: var(--tile-bg);
   border: 1px solid var(--panel-frame);
 }
-.rl-menu--garage .rl-stores__pack-name {
-  font-family: var(--font-display);
-  font-size: var(--t-h3);
-  font-weight: 800;
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
+.rl-stores__pack:disabled {
+  color: var(--ink-dim);
+  cursor: not-allowed;
 }
-.rl-stores__pack-coins,
-.rl-stores__coin-price {
-  display: inline-flex;
-  white-space: nowrap;
-  align-items: center;
-  gap: var(--s1);
+.rl-menu--garage .rl-stores__pack-bonus {
+  font-size: var(--t-small);
+  color: var(--good);
 }
-.rl-menu--garage .rl-stores__pack-bonus,
-.rl-menu--garage .rl-stores__pack-word,
-.rl-menu--garage .rl-stores__coin-word {
+.rl-menu--garage .rl-stores__pack-price {
+  font-family: var(--font-mono);
   font-size: var(--t-small);
   color: var(--ink-mute);
 }
-.rl-menu--garage .rl-stores__coin-n {
-  font-family: var(--font-mono);
-  font-size: var(--t-body);
-  font-weight: 600;
-  color: var(--roar);
+.rl-menu--garage .rl-stores__notice {
+  margin: 0;
+  padding: var(--s1) var(--s3);
+  border-left: 3px solid var(--roar);
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
-.rl-stores__coin {
-  flex: none;
+.rl-stores__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  border-bottom: 1px solid var(--panel-frame);
+  padding-bottom: var(--s2);
 }
 .rl-stores__shelves {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s1);
-  border-bottom: 1px solid var(--panel-frame);
-  padding-bottom: var(--s2);
 }
-.rl-menu--garage .rl-stores__shelf {
+.rl-menu--garage .rl-stores__shelf,
+.rl-menu--garage .rl-stores__owned {
   padding: var(--s1) var(--s3);
   font-family: var(--font-display);
   font-size: var(--t-small);
@@ -4445,48 +4449,68 @@ button.rl-menu__item[data-kind='aside'] {
   color: var(--ink);
   border-color: var(--roar);
 }
+.rl-stores__owned[aria-pressed='true'] {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+.rl-stores__owned[hidden] {
+  display: none;
+}
 .rl-menu--garage .rl-stores__lede,
-.rl-menu--garage .rl-stores__empty {
+.rl-menu--garage .rl-stores__empty,
+.rl-menu--garage .rl-stores__offsale-count {
   margin: 0 0 var(--s2);
   font-size: var(--t-small);
   color: var(--ink-mute);
-  max-width: 70ch;
+  max-width: 80ch;
+}
+.rl-stores__empty[hidden],
+.rl-stores__group[hidden],
+.rl-stores__card[hidden],
+.rl-stores__tier[hidden] {
+  display: none;
 }
 .rl-menu--garage .rl-stores__shelf-h {
-  margin: var(--s3) 0 var(--s2);
+  margin: var(--s5) 0 var(--s3);
   font-family: var(--font-display);
   font-size: var(--t-small);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--ink-label);
 }
+/* Fewer, larger cards: each at least a quarter of the row (so never more
+   than four), and never under 22rem (three at 1400). */
 .rl-stores__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
-  gap: var(--s3);
+  grid-template-columns: repeat(auto-fill, minmax(max(22rem, calc((100% - 3 * var(--s5)) / 4)), 1fr));
+  gap: var(--s5);
 }
 .rl-stores__card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s4);
   min-width: 0;
-  padding: var(--s3);
+  padding: var(--s4);
   background: var(--tile-bg);
   border: 1px solid var(--panel-frame);
-}
-.rl-stores__card[data-state='earned'] {
-  border-color: color-mix(in srgb, var(--good) 60%, var(--panel-frame));
 }
 .rl-stores__card[data-state='affordable'] {
   border-color: var(--commend);
 }
-.rl-stores__card-top,
-.rl-stores__tier-head {
+.rl-stores__card-art {
+  width: 6.5rem;
+  height: 6.5rem;
+  object-fit: contain;
+  background: var(--well);
+  border: 1px solid var(--panel-rule);
+}
+.rl-stores__card-body {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: var(--s2);
+  min-width: 0;
 }
 .rl-menu--garage .rl-stores__card-name {
   margin: 0;
@@ -4506,51 +4530,39 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-menu--garage .rl-stores__state--earned {
   color: var(--good);
 }
-.rl-menu--garage .rl-stores__state--affordable {
-  color: var(--commend);
-}
-.rl-menu--garage .rl-stores__state--locked {
-  color: var(--roar);
-}
-.rl-menu--garage .rl-stores__tag {
-  font-size: var(--t-small);
-  letter-spacing: var(--track-label);
-  text-transform: uppercase;
-  color: var(--ink-label);
-}
-.rl-stores__card-art {
-  width: 4rem;
-  height: 4rem;
-  object-fit: contain;
-  background: var(--well);
-  border: 1px solid var(--panel-rule);
-}
 .rl-stores__price {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s1) var(--s2);
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
 }
-.rl-menu--garage .rl-stores__credits {
+.rl-stores__coin-price {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  white-space: nowrap;
+}
+.rl-menu--garage .rl-stores__coin-n {
   font-family: var(--font-mono);
   font-size: var(--t-body);
-  color: var(--commend);
+  font-weight: 600;
+  color: var(--roar);
 }
-.rl-menu--garage .rl-stores__have,
-.rl-menu--garage .rl-stores__or,
-.rl-menu--garage .rl-stores__tier-next {
+.rl-menu--garage .rl-stores__coin-word {
   font-size: var(--t-small);
   color: var(--ink-mute);
 }
-.rl-menu--garage .rl-stores__honest {
-  font-size: var(--t-small);
-  color: var(--ink);
+.rl-stores__coin {
+  flex: none;
 }
-.rl-stores__btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2);
-  margin-top: auto;
+.rl-menu--garage .rl-stores__credits {
+  font-family: var(--font-mono);
+  font-size: var(--t-small);
+  color: var(--commend);
+}
+.rl-menu--garage .rl-stores__path {
+  font-size: var(--t-small);
+  color: var(--ink-mute);
 }
 .rl-menu--garage .rl-stores__buy {
   display: inline-flex;
@@ -4573,25 +4585,20 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__buy:disabled .rl-stores__coin {
   opacity: 0.55;
 }
-.rl-menu--garage .rl-stores__open {
-  padding: var(--s1) var(--s3);
-  font-family: var(--font-body);
-  font-size: var(--t-small);
-  color: var(--ink-mute);
-  background: transparent;
-  border: 1px solid var(--panel-frame);
-  cursor: pointer;
-}
-.rl-menu--garage .rl-stores__offsale {
-  font-size: var(--t-small);
-  color: var(--ink-dim);
-}
 .rl-stores__tier {
   display: flex;
-  flex-direction: column;
-  gap: var(--s1);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  width: 100%;
   padding-top: var(--s2);
   border-top: 1px solid var(--panel-rule);
+}
+.rl-stores__tier-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
 }
 .rl-menu--garage .rl-stores__tier-track {
   font-family: var(--font-display);
@@ -4603,7 +4610,6 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__pips {
   display: inline-flex;
   gap: var(--s1);
-  margin-right: auto;
 }
 .rl-stores__pip {
   width: 0.75rem;
@@ -4613,6 +4619,65 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-stores__pip--earned {
   background: var(--commend);
   border-color: var(--commend);
+}
+/* Coin-bought tiers: hollow, in the coin's own colour (spec §2.2) -- told
+   from earned by SHAPE as well as hue. */
+.rl-stores__pip--coins {
+  border: 2px solid var(--roar);
+}
+.rl-menu--garage .rl-stores__state--coins {
+  color: var(--roar);
+}
+.rl-stores__card[data-state='coins'] {
+  border-color: var(--roar);
+}
+/* The TEST wallet (GH-317): labelled TEST wherever its balance shows. */
+.rl-menu--garage .rl-stores__test {
+  padding: 0 var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-small);
+  letter-spacing: var(--track-label);
+  color: var(--roar-ink);
+  background: var(--warn);
+}
+.rl-menu--garage .rl-stores__grant {
+  padding: var(--s1) var(--s3);
+  font-family: var(--font-body);
+  font-size: var(--t-small);
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--tile-bg);
+  border: 1px dashed var(--warn);
+  cursor: pointer;
+}
+.rl-stores__grant:focus-visible,
+.rl-stores__buy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.rl-stores[data-test='1'] .rl-stores__notice {
+  border-left-color: var(--warn);
+}
+.rl-stores__receipts-wrap {
+  overflow-x: auto;
+}
+.rl-menu--garage .rl-stores__receipts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+.rl-stores__receipts th {
+  text-align: left;
+  color: var(--ink-label);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+}
+.rl-stores__receipts td {
+  border-bottom: 1px solid var(--panel-rule);
+  padding: var(--s1) var(--s2);
 }
 .rl-garage__card:hover,
 .rl-garage__card:focus-visible {

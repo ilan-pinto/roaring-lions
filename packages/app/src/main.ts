@@ -26,7 +26,6 @@ import {
   type MissionEvent,
   type MissionJson,
   type TunnelRouteJson,
-  type UnlockGate,
 } from '@lions/sim';
 // PixiRenderer is deliberately NOT imported here (see the dynamic import
 // below, and `@lions/render/pixi`'s own comment): a static import of it,
@@ -77,6 +76,10 @@ import { INITIAL_PINNED_NOTE, pinnedOrderNote } from './ui/pinned-order';
 import { isPinned, wholeOrderPinned } from './ui/pinned';
 import { showMenu, showCampaign, showSandbox, showEndScreen, type EndScreenDebrief } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
+import { accountView } from './account-view';
+import { kdfUnlockGate } from './kdf-gate';
+import { coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar-test';
+import { buyWithTestCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
@@ -250,25 +253,6 @@ const ledgerStore = browserLedgerStore();
 function unitFor(typeId: string): { id: string; role: string } {
   const u = units[typeId as keyof typeof units] as { id: string; role: string } | undefined;
   return u ?? { id: typeId, role: 'infantry' };
-}
-
-/** A KDF unit JSON entry's `unlock` gate, mapped from the authored
- *  `roe_rating_min`/`stars_min`/`after_mission`/`price` field names to `UnlockGate` --
- *  the one mapping `unitInfo`, `kdfUnits` and `resolveUpgrades`'s lookup all share.
- *  `bought` is resolved here and nowhere else (spec §4.4) -- a purchase opens the
- *  unit on every surface that reads this gate by construction. */
-function kdfUnlockGate(u: (typeof units)[keyof typeof units], bought: ReadonlySet<string>): UnlockGate | undefined {
-  const unlock = 'unlock' in u
-    ? (u.unlock as { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number })
-    : undefined;
-  if (!unlock) return undefined;
-  return {
-    roeMin: unlock.roe_rating_min,
-    starsMin: unlock.stars_min,
-    afterMission: unlock.after_mission,
-    price: unlock.price,
-    bought: bought.has(u.id),
-  };
 }
 
 /** What `roleBucket` needs to pick a role mark for the brigade screen's
@@ -588,17 +572,10 @@ function accountState(): {
   // null` this used to carry produced. The handle itself is no longer returned:
   // callers that need to know whether there is anywhere to WRITE ask
   // `ledgerStore.available`, and the rest just read.
-  const account = ledgerStore.readAccount();
-  return {
-    boughtUnits: new Set(account.unlocks),
-    // An empty account is `{}`, and `applyUpgrades` treats an absent track as
-    // the identity, so that case registers the raw JSON unchanged -- today's
-    // behaviour (spec 2026-09-15 §4.3, D5: the sim never learns a tier exists).
-    ownedTiers: account.upgrades,
-    // The garage's wallet (WP-S3g T3): its answer to a purchase reads the
-    // balance here, alongside the two fields that purchase changes.
-    balance: account.balance,
-  };
+  // Earned (the brigade account) joined with coin-bought (the Roar coin TEST
+  // wallet, GH-317): single-player plays `earned OR coins`. One read, so every
+  // surface below sees a coin-bought unit as open by construction.
+  return accountView(ledgerStore);
 }
 
 /**
@@ -1052,6 +1029,23 @@ async function main(): Promise<void> {
       const a = accountState();
       return { units: garageUnits(a.boughtUnits), credits: a.balance, owned: a.ownedTiers };
     };
+    // `?testcoins=<n>` (GH-317, a TEST tool): the first visit seeds the TEST
+    // wallet with n coins, once; the Stores' Grant button adds n more.
+    const testGrant = testCoinsParam(req.query);
+    if (testGrant !== null && ledgerStore.available) {
+      ledgerStore.writeRoarTest(seedTestCoins(ledgerStore.readRoarTest(), testGrant, Date.now()));
+    }
+    /** Which part of the single-player account came from coins. */
+    const coinHalf = (): CoinHalf => {
+      const account = ledgerStore.readAccount();
+      const roar = ledgerStore.readRoarTest();
+      return {
+        earnedUnits: new Set(account.unlocks),
+        coinUnits: new Set(Object.keys(roar.entitlements.units)),
+        earnedTiers: account.upgrades,
+        coinTiers: coinTiers(roar),
+      };
+    };
     return showBrigade(host, {
       units: kdfUnits,
       ledger: ledgerStore.readLedger(),
@@ -1090,11 +1084,45 @@ async function main(): Promise<void> {
       // its own first gesture. Mute and the volume sliders are honoured
       // inside `playUi`; a set with no decoded clip plays its synth arm.
       onCue: (cue) => battleAudio().playUi(CUE_SET[cue]),
-      // The Stores tab (GH-317), a preview for everyone: a zero coin balance
-      // and every Buy disabled. It reads the account and writes nothing.
+      // The Stores tab (GH-317). For everyone it is a preview: a zero coin
+      // balance and every Buy disabled. With `?testcoins=<n>` (a TEST tool,
+      // the lead's go-ahead on 2 Oct; remove or gate it before release) a
+      // local TEST wallet buys what credits buy. Packs stay disabled.
       stores: {
         coinSrc: (size) => `${BASE}ui/roar_coin/roar_coin_${size}.png`,
         paid: ledgerStore.readAccount().paid,
+        open: testGrant !== null,
+        read: () => {
+          const r = ledgerStore.readRoarTest();
+          return {
+            coin: coinHalf(),
+            test: testGrant !== null ? { coins: r.coins, grant: testGrant, receipts: r.receipts } : undefined,
+          };
+        },
+        onBuy:
+          testGrant !== null && ledgerStore.available
+            ? (ask) => {
+                const a = accountState();
+                const { account, ok } = buyWithTestCoins(
+                  {
+                    units: garageUnits(a.boughtUnits),
+                    ledger: ledgerStore.readLedger(),
+                    credits: a.balance,
+                    owned: a.ownedTiers,
+                    coin: coinHalf(),
+                  },
+                  ledgerStore.readRoarTest(),
+                  ask,
+                  Date.now()
+                );
+                if (ok) ledgerStore.writeRoarTest(account);
+                return now();
+              }
+            : undefined,
+        onGrant:
+          testGrant !== null && ledgerStore.available
+            ? () => ledgerStore.writeRoarTest(grantTestCoins(ledgerStore.readRoarTest(), testGrant, Date.now()))
+            : undefined,
       },
       onReset: ledgerStore.available
         ? () => {
