@@ -80,6 +80,7 @@ import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
 import { showDebrief, type DebriefOptions } from './ui/debrief';
+import { livingHostiles } from './ui/withdrew';
 import { outcomeMoment, outcomeMomentOptions } from './ui/outcome-moment';
 import { showSettings, type SettingsDeps } from './ui/settings-panel';
 import { keymapRows } from './ui/settings-keymap';
@@ -4089,8 +4090,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             const takenAccount = account
               ? hostagesLine(account, place ? { count: cameBack, place } : undefined)
               : undefined;
+            // A victory that left hostiles standing says so on both screens. A READ of the
+            // sim at the end tick; the withdrew line itself is gated to victory in `withdrewLine`.
+            const withdrew = livingHostiles(sim.state, sim.entityCount);
             const debriefOpts: DebriefOptions = {
               result: me.result,
+              withdrew,
               stars: runtime.stars,
               tierLine: tier
                 ? { plate: speakerPlate(hudCommander, tier.speaker), text: tier.text, portrait: speakerPortrait(hudCommander, tier.speaker) }
@@ -4246,6 +4251,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   result: me.result,
                   roe: me.roeRating,
                   survivors: me.survivors.length,
+                  withdrew,
                   missionId,
                   nextMissionId,
                   debrief,

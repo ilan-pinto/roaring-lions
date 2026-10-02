@@ -30,7 +30,7 @@
       "text": "Kill the digging chief on the spoil field",
       "say": { "speaker": "idit", "text": "The chief is down on his own spoil. He was digging to a plan drawn before the war by a man who has not seen this ground in years." } },
     { "id": "clear_the_ground", "type": "destroy_all", "primary": false,
-      "text": "Clear everything Ashwar still has above ground here",
+      "text": "Bonus: clear every Ashwar unit above ground before the last primary falls",
       "say": { "speaker": "net", "text": "Nothing of theirs is standing above ground in Deir Amun." } },
     { "id": "screen_out", "type": "survive_until", "primary": false, "seconds": 300,
       "text": "Stay in the field for five minutes" }

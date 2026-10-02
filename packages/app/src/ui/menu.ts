@@ -20,6 +20,7 @@ import { panel } from './panel';
 import { stagger } from './motion';
 import { markSvg, wordmark } from './mark';
 import { worldMap } from './worldmap';
+import { withdrewLine } from './withdrew';
 import { campaignBoard, worldMap3d } from './worldmap3d';
 
 export interface MenuOptions {
@@ -499,6 +500,9 @@ export interface EndScreenOptions {
    *  (no wiring yet, or a context with no ledger to report on) simply omits
    *  it, and no button appears. */
   onDebrief?: () => void;
+  /** Hostile units still alive at the end, read off the sim by the caller.
+   *  Shown as "Remaining enemy forces withdrew (N)" on a victory when > 0. */
+  withdrew?: number;
 }
 
 export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Disposer {
@@ -562,6 +566,14 @@ export function showEndScreen(host: HTMLElement, opts: EndScreenOptions): Dispos
     aftermath.className = 'rl-endaftermath';
     aftermath.textContent = opts.aftermath;
     p.body.appendChild(aftermath);
+  }
+
+  const withdrew = withdrewLine(opts.result, opts.withdrew);
+  if (withdrew !== null) {
+    const w = document.createElement('p');
+    w.className = 'rl-endwithdrew rl-dim';
+    w.textContent = withdrew;
+    p.body.appendChild(w);
   }
 
   const summary = document.createElement('div');

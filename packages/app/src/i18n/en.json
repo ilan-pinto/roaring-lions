@@ -125,6 +125,7 @@
   "menu.end.tag": "{result, select, victory {Victory} other {Defeat}}",
   "menu.end.quote": "“{text}”",
   "menu.end.summary": "Conduct {roe} · {n, plural, one {# unit} other {# units}} walking out",
+  "end.withdrew": "Remaining enemy forces withdrew ({n})",
   "menu.end.debrief": "debrief",
   "menu.end.next": "next mission",
   "menu.end.replay": "{result, select, victory {replay} other {try again}}",
