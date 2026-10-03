@@ -1088,6 +1088,14 @@ body {
   font-size: var(--t-m);
   color: var(--ink-dim);
 }
+/* Defeat only (PR 361): which primary failed and when, straight under the
+   verdict, in the verdict's own weight -- the reason is the news. */
+.rl-outcome__reason {
+  margin: var(--s3) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-m);
+  font-weight: 700;
+}
 .rl-outcome__line {
   margin: var(--s3) 0 0;
   font-size: var(--t-m);

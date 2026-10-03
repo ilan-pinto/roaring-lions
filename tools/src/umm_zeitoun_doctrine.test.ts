@@ -264,8 +264,12 @@ describe('zone contents match the design’s audit', () => {
     expect(tally(tilesOf('staging'))).toEqual({ '.': 33, r: 3 });
   });
 
-  it('crest_line: 16 open, 6 knoll, 2 road, 2 cover-2', () => {
-    expect(tally(tilesOf('crest_line'))).toEqual({ '.': 16, n: 6, r: 2, '2': 2 });
+  // Three rows since 3 Oct 2026 (PR 361): the near row, y=42, is where an
+  // APC and infantry arriving from the staging ground park, and at gameplay
+  // zoom a hull there draws inside the band -- the lead's "I am holding and it
+  // says nobody is".
+  it('crest_line: 28 open, 6 knoll, 3 road, 2 cover-2', () => {
+    expect(tally(tilesOf('crest_line'))).toEqual({ '.': 28, n: 6, r: 3, '2': 2 });
   });
 
   it('post_stone: exactly two shanty tiles, one contiguous structure', () => {

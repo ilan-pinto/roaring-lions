@@ -26,12 +26,15 @@ export interface ObjectiveView {
   status: string;
   ticksLeft?: number;
   paused?: 'contested' | 'unheld';
+  /** Your units just outside an UNHELD zone (`hold-outside.ts`). They do not
+   *  count, and the clock says so rather than a bare "nobody holding". */
+  outside?: number;
 }
 
 /** The objective types whose `seconds` is a deadline the mission is LOST on
  *  when it expires -- the failable three. `hold_for`/`survive_until` clocks
  *  are the opposite kind: running out is how they complete. */
-const DEADLINE_TYPES: ReadonlySet<string> = new Set(['raze', 'collapse', 'evacuate_before']);
+export const DEADLINE_TYPES: ReadonlySet<string> = new Set(['raze', 'collapse', 'evacuate_before']);
 
 export interface MissionView {
   name: string;
@@ -87,12 +90,17 @@ export interface HoldClock {
 export function holdClock(m: MissionView | null): HoldClock | null {
   const timed = m?.objectives.find((o) => o.status === 'active' && o.ticksLeft !== undefined);
   if (!timed || timed.ticksLeft === undefined) return null;
+  // A lost mission freezes every clock where it stood, and a frozen count
+  // reads as a stuck game (Umm Zeitoun II, 3 Oct 2026). Say it is over.
+  if (m?.result === 'defeat') return { id: timed.id, text: t('hud.clock.failed'), tone: 'bad', contested: false };
   const secs = Math.ceil(timed.ticksLeft / TICKS_PER_SECOND);
   const why =
     timed.paused === 'contested'
       ? t('hud.hold.contested')
       : timed.paused === 'unheld'
-        ? t('hud.hold.unheld')
+        ? timed.outside !== undefined && timed.outside > 0
+          ? t('hud.hold.outside', { n: timed.outside })
+          : t('hud.hold.unheld')
         : '';
   return {
     id: timed.id,
@@ -178,11 +186,14 @@ export function stripObjectives(m: MissionView): StripObjectives {
   let deadline: StripDeadline | null = null;
   if (urgent && urgent.ticksLeft !== undefined && primary && urgent.id !== primary.id) {
     const secs = Math.ceil(urgent.ticksLeft / TICKS_PER_SECOND);
-    deadline = {
-      objective: urgent,
-      text: clockText(urgent.ticksLeft),
-      tone: secs <= 30 ? 'bad' : secs <= 60 ? 'warn' : '',
-    };
+    deadline =
+      m.result === 'defeat'
+        ? { objective: urgent, text: t('hud.clock.failed'), tone: 'bad' }
+        : {
+            objective: urgent,
+            text: clockText(urgent.ticksLeft),
+            tone: secs <= 30 ? 'bad' : secs <= 60 ? 'warn' : '',
+          };
   }
   const shown = new Set([primary?.id, deadline?.objective.id]);
   return {
