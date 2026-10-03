@@ -26,7 +26,8 @@
 // on the sandbox's own kit ladder (`&kit`, `SANDBOX_KIT_LEVELS`) instead,
 // which puts every level on the chips at once where the three-type account
 // seed cannot; 26 is the seeded account again, on the one dock-bearing
-// mission the garage-uplift plan drives elsewhere (`beit_sahwan_breach`).
+// mission the garage-uplift plan drives elsewhere (`beit_sahwan_2_foothold`
+// since GH-345 took First Light's dock away).
 // GH-262 Task 5 added 28-pinned-card and 28-pinned-chips: the pinned status
 // mark on a sandbox Lavi pinned through the sim's `debugSuppress` hook.
 // Every later task's acceptance is read off these files -- see
@@ -420,7 +421,7 @@ async function garageStates(browser: Browser, res: { width: number; height: numb
   // dock-bearing mission `routes-check.ts`'s K4 leg drives. Same
   // timeout-is-not-a-defect treatment: a deploy gate that never clears is
   // logged and skipped, never a thrown failure.
-  await page.goto(url('/mission/beit_sahwan_breach'), { waitUntil: 'load' });
+  await page.goto(url('/mission/beit_sahwan_2_foothold'), { waitUntil: 'load' });
   const deployedForDock = await dismissDeployGate(page, `${TAG} 26`)
     .then(() => true)
     .catch((e: unknown) => {

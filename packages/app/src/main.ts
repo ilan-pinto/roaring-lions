@@ -59,6 +59,7 @@ import {
   audioManifest,
   vfxEmitters,
   menuDiorama,
+  structures as structureCatalogue,
   type KitLevel,
   type MapJson,
   type MissionLocaleOverlay,
@@ -97,7 +98,7 @@ import { applySettings, loadSettings, saveSettings, settingsBus, type Settings }
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
 import { buyUnlock, buyUpgrade, payMission } from './brigade-account';
 import { tierLine } from './ui/grade-copy';
-import { speakerPlate, speakerPortrait } from './ui/hud-model';
+import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
 import { deployRosterView } from './ui/deploy-roster';
 import { deployedLedger, type DeploySelection } from './ui/deploy-select';
@@ -137,6 +138,14 @@ import { roleBucket } from './ui/role';
 import { rosterLanguages, voiceClassOf } from './voice/lines';
 import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
 import { roeNotice } from './ui/roe-notice';
+import {
+  invoiceLines,
+  invoiceSummary,
+  placeNamesFor,
+  reasonLabel,
+  type Deduction,
+  type PlaceNames,
+} from './ui/conduct-invoice';
 import { sandboxAnchors, type SandboxAnchors } from './sandbox-anchors';
 import {
   sandboxDitchRows,
@@ -190,6 +199,9 @@ import { sceneHost } from './ui/scene-host';
 import { dioramaSceneOptions } from './front/diorama';
 import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
+import { hudVisibility, type MissionHudJson, type TutorialHudJson } from './tutorial/hud-visibility';
+import type { HudElement } from './ui/hud-elements';
+import { fireState, type FireState } from './ui/fire-state';
 import {
   parseWorld,
   parseCountries,
@@ -379,7 +391,10 @@ function describeMissionEvent(
   /** Reasons already narrated this mission, so the ROE advice is offered once
    *  rather than every time the zone cooldown expires. Owned by the caller
    *  because `describeMissionEvent` is otherwise a pure translation. */
-  narratedRoeReasons: Set<string> = new Set()
+  narratedRoeReasons: Set<string> = new Set(),
+  /** GH-345: names the places an ROE reason mentions, for the invoice-style
+   *  feed line. Absent, the line falls back to the sim's reason. */
+  places?: PlaceNames
 ): [string, Tone] | null {
   switch (e.kind) {
     case 'objective': {
@@ -404,7 +419,14 @@ function describeMissionEvent(
     case 'roe': {
       const first = !narratedRoeReasons.has(e.reason);
       narratedRoeReasons.add(e.reason);
-      return roeNotice(e.penalty, e.reason, e.score, mission.roe?.fail_below, first);
+      return roeNotice(
+        e.penalty,
+        e.reason,
+        e.score,
+        mission.roe?.fail_below,
+        first,
+        places ? reasonLabel(e.reason, places) : e.reason
+      );
     }
     case 'built':
       return [t('mission.notice.built', { unit: e.unit }), 'info'];
@@ -1644,7 +1666,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const narratedRoeReasons = new Set<string>();
   /** Every Conduct deduction this mission, for the debrief. The sim keeps no
    *  presentation log; the events are the record. */
-  const deductions: { penalty: number; reason: string }[] = [];
+  const deductions: Deduction[] = [];
   /** The memorial half of this mission's service records (WP-G-E4), captured
    *  one `unitLost` event at a time and appended to `roster.lost` on victory
    *  only -- a defeat writes nothing to the ledger at all (M4, no ironman),
@@ -2515,8 +2537,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  refuge folded in (GH-279, `evacuation.ts`). What the strip, the tracker
    *  and the pause list read. NOT what `objectiveZonesFor` reads: the refuge
    *  is never drawn in the 3D world (the lead's ruling). */
+  // GH-345: objectives authored `clock: false` (First Light's relief hold)
+  // keep their countdown out of the strip; read once, it is mission data.
+  const clockless = clocklessObjectives(
+    (mission?.objectives ?? []) as readonly { id: string; clock?: boolean }[]
+  );
   const liveObjectives = () =>
-    runtime ? withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt) : [];
+    runtime
+      ? withoutHiddenClocks(
+          withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt),
+          clockless
+        )
+      : [];
   const getMission = (): MissionView | null =>
     runtime && mission
       ? {
@@ -2759,8 +2791,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const settingsStore = safeStorage();
   const seen = loadSeen(settingsStore);
 
+  // GH-345: the HUD disclosure set. Seeded from the mission's own
+  // `hud.hidden` (everything, for every mission that declares none);
+  // `refreshHudShown` below folds a running tutorial in once one exists.
+  // Read by the Hud, the minimap, the dock, the group bar and the two
+  // keyboard paths those surfaces own (production, ctrl+N), so a hidden
+  // surface is inert everywhere at once.
+  // GH-345: names for the places Conduct deductions mention -- a flagged
+  // zone's structure ("Clinic"), a destroyed structure's catalogue name.
+  const placeNames: PlaceNames = placeNamesFor(
+    map,
+    structureCatalogue as Readonly<Record<string, { name: string } | undefined>>
+  );
+  let hudShown: ReadonlySet<HudElement> = hudVisibility(null, null, (mission ?? null) as MissionHudJson | null);
+  const isShown = (el: HudElement): boolean => hudShown.has(el);
+
   const hud = new Hud(document.body, {
     sim,
+    isShown,
+    // GH-345: the running Conduct invoice, worded from the sim's own reasons.
+    conductInvoice: () => ({ lines: invoiceLines(deductions, placeNames), floor: mission?.roe?.fail_below }),
     getSelection: () => renderer.selection,
     getMission,
     hoverStructure: () => renderer.hoverStructure,
@@ -3328,9 +3378,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // id — the mission each entry teaches is its own `.mission` field, so the
   // match has to search by that rather than index directly by `missionId`.
   const stepList = Object.values(
-    tutorials as Record<string, { mission: string; steps: StepJson[]; completes?: string } | undefined>
+    tutorials as Record<
+      string,
+      ({ mission: string; steps: StepJson[]; completes?: string } & TutorialHudJson) | undefined
+    >
   ).find((t) => t?.mission === missionId);
   let tut: TutorialState | null = null;
+  /** GH-345: recompute the disclosure set from the tutorial as it stands.
+   *  Cheap (a set of at most eighteen), and called wherever `tut` changes. */
+  const refreshHudShown = (): void => {
+    hudShown = hudVisibility(tut, stepList ?? null, (mission ?? null) as MissionHudJson | null);
+  };
+  /** Where the camera stood when the tutorial first ticked, for beat 1's
+   *  `camera` predicate. Captured lazily on that first tick rather than at
+   *  init, so a boot-time camera placement is not counted as the player's. */
+  let tutCameraStart: { x: number; y: number } | null = null;
+  /** The last hover the tutorial was told about, projection included: an
+   *  enemy that becomes identified under a still cursor is a new fact. */
+  let lastHoverProjection: FireState | null = null;
+  /** Whether tutorial beat 9 currently holds the Conduct invoice open. */
+  let tutInvoiceOpen = false;
   let telemetryTutIndex = -1;
   let tutPanel: TutorialPanel | null = null;
   // Companions for the hover dispatch in `updateHover`: it runs every frame,
@@ -3348,9 +3415,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     (tutorialReplay || !ledgerStore.tutorialDone())
   ) {
     tut = initTutorial(stepList.steps, performance.now());
+    refreshHudShown();
     tutPanel = tutorialPanel(document.body, {
       onSkip: () => {
         tut = null;
+        refreshHudShown();
         tutPanel?.destroy();
         tutPanel = null;
         renderer.clearTutorialFocus();
@@ -3738,6 +3807,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // `production` actually existing: the key is bound whether or not
         // this mission fields a dock, and a press that did nothing must not
         // be recorded as having taught anything.
+        // GH-345: a hidden dock is inert, its key included.
+        if (!isShown('dock')) break;
         if (production) {
           seen.dock = true;
           markSeen(settingsStore, 'dock');
@@ -3908,7 +3979,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
     // Control groups: Ctrl/Cmd+digit assigns the selection, digit recalls it,
     // double-tap centres the camera on the group.
-    if (ev.key >= '1' && ev.key <= '9') {
+    // GH-345: a hidden group bar is inert -- no assign, no recall.
+    if (ev.key >= '1' && ev.key <= '9' && isShown('groups')) {
       const slot = Number(ev.key);
       if (ev.ctrlKey || ev.metaKey) {
         ev.preventDefault();
@@ -4006,7 +4078,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       for (const me of missionEvents) {
         missionTelemetry?.onEvent(me);
         if (tut) tut = advance(tut, { kind: 'mission', event: me }, performance.now());
-        if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason });
+        if (me.kind === 'roe') deductions.push({ penalty: me.penalty, reason: me.reason, tick: me.tick });
         if (me.kind === 'evacuated') evacuatedSoFar++;
         // The memorial half of the service record (WP-G-E4). `unitLost` is already
         // side-0-only (mission.ts:1018) and `entityRoster` is only ever added to, so the
@@ -4016,7 +4088,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const record = lostRecordFor(runtime.rosterEntryOf(me.entity), me.unit, mission.id, me.tick);
           if (record) lostThisMission.push(record);
         }
-        const described = describeMissionEvent(me, mission, narratedRoeReasons);
+        const described = describeMissionEvent(me, mission, narratedRoeReasons, placeNames);
         if (described) hud.note(described[0], described[1]);
         // The story voice (GDD §11): the commander bar is the one surface for
         // it now -- `describeMissionEvent`'s own `case 'say'` returns null,
@@ -4029,6 +4101,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // tutorial completion, so the completion flag is deliberately not
           // set here.
           tut = null;
+          refreshHudShown();
           tutPanel?.destroy();
           tutPanel = null;
           renderer.clearTutorialFocus();
@@ -4136,10 +4209,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                 : undefined,
               roe: me.roeRating,
               roeFloor: starRoeFloor(mission.roe?.fail_below),
-              deductions,
+              invoice: invoiceLines(deductions, placeNames),
               ticks: sim.tickCount,
               targetMinutes: (mission as { target_minutes?: number }).target_minutes,
-              lost: Object.entries(runtime.lostByType()).map(([type, count]) => ({ type, count })),
+              // GH-345: unit NAMES, never sim type ids -- the same lookup the
+              // memorial rows and the card already use.
+              lost: Object.entries(runtime.lostByType()).map(([type, count]) => ({
+                type: units[type as keyof typeof units]?.name ?? type,
+                count,
+              })),
               // WP-G-E4, Task 7 (R-11): the aggregate above stays the total --
               // it counts every dead player entity, including a fresh remnant
               // that never reached the roster and has no service record.
@@ -4285,6 +4363,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
                   result: me.result,
                   roe: me.roeRating,
                   survivors: me.survivors.length,
+                  conduct: invoiceSummary(invoiceLines(deductions, placeNames)),
                   withdrew,
                   missionId,
                   nextMissionId,
@@ -4313,7 +4392,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             now
           );
         }
+        // Beat 1's camera predicate: how far the view's centre has travelled
+        // from where it stood on the tutorial's first tick.
+        if (tutCameraStart === null) tutCameraStart = { x: renderer.camera.x, y: renderer.camera.y };
+        tut = advance(
+          tut,
+          {
+            kind: 'camera',
+            tilesFromStart: Math.hypot(renderer.camera.x - tutCameraStart.x, renderer.camera.y - tutCameraStart.y),
+          },
+          now
+        );
         tut = advance(tut, { kind: 'tick' }, now);
+        refreshHudShown();
+        // GH-345 beat 9: the beat that reveals Conduct opens its invoice, and
+        // it stays open past the last beat (the index clamps to it) until the
+        // player clicks Conduct -- it is the last thing the tutorial teaches.
+        // Only on a CHANGE, so a player who closes it is not overruled four
+        // times a second.
+        const invoiceBeat = (tut.steps[Math.min(tut.index, tut.steps.length - 1)]?.reveal ?? []).includes('conduct');
+        if (invoiceBeat !== tutInvoiceOpen) {
+          tutInvoiceOpen = invoiceBeat;
+          hud.setInvoiceOpen(invoiceBeat);
+        }
         tutPanel?.render(tut);
         const step = tut.steps[tut.index];
         const focus = step?.focus;
@@ -4331,6 +4432,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           hud.note(t('main.note.tutorialComplete'), 'good');
           if (stepList?.completes !== undefined) runtime.completeObjective(stepList.completes);
           tut = null;
+          refreshHudShown();
           tutPanel?.destroy();
           tutPanel = null;
           renderer.clearTutorialFocus();
@@ -4412,6 +4514,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         );
       }
     }
+    // GH-345: the surfaces main.ts owns follow the same set the Hud reads in
+    // its own onTick. Every tick, for the same reason: a beat's reveal lands
+    // on the tick it opens.
+    minimap.setShown(isShown('minimap'));
+    production?.setShown(isShown('dock'));
+    groupsBar.el.toggleAttribute('data-hud-hidden', !isShown('groups'));
     hud.onTick();
     minimap.onTick();
     // Task 11: same cadence as the HUD's own chip row -- rebuilt wholesale
@@ -4706,10 +4814,26 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // Teach the hover, but only on a real change: `updateHover` runs every
   // frame, and an unchanged hover is not a new thing the player did.
-  if (tut && (he !== lastHoverEntity || hs !== lastHoverStructure)) {
+  // GH-345: what the fire panel says about this hover -- the same word
+  // (`fireState`) the panel's own wording is chosen by, so "hover the one in
+  // cover" is satisfied by exactly the hover the panel calls cover.
+  const projection =
+    tut && he >= 0
+      ? fireState(
+          renderer.selection
+            .filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1)
+            .map((i) => sim.projectHit(i, he))
+        )
+      : null;
+  if (tut && (he !== lastHoverEntity || hs !== lastHoverStructure || projection !== lastHoverProjection)) {
     lastHoverEntity = he;
     lastHoverStructure = hs;
-    tut = advance(tut, { kind: 'hover', entity: he, structure: hs, sideOf: (e) => sim.state.side[e] }, performance.now());
+    lastHoverProjection = projection;
+    tut = advance(
+      tut,
+      { kind: 'hover', entity: he, structure: hs, sideOf: (e) => sim.state.side[e], projection },
+      performance.now()
+    );
   }
 
   // Keep the projected-fire panel beside the target it describes. Per frame

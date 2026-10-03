@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { landingDelayS, pulseAt, PULSE_MIN_GAP_S, PULSE_S, PULSE_START_SCALE } from './fire-link';
+import { landingDelayS, pulseAt, PULSE_MIN_GAP_S, PULSE_S, PULSE_START_SCALE, TARGET_RING_SCALE } from './fire-link';
 
 describe('pulseAt', () => {
   it('starts wide and lands on the ring', () => {
@@ -16,6 +16,15 @@ describe('pulseAt', () => {
   it('throttles to fewer pulses than an HMG fires events (one every 0.15 s)', () => {
     expect(PULSE_MIN_GAP_S).toBeGreaterThan(0.15);
     expect(PULSE_MIN_GAP_S).toBeLessThan(PULSE_S);
+  });
+});
+
+describe('where a pulse lands (GH-346)', () => {
+  it("lands ON the target's 1x team ring, not a second ring just outside it", () => {
+    const last = pulseAt(PULSE_S - 1e-6);
+    expect(last).not.toBeNull();
+    // Radius at landing, in units of the target's own ring radius.
+    expect((last?.scale ?? 0) * TARGET_RING_SCALE).toBeCloseTo(1, 4);
   });
 });
 

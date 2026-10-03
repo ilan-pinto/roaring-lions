@@ -211,15 +211,19 @@ describe('First Light fence — the tiles themselves', () => {
     for (const x of [19, 20, 21, 27, 28, 29]) expect(south).not.toContain(x);
   });
 
-  it('the north face is deliberately unfenced -- the outpost stands there instead ("outside the wire")', () => {
+  // GH-345 retired the outpost (the section starts inside at [21,18]); the
+  // north face stays unfenced, as the fence was built.
+  it('the north face is deliberately unfenced', () => {
     expect(FENCE_TILES.some(([, y]) => y < 17)).toBe(false);
   });
 
-  it('the census it asserts on is the mission\'s own placements, not a hand list (31 bodies, 11 of them civilian)', () => {
+  // 26 since GH-345 (2026-10-02) cut the sniper, mortar and demo teams, the
+  // mortar crew and its paramotor spotter: 31 - 5.
+  it('the census it asserts on is the mission\'s own placements, not a hand list (26 bodies, 11 of them civilian)', () => {
     // The guard on the guard. `spawnTiles` is only worth trusting if it is
     // reading the real placements, so pin the two counts and one tile that a
     // stale hand list got wrong: `families_ne`'s first body.
-    expect(PLACEMENTS.flatMap(spawnTiles)).toHaveLength(31);
+    expect(PLACEMENTS.flatMap(spawnTiles)).toHaveLength(26);
     expect(CIVILIAN_TILES).toHaveLength(11);
     expect(CIVILIAN_TILES).toContainEqual([37, 18]);
   });
@@ -466,8 +470,9 @@ describe('First Light fence — the passive control is unchanged', () => {
     const { result, objectives } = passiveResult();
     expect(result).toBe('defeat');
     expect(objectives.evac_settlements).toBe('failed');
-    // The rest of the objective ladder is unaffected by the fence: the yard
-    // still holds itself for three minutes on a passive run.
-    expect(objectives.hold_compound).toBe('complete');
+    // GH-345 cut First Light to two problems; the other one, the relief
+    // hold, is still running when the families' deadline loses the mission.
+    expect(objectives.survive_relief).toBe('active');
+    expect(Object.keys(objectives).sort()).toEqual(['evac_settlements', 'survive_relief']);
   });
 });

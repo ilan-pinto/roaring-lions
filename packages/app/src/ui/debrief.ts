@@ -8,6 +8,7 @@ import { symbolLabel } from './symbol';
 import { panel } from './panel';
 import { tierName } from './grade-copy';
 import { withdrewLine } from './withdrew';
+import { invoiceClock, type InvoiceLine } from './conduct-invoice';
 import { routes } from '../shell/links';
 import type { Disposer } from '../shell/router';
 
@@ -17,7 +18,10 @@ export interface DebriefOptions {
   tierLine?: { plate: string; text: string; portrait?: string };
   roe: number;
   roeFloor: number;
-  deductions: { penalty: number; reason: string }[];
+  /** GH-345: the Conduct invoice -- every deduction grouped by cause and
+   *  place, already worded (`conduct-invoice.ts`'s `invoiceLines`). Drawn as
+   *  a cause / when / cost table where the sim's raw reason lines used to be. */
+  invoice: InvoiceLine[];
   ticks: number;
   targetMinutes?: number;
   lost: { type: string; count: number }[];
@@ -154,10 +158,23 @@ export function showDebrief(host: HTMLElement, o: DebriefOptions): Disposer {
 
   if (o.taken) b.appendChild(el('div', 'rl-debrief__taken', o.taken));
 
-  if (o.deductions.length > 0) {
-    const ul = el('ul', 'rl-debrief__deductions');
-    for (const d of o.deductions) ul.appendChild(el('li', '', `−${d.penalty} ${d.reason}`));
-    b.appendChild(ul);
+  if (o.invoice.length > 0) {
+    // GH-345: cause / when / cost. Each cell through `textContent`: a label
+    // carries a place name, which is data.
+    const table = el('table', 'rl-debrief__deductions');
+    const head = el('tr', '');
+    for (const k of ['conduct.invoice.cause', 'conduct.invoice.when', 'conduct.invoice.cost']) {
+      head.appendChild(el('th', '', t(k)));
+    }
+    table.appendChild(head);
+    for (const line of o.invoice) {
+      const tr = el('tr', '');
+      tr.appendChild(el('td', '', line.count > 1 ? `${line.label} ×${line.count}` : line.label));
+      tr.appendChild(el('td', 'rl-debrief__when', line.ticks.map(invoiceClock).join(', ')));
+      tr.appendChild(el('td', 'rl-debrief__cost', `−${line.total}`));
+      table.appendChild(tr);
+    }
+    b.appendChild(table);
   }
 
   if (o.secondaries.length > 0) {

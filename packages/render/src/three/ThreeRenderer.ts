@@ -474,8 +474,17 @@ import {
   REFUGE_RING_EDGE_ALPHA,
 } from './units/overlays';
 import { GroundPing } from './units/ground-ping';
-import { ELLIPSE_BY_TYPE, HP_BAR, RING_CLASS_OVERRIDE, ringClassOf, ringRadiusFor } from './units/readability';
+import {
+  ELLIPSE_BY_TYPE,
+  HP_BAR,
+  RING_CLASS_OVERRIDE,
+  SELECTED_RING_SCALE,
+  TEAM_RING,
+  ringClassOf,
+  ringRadiusFor,
+} from './units/readability';
 import { SelectionRingBatch } from './units/selection-ring';
+import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, contactTriangles } from './units/contact-marks';
 
 /** Where a unit type's sheets live, as the app named them. */
 interface SpriteSheetRequest {
@@ -1452,6 +1461,10 @@ export class ThreeRenderer implements Renderer {
    * group's.
    */
   private readonly selectionRing: SelectionRingBatch;
+  /** GH-346: the faint team ring under every UNSELECTED unit on open
+   *  ground (`readability.ts`'s `TEAM_RING`) -- a second batch in the same
+   *  group, so the `overlays` debug layer hides both. */
+  private readonly teamRing: SelectionRingBatch;
   private readonly selectionRingGroup = new THREE.Group();
   /** `push`'s placement, reused for every ring every frame: no per-unit
    *  object literal in the overlay loop. `color` is `cachedHexToLinear`'s own
@@ -2378,7 +2391,15 @@ export class ThreeRenderer implements Renderer {
     this.selectionRing = new SelectionRingBatch({
       resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
     });
+    this.teamRing = new SelectionRingBatch({
+      resolveShadow: () => cachedHexToLinear(this.overlayColor('shadow.1', '#14150F')),
+      style: TEAM_RING,
+      capacity: TEAM_RING.capacity,
+    });
     this.selectionRingGroup.name = 'selection-ring-layer';
+    // Team ring first: at the same band (0.5) a selected unit's own ring is
+    // drawn over any team ring a neighbour lays across it.
+    this.selectionRingGroup.add(this.teamRing.mesh);
     this.selectionRingGroup.add(this.selectionRing.mesh);
     // The ground's macro field (spec 3.1, G4): built once, since it depends
     // on the map's size alone. Its hue pull resolves through `overlayColor`
@@ -3008,6 +3029,7 @@ export class ThreeRenderer implements Renderer {
     this.decalMaterial.dispose();
     this.selectionRing.dispose();
     this.fireLinkFlashMaterial?.dispose();
+    this.teamRing.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -7912,11 +7934,19 @@ export class ThreeRenderer implements Renderer {
    * decals sample. false when the batch refuses it; the caller then draws the
    * billboard fallback.
    */
-  private pushSelectionRing(i: number, type: Sim['unitTypes'][number], x: number, z: number, side: number): boolean {
+  private pushSelectionRing(
+    i: number,
+    type: Sim['unitTypes'][number],
+    x: number,
+    z: number,
+    side: number,
+    batch: SelectionRingBatch = this.selectionRing,
+    scale: number = SELECTED_RING_SCALE
+  ): boolean {
     const p = this.ringScratch;
     p.x = x;
     p.z = z;
-    p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type));
+    p.radiusTiles = ringRadiusFor(type.id, RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type)) * scale;
     p.color = cachedHexToLinear(this.opts.teamColors[side]);
     const e = ELLIPSE_BY_TYPE[type.id];
     if (e === undefined) {
@@ -7925,8 +7955,8 @@ export class ThreeRenderer implements Renderer {
       p.headingRad = undefined;
     } else {
       const heading = fx.toNumber(this.sim.state.facing[i]) * Math.PI * 2;
-      p.alongTiles = e.along;
-      p.acrossTiles = e.across;
+      p.alongTiles = e.along * scale;
+      p.acrossTiles = e.across * scale;
       p.headingRad = heading;
       // Centred on the HULL, not the unit origin (fix round 1): the hull
       // box's own centre sits `offsetAlong` tiles along the heading.
@@ -7934,7 +7964,7 @@ export class ThreeRenderer implements Renderer {
       p.z = z + e.offsetAlong * Math.sin(heading);
     }
     // The entity id keys the batch's position cache (fix round 1).
-    return this.selectionRing.push(p, this.decalSampleY, i);
+    return batch.push(p, this.decalSampleY, i);
   }
 
   // ------------------------------------------------------------------
@@ -8132,6 +8162,25 @@ export class ThreeRenderer implements Renderer {
     return fx.toNumber(type.weapons[0].effectiveRange) > 0;
   }
 
+  /** GH-346: one observed hostile's contact mark (`units/contact-marks.ts`),
+   *  over its head with a dark halo under it; `unknown` while only suspected. */
+  private pushContactMark(
+    anchor: readonly [number, number, number],
+    type: Sim['unitTypes'][number],
+    r: number,
+    contactLevel: number,
+    scale: number
+  ): void {
+    const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
+    const shape = contactShapeOf(cls, contactLevel);
+    const h = CONTACT_MARK.halfPx * scale;
+    const at = billboardPoint(anchor, 0, r + CONTACT_MARK.liftPx * scale);
+    const halo = this.overlayColor('shadow.1', '#14150F');
+    const team = this.opts.teamColors[1] ?? this.overlayColor('team.hostile', '#D93A2B');
+    for (const t of contactHaloTriangles(shape, h, CONTACT_MARK.haloPx * scale)) this.overlayBatch.triangle(at, t, halo, CONTACT_MARK.haloAlpha);
+    for (const t of contactTriangles(shape, h)) this.overlayBatch.triangle(at, t, team, 1);
+  }
+
   /** The shared occlusion-silhouette material for `side` -- one of three for
    *  the whole scene, not one per unit. See `silhouetteMeshMaterials`' own
    *  field doc comment. */
@@ -8196,6 +8245,8 @@ export class ThreeRenderer implements Renderer {
     this.numeralBatch.beginFrame();
     this.chevronBatch.beginFrame();
     this.selectionRing.beginFrame();
+    this.teamRing.beginFrame();
+    const markScale = contactScale(this.camera.zoom);
 
     const st = this.sim.state;
     const n = this.snapshottedCount;
@@ -8350,6 +8401,13 @@ export class ThreeRenderer implements Renderer {
         grp > 0 && this.opts.groupColors.length > 0 ? this.opts.groupColors[(grp - 1) % this.opts.groupColors.length] : '';
       const accentDefault = this.overlayColor(OVERLAY_ACCENT_COLOR_KEY, '#B8FF5A');
 
+      // GH-346: a faint team ring under every unselected unit standing on
+      // open ground (a garrisoned one has a building over it), and a
+      // shape-coded contact mark over every observed hostile -- this loop
+      // has already skipped any hostile the player does not observe.
+      if (!selected && inside < 0) this.pushSelectionRing(i, type, ix, iy, side, this.teamRing, 1);
+      if (side === 1) this.pushContactMark(anchor, type, r, this.sim.contactLevel(0, i), markScale);
+
       // Selection ring (A4, GH-186): on the ground, in team colour, for a
       // unit standing on it. The old flat billboard ellipse -- renderer.ts:
       // `g.ellipse(sx, sy + 2, r + 7, (r + 7) / 2).stroke({ width: 2, color:
@@ -8382,6 +8440,7 @@ export class ThreeRenderer implements Renderer {
     // The ground rings pushed above, drawn in one call -- or none, and hidden,
     // when nothing on open ground is selected.
     this.selectionRing.endFrame(this.camera.zoom);
+    this.teamRing.endFrame(this.camera.zoom);
 
     // Building status: an integrity bar once a building has been hit, and a
     // pip per man inside -- renderer.ts's own comment: "you should be able

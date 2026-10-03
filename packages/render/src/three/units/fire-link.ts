@@ -32,9 +32,13 @@
  * sim tick.
  */
 
-/** A pulse's starting ring sits this much wider than the target's own
- *  selection ring would, so it reads as "around" the unit. */
-export const TARGET_RING_SCALE = 1.15;
+/** Where a pulse lands, as a multiple of the target's own ring radius. It
+ *  was 1.15 -- "around" the unit -- while nothing was drawn under a target.
+ *  Since GH-346 every unit on open ground wears a team ring at exactly 1x, and
+ *  at 1.15 the landing pulse drew a second red ring 0.07 tile (~3 px at zoom
+ *  1) outside it: two lines that read as one smeared one. At 1 the pulse
+ *  contracts ONTO the target's team ring and the two meet. */
+export const TARGET_RING_SCALE = 1;
 
 /** Seconds a pulse takes to contract onto its target. */
 export const PULSE_S = 0.35;

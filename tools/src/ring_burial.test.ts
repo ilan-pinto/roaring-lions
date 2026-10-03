@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ELLIPSE_BY_TYPE, RADIUS_BY_TYPE } from '../../packages/render/src/three/units/readability';
-import { RING_GRID, RING_GRID_XL, ringGridFor } from '../../packages/render/src/three/units/selection-ring';
+import { RING_GRID, RING_GRID_XXL, ringGridFor } from '../../packages/render/src/three/units/selection-ring';
 import { BURIAL_LIMIT, CENTRE, HEADINGS, RELIEFS, sweep } from './ring_burial_sweep';
 
 describe('the sweep is not vacuous', () => {
@@ -58,7 +58,9 @@ describe('Namer tier-justification tripwires (fail safe; the per-type sweep abov
     expect(await sweep(tm, tm.vehicleSteep, 6, along, across, HEADINGS, CENTRE)).toBeGreaterThan(BURIAL_LIMIT);
   }, 30_000);
 
-  it('the Namer is on the 7x7 tier', () => {
-    expect(ringGridFor(along, across)).toBe(RING_GRID_XL);
+  // GH-346 added a 9x9 tier over 1.5 tiles for the bigger selected ring;
+  // the Namer's own 1.61 crosses it, so its team ring is conformed on 9x9 too.
+  it('the Namer is on the 9x9 tier', () => {
+    expect(ringGridFor(along, across)).toBe(RING_GRID_XXL);
   });
 });

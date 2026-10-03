@@ -73,14 +73,21 @@ export function roeNotice(
   reason: string,
   score: number,
   failBelow: number | undefined,
-  first: boolean
+  first: boolean,
+  /** GH-345: the invoice's own words for this reason ("Clinic struck"),
+   *  from `conduct-invoice.ts`'s `reasonLabel`. Defaults to the raw reason,
+   *  which is what a caller with no map to name places from has. */
+  label: string = reason
 ): [string, Tone] {
   // `reason` can name a ZONE (`fire into protected structure (${zoneName})`,
   // mission.ts), and a zone name has no pattern in either schema -- so it is
   // escaped on its way into the catalogue's markup, which `hud.note` sets as
   // `innerHTML` (shell upgrade Phase 3, Task 10, fix round 1). The raw string
   // is still what `isProtectedZoneReason` reads below.
-  const head = t('roe.notice.head', { penalty, reason: escapeHtml(reason), score });
+  // GH-345: the head is the invoice line -- "Clinic struck −5 · Conduct 95"
+  // -- not the sim's English with a zone id in it. Escaped for the same
+  // reason the raw reason was: a zone id or a structure name is data.
+  const head = t('roe.notice.head', { penalty, label: escapeHtml(label), score });
 
   // Already below the floor. The mission is lost whatever else is on screen,
   // and saying so plainly beats leaving the player to infer it from a number.

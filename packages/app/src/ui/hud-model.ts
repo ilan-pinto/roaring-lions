@@ -193,6 +193,31 @@ export function stripObjectives(m: MissionView): StripObjectives {
   };
 }
 
+/**
+ * GH-345: drop the countdown from every objective its mission authored with
+ * `clock: false`, so the strip, the big clock and the tracker count down only
+ * the deadlines left. The objective's own `text` names the time instead
+ * ("Hold until the relief column, 5:00"). App-side only: the sim's own
+ * objective list is untouched, so the hold still completes on time.
+ */
+export function withoutHiddenClocks<O extends { id: string; ticksLeft?: number }>(
+  objectives: readonly O[],
+  clockless: ReadonlySet<string>
+): O[] {
+  if (clockless.size === 0) return [...objectives];
+  return objectives.map((o) => {
+    if (!clockless.has(o.id) || o.ticksLeft === undefined) return o;
+    const rest = { ...o };
+    delete rest.ticksLeft;
+    return rest;
+  });
+}
+
+/** The ids of a mission's objectives authored with `clock: false`. */
+export function clocklessObjectives(objectives: readonly { id: string; clock?: boolean }[] | undefined): Set<string> {
+  return new Set((objectives ?? []).filter((o) => o.clock === false).map((o) => o.id));
+}
+
 /** The mark an objective wears, by status, as inline SVG (GH-261, Military
  *  set B): the dashed "planned" frame while open, the solid frame with its
  *  tick once done, the framed X once failed. Done and failed carry the
@@ -259,7 +284,7 @@ export function countSuppressed(s: SuppressionSource, entityCount: number): Supp
 /**
  * The two factors actually degrading a shot, worst first.
  *
- * Anything at or above 99.5% is dropped: it rounds to "100%", and a penalty
+ * Anything at or above 99.5% is dropped: it rounds to a penalty of "−0%", and a penalty
  * row that says a factor costs nothing is noise in a panel the player reads
  * mid-fight. The weapon's own accuracy is deliberately not a candidate — it is
  * the baseline, not something the player can act on.
@@ -269,7 +294,11 @@ export function worstPenalties(factors: [string, number][]): string[] {
     .filter(([, v]) => v < 0.995)
     .sort((a, b) => a[1] - b[1])
     .slice(0, 2)
-    .map(([label, v]) => `${label} ${Math.round(v * 100)}%`);
+    // GH-345 (decision 5): printed as the PENALTY, 1 - multiplier, with a
+    // minus sign -- "cover −86%", never the multiplier "cover 14%", which read
+    // as almost no cover. The number is the same factor; only the sign and the
+    // wording changed.
+    .map(([label, v]) => t('hud.fire.penalty', { label, n: Math.round((1 - v) * 100) }));
 }
 
 /**

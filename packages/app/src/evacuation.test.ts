@@ -100,13 +100,15 @@ describe('activeRefuge', () => {
 // eight beats `docs/campaign/beit_sahwan/narrative.md` §2.3 tabulates.
 describe("First Light's briefing states the flight rule", () => {
   const beats = briefingBeats(firstLight.briefing);
+  // GH-345 cut the briefing with the mission (two problems, no mortar, no
+  // outpost, no corridor): five beats now, the flight rule still the last.
   it('names both triggers: a soldier within four tiles, and fire', () => {
-    expect(beats[7]).toMatch(/within four tiles/);
-    expect(beats[7]).toMatch(/under fire/);
+    expect(beats[4]).toMatch(/within four tiles/);
+    expect(beats[4]).toMatch(/under fire/);
   });
-  it('stays inside the authored band and the tabulated eight beats', () => {
+  it('stays inside the authored band and the tabulated five beats', () => {
     expect(firstLight.briefing.length).toBeGreaterThanOrEqual(385);
     expect(firstLight.briefing.length).toBeLessThanOrEqual(1225);
-    expect(beats).toHaveLength(8);
+    expect(beats).toHaveLength(5);
   });
 });

@@ -1,6 +1,6 @@
 {
   "id": "beit_sahwan_0_tutorial",
-  "name": "Beit Sahwan 0 \u2014 Working Up",
+  "name": "Beit Sahwan 0 — Working Up",
   "town": "beit_sahwan",
   "phase": "recon",
   "target_minutes": 10,
@@ -10,7 +10,7 @@
       "text": "That is everything the battalion will hand you. Next week none of it is a demonstration."
     }
   },
-  "briefing": "Nothing here is contested yet. The battalion has given you a corner of the training area and one of everything it will hand you next week, delivered a piece at a time as you get to it. Learn what each of them is for. Nothing you lose here comes off the roster, and nothing you learn here is free later. The exercise runs ten minutes. Work through it at your own pace; nothing out here is trying to beat the clock.",
+  "briefing": "Nothing here is contested yet. The battalion has given you a corner of the training area, one rifle squad, and a drone over the far side of the range to spot for you. The rest arrives a piece at a time as you get to it. Learn what each of them is for. Nothing you lose here comes off the roster, and nothing you learn here is free later. Work through it at your own pace; nothing out here is trying to beat the clock.",
   "map": {
     "file": "tutorial_ground",
     "time_of_day": "day",
@@ -33,11 +33,11 @@
       ]
     },
     {
-      "unit": "apc_eitan",
+      "unit": "recon_drone",
       "count": 1,
       "at": [
-        11,
-        26
+        38.5,
+        24.5
       ]
     }
   ],
@@ -50,10 +50,13 @@
       "text": "Work through the training area"
     },
     {
-      "id": "clear_the_area",
-      "type": "destroy_all",
+      "id": "bring_them_in",
+      "type": "evacuate_before",
       "primary": false,
-      "text": "Clear the training area"
+      "target": "z_refuge",
+      "count": 2,
+      "seconds": 600,
+      "text": "Bring the two civilians to the refuge"
     }
   ],
   "roe": {
@@ -77,83 +80,105 @@
   },
   "enemy": {
     "faction": "ashwar",
-    "doctrine_profile": "static targets",
-    "garrison": [
-      {
-        "unit": "militia_cell",
-        "count": 1,
-        "at": [
-          25.5,
-          21.5
-        ],
-        "facing_deg": 180
-      },
-      {
-        "unit": "militia_cell",
-        "count": 1,
-        "at": [
-          26.5,
-          23.5
-        ],
-        "facing_deg": 180
-      },
-      {
-        "unit": "militia_cell",
-        "count": 1,
-        "at": [
-          31.5,
-          12.5
-        ],
-        "facing_deg": 180
-      },
-      {
-        "unit": "rpg_team",
-        "count": 1,
-        "at": [
-          32.5,
-          29.5
-        ],
-        "facing_deg": 180
-      },
-      {
-        "unit": "rpg_team",
-        "count": 1,
-        "at": [
-          34.5,
-          31.5
-        ],
-        "facing_deg": 180
-      },
-      {
-        "unit": "technical",
-        "count": 1,
-        "at": [
-          35.5,
-          30.5
-        ],
-        "facing_deg": 180
-      },
-      {
-        "unit": "technical",
-        "count": 1,
-        "at": [
-          31.5,
-          29.5
-        ],
-        "facing_deg": 180
-      },
-      {
-        "unit": "atgm_cell",
-        "count": 1,
-        "at": [
-          38.5,
-          24.5
-        ],
-        "facing_deg": 180
-      }
-    ]
+    "doctrine_profile": "unarmed targets on a range, delivered a beat at a time",
+    "garrison": []
   },
   "triggers": [
+    {
+      "id": "contact_east",
+      "label": "Contact east, in the open",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "z_field"
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "digger_crew",
+            "count": 1,
+            "at": [
+              26.5,
+              24.5
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "contacts_ahead",
+      "label": "Four contacts on the range",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "z_wall"
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "digger_crew",
+            "count": 1,
+            "at": [
+              16.5,
+              15.5
+            ],
+            "tag": "range_a",
+            "stance": {
+              "kind": "ambush",
+              "tiles": 2
+            }
+          },
+          {
+            "unit": "digger_crew",
+            "count": 1,
+            "at": [
+              21.5,
+              25.5
+            ],
+            "tag": "range_b",
+            "stance": {
+              "kind": "ambush",
+              "tiles": 2
+            }
+          },
+          {
+            "unit": "digger_crew",
+            "count": 1,
+            "at": [
+              24.5,
+              20.5
+            ],
+            "tag": "range_c",
+            "stance": {
+              "kind": "patrol",
+              "waypoints": [
+                [
+                  24.5,
+                  20.5
+                ],
+                [
+                  26.5,
+                  23.5
+                ]
+              ]
+            }
+          },
+          {
+            "unit": "digger_crew",
+            "count": 1,
+            "at": [
+              29.5,
+              18.5
+            ],
+            "tag": "range_d",
+            "stance": {
+              "kind": "ambush",
+              "tiles": 2
+            }
+          }
+        ]
+      }
+    },
     {
       "id": "deliver_second_squad",
       "label": "Second rifle squad arrives",
@@ -173,98 +198,29 @@
       }
     },
     {
-      "id": "deliver_sniper",
-      "label": "Sniper team arrives",
+      "id": "enter_rocks",
+      "label": "Jeep arrives on the road",
       "on": {
         "kind": "zone_entered",
-        "zone": "z_house"
+        "zone": "z_rocks"
       },
       "do": {
         "kind": "reinforce",
         "units": [
-          {
-            "unit": "sniper_team",
-            "count": 1,
-            "marker": "rp_west"
-          }
-        ]
-      }
-    },
-    {
-      "id": "deliver_transports",
-      "label": "IFV and jeep arrive",
-      "on": {
-        "kind": "zone_entered",
-        "zone": "z_east_view"
-      },
-      "do": {
-        "kind": "reinforce",
-        "units": [
-          {
-            "unit": "ifv_namer",
-            "count": 1,
-            "marker": "rp_road"
-          },
           {
             "unit": "jeep_shoded",
             "count": 1,
-            "marker": "rp_road"
+            "marker": "rp_jeep"
           }
         ]
       }
     },
     {
-      "id": "deliver_armour",
-      "label": "Tank and AT team arrive",
+      "id": "deliver_mortar",
+      "label": "Mortar team arrives",
       "on": {
         "kind": "zone_entered",
-        "zone": "z_road_west"
-      },
-      "do": {
-        "kind": "reinforce",
-        "units": [
-          {
-            "unit": "mbt_lavi",
-            "count": 1,
-            "marker": "rp_road"
-          },
-          {
-            "unit": "at_team",
-            "count": 1,
-            "marker": "rp_road"
-          }
-        ]
-      }
-    },
-    {
-      "id": "deliver_drones",
-      "label": "Recon and attack drones arrive",
-      "on": {
-        "kind": "zone_entered",
-        "zone": "z_road_east"
-      },
-      "do": {
-        "kind": "reinforce",
-        "units": [
-          {
-            "unit": "recon_drone",
-            "count": 1,
-            "marker": "rp_road"
-          },
-          {
-            "unit": "attack_drone",
-            "count": 1,
-            "marker": "rp_road"
-          }
-        ]
-      }
-    },
-    {
-      "id": "deliver_support",
-      "label": "Mortar and engineers arrive",
-      "on": {
-        "kind": "zone_entered",
-        "zone": "z_demo"
+        "zone": "z_refuge"
       },
       "do": {
         "kind": "reinforce",
@@ -272,12 +228,31 @@
           {
             "unit": "mortar_team",
             "count": 1,
-            "marker": "rp_road"
-          },
+            "marker": "rp_mortar"
+          }
+        ]
+      }
+    },
+    {
+      "id": "contact_by_the_clinic",
+      "label": "Enemy digging by the clinic",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "z_refuge"
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
           {
-            "unit": "demo_squad",
-            "count": 1,
-            "marker": "rp_road"
+            "unit": "digger_crew",
+            "count": 2,
+            "at": [
+              33.5,
+              35.5
+            ],
+            "stance": {
+              "kind": "hold_position"
+            }
           }
         ]
       }

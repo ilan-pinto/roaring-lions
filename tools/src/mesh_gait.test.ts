@@ -1039,7 +1039,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   // B3 (2026-09-30): Meshy figures -- one 2,000-tri remesh cut into rig.py
   // parts, so the boot mesh is the figure's own boots, not kit's.
   'militia_cell.glb move': 582,
-  'rpg_team.glb move': 528,
+  'rpg_team.glb move': 640, // 528 until the arm re-seat (2026-10-02) re-exported it through B7's bisected cut
   'charge_squad.glb move': 444, // B4: Meshy boots
   'inf_squad.glb move': 729, // B7: Meshy boots, three men, rig.py gait; the source is bisected at its cut planes (B7 review), so every boot count below moved once more
   'sarim_rifles.glb move': 1078, // B7 (2 Oct ruling): three of B3's militia_cell body

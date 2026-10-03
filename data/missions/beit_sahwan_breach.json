@@ -15,7 +15,7 @@
     }
   },
   "dispatch": "Beit Sahwan, before dawn. Nadir Sahim spent four years digging under the Marj and one morning spending it — every approach at once, and four villages left outside the wire. The senior officer still inside was a captain.",
-  "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road, and the road is still open behind us — supply is coming forward, so spend it as it arrives rather than banking it. Two gates, both on the road, and two blind faces they will cut straight through rather than walk round. A section of the company is still outside the wire, north-west of the yard: bring it in and that corner of the wall is manned again, or leave it out and hold the one position we have past it. They have an eye aloft north of the wire and a mortar crew laid in behind it. What lands in this yard lands because that eye is watching. Only the sniper's rifle reaches that high, and the tube itself is four tiles off the section's position. Whichever of the two you spend is not covering the wall while it works. The villages are outside the wire and the families in them have nowhere else to go: get at least two inside before the ring closes, because nobody is coming back for them afterwards. Take something fast: a family runs for the compound once one of ours is within four tiles, or under fire. Hold the yard, and still be standing when the column reaches us.",
+  "briefing": "They came at dawn, out of the Marj, across every approach at once. What is left of the company is inside the compound on the Beit Sahwan road: two gates, both on the road, and two blind faces they will cut straight through rather than walk round. Two things matter this morning. Hold the yard until the relief column reaches us, five minutes out. And the villages are outside the wire: the families in them have nowhere else to go, so get at least two inside before the ring closes, because nobody is coming back for them afterwards. Take something fast: a family runs for the compound once one of ours is within four tiles, or under fire.",
   "map": {
     "file": "marj_perimeter",
     "player_start": [
@@ -39,10 +39,9 @@
       "unit": "inf_squad",
       "count": 1,
       "at": [
-        20,
-        14
-      ],
-      "group": "outpost_section"
+        21,
+        18
+      ]
     },
     {
       "unit": "inf_squad",
@@ -85,30 +84,6 @@
       ]
     },
     {
-      "unit": "sniper_team",
-      "count": 1,
-      "at": [
-        24,
-        21
-      ]
-    },
-    {
-      "unit": "mortar_team",
-      "count": 1,
-      "at": [
-        24,
-        25
-      ]
-    },
-    {
-      "unit": "demo_squad",
-      "count": 1,
-      "at": [
-        26,
-        26
-      ]
-    },
-    {
       "unit": "apc_eitan",
       "count": 1,
       "at": [
@@ -125,27 +100,14 @@
       ]
     }
   ],
-  "resources": {
-    "logistics_start": 400,
-    "logistics_rate_per_min": 200,
-    "intel_start": 60,
-    "supply_corridor": true
-  },
   "objectives": [
     {
       "id": "survive_relief",
       "type": "survive_until",
       "primary": true,
       "seconds": 300,
-      "text": "Still be standing when the relief column arrives"
-    },
-    {
-      "id": "hold_compound",
-      "type": "hold_for",
-      "primary": false,
-      "target": "compound",
-      "seconds": 180,
-      "text": "Hold the compound for three minutes"
+      "text": "Hold until the relief column, 5:00",
+      "clock": false
     },
     {
       "id": "evac_settlements",
@@ -155,33 +117,97 @@
       "count": 2,
       "seconds": 270,
       "text": "Get two families inside the wire before the ring closes",
-      "say": { "speaker": "shai", "text": "Two in. Get the gate shut behind them." },
-      "say_on_fail": { "speaker": "idit", "text": "The ring is closed. Whatever is still outside it is outside it." }
-    },
-    {
-      "id": "hold_outpost",
-      "type": "hold_for",
-      "primary": false,
-      "target": "outpost_ground",
-      "seconds": 120,
-      "text": "Hold the post outside the wire for two minutes",
-      "say": { "speaker": "shai", "text": "Two minutes on that corner. Nobody is going to ask them for a third." }
+      "say": {
+        "speaker": "shai",
+        "text": "Two in. Get the gate shut behind them."
+      },
+      "say_on_fail": {
+        "speaker": "idit",
+        "text": "The ring is closed. Whatever is still outside it is outside it."
+      }
     }
   ],
   "roe": {
-    "enabled": true,
-    "flagged_zones": [
-      "clinic"
-    ]
+    "enabled": true
   },
   "structures": [
-    { "type": "fence", "at": [16, 17], "size": [1, 4] },
-    { "type": "fence", "at": [16, 24], "size": [1, 6] },
-    { "type": "fence", "at": [32, 17], "size": [1, 6] },
-    { "type": "fence", "at": [32, 26], "size": [1, 4] },
-    { "type": "fence", "at": [15, 32], "size": [4, 1] },
-    { "type": "fence", "at": [22, 32], "size": [5, 1] },
-    { "type": "fence", "at": [30, 32], "size": [4, 1] }
+    {
+      "type": "fence",
+      "at": [
+        16,
+        17
+      ],
+      "size": [
+        1,
+        4
+      ]
+    },
+    {
+      "type": "fence",
+      "at": [
+        16,
+        24
+      ],
+      "size": [
+        1,
+        6
+      ]
+    },
+    {
+      "type": "fence",
+      "at": [
+        32,
+        17
+      ],
+      "size": [
+        1,
+        6
+      ]
+    },
+    {
+      "type": "fence",
+      "at": [
+        32,
+        26
+      ],
+      "size": [
+        1,
+        4
+      ]
+    },
+    {
+      "type": "fence",
+      "at": [
+        15,
+        32
+      ],
+      "size": [
+        4,
+        1
+      ]
+    },
+    {
+      "type": "fence",
+      "at": [
+        22,
+        32
+      ],
+      "size": [
+        5,
+        1
+      ]
+    },
+    {
+      "type": "fence",
+      "at": [
+        30,
+        32
+      ],
+      "size": [
+        4,
+        1
+      ]
+    }
   ],
   "civilians": {
     "refuge": "civ_refuge",
@@ -228,41 +254,6 @@
     "faction": "ashwar",
     "doctrine_profile": "converging raid on a fixed position, all approaches at once",
     "garrison": [
-      {
-        "unit": "paramotor",
-        "count": 1,
-        "at": [
-          24.5,
-          10.5
-        ],
-        "tag": "bs0_spotter_aloft",
-        "stance": {
-          "kind": "patrol",
-          "waypoints": [
-            [
-              14,
-              10
-            ],
-            [
-              34,
-              10
-            ]
-          ]
-        }
-      },
-      {
-        "unit": "mortar_crew",
-        "count": 1,
-        "at": [
-          21.5,
-          10.5
-        ],
-        "group": "barrage",
-        "tag": "bs0_barrage",
-        "stance": {
-          "kind": "hold_position"
-        }
-      },
       {
         "unit": "militia_cell",
         "count": 2,
@@ -327,31 +318,34 @@
         "units": [
           {
             "unit": "militia_cell",
-            "count": 2,
+            "count": 1,
             "from": "raid_nw"
           },
           {
             "unit": "militia_cell",
-            "count": 2,
+            "count": 1,
             "from": "raid_n"
           },
           {
             "unit": "militia_cell",
-            "count": 2,
+            "count": 1,
             "from": "raid_ne"
           },
           {
             "unit": "militia_cell",
-            "count": 2,
+            "count": 1,
             "from": "raid_w"
           },
           {
             "unit": "militia_cell",
-            "count": 2,
+            "count": 1,
             "from": "raid_e"
           }
         ],
-        "say": { "speaker": "idit", "text": "Every approach at once. There is no main effort in this — he does not need one." }
+        "say": {
+          "speaker": "idit",
+          "text": "Every approach at once. There is no main effort in this — he does not need one."
+        }
       },
       {
         "at_seconds": 18,
@@ -359,36 +353,24 @@
         "units": [
           {
             "unit": "militia_cell",
-            "count": 2,
+            "count": 1,
             "from": "raid_sw"
           },
           {
             "unit": "militia_cell",
-            "count": 2,
+            "count": 1,
             "from": "raid_s"
           },
           {
             "unit": "militia_cell",
-            "count": 2,
+            "count": 1,
             "from": "raid_se"
           }
         ]
       },
       {
-        "at_seconds": 50,
-        "to": "compound_centre",
-        "units": [
-          {
-            "unit": "paramotor",
-            "count": 2,
-            "from": "raid_n"
-          }
-        ],
-        "say": { "speaker": "idit", "text": "Two more aloft, north. They are coming in over the wire rather than through it." }
-      },
-      {
         "at_seconds": 120,
-        "to": "outpost",
+        "to": "compound_centre",
         "units": [
           {
             "unit": "militia_cell",
@@ -401,7 +383,10 @@
             "from": "raid_n"
           }
         ],
-        "say": { "speaker": "shai", "text": "That is a charge squad walking onto the forward post. Whatever is out there is out there now." }
+        "say": {
+          "speaker": "shai",
+          "text": "That is a charge squad walking onto the north-west face. Whatever is out there is out there now."
+        }
       },
       {
         "at_seconds": 160,
@@ -434,17 +419,15 @@
             "from": "raid_s"
           }
         ],
-        "say": { "speaker": "idit", "text": "South-east now. Same face, other corner — he is reading which one you reinforced." }
+        "say": {
+          "speaker": "idit",
+          "text": "South-east now. Same face, other corner — he is reading which one you reinforced."
+        }
       },
       {
         "at_seconds": 250,
         "to": "compound_centre",
         "units": [
-          {
-            "unit": "paramotor",
-            "count": 2,
-            "from": "raid_n"
-          },
           {
             "unit": "militia_cell",
             "count": 4,
@@ -466,7 +449,10 @@
         "group": "ring_ne",
         "to": "families_ne"
       },
-      "say": { "speaker": "idit", "text": "The north-east corner is moving and it is not moving on us. Those positions were manned before dawn, not after." }
+      "say": {
+        "speaker": "idit",
+        "text": "The north-east corner is moving and it is not moving on us. Those positions were manned before dawn, not after."
+      }
     },
     {
       "id": "they_take_the_south_village",
@@ -479,7 +465,10 @@
         "group": "ring_se",
         "to": "families_se"
       },
-      "say": { "speaker": "idit", "text": "South-east the same second. They are not queuing for the gates — they are going to the houses." }
+      "say": {
+        "speaker": "idit",
+        "text": "South-east the same second. They are not queuing for the gates — they are going to the houses."
+      }
     },
     {
       "id": "they_come_for_the_west_families",
@@ -493,7 +482,10 @@
         "group": "ring_nw",
         "to": "families_nw"
       },
-      "say": { "speaker": "idit", "text": "West corner is up and walking to the houses. If anything of yours is going that way it goes now." }
+      "say": {
+        "speaker": "idit",
+        "text": "West corner is up and walking to the houses. If anything of yours is going that way it goes now."
+      }
     },
     {
       "id": "the_last_village_goes",
@@ -507,20 +499,10 @@
         "group": "ring_sw",
         "to": "families_sw"
       },
-      "say": { "speaker": "idit", "text": "That is the last corner. All four villages are inside their line now, not ours." }
-    },
-    {
-      "id": "they_take_the_section",
-      "on": {
-        "kind": "timer_s",
-        "value": 165
-      },
-      "do": {
-        "kind": "remove",
-        "group": "outpost_section",
-        "zone": "outpost_ground"
-      },
-      "say": { "speaker": "idit", "text": "The forward post is off the net. Nobody saw them fall and there is nothing out there to recover." }
+      "say": {
+        "speaker": "idit",
+        "text": "That is the last corner. All four villages are inside their line now, not ours."
+      }
     },
     {
       "id": "the_ring_closes",
@@ -532,7 +514,10 @@
         "kind": "remove",
         "group": "families"
       },
-      "say": { "speaker": "idit", "text": "The corners are walking back the way they came and they are not walking back empty." }
+      "say": {
+        "speaker": "idit",
+        "text": "The corners are walking back the way they came and they are not walking back empty."
+      }
     }
   ]
 }
