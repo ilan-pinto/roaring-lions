@@ -389,60 +389,44 @@ function gateLedger(base: LedgerData, entries: number): LedgerData {
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 
-// 0 — First Light: hold the compound, run the villages in with the jeep, and
-// spend the corridor as it arrives.
+// 0 — First Light: hold the compound and run two families in with the jeep.
 //
-// The compound is at the middle of the map with a gate on each face, and 104
-// attackers converge on it from all eight edges over thirteen minutes. Three
-// things this plan does deliberately:
+// GH-345 cut this mission to its two problems (spec 2026-10-02 §c): hold the
+// yard until relief, and bring two families inside before the ring closes.
+// Gone with the cut: the dock and its logistics/intel (the dock first appears
+// in Mission II now), the mortar crew and every paramotor, the forward
+// section and its `hold_outpost`, the `hold_compound` secondary, the sniper,
+// mortar and demo teams, and the out-of-play clinic zone. The section starts
+// inside the wire at [21,18] -- the tile this plan used to withdraw it to.
 //
-// - every other defender stays where they are. They start spread across the
-//   yard with firing positions covering each gate, and a wall they can shoot
-//   over, so there is nothing to reposition toward -- and a unit under orders
-//   is a unit that might walk into its own gateway and cork it.
-// - the forward section is the one exception, and it is the design's own
-//   decision rather than a workaround. `script.md`'s level design leaves one
-//   inf_squad at [20,14], outside the wire, between the paramotor's eye and
-//   the mortar crew laid in behind it -- exposed to both unless the sniper or
-//   the mortar team spends a turn on one of them instead of the wall. `hold_outpost`
-//   (secondary, hold_for(outpost_ground, 120)) rewards holding it; the
-//   `they_take_the_section` trigger (timer_s 165) takes it if the mission does
-//   not lose it first. This plan takes the other half of that decision: at t=0
-//   the section withdraws to [21,18], the tile it occupied before the level
-//   script moved it forward, trading `hold_outpost` for the unit itself rather
-//   than spend a defender on ground the plan cannot also hold with the rest of
-//   the line intact.
-// - the jeep does two runs, north village then south, and nothing escorts it.
-//   Shepherding is a four-tile proximity brush rather than an escort: the
-//   families walk themselves in once touched, so speed is the whole trick and
-//   numbers only add casualties.
-// - logistics is spent, not banked. 400 up front and 120/min means a purchase
-//   roughly every two minutes, and an unspent purse at the end is the GDD's own
-//   definition of income set too high.
+// The compound is at the middle of the map with a gate on each face, and the
+// attackers converge on it from all eight edges. Two things this plan does
+// deliberately:
+//
+// - every defender but the two vehicles stays where it is. They start spread
+//   across the yard with firing positions covering each gate, and a wall they
+//   can shoot over, so there is nothing to reposition toward -- and a unit
+//   under orders is a unit that might walk into its own gateway and cork it.
+// - the jeep runs the western villages, out and back through the west gate,
+//   and the APC covers the south-western one. Shepherding is a four-tile
+//   proximity brush rather than an escort: the families walk themselves in
+//   once touched, so speed is the whole trick and numbers only add
+//   casualties.
+//
+// There is nothing to buy any more: the requestBuild loop that spent the
+// corridor is gone with the corridor.
 //
 // Control: the premise is catastrophe. A player who gives no orders at all must
-// LOSE -- if the compound holds itself for thirteen minutes, the breach is not
-// a breach. This pins the mission's premise the way the plan pins feasibility.
+// LOSE -- if the compound holds itself, the breach is not a breach. It loses on
+// `evac_settlements`, the one deadline that can fail, which is what the cut
+// kept it for.
 run('beit_sahwan_breach', () => {}, {}, 'defeat', 'beit_sahwan_breach (passive control)');
 
-const led0 = run('beit_sahwan_breach', (sim, rt, ids, at) => {
-  at(0, () => {
-    // Pull the forward section back inside the wire immediately, rather than
-    // leave it to the paramotor/mortar pair or the t=120s wave that overruns
-    // `outpost_ground`. Filtered by starting position, not by entity order,
-    // since `inf_squad` spawns four times and only the one at [20,14] is the
-    // forward section -- the other three stay on the wall (see the comment
-    // above).
-    const forward = ids('inf_squad').filter(
-      (i) =>
-        Math.round(fx.toNumber(sim.state.posX[i])) === 20 && Math.round(fx.toNumber(sim.state.posY[i])) === 14
-    );
-    sim.queueCommand({ kind: 'move', ids: forward, ...M(21, 18) });
-  });
+const led0 = run('beit_sahwan_breach', (sim, _rt, ids, at) => {
   const shepherds = ids('jeep_shoded');
   // Both western villages, out and back through the west gate, before the
-  // south-west and west spawns build up. Six families is the objective and the
-  // two western pairs are six between them, so there is no reason to cross the
+  // south-west and west spawns build up. Two families is the objective and the
+  // two western groups are six between them, so there is no reason to cross the
   // map for the eastern ones and every reason not to.
   const armour = ids('apc_eitan');
   at(5, () => {
@@ -453,15 +437,6 @@ const led0 = run('beit_sahwan_breach', (sim, rt, ids, at) => {
     sim.queueCommand({ kind: 'move', ids: shepherds, ...M(20, 21) });
     sim.queueCommand({ kind: 'move', ids: armour, ...M(20, 26) });
   });
-  // Spend it as it lands. Banking is the losing move here: an unspent purse is
-  // a squad that was not on the wall when the wire came down, and the run that
-  // bought on a six-purchase schedule died ninety seconds sooner than the one
-  // that bought whenever it could afford to.
-  for (let when = 20; when <= 700; when += 25) {
-    at(when, () => {
-      if (!rt.requestBuild('inf_squad')) rt.requestBuild('mortar_team');
-    });
-  }
 });
 
 // I — Recon: scouts screen forward on the berm and observe; the drone tours
@@ -3060,7 +3035,18 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // times) even though its own printed `roster out` moves (28 -> 30) purely
 // from the larger cumulative pool passing through. `GATES`' `apc_kipod` line
 // moves with it (see above); `breach_team` and `scout_shachaf` do not.
-const LADDER_CREDITS = 5849;
+// Re-pinned 2026-10-02 (GH-345, First Light cut to two problems): 5849 ->
+// 5736 (-113), every term on the Beit Sahwan chain and nothing else, read
+// off the printed per-mission credits before and after. First Light itself
+// 217 -> 160 (-57): no dock, so the plan buys nothing and brings 3 of its 8
+// home rather than 14 of a bought-up force -- ROE rises 97 -> 100 and the
+// grade stays 2 stars. The smaller roster it hands on then costs every
+// later Beit Sahwan mission a little in `unitHome`, never a star:
+// beit_sahwan_1_recon 300 -> 290, beit_sahwan_2_foothold 180 -> 170,
+// beit_sahwan_3_clearance 280 -> 254 (ROE 100 -> 94 as well),
+// beit_sahwan_4_subterranean 188 -> 178. -57 - 10 - 10 - 26 - 10 = -113.
+// `GATES` does not move: no mission's star count changed.
+const LADDER_CREDITS = 5736;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

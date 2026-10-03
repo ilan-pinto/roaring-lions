@@ -10,7 +10,7 @@ const base = (over: Partial<DebriefOptions> = {}): DebriefOptions => ({
   tierLine: { plate: 'Zohar', text: 'Brigade read the file to the end.' },
   roe: 84,
   roeFloor: 60,
-  deductions: [{ penalty: 5, reason: 'fire into protected structure (clinic)' }],
+  invoice: [{ label: 'Clinic struck', cause: 'struck', count: 2, total: 10, ticks: [820, 1040] }],
   ticks: 20 * 60 * 4 + 20 * 30,
   targetMinutes: 7,
   lost: [{ type: 'inf_squad', count: 2 }],
@@ -38,7 +38,10 @@ describe('showDebrief', () => {
     showDebrief(host, base());
     expect(text(host, '.rl-debrief__conduct')).toContain('Conduct 84');
     expect(text(host, '.rl-debrief__conduct')).toContain('60');
-    expect(text(host, '.rl-debrief__deductions')).toContain('−5 fire into protected structure (clinic)');
+    // GH-345: the invoice table, cause / when / cost -- never the sim's reason.
+    const rows = [...host.querySelectorAll('.rl-debrief__deductions tr')].map((r) => r.textContent);
+    expect(rows).toEqual(['CauseWhenCost', 'Clinic struck ×20:41, 0:52−10']);
+    expect(text(host, '.rl-debrief__deductions')).not.toContain('protected structure');
   });
 
   it('shows time against target and losses by type, never as a grade', () => {

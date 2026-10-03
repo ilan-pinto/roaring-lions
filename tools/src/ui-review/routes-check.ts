@@ -534,12 +534,49 @@ try {
 
   await frameCadence(page, 'the soft-booted mission');
 
+  // And leave THAT one too. Until GH-345 the board's first card (First Light)
+  // was a `resources` mission and this leave also proved its dock comes off
+  // the body; First Light has no dock now, so the dock mission gets its own
+  // soft boot and leave below.
+  await page.click('.rl-hud__leave');
+  await page.click('.rl-confirm__yes');
+  await page.waitForSelector('.rl-world');
+  const afterSoft = await probe(page);
+  expect(!afterSoft.lions, 'window.__lions survived leaving the soft-booted mission');
+  expectDocuments(3, 'leaving the soft-booted mission');
+  expect(
+    afterSoft.leftovers.length === 0,
+    `chrome left on the body after leaving the soft-booted mission: ${afterSoft.leftovers.join(', ')}`
+  );
+  expect(
+    afterSoft.bodyChildren === idleBody,
+    `body has ${afterSoft.bodyChildren} children after leaving the soft-booted mission, ` +
+      `${idleBody} at the menu`
+  );
+  console.log(
+    `[${TAG}] after three missions the body has ${afterSoft.bodyChildren} children` +
+      `${afterSoft.bodyChildren === idleBody ? ' -- back to the menu’s own count' : ` -- the menu had ${idleBody}`}`
+  );
+
+  // --- a dock-bearing mission, booted softly --------------------------------
+  await page.evaluate((href) => {
+    const a = document.createElement('a');
+    a.href = href;
+    a.textContent = 'dock mission';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, '/mission/beit_sahwan_2_foothold');
+  await dismissDeployGate(page, `${TAG} dock-soft`);
+  await page.waitForFunction(() => (window as unknown as { __lions?: unknown }).__lions !== undefined);
+  const dockBoot = await probe(page);
+  expect(dockBoot.boots === 1, `the soft dock-mission boot reloaded the page: boots=${dockBoot.boots}`);
   // GH-229: the dock's tooltip, opened on a tile below the first row, used to
   // land on top of the row above it (`tooltip.ts`'s `computeTipPosition`,
-  // `production.ts`'s `clear: this.el`). The soft-booted mission above is
-  // already a `resources` one (the comment below explains why), so its dock
-  // is on the body right now -- reused rather than booting a fourth mission
-  // just to hover a tile.
+  // `production.ts`'s `clear: this.el`). GH-345 took First Light's dock away,
+  // so the first dock-bearing mission, Beit Sahwan II, is booted SOFTLY here
+  // -- a same-origin anchor click, the router's own soft navigation -- in the
+  // realm three missions have already been torn down in.
   // A plain arrow inline, never a NAMED const holding one: `frameCadence`
   // above already found that tsx/esbuild compiles a function assigned to a
   // const with a `__name` helper the page does not have, and dies on it.
@@ -570,7 +607,7 @@ try {
       viewport: { width: window.innerWidth, height: window.innerHeight },
     };
   });
-  expect(dockTip !== null, 'the soft-booted mission has no dock to test the tooltip on');
+  expect(dockTip !== null, 'the soft-booted dock mission has no dock to test the tooltip on');
   if (dockTip !== null) {
     expect(dockTip.tileCount > 5, `dock has only ${dockTip.tileCount} tile(s) -- the regression needs a second row`);
     expect(dockTip.tipShown === true, `hovering dock tile ${dockTip.tileIndex} showed no tooltip`);
@@ -592,30 +629,23 @@ try {
     document.querySelectorAll('.rl-dock .rl-tile').forEach((t) => t.dispatchEvent(new Event('mouseleave')));
   });
 
-  // And leave THAT one too, which is not belt-and-braces: the board's first
-  // card is a `resources` mission, and a mission with resources fields a
-  // `ReinforcementDock` on the body that the two recon missions above do not.
-  // Leaving only MISSION_A and MISSION_B left that dock unexamined, and it was
-  // leaking -- found by reading the body-mount list rather than by this walk,
-  // which is why the walk now covers it.
+  // A mission with resources fields a `ReinforcementDock` on the body that
+  // the recon missions above do not; leaving only those left that dock
+  // unexamined, and it was leaking -- found by reading the body-mount list,
+  // which is why the walk covers it.
   await page.click('.rl-hud__leave');
   await page.click('.rl-confirm__yes');
   await page.waitForSelector('.rl-world');
-  const afterSoft = await probe(page);
-  expect(!afterSoft.lions, 'window.__lions survived leaving the soft-booted mission');
-  expectDocuments(3, 'leaving the soft-booted mission');
+  const afterDock = await probe(page);
+  expectDocuments(3, 'the soft dock mission, booted and left');
+  expect(!afterDock.lions, 'window.__lions survived leaving the dock mission');
   expect(
-    afterSoft.leftovers.length === 0,
-    `chrome left on the body after leaving the soft-booted mission: ${afterSoft.leftovers.join(', ')}`
+    afterDock.leftovers.length === 0,
+    `chrome left on the body after leaving the dock mission: ${afterDock.leftovers.join(', ')}`
   );
   expect(
-    afterSoft.bodyChildren === idleBody,
-    `body has ${afterSoft.bodyChildren} children after leaving the soft-booted mission, ` +
-      `${idleBody} at the menu`
-  );
-  console.log(
-    `[${TAG}] after three missions the body has ${afterSoft.bodyChildren} children` +
-      `${afterSoft.bodyChildren === idleBody ? ' -- back to the menu’s own count' : ` -- the menu had ${idleBody}`}`
+    afterDock.bodyChildren === idleBody,
+    `body has ${afterDock.bodyChildren} children after leaving the dock mission, ${idleBody} at the menu`
   );
 
   // --- leaving from the DEPLOY SCREEN, which is the abort path ---------------
@@ -2161,8 +2191,10 @@ try {
   }
 
   // --- K4: the account pass, on a mission with a dock ------------------------
+  // Beit Sahwan II since GH-345: First Light lost its `resources` (and with
+  // them its dock), so the first dock-bearing mission is the foothold.
   {
-    const { ctx, page: p } = await kitPage('/mission/beit_sahwan_breach', true, `${TAG} K4`);
+    const { ctx, page: p } = await kitPage('/mission/beit_sahwan_2_foothold', true, `${TAG} K4`);
     await p.evaluate(() => (window as unknown as { __lions?: { step(n: number): void } }).__lions?.step(40));
     await p.waitForTimeout(400);
     const selected = await p.evaluate<number>(SELECT_ALL_OWN);

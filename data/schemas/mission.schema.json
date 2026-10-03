@@ -113,6 +113,19 @@
         }
       }
     },
+    "hud": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "GH-345: a quieter cockpit for a whole mission. App-read only, never by the sim (the same path map.time_of_day took); a running tutorial's own HUD list overrides it. Absent shows everything.",
+      "properties": {
+        "hidden": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/hudElement" },
+          "description": "HUD elements kept off screen, and inert, for this whole mission."
+        }
+      }
+    },
     "map": {
       "type": "object",
       "required": [
@@ -323,6 +336,10 @@
           "say_on_fail": {
             "$ref": "#/$defs/say",
             "description": "Story voice: fires the tick this objective fails, right after the objective/failed event it annotates."
+          },
+          "clock": {
+            "type": "boolean",
+            "description": "GH-345: false keeps this objective's countdown out of the HUD strip, so the strip counts down only the deadline that can fail -- the objective's text then names the time itself. App-read only; the sim never sees it. Default true."
           }
         },
         "allOf": [
@@ -640,6 +657,10 @@
     }
   },
   "$defs": {
+    "hudElement": {
+      "enum": ["minimap", "card", "orders", "hint", "feed", "fire", "status", "objective", "objectives", "clock", "conduct", "logistics", "intel", "speed", "mute", "radio", "dock", "groups"],
+      "description": "One HUD surface (packages/app/src/ui/hud-elements.ts's HUD_ELEMENTS)."
+    },
     "say": {
       "type": "object",
       "description": "A radio line (GDD §11): the story voice, not a game mechanic.",

@@ -26,7 +26,7 @@
 // that the strip's inline clock and the big centred clock cannot derive the
 // same number twice, and so that "can this selection unload" is answered once.
 
-import { fx, type Sim } from '@lions/sim';
+import { fx, type HitProjection, type Sim } from '@lions/sim';
 import type { KitLevel } from '@lions/data';
 import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
@@ -37,6 +37,9 @@ import { escapeHtml } from './escape-html';
 import { kitIconSignDecorHtml, kitIconSignHtml, kitPipsHtml, withKitSign, type KitSummary } from './kit-sign';
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
+import { fireState } from './fire-state';
+import { invoiceClock, type InvoiceLine } from './conduct-invoice';
+import type { HudElement } from './hud-elements';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
 import { symbolLabel, symbolSvg } from './symbol';
@@ -309,6 +312,16 @@ export interface HudDeps {
    *  `lions.seen.projectedFire` from it. Absent in tests that do not
    *  exercise it, which is the same as never marking it. */
   onProjectedFireShown?: () => void;
+  /** GH-345: whether one HUD surface is on screen right now -- the
+   *  progressive-disclosure set (`tutorial/hud-visibility.ts`), asked every
+   *  tick. A hidden surface is inert, not merely invisible: a hidden feed
+   *  drops its notes, a hidden Conduct field opens no tooltip. Absent shows
+   *  everything, which is every HUD built before this existed. */
+  isShown?: (el: HudElement) => boolean;
+  /** GH-345: the running Conduct invoice and the mission's floor, for the
+   *  strip's Conduct field (hover for the tip, click to pin it open). Absent
+   *  in tests that do not exercise it, which keeps the definition-only tip. */
+  conductInvoice?: () => { lines: readonly InvoiceLine[]; floor?: number };
 }
 
 export class Hud {
@@ -354,6 +367,10 @@ export class Hud {
   private readonly cmdPrev: HTMLButtonElement;
   private readonly cmdNext: HTMLButtonElement;
   private readonly banner: HTMLDivElement;
+  /** GH-345: the Conduct invoice pinned open under the strip -- by a click on
+   *  the Conduct field, or by tutorial beat 9. */
+  private readonly invoice: HTMLDivElement;
+  private invoiceOpen = false;
   private bannerShown = false;
   private tickN = 0;
   /** Task 9: consecutive HUD ticks (the 4Hz `renderFire` cadence, not raw
@@ -798,10 +815,22 @@ export class Hud {
     this.banner.className = 'rl-bigbanner';
     this.banner.style.display = 'none';
 
+    this.invoice = document.createElement('div');
+    this.invoice.className = 'rl-invoice rl-plate';
+    this.invoice.style.display = 'none';
+    // Click the Conduct field to pin the invoice open; click again to close.
+    // Delegated on the strip for the same reason as the objectives button:
+    // the field is rebuilt at 4 Hz.
+    this.strip.addEventListener('click', (ev) => {
+      const field = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-tip="conduct"]');
+      if (!field || !this.deps.conductInvoice) return;
+      this.setInvoiceOpen(!this.invoiceOpen);
+    });
+
     // The six panes this HUD owns on the host. Recorded as they are appended
     // -- `destroy()` walks `roots`, so a seventh pane added here is torn down
     // by construction rather than by remembering to name it twice.
-    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.banner);
+    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.banner, this.invoice);
     host.append(...this.roots);
   }
 
@@ -913,12 +942,88 @@ export class Hud {
     this.renderCommander();
   }
 
+  /** GH-345: is this surface on screen right now? */
+  private shown(el: HudElement): boolean {
+    return this.deps.isShown?.(el) ?? true;
+  }
+
+  /**
+   * Hide or show the persistent panes by the disclosure set. An attribute,
+   * never `style.display`: every one of these already drives its own
+   * `display` for its own reasons (a clock with no timer, a card with no
+   * selection), and the two must compose rather than fight -- theme.css's
+   * `[data-hud-hidden]` wins over whatever the pane says about itself. Every
+   * tick, not 4 Hz, so a beat's reveal lands on the frame it opens.
+   */
+  private applyVisibility(): void {
+    const set = (el: HTMLElement, on: boolean): void => {
+      el.toggleAttribute('data-hud-hidden', !on);
+    };
+    set(this.speedCluster, this.shown('speed'));
+    set(this.muteChip, this.shown('mute'));
+    set(this.cmd, this.shown('radio'));
+    set(this.feed, this.shown('feed'));
+    set(this.captionBox.el, this.shown('feed'));
+    set(this.hint, this.shown('hint'));
+    set(this.orderBar, this.shown('orders'));
+    set(this.cluster, this.shown('card'));
+    set(this.clock, this.shown('clock'));
+    set(this.fire, this.shown('fire'));
+  }
+
+  /**
+   * GH-345: pin the Conduct invoice open under the strip, or close it. Public
+   * for tutorial beat 9, which opens it for the beat ("watch the invoice").
+   * A hidden Conduct field cannot be opened: the invoice belongs to it.
+   */
+  setInvoiceOpen(open: boolean): void {
+    this.invoiceOpen = open;
+    this.renderInvoice();
+  }
+
+  /** The running ledger: cause, first time, total. Null with nothing to show
+   *  (no invoice wired, or a clean fight), and the definition stands in. */
+  private invoiceHtml(): string | null {
+    const inv = this.deps.conductInvoice?.();
+    if (!inv || inv.lines.length === 0) return null;
+    const roe = this.deps.getMission()?.roe;
+    const head =
+      roe !== undefined
+        ? `<div class="rl-label">${
+            inv.floor !== undefined
+              ? t('conduct.invoice.head', { roe, floor: inv.floor })
+              : t('conduct.invoice.headNoFloor', { roe })
+          }</div>`
+        : '';
+    const rows = inv.lines
+      .map(
+        (l) =>
+          `<div class="rl-invoice__line"><span>${escapeHtml(l.count > 1 ? `${l.label} ×${l.count}` : l.label)}</span>` +
+          `<span class="rl-dim">${l.ticks.length > 0 ? invoiceClock(l.ticks[0]) : ''}</span>` +
+          `<b class="rl-bad-text">−${l.total}</b></div>`
+      )
+      .join('');
+    return head + rows;
+  }
+
+  private renderInvoice(): void {
+    const on = this.invoiceOpen && this.shown('conduct');
+    if (!on) {
+      this.invoice.style.display = 'none';
+      return;
+    }
+    this.invoice.innerHTML = this.invoiceHtml() ?? `<div class="rl-dim">${conductDefinition()}</div>`;
+    this.invoice.style.display = '';
+  }
+
   onTick(): void {
+    this.applyVisibility();
     this.updateBanner();
     // A full innerHTML rebuild at 20 Hz stalls the page exactly when combat
     // floods events. 4 Hz reads identically.
     if (this.tickN++ % 5 !== 0) return;
     this.renderStrip();
+    this.renderInvoice();
     // `renderStrip` innerHTML's `stripBody`/`stripInfo` wholesale; a strip
     // tip shown for the pre-rebuild node would otherwise freeze on stale
     // content (fix round 1, I1) with no event of its own to notice by.
@@ -991,6 +1096,9 @@ export class Hud {
    *  `structure.schema.json` pin to `^[a-z0-9_]+$` -- not every id is so
    *  constrained (a map zone's name is not), so this is a list, not a rule. */
   note(html: string, tone: Tone = 'live'): void {
+    // GH-345: a hidden feed is inert. A line written while it is hidden would
+    // otherwise surface, stale, the moment a beat reveals it.
+    if (!this.shown('feed')) return;
     const el = document.createElement('div');
     // textToneClass, not `rl-${tone}` by hand: a 'bad'-tone notice sits on
     // this same rl-plate, and `rl-bad`'s fill red reads 4.01:1 there.
@@ -1150,14 +1258,14 @@ export class Hud {
       rows.push(
         `<span class="rl-strip__name"${m.campaign ? ` title="${escapeHtml(m.campaign)}"` : ''}>${escapeHtml(m.name)}</span>`
       );
-      if (m.roe !== undefined) {
+      if (m.roe !== undefined && this.shown('conduct')) {
         rows.push(
           `<span data-tip="conduct" tabindex="0"><b class="rl-${roeTone(m.roe)}" data-roe>${m.roe}</b> <span class="rl-dim">${t('hud.strip.conduct')}</span></span>`
         );
       }
       const { primary, deadline, primaryOpen, secondaryOpen } = stripObjectives(m);
-      const hold = holdClock(m);
-      if (primary) {
+      const hold = this.shown('clock') ? holdClock(m) : null;
+      if (primary && this.shown('objective')) {
         // The clock is stamped inline ONLY when it belongs to this objective.
         // A hold running on a secondary while the strip shows a primary would
         // otherwise read as the primary's own timer.
@@ -1175,7 +1283,7 @@ export class Hud {
             `${objectiveGlyph(primary.status)} ${escapeHtml(primary.text)}${inline}</span>`
         );
       }
-      if (deadline) {
+      if (deadline && this.shown('objective') && this.shown('clock')) {
         // A failable primary's clock, running out while the strip shows a
         // different primary. Tel Marum II was lost on exactly this clock with
         // the hold ticked complete beside it (2026-09-06).
@@ -1197,7 +1305,7 @@ export class Hud {
       // (including the one primary already stamped inline above): "nothing
       // left open" -- every objective complete or failed -- is the one case
       // with no control at all, never a disabled one.
-      if (m.objectives.some((o) => o.status === 'active')) {
+      if (m.objectives.some((o) => o.status === 'active') && this.shown('objectives')) {
         // Fix round 1 (I3): `aria-expanded` mirrors `this.objectivesOpen`,
         // which `setObjectivesOpen` writes -- read back here on every 4 Hz
         // rebuild so the attribute tracks the tracker even though the button
@@ -1214,7 +1322,7 @@ export class Hud {
     }
 
     const info: string[] = [];
-    if (m?.logistics !== undefined) {
+    if (m?.logistics !== undefined && this.shown('logistics')) {
       const rate =
         m.logisticsRate !== undefined && m.logisticsRate > 0
           ? ` <span class="rl-dim">${t('hud.strip.rate', { n: m.logisticsRate })}</span>`
@@ -1232,7 +1340,7 @@ export class Hud {
           `<span class="rl-dim">${t('hud.strip.logistics.word')}</span>${rate}</span>`
       );
     }
-    if (m?.intel !== undefined) {
+    if (m?.intel !== undefined && this.shown('intel')) {
       info.push(
         `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} <b>${m.intel}</b> ` +
           `<span class="rl-dim">${t('hud.strip.intel.word')}</span></span>`
@@ -1240,7 +1348,9 @@ export class Hud {
     }
     // Suppression: shown only when there is some. A permanent "0 pinned" is
     // the kind of field a player learns to stop reading.
-    const { pinned, broken } = countSuppressed(this.deps.sim.state, this.deps.sim.entityCount);
+    const { pinned, broken } = this.shown('status')
+      ? countSuppressed(this.deps.sim.state, this.deps.sim.entityCount)
+      : { pinned: 0, broken: 0 };
     if (pinned > 0)
       info.push(
         // GH-262: the drawn mark where the retired dingbat stood, 1em of the
@@ -1345,7 +1455,7 @@ export class Hud {
   private stripTipHtml(key: string | undefined): string | null {
     switch (key) {
       case 'conduct':
-        return conductDefinition();
+        return this.invoiceHtml() ?? conductDefinition();
       case 'logistics':
         return t('hud.strip.logistics.tip', { rate: this.deps.getMission()?.logisticsRate ?? 0 });
       case 'intel':
@@ -1446,11 +1556,13 @@ export class Hud {
 
     const MAX_ROWS = 6;
     const rows: string[] = [];
+    const projections: HitProjection[] = [];
     let cannot = 0;
     let unidentified = 0;
     let holdingFire = 0;
     for (const s of sel) {
       const p = sim.projectHit(s, hoverId);
+      projections.push(p);
       if (p.kind === 'unidentified') {
         unidentified++;
         continue;
@@ -1466,7 +1578,8 @@ export class Hud {
       if (rows.length >= MAX_ROWS) continue;
       const name = sim.unitTypes[sim.state.typeIdx[s]].name;
       const chance = Math.round(fx.toNumber(p.pHit) * 100);
-      // Name only the factors actually degrading the shot, worst first.
+      // Name only the factors actually degrading the shot, worst first, as
+      // PENALTIES (GH-345 decision 5: "cover −86%", not the multiplier).
       // accuracy is the weapon's baseline, not a penalty the player can act on.
       const worst = worstPenalties([
         [t('hud.fire.factor.range'), fx.toNumber(p.factors.rangeFalloff)],
@@ -1482,17 +1595,35 @@ export class Hud {
       );
     }
 
+    // GH-345: one word for what this panel is saying (`fire-state.ts`), the
+    // same word the tutorial's hover lesson is gated on. It chooses the
+    // remedy line under the verdict; it never changes a number.
+    const state = fireState(projections);
+    const remedy = (key: string): string => `<div class="rl-fire__why">${t(key)}</div>`;
+
     const target = sim.unitTypes[sim.state.typeIdx[hoverId]].name;
     const head = `<div class="rl-label">${t('hud.fire.heading', { target: escapeHtml(target) })}</div>`;
     if (rows.length === 0 && unidentified > 0 && cannot === 0 && holdingFire === 0) {
-      return head + `<div class="rl-dim">${t('hud.fire.unidentifiedOnly')}</div>`;
+      return head + `<div class="rl-dim">${t('hud.fire.unidentifiedOnly')}</div>` + remedy('hud.fire.why.unidentified');
     }
     // Pinned or lying in ambush is a different fact from "cannot reach" —
     // the shot exists, the unit is choosing (or forced) not to take it.
     if (rows.length === 0 && holdingFire > 0 && cannot === 0 && unidentified === 0) {
       return head + `<div class="rl-dim">${t('hud.fire.holdingFireOnly')}</div>`;
     }
-    if (rows.length === 0) return head + `<div class="rl-dim">${t('hud.fire.noneCanEngage')}</div>`;
+    if (rows.length === 0) {
+      // Was a bare "no unit can engage", which did not say whether the answer
+      // was range or sight. The sim's `noSolution` does not either (a Stage 4
+      // reason would), so this names both and gives the one number the
+      // player can act on: how far the selection's longest weapon reaches,
+      // read from unit data.
+      const reach = this.longestReach(sel);
+      if (reach === null) return head + `<div class="rl-dim">${t('hud.fire.noneCanEngage')}</div>`;
+      return (
+        head +
+        `<div class="rl-dim">${t('hud.fire.outOfReach', { weapon: escapeHtml(reach.weapon), n: reach.tiles })}</div>`
+      );
+    }
 
     const extra = sel.length - rows.length - cannot - unidentified - holdingFire;
     const tail: string[] = [];
@@ -1501,7 +1632,24 @@ export class Hud {
     if (holdingFire > 0) tail.push(t('hud.fire.holdingFire', { n: holdingFire }));
     if (unidentified > 0) tail.push(t('hud.fire.unidentified', { n: unidentified }));
     const foot = tail.length > 0 ? `<div class="rl-dim">${tail.join(' · ')}</div>` : '';
-    return head + rows.join('') + foot;
+    const advice =
+      state === 'cover' ? remedy('hud.fire.why.cover') : state === 'moving' ? remedy('hud.fire.why.moving') : '';
+    return head + rows.join('') + foot + advice;
+  }
+
+  /** The longest weapon any selected unit carries, by its authored range in
+   *  whole tiles -- read from unit data, never from the sim's answer, which
+   *  does not say why it found no solution. Null when nobody is armed. */
+  private longestReach(sel: readonly number[]): { weapon: string; tiles: number } | null {
+    const sim = this.deps.sim;
+    let best: { weapon: string; tiles: number } | null = null;
+    for (const s of sel) {
+      for (const w of sim.unitTypes[sim.state.typeIdx[s]].weapons) {
+        const tiles = Math.round(fx.toNumber(w.range));
+        if (best === null || tiles > best.tiles) best = { weapon: w.id, tiles };
+      }
+    }
+    return best;
   }
 
   // ------------------------------------------------------------------

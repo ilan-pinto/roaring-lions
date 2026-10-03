@@ -726,6 +726,13 @@ export class Minimap {
    * is 5x the cost for a picture that reads identically, and the units on a
    * 4.375px-per-tile map move a fraction of a pixel between ticks.
    */
+  /** GH-345: on or off screen by the HUD disclosure set. Off is inert as well
+   *  as invisible: a `display: none` canvas takes no pointer events, so none
+   *  of its four gestures can land. */
+  setShown(on: boolean): void {
+    this.el.toggleAttribute('data-hud-hidden', !on);
+  }
+
   onTick(): void {
     if (this.tickN++ % 5 !== 0) return;
     this.draw(performance.now());
