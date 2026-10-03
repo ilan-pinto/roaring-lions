@@ -457,6 +457,7 @@
 
   "hud.hold.contested": "CONTESTED",
   "hud.hold.unheld": "NOBODY HOLDING",
+  "hud.hold.outside": "NOBODY INSIDE · {n, plural, one {# UNIT} other {# UNITS}} JUST OUTSIDE",
   "hud.conductDefinition": "Conduct: how cleanly you fight. Civilian harm, protected buildings and disproportionate fire all lower it. Under the mission floor, the mission is lost.",
   "hud.speaker.net": "NET",
   "hud.speaker.enemy": "ENEMY",

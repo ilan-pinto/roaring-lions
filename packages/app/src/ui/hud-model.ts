@@ -26,6 +26,9 @@ export interface ObjectiveView {
   status: string;
   ticksLeft?: number;
   paused?: 'contested' | 'unheld';
+  /** Your units just outside an UNHELD zone (`hold-outside.ts`). They do not
+   *  count, and the clock says so rather than a bare "nobody holding". */
+  outside?: number;
 }
 
 /** The objective types whose `seconds` is a deadline the mission is LOST on
@@ -92,7 +95,9 @@ export function holdClock(m: MissionView | null): HoldClock | null {
     timed.paused === 'contested'
       ? t('hud.hold.contested')
       : timed.paused === 'unheld'
-        ? t('hud.hold.unheld')
+        ? timed.outside !== undefined && timed.outside > 0
+          ? t('hud.hold.outside', { n: timed.outside })
+          : t('hud.hold.unheld')
         : '';
   return {
     id: timed.id,

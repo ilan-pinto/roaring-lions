@@ -6,6 +6,7 @@
 
 import { objectiveZonesFor } from './objective-zones';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
+import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
 import { lostRecordFor, predecessorOf } from './roster-lost';
@@ -2545,7 +2546,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const liveObjectives = () =>
     runtime
       ? withoutHiddenClocks(
-          withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt),
+          withOutsideCounts(
+            withEvacuationProgress(runtime.objectiveList, evacTargets, evacuatedSoFar, refugeAt),
+            map.zones,
+            (zone) => unitsJustOutside(sim.state, sim.entityCount, zone)
+          ),
           clockless
         )
       : [];
