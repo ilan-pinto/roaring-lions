@@ -277,6 +277,12 @@ export const BUILDING_MESHES: Readonly<Record<string, { readonly idle: string; r
   // mission.schema.json) and produces from -- the one building type that
   // reaches the map from mission JSON rather than from a map symbol.
   camp: { idle: 'buildings/camp.glb', wreck: 'buildings/camp_wreck.glb' },
+  // The A3.2 remainder (GH-185, 2026-10-03). `relay` is a map symbol (`y`,
+  // the two crest tiles on all three Umm Zeitoun maps); `pump_house` is the
+  // camp's shape again -- one mission's `structures[]`, no symbol authored
+  // on any map.
+  relay: { idle: 'buildings/relay.glb', wreck: 'buildings/relay_wreck.glb' },
+  pump_house: { idle: 'buildings/pump_house.glb', wreck: 'buildings/pump_house_wreck.glb' },
 };
 
 /** Decor: seven families, three variants each, keyed `<family>_<variant>` --

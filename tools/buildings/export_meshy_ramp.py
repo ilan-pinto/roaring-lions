@@ -79,11 +79,18 @@ OUT_WALL = os.path.join(OUT_DIR, "wall.glb")
 OUT_WALL_WRECK = os.path.join(OUT_DIR, "wall_wreck.glb")
 OUT_CAMP = os.path.join(OUT_DIR, "camp.glb")
 OUT_CAMP_WRECK = os.path.join(OUT_DIR, "camp_wreck.glb")
+# The A3.2 remainder (GH-185, 2026-10-03; `docs/art/a32-remainder-plan.md`).
+OUT_RELAY = os.path.join(OUT_DIR, "relay.glb")
+OUT_RELAY_WRECK = os.path.join(OUT_DIR, "relay_wreck.glb")
+OUT_PUMP_HOUSE = os.path.join(OUT_DIR, "pump_house.glb")
+OUT_PUMP_HOUSE_WRECK = os.path.join(OUT_DIR, "pump_house_wreck.glb")
 OUTPUTS = {
     "concrete": (OUT_CONCRETE, OUT_CONCRETE_WRECK),
     "shanty": (OUT_SHANTY, OUT_SHANTY_WRECK),
     "wall": (OUT_WALL, OUT_WALL_WRECK),
     "camp": (OUT_CAMP, OUT_CAMP_WRECK),
+    "relay": (OUT_RELAY, OUT_RELAY_WRECK),
+    "pump_house": (OUT_PUMP_HOUSE, OUT_PUMP_HOUSE_WRECK),
 }
 
 #: A face is an "opening" when its bake luminance is below this fraction of
@@ -120,6 +127,14 @@ class RampSpec:
     #: length ("half a metre thick" did not land); thinning it in Y alone
     #: leaves every course on the two long faces untouched.
     thin_y_m: float = None
+    #: A MEASURED yaw (0-3 quarter turns) that overrides the luminance choice,
+    #: for a bake the dark-opening rule cannot read: the relay's board-form
+    #: concrete is dark on every face, so its four candidates sit within 20%
+    #: of each other and the rule picked the door onto the hidden half. The
+    #: number comes from the probe's own geometry (the step block's extent,
+    #: the mast centroid), never from the thumbnail; the auto choice is still
+    #: printed beside it so the disagreement is on record.
+    yaw: int = None
 
 
 def _credit(what):
@@ -137,6 +152,37 @@ SPECS = {
                      size_axis="x", size_m=3.0, glass=False, face=False, thin_y_m=0.6),
     "camp": RampSpec("camp", _credit("Field camp (standing + destroyed)"),
                      size_axis="plan", size_m=7.5, glass=False, face=False),
+    # The relay hut (the two `y` tiles at (15,7)-(16,7) on all three Umm
+    # Zeitoun maps). Measured on the remesh (2026-10-03): the lattice mast SURVIVED
+    # (3,726 vertices above 0.8 of the height), the roof slab sits at 0.69 of
+    # the total, and the plan is square (0.870 x 0.868 source units against
+    # 1.873 tall). So the mast is the top third and the height is the honest
+    # axis: 10 m to the mast tip puts the parapet at 6.9 m and the plan at
+    # 4.65 m -- the numbers table's two storeys and 6 m body, on a 6 x 3 m
+    # footprint it overhangs by the camp's own quarter-tile. Scaling the PLAN
+    # to 6 m would have made it a 12.9 m tower. The yaw is measured, not
+    # read off the bake (`RampSpec.yaw`): the dark-opening rule scores the
+    # four candidates 0.73/0.72/0.89/0.91 and picks 270, which turns the door
+    # onto the hidden -X face. The door side is the one whose GROUND band
+    # sticks out past its mid band -- the step block: -Y reaches 0.433
+    # against 0.337 at mid height, the other three sides are flush within
+    # 0.015 -- and the mast centroid is (-0.277, -0.100), the -X/-Y corner.
+    # One quarter turn puts the door on +X and the mast on the +X/-Y corner,
+    # the camera's near corner, which is where the numbers table asked for it.
+    "relay": RampSpec("relay", _credit("Relay hut (standing + destroyed)"),
+                      size_axis="z", size_m=10.0, glass=True, face=True, yaw=1),
+    # The pump house is scaled on HEIGHT, the shanty's own lesson (a 9 m plan
+    # came back as a 6.9 m two-storey hut): 3.8 m is the single pitch's high
+    # side, and at the remesh's 0.678 height-to-plan ratio that is a 5.6 x
+    # 3.9 m plan inside the 2x2 tiles it replaces. The dark-opening rule
+    # reads this bake cleanly (0.154 on the camera half against 0.022
+    # hidden) and keeps yaw 0, with the door on -Y and the tank at the -X
+    # end -- the far end under this camera, behind the shed's roof line.
+    # Yaw 90 scores within 5% (0.147 / 0.030) and puts the door on +X and
+    # the tank on -Y, the near side, which is what the numbers table asked
+    # for ("never hidden behind the roof from the camera").
+    "pump_house": RampSpec("pump_house", _credit("Pump house (standing + destroyed)"),
+                           size_axis="z", size_m=3.8, glass=True, face=True, yaw=1),
 }
 
 
@@ -380,7 +426,14 @@ def export(unit_id, probe=False):
         best = max(s[1] - s[2] for s in scores)
         yaw = min(k for k, cam, hid in scores if cam - hid >= best - 0.03 * abs(best))
         print(f"[{unit_id}] chosen yaw {90 * yaw} deg (openings toward Blender +X / -Y)")
+    if spec.yaw is not None:
+        print(f"[{unit_id}] measured yaw {90 * spec.yaw} deg overrides the luminance choice "
+              f"({90 * yaw} deg) -- see this spec's own comment for the numbers")
+        yaw = spec.yaw
     if probe:
+        pmn, pmx = _bounds([ob])
+        print(f"[{unit_id}] raw extents x {pmx.x - pmn.x:.4f} y {pmx.y - pmn.y:.4f} z {pmx.z - pmn.z:.4f} "
+              f"(source units; ratio z/plan {(pmx.z - pmn.z) / max(pmx.x - pmn.x, pmx.y - pmn.y):.3f})")
         return None
 
     _bake([ob], Matrix.Rotation(math.radians(90.0 * yaw), 4, "Z"))

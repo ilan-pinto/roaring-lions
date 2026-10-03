@@ -117,6 +117,28 @@
       "per_tile": true,
       "low_profile": true,
       "standing_cover": 1
+    },
+    "relay": {
+      "id": "relay",
+      "name": "Relay Hut",
+      "symbol": "y",
+      "hp_per_tile": 700,
+      "garrison_slots": 2,
+      "rubble_cover": 2,
+      "height_px": 20,
+      "color": "limestone.4",
+      "roe_penalty": 3
+    },
+    "pump_house": {
+      "id": "pump_house",
+      "name": "Pump House",
+      "symbol": "p",
+      "hp_per_tile": 120,
+      "garrison_slots": 1,
+      "rubble_cover": 1,
+      "height_px": 11,
+      "color": "dust.1",
+      "roe_penalty": 2
     }
   }
 }

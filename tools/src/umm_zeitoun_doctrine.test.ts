@@ -74,7 +74,7 @@
 // hamlet's own street grid, the hill's own descending elevation profile), and
 // what was wrong was the sentence describing it, not the grid.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, units, type MapJson } from '@lions/data';
+import { applyTerrain, maps, parseMap, structures, units, type MapJson } from '@lions/data';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';
@@ -216,8 +216,17 @@ describe('the map the design specifies', () => {
       return acc;
     }, {});
     expect(map.structures).toHaveLength(10);
-    expect(byType).toEqual({ warehouse: 1, concrete: 2, shanty: 4, house: 3 });
-    const hpPerTile: Record<string, number> = { warehouse: 340, concrete: 700, shanty: 120, house: 260 };
+    // `relay` is the crest hut (A3.2 remainder, 2026-10-03): its own type and
+    // symbol so the Meshy hut draws, with `concrete`'s numbers to the digit so
+    // the raze and the playtest ladder do not move.
+    expect(byType).toEqual({ warehouse: 1, concrete: 1, relay: 1, shanty: 4, house: 3 });
+    const hpPerTile: Record<string, number> = {
+      warehouse: 340,
+      concrete: 700,
+      relay: 700,
+      shanty: 120,
+      house: 260,
+    };
     const totalHp = map.structures.reduce((acc, s) => acc + s.tiles.length * hpPerTile[s.type], 0);
     expect(totalHp).toBe(13_500);
   });
@@ -273,12 +282,21 @@ describe('zone contents match the design’s audit', () => {
     expect(hp).toBe(7_500);
   });
 
-  it('crest_top: two concrete tiles, one structure -- Adhal’s relay hut', () => {
+  it('crest_top: two relay tiles, one structure -- Adhal’s relay hut', () => {
     const tiles = tally(tilesOf('crest_top'));
-    expect(tiles['#']).toBe(2);
+    expect(tiles['y']).toBe(2);
+    expect(tiles['#']).toBeUndefined();
     const { map } = load(MAP);
-    const relay = map.structures.find((s) => s.type === 'concrete' && s.tiles.length === 2);
+    const relay = map.structures.find((s) => s.type === 'relay' && s.tiles.length === 2);
     expect(relay).toBeDefined();
+  });
+
+  it('the relay hut carries the concrete numbers it replaced, so the raze does not move', () => {
+    const relay = structures.relay as Record<string, unknown>;
+    const concrete = structures.concrete as Record<string, unknown>;
+    for (const key of ['hp_per_tile', 'garrison_slots', 'rubble_cover', 'roe_penalty', 'height_px', 'color']) {
+      expect(relay[key], key).toBe(concrete[key]);
+    }
   });
 
   it('hamlet: 14 house, 6 shanty, 5 road, 20 open -- the flagged zone', () => {

@@ -368,6 +368,17 @@ import {
   type BuildingMeshTemplate,
 } from './units/mesh-building';
 import { wallSurfaceForBuilding } from './units/building-mesh-role';
+import {
+  applyBuildingDamageBand,
+  buildingDamageBand,
+  BuildingScarMaterials,
+  isBurningBand,
+  STRUCTURE_BURN_INTERVAL_MS,
+  STRUCTURE_BURN_MAGNITUDE,
+  STRUCTURE_BURN_PLUME_MS,
+  WRECK_BURN_HEIGHT_FRACTION,
+  WRECK_BURN_SECONDS,
+} from './units/building-damage';
 import { TEXTURED_BUILDING_TYPES } from './units/textured-building';
 import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
@@ -1882,6 +1893,21 @@ export class ThreeRenderer implements Renderer {
    * ground tile boundary the sim already fixed at spawn).
    */
   private readonly buildingMeshSettling = new Map<number, { root: THREE.Object3D; t: number; baseScaleY: number }>();
+  /**
+   * Damage states (GH-31, A3.2 remainder; `units/building-damage.ts` is the
+   * whole table). `buildingScars` is the per-TYPE memo of scarred material
+   * clones; `buildingDamageBand` is the band each standing clone currently
+   * draws, keyed by structure index, so a `structureHit` that stays inside
+   * the band costs nothing and a frozen gate frame cannot drift;
+   * `buildingBurning` is every structure throwing `structure_burning` on
+   * the renderer's own timer -- `remainingMs` is `Infinity` while it stands
+   * and `WRECK_BURN_SECONDS` once it has fallen (the hand-off to the wreck,
+   * made in `updateBuildingMeshes`). All three are presentation: they read
+   * `hp`/`maxHp` and write nothing back (invariant 4).
+   */
+  private readonly buildingScars = new Map<string, BuildingScarMaterials>();
+  private readonly buildingDamageBand = new Map<number, number>();
+  private readonly buildingBurning = new Map<number, { accumMs: number; remainingMs: number }>();
 
   /**
    * Task B3.7: one `StructureInstancer` per structure TYPE with a loaded
@@ -2935,6 +2961,12 @@ export class ThreeRenderer implements Renderer {
     // dangling it would otherwise be a map full of stale `THREE.Object3D`
     // references after this method returns.
     this.buildingMeshSettling.clear();
+    // The scar clones before their templates: a clone shares its base's
+    // map by reference and must not outlive the template that owns it.
+    for (const scars of this.buildingScars.values()) scars.dispose();
+    this.buildingScars.clear();
+    this.buildingDamageBand.clear();
+    this.buildingBurning.clear();
     for (const template of this.buildingMeshIdleTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshIdleTemplates.clear();
     for (const template of this.buildingMeshWreckTemplates.values()) disposeBuildingMeshTemplate(template);
@@ -3162,6 +3194,7 @@ export class ThreeRenderer implements Renderer {
     this.stepCollapseShrouds(dtMs);
     this.updateBuildingMeshes();
     this.stepBuildingMeshSettle(this.frameDtSeconds(dtMs));
+    this.stepBuildingBurning(dtMs);
     this.stepCollapses(this.frameDtSeconds(dtMs));
     this.updateFx(dtMs);
     this.fireLinkClockS += this.frameDtSeconds(dtMs);
@@ -4176,6 +4209,10 @@ export class ThreeRenderer implements Renderer {
         // itself (`dirtyForStructureHit`) -- see this method's own doc
         // comment. Do not add a second filter here.
         this.applyStructureHit(e.structure);
+        // GH-31: the band material swap hangs off the same event -- a
+        // per-frame HP scan would recompute every building every frame for
+        // a change that only ever arrives through this event.
+        this.refreshBuildingDamage(e.structure);
         // Task B4.3, ported from `renderer.ts:858-878`. A blade throws dust
         // where it is cutting; a shell throws it off the roof -- `isGrindingHit`
         // is the shared, sim-only predicate that tells the two apart (see its
@@ -5473,7 +5510,11 @@ export class ThreeRenderer implements Renderer {
         if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
         this.scene.remove(root);
         this.buildingMeshIdleEntities.delete(s);
+        this.buildingDamageBand.delete(s);
       }
+      // The scar memo is keyed by the OLD template's materials.
+      this.buildingScars.get(structureId)?.dispose();
+      this.buildingScars.delete(structureId);
       disposeBuildingMeshTemplate(previousIdle);
     }
     this.buildingMeshIdleTemplates.set(structureId, idleTemplate);
@@ -7167,6 +7208,10 @@ export class ThreeRenderer implements Renderer {
           if (type.perTile) root.rotation.y = this.perTileYaw(s);
           this.buildingMeshIdleEntities.set(s, root);
           this.scene.add(root);
+          // A clone stood up already damaged (a type whose mesh landed after
+          // the first hit) draws its band from the first frame, not from
+          // the next `structureHit`.
+          this.refreshBuildingDamage(s);
         }
         // A structure that somehow re-gains `alive` after being wrecked is
         // not a real case today (structures never heal), but tearing down a
@@ -7204,6 +7249,11 @@ export class ThreeRenderer implements Renderer {
       if (idleEntity) {
         this.scene.remove(idleEntity);
         this.buildingMeshIdleEntities.delete(s);
+        this.buildingDamageBand.delete(s);
+        // The hand-off: a building that died BURNING keeps its fire on the
+        // wreck for `WRECK_BURN_SECONDS`; one killed clean never lit.
+        const burn = this.buildingBurning.get(s);
+        if (burn && burn.remainingMs === Infinity) burn.remainingMs = WRECK_BURN_SECONDS * 1000;
       }
       const wreckTemplate = this.buildingMeshWreckTemplates.get(type.id);
       if (wreckTemplate && !this.buildingMeshWreckEntities.has(s)) {
@@ -7238,6 +7288,111 @@ export class ThreeRenderer implements Renderer {
       const result = buildingSettleScale(entry.t);
       entry.root.scale.y = entry.baseScaleY * result.scaleFactor;
       if (result.done) this.buildingMeshSettling.delete(s);
+    }
+  }
+
+  /**
+   * GH-31 (A3.2 remainder): re-derives a STANDING mesh building's damage
+   * band from `hp`/`maxHp` and, if it moved, swaps every mesh of its clone
+   * to the memoised scarred material for that band (`units/building-damage.ts`)
+   * and starts or stops its fire. Called on every `structureHit` and once
+   * when a clone is stood up; a band that did not move returns before it
+   * touches a material, which is what keeps a rifle plinking a wall from
+   * costing anything per round. A structure with no clone (a type with no
+   * mesh, or one not yet instantiated) is the billboard path's concern.
+   */
+  private refreshBuildingDamage(s: number): void {
+    const root = this.buildingMeshIdleEntities.get(s);
+    if (!root) return;
+    const st = this.sim.structures;
+    if (st.alive[s] !== 1) return;
+    const band = buildingDamageBand(st.hp[s], st.maxHp[s]);
+    if (this.buildingDamageBand.get(s) === band) return;
+    this.buildingDamageBand.set(s, band);
+    const typeId = this.sim.structureTypes[st.typeIdx[s]].id;
+    let scars = this.buildingScars.get(typeId);
+    if (!scars) {
+      scars = new BuildingScarMaterials();
+      this.buildingScars.set(typeId, scars);
+    }
+    applyBuildingDamageBand(root, band, scars);
+    if (isBurningBand(band)) {
+      // Primed to fire on the next step rather than an interval later: the
+      // band change is the moment the player is looking.
+      if (!this.buildingBurning.has(s)) {
+        this.buildingBurning.set(s, { accumMs: STRUCTURE_BURN_INTERVAL_MS, remainingMs: Infinity });
+      }
+    } else {
+      this.buildingBurning.delete(s);
+    }
+  }
+
+  /**
+   * The renderer's own timer for `structure_burning` -- the same shape as
+   * `updateVehicleAmbientFx`'s exhaust, including the ceiling: elapsed time
+   * goes through `frameDtMs`, so a long frame cannot bank spawns that later
+   * zero-time repaints would spend (the drift that made the visual gate's
+   * `vehicle` repaint control move until `c0044ff6`). At most one spawn per
+   * structure per frame, whatever the backlog.
+   */
+  private stepBuildingBurning(dtMs: number): void {
+    if (this.buildingBurning.size === 0) return;
+    const dt = this.frameDtMs(dtMs);
+    for (const [s, burn] of this.buildingBurning) {
+      if (burn.remainingMs !== Infinity) {
+        burn.remainingMs -= dt;
+        if (burn.remainingMs <= 0) {
+          this.buildingBurning.delete(s);
+          continue;
+        }
+      }
+      burn.accumMs += dt;
+      if (dt <= 0 || burn.accumMs < STRUCTURE_BURN_INTERVAL_MS) continue;
+      burn.accumMs %= STRUCTURE_BURN_INTERVAL_MS;
+      this.spawnBurningFx(s, burn.remainingMs === Infinity);
+    }
+  }
+
+  /**
+   * One beat of a burning building: the emitter's `mesh_plume` layer goes
+   * to the pooled smoke-plume mesh at the ROOF -- the standing template's
+   * own measured height (`buildingMeshBounds`, the way the collapse shroud
+   * is sized), a fraction of it once the building is down -- because
+   * `ParticleSystem` has no height and a puff laid at the roof would drop
+   * to the ground (the missile trail's own finding). The flame layers go
+   * through the particle system at the footprint, scattered over it by the
+   * presentation hash so a 3x3 hall burns across its plan rather than at
+   * one point. Spread with the footprint, like the collapse burst.
+   */
+  private spawnBurningFx(s: number, standing: boolean): void {
+    if (!this.particleSystem) return;
+    const em = this.emitterLibrary.byName('structure_burning');
+    if (!em) return;
+    const st = this.sim.structures;
+    const type = this.sim.structureTypes[st.typeIdx[s]];
+    const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
+    const groundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, cx, cy);
+    const bounds = this.buildingMeshBounds.get(type.id);
+    const roof = bounds ? bounds.y : type.heightPx * WORLD_Y_PER_LIFT_PIXEL;
+    const roofY = groundY + roof * (standing ? 1 : WRECK_BURN_HEIGHT_FRACTION);
+    const power = explosionBurstPowerFromFootprint(st.minX[s], st.minY[s], st.maxX[s], st.maxY[s]);
+    const tick = this.sim.tickCount;
+    const yawTurns = tileHash(s, tick);
+    const prio = em.budget_priority ?? 1;
+    const spreadX = (st.maxX[s] - st.minX[s] + 1) * 0.6;
+    const spreadY = (st.maxY[s] - st.minY[s] + 1) * 0.6;
+    for (const layer of em.particles) {
+      if (layer.mesh_plume && this.smokePlumes.ready) {
+        this.smokePlumes.spawn(cx, roofY, cy, yawTurns, 0.35 + 0.4 * power, STRUCTURE_BURN_PLUME_MS);
+        continue;
+      }
+      const fxLayer = fxLayerIndex(em.layer, layer.additive ?? false);
+      const jx = (tileHash(s, tick + 1) - 0.5) * spreadX;
+      const jy = (tileHash(tick + 2, s) - 0.5) * spreadY;
+      // A small magnitude: the flame layer is embers rising off the plan,
+      // not a burst -- at 0.5 the first capture read as one flat orange disc
+      // the size of a window at zoom 2.5.
+      this.particleSystem.spawn(layer, cx + jx, cy + jy, 0.25, STRUCTURE_BURN_MAGNITUDE, prio, fxLayer);
     }
   }
 

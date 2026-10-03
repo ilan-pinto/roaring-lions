@@ -1625,6 +1625,21 @@ export class Sim {
     if (this.stAlive[id] === 1) this.destroyStructure(id, -1);
   }
 
+  /** Dev/test hook: grind a living building DOWN to `eighths`/8 of its max
+   *  HP (0..8, integer -- the renderer's own `structureHpBand`) through the
+   *  same path a hit takes, so a `structureHit` event reaches the renderer
+   *  and `damageStructure`'s own zero check levels it at 0. Never heals: a
+   *  building already below the band is left alone. Exists for the
+   *  damage-state capture sheet (GH-31, A3.2 remainder); nothing in a
+   *  mission calls it, so no replay can see it. */
+  debugDamageStructure(id: number, eighths: number): void {
+    if (this.stAlive[id] !== 1) return;
+    const band = eighths < 0 ? 0 : eighths > 8 ? 8 : eighths | 0;
+    const target = fx.mul(this.stMaxHp[id], fx.div(fx.fromInt(band), fx.fromInt(8)));
+    const damage = fx.sub(this.stHp[id], target);
+    if (damage > 0) this.damageStructure(id, damage, -1);
+  }
+
   /** Bring a route down without a charge. Tests and the sandbox only.
    *  destroy(i, -1) is the killed-by-nobody convention, and splashDirect
    *  takes -1 for an unattributed source. */

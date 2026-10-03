@@ -222,6 +222,19 @@ DECIMATE_RATIO = 0.01
 #: per face. Getting lighter means DELETING islands below a face count at
 #: export -- an art decision about how much rubble the wreck keeps, the
 #: lead's call -- so the shared ratio stays and the wreck ships as measured.
+#:
+#: 2026-10-03 (A3.2 remainder, the lead's decision 4b: "cut debris islands
+#: to the 20,000-tri cap"): MEASURED, and there is nothing to cut. The
+#: destroyed source is ONE loose part -- `bpy.ops.mesh.separate(type=
+#: 'LOOSE')` on the raw 1,922,562-face mesh yields a single object, and an
+#: edge-connected walk over the decimated 47,861 faces finds one island.
+#: Nor is the floor the bake's UV seams: with the UV layer deleted the same
+#: ratio lands on the same 15,574 verts / 47,861 polys. The "thousands of
+#: small debris islands" above was a reading of the GLB's per-face vertex
+#: split, not of the mesh. So the wreck ships as measured (47,860 tris over
+#: 88,389 vertex entries, 3.96 MB raw, 945 KB Draco); the next lever is a different
+#: decimation (planar-then-collapse was already tried) or a re-export at a
+#: lower source density, neither of which is one Blender run.
 WRECK_DECIMATE_RATIO = DECIMATE_RATIO
 
 #: Upward-facing threshold (normal.z). See docstring ROLE SPLIT.
