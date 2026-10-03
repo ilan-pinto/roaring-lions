@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { DECAL_POLYGON_OFFSET_FACTOR, DECAL_POLYGON_OFFSET_UNITS, glslFloat, writeDecalGrid, writeDecalOffsets } from '../decal-pool';
 import { MARK_EPSILON } from '../terrain/shared';
 import { TILE_H, TILE_W } from '../../project';
-import { SELECTION_RING } from './readability';
+import { SELECTION_RING, TEAM_RING } from './readability';
 import { SELECTION_RING_RENDER_ORDER } from './render-order';
 import { tileRadiusToEllipsePx } from './overlays';
 import {
@@ -18,6 +18,7 @@ import {
   RING_GRID,
   RING_GRID_LARGE,
   RING_GRID_XL,
+  RING_GRID_XXL,
   RING_LARGE_TILES,
   RING_SAG_STEPS,
   ringGridFor,
@@ -43,6 +44,9 @@ const attr = (b: SelectionRingBatch, name: string): THREE.BufferAttribute =>
 const hill = (x: number, z: number): number => 0.3 * x - 0.1 * z + 0.05 * x * z;
 const LARGE_VERTS = RING_GRID_LARGE * RING_GRID_LARGE;
 const XL_VERTS = RING_GRID_XL * RING_GRID_XL;
+/** A large SLOT is sized for the biggest tier, 9x9 since GH-346. */
+const SLOT_VERTS = RING_GRID_XXL * RING_GRID_XXL;
+const SLOT_IDX = (RING_GRID_XXL - 1) * (RING_GRID_XXL - 1) * 2 * 3;
 /** The `k`-th small (or large) ring written this frame, read back from
  *  `name`: its first `verts` vertices (a 6x6 ring by default for 'large'). */
 const ringOf = (b: SelectionRingBatch, name: string, k: number, kind: 'small' | 'large' = 'small', verts?: number): number[] => {
@@ -255,7 +259,7 @@ describe('SelectionRingBatch frame lifecycle', () => {
     b.push(ring({ radiusTiles: 0.9 }), hill); // 6x6: a circle over RING_LARGE_TILES
     b.endFrame(1);
     const smallIdx = 18 * 3;
-    const largeSlotIdx = 72 * 3; // a large slot is sized for 7x7
+    const largeSlotIdx = SLOT_IDX; // a large slot is sized for 9x9
     const dr = b.mesh.geometry.drawRange;
     expect(dr.count).toBe(2 * smallIdx + 2 * largeSlotIdx);
     // The indices in range reference exactly the four rings' vertices, and nothing else.
@@ -270,7 +274,7 @@ describe('SelectionRingBatch frame lifecycle', () => {
     expect(used).toEqual(expected);
     // The upload range covers the same vertices, as one run.
     expect(attr(b, 'position').updateRanges).toEqual([
-      { start: b.firstVertexOf('large', 1) * 3, count: (2 * XL_VERTS + 2 * VERTS) * 3 },
+      { start: b.firstVertexOf('large', 1) * 3, count: (2 * SLOT_VERTS + 2 * VERTS) * 3 },
     ]);
     // And every vertex drawn carries the axes of the ring it belongs to.
     expect(ringOf(b, 'aAxes', 1, 'large').slice(0, 2).map((v) => +v.toFixed(6))).toEqual([0.9, 0.9]);
@@ -283,7 +287,7 @@ describe('SelectionRingBatch frame lifecycle', () => {
       const a = b.mesh.geometry.getIndex();
       const out: number[] = [];
       // The first large slot written is the LAST large slot: capacity - 1.
-      for (let k = 72 * 3; k < 2 * 72 * 3; k++) out.push(a?.getX(k) ?? -1);
+      for (let k = SLOT_IDX; k < 2 * SLOT_IDX; k++) out.push(a?.getX(k) ?? -1);
       return out;
     };
     const base = b.firstVertexOf('large', 0);
@@ -293,7 +297,7 @@ describe('SelectionRingBatch frame lifecycle', () => {
       return Array.from(o);
     };
     const off = (n: number): number[] => ringOf(b, 'aOffset', 0, 'large', n * n);
-    for (const [r, n] of [[1.2, 6], [1.5, 7], [1.2, 6]] as const) {
+    for (const [r, n] of [[1.2, 6], [1.5, 7], [1.6, 9], [1.2, 6]] as const) {
       b.beginFrame();
       b.push(ring({ radiusTiles: r }), hill);
       b.endFrame(1);
@@ -326,11 +330,14 @@ describe('SelectionRingBatch frame lifecycle', () => {
     expect(ringGridFor(RING_LARGE_TILES, RING_LARGE_TILES)).toBe(RING_GRID);
     expect(ringGridFor(0.9, 0.9)).toBe(RING_GRID_LARGE);
     expect(ringGridFor(1.07, 0.65)).toBe(RING_GRID_LARGE);
-    expect(ringGridFor(1.28, 1)).toBe(RING_GRID_LARGE);
-    expect(ringGridFor(1.29, 1)).toBe(RING_GRID_XL);
+    expect(ringGridFor(1.23, 1)).toBe(RING_GRID_LARGE);
+    expect(ringGridFor(1.24, 1)).toBe(RING_GRID_XL);
     expect(ringGridFor(0.72, 0.72)).toBe(RING_GRID);
     expect(ringGridFor(0.73, 0.73)).toBe(RING_GRID_LARGE);
-    expect(ringGridFor(1.61, 1.03)).toBe(RING_GRID_XL);
+    expect(ringGridFor(1.5, 1.03)).toBe(RING_GRID_XL);
+    // GH-346: a selected Namer (1.61 x 1.25 = 2.01) and the 1x Namer alike.
+    expect(ringGridFor(1.51, 1.03)).toBe(RING_GRID_XXL);
+    expect(ringGridFor(1.61, 1.03)).toBe(RING_GRID_XXL);
   });
 
   it('rejects a capacity that could not hold a ring', () => {
@@ -443,7 +450,7 @@ describe('the pixel floor', () => {
     expect(ringPxPerTile(0.35)).toBeCloseTo(0.35 * ringPxPerTile(1), 9);
   });
 
-  it('the thickness is 0.06 tiles when that is thick enough, and holds 1.5 px at the 0.35 zoom clamp', () => {
+  it('the thickness is thicknessTiles when that is thick enough, and holds the px floor at the 0.35 zoom clamp', () => {
     expect(ringThicknessTiles(ringPxPerTile(2.5))).toBe(SELECTION_RING.thicknessTiles);
     expect(ringThicknessTiles(ringPxPerTile(0.35)) * ringPxPerTile(0.35)).toBeCloseTo(SELECTION_RING.minThicknessPx, 9);
   });
@@ -493,6 +500,16 @@ describe('createSelectionRingMaterial', () => {
     }
     expect(m.fragmentShader).toContain(`max(${glslFloat(SELECTION_RING.thicknessTiles)}, ${glslFloat(SELECTION_RING.minThicknessPx)} / uPxPerTile)`);
     expect(src).not.toMatch(/#[0-9a-fA-F]{3,8}\b|0x[0-9a-fA-F]+/);
+  });
+
+  it('a TEAM_RING style bakes its own thickness, floor and alphas, not the selected ring ones (GH-346)', () => {
+    const m = createSelectionRingMaterial(SHADOW, TEAM_RING);
+    expect(m.fragmentShader).toContain(`max(${glslFloat(TEAM_RING.thicknessTiles)}, ${glslFloat(TEAM_RING.minThicknessPx)} / uPxPerTile)`);
+    expect(m.fragmentShader).toContain(`core * ${glslFloat(TEAM_RING.coreAlpha)}`);
+    expect(m.fragmentShader).toContain(`halo * ${glslFloat(TEAM_RING.haloAlpha)}`);
+    // The team ring must stay quieter than a selection, or it reads as one.
+    expect(TEAM_RING.coreAlpha).toBeLessThan(SELECTION_RING.coreAlpha);
+    expect(TEAM_RING.minThicknessPx).toBeLessThan(SELECTION_RING.minThicknessPx);
   });
 });
 

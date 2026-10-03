@@ -17,6 +17,10 @@ import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import { cachedHexToLinear, type OverlayBatch } from './units/overlays';
 import { ELLIPSE_BY_TYPE, ringClassOf, SELECTION_RING } from './units/readability';
+
+/** GH-346's approved selected-ring scale, as a LITERAL: an oracle that read
+ *  `SELECTED_RING_SCALE` would agree with any value it was given. */
+const SELECTED = 1.25;
 import { SelectionRingBatch, type RingPlacement } from './units/selection-ring';
 
 vi.mock('three', async (importOriginal) => {
@@ -83,6 +87,8 @@ const LAVI: UnitTypeJson = {
 interface Priv {
   overlayBatch: OverlayBatch;
   selectionRing: SelectionRingBatch;
+  teamRing: SelectionRingBatch;
+  isVisible(x: number, y: number): boolean;
   selectionRingGroup: THREE.Group;
   updateOverlays(alpha: number): void;
   refreshSurface(): void;
@@ -134,7 +140,7 @@ describe('selection ring wiring (GH-186)', () => {
     expect(w.pushed).toHaveLength(1);
     const p = w.pushed[0];
     const type = w.sim.unitTypes[w.rifles];
-    expect(p.radiusTiles).toBe(SELECTION_RING.radiusTiles[ringClassOf(type)]);
+    expect(p.radiusTiles).toBe(SELECTION_RING.radiusTiles[ringClassOf(type)] * SELECTED);
     expect(p.color).toEqual(cachedHexToLinear(TEAM[0]));
     // Not the group colour, nor the accent a group-less unit's old ring fell
     // back to (with no resolver that is '#B8FF5A', which is GROUP[0] here).
@@ -153,8 +159,8 @@ describe('selection ring wiring (GH-186)', () => {
     w.draw();
     expect(w.pushed).toHaveLength(1);
     const p = w.pushed[0];
-    expect(p.alongTiles).toBe(ELLIPSE_BY_TYPE.mbt_lavi.along);
-    expect(p.acrossTiles).toBe(ELLIPSE_BY_TYPE.mbt_lavi.across);
+    expect(p.alongTiles).toBe(ELLIPSE_BY_TYPE.mbt_lavi.along * SELECTED);
+    expect(p.acrossTiles).toBe(ELLIPSE_BY_TYPE.mbt_lavi.across * SELECTED);
     expect(p.headingRad).toBeCloseTo(0.25 * 2 * Math.PI, 6);
     // Fix round 1: centred on the HULL, `offsetAlong` along the heading
     // (the Lavi's hull box sits 0.18 tile behind its origin). Facing 0.25 turns
@@ -242,5 +248,56 @@ describe('selection ring wiring (GH-186)', () => {
     const inv = vi.spyOn(w.priv.selectionRing, 'invalidate');
     w.priv.refreshSurface();
     expect(inv).toHaveBeenCalled();
+  });
+});
+
+describe('team ring and contact marks (GH-346)', () => {
+  it('every UNSELECTED unit on open ground gets a 1x team ring; the selected one and the garrisoned one do not', () => {
+    const w = setUp();
+    const pushed: RingPlacement[] = [];
+    const keys: number[] = [];
+    const team = w.priv.teamRing;
+    const real = team.push.bind(team);
+    vi.spyOn(team, 'push').mockImplementation((p, sampleY, key) => {
+      pushed.push({ ...p });
+      keys.push(key ?? -1);
+      return real(p, sampleY, key);
+    });
+    w.renderer.selection = [w.a];
+    w.draw();
+    expect(keys).toEqual([w.b, w.tank]);
+    const type = w.sim.unitTypes[w.rifles];
+    expect(pushed[0].radiusTiles).toBe(SELECTION_RING.radiusTiles[ringClassOf(type)]);
+    expect(pushed[0].color).toEqual(cachedHexToLinear(TEAM[0]));
+    expect(pushed[1].alongTiles).toBe(ELLIPSE_BY_TYPE.mbt_lavi.along);
+    expect(team.mesh.visible).toBe(true);
+    expect(team.mesh.parent).toBe(w.priv.selectionRingGroup);
+  });
+
+  it('an observed hostile wears a contact mark in the hostile team colour: hollow while suspected, a chevron once identified', () => {
+    const w = setUp();
+    const foe = w.sim.spawn(w.rifles, 1, fx.from(4.5), fx.from(14.5));
+    const civ = w.sim.spawn(w.rifles, 2, fx.from(8.5), fx.from(14.5));
+    w.renderer.snapshot();
+    w.renderer.snapshot();
+    w.priv.isVisible = () => true;
+    const tri = vi.spyOn(w.priv.overlayBatch, 'triangle');
+    const hostileFills = (): number => tri.mock.calls.filter((c) => c[2] === TEAM[1]).length;
+    w.draw();
+    // Suspected (contact level 0): the hollow diamond, eight triangles.
+    expect(w.sim.contactLevel(0, foe)).toBe(0);
+    expect(hostileFills()).toBe(8);
+    // Nothing in the player's or the neutral colour: only side 1 is marked.
+    expect(tri.mock.calls.some((c) => c[2] === TEAM[0] || c[2] === TEAM[2])).toBe(false);
+    expect(civ).toBeGreaterThan(foe);
+    tri.mockClear();
+    w.sim.identifyTo(0, foe);
+    w.draw();
+    expect(hostileFills()).toBe(1);
+    // Unobserved: no mark at all.
+    tri.mockClear();
+    w.priv.isVisible = () => false;
+    w.draw();
+    expect(hostileFills()).toBe(0);
   });
 });

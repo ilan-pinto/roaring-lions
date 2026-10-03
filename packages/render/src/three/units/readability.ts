@@ -31,17 +31,25 @@ export function ringClassOf(t: { isAir: boolean; wheeled: boolean; isSoft: boole
  */
 export const RING_CLASS_OVERRIDE: Readonly<Record<string, RingClass>> = { dozer_d9: 'light' };
 
+/**
+ * GH-346 (the lead, 2 Oct: "bigrings" ships) made the selected ring bigger
+ * and bolder: `thicknessTiles` 0.06 -> 0.10, `minThicknessPx` 1.5 -> 2.5,
+ * `coreAlpha` 0.9 -> 0.95, `haloAlpha` 0.35 -> 0.5, and the drawn radius x
+ * `SELECTED_RING_SCALE`. `radiusTiles` and the generated tables below are
+ * still the TYPE's own footprint ring -- the team ring draws at exactly that.
+ * Measurements: docs/superpowers/specs/2026-10-02-readability-design.md.
+ */
 export const SELECTION_RING = {
   radiusTiles: { foot: 0.45, light: 0.55, armour: 0.7, air: 0.35 },
-  thicknessTiles: 0.06,
+  thicknessTiles: 0.1,
   /** Screen-pixel floor on the thickness (holds at the 0.35 zoom clamp). */
-  minThicknessPx: 1.5,
+  minThicknessPx: 2.5,
   featherTiles: 0.015,
-  coreAlpha: 0.9,
+  coreAlpha: 0.95,
   /** Outside the core only. */
   haloTiles: 0.03,
   /** 0 means off (Q4). */
-  haloAlpha: 0.35,
+  haloAlpha: 0.5,
   capacity: 256,
 } as const satisfies {
   radiusTiles: Readonly<Record<RingClass, number>>;
@@ -53,6 +61,25 @@ export const SELECTION_RING = {
   haloAlpha: number;
   capacity: number;
 };
+
+/** The selected ring's radius and ellipse axes are the type's own x this
+ *  (GH-346): a foot ring 40.7 -> 50.9 px wide at zoom 1. */
+export const SELECTED_RING_SCALE = 1.25;
+
+/**
+ * GH-346: the faint TEAM ring under every unselected unit on open ground --
+ * the same radius or ellipse its selection ring has at 1x, in team colour,
+ * quieter than a selection. Its own `SelectionRingBatch` (+1 draw call while
+ * any unit is in view). Capacity covers the GDD's 300 units with margin; a
+ * unit past it simply draws no team ring.
+ */
+export const TEAM_RING = {
+  thicknessTiles: 0.05,
+  minThicknessPx: 1.5,
+  coreAlpha: 0.55,
+  haloAlpha: 0.3,
+  capacity: 512,
+} as const;
 
 /** `frameAlpha` 1.0, not the 0.8 G-NUM approved: at 0.8 the frame read only
  *  as a slightly darker edge on the mock, at 1.0 as a clear outline (G-MOCK,
@@ -171,7 +198,13 @@ export const RING_LARGE_TILES = 0.72;
  * Lavi (1.17) and the Grad (1.25) stay on 6 x 6, where they bury nothing.
  */
 export const RING_GRID_XL = 7;
-export const RING_XL_TILES = 1.28;
+/** 1.28 until GH-346, which thickened the selected ring's band (0.066 ->
+ *  0.11 tile at zoom 1). The sweep measures burial across the whole band, so
+ *  a thicker band reaches further inside the grid: on 6 x 6 a 1.27-tile
+ *  circle then buried 0.0214 wu and 1.25 0.0203 on tel_marum. Lowered until
+ *  the boundary sweep passes: 1.23 on 6 x 6 reads 0.0183 / 0.0053, and 1.22
+ *  on 7 x 7 buries nothing. */
+export const RING_XL_TILES = 1.23;
 /*
  * The two thresholds were 0.75 and 1.4 until fix round 3, which swept rings
  * AT each boundary and one 0.01 step either side, at eight headings and
@@ -179,12 +212,28 @@ export const RING_XL_TILES = 1.28;
  * (`tools/src/ring_burial.test.ts`, "the tier boundaries"): a 0.75 ring on
  * 4 x 4 buried 0.024 wu on tel_marum and a 1.4 ring on 6 x 6 0.038 -- past the
  * 0.02 limit, so a future type landing just under either boundary could
- * bury. Lowered until the sweep passes: 0.72 on 4 x 4 reads 0.0194 and 1.28 on
+ * bury. Lowered until the sweep passes (1.28 has since become 1.23, above): 0.72 on 4 x 4 reads 0.0194 and 1.28 on
  * 6 x 6 0.0185 (9-offset whole-map sweep). No shipped type changed grid: the
  * largest foot ring is 0.58, the Peten 0.9, the Grad 1.25, and the four XL
  * ellipses start at 1.47.
  */
 export const RING_SAG_STEPS = 2;
+
+/**
+ * GH-346: a fourth tier, for the SELECTED ring at `SELECTED_RING_SCALE`.
+ * x1.25 takes the Namer's ellipse to 2.01 x 1.31 tiles, and on 7 x 7 the
+ * sweep (`tools/src/ring_burial_selected.test.ts`) buried it 0.032 wu on
+ * tel_marum, the D9 0.023 and the Kipod 0.023 -- past the 0.02 limit. Probed
+ * worst case, a CIRCLE at every heading over both relief maps' steep tiles:
+ * on 7 x 7 a 1.5-tile circle buries 0.0098 / 0.0100 and 1.6 buries 0.019 /
+ * 0.030; on 9 x 9 nothing up to 1.8 buries at all and 2.0 buries 0.018 /
+ * 0.029. So a ring over 1.5 tiles is conformed on 9 x 9. No shipped CIRCLE
+ * reaches 1.5 even selected (the Peten's 0.9 x 1.25 = 1.125); a future type
+ * whose selected circle passed ~1.9 would bury on 9 x 9 and the selected
+ * sweep would say so.
+ */
+export const RING_GRID_XXL = 9;
+export const RING_XXL_TILES = 1.5;
 
 /**
  * The ring's per-slot position cache (fix round 1, the lead's "Cache +
