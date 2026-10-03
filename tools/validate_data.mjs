@@ -221,6 +221,17 @@ const structureCatalogue = loadJson(join(ROOT, 'data/structures.json'));
 const structureSymbols = new Map(
   Object.entries(structureCatalogue?.types ?? {}).map(([id, spec]) => [spec.symbol, id])
 );
+// The symbols a garrison stance may point at: every catalogue type with a
+// slot, read from the catalogue rather than retyped. This was the literal
+// '#hawsm' until 2026-10-03 (A3.2 remainder), which silently excluded the
+// clinic and the camp and would have rejected the relay hut's `y` on the day
+// it was added -- the same drift the symbol check below was refactored to
+// prevent.
+const garrisonableSymbols = new Set(
+  Object.values(structureCatalogue?.types ?? {})
+    .filter((spec) => (spec.garrison_slots ?? 0) > 0)
+    .map((spec) => spec.symbol)
+);
 
 // --- mission cross-checks ----------------------------------------------------
 // A mission's map.file must be a real map, and its markers/zones/units must
@@ -519,7 +530,7 @@ const structureSymbols = new Map(
       if (p.stance?.kind === 'garrison') {
         const b = p.stance.building;
         let sym = b && map.rows?.[Math.floor(b[1])]?.[Math.floor(b[0])];
-        if ((!sym || !'#hawsm'.includes(sym)) && b) {
+        if ((!sym || !garrisonableSymbols.has(sym)) && b) {
           const [bx, by] = b;
           const placed = (mi.structures ?? []).find((s) => {
             if (!s?.type || !Array.isArray(s.at)) return false;
@@ -530,7 +541,7 @@ const structureSymbols = new Map(
           const placedSym = placed && structureCatalogue.types[placed.type]?.symbol;
           if (placedSym) sym = placedSym;
         }
-        if (!sym || !'#hawsm'.includes(sym)) {
+        if (!sym || !garrisonableSymbols.has(sym)) {
           failures.push(
             `${rel(file)}: ${p.unit} garrison stance points at (${b?.join(',')}) which is not a building`
           );

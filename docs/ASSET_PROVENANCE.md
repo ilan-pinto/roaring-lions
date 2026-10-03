@@ -1022,6 +1022,113 @@ reading the GLB's JSON chunk, not by the export succeeding; and a 1.35 m whip
 put `officer_fires` under the gate's 6% fill floor (5.2%), because the gate
 frames each unit to its own bounds — 0.85 m clears it at 9.1%.
 
+## The A3.2 remainder — the relay hut, the pump house, damage states, the hall wreck and the licensing pass (GH-185, GH-31, GH-157), 2026-10-03
+
+The plan is PR #353 (`docs/art/a32-remainder-plan.md`), approved by the lead on
+3 Oct with its recommended defaults: a map symbol for the relay (decision 1A),
+both prompts as written (2), the material route for damage states first (3A),
+the island cut for the hall wreck (4b), the Meshy tier left as the lead's word
+(5). **80 credits planned, 80 consumed, cap 160, no re-roll** — `pnpm meshy --
+spent` 1,605 → 1,685 as Meshy reports it. Both buildings are **AI-generated
+with Meshy** (text-to-3D preview, 8k refine, remesh at 8,000), disclosed per
+`CONTRIBUTING.md`; every prompt is in the committed `art/meshy/ledger.jsonl`.
+The remesh `model.glb`, `task.json` and thumbnail are committed as the ramp
+set's were; the preview and 8k refine folders (6 MB and ~200 MB each) are not,
+and their task ids below are the record.
+
+| File | Draws as | Preview task id | Refine task id (8k) | Remesh task id (shipped) | Size / tris |
+|---|---|---|---|---|---|
+| `art/meshes/buildings/relay.glb` + `_wreck` | `relay` (Adhal's relay hut, the `y` symbol on all three Umm Zeitoun maps) | `01a10299-4609-75ff-a2b2-9ac0d2fc3b07` | `01a1029a-7e70-7384-abbc-7de44ced7cea` | `01a1029d-7e8c-70cd-9284-f1c9c6822706` (8,000, arrived 7,270) | 4.65 × 4.65 m plan, 10.0 m to the mast tip, parapet at 6.9 m; 7,270 / 12,043 tris; 1.26 / 1.28 MiB Draco |
+| `art/meshes/buildings/pump_house.glb` + `_wreck` | `pump_house` (the Rif forward store, `wadi_halam_2_laager`'s `structures[]`) | `01a10299-dca5-7022-93ef-8c3b564692b9` | `01a1029b-39d5-76b8-9c33-77901bb018d8` | `01a1029d-efc7-7546-9ffa-e1ff1d2c774b` (8,000, arrived 7,594) | 3.9 × 5.6 m plan, 3.8 m tall; 7,594 / 6,909 tris; 1.28 / 1.28 MiB Draco |
+
+What Blender did to each (`tools/buildings/export_meshy_ramp.py`, two new
+`RampSpec` rows, the same exporter as the ramp set):
+
+- **The relay** came back a square two-storey blockhouse with the lattice mast
+  INTACT through the remesh (3,726 vertices above 0.8 of the height — the camp
+  lost its mast tip at 10,000 and this one did not at 8,000, which is what a
+  lattice buys over a whip), one dish on the mast and one on the roof, the
+  ladder, the door with its step. Scaled on HEIGHT, not plan: the roof slab
+  sits at 0.69 of the total, so 10 m to the tip puts the parapet at 6.9 m and
+  the plan at 4.65 m over its 6 × 3 m footprint — the numbers table's two
+  storeys; scaling the plan to 6 m would have made a 12.9 m tower. **The
+  dark-opening yaw rule could not read this bake** (board-form concrete is
+  dark on every face: the four candidates scored 0.73 / 0.72 / 0.89 / 0.91 and
+  the rule picked 270°, which turns the door onto the hidden `-X` face), so
+  the exporter gained a MEASURED `yaw` override and the number comes from the
+  geometry: the step block makes the ground band of the `-Y` side reach 0.433
+  against 0.337 at mid height while the other three sides are flush within
+  0.015, and the mast centroid is (−0.277, −0.100), the `-X/-Y` corner. One
+  quarter turn puts the door on `+X` and the mast on the camera's near corner,
+  where the numbers table asked for it; the auto choice is still printed
+  beside the override. `building_facing.py` judges it **directional** (it is
+  not in the gate's "not facing-checked" list).
+- **The pump house** came back as asked — a one-room shed, single-pitch
+  roof, plank door and one window on the front, the tank on its stand beside
+  it — and the dark-opening rule reads it cleanly (0.154 on the camera half
+  against 0.022 hidden). It keeps yaw 0 by that rule, which puts the tank at
+  the far end under this camera, behind the roof line; yaw 90 scores within
+  5% and puts the door on `+X` and the tank on the near side, so the measured
+  override takes that one too. Scaled on height to 3.8 m (the shanty's own
+  lesson), 3.9 × 5.6 m inside the 2 × 2 tiles it replaces. The facing gate
+  names it on its passing path as "only 8 glazed px on the larger half — too
+  little frontage to judge": its two openings are small, and the rule that
+  judges the concrete at 171 px has nothing to measure here.
+- Both wrecks are `render_building.collapse()` on the textured pieces, as the
+  ramp set's are; no second generation.
+
+**Wiring.** `relay` is a new catalogue entry with symbol `y` and `concrete`'s
+numbers to the digit (700 hp/tile, garrison 2, rubble 2, `roe_penalty` 3,
+`height_px` 20, `limestone.4`), authored on the two `#` tiles at (15,7)–(16,7)
+of `umm_zeitoun.json`, `umm_zeitoun_3.json` and `umm_zeitoun_4.json` (the plan
+named two maps; the third, UZ III's own variant, carries the same two tiles
+and `umm_zeitoun_variants.test.ts` is what caught it), so all four Umm
+Zeitoun missions stand the hut and `umm_zeitoun_4_clearance`'s `raze(crest_top)`
+snapshots it unchanged. `pump_house` copies `shanty`'s (120 / 1 / 1 / 2 / 11 /
+`dust.1`) with symbol `p` that no map authors — the camp's shape — and
+`wadi_halam_2_laager.json`'s `structures[]` names it in place of the shanty.
+No loader or sim code moved: `STRUCTURE_SYMBOLS` is derived from the
+catalogue. One gate line did: `validate_data.mjs`'s garrison-stance check was
+the literal `'#hawsm'` and now reads every catalogue type with a slot. `pnpm
+playtest` is byte-identical before and after (every line of the table; the
+diff is the `time` line). `tools/src/umm_zeitoun_doctrine.test.ts` pins the
+relay's numbers against the concrete's.
+
+**Damage states (GH-31), the material route — 0 credits.** A mesh building
+drew pixel-identical at 1 hp and at full until this; it now steps through
+`units/building-damage.ts`'s bands on every `structureHit`: 8–6 clean, 5–3
+scarred (the wreck charring at `(1 − band/8) × 0.6`, one memoised clone per
+template material per band), 2–1 burning (`data/vfx/structure_burning.json`
+on the renderer's own timer, the smoke plume at the template's measured roof
+height), 0 the existing wreck, which keeps a dying fire for 20 s only if the
+building was burning when it fell. `Sim.debugDamageStructure(id, eighths)`
+beside `debugDestroyStructure` is what the capture sheet drives, through the
+same path a hit takes. The sheet is `tools/src/perf/building-captures.ts`
+(`--only=sheet`: `house` and `hall` on `beit_sahwan_outskirts` at every band,
+zoom 2.5 and 1.0); the lead judges it. Measured on the hall at zoom 2.5
+through the live renderer: the sunlit facade's mean RGB reads 132.8 clean and
+117.9 at band 3.
+
+**The hall wreck (decision 4b) — measured, nothing to cut.** The destroyed
+source is ONE loose part (`separate(type='LOOSE')` on the raw 1,922,562 faces
+yields one object; an edge-connected walk over the decimated 47,861 faces
+finds one island), and deleting the UV layer leaves the same decimation floor.
+The "thousands of debris islands" in `export_meshy_hall.py`'s own note was a
+reading of the GLB's per-face vertex split, not of the mesh; the note now says
+so. The wreck ships as it did (47,860 tris, 945 KB Draco), `hall.glb` and
+`hall_wreck.glb` byte-identical to `main`.
+
+### The A3.2 licensing pass — repository facts, 2026-10-03
+
+| asset | status | what replaces it |
+|---|---|---|
+| `TNK_HULL`, `TNK_TURR` (Tiger-derived) | retired 2026-09-25 (`30050389`): every frame re-rendered from `art/meshes/vehicles/mbt_lavi.glb`; the old frames stay in history ("History is kept") | nothing — done |
+| `JEEP_HULL` (downloaded model, no licence) | re-rendered the same day from `jeep_shoded.glb`, a supplied Meshy asset | nothing — verified |
+| `art/src/soldier_kolos.fbx` (Synty) | deleted (`38ea4a20` / `30b069c0`); never shipped | nothing — done |
+| `NAMER_HULL`, `NAMER_TURR` (Mutte, CC BY 3.0) | kept, the one permanent attribution (`credits-data.ts`, pinned); still live because the sprite sheet is rendered from the Mutte model while `ifv_namer.glb` is a Meshy Namer | optional: re-render from `ifv_namer.glb` (the TNK route), retiring the credit with the sheet |
+| the Meshy commercial tier | "Commercial rights" above: the lead's 2026-08-30 word, unverified by anything in the repository | **lead action, docs only**: one direct read of the plan's terms, then the plan NAME, the date read, and the two answers (commercial use; redistribution in a shipped binary) go into "Commercial rights". The lead will send the plan name; until then this line is the record |
+| mesh provenance (outstanding item 1) | every Meshy mesh since September has its task ids here and its prompt in the ledger; the per-GLB `credit` gate is still open | recorded, not done here |
+
 ## WP-A3.1 batch B8 v2 — `ifv_namer` (GH-179), 2026-10-02
 
 The lead's ruling on the first B8 Namer (`art/namer-props`, PR #339: it read as a

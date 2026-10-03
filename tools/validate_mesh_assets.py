@@ -225,6 +225,9 @@ TEXTURED_BUILDING_EXEMPT = {
     # replaced by Meshy text-to-3D remeshes shipping their own 2k bakes
     # (tools/buildings/export_meshy_ramp.py). Silhouette IoU still runs.
     "concrete", "shanty", "wall", "camp",
+    # The A3.2 remainder (GH-185, 2026-10-03): the relay hut and the pump
+    # house, the same exporter and the same bake.
+    "relay", "pump_house",
 }
 
 # 2026-09-07: the identical override, extended by the project lead to six

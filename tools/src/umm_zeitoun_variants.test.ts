@@ -42,7 +42,7 @@
 //   not, and by construction cannot, bend the MARCH. Pinned here as the
 //   measured byte-identical route set, not the estimate.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, type MapJson } from '@lions/data';
+import { applyTerrain, maps, parseMap, structures, TERRAIN_LEGEND, type MapJson } from '@lions/data';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';
@@ -242,7 +242,14 @@ describe('shared landmarks — the drift guard, and the reason Option A is safe'
   });
 
   it.each(VARIANTS)('%s: every tile is a legal terrain symbol', (_id, json) => {
-    const allowed = new Set('.123ronbd^=#hwasmc'.split(''));
+    // Derived from the legend and the catalogue, not retyped: the literal
+    // this used to carry rejected the relay hut's `y` the day it was added
+    // (A3.2 remainder, 2026-10-03) -- the same drift `validate_data.mjs`'s
+    // symbol check was refactored to prevent.
+    const allowed = new Set([
+      ...Object.keys(TERRAIN_LEGEND),
+      ...Object.values(structures).map((spec) => (spec as { symbol: string }).symbol),
+    ]);
     for (const row of json.rows) for (const ch of row) expect(allowed.has(ch), `illegal symbol "${ch}"`).toBe(true);
   });
 

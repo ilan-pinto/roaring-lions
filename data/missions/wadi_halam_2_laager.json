@@ -118,7 +118,7 @@
     "enabled": true
   },
   "structures": [
-    { "type": "shanty", "at": [16, 19], "size": [2, 2] }
+    { "type": "pump_house", "at": [16, 19], "size": [2, 2] }
   ],
   "enemy": {
     "faction": "rif",
