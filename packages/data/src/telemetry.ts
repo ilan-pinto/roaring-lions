@@ -59,6 +59,9 @@ export const BUILD_PATTERN = /^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}$/;
 const OBJECTIVE_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 const OBJECTIVE_TYPE_PATTERN = /^[a-z_]{1,32}$/;
 const CAUSE_PATTERN = /^(force_destroyed|roe_collapse|objective:[A-Za-z0-9_.-]{1,64})$/;
+/** A tutorial beat id (`data/tutorial/*.json` step ids). Sent since GH-345's
+ *  nine-beat cut; events from before it carry only the index. */
+export const TUTORIAL_STEP_ID_PATTERN = /^[a-z0-9_]{1,40}$/;
 export const ITEM_PATTERN = /^[a-z0-9_]{1,32}(\.[a-z0-9_]{1,32}\.[1-9])?$/;
 
 export interface TelemetryEnvelope {
@@ -77,7 +80,7 @@ export type TelemetryEvent = TelemetryEnvelope &
   (
     | { type: 'session_start'; screen: TelemetryScreen; renderer: 'three' | 'pixi'; viewport: [number, number]; returning: boolean }
     | { type: 'heartbeat'; mission: string; tick: number }
-    | { type: 'tutorial_step'; step: number; steps: number; prevMs: number }
+    | { type: 'tutorial_step'; step: number; steps: number; prevMs: number; id?: string }
     | { type: 'mission_start'; mission: string; replay: boolean; deployed?: CountMap; fromRoster?: CountMap }
     | {
         type: 'objective';
@@ -123,7 +126,7 @@ const ENVELOPE_KEYS = ['v', 'type', 'player', 'session', 'tester', 'build', 't',
 const BODY_KEYS: Record<TelemetryEventType, readonly string[]> = {
   session_start: ['screen', 'renderer', 'viewport', 'returning'],
   heartbeat: ['mission', 'tick'],
-  tutorial_step: ['step', 'steps', 'prevMs'],
+  tutorial_step: ['step', 'steps', 'prevMs', 'id'],
   mission_start: ['mission', 'replay', 'deployed', 'fromRoster'],
   objective: ['mission', 'objective', 'objectiveType', 'primary', 'status', 'tick'],
   mission_end: [
@@ -146,7 +149,7 @@ const BODY_KEYS: Record<TelemetryEventType, readonly string[]> = {
 const OPTIONAL_KEYS: Record<TelemetryEventType, readonly string[]> = {
   session_start: [],
   heartbeat: [],
-  tutorial_step: [],
+  tutorial_step: ['id'],
   objective: [],
   campaign_progress: [],
   mission_start: ['deployed', 'fromRoster'],
@@ -186,7 +189,12 @@ function bodyValid(e: Rec, type: TelemetryEventType): boolean {
     case 'heartbeat':
       return matches(e.mission, MISSION_PATTERN) && isInt(e.tick, 0, TICK_MAX);
     case 'tutorial_step':
-      return isInt(e.step, 0, 200) && isInt(e.steps, 1, 200) && isInt(e.prevMs, 0, Number.MAX_SAFE_INTEGER);
+      return (
+        isInt(e.step, 0, 200) &&
+        isInt(e.steps, 1, 200) &&
+        isInt(e.prevMs, 0, Number.MAX_SAFE_INTEGER) &&
+        optional(e, 'id', (v) => matches(v, TUTORIAL_STEP_ID_PATTERN))
+      );
     case 'mission_start':
       return (
         matches(e.mission, MISSION_PATTERN) &&

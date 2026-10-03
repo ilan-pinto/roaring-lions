@@ -204,8 +204,14 @@ export const heartbeat = (env: TelemetryEnvelope, mission: string, tick: number)
   ...env, type: 'heartbeat', mission, tick: int(tick),
 });
 
-export const tutorialStep = (env: TelemetryEnvelope, step: number, steps: number, prevMs: number): TelemetryEvent => ({
-  ...env, type: 'tutorial_step', step: int(step), steps: int(steps), prevMs: int(prevMs),
+export const tutorialStep = (
+  env: TelemetryEnvelope,
+  step: number,
+  steps: number,
+  prevMs: number,
+  id?: string
+): TelemetryEvent => ({
+  ...env, type: 'tutorial_step', step: int(step), steps: int(steps), prevMs: int(prevMs), ...(id === undefined ? {} : { id }),
 });
 
 export const missionStart = (

@@ -87,6 +87,7 @@ import deirAmun1Recon from '../../../data/missions/deir_amun_1_recon.json';
 import deirAmun2Foothold from '../../../data/missions/deir_amun_2_foothold.json';
 import deirAmun3Subterranean from '../../../data/missions/deir_amun_3_subterranean.json';
 import tutorialBeitSahwan0 from '../../../data/tutorial/beit_sahwan_0.json';
+import firstUseHintsJson from '../../../data/hints/first_use.json';
 
 import mbtLavi from '../../../data/units/kdf/mbt_lavi.json';
 import ifvNamer from '../../../data/units/kdf/ifv_namer.json';
@@ -289,6 +290,24 @@ export const tutorials = {
 } as const;
 
 export type TutorialId = keyof typeof tutorials;
+
+/** One first-use hint rule. Shape matches first_use_hints.schema.json. */
+export interface FirstUseHintRule {
+  id: string;
+  key: string;
+  keys?: Record<string, string>;
+  mission?: string[];
+  selected_type?: string[];
+  selected_over?: number;
+  force_over?: number;
+  carrier_empty_seat?: true;
+  enemy_pinned?: true;
+  resources?: true;
+}
+
+/** The one-line hints for lessons the tutorial no longer teaches (GH-345
+ *  follow-up). Read by @lions/app only; the sim never sees them. */
+export const firstUseHints: readonly FirstUseHintRule[] = firstUseHintsJson.rules as readonly FirstUseHintRule[];
 
 /** The full unit roster, keyed by unit id. Shapes match unit.schema.json. */
 export const units = {

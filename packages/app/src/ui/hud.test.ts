@@ -660,6 +660,15 @@ describe('bottom-centre controls hint', () => {
     expect(hint.textContent).toContain('press production to open');
   });
 
+  it('merges live key caps into a first-use line from its `keys` map', () => {
+    const r = rig(mission(), {
+      hint: () => ({ key: 'hud.hint.first.mount_up', keys: { load: 'load', unload: 'unload' } }),
+      keyFor: (action) => (action === 'load' ? 'K' : action === 'unload' ? 'L' : action),
+    });
+    const hint = r.host.querySelector<HTMLElement>('.rl-hint')!;
+    expect(hint.textContent).toBe('K loads the selected infantry into a carrier, L dismounts them');
+  });
+
   it('the hint stacks under the feed inside the cluster', () => {
     const r = rig(mission());
     const sel = r.host.querySelector<HTMLElement>('.rl-sel')!;

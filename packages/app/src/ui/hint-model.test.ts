@@ -36,6 +36,24 @@ describe('hintFor', () => {
   });
 });
 
+describe('hintFor: contextual first-use lines', () => {
+  const line = { key: 'hud.hint.first.sniper', id: 'sniper' };
+  it('shows the owed rule above the plain selection line', () => {
+    expect(hintFor({ ...base, selected: 1, contextual: line })).toEqual(line);
+  });
+  it('yields to projected fire and to the dock, and to nothing else', () => {
+    expect(hintFor({ ...base, selected: 1, hoveringHostile: true, sawProjectedFire: false, contextual: line })?.key).toBe('hud.hint.projectedFire');
+    expect(hintFor({ ...base, sawDock: false, contextual: line })?.key).toBe('hud.hint.dock');
+  });
+  it('the dock line carries its memory id so it can be marked shown', () => {
+    expect(hintFor({ ...base, sawDock: false })?.id).toBe('dock');
+  });
+  it('null and absent both fall through to the ordinary line', () => {
+    expect(hintFor({ ...base, contextual: null })?.key).toBe('hud.controlHint');
+    expect(hintFor(base)?.key).toBe('hud.controlHint');
+  });
+});
+
 describe('first-use memory', () => {
   // Map-backed, not `window.localStorage`: this vitest jsdom config hands
   // that back as a bare `{}` (CLAUDE.md), so a fake is the only way to prove

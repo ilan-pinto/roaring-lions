@@ -66,10 +66,12 @@ import {
   type MapJson,
   type MissionLocaleOverlay,
   type UpgradableUnit,
+  firstUseHints,
 } from '@lions/data';
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
+import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, portraitUrl, unitIcon, unitPlate, type SheetManifest } from './ui/portrait';
 import { Minimap, MINIMAP_SIZE, flipRows, objectivePoint } from './ui/minimap';
 import { alertsForTick, initAlertState, type AlertWorld } from './ui/alerts';
@@ -2800,6 +2802,42 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // immediately un-showing it would teach the player nothing.
   const settingsStore = safeStorage();
   const seen = loadSeen(settingsStore);
+  // GH-345 follow-up: first-use one-liners for the lessons the nine-beat
+  // tutorial cut (`data/hints/first_use.json`, `ui/hint-rules.ts`). Never in
+  // the tutorial itself and never in a sandbox, so a sandbox walk cannot spend
+  // a player's one showing. A line counts as shown, and is remembered, once it
+  // has been the hint line for six seconds running -- the dock's own hint
+  // included, which used to stay up until the key was pressed.
+  const hintsSeen = loadHintsSeen(settingsStore);
+  const hintTimer = createShownTimer(6000);
+  const contextualHint = () => {
+    if (mission === undefined || mission.id === 'beit_sahwan_0_tutorial') return null;
+    const sel = renderer.selection.filter((i) => sim.state.side[i] === 0 && sim.state.alive[i] === 1);
+    const ctx: HintContext = {
+      missionId: mission.id,
+      hasResources: mission.resources !== undefined,
+      selectedCount: sel.length,
+      selectedTypes: () => new Set(sel.map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)),
+      forceSize: () => {
+        let n = 0;
+        for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) n++;
+        return n;
+      },
+      carrierEmptySeat: () =>
+        sel.some((i) => {
+          const slots = sim.unitTypes[sim.state.typeIdx[i]].transportSlots;
+          return slots > 0 && sim.passengerCount(i) < slots;
+        }),
+      enemyPinned: () => {
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (sim.state.side[i] === 1 && sim.state.alive[i] === 1 && sim.state.pinned[i] === 1) return true;
+        }
+        return false;
+      },
+    };
+    const r = owedRule(firstUseHints, hintsSeen, ctx);
+    return r ? { key: r.key, id: r.id, ...(r.keys ? { keys: r.keys } : {}) } : null;
+  };
 
   // GH-345: the HUD disclosure set. Seeded from the mission's own
   // `hud.hidden` (everything, for every mission that declares none);
@@ -2884,14 +2922,25 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // `hint-model.ts`. `renderer.hoverEntity >= 0` is the same "over a
     // hostile" signal the cursor resolver already reads further down
     // (`hints.hostile`) -- one definition of "hovering a hostile" for both.
-    hint: () =>
-      hintFor({
+    hint: () => {
+      const line = hintFor({
         selected: renderer.selection.length,
         hoveringHostile: renderer.hoverEntity >= 0,
         sawProjectedFire: seen.projectedFire,
         sawDock: seen.dock,
         dockAvailable: mission?.resources !== undefined,
-      }),
+        contextual: contextualHint(),
+      });
+      const shown = hintTimer.tick(line?.id ?? null, performance.now());
+      if (shown === 'dock') {
+        seen.dock = true;
+        markSeen(settingsStore, 'dock');
+      } else if (shown !== null) {
+        hintsSeen.add(shown);
+        markHintSeen(settingsStore, shown);
+      }
+      return line;
+    },
     // Marked on USE, not on the hint merely showing -- see `hint-model.ts`'s
     // own header for why showing it once would teach nobody. `renderFire`
     // (hud.ts) calls this once per three-tick streak; `case 'production':`
@@ -4600,7 +4649,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     if (tut && tut.index !== telemetryTutIndex) {
       telemetryTutIndex = tut.index;
-      if (tut.index < tut.steps.length) telemetry().tutorialStep(tut.index, tut.steps.length);
+      if (tut.index < tut.steps.length) telemetry().tutorialStep(tut.index, tut.steps.length, tut.steps[tut.index]?.id);
     }
   };
 

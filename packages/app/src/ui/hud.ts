@@ -30,6 +30,7 @@ import { fx, type HitProjection, type Sim } from '@lions/sim';
 import type { KitLevel } from '@lions/data';
 import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
+import type { HintLine } from './hint-model';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { confirmDialog } from './confirm';
@@ -303,7 +304,7 @@ export interface HudDeps {
    *  itself carries no facts and no storage: it only asks the question and
    *  paints the answer, merging in a live key cap (`keyFor`) for the one
    *  hint that names a key. */
-  hint?: () => { key: string; params?: Readonly<Record<string, string | number>> } | null;
+  hint?: () => HintLine | null;
   /** Task 9: the projected-fire panel has now held the screen for three
    *  consecutive HUD ticks (~0.75s at 4Hz) -- `renderFire`'s own streak
    *  counter, not a raw "is it visible this frame" signal, so a panel that
@@ -1505,10 +1506,16 @@ export class Hud {
     // name inside the dock hint's copy comes from HERE, the same way the
     // order row's own key caps do (`this.deps.keyFor`, above), so a rebind
     // keeps the hint true instead of quietly starting to lie.
+    const keyCaps: Record<string, string> = {};
+    for (const [param, action] of Object.entries(hint.keys ?? {})) {
+      keyCaps[param] = this.deps.keyFor?.(action) ?? action;
+    }
     const params: Readonly<Record<string, string | number>> | undefined =
       hint.key === 'hud.hint.dock'
         ? { ...hint.params, key: this.deps.keyFor?.('production') ?? 'production' }
-        : hint.params;
+        : hint.keys
+          ? { ...hint.params, ...keyCaps }
+          : hint.params;
     this.hint.textContent = t(hint.key, params);
   }
 

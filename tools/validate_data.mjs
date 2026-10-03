@@ -159,12 +159,13 @@ const schemas = {
   commander: loadJson(join(ROOT, 'data/schemas/commander.schema.json')),
   names: loadJson(join(ROOT, 'data/schemas/names.schema.json')),
   diorama: loadJson(join(ROOT, 'data/schemas/diorama.schema.json')),
+  hints: loadJson(join(ROOT, 'data/schemas/first_use_hints.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
-  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama
+  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -177,6 +178,7 @@ if (
     commander: ajv.compile(schemas.commander),
     names: ajv.compile(schemas.names),
     diorama: ajv.compile(schemas.diorama),
+    hints: ajv.compile(schemas.hints),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -191,6 +193,7 @@ if (
   checked += validateFile(join(ROOT, 'data/campaign/commander.json'), validators.commander, 'commander.schema');
   checked += validateFile(join(ROOT, 'data/campaign/names.json'), validators.names, 'names.schema');
   checked += validateFile(join(ROOT, 'data/front/menu_diorama.json'), validators.diorama, 'diorama.schema');
+  checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -974,6 +977,36 @@ const garrisonableSymbols = new Set(
       if (zone && !zoneNames.has(zone)) {
         failures.push(`${rel(file)}: step "${step.id}" focus.zone "${zone}" is not a zone on "${mission.map?.file}"`);
       }
+    }
+  }
+}
+
+// --- first-use hint cross-checks ----------------------------------------------
+// A rule naming a mission or unit type that does not exist is a hint that can
+// never fire, with no error anywhere. Ids must also be unique: the id is the
+// per-profile memory key.
+{
+  const missionIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/missions'))) {
+    const mi = loadJson(file);
+    if (mi?.id) missionIds.add(mi.id);
+  }
+  const unitIds = new Set();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) unitIds.add(u.id);
+  }
+  const hintsFile = join(ROOT, 'data/hints/first_use.json');
+  const hints = loadJson(hintsFile);
+  const seenIds = new Set();
+  for (const r of hints?.rules ?? []) {
+    if (seenIds.has(r.id)) failures.push(`${rel(hintsFile)}: duplicate rule id "${r.id}"`);
+    seenIds.add(r.id);
+    for (const m of r.mission ?? []) {
+      if (!missionIds.has(m)) failures.push(`${rel(hintsFile)}: rule "${r.id}" mission "${m}" is not a mission`);
+    }
+    for (const u of r.selected_type ?? []) {
+      if (!unitIds.has(u)) failures.push(`${rel(hintsFile)}: rule "${r.id}" selected_type "${u}" is not a unit`);
     }
   }
 }
