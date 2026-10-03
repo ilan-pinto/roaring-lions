@@ -67,6 +67,17 @@ export interface GlbFile {
 
 /** Splits a `.glb` into its JSON chunk and its binary chunk. */
 export function readGlb(path: string): GlbFile {
+  // Memoised per path and per process (GH-344): a file's clips and tests all
+  // read the same bytes. Nothing mutates a `GlbFile`; a vitest worker
+  // isolates modules per spec file, so a re-export is never seen stale.
+  let hit = GLB_CACHE.get(path);
+  if (!hit) { hit = readGlbUncached(path); GLB_CACHE.set(path, hit); }
+  return hit;
+}
+const GLB_CACHE = new Map<string, GlbFile>();
+const ACCESSOR_CACHE = new WeakMap<GlbFile, Map<number, { data: Float64Array; components: number; count: number }>>();
+
+function readGlbUncached(path: string): GlbFile {
   const buf = readFileSync(path);
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   if (dv.getUint32(0, true) !== 0x46546c67) throw new Error(`${path}: not a GLB`);
@@ -92,6 +103,14 @@ const TYPE_COUNT: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 
  *  Integer component types come back unnormalised, which is what joint
  *  indices want; weights in this tree are always FLOAT. */
 export function readAccessor(glb: GlbFile, index: number): { data: Float64Array; components: number; count: number } {
+  let per = ACCESSOR_CACHE.get(glb);
+  if (!per) { per = new Map(); ACCESSOR_CACHE.set(glb, per); }
+  let hit = per.get(index);
+  if (!hit) { hit = readAccessorUncached(glb, index); per.set(index, hit); }
+  return hit;
+}
+
+function readAccessorUncached(glb: GlbFile, index: number): { data: Float64Array; components: number; count: number } {
   const acc = glb.json.accessors?.[index];
   if (!acc) throw new Error(`accessor ${index} missing`);
   const comps = TYPE_COUNT[acc.type];
@@ -1755,38 +1774,46 @@ function buildTriChunks(flat: Float64Array): TriChunks {
  *  exactly, so the verdict is the exact one. */
 function windingInside(p: readonly number[], soup: TriChunks): boolean {
   if (!soup.root) return false;
-  let bound = 0, sum = 0;
-  const visit = (nd: TriNode): void => {
-    const dx = nd.c[0] - p[0], dy = nd.c[1] - p[1], dz = nd.c[2] - p[2];
-    const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (d > 2.5 * nd.r) {
-      const e = (6 * nd.area * nd.r * nd.r) / ((d - nd.r) ** 4 * 4 * Math.PI);
-      if (e < 0.003 && bound + e < 0.3) {
-        sum += (nd.s[0] * dx + nd.s[1] * dy + nd.s[2] * dz) / (d * d * d * 4 * Math.PI);
-        bound += e;
-        return;
-      }
-    }
-    if (nd.left && nd.right) { visit(nd.left); visit(nd.right); return; }
-    sum += windingRange(p, soup.tri, nd.a, nd.b);
-  };
-  visit(soup.root);
+  WI.px = p[0]; WI.py = p[1]; WI.pz = p[2]; WI.bound = 0; WI.sum = 0; WI.tri = soup.tri;
+  windingVisit(soup.root);
+  const { sum, bound } = WI;
   if (Math.abs(sum - 0.5) > bound) return sum > 0.5;
   return windingNumber(p, soup.tri) > 0.5;
 }
 
-function windingRange(p: readonly number[], tri: Float64Array, from: number, to: number): number {
-  return windingNumber(p, tri.subarray(from * 9, to * 9));
+/** Per-query accumulators, module-level so the traversal allocates no closure. */
+const WI: { px: number; py: number; pz: number; bound: number; sum: number; tri: Float64Array } = { px: 0, py: 0, pz: 0, bound: 0, sum: 0, tri: new Float64Array(0) };
+
+function windingVisit(nd: TriNode): void {
+  const dx = nd.c[0] - WI.px, dy = nd.c[1] - WI.py, dz = nd.c[2] - WI.pz;
+  const d2 = dx * dx + dy * dy + dz * dz;
+  if (d2 > 6.25 * nd.r * nd.r) {
+    const d = Math.sqrt(d2);
+    const g = d - nd.r, g2 = g * g;
+    const e = (6 * nd.area * nd.r * nd.r) / (g2 * g2 * 4 * Math.PI);
+    if (e < 0.003 && WI.bound + e < 0.3) {
+      WI.sum += (nd.s[0] * dx + nd.s[1] * dy + nd.s[2] * dz) / (d2 * d * 4 * Math.PI);
+      WI.bound += e;
+      return;
+    }
+  }
+  if (nd.left && nd.right) { windingVisit(nd.left); windingVisit(nd.right); return; }
+  WI.sum += windingSpan(WI.px, WI.py, WI.pz, WI.tri, nd.a * 9, nd.b * 9);
 }
 
 /** Generalised winding number of `p` against a flat triangle list (nine
  *  numbers a triangle): the solid angle each subtends, summed, over 4 pi. */
 function windingNumber(p: readonly number[], tri: Float64Array): number {
+  return windingSpan(p[0], p[1], p[2], tri, 0, tri.length);
+}
+
+/** The same sum over `tri[from, to)`, with no subarray allocated per call. */
+function windingSpan(px: number, py: number, pz: number, tri: Float64Array, from: number, to: number): number {
   let sum = 0;
-  for (let i = 0; i < tri.length; i += 9) {
-    const ax = tri[i] - p[0], ay = tri[i + 1] - p[1], az = tri[i + 2] - p[2];
-    const bx = tri[i + 3] - p[0], by = tri[i + 4] - p[1], bz = tri[i + 5] - p[2];
-    const cx = tri[i + 6] - p[0], cy = tri[i + 7] - p[1], cz = tri[i + 8] - p[2];
+  for (let i = from; i < to; i += 9) {
+    const ax = tri[i] - px, ay = tri[i + 1] - py, az = tri[i + 2] - pz;
+    const bx = tri[i + 3] - px, by = tri[i + 4] - py, bz = tri[i + 5] - pz;
+    const cx = tri[i + 6] - px, cy = tri[i + 7] - py, cz = tri[i + 8] - pz;
     const la = Math.sqrt(ax * ax + ay * ay + az * az), lb = Math.sqrt(bx * bx + by * by + bz * bz),
       lc = Math.sqrt(cx * cx + cy * cy + cz * cz);
     const det = ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
@@ -1890,11 +1917,11 @@ export function measureArmInBody(path: string, clip: string, figure: string): Ar
     for (let i = 0; i < tri.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], tri[i + k]); hi[k] = Math.max(hi[k], tri[i + k]); }
     if (Math.min(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;   // scaled out
     instants++;
-    const triF = Float64Array.from(tri);
+    const soup = buildTriChunks(Float64Array.from(tri));
     let inside = 0;
     for (const q of pts) {
       if (q[0] < lo[0] || q[1] < lo[1] || q[2] < lo[2] || q[0] > hi[0] || q[1] > hi[1] || q[2] > hi[2]) continue;
-      if (windingNumber(q, triF) > 0.5) inside++;
+      if (windingInside(q, soup)) inside++;
     }
     worst = Math.max(worst, inside);
   }
