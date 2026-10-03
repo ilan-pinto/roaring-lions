@@ -1,5 +1,6 @@
 import type { D1Like, Env } from './d1';
 import { CAMPAIGN_ORDER, MISSION_TARGET_MINUTES } from './campaign-order';
+import { labelTutorialRows } from './tutorial-funnel';
 import { STATS_HTML } from './stats-page';
 import { loginPageHtml } from './login-page';
 import { SESSION_COOKIE, readCookie, verifySession, sessionCookieHeader, clearedSessionCookieHeader, passwordsMatch } from './auth';
@@ -106,12 +107,13 @@ export async function tutorialFunnel(db: D1Like, f: StatsFilter) {
   const w = where(f);
   const rows = await db
     .prepare(
-      `SELECT json_extract(payload, '$.step') AS step, COUNT(DISTINCT player) AS players
-       FROM events WHERE ${w.sql} AND type = 'tutorial_step' GROUP BY step ORDER BY step`
+      `SELECT json_extract(payload, '$.id') AS beat, json_extract(payload, '$.step') AS step,
+              json_extract(payload, '$.steps') AS steps, COUNT(DISTINCT player) AS players
+       FROM events WHERE ${w.sql} AND type = 'tutorial_step' GROUP BY beat, step, steps`
     )
     .bind(...w.args)
-    .all<{ step: number; players: number }>();
-  return rows.results;
+    .all<{ beat: string | null; step: number; steps: number; players: number }>();
+  return labelTutorialRows(rows.results.map((r) => ({ id: r.beat, step: r.step, steps: r.steps, players: r.players })));
 }
 
 export async function missions(db: D1Like, f: StatsFilter) {

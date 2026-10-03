@@ -36,9 +36,14 @@ FROM events WHERE dev = 0 AND type = 'mission_end' AND json_extract(payload, '$.
 GROUP BY mission, cause ORDER BY losses DESC;
 
 -- @tutorial_funnel
-SELECT json_extract(payload, '$.step') AS step, COUNT(DISTINCT player) AS players
+-- GH-345 cut the tutorial from 14 beats to 9 and began sending the beat id.
+-- Rows with a NULL id are the old 14-step funnel: read them by step index only
+-- (index 0 = take_command ... 13 = command_groups; the list is
+-- LEGACY_TUTORIAL_STEP_IDS in src/tutorial-funnel.ts). Never add the two up.
+SELECT json_extract(payload, '$.id') AS beat, json_extract(payload, '$.step') AS step,
+       json_extract(payload, '$.steps') AS steps, COUNT(DISTINCT player) AS players
 FROM events WHERE dev = 0 AND type = 'tutorial_step'
-GROUP BY step ORDER BY step;
+GROUP BY beat, step, steps ORDER BY beat IS NULL, step;
 
 -- @testers
 SELECT tester, COUNT(DISTINCT session) AS sessions,

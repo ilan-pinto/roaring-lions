@@ -38,10 +38,17 @@ export interface HintFacts {
   /** `mission?.resources !== undefined` -- a sandbox or a mission with no
    *  economy has no dock to teach, so naming it would be a lie. */
   dockAvailable: boolean;
+  /** GH-345 follow-up: the first-use rule currently owed (`hint-rules.ts`),
+   *  already resolved by `main.ts`. Absent or null: none. */
+  contextual?: HintLine | null;
 }
 
 export interface HintLine {
   key: string;
+  /** Memory id for a one-shot line (a rule's id, or 'dock'). */
+  id?: string;
+  /** Key-cap parameters: {param name: keymap action id}, resolved by the HUD. */
+  keys?: Readonly<Record<string, string>>;
   params?: Readonly<Record<string, string | number>>;
 }
 
@@ -61,8 +68,9 @@ export function hintFor(f: HintFacts): HintLine | null {
     return { key: 'hud.hint.projectedFire' };
   }
   if (!f.sawDock && f.dockAvailable) {
-    return { key: 'hud.hint.dock' };
+    return { key: 'hud.hint.dock', id: 'dock' };
   }
+  if (f.contextual) return f.contextual;
   if (f.selected > 0) {
     return { key: 'hud.hint.selected' };
   }

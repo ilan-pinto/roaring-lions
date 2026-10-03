@@ -47,6 +47,7 @@ th{font:600 12px 'IBM Plex Mono',monospace;text-transform:uppercase;color:var(--
 <h2>Players per day</h2><div class="wrap"><table id="perday"></table></div>
 <h2>Campaign funnel</h2><div class="wrap"><table id="funnel"></table></div>
 <h2>Tutorial funnel</h2><div class="wrap"><table id="tutorial"></table></div>
+<h2>Tutorial funnel, legacy 14 steps (before the nine-beat cut)</h2><div class="wrap"><table id="tutorial-legacy"></table></div>
 <h2>Missions</h2><div class="wrap"><table id="missions"></table></div>
 <h2>Brigade accounts</h2><div class="wrap"><table id="accounts"></table></div>
 <h2>Loadouts</h2><div class="wrap"><table id="loadout-units"></table></div><div class="wrap"><table id="loadout-orders"></table></div>
@@ -81,8 +82,9 @@ async function load(){
   const top=Math.max(1,fun.campaign[0]?.started||0);let worst=-1,worstAt=-1;
   fun.campaign.forEach((r,i)=>{if(i>0){const drop=fun.campaign[i-1].started-r.started;if(drop>worst){worst=drop;worstAt=i}}});
   table($('funnel'),['Mission','Started','Won','Reached'],fun.campaign.map((r,i)=>'<tr><td>'+esc(r.mission)+'</td><td class="n">'+fmt(r.started,0)+'</td><td class="n">'+fmt(r.won,0)+'</td><td style="width:35%"><div class="bar'+(i===worstAt?' drop':'')+'" style="width:'+(100*r.started/top)+'%"></div></td></tr>'));
-  const tTop=Math.max(1,fun.tutorial[0]?.players||0);
-  table($('tutorial'),['Step','Players',''],fun.tutorial.map((r)=>'<tr><td>'+fmt(r.step+1,0)+'</td><td class="n">'+fmt(r.players,0)+'</td><td style="width:50%"><div class="bar" style="width:'+(100*r.players/tTop)+'%"></div></td></tr>'));
+  const tut=(rows)=>{const top=Math.max(1,rows[0]?.players||0);return rows.map((r)=>'<tr><td>'+fmt(r.step+1,0)+'</td><td>'+esc(r.id??'—')+'</td><td class="n">'+fmt(r.players,0)+'</td><td style="width:40%"><div class="bar" style="width:'+(100*r.players/top)+'%"></div></td></tr>')};
+  table($('tutorial'),['Beat','Id','Players',''],tut(fun.tutorial.filter((r)=>!r.legacy)));
+  table($('tutorial-legacy'),['Step','Id','Players',''],tut(fun.tutorial.filter((r)=>r.legacy)));
   table($('missions'),['Mission','Attempts','Win %','Median min','Target','Top loss cause','Mean ROE','Most-failed objective'],mis.map((m)=>'<tr><td>'+esc(m.mission)+'</td><td class="n">'+fmt(m.attempts,0)+'</td><td class="n">'+esc(m.winRate==null?'—':Math.round(100*m.winRate))+'</td><td class="n'+(m.medianWinMinutes!=null&&m.targetMinutes!=null&&m.medianWinMinutes>m.targetMinutes?' over':'')+'">'+fmt(m.medianWinMinutes)+'</td><td class="n">'+fmt(m.targetMinutes,0)+'</td><td>'+esc(m.topCause??'—')+'</td><td class="n">'+fmt(m.meanRoe,0)+'</td><td>'+esc(m.mostFailedObjective??'—')+'</td></tr>'));
   table($('testers'),['Tester','Missions won','Furthest won','Hours','Last seen'],tes.map((t)=>'<tr><td><button data-t="'+esc(t.tester)+'">'+esc(t.tester)+'</button> <button data-t="'+esc(t.tester)+'" data-share title="Create and copy a link for this tester">Share</button></td><td class="n">'+fmt(t.missionsWon,0)+'</td><td>'+esc(t.furthestWon??'—')+'</td><td class="n">'+fmt(t.hours)+'</td><td>'+esc(new Date(t.lastSeen).toISOString().slice(0,16).replace('T',' '))+'</td></tr>'));
   const sel=$('tester'),cur=sel.value;sel.innerHTML='<option value="">Any tester</option>'+tes.map((t)=>'<option'+(t.tester===cur?' selected':'')+'>'+esc(t.tester)+'</option>').join('');
