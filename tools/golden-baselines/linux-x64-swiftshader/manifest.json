@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "f36e75721991dd46b78c0632e55a5dc8d76a58c4",
-  "blessedAt": "2026-10-02T10:33:23.293Z",
-  "reason": "ifv_namer v2 (#341): vehicle moves on the two Namers (287-1203,306-676, 8749 px); aftermath 103 px at its left edge (0-4,42-110), off-frame shadow; quiet/open-ground/relief 0 px on main run 36995088298",
+  "commit": "63a9acc520a91633530bcb3b2b8afd0dcb989bd6",
+  "blessedAt": "2026-10-03T20:05:05.432Z",
+  "reason": "#354 bigger team rings + contact marks (and #357/#359 riding along; neither moves a gated frame): vehicle rings (286-1218,346-677, 3933 px); open-ground a vehicle team ring entering the crop (153-394,274-360, 520 px); quiet a contact mark on the hall (391-418,190-226, 121 px); relief a ring (485-532,517-542, 83 px); aftermath a ring at its left edge (0-7,220-246, 146 px); main run 37147910355",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "726862784498ea32de9f656bd0f95b1a26aa3bb9364f2a08aa66f9a5fcb9d8dd"
+      "sha256": "0f7f9f6d9a78727e7f104dccfe488e8cc9737367dda49584e34d240b1252696f"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "11210c8749b44d0ba4c35a5eceee66fb10ff514683aaf3cd41dda97fdb1d1014"
+      "sha256": "24c312f61ec7b4dfab56015e2f4219defd08324d1f8e740441add369e66ae23f"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b773d38b6d8795567b818e7b37d2a8772abbd889c35210cab8d138ec02a68ef6"
+      "sha256": "b6ecddd7bf75b82a11ab0048a47f95fbb50428d1232d15675f7a08a1da7f63d2"
     },
     "relief": {
       "tick": 500,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "862c19ce2504f3bdf39c39277aed6c6337cfe88ed786484dc7d8e1302c09ca12"
+      "sha256": "b958ddc834de5da3c52b76d669e185c9da290916d9518b303632f308c231904f"
     },
     "aftermath": {
       "tick": 300,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "9a4682009b02e3a8591f10da5d8400cdd0209864f6ede5e2a1aba5e12ed56a59"
+      "sha256": "e5f6cc9bd85a16352228c0f75dc84986bde2f4f74470bff43dcc3d685f9923d8"
     }
   }
 }
