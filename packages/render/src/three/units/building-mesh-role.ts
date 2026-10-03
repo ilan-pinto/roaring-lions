@@ -173,6 +173,12 @@ const WALL_SURFACE: Record<string, WallSurface> = {
   // nor poured, board-formed concrete -- coursing it would be a lie about
   // what it is, exactly `shanty`/`warehouse`/`camp`'s own reasoning.
   fence: 'flat',
+  // The A3.2 remainder (GH-185, 2026-10-03): both textured Meshy remeshes
+  // through `export_meshy_ramp.py`, so neither coursing is ever drawn; the
+  // honest answers regardless -- a poured-concrete blockhouse and a
+  // breeze-block shed, `concrete`'s and `shanty`'s own.
+  relay: 'panel',
+  pump_house: 'flat',
 };
 
 /** The `WallSurface` for a `data/structures.json` type id. Throws for an

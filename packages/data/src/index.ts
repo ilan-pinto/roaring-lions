@@ -141,6 +141,7 @@ import fireSmallArms from '../../../data/vfx/fire_small_arms.json';
 import missileImpact from '../../../data/vfx/missile_impact.json';
 import missileTrail from '../../../data/vfx/missile_trail.json';
 import shellImpact from '../../../data/vfx/shell_impact.json';
+import structureBurning from '../../../data/vfx/structure_burning.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
 import tunnelCollapse from '../../../data/vfx/tunnel_collapse.json';
 import vehicleDust from '../../../data/vfx/vehicle_dust.json';
@@ -364,6 +365,10 @@ export const menuDiorama: DioramaJson = menuDioramaJson as DioramaJson;
  * `three/units/vehicle-fx.ts`'s top comment. Three-only: `renderer.ts` never
  * looks either vehicle emitter up, by design (VFX now live in three; see
  * CLAUDE.md's "VFX are exempt from this diff as of 2026-08-30").
+ * `structure_burning` is looked up by name as well, on the renderer's own
+ * timer for a mesh building in its lowest two HP bands and for its wreck's
+ * first seconds (GH-31, A3.2 remainder): a building on fire is a
+ * presentation of `hp`, not an event, exactly the ambient pair's shape.
  * `catastrophic_kill` is looked up by name too, off a `destroyed` event
  * whose type is a vehicle: the blast's light, screen shake and hit-stop
  * (WP-A1.2). It was the ONE file in `data/vfx/` this array did not carry,
@@ -391,6 +396,7 @@ export const vfxEmitters = [
   missileTrail,
   missileImpact,
   shellImpact,
+  structureBurning,
   structureCollapse,
   tunnelCollapse,
   vehicleDust,
