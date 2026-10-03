@@ -7,6 +7,7 @@
 import { objectiveZonesFor } from './objective-zones';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
+import { deadlineWarningLine, deadlineWarnings, failureReason } from './ui/mission-failure';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
 import { lostRecordFor, predecessorOf } from './roster-lost';
@@ -1705,6 +1706,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** One per `evacuated` MissionEvent -- the runtime's own tally, counted
    *  from the outside. */
   let evacuatedSoFar = 0;
+  // PR 361: deadlines already warned a minute out, and why a lost mission
+  // was lost (`ui/mission-failure.ts`).
+  let deadlinesWarned: ReadonlySet<string> = new Set();
+  let missionFailure: string | null = null;
   /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
   const civWatch = refugeAt ? new CivFlightWatch() : null;
   /** `sim.entityCount` at the watch's last observation. */
@@ -4101,6 +4106,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // doc comment for why this call is independent of `brief()`.
         if (me.kind === 'say') hud.say(me.speaker, me.text);
         if (me.kind === 'missionEnd') {
+          // PR 361: a lost mission names the primary that lost it, at once,
+          // in the feed and on the outcome card -- never a bare verdict over
+          // clocks that have simply stopped.
+          missionFailure = me.result === 'defeat' ? failureReason(runtime?.defeatCause, liveObjectives(), me.tick) : null;
+          if (missionFailure) hud.note(escapeHtml(missionFailure), 'bad');
           // The end screen must not land over a live step panel — an early
           // mission end (e.g. destroy_all completing before lesson 12) is not
           // tutorial completion, so the completion flag is deliberately not
@@ -4349,7 +4359,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // One value for both surfaces: the moment previews the
             // `aftermath` for its hold, and the end screen below carries the
             // same one where it can be read (the second correction to ruling 9).
-            const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo);
+            const momentOptions = outcomeMomentOptions(me.result, mission, creditsInfo, missionFailure);
             const moment = outcomeMoment(document.body, momentOptions);
             // Final review, ruling 9: the moment is the verdict, so the HUD's
             // own "Mission accomplished"/"Mission failed" banner stands down
@@ -4564,6 +4574,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         ensureUnitMesh(typeId);
       }
       reportMeshFailures();
+    }
+    // PR 361: a deadline that loses the mission warns once, a minute out.
+    // No voice line exists for it (data/audio.json's voices are unit barks),
+    // so it takes the alert chime the feed's other warnings use.
+    if (runtime && runtime.result === 'ongoing' && sim.tickCount % 5 === 0) {
+      const due = deadlineWarnings(liveObjectives(), deadlinesWarned);
+      deadlinesWarned = due.warned;
+      for (const row of due.warn) {
+        hud.note(escapeHtml(deadlineWarningLine(row)), 'warn');
+        audio.playUi('ui_alert');
+      }
     }
     // Show the ground a timed objective is about, and how it is going.
     if (runtime && sim.tickCount % 5 === 0) {

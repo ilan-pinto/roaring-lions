@@ -84,6 +84,10 @@ export interface OutcomeMomentOptions {
    *  an empty paragraph, when there is none. It buys no hold of its own:
    *  `holdMs` is still the whole hold. */
   aftermath?: string;
+  /** Defeat only: which primary failed and when ("FAILED — … · 5:00"), from
+   *  `failureReason` (`mission-failure.ts`). Drawn straight under the verdict,
+   *  so a lost mission never ends on a bare "Attempt failed" (PR 361). */
+  reason?: string;
   /** What this win paid into the brigade account (GH-234), already computed
    *  by the caller -- `main.ts` runs `payMission` before this moment ever
    *  mounts, so this is the same `{ paid, balance }` the debrief prints,
@@ -128,7 +132,8 @@ export const OUTCOME_HOLD_MS = 2600;
 export function outcomeMomentOptions(
   result: 'victory' | 'defeat',
   mission: Pick<MissionJson, 'aftermath' | 'debrief'>,
-  credits?: { paid: number; balance: number }
+  credits?: { paid: number; balance: number },
+  reason?: string | null
 ): OutcomeMomentOptions {
   const say = result === 'victory' ? mission.debrief?.victory : mission.debrief?.defeat;
   const aftermath = result === 'victory' ? mission.aftermath : undefined;
@@ -140,6 +145,7 @@ export function outcomeMomentOptions(
     // Defeat pays nothing (GH-234's own rule, unchanged): the caller never
     // hands one on that path, and this is the second guard even if it did.
     ...(result === 'victory' && credits ? { credits } : {}),
+    ...(result === 'defeat' && reason ? { reason } : {}),
   };
 }
 
@@ -159,6 +165,13 @@ export function outcomeMoment(host: HTMLElement, o: OutcomeMomentOptions): Outco
   // catalogue keys `showDebrief` reads (`ui/debrief.ts`), so a player who
   // skips straight past this and opens the debrief sees the identical
   // sentence, not a rephrasing of the same numbers.
+  if (o.reason !== undefined) {
+    const reason = document.createElement('p');
+    reason.className = 'rl-outcome__reason rl-bad-text';
+    reason.textContent = o.reason;
+    p.body.appendChild(reason);
+  }
+
   if (o.credits) {
     const reward = document.createElement('div');
     reward.className = 'rl-outcome__credits';

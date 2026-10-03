@@ -99,53 +99,63 @@ describe('holdClock, with units just outside', () => {
   });
 });
 
+/** Umm Zeitoun II's runtime with the screenshot's force (both APCs, three
+ *  rifle squads) walked one per tile along row `row`, 40 s in. */
+function parkedOn(row: number) {
+  const mission = missions.umm_zeitoun_2_buildup as unknown as MissionJson;
+  const map = parseMap(maps[mission.map.file as keyof typeof maps]);
+  const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
+  applyTerrain(map, sim);
+  standMapStructures(sim, map);
+  const typeOf = new Map<string, number>();
+  for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
+  const rt = new MissionRuntime(sim, mission, {
+    typeIdOf: (u) => typeOf.get(u) as number,
+    markers: map.markers,
+    zones: map.zones,
+    tunnels: [],
+    ledger: {},
+    unitInfo: () => null,
+  });
+  rt.start();
+  const parked: number[] = [];
+  for (let i = 0; i < sim.entityCount; i++) {
+    const id = sim.unitTypes[sim.state.typeIdx[i]].id;
+    if (sim.state.side[i] === 0 && (id === 'apc_eitan' || id === 'inf_squad')) parked.push(i);
+  }
+  expect(parked.length).toBe(5);
+  parked.forEach((id, k) =>
+    sim.queueCommand({ kind: 'move', ids: [id], x: fx.fromInt(19 + k) + (1 << 15), y: fx.fromInt(row) + (1 << 15) })
+  );
+  for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) rt.step(sim.tick());
+  const rowsStood = parked.map((id) => sim.state.posY[id] >> 16);
+  const hold = rt.objectiveList.find((o) => o.id === 'hold_the_crest_line');
+  const rows = withOutsideCounts(rt.objectiveList, map.zones, (z) => unitsJustOutside(sim.state, sim.entityCount, z));
+  return { map, hold, rowsStood, clock: holdClock({ name: 'UZ II', result: 'ongoing', objectives: rows }) };
+}
+
 /**
- * The lead's report (3 Oct 2026), replayed through the real runtime: Umm
- * Zeitoun II's force parked one row in front of the two-row crest line, which
- * at gameplay zoom draws an APC hull squarely inside the yellow band. The sim
- * is right that nobody holds it; the clock must say why.
+ * The lead's report (3 Oct 2026), replayed through the real runtime. His
+ * force parked on y = 42, in front of what was then a two-row crest line
+ * ([18,40,13,2]); at gameplay zoom an APC hull there draws squarely inside
+ * the yellow band, and the clock said "nobody holding". Two fixes, one test
+ * each: the zone took in that row, and a force short of the zone is named.
  */
-describe('Umm Zeitoun II: the crest line held one row short', () => {
-  it('reads unheld from the sim, and the clock names the units just outside', () => {
-    const mission = missions.umm_zeitoun_2_buildup as unknown as MissionJson;
-    const map = parseMap(maps[mission.map.file as keyof typeof maps]);
-    const sim = new Sim({ seed: 424242, width: map.width, height: map.height, capacity: 256 });
-    applyTerrain(map, sim);
-    standMapStructures(sim, map);
-    const typeOf = new Map<string, number>();
-    for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u as never));
-    const rt = new MissionRuntime(sim, mission, {
-      typeIdOf: (u) => typeOf.get(u) as number,
-      markers: map.markers,
-      zones: map.zones,
-      tunnels: [],
-      ledger: {},
-      unitInfo: () => null,
-    });
-    rt.start();
-    const zone = map.zones.crest_line;
-    expect(zone).toEqual([...CREST]);
-    // The APCs and the three rifle squads -- the force in the screenshot --
-    // each walked to its own tile on y = 42, the row in front of the crest.
-    const parked: number[] = [];
-    for (let i = 0; i < sim.entityCount; i++) {
-      const id = sim.unitTypes[sim.state.typeIdx[i]].id;
-      if (sim.state.side[i] === 0 && (id === 'apc_eitan' || id === 'inf_squad')) parked.push(i);
-    }
-    expect(parked.length).toBe(5);
-    parked.forEach((id, k) =>
-      sim.queueCommand({ kind: 'move', ids: [id], x: fx.fromInt(19 + k) + (1 << 15), y: fx.fromInt(42) + (1 << 15) })
-    );
-    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) rt.step(sim.tick());
+describe('Umm Zeitoun II: the crest line', () => {
+  it('counts the row an APC parks on in front of the crest (y = 42)', () => {
+    const { map, hold, clock, rowsStood } = parkedOn(42);
+    expect(map.zones.crest_line).toEqual([18, 40, 13, 3]);
+    expect(rowsStood).toEqual([42, 42, 42, 42, 42]);
+    expect(hold?.paused).toBeUndefined();
+    expect(clock?.text).not.toMatch(/NOBODY/);
+  });
 
-    for (const id of parked) expect(sim.state.posY[id] >> 16).toBe(42);
-    const hold = rt.objectiveList.find((o) => o.id === 'hold_the_crest_line');
+  it('two rows short (y = 44) reads unheld, and the clock names the units just outside', () => {
+    const { hold, clock, rowsStood } = parkedOn(44);
+    // Every one of them short of the zone (a crowded tile can shove one
+    // a row either way; what matters is that none stands inside).
+    for (const r of rowsStood) expect(r).toBeGreaterThanOrEqual(43);
     expect(hold?.paused).toBe('unheld');
-
-    const rows = withOutsideCounts(rt.objectiveList, map.zones, (z) =>
-      unitsJustOutside(sim.state, sim.entityCount, z)
-    );
-    const clock = holdClock({ name: 'UZ II', result: 'ongoing', objectives: rows });
     expect(clock?.id).toBe('hold_the_crest_line');
     expect(clock?.text).toMatch(/NOBODY INSIDE · [5-9] UNITS JUST OUTSIDE$/);
   });

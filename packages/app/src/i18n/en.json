@@ -133,6 +133,9 @@
   "outcome.victory": "Objective secured",
   "outcome.defeat": "Attempt failed",
   "outcome.skip": "Continue",
+  "outcome.failed.objective": "FAILED — {text} · {at}",
+  "outcome.failed.force": "FAILED — every unit lost · {at}",
+  "outcome.failed.conduct": "FAILED — Conduct fell below the floor · {at}",
 
   "brigade.art.noSprite": "{id} — no sprite sheet",
 
@@ -457,6 +460,8 @@
 
   "hud.hold.contested": "CONTESTED",
   "hud.hold.unheld": "NOBODY HOLDING",
+  "hud.clock.failed": "MISSION FAILED",
+  "hud.deadline.warn": "{left} left — {text}",
   "hud.hold.outside": "NOBODY INSIDE · {n, plural, one {# UNIT} other {# UNITS}} JUST OUTSIDE",
   "hud.conductDefinition": "Conduct: how cleanly you fight. Civilian harm, protected buildings and disproportionate fire all lower it. Under the mission floor, the mission is lost.",
   "hud.speaker.net": "NET",
