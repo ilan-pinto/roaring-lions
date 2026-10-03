@@ -25,6 +25,12 @@
 // the VERDICT is the exact one. Re-proved on the same pre-fix GLBs: identical
 // counts (260/266/260, 457/470/551, 233/241/267, 342/342, yah 86/86/89/88/79)
 // and zero verdict mismatches against the exact sum on every sample.
+//
+// CI (GH-344, 2026-10-04): the gates job read this file at 12.2 s and
+// `launcher_arms` at 2.5 s (run 37152144304; ~3.1 s / ~1.0 s locally). The
+// traversal is closure- and allocation-free now, `measureArmInBody` uses the
+// same tree, and `readGlb`/`readAccessor` are memoised per path. ~2.0 s here
+// (was ~3.1); verdicts re-proved on the same pre-fix GLBs, counts identical.
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
