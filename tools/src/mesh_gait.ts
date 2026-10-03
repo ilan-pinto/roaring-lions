@@ -1890,10 +1890,11 @@ export function measureArmInBody(path: string, clip: string, figure: string): Ar
     for (let i = 0; i < tri.length; i += 3) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], tri[i + k]); hi[k] = Math.max(hi[k], tri[i + k]); }
     if (Math.min(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) < 1e-3) continue;   // scaled out
     instants++;
+    const triF = Float64Array.from(tri);
     let inside = 0;
     for (const q of pts) {
       if (q[0] < lo[0] || q[1] < lo[1] || q[2] < lo[2] || q[0] > hi[0] || q[1] > hi[1] || q[2] > hi[2]) continue;
-      if (windingNumber(q, tri) > 0.5) inside++;
+      if (windingNumber(q, triF) > 0.5) inside++;
     }
     worst = Math.max(worst, inside);
   }
