@@ -16,6 +16,15 @@
 // recoilless_team 342 / 342 (its `move` scales the kneeling gunner and the
 // tube out). Lower than the Blender census's 520-1140 because this samples
 // edges at 2 cm, not 1, over 9 instants. ~2.5 s for all fifteen.
+//
+// Speed (GH-344): the winding-number test was O(samples x body triangles),
+// 26.5 s CPU for this file locally. It is a Barnes-Hut tree now
+// (`windingInside`, `mesh_gait.ts`): far triangle groups contribute a
+// far-field term with a conservative error bound, and a sample whose
+// estimate lies within that bound of the 0.5 threshold is redone exactly, so
+// the VERDICT is the exact one. Re-proved on the same pre-fix GLBs: identical
+// counts (260/266/260, 457/470/551, 233/241/267, 342/342, yah 86/86/89/88/79)
+// and zero verdict mismatches against the exact sum on every sample.
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
