@@ -128,6 +128,30 @@ describe('garageModel: the plate fallback paths', () => {
     expect(p.dataset.modelReason).toBe('no-mesh');
   });
 
+  it('hides the plate picture while the model loads, shows it again only when the plate is kept', async () => {
+    const p = plate();
+    const img = p.querySelector<HTMLImageElement>('.rl-garage__plate-img');
+    let fail: (e: unknown) => void = () => {};
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const h = garageModel(p, UNIT, deps({ mount: () => new Promise((_r, j) => (fail = j)) }));
+    expect(p.dataset.model).toBe('pending');
+    expect(img?.hidden).toBe(true);
+    await Promise.resolve();
+    fail(new Error('no glb'));
+    await h.ready;
+    expect(p.dataset.model).toBe('plate');
+    expect(img?.hidden).toBe(false);
+  });
+
+  it('a unit with no mesh never hides its plate picture, not even for a frame', () => {
+    const p = plate();
+    const img = p.querySelector<HTMLImageElement>('.rl-garage__plate-img');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    garageModel(p, { id: 'ghost', name: 'Ghost' }, deps());
+    expect(p.dataset.model).toBe('plate');
+    expect(img?.hidden).toBe(false);
+  });
+
   it('keeps the plate with no WebGL2, probed before anything is imported', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const mount = vi.fn<MountGarageView>();
