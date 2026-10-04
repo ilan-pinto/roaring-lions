@@ -24,6 +24,7 @@
   },
   "map": {
     "file": "umm_zeitoun",
+    "time_of_day": "dusk",
     "player_start": [24, 45]
   },
   "ledger": {

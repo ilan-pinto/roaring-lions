@@ -23,6 +23,7 @@
   },
   "map": {
     "file": "wadi_halam_2",
+    "time_of_day": "dawn",
     "player_start": [
       3,
       24

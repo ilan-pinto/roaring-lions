@@ -24,6 +24,7 @@
   "briefing_image": "ui/plates/units/yahalom_squad.jpg",
   "map": {
     "file": "qarn_hadid",
+    "time_of_day": "dusk",
     "player_start": [24, 42]
   },
   "ledger": {

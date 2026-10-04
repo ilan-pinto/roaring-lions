@@ -24,6 +24,7 @@
   "briefing_image": "ui/plates/units/mbt_lavi.jpg",
   "map": {
     "file": "tel_marum_3",
+    "time_of_day": "dawn",
     "player_start": [24, 44]
   },
   "ledger": {

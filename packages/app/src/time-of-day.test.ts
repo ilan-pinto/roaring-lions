@@ -24,8 +24,10 @@ describe('timeOfDayOf (R-12, N-23)', () => {
     expect(r.warning).toMatch(/noon/);
     expect(timeOfDayOf(null, P('')).warning).toBeNull();
   });
-  // D11: the mechanism ships with today's two authored values; nothing else changes.
-  it('reads every shipped mission without a warning, and finds exactly the two authored values', () => {
+  // D11 shipped two authored values; GH-382's light rotation (docs/campaign/ground-ladder.md
+  // section 10) adds sixteen more so no two consecutive campaign missions share a light.
+  // Literals on purpose: this list is the oracle, not a copy of the data.
+  it('reads every shipped mission without a warning, and finds exactly the authored values', () => {
     const found: Record<string, string> = {};
     for (const f of readdirSync(MISSIONS).filter((n) => n.endsWith('.json'))) {
       const m = JSON.parse(readFileSync(join(MISSIONS, f), 'utf8')) as { map: { time_of_day?: string } };
@@ -33,6 +35,25 @@ describe('timeOfDayOf (R-12, N-23)', () => {
       expect(r.warning, f).toBeNull();
       if (m.map.time_of_day !== undefined) found[f] = r.value;
     }
-    expect(found).toEqual({ 'beit_sahwan_breach.json': 'dawn', 'beit_sahwan_0_tutorial.json': 'day' });
+    expect(found).toEqual({
+      'beit_sahwan_breach.json': 'dawn',
+      'beit_sahwan_0_tutorial.json': 'day',
+      'beit_sahwan_2_foothold.json': 'dusk',
+      'beit_sahwan_4_subterranean.json': 'dusk',
+      'khan_rafid_1_recon.json': 'dawn',
+      'khan_rafid_3_clearance.json': 'dusk',
+      'deir_amun_1_recon.json': 'dawn',
+      'deir_amun_2_foothold.json': 'dusk',
+      'tel_marum_1_recon.json': 'dusk',
+      'tel_marum_3_clearance.json': 'dawn',
+      'qarn_hadid_2_foothold.json': 'dusk',
+      'qarn_hadid_3_clearance.json': 'dawn',
+      'umm_zeitoun_2_buildup.json': 'dusk',
+      'umm_zeitoun_3_clearance.json': 'dawn',
+      'wadi_halam_1_fords.json': 'dusk',
+      'wadi_halam_2_laager.json': 'dawn',
+      'wadi_halam_4_village.json': 'dusk',
+      'wadi_halam_5_depot.json': 'dawn',
+    });
   });
 });

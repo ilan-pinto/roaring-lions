@@ -25,6 +25,7 @@
   },
   "map": {
     "file": "wadi_halam_basin",
+    "time_of_day": "dusk",
     "player_start": [
       3,
       24
