@@ -8,7 +8,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { browserLedgerStore, memoryLedgerStore, type CampaignLedger } from './ledger-store';
+import { browserLedgerStore, memoryLedgerStore, newCampaign, type CampaignLedger } from './ledger-store';
 import { ACCOUNT_KEY } from './brigade-account';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from './main-keys';
 import { SAVES_KEY } from './profile';
@@ -335,5 +335,21 @@ describe('ledger store: a new campaign pays again (GH-330)', () => {
     store.startCampaign();
     expect(store.raw(ACCOUNT_KEY)).toBe(null);
     expect(() => memoryLedgerStore.blocked().startCampaign()).not.toThrow();
+  });
+});
+
+describe('newCampaign (GH-330)', () => {
+  it('removes the ledger and tutorial keys and clears only the per-campaign record', () => {
+    const acct = JSON.stringify({ version: 2, balance: 310, earned_total: 310, paid: { a: 310 }, campaign_paid: { a: 310 },
+      unlocks: ['u'], upgrades: {}, grants: [{ source: 'earned', amount: 310, missionId: 'a', at: 1 }] });
+    const store = memoryLedgerStore({ [ACCOUNT_KEY]: acct, [LEDGER_KEY]: JSON.stringify({ 'campaign.completed_missions': ['a'] }), [TUTORIAL_DONE_KEY]: '1' });
+    newCampaign(store);
+    expect(store.raw(LEDGER_KEY)).toBe(null);
+    expect(store.raw(TUTORIAL_DONE_KEY)).toBe(null);
+    const saved = JSON.parse(store.raw(ACCOUNT_KEY)!);
+    expect(saved.campaign_paid).toEqual({});
+    expect(saved.paid).toEqual({ a: 310 });
+    expect(saved.balance).toBe(310);
+    expect(saved.unlocks).toEqual(['u']);
   });
 });

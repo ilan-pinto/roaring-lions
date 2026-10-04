@@ -223,7 +223,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, type CampaignLedger, type LostRecord } from './ledger-store';
+import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
@@ -634,8 +634,10 @@ function purgeCampaign(): void {
   // landing -- so a player in that state met a thrown boot error instead of a
   // menu, for a store that has nothing in it to purge. Both calls REMOVE their
   // key rather than writing an empty value, exactly as before.
-  ledgerStore.clearLedger();
-  ledgerStore.setTutorialDone(false);
+  // `newCampaign` (ledger-store.ts): the ledger key and the tutorial flag removed,
+  // and since GH-330 the account's per-campaign improvement record cleared, so a
+  // new campaign pays again. Balance, purchases and the lifetime record stay.
+  newCampaign(ledgerStore);
 }
 
 /**

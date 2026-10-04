@@ -299,3 +299,17 @@ export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}): M
 memoryLedgerStore.blocked = function blockedMemoryLedgerStore(): MemoryLedgerStore {
   return { ...overStorage(null), raw: () => null, map: new Map<string, string>() };
 };
+
+/**
+ * "New campaign" (the menu button and the `?fresh` landing, both through
+ * `main.ts`'s `purgeCampaign`): the ledger key and the tutorial flag are
+ * REMOVED, as before, and the brigade account's per-campaign improvement record
+ * is cleared (GH-330), so every mission pays in full again the first time it is
+ * won in the new campaign. The account itself -- balance, purchases, the
+ * lifetime record -- survives, as spec 2026-09-15 §4.1 promises.
+ */
+export function newCampaign(store: LedgerStore): void {
+  store.clearLedger();
+  store.setTutorialDone(false);
+  store.startCampaign();
+}
