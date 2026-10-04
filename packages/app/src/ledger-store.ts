@@ -61,10 +61,12 @@
 import { emptyRoarTest, loadRoarTest, saveRoarTest, type RoarTestAccount } from './roar-test';
 import type { LedgerData, LedgerRosterEntry } from '@lions/sim';
 import {
+  ACCOUNT_KEY,
   emptyAccount,
   loadAccount,
   resetAccount as removeStoredAccount,
   saveAccount,
+  startCampaign as clearCampaignPay,
   type BrigadeAccount,
   type StorageLike,
 } from './brigade-account';
@@ -135,6 +137,10 @@ export interface LedgerStore {
   /** The brigade screen's reset: remove the account key, hand back the empty
    *  account the caller should now render. */
   resetAccount(): BrigadeAccount;
+  /** "New campaign"'s account half (GH-330): clear the per-campaign improvement
+   *  record and nothing else. With no account stored there is nothing to clear,
+   *  and nothing is written. */
+  startCampaign(): void;
   tutorialDone(): boolean;
   /** `true` writes the flag, `false` removes it. One pair, one predicate. */
   setTutorialDone(done: boolean): void;
@@ -175,6 +181,12 @@ function dropMalformed(ledger: CampaignLedger): CampaignLedger {
   return out;
 }
 
+/** A ledger's completed missions, as `campaign.ts` reads them. */
+function completedIn(ledger: LedgerData | null | undefined): ReadonlySet<string> {
+  const done = ledger?.['campaign.completed_missions'];
+  return new Set(Array.isArray(done) ? done.filter((m): m is string => typeof m === 'string') : []);
+}
+
 /**
  * The whole implementation, over anything shaped like `Storage`. `null` is the
  * blocked store. Both `browserLedgerStore` and `memoryLedgerStore` are this
@@ -191,7 +203,18 @@ function overStorage(store: StorageLike | null): LedgerStore {
     clearLedger: (): void => {
       store?.removeItem(LEDGER_KEY);
     },
-    readAccount: (): BrigadeAccount => (store ? loadAccount(store) : emptyAccount()),
+    // The current campaign's completed missions are handed over only to migrate a
+    // version-1 save's per-campaign record (`migrateAccount`); a version-2 save
+    // ignores them.
+    readAccount: (): BrigadeAccount => (store ? loadAccount(store, completedIn(loadLedger(store))) : emptyAccount()),
+    startCampaign: (): void => {
+      if (!store || store.getItem(ACCOUNT_KEY) === null) return;
+      const before = loadAccount(store, completedIn(loadLedger(store)));
+      const after = clearCampaignPay(before);
+      // Written even when `after === before` would be a no-op for the record, so a
+      // version-1 save is persisted as version 2 at the moment its campaign ends.
+      saveAccount(store, after);
+    },
     writeAccount: (a: BrigadeAccount): void => {
       if (store) saveAccount(store, a);
     },
@@ -276,3 +299,17 @@ export function memoryLedgerStore(seed: Partial<Record<string, string>> = {}): M
 memoryLedgerStore.blocked = function blockedMemoryLedgerStore(): MemoryLedgerStore {
   return { ...overStorage(null), raw: () => null, map: new Map<string, string>() };
 };
+
+/**
+ * "New campaign" (the menu button and the `?fresh` landing, both through
+ * `main.ts`'s `purgeCampaign`): the ledger key and the tutorial flag are
+ * REMOVED, as before, and the brigade account's per-campaign improvement record
+ * is cleared (GH-330), so every mission pays in full again the first time it is
+ * won in the new campaign. The account itself -- balance, purchases, the
+ * lifetime record -- survives, as spec 2026-09-15 §4.1 promises.
+ */
+export function newCampaign(store: LedgerStore): void {
+  store.clearLedger();
+  store.setTutorialDone(false);
+  store.startCampaign();
+}

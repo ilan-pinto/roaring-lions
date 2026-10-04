@@ -149,7 +149,7 @@ describe('showDebrief', () => {
   it('says so when a replay did not improve on the best, and still shows the total', () => {
     const host = document.createElement('div');
     showDebrief(host, base({ credits: { paid: 0, balance: 460 } }));
-    expect(text(host, '.rl-debrief__reward-none')).toBe('no improvement over your best, nothing paid');
+    expect(text(host, '.rl-debrief__reward-none')).toBe('no improvement on your best this campaign, nothing paid');
     expect(text(host, '.rl-debrief__reward-total')).toBe('Total 460 credits');
     expect(host.querySelector('.rl-debrief__reward')?.getAttribute('data-paid')).toBe('0');
     expect(host.querySelector('.rl-debrief__reward-figure')).toBeNull();

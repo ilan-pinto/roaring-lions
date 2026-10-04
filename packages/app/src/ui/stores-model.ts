@@ -52,12 +52,15 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 }
 
 /** What one campaign pays at most, measured: `pnpm playtest`'s optimal-play
- *  ladder pin (`LADDER_CREDITS` in tools/src/backtest/playtest.ts, 5,849 over
- *  the 26 missions in `world.json`). `payMission` pays improvement only and
- *  the record survives a fresh campaign, so this is also a LIFETIME (spec
- *  §1.2, finding F1). An item priced above it is one play cannot reach, and
- *  guard G1 keeps it off sale (GH-330 decides how reachability returns). */
-export const LIFETIME_CREDITS = 5849;
+ *  ladder pin (`LADDER_CREDITS` in tools/src/backtest/playtest.ts, 5,736 over
+ *  the 26 missions in `world.json`), and pinned to it as text by
+ *  `tools/src/campaign_credits.test.ts`, so a ladder re-pin that forgets this
+ *  copy goes red. Since GH-330 a new campaign pays again, so this is a PER
+ *  CAMPAIGN figure, not a lifetime: every credit price is reachable by play in
+ *  a finite number of campaigns, and guard G1 (spec §1.7) keeps no credit item
+ *  off sale. (It was `LIFETIME_CREDITS = 5849`, stale since GH-345 moved the
+ *  ladder, with nothing pinning it.) */
+export const CAMPAIGN_CREDITS = 5736;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 export const LADDER_MISSIONS = 26;
@@ -154,7 +157,7 @@ export interface TierItem {
 export function meanPay(paid: Readonly<Record<string, number>> | undefined): number {
   const values = Object.values(paid ?? {}).filter((v) => Number.isInteger(v) && v > 0);
   if (values.length > 0) return Math.max(1, Math.round(values.reduce((a, b) => a + b, 0) / values.length));
-  return Math.round(LIFETIME_CREDITS / LADDER_MISSIONS);
+  return Math.round(CAMPAIGN_CREDITS / LADDER_MISSIONS);
 }
 
 /** Stars a mission earns on average for THIS player (their stars over the
@@ -226,11 +229,10 @@ export function unitItem(u: StoreUnit, input: StoreInput): UnitItem {
     return { ...base, state: 'earned', honest: { kind: 'earnedCredits' } };
   }
   if (coin?.coinUnits.has(u.id) === true) return { ...base, state: 'coins', honest: { kind: 'coins' } };
-  // G1: only an item play cannot reach goes off sale. A gate play opens
-  // (stars, Conduct, a mission) is reachable whatever its price.
-  if (price !== undefined && isBoughtOnly(gate) && price > LIFETIME_CREDITS) {
-    return { ...base, state: 'offSale', honest: { kind: 'unreachable', lifetime: LIFETIME_CREDITS } };
-  }
+  // G1: only an item play cannot reach goes off sale. Since GH-330 a new
+  // campaign pays again, so every credit price is reachable and no credit item
+  // is off sale; a bought-only unit above one campaign's pay reads the same
+  // "about N missions of pay" line as any other.
   const affordable = price !== undefined && input.credits !== undefined && input.credits >= price;
   return { ...base, state: affordable ? 'affordable' : 'locked', honest: gateLine(gate, input, mean) };
 }
@@ -248,7 +250,6 @@ export function tierItem(u: StoreUnit, track: string, input: StoreInput, unitOpe
     return earned === tiers.length ? { ...base, state: 'earned', honest: { kind: 'owned' } } : { ...base, state: 'coins', honest: { kind: 'coins' } };
   }
   if (!unitOpen) return { ...base, state: 'locked', honest: { kind: 'unlockFirst' } };
-  if (next.credits > LIFETIME_CREDITS) return { ...base, state: 'offSale', honest: { kind: 'unreachable', lifetime: LIFETIME_CREDITS } };
   const affordable = input.credits !== undefined && input.credits >= next.credits;
   return { ...base, state: affordable ? 'affordable' : 'locked', honest: payLine(next.credits, input.credits, meanPay(input.paid)) };
 }

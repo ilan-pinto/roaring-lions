@@ -97,7 +97,8 @@ import { pauseMenu } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
-import { buyUnlock, buyUpgrade, payMission } from './brigade-account';
+import { buyUnlock, buyUpgrade } from './brigade-account';
+import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
 import { briefingBeats, broughtFor, showLoading } from './ui/loading';
@@ -222,7 +223,7 @@ import {
   possibleStars,
 } from './campaign';
 import { commanderPortraitUrl } from './portrait-catalogue';
-import { browserLedgerStore, type CampaignLedger, type LostRecord } from './ledger-store';
+import { browserLedgerStore, newCampaign, type CampaignLedger, type LostRecord } from './ledger-store';
 import { showSaves, type SavesDeps } from './ui/saves';
 import { showCredits, type CreditsDeps } from './ui/credits';
 import { LOCALES, applyLocale, loadLocale } from './i18n/locales';
@@ -633,8 +634,10 @@ function purgeCampaign(): void {
   // landing -- so a player in that state met a thrown boot error instead of a
   // menu, for a store that has nothing in it to purge. Both calls REMOVE their
   // key rather than writing an empty value, exactly as before.
-  ledgerStore.clearLedger();
-  ledgerStore.setTutorialDone(false);
+  // `newCampaign` (ledger-store.ts): the ledger key and the tutorial flag removed,
+  // and since GH-330 the account's per-campaign improvement record cleared, so a
+  // new campaign pays again. Balance, purchases and the lifetime record stay.
+  newCampaign(ledgerStore);
 }
 
 /**
@@ -3836,14 +3839,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const updatedLedger: CampaignLedger = carryover ? carryover.ledger : { ...ledger, ...me.ledger };
           if (me.result === 'victory')
             telemetry().campaignProgress(mission.id, Object.keys(updatedLedger['campaign.mission_results'] ?? {}).length);
-          let payout: ReturnType<typeof payMission> | null = null;
+          let payout: ReturnType<typeof payVictory> | null = null;
           // Task 7's two memorial rows (WP-G-E4). Empty on a defeat, like `payout`.
           const lostNamed = carryover ? carryover.lostNamed : [];
           const replacements = carryover ? carryover.replacements : [];
           if (me.result === 'victory') {
+            // Read BEFORE the ledger write (GH-330): a version-1 account migrates its
+            // per-campaign record against the ledger's completed missions, and after
+            // the write this very victory would count as already won this campaign.
+            const accountBefore = ledgerStore.readAccount();
             ledgerStore.writeLedger(updatedLedger);
             // The brigade account (spec 2026-09-15 §4.2): what this run is worth, paid
-            // only for improvement over what this mission has paid before. Read from the
+            // only for improvement over what this mission has paid IN THIS CAMPAIGN
+            // (GH-330; a mission not open in the campaign the run booted in is held to
+            // its lifetime best instead -- `campaign-pay.ts`). Read from the
             // runtime's own counters -- the same numbers the debrief prints -- and the
             // wall clock is taken here, never in the sim.
             // R5: a mission that produces no ledger key pays nothing -- the tutorial
@@ -3853,7 +3862,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // than a name list, the same test `validate_data.mjs` already applies.
             if (mission.ledger.produces.length > 0 && ledgerStore.available) {
               const runValue = creditsFor(creditInputFrom(runtime, me.roeRating, mission.roe?.fail_below));
-              payout = missionId ? payMission(ledgerStore.readAccount(), missionId, runValue, Date.now()) : null;
+              payout = missionId
+                ? payVictory(accountBefore, parseWorld(world), missionId, ledger, runValue, Date.now())
+                : null;
               if (payout) ledgerStore.writeAccount(payout.account);
               if (payout) telemetry().account('payout', payout.account, { mission: mission.id, paid: payout.paid });
             }

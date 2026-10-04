@@ -8,7 +8,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { browserLedgerStore, memoryLedgerStore, type CampaignLedger } from './ledger-store';
+import { browserLedgerStore, memoryLedgerStore, newCampaign, type CampaignLedger } from './ledger-store';
 import { ACCOUNT_KEY } from './brigade-account';
 import { LEDGER_KEY, TUTORIAL_DONE_KEY } from './main-keys';
 import { SAVES_KEY } from './profile';
@@ -306,5 +306,50 @@ describe('the three campaign keys have one door', () => {
       'telemetry/index.ts',
       'ui/saves.ts',
     ]);
+  });
+});
+
+// GH-330: "New campaign"'s account half, and the version-1 migration that reads
+// the active ledger.
+describe('ledger store: a new campaign pays again (GH-330)', () => {
+  const V1 = JSON.stringify({ version: 1, balance: 470, earned_total: 470, paid: { a: 310, b: 160 } });
+  const LEDGER_A = JSON.stringify({ 'campaign.completed_missions': ['a'] });
+
+  it('readAccount migrates a version-1 record against the active campaign', () => {
+    const store = memoryLedgerStore({ [ACCOUNT_KEY]: V1, [LEDGER_KEY]: LEDGER_A });
+    expect(store.readAccount().campaign_paid).toEqual({ a: 310 });
+  });
+
+  it('startCampaign clears the campaign record, keeps everything else, and persists version 2', () => {
+    const store = memoryLedgerStore({ [ACCOUNT_KEY]: V1, [LEDGER_KEY]: LEDGER_A });
+    store.startCampaign();
+    const saved = JSON.parse(store.raw(ACCOUNT_KEY)!);
+    expect(saved.version).toBe(2);
+    expect(saved.campaign_paid).toEqual({});
+    expect(saved.paid).toEqual({ a: 310, b: 160 });
+    expect(saved.balance).toBe(470);
+  });
+
+  it('startCampaign writes nothing when no account is stored, and a blocked store is a no-op', () => {
+    const store = memoryLedgerStore();
+    store.startCampaign();
+    expect(store.raw(ACCOUNT_KEY)).toBe(null);
+    expect(() => memoryLedgerStore.blocked().startCampaign()).not.toThrow();
+  });
+});
+
+describe('newCampaign (GH-330)', () => {
+  it('removes the ledger and tutorial keys and clears only the per-campaign record', () => {
+    const acct = JSON.stringify({ version: 2, balance: 310, earned_total: 310, paid: { a: 310 }, campaign_paid: { a: 310 },
+      unlocks: ['u'], upgrades: {}, grants: [{ source: 'earned', amount: 310, missionId: 'a', at: 1 }] });
+    const store = memoryLedgerStore({ [ACCOUNT_KEY]: acct, [LEDGER_KEY]: JSON.stringify({ 'campaign.completed_missions': ['a'] }), [TUTORIAL_DONE_KEY]: '1' });
+    newCampaign(store);
+    expect(store.raw(LEDGER_KEY)).toBe(null);
+    expect(store.raw(TUTORIAL_DONE_KEY)).toBe(null);
+    const saved = JSON.parse(store.raw(ACCOUNT_KEY)!);
+    expect(saved.campaign_paid).toEqual({});
+    expect(saved.paid).toEqual({ a: 310 });
+    expect(saved.balance).toBe(310);
+    expect(saved.unlocks).toEqual(['u']);
   });
 });

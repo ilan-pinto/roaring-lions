@@ -38,6 +38,12 @@ import {
 // 4), by the brigade sentence (Task 6) and by `deployRosterView` when it
 // exists (R-12).
 import { ROSTER_CAP } from '../../../packages/app/src/roster-cap';
+// GH-330: the two-campaign walk goes through the app's REAL account functions and
+// open-mission guard, not a re-implementation, so the harness and the debrief
+// cannot disagree about what a second campaign pays.
+import { emptyAccount, startCampaign, type BrigadeAccount } from '../../../packages/app/src/brigade-account';
+import { parseWorld } from '../../../packages/app/src/campaign';
+import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
 
 type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
@@ -60,6 +66,8 @@ const missionStars = new Map<string, Stars>();
 /** Each mission's own winning-plan credit value (spec 2026-09-15 §4.2), recorded under
  *  the same `label === id` guard as `missionStars`, so probes and controls never count. */
 const missionCredits = new Map<string, number>();
+/** GH-330: each winning plan's own clock, in minutes, for the farming report. */
+const missionMinutes = new Map<string, number>();
 
 /** Each mission's own winning-plan Conduct score, recorded under the same `label === id`
  *  guard as `missionStars`/`missionCredits`. WP-G-E1 (2026-09-18): this feeds
@@ -318,6 +326,7 @@ function run(
   if (expect === 'victory' && label === id) {
     missionStars.set(id, rt.stars);
     missionCredits.set(id, credits);
+    missionMinutes.set(id, t / TICKS_PER_SECOND / 60);
     missionRoe.set(id, rt.roeScore);
     // WP-G-E2 Task 2: fed into the per-chain `roster total` lines beside
     // `missionOrder` below -- see the `roster cap:` comment block near
@@ -2646,6 +2655,8 @@ boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55
 // way the base run did them, or a divergence in HOW the roster is built could
 // masquerade as a divergence in whether the tracks are balanced.
 let maxTierHeld = 0;
+/** GH-330: each plain victory's credits at max tier, for the second-campaign report. */
+const maxTierCredits = new Map<string, number>();
 for (const probe of maxTierProbes) {
   const measured: { result: 'ongoing' | 'victory' | 'defeat'; stars: Stars; roeScore: number; credits: number } = {
     result: 'ongoing',
@@ -2684,6 +2695,7 @@ for (const probe of maxTierProbes) {
     `${probe.id} (max tier): ROE ${measured.roeScore} (base ${probe.baseRoe}), ` +
       `credits ${measured.credits} (base ${probe.baseCredits})`
   );
+  maxTierCredits.set(probe.id, measured.credits);
 }
 console.log(`max tier: ${maxTierHeld} of ${maxTierProbes.length} plain victories hold`);
 
@@ -3051,6 +3063,104 @@ console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} mission
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
   process.exitCode = 1;
+}
+
+// --- GH-330: a new campaign pays again -----------------------------------------
+//
+// The ladder above sums each winning plan's VALUE; what the brigade is PAID is
+// `payMission`'s improvement on a record, and since GH-330 that record is per
+// campaign. This walks the recorded values through the app's own `payVictory`
+// (`packages/app/src/campaign-pay.ts`) in `world.json` order, building the
+// campaign ledger as it goes, so the open-mission guard (G-A) sees exactly what
+// the board would offer. Every assertion is a RELATION to `LADDER_CREDITS`, not a
+// second pinned number: a later plan that re-pins the ladder moves all of these
+// with it and has nothing new to chase.
+const campaignWorld = parseWorld(world);
+function walkCampaign(start: BrigadeAccount, credits: ReadonlyMap<string, number>): { account: BrigadeAccount; paid: number } {
+  let account = start;
+  let ledger: LedgerData = {};
+  let paid = 0;
+  for (const missionId of missionOrder) {
+    const value = credits.get(missionId) ?? 0;
+    const r = payVictory(account, campaignWorld, missionId, ledger, value, 0);
+    if (r.scope !== 'campaign') {
+      console.error(`credits: FAILED — ${missionId} is not open in world order (scope ${r.scope}); the walk cannot stand`);
+      process.exitCode = 1;
+    }
+    account = r.account;
+    paid += r.paid;
+    const done = (ledger['campaign.completed_missions'] as string[] | undefined) ?? [];
+    ledger = { ...ledger, 'campaign.completed_missions': [...done, missionId] };
+  }
+  return { account, paid };
+}
+const campaign1 = walkCampaign(emptyAccount(), missionCredits);
+const replay1 = walkCampaign(campaign1.account, missionCredits);
+const campaign2 = walkCampaign(startCampaign(campaign1.account), missionCredits);
+const campaign2Max = walkCampaign(startCampaign(campaign1.account), maxTierCredits);
+console.log(
+  `credits: campaign 1 pays ${campaign1.paid}, a replay inside it ${replay1.paid}, ` +
+    `campaign 2 ${campaign2.paid} (base tier), ${campaign2Max.paid} at max tier (report only)`
+);
+for (const [label, got, want] of [
+  ['campaign 1', campaign1.paid, LADDER_CREDITS],
+  ['a replay inside campaign 1 (improvement only)', replay1.paid, 0],
+  ['campaign 2 at base tier', campaign2.paid, LADDER_CREDITS],
+] as const) {
+  if (got !== want) {
+    console.error(`credits: FAILED — ${label} expected ${want}, got ${got}`);
+    process.exitCode = 1;
+  }
+}
+// The openers loop (the lead accepted it on 5 Oct, D3): after "New campaign" a town
+// opener pays once, then nothing until the next "New campaign".
+{
+  const opener = 'khan_rafid_1_recon';
+  const value = missionCredits.get(opener) ?? 0;
+  const fresh = startCampaign(campaign2.account);
+  const first = payVictory(fresh, campaignWorld, opener, {}, value, 0);
+  const again = payVictory(first.account, campaignWorld, opener, { 'campaign.completed_missions': [opener] }, value, 0);
+  console.log(`credits: openers loop, ${opener} after New campaign pays ${first.paid}, then ${again.paid}`);
+  if (value === 0 || first.paid !== value || again.paid !== 0) {
+    console.error(`credits: FAILED — openers loop expected ${value} then 0, got ${first.paid} then ${again.paid}`);
+    process.exitCode = 1;
+  }
+}
+
+// What the coin design quotes: the shipped credit catalogue and the campaigns it
+// takes. A report, not a gate -- it moves with every price and every ladder change.
+{
+  let catalogue = 0;
+  const priced = (u: { unlock?: { price?: number }; upgrades?: Record<string, { tiers?: { price?: number }[] }> }): void => {
+    catalogue += u.unlock?.price ?? 0;
+    for (const track of Object.values(u.upgrades ?? {})) for (const tier of track.tiers ?? []) catalogue += tier.price ?? 0;
+  };
+  const kdf = Object.values(units).filter((u) => (u as { faction?: string }).faction === 'kdf');
+  for (const u of kdf) priced(u as Parameters<typeof priced>[0]);
+  if (!kdf.some((u) => (u as { id: string }).id === 'demo_tzav')) priced(stagedUnit('demo_tzav') as Parameters<typeof priced>[0]);
+  const campaignsAt = (per: number): string => (per > 0 ? (catalogue / per).toFixed(2) : 'never');
+  console.log(
+    `credits: catalogue ${catalogue} credits (shipped KDF JSON + staged demo_tzav), ` +
+      `${campaignsAt(campaign2.paid)} campaigns at base tier, ${campaignsAt(campaign2Max.paid)} at max tier`
+  );
+  // Credits per plan-minute: the plan clock is a FLOOR on real play (perfect
+  // information), so every rate here is an UPPER bound on a player. Not a gate:
+  // a threshold on it would be a fitted number.
+  const OVERHEAD_MIN = 1.5;
+  let campaignMin = 0;
+  for (const id of missionOrder) campaignMin += (missionMinutes.get(id) ?? 0) + OVERHEAD_MIN;
+  const openers = campaignWorld.regions.filter((r) => r.unlock === undefined).flatMap((r) => r.towns.map((t) => t.missions[0] ?? ''));
+  let openerCredits = 0;
+  let openerMin = 0.5;
+  for (const id of openers) {
+    openerCredits += missionCredits.get(id) ?? 0;
+    openerMin += (missionMinutes.get(id) ?? 0) + OVERHEAD_MIN;
+  }
+  console.log(
+    `credits: per hour on the plan clock (+${OVERHEAD_MIN} min a run, an upper bound): ` +
+      `campaign ${Math.round((LADDER_CREDITS / campaignMin) * 60)}, ` +
+      `openers loop (${openers.join(', ')}) ${Math.round((openerCredits / openerMin) * 60)}`
+  );
 }
 
 // --- WP-G-E2 Task 2: the roster ladder's maximum, pinned beside the credit

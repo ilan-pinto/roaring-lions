@@ -67,9 +67,22 @@ describe('profile slots', () => {
   it('import migrates an old account shape through migrateAccount and drops unknown ledger keys never', () => {
     const raw = JSON.stringify({ version: 1, id: 'z', name: 'Z', savedAt: 1, build: '0.60.0', ledger: { 'campaign.completed_missions': [], 'future.key': 1 }, account: { version: 1, balance: 3 }, tutorialDone: false });
     const slot = importSlot(raw);
-    expect(slot.account.version).toBe(1);
+    // Version 2 since GH-330: a version-1 account migrates on import.
+    expect(slot.account.version).toBe(2);
     expect(slot.account.paid).toEqual({});
+    expect(slot.account.campaign_paid).toEqual({});
     expect(slot.ledger['future.key']).toBe(1);
+  });
+  // GH-330 D4: a version-1 slot's per-campaign record is derived against the
+  // SLOT'S OWN ledger -- the campaign it was saved in -- not the active one.
+  it('import derives a version-1 slot\'s per-campaign record from the slot\'s own ledger', () => {
+    const raw = JSON.stringify({
+      version: 1, id: 'z', name: 'Z', savedAt: 1, build: '0.60.0',
+      ledger: { 'campaign.completed_missions': ['khan_rafid_1_recon'] },
+      account: { version: 1, balance: 0, paid: { khan_rafid_1_recon: 310, beit_sahwan_breach: 160 } },
+      tutorialDone: false,
+    });
+    expect(importSlot(raw).account.campaign_paid).toEqual({ khan_rafid_1_recon: 310 });
   });
   it('a corrupt slot store reads as empty, and a delete of a missing id is a no-op', () => {
     const s = memStore();

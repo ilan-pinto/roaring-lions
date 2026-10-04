@@ -9,6 +9,7 @@ import {
   payMission,
   resetAccount,
   saveAccount,
+  startCampaign,
   type StorageLike,
 } from './brigade-account';
 
@@ -231,5 +232,72 @@ describe('brigade account', () => {
     const upgraded = buyUpgrade(funded, 'inf_squad', 'armour', 1, 300).account;
     saveAccount(s, upgraded);
     expect(resetAccount(s).upgrades).toEqual({});
+  });
+});
+
+// GH-330: a new campaign pays again. Two improvement records -- the lifetime
+// best (`paid`) and this campaign's best (`campaign_paid`) -- and `startCampaign`
+// clears only the second.
+describe('brigade account: a new campaign pays again (GH-330)', () => {
+  it('measures a campaign-scoped payout against this campaign, and raises both records', () => {
+    const a = payMission(emptyAccount(), 'm', 300, 1, 'campaign').account;
+    expect(a.paid).toEqual({ m: 300 });
+    expect(a.campaign_paid).toEqual({ m: 300 });
+    const fresh = startCampaign(a);
+    const second = payMission(fresh, 'm', 300, 2, 'campaign');
+    expect(second.paid).toBe(300);
+    expect(second.account.balance).toBe(600);
+    expect(second.account.earned_total).toBe(600);
+    expect(second.account.paid).toEqual({ m: 300 });
+    expect(second.account.grants.map((g) => g.amount)).toEqual([300, 300]);
+  });
+
+  it('pays a replay inside one campaign only for improvement (D2)', () => {
+    const a = payMission(emptyAccount(), 'm', 200, 1, 'campaign').account;
+    expect(payMission(a, 'm', 200, 2, 'campaign').paid).toBe(0);
+    expect(payMission(a, 'm', 150, 2, 'campaign').paid).toBe(0);
+    const better = payMission(a, 'm', 260, 2, 'campaign');
+    expect(better.paid).toBe(60);
+    expect(better.account.campaign_paid).toEqual({ m: 260 });
+  });
+
+  it('keeps the lifetime best when a later campaign pays less', () => {
+    const a = startCampaign(payMission(emptyAccount(), 'm', 300, 1, 'campaign').account);
+    const b = payMission(a, 'm', 250, 2, 'campaign').account;
+    expect(b.paid).toEqual({ m: 300 });
+    expect(b.campaign_paid).toEqual({ m: 250 });
+  });
+
+  it('a lifetime-scoped payout is the rule as it stood: it ignores the campaign record', () => {
+    const a = startCampaign(payMission(emptyAccount(), 'm', 300, 1).account);
+    expect(a.campaign_paid).toEqual({});
+    expect(payMission(a, 'm', 300, 2, 'lifetime').paid).toBe(0);
+    expect(payMission(a, 'm', 300, 2).paid).toBe(0);
+  });
+
+  it('startCampaign clears only the campaign record', () => {
+    const a = payMission(buyUnlock(payMission(emptyAccount(), 'm', 900, 1, 'campaign').account, 'u', 100).account, 'n', 50, 2, 'campaign').account;
+    const b = startCampaign(a);
+    expect(b.campaign_paid).toEqual({});
+    expect({ ...b, campaign_paid: a.campaign_paid }).toEqual(a);
+    expect(startCampaign(b)).toBe(b);
+  });
+
+  it('a campaign payout writes a grant, so the migration bound keeps the whole balance', () => {
+    const a = payMission(startCampaign(payMission(emptyAccount(), 'm', 300, 1, 'campaign').account), 'm', 300, 2, 'campaign').account;
+    expect(migrateAccount(JSON.parse(JSON.stringify(a))).balance).toBe(600);
+  });
+
+  it('migrates a version-1 save: the campaign record is paid restricted to this campaign (D4)', () => {
+    const v1 = { version: 1, balance: 470, earned_total: 470, paid: { a: 310, b: 160 } };
+    expect(migrateAccount(v1, new Set(['a'])).campaign_paid).toEqual({ a: 310 });
+    expect(migrateAccount(v1, new Set()).campaign_paid).toEqual({});
+    // No ledger to ask: conservative, nothing new is paid.
+    expect(migrateAccount(v1).campaign_paid).toEqual({ a: 310, b: 160 });
+  });
+
+  it('a version-2 save keeps its campaign record, clamped to the lifetime best', () => {
+    const v2 = { version: 2, balance: 0, paid: { a: 300, b: 100 }, campaign_paid: { a: 200, b: 999, c: 50 } };
+    expect(migrateAccount(v2, new Set(['a', 'b', 'c'])).campaign_paid).toEqual({ a: 200, b: 100 });
   });
 });

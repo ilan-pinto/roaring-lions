@@ -404,8 +404,13 @@ The combat model is the product. Everything else is scaffolding around it.
   what they bought, and it SURVIVES `?fresh` on purpose (spec 2026-09-15 §4.1): a second
   campaign starts with the brigade you built. Reset it from the brigade screen, twice.
   A victory pays `creditsFor` (`packages/sim/src/credits.ts`, integer-only, never called
-  by the sim) only for improvement over what that mission paid before; `pnpm playtest`
-  pins the optimal ladder's total (`LADDER_CREDITS`) beside the star gates. The tutorial
+  by the sim) only for improvement over what that mission paid before IN THIS CAMPAIGN;
+  since GH-330 (PR #378) the improvement record is per campaign, cleared by "New
+  campaign", so a fresh campaign pays again (the whole catalogue is reachable by play in
+  ~12 campaigns), while a replay inside one campaign still pays only improvement. Only an
+  OPEN mission pays, so booting a locked mission by URL earns nothing. `pnpm playtest`
+  pins the optimal ladder's total (`LADDER_CREDITS`) beside the star gates, and checks
+  that campaign 2 pays it again. The tutorial
   pays nothing: it produces no ledger keys, so `main.ts` gates the payout on
   `mission.ledger.produces` rather than a name list. Buying an unlock deducts and records
   `unlocks`; it writes no grant. A KDF unit's `upgrades` tracks (spec §4.3) are applied by

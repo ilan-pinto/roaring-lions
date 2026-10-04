@@ -22,7 +22,7 @@ it", 27 Nov). The **week of 23 Nov is the buffer** and is not free for new scope
 | **before 2 Nov** (October, no sim code) | the four G-NUM halts: F1 Task 2, F2 Task 2, F3 L-1 (Task 7 Step 1's request), F4 Task 1 | read-only probes on scratch copies, posted on #183 for the lead | none |
 | **Mon 2 – Tue 3 Nov** | Stage 4 sim fixes (`2026-09-29-stage4-sim-fixes.md`, #296) | Task 1 (Tel Marum I shepherd), Tasks 2–3 (#279 sim half), **Task 4 (#291)** | **sim pins, once** (#291's three hashed columns) |
 | Tue 3 Nov | FW Task 1 (#280, `2026-09-29-field-works.md`), and #247 (`manpad_team` wheeled) | garrison suppression cover (opt-in field); the `mobility.wheeled: false` data line and its pin test | none expected. #247 moves pathing: if it moves the sim pins it is a **separate** re-pin with its own commit, after #291's, never folded in |
-| **Wed 4 Nov** | #330 (a fresh campaign pays again) | `credits.ts` and its harness walk, by the balance analyst. **Its plan does not exist yet**: write it in October | **`LADDER_CREDITS`, once**, if the harness's walk sees the change (it plays one fresh campaign today, so the plan must say whether it adds a second-campaign walk) |
+| ~~Wed 4 Nov~~ **landed in October** | #330 (a fresh campaign pays again) | moved out of Lane C by the lead on 5 Oct: it edits `packages/app` and the harness, never `packages/sim` or `credits.ts` (`2026-10-04-credits-reachability.md`) | **none**: `LADDER_CREDITS` stays 5736; the harness's two-campaign walk is relative to it |
 | **Thu 5 – Mon 9 Nov** | **F1** fire support and intel by doing (`2026-10-04-gf1-fire-support-intel.md`) | the economy pins born; the trickle deleted; high ground; barrage and smoke screen; the four-item menu; the intel gates | economy pins born, then **re-pinned once**; `LADDER_CREDITS` only if Task 9's spending plan moves |
 | **Tue 10 – Wed 11 Nov** | **F3** population cap and "on loan" (`2026-10-04-gf3-population-cap-on-loan.md`) | the cap (off in the campaign); the loan predicate; the deploy mark; L-1 if confirmed | economy pins once; roster lines and possibly `LADDER_CREDITS` through L-1 |
 | **Thu 12 – Mon 16 Nov** | **F2** held-ground income and corridors (`2026-10-04-gf2-held-ground-income.md`) | the integer purse; zones; corridors; five missions authored; banking gates | economy pins once; the five D7 missions' playtest lines; `LADDER_CREDITS` only through a moved grade |
@@ -51,7 +51,9 @@ One visual bless per landing, one in flight at a time, from CI numbers.
 
 1. #291: sim pins.
 2. (#247, only if it moves them: sim pins again, its own reason.)
-3. #330: `LADDER_CREDITS`.
+3. ~~#330: `LADDER_CREDITS`.~~ Landed in October and moved no pin. From here on, each `LADDER_CREDITS`
+   re-pin also moves `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts`), which
+   `tools/src/campaign_credits.test.ts` holds equal to it.
 4. F1: economy pins born, then re-pinned; ladder only via one spending plan.
 5. F3: economy pins; roster and ladder via L-1.
 6. F2: economy pins; playtest; ladder via grades.
