@@ -22,7 +22,8 @@ Deterministic: no random source, no `mathutils.noise`; the fit loop is a fixed
 number of rounds. Writes the 512 px master (art/portraits/masters/, not
 shipped) and the 192 px shipped PNG (Lanczos on premultiplied alpha) under
 assets/ui/portraits/units/, which `packages/app/src/ui/portrait.ts` globs.
-No --only renders the full KDF + Sarim roster.
+No --only renders the full KDF + Sarim roster (34 types: every unit
+but `civilians`, which has no GLB).
 
 Two variants (`--variant=team|lead|both`, default both):
 
@@ -90,15 +91,31 @@ FIT_ROUNDS = 24
 # Figure teams live in meshes/ itself, vehicles and air in meshes/vehicles/.
 FIGURES = {"inf_squad", "at_team", "mortar_team", "sniper_team", "demo_squad",
            "breach_team", "yahalom_squad", "recon_zikit",
-           "atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles"}
-ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles"}
+           "atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
+           # A3.3 step 1 (4 Oct): the six enemy rigs that fell back to a
+           # sprite crop. `moto_rpg` is a rigged GLB (bike + riders on the
+           # faction ramp, `mesh-catalogue.ts`), so it lives here, not in
+           # vehicles/.
+           "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
+           "moto_rpg", "digger_crew"}
+ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
+                 "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
+                 "moto_rpg", "digger_crew"}
+# Figure rigs with ONE figure root: the `lead` variant would duplicate the
+# team picture (and `isolate_lead` refuses it), so they ship the team picture
+# only and the chip falls back to it, as a vehicle's does. `moto_rpg` binds
+# bike, rider and gunner to the single `m_root`; `digger_crew` is one man
+# (`dig_root` plus its second pose root `digw_root`).
+NO_LEAD = {"moto_rpg", "digger_crew"}
 ROSTER = (
     # KDF (19)
     "inf_squad,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
     "mbt_lavi,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,"
-    # Sarim (6)
-    "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone"
+    # Sarim (15)
+    "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone,"
+    "militia_cell,rpg_team,mortar_crew,charge_squad,moto_rpg,digger_crew,"
+    "technical,gun_truck,paramotor"
 )
 OUT_DIR = os.path.join(REPO, "art", "portraits")          # masters (not shipped)
 SHIP_DIR = os.path.join(REPO, "assets", "ui", "portraits", "units")  # shipped 192 px
@@ -462,7 +479,7 @@ def main():
 
     for unit in units:
         for variant in variants:
-            if variant == "lead" and unit not in FIGURES:
+            if variant == "lead" and (unit not in FIGURES or unit in NO_LEAD):
                 continue
             render_one(unit, variant, args, table)
     if args["ship"] == SHIP_DIR:

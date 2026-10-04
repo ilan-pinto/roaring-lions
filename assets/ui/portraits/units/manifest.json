@@ -65,6 +65,20 @@
         ]
       }
     },
+    "charge_squad": {
+      "file": "charge_squad.png",
+      "extent": [
+        140,
+        174
+      ],
+      "lead": {
+        "file": "lead/charge_squad.png",
+        "extent": [
+          88,
+          174
+        ]
+      }
+    },
     "demo_squad": {
       "file": "demo_squad.png",
       "extent": [
@@ -79,11 +93,25 @@
         ]
       }
     },
+    "digger_crew": {
+      "file": "digger_crew.png",
+      "extent": [
+        134,
+        174
+      ]
+    },
     "dozer_d9": {
       "file": "dozer_d9.png",
       "extent": [
         182,
         132
+      ]
+    },
+    "gun_truck": {
+      "file": "gun_truck.png",
+      "extent": [
+        182,
+        142
       ]
     },
     "heli_peten": {
@@ -156,6 +184,34 @@
         144
       ]
     },
+    "militia_cell": {
+      "file": "militia_cell.png",
+      "extent": [
+        114,
+        174
+      ],
+      "lead": {
+        "file": "lead/militia_cell.png",
+        "extent": [
+          83,
+          174
+        ]
+      }
+    },
+    "mortar_crew": {
+      "file": "mortar_crew.png",
+      "extent": [
+        148,
+        174
+      ],
+      "lead": {
+        "file": "lead/mortar_crew.png",
+        "extent": [
+          78,
+          174
+        ]
+      }
+    },
     "mortar_team": {
       "file": "mortar_team.png",
       "extent": [
@@ -169,6 +225,20 @@
           174
         ]
       }
+    },
+    "moto_rpg": {
+      "file": "moto_rpg.png",
+      "extent": [
+        120,
+        174
+      ]
+    },
+    "paramotor": {
+      "file": "paramotor.png",
+      "extent": [
+        182,
+        176
+      ]
     },
     "recoilless_team": {
       "file": "recoilless_team.png",
@@ -212,6 +282,20 @@
         168
       ]
     },
+    "rpg_team": {
+      "file": "rpg_team.png",
+      "extent": [
+        142,
+        174
+      ],
+      "lead": {
+        "file": "lead/rpg_team.png",
+        "extent": [
+          86,
+          174
+        ]
+      }
+    },
     "sarim_rifles": {
       "file": "sarim_rifles.png",
       "extent": [
@@ -246,6 +330,13 @@
           89
         ]
       }
+    },
+    "technical": {
+      "file": "technical.png",
+      "extent": [
+        182,
+        126
+      ]
     },
     "yahalom_squad": {
       "file": "yahalom_squad.png",

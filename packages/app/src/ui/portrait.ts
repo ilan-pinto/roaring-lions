@@ -20,11 +20,13 @@
 // is now the FALLBACK: `portraitFile`/`portraitUrl` below hand back a raw
 // sheet frame only for a sheet the crop pipeline has not (yet) produced an
 // icon for. GH-153's dedicated Blender-rendered portraits are the later step
-// that landed in PR 338 and is wired below: `unitIcon` returns that portrait
-// for every unit that has one, and the crop (`spriteCropIcon`) for the rest.
+// that landed in PR 338 and is wired below: `unitIcon` returns that portrait.
+// Since A3.3 step 1 (4 Oct) every unit with a mesh has one, so the cropped
+// sheet icon is no longer read at runtime at all -- the crop pipeline and its
+// PNGs stay on disk only until the sprite sheets themselves are retired
+// (docs/superpowers/plans/2026-10-04-retire-pixi.md).
 // `UnitIcon { url, size, extent }` is unchanged.
 
-import manifest from '../../../../assets/ui/icons/units/manifest.json';
 import plateManifestJson from '../../../../assets/ui/plates/units/manifest.json';
 import portraitManifestJson from '../../../../assets/ui/portraits/units/manifest.json';
 
@@ -90,106 +92,23 @@ export function portraitUrl(basePath: string, manifest: SheetManifest): string |
   return file === null ? null : basePath + file;
 }
 
-// --- cropped unit icons (GH-153 follow-up) ----------------------------------
+// --- the icon shape ----------------------------------------------------------
 //
-// `tools/crop_unit_icons.py` (`pnpm icons:units`) walks every hull sheet under
-// `assets/sprites/`, picks this exact frame (the Python reimplements
-// `portraitFile`'s rule, and `portrait.test.ts` pins the two against each
-// other from the shipped manifests), composites a paired turret sheet at rest
-// and crops to the unit's own alpha extent -- a 40px chip showing a whole
-// 256px frame is a 20px smudge; the icon fills its frame instead. Icons live
-// under `assets/ui/icons/units/`, not `assets/sprites/`, so `pnpm
-// validate:assets` never walks them and the palette/silhouette gates are
-// unaffected.
-//
-// The catalogue is an eager `import.meta.glob` of the icon PNGs, the same
-// shape `portrait-catalogue.ts` uses for commander portraits, joined against
-// the icon manifest for each sheet's declared `extent`. A manifest entry whose
-// PNG the glob did not capture is skipped -- this is a listing of what
-// actually exists on disk, the same "paths are data, a glob is a function"
-// rule, not a hand-kept map that could drift from what shipped.
+// `tools/crop_unit_icons.py` (`pnpm icons:units`) still crops each hull sheet's
+// `portraitFile` frame to `assets/ui/icons/units/`, and `portrait.test.ts`
+// still pins its Python picker against `portraitFile`, but nothing in the app
+// reads those crops any more: the runtime fallback (`spriteCropIcon`) was
+// deleted with its last user on 4 Oct, when the nine enemy types it served got
+// Blender portraits. A `&nomesh` run never needed it either -- an icon is DOM,
+// keyed by unit id, and draws the same picture on every render path.
 
-/** One cropped icon: the URL to draw, its fixed pixel size, and the unit's own
- *  alpha bounding box inside it (for a caller that wants to know how much of
- *  the frame is actually filled, not yet used by anything in this app). */
+/** One icon: the URL to draw, its fixed pixel size, and the unit's own alpha
+ *  bounding box inside it (for a caller that wants to know how much of the
+ *  frame is actually filled). */
 export interface UnitIcon {
   url: string;
   size: number;
   extent: readonly [number, number];
-}
-
-/** The manifest's own JSON shape -- `box`/`extent` are plain arrays on disk
- *  (JSON has no tuple type), narrowed to the fixed-length tuple `UnitIcon`
- *  promises only where a value is actually read, below. */
-interface IconManifestEntry {
-  file: string;
-  sources: { path: string; sha256: string }[];
-  facing: number;
-  /** Only present on a composited (hull+turret) entry, and always equal to
-   *  `facing` -- `crop_unit_icons.py` raises rather than shipping a mismatch. */
-  turretFacing?: number;
-  box: number[];
-  extent: number[];
-}
-
-interface IconManifest {
-  version: number;
-  /** Every icon's pixel width and height -- the one place this is recorded;
-   *  read back here rather than a hardcoded literal kept in sync by hand. */
-  size: number;
-  icons: Record<string, IconManifestEntry>;
-}
-
-// `manifest` is a JSON module import, so its inferred type is the literal
-// shape of today's file (each entry's exact key set), not the general
-// `IconManifest` shape a future entry still has to match -- `unknown` first
-// is the honest way to say "structurally compatible, not identical".
-const iconManifest = manifest as unknown as IconManifest;
-
-const iconUrlBySheet: Record<string, string> = {};
-for (const [path, url] of Object.entries(
-  import.meta.glob('../../../../assets/ui/icons/units/*.png', {
-    eager: true,
-    query: '?url',
-    import: 'default',
-  }) as Record<string, string>
-)) {
-  const file = path.slice(path.lastIndexOf('/') + 1);
-  const sheet = file.slice(0, -'.png'.length);
-  iconUrlBySheet[sheet] = url;
-}
-
-/** Built once at module load: every manifest entry whose PNG the glob above
- *  actually captured. The default `unitIcon` catalogue -- a test hands its
- *  own instead, so it needs no glob. */
-const ICONS: Record<string, UnitIcon> = {};
-for (const [sheet, entry] of Object.entries(iconManifest.icons)) {
-  const url = iconUrlBySheet[sheet];
-  if (url === undefined) continue;
-  const [w, h] = entry.extent;
-  ICONS[sheet] = { url, size: iconManifest.size, extent: [w, h] };
-}
-
-/**
- * The cropped sprite-sheet icon for a sheet, or null when none was built for
- * it -- `BLD_*` sheets, `*_TURR` sheets (composited into their hull's own
- * icon, not given one of their own) and any sheet the icon pipeline has not
- * reached yet all read the same way: no icon, fall back to the sheet frame.
- *
- * Since GH-153's Blender portraits landed this is the FALLBACK picture, drawn
- * only for a unit `unitIcon` below finds no portrait for (the enemy types
- * outside the portrait roster: militia, technical, moto_rpg and the rest).
- *
- * `basePath` is a `SPRITE_MAP` path, always ending in `/`; its last segment is
- * the sheet name the icon manifest keys on.
- */
-export function spriteCropIcon(
-  basePath: string,
-  catalogue: Readonly<Record<string, UnitIcon>> = ICONS
-): UnitIcon | null {
-  const trimmed = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath;
-  const sheet = trimmed.slice(trimmed.lastIndexOf('/') + 1);
-  return catalogue[sheet] ?? null;
 }
 
 // --- Blender unit portraits (GH-153, S3a) -----------------------------------
@@ -278,21 +197,19 @@ export function portraitIds(catalogue: Readonly<Record<string, UnitPortraits>> =
 }
 
 /**
- * The picture a unit type shows in a UI slot: its Blender portrait when one
- * ships (the lead figure in a `chip` slot, when the type has one), otherwise
- * the cropped sprite-sheet icon for `basePath` (`spriteCropIcon`), otherwise
- * null -- and the caller falls back to a sheet frame or the hatch, as before.
+ * The picture a unit type shows in a UI slot: its Blender portrait (the lead
+ * figure in a `chip` slot, when the type has one), otherwise null -- and the
+ * caller falls back to a sheet frame or the hatch, as before. Every unit with
+ * a mesh has a portrait since 4 Oct; `civilians` is the one null.
  */
 export function unitIcon(
   typeId: string,
-  basePath: string | undefined,
   slot: PortraitSlot = 'full',
-  portraits: Readonly<Record<string, UnitPortraits>> = PORTRAITS,
-  catalogue: Readonly<Record<string, UnitIcon>> = ICONS
+  portraits: Readonly<Record<string, UnitPortraits>> = PORTRAITS
 ): UnitIcon | null {
   const p = portraits[typeId];
-  if (p !== undefined) return slot === 'chip' ? (p.lead ?? p.full) : p.full;
-  return basePath === undefined ? null : spriteCropIcon(basePath, catalogue);
+  if (p === undefined) return null;
+  return slot === 'chip' ? (p.lead ?? p.full) : p.full;
 }
 
 // --- engine-rendered unit plates (Task 15, GH-153's garage) -----------------
@@ -346,8 +263,8 @@ const plateManifest = plateManifestJson as unknown as PlateManifest;
 /** Every plate file the eager glob actually found on disk, by filename -- the
  *  manifest can name an id `pnpm plates:units` has not (yet) photographed for
  *  this checkout, and a stale entry should read as absent rather than a
- *  broken `<img>`, the same rule `unitIcon`'s own `ICONS` catalogue enforces
- *  by only ever recording sheets its glob actually captured. */
+ *  broken `<img>`, the same rule the `PORTRAITS` catalogue enforces by only
+ *  ever recording files its glob actually captured. */
 const PLATE_FILES = new Set<string>(
   Object.keys(
     import.meta.glob('../../../../assets/ui/plates/units/*.jpg', { eager: true })

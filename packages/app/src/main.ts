@@ -749,9 +749,9 @@ const SPRITE_MAP: Record<string, SpriteSpec> = {
 
 /**
  * A unit type's portrait, resolved the same way the mission HUD resolves one
- * for its card (`portraits[typeId]`, built from `SPRITE_MAP` and each
- * sheet's own cropped `unitIcon` or, failing that, its manifest via
- * `portraitUrl`) -- fetched fresh here because the brigade screen has no
+ * for its card (`portraits[typeId]`: the unit's Blender portrait via
+ * `unitIcon` or, failing that, its sheet manifest via `portraitUrl`) --
+ * fetched fresh here because the brigade screen has no
  * running renderer to have already fetched it for. A type absent from
  * `SPRITE_MAP`, or whose manifest 404s with no icon either, resolves to
  * `null`; the caller draws the reserved hatch for that, same as the HUD's
@@ -762,7 +762,7 @@ const loadBrigadePortrait = async (id: string): Promise<{ url: string; isIcon: b
   const spec = SPRITE_MAP[id] as SpriteSpec | undefined;
   // The Blender portrait first (GH-153), whole team -- every brigade slot is
   // larger than a chip -- and it needs no sprite sheet at all.
-  const icon = unitIcon(id, spec?.path, 'full');
+  const icon = unitIcon(id, 'full');
   if (icon !== null) return { url: icon.url, isIcon: true };
   if (!spec) return null;
   try {
@@ -2342,17 +2342,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `heli_peten_gunship`, `dozer_d9`) gets its picture here; the sheet loop
   // below never sees it.
   for (const id of portraitIds()) {
-    const full = unitIcon(id, undefined, 'full');
+    const full = unitIcon(id, 'full');
     if (full === null) continue;
     portraits[id] = full.url;
     portraitIcons.add(id);
-    const chip = unitIcon(id, undefined, 'chip');
+    const chip = unitIcon(id, 'chip');
     if (chip !== null && chip.url !== full.url) chipPortraits[id] = chip.url;
   }
 
   for (const [id, spec] of Object.entries(SPRITE_MAP)) {
     const { path } = spec;
-    const icon = unitIcon(id, path, 'full');
+    const icon = unitIcon(id, 'full');
     if (icon !== null) {
       portraits[id] = icon.url;
       portraitIcons.add(id);
