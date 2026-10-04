@@ -16,6 +16,13 @@
     }
   },
   "briefing": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out. Push the drone up the valley and build the picture — two ATGM pockets on the wall, a Grad section behind it, and whoever is feeding them targets. Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range. Bring back the picture, not casualties.",
+  "briefing_sections": [
+    {"id": "situation", "text": "Sur begins at the pass, and the pass is watched. Rockets have been falling on the north for a week and nobody can say from where, so tonight you find out."},
+    {"id": "mission", "text": "Push the drone up the valley and build the picture — two ATGM pockets on the wall, a Grad section behind it, and whoever is feeding them targets."},
+    {"id": "execution", "text": "Keep the metal in the hollow: the valley floor south of it is out of the battery's reach, and everything north of it is not. Herders are grazing that floor north of the hollow — get them south to the muster ground inside five minutes, before the battery finds the range."},
+    {"id": "notes", "text": "Bring back the picture, not casualties."}
+  ],
+  "briefing_image": "ui/plates/units/recon_drone.jpg",
   "map": {
     "file": "tel_marum_1",
     "player_start": [24, 44]

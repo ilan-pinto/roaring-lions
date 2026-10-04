@@ -11,6 +11,13 @@
     }
   },
   "briefing": "The battalion has its foothold west of town and Ashwar knows it. Idit is reading spoil west of the line \u2014 disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now. Hold the western approach for five minutes while the engineers dig in behind you. The corridor delivers reinforcements \u2014 spend them well; what survives tonight clears the town tomorrow. Ashwar dug this ground for years before the war reached it, and a route that comes up behind your line is worth more to them than every man they will spend in front of it. Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down.",
+  "briefing_sections": [
+    {"id": "situation", "text": "The battalion has its foothold west of town and Ashwar knows it. Idit is reading spoil west of the line — disturbed earth creeping toward you, which means a crew is cutting a shaft out of town right now."},
+    {"id": "mission", "text": "Hold the western approach for five minutes while the engineers dig in behind you."},
+    {"id": "execution", "text": "The corridor delivers reinforcements — spend them well; what survives tonight clears the town tomorrow. Ashwar dug this ground for years before the war reached it, and a route that comes up behind your line is worth more to them than every man they will spend in front of it."},
+    {"id": "notes", "text": "Keep the Yahalom engineers alive; they are the only team that can bring a tunnel down."}
+  ],
+  "briefing_image": "ui/plates/units/yahalom_squad.jpg",
   "map": {
     "file": "beit_sahwan_2",
     "player_start": [
