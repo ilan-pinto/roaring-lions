@@ -1,0 +1,24 @@
+{
+  "unit": "charge_squad",
+  "variant": "lead",
+  "source": "assets/meshes/charge_squad.glb",
+  "source_sha256": "46c7f9c6e289fa661593fe16896dbb96f2c5f5f17e0bad025f14ad6656e87223",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.2832,
+    0.7168,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 1
+  },
+  "lead_figure": "chg0"
+}
