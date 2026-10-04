@@ -1,31 +1,18 @@
 /**
- * Task B3.12: `forEachLive` is the backend-agnostic read path added to
- * `ParticleSystem` so a three.js caller can draw particles without
- * reimplementing `sampleStep`/`sampleLerp` curve sampling -- doing so would
- * let the two backends silently disagree on what an emitter looks like.
- * `draw()` (Pixi's own accessor, still used on the default player's path) is
- * now expressed entirely in terms of `forEachLive`, so there is no second
- * copy of the sampling or skip logic for the two to diverge from.
+ * Task B3.12: `forEachLive` is the read path `ParticleSystem` exposes so the
+ * three.js backend draws particles without reimplementing
+ * `sampleStep`/`sampleLerp` curve sampling. (It was paired with Pixi's
+ * `draw(g: Graphics)`, which delegated to it; that accessor went with the
+ * Pixi backend, WP-A3.3, and the parity assertions against it went too.)
  *
- * Because `draw()` delegates to `forEachLive`, comparing their outputs to
- * each other can never expose a divergence -- there is only one
- * implementation now. So most assertions below check `forEachLive`'s output
- * against independently hand-computed `sampleStep`/`sampleLerp` results,
- * not merely against what `draw()` recorded; the accessor-parity checks are
- * an additional (necessary, not sufficient) guard that draw()'s screen-space
- * projection and its `-3` px nudge are still applied on top of exactly the
- * position/colour/alpha/radius `forEachLive` reports, and nothing else.
+ * The assertions below check `forEachLive`'s output against independently
+ * hand-computed `sampleStep`/`sampleLerp` results.
  *
  * Break check performed by hand while writing this file (not re-run by CI):
  * temporarily made `forEachLive` sample `alphaCurve` with `sampleStep`
- * instead of `sampleLerp` (i.e. corrupted the shared sampling `draw()` now
- * inherits). The P1/P2 hand-computed-alpha assertions below failed as
- * expected; reverting restored green. That is the failure this suite is
- * built to catch -- not two accessors disagreeing with each other (delegation
- * makes that structurally impossible) but the one shared implementation
- * computing the wrong number and both accessors agreeing on it.
+ * instead of `sampleLerp`. The P1/P2 hand-computed-alpha assertions below
+ * failed as expected; reverting restored green.
  */
-import type { Graphics } from 'pixi.js';
 import { describe, expect, it } from 'vitest';
 import { ParticleSystem, isSoftParticleSprite } from './particles';
 import type { ParticleSpec } from './emitters';
@@ -42,40 +29,6 @@ function makeSpec(overrides: Partial<ParticleSpec> = {}): ParticleSpec {
   };
 }
 
-interface RecordedDraw {
-  x: number;
-  y: number;
-  r: number;
-  color: string;
-  alpha: number;
-}
-
-/** A minimal stand-in for Pixi's `Graphics` -- only the two chained calls
- *  `draw()` actually makes. Cast through `unknown` rather than implementing
- *  the whole interface, the same pattern `cursor-ownership.test.ts` uses for
- *  its DOM stand-ins. */
-function graphicsSpy(): { graphics: Graphics; draws: RecordedDraw[] } {
-  const draws: RecordedDraw[] = [];
-  let pending: { x: number; y: number; r: number } | null = null;
-  const spy = {
-    circle(x: number, y: number, r: number) {
-      pending = { x, y, r };
-      return spy;
-    },
-    fill(opts: { color: string; alpha: number }) {
-      if (pending) draws.push({ ...pending, color: opts.color, alpha: opts.alpha });
-      pending = null;
-      return spy;
-    },
-  };
-  return { graphics: spy as unknown as Graphics, draws };
-}
-
-// A deliberately non-trivial projection: catches an accidental x/y swap or a
-// dropped argument, which an identity projection would not.
-const isoX = (x: number, y: number) => x * 2 + y * 3;
-const isoY = (x: number, y: number) => y * 5 - x * 7;
-
 interface Collected {
   x: number;
   y: number;
@@ -91,7 +44,7 @@ function collect(system: ParticleSystem, layerIdx: number): Collected[] {
 }
 
 describe('ParticleSystem.forEachLive', () => {
-  it('reports exactly what draw() draws: same order, position, sampled colour, alpha and radius, per layer', () => {
+  it('reports position, sampled colour, alpha and radius in slot order, per layer', () => {
     const system = new ParticleSystem(8, (key) => key);
 
     // magnitude 0.2 makes spawn()'s size scale (0.75 + magnitude*1.25)
@@ -196,10 +149,6 @@ describe('ParticleSystem.forEachLive', () => {
     const below = collect(system, LAYER_BELOW);
     expect(below).toHaveLength(3);
 
-    const belowDraws = graphicsSpy();
-    system.draw(belowDraws.graphics, isoX, isoY, LAYER_BELOW);
-    expect(belowDraws.draws).toHaveLength(3);
-
     // Independently hand-computed expectations (sampleStep/sampleLerp by
     // hand), not merely "whatever forEachLive happened to return".
     expect(below[0].x).toBe(10);
@@ -220,20 +169,6 @@ describe('ParticleSystem.forEachLive', () => {
     expect(below[2].alpha).toBeCloseTo(1, 10); // fallback 1 - t, t=0
     expect(below[2].radius).toBeCloseTo(6, 10); // size_px 6 * scale 1.0 * fallback 1
 
-    // Accessor parity: draw()'s recorded screen call is isoX/isoY of the
-    // exact same world position forEachLive reported, minus the 3px nudge
-    // draw() applies on top -- not baked into forEachLive, since that nudge
-    // is a Pixi screen-space convention, not part of the graphics-agnostic
-    // contract.
-    below.forEach((p, i) => {
-      const d = belowDraws.draws[i];
-      expect(d.x).toBeCloseTo(isoX(p.x, p.y), 10);
-      expect(d.y).toBeCloseTo(isoY(p.x, p.y) - 3, 10);
-      expect(d.color).toBe(p.color);
-      expect(d.alpha).toBeCloseTo(p.alpha, 10);
-      expect(d.r).toBeCloseTo(p.radius, 10);
-    });
-
     // --- layer 1: only P3. ---
     const above = collect(system, LAYER_ABOVE);
     expect(above).toHaveLength(1);
@@ -242,25 +177,15 @@ describe('ParticleSystem.forEachLive', () => {
     expect(above[0].color).toBe('#FEFEFE');
     expect(above[0].alpha).toBeCloseTo(0.5, 10); // fallback 1 - t, t=0.5
     expect(above[0].radius).toBeCloseTo(3, 10); // size_px 3 * scale 1.0 * fallback 1
-
-    const aboveDraws = graphicsSpy();
-    system.draw(aboveDraws.graphics, isoX, isoY, LAYER_ABOVE);
-    expect(aboveDraws.draws).toHaveLength(1);
-    expect(aboveDraws.draws[0].x).toBeCloseTo(isoX(50, 60), 10);
-    expect(aboveDraws.draws[0].y).toBeCloseTo(isoY(50, 60) - 3, 10);
   });
 
-  it('excludes a particle whose lifetime has fully elapsed (alive === 0), for both accessors', () => {
+  it('excludes a particle whose lifetime has fully elapsed (alive === 0)', () => {
     const system = new ParticleSystem(4, (key) => key);
     system.spawn(makeSpec({ lifetime_ms: 1, speed_tiles_s: 0 }), 1, 1, 0, 0.2, 1, LAYER_BELOW);
     system.step(1); // 1s, far past the 1ms life -> dies during step()
     expect(system.live).toBe(0);
 
     expect(collect(system, LAYER_BELOW)).toHaveLength(0);
-
-    const { graphics, draws } = graphicsSpy();
-    system.draw(graphics, isoX, isoY, LAYER_BELOW);
-    expect(draws).toHaveLength(0);
   });
 
   it('never visits an unused pool slot', () => {

@@ -69,7 +69,7 @@
 //
 // Usage: npx tsx tools/src/perf/backend-curve-gate.ts [--port=5190]
 //   [--host=localhost] [--out=path.json] [--skip-skinned]
-//   [--only=pixi,three,three-mesh,skinned]
+//   [--only=three,three-mesh,skinned]
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -89,7 +89,7 @@ const MODULE_PATH = `/@fs${REPO_ROOT}/tools/src/perf/three-units.ts`;
 /** The measurement functions `--only` can select, in run order. `all` is the
  *  default and is what every recorded curve in `docs/PERFORMANCE.md` was
  *  taken with. */
-const MEASUREMENTS = ['pixi', 'three', 'three-mesh', 'skinned'] as const;
+const MEASUREMENTS = ['three', 'three-mesh', 'skinned'] as const;
 type Measurement = (typeof MEASUREMENTS)[number];
 
 interface Args {
@@ -277,15 +277,6 @@ async function main(): Promise<void> {
         '[backend-curve-gate] WARNING: this is the SOFTWARE rasteriser. Every number below is ' +
           'incomparable to a hardware run -- see docs/PERFORMANCE.md capture conditions.'
       );
-    }
-
-    if (only.has('pixi')) {
-      console.log('\n[backend-curve-gate] === measurePixi ===');
-      const page = await freshPage(browser, origin);
-      const r = await runInPage<BackendReport>(page, 'measurePixi');
-      report.pixi = r;
-      printCurve('pixi', r);
-      await page.close();
     }
 
     if (only.has('three')) {

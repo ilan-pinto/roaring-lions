@@ -893,14 +893,6 @@ export async function measureThreeMesh(
   );
 }
 
-export async function measurePixi(
-  onProgress?: (msg: string) => void
-): Promise<BackendReport> {
-  const { PixiRenderer } = await import('../../../packages/render/src/renderer');
-  const base = resolveBase();
-  return runBackendCurve('pixi', (sim, opts) => new PixiRenderer(sim, opts), base, onProgress);
-}
-
 /** `assets/` is served at the app's own root by `vite.config.ts`'s
  *  `publicDir`, so a dev-server base of `/` is correct for every context
  *  this harness runs in (it is a local dev tool, never a GitHub Pages

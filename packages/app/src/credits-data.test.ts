@@ -14,7 +14,7 @@ const pkg = (p: string): { dependencies?: Record<string, string> } => JSON.parse
 /**
  * pnpm does not hoist a workspace package's own dependency to the repo root
  * `node_modules` -- only the ROOT package.json's own devDependencies land
- * there (verified: `three`/`pixi.js`, declared only in
+ * there (verified: `three`, declared only in
  * `packages/render/package.json`, have no `node_modules/three` at the repo
  * root at all, only a symlink at `packages/render/node_modules/three` into
  * the pnpm store). So a dependency's installed `package.json` is looked up
@@ -44,6 +44,16 @@ describe('CREDITS', () => {
       expect(installed.version.startsWith(c?.version ?? '?'), `${name}: credited ${c?.version}, installed ${installed.version}`).toBe(true);
       expect(c?.licence).toBe(installed.license);
     }
+  });
+  // The reverse direction, added when pixi.js left the dependencies (WP-A3.3)
+  // and its credit would otherwise have stayed on the credits screen: a
+  // credited library must still be a shipped runtime dependency.
+  it('credits no library that is no longer a runtime dependency', () => {
+    const shipped = new Set<string>();
+    for (const p of ['packages/app/package.json', 'packages/render/package.json', 'packages/data/package.json', 'packages/sim/package.json']) {
+      for (const [name, range] of Object.entries(pkg(p).dependencies ?? {})) if (!range.startsWith('workspace:')) shipped.add(name);
+    }
+    for (const l of CREDITS.libraries) expect(shipped.has(l.name), `${l.name} is credited and not shipped`).toBe(true);
   });
   it('names every font file under assets/fonts with a licence file that exists', () => {
     const files = readdirSync(`${ROOT}assets/fonts`);

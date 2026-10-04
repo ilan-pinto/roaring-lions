@@ -29,12 +29,9 @@ import {
   type MissionJson,
   type TunnelRouteJson,
 } from '@lions/sim';
-// PixiRenderer is deliberately NOT imported here (see the dynamic import
-// below, and `@lions/render/pixi`'s own comment): a static import of it,
-// even alongside pixi-free names like DebugOverlay/TERRAIN_DECOR below,
-// pulls pixi.js into this file's module graph and back into the main chunk
-// for every player -- the same shape ThreeRenderer's own static-import ban
-// (eslint, `@lions/render/three`) already guards against.
+// ThreeRenderer is deliberately NOT imported here: it arrives by dynamic
+// import below, and eslint bans a static import of `@lions/render/three` --
+// the barrel imported here is three-free.
 import {
   DebugOverlay,
   BattleAudio,
